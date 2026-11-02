@@ -261,10 +261,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/_stmt/target.ts
   "src/generator/_stmt/target.ts#renderStmt": {
-    guardedBy: ["loom.variant-match-placement"],
-    note: "A match statement outside a frontend zone (action/page/component/store/ui) is rejected, and backend statement renderers never see frontend bodies.",
-  },
-  "src/generator/_stmt/target.ts#renderStmt$2": {
     invariant: "Exhaustive `never` default over StmtIR kinds. (src/generator/_stmt/target.ts:221)",
   },
 
@@ -596,6 +592,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     guardedBy: ["loom.elixir-if-stmt-unsupported"],
     note: "The gate runs the identical elixirIfRefusal(op.body,'value') predicate on every domain-service operation of a context hosted by an elixir deployable.",
   },
+  "src/generator/elixir/domain-service-emit.ts#renderOperation$3": {
+    guardedBy: ["loom.elixir-match-stmt-unsupported"],
+    note: "The gate runs the identical elixirMatchRefusal(op.body,'value') predicate on every domain-service operation of a context hosted by an elixir deployable.",
+  },
 
   // src/generator/elixir/heex-target.ts
   "src/generator/elixir/heex-target.ts#buildHookUse": {
@@ -689,6 +689,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "The event-sourced pure core reads the same command body as the ES command runner; validateElixirIfSupport refuses ANY `if` in an event-sourced command body (operations, creates and destroys) on an elixir-hosted context (`#event-sourced`).",
   },
   "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt$2": {
+    guardedBy: ["loom.elixir-match-stmt-unsupported"],
+    note: "validateElixirMatchStatements refuses ANY statement match in an event-sourced operation / create / destroy on an elixir-hosted context (`#event-sourced`).",
+  },
+  "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt$3": {
     invariant:
       "Exhaustive `never` default: every StmtIR kind has an arm above it. (src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt)",
   },
@@ -697,6 +701,16 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner": {
     guardedBy: ["loom.elixir-if-stmt-unsupported"],
     note: "validateElixirIfSupport refuses ANY `if` in an event-sourced command body — operations, creates and destroys alike — on an elixir-hosted context (`#event-sourced`).",
+  },
+  "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner$2": {
+    guardedBy: ["loom.elixir-match-stmt-unsupported"],
+    note: "validateElixirMatchStatements refuses ANY statement match in an event-sourced operation / create / destroy on an elixir-hosted context (`#event-sourced`).",
+  },
+
+  // src/generator/elixir/vanilla/workflow-eventsourced-emit.ts
+  "src/generator/elixir/vanilla/workflow-eventsourced-emit.ts#renderEsWorkflowHandler": {
+    guardedBy: ["loom.elixir-match-stmt-unsupported"],
+    note: "validateElixirMatchStatements refuses ANY statement match in an `eventSourced` workflow's create / on bodies on an elixir-hosted context (`#event-sourced`).",
   },
 
   // src/generator/elixir/vanilla/fold-stmt-emit.ts
@@ -753,8 +767,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/elixir/vanilla/operation-returns-emit.ts
   "src/generator/elixir/vanilla/operation-returns-emit.ts#renderReturningStmt": {
-    guardedBy: ["loom.variant-match-placement"],
-    note: "The effect form of `match` is refused everywhere outside the frontend zone, so a variant-match never reaches a backend statement renderer.",
+    guardedBy: ["loom.elixir-match-stmt-unsupported", "loom.variant-match-placement"],
+    note: "The gate runs the identical elixirMatchRefusal predicate (or the stricter event-sourced one) over every aggregate operation / create / destroy in an elixir-hosted context; a pure fold or function is refused by the placement rule on every backend.",
   },
   "src/generator/elixir/vanilla/operation-returns-emit.ts#renderReturningStmt$2": {
     guardedBy: ["loom.elixir-if-stmt-unsupported"],

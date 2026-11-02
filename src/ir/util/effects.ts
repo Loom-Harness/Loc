@@ -4,7 +4,8 @@
 // One exhaustive dispatch over `WorkflowStmtIR` decides each statement's
 // structural effect; the expressions a statement holds contribute the `call`s,
 // the expression-position reads and the own-state reads found anywhere inside
-// them.  Nested `for-each` / `if-let` bodies recurse with their scope pushed,
+// them.  Nested `for-each` / `if-let` / `match` arm bodies recurse with their
+// scope pushed,
 // and each scope ends with the saves its statement carries — so the list reads
 // in program order, a loop body's effects before the loop's per-iteration
 // saves, a body's effects before its exit saves and its return.
@@ -20,6 +21,7 @@
 // know "what does this body do" reads the list instead of re-deriving it from
 // statement shapes.
 
+import { variantTag } from "../stdlib/unions.js";
 import type { CallTargetIR, EffectIR, EffectScopeIR } from "../types/effect-ir.js";
 import type { ExprIR, WorkflowStmtIR } from "../types/loom-ir.js";
 import { mutatedParamNames, type SaveResolver } from "./domain-service-tier.js";
@@ -151,6 +153,27 @@ function collectStmtEffects(st: WorkflowStmtIR, scope: readonly EffectScopeIR[],
       for (const s of st.thenBody) collectStmtEffects(s, thenScope, cx);
       pushSaves(st.savesInThen, thenScope, cx);
       const elseScope = [...scope, { kind: "branch", arm: "else", var: st.var } as const];
+      for (const s of st.elseBody ?? []) collectStmtEffects(s, elseScope, cx);
+      pushSaves(st.savesInElse, elseScope, cx);
+      return;
+    }
+    case "variant-match": {
+      // The subject is a value the body already holds; it reads nothing itself
+      // (its expression effects were collected with the statement's own
+      // expressions above).  Each arm is its own scope and saves at its end.
+      for (const arm of st.arms) {
+        const armScope = [
+          ...scope,
+          {
+            kind: "match-arm",
+            variant: variantTag(arm.varType),
+            ...(arm.binding ? { var: arm.binding } : {}),
+          } as const,
+        ];
+        for (const s of arm.body) collectStmtEffects(s, armScope, cx);
+        pushSaves(arm.savesInArm, armScope, cx);
+      }
+      const elseScope = [...scope, { kind: "match-arm", variant: "else" } as const];
       for (const s of st.elseBody ?? []) collectStmtEffects(s, elseScope, cx);
       pushSaves(st.savesInElse, elseScope, cx);
       return;

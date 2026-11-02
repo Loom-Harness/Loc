@@ -110,6 +110,24 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "#3333",
   },
   {
+    code: "loom.elixir-match-stmt-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/elixir-match-stmt-checks.ts:216",
+    what:
+      "FIVE narrow sub-shapes of the statement `match` in a body an elixir deployable emits, " +
+      "`scope` under **D-ELIXIR-IF-BRANCH** like the `if` statement's.  The statement ITSELF " +
+      "renders: an operation rebinds `record` through a value-producing `case` " +
+      "(`vanilla/match-stmt-emit.ts`), a domain service's tail `case` is its value, and a " +
+      "workflow / handler / reactor body runs it as one `{:ok, _} <- (case … end)` with-clause.  " +
+      "What is left: `#return-in-arm`, `#guard-in-arm`, `#arm-statement` and `#event-sourced` " +
+      "(an event-sourced command body or `eventSourced` workflow handler) — the `if` statement's " +
+      "four, for the same body-building reasons — and `#multi-success`: a union subject with two " +
+      "success variants, whose `{:ok, value}` tuples carry no tag on Phoenix (the expression " +
+      "`match` reads the same untagged tuple), so telling them apart needs the success value " +
+      "tagged at every `or`-returning producer",
+    mission: "#3367",
+  },
+  {
     code: "loom.workflow-return-type-unsupported",
     kind: "scope",
     site: "src/language/validators/structural.ts:438",
@@ -233,7 +251,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.elixir-if-stmt-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/if-stmt-checks.ts:269",
+    site: "src/ir/validate/checks/if-stmt-checks.ts:305",
     what:
       "FOUR narrow sub-shapes of the `if` STATEMENT in a domain body an elixir deployable emits.  " +
       "RE-CLASSED `scope` in wave C2 packet 2m under **D-ELIXIR-IF-BRANCH**: each survivor needs a " +
@@ -255,7 +273,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "one would raise → 500, a wire divergence worse than the refusal), and `#event-sourced` (an " +
       "ES command body is sorted into `with`-clauses / `let`s / one `events = […]` list, not " +
       "rendered as a statement sequence, so a conditional `emit` has nowhere to go), and " +
-      "`#branch-statement` (the CLOSED branch vocabulary — an `emit`, an effect-form `match` or a " +
+      "`#branch-statement` (the CLOSED branch vocabulary — an `emit` or a " +
       "PROVENANCED write in a branch: each RENDERS, but the emitters decide an operation's " +
       "supporting machinery by scanning its TOP-LEVEL statements, so a conditional `emit` gets no " +
       "`require Logger` and cannot be hoisted past the commit by the S5a restructure, and a nested " +
@@ -416,7 +434,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // M-T1.20, which already IS the register of frontend refusals accepted in
     // `.ddd`.  Unlike its neighbours there, this one is not per-target: all six
     // refuse it, which is what makes it a surface decision rather than a port.
-    site: "src/ir/validate/checks/if-stmt-checks.ts:387",
+    site: "src/ir/validate/checks/if-stmt-checks.ts:423",
     what:
       "the `if` STATEMENT in a `ui` page / component / store body, on EVERY frontend.  A page body " +
       "is an expression tree — a condition is a VALUE there (`cond ? a : b`, `match`) — and no " +
@@ -742,7 +760,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1638",
+    site: "src/ir/validate/checks/workflow-checks.ts:1665",
     what: "workflow load of an array result — a `let` binds one row",
     mission: "#3376",
     verified: true,

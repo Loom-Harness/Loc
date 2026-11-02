@@ -51,6 +51,14 @@ function aggregatesTouched(h: CommandHandlerIR | QueryHandlerIR): Set<string> {
       case "for-each":
         aggs.add(s.varAggName);
         break;
+      // A `match` arm that binds an aggregate variant touches that aggregate.
+      case "variant-match":
+        for (const arm of s.arms) {
+          if (arm.varType.kind === "entity" && arm.savesInArm.length > 0) {
+            for (const save of arm.savesInArm) aggs.add(save.aggName);
+          }
+        }
+        break;
       // The kinds that name no aggregate: the two guards, a pure `let`, an
       // own-state write, an event, a resource call and a domain-service call
       // (whose aggregates are reached through its argument expressions, not a

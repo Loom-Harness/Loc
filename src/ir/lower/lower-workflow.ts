@@ -21,6 +21,7 @@ import {
   isFunctionDecl,
   isIfLetStmt,
   isLetStmt,
+  isMatchStmt,
   isMemberSuffix,
   isNameRef,
   isNotFoundStmt,
@@ -38,6 +39,7 @@ import { queryNamesOf } from "../../language/repo-query-arg.js";
 import { upperFirst } from "../../util/naming.js";
 import { namedRepoCallOp, repoVerbEffect } from "../../util/repository-contract.js";
 import { findVerb } from "../resource-verbs.js";
+import { variantTag } from "../stdlib/unions.js";
 import type {
   AggregateIR,
   ApplyIR,
@@ -65,6 +67,7 @@ import {
   ambientResourceKind,
   boundApiOf,
   inferExprType,
+  isErrorVariantTag,
   lowerEmitFields,
   lowerExpr,
   lowerExprAsDeclared,
@@ -72,11 +75,13 @@ import {
   passType,
 } from "./lower-expr.js";
 import { computeSaves, lowerApply, lowerField, lowerFunction, plural } from "./lower-members.js";
+import { matchStmtHasElse } from "./lower-stmt.js";
 import {
   cstText,
   type Env,
   findDomainServiceByName,
   inWorkflow,
+  lowerAtom,
   lowerType,
   withLocal,
 } from "./lower-types.js";
@@ -730,6 +735,70 @@ function lowerWorkflowStatementInner(
         ...(elseBody.length > 0 ? { elseBody } : {}),
         savesInThen,
         savesInElse,
+      },
+      envAfter: env,
+    };
+  }
+  if (isMatchStmt(stmt)) {
+    // `match <subject> { V b => { … } … else => { … } }` for its effects.  The
+    // subject lowers once in the outer env.  Each arm's binding is a REAL
+    // local the backend declares at the head of the arm: a tagged variant
+    // binds as a `match-binding` (its member reads go through the variant's
+    // wire shape), and the present arm of a `T?` subject binds the narrowed
+    // value as an ordinary `let`, so an operation called on it is an
+    // `op-call` on that name — and the arm saves it at its own end, the
+    // dirtiness rule `if-let`'s then-branch applies to its binder.
+    const subject = lowerExpr(stmt.subject, env);
+    const subjectType = subject.kind === "ref" ? subject.type : inferExprType(stmt.subject, env);
+    const absenceSubject =
+      subjectType?.kind === "optional" ||
+      (subject.kind === "ref" && env.locals.get(subject.name)?.absenceUnion === true);
+    const lowerBranch = (body: readonly Statement[], branchEnv: Env) =>
+      lowerWorkflowStatements(body, branchEnv, aggsByName, reposByName, repoForAgg, saveResolver)
+        .statements;
+    const arms = stmt.varArms.map((arm) => {
+      const varType = lowerAtom(arm.varType, env);
+      const armEnv = !arm.binding
+        ? env
+        : withLocal(env, arm.binding, absenceSubject ? "let" : "match-binding", varType);
+      const body = lowerBranch(arm.body, armEnv);
+      const binder =
+        arm.binding && varType.kind === "entity" && aggsByName.has(varType.name)
+          ? {
+              name: arm.binding,
+              aggName: varType.name,
+              repoName: repoForAgg.get(varType.name) ?? plural(varType.name),
+            }
+          : undefined;
+      return {
+        varType,
+        ...(arm.binding ? { binding: arm.binding } : {}),
+        isError: isErrorVariantTag(variantTag(varType), env),
+        body,
+        savesInArm: computeSaves(body, repoForAgg, binder, saveResolver),
+      };
+    });
+    // On a `T?` subject over an aggregate the `else` runs on a miss of that
+    // aggregate, so a `notFound` directly in it names it (`Order not found`),
+    // as one in an `if let`'s `else` does.
+    const missed =
+      absenceSubject && subjectType?.kind === "optional" && subjectType.inner.kind === "entity"
+        ? subjectType.inner.name
+        : undefined;
+    const elseBody = matchStmtHasElse(stmt)
+      ? lowerBranch(stmt.elseBody, env).map((s) =>
+          s.kind === "not-found" && missed ? { ...s, subject: missed } : s,
+        )
+      : undefined;
+    return {
+      stmt: {
+        kind: "variant-match",
+        subject,
+        subjectType,
+        ...(absenceSubject ? { subjectShape: "absence" as const } : {}),
+        arms,
+        ...(elseBody ? { elseBody } : {}),
+        savesInElse: computeSaves(elseBody ?? [], repoForAgg, undefined, saveResolver),
       },
       envAfter: env,
     };

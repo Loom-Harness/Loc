@@ -13,6 +13,8 @@ import {
 import { statementSubRegions } from "../../../generator/_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../../generator/_workflow/create-state.js";
 import {
+  type PresenceSide,
+  presenceSides,
   renderWorkflowStmtChunks,
   type WorkflowStmtTarget,
 } from "../../../generator/_workflow/stmt-target.js";
@@ -41,6 +43,7 @@ import {
   wireStatus,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
+import { isScalarVariant, variantTag } from "../../../ir/stdlib/unions.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -2460,6 +2463,10 @@ function collectRepoRefs(st: WorkflowStmtIR, seen: Map<string, string>): void {
       for (const sv of st.savesInThen) seen.set(sv.repoName, sv.aggName);
       for (const sv of st.savesInElse) seen.set(sv.repoName, sv.aggName);
       break;
+    case "variant-match":
+      for (const arm of st.arms) for (const sv of arm.savesInArm) seen.set(sv.repoName, sv.aggName);
+      for (const sv of st.savesInElse) seen.set(sv.repoName, sv.aggName);
+      break;
     case "precondition":
     case "requires":
     case "expr-let":
@@ -2696,6 +2703,64 @@ export function honoWorkflowStmtTarget(
       } else {
         out.push(`${indent}}`);
       }
+      return out;
+    },
+    variantMatch: (st, indent, armLines, elseLines) => {
+      // A `T?` subject: `if (x != null) { const b = x; … } else { … }` — the
+      // loose test treats an absent (`undefined`) input like `null`.  A tagged
+      // union: `switch (x.type) { case "<Tag>": { const b = x; … break; } … }`,
+      // the `type` discriminator narrowing the subject in each case (a scalar
+      // variant binds its carrier's `value`).  Each branch saves what it
+      // dirtied at its own end, as an `if let` branch does.
+      const subject = renderArg(st.subject);
+      const savesAt = (pad: string, saves: readonly { name: string; repoName: string }[]) =>
+        saves.map(
+          (sv) => `${pad}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
+        );
+      if (st.subjectShape === "absence") {
+        const inner = `${indent}  `;
+        const { present, absent } = presenceSides(st, armLines, elseLines);
+        const lines = (side: PresenceSide | undefined) =>
+          side
+            ? [
+                ...(side.binding
+                  ? [`${inner}const ${escapeTsIdent(side.binding)} = ${subject};`]
+                  : []),
+                ...side.lines,
+                ...savesAt(inner, side.saves),
+              ]
+            : [];
+        const out = [`${indent}if (${subject} != null) {`, ...lines(present)];
+        if (absent) out.push(`${indent}} else {`, ...lines(absent));
+        out.push(`${indent}}`);
+        return out;
+      }
+      const shift = (ls: readonly string[]) => ls.map((l) => (l.length > 0 ? `  ${l}` : l));
+      const inner = `${indent}    `;
+      const out = [`${indent}switch (${subject}.type) {`];
+      st.arms.forEach((arm, i) => {
+        const scalar = isScalarVariant(arm.varType);
+        out.push(
+          `${indent}  case ${JSON.stringify(variantTag(arm.varType))}: {`,
+          ...(arm.binding
+            ? [`${inner}const ${arm.binding} = ${scalar ? `${subject}.value` : subject};`]
+            : []),
+          ...shift(armLines[i]!),
+          ...savesAt(inner, arm.savesInArm),
+          `${inner}break;`,
+          `${indent}  }`,
+        );
+      });
+      if (st.elseBody) {
+        out.push(
+          `${indent}  default: {`,
+          ...shift(elseLines),
+          ...savesAt(inner, st.savesInElse),
+          `${inner}break;`,
+          `${indent}  }`,
+        );
+      }
+      out.push(`${indent}}`);
       return out;
     },
     // Bare resource-op statement (`files.put(k, v)`).  `renderArg` renders

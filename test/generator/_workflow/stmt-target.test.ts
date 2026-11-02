@@ -64,6 +64,16 @@ function recordingTarget(): {
       calls.push({ kind: "if-let", indent });
       return [`${indent}if {`, ...renderedThen, `${indent}} else {`, ...renderedElse, `${indent}}`];
     },
+    variantMatch: (_st, indent, renderedArms, renderedElse) => {
+      calls.push({ kind: "variant-match", indent });
+      return [
+        `${indent}match {`,
+        ...renderedArms.flatMap((arm, i) => [`${indent}arm ${i}`, ...arm]),
+        `${indent}else`,
+        ...renderedElse,
+        `${indent}}`,
+      ];
+    },
   };
   return { target, calls };
 }
@@ -296,5 +306,40 @@ describe("collectUnionFindLets", () => {
 
   it("returns an empty set when no union find-lets are present", () => {
     expect(collectUnionFindLets([entityRepoLet("e")]).size).toBe(0);
+  });
+});
+
+describe("renderWorkflowStmts — `variant-match` arms", () => {
+  it("renders every arm body and the else body at indent + indentUnit, before the arm leaf", () => {
+    const { target, calls } = recordingTarget();
+    const lines = renderWorkflowStmts(
+      [
+        stmt("variant-match", {
+          subject: EXPR,
+          arms: [
+            { varType: { kind: "entity", name: "A" }, body: [stmt("emit")], savesInArm: [] },
+            { varType: { kind: "entity", name: "B" }, body: [], savesInArm: [] },
+          ],
+          elseBody: [stmt("not-found")],
+          savesInElse: [],
+        }),
+      ],
+      target,
+      "  ",
+    );
+    expect(calls.map((c) => `${c.kind}@${c.indent.length}`)).toEqual([
+      "emit@4",
+      "not-found@4",
+      "variant-match@2",
+    ]);
+    expect(lines).toEqual([
+      "  match {",
+      "  arm 0",
+      "    emit",
+      "  arm 1",
+      "  else",
+      "    not-found",
+      "  }",
+    ]);
   });
 });

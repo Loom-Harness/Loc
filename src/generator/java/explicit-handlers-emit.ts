@@ -73,6 +73,7 @@ import { javaPagedQueryParams } from "./emit/common.js";
 import { domainToWire, javaIdValueType } from "./emit/wire.js";
 import {
   boundLocal,
+  domainServiceUnionPkgOf,
   javaWorkflowStmtTarget,
   repoField,
   withLetLocals,
@@ -464,7 +465,11 @@ function renderHandlerClass(
   // (`let ordersRepository = Orders.getById(id)` shadowed the field its exit
   // save dereferences).
   const renderCtx: JavaRenderContext = withLetLocals(
-    { ...handlerRenderCtx(h, ctx, resources?.classes), paramExpr: (n) => locals.get(n) },
+    {
+      ...handlerRenderCtx(h, ctx, resources?.classes),
+      paramExpr: (n) => locals.get(n),
+      unionPkgOf: domainServiceUnionPkgOf(ctx, domainServicePkg),
+    },
     workflowBoundNames([h.statements]),
     new Set([...methodNames, ...locals.values()]),
   );

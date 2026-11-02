@@ -1,21 +1,23 @@
-// Placement rules for the three statements whose LOWERING is positional
-// (M-T5.28, audit findings F1 + F4).
+// Placement rules for the statements whose LOWERING is positional.
 //
-// Three of the `Statement` alternatives are not lowerable everywhere the
-// grammar admits them, and nothing said so.  Each produced a SILENT decline:
+// Three `Statement` alternatives are not lowerable everywhere the grammar
+// admits them; each would otherwise produce a SILENT decline:
 //
 //   - `match s { V b => … }` used for its EFFECTS (`MatchStmt`) lowers to a
-//     `variant-match` StmtIR that only the frontend walkers render.  In a
-//     domain body it reached `renderStmt`'s backend dispatcher and THREW
-//     (`src/generator/_stmt/target.ts`) on node, dotnet, elixir, java and
-//     python alike — a stack trace after `0 error(s), 0 warning(s)`.
+//     `variant-match` statement that the frontend walkers render in an action,
+//     and that the backend statement spines (`_stmt/target.ts`,
+//     `_workflow/stmt-target.ts`) render in an operation / `create` /
+//     `destroy` / domain-service / workflow / handler body.  A PURE body — an
+//     event-sourced `apply` fold, a projection `on` fold, a `function` — has
+//     no statement form of it: a fold is a straight-line state transition and
+//     a function computes a value, so there the value form (`let x = match r
+//     { … }`) is the one that fits.
 //   - `for v in xs { … }` (`ForStmt`) and `if let v = src { … }`
 //     (`IfLetStmt`) are lowered only by `lowerWorkflowStatement`
 //     (`src/ir/lower/lower-workflow.ts`).  The DOMAIN statement lowerer
-//     (`lower-stmt.ts`) has no arm for either, so both fell through to its
-//     fallback and emitted `this.<unknown>()` / `self._<unknown>()` /
-//     `_ = <unknown>(record)` — output that compiles on no backend and that
-//     the pipeline reported as clean.
+//     (`lower-stmt.ts`) has no arm for either, so both would fall through to
+//     its fallback and emit `this.<unknown>()` / `self._<unknown>()` /
+//     `_ = <unknown>(record)` — output that compiles on no backend.
 //
 // Phase ④, not phase ⑦, because this is where the construct is still VISIBLE.
 // `for` / `if let` have no IR node at all outside a workflow — the lowering
@@ -25,21 +27,20 @@
 // AST knows the construct and its exact span, and containment alone decides
 // the answer, so the check needs nothing the IR would add.
 //
-// TWO PERMANENT REFUSALS AND ONE HONEST GAP (ruling D-FOR-IN-DOMAIN,
-// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/completion-waves-2026-09.md` §5 #3):
+// The rulings (D-FOR-IN-DOMAIN, amended by D-FAILURE-MODEL):
 //
-//   - `variant-match` outside a ui action  — permanent.  The effect form of
-//     `match` IS the frontend action vocabulary (`async-actions-and-effects.md`
-//     Stage 2): its arms navigate, write page state and show toasts.  There is
-//     nothing for a backend to lower it INTO.
-//   - `if let` outside a workflow          — permanent.  It binds the optional
-//     result of a repository read; a domain body reaches its own state through
+//   - `match` (statement) in a pure fold or a `function` — refused by design.
+//     Its subject must also be a simple name in a backend body
+//     (`loom.match-subject-not-simple`, the expression form's rule): every arm
+//     reads it, so a call there would run once per probe.
+//   - `if let` outside a workflow — permanent.  It binds the optional result
+//     of a repository read; a domain body reaches its own state through
 //     `this`, and cross-aggregate reads from inside an aggregate are already
 //     refused (`loom.infra-call-from-aggregate`).
-//   - `for` outside a workflow             — an honest GAP with a named
-//     successor mission (M-T5.30).  Nothing about a loop is workflow-specific;
-//     only the per-iteration save the workflow lowering owns is.  The message
-//     says so, so the refusal does not read as a design rule it is not.
+//   - `for` outside a workflow — an honest GAP with a named successor mission
+//     (M-T5.30).  Nothing about a loop is workflow-specific; only the
+//     per-iteration save the workflow lowering owns is.  The message says so,
+//     so the refusal does not read as a design rule it is not.
 //
 // The zone is decided by CONTAINMENT and nothing else, which is why this is a
 // single `streamAllContents` pass rather than a hook per body owner.
@@ -58,8 +59,11 @@
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import {
+  type Expression,
   isActionDecl,
   isApply,
+  isAwaitExpr,
+  isCallSuffix,
   isCommandHandler,
   isComponent,
   isCreate,
@@ -69,10 +73,12 @@ import {
   isFunctionDecl,
   isIfLetStmt,
   isMatchStmt,
+  isMemberSuffix,
   isNotFoundStmt,
   isOnDecl,
   isOperation,
   isPage,
+  isPostfixChain,
   isProjectionOn,
   isQueryHandler,
   isStore,
@@ -141,6 +147,36 @@ export function describeOwner(node: AstNode): string {
   return "this body";
 }
 
+/** True when the nearest body owning `node` is a PURE one — an `apply` fold,
+ *  a projection `on` fold, or a `function` — where a statement `match` has no
+ *  lowering. */
+function inPureBody(node: AstNode): boolean {
+  for (let c: AstNode | undefined = node.$container; c; c = c.$container) {
+    if (isApply(c) || isProjectionOn(c) || isFunctionDecl(c)) return true;
+    if (
+      isOperation(c) ||
+      isCreate(c) ||
+      isDestroy(c) ||
+      isDomainServiceOperation(c) ||
+      isWorkflowCreateDecl(c) ||
+      isOnDecl(c) ||
+      isCommandHandler(c) ||
+      isQueryHandler(c)
+    ) {
+      return false;
+    }
+  }
+  return false;
+}
+
+/** A backend `match` subject must be a name or a member read: an `await`, a
+ *  call (`f(…)`) or a calling member (`x.verb(…)`) is not simple. */
+function subjectIsNotSimple(subject: Expression): boolean {
+  if (isAwaitExpr(subject)) return true;
+  if (!isPostfixChain(subject)) return false;
+  return subject.suffixes.some((s) => isCallSuffix(s) || (isMemberSuffix(s) && s.call));
+}
+
 /** Where a `notFound` may stand: a workflow / handler body. */
 function notFoundAllowedAt(node: AstNode): boolean {
   return zoneOf(node) === "workflow";
@@ -173,14 +209,26 @@ export function checkStatementPlacement(model: Model, accept: ValidationAcceptor
       checkNotFound(node, accept);
       continue;
     }
-    // The effect form of `match` — frontend-only, permanently.
+    // The statement `match` — an action, or an operation / create / destroy /
+    // domain-service / workflow / handler body; never a pure fold or function.
     if (isMatchStmt(node)) {
-      if (zoneOf(node) === "frontend") continue;
-      accept("error", diagMessage("loom.variant-match-placement", { owner: describeOwner(node) }), {
-        node,
-        property: "subject",
-        code: "loom.variant-match-placement",
-      });
+      const zone = zoneOf(node);
+      if (zone === "frontend" || zone === "unknown") continue;
+      if (inPureBody(node)) {
+        accept(
+          "error",
+          diagMessage("loom.variant-match-placement", { owner: describeOwner(node) }),
+          { node, property: "subject", code: "loom.variant-match-placement" },
+        );
+        continue;
+      }
+      if (subjectIsNotSimple(node.subject)) {
+        accept("error", diagMessage("loom.match-subject-not-simple"), {
+          node,
+          property: "subject",
+          code: "loom.match-subject-not-simple",
+        });
+      }
       continue;
     }
     // `if let` — workflow / handler bodies only, permanently.

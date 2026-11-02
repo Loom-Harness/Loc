@@ -160,6 +160,47 @@ function javaStmtTarget(ctx: JavaRenderContext, traceCtx: JavaTraceCtx): StmtTar
       return `${head} else {\n${indentNested(elseSrc, "    ")}\n${INDENT}}`;
     },
 
+    // `switch (<subject>) { case <Union>_<Tag> b -> { … } … }` — an arrow
+    // switch statement over the sealed union's carrier records; each case is
+    // its own block, so two arms may bind the same name.  A pattern needs a
+    // binder even when the arm reads none (an unnamed `_` is preview-only on
+    // Java 21), and a scalar variant's binding reads its carrier's `value()`.
+    // A pattern switch statement must be exhaustive: when the arms leave a
+    // variant out and there is no `else`, an empty `default` completes it.
+    variantMatch: (s, ix, m) => {
+      const subject = renderJavaExpr(s.subject, ctx);
+      const block = (head: string, decl: string | undefined, body: string): string =>
+        [
+          `${INDENT}    ${head} -> {`,
+          ...(decl ? [`${INDENT}        ${decl}`] : []),
+          ...(body ? [indentNested(body, "        ")] : []),
+          `${INDENT}    }`,
+        ].join("\n");
+      const cases = m.arms.map((a, i) => {
+        const carrier = `${m.unionName}_${a.tag}`;
+        if (a.binding && !a.scalar) return block(`case ${carrier} ${a.binding}`, undefined, a.body);
+        const binder = a.binding ? `${a.binding}Carrier` : `unused${ix.pre}_${i}`;
+        return block(
+          `case ${carrier} ${binder}`,
+          a.binding ? `var ${a.binding} = ${binder}.value();` : undefined,
+          a.body,
+        );
+      });
+      if (m.else !== undefined) cases.push(block("default", undefined, m.else));
+      else if (!m.exhaustive) cases.push(`${INDENT}    default -> { }`);
+      return [`${INDENT}switch (${subject}) {`, ...cases, `${INDENT}}`].join("\n");
+    },
+
+    // `if (<subject> != null) { … } else { … }` — the arm bindings read the
+    // subject itself.
+    presenceMatch: (s, _ix, present, absent) => {
+      const subject = renderJavaExpr(s.subject, ctx);
+      const presentSrc = present ? `\n${indentNested(present, "    ")}` : "";
+      const head = `${INDENT}if (${subject} != null) {${presentSrc}\n${INDENT}}`;
+      if (absent === undefined) return head;
+      return `${head} else {\n${indentNested(absent, "    ")}\n${INDENT}}`;
+    },
+
     return: (s) => {
       // Exception-less tagged return → the domain union's variant record
       // `<Union>_<Tag>(…)`, args ordered by the variant's declared field

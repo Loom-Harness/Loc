@@ -164,6 +164,66 @@ function csStmtTarget(ctx: CsRenderContext, traceCtx: TraceCtx): StmtTarget {
       return `${head} else {\n${indentNested(elseSrc, "    ")}\n${INDENT}}`;
     },
 
+    // `switch (<subject>) { case <Union>_<Tag> b: { … break; } … }` — a
+    // switch STATEMENT, not a chain of `if (x is T b)`: each section is its own
+    // scope, so two arms may bind the same name (CS0128 otherwise).  A scalar
+    // variant's pattern binds the carrier record and the arm's binding reads
+    // its `Value`.  A section whose body ends in `return` has no `break`
+    // (CS0162).
+    variantMatch: (s, _ix, m) => {
+      const subject = renderCsExpr(s.subject, ctx);
+      const section = (
+        label: string,
+        decl: string | undefined,
+        body: string,
+        returns: boolean,
+      ): string =>
+        [
+          `${INDENT}    ${label}`,
+          `${INDENT}    {`,
+          ...(decl ? [`${INDENT}        ${decl}`] : []),
+          ...(body ? [indentNested(body, "        ")] : []),
+          ...(returns ? [] : [`${INDENT}        break;`]),
+          `${INDENT}    }`,
+        ].join("\n");
+      const sections = m.arms.map((a) => {
+        const carrier = `${m.unionName}_${a.tag}`;
+        if (!a.binding) return section(`case ${carrier}:`, undefined, a.body, a.returns);
+        if (!a.scalar)
+          return section(`case ${carrier} ${a.binding}:`, undefined, a.body, a.returns);
+        return section(
+          `case ${carrier} __${a.binding}Carrier:`,
+          `var ${a.binding} = __${a.binding}Carrier.Value;`,
+          a.body,
+          a.returns,
+        );
+      });
+      if (m.else !== undefined) {
+        sections.push(section("default:", undefined, m.else, m.elseReturns));
+      } else if (m.exhaustive) {
+        // C# does not treat a switch STATEMENT over a closed hierarchy as
+        // exhaustive, so a body whose every arm returns would be CS0161
+        // ("not all code paths return a value") without this unreachable arm.
+        sections.push(
+          [
+            `${INDENT}    default:`,
+            `${INDENT}        throw new System.InvalidOperationException("unmatched variant");`,
+          ].join("\n"),
+        );
+      }
+      return [`${INDENT}switch (${subject})`, `${INDENT}{`, ...sections, `${INDENT}}`].join("\n");
+    },
+
+    // `if (<subject> is not null) { … } else { … }` — the arm bindings read the
+    // subject itself.
+    presenceMatch: (s, _ix, present, absent) => {
+      const subject = renderCsExpr(s.subject, ctx);
+      const presentSrc = present ? `\n${indentNested(present, "    ")}` : "";
+      const head = `${INDENT}if (${subject} is not null) {${presentSrc}\n${INDENT}}`;
+      if (absent === undefined) return head;
+      return `${head} else {\n${indentNested(absent, "    ")}\n${INDENT}}`;
+    },
+
     return: (s) => {
       // Exception-less operation return (exception-less.md): a tagged return
       // constructs the Domain union's variant record `<Union>_<Tag>(...)`.  A

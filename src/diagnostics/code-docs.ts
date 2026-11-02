@@ -193,8 +193,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.rule-expr-impure": "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.when-references-op-param":
     "06-behavior-and-statements.md#when-also-auto-exposes-get-idcan_op",
-  "loom.variant-match-placement":
-    "06-behavior-and-statements.md#match--the-effect-form-variant-match",
+  "loom.variant-match-placement": "06-behavior-and-statements.md#match--the-statement-form",
+  "loom.elixir-match-stmt-unsupported": "06-behavior-and-statements.md#match--the-statement-form",
   "loom.for-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
   "loom.if-let-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
   "loom.not-found-placement": "06-behavior-and-statements.md#notfound--the-not-found-answer",

@@ -1,0 +1,386 @@
+// The statement `match` (arms that run statements) in backend bodies: an
+// aggregate operation, a workflow `create` and a `commandHandler`.  Over a
+// tagged union each backend dispatches on the variant and binds the arm's
+// value (a scalar variant its carrier's value); over a `T?` it is a presence
+// if/else, and in a workflow / handler the arm saves what it dirtied at its own
+// end.  Node is additionally compiled end to end by the corpus TS leg; these
+// pins are the per-backend spelling.
+
+import { describe, expect, it } from "vitest";
+import { generateSystemFiles } from "../_helpers/generate.js";
+
+const SOURCE = (platform: string) => `
+system Shop {
+  subdomain D {
+    context Sales {
+      error Rejected { reason: string }
+      payload Receipt { code: string }
+      domainService Pricing {
+        operation quote(code: string): Receipt or Rejected {
+          if code.length > 0 {
+            return Receipt { code: code }
+          }
+          return Rejected { reason: "empty" }
+        }
+      }
+      aggregate Order with crudish {
+        code: string
+        note: string?
+        operation probe(): string or Rejected { return code }
+        operation settle() {
+          let r = probe()
+          match r {
+            string s => { code := s }
+            Rejected e => { code := e.reason }
+          }
+        }
+        operation annotate(n: string?) {
+          match n {
+            string s => { note := s }
+            else => { note := "none" }
+          }
+        }
+        operation touch() { code := "t" }
+      }
+      repository Orders for Order
+      commandHandler Close(orderId: Order id) {
+        let o = Orders.find(orderId)
+        match o {
+          Order x => { x.touch() }
+          else => { notFound }
+        }
+      }
+      workflow Settle {
+        create(orderId: Order id, code: string) {
+          let o = Orders.get(orderId)
+          let q = Pricing.quote(code)
+          match q {
+            Receipt rc => { o.touch() }
+            Rejected e => { o.touch() }
+          }
+        }
+      }
+    }
+  }
+  api A from D {
+    httpStatus Rejected -> 409
+    route POST "/orders/{orderId}/close" -> Sales.Close
+  }
+  storage primary { type: postgres }
+  resource st { for: Sales, kind: state, use: primary }
+  deployable d { platform: ${platform}, contexts: [Sales], dataSources: [st], serves: A, port: 4000 }
+}
+`;
+
+async function fileOf(platform: string, suffix: string): Promise<string> {
+  const files = await generateSystemFiles(SOURCE(platform));
+  const hit = [...files.entries()].find(([p]) => p.endsWith(suffix));
+  if (!hit) throw new Error(`${platform}: no file ending ${suffix}`);
+  return hit[1];
+}
+
+/** `lines` appear in `src` consecutively, each trimmed of its indent. */
+function expectBlock(src: string, lines: string[]): void {
+  const trimmed = src.split("\n").map((l) => l.trim());
+  const at = trimmed.findIndex((_, i) => lines.every((l, j) => trimmed[i + j] === l));
+  expect(at, `block not found:\n${lines.join("\n")}`).toBeGreaterThan(-1);
+}
+
+describe("statement match — node", () => {
+  it("an operation switches on the union's `type`, a scalar arm binding its value", async () => {
+    const src = await fileOf("node", "d/domain/order.ts");
+    expectBlock(src, [
+      "switch (r.type) {",
+      'case "string": {',
+      "const s = r.value;",
+      "this._code = s;",
+      "break;",
+      "}",
+      'case "Rejected": {',
+      "const e = r;",
+      "this._code = e.reason;",
+      "break;",
+      "}",
+      "}",
+    ]);
+  });
+
+  it("a `T?` subject is a presence if/else reading the subject itself", async () => {
+    const src = await fileOf("node", "d/domain/order.ts");
+    expectBlock(src, [
+      "if (n != null) {",
+      "this._note = n;",
+      "} else {",
+      'this._note = "none";',
+      "}",
+    ]);
+  });
+
+  it("a handler binds the present row, saves it in the arm, and 404s the absent side", async () => {
+    const src = await fileOf("node", "d/http/a-routes.ts");
+    expectBlock(src, [
+      "if (o != null) {",
+      "const x = o;",
+      "x.touch();",
+      "await orders.save(x);",
+      "} else {",
+      'throw new AggregateNotFoundError("Order not found");',
+      "}",
+    ]);
+  });
+
+  it("a workflow switches on a domain-service result", async () => {
+    const src = await fileOf("node", "d/http/workflows.ts");
+    expectBlock(src, ["switch (q.type) {", 'case "Receipt": {', "const rc = q;", "o.touch();"]);
+  });
+});
+
+describe("statement match — dotnet / java / python operation bodies", () => {
+  it("dotnet: a switch statement over the carrier records", async () => {
+    const src = await fileOf("dotnet", "Domain/Orders/Order.cs");
+    expectBlock(src, [
+      "switch (r)",
+      "{",
+      "case stringOrRejected_string __sCarrier:",
+      "{",
+      "var s = __sCarrier.Value;",
+      "Code = s;",
+      "break;",
+      "}",
+      "case stringOrRejected_Rejected e:",
+    ]);
+    expect(src).toContain("if (n is not null) {");
+  });
+
+  it("java: an arrow switch over the sealed union", async () => {
+    const src = await fileOf("java", "features/orders/Order.java");
+    expectBlock(src, [
+      "switch (r) {",
+      "case stringOrRejected_string sCarrier -> {",
+      "var s = sCarrier.value();",
+      "this.code = s;",
+      "}",
+      "case stringOrRejected_Rejected e -> {",
+    ]);
+    expect(src).toContain("if (n != null) {");
+  });
+
+  it("python: a type probe per arm, the exhaustive tail arm unconditional", async () => {
+    const src = await fileOf("python", "d/app/domain/order.py");
+    expectBlock(src, [
+      'if r["type"] == "string":',
+      's = cast(str, r["value"])',
+      "self._code = s",
+      "else:",
+      "e = r",
+    ]);
+    expect(src).toContain("if n is not None:");
+  });
+});
+
+describe("statement match — dotnet / java / python handler and workflow bodies", () => {
+  it("dotnet: the handler saves the bound row in its arm", async () => {
+    const src = await fileOf("dotnet", "Commands/CloseHandler.cs");
+    expectBlock(src, [
+      "if (o is not null)",
+      "{",
+      "var x = o;",
+      "x.Touch();",
+      "await _orders.SaveAsync(x, cancellationToken);",
+    ]);
+  });
+
+  it("java: the workflow switches on the service result", async () => {
+    const src = await fileOf("java", "application/workflows/SalesWorkflows.java");
+    expectBlock(src, ["switch (q) {", "case ReceiptOrRejected_Receipt rc -> {", "o.touch();"]);
+    // The carriers live beside the service, in another package — javac
+    // "cannot find symbol" without these imports.
+    expect(src).toMatch(/^import [\w.]+\.domain\.services\.ReceiptOrRejected_Receipt;$/m);
+  });
+
+  it("python: the handler binds and saves the row only on the present side", async () => {
+    const src = await fileOf("python", "d/app/application/close.py");
+    expectBlock(src, ["if o is not None:", "x = o", "x.touch()", "await orders.save(x)", "else:"]);
+  });
+});
+
+// Phoenix renders the statement through its own body machinery: an operation
+// threads `record` through a value-producing `case` (the `if` statement's
+// pattern), a domain service's tail `case` is its value, and a workflow /
+// handler / reactor body runs the `case` as one `{:ok, _} <- (…)` with-clause
+// whose arms end in `{:ok, _}`.  A union subject is the tagged tuple an
+// `or`-returning call answers.  An operation's own `let r = sibling()` is
+// refused on elixir (`loom.vanilla-op-call-position`), so the union subject
+// here is a domain-service result.
+const ELIXIR_SOURCE = `
+system Shop {
+  subdomain D {
+    context Sales {
+      error Rejected { reason: string }
+      payload Receipt { code: string }
+      event Settled { orderId: Order id }
+      domainService Pricing {
+        operation quote(code: string): Receipt or Rejected {
+          if code.length > 0 {
+            return Receipt { code: code }
+          } else {
+            return Rejected { reason: "empty" }
+          }
+        }
+        operation describe(code: string): string {
+          let q = Pricing.quote(code)
+          match q {
+            Receipt rc => { return rc.code }
+            Rejected e => { return e.reason }
+          }
+        }
+      }
+      aggregate Order with crudish {
+        code: string
+        note: string?
+        operation annotate(n: string?) {
+          match n {
+            string s => { note := s }
+            else => { note := "none" }
+          }
+        }
+        operation priced(c: string) {
+          let q = Pricing.quote(c)
+          match q {
+            Receipt rc => { code := rc.code }
+            Rejected e => { }
+          }
+        }
+        operation touch() { code := "t" }
+      }
+      repository Orders for Order
+      commandHandler Close(orderId: Order id) {
+        let o = Orders.find(orderId)
+        match o {
+          Order x => { x.touch() }
+          else => { notFound }
+        }
+      }
+      workflow Settle {
+        create(orderId: Order id, code: string) {
+          let o = Orders.get(orderId)
+          let q = Pricing.quote(code)
+          match q {
+            Receipt rc => { o.touch() }
+            Rejected e => {
+              precondition e.reason.length > 0
+              o.touch()
+            }
+          }
+          emit Settled { orderId: orderId }
+        }
+      }
+      workflow React {
+        orderId: Order id
+        create(e: Settled) by e.orderId { }
+        on(e: Settled) {
+          let o = Orders.find(e.orderId)
+          match o {
+            Order x => { x.touch() }
+            else => { }
+          }
+        }
+      }
+    }
+  }
+  api A from D {
+    httpStatus Rejected -> 409
+    route POST "/orders/{orderId}/close" -> Sales.Close
+  }
+  storage primary { type: postgres }
+  resource st { for: Sales, kind: state, use: primary }
+  deployable d { platform: elixir, contexts: [Sales], dataSources: [st], serves: A, port: 4000 }
+}
+`;
+
+async function elixirFile(suffix: string): Promise<string> {
+  const files = await generateSystemFiles(ELIXIR_SOURCE);
+  const hit = [...files.entries()].find(([p]) => p.endsWith(suffix));
+  if (!hit) throw new Error(`elixir: no file ending ${suffix}`);
+  return hit[1];
+}
+
+describe("statement match — elixir", () => {
+  it("an operation rebinds `record` through a `case` over the tagged tuple", async () => {
+    const src = await elixirFile("d/lib/d/sales.ex");
+    expectBlock(src, [
+      "record = case Function.identity(q) do",
+      "{:ok, rc} ->",
+      "record = %{record | code: rc.code}",
+      "record",
+      '{:error, "Rejected", _} ->',
+      "record",
+      "end",
+    ]);
+  });
+
+  it("a `T?` subject is a presence `if` threading `record` on both sides", async () => {
+    const src = await elixirFile("d/lib/d/sales.ex");
+    expectBlock(src, [
+      "record = if n != nil do",
+      "record = %{record | note: n}",
+      "record",
+      "else",
+      'record = %{record | note: "none"}',
+      "record",
+      "end",
+    ]);
+  });
+
+  it("a domain service's tail `case` is its value", async () => {
+    const src = await elixirFile("d/lib/d/domain/services/pricing.ex");
+    expectBlock(src, [
+      "case Function.identity(q) do",
+      "{:ok, rc} ->",
+      "rc.code",
+      '{:error, "Rejected", e} ->',
+      "e.reason",
+      "end",
+    ]);
+  });
+
+  it("a workflow runs the `case` as a with-clause whose arms thread `{:error, _}` up", async () => {
+    const src = await elixirFile("d/lib/d/sales/workflows/settle.ex");
+    expectBlock(src, [
+      "{:ok, _} <- (",
+      "case Function.identity(q) do",
+      "{:ok, _} ->",
+      "with {:ok, _} <- Context.touch_order(o, %{}) do",
+      "{:ok, nil}",
+      "else",
+      "err -> err",
+      "end",
+      '{:error, "Rejected", e} ->',
+    ]);
+  });
+
+  it("a handler binds the present row and answers the absent side's 404", async () => {
+    const src = await elixirFile("d/lib/d/sales/handlers/close.ex");
+    expectBlock(src, [
+      "if o != nil do",
+      "x = o",
+      "with {:ok, _} <- Context.touch_order(x, %{}) do",
+      "{:ok, nil}",
+      "else",
+      "err -> err",
+      "end",
+      "else",
+      '{:error, {:not_found, "Order not found"}}',
+      "end",
+    ]);
+  });
+
+  it("a reactor renders the same presence `if` inside its with-chain", async () => {
+    const src = await elixirFile("d/lib/d/sales/workflows/react/on_settled.ex");
+    expectBlock(src, [
+      "if o != nil do",
+      "x = o",
+      "with {:ok, _} <- D.Sales.touch_order(x, %{}) do",
+    ]);
+  });
+});

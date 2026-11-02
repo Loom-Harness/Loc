@@ -12,8 +12,8 @@ import { parseString } from "../../_helpers/parse.js";
 // until this gate nothing said so.  Each produced a SILENT decline — the source
 // validated `0 error(s), 0 warning(s)` and then:
 //
-//   `match` (effect form) in a domain body  → THREW out of the shared statement
-//     dispatcher on node, dotnet, elixir, java and python alike.
+//   `match` (statement form) in a pure fold or `function` → has no lowering on
+//     any backend (it is legal in operation / workflow / handler bodies).
 //   `for` / `if let` outside a workflow     → lowered to the `<unknown>` call
 //     sentinel: `this.<unknown>()` (node / .NET / Java), `self._<unknown>()`
 //     (Python), `_ = <unknown>(record)` (Elixir).
@@ -65,18 +65,108 @@ function lineOf(fixture: string, needle: string): number {
 }
 
 describe("statement placement (M-T5.28)", () => {
-  it("refuses the effect form of `match` in a domain body, on the offending statement", async () => {
+  it("refuses the statement form of `match` in a `function`, on the offending statement", async () => {
     const raised = await placementDiagnostics("stmt-placement-variant-match");
     expect(raised.map((r) => r.code)).toEqual(["loom.variant-match-placement"]);
-    expect(raised[0]!.line).toBe(lineOf("stmt-placement-variant-match", "match probe()"));
+    expect(raised[0]!.line).toBe(lineOf("stmt-placement-variant-match", "match note"));
     // The message names the body it found, so the span alone is not the only
-    // way to locate it in a multi-operation aggregate.
-    expect(raised[0]!.message).toContain("operation 'touch'");
-    // PERMANENT refusal — it must not read as a gap waiting on an
-    // implementation, and (M-T6.61 sequencing) it must not push the reader at
-    // the value-form `match` as the replacement.
-    expect(raised[0]!.message).toContain("permanent placement rule");
+    // way to locate it in a multi-member aggregate, and points at the value
+    // form and at the bodies where the statement IS legal.
+    expect(raised[0]!.message).toContain("function 'label'");
+    expect(raised[0]!.message).toContain("value form");
+    expect(raised[0]!.message).toContain("operation, workflow or handler");
     expect(raised[0]!.message).not.toMatch(/M-T\d/);
+  });
+
+  it("refuses the statement form of `match` in an `apply` fold", async () => {
+    const { diagnostics } = await parseString(`
+system S {
+  subdomain D { context C {
+    event Noted { at: string? }
+    aggregate Order persistedAs: eventLog {
+      note: string
+      operation mark(at: string?) { emit Noted { at: at } }
+      apply(e: Noted) {
+        match e.at {
+          string s => { note := s }
+          else => { note := "" }
+        }
+      }
+    }
+    repository Orders for Order { }
+  } }
+}`);
+    const codes = diagnostics.map((d) => String(d.code));
+    expect(codes).toContain("loom.variant-match-placement");
+    const d = diagnostics.find((x) => x.code === "loom.variant-match-placement")!;
+    expect(diagText(d)).toContain("an 'apply' fold");
+  });
+
+  it("requires a simple subject for a statement `match` in a backend body", async () => {
+    const { diagnostics } = await parseString(`
+system S {
+  subdomain D { context C {
+    error NotFound { resource: string }
+    aggregate Order {
+      code: string
+      operation probe(): string or NotFound { return code }
+      operation touch() {
+        match probe() {
+          string s => { code := s }
+          NotFound e => { code := e.resource }
+        }
+      }
+    }
+    repository Orders for Order { }
+  } }
+}`);
+    const codes = diagnostics.map((d) => String(d.code));
+    expect(codes).toContain("loom.match-subject-not-simple");
+    // Legal there — the subject's shape is the only complaint.
+    expect(codes).not.toContain("loom.variant-match-placement");
+  });
+
+  it("refuses a `return` inside a handler's `match` arm with the arm-specific wording", async () => {
+    const { diagnostics } = await parseString(`
+system S {
+  subdomain D { context C {
+    aggregate Order with crudish { code: string }
+    repository Orders for Order { }
+    queryHandler Code(note: string?): string {
+      match note {
+        string s => { return s }
+        else => { }
+      }
+      return "none"
+    }
+  } }
+}`);
+    const d = diagnostics.find((x) => x.code === "loom.handler-return-not-last");
+    expect(d, "the arm's return is refused").toBeDefined();
+    expect(diagText(d!)).toContain("inside a 'match' arm");
+    expect(diagText(d!)).toContain("let r = match");
+  });
+
+  it("refuses a `return` inside a workflow `match` arm with the arm-specific wording", async () => {
+    const { diagnostics } = await parseString(`
+system S {
+  subdomain D { context C {
+    aggregate Order with crudish { code: string }
+    repository Orders for Order { }
+    workflow W {
+      create(note: string?): string {
+        match note {
+          string s => { return s }
+          else => { }
+        }
+        return "none"
+      }
+    }
+  } }
+}`);
+    const d = diagnostics.find((x) => x.code === "loom.workflow-return-not-last");
+    expect(d, "the arm's return is refused").toBeDefined();
+    expect(diagText(d!)).toContain("inside a 'match' arm");
   });
 
   it("refuses `if let` outside a workflow as a permanent rule", async () => {
@@ -102,9 +192,10 @@ describe("statement placement (M-T5.28)", () => {
 
   it("leaves all three alone in the bodies that DO lower them", async () => {
     // Workflow `create` + `commandHandler` for `for` / `if let`; a page
-    // `action`'s `match await` for the effect-form match.  Every one of the six
-    // sites is in this fixture, so a gate that classified any body wrong fails
-    // here rather than in a user's project.
+    // `action`'s `match await`, an operation, a domain-service operation, a
+    // workflow `create` and a `commandHandler` for the statement `match`.
+    // Every site is in this fixture, so a gate that classified any body wrong
+    // fails here rather than in a user's project.
     expect(await placementDiagnostics("stmt-placement-allowed")).toEqual([]);
   });
 });

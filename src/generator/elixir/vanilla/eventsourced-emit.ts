@@ -993,6 +993,14 @@ function renderCommandRunner(c: CommandCtx): string {
           "platform: elixir — an 'if' statement reached the event-sourced command emitter; " +
             "it is refused at validation (loom.elixir-if-stmt-unsupported#event-sourced).",
         );
+      case "variant-match":
+        // The statement `match` has no Phoenix rendering yet — refused at phase
+        // ⑦ by `loom.elixir-match-stmt-unsupported`; the `default: break`
+        // below would otherwise DROP its arms silently.
+        throw new Error(
+          "platform: elixir — a statement 'match' reached the event-sourced command emitter; " +
+            "it is refused at validation (loom.elixir-match-stmt-unsupported).",
+        );
       default:
         // ES command discipline rejects assign / add / remove / call here.
         break;

@@ -200,11 +200,10 @@ export class DddValidator {
     // Unit-test placement: a hoisted `test` (context/root) must name its home
     // aggregate with `for`; a nested one must not restate it (test-placement.md).
     guard("test-placement", model, () => checkTestPlacement(model, accept));
-    // Statement PLACEMENT: the effect form of `match` is frontend-only,
-    // and `for` / `if let` lower only inside a workflow / handler body.  Outside
-    // those homes, without this gate, the first throws at emission on all five
-    // backends and the other two lower to a `<unknown>` call sentinel — both
-    // after `0 error(s)`.
+    // Statement PLACEMENT: the statement `match` has no form in a pure fold or
+    // `function`, and `for` / `if let` lower only inside a workflow / handler
+    // body (elsewhere they would lower to a `<unknown>` call sentinel after
+    // `0 error(s)`).
     guard("stmt-placement", model, () => checkStatementPlacement(model, accept));
     // A workflow / handler body persists at its exit, so an explicit
     // `Repo.save(x)` statement is refused rather than reinterpreted.

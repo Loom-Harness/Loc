@@ -120,9 +120,8 @@ type Handler = CommandHandlerIR | QueryHandlerIR;
  *
  *  Rides `walkWorkflowStmtsDeep` (wave-2 packet 2.3): the hand-rolled
  *  if/else-if chain this replaced re-derived the "which kinds nest further
- *  bodies" fact `walk.ts` already owns exhaustively — correct today (`for-
- *  each`/`if-let` are still the only two nesting kinds), but a silent gap
- *  waiting for a third nesting kind to be added without this file noticing. */
+ *  bodies" fact `walk.ts` already owns exhaustively, so a nested body of any
+ *  kind (`for-each` / `if-let` / `match` arm) is reached. */
 function collectRepos(h: Handler): Map<string, string> {
   const repos = new Map<string, string>();
   for (const s of h.statements) {
@@ -137,6 +136,12 @@ function collectRepos(h: Handler): Map<string, string> {
   for (const s of h.statements) {
     walkWorkflowStmtsDeep(s, (st) => {
       if (st.kind === "if-let" && st.repoName) repos.set(st.repoName, st.aggName);
+      // A `match` arm saves what it dirtied through that aggregate's repo.
+      if (st.kind === "variant-match") {
+        for (const arm of st.arms)
+          for (const sv of arm.savesInArm) repos.set(sv.repoName, sv.aggName);
+        for (const sv of st.savesInElse) repos.set(sv.repoName, sv.aggName);
+      }
     });
   }
   for (const save of h.savesAtExit) repos.set(save.repoName, save.aggName);

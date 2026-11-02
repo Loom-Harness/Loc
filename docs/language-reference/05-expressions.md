@@ -725,7 +725,7 @@ derived bad: money = money("USD 2.50")   // loom.money-literal-malformed
 
 ## `await`
 
-`await` is admitted in exactly one position: the subject of a variant `match` (`match await Orders.Order.place() { … }`) inside a page or component `action`. It marks the remote command's async boundary so its `or`-union result is matched; a bare remote mutating call in an action body is `loom.missing-effect-marker`. `await` is a soft keyword (it is in the `LooseName` set), so a field named `await` still parses. There is no *spurious*-marker diagnostic to pair with `loom.missing-effect-marker`: `await` appears only in the `MatchSubject` rule, so an `await` anywhere else is a plain parse error. See [Statements](06-behavior-and-statements.md#match--the-effect-form-variant-match) and [`../actions.md`](../actions.md).
+`await` is admitted in exactly one position: the subject of a variant `match` (`match await Orders.Order.place() { … }`) inside a page or component `action`. It marks the remote command's async boundary so its `or`-union result is matched; a bare remote mutating call in an action body is `loom.missing-effect-marker`. `await` is a soft keyword (it is in the `LooseName` set), so a field named `await` still parses. There is no *spurious*-marker diagnostic to pair with `loom.missing-effect-marker`: `await` appears only in the `MatchSubject` rule, so an `await` anywhere else is a plain parse error. See [Statements](06-behavior-and-statements.md#in-a-page-action) and [`../actions.md`](../actions.md).
 
 ## Magic references
 

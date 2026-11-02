@@ -28,6 +28,7 @@ import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtsDeep } from "../../../ir/util/walk.js";
+import { elixirMatchRefusal } from "../../../ir/validate/checks/elixir-match-stmt-checks.js";
 import { elixirIfRefusal } from "../../../ir/validate/checks/if-stmt-checks.js";
 import {
   elixirLocal,
@@ -64,6 +65,7 @@ import {
   wireValidationResponse,
 } from "./denial.js";
 import { renderElixirIfStmt } from "./if-stmt-emit.js";
+import { renderElixirMatchStmt } from "./match-stmt-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { collectVanillaLeaves, provColumn, provenancedFieldsOf } from "./provenance-emit.js";
 import { isRefCollFieldName, refCollPutAssocValue } from "./ref-collection-emit.js";
@@ -1407,17 +1409,28 @@ export function renderReturningStmt(
       // (`persistPutBodies` unions the callee's targets).
       return `    ${rc.thisName} = __op_${snake(s.name)}(${[rc.thisName, ...args].join(", ")})`;
     }
-    case "variant-match":
-      // UNREACHABLE — the elixir twin of the shared spine's guard in
-      // `src/generator/_stmt/target.ts`.  The effect form of `match` is
-      // frontend-only and is refused at phase ④ by
-      // `loom.variant-match-placement`, so reaching here means the
-      // validator was bypassed.  Kept as a throw, not softened to a skip: a
-      // skip drops the statement's effects silently.
-      throw new Error(
-        "internal: a 'variant-match' statement reached the vanilla Elixir statement renderer; " +
-          "loom.variant-match-placement refuses this source at phase ④, so the validator was bypassed",
-      );
+    case "variant-match": {
+      // A value-producing `case` (or, over a `T?`, `if`): every clause ends in
+      // the threaded `record` and the whole expression rebinds it.  The
+      // sub-shapes it cannot express are refused by
+      // `loom.elixir-match-stmt-unsupported`; this arm re-classifies with the
+      // SAME predicate, so a bypassed validator fails loudly instead of
+      // emitting a body that drops an early exit or hides an `emit`.
+      const refusal = elixirMatchRefusal([s], "operation", ctx);
+      if (refusal) {
+        throw new Error(
+          `platform: elixir — a statement 'match' with a ${refusal} sub-shape reached the ` +
+            "vanilla operation emitter; it is refused at validation " +
+            `(loom.elixir-match-stmt-unsupported#${refusal}).`,
+        );
+      }
+      return renderElixirMatchStmt(s, {
+        indent: "    ",
+        threadVar: rc.thisName,
+        subject: renderExpr(s.subject, rc),
+        renderInner: (stmts) => stmts.map((st, i) => renderReturningStmt(st, ctx, rc, index + i)),
+      });
+    }
     case "if": {
       // A value-producing `if`: every arm ends in the threaded
       // `record`, and the whole expression rebinds it, so a branch that assigns

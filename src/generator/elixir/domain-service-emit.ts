@@ -48,11 +48,13 @@ import {
   classifyDomainServiceTier,
 } from "../../ir/util/domain-service-tier.js";
 import { mapExprChildren } from "../../ir/util/walk.js";
+import { elixirMatchRefusal } from "../../ir/validate/checks/elixir-match-stmt-checks.js";
 import { elixirIfRefusal } from "../../ir/validate/checks/if-stmt-checks.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../util/naming.js";
 import { type RenderCtx, renderExpr, renderTypespec } from "./render-expr.js";
 import { appModuleOf, guardRaiseLine } from "./vanilla/denial.js";
 import { renderElixirIfStmt } from "./vanilla/if-stmt-emit.js";
+import { renderElixirMatchStmt } from "./vanilla/match-stmt-emit.js";
 import { opCallParamFields } from "./vanilla/workflow-execution-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -454,6 +456,14 @@ function renderOperation(
         `(loom.elixir-if-stmt-unsupported#${ifRefusal}).`,
     );
   }
+  const matchRefusal = elixirMatchRefusal(op.body, "value", ctx);
+  if (matchRefusal) {
+    throw new Error(
+      `platform: elixir — a statement 'match' with a ${matchRefusal} sub-shape reached the ` +
+        `domain-service emitter for operation '${op.name}'; it is refused at validation ` +
+        `(loom.elixir-match-stmt-unsupported#${matchRefusal}).`,
+    );
+  }
   const bodyLines = op.body.map((s) => renderStatement(s, ctx, renderCtx, isUnion));
 
   return `${specLine}
@@ -522,8 +532,18 @@ function renderStatement(
     case "add":
     case "remove":
     case "emit":
-    case "variant-match":
       return `    # unreachable: ${s.kind} rejected by the domain-service validator floor`;
+    case "variant-match":
+      // A tail-value body: the `match` renders as a plain value-producing
+      // `case` (or, over a `T?`, `if`) with no threaded variable, so a tail
+      // `match` whose arms `return` IS the function's result.  The sub-shapes
+      // that cannot render are refused by `loom.elixir-match-stmt-unsupported`
+      // — re-asserted once per body by the caller, with the SAME predicate.
+      return renderElixirMatchStmt(s, {
+        indent: "    ",
+        subject: renderExpr(s.subject, rc),
+        renderInner: (stmts) => stmts.map((st) => renderStatement(st, ctx, rc, isUnion)),
+      });
     case "if":
       // M-T6.59 — a domain-service body is a TAIL-VALUE body (nothing is
       // appended after `bodyLines`), so the `if` renders as a plain

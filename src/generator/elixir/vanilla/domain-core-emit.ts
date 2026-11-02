@@ -578,12 +578,16 @@ function forEachEsCoreStmt(
           "platform: elixir — an 'if' statement reached the event-sourced pure core; " +
             "it is refused at validation (loom.elixir-if-stmt-unsupported#event-sourced).",
         );
+      case "variant-match":
+        throw new Error(
+          "platform: elixir — a statement 'match' reached the event-sourced pure core; " +
+            "it is refused at validation (loom.elixir-match-stmt-unsupported).",
+        );
       case "assign":
       case "add":
       case "remove":
       case "call":
       case "expression":
-      case "variant-match":
       case "return":
         break;
       default: {

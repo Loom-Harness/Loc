@@ -1,4 +1,5 @@
-import type { LValue, Statement } from "../../language/generated/ast.js";
+import { GrammarUtils } from "langium";
+import type { LValue, MatchStmt, Statement } from "../../language/generated/ast.js";
 import {
   isAssignOrCallStmt,
   isEmitStmt,
@@ -58,6 +59,24 @@ export function lowerStatements(stmts: readonly Statement[], env: Env): StmtIR[]
  *  match-arm bodies (they recurse back through `lowerStatement`, not
  *  `lowerStatementInner`, so they get stamped too).  An already-set
  *  `origin` (none today, but future-proofed) wins over the derived one. */
+/** Whether a statement `match` wrote an `else` arm — read off the concrete
+ *  syntax, because an empty `else => { }` leaves `elseBody` as empty as no
+ *  `else` at all, and only the first is exhaustive. */
+export function matchStmtHasElse(stmt: MatchStmt): boolean {
+  return (
+    stmt.elseBody.length > 0 || GrammarUtils.findNodeForKeyword(stmt.$cstNode, "else") !== undefined
+  );
+}
+
+/** The subject of an absence `match` read at the arm's variant: a ref or a
+ *  member read retyped to `varType`, so reads through the binding see the
+ *  narrowed (present) type. */
+function narrowedSubject(subject: ExprIR, varType: TypeIR): ExprIR {
+  if (subject.kind === "ref") return { ...subject, type: varType };
+  if (subject.kind === "member") return { ...subject, memberType: varType };
+  return subject;
+}
+
 export function lowerStatement(stmt: Statement, env: Env): { stmt: StmtIR; envAfter: Env } {
   const lowered = lowerStatementInner(stmt, env);
   return {
@@ -108,11 +127,29 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
     // `awaited: true`); resolve its `or`-union type for the variant set; lower
     // each arm's statement block, binding the (optional) narrowed variant value
     // as a real local (`match-binding`) so member reads inside the arm resolve.
+    //
+    // A `T?` subject (or one carrying the absence runtime shape) is a presence
+    // check, exactly as in the expression form: its arm binding is an alias of
+    // the subject narrowed to the arm's variant (Env.refAliases), so backends
+    // read the subject itself and no tagged carrier is bound.
     const subject = lowerExpr(stmt.subject, env);
     const subjectType = subject.kind === "ref" ? subject.type : inferExprType(stmt.subject, env);
+    const absenceSubject =
+      subjectType?.kind === "optional" ||
+      (subject.kind === "ref" && env.locals.get(subject.name)?.absenceUnion === true);
     const arms = stmt.varArms.map((arm) => {
       const varType = lowerAtom(arm.varType, env);
-      const armEnv = arm.binding ? withLocal(env, arm.binding, "match-binding", varType) : env;
+      const armEnv = !arm.binding
+        ? env
+        : absenceSubject
+          ? {
+              ...env,
+              refAliases: new Map([
+                ...(env.refAliases ?? []),
+                [arm.binding, narrowedSubject(subject, varType)],
+              ]),
+            }
+          : withLocal(env, arm.binding, "match-binding", varType);
       return {
         varType,
         binding: arm.binding,
@@ -125,8 +162,9 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
         kind: "variant-match",
         subject,
         subjectType,
+        ...(absenceSubject ? { subjectShape: "absence" as const } : {}),
         arms,
-        ...(stmt.elseBody.length > 0 ? { elseBody: lowerStatements(stmt.elseBody, env) } : {}),
+        ...(matchStmtHasElse(stmt) ? { elseBody: lowerStatements(stmt.elseBody, env) } : {}),
       },
       envAfter: env,
     };

@@ -837,9 +837,168 @@ public pay(amt: Decimal): ({ type: "Account"; id: string; balance: Decimal; vers
 }
 ```
 
-## `match` — the effect-form variant match
+## `match` — the statement form
 
-`match SUBJECT { Variant [b] => stmt | { stmts }, …, else => … }` (`MatchStmt` / `VariantStmtArm`) is the **statement** twin of the variant-match expression: its arms run statements rather than yield a value, and each arm may bind the narrowed variant. It lowers to the `variant-match` StmtIR kind, which is **frontend-only**: it renders in a page / component / store `action` body and has no backend form. Written anywhere else — an `operation`, a `create` / `destroy` / `apply` body, a `function`, a domain-service operation, a projection `on` fold, or a workflow / handler body — it is refused at phase ④ by `loom.variant-match-placement`, a **permanent** placement rule. (Until M-T5.28 nothing gated it: a domain-body `match` validated clean and then threw `variant-match statement is frontend-only …` out of the shared statement dispatcher on all five backends. That throw survives as an internal-invariant assertion for a caller that generates without validating.) Every arm of an `or`-union must be covered or an `else` supplied.
+`match SUBJECT { Variant [b] => stmt | { stmts }, …, else => … }` (`MatchStmt` / `VariantStmtArm`) is the **statement** twin of the variant-match expression: its arms run statements rather than yield a value, and each arm may bind the narrowed variant. It lowers to the `variant-match` statement and is legal in two families of body:
+
+- **Backend bodies** — an aggregate `operation`, `create` or `destroy`, a domain-service operation, a workflow `create` / `on`, and a `commandHandler` / `queryHandler`. The subject is a value the body already holds — a union-typed `let` (an `or`-returning operation or domain-service call, a remote api call) or a `T?` (a param, a field, a `find…` read) — and must be a name or a member read, not a call (`loom.match-subject-not-simple`; bind the call with `let` first). A `T?` subject is a presence check: the `T` arm runs when there is a value (its binding *is* the narrowed value) and `else` when there is none.
+- **A page / component / store `action`** — `match await <api>.<Agg>.<op>(…)` over the remote operation's result (below).
+
+It is refused (`loom.variant-match-placement`, phase ④) in the **pure** bodies — an event-sourced `apply` fold, a projection `on` fold and a `function` — which have no statement form of it: a fold is a straight-line state transition and a function computes a value, so the value form `let x = match r { … }` is the one that fits there ([D-FOR-IN-DOMAIN](../decisions.md)). Every variant of an `or`-union must be covered or an `else` supplied (`loom.match-non-exhaustive`).
+
+In a workflow or handler body an arm runs statements but does not `return`: the body answers once, after it has run (`loom.handler-return-not-last` / `loom.workflow-return-not-last` name the arm). Compute the answer with the value form and return it. An aggregate an arm binds and changes is saved at the end of that arm, the rule an `if let` branch follows.
+
+```ddd
+context Sales {
+  error Rejected { reason: string }
+  aggregate Order {
+    code: string
+    note: string?
+    operation probe(): string or Rejected { return code }
+    operation settle() {
+      let r = probe()
+      match r {
+        string s   => { code := s }
+        Rejected e => { code := e.reason }
+      }
+    }
+    operation annotate(n: string?) {
+      match n {
+        string s => { note := s }
+        else     => { note := "none" }
+      }
+    }
+    operation touch() { code := "t" }
+  }
+  repository Orders for Order
+  commandHandler Close(orderId: Order id) {
+    let o = Orders.find(orderId)
+    match o {
+      Order x => { x.touch() }
+      else    => { notFound }
+    }
+  }
+}
+```
+
+::: tabs backend
+== node
+```ts
+// domain/order.ts — the union's `type` narrows the subject in each case; a
+// scalar variant binds its carrier's `value`
+public settle(): void {
+  const r = this.probe();
+  switch (r.type) {
+    case "string": {
+      const s = r.value;
+      this._code = s;
+      break;
+    }
+    case "Rejected": {
+      const e = r;
+      this._code = e.reason;
+      break;
+    }
+  }
+  this._assertInvariants();
+}
+
+public annotate(n: string | null): void {
+  if (n != null) {
+    this._note = n;
+  } else {
+    this._note = "none";
+  }
+  this._assertInvariants();
+}
+
+// http/a-routes.ts — the handler saves the arm's binding at the arm's end
+const o = await orders.findById(orderId);
+if (o != null) {
+  const x = o;
+  x.touch();
+  await orders.save(x);
+} else {
+  throw new AggregateNotFoundError("Order not found");
+}
+```
+== dotnet
+```csharp
+// Domain/Orders/Order.cs — a switch STATEMENT over the carrier records
+switch (r)
+{
+    case stringOrRejected_string __sCarrier:
+    {
+        var s = __sCarrier.Value;
+        Code = s;
+        break;
+    }
+    case stringOrRejected_Rejected e:
+    {
+        Code = e.Reason;
+        break;
+    }
+    default:
+        throw new System.InvalidOperationException("unmatched variant");
+}
+```
+== java
+```java
+// features/orders/Order.java — an arrow switch over the sealed union
+switch (r) {
+    case stringOrRejected_string sCarrier -> {
+        var s = sCarrier.value();
+        this.code = s;
+    }
+    case stringOrRejected_Rejected e -> {
+        this.code = e.reason();
+    }
+}
+```
+== python
+```python
+# app/domain/order.py — the tagged dict's `type` per arm; the last arm of an
+# exhaustive match is the unconditional tail
+r = self.probe()
+if r["type"] == "string":
+    s = cast(str, r["value"])
+    self._code = s
+else:
+    e = r
+    self._code = cast(str, e["reason"])
+```
+::: end
+
+On Phoenix the subject is the tagged tuple an `or`-returning call answers, and the operation threads its `record` through a value-producing `case` (a `T?` subject is a presence `if`, as the `if` statement renders):
+
+```ddd
+operation priced(c: string) {
+  let q = Pricing.quote(c)
+  match q {
+    Receipt rc => { code := rc.code }
+    Rejected e => { code := e.reason }
+  }
+}
+```
+
+```elixir
+# lib/d/sales.ex — every clause ends in `record`, and the `case` rebinds it
+q = D.Domain.Services.Pricing.quote(c)
+record = case Function.identity(q) do
+  {:ok, rc} ->
+    record = %{record | code: rc.code}
+    record
+  {:error, "Rejected", e} ->
+    record = %{record | code: e.reason}
+    record
+end
+```
+
+A workflow or handler runs the same `case` as one `{:ok, _} <- (case … end)` with-clause whose arms end in `{:ok, _}` (or the first `{:error, _}` they hit). `loom.elixir-match-stmt-unsupported` refuses what that rendering cannot express: a `return` (`#return-in-arm`, except from every arm of a domain service's tail `match`), a guard (`#guard-in-arm`) or an `emit` / provenanced write (`#arm-statement`) inside an operation arm, any statement `match` in an event-sourced body (`#event-sourced`), and a union of two success variants (`#multi-success` — their `{:ok, value}` tuples carry no tag).
+
+### In a page action
+
+The frontend form awaits a remote operation and matches its result:
 
 ```ddd
 ui Console {
@@ -897,7 +1056,7 @@ Vue / Svelte / Angular / Feliz / Flutter emit the same try-match shape through t
 
 ## Handler bodies — `commandHandler` / `queryHandler`
 
-`[extern] commandHandler Name(params) [: Return] { … }` and `[extern] queryHandler Name(params): Return { … }` are context-level, application-layer handlers — the named entry points of a context, routable from an `api { route POST "/…" -> Ctx.Name }` body. Their body is the **workflow vocabulary** (`lower-workflow.ts`, see [Workflows](13-workflows.md#body-vocabulary)): `let x = Repo.get(id)` / a single non-nullable `find`, an optional read bound as `T?` (`let c = Repo.find(<Criterion>)`, `findById`, `findBy`, a `T?` find), `if let x = <optional read or binding> { … } else { … }`, an operation call on the binding, `Repo.remove(x)`, `precondition` / `requires`, `emit`, `return`. A loaded aggregate is saved automatically when an operation was invoked on it — you don't write the save. Gates: a non-`extern` handler needs a body (`loom.handler-missing-body`) and an `extern` one must be bodyless `;` (`loom.extern-handler-has-body`); a parameter may not be named `id` (`loom.handler-param-reserved-id`); an optional binding is not dereferenced until a null test or an `if let` narrows it (`loom.nullable-receiver`); a `queryHandler` may not mutate (`loom.query-handler-saves`) and a `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`). A handler answers once, after its body has run, so its `return` is the last top-level statement — or the whole then-branch of a final `if let x = <lookup> { return x } else { …; notFound }`, the single-row read [`scaffoldGet`](22-macros.md) emits; a `return` anywhere else is `loom.handler-return-not-last`.
+`[extern] commandHandler Name(params) [: Return] { … }` and `[extern] queryHandler Name(params): Return { … }` are context-level, application-layer handlers — the named entry points of a context, routable from an `api { route POST "/…" -> Ctx.Name }` body. Their body is the **workflow vocabulary** (`lower-workflow.ts`, see [Workflows](13-workflows.md#body-vocabulary)): `let x = Repo.get(id)` / a single non-nullable `find`, an optional read bound as `T?` (`let c = Repo.find(<Criterion>)`, `findById`, `findBy`, a `T?` find), `if let x = <optional read or binding> { … } else { … }`, a statement `match` over a union or `T?` value, an operation call on the binding, `Repo.remove(x)`, `precondition` / `requires`, `emit`, `return`. A loaded aggregate is saved automatically when an operation was invoked on it — you don't write the save. Gates: a non-`extern` handler needs a body (`loom.handler-missing-body`) and an `extern` one must be bodyless `;` (`loom.extern-handler-has-body`); a parameter may not be named `id` (`loom.handler-param-reserved-id`); an optional binding is not dereferenced until a null test or an `if let` narrows it (`loom.nullable-receiver`); a `queryHandler` may not mutate (`loom.query-handler-saves`) and a `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`). A handler answers once, after its body has run, so its `return` is the last top-level statement — or the whole then-branch of a final `if let x = <lookup> { return x } else { …; notFound }`, the single-row read [`scaffoldGet`](22-macros.md) emits; a `return` anywhere else is `loom.handler-return-not-last`.
 
 ```ddd
 context Accounts {

@@ -446,7 +446,19 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *
  *  17 -> 16: `loom.scaffold-filter-param-unsupported` is gone with the
  *  scaffolded filter bar it reported on — list finds are an error
- *  (`loom.list-find-removed`), so the bar had nothing left to render. */
+ *  (`loom.list-find-removed`), so the bar had nothing left to render.
+ *
+ *  16 -> 17: `loom.elixir-match-stmt-unsupported`, the statement `match` on
+ *  Phoenix.  The four other backends render it through the shared statement
+ *  spines; the Phoenix operation and workflow renderers each need a `case`
+ *  form, and until they have one the emitters' `variant-match` arms would
+ *  throw — the gate turns that crash into a diagnostic.
+ *
+ *  17 -> 16: `loom.elixir-match-stmt-unsupported` re-classed `scope` under
+ *  D-ELIXIR-IF-BRANCH once Phoenix rendered the statement (`case` in an
+ *  operation / domain service, a `case` with-clause in a workflow / handler);
+ *  what stays refused is the `if` statement's four body-building sub-shapes
+ *  plus a union of two success variants. */
 const MAX_OPEN_GAPS = 16;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate

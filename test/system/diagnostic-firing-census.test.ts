@@ -1214,19 +1214,19 @@ system S {
     }
     repository Orders for Order`),
 
-  // M-T5.28 — the three positional statements, each written in the one place
-  // its lowerer does NOT reach.  All three used to validate clean: the `match`
-  // then threw out of the shared statement dispatcher on all five backends, and
-  // `for` / `if let` lowered to the `<unknown>` call sentinel.
-  "loom.variant-match-placement": repoOnly(`    error NotFound { resource: string }
-    aggregate Order with crudish {
+  // The three positional statements, each written in a place its lowerer
+  // does NOT reach: the statement `match` in a pure `function`, and `for` /
+  // `if let` outside a workflow (which would lower to the `<unknown>` call
+  // sentinel).
+  "loom.variant-match-placement": repoOnly(`    aggregate Order with crudish {
       code: string
-      operation probe(): string or NotFound { return NotFound { resource: code } }
-      operation touch() {
-        match probe() {
-          NotFound e => { code := e.resource }
-          string s => { code := s }
+      note: string?
+      function label(): string {
+        match note {
+          string s => { let shown = s }
+          else => { let shown = code }
         }
+        return code
       }
     }
     repository Orders for Order`),
@@ -3037,6 +3037,27 @@ system P {
           count := 1
         } else {
           count := 2
+        }
+      }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
+}`,
+
+  // A guard inside a statement-`match` arm of an operation an elixir
+  // deployable hosts: the statement renders on Phoenix, but a nested guard
+  // could not be hoisted into the op's `with :ok <- ensure(…)` chain.
+  "loom.elixir-match-stmt-unsupported": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish {
+      code: string
+      operation annotate(n: string?) {
+        match n {
+          string s => { precondition s.length > 0  code := s }
+          else => { code := "none" }
         }
       }
     }

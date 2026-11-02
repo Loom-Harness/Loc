@@ -31,6 +31,7 @@ import type { OpFragment } from "./entity.js";
 import { projectionRowClass } from "./projection-state.js";
 import {
   boundLocal,
+  domainServiceUnionPkgOf,
   javaWorkflowStmtTarget,
   reactorReposUsed,
   repoField,
@@ -392,6 +393,9 @@ export function renderJavaDispatcher(
    *  bookkeeping cost. */
   opFragments?: OpFragment[],
 ): { name: string; content: string; handlers: { method: string; event: string }[] } | null {
+  // A reactor body that matches over a domain-service result names the
+  // union's carrier records, which live beside the services.
+  const unionPkgOf = domainServiceUnionPkgOf(ctx, `${dctx.basePkg}.domain.services`);
   // Re-derive over the (possibly merged) context WITH projections — the
   // enricher-stored `ctx.eventSubscriptions` omits projection folds (it derives
   // without them), so a projection-only context would otherwise get no
@@ -494,6 +498,7 @@ export function renderJavaDispatcher(
           construct,
           opFragments,
           dctx.resources?.classes,
+          unionPkgOf,
         ),
         true,
       );
@@ -515,8 +520,18 @@ export function renderJavaDispatcher(
             dctx.contextSchema,
             opFragments,
             dctx.resources?.classes,
+            unionPkgOf,
           )
-        : renderHandler(ctx, wf, sub, resolved, construct, opFragments, dctx.resources?.classes),
+        : renderHandler(
+            ctx,
+            wf,
+            sub,
+            resolved,
+            construct,
+            opFragments,
+            dctx.resources?.classes,
+            unionPkgOf,
+          ),
       true,
     );
   }
@@ -740,6 +755,7 @@ function renderHandler(
   /** Source-map — see `renderJavaDispatcher`'s `opFragments`. */
   opFragments?: OpFragment[],
   resourceClasses?: Map<string, string>,
+  unionPkgOf?: (unionName: string) => string | undefined,
 ): string[] {
   const corr = wf.correlationField as string;
   // The event param is the method's own parameter, alongside `__key`, `state`,
@@ -757,7 +773,7 @@ function renderHandler(
   // reserved names and the event param (`withLetLocals`; identity otherwise).
   const renderCtx = withLetLocals(
     withEventParam(
-      { thisName: "state", accessorProps: true, ...resourcesOf(resourceClasses) },
+      { thisName: "state", accessorProps: true, ...resourcesOf(resourceClasses), unionPkgOf },
       sub.param,
       param,
     ),
@@ -885,6 +901,7 @@ function renderEsHandler(
   /** Source-map — see `renderJavaDispatcher`'s `opFragments`. */
   opFragments?: OpFragment[],
   resourceClasses?: Map<string, string>,
+  unionPkgOf?: (unionName: string) => string | undefined,
 ): string[] {
   const corr = wf.correlationField as string;
   const reserved = reactorReserved(wf, [resolved], ctx);
@@ -896,7 +913,11 @@ function renderEsHandler(
   // sourced workflows can't write their own state at all, so there's no
   // compound-assign self-read here to worry about either.
   const renderCtx = withLetLocals(
-    withEventParam({ thisName: "state", ...resourcesOf(resourceClasses) }, sub.param, param),
+    withEventParam(
+      { thisName: "state", ...resourcesOf(resourceClasses), unionPkgOf },
+      sub.param,
+      param,
+    ),
     workflowBoundNames([resolved.statements]),
     new Set([...reserved, param]),
   );
@@ -1057,6 +1078,7 @@ function esMergedBranchLines(
    *  merged-branch precedent (doubled here because Java also wraps in a try
    *  frame). */
   opFragments?: OpFragment[],
+  unionPkgOf?: (unionName: string) => string | undefined,
 ): { lines: string[]; usesState: boolean } {
   const cls = esWorkflowStateClass(wf);
   const table = esEventLogTable(ctx.name, schema);
@@ -1064,7 +1086,7 @@ function esMergedBranchLines(
   const hasEmit = bodyHasEmit(resolved.statements);
   const branchCtx = withLetLocals(
     withEventParam(
-      { thisName: "state", ...resourcesOf(resourceClasses) },
+      { thisName: "state", ...resourcesOf(resourceClasses), unionPkgOf },
       branchParam,
       branchLocal,
     ),
@@ -1140,6 +1162,7 @@ function renderEsMergedHandler(
    *  branches, so a merged handler records two `OpFragment`s (create + on). */
   opFragments?: OpFragment[],
   resourceClasses?: Map<string, string>,
+  unionPkgOf?: (unionName: string) => string | undefined,
 ): string[] {
   const corr = wf.correlationField as string;
   // Both event bindings are locals of the ONE merged method (the create
@@ -1155,7 +1178,7 @@ function renderEsMergedHandler(
   const table = esEventLogTable(ctx.name, schema);
   const streamType = wf.name;
   const renderCtx = withEventParam(
-    { thisName: "state", ...resourcesOf(resourceClasses) },
+    { thisName: "state", ...resourcesOf(resourceClasses), unionPkgOf },
     createSub.param,
     param,
   );
@@ -1175,6 +1198,7 @@ function renderEsMergedHandler(
     construct,
     resourceClasses,
     opFragments,
+    unionPkgOf,
   );
   const onBranch = esMergedBranchLines(
     ctx,
@@ -1188,6 +1212,7 @@ function renderEsMergedHandler(
     construct,
     resourceClasses,
     opFragments,
+    unionPkgOf,
   );
   const usesState = createBranch.usesState || onBranch.usesState;
 

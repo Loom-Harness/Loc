@@ -3,8 +3,8 @@
 //
 // `expectEffects` pins a body to EXACTLY the effects listed, in program order,
 // each rendered as one compact line (`load Items.load → i`, `mutate i.bump`,
-// `persist i`, …) with its scope as a `[for o]` / `[then o]` / `[else o]`
-// prefix.  The seeded repros are the silent miscompiles the effect IR exists
+// `persist i`, …) with its scope as a `[for o]` / `[then o]` / `[else o]` /
+// `[<Variant> b]` prefix.  The seeded repros are the silent miscompiles the effect IR exists
 // to make impossible:
 //   * an explicit `Repo.save(x)` used to lower to a DELETE of the row; it is now
 //     refused (`loom.workflow-explicit-save`) and contributes no effect;
@@ -46,7 +46,13 @@ function src(members: string): string {
 
 function render(e: EffectIR): string {
   const scope = e.scope
-    .map((s) => (s.kind === "iteration" ? `[for ${s.var}] ` : `[${s.arm} ${s.var}] `))
+    .map((s) =>
+      s.kind === "iteration"
+        ? `[for ${s.var}] `
+        : s.kind === "branch"
+          ? `[${s.arm} ${s.var}] `
+          : `[${s.variant}${s.var ? ` ${s.var}` : ""}] `,
+    )
     .join("");
   switch (e.kind) {
     case "load":
@@ -212,6 +218,19 @@ describe("workflow body effects", () => {
         "[then b] persist b",
         "[else b] emit Bumped",
       ],
+    );
+  });
+
+  it("scopes each `match` arm, the present arm saving the binding it mutated", async () => {
+    await expectEffects(
+      `commandHandler close(itemId: Item id) {
+         let found = Items.find(itemId)
+         match found {
+           Item i => { i.bump() }
+           else => { notFound }
+         }
+       }`,
+      ["load Items.load-optional → found", "[Item i] mutate i.bump", "[Item i] persist i"],
     );
   });
 

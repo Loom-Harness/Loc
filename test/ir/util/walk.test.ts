@@ -481,6 +481,26 @@ function wfCases(): Record<WorkflowStmtIR["kind"], () => WfCase> {
         wfChildren: [t0, e0],
       };
     },
+    "variant-match": () => {
+      const subject = sent();
+      const a0 = sentWf();
+      const a1 = sentWf();
+      const e0 = sentWf();
+      return {
+        node: {
+          kind: "variant-match",
+          subject,
+          arms: [
+            { varType: ENTITY, binding: "x", isError: false, body: [a0], savesInArm: [] },
+            { varType: ENTITY, isError: true, body: [a1], savesInArm: [] },
+          ],
+          elseBody: [e0],
+          savesInElse: [],
+        },
+        exprChildren: [subject],
+        wfChildren: [a0, a1, e0],
+      };
+    },
     assign: () => {
       const v = sent();
       return {

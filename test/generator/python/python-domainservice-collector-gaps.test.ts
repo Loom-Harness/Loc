@@ -115,9 +115,7 @@ describe("M-T6.50 (b) — uncorrelated command-workflow own-state", () => {
 // --- (c) imports are derived from the rendered statement (M-T9.84). -------
 // The hand collector this pinned (`collectStmtExprImports`) is gone: a
 // statement's imports are now read off the text it renders, so there is no
-// second walk to miss a kind.  `variant-match` never renders into a backend
-// body (`renderPyStatements` throws on it, as every backend does), so the
-// ordinary kinds are the whole surface.
+// second walk to miss a kind — a nested one (a `match` arm) included.
 const moneyLit: ExprIR = { kind: "literal", lit: "money", value: "1.00" };
 
 describe("M-T6.50 (c) — every statement kind derives the imports its rendered text uses", () => {
@@ -140,13 +138,22 @@ describe("M-T6.50 (c) — every statement kind derives the imports its rendered 
     }
   });
 
-  it("variant-match never reaches a rendered backend body", () => {
+  it("a money literal nested in a statement `match` arm imports Decimal", () => {
     const stmt: StmtIR = {
       kind: "variant-match",
       subject: { kind: "ref", name: "outcome", refKind: "let" },
-      arms: [],
+      subjectType: {
+        kind: "union",
+        variants: [
+          { kind: "entity", name: "A" },
+          { kind: "entity", name: "B" },
+        ],
+      },
+      arms: [
+        { varType: { kind: "entity", name: "A" }, body: [{ kind: "return", value: moneyLit }] },
+      ],
       elseBody: [{ kind: "return", value: moneyLit }],
     };
-    expect(() => renderPyStatements([stmt])).toThrow();
+    expect(pyDerivedImports(renderPyStatements([stmt]))).toContain("decimal.Decimal");
   });
 });

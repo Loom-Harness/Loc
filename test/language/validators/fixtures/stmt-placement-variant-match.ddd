@@ -1,10 +1,10 @@
-// REFUSED SHAPE — `loom.variant-match-placement` (M-T5.28 / audit F1).
+// REFUSED SHAPE — `loom.variant-match-placement`.
 //
-// The effect form of `match` in an aggregate `operation` body.  Before the gate
-// this validated clean (`0 error(s), 0 warning(s)`) and then threw
-// `variant-match statement is frontend-only; it must not reach the <X> backend`
-// out of `src/generator/_stmt/target.ts` on node, dotnet, elixir, java AND
-// python — a stack trace, not a diagnostic.
+// The statement form of `match` (arms that run statements) in a block-bodied
+// `function`.  A function computes a value, so it has no statement form of
+// `match` on any backend; the value form (`let t = match r { … }`) is the one
+// that fits.  The same statement in an operation, a workflow or a handler is
+// legal (`stmt-placement-allowed.ddd`).
 //
 // It lives here rather than in `test/fixtures/corpus/` because that corpus is a
 // POSITIVE matrix: every `<id>.ddd` there must generate cleanly on each backend
@@ -13,16 +13,15 @@
 system VariantMatchPlacement {
   subdomain D {
     context Shop {
-      error NotFound { resource: string }
       aggregate Order {
         code: string
-        reserved: bool
-        operation probe(): string or NotFound { return NotFound { resource: code } }
-        operation touch() {
-          match probe() {
-            NotFound e => { code := e.resource }
-            string s => { code := s }
+        note: string?
+        function label(): string {
+          match note {
+            string s => { let shown = s }
+            else => { let shown = code }
           }
+          return code
         }
       }
       repository Orders for Order { }

@@ -119,6 +119,7 @@ import {
   workflowDenialTerm,
 } from "./denial.js";
 import { renderFunctionBodyLines } from "./function-emit.js";
+import { armsCoverUnion, elixirUnionScrutinee, elixirVariantPattern } from "./match-stmt-emit.js";
 import {
   renderRequiredParamsPlug,
   renderStrictParamsPlug,
@@ -814,120 +815,8 @@ function lowerStatement(
                 }),
               ),
             );
-      const renderBranch = (all: WorkflowStmtIR[], present: string): string[] => {
-        // A branch that ends in `notFound` evaluates to the not-found term
-        // itself rather than a clause that cannot match before `{:ok, _}`.
-        const last = all[all.length - 1];
-        const endsNotFound = last?.kind === "not-found";
-        const result = endsNotFound ? `{:error, ${notFoundStmtTerm(last)}}` : `{:ok, ${present}}`;
-        const body = endsNotFound ? all.slice(0, -1) : all;
-        // A branch needs a `with`-chain when it holds a fallible statement that
-        // must short-circuit to `{:error, tag}` (so it threads up the outer
-        // with-chain): a guard (`precondition` / `requires`), an op-call, a
-        // factory create, a `mutating` domain-service call, or nested control
-        // flow / repo binds (`for-each` / `if-let` / `repo-run` / `repo-let`).
-        // The flat form would discard an op-call's `{:error, _}` — a failed
-        // operation precondition would then let a transactional workflow
-        // commit and answer success.  A branch of only infallible side-effects
-        // (emit / resource-call / assign / expr-let / a non-mutating service
-        // call) keeps the sequential `=`-bind form.
-        const needsWith = body.some(
-          (s) =>
-            s.kind === "precondition" ||
-            s.kind === "requires" ||
-            s.kind === "not-found" ||
-            s.kind === "op-call" ||
-            s.kind === "factory-let" ||
-            (s.kind === "domain-service-call" &&
-              resolveInlinedServiceClauses(s, renderCtx, contextModule, ctx).length > 0) ||
-            NESTED_FLOW_KINDS.has(s.kind),
-        );
-        if (needsWith) {
-          const clauses: string[] = [];
-          const tail: string[] = [];
-          for (let i = 0; i < body.length; i++) {
-            const inner = body[i]!;
-            const rest = body.slice(i + 1);
-            switch (inner.kind) {
-              case "precondition":
-              case "requires":
-                clauses.push(
-                  `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
-                );
-                break;
-              case "not-found":
-                clauses.push(notFoundStmtClause(inner));
-                break;
-              case "op-call":
-                clauses.push(`{:ok, _} <- ${opCallSource(inner, renderCtx, contextModule, ctx)}`);
-                break;
-              case "factory-let": {
-                const fields = inner.fields
-                  .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
-                  .join(", ");
-                const bind = bindUsedLater(inner.name, rest)
-                  ? escapeElixirIdent(snake(inner.name))
-                  : "_";
-                clauses.push(
-                  `{:ok, ${bind}} <- ${factoryCreateCall(inner.aggName, fields, contextModule, ctx)}`,
-                );
-                break;
-              }
-              case "expr-let": {
-                const bind = bindUsedLater(inner.name, rest)
-                  ? escapeElixirIdent(snake(inner.name))
-                  : "_";
-                clauses.push(`${bind} <- (${renderExpr(inner.expr, renderCtx)})`);
-                break;
-              }
-              case "domain-service-call": {
-                // A `mutating` service call is fallible persistence, exactly
-                // like an op-call: its inlined context mutating-fn clauses
-                // join this branch's with-chain IN ORDER (the loop body does
-                // the same), so a later op-call sees the service's writes and
-                // a failed save threads `{:error, _}` up instead of raising.
-                const inlined = resolveInlinedServiceClauses(inner, renderCtx, contextModule, ctx);
-                if (inlined.length > 0) for (const c of inlined) clauses.push(c.text);
-                else tail.push(`_ = ${renderExpr(inner.call, renderCtx)}`);
-                break;
-              }
-              case "for-each":
-              case "if-let":
-              case "repo-run":
-              case "repo-let":
-              case "repo-delete":
-                // Nested loop / if-let / repo bind — reuse `lowerStatement` so it
-                // lowers to a `<-` clause that threads {:error, _} up this branch.
-                // The branch's own result is `{:ok, <present>}`, so a nested bind
-                // nothing later reads is `_`-discardable (M-T6.21).
-                pushNestedFlow(inner, contextModule, renderCtx, clauses, tail, ctx, rest, true);
-                break;
-              case "emit":
-              case "resource-call":
-              case "assign":
-                // Pure side-effects / own-state rebinds — run in the do-branch.
-                tail.push(...renderBranchStmt(inner, renderCtx, contextModule, []));
-                break;
-              default: {
-                const _exhaustive: never = inner;
-                void _exhaustive;
-              }
-            }
-          }
-          return [
-            `with ${clauses.join(",\n                  ")} do`,
-            ...tail.map((l) => `  ${l}`),
-            `  ${result}`,
-            `else`,
-            `  err -> err`,
-            `end`,
-          ];
-        }
-        const stmtLines = body.flatMap((inner, i) =>
-          renderBranchStmt(inner, renderCtx, contextModule, body.slice(i + 1)),
-        );
-        return [...stmtLines, result];
-      };
+      const renderBranch = (all: WorkflowStmtIR[], present: string): string[] =>
+        renderWithBranch(all, present, renderCtx, contextModule, ctx);
       // A guard — an empty then-branch over an `else` that answers the 404 —
       // keeps the hit bound for the statements after it (a handler's
       // `if let o = … { return o } else { notFound }`), so the clause binds
@@ -945,6 +834,24 @@ function lowerStatement(
       ];
       return [{ kind: "with-clause", text: lines.join("\n"), bindName: guard ? v : undefined }];
     }
+    case "variant-match":
+      // `match <subject> { V b => { … } … }` → one with-clause wrapping a
+      // parenthesised `case` (a union subject) or presence `if` (a `T?`
+      // subject) whose arms render like `if let` branches: each ends in
+      // `{:ok, _}`, or in the first `{:error, _}` a fallible statement in it
+      // answers, which threads up the with-chain.  Every op call persists
+      // itself on this backend, so an arm's `savesInArm` needs no clause.
+      return [
+        {
+          kind: "with-clause",
+          text: [
+            `{:ok, _} <- (`,
+            ...renderMatchBlock(st, renderCtx, contextModule, ctx).map((l) => `           ${l}`),
+            `         )`,
+          ].join("\n"),
+          bindName: undefined,
+        },
+      ];
     default: {
       // CR1-f (wave CR1, audit row P0-2b): all 14 `WorkflowStmtIR` kinds are
       // listed above, so this arm is unreachable — the never-check makes that
@@ -954,6 +861,179 @@ function lowerStatement(
       return [{ kind: "stmt", text: `# unreachable: ${JSON.stringify(_exhaustive)}` }];
     }
   }
+}
+
+/** A statement `match` in a workflow / handler body as the lines of one
+ *  block evaluating to `{:ok, _}` or the first `{:error, _}`.  A union subject
+ *  holds the tagged tuple an `or`-returning call answers (`{:ok, value}` /
+ *  `{:error, "Tag", fields}`); a `_` clause runs the `else` body and is emitted
+ *  whenever the arms do not name every variant, so an uncovered value is a
+ *  no-op rather than a `CaseClauseError`.  A `T?` subject is a presence `if`
+ *  whose present arm binds its narrowed name to the subject. */
+function renderMatchBlock(
+  st: Extract<WorkflowStmtIR, { kind: "variant-match" }>,
+  renderCtx: RenderCtx,
+  contextModule: string,
+  ctx?: BoundedContextIR,
+): string[] {
+  const subject = renderExpr(st.subject, renderCtx);
+  const branch = (body: WorkflowStmtIR[]): string[] =>
+    renderWithBranch(body, "nil", renderCtx, contextModule, ctx);
+  if (st.subjectShape === "absence") {
+    const isAbsent = (a: (typeof st.arms)[number]) => a.varType.kind === "none" || a.isError;
+    const presentArm = st.arms.find((a) => !isAbsent(a));
+    const absentArm = st.arms.find(isAbsent);
+    const presentBody = presentArm?.body ?? st.elseBody ?? [];
+    const absentBody = absentArm?.body ?? st.elseBody ?? [];
+    const binding = presentArm?.binding;
+    const bindLine =
+      binding && bindUsedLater(binding, presentBody)
+        ? [`${escapeElixirIdent(snake(binding))} = ${subject}`]
+        : [];
+    return [
+      `if ${subject} != nil do`,
+      ...[...bindLine, ...branch(presentBody)].map((l) => `  ${l}`),
+      `else`,
+      ...branch(absentBody).map((l) => `  ${l}`),
+      `end`,
+    ];
+  }
+  const clause = (pattern: string, body: WorkflowStmtIR[]): string[] => [
+    `  ${pattern} ->`,
+    ...branch(body).map((l) => `    ${l}`),
+  ];
+  const lines = st.arms.flatMap((a) => {
+    const binder =
+      a.binding && bindUsedLater(a.binding, a.body) ? escapeElixirIdent(snake(a.binding)) : "_";
+    return clause(elixirVariantPattern(a, binder), a.body);
+  });
+  if (st.elseBody || !armsCoverUnion(st.subjectType, st.arms)) {
+    lines.push(...clause("_", st.elseBody ?? []));
+  }
+  return [`case ${elixirUnionScrutinee(subject)} do`, ...lines, `end`];
+}
+
+/** One branch of an `if let` or one arm of a statement `match` in a workflow /
+ *  handler body, as the lines of a block that evaluates to `{:ok, <present>}`
+ *  — or to the first `{:error, _}` a fallible statement in it answers, so the
+ *  enclosing `{:ok, _} <- (…)` clause threads it up the with-chain.  A branch
+ *  that ends in `notFound` evaluates to the not-found term itself. */
+function renderWithBranch(
+  all: WorkflowStmtIR[],
+  present: string,
+  renderCtx: RenderCtx,
+  contextModule: string,
+  ctx?: BoundedContextIR,
+): string[] {
+  // A branch that ends in `notFound` evaluates to the not-found term
+  // itself rather than a clause that cannot match before `{:ok, _}`.
+  const last = all[all.length - 1];
+  const endsNotFound = last?.kind === "not-found";
+  const result = endsNotFound ? `{:error, ${notFoundStmtTerm(last)}}` : `{:ok, ${present}}`;
+  const body = endsNotFound ? all.slice(0, -1) : all;
+  // A branch needs a `with`-chain when it holds a fallible statement that
+  // must short-circuit to `{:error, tag}` (so it threads up the outer
+  // with-chain): a guard (`precondition` / `requires`), an op-call, a
+  // factory create, a `mutating` domain-service call, or nested control
+  // flow / repo binds (`for-each` / `if-let` / `repo-run` / `repo-let`).
+  // The flat form would discard an op-call's `{:error, _}` — a failed
+  // operation precondition would then let a transactional workflow
+  // commit and answer success.  A branch of only infallible side-effects
+  // (emit / resource-call / assign / expr-let / a non-mutating service
+  // call) keeps the sequential `=`-bind form.
+  const needsWith = body.some(
+    (s) =>
+      s.kind === "precondition" ||
+      s.kind === "requires" ||
+      s.kind === "not-found" ||
+      s.kind === "op-call" ||
+      s.kind === "factory-let" ||
+      (s.kind === "domain-service-call" &&
+        resolveInlinedServiceClauses(s, renderCtx, contextModule, ctx).length > 0) ||
+      NESTED_FLOW_KINDS.has(s.kind),
+  );
+  if (needsWith) {
+    const clauses: string[] = [];
+    const tail: string[] = [];
+    for (let i = 0; i < body.length; i++) {
+      const inner = body[i]!;
+      const rest = body.slice(i + 1);
+      switch (inner.kind) {
+        case "precondition":
+        case "requires":
+          clauses.push(
+            `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
+          );
+          break;
+        case "not-found":
+          clauses.push(notFoundStmtClause(inner));
+          break;
+        case "op-call":
+          clauses.push(`{:ok, _} <- ${opCallSource(inner, renderCtx, contextModule, ctx)}`);
+          break;
+        case "factory-let": {
+          const fields = inner.fields
+            .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
+            .join(", ");
+          const bind = bindUsedLater(inner.name, rest) ? escapeElixirIdent(snake(inner.name)) : "_";
+          clauses.push(
+            `{:ok, ${bind}} <- ${factoryCreateCall(inner.aggName, fields, contextModule, ctx)}`,
+          );
+          break;
+        }
+        case "expr-let": {
+          const bind = bindUsedLater(inner.name, rest) ? escapeElixirIdent(snake(inner.name)) : "_";
+          clauses.push(`${bind} <- (${renderExpr(inner.expr, renderCtx)})`);
+          break;
+        }
+        case "domain-service-call": {
+          // A `mutating` service call is fallible persistence, exactly
+          // like an op-call: its inlined context mutating-fn clauses
+          // join this branch's with-chain IN ORDER (the loop body does
+          // the same), so a later op-call sees the service's writes and
+          // a failed save threads `{:error, _}` up instead of raising.
+          const inlined = resolveInlinedServiceClauses(inner, renderCtx, contextModule, ctx);
+          if (inlined.length > 0) for (const c of inlined) clauses.push(c.text);
+          else tail.push(`_ = ${renderExpr(inner.call, renderCtx)}`);
+          break;
+        }
+        case "for-each":
+        case "if-let":
+        case "variant-match":
+        case "repo-run":
+        case "repo-let":
+        case "repo-delete":
+          // Nested loop / if-let / match / repo bind — reuse `lowerStatement` so it
+          // lowers to a `<-` clause that threads {:error, _} up this branch.
+          // The branch's own result is `{:ok, <present>}`, so a nested bind
+          // nothing later reads is `_`-discardable (M-T6.21).
+          pushNestedFlow(inner, contextModule, renderCtx, clauses, tail, ctx, rest, true);
+          break;
+        case "emit":
+        case "resource-call":
+        case "assign":
+          // Pure side-effects / own-state rebinds — run in the do-branch.
+          tail.push(...renderBranchStmt(inner, renderCtx, contextModule, []));
+          break;
+        default: {
+          const _exhaustive: never = inner;
+          void _exhaustive;
+        }
+      }
+    }
+    return [
+      `with ${clauses.join(",\n                  ")} do`,
+      ...tail.map((l) => `  ${l}`),
+      `  ${result}`,
+      `else`,
+      `  err -> err`,
+      `end`,
+    ];
+  }
+  const stmtLines = body.flatMap((inner, i) =>
+    renderBranchStmt(inner, renderCtx, contextModule, body.slice(i + 1)),
+  );
+  return [...stmtLines, result];
 }
 
 /** A single op-call as the threaded `op_<agg>(target, %{...})` call source.
@@ -1085,6 +1165,7 @@ function workflowNeedsCurrentUser(wf: WorkflowIR, ctx: BoundedContextIR): boolea
 const NESTED_FLOW_KINDS: ReadonlySet<WorkflowStmtIR["kind"]> = new Set([
   "for-each",
   "if-let",
+  "variant-match",
   "repo-run",
   "repo-let",
   "repo-delete",
@@ -1241,6 +1322,7 @@ function renderLoopBody(
       }
       case "for-each":
       case "if-let":
+      case "variant-match":
       case "repo-run":
       case "repo-delete":
       case "repo-let": {
@@ -1406,10 +1488,11 @@ function renderBranchStmt(
     case "not-found":
     case "for-each":
     case "if-let":
+    case "variant-match":
     case "repo-run":
     case "repo-delete":
     case "repo-let":
-      // `renderBranch` routes guards, op-calls, factory creates and nested
+      // `renderWithBranch` routes guards, op-calls, factory creates and nested
       // control flow / repo binds through the with-chain path (they must
       // short-circuit to `{:error, _}`), so the
       // flat path never sees them.  If that routing ever changes, fail loudly

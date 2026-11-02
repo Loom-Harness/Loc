@@ -79,7 +79,12 @@ import {
   tenancyClaimBinding,
   tenancyPrincipalClaim,
 } from "../util/tenant-stance.js";
-import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../util/walk.js";
+import {
+  walkExprDeep,
+  walkStmtExprsDeep,
+  walkWorkflowStmtExprsDeep,
+  walkWorkflowStmtsDeep,
+} from "../util/walk.js";
 import { type BypassRead, synthesizeBypassReadFinds } from "./bypass-read-finds.js";
 import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
@@ -995,7 +1000,8 @@ export function enrichContext(
 }
 
 /** Walk every workflow statement body (creates / handlers / reactors / event
- *  folds), descending into `for-each` loop bodies. */
+ *  folds), descending into every nested body (`for-each` / `if-let` /
+ *  `match` arms). */
 function allWorkflowStmts(wf: WorkflowIR): WorkflowStmtIR[] {
   // `appliers` are pure event folds over workflow state (StmtIR, no repo
   // calls), so they carry no `Repo.findAll` — excluded from the walk.
@@ -1004,17 +1010,7 @@ function allWorkflowStmts(wf: WorkflowIR): WorkflowStmtIR[] {
     ...(wf.subscriptions ?? []).map((s) => s.statements),
   ];
   const out: WorkflowStmtIR[] = [];
-  const walk = (stmts: WorkflowStmtIR[]): void => {
-    for (const st of stmts) {
-      out.push(st);
-      if (st.kind === "for-each") walk(st.body);
-      else if (st.kind === "if-let") {
-        walk(st.thenBody);
-        walk(st.elseBody ?? []);
-      }
-    }
-  };
-  for (const r of roots) walk(r);
+  for (const r of roots) for (const st of r) walkWorkflowStmtsDeep(st, (n) => out.push(n));
   return out;
 }
 
@@ -1198,22 +1194,12 @@ function synthesizeFindAllRetrievals(
 }
 
 /** Walk a flat handler statement body (`queryHandler` / `commandHandler`),
- *  descending into `for-each` / `if-let` bodies — the handler-body twin of
+ *  descending into every nested body — the handler-body twin of
  *  `allWorkflowStmts` (handlers carry a flat `WorkflowStmtIR[]`, not the
  *  create/subscribe roots a workflow does). */
 function flattenHandlerStmts(statements: WorkflowStmtIR[]): WorkflowStmtIR[] {
   const out: WorkflowStmtIR[] = [];
-  const walk = (stmts: WorkflowStmtIR[]): void => {
-    for (const st of stmts) {
-      out.push(st);
-      if (st.kind === "for-each") walk(st.body);
-      else if (st.kind === "if-let") {
-        walk(st.thenBody);
-        walk(st.elseBody ?? []);
-      }
-    }
-  };
-  walk(statements);
+  for (const st of statements) walkWorkflowStmtsDeep(st, (n) => out.push(n));
   return out;
 }
 
@@ -1478,6 +1464,7 @@ function tailBindType(stmt: WorkflowStmtIR): TypeIR | undefined {
     case "emit":
     case "for-each":
     case "if-let":
+    case "variant-match":
     case "not-found":
     case "op-call":
     case "precondition":

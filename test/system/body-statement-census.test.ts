@@ -128,6 +128,11 @@ const STMTS: readonly { kind: string; src: (s: Scope) => string }[] = [
   { kind: "return", src: () => `return "x"` },
   { kind: "if", src: () => "if 1 > 0 { let w = 2 }" },
   { kind: "if-return", src: () => `if 1 > 0 { return "y" }` },
+  {
+    kind: "match",
+    src: () =>
+      `let mq: string? = "x"\n match mq { string m => { let w = 2 } else => { let w = 3 } }`,
+  },
   { kind: "precondition", src: () => "precondition 1 > 0" },
   { kind: "requires", src: () => "requires 1 > 0" },
   { kind: "emit", src: (s) => `emit ${s.emit}` },
@@ -300,9 +305,11 @@ async function errorsOf(src: string): Promise<Diag[]> {
   return report.diagnostics.filter((d) => d.severity === "error") as Diag[];
 }
 
-/** A PER-BACKEND refusal — the only per-backend narrowing these positions
- *  have is Phoenix's `if` shapes (`if-stmt-checks.ts`). */
-const isTargetGap = (d: Diag): boolean => d.code === "loom.elixir-if-stmt-unsupported";
+/** A PER-BACKEND refusal — the per-backend narrowings these positions have
+ *  are Phoenix's: its `if` shapes (`if-stmt-checks.ts`) and the statement
+ *  `match` (`elixir-match-stmt-checks.ts`). */
+const isTargetGap = (d: Diag): boolean =>
+  d.code === "loom.elixir-if-stmt-unsupported" || d.code === "loom.elixir-match-stmt-unsupported";
 
 interface Cell {
   kind: string;

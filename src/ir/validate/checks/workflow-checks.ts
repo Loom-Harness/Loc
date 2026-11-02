@@ -18,6 +18,7 @@ import {
   omittableCreateInputs,
 } from "../../enrich/wire-projection.js";
 import { verbsForKind } from "../../resource-verbs.js";
+import { variantTag } from "../../stdlib/unions.js";
 import type { EffectKind } from "../../types/effect-ir.js";
 import type {
   AggregateIR,
@@ -1183,6 +1184,30 @@ function validateWorkflowBody(
 /** The per-body statement walk.  Extracted verbatim from `validateWorkflowBody`
  *  so it can run once per declared body (create / reactor / handler) instead of
  *  once per workflow over the primary-create facade. */
+/** Check each arm of a statement `match` through `nested`, with the arm's
+ *  binding bound to its aggregate variant for that arm's body only (a non-
+ *  aggregate binding stays unbound: an operation called on it is reported),
+ *  then the `else` body with nothing bound.  The arm label (`V b`) names the
+ *  arm in the unknown-binding message. */
+function checkMatchArmOpCalls(
+  st: Extract<WorkflowStmtIR, { kind: "variant-match" }>,
+  nested: (
+    body: WorkflowStmtIR[],
+    v: string | undefined,
+    agg: string,
+    label: string,
+    nesting: "match",
+  ) => void,
+): void {
+  for (const arm of st.arms) {
+    const tag = variantTag(arm.varType);
+    const label = arm.binding ? `${tag} ${arm.binding}` : tag;
+    const agg = arm.varType.kind === "entity" ? arm.varType.name : "";
+    nested(arm.body, agg && arm.binding ? arm.binding : undefined, agg, label, "match");
+  }
+  nested(st.elseBody ?? [], undefined, "", "else", "match");
+}
+
 function validateWorkflowStatements(
   ctx: BoundedContextIR,
   wf: {
@@ -1411,7 +1436,7 @@ function validateWorkflowStatements(
      *  key behind a local is invisible to it — the catalog then reports the
      *  site as inline wording and both keys as orphans (CLAUDE.md,
      *  "Diagnostic wording lives in one catalog"). */
-    nesting: "for" | "if-let",
+    nesting: "for" | "if-let" | "match",
   ): void => {
     const bodyLocal: string[] = [];
     /** Check a body nested one level further, with `v` bound for it only (a
@@ -1421,7 +1446,7 @@ function validateWorkflowStatements(
       v: string | undefined,
       agg: string,
       innerVar: string,
-      innerNesting: "for" | "if-let",
+      innerNesting: "for" | "if-let" | "match",
     ): void => {
       const shadowed = v === undefined ? undefined : bindingAgg.get(v);
       if (v !== undefined) bindingAgg.set(v, agg);
@@ -1442,6 +1467,19 @@ function validateWorkflowStatements(
             !crossContextBindings.has(inner.target) &&
             !optionalBindings.has(inner.target)
           ) {
+            if (nesting === "match") {
+              diags.push({
+                severity: "error",
+                code: "loom.workflow-foreach-unknown-binding",
+                message: diagMessage(
+                  "loom.workflow-foreach-unknown-binding#workflow-in-match-references",
+                  { name: wf.name, var: loopVar, target: inner.target, op: inner.op },
+                ),
+                source: `${ctx.name}/${wf.name}`,
+                origin: wf.origin,
+              });
+              break;
+            }
             diags.push({
               severity: "error",
               code: "loom.workflow-foreach-unknown-binding",
@@ -1473,6 +1511,9 @@ function validateWorkflowStatements(
         case "if-let":
           nestedWith(inner.thenBody, inner.var, inner.aggName, inner.var, "if-let");
           nestedWith(inner.elseBody ?? [], undefined, inner.aggName, inner.var, "if-let");
+          break;
+        case "variant-match":
+          checkMatchArmOpCalls(inner, nestedWith);
           break;
         // No op-call binding to check; effects are counted by the deep walk in
         // `validateWorkflowBody`, and a `let`'s binding is registered below.
@@ -1857,6 +1898,19 @@ function validateWorkflowStatements(
         checkBranchOpCalls(st.elseBody ?? []);
         break;
       }
+      case "variant-match":
+        // Each arm's binding is bound for its own body only; the arm bodies'
+        // op-calls are checked the way an `if let` branch's are.
+        checkMatchArmOpCalls(st, (body, v, agg, label, nesting) => {
+          const shadowed = v === undefined ? undefined : bindingAgg.get(v);
+          if (v !== undefined) bindingAgg.set(v, agg);
+          checkNestedBodyOpCalls(body, label, nesting);
+          if (v !== undefined) {
+            if (shadowed === undefined) bindingAgg.delete(v);
+            else bindingAgg.set(v, shadowed);
+          }
+        });
+        break;
       case "op-call": {
         const aggName = bindingAgg.get(st.target);
         if (!aggName) {

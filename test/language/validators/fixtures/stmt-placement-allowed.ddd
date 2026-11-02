@@ -1,10 +1,10 @@
 // THE OVER-FIRE GUARD for `src/language/validators/stmt-placement.ts`.
 //
 // All three gated statements in the homes that DO lower them, in one source:
-// `for` and `if let` in a workflow `create` body and in a `commandHandler`,
-// and the effect form of `match` in a page `action` (through `match await`) —
-// plus the value form of `match` in an operation body, the one form a domain
-// body admits.
+// `for` and `if let` in a workflow `create` body and in a `commandHandler`;
+// the statement form of `match` in a page `action` (through `match await`), an
+// operation, a domain-service operation, a workflow `create` and a
+// `commandHandler`; and the value form of `match` in an operation body.
 // A gate that fires here is refusing valid programs — which is the failure mode
 // a placement rule is most likely to have, so the test asserts the three
 // placement codes are ABSENT rather than that the file is diagnostic-free.
@@ -17,12 +17,32 @@ system AllowedPlacement {
         reserved: bool
         operation place(): Order or NotAllowed { reserved := true  return this }
         operation reserve() { reserved := true }
-        // The VALUE form of a variant `match` — legal in a domain body, unlike
-        // the effect form — over an `or`-returning operation's result.
+        // The VALUE form of a variant `match` over an `or`-returning
+        // operation's result.
         operation describe(): string {
           let r = place()
           let t = match r { Order o => o.code, NotAllowed e => e.reason }
           return t
+        }
+        // The STATEMENT form in an operation body, over the same result.
+        operation settle() {
+          let r = place()
+          match r {
+            Order o => { code := o.code }
+            NotAllowed e => { code := e.reason }
+          }
+        }
+      }
+      domainService Vetting {
+        operation vet(code: string): string or NotAllowed {
+          return code
+        }
+        // A `T?` subject: the arm runs on present, `else` on absent.
+        operation explain(code: string?): string {
+          match code {
+            string s => { return s }
+            else => { return "none" }
+          }
         }
       }
       criterion ByCode(code: string) of Order = this.code == code
@@ -36,6 +56,11 @@ system AllowedPlacement {
           let matched = Orders.all(Coded(code), page: { offset: 0, limit: 100 })
           for o in matched { o.reserve() }
           if let hit = Orders.find(ByCode(code)) { hit.reserve() }
+          let verdict = Vetting.vet(code)
+          match verdict {
+            string s => { }
+            NotAllowed e => { }
+          }
         }
       }
 
@@ -44,6 +69,11 @@ system AllowedPlacement {
         let more = Orders.all(Coded(code), page: { offset: 0, limit: 100 })
         for o in more { o.reserve() }
         if let hit = Orders.find(ByCode(code)) { hit.reserve() }
+        let one = Orders.find(ByCode(code))
+        match one {
+          Order o => { o.reserve() }
+          else => { notFound }
+        }
       }
     }
   }

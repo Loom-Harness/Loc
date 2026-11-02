@@ -1,3 +1,4 @@
+import { variantTag } from "../ir/stdlib/unions.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -298,6 +299,15 @@ function workflowSubgraph(ctx: string, wf: WorkflowIR, wi: number): string[] {
   return [`  subgraph wf_${wi}["${label(title)}"]`, `    direction TB`, ...body, `  end`];
 }
 
+/** `{ A a | B | else }` — the arms of a statement `match`, for a node label. */
+function matchArmLabels(s: Extract<WorkflowStmtIR, { kind: "variant-match" }>): string {
+  const arms = s.arms.map((a) =>
+    a.binding ? `${variantTag(a.varType)} ${a.binding}` : variantTag(a.varType),
+  );
+  if (s.elseBody) arms.push("else");
+  return `{ ${arms.join(" | ")} }`;
+}
+
 interface StepNode {
   id: string;
   decl: string;
@@ -329,6 +339,8 @@ function stepNode(id: string, s: WorkflowStmtIR): StepNode {
         id,
         decl: `${id}{"${label(`if let ${s.var} = ${s.repoName}.find(${s.synthCriterion.name})`)}"}`,
       };
+    case "variant-match":
+      return { id, decl: `${id}{"${label(`match ${matchArmLabels(s)}`)}"}` };
     case "expr-let":
       return { id, decl: `${id}["${label(`let ${s.name}`)}"]` };
     case "assign":
@@ -563,6 +575,16 @@ function sequenceMessages(s: WorkflowStmtIR): SeqLine[] {
         ret(s.repoName, `${s.var}?`),
         note(`if let ${s.var}`),
         ...s.thenBody.flatMap(sequenceMessages),
+        ...((s.elseBody ?? []).length > 0
+          ? [note("else"), ...(s.elseBody ?? []).flatMap(sequenceMessages)]
+          : []),
+      ];
+    case "variant-match":
+      return [
+        ...s.arms.flatMap((a) => [
+          note(a.binding ? `${variantTag(a.varType)} ${a.binding}` : variantTag(a.varType)),
+          ...a.body.flatMap(sequenceMessages),
+        ]),
         ...((s.elseBody ?? []).length > 0
           ? [note("else"), ...(s.elseBody ?? []).flatMap(sequenceMessages)]
           : []),

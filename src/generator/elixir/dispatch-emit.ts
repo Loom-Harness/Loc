@@ -40,6 +40,11 @@ import { type StateDefaultDecls, stateDefault, stateDefaultDecls } from "./state
 import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { denialTerm, notFoundStmtTerm } from "./vanilla/denial.js";
 import { bodyUsesParam, renderFunctionBodyLines } from "./vanilla/function-emit.js";
+import {
+  armsCoverUnion,
+  elixirUnionScrutinee,
+  elixirVariantPattern,
+} from "./vanilla/match-stmt-emit.js";
 import { skipFiltersOption } from "./vanilla/read-scope-emit.js";
 import { emitsRestDelete } from "./vanilla/rest-surface.js";
 import { mapTypeToEcto } from "./vanilla/schema-emit.js";
@@ -1372,6 +1377,70 @@ function renderStmt(
         `             end)`,
       ];
       return [{ kind: "with-clause", text: lines.join("\n") }];
+    }
+    case "variant-match": {
+      // `match <subject> { V b => { … } … }` → one with-clause wrapping a
+      // parenthesised `case` (a union subject: the tagged `{:ok, value}` /
+      // `{:error, "Tag", fields}` tuple an `or`-returning call answers) or a
+      // presence `if` (a `T?` subject), the command path's shape
+      // (`vanilla/workflow-execution-emit.ts`).  Each arm is rendered by this
+      // reactor's own `renderStmt` (so an `emit` re-enters the Dispatcher) and
+      // ends in `{:ok, _}`, or in its first `{:error, _}`.  A `_` clause runs
+      // the `else` body and is emitted whenever the arms do not name every
+      // variant, so an uncovered value is a no-op, not a `CaseClauseError`.
+      const subject = renderExpr(st.subject, renderCtx);
+      const branch = (body: WorkflowStmtIR[], pad: string, head: string[] = []): string[] =>
+        [
+          ...head,
+          ...renderReactorNestedBody(body, ctx, renderCtx, contextModule, channels, {
+            ok: () => "{:ok, nil}",
+            err: "err",
+          }),
+        ]
+          .flatMap((l) => l.split("\n"))
+          .map((l) => `${pad}${l}`);
+      let block: string[];
+      if (st.subjectShape === "absence") {
+        const isAbsent = (a: (typeof st.arms)[number]) => a.varType.kind === "none" || a.isError;
+        const presentArm = st.arms.find((a) => !isAbsent(a));
+        const absentArm = st.arms.find(isAbsent);
+        const presentBody = presentArm?.body ?? st.elseBody ?? [];
+        const binding = presentArm?.binding;
+        const bindLine =
+          binding && loopBindUsed(binding, presentBody)
+            ? [`${escapeElixirIdent(snake(binding))} = ${subject}`]
+            : [];
+        block = [
+          `if ${subject} != nil do`,
+          ...branch(presentBody, "  ", bindLine),
+          `else`,
+          ...branch(absentArm?.body ?? st.elseBody ?? [], "  "),
+          `end`,
+        ];
+      } else {
+        const clauses = st.arms.flatMap((a) => {
+          const binder =
+            a.binding && loopBindUsed(a.binding, a.body)
+              ? escapeElixirIdent(snake(a.binding))
+              : "_";
+          return [`  ${elixirVariantPattern(a, binder)} ->`, ...branch(a.body, "    ")];
+        });
+        if (st.elseBody || !armsCoverUnion(st.subjectType, st.arms)) {
+          clauses.push("  _ ->", ...branch(st.elseBody ?? [], "    "));
+        }
+        block = [`case ${elixirUnionScrutinee(subject)} do`, ...clauses, `end`];
+      }
+      // Continuation lines carry absolute indentation, as the `if-let` arm's do.
+      return [
+        {
+          kind: "with-clause",
+          text: [
+            `{:ok, _} <- (`,
+            ...block.map((l) => `               ${l}`),
+            `             )`,
+          ].join("\n"),
+        },
+      ];
     }
     default: {
       const _exhaustive: never = st;

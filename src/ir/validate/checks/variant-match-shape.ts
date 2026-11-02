@@ -13,10 +13,10 @@
 // M-T9.40 already fixed the *expression* half of this exact reach problem
 // ("a `match` written anywhere the copy did not reach … was parsed, lowered and
 // emitted with none of its four semantic gates run") by widening that visitor
-// to `forEachModelExpr`.  The statement form was simply never in scope, because
-// no model-wide statement walk exists.  It does not need one: `variant-match`
-// is frontend-only, so the three `ActionIR` carriers — `PageIR`, `ComponentIR`,
-// `StoreIR` — are the whole surface.
+// to `forEachModelExpr`.  The statement form was simply never in scope.
+// `validateVariantMatch` (structural-checks.ts) now walks it in both of its
+// homes: the three `ActionIR` carriers (`PageIR`, `ComponentIR`, `StoreIR`) and
+// the backend bodies (operations, domain services, workflows, handlers).
 //
 // What that gap shipped: `match await <plain state field>` over a `string`
 // validates with ZERO diagnostics, and all four SPA walkers then emit

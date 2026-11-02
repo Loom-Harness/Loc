@@ -73,7 +73,7 @@ function applierRefusal(s: StmtIR): ApplierRefusal {
     case "precondition":
     case "requires":
       return "guard";
-    // A statement-form `match` is refused in every domain body by
+    // A statement `match` is refused in every applier (a pure fold) by
     // `loom.variant-match-placement`; it is not this file's to report twice.
     case "variant-match":
       return null;

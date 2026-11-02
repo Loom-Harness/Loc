@@ -26,10 +26,13 @@ import type { ExprIR } from "./loom-ir.js";
 
 /** One level of nesting an effect sits under.  `iteration` is a `for` loop
  *  body (`var` is the loop variable); `branch` is an `if let` arm (`var` is the
- *  arm's binder — bound only in `then`). */
+ *  arm's binder — bound only in `then`); `match-arm` is one arm of a statement
+ *  `match` (`variant` is the arm's wire tag, or `else`; `var` is its binding,
+ *  absent when the arm binds none). */
 export type EffectScopeIR =
   | { kind: "iteration"; var: string }
-  | { kind: "branch"; arm: "then" | "else"; var: string };
+  | { kind: "branch"; arm: "then" | "else"; var: string }
+  | { kind: "match-arm"; variant: string; var?: string };
 
 /** What a `call` effect calls: a domain-service operation, a verb on an
  *  ambient resource handle, or a typed operation of an in-system api. */

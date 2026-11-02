@@ -1,4 +1,5 @@
 import type { WorkflowStmtIR } from "../../ir/types/loom-ir.js";
+import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 
 // ---------------------------------------------------------------------------
 // The shared workflow statement-sequence spine — the `WorkflowStmtIR`
@@ -10,7 +11,8 @@ import type { WorkflowStmtIR } from "../../ir/types/loom-ir.js";
 // guard idiom, the expression renderer) plus the indent unit. Without this
 // seam each backend re-implements the whole switch.
 //
-// `renderWorkflowStmts` owns the dispatch + `for-each` recursion once; each
+// `renderWorkflowStmts` owns the dispatch + the nested-body recursion
+// (`for-each` / `if-let` / `variant-match`) once; each
 // backend supplies a `WorkflowStmtTarget` leaf table. A new `WorkflowStmtIR`
 // kind is a compile error here (exhaustive switch) AND in every target (the
 // interface), exactly like adding an `ExprIR.kind`.
@@ -76,6 +78,98 @@ export interface WorkflowStmtTarget {
     renderedThen: string[],
     renderedElse: string[],
   ): string[];
+
+  /** `variant-match`: `renderedArms[i]` is `st.arms[i].body` and
+   *  `renderedElse` the `else` body, each already rendered at
+   *  `indent + indentUnit` by the spine.  The target dispatches on the
+   *  subject — a presence check when `st.subjectShape === "absence"`, else a
+   *  probe of the union's variant — declares each arm's `binding` at the head
+   *  of its branch (a scalar variant binds its carrier's value, see
+   *  `isScalarVariant`), and appends each branch's saves (`savesInArm` /
+   *  `savesInElse`).  `renderedElse` is empty when the source had no `else`. */
+  variantMatch(
+    st: ByKind<"variant-match">,
+    indent: string,
+    renderedArms: string[][],
+    renderedElse: string[],
+  ): string[];
+}
+
+/** One side of a presence `match` (`subjectShape: "absence"`): the binding
+ *  the side declares (the present side's arm binding, aliasing the subject),
+ *  its rendered lines, and the saves it owes at its end. */
+export interface PresenceSide {
+  binding?: string;
+  lines: string[];
+  saves: readonly { name: string; aggName: string; repoName: string }[];
+}
+
+/** Split a presence `match` into the side that runs when the subject holds a
+ *  value (the `T` arm) and the side that runs when it does not (the `none`
+ *  arm); the `else` body fills whichever side no arm names.  A side no arm
+ *  and no `else` covers is undefined. */
+export function presenceSides(
+  st: ByKind<"variant-match">,
+  renderedArms: string[][],
+  renderedElse: string[],
+): { present?: PresenceSide; absent?: PresenceSide } {
+  const isAbsent = (a: (typeof st.arms)[number]) => a.varType.kind === "none" || a.isError;
+  const side = (absent: boolean): PresenceSide | undefined => {
+    const i = st.arms.findIndex((a) => isAbsent(a) === absent);
+    const arm = st.arms[i];
+    if (arm) {
+      return {
+        ...(!absent && arm.binding ? { binding: arm.binding } : {}),
+        lines: renderedArms[i]!,
+        saves: arm.savesInArm,
+      };
+    }
+    return st.elseBody ? { lines: renderedElse, saves: st.savesInElse } : undefined;
+  };
+  const present = side(false);
+  // An absent side with nothing to run renders no `else` at all.
+  const absentSide = side(true);
+  const absent =
+    absentSide && (absentSide.lines.length > 0 || absentSide.saves.length > 0)
+      ? absentSide
+      : undefined;
+  return { ...(present ? { present } : {}), ...(absent ? { absent } : {}) };
+}
+
+type SaveEntry = { name: string; aggName: string; repoName: string };
+
+/** The saves a NESTING statement stages at the end of its own branches — a
+ *  `for` iteration's, each `if let` branch's, each `match` arm's — in source
+ *  order; empty for every other kind.  An emitter that injects the
+ *  repositories a body saves through reads them here instead of re-listing
+ *  the nesting kinds. */
+export function nestedSaves(st: WorkflowStmtIR): SaveEntry[] {
+  switch (st.kind) {
+    case "for-each":
+      return st.savesPerIteration;
+    case "if-let":
+      return [...st.savesInThen, ...st.savesInElse];
+    case "variant-match":
+      return [...st.arms.flatMap((a) => a.savesInArm), ...st.savesInElse];
+    case "precondition":
+    case "requires":
+    case "emit":
+    case "factory-let":
+    case "repo-let":
+    case "expr-let":
+    case "assign":
+    case "repo-run":
+    case "op-call":
+    case "repo-delete":
+    case "resource-call":
+    case "domain-service-call":
+    case "not-found":
+      return [];
+    default: {
+      const _exhaustive: never = st;
+      return _exhaustive;
+    }
+  }
 }
 
 /** Let-bound names whose RHS was a UNION-returning find (`find x(): Agg or
@@ -87,17 +181,11 @@ export interface WorkflowStmtTarget {
  *  consult this set in their `exprLet` arm. */
 export function collectUnionFindLets(stmts: readonly WorkflowStmtIR[]): Set<string> {
   const out = new Set<string>();
-  const walk = (sts: readonly WorkflowStmtIR[]): void => {
-    for (const st of sts) {
+  for (const root of stmts) {
+    walkWorkflowStmtsDeep(root, (st) => {
       if (st.kind === "repo-let" && st.returnType.kind === "union") out.add(st.name);
-      else if (st.kind === "for-each") walk(st.body);
-      else if (st.kind === "if-let") {
-        walk(st.thenBody);
-        walk(st.elseBody ?? []);
-      }
-    }
-  };
-  walk(stmts);
+    });
+  }
   return out;
 }
 
@@ -169,6 +257,13 @@ function renderWorkflowStmt(
         st,
         indent,
         renderWorkflowStmts(st.thenBody, target, indent + target.indentUnit),
+        renderWorkflowStmts(st.elseBody ?? [], target, indent + target.indentUnit),
+      );
+    case "variant-match":
+      return target.variantMatch(
+        st,
+        indent,
+        st.arms.map((arm) => renderWorkflowStmts(arm.body, target, indent + target.indentUnit)),
         renderWorkflowStmts(st.elseBody ?? [], target, indent + target.indentUnit),
       );
     case "resource-call":

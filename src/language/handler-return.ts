@@ -16,9 +16,12 @@
 // (`loom.handler-return-not-last`) — a `return` anywhere else would not stop
 // the statements after it.
 
+import type { AstNode } from "langium";
 import {
   type IfLetStmt,
   isIfLetStmt,
+  isLambda,
+  isMatchStmt,
   isNotFoundStmt,
   isReturnStmt,
   type ReturnStmt,
@@ -49,4 +52,16 @@ export function allowedHandlerReturns(body: readonly Statement[]): Set<ReturnStm
   const guard = handlerReturnGuard(body);
   if (guard) out.add(guard.ret);
   return out;
+}
+
+/** True when `node` sits inside a statement `match` (an arm or its `else`)
+ *  of its own body — a block-bodied lambda between the two starts a body of
+ *  its own.  A `return` there is refused with the `#match-arm` wording: an arm
+ *  runs statements, and the body answers once, after the `match`. */
+export function inMatchArm(node: AstNode): boolean {
+  for (let c = node.$container; c; c = c.$container) {
+    if (isMatchStmt(c)) return true;
+    if (isLambda(c)) return false;
+  }
+  return false;
 }

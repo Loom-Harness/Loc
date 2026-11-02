@@ -57,6 +57,16 @@ describe("loom.unhandled-result", () => {
       "operation keep(amt: money): Account or InsufficientCredit { let r = withdraw(amt)  return r }",
     ],
     ["a union with no `error` variant", "operation note(amt: money) { receipt(amt) }"],
+    [
+      "a `let` handled by a statement `match`",
+      `operation settle(amt: money) {
+        let r = withdraw(amt)
+        match r {
+          Account a => { balance := a.balance }
+          InsufficientCredit e => { balance := e.available }
+        }
+      }`,
+    ],
   ])("admits %s", async (_what, op) => {
     expect(await codes(op)).toEqual([]);
   });

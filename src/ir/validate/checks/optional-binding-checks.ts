@@ -76,6 +76,17 @@ function checkBody(
         checkBody(st.elseBody ?? [], new Set(scope), report);
         break;
       }
+      case "variant-match": {
+        // An arm binding is the subject narrowed to its variant — never the
+        // un-narrowed optional — and the subject itself stays as it was.
+        for (const arm of st.arms) {
+          const armScope = new Set(scope);
+          if (arm.binding) armScope.delete(arm.binding);
+          checkBody(arm.body, armScope, report);
+        }
+        checkBody(st.elseBody ?? [], new Set(scope), report);
+        break;
+      }
       case "precondition":
       case "requires":
       case "emit":

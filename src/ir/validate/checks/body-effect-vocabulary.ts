@@ -220,7 +220,8 @@ function scopeCovers(outer: readonly EffectScopeIR[], inner: readonly EffectScop
 }
 
 /** `loom.workflow-mutation-unsaved` — every aggregate mutation of a local the
- *  body bound to an aggregate (a load, a create, a loop or `if let` variable)
+ *  body bound to an aggregate (a load, a create, a loop, `if let` or `match`
+ *  arm variable)
  *  is covered by a save of that local in its scope or an enclosing one.  A
  *  mutation of any other name is the symptom of an error reported elsewhere
  *  (`loom.workflow-unknown-binding`, `loom.workflow-cross-context-repository`),
@@ -235,7 +236,7 @@ function checkMutationsSaved(
   const bound = new Set<string>();
   for (const e of effects) {
     if ((e.kind === "load" || e.kind === "create") && e.binds) bound.add(e.binds);
-    for (const s of e.scope) bound.add(s.var);
+    for (const s of e.scope) if (s.var) bound.add(s.var);
   }
   const reported = new Set<string>();
   for (const e of effects) {

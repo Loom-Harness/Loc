@@ -1169,13 +1169,11 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/language/validators/stmt-placement.ts
   // ----------------------------------------------------------------------
-  // Two PERMANENT placement refusals and one HONEST GAP (M-T5.28, ruling
-  // D-FOR-IN-DOMAIN).  The two permanent messages deliberately prescribe no
-  // replacement construct: a placement rule that will never change reads
-  // better as a statement of where the construct lives than as advice that
-  // later goes stale.
+  // Placement rulings D-FOR-IN-DOMAIN (amended by D-FAILURE-MODEL).  The
+  // design-rule messages state where the construct lives rather than advising
+  // a construct that may later move.
   "loom.variant-match-placement": (p: { owner: unknown }) =>
-    `A 'match' used for its EFFECTS (arms that run statements) is frontend-only — it lowers to a page / component / store 'action' handler and has no backend form — but this one is in ${p.owner}, which runs on the backend. Move the effect into the 'action' that invokes it. This is a permanent placement rule, not a missing feature.`,
+    `A 'match' used for its EFFECTS (arms that run statements) is not available in ${p.owner}: a fold ('apply', a projection 'on') is a straight-line state transition and a 'function' computes a value, so neither has a statement form of it. Use the value form instead — 'let x = match r { A a => …, else => … }' — or move the effect into the operation, workflow or handler that calls it, where a statement 'match' is legal.`,
   "loom.if-let-placement": (p: { owner: unknown }) =>
     `'if let' binds the optional result of a repository read and branches on its presence; only a workflow body ('create' / 'on') or a top-level 'commandHandler' / 'queryHandler' lowers it. This one is in ${p.owner}, which has no such lowering — do the optional read in a workflow or handler and pass the resolved value in. This is a permanent placement rule, not a missing feature.`,
   "loom.not-found-placement": (p: { owner: unknown }) =>
@@ -1255,6 +1253,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `Workflow '${p.workflow}': 'return' in '${p.create}' must be the last top-level statement of the ` +
     `body. The result is answered after every step (and the transaction) completes, so an earlier or ` +
     `nested 'return' would not stop the steps after it.`,
+  "loom.workflow-return-not-last#match-arm": (p: { workflow: unknown; create: unknown }) =>
+    `Workflow '${p.workflow}': 'return' in '${p.create}' sits inside a 'match' arm.  An arm runs ` +
+    `statements; the result is answered once, after every step (and the transaction) completes. ` +
+    `Compute the result with the value form — 'let r = match x { A a => …, B b => … }' — and end ` +
+    `the body with 'return r'.`,
   "loom.workflow-return-untyped": (p: { workflow: unknown; create: unknown }) =>
     `Workflow '${p.workflow}': '${p.create}' ends in 'return' but declares no result type. ` +
     `Annotate it — 'create(…): T { … return <expr> }' — so the route publishes what it answers.`,
@@ -1787,6 +1790,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `${p.label} is declared to return '${p.declared}' but not every path ends in a \`return\`. ` +
     `End each branch with \`return <value>\` (an \`if\` needs an \`else\` that returns too).`,
 
+  "loom.handler-return-not-last#match-arm": (p: { label: unknown }) =>
+    `${p.label}: 'return' sits inside a 'match' arm.  An arm runs statements; a handler answers ` +
+    `once, after its body has run, so a 'return' in an arm would not stop the statements after ` +
+    `the 'match'.  Compute the answer with the value form — 'let r = match x { A a => …, ` +
+    `B b => … }' — and end the body with 'return r'.`,
   "loom.handler-return-not-last": (p: { label: unknown }) =>
     `${p.label}: 'return' must be the last top-level statement of the body, or the whole ` +
     `then-branch of a final 'if let … { return x } else { … notFound }'. A handler answers ` +
@@ -2748,6 +2756,52 @@ export const DIAGNOSTIC_MESSAGES = {
   // What is left are three sub-shapes that rendering cannot express; each says
   // which one, because "rewrite it as a ternary" is the wrong advice for two of
   // them.
+  // The statement `match` RENDERS on elixir (a value-producing `record = case …
+  // end` in an operation, a tail `case` in a domain service, a `{:ok, _} <-
+  // (case … end)` with-clause in a workflow / handler).  What is left are the
+  // sub-shapes that rendering cannot express, each named by its slug.
+  "loom.elixir-match-stmt-unsupported#return-in-arm": (p: { where: unknown; name: unknown }) =>
+    `A \`return\` appears inside a \`match\` arm in ${p.where}, whose context is hosted by the ` +
+    `Phoenix/Elixir deployable '${p.name}'.  The statement \`match\` renders on Elixir, but a ` +
+    `\`return\` inside an arm is an EARLY EXIT, and an Elixir body has no early return — its ` +
+    `value is its tail expression, so the statements after the \`match\` would still run (a ` +
+    `domain-service body may \`return\` from every arm of a TAIL \`match\` that covers its ` +
+    `subject).  Assign in the arms and return once after the \`match\`, or host this context ` +
+    `on a node / dotnet / java / python backend.`,
+  "loom.elixir-match-stmt-unsupported#guard-in-arm": (p: { where: unknown; name: unknown }) =>
+    `A \`precondition\` / \`requires\` guard appears inside a \`match\` arm in ${p.where}, ` +
+    `whose context is hosted by the Phoenix/Elixir deployable '${p.name}'.  The Phoenix ` +
+    `operation path HOISTS an operation's guards into a leading \`with :ok <- ensure(…)\` ` +
+    `chain so a failed guard answers 403 / 422; a guard nested inside an arm cannot be ` +
+    `hoisted and would raise instead, answering 500 where the other four backends answer a ` +
+    `typed denial.  Lift the guard to the top of the body, or host this context on a node / ` +
+    `dotnet / java / python backend.`,
+  "loom.elixir-match-stmt-unsupported#arm-statement": (p: { where: unknown; name: unknown }) =>
+    `A \`match\` arm in ${p.where} contains a statement the Phoenix/Elixir deployable ` +
+    `'${p.name}' cannot render THERE — an \`emit\` or a \`provenanced\` write.  The statement ` +
+    `\`match\` renders on Elixir; an arm may hold what an \`if\` branch may (assignments, ` +
+    `collection mutations, \`let\`, a call, a nested \`if\` or \`match\`), because the ` +
+    `emitters decide an operation's supporting machinery by scanning its TOP-LEVEL ` +
+    `statements: a conditional \`emit\` would be invisible to that scan and could not be ` +
+    `hoisted past the commit, and a nested \`provenanced\` write would capture lineage in an ` +
+    `operation never put into provenance-flush mode.  Move the statement out of the arm ` +
+    `(compute a value inside the \`match\`, act on it after), or host this context on a ` +
+    `node / dotnet / java / python backend.`,
+  "loom.elixir-match-stmt-unsupported#event-sourced": (p: { where: unknown; name: unknown }) =>
+    `A statement \`match\` is used in ${p.where} — an EVENT-SOURCED command body or workflow ` +
+    `handler — whose context is hosted by the Phoenix/Elixir deployable '${p.name}'.  Such a ` +
+    `body is not rendered as a statement sequence on Phoenix: its guards become ` +
+    `\`with :ok <- ensure(…)\` clauses and its \`emit\`s one \`events = […]\` list, so an ` +
+    `arm has nowhere to render.  Compute the choice as a VALUE (an expression ` +
+    `\`match\` inside the emitted event's fields), or host this context on a node / dotnet / ` +
+    `java / python backend.`,
+  "loom.elixir-match-stmt-unsupported#multi-success": (p: { where: unknown; name: unknown }) =>
+    `A statement \`match\` in ${p.where} matches a union with more than one non-error ` +
+    `variant, and its context is hosted by the Phoenix/Elixir deployable '${p.name}'.  On ` +
+    `Elixir an \`or\`-returning call answers \`{:ok, value}\` for its success variant and ` +
+    `\`{:error, "Tag", fields}\` for an \`error\` one — the success value carries no tag, so ` +
+    `two success variants cannot be told apart at runtime.  Make all but one of the variants ` +
+    `\`error\` records, or host this context on a node / dotnet / java / python backend.`,
   "loom.elixir-if-stmt-unsupported#return-in-branch": (p: { where: unknown; name: unknown }) =>
     `A \`return\` appears inside an \`if\` branch in ${p.where}, whose context is hosted ` +
     `by the Phoenix/Elixir deployable '${p.name}'.  The \`if\` STATEMENT itself renders on ` +
@@ -2767,10 +2821,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `python backend.`,
   "loom.elixir-if-stmt-unsupported#branch-statement": (p: { where: unknown; name: unknown }) =>
     `An \`if\` branch in ${p.where} contains a statement the Phoenix/Elixir deployable ` +
-    `'${p.name}' cannot render THERE — an \`emit\`, an effect-form \`match\`, or a ` +
-    `\`provenanced\` write.  The \`if\` STATEMENT itself renders on Elixir; what a branch may ` +
+    `'${p.name}' cannot render THERE — an \`emit\` or a \`provenanced\` write.  ` +
+    `The \`if\` STATEMENT itself renders on Elixir; what a branch may ` +
     `hold is a CLOSED set (assignments, collection mutations, \`let\`, a call, a nested ` +
-    `\`if\`), because the emitters decide an operation's supporting machinery by scanning its ` +
+    `\`if\` or \`match\`), because the emitters decide an operation's supporting machinery by scanning its ` +
     `TOP-LEVEL statements: a conditional \`emit\` would be invisible to that scan (no ` +
     `\`require Logger\`, and the persist-then-dispatch restructure could not hoist it past the ` +
     `commit, so a phantom event would fire on a failed write), and a nested \`provenanced\` ` +
@@ -5346,6 +5400,13 @@ export const DIAGNOSTIC_MESSAGES = {
     op: unknown;
   }) =>
     `workflow '${p.name}': in 'if let ${p.var}', '${p.target}.${p.op}(...)' references unknown binding '${p.target}'.`,
+  "loom.workflow-foreach-unknown-binding#workflow-in-match-references": (p: {
+    name: unknown;
+    var: unknown;
+    target: unknown;
+    op: unknown;
+  }) =>
+    `workflow '${p.name}': in the 'match' arm '${p.var}', '${p.target}.${p.op}(...)' references unknown binding '${p.target}'.`,
   "loom.iflet-bad-source": (p: { name: unknown; var: unknown }) =>
     `workflow '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)' or a declared optional find 'Repo.<find>(args)' (one returning 'T?').`,
   "loom.iflet-bad-source#handler": (p: { kind: unknown; name: unknown; var: unknown }) =>

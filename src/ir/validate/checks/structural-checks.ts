@@ -22,6 +22,7 @@ import type {
   StmtIR,
   TypeIR,
   UiIR,
+  WorkflowStmtIR,
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
 import { canonicalCreate, canonicalDestroy } from "../../util/canonical-lifecycle.js";
@@ -39,6 +40,7 @@ import {
   walkStmtExprsDeep as walkExprsInStmt,
   walkStmtsDeep,
   walkWorkflowStmtExprsDeep,
+  walkWorkflowStmtsDeep,
 } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { walkExpr } from "./shared.js";
@@ -788,9 +790,55 @@ export function validateVariantMatch(loom: EnrichedLoomModel, diags: LoomDiagnos
     visit(source)(expr);
   });
 
-  // The STATEMENT form (`match await <api>.<Agg>.<op>(…) { … }` in a page /
-  // component / store action).  `variant-match` is frontend-only, so the three
-  // `ActionIR` carriers are its whole surface.  Its `subjectType` is now the
+  // The STATEMENT form in a backend body — an operation / `create` /
+  // `destroy`, a domain-service operation, a workflow `create` / `on`, a
+  // handler.  Its subject is a value the body holds: an `or`-union, or a `T?`
+  // (checked as `T or none`).  A subject of any other type is reported here.
+  for (const ctx of allContexts(loom)) {
+    const stmtBody = (where: string, stmts: readonly StmtIR[]): void => {
+      for (const top of stmts) {
+        walkStmtsDeep(top, (s) => {
+          if (s.kind !== "variant-match") return;
+          checkVariantMatchShape(
+            { subjectType: s.subjectType, arms: s.arms, hasElse: s.elseBody !== undefined },
+            `${ctx.name}/${where}`,
+            diags,
+          );
+        });
+      }
+    };
+    const workflowBody = (where: string, stmts: readonly WorkflowStmtIR[]): void => {
+      for (const top of stmts) {
+        walkWorkflowStmtsDeep(top, (s) => {
+          if (s.kind !== "variant-match") return;
+          checkVariantMatchShape(
+            { subjectType: s.subjectType, arms: s.arms, hasElse: s.elseBody !== undefined },
+            `${ctx.name}/${where}`,
+            diags,
+          );
+        });
+      }
+    };
+    for (const agg of ctx.aggregates) {
+      for (const op of agg.operations) stmtBody(`${agg.name}.${op.name}`, op.statements);
+      for (const c of agg.creates ?? []) stmtBody(`${agg.name}.${c.name}`, c.statements);
+      for (const d of agg.destroys ?? []) stmtBody(`${agg.name}.${d.name}`, d.statements);
+    }
+    for (const svc of ctx.domainServices) {
+      for (const op of svc.operations) stmtBody(`${svc.name}.${op.name}`, op.body);
+    }
+    for (const wf of ctx.workflows) {
+      for (const c of wf.creates ?? []) workflowBody(wf.name, c.statements);
+      for (const o of wf.subscriptions ?? []) workflowBody(wf.name, o.statements);
+    }
+    for (const h of [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])]) {
+      workflowBody(h.name, h.statements);
+    }
+  }
+
+  // The STATEMENT form in a page / component / store action (`match await
+  // <api>.<Agg>.<op>(…) { … }`) — the three `ActionIR` carriers are its
+  // frontend surface.  Its `subjectType` is now the
   // awaited operation's declared return type (the single typing pass,
   // M-T5.47 cutover 3b; gates wired by M-T5.43 V14), so the unknown / duplicate / non-exhaustive
   // gates run on it exactly as on the expression form.  A NON-union subject is
