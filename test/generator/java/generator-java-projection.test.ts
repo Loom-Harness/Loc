@@ -65,4 +65,21 @@ describe("java projection runtime", () => {
     expect(row).toContain("public void setCustomer(CustomerId customer) {");
     expect(row).toContain("public void setStatus(OrderStatus status) {");
   });
+
+  it("boxes primitive non-key columns so a NULL read does not fail", async () => {
+    const src = SRC.replace(
+      "    status: OrderStatus\n    on(e: OrderPlaced)",
+      "    status: OrderStatus\n    qty: int\n    paid: bool\n    on(e: OrderPlaced)",
+    );
+    expect(src).not.toBe(SRC);
+    const row = file(
+      await generateSystemFiles(src),
+      "infrastructure/persistence/OrderBookRow.java",
+    );
+    expect(row).toContain("Integer qty;");
+    expect(row).toContain("Boolean paid;");
+    expect(row).toContain("public Integer qty() {");
+    expect(row).toContain("public void setPaid(Boolean paid) {");
+    expect(row).not.toMatch(/\b(int|boolean) (qty|paid)\b/);
+  });
 });

@@ -9,7 +9,7 @@ import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { tableNameFor } from "../../../util/storage-names.js";
 import { jid } from "../java-ident.js";
-import { renderJavaType } from "../render-expr.js";
+import { boxedJavaType } from "../render-expr.js";
 import { hbIdent } from "../sql-ident.js";
 import { jpaClassAnnotations, jpaFieldAnnotations } from "./jpa-annotations.js";
 import { setterName } from "./workflow-state.js";
@@ -85,7 +85,8 @@ export function renderProjectionRowEntity(
   const corr = proj.correlationField as string;
   // Non-key columns are nullable (partial upsert), so render every non-key
   // field as if optional — this drives the nullable column mapping AND leaves
-  // `_allocate` an empty seed (no required non-key defaults).
+  // `_allocate` an empty seed (no required non-key defaults).  Every non-key column
+  // is also boxed: a primitive field cannot hold the NULL a partial row reads.
   const stateOnly = proj.stateFields
     .filter((f) => f.name !== corr)
     .map((f) => ({ ...f, optional: true }) as FieldIR);
@@ -105,7 +106,7 @@ export function renderProjectionRowEntity(
   ];
   for (const f of stateOnly) {
     fieldLines.push(...jpaFieldAnnotations(f, owner, { voLookup, stateRow: true }));
-    fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
+    fieldLines.push(`    ${boxedJavaType(f.type)} ${jid(f.name)};`);
   }
 
   // Empty-seed allocate factory — every non-key column is nullable, so a fresh
@@ -140,8 +141,8 @@ export function renderProjectionRowEntity(
   const accessors = [
     ...accessor(idClass, corr),
     ...stateOnly.flatMap((f) => [
-      ...accessor(renderJavaType(f.type), f.name),
-      ...setter(renderJavaType(f.type), f.name),
+      ...accessor(boxedJavaType(f.type), f.name),
+      ...setter(boxedJavaType(f.type), f.name),
     ]),
   ];
 
