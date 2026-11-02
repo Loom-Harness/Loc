@@ -161,7 +161,7 @@ fails the fast suite.
 
 | Workflow | Local command | Needs |
 |---|---|---|
-| `test.yml` | `npm test` (shards: `-- --project unit --project mocked --shard=i/4`; corpus job: `-- --project corpus`; nightly coverage: `npm run test:coverage`); lint job: `npm run lint && npm run test:biome-gen && npm run test:typecheck && npm run test:contrast && cd web && npx tsc -b && npm run test:ddl` | — |
+| `test.yml` | `npm test` (shards: `-- --project unit --project mocked --shard=i/4`; corpus job: `-- --project corpus`; nightly coverage: `npm run test:coverage`, which runs under a 90 s `testTimeout` because v8 instrumentation roughly doubles wall time — the uninstrumented suite keeps its 30 s budget); lint job: `npm run lint && npm run test:biome-gen && npm run test:typecheck && npm run test:contrast && cd web && npx tsc -b && npm run test:ddl` | — |
 | `langium-generated.yml` | `npm run langium:generate && git diff --exit-code src/language/generated` | — |
 | `workflow-lint.yml` | `docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:latest -color` | docker |
 | `pr-gate.yml` | nothing to run — it aggregates the other checks; its decision core: `npx vitest run test/system/pr-gate.test.ts` | — |

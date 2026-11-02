@@ -27,7 +27,7 @@
     "test:lang": "vitest run test/language",
     "test:ir": "vitest run test/ir test/system test/macro test/platform test/adapters",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "vitest run --coverage --testTimeout=90000",
     "test:e2e": "LOOM_E2E=1 vitest run test/e2e/e2e.test.ts",
     "test:tsc": "LOOM_TS_BUILD=1 vitest run test/e2e/generated-build.test.ts",
     "test:tsc-corpus": "LOOM_TS_BUILD=1 vitest run test/e2e/corpus-tsc-build.test.ts",
