@@ -29,8 +29,8 @@ import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
 import {
-  type Entry,
   asMoneySeedLiteral,
+  type Entry,
   groupByDataset,
   seederAggregates,
   usedAggregates,

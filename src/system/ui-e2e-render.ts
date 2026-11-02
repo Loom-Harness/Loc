@@ -491,18 +491,17 @@ function renderUIExpr(e: ExprIR, ctx: RenderCtx): string {
       // Same TS coercion shape as `e2e-render.ts` and the domain
       // renderer — UI tests build payloads the same way the e2e
       // suite does, so the per-(from, target) emit stays uniform.
+      // A `money` here is the wire string (see `renderLiteral`), not a
+      // decimal.js `Decimal` — the emitted spec imports none.
       const v = renderUIExpr(e.value, ctx);
-      if (e.target === "string") {
-        if (e.from === "money") return `${v}.toString()`;
-        return `String(${v})`;
-      }
+      if (e.target === "string") return `String(${v})`;
       if (e.target === "long" || e.target === "decimal") {
-        if (e.from === "money") return `${v}.toNumber()`;
+        if (e.from === "money") return `Number(${v})`;
         return v;
       }
       if (e.target === "money") {
         if (e.from === "money") return v;
-        return `new Decimal(${v})`;
+        return `String(${v})`;
       }
       return v;
     }
@@ -554,6 +553,10 @@ function renderLiteral(lit: string, value: string): string {
   if (lit === "string") return JSON.stringify(value);
   if (lit === "now") return "new Date().toISOString()";
   if (lit === "null") return "null";
+  // `money` rides as its exact decimal STRING (RS-12): a bare literal becomes a
+  // JS number (`42.00` -> `42`), losing the written scale before it is typed
+  // into the form.  `decimal` stays a bare number.
+  if (lit === "money") return JSON.stringify(value);
   return value;
 }
 

@@ -110,3 +110,33 @@ describe("python outbox / SSE event payload money (#3487)", () => {
     expect(dispatch).not.toMatch(/"amount": str\(/);
   });
 });
+
+describe("ui e2e money literals (#3434)", () => {
+  it("fill(...) carries the exact quoted money string, not a JS number", async () => {
+    const files = await gen(`system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Rate with crudish { label: string  hourly: money }
+      repository Rates for Rate { }
+    }
+  }
+  ui WebApp with scaffold(subdomains: [Sales]) { }
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable api { platform: node, contexts: [Orders], dataSources: [st], port: 3000 }
+  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+  test e2e "money round trip" against webApp {
+    let r = ui.rates.create({ label: "x", hourly: money("98.7654") })
+    let s = ui.rates.create({ label: "y", hourly: money("42.00") })
+  }
+}
+`);
+    const spec = [...files.entries()].find(
+      ([k, v]) => /\.ui\.spec\.ts$/.test(k) && v.includes("money round trip"),
+    )?.[1];
+    expect(spec).toBeDefined();
+    expect(spec).toContain('hourly: "98.7654"');
+    expect(spec).toContain('hourly: "42.00"');
+    expect(spec).not.toMatch(/hourly: 42\b/);
+  });
+});

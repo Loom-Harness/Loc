@@ -8,8 +8,8 @@ import { lines } from "../../../util/code-builder.js";
 import { pythonIdent, snake } from "../../../util/naming.js";
 import { pyRef } from "../../_imports/python.js";
 import {
-  type Entry,
   asMoneySeedLiteral,
+  type Entry,
   groupByDataset,
   type SeederAggregate,
   seederAggregates,

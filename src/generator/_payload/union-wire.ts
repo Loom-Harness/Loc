@@ -15,13 +15,13 @@
 // stays in each backend (which owns its primitive mapping), so this module
 // only resolves *which* fields each variant contributes.
 
+import { scalarCodecOf } from "../../ir/enrich/codec.js";
 import {
   forApiRead,
   wireFieldsForAggregate,
   wireFieldsForPart,
   wireFieldsForValueObject,
 } from "../../ir/enrich/wire-projection.js";
-import { scalarCodecOf } from "../../ir/enrich/codec.js";
 import { unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import type { BoundedContextIR, TypeIR, WireField } from "../../ir/types/loom-ir.js";
 import { peelCollection, peelNullable, wireTypeInfo } from "../../ir/types/wire-types.js";
@@ -111,10 +111,11 @@ export function unionMoneyArms(variants: TypeIR[], ctx: BoundedContextIR): Union
   for (const m of unionMembers(variants, ctx)) {
     const isPayloadArm = (() => {
       const v = variants.find((x) => variantTag(x) === m.tag);
-      return v?.kind === "entity" && ctx.payloads.some((p) => p.name === v.name && p.kind !== "error");
+      return (
+        v?.kind === "entity" && ctx.payloads.some((p) => p.name === v.name && p.kind !== "error")
+      );
     })();
-    const moneyOf = (t: TypeIR): boolean =>
-      scalarCodecOf(t)?.wire.form === "fixed-scale-decimal";
+    const moneyOf = (t: TypeIR): boolean => scalarCodecOf(t)?.wire.form === "fixed-scale-decimal";
     if (m.shape === "record" && isPayloadArm) {
       const keys = m.fields
         .filter((f) => moneyOf(f.type))
