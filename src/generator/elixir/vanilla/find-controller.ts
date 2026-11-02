@@ -15,16 +15,13 @@ import { envelopeReturn, pagedReturn } from "../../../ir/stdlib/generics.js";
 import { variantTag } from "../../../ir/stdlib/unions.js";
 import type { AggregateIR, BoundedContextIR, FindIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import type { ApiOperationIR } from "../../../ir/util/api-surface.js";
-import { enumPool } from "../../../ir/util/reachable-types.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { integralWireRange } from "../../../util/numeric-range.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import type { ApiRoute } from "../api-emit.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { renderExpr } from "../render-expr.js";
-import { exErrorVariant, exFieldMessage, exLit, exMissingSuffix } from "../wire-policy-ex.js";
+import { exErrorVariant } from "../wire-policy-ex.js";
 import { plugRelativePath } from "./api-emit.js";
 import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
 import { denialOverrides, denialResponse } from "./denial.js";
@@ -36,6 +33,7 @@ import {
   PAGE_WITH_CLAUSES,
   pagingElseArm,
 } from "./page-param.js";
+import { findParamRead, queryParamSpecs, renderQueryParamHelpers } from "./query-param.js";
 /** Non-`all` custom finds an aggregate's repository declares — the ones that
  *  earn an HTTP `GET /<plural>/<find>` endpoint (`all` is the
  *  enrichment-synthesized list, served by `GET /<plural>` already).  The
@@ -121,160 +119,6 @@ export function findRoutes(
   });
 }
 
-/** The scalar KIND a find param must be coerced to, or `undefined` when the
- *  query-string form is already right (string / guid / enum / id). */
-function findParamCoercion(
-  t: TypeIR | undefined,
-): "int" | "decimal" | "bool" | "datetime" | "date" | undefined {
-  const inner = t?.kind === "optional" ? t.inner : t;
-  if (inner?.kind !== "primitive") return undefined;
-  switch (inner.name) {
-    case "int":
-    case "long":
-      return "int";
-    case "decimal":
-    case "money":
-      return "decimal";
-    case "bool":
-      return "bool";
-    case "datetime":
-      return "datetime";
-    case "date":
-      return "date";
-    default:
-      return undefined;
-  }
-}
-
-/**
- * Read one declared find param off the query string, COERCED to its declared
- * type.
- *
- * Phoenix delivers every query param as a STRING — the emitter already knows
- * this, which is why `page`/`pageSize` go through `page_param/3`.  The find's
- * OWN params never got the same treatment, and on the relational path that was
- * invisible: the value lands in an Ecto query (`^min`), and Ecto casts it
- * against the schema's field type.
- *
- * The IN-MEMORY filter path has no Ecto to cast.  A `shape: document`
- * aggregate's find loads the rows and filters in Elixir:
- *
- *     Enum.filter(fn row -> row.data.view_count >= min end)
- *
- * …so `6 >= "6"` is evaluated under Erlang's term ordering, where a number is
- * ALWAYS less than a binary — the comparison is silently `false` and the find
- * returns `[]` for every row.  No error, no log: a find that quietly answers
- * nothing.
- *
- * Coercing at the controller fixes the in-memory path and leaves the relational
- * one equivalent (Ecto accepted the string; it accepts the integer too).  A
- * string / guid / enum / id param is returned unchanged, so only finds with a
- * numeric or boolean param change bytes at all.
- *
- * Found 2026-08-05 by the caller-census drain: `corpus/document`'s
- * `popular(min: int)` — an in-memory find over a jsonb document — was driven
- * for the first time and answered `[]` where every other backend answered 1.
- */
-export function findParamRead(p: { name: string; type?: TypeIR }): string {
-  const raw = `params[${JSON.stringify(p.name)}]`;
-  switch (findParamCoercion(p.type)) {
-    case "int":
-      return `__find_int(${raw})`;
-    case "decimal":
-      return `__find_decimal(${raw})`;
-    case "bool":
-      return `__find_bool(${raw})`;
-    case "datetime":
-      return `__find_datetime(${raw})`;
-    case "date":
-      return `__find_date(${raw})`;
-    default:
-      return raw;
-  }
-}
-
-/** What one declared find query param is checked against before the find
- *  runs: the type this app's own OpenAPI document publishes for it
- *  (`openapi-emit.ts` derives the parameter schema from the same
- *  `wireTypeInfo(…, "request")`).  `present` is the fallback for a shape a
- *  query string cannot carry as one scalar — only absence is refused. */
-type FindParamCheck =
-  | { kind: "present" }
-  | { kind: "string" }
-  | { kind: "uuid" }
-  | { kind: "integer"; min: number; max: number }
-  | { kind: "decimal" }
-  | { kind: "bool" }
-  | { kind: "datetime" }
-  | { kind: "enum"; values: readonly string[] };
-
-function findParamCheck(t: TypeIR, ctx: BoundedContextIR): FindParamCheck {
-  const info = wireTypeInfo(t, "request");
-  if (info.isCollection) return { kind: "present" };
-  switch (info.refKind) {
-    case "primitive":
-      switch (info.primitive) {
-        case "int":
-        case "long":
-          return { kind: "integer", ...integralWireRange(info.primitive) };
-        case "decimal":
-        case "money":
-          return { kind: "decimal" };
-        case "bool":
-          return { kind: "bool" };
-        case "datetime":
-          return { kind: "datetime" };
-        case "guid":
-          return { kind: "uuid" };
-        case "string":
-          return { kind: "string" };
-        default:
-          return { kind: "present" };
-      }
-    case "id":
-      switch (info.idValueType) {
-        case "guid":
-          return { kind: "uuid" };
-        case "int":
-        case "long":
-          return { kind: "integer", ...integralWireRange(info.idValueType) };
-        default:
-          return { kind: "string" };
-      }
-    case "enum": {
-      const values = enumPool(ctx).find((e) => e.name === info.base)?.values;
-      return values ? { kind: "enum", values } : { kind: "string" };
-    }
-    default:
-      return { kind: "present" };
-  }
-}
-
-/** The Elixir term naming a check in the `__check_find_params/2` spec list. */
-function checkTerm(c: FindParamCheck): string {
-  switch (c.kind) {
-    case "integer":
-      return `{:integer, ${c.min}, ${c.max}}`;
-    case "enum":
-      return `{:enum, [${c.values.map((v) => JSON.stringify(v)).join(", ")}]}`;
-    default:
-      return `:${c.kind}`;
-  }
-}
-
-/** The `__check_find_params/2` spec list for one find: `{name, check, required}`
- *  per declared param.  Required mirrors the published parameter: a nullable
- *  param is optional, everything else required. */
-function findParamSpecs(f: FindIR, ctx: BoundedContextIR): string {
-  const specs = f.params.map(
-    (p) =>
-      `{${JSON.stringify(p.name)}, ${checkTerm(findParamCheck(p.type, ctx))}, ${
-        wireTypeInfo(p.type, "request").isNullable ? "false" : "true"
-      }}`,
-  );
-  return `[${specs.join(", ")}]`;
-}
-
 /** Does any HTTP find in these contexts declare a param?  Gates the
  *  `ProblemDetails.validation_errors_response/2` responder the param check
  *  sends through — an unused `def` fails `mix compile --warnings-as-errors`. */
@@ -357,7 +201,7 @@ export function renderFindActions(
     const checkParams = (body: string): string =>
       f.params.length === 0
         ? body
-        : `    case __check_find_params(params, ${findParamSpecs(f, ctx)}) do
+        : `    case __check_find_params(params, ${queryParamSpecs(f.params, ctx)}) do
       {:error, find_param_errors} ->
         ${webModule}.ProblemDetails.validation_errors_response(conn, find_param_errors)
 
@@ -486,173 +330,9 @@ ${absentArm}
   // the params the find declares.  Each helper is emitted only when some find on
   // this controller actually needs it, so a string-only controller is
   // byte-identical and no unused private fn trips `--warnings-as-errors`.
-  const neededCoercions = new Set(
-    httpFindsOf(ctx, agg)
-      .flatMap((f) => f.params)
-      .map((p) => findParamCoercion(p.type))
-      .filter((k): k is "int" | "decimal" | "bool" | "datetime" | "date" => k !== undefined),
+  const findParamHelpers = renderQueryParamHelpers(
+    httpFindsOf(ctx, agg).flatMap((f) => f.params.map((param) => ({ param, ctx }))),
   );
-  const checks = httpFindsOf(ctx, agg).flatMap((f) =>
-    f.params.map((p) => findParamCheck(p.type, ctx)),
-  );
-  const checkKinds = new Set(checks.map((c) => c.kind));
-  const findParamHelpers = [
-    checks.length > 0 ? renderFindParamCheck(checkKinds) : "",
-    neededCoercions.has("int")
-      ? `
-  # A declared find's \`int\` query param — Phoenix delivers it as a string, and
-  # an in-memory filter (document/embedded shape) compares it directly, where
-  # Erlang's term order makes \`6 >= "6"\` false.
-  defp __find_int(v) when is_integer(v), do: v
-
-  defp __find_int(v) when is_binary(v) do
-    case Integer.parse(v) do
-      {n, ""} -> n
-      _ -> v
-    end
-  end
-
-  defp __find_int(v), do: v`
-      : "",
-    neededCoercions.has("decimal")
-      ? `
-  # A declared find's \`decimal\`/\`money\` query param.
-  defp __find_decimal(v) when is_binary(v) do
-    case Decimal.parse(v) do
-      {d, ""} -> d
-      _ -> v
-    end
-  end
-
-  defp __find_decimal(v), do: v`
-      : "",
-    neededCoercions.has("bool")
-      ? `
-  # A declared find's \`bool\` query param.
-  defp __find_bool("true"), do: true
-  defp __find_bool("false"), do: false
-  defp __find_bool(v), do: v`
-      : "",
-    neededCoercions.has("datetime")
-      ? `
-  # A declared find's \`datetime\`/\`date\` query param.  Unlike the int and
-  # decimal cases, leaving this one a STRING is not a silent wrong answer but a
-  # hard 500: the value is pinned straight into the Ecto query, and Postgrex
-  # refuses to encode a binary where the parameter is a timestamp
-  # (\`DBConnection.EncodeError: expected %DateTime{} or %NaiveDateTime{}\`).
-  # A value that does not parse is passed through unchanged so the existing
-  # 422 path still reports it, rather than being swallowed here.
-  defp __find_datetime(%DateTime{} = v), do: v
-  defp __find_datetime(%NaiveDateTime{} = v), do: v
-
-  defp __find_datetime(v) when is_binary(v) do
-    case DateTime.from_iso8601(v) do
-      {:ok, dt, _offset} -> dt
-      _ -> v
-    end
-  end
-
-  defp __find_datetime(v), do: v`
-      : "",
-    neededCoercions.has("date")
-      ? `
-  # A declared find's \`date\` query param — Postgrex encodes a \`date\`
-  # parameter only from a \`%Date{}\`, so the ISO text is parsed here.
-  defp __find_date(%Date{} = v), do: v
-
-  defp __find_date(v) when is_binary(v) do
-    case Date.from_iso8601(v) do
-      {:ok, d} -> d
-      _ -> v
-    end
-  end
-
-  defp __find_date(v), do: v`
-      : "",
-  ].join("");
 
   return actions.join("\n") + pageParamHelper + findParamHelpers;
-}
-
-/** The `__check_find_params/2` helper, with one `__find_param_error/3` clause
- *  per check kind this controller's finds use — an unreachable clause is dead
- *  code the compiler is entitled to warn on. */
-function renderFindParamCheck(kinds: ReadonlySet<FindParamCheck["kind"]>): string {
-  const clauses: string[] = [
-    `  defp __find_param_error(nil, _check, required), do: if(required, do: :missing, else: nil)`,
-  ];
-  if (kinds.has("present")) {
-    clauses.push(`  defp __find_param_error(_value, :present, _required), do: nil`);
-  }
-  if ([...kinds].some((k) => k !== "present")) {
-    // `?x[]=1` / `?x[a]=1` arrive as a list / map, not the scalar published.
-    clauses.push(
-      `  defp __find_param_error(value, _check, _required) when not is_binary(value),\n    do: "Expected a single value."`,
-    );
-  }
-  if (kinds.has("string")) {
-    clauses.push(`  defp __find_param_error(_value, :string, _required), do: nil`);
-  }
-  if (kinds.has("uuid")) {
-    clauses.push(`  defp __find_param_error(value, :uuid, _required) do
-    if byte_size(value) == 36 and match?({:ok, _}, Ecto.UUID.cast(value)),
-      do: nil,
-      else: ${exFieldMessage("malformed-id")}
-  end`);
-  }
-  if (kinds.has("integer")) {
-    clauses.push(`  defp __find_param_error(value, {:integer, min, max}, _required) do
-    case Integer.parse(value) do
-      {n, ""} when n >= min and n <= max -> nil
-      _ -> "Expected an integer between #{min} and #{max}."
-    end
-  end`);
-  }
-  if (kinds.has("decimal")) {
-    clauses.push(`  defp __find_param_error(value, :decimal, _required) do
-    case Decimal.parse(value) do
-      {d, ""} -> if Decimal.inf?(d) or Decimal.nan?(d), do: "Expected a number.", else: nil
-      _ -> "Expected a number."
-    end
-  end`);
-  }
-  if (kinds.has("bool")) {
-    clauses.push(
-      `  defp __find_param_error(value, :bool, _required),\n    do: if(value in ["true", "false"], do: nil, else: "Expected true or false.")`,
-    );
-  }
-  if (kinds.has("datetime")) {
-    clauses.push(`  defp __find_param_error(value, :datetime, _required) do
-    case DateTime.from_iso8601(value) do
-      {:ok, _, _} -> nil
-      _ -> "Expected an ISO 8601 date-time with an offset."
-    end
-  end`);
-  }
-  if (kinds.has("enum")) {
-    clauses.push(`  defp __find_param_error(value, {:enum, values}, _required) do
-    if value in values, do: nil, else: "Expected one of: " <> Enum.join(values, ", ") <> "."
-  end`);
-  }
-  return `
-
-  # Each declared find param, checked against the type this app's OpenAPI
-  # document publishes for it before the find runs.  A failure answers the
-  # declared 422 with the §3.2 \`errors[]\` envelope at the param's pointer —
-  # the rung the per-operation error matrix publishes for a query parameter
-  # that does not parse against its declared type.
-  defp __check_find_params(params, specs) do
-    errors =
-      Enum.flat_map(specs, fn {name, check, required} ->
-        case __find_param_error(Map.get(params, name), check, required) do
-          nil -> []
-          :missing -> [%{pointer: "/" <> name, message: name <> ${exLit(` ${exMissingSuffix()}`)}, code: nil}]
-          message -> [%{pointer: "/" <> name, message: message, code: nil}]
-        end
-      end)
-
-    if errors == [], do: :ok, else: {:error, errors}
-  end
-
-${clauses.join("\n\n")}`;
 }
