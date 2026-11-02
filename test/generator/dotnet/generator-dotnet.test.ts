@@ -314,12 +314,10 @@ describe(".NET generator", () => {
     });
   });
 
-  // KNOWN BUG (reported with the find-declaration removal): the routed read's
-  // controller action (`scaffoldGetApi` / `route GET …`) binds its query params
-  // as bare `[FromQuery] string code`, without the `[BindRequired]` the find
-  // route carried — so Swashbuckle publishes a required param as optional.
-  // `it.fails` keeps the contract pinned until the routes controller binds it.
-  it.fails("marks a required read query param [BindRequired] (so Swashbuckle emits required:true)", async () => {
+  // The routed read's controller action (`scaffoldGetApi` / `route GET …`)
+  // binds a required query param `[BindRequired]`, so Swashbuckle publishes it
+  // required, as node does (the 5-way OpenAPI parity gate compares them).
+  it("marks a required read query param [BindRequired] (so Swashbuckle emits required:true)", async () => {
     const files = await generateSystemFiles(`
       system S {
         subdomain Sales {

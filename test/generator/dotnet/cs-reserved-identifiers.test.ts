@@ -98,7 +98,9 @@ describe.each([
     // …and the scaffoldGet route that binds it from the query string, plus the
     // query record it constructs.
     const controller = file(await files(persistence), "Api/CApiRoutesController.cs");
-    expect(controller).toContain("[FromQuery] string @case)");
+    expect(controller).toContain(
+      "[FromQuery] [Microsoft.AspNetCore.Mvc.ModelBinding.BindRequired] string @case)",
+    );
     expect(controller).toContain("new GetTicketByCaseQuery(@case)");
     expect(bareKeywordUses(controller)).toEqual([]);
   });

@@ -110,7 +110,9 @@ describe("request hardening — reference fields are uuid-validated (F2/F3)", ()
     const requests = await fileMatching(/Shipments\/Requests\/ShipmentRequests\.cs$/);
     expect(requests).toMatch(/record CreateShipmentRequest\(.*Guid OrderRef/);
     const ctrl = await fileMatching(/FApiRoutesController\.cs$/);
-    expect(ctrl).toContain("GetShipmentByShipmentsByOrder([FromQuery] Guid order)");
+    expect(ctrl).toContain(
+      "GetShipmentByShipmentsByOrder([FromQuery] [Microsoft.AspNetCore.Mvc.ModelBinding.BindRequired] Guid order)",
+    );
   });
 
   it("java binds the reference as UUID (type-level validation + springdoc format: uuid)", async () => {

@@ -758,18 +758,29 @@ function pathActionParam(p: ParamIR): { actionParam: string; commandArg: string 
  *  coerced with `new <Agg>Id(...)`; scalar → the rendered domain type verbatim.
  *  Shared with the query-time-projection controller, whose parameters bind from
  *  the query string in exactly this shape. */
-export function queryActionParam(p: ParamIR): { actionParam: string; commandArg: string } {
+export function queryActionParam(
+  p: ParamIR,
+  opts: { bindRequired?: boolean } = {},
+): { actionParam: string; commandArg: string } {
   const t: TypeIR = p.type;
   const n = escapeCsharpIdent(p.name);
+  // A required param of a routed handler binds required, so Swashbuckle
+  // publishes `required: true` as node / phoenix do: a non-nullable reference
+  // type alone reads as optional.  Fully qualified to avoid an unused `using`
+  // under /warnaserror.
+  const bind =
+    opts.bindRequired && t.kind !== "optional"
+      ? "[Microsoft.AspNetCore.Mvc.ModelBinding.BindRequired] "
+      : "";
   if (t.kind === "id") {
     // Same shared derivation as `pathActionParam` — see the note there.
     const wire = csIdValueClrType(t.valueType);
     return {
-      actionParam: `[FromQuery] ${wire} ${n}`,
+      actionParam: `[FromQuery] ${bind}${wire} ${n}`,
       commandArg: `new ${t.targetName}Id(${n})`,
     };
   }
-  return { actionParam: `[FromQuery] ${renderCsType(t)} ${n}`, commandArg: n };
+  return { actionParam: `[FromQuery] ${bind}${renderCsType(t)} ${n}`, commandArg: n };
 }
 
 const HTTP_ATTR: Record<string, string> = {
@@ -864,7 +875,7 @@ export function emitExplicitRouteController(
     const urlArg = new Map(
       urlParams.map((p) => [
         p.name,
-        source(p) === "path" ? pathActionParam(p) : queryActionParam(p),
+        source(p) === "path" ? pathActionParam(p) : queryActionParam(p, { bindRequired: true }),
       ]),
     );
 
