@@ -81,7 +81,7 @@ function reportRenamed(
       verb,
       next,
       hint:
-        verb === "run" || verb === "findAll"
+        next === "all"
           ? ` A criterion or retrieval reference stays the argument (\`${receiver}.all(Active, page: { limit: 20 })\`); a \`retrieval { where: C sort: […] }\` literal is now \`${receiver}.all(C, sort: […])\`.`
           : "",
     }),
