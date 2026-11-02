@@ -50,6 +50,7 @@ import { deriveSidebarFromUi, type NavSectionVM } from "../_frontend/menu-emitte
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { APP_SHELL_CHROME, chromeKey } from "../_walker/i18n-chrome.js";
+import { literalString, messageKey } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import { bcByAggregateOf, type PagedQueryContext } from "../_walker/paged-query.js";
 import { walkBody } from "../_walker/walker-core.js";
@@ -375,6 +376,47 @@ function pageDerivedBinds(page: PageIR): { binds: string[]; names: Set<string> }
   return { binds, names: locals };
 }
 
+/** The F# helper that sets `document.title`, spliced into `App.fs` once when any
+ *  page declares a `title:` (page views call it as a render-time statement; the
+ *  assignment is idempotent). */
+const SET_DOCUMENT_TITLE = "setDocumentTitle";
+const SET_DOCUMENT_TITLE_DECL = [
+  '[<Fable.Core.Emit("document.title = $0")>]',
+  `let ${SET_DOCUMENT_TITLE} (title: string) : unit = jsNative`,
+].join("\n");
+
+/** The statement line that sets a page's document title, or `undefined` when
+ *  the page has no `title:` (or one `renderFsExpr` cannot spell).  Under i18n a
+ *  literal title translates through the target's own `renderTranslate` with the
+ *  catalog key `collectUiMessages` wrote (`page.<Name>.title.<hash>`); an
+ *  interpolated one renders as the raw expression. */
+function pageTitleLine(
+  page: PageIR,
+  i18nEnabled: boolean,
+  stateNames: ReadonlySet<string>,
+  locals: ReadonlySet<string>,
+): string | undefined {
+  const title = page.title;
+  if (!title) return undefined;
+  const render = (e: ExprIR): string => renderFsExpr(e, { stateNames, locals });
+  const prefix = i18nEnabled ? `page.${page.name}` : undefined;
+  let expr: string;
+  try {
+    const literal = literalString(title);
+    if (prefix && literal !== undefined) {
+      expr = felizTarget.renderTranslate!({
+        key: messageKey(prefix, "title", literal),
+        message: literal,
+      });
+    } else {
+      expr = literal !== undefined ? fsString(literal) : `(${render(title)})`;
+    }
+  } catch {
+    return undefined;
+  }
+  return `    ${SET_DOCUMENT_TITLE} ${expr}`;
+}
+
 /** Render one page's view function under `fnName` (`view` for a single-page
  *  ui, `<pageCamel>View` under routing).  Threads the ui's api params +
  *  reachable aggregates so the shared walker's api-hook detection fires on
@@ -438,12 +480,18 @@ function renderPageView(
   // rest binds locals no body refers to.
   const idParam = routeParams.map((n) => ` (${fsIdent(n)}: string)`).join("");
   const head = `let ${fnName} (model: Model) (dispatch: Msg -> unit)${idParam} =`;
-  if (!page.body) return `${head}\n    Html.none`;
   const stateNames = new Set(page.state.map((s) => s.name));
+  if (!page.body) {
+    const bare = pageTitleLine(page, i18nEnabled, stateNames, new Set());
+    return `${head}\n${bare ? `${bare}\n` : ""}    Html.none`;
+  }
   // `derived` first: pure over `state {}` + earlier derived, so it renders
   // without walking anything — and the names that BOUND are what the walk may
   // read bare (`renderDerivedRead`).
   const derived = pageDerivedBinds(page);
+  const titleLine = pageTitleLine(page, i18nEnabled, stateNames, derived.names);
+  // The title statement follows the `derived` lets it may read.
+  const titleStmt = titleLine ? `${titleLine}\n` : "";
   const result = walkBody(
     page.body,
     felizTarget,
@@ -492,7 +540,7 @@ function renderPageView(
   // gate; a failing predicate (or no session) renders `forbiddenView`.
   if (pageGate && page.requires) {
     const gate = renderFelizGate(page.requires, "currentUser");
-    const inner = indentBlock(`${preamble}${body}`, 4);
+    const inner = indentBlock(`${preamble}${titleStmt}${body}`, 4);
     return [
       head,
       "    match model.CurrentUser with",
@@ -501,7 +549,7 @@ function renderPageView(
       "    | _ -> forbiddenView",
     ].join("\n");
   }
-  return `${head}\n${preamble}${body}`;
+  return `${head}\n${preamble}${titleStmt}${body}`;
 }
 
 /** True when an expression tree reads `currentUser.<claim>` — a member access
@@ -1709,6 +1757,9 @@ function renderAppFs(
   // calls it (the views follow `update` and see it too), else ahead of the views.
   const updateToast = update.includes(`${FELIZ_ACTION_TOAST} (`);
   const viewsToast = !updateToast && views.some((v) => v.includes(`${FELIZ_ACTION_TOAST} (`));
+  // Declared only when a page view actually calls it (a title `renderFsExpr`
+  // cannot spell emits no call), so the `Fable.Core` open + helper track use.
+  const usesPageTitle = views.some((v) => v.includes(`${SET_DOCUMENT_TITLE} `));
 
   return lines(
     "module App",
@@ -1742,7 +1793,11 @@ function renderAppFs(
     // The store-persistence module reaches Web Storage / `URLSearchParams` /
     // `history.replaceState` through the SAME `Emit` + `jsNative` escape hatch
     // (no `Fable.Browser.*` package reference), so it needs `Fable.Core` too.
-    (hasRealtime || used.usesDataGrid || i18nEnabled || persistedStores.length > 0) &&
+    (hasRealtime ||
+      used.usesDataGrid ||
+      i18nEnabled ||
+      persistedStores.length > 0 ||
+      usesPageTitle) &&
       "open Fable.Core",
     (hasFileUploads || hasRealtime || used.usesDataGrid || i18nEnabled) &&
       "open Fable.Core.JsInterop",
@@ -1751,6 +1806,8 @@ function renderAppFs(
     // the module itself references nothing.
     i18nEnabled ? "" : false,
     i18nEnabled ? renderFelizI18nModule(ui) : false,
+    usesPageTitle ? "" : false,
+    usesPageTitle ? SET_DOCUMENT_TITLE_DECL : false,
     // Auth session gate — SessionState (gates the Model) + the Auth probe module.
     // Under a page gate the probe decodes the verified claims into `CurrentUser`
     // (record + decoder ahead of the claims-variant Auth module); a gate-free

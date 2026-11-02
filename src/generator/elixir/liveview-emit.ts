@@ -58,6 +58,7 @@ import {
 } from "../_frontend/e2e-harness.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
+import { messageKey } from "../_walker/i18n-extract.js";
 import { opUsesCurrentUser } from "./domain/predicates.js";
 import {
   type ActionBinding,
@@ -71,7 +72,7 @@ import {
   type UploadBinding,
   walkBodyToHeex,
 } from "./heex-walker.js";
-import { heexI18nEnabled } from "./i18n.js";
+import { elixirI18nString, heexI18nEnabled } from "./i18n.js";
 import { buildPlaywrightPageObject, pageObjectPathFor } from "./page-objects-emit.js";
 import { exprUsesBind, REALTIME_TOPIC, renderMessageExprElixir } from "./realtime-liveview.js";
 import { renderExpr as renderDomainExpr } from "./render-expr.js";
@@ -929,6 +930,7 @@ function renderLiveView(a: RenderArgs): {
     liftedState,
     a.refLabelAggs,
     walked.refLabelBindings,
+    a.i18nEnabled ? `page.${page.name}` : undefined,
   );
   const handleParams = renderHandleParams(
     page,
@@ -1429,6 +1431,9 @@ function renderMount(
   /** Targets whose `IdLink`s read `@<x>_labels` — seeded `%{}` here so the
    *  template resolves before (or without) a load filling it. */
   refLabelBindings: readonly string[] = [],
+  /** i18n key prefix (`page.<Name>`) — set only when the UI has extractable
+   *  strings; the page `title:` keys against it. */
+  i18nPrefix?: string,
 ): string {
   // `if connected?(socket), do: subscribe` — only the live (websocket-
   // connected) mount subscribes; the initial static render skips it.  Prepended
@@ -1437,6 +1442,18 @@ function renderMount(
     ? `    if connected?(socket), do: Phoenix.PubSub.subscribe(${realtimeAppModule}.PubSub, ${JSON.stringify(REALTIME_TOPIC)})\n`
     : "";
   const assigns: string[] = [];
+  // Per-page document title: the root layout reads `@page_title` (falling back
+  // to the app name).  Only a plain literal can be set here — `mount` runs
+  // before route params and loaded records exist, so an interpolated title has
+  // nothing to read.  Under i18n it translates through the catalog key
+  // `collectUiMessages` wrote.
+  const pageTitle = page.title;
+  if (pageTitle && pageTitle.kind === "literal" && pageTitle.lit === "string") {
+    const rendered = i18nPrefix
+      ? `pgettext(${elixirI18nString(messageKey(i18nPrefix, "title", pageTitle.value))}, ${elixirI18nString(pageTitle.value)})`
+      : elixirString(pageTitle.value);
+    assigns.push(`      |> assign(:page_title, ${rendered})`);
+  }
   for (const f of page.state) {
     // The field's declared `= <init>`, else the type-aware default from the
     // walker — single source of truth so `state.field` defaults match across

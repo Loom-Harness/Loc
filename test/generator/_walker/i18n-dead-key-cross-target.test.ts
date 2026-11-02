@@ -44,6 +44,7 @@ const UI = `
       // rejects it on a page that declares none.
       page Home(id: Doc id) {
         route: "/docs/:id"
+        title: "Order desk"
         body: Stack {
           Heading { "Home" },
           Modal {
@@ -144,6 +145,42 @@ describe("A13a — the modal trigger label renders through the catalog key it ow
       // role a plain `Button` uses, which is what makes the two agree.
       expect(key).toMatch(/^page\.Home\.button\./);
       expect(appSource(files)).toContain(CALL[name]!(key, "Confirm it"));
+    });
+  }
+});
+
+describe("A13c — the page title renders through the catalog key it owns", () => {
+  // `page X { title: "…" }` is extracted as `page.<P>.title.<hash>`; every
+  // frontend that sets a per-page document title must read that key back, or a
+  // translator translates text the browser tab never shows.
+  for (const { name, source } of MODAL_TARGETS) {
+    it(`${name}: the document title is translated, not raw`, async () => {
+      const files = await generateSystemFiles(source());
+      const key = keyFor(files, "Order desk");
+      expect(key).toMatch(/^page\.Home\.title\./);
+      expect(appSource(files)).toContain(CALL[name]!(key, "Order desk"));
+    });
+  }
+
+  // The key must be bound to the TITLE sink, not merely present somewhere: a
+  // `t()` call for it that is not assigned to the document title is a dead key
+  // that happens to pass the containment check above.
+  const SINK: Record<string, (call: string) => string> = {
+    react: (c) => `document.title = ${c};`,
+    svelte: (c) => `document.title = ${c};`,
+    vue: (c) => `__loomPageTitle = computed(() => ${c});`,
+    angular: (c) => `document.title = ${c};`,
+    feliz: (c) => `setDocumentTitle ${c}`,
+    flutter: (c) => `title: ${c},`,
+    phoenixLiveView: (c) => `assign(:page_title, ${c})`,
+  };
+  for (const { name, source } of MODAL_TARGETS) {
+    it(`${name}: the translated call feeds the title sink`, async () => {
+      const files = await generateSystemFiles(source());
+      const key = keyFor(files, "Order desk");
+      const call = CALL[name]!(key, "Order desk");
+      const sink = SINK[name]!(name === "feliz" ? `(${call})` : call);
+      expect(appSource(files)).toContain(sink);
     });
   }
 });

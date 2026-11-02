@@ -227,7 +227,10 @@ export function collectUiMessages(ui: UiIR): MessageEntry[] {
   for (const page of ui.pages) {
     const prefix = `page.${page.name}`;
     // Page title (`page X { title: "…" }`) — only when it is a plain literal
-    // (a title that interpolates state/params is dynamic, not extractable).
+    // (a title that interpolates state/params is dynamic, not extractable: the
+    // LiveView target sets its title in `mount`, before route params and loaded
+    // records exist, so it cannot format ICU holes).  `localizedPageTitle`
+    // (`i18n-emit.ts`) reads the literal back under the same `title` role.
     const title = literalString(page.title);
     if (title !== undefined) out.push({ key: messageKey(prefix, "title", title), message: title });
     collectBody(page.body, prefix, out);

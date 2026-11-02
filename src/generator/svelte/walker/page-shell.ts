@@ -47,6 +47,7 @@ import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import { SVELTE_LIB_TOAST_EFFECT_IMPORT, usesToastEffect } from "../../_frontend/toast-effect.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import { chromeMessage, opDialogChrome } from "../../_walker/i18n-chrome.js";
+import { localizedPageTitle } from "../../_walker/i18n-emit.js";
 import { storeMemberLocal } from "../../_walker/js-target-helpers.js";
 import {
   addImportToMap,
@@ -488,8 +489,10 @@ export function renderSveltePage(
   let titleEffect = "";
   let usesStateForTitle = false;
   if (title !== undefined) {
-    const titleCtx = dummyCtx(pack, paramNames, stateNames, usedParams);
-    const titleExpr = emitExpr(title, titleCtx);
+    // Shares the page's import map + i18n prefix so a translated title lands
+    // its `t` import on this file and keys against the catalog entry.
+    const titleCtx = dummyCtx(pack, paramNames, stateNames, usedParams, imports, i18nPrefix);
+    const titleExpr = localizedPageTitle(title, titleCtx);
     usesStateForTitle = titleCtx.usesState && !usesState;
     titleEffect = `  $effect(() => {\n    document.title = ${titleExpr};\n  });\n`;
   }
@@ -1048,10 +1051,13 @@ function dummyCtx(
   paramNames: ReadonlySet<string>,
   stateNames: ReadonlySet<string>,
   usedParams: Set<string>,
+  imports: ImportMap = new Map(),
+  i18nPrefix?: string,
 ): WalkContext {
   return {
     target: svelteTarget,
-    imports: new Map(),
+    imports,
+    i18nPrefix,
     pack,
     paramNames,
     usedParams,
