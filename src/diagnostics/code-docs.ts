@@ -293,6 +293,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-explicit-save": "13-workflows.md#body-vocabulary",
   "loom.workflow-uncorrelated-state-read": "13-workflows.md#workflow--state",
   "loom.workflow-mutation-unsaved": "13-workflows.md#body-vocabulary",
+  "loom.workflow-mutation-result-unmatched": "13-workflows.md#matching-a-mutating-calls-result",
+  "loom.elixir-bound-mutating-call-unsupported": "13-workflows.md#matching-a-mutating-calls-result",
   "loom.create-args": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.create-record-form": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.channel-key-missing-field": "14-apis-storage-resources-channels.md#channel--channelsource",

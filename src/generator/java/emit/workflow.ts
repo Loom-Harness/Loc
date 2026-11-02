@@ -45,6 +45,7 @@ import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../_workflow/create-state.js";
 import {
   collectUnionFindLets,
+  nestedSaves,
   type PresenceSide,
   presenceSides,
   renderWorkflowStmtChunks,
@@ -302,21 +303,36 @@ export function reactorReposUsed(wf: WorkflowIR, ctx: EnrichedBoundedContextIR):
 // recursion live in the spine; the base indent (8 spaces) is threaded in by
 // the driver and `for-each` bodies step +`indentUnit` (4 spaces), matching
 // the pre-seam hand-indentation exactly.
-/** The package resolver for the unions a context's domain services return:
- *  their carrier records are emitted into the services package, so a body in
- *  another package that matches over a service result imports them. */
+/** The package resolver for the unions a workflow / handler body can match
+ *  over: a domain service's return union has its carrier records in the
+ *  services package, an aggregate operation's in that aggregate's entity
+ *  package (`let r = a.withdraw(x)`).  A body in another package imports
+ *  them from there. */
 export function domainServiceUnionPkgOf(
   ctx: EnrichedBoundedContextIR,
   servicesPkg: string | undefined,
+  entityPkgOf?: (aggName: string) => string,
 ): ((unionName: string) => string | undefined) | undefined {
-  if (!servicesPkg) return undefined;
-  const names = new Set<string>();
-  for (const svc of ctx.domainServices ?? []) {
-    for (const op of svc.operations) {
-      if (op.returnType?.kind === "union") names.add(unionInstanceName(op.returnType.variants));
+  const pkgs = new Map<string, string>();
+  if (servicesPkg) {
+    for (const svc of ctx.domainServices ?? []) {
+      for (const op of svc.operations) {
+        if (op.returnType?.kind === "union") {
+          pkgs.set(unionInstanceName(op.returnType.variants), servicesPkg);
+        }
+      }
     }
   }
-  return names.size > 0 ? (u) => (names.has(u) ? servicesPkg : undefined) : undefined;
+  if (entityPkgOf) {
+    for (const agg of ctx.aggregates) {
+      for (const op of agg.operations) {
+        const name =
+          op.returnType?.kind === "union" ? unionInstanceName(op.returnType.variants) : undefined;
+        if (name && !pkgs.has(name)) pkgs.set(name, entityPkgOf(agg.name));
+      }
+    }
+  }
+  return pkgs.size > 0 ? (u) => pkgs.get(u) : undefined;
 }
 
 export function javaWorkflowStmtTarget(
@@ -473,7 +489,12 @@ export function javaWorkflowStmtTarget(
           `Forbidden: ${g.source}`,
         )});`;
       });
-      return [...gateLines, `${indent}${bound(s.target)}.${jid(s.op)}(${callArgs.join(", ")});`];
+      // `let r = a.op(…)` binds the call's value; the bare statement discards it.
+      const bind = s.result ? `var ${bound(s.result.name)} = ` : "";
+      return [
+        ...gateLines,
+        `${indent}${bind}${bound(s.target)}.${jid(s.op)}(${callArgs.join(", ")});`,
+      ];
     },
     repoDelete: (s, indent) => {
       // `<Repo>.delete(o)` → `<repo>.delete(<entity>)`.  The Spring Data
@@ -571,6 +592,12 @@ export function javaWorkflowStmtTarget(
       const inner = `${indent}    `;
       const savesAt = (pad: string, saves: readonly { name: string; aggName: string }[]) =>
         saves.flatMap((sv) => saveLines(pad, sv));
+      // An error arm over a guarded call's result drops the call's change first:
+      // the entity is managed, and the commit would flush it otherwise.
+      const discardsAt = (
+        pad: string,
+        drops: readonly { name: string; aggName: string }[] | undefined,
+      ) => (drops ?? []).map((d) => `${pad}${repoField(d.aggName)}.discard(${bound(d.name)});`);
       if (s.subjectShape === "absence") {
         const { present, absent } = presenceSides(s, armLines, elseLines);
         const lines = (side: PresenceSide | undefined) =>
@@ -604,6 +631,7 @@ export function javaWorkflowStmtTarget(
               : `unusedArm${i}`;
         out.push(
           `${indent}    case ${carrier} ${binder} -> {`,
+          ...discardsAt(caseInner, arm.discardsInArm),
           ...(arm.binding && scalar
             ? [`${caseInner}var ${jid(arm.binding)} = ${binder}.value();`]
             : []),
@@ -616,6 +644,7 @@ export function javaWorkflowStmtTarget(
       if (s.elseBody) {
         out.push(
           `${indent}    default -> {`,
+          ...discardsAt(caseInner, s.discardsInElse),
           ...shift(elseLines),
           ...savesAt(caseInner, s.savesInElse),
           `${indent}    }`,
@@ -638,7 +667,8 @@ export function javaWorkflowStmtTarget(
     // flushes them at the `@Transactional` boundary (plus the explicit
     // exit-`save` the workflow emits for new aggregates).
     domainServiceCall: (s, indent) => {
-      return [`${indent}${renderJavaExpr(s.call, renderCtx)};`];
+      const bind = s.result ? `var ${bound(s.result.name)} = ` : "";
+      return [`${indent}${bind}${renderJavaExpr(s.call, renderCtx)};`];
     },
     // The exception a by-id miss throws, so the advice's not-found arm renders
     // the identical ProblemDetails.
@@ -675,13 +705,9 @@ const WORKFLOW_PUBLISHER = "eventPublisher";
  *  `if let` / `for` branch counts. */
 function workflowPublishes(wf: WorkflowIR): boolean {
   if (wf.savesAtExit.length > 0) return true;
-  return anyWorkflowStmt(
-    wf,
-    (s) =>
-      s.kind === "emit" ||
-      (s.kind === "for-each" && s.savesPerIteration.length > 0) ||
-      (s.kind === "if-let" && s.savesInThen.length + s.savesInElse.length > 0),
-  );
+  // A save staged inside a loop iteration, an `if let` branch or a `match` arm
+  // publishes what it drained, exactly like an exit save.
+  return anyWorkflowStmt(wf, (s) => s.kind === "emit" || nestedSaves(s).length > 0);
 }
 
 /** Does the body carry a workflow-level `emit` anywhere (branches included)? */
@@ -1172,7 +1198,7 @@ export function renderJavaWorkflows(
       {
         ...wfRenderCtx,
         paramExpr: (n) => paramLocals.get(n),
-        unionPkgOf: domainServiceUnionPkgOf(ctx, wctx.domainServicePkg),
+        unionPkgOf: domainServiceUnionPkgOf(ctx, wctx.domainServicePkg, wctx.entityPkgOf),
       },
       workflowBoundNames([wf.statements]),
       new Set([

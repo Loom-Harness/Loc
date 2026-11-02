@@ -1971,7 +1971,9 @@ export function csWorkflowStmtTarget(
           `Forbidden: ${g.source}`,
         )});`;
       });
-      const callLine = `${indent}${st.target}.${upperFirst(st.op)}(${callArgs});`;
+      // `let r = a.op(…)` binds the call's value; the bare statement discards it.
+      const bind = st.result ? `var ${escapeCsharpIdent(st.result.name)} = ` : "";
+      const callLine = `${indent}${bind}${st.target}.${upperFirst(st.op)}(${callArgs});`;
       // Audited op invoked inline → stage an AuditRecord bracketing the call
       // with before/after wire snapshots, mirroring the per-operation command
       // handler.  The handler runs inside the Mediator dispatch's child frame,
@@ -2177,15 +2179,24 @@ export function csWorkflowStmtTarget(
         st.subjectType?.kind === "union" ? unionInstanceName(st.subjectType.variants) : "";
       const shift = (ls: readonly string[]) => ls.map((l) => (l.length > 0 ? `    ${l}` : l));
       const inner = `${indent}        `;
+      // An error arm over a guarded call's result drops the call's change
+      // first: the entity is tracked, and the next SaveChanges would write it.
+      const discardsAt = (drops: readonly { name: string; repoName: string }[] | undefined) =>
+        (drops ?? []).map((d) => {
+          const f = `_${d.repoName.charAt(0).toLowerCase() + d.repoName.slice(1)}`;
+          return `${inner}${f}.Discard(${escapeCsharpIdent(d.name)});`;
+        });
       const section = (
         label: string,
         decl: string | undefined,
         body: readonly string[],
         saves: readonly { name: string; repoName: string }[],
         ends: boolean,
+        drops?: readonly { name: string; repoName: string }[],
       ): string[] => [
         `${indent}    ${label}`,
         `${indent}    {`,
+        ...discardsAt(drops),
         ...(decl ? [`${inner}${decl}`] : []),
         ...shift(body),
         ...savesAt(inner, saves),
@@ -2196,8 +2207,11 @@ export function csWorkflowStmtTarget(
       st.arms.forEach((arm, i) => {
         const carrier = `${unionName}_${variantTag(arm.varType)}`;
         const ends = arm.body.at(-1)?.kind === "not-found";
+        const drops = arm.discardsInArm;
         if (!arm.binding) {
-          out.push(...section(`case ${carrier}:`, undefined, armLines[i]!, arm.savesInArm, ends));
+          out.push(
+            ...section(`case ${carrier}:`, undefined, armLines[i]!, arm.savesInArm, ends, drops),
+          );
         } else if (!isScalarVariant(arm.varType)) {
           out.push(
             ...section(
@@ -2206,6 +2220,7 @@ export function csWorkflowStmtTarget(
               armLines[i]!,
               arm.savesInArm,
               ends,
+              drops,
             ),
           );
         } else {
@@ -2216,13 +2231,16 @@ export function csWorkflowStmtTarget(
               armLines[i]!,
               arm.savesInArm,
               ends,
+              drops,
             ),
           );
         }
       });
       if (st.elseBody) {
         const ends = st.elseBody.at(-1)?.kind === "not-found";
-        out.push(...section("default:", undefined, elseLines, st.savesInElse, ends));
+        out.push(
+          ...section("default:", undefined, elseLines, st.savesInElse, ends, st.discardsInElse),
+        );
       }
       out.push(`${indent}}`);
       return out;
@@ -2236,7 +2254,9 @@ export function csWorkflowStmtTarget(
     // await wrapping is internal, so no `await` prefix here (mutating is a
     // synchronous static call).  The mutated args are EF-tracked entities →
     // they flush at the orchestrator's single `await db.SaveChangesAsync()`.
-    domainServiceCall: (st, indent) => [`${indent}${renderArg(st.call)};`],
+    domainServiceCall: (st, indent) => [
+      `${indent}${st.result ? `var ${escapeCsharpIdent(st.result.name)} = ` : ""}${renderArg(st.call)};`,
+    ],
     // The exception a by-id miss throws, so `DomainExceptionFilter`'s
     // not-found arm renders the identical ProblemDetails.
     notFound: (st, indent) => [

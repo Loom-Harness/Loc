@@ -199,6 +199,13 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "state-gate", title: "`when` canCommand state gate + GET can-query companion", doc: "criterion", backends: ALL },
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
   {
+    id: "match-op-result",
+    title: "`let r = a.op()` over an `or Error` result, matched in a workflow body",
+    doc: "workflow",
+    backends: ["node", "dotnet", "java", "python"],
+    note: "elixir refuses the let-bound mutating call (`loom.elixir-bound-mutating-call-unsupported`, a registered gap): a Phoenix context operation persists inside its own function and every with-chain site matches its `{:ok, _}` away.  `TryPay`'s error arm saves a `Note`, so the error path COMMITS — the shape that needs the EF Core / JPA error arm to detach the account; the unchanged read-back after it is the behavioural witness.",
+  },
+  {
     id: "scaffold-get",
     title:
       "`scaffoldGet` / `scaffoldGetApi` — a single-row read route (criterion first match, unique key) with no declared find: the row or 404",

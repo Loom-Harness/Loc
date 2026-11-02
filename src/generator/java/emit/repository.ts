@@ -80,6 +80,10 @@ export interface JavaRepoCtx {
   criteriaPkg?: string;
   /** Package `OffsetLimitPageRequest` lives in (infrastructure.persistence). */
   persistencePkg?: string;
+  /** True when some workflow / handler body drops a tentative change to this
+   *  aggregate (the error arm of a `match` over a guarded call's result,
+   *  `discardedAggregates`): the repository then carries `discard`. */
+  discards?: boolean;
   /** Retrievals targeting this aggregate (named query bundles). */
   retrievals?: RetrievalIR[];
   /** True when the retrieval's `where` is exactly an eligible criterion
@@ -448,6 +452,16 @@ export function renderJavaRepositoryInterface(
       ? `    ${pagedRef(ctx.basePkg)}<${agg.name}> findAllPaged(int page, int pageSize, String sort, String dir);\n`
       : null,
     `    void delete(${agg.name} aggregate);`,
+    // Drop a loaded aggregate's unsaved changes, so no later flush writes them.
+    // A store that writes only on `save` has nothing to drop, hence the no-op
+    // default; the JPA impl detaches the managed entity.
+    ...(ctx.discards
+      ? [
+          ``,
+          `    /** Drop the unsaved changes of a loaded aggregate: nothing writes them later. */`,
+          `    default void discard(${agg.name} aggregate) { }`,
+        ]
+      : []),
     findLines.length > 0 ? `` : null,
     ...findLines,
     retrievalLines.length > 0 ? `` : null,
@@ -636,7 +650,8 @@ export function renderJavaRepositoryImpl(
   // `session.disableFilter/enableFilter`; the never-bypassed restrictions in
   // `@SQLRestriction` are untouched.
   const bypassFilters = ctx.bypassFilters ?? new Map<string, readonly string[]>();
-  let needsEntityManager = false;
+  // `discard` detaches through the EntityManager.
+  let needsEntityManager = !!ctx.discards;
   const wrapBypass = (bypass: FilterBypass | undefined, body: string[]): string[] => {
     const caps = bypassedFilterNames(bypassFilters, bypass);
     if (caps.length === 0) return body;
@@ -953,6 +968,17 @@ export function renderJavaRepositoryImpl(
     `    public void delete(${agg.name} aggregate) {`,
     `        jpa.delete(aggregate);`,
     `    }`,
+    // A managed entity is flushed at commit whether or not it was saved, so a
+    // dropped change must leave the persistence context.
+    ...(ctx.discards
+      ? [
+          ``,
+          `    @Override`,
+          `    public void discard(${agg.name} aggregate) {`,
+          `        em.detach(aggregate);`,
+          `    }`,
+        ]
+      : []),
     delegateLines.length > 0 ? `` : null,
     ...delegateLines,
     ...(retrievalDelegates.length > 0 ? [``] : []),

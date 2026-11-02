@@ -53,7 +53,18 @@ export type CallTargetIR =
  *  value is not a bound local (an argument written as an expression), which no
  *  save can cover. */
 export type MutateTargetIR =
-  | { kind: "aggregate"; name: string; aggName: string; op: string; service?: string }
+  | {
+      kind: "aggregate";
+      name: string;
+      aggName: string;
+      op: string;
+      service?: string;
+      /** The local a call's error-carrying result is bound to
+       *  (`let r = a.withdraw(x)` over `int or Insufficient`).  The mutation is
+       *  tentative: it persists only in the non-error arms of a `match` over
+       *  that local, which carry its saves. */
+      result?: string;
+    }
   | { kind: "state"; field: string };
 
 interface EffectBase {
