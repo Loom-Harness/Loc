@@ -29,7 +29,6 @@ import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtsDeep } from "../../../ir/util/walk.js";
 import { elixirIfRefusal } from "../../../ir/validate/checks/if-stmt-checks.js";
-import { defaultErrorStatus, errorTitle, errorTypeUri } from "../../../util/error-defaults.js";
 import {
   elixirLocal,
   elixirOpAction,
@@ -48,6 +47,7 @@ import {
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opBodyStmtsDeep, opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { exErrorVariant } from "../wire-policy-ex.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
 import {
   appModuleOf,
@@ -680,12 +680,10 @@ export function errorVariantsOf(
   return op.returnType.variants
     .map((v) => variantTag(v))
     .filter((tag) => isErrorTag(tag, ctx))
-    .map((tag) => ({
-      tag,
-      status: ctx.errorStatusOverrides?.[tag] ?? defaultErrorStatus(tag),
-      type: errorTypeUri(tag),
-      title: errorTitle(tag),
-    }));
+    .map((tag) => {
+      const resp = exErrorVariant(tag, ctx.errorStatusOverrides);
+      return { tag, status: resp.status, type: resp.type, title: resp.title };
+    });
 }
 
 // ---------------------------------------------------------------------------

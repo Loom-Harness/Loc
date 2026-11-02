@@ -32,20 +32,25 @@
 // structural-conflict rungs use, so a remap moves the runtime arm and
 // the OpenAPI declaration together and no rung is silently un-overridable.
 
-import { notFoundStmtDetail } from "../../../ir/enrich/wire-policy.js";
+import { notFoundStmtDetail, ruleStage } from "../../../ir/enrich/wire-policy.js";
 import type { StmtIR, WorkflowStmtIR } from "../../../ir/types/loom-ir.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
-import { problemTitle } from "../../../ir/util/openapi-errors.js";
-import {
-  classifyForWire,
-  pickErrorPath,
-  singleFieldShape,
-} from "../../../ir/validate/invariant-classify.js";
-import { errorTitle, resolveErrorStatus } from "../../../util/error-defaults.js";
+import { pickErrorPath, singleFieldShape } from "../../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../../util/message-code.js";
 import { elixirString } from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { singleFieldMessage } from "../../zod-refine.js";
+import {
+  type DenialRung,
+  exInternalFallback,
+  exLit,
+  exMissingSuffix,
+  exProblemResponse,
+  exSentence,
+  exStatus,
+  exTitleText,
+  RUNG_CLASS,
+} from "../wire-policy-ex.js";
 
 type GuardStmt = Extract<StmtIR | WorkflowStmtIR, { kind: "requires" | "precondition" }>;
 
@@ -77,51 +82,22 @@ export function denialOverrides(ctx: {
   return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
-/** The four rungs of the denial ladder and the stdlib `error` NAME each resolves
- *  through.  Naming them is what makes the ladder remappable: `httpStatus
- *  DomainError -> 400` moves the domain floor exactly the way `httpStatus
- *  Disallowed -> 422` moves the state gate. */
-export type DenialRung = "forbidden" | "precondition" | "disallowed" | "notFound";
-
-const RUNG_ERROR_NAME: Readonly<Record<DenialRung, string>> = {
-  forbidden: "Forbidden", // a `requires` authorization gate denied  → 403
-  precondition: "DomainError", // the DOMAIN FLOOR: a `precondition` / domain fault → 422
-  disallowed: "Disallowed", // a `when` state gate refused          → 409
-  notFound: "NotFound", // the record isn't there                → 404
-};
+export type { DenialRung };
 
 /** The resolved HTTP status for a denial rung — the api's `httpStatus` override
  *  if the author declared one, else the `STDLIB_ERROR_STATUS` default.  The same
  *  call shape the structural-conflict rungs (`ReferencedInUse`, …) already use,
  *  so no rung of the ladder is a hardcoded literal any more. */
 export function denialStatus(rung: DenialRung, overrides?: ErrorStatusMap): number {
-  return resolveErrorStatus(RUNG_ERROR_NAME[rung], overrides);
+  return exStatus(RUNG_CLASS[rung], overrides);
 }
 
-/** The RFC 7807 `title` for a denial rung, derived so it can never disagree with
- *  the status next to it (a hardcoded pair invites drift — a "Precondition
- *  Failed" title against a 422 status).
- *
- *  Two derivations, because the ladder genuinely has two kinds of rung — and
- *  the split is per-rung EMPIRICAL, read off what the other four backends
- *  emit, not a principle applied uniformly:
- *
- *   - `Disallowed` titles on the error NAME humanised.  Every backend spells
- *     that one as the literal `"Disallowed"` next to a resolved status
- *     (`java/emit/api.ts`, `dotnet/emit/api.ts`, `python/index.ts`,
- *     `hono/v4/routes-builder.ts`), so the name is the cross-backend contract.
- *   - `Forbidden` / `NotFound` / the DOMAIN FLOOR title on the RESOLVED
- *     status, via `problemTitle(...)` — which is what those same four
- *     backends do (`problemTitle(forbiddenStatus)` /
- *     `problemTitle(notFoundStatus)`).  Identical to the name at the stdlib
- *     defaults ("Forbidden" / "Not Found"), and only observably different
- *     under an `httpStatus` override: `httpStatus NotFound -> 410` must title
- *     "Gone", not "Not Found".  Titling these on the NAME instead would be a
- *     divergence the status-only census cannot see. */
+/** The RFC 7807 `title` for a denial rung — the wire-policy fact's, so it can
+ *  never disagree with the status next to it: `Disallowed` titles on the error
+ *  NAME, the other rungs on the RESOLVED status's reason phrase (`httpStatus
+ *  NotFound -> 410` titles "Gone", not "Not Found"). */
 export function denialTitle(rung: DenialRung, overrides?: ErrorStatusMap): string {
-  return rung === "disallowed"
-    ? errorTitle(RUNG_ERROR_NAME[rung])
-    : problemTitle(denialStatus(rung, overrides));
+  return exTitleText(RUNG_CLASS[rung], overrides);
 }
 
 /** A whole `ProblemDetails.problem_response(conn, <status>, <title>, <detail>)`
@@ -136,9 +112,7 @@ export function denialResponse(
   overrides?: ErrorStatusMap,
   problemModule = "ProblemDetails",
 ): string {
-  return `${problemModule}.problem_response(conn, ${denialStatus(rung, overrides)}, ${JSON.stringify(
-    denialTitle(rung, overrides),
-  )}, ${detailExpr})`;
+  return exProblemResponse(RUNG_CLASS[rung], detailExpr, overrides, problemModule);
 }
 
 /** The sanitized catch-all for an UNRECOGNISED `{:error, reason}` term.
@@ -148,7 +122,7 @@ export function denialResponse(
  *  internal state into a public response body.  Byte-identical to the other four
  *  backends' unhandled-fault arm. */
 export function internalFallbackResponse(): string {
-  return `ProblemDetails.problem_response(conn, 500, "Internal Server Error", "internal")`;
+  return exInternalFallback();
 }
 
 /** The human message a denial carries — identical to the string the other four
@@ -355,7 +329,7 @@ function codedPreconditionTerm(s: GuardStmt, text: string): string {
 export function deniesAtWire(s: GuardStmt, available: ReadonlySet<string> | undefined): boolean {
   if (available === undefined) return false;
   if (s.kind !== "precondition") return false;
-  return classifyForWire({ expr: s.expr, source: s.source, message: s.message }, { available });
+  return ruleStage({ expr: s.expr, source: s.source, message: s.message }, available) === "schema";
 }
 
 /** `{:validation_failed, [%{pointer: "/amount", message: "…", code: "msg.…"}]}`
@@ -439,7 +413,7 @@ export function wireValidationResponse(problemModule = "ProblemDetails"): string
  *  `code` (a structural error, like zod's), and go through the same
  *  `validation_errors_response/2` sender the wire-rung precondition uses. */
 function missingParamsResponse(problemModule = "ProblemDetails"): string {
-  return `${problemModule}.validation_errors_response(conn, Enum.map(missing, &%{pointer: "/" <> &1, message: "Required"}))`;
+  return `${problemModule}.validation_errors_response(conn, Enum.map(missing, &%{pointer: "/" <> &1, message: &1 <> ${exLit(` ${exMissingSuffix()}`)}}))`;
 }
 
 /** The two ProblemDetails clauses a controller needs to answer a typed denial,
@@ -531,7 +505,7 @@ export function respondErrorTail(
   return [
     clause(
       `def ${fnName}(conn, {:error, :not_found})`,
-      denialResponse("notFound", '"Resource not found"', overrides),
+      denialResponse("notFound", exSentence("not-found", "Resource"), overrides),
     ),
     ...(notFoundDetail
       ? [

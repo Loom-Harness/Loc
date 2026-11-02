@@ -18,13 +18,13 @@ import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import type { ApiOperationIR } from "../../../ir/util/api-surface.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
-import { defaultErrorStatus, errorTitle, errorTypeUri } from "../../../util/error-defaults.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { integralWireRange } from "../../../util/numeric-range.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import type { ApiRoute } from "../api-emit.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { renderExpr } from "../render-expr.js";
+import { exErrorVariant, exFieldMessage, exLit, exMissingSuffix } from "../wire-policy-ex.js";
 import { plugRelativePath } from "./api-emit.js";
 import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
 import { denialOverrides, denialResponse } from "./denial.js";
@@ -81,11 +81,12 @@ function absentSpec(
   if (other.kind === "none") return { kind: "none" };
   const tag = variantTag(other);
   const payload = ctx.payloads.find((p) => p.name === tag);
+  const resp = exErrorVariant(tag, ctx.errorStatusOverrides);
   return {
     kind: "error",
-    status: ctx.errorStatusOverrides?.[tag] ?? defaultErrorStatus(tag),
-    type: errorTypeUri(tag),
-    title: errorTitle(tag),
+    status: resp.status,
+    type: resp.type,
+    title: resp.title,
     hasResource: (payload?.fields ?? []).some((f) => f.name === "resource"),
   };
 }
@@ -578,7 +579,7 @@ ${absentArm}
  *  code the compiler is entitled to warn on. */
 function renderFindParamCheck(kinds: ReadonlySet<FindParamCheck["kind"]>): string {
   const clauses: string[] = [
-    `  defp __find_param_error(nil, _check, required), do: if(required, do: "Required", else: nil)`,
+    `  defp __find_param_error(nil, _check, required), do: if(required, do: :missing, else: nil)`,
   ];
   if (kinds.has("present")) {
     clauses.push(`  defp __find_param_error(_value, :present, _required), do: nil`);
@@ -596,7 +597,7 @@ function renderFindParamCheck(kinds: ReadonlySet<FindParamCheck["kind"]>): strin
     clauses.push(`  defp __find_param_error(value, :uuid, _required) do
     if byte_size(value) == 36 and match?({:ok, _}, Ecto.UUID.cast(value)),
       do: nil,
-      else: "Expected UUID."
+      else: ${exFieldMessage("malformed-id")}
   end`);
   }
   if (kinds.has("integer")) {
@@ -645,6 +646,7 @@ function renderFindParamCheck(kinds: ReadonlySet<FindParamCheck["kind"]>): strin
       Enum.flat_map(specs, fn {name, check, required} ->
         case __find_param_error(Map.get(params, name), check, required) do
           nil -> []
+          :missing -> [%{pointer: "/" <> name, message: name <> ${exLit(` ${exMissingSuffix()}`)}, code: nil}]
           message -> [%{pointer: "/" <> name, message: message, code: nil}]
         end
       end)

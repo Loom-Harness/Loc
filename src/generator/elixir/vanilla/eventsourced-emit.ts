@@ -63,6 +63,7 @@ import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { strictIngressFields } from "../wire-policy-ex.js";
 import {
   contextAliasLine,
   contextCallRef,
@@ -78,6 +79,7 @@ import { renderProblemVariantHelper } from "./operation-returns-emit.js";
 import {
   renderPathIdCastPlug,
   renderRequiredParamsPlug,
+  renderStrictParamsPlug,
   requiredWireParams,
 } from "./problem-details-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
@@ -883,7 +885,7 @@ defmodule ${appModule}Web.${aggPascal}Controller do
 ${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
-${renderRequiredParamsPlug(new Map(publicOps.map((op) => [snake(op.name), requiredWireParams(op.params)])))}
+${renderRequiredParamsPlug(new Map(publicOps.map((op) => [snake(op.name), requiredWireParams(op.params)])))}${renderStrictParamsPlug(new Map(publicOps.map((op) => [snake(op.name), strictIngressFields(op.params)])))}
 ${gatedReadAction(
   `  def index(conn, _params) do`,
   `    with {:ok, records} <- ${ctxModule}.list_${aggSnake}s() do
