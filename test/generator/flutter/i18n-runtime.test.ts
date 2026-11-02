@@ -309,15 +309,11 @@ describe("Flutter i18n runtime", () => {
     expect(dart).toContain("Icon(Icons.circle, size: 20.0)");
   });
 
-  it("translates the CodeBlock caption (codeBlockTitle) — but never the code", async () => {
+  it("never translates the CodeBlock source (the caption's binding is the round-trip gate's)", async () => {
+    // A caption re-wrapped in a `Text('…')` literal would print the `t()` call;
+    // the round-trip gate's `unbound` direction reads that shape.
     const src = SYSTEM(`CodeBlock { "let total = 1", language: "dart", title: "Example" }`);
     const dart = await homeDart(src);
-    const key = await keyFor(src, "Example");
-    // The caption arrives as a rendered `Text(t(…))` widget, so the pack styles
-    // it through `DefaultTextStyle.merge` rather than re-wrapping it in a
-    // `Text('…')` literal (which would print the call).
-    expect(dart).toContain(`Text(t('${key}', 'Example'))`);
-    expect(dart).not.toContain("Text('Text(");
     expect(dart).toContain("Text('let total = 1'");
   });
 

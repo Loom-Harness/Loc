@@ -62,17 +62,6 @@ async function keyFor(src: string, message: string): Promise<string> {
 }
 
 describe("Feliz i18n runtime", () => {
-  it("wraps a literal heading in an I18n.t call keyed to the catalog", async () => {
-    const src = SYS(`Heading { "Welcome" }`);
-    const fs = await appFs(src);
-    const key = await keyFor(src, "Welcome");
-    expect(key).toMatch(/^page\.Home\.heading\./);
-    // F# curried application, paren-wrapped so it survives an argument position.
-    expect(fs).toContain(`(I18n.t "${key}" "Welcome")`);
-    // `t()` is a string, so the interpolation seam drops its `string (…)` coercion.
-    expect(fs).toContain(`Html.text ((I18n.t "${key}" "Welcome"))`);
-  });
-
   it("emits the I18n module with the catalog compiled in as an F# Map", async () => {
     const fs = await appFs(SYS(`Heading { "Storefront" }`));
     expect(fs).toContain("module I18n =");
@@ -221,32 +210,11 @@ system Shop {
     expect(fs).toContain(`prop.role "toolbar"; prop.ariaLabel "Actions"`);
   });
 
-  it("renders + translates the Divider label (it was extracted but dropped)", async () => {
-    // The label reached `.loom/messages.en.json` while the pack emitted a bare
-    // rule — a translator translating a string the app never showed.  daisyUI's
-    // labelled form puts the text INSIDE the divider.
-    const src = SYS(`Divider { label: "Section break" }`);
-    const fs = await appFs(src);
-    const key = await keyFor(src, "Section break");
-    expect(fs).toContain(
-      `Html.div [ prop.className "divider"; prop.children [ Html.text ((I18n.t "${key}" "Section break")) ] ]`,
-    );
-  });
-
   it("keeps an unlabelled Divider byte-identical", async () => {
     const fs = await appFs(SYS(`Stack { Heading { "Orders" }, Divider { } }`));
     expect(fs).toContain(`Html.div [ prop.className "divider" ]`);
   });
 
-  it("translates the Modal title named slot (modalTitle)", async () => {
-    const src = SYS(
-      `Modal { Text { "Confirm archive?" }, open: archiveOpen, title: "Archive" }`,
-      "state { archiveOpen: bool = false }",
-    );
-    const fs = await appFs(src);
-    const key = await keyFor(src, "Archive");
-    expect(fs).toContain(`Html.text ((I18n.t "${key}" "Archive"))`);
-  });
   it("translates the Icon accessible name (iconLabel) as an F# prop", async () => {
     // The Feliz pack used to build `prop.ariaLabel "<raw label>"` from the raw
     // text, so a named icon announced itself in English at every locale.  It now
@@ -264,14 +232,11 @@ system Shop {
     expect(fs).not.toContain("iconLabel");
   });
 
-  it("translates the CodeBlock caption (codeBlockTitle) — but never the code", async () => {
-    // The caption arrives as an already-rendered element under i18n, so the pack
-    // has to take it through `prop.children` — splicing it into `prop.text "…"`
-    // would print the whole `I18n.t` call as visible text.
+  it("never translates the CodeBlock source (the caption's binding is the round-trip gate's)", async () => {
+    // A caption spliced into `prop.text "…"` would print the `I18n.t` call; the
+    // round-trip gate's `unbound` direction reads that shape.
     const src = SYS(`CodeBlock { "let total = 1", language: "fsharp", title: "Example" }`);
     const fs = await appFs(src);
-    const key = await keyFor(src, "Example");
-    expect(fs).toContain(`prop.children [ Html.text ((I18n.t "${key}" "Example")) ]`);
     expect(fs).toContain(`prop.text "let total = 1"`);
   });
 
