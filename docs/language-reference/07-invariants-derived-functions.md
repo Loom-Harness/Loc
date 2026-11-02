@@ -706,7 +706,28 @@ aggregate A {
 }
 ```
 
-A `return` may sit inside a statement `if` — `function tier(t: decimal): string { if n > t { return "gold" } else { return "bronze" } }` is legal and renders on all five backends — provided the conditional covers **both** paths (an `else`, or an `else if` chain ending in one). `match`, `if let` and `for` cannot appear in a function block at all; `checkStatementPlacement` confines those to the frontend / workflow zones (`loom.variant-match-placement`, `loom.if-let-placement`, `loom.for-placement`).
+A `return` may sit inside a statement `if` — `function tier(t: decimal): string { if n > t { return "gold" } else { return "bronze" } }` is legal and renders on all five backends — provided the conditional covers **both** paths (an `else`, or an `else if` chain ending in one). `match` (the statement form), `if let` and `for` cannot appear in a function block at all (`loom.variant-match-placement`, `loom.if-let-placement`, `loom.for-placement`): a function computes a value, so a variant goes through the value form instead —
+
+```ddd
+aggregate Order {
+  code: string
+  note: string?
+  function label(): string {
+    let shown = match note { string s => s, else => code }
+    return shown
+  }
+}
+```
+
+```ts
+// domain/order.ts — the value form over a `T?` is a presence ternary
+public label(): string {
+  const shown = this._note !== null ? this._note : this._code;
+  return shown;
+}
+```
+
+The statement form belongs to the bodies that run effects — an operation, a workflow, a handler ([chapter 6](06-behavior-and-statements.md#match--the-statement-form)).
 
 ### Top-level functions and the prelude
 

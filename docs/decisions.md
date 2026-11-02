@@ -2515,7 +2515,7 @@ it.
 |---|---|---|
 | 1 | `D-ENVELOPE-RATIFY` | `X envelope` = a single-row find; the `{id, ts, body}` carrier is dropped |
 | 2 | `D-HANDLE-REMOVAL` | remove workflow `handle`; `commandHandler` is the named command entry — APPLIED (owner-signed) |
-| 3 | `D-FOR-IN-DOMAIN` | `for` in a domain body = honest gap + named successor; `variant-match` / `if let` = permanent refusals |
+| 3 | `D-FOR-IN-DOMAIN` | `for` in a domain body = honest gap + named successor; `if let` = permanent refusal; statement `match` legal in effect bodies, refused in pure folds / functions (amended by D-FAILURE-MODEL) |
 | 4 | `D-NUMERIC-INGRESS-STRICT` | strict on both real narrowings — **owner-only** |
 | 5 | `D-DECIMAL-EXACT-MOMENT` | one PR: node + python + all 54 goldens re-captured; mint **RS-35** |
 | 6 | `D-WRITE-TX` | state + outbox + audit + provenance in one tx; dispatch after commit |
@@ -2717,6 +2717,32 @@ itself a silent sentinel of the M-T9.55 class and is routed through the give-up
 gate in the same wave.
 
 **Unblocks.** M-T5.28 → wave **C1 packet 1b**.
+
+**Amendment (2026-11-02, #3367, consistent with D-FAILURE-MODEL).** The
+`variant-match` half no longer stands as a permanent refusal. D-FAILURE-MODEL
+makes an expected failure a value the caller must handle, and its last bullet —
+"workflows return `or E` too, once a workflow body can `match` a result" — needs
+a body that branches on that value with statements. So the statement `match` is
+**legal** in every body that runs effects: an aggregate `operation`, `create`,
+`destroy`, a domain-service operation, a workflow `create` / `on`, and a
+`commandHandler` / `queryHandler`. Its subject is a value the body already holds
+(a union `let`, a `T?` param / field / read) and must be a name, not a call
+(`loom.match-subject-not-simple`). A `T?` subject is a presence check, as for
+the value form (D-ABSENCE-MODEL). In a workflow / handler body an arm does not
+`return` (the body answers once, after it has run), and an aggregate an arm
+binds and changes is saved at the end of that arm, as in an `if let` branch.
+
+It stays **refused** (`loom.variant-match-placement`) in the PURE bodies — an
+event-sourced `apply` fold, a projection `on` fold and a `function` — because a
+fold is a straight-line state transition (replayed per event) and a function
+computes a value: neither has an effect for an arm to run, and the value form
+`let x = match r { … }` already expresses a choice there. The original rationale
+("its arms render event handlers") described the action form only; the backend
+statement spines (`_stmt/target.ts`, `_workflow/stmt-target.ts`) now give it a
+form on node, .NET, Java and Python. Phoenix refuses it on a backend body
+(`loom.elixir-match-stmt-unsupported`, a `gap`) until its operation and
+`with`-chain renderers gain a `case` form. The `if let` and `for` halves are
+unchanged.
 
 **Sources.** [`T5-language-core.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T5-language-core.md) M-T5.28;
 [`2026-09-03-language-docs-audit-findings.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-03-language-docs-audit-findings.md)
@@ -5887,8 +5913,10 @@ call statement dropped it, and a workflow answered 204.
   `errorVariantResponse`), never as a 200 union.
 
 **Consequences.** `loom.unhandled-result` refuses a dropped `or E`
-(`src/language/validators/unhandled-result.ts`). In a workflow body the only
-handling route until #3367 lands is binding the result and reading it.
+(`src/language/validators/unhandled-result.ts`). A workflow / handler body
+handles a bound result with the statement `match` (#3367; D-FOR-IN-DOMAIN's
+amendment) or by reading it; binding the result of a MUTATING aggregate
+operation there is still refused (`loom.workflow-mutation-unsaved`).
 Every backend's operation route or handler checks the error variant before it
 stamps, saves, audits or publishes (Java also marks the transaction
 rollback-only, since its loaded aggregate is a managed entity); the

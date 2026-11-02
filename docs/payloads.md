@@ -332,14 +332,59 @@ generated on every backend. The two surfaces differ in who selects the variant:
   (error). Shipped across all five backends (rationale:
   [`proposals/exception-less.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/exception-less.md)).
 
+### Matching a union in a backend body
+
+The statement `match` runs statements per variant in an operation / `create` /
+`destroy`, a domain-service operation, a workflow `create` / `on`, or a
+handler; the value form (`let t = match r { Order o => o.code, … }`) fits
+anywhere, a pure fold or `function` included.  Reading a union without either
+is refused (`loom.union-read-undiscriminated`).
+
+```ddd
+domainService Pricing {
+  operation quote(code: string): Receipt or Rejected { … }
+}
+workflow Settle {
+  create(orderId: Order id, code: string) {
+    let o = Orders.getById(orderId)
+    let q = Pricing.quote(code)
+    match q {
+      Receipt rc => { o.touch() }
+      Rejected e => { o.touch() }
+    }
+  }
+}
+```
+
+```ts
+// http/workflows.ts (node) — the union's `type` discriminates; the exit save
+// follows the match
+const o = await orders.getById(orderId);
+const q = Pricing.quote(code);
+switch (q.type) {
+  case "Receipt": {
+    const rc = q;
+    o.touch();
+    break;
+  }
+  case "Rejected": {
+    const e = q;
+    o.touch();
+    break;
+  }
+}
+await orders.save(o);
+```
+
+.NET switches over the `<Union>_<Tag>` carrier records, Java arrow-switches
+over the sealed union, Python probes the tagged dict's `type`.  Phoenix refuses
+the statement form in a backend body (`loom.elixir-match-stmt-unsupported`)
+until its `case` rendering lands.  Binding the result of a MUTATING aggregate
+operation in a workflow (`let r = o.withdraw(x)`, then `match r`) is still
+refused by `loom.workflow-mutation-unsaved`.
+
 ## What's deferred
 
-- **The effect-form `match` over a union in a domain / workflow body** (arms that
-  run statements, e.g. `match r { Order o => o.touch(), NotFound => … }`). The
-  VALUE form ships on all five backends (`let t = match r { Order o => o.code,
-  … }`, exhaustiveness-checked, narrowed per backend) and reading a union
-  without it is refused (`loom.union-read-undiscriminated`); the statement form
-  is frontend-only today (`loom.variant-match-placement`).
 - **Merge-patch update** semantics (presence is the generated update's rule,
   not an `option` type — D-ABSENCE-MODEL, #4109).
   (Exception-less **operation returns** of unions have shipped — see §5.)
