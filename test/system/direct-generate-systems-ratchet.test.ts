@@ -118,7 +118,6 @@ const PINNED: readonly string[] = [
   "test/generator/elixir/vanilla-standalone-outbox.test.ts",
   "test/generator/elixir/vanilla-timer-scheduler.test.ts",
   "test/generator/elixir/vanilla-workflow-instances.test.ts",
-  "test/generator/flutter/param-find-reads.test.ts",
   "test/generator/hono/hono-seed.test.ts",
   "test/generator/hono/hono-stamping.test.ts",
   "test/generator/hono/hono-wire-conformance.test.ts",

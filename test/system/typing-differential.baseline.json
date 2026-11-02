@@ -4,19 +4,19 @@
     "expressions": 250000
   },
   "classes": {
-    "agree": 222638,
-    "declaration-name": 60470,
-    "ir-differs": 6816,
-    "nobody-knows": 3918,
-    "not-lowered": 2800,
+    "agree": 194402,
+    "declaration-name": 50784,
+    "ir-differs": 6792,
+    "nobody-knows": 3860,
+    "not-lowered": 3415,
     "unreached": 0
   },
   "unknownCauses": {
-    "not-a-value": 60470,
-    "no-rule": 3061,
-    "unresolved-member": 1160,
-    "unresolved-name": 682,
-    "contextual-lambda": 166,
+    "not-a-value": 50784,
+    "no-rule": 2565,
+    "unresolved-member": 1144,
+    "unresolved-name": 684,
+    "contextual-lambda": 111,
     "unresolved-type": 89,
     "ill-typed-operands": 2,
     "parse-broken": 1
