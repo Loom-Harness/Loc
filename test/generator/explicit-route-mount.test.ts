@@ -195,10 +195,10 @@ describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived
     const apiBlock = router.slice(router.indexOf('scope "/api"'));
     expect(rootBlock).not.toContain("SalesApiRoutesController");
     for (const line of [
-      'get "/orders/:order_id", SalesApiRoutesController, :get_order',
+      'get "/orders/:orderId", SalesApiRoutesController, :get_order',
       'post "/orders", SalesApiRoutesController, :create_order',
-      'post "/orders/:order_id/cancel", SalesApiRoutesController, :cancel_order',
-      'delete "/orders/:order_id", SalesApiRoutesController, :destroy_order',
+      'post "/orders/:orderId/cancel", SalesApiRoutesController, :cancel_order',
+      'delete "/orders/:orderId", SalesApiRoutesController, :destroy_order',
     ])
       expect(apiBlock).toContain(line);
     // The derived routes for those slots are gone — two clauses on one slot is

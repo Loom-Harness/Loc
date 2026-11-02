@@ -98,9 +98,9 @@ import {
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
 
-/** One `"snake_key" => snake_var` binding of the `run/1` string-keyed params
- *  destructure.  `key` is the wire field name (snake) the request arrives under;
- *  `var` is the bound local (same snake token — the destructure introduces it). */
+/** One `"wireName" => snake_var` binding of the `run/1` string-keyed params
+ *  destructure.  `key` is the wire name the request arrives under; `var` is the
+ *  snake-cased local the destructure introduces. */
 interface Destructure {
   key: string;
   var: string;
@@ -161,11 +161,10 @@ function collectRecordFieldsInStmt(
   walkWorkflowStmtExprsDeep(st, (n) => noteRecordFieldAccess(n, records, acc));
 }
 
-/** The `run/1` params destructure of a handler, wire-preserving under the
- *  M-T5.10 handler-param rewrite.  A plain id/scalar param binds from its own
- *  snake key exactly as before; a `command`/`query` RECORD param is FLATTENED —
- *  each field the body reads (`cmd.<field>`) binds from the SAME snake key an
- *  equivalent flat param used, so the request wire is byte-identical.  Only
+/** The `run/1` params destructure of a handler.  A plain id/scalar param binds
+ *  from its wire-name key; a `command`/`query` RECORD param is FLATTENED — each
+ *  field the body reads (`cmd.<field>`) binds from the SAME key an equivalent
+ *  flat param would, so the request wire is identical either way.  Only
  *  referenced fields/params are bound (unused → `--warnings-as-errors`).  Also
  *  returns the record-param name set so the body renderer can rewrite
  *  `cmd.<field>` → the flat local. */
@@ -187,11 +186,15 @@ function handlerDestructure(
 
   const entries: Destructure[] = [];
   const seen = new Set<string>();
+  // The map key is the WIRE name: Phoenix hands `params` over with the keys the
+  // client sent, and every client (the published spec, the other four backends'
+  // goldens) spells a multi-word param `commitSha`, not `commit_sha` — a snake key
+  // would make every well-formed request a MatchError.  Only the local is
+  // snake-cased, as in the workflow emitter.
   const push = (name: string): void => {
-    const key = snake(name);
-    if (seen.has(key)) return;
-    seen.add(key);
-    entries.push({ key, var: escapeElixirIdent(key) });
+    if (seen.has(name)) return;
+    seen.add(name);
+    entries.push({ key: name, var: escapeElixirIdent(snake(name)) });
   };
   for (const p of h.params) {
     const rec = requestRecordFor(p.type, ctx);
@@ -574,8 +577,10 @@ function handlerLoadsById(h: CommandHandlerIR | QueryHandlerIR): boolean {
   return found;
 }
 
+/** A path param keeps its declared (wire) name, as the derived routes' do: the
+ *  handler's `run/1` matches every param — path, query, body — by wire name. */
 function phoenixPath(path: string): string {
-  return path.replace(/\{(\w+)\}/g, (_, name: string) => `:${snake(name)}`);
+  return path.replace(/\{(\w+)\}/g, ":$1");
 }
 
 /** Emit one `<Api>RoutesController` per served api whose route list is
