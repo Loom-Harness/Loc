@@ -51,6 +51,7 @@ export { checkPayloads } from "./payload.js";
 export { checkPermissionImplies } from "./permissions.js";
 export { checkPolicyFns } from "./policy-fn.js";
 export { checkRepoKeyLookups } from "./repo-key-lookup.js";
+export { checkRepoVerbs } from "./repo-verbs.js";
 export { checkReadGates } from "./repository.js";
 export { checkSeeds } from "./seed.js";
 export {
@@ -61,7 +62,6 @@ export {
   checkEmit,
   checkOperation,
   checkPredicateSlotArgs,
-  checkRetrievalLiteral,
   checkStatement,
   checkStoreActionCallArgs,
   checkTestBodyCallArgs,

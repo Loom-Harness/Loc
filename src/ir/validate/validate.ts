@@ -453,7 +453,7 @@ export function validateLoomModel(
  *  part of that body makes it lie.
  *
  *  `workflow-cross-context-repository.test.ts` is the witness: a cross-context
- *  `let tech = Technicians.getById(assignTo)` is refused, the statement never
+ *  `let tech = Technicians.get(assignTo)` is refused, the statement never
  *  lowers, and the `assignTo` read vanishes with it — so `assignTo` reads as
  *  an unused parameter when the author's only mistake was the boundary. That
  *  test's own name is "the misleading cascade is gone", and adding a second

@@ -67,7 +67,7 @@ export type UnknownCause =
   /** The node sits under a parse error. */
   | "parse-broken"
   /** The name denotes a declaration, not a value: the head of
-   *  `Orders.getById(…)`, `Order.create(…)`, `Text(…)`, `Sales.Order.byId(…)`.
+   *  `Orders.get(…)`, `Order.create(…)`, `Text(…)`, `Sales.Order.byId(…)`.
    *  The chain as a whole has a type; its head name has none. */
   | "not-a-value";
 

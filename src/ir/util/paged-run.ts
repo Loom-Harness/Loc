@@ -1,11 +1,11 @@
 /** The paged-run body shape — the one `paged` queryHandler body every backend
  *  emits (paged-queryHandler):
  *
- *    queryHandler H(...): <Agg> paged { let r = Repo.run(<Criterion | Retrieval>(args)); return r }
+ *    queryHandler H(...): <Agg> paged { let r = Repo.all(<Criterion | Retrieval>(args)); return r }
  *
  *  i.e. the returned value is a plain `let`-ref bound to a TOP-LEVEL `repo-run`
- *  statement — over a criterion (`synthCriterion`: `Repo.run(<Criterion>)` /
- *  `Repo.findAll(<Criterion>)`) or a named `retrieval` (`Repo.run(<Retrieval>)`,
+ *  statement — over a criterion (`synthCriterion`: `Repo.all(<Criterion>)`)
+ *  or a named `retrieval` (`Repo.all(<Retrieval>)`,
  *  whose `sort:` becomes the page's default order).  Shared by the enrich pass
  *  (which synthesises the paged FIND for this shape), the phase-⑦ refusal
  *  `loom.paged-query-handler-shape` (which rejects every other body up front)
@@ -43,7 +43,7 @@ export function requirePagedRunStmt(
   if (!run) {
     throw new Error(
       `internal: paged queryHandler '${h.name}' in '${ctxName}' does not match the ` +
-        "supported `let r = Repo.run(<Criterion | Retrieval>(args)); return r` shape. Please file a bug.",
+        "supported `let r = Repo.all(<Criterion | Retrieval>(args)); return r` shape. Please file a bug.",
     );
   }
   return run;
@@ -93,7 +93,7 @@ export function pagedRunGatesUseCurrentUser(h: Pick<QueryHandlerIR, "statements"
 
 /** The paged FIND a paged-run handler calls — the repository method enrich
  *  synthesizes for it.  A criterion run already names it (`findAllBy<Criterion>`,
- *  shared with `Repo.findAll(<Criterion>)`); a retrieval run gets
+ *  shared with `Repo.all(<Criterion>)`); a retrieval run gets
  *  `page<Retrieval>`, beside the unpaged `run<Retrieval>` the retrieval itself
  *  emits. */
 export function pagedRunFindName(run: PagedRunStmt): string {

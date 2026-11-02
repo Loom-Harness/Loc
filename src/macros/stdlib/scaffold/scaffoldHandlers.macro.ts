@@ -39,14 +39,14 @@ import {
  *
  *   ↓ Ordering gains
  *
- *   queryHandler   GetOrder(query: GetOrderQuery): OrderResponse  { let o = Orders.getById(query.orderId)  return o }
+ *   queryHandler   GetOrder(query: GetOrderQuery): OrderResponse  { let o = Orders.get(query.orderId)  return o }
  *   queryHandler   ByStatusOrder(query: ByStatusOrderQuery): OrderResponse[] { let r = Orders.byStatus(query.status)  return r }
  *   commandHandler CreateOrder(cmd: CreateOrderCommand): Order id {
  *     let o = Order.create(code: cmd.code, status: cmd.status)
  *     return o.id
  *   }
  *   commandHandler CancelOrder(orderId: Order id) {   // cmd omitted — cancel has no params
- *     let o = Orders.getById(orderId)
+ *     let o = Orders.get(orderId)
  *     o.cancel()
  *   }
  *
@@ -106,7 +106,7 @@ function buildHandler(t: HandlerTarget) {
         ...(opParams.length > 0 ? [param("cmd", namedType(`${targetHandlerName(t)}Command`))] : []),
       ];
       const body = [
-        // `let o = <Repo>.getById(<idParam>)`
+        // `let o = <Repo>.get(<idParam>)`
         letStmt(
           "o",
           memberAccess(nameRef(t.repo.name), repoOpVerb("load"), {
@@ -170,7 +170,7 @@ function buildHandler(t: HandlerTarget) {
     }
     case "destroy": {
       // The canonical hard-delete: load one aggregate by id, then remove it.
-      // `<Repo>.delete(o)` lowers to a first-class `repo-delete` handler
+      // `<Repo>.remove(o)` lowers to a first-class `repo-delete` handler
       // statement (every domain-logic backend renders it to its own repository
       // delete verb).  A void commandHandler — there is nothing meaningful to
       // return after a delete (the entity is gone; `return o.id` would read a
@@ -179,7 +179,7 @@ function buildHandler(t: HandlerTarget) {
       const idParam = idParamName(t.agg.name);
       const params = [param(idParam, idRef(t.agg.name))];
       const body = [
-        // `let o = <Repo>.getById(<idParam>)`
+        // `let o = <Repo>.get(<idParam>)`
         letStmt(
           "o",
           memberAccess(nameRef(t.repo.name), repoOpVerb("load"), {
@@ -187,8 +187,8 @@ function buildHandler(t: HandlerTarget) {
             args: [nameRef(idParam)],
           }),
         ),
-        // `<Repo>.delete(o)` — a repo-delete statement.
-        callStmt([t.repo.name, "delete"], [nameRef("o")]),
+        // `<Repo>.remove(o)` — a repo-delete statement.
+        callStmt([t.repo.name, repoOpVerb("remove")], [nameRef("o")]),
       ];
       return commandHandler(targetHandlerName(t), params, body);
     }

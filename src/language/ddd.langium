@@ -2102,6 +2102,13 @@ Parameter:
 // `sensitive`, the access modifiers, the `TypeRef` carriers) additionally sit
 // in `soft-keyword-colon-guard.ts`.
 CommonSoftKeywords returns string:
+    SoftKeywordsExceptSort | 'sort';
+
+// Every common soft keyword but `sort` — the name position of a call argument
+// (`CallArgName`) takes these, so `sort:` inside a call is only ever the
+// repository `all(…)` sort slot on `PostfixSuffix`, never an ordinary named
+// argument whose value is a list (`[code]` would parse both ways).
+SoftKeywordsExceptSort returns string:
       'abstract' | 'action' | 'against' | 'aggregates' | 'allow' | 'angular'
       | 'angularMaterial' | 'api' | 'area' | 'asc' | 'audience' | 'audited' | 'auth' | 'bigquery' | 'bind'
       | 'body' | 'broadcast' | 'by' | 'cache' | 'canonical' | 'capability' | 'carries' | 'chakra' | 'channel'
@@ -2127,7 +2134,7 @@ CommonSoftKeywords returns string:
       | 'retrieval' | 'route' | 's3' | 'schema' | 'scopes' | 'secret' | 'section' | 'seed' | 'select'
       | 'sendgrid' | 'sensitive' | 'serializable' | 'serves' | 'service' | 'ses' | 'sessions' | 'shadcn'
       | 'shadcnSvelte' | 'shadcnVue' | 'shape' | 'sharedTable' | 'sidebar' | 'slot' | 'smtp' | 'snapshot'
-      | 'solution' | 'sort' | 'spartanNg' | 'sql' | 'sqlite' | 'stamp' | 'state' | 'storage' | 'store'
+      | 'solution' | 'spartanNg' | 'sql' | 'sqlite' | 'stamp' | 'state' | 'storage' | 'store'
       | 'subdomain' | 'svelte' | 'tablePrefix' | 'targets' | 'tenancy' | 'testCase' | 'theme' | 'timerSource'
       | 'title' | 'token' | 'transactional' | 'ttl' | 'type' | 'ui' | 'urlStyle' | 'use' | 'user'
       | 'valueobject' | 'verifies' | 'views' | 'vue' | 'vuetify' | 'work' | 'workflow' | 'workflows' | 'write'
@@ -2541,20 +2548,6 @@ MatchScrutinee infers Expression:
 VariantArm:
     varType=TypeAtom (binding=ID)? '=>' value=Expression;
 
-// Anonymous (inline, unnamed) retrieval literal — the call-site twin of a
-// declared `retrieval`, accepted by `Repo.run(...)`.  Same `where:` / `sort:`
-// / `loads:` block as the declaration, minus the name and `of <T>` (the
-// candidate is the `run` repository's aggregate).  Keyword-led
-// (`retrieval { … }`) so it is an unambiguous primary expression — a bare `{`
-// would be an ObjectLit.  `where` is a criterion reference; `sort` / `loads`
-// reuse the declared-retrieval `SortItem` / `LoadPath` rules.
-RetrievalLiteral:
-    'retrieval' '{'
-        'where' ':' where=Expression
-        ('sort'  ':' '[' (sort+=SortItem (',' sort+=SortItem)*)? ']')?
-        ('loads' ':' '[' (loads+=LoadPath (',' loads+=LoadPath)*)? ']')?
-    '}';
-
 TernaryExpr infers Expression:
     CoalesceExpr (
         {infer TernaryExpr.cond=current} '?' thenExpr=Expression ':' elseExpr=Expression
@@ -2666,8 +2659,20 @@ CondPrimaryExpr infers Expression:
 
 PostfixSuffix:
       {infer MemberSuffix} '.' member=MemberName
-        ( call?='(' ( throwKind=ThrowKind | (args+=CallArg (',' args+=CallArg)*)? ) ')' )?
+        ( call?='(' ( throwKind=ThrowKind | (MemberCallArg (',' MemberCallArg)*)? ) ')' )?
     | {infer CallSuffix}   '(' (args+=CallArg (',' args+=CallArg)*)? ')';
+
+// One argument of a member call — an ordinary `CallArg`, or the `sort:` slot
+// of a repository read: `Orders.all(Active, sort: [placedAt desc, code])`.  The
+// slot takes `SortItem`s (structural paths over the candidate, each with an
+// optional direction), the same items a declared `retrieval` sorts by; a path
+// is not an expression, so it cannot ride a `CallArg`.  `sorted` records that
+// the slot was written (an empty `sort: []` included).  The grammar admits it
+// on any member call; the validator accepts it only on a repository `all`
+// (`loom.repo-sort-placement`).
+fragment MemberCallArg:
+    sorted?='sort' ':' '[' (sort+=SortItem (',' sort+=SortItem)*)? ']'
+  | args+=CallArg;
 
 // The failure RUNG a unit-tier `expect(<call>).toThrow(<kind>)` pins —
 // `precondition` (a domain validity check the operation body declares) or
@@ -2711,7 +2716,13 @@ ThrowKind returns string:
 // this, e.g. `Form(state: order)` would fail because `state` is a
 // hard keyword from `StateBlock`.
 CallArg:
-    (name=LooseName ':')? value=Expression;
+    (name=CallArgName ':')? value=Expression;
+
+// The name of a call argument: a `LooseName` minus `sort` (see
+// `SoftKeywordsExceptSort`).
+CallArgName returns string:
+    ID | SoftKeywordsExceptSort
+    | 'await' | 'contains' | 'from' | 'id' | 'ignoring' | 'page';
 
 // Accept reserved keywords as ordinary member names so `prod.id`,
 // `currentUser.permissions`, `someArray.contains(x)`, and the e2e
@@ -2739,8 +2750,7 @@ Lambda:
     );
 
 PrimaryExpr infers Expression:
-      RetrievalLiteral
-    | BuilderCall
+      BuilderCall
     | ObjectLit
     | ParenExpr
     | ListLit

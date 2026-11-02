@@ -78,7 +78,7 @@ import {
   checkProjectSingletons,
   checkReadGates,
   checkRepoKeyLookups,
-  checkRetrievalLiteral,
+  checkRepoVerbs,
   checkSeeds,
   checkSelfType,
   checkSlotMemberAccess,
@@ -185,9 +185,6 @@ export class DddValidator {
     // preconditions, derived bodies, function bodies, and guards
     // alike — anywhere the operator can appear.
     guard("matches-calls", model, () => checkMatchesCalls(model, accept));
-    // An anonymous retrieval literal's `where:` must be a criterion reference
-    // (criterion.md, use site 3).
-    guard("retrieval-literal", model, () => checkRetrievalLiteral(model, accept));
     // Test-assertion matchers (`toBe`/`toHaveText`/…) are a known builtin
     // surface — enforce their fixed argument arity.
     guard("matcher-arity", model, () => checkMatcherArity(model, accept));
@@ -441,6 +438,9 @@ export class DddValidator {
     // Natural-key reads (`Repo.getBy(sku: s)`): the named arguments must equal
     // a declared `unique (…)` tuple.  See `validators/repo-key-lookup.ts`.
     guard("repo-key-lookups", model, () => checkRepoKeyLookups(model, accept));
+    // The repository verbs' shape rules and the retired-verb cutover
+    // (D-REPO-VERBS).  See `validators/repo-verbs.ts`.
+    guard("repo-verbs", model, () => checkRepoVerbs(model, accept));
     // The callable legality table: the grammar's callable fragments
     // accept the whole modifier/clause surface at every site, so an excluded
     // modifier reports WHY (`CALLABLE_SITES`) instead of failing as an

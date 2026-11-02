@@ -6,7 +6,11 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { nearestName } from "../../../util/edit-distance.js";
 import { lowerFirst } from "../../../util/naming.js";
-import { REPOSITORY_CONTRACT, repoOpVerb } from "../../../util/repository-contract.js";
+import {
+  REPOSITORY_CONTRACT,
+  repoOpVerb,
+  retiredRepoVerb,
+} from "../../../util/repository-contract.js";
 import {
   constructionBlockingInvariants,
   createInputFields,
@@ -47,7 +51,9 @@ import { foreignRepositoryOwners } from "./shared.js";
 
 /** The read verbs every repository offers — the did-you-mean candidates for a
  *  named read no verb recognises. */
-const READ_VERBS = REPOSITORY_CONTRACT.filter((c) => c.face === "read").map((c) => c.verb);
+const READ_VERBS = [
+  ...new Set(REPOSITORY_CONTRACT.filter((c) => c.face === "read").map((c) => c.verb)),
+];
 
 // ---------------------------------------------------------------------------
 // Workflow validation.
@@ -294,14 +300,14 @@ function validateWorkflowFunctions(wf: WorkflowIR, diags: LoomDiagnostic[], ctxN
 //      verbatim.
 //
 // Verified 2026-09-13 on `precondition tech.skills.contains(
-// Assets.getById(job.assetId).requiredSkill)` inside a transactional workflow
+// Assets.get(job.assetId).requiredSkill)` inside a transactional workflow
 // whose two other repositories ARE let-bound: `ddd parse` and
 // `generate system` both report ZERO diagnostics, and `api/http/workflows.ts`
 // emits
 //
 //   const technicians = new TechnicianRepository(tx, events);   // let-bound ✓
 //   const jobs = new JobRepository(tx, events);                 // let-bound ✓
-//   if (!((tech.skills).includes(Assets.getById(job.assetId).requiredSkill)))
+//   if (!((tech.skills).includes(Assets.get(job.assetId).requiredSkill)))
 //                                ^^^^^^ never constructed → TS2304
 //
 // One MODEL-level shape that no backend supports, not five per-backend gaps —
@@ -915,7 +921,7 @@ function payloadFieldMatch(
 //       writes the tree, and node's `api/http/workflows.ts` contains
 //
 //         const workOrders = new WorkOrderRepository(tx, events);
-//         const tech = Technicians.getById(assignTo);        // no repo, no await
+//         const tech = Technicians.get(assignTo);        // no repo, no await
 //         const wo = await workOrders.getById(workOrderId);  // the local sibling
 //
 //       — `Technicians` is never constructed or imported (`tsc`: "Cannot find
@@ -1047,12 +1053,12 @@ function validateWorkflowCrossContextRepositories(
  *  command-triggered) create — so validating it alone left every `on(e: Event)`
  *  reactor and every non-primary / event-triggered `create` body completely
  *  unchecked.  That blind spot is what let
- *  `for f in Follows.run(FollowersOf(e.author))` — a shape
+ *  `for f in Follows.all(FollowersOf(e.author))` — a shape
  *  `loom.workflow-foreach-source` rejects in a `create` body — reach codegen
  *  from a reactor body: the elixir reactor emitter then THREW
  *  (`unsupported reactor statement kind 'for-each'`, aborting the whole
  *  `generate system` run), and java / hono / python / .NET each emitted a
- *  `Repo.run(<the criterion predicate inlined as a boolean>)` call that exists
+ *  `Repo.all(<the criterion predicate inlined as a boolean>)` call that exists
  *  on no repository.  Every body now walks the same checks. */
 function workflowBodies(wf: {
   statements: import("../../types/loom-ir.js").WorkflowStmtIR[];
@@ -1382,8 +1388,8 @@ function validateWorkflowStatements(
    *  registered BEFORE the op-calls are checked and unregistered after.  That
    *  is what makes
    *
-   *      for u in us { let p = Parts.getById(u.part)  p.consume(u.quantity) }
-   *      if let o = Orders.find(C) { let cu = Customers.getById(x)  cu.touch() }
+   *      for u in us { let p = Parts.get(u.part)  p.consume(u.quantity) }
+   *      if let o = Orders.find(C) { let cu = Customers.get(x)  cu.touch() }
    *
    *  legal: every backend already walks into these bodies and injects the
    *  repository for exactly this shape (verified on all five — the node/python
@@ -1600,6 +1606,9 @@ function validateWorkflowStatements(
         }
         // A name that is no contract verb rides `unknown-read`: a repository
         // declares no reads of its own, so there is nothing to resolve it to.
+        // A retired verb is `loom.repo-verb-renamed`'s (phase ④), which names
+        // its replacement.
+        if (st.op === "unknown-read" && retiredRepoVerb(st.method)) break;
         if (st.op === "unknown-read") {
           diags.push({
             severity: "error",
@@ -1616,7 +1625,7 @@ function validateWorkflowStatements(
           break;
         }
         // Reject an array return — a `let` binds one row; iterate a list read
-        // with `for … in Repo.findAll(…)`.  A `load` is always a single
+        // with `for … in Repo.all(…)`.  A `load` is always a single
         // non-nullable aggregate (the impl throws on miss).
         if (st.op !== "load" && st.returnType.kind === "array") {
           diags.push({
@@ -1642,7 +1651,7 @@ function validateWorkflowStatements(
         break;
       }
       case "repo-run": {
-        // `let xs = Repo.findAll(<Criterion>, page?)` (criterion.md, use
+        // `let xs = Repo.all(<Criterion>, page?)` (criterion.md, use
         // site 3) lowered to a `synthCriterion`-marked repo-run.  Validate the
         // criterion directly (clear errors before the enrich-synthesised
         // `findAllBy<Criterion>` retrieval would otherwise mislead the generic
@@ -1727,7 +1736,7 @@ function validateWorkflowStatements(
           arrayBindingAgg.set(st.name, st.aggName);
           break;
         }
-        // `let xs = Repo.run(<Retrieval>(args), page?)` — the bound
+        // `let xs = Repo.all(<Retrieval>(args), page?)` — the bound
         // result is an aggregate array, consumable only by a `for-each`.
         const repo = reposByName.get(st.repoName);
         if (!repo) {
@@ -1927,7 +1936,7 @@ function validateWorkflowStatements(
         break;
       }
       case "repo-delete":
-        // `<Repo>.delete(o)` — a repository DELETE is a persistence mutation, so
+        // `<Repo>.remove(o)` — a repository DELETE is a persistence mutation, so
         // it satisfies a `transactional` workflow's effect requirement.
         markMutated();
         break;

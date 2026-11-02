@@ -27,7 +27,7 @@ import type {
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
-import { repoVerbOpAt } from "../../../util/repository-contract.js";
+import { repoVerbMethod, repoVerbOpAt } from "../../../util/repository-contract.js";
 import { renderTsExpr } from "../render-expr.js";
 import { renderCreateInput, renderExplicitMatcher, testBodyValueImports } from "./tests.js";
 
@@ -79,7 +79,9 @@ function findCallOf(
     op === "load-optional" ||
     custom?.returnType.kind === "optional" ||
     custom?.returnType.kind === "union";
-  return { aggName, method: e.member, args: e.args, nullable };
+  // A built-in read calls the repository method its verb is emitted as
+  // (`get` → `getById`); a declared find keeps its own name.
+  return { aggName, method: custom ? e.member : repoVerbMethod(e.member), args: e.args, nullable };
 }
 
 const repoHandle = (aggName: string): string => `repos.${lowerFirst(aggName)}`;

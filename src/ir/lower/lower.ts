@@ -1580,7 +1580,7 @@ function objectLitToVoCtor(obj: ObjectLit, vo: ValueObject, env: Env): ExprIR {
  *  the candidate aggregate; parameters become `param` locals.  Use-sites
  *  do not read this body — they inline a freshly-substituted copy via
  *  `lower-expr.ts` — but it is retained for tooling, traceability and the
- *  forthcoming `Repo.findAll(criterion, …)` surface. */
+ *  forthcoming `Repo.all(criterion, …)` surface. */
 function lowerCriterion(c: Criterion, env: Env): CriterionIR {
   const targetType = lowerType(c.target);
   let bodyEnv: Env = { ...env, locals: new Map() };

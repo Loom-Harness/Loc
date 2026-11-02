@@ -941,7 +941,7 @@ export interface FindIR {
   takeFirst?: boolean;
   /** Compiler-synthesized find — NOT author-declared and NOT auto-exposed as
    *  its own HTTP route.  Set by enrich when a paged `queryHandler` over
-   *  `Repo.run(<Criterion>)` (paged-run) needs the #1904 paged FIND repo-method
+   *  `Repo.all(<Criterion>)` (paged-run) needs the #1904 paged FIND repo-method
    *  emitted for it to call; the exposure is the queryHandler's own route, so
    *  the aggregate router skips this find (route + query schema + paged DTO).
    *  The repository builder still emits the method. */
@@ -949,7 +949,7 @@ export interface FindIR {
   /** The order a PAGED find's page is taken in when the caller's `sort` key
    *  names no whitelisted column — its route's `sort` then defaults to `""`
    *  (`pagedSortDefault`).  Absent: the `id` order every paged read falls back
-   *  to.  Set on the paged find a `queryHandler` over `Repo.run(<Retrieval>)`
+   *  to.  Set on the paged find a `queryHandler` over `Repo.all(<Retrieval>)`
    *  synthesizes, from the retrieval's declared `sort:`. */
   defaultSort?: SortTermIR[];
   /** The compiler-synthesized per-entity history read (`docs/audit.md`) —
@@ -987,7 +987,7 @@ export interface KeyLookupIR {
 }
 
 /** A single-row read that widens its capability filters —
- *  `Repo.find(<Criterion>) ignoring …` or `Repo.findById(id) ignoring …`.
+ *  `Repo.find(<Criterion>) ignoring …` or `Repo.find(id) ignoring …`.
  *  The plain reads share a method with every other caller (the criterion's
  *  `findAllBy<C>` retrieval, the by-id load), so the widened read is emitted
  *  as a method of its own, named by `bypassReadMethodName`, which enrichment
@@ -1043,7 +1043,7 @@ export interface RepositoryIR {
  *  predicate body with its parameters substituted and the candidate
  *  rebound to the host receiver, so no backend consumes `CriterionIR`
  *  directly today.  The IR record is retained for tooling, traceability
- *  and the forthcoming `Repo.findAll(criterion, …)` surface. */
+ *  and the forthcoming `Repo.all(criterion, …)` surface. */
 export interface CriterionIR {
   name: string;
   params: ParamIR[];
@@ -1121,7 +1121,7 @@ export type LoadPlanIR = { kind: "whole" } | { kind: "explicit"; paths: LoadSegm
  *  RetrievalIR bundle node (reified-criteria.md).
  *
  *  No `page` field — pagination is a call-site argument on
- *  `Repo.run(R(args), page?)`, never part of the declaration. */
+ *  `Repo.all(R(args), page?)`, never part of the declaration. */
 export interface RetrievalIR {
   name: string;
   params: ParamIR[];
@@ -1867,7 +1867,7 @@ export type WorkflowStmtIR =
       origin?: OriginRef;
     }
   | {
-      // `let xs = Repo.run(<Retrieval>(args), page?)` — bind the named
+      // `let xs = Repo.all(<Retrieval>(args), page?)` — bind the named
       // query bundle's result array (retrieval.md).  Distinct from
       // `repo-let` (which forbids array returns): a `repo-run` is always
       // an aggregate array, consumable only by a `for-each` loop.
@@ -1880,8 +1880,8 @@ export type WorkflowStmtIR =
       retrievalName: string;
       retrievalArgs: ExprIR[];
       page?: { offset?: ExprIR; limit?: ExprIR };
-      /** Set when this `repo-run` was lowered from `Repo.findAll(<Criterion>)`
-       *  (criterion.md, use site 3) rather than `Repo.run(<Retrieval>)`.  The
+      /** Set when this `repo-run` was lowered from `Repo.all(<Criterion>)`
+       *  (criterion.md, use site 3) rather than `Repo.all(<Retrieval>)`.  The
        *  enrich pass synthesises a `RetrievalIR` named `retrievalName` (=
        *  `findAllBy<Criterion>`) from `ctx.criteria[name]` so the call rides
        *  the existing retrieval pipeline on every backend.  `name` is the
@@ -1896,7 +1896,7 @@ export type WorkflowStmtIR =
        *  distinct shapes over one criterion get distinct retrievals. */
       synthSort?: SortTermIR[];
       synthLoadPlan?: LoadPlanIR;
-      /** `ignoring *` on the inline `Repo.findAll(...)`/`Repo.run(...)` read —
+      /** `ignoring *` on the inline `Repo.all(...)` read —
        *  bypass EVERY capability query-filter on the aggregate (named-filter-
        *  bypass.md §11).  Mutually exclusive with `bypassCaps`.  See
        *  `FindIR.bypassAll`. */
@@ -1918,10 +1918,10 @@ export type WorkflowStmtIR =
       origin?: OriginRef;
     }
   | {
-      // `<Repo>.delete(o)` / `<Repo>.remove(o)` — a repository DELETE
+      // `<Repo>.remove(o)` — a repository DELETE
       // (destroy) call inside a handler body.  `entity` is the loaded
       // aggregate reference to remove (e.g. the `o` from `let o =
-      // Orders.getById(id)`).  Each backend renders it to its already-emitted
+      // Orders.get(id)`).  Each backend renders it to its already-emitted
       // repository delete verb, with the argument shape that backend expects
       // (aggregate value for .NET/Java/Elixir, `<entity>.id` for Hono/Python).
       // Distinct from `op-call`: a delete is not an aggregate operation, and
@@ -2003,7 +2003,7 @@ export type WorkflowStmtIR =
       var: string;
       /** `select-one` for a criterion source, `load-by-key-optional` for a
        *  natural-key `Repo.findBy(…)` (`findMethod` names its method),
-       *  `load-optional` for `Repo.findById(id)` (`retrievalArgs` carry the
+       *  `load-optional` for `Repo.find(id)` (`retrievalArgs` carry the
        *  id), and `bound` for an in-scope optional binding (`if let o = x`
        *  over `let x = Repo.find…`; `retrievalArgs` is the one `let` ref) —
        *  that form re-runs no read, it only narrows the binding. */
@@ -4315,7 +4315,7 @@ export function workflowIsGuarded(wf: WorkflowIR): boolean {
  *  WHAT THROWS.  Three producers, and only three:
  *
  *  1. A `repo-let` over a read that must find its row (`let w =
- *     Wallets.getById(id)`, `getBy(…)`, a declared non-optional find
+ *     Wallets.get(id)`, `getBy(…)`, a declared non-optional find
  *     `let w = Wallets.byRef(r)`): the emitted repository method has no way
  *     to report an empty result except by throwing.  A `repo-let` over an
  *     optional read (`findById`, `find(<Criterion>)`, `findBy`, a `T?` find)

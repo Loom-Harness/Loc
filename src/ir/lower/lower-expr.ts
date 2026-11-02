@@ -61,6 +61,7 @@ import {
   type TemplateStr,
 } from "../../language/generated/ast.js";
 import { moneyLiteralText } from "../../language/money-literal.js";
+import { queryNamesOf } from "../../language/repo-query-arg.js";
 import { type Ty, type TypingSession, toTypeIR } from "../../language/typing/index.js";
 import { typingFor } from "../../language/typing/shared.js";
 import { isCollectionOp } from "../../util/collection-ops.js";
@@ -110,7 +111,7 @@ import {
   withLocal,
 } from "./lower-types.js";
 import { originFor } from "./origin.js";
-import { matchRepoRead, runCriterionMatcher } from "./repo-read.js";
+import { matchRepoRead } from "./repo-read.js";
 
 /** No-arg collection ops that are call-style on every backend (`lines.first()`)
  *  and are NOT special-cased as property-style member access (unlike
@@ -379,21 +380,21 @@ function lowerCoalesceChain(chain: BinaryChain, env: Env): ExprIR {
 function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
   // Probe: a repository READ in a `reading` domain-service body
   // (domain-services.md rev. 4) — `Accounts.byHolder(h)` /
-  // `Accounts.find/findAll/run(...)`.  Fires only when `env.serviceRepos` is
+  // `Accounts.find/all(...)`.  Fires only when `env.serviceRepos` is
   // set (i.e. we are lowering a domain-service operation) and the whole chain
   // matches a recognised repository read.  Lowers to a fully-resolved
   // `repo-read` Call so a backend renders a real repository call without
   // re-recognising the AST.  A repository WRITE does NOT match here (it falls
   // through to the generic method-call and the validator's repo-write gate).
   if (env.serviceRepos) {
-    const read = matchRepoRead(chain, env.serviceRepos, runCriterionMatcher(env.ctx));
+    const read = matchRepoRead(chain, env.serviceRepos, queryNamesOf(env.ctx));
     if (read) {
       const aggName = read.repo.aggregate?.ref?.name ?? "Unknown";
       const args = read.args.map((a) => lowerExpr(a, env));
       // Carry the criterion / retrieval identity through, mirroring the
-      // workflow `repo-run` path: a `find`/`findAll` (and an anonymous `run`)
-      // read rides a synthesized `findAllBy<Criterion>` retrieval (materialised
-      // by the enrich pass from the criterion body), a NAMED `run` read rides
+      // workflow `repo-run` path: a criterion `find` / `all`
+      // rides a synthesized `findAllBy<Criterion>` retrieval (materialised
+      // by the enrich pass from the criterion body), an `all(<Retrieval>)` rides
       // the referenced retrieval.  The backend renders THAT retrieval method, so
       // the criterion actually filters the query instead of being dropped for a
       // whole-table read.
@@ -514,7 +515,7 @@ function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
     // — reported as non-queryable in a retrieval/find `where`.  Inline
     // here instead so `where: StillOpen()` lowers identically to `where:
     // StillOpen`.  Parameterised criteria keep their existing `ref` + suffix
-    // path (they aren't eagerly inlined); `Repo.run(...)` reads never reach
+    // path (they aren't eagerly inlined); `Repo.all(...)` reads never reach
     // here (matchRepoRead above intercepts them at the chain head).
     const crit = findCriterionInEnv(env, chain.head.name);
     if (crit && crit.params.length === 0) {

@@ -102,7 +102,7 @@ export function validateContextFilterSupport(sys: SystemIR, diags: LoomDiagnosti
 // ---------------------------------------------------------------------------
 // `ignoring` filter-bypass support gate (named-filter-bypass.md §11).
 //
-// A read (repository `find`, or inline `Repo.findAll(...)`/`Repo.run`)
+// A read (repository `find`, or inline `Repo.all(...)`/`Repo.run`)
 // may carry an `ignoring *` / `ignoring <Cap>, …` clause that bypasses a
 // capability's query-filter(s).  Two fail-fast gates run over the FULLY-
 // RESOLVED IR (the capability provenance lives on `agg.contextFilterOrigins`):
@@ -141,7 +141,7 @@ interface BypassRead {
   site: string;
 }
 
-/** Recursively collect inline `Repo.findAll(...)`/`Repo.run(...)` reads that
+/** Recursively collect inline `Repo.all(...)` reads that
  *  carry an `ignoring` clause from a workflow-statement body (descends into
  *  `for-each` + `if-let` bodies).  `owner` names the body (`workflow 'x'`,
  *  `queryHandler 'y'`). */

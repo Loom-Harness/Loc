@@ -50,6 +50,7 @@ import {
   findDeclRemoved,
   refineParseErrorOffset,
   reservedDeclarationName,
+  retrievalLiteralRemoved,
   ruleParserOf,
   sourceTextOf,
   workflowHandleRemoved,
@@ -102,6 +103,7 @@ export class DddDocumentValidator extends DefaultDocumentValidator {
     const text = sourceTextOf(parseResult);
     if (!text) return;
     const refined =
+      retrievalLiteralRemoved(first, text) ??
       refineParseErrorOffset(first, text, ruleParserOf(this.coreServices)) ??
       storageConfigKey(first, text) ??
       reservedDeclarationName(first, text) ??

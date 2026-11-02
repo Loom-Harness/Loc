@@ -60,7 +60,7 @@ export function loadStdlibMacros(): void {
   registerMacro(scaffoldApi);
   // Ergonomic paged criterion read (read-path-architecture.md, "The ergonomic
   // default"): `scaffoldPaged` (context) emits the paged queryHandler over the
-  // read-only port (`Repo.run(<criterion>)`); `scaffoldPagedApi` (api) emits the
+  // read-only port (`Repo.all(<criterion>)`); `scaffoldPagedApi` (api) emits the
   // `/projections/<criterion>` route that binds to it.
   registerMacro(scaffoldPaged);
   registerMacro(scaffoldPagedApi);

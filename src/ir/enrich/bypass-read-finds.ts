@@ -1,6 +1,6 @@
 // Phase ⑥ — the repository methods behind widened single-row reads.
 //
-// `Orders.find(ByRef(r)) ignoring softDeletable` / `Orders.findById(id)
+// `Orders.find(ByRef(r)) ignoring softDeletable` / `Orders.find(id)
 // ignoring *` lowers to a read that names a method of its own
 // (`bypassReadMethodName`: `findFirstByRefIgnoringSoftDeletable` /
 // `findByIdIgnoringAll`) and carries a `BypassReadIR` (the criterion or the

@@ -8,21 +8,21 @@
 // `env.serviceRepos` is set (a `domainService` body); `lower-workflow.ts`
 // recognises the same shape and lowers it to a `repo-run` / `repo-let`
 // workflow statement.  An aggregate / part / value-object member body goes
-// through neither, so `Technicians.getById(x)` there lowers to a plain
+// through neither, so `Technicians.get(x)` there lowers to a plain
 // `method-call` whose receiver is a bare `ref` with `refKind: "unknown"` — and
 // every backend renders an unresolved receiver verbatim.
 //
 // Re-verified 2026-09-13 on fresh `main` (`bcd25e3e`), one `.ddd` per backend,
 // `aggregate Job { operation assign(assignTo: Technician id) { precondition
-// Technicians.getById(assignTo).skills.contains(requiredSkill) … } }`.
+// Technicians.get(assignTo).skills.contains(requiredSkill) … } }`.
 // `ddd parse` reports ZERO diagnostics and all five backends emit a dangling
 // identifier into the DOMAIN class, which binds no repository:
 //
-//   TS     — `domain/job.ts`: `Technicians.getById(assignTo).skills.includes(…)`
+//   TS     — `domain/job.ts`: `Technicians.get(assignTo).skills.includes(…)`
 //            → TS2304 "Cannot find name 'Technicians'".
 //   .NET   — `Domain/Jobs/Job.cs`: `Technicians.GetById(assignTo).Skills…`
 //            → CS0103.
-//   Java   — `features/jobs/Job.java`: `Technicians.getById(assignTo).skills()`
+//   Java   — `features/jobs/Job.java`: `Technicians.get(assignTo).skills()`
 //            → "cannot find symbol".
 //   Python — `app/domain/job.py`: `Technicians.get_by_id(assign_to).skills`
 //            → NameError / F821.

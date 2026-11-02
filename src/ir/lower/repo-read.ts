@@ -1,7 +1,7 @@
 // Shared repo-read recognition — the IR-layer detector for a repository
-// READ call (`Repo.find(<Criterion>)` / `Repo.findAll(<Criterion>, page?)` /
-// `Repo.run(<Retrieval>(args), page?)` / `Repo.<namedFind>(args)`) over the
-// raw `.ddd` AST.
+// READ call (`Repo.get(id)` / `Repo.find(id)` / `Repo.find(<Criterion>)` /
+// `Repo.getBy(…)` / `Repo.findBy(…)` / `Repo.all(<Criterion | Retrieval>,
+// sort?, page?)` / `Repo.all()`) over the raw `.ddd` AST.
 //
 // This is the single source of truth for "is this expression a repository
 // read", consumed by BOTH the workflow lowerer (`lower-workflow.ts`, which
@@ -10,32 +10,26 @@
 // recognised read to a resolved `repo-read` `ExprIR` Call so a service body
 // can run read-only queries — domain-services.md rev. 4, the `reading` tier).
 //
+// The surface verb never reaches the IR: every match names the repository
+// METHOD the read is emitted as (`get` → `getById`, `find(id)` → `findById`,
+// `all()` → `findAll`, a criterion / retrieval read its retrieval), so the
+// emitters render the same calls whatever the `.ddd` spelled (D-REPO-VERBS).
+//
 // It is a LEAF: it touches the Langium AST + the `Repository` shape, plus
 // `lower-types.ts` (itself a sibling leaf with no sibling imports of its own, so
 // the graph stays acyclic) for the ONE thing a read's shape decides but the AST
 // cannot spell on its own — the IR TYPE the read produces, see
 // `repoReadResultType` below.  It never imports `lower.ts` (the orchestrator and
-// the leaf lowerers import this).  Extracting it is a PURE refactor of the
-// workflow path: the matchers below are byte-for-byte the ones that lived in
-// `lower-workflow.ts`, so workflow lowering output is unchanged.
-import type {
-  BoundedContext,
-  Expression,
-  LoadPath,
-  Repository,
-  SortItem,
-} from "../../language/generated/ast.js";
+// the leaf lowerers import this).
+import type { Expression, LoadPath, Repository, SortItem } from "../../language/generated/ast.js";
 import {
-  isCallSuffix,
-  isCriterion,
   isMemberSuffix,
   isNameRef,
   isObjectLit,
   isPostfixChain,
-  isRetrieval,
-  isRetrievalLiteral,
 } from "../../language/generated/ast.js";
 import { declaredKeyTuples } from "../../language/repo-key-tuples.js";
+import { classifyRepoArg, type QueryNames, queryRefOf } from "../../language/repo-query-arg.js";
 import {
   bypassReadMethodName,
   isRepoWriteName,
@@ -44,43 +38,27 @@ import {
   type RepoOp,
   repoOpResult,
   repositoryVerb,
+  repoVerbMethod,
   resolveKeyTuple,
 } from "../../util/repository-contract.js";
 import type { BypassReadIR, KeyLookupIR, TypeIR } from "../types/loom-ir.js";
 
-/** A predicate that decides whether a bare `run(<Name>)` / `run(<Name>(args))`
- *  target names a **criterion** (so the read runs `findAllBy<Criterion>`) rather
- *  than a **retrieval** (read-path-architecture.md, "`run` takes a criterion").
- *  A name that is BOTH is a validation error
- *  (`loom.criterion-retrieval-name-clash`), so on a valid model the two sets
- *  are disjoint; excluding retrieval names here only keeps an erroring model
- *  lowering on its retrieval meaning. */
-export type CriterionRunPredicate = (name: string) => boolean;
-
-/** Build a {@link CriterionRunPredicate} from the enclosing context's members.
- *  Undefined ctx (a system-level `test e2e` block) → never a criterion, so
- *  `run` keeps its retrieval-only meaning there. */
-export function runCriterionMatcher(ctx: BoundedContext | undefined): CriterionRunPredicate {
-  if (!ctx) return () => false;
-  const criteria = new Set<string>();
-  const retrievals = new Set<string>();
-  for (const m of ctx.members) {
-    if (isCriterion(m)) criteria.add(m.name);
-    else if (isRetrieval(m)) retrievals.add(m.name);
-  }
-  return (name) => criteria.has(name) && !retrievals.has(name);
-}
+const NO_QUERIES: QueryNames = { criteria: new Set(), retrievals: new Set() };
 
 export interface RepoMatch {
   repo: Repository;
+  /** The surface verb the call spelled (`get`, `find`, `all`, …). */
+  verb: string;
+  /** The repository method the read is emitted as (`repoVerbMethod`:
+   *  `get` → `getById`); a name that is no contract verb is its own method. */
   method: string;
   args: Expression[];
 }
 
-/** Recognise `<Repo>.<method>(args)` — a generic named repository call (a
- *  declared `find`, or the built-in `getById`).  Exactly one `MemberSuffix`
- *  with a call payload whose head names a repository.  Repo finds are
- *  positional, so the CallArg wrappers are peeled to bare value expressions. */
+/** Recognise `<Repo>.<verb>(args)` — a by-name repository call (`get(id)`,
+ *  `find(id)`, `all()`, or a name no contract verb recognises).  Exactly one
+ *  `MemberSuffix` with a call payload whose head names a repository.  The
+ *  CallArg wrappers are peeled to bare value expressions. */
 export function matchRepoCall(
   expr: Expression | undefined,
   reposByName: Map<string, Repository>,
@@ -95,7 +73,8 @@ export function matchRepoCall(
   if (!repo) return undefined;
   return {
     repo,
-    method: s.member,
+    verb: s.member,
+    method: repoVerbMethod(s.member),
     args: (s.args ?? []).map((a) => a.value),
   };
 }
@@ -203,111 +182,69 @@ export interface FindMatch {
   bypassRead?: BypassReadIR;
 }
 
-/** Recognise `<Repo>.find(<CriterionRef>)` — the single-result sibling of
- *  `findAll` (criterion.md, use site 3).  No `page:` (a single result isn't
- *  paginated); the only arg is a criterion reference (bare `Name` or
- *  `Name(args)`).  Declines (→ `undefined`) on any other shape. */
-export function matchFindCall(
+/** The single member-call suffix of `<Repo>.<verb>(…)` and its repository. */
+function repoVerbCall(
   expr: Expression | undefined,
   reposByName: Map<string, Repository>,
-): FindMatch | undefined {
+  verb: string,
+) {
   if (!expr || !isPostfixChain(expr) || expr.suffixes.length !== 1) return undefined;
   const s = expr.suffixes[0]!;
-  if (!isMemberSuffix(s) || !s.call || s.member !== "find") return undefined;
+  if (!isMemberSuffix(s) || !s.call || s.member !== verb) return undefined;
   const recv = expr.head;
   if (!isNameRef(recv)) return undefined;
   const repo = reposByName.get(recv.name);
   if (!repo) return undefined;
-  const refArg = (s.args ?? []).find((a) => !a.name);
-  if (!refArg) return undefined;
-  const critRef = criterionRefFromExpr(refArg.value);
-  if (!critRef) return undefined;
-  const bypassRead = bypassReadOf(expr, { kind: "criterion", name: critRef.name });
+  return { chain: expr, suffix: s, repo };
+}
+
+/** Recognise `<Repo>.find(<CriterionRef>)` — the first row a criterion
+ *  matches (criterion.md, use site 3).  No `page:` (a single result isn't
+ *  paginated); the only arg is a reference to a declared criterion (bare
+ *  `Name` or `Name(args)`).  `find` over anything else is the by-id read, so
+ *  this declines (→ `undefined`). */
+export function matchFindCall(
+  expr: Expression | undefined,
+  reposByName: Map<string, Repository>,
+  names: QueryNames = NO_QUERIES,
+): FindMatch | undefined {
+  const call = repoVerbCall(expr, reposByName, "find");
+  if (!call) return undefined;
+  const refArg = (call.suffix.args ?? []).find((a) => !a.name);
+  if (!refArg || classifyRepoArg(refArg.value, names) !== "criterion") return undefined;
+  const critRef = queryRefOf(refArg.value)!;
+  const bypassRead = bypassReadOf(call.chain, { kind: "criterion", name: critRef.name });
   return {
-    repo,
+    repo: call.repo,
     criterionName: critRef.name,
     criterionArgs: critRef.args,
     ...(bypassRead ? { bypassRead } : {}),
   };
 }
 
-/** Recognise `<Repo>.findById(id) ignoring …` — the by-id read widened past
- *  its capability filters.  A plain `findById` declines: it is the shared
- *  by-id load, called by name. */
+/** Recognise `<Repo>.find(id) ignoring …` — the by-id read widened past its
+ *  capability filters.  A plain `find(id)` declines: it is the shared by-id
+ *  load, called by name.  A criterion `find` is `matchFindCall`'s. */
 export function matchByIdBypassCall(
   expr: Expression | undefined,
   reposByName: Map<string, Repository>,
+  names: QueryNames = NO_QUERIES,
 ): (RepoMatch & { bypassRead: BypassReadIR }) | undefined {
   const call = matchRepoCall(expr, reposByName);
-  if (call?.method !== "findById" || !isPostfixChain(expr)) return undefined;
+  if (call?.verb !== "find" || !isPostfixChain(expr)) return undefined;
+  if (classifyRepoArg(call.args[0], names) === "criterion") return undefined;
   const bypassRead = bypassReadOf(expr, { kind: "id" });
   return bypassRead ? { ...call, bypassRead } : undefined;
 }
 
-export interface FindAllMatch {
+export interface AllMatch {
   repo: Repository;
-  /** The referenced criterion name. */
-  criterionName: string;
-  /** Lowered-later argument expressions of `Criterion(args)`. */
-  criterionArgs: Expression[];
-  pageOffset?: Expression;
-  pageLimit?: Expression;
-}
-
-/** Recognise `<Repo>.findAll(<CriterionRef>, page?)` (criterion.md, use
- *  site 3).  The first positional arg is a criterion reference — a bare
- *  `Name` (parameterless) or `Name(args)` — and an optional named `page:`
- *  arg carries `{ offset?, limit? }`.  Structurally the mirror of
- *  `matchRetrievalRunCall`; only the method name (`findAll`) and the ref's
- *  meaning (criterion, not retrieval) differ. */
-export function matchFindAllCall(
-  expr: Expression | undefined,
-  reposByName: Map<string, Repository>,
-): FindAllMatch | undefined {
-  if (!expr || !isPostfixChain(expr)) return undefined;
-  if (expr.suffixes.length !== 1) return undefined;
-  const s = expr.suffixes[0]!;
-  if (!isMemberSuffix(s) || !s.call || s.member !== "findAll") return undefined;
-  const recv = expr.head;
-  if (!isNameRef(recv)) return undefined;
-  const repo = reposByName.get(recv.name);
-  if (!repo) return undefined;
-  const callArgs = s.args ?? [];
-  const refArg = callArgs.find((a) => !a.name);
-  if (!refArg) return undefined;
-  const ref = refArg.value;
-  let criterionName: string;
-  let criterionArgs: Expression[] = [];
-  if (isNameRef(ref)) {
-    criterionName = ref.name;
-  } else if (isPostfixChain(ref) && isNameRef(ref.head) && ref.suffixes.length === 1) {
-    const rs = ref.suffixes[0]!;
-    if (!isCallSuffix(rs)) return undefined;
-    criterionName = ref.head.name;
-    criterionArgs = (rs.args ?? []).map((a) => a.value);
-  } else {
-    return undefined;
-  }
-  const pageArg = callArgs.find((a) => a.name === "page");
-  let pageOffset: Expression | undefined;
-  let pageLimit: Expression | undefined;
-  if (pageArg && isObjectLit(pageArg.value)) {
-    for (const f of pageArg.value.fields) {
-      if (f.name === "offset") pageOffset = f.value;
-      else if (f.name === "limit") pageLimit = f.value;
-    }
-  }
-  return { repo, criterionName, criterionArgs, pageOffset, pageLimit };
-}
-
-export interface RetrievalRunMatch {
-  repo: Repository;
+  /** The referenced (named) retrieval; empty for a criterion read. */
   retrievalName: string;
   retrievalArgs: Expression[];
-  /** Set when the run target was an anonymous retrieval literal
-   *  (`retrieval { where: <Criterion> sort: … loads: … }`) rather than a named
-   *  retrieval reference.  Lowers to a `synthCriterion` repo-run + shaping,
-   *  riding the same enrich path as `findAll`. */
+  /** Set for a criterion read — `all(<Criterion>, sort: […])`.  Lowers to a
+   *  `synthCriterion` repo-run, materialised by enrich into a synthetic
+   *  `findAllBy<Criterion>` retrieval that carries the `sort:` terms. */
   anon?: {
     criterionName: string;
     criterionArgs: Expression[];
@@ -319,115 +256,48 @@ export interface RetrievalRunMatch {
   pageLimit?: Expression;
 }
 
-/** Recognise `<Repo>.run(<RetrievalRef>(args), page?)`.  The first
- *  positional arg is itself a call (the retrieval reference); an optional
- *  named `page:` arg carries an object literal `{ offset?, limit? }`.
- *
- *  When `isCriterionRun` classifies the bare-name / `Name(args)` target as a
- *  **criterion** (read-path-architecture.md, "`run` takes a criterion"), the
- *  match rides the SAME `anon` synthetic-criterion path as `findAll` /
- *  `run(retrieval { where })` — it desugars to `findAllBy<Criterion>` — so a
- *  criterion passed to `run` is first-class without a new IR shape. */
-export function matchRetrievalRunCall(
+/** Recognise `<Repo>.all(<Ref>, sort?, page?)` — every row a criterion or a
+ *  retrieval selects.  The positional argument is a reference (`Name` /
+ *  `Name(args)`): a declared criterion rides the synthetic-criterion path
+ *  (it desugars to `findAllBy<Criterion>`, shaped by `sort:`), any other
+ *  reference names a retrieval (an undeclared one is refused by
+ *  `loom.workflow-unknown-retrieval`).  An optional named `page:` carries an
+ *  object literal `{ offset?, limit? }`.  `all()` with no reference is the
+ *  whole collection — a by-name read, so this declines. */
+export function matchAllCall(
   expr: Expression | undefined,
   reposByName: Map<string, Repository>,
-  isCriterionRun?: CriterionRunPredicate,
-): RetrievalRunMatch | undefined {
-  if (!expr || !isPostfixChain(expr)) return undefined;
-  if (expr.suffixes.length !== 1) return undefined;
-  const s = expr.suffixes[0]!;
-  if (!isMemberSuffix(s) || !s.call || s.member !== "run") return undefined;
-  const recv = expr.head;
-  if (!isNameRef(recv)) return undefined;
-  const repo = reposByName.get(recv.name);
-  if (!repo) return undefined;
-  const callArgs = s.args ?? [];
-  // First positional arg = the retrieval reference `Name(args)`.
+  names: QueryNames = NO_QUERIES,
+): AllMatch | undefined {
+  const call = repoVerbCall(expr, reposByName, "all");
+  if (!call) return undefined;
+  const callArgs = call.suffix.args ?? [];
   const refArg = callArgs.find((a) => !a.name);
-  if (!refArg) return undefined;
-  const ref = refArg.value;
-  // `page:` is shared by the named and anonymous forms.
-  const readPage = (): { pageOffset?: Expression; pageLimit?: Expression } => {
-    const pageArg = callArgs.find((a) => a.name === "page");
-    const out: { pageOffset?: Expression; pageLimit?: Expression } = {};
-    if (pageArg && isObjectLit(pageArg.value)) {
-      for (const f of pageArg.value.fields) {
-        if (f.name === "offset") out.pageOffset = f.value;
-        else if (f.name === "limit") out.pageLimit = f.value;
-      }
+  const ref = queryRefOf(refArg?.value);
+  if (!ref) return undefined;
+  const page: { pageOffset?: Expression; pageLimit?: Expression } = {};
+  const pageArg = callArgs.find((a) => a.name === "page");
+  if (pageArg && isObjectLit(pageArg.value)) {
+    for (const f of pageArg.value.fields) {
+      if (f.name === "offset") page.pageOffset = f.value;
+      else if (f.name === "limit") page.pageLimit = f.value;
     }
-    return out;
-  };
-  // Anonymous retrieval literal — `run(retrieval { where: <Criterion> sort: …
-  // loads: … })`.  The `where` must be a criterion reference (this release);
-  // a non-criterion `where` is rejected by the language validator, so a miss
-  // here just declines the match.
-  if (isRetrievalLiteral(ref)) {
-    const critRef = criterionRefFromExpr(ref.where);
-    if (!critRef) return undefined;
+  }
+  if (classifyRepoArg(refArg!.value, names) === "criterion") {
     return {
-      repo,
+      repo: call.repo,
       retrievalName: "",
       retrievalArgs: [],
       anon: {
-        criterionName: critRef.name,
-        criterionArgs: critRef.args,
-        sort: ref.sort,
-        loads: ref.loads,
+        criterionName: ref.name,
+        criterionArgs: ref.args,
+        sort: call.suffix.sort ?? [],
+        loads: [],
       },
-      ...readPage(),
+      ...page,
     };
   }
-  // Bare `Name` (parameterless retrieval OR criterion) — still honours a
-  // sibling `page:` arg (`Repo.run(Recent, page: { limit: 20 })`), like the
-  // anonymous and `Name(args)` branches.
-  if (isNameRef(ref)) {
-    if (isCriterionRun?.(ref.name)) {
-      return {
-        repo,
-        retrievalName: "",
-        retrievalArgs: [],
-        anon: { criterionName: ref.name, criterionArgs: [], sort: [], loads: [] },
-        ...readPage(),
-      };
-    }
-    return { repo, retrievalName: ref.name, retrievalArgs: [], ...readPage() };
-  }
-  // `Name(args)` — a NameRef head + a single CallSuffix.
-  if (!isPostfixChain(ref) || !isNameRef(ref.head) || ref.suffixes.length !== 1) {
-    return undefined;
-  }
-  const rs = ref.suffixes[0]!;
-  if (!isCallSuffix(rs)) return undefined;
-  const targetName = ref.head.name;
-  const targetArgs: Expression[] = (rs.args ?? []).map((a) => a.value);
-  // A criterion target (`run(InRegion("EU"))`) rides the synthetic-criterion
-  // path, exactly like `findAll(InRegion("EU"))`.
-  if (isCriterionRun?.(targetName)) {
-    return {
-      repo,
-      retrievalName: "",
-      retrievalArgs: [],
-      anon: { criterionName: targetName, criterionArgs: targetArgs, sort: [], loads: [] },
-      ...readPage(),
-    };
-  }
-  return { repo, retrievalName: targetName, retrievalArgs: targetArgs, ...readPage() };
-}
-
-/** A criterion reference expression — a bare `Name` (parameterless) or
- *  `Name(args)`.  Shared by the `findAll` arg and the anonymous-retrieval
- *  `where:`. */
-export function criterionRefFromExpr(
-  ref: Expression,
-): { name: string; args: Expression[] } | undefined {
-  if (isNameRef(ref)) return { name: ref.name, args: [] };
-  if (isPostfixChain(ref) && isNameRef(ref.head) && ref.suffixes.length === 1) {
-    const rs = ref.suffixes[0]!;
-    if (!isCallSuffix(rs)) return undefined;
-    return { name: ref.head.name, args: (rs.args ?? []).map((a) => a.value) };
-  }
-  return undefined;
+  return { repo: call.repo, retrievalName: ref.name, retrievalArgs: ref.args, ...page };
 }
 
 export interface RepoReadMatch {
@@ -442,33 +312,33 @@ export interface RepoReadMatch {
   /** Positional argument expressions (criterion / find args), lowered by the
    *  caller in its own scope. */
   args: Expression[];
-  /** For a criterion `find`/`findAll` — the referenced criterion name.  The
+  /** For a criterion `find` / `all` — the referenced criterion name.  The
    *  read FILTERS by this criterion; without carrying it the criterion is
    *  silently dropped and the read returns every row (data-exposure).  Drives
    *  the synthesis of the `findAllBy<Criterion>` retrieval the backend renders. */
   criterionName?: string;
-  /** For `run` — the referenced (named) retrieval.  Empty for an anonymous
-   *  retrieval literal, whose predicate rides `criterionName` instead. */
+  /** For `all(<Retrieval>)` — the referenced retrieval.  Empty for a
+   *  criterion read, whose predicate rides `criterionName` instead. */
   retrievalName?: string;
   /** For a natural-key read — the tuple and `ignoring` stance `method`
    *  names. */
   key?: KeyLookupIR;
-  /** For a widened `find(C)` / `findById` read — the source and stance
+  /** For a widened `find(C)` / `find(id)` read — the source and stance
    *  `method` names. */
   bypassRead?: BypassReadIR;
 }
 
-/** Recognise ANY repository read in an expression position, collapsing the four
+/** Recognise ANY repository read in an expression position, collapsing the
  *  read shapes to one `RepoReadMatch` for the domain-service `reading` tier.
- *  Tries the specific forms (`find` / `findAll` / `run`) before the generic
- *  named-find/`getById` form, mirroring the precedence the workflow let-lowerer
- *  uses (run → findAll → repo-call).  Returns `undefined` for a non-read (a
- *  WRITE like `save`/`insert` falls through here — it is NOT a read, so the
- *  validator's repo-WRITE gate rejects it). */
+ *  Tries the specific forms (natural key / criterion `find` / widened by-id /
+ *  `all(<Ref>)`) before the by-name form, mirroring the precedence the
+ *  workflow let-lowerer uses.  Returns `undefined` for a non-read (a WRITE like
+ *  `remove` falls through here — it is NOT a read, so the validator's
+ *  repo-WRITE gate rejects it). */
 export function matchRepoRead(
   expr: Expression | undefined,
   reposByName: Map<string, Repository>,
-  isCriterionRun?: CriterionRunPredicate,
+  names: QueryNames = NO_QUERIES,
 ): RepoReadMatch | undefined {
   const key = matchKeyLookupCall(expr, reposByName);
   if (key)
@@ -479,7 +349,7 @@ export function matchRepoRead(
       args: key.args,
       key: keyLookupIR(key),
     };
-  const find = matchFindCall(expr, reposByName);
+  const find = matchFindCall(expr, reposByName, names);
   if (find?.bypassRead)
     return {
       op: "select-one",
@@ -496,7 +366,7 @@ export function matchRepoRead(
       args: find.criterionArgs,
       criterionName: find.criterionName,
     };
-  const byId = matchByIdBypassCall(expr, reposByName);
+  const byId = matchByIdBypassCall(expr, reposByName, names);
   if (byId)
     return {
       op: "load-optional",
@@ -505,31 +375,22 @@ export function matchRepoRead(
       args: byId.args,
       bypassRead: byId.bypassRead,
     };
-  const findAll = matchFindAllCall(expr, reposByName);
-  if (findAll)
+  const all = matchAllCall(expr, reposByName, names);
+  if (all)
     return {
       op: "select-many",
-      repo: findAll.repo,
-      method: "findAll",
-      args: findAll.criterionArgs,
-      criterionName: findAll.criterionName,
-    };
-  const run = matchRetrievalRunCall(expr, reposByName, isCriterionRun);
-  if (run)
-    return {
-      op: "select-many",
-      repo: run.repo,
-      method: "run",
-      args: run.anon ? run.anon.criterionArgs : run.retrievalArgs,
-      ...(run.anon
-        ? { criterionName: run.anon.criterionName }
-        : { retrievalName: run.retrievalName }),
+      repo: all.repo,
+      method: all.anon ? "findAll" : "run",
+      args: all.anon ? all.anon.criterionArgs : all.retrievalArgs,
+      ...(all.anon
+        ? { criterionName: all.anon.criterionName }
+        : { retrievalName: all.retrievalName }),
     };
   const repo = matchRepoCall(expr, reposByName);
-  if (repo && !isRepoWriteName(repo.method)) {
+  if (repo && !isRepoWriteName(repo.verb)) {
     // A read name that is no contract verb rides `unknown-read`: its
     // validator reports the unknown method.
-    const op = namedRepoCallOp(repo.method) ?? "unknown-read";
+    const op = namedRepoCallOp(repo.verb) ?? "unknown-read";
     if (op === "remove") return undefined;
     return { op, repo: repo.repo, method: repo.method, args: repo.args };
   }
@@ -555,7 +416,7 @@ export function matchRepoRead(
  *
  *  The rules track `lower-workflow.ts`, which lowers the same four shapes on
  *  the workflow tier, so the two tiers cannot disagree about what one read
- *  returns: `findAll` / `run` mirror its `repo-run` arms' `arrayType`, `named`
+ *  returns: `all` mirrors its `repo-run` arms' `arrayType`, `named`
  *  mirrors its `repo-let` arm (a declared `returnType`, else the built-in's own
  *  shape), and `find` takes the `T?` its `if let` arm implies. */
 export function repoReadResultType(read: RepoReadMatch): TypeIR {

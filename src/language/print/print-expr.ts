@@ -1,4 +1,10 @@
-import type { CallArg, Expression, PostfixChain, PostfixSuffix } from "../generated/ast.js";
+import type {
+  CallArg,
+  Expression,
+  LoadPath,
+  PostfixChain,
+  PostfixSuffix,
+} from "../generated/ast.js";
 import { isCallSuffix, isMemberSuffix } from "../generated/ast.js";
 
 // ---------------------------------------------------------------------------
@@ -190,17 +196,6 @@ export function printExpr(node: Expression): string {
     }
     case "MatchExpr":
       return printMatch(node);
-    case "RetrievalLiteral": {
-      const path = (p: { segments: { name: string; collection?: boolean }[] }): string =>
-        p.segments.map((s) => `${s.name}${s.collection ? "[]" : ""}`).join(".");
-      const parts = [`where: ${printExpr(node.where)}`];
-      if (node.sort.length > 0)
-        parts.push(
-          `sort: [${node.sort.map((s) => `${path(s.path)}${s.direction ? ` ${s.direction}` : ""}`).join(", ")}]`,
-        );
-      if (node.loads.length > 0) parts.push(`loads: [${node.loads.map(path).join(", ")}]`);
-      return `retrieval { ${parts.join("  ")} }`;
-    }
     case "PrimitiveConversion":
       // value is `Expression | undefined` in the generated AST (the
       // grammar's `value=Expression` doesn't force presence — a
@@ -257,7 +252,7 @@ function printPostfixChain(node: PostfixChain): string {
     out = appendSuffix(out, s);
   }
   // Trailing `ignoring` filter-bypass clause (named-filter-bypass.md §11) on an
-  // inline read (`Repo.findAll(...) ignoring softDeletable` / `... ignoring *`).
+  // inline read (`Repo.all(...) ignoring softDeletable` / `... ignoring *`).
   if (node.bypassAll) out += " ignoring *";
   else if (node.bypass.length > 0) out += ` ignoring ${node.bypass.join(", ")}`;
   return out;
@@ -266,7 +261,21 @@ function printPostfixChain(node: PostfixChain): string {
 function appendSuffix(base: string, s: PostfixSuffix): string {
   if (isMemberSuffix(s)) {
     const head = `${base}.${s.member}`;
-    return s.call ? printCall(head, s.args) : head;
+    if (!s.call) return head;
+    if (!s.sorted) return printCall(head, s.args);
+    // The `sort:` slot of a repository `all(…)` prints after the positional
+    // argument, ahead of the named ones (`Orders.all(C, sort: […], page: …)`).
+    const path = (p: LoadPath): string =>
+      p.segments.map((g) => `${g.name}${g.collection ? "[]" : ""}`).join(".");
+    const sort = `sort: [${s.sort.map((i) => `${path(i.path)}${i.direction ? ` ${i.direction}` : ""}`).join(", ")}]`;
+    const positional = s.args.filter((a) => !a.name);
+    const named = s.args.filter((a) => a.name);
+    const items = withIndent(() => [
+      ...positional.map((a) => printExpr(a.value)),
+      sort,
+      ...named.map((a) => `${a.name}: ${printExpr(a.value)}`),
+    ]);
+    return wrapArgList(head, "(", ")", items);
   }
   if (isCallSuffix(s)) {
     return printCall(base, s.args);

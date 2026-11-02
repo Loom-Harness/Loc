@@ -72,7 +72,7 @@ export function checkCriteria(model: Model, accept: ValidationAcceptor): void {
 }
 
 /** loom.criterion-retrieval-name-clash — a `criterion` and a `retrieval` in one
- *  context may not share a name.  `Repo.run(<Name>(args))`, `scaffoldPaged(of:
+ *  context may not share a name.  `Repo.all(<Name>(args))`, `scaffoldPaged(of:
  *  <Name>)` and a retrieval's `where: <Name>` all resolve the bare name, and a
  *  name that is both would have to pick one silently (D-LIST-FIND-REMOVED).
  *  The retrieval carries the diagnostic: it is the one that bundles the

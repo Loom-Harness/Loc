@@ -1121,8 +1121,8 @@ export function checkParameterDefault(p: Parameter, env: Env, accept: Validation
 //     aggregate WorkOrder {
 //       assetId: Asset id
 //       technicianId: Technician id?
-//       invariant Technicians.getById(technicianId).skills
-//                   .contains(Assets.getById(assetId).requiredSkill)
+//       invariant Technicians.get(technicianId).skills
+//                   .contains(Assets.get(assetId).requiredSkill)
 //     }
 //
 //     // hono  domain/workOrder.ts(37,11): TS2304: Cannot find name 'Technicians'

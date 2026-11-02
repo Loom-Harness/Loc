@@ -77,7 +77,7 @@ function collectStmtEffects(st: WorkflowStmtIR, scope: readonly EffectScopeIR[],
       out.push({ kind: "create", aggName: st.aggName, binds: st.name, scope });
       return;
     case "repo-let":
-      // `let x = Repo.delete(o)` binds a removal, not a read.
+      // `let x = Repo.remove(o)` binds a removal, not a read.
       if (st.op === "remove") {
         const entity = st.args[0];
         if (entity) {
