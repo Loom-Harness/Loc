@@ -1530,8 +1530,8 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // canonical `update` (#3531), and java checked the header against the row it
     // had just loaded, then saved without the version guard, so two simultaneous
     // writers both landed (#3521).
-    conforms: ["node", "dotnet", "python"],
-    targets: ["java", "elixir"],
+    conforms: ["node", "dotnet", "python", "elixir"],
+    targets: ["java"],
     provenance: [
       "#3593 item 6 (the `checksVersion` fact); #3531, #3521",
       "the witness is test/fixtures/corpus/concurrency-two-writers.ddd, whose golden is test/behavioral/wire-golden/concurrency-two-writers.json; the concurrent half is `__twoWriterProbe` in test/behavioral/wire-differential.mjs",
