@@ -203,7 +203,7 @@ const requiredGates = allGates.filter((g) => !g.escapeHatch && !hatchVars.has(g.
  * parse (no YAML parser is a dependency); workflows here use plain block
  * mappings, which is all it needs to follow.
  */
-export function workflowSetVars(text: string): Set<string> {
+function workflowSetVars(text: string): Set<string> {
   const out = new Set<string>();
   const indentOf = (l: string): number => l.length - l.trimStart().length;
   let blockIndent = -1; // column of the `env:` / `run:` key that opened the block
