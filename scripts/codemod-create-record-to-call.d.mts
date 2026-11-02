@@ -34,3 +34,15 @@ export function rewriteMarkdown(
   src: string,
   aggregates?: { has(name: string): boolean },
 ): { text: string; changed: number; refused: RefusedCreate[] };
+
+/** The `[start, end)` offsets of every string / template literal body in a
+ *  TypeScript or JavaScript source. */
+export function stringLiteralRegions(src: string): Array<[number, number]>;
+
+/** `rewriteCreateRecords` over the `.ddd` models embedded in a `.ts` / `.mts` /
+ *  `.mjs` source (string and template literals declaring a `system` /
+ *  `context` / `aggregate`) or a `.yml` / `.yaml` source (the whole file). */
+export function rewriteEmbedded(
+  src: string,
+  file: string,
+): { text: string; changed: number; refused: RefusedCreate[] };

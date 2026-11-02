@@ -9,8 +9,10 @@
 // rewritten source must PARSE and VALIDATE clean and lower to the same IR as
 // the record it replaced — a codemod that emits something the compiler
 // refuses, or that changes what a call means, fails here.  The second half
-// walks every tracked `.ddd`.
+// walks every tracked `.ddd`, and every `.ddd` model embedded in a tracked
+// `.ts` / `.mts` / `.mjs` literal or `.yml` / `.yaml` heredoc.
 
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +20,7 @@ import { describe, expect, it } from "vitest";
 import {
   declaredAggregates,
   rewriteCreateRecords,
+  rewriteEmbedded,
   rewriteMarkdown,
 } from "../../scripts/codemod-create-record-to-call.mjs";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -200,6 +203,44 @@ let q = Order.create()`;
   });
 });
 
+describe("codemod-create-record-to-call — rewriteEmbedded", () => {
+  const model = (call: string) =>
+    `system S {\n  context C {\n    aggregate Order with crudish { n: int }\n    workflow W {\n      create(x: int) {\n        ${call}\n      }\n    }\n  }\n}`;
+
+  it.each([
+    ["a plain template", (m: string) => `const src = \`${m}\`;`],
+    ["a tagged template", (m: string) => `const x = tag\`${m}\`;`],
+    ["String.raw", (m: string) => `const x = String.raw\`${m}\`;`],
+    ["a helper argument", (m: string) => `await run(\`${m}\`, { a: 1 });`],
+    ["a hole in a template", (m: string) => `const x = \`pre \${f(\`${m}\`)} post\`;`],
+    ["an array element", (m: string) => `const xs = [\`${m}\`];`],
+  ])("rewrites a model held by %s", (_n, embed) => {
+    const src = embed(model("let o = Order.create({ n: x })"));
+    const r = rewriteEmbedded(src, "x.test.ts");
+    expect(r.changed).toBe(1);
+    expect(r.text).toBe(embed(model("let o = Order.create(n: x)")));
+  });
+
+  it("rewrites a heredoc model in a workflow", () => {
+    const src = `jobs:\n  b:\n    steps:\n      - run: |\n          cat > m.ddd <<'EOF'\n${model("let o = Order.create({ n: x })")}\n          EOF\n`;
+    const r = rewriteEmbedded(src, ".github/workflows/w.yml");
+    expect(r.changed).toBe(1);
+    expect(r.text).toContain("Order.create(n: x)");
+  });
+
+  it("leaves TypeScript that is no model, and a kept fixture, alone", () => {
+    const code = `const o = Order.create({ n: 1 });\nconst s = "Order.create({ n: 1 })";`;
+    expect(rewriteEmbedded(code, "a.ts")).toEqual({ text: code, changed: 0, refused: [] });
+    const kept = `const m = \`${model("// codemod-create-record-to-call: keep\n        let o = Order.create({ n: x })")}\`;`;
+    expect(rewriteEmbedded(kept, "a.ts")).toEqual({ text: kept, changed: 0, refused: [] });
+  });
+
+  it("reports the refusal line in the host file", () => {
+    const src = `const a = 1;\nconst m = \`${model("let o = Order.create({ n: x }, 2)")}\`;`;
+    expect(rewriteEmbedded(src, "a.ts").refused.map((r) => r.line)).toEqual([7]);
+  });
+});
+
 describe("codemod-create-record-to-call — the tracked corpus is migrated", () => {
   const SKIP = new Set(["node_modules", ".git", "dist", "out", ".loom", ".claude"]);
   const files: string[] = [];
@@ -227,5 +268,38 @@ describe("codemod-create-record-to-call — the tracked corpus is migrated", () 
       return r.changed > 0 || r.refused.length > 0;
     });
     expect(stale.map((f) => path.relative(repoRoot, f))).toEqual([]);
+  });
+
+  // Inline models: `.ts` / `.mts` / `.mjs` literals and `.yml` / `.yaml`
+  // heredocs.  This file's own fixtures are record-form on purpose; every
+  // other fixture that proves the refusal says so with a `keep` comment.
+  const SELF = "test/system/codemod-create-record-to-call.test.ts";
+  const embedding = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, maxBuffer: 1 << 28 })
+    .toString()
+    .split("\0")
+    .filter((f) => /\.(?:m?ts|mjs|ya?ml)$/.test(f) && fs.existsSync(path.join(repoRoot, f)));
+
+  it("walks the inline-model hosts (vacuity guard)", () => {
+    expect(embedding.length).toBeGreaterThan(1000);
+    expect(embedding.some((f) => f.startsWith(".github/workflows/") && f.endsWith(".yml"))).toBe(
+      true,
+    );
+    // The own-fixture waiver is live: this file still holds record-form calls.
+    expect(
+      rewriteEmbedded(fs.readFileSync(path.join(repoRoot, SELF), "utf8"), SELF).changed,
+    ).toBeGreaterThan(0);
+    const hosts = embedding.filter((f) =>
+      /\baggregate\s+\w+\s*(?:\{|with\b)/.test(fs.readFileSync(path.join(repoRoot, f), "utf8")),
+    );
+    expect(hosts.length).toBeGreaterThan(100);
+  });
+
+  it("no `.ts` / `.mjs` / `.yml` inline model still calls an aggregate's create with a record", () => {
+    const stale = embedding.filter((f) => {
+      if (f === SELF) return false;
+      const r = rewriteEmbedded(fs.readFileSync(path.join(repoRoot, f), "utf8"), f);
+      return r.changed > 0 || r.refused.length > 0;
+    });
+    expect(stale).toEqual([]);
   });
 });
