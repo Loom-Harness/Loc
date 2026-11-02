@@ -314,6 +314,7 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 | `for x in xs { … }` | Iterate an aggregate array; per-iteration op-calls save inside the loop. |
 | `if let x = Repo.find(<Criterion>) { … } else { … }` / `if let x = Repo.find(id) { … }` / `if let x = y { … }` | Single-result lookup — a criterion, `findById`, `findBy`, or an optional binding already in scope; `x` bound (non-null) only in the then-branch. |
 | `name.op(args)` | Invoke a public operation on a let-bound aggregate (its own preconditions / invariants run inside the call). `private` ops are rejected (`loom.workflow-private-operation`). |
+| `let r = name.op(args)` / `let r = Svc.op(args)` | The same call, its result bound to `r`. Saved exactly like the statement — except a result with an `error` variant, which must be matched (see [below](#matching-a-mutating-calls-result)). |
 | `precondition Expr` / `requires Expr` | Guard → 400 (`DomainError`) / 403 (`ForbiddenError`). |
 | `emit Event { … }` | Workflow-level event; drains after all saves (after commit when `transactional`). |
 
@@ -342,7 +343,7 @@ A loaded aggregate is saved **only if** an operation was invoked on it inside th
 
 There is no save statement: `Repo.save(x)` (or `insert` / `update` / `add` / `commit`) in a workflow or handler body is `loom.workflow-explicit-save`. `Repo.remove(x)` is the one repository write a body states.
 
-Which effects a body may have depends on where it sits, not on how a statement is spelled. A `queryHandler` may load, call and return, and nothing else (`loom.query-handler-saves`). A command `create` of a workflow with no id-shaped state field can neither assign nor read that state (`loom.workflow-uncorrelated-state-write` / `loom.workflow-uncorrelated-state-read`). In every body, an aggregate the body mutates must be one a save covers: a mutating call whose result is bound (`let r = a.withdraw(x)`, or a `mutating` domain service bound with `let`) is not saved yet and is `loom.workflow-mutation-unsaved` — write the call as its own statement. A factory call is positional or named — `Agg.create(a, b)` and `Agg.create(x: a, y: b)` create and save the same aggregate (the record form `Agg.create({ x: a })` is `loom.create-record-form`), positions binding to the declared `create(…)` parameters in order — with no declared signature, name each argument; an argument list that maps onto no record is `loom.create-args`.
+Which effects a body may have depends on where it sits, not on how a statement is spelled. A `queryHandler` may load, call and return, and nothing else (`loom.query-handler-saves`). A command `create` of a workflow with no id-shaped state field can neither assign nor read that state (`loom.workflow-uncorrelated-state-write` / `loom.workflow-uncorrelated-state-read`). In every body, an aggregate the body mutates must be one a save covers: a mutating call written as a statement, or bound with `let` to the call itself (`let r = a.withdraw(x)`, `let r = Transfer.run(…)` over a `mutating` domain service), is saved; one nested inside a larger expression (`let r = a.withdraw(x) + 1`) is not, and is `loom.workflow-mutation-unsaved`. A factory call is positional or named — `Agg.create(a, b)` and `Agg.create(x: a, y: b)` create and save the same aggregate (the record form `Agg.create({ x: a })` is `loom.create-record-form`), positions binding to the declared `create(…)` parameters in order — with no declared signature, name each argument; an argument list that maps onto no record is `loom.create-args`.
 
 ```ddd
 // rejected — the exit save already writes `i`
@@ -370,6 +371,59 @@ precondition tech.skills.contains(Assets.get(job.assetId).requiredSkill)
 let asset = Assets.get(job.assetId)
 precondition tech.skills.contains(asset.requiredSkill)
 ```
+
+### Matching a mutating call's result
+
+An operation that answers its `error` variant leaves no trace (D-FAILURE-MODEL), so a body that binds such a call's result — `let r = a.withdraw(amt)` over `withdraw(amt: int): int or Insufficient` — holds a **tentative** change to `a`. It must `match r` in the same body; each arm that is not an `error` variant saves `a` at its end (publishing what it drained, as every save does), and an `error` arm saves nothing for it, so the change and its events are dropped. A `mutating` domain service bound the same way (`let r = Transfer.tryRun(src, dst, amt)`) treats the aggregates it mutates (`src`, `dst`) the same way. A result with no `error` variant (`let n = a.deposit(1)` over `: int`) is saved at the body's exit, like the call statement.
+
+```ddd
+workflow Pay {
+  create(id: Account id, amt: int) {
+    let a = Accounts.get(id)
+    let r = a.withdraw(amt)
+    match r {
+      int left => { }
+      Insufficient e => { notFound }
+    }
+  }
+}
+```
+```ts
+// http/workflows.ts (node)
+const a = await accounts.getById(id);
+const r = a.withdraw(amt);
+switch (r.type) {
+  case "int": {
+    const left = r.value;
+    await accounts.save(a);
+    break;
+  }
+  case "Insufficient": {
+    const e = r;
+    throw new AggregateNotFoundError("Resource not found");
+    break;
+  }
+}
+```
+```java
+// LedgerWorkflows.java (java) — a JPA entity is flushed at commit whether or not
+// it was saved, so the error arm detaches it first
+switch (r) {
+    case intOrInsufficient_int leftCarrier -> {
+        var left = leftCarrier.value();
+        accountsRepository.save(a);
+        for (var __e : a.pullEvents()) eventPublisher.publishEvent(__e);
+    }
+    case intOrInsufficient_Insufficient e -> {
+        accountsRepository.discard(a);
+        throw new AggregateNotFoundException("Resource not found");
+    }
+}
+```
+
+.NET renders `_accounts.Discard(a);` in the error arm for the same reason (EF Core writes a tracked entity at the next `SaveChanges`); python writes only on a save, as node does. The `Discard` / `discard` repository method exists only for an aggregate some body drops.
+
+`loom.workflow-mutation-result-unmatched` refuses the three shapes that cannot place the save: a result no `match` reads (returning it from a workflow is not supported yet); an `else` arm that covers both a success and an error variant (give one of them arms of its own); and any other change to the same aggregate in that body — another call on it, or creating it there — since that change would be saved outside the match. An elixir deployable refuses the bound form (`loom.elixir-bound-mutating-call-unsupported`).
 
 ## `function` — the private pure helper
 

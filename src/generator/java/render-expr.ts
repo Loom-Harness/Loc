@@ -292,6 +292,17 @@ function needsObjectsEquals(t: TypeIR | undefined, e: BinaryExpr): boolean {
   return t.kind === "id" || t.kind === "valueobject" || t.kind === "entity" || t.kind === "array";
 }
 
+/** An optional primitive (`bool?` / `int?` / `long?`) is a boxed
+ *  `Boolean`/`Integer`/`Long` in Java, where `==` is reference identity (and an
+ *  NPE-free `Objects.equals` is the null-safe value comparison).  `unwrapOptional`
+ *  hides the box from `needsObjectsEquals`, so the optionality is read off the
+ *  operand types directly. */
+function comparesBoxedPrimitive(e: BinaryExpr): boolean {
+  const boxed = (t: TypeIR | undefined): boolean =>
+    t?.kind === "optional" && t.inner.kind === "primitive";
+  return boxed(e.leftType) || boxed(e.rightType);
+}
+
 function comparesNullLiteral(e: BinaryExpr): boolean {
   const isNull = (x: ExprIR): boolean => x.kind === "literal" && x.lit === "null";
   return isNull(e.left) || isNull(e.right);
@@ -376,7 +387,9 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   // `${unionName}_${tag}` (java/emit/unions.ts), so a `case ${Union}_${tag} b`
   // pattern binds the narrowed record; `b.field()` reads a component.  A
   // `default` arm always trails so a non-exhaustive match (validator *warns*,
-  // never errors) still compiles against the sealed type.
+  // never errors) still compiles against the sealed type.  Without an `else`
+  // the default throws: a `null` there does not type in a primitive-yielding
+  // switch (`int x = switch … default -> null`), and a throw types as anything.
   matchVariant(m) {
     // EVERY arm renders as its `<Union>_<Tag>` carrier pattern, error variants
     // included — an `error` arm binds a real payload (`NotFound n -> n.resource()`)
@@ -403,7 +416,7 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
       const binder = a.binding ?? "__unused";
       return `      case ${carrier} ${binder} -> ${a.value};`;
     });
-    const tail = `      default -> ${m.otherwise ?? "null"};`;
+    const tail = `      default -> ${m.otherwise ?? `throw new IllegalStateException(${JSON.stringify(`no ${m.unionName || "union"} variant arm matched`)})`};`;
     return `switch (${m.subject}) {\n${arms.join("\n")}\n${tail}\n    }`;
   },
   bindingRefText: (binding) => binding,
@@ -900,6 +913,18 @@ function renderBinary(l: string, r: string, e: BinaryExpr): string {
   if (temporal !== null) return temporal;
   if (e.op === "==" || e.op === "!=") {
     if (comparesNullLiteral(e)) return `${l} ${e.op} ${r}`;
+    if (comparesBoxedPrimitive(e)) {
+      // `Objects.equals(Long, Integer)` is false for equal values — widen an
+      // `int` side when the other side is a `long`.
+      const isLong = (t: TypeIR | undefined): boolean => {
+        const u = unwrapOptional(t);
+        return u?.kind === "primitive" && u.name === "long";
+      };
+      const widen = (text: string, t: TypeIR | undefined): string =>
+        (isLong(e.leftType) || isLong(e.rightType)) && !isLong(t) ? `(long) (${text})` : text;
+      const eq = `${J.Objects}.equals(${widen(l, e.leftType)}, ${widen(r, e.rightType)})`;
+      return e.op === "==" ? eq : `!${eq}`;
+    }
     if (needsObjectsEquals(lt, e)) {
       return e.op === "==" ? `${J.Objects}.equals(${l}, ${r})` : `!${J.Objects}.equals(${l}, ${r})`;
     }

@@ -31,7 +31,7 @@ import { PY_IMPORTS, pyModule, pyRef } from "../_imports/python.js";
 import { ref } from "../_imports/symbol.js";
 import { numericEncode } from "../_numeric/target.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
-import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
+import { nestedSaves, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { pyCalendarDateWire, pyEnvelopeInstant } from "./codec-spelling.js";
 import type { OpFragment } from "./emit/aggregate.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
@@ -485,7 +485,7 @@ function reposIn(
     walkWorkflowStmtsDeep(root, (st) => {
       // Per-kind SELECTION only — `walkWorkflowStmtsDeep` owns the recursion.
       if (st.kind === "repo-let" || st.kind === "repo-run") add(st);
-      if (st.kind === "for-each") st.savesPerIteration.forEach(add);
+      if (st.kind === "for-each" || st.kind === "variant-match") nestedSaves(st).forEach(add);
       if (st.kind === "if-let") {
         add(st);
         st.savesInThen.forEach(add);

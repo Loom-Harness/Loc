@@ -22,6 +22,7 @@ import { synthProjectionFinds } from "../projection-finds.js";
 import {
   docTypeAlias,
   documentCapabilityBody,
+  documentRunMethods,
   entityFromDocFn,
   entityToDocFn,
   findPredicate,
@@ -155,6 +156,15 @@ export function renderMikroDocumentRepository(
     );
   });
 
+  // Criterion reads (`Repo.all(C(…))` / `Repo.find(C(…))`) call
+  // `run<Retrieval>` whatever the saving shape — the same in-app runner the
+  // drizzle document repository emits, over this adapter's id-ordered load.
+  const runMethods = documentRunMethods(agg, ctx, (all) => [
+    `    const em = this.em.fork({ keepTransactionContext: true });`,
+    `    const rows = await em.find(${row}, {}, { orderBy: { id: "ASC" } });`,
+    `    const ${all} = rows.map((r) => ${fromDocOf("r")});`,
+  ]);
+
   const docAudited = aggregateIsAudited(agg);
   const deleteMethod = emitsDelete
     ? lines(
@@ -257,6 +267,7 @@ export function renderMikroDocumentRepository(
     deleteMethod ? "" : null,
     deleteMethod || null,
     ...findMethods.flatMap((m) => ["", m]),
+    ...runMethods.flatMap((m) => ["", m]),
     "",
     toWireMethod(agg, ctx),
     // Response-boundary read masking (`mask unless`) — the SAME sibling

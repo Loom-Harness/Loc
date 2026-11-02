@@ -48,7 +48,7 @@ describe(".NET single-row read route — policy read gate", () => {
   it("emits a ForbiddenException gate evaluated against currentUser before the query", async () => {
     const handler = handlerOf(await emit('requires currentUser.role == "agent"'));
     expect(handler).toContain(
-      'if (!(currentUser.Role == "agent")) throw new ForbiddenException("Forbidden: currentUser.role == \\"agent\\"");',
+      'if (!(currentUser.Role == "agent")) throw new ForbiddenException("Forbidden: read Ticket requires currentUser.role == \\"agent\\"");',
     );
     expect(handler).toMatch(/using Api\.Domain\.Common;/);
     const gateIdx = handler.indexOf("throw new ForbiddenException");
@@ -67,7 +67,9 @@ describe(".NET single-row read route — policy read gate", () => {
 
   it("`requires true` emits an always-pass gate without injecting the accessor", async () => {
     const handler = handlerOf(await emit("requires true"));
-    expect(handler).toContain('if (!(true)) throw new ForbiddenException("Forbidden: true");');
+    expect(handler).toContain(
+      'if (!(true)) throw new ForbiddenException("Forbidden: read Ticket requires true");',
+    );
     expect(handler).not.toContain("var currentUser = _currentUser.User;");
   });
 });

@@ -393,9 +393,14 @@ export function renderJavaDispatcher(
    *  bookkeeping cost. */
   opFragments?: OpFragment[],
 ): { name: string; content: string; handlers: { method: string; event: string }[] } | null {
-  // A reactor body that matches over a domain-service result names the
-  // union's carrier records, which live beside the services.
-  const unionPkgOf = domainServiceUnionPkgOf(ctx, `${dctx.basePkg}.domain.services`);
+  // A reactor body that matches over a domain-service or operation result
+  // names the union's carrier records, which live beside the services or the
+  // aggregate.
+  const unionPkgOf = domainServiceUnionPkgOf(
+    ctx,
+    `${dctx.basePkg}.domain.services`,
+    dctx.entityPkgOf,
+  );
   // Re-derive over the (possibly merged) context WITH projections — the
   // enricher-stored `ctx.eventSubscriptions` omits projection folds (it derives
   // without them), so a projection-only context would otherwise get no

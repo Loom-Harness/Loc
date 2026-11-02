@@ -517,6 +517,52 @@ function containCascade(
 // Per-aggregate repository — a drop-in for the drizzle `<Agg>Repository`.
 // ---------------------------------------------------------------------------
 
+/** A `run<Name>(...)` method for a context retrieval over `agg`'s root row
+ *  class `row` — the MikroORM analogue of the drizzle `runMethod`.  The
+ *  `where` lowers through the same `whereToMikroFilter` oracle a find uses (so
+ *  the same subset is supported; an out-of-subset predicate emits a
+ *  runtime-throwing stub).  `sort` → `em.find` `orderBy`, and a call-site
+ *  `page` → `limit`/`offset` (never part of the declaration — mirrors the
+ *  drizzle path).  The row class carries the schema filters, so the capability
+ *  read scope applies to every run.  `hydrateTail` turns the loaded `rows`
+ *  into the returned aggregates: the relational repository's pivot-aware bind,
+ *  or the `shape: embedded` per-row jsonb hydrate — both shapes keep their root
+ *  scalars as real columns, so the query is the same. */
+export function mikroRetrievalMethod(
+  agg: EnrichedAggregateIR,
+  r: RetrievalIR,
+  row: string,
+  hydrateTail: readonly string[],
+): string {
+  const methodName = `run${upperFirst(r.name)}`;
+  const baseParams = r.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
+  const params = [...baseParams, "page?: { offset?: number; limit?: number }"].join(", ");
+  let filter: string;
+  try {
+    filter = whereToMikroFilter(r.where, AMBIENT_PRINCIPAL, agg.associations);
+  } catch {
+    return lines(
+      `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
+      `    throw new Error("mikroorm v1: this retrieval's predicate is not yet supported");`,
+      `  }`,
+    );
+  }
+  // Only the first path segment (a direct column) is used in v1 — nested /
+  // collection sort paths are gated by validateRetrievals, same as drizzle.
+  const orderBy =
+    r.sort.length > 0
+      ? `, orderBy: { ${r.sort.map((s) => `${s.path[0]!.name}: "${s.direction}"`).join(", ")} }`
+      : "";
+  return lines(
+    `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
+    `    const em = this.em.fork({ keepTransactionContext: true });`,
+    `    const rows = await em.find(${row}, ${filter}, { limit: page?.limit, offset: page?.offset${orderBy} });`,
+    `    requestLog().debug({ event: "find_executed", aggregate: "${agg.name}", find: "${r.name}", rows: rows.length });`,
+    ...hydrateTail,
+    `  }`,
+  );
+}
+
 export function renderMikroRepository(
   agg: EnrichedAggregateIR,
   repo: RepositoryIR | undefined,
@@ -784,51 +830,17 @@ export function renderMikroRepository(
   });
 
   // Context `retrieval` query bundles targeting this aggregate (retrieval.md) —
-  // emitted as `run<Name>(...)` methods, the MikroORM analogue of the drizzle
-  // `runMethod` (DEBT-17).  The `where` lowers through the same `whereToMikroFilter`
-  // oracle a find uses (so the same subset is supported; an out-of-subset
-  // predicate emits a runtime-throwing stub).  `sort` → `em.find` `orderBy`, and
-  // a call-site `page` → `limit`/`offset` (never part of the declaration —
-  // mirrors the drizzle path).  The validator gates parts/non-relational off
-  // this adapter, so the hydrate is the flat `hydrateRootExpr` the finds use;
-  // `Id[]` reference collections (associations) bulk-load from their pivot
-  // tables via `assocHydrateBind`, same as an array find.
+  // `run<Name>(...)` methods (`mikroRetrievalMethod`).  The hydrate is the
+  // flat `hydrateRootExpr` the finds use; `Id[]` reference collections
+  // (associations) bulk-load from their pivot tables via `assocHydrateBind`,
+  // same as an array find.
   const retrievalMethods = (ctx.retrievals ?? [])
     .filter(
       (r): r is RetrievalIR => r.targetType.kind === "entity" && r.targetType.name === agg.name,
     )
-    .map((r) => {
-      const methodName = `run${upperFirst(r.name)}`;
-      const baseParams = r.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
-      const params = [...baseParams, "page?: { offset?: number; limit?: number }"].join(", ");
-      let filter: string;
-      try {
-        // Retrievals read the aggregate table, so the schema filters apply
-        // too (there is no `ignoring` surface on retrievals).
-        filter = whereToMikroFilter(r.where, AMBIENT_PRINCIPAL, agg.associations);
-      } catch {
-        return lines(
-          `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
-          `    throw new Error("mikroorm v1: this retrieval's predicate is not yet supported");`,
-          `  }`,
-        );
-      }
-      // `sort` → MikroORM `orderBy`.  Only the first path segment (a direct
-      // column) is used in v1 — nested / collection sort paths are gated by
-      // validateRetrievals, same as the drizzle path.
-      const orderBy =
-        r.sort.length > 0
-          ? `, orderBy: { ${r.sort.map((s) => `${s.path[0]!.name}: "${s.direction}"`).join(", ")} }`
-          : "";
-      return lines(
-        `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
-        `    const em = this.em.fork({ keepTransactionContext: true });`,
-        `    const rows = await em.find(${row}, ${filter}, { limit: page?.limit, offset: page?.offset${orderBy} });`,
-        dbg(r.name, "rows.length"),
-        ...assocHydrateBind(agg, ctx, "em", "", "return", "    "),
-        `  }`,
-      );
-    });
+    .map((r) =>
+      mikroRetrievalMethod(agg, r, row, assocHydrateBind(agg, ctx, "em", "", "return", "    ")),
+    );
 
   const deleteMethod = canonicalDestroy(agg)
     ? hasChildren

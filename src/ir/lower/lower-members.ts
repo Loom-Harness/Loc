@@ -54,6 +54,7 @@ import type {
   WorkflowStmtIR,
 } from "../types/loom-ir.js";
 import { mutatedParamNames, type SaveResolver } from "../util/domain-service-tier.js";
+import { isGuardedCall } from "../util/effects.js";
 import { lowerCallableParams } from "./callable-params.js";
 import { lowerExpr, lowerExprInContext, retargetEnumValue } from "./lower-expr.js";
 import { lowerStatement } from "./lower-stmt.js";
@@ -482,6 +483,12 @@ function collectMutationTargets(
   serviceMutated: Set<string>,
 ): void {
   for (const st of statements) {
+    // A call whose error-carrying result is bound (`let r = a.withdraw(x)`
+    // with an `error` variant) commits only in the non-error arms of the
+    // `match` over `r`, which save its targets themselves — never at an exit.
+    if ((st.kind === "op-call" || st.kind === "domain-service-call") && isGuardedCall(st)) {
+      continue;
+    }
     if (st.kind === "op-call") {
       opCallTargets.add(st.target);
     } else if (st.kind === "domain-service-call" && saveResolver) {

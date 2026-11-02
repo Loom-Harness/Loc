@@ -43,24 +43,23 @@
 // Only ONE-segment statics are guarded. `/{id}/history` and `/{id}/can_<op>`
 // have a param in front, so nothing shadows them.
 //
-// ── KNOWN DEFECT: the guard has lost its producer ──────────────────────────
-// The guarded paths were the derived per-find routes (`GET /customers/by_email`
-// for a repository `find byEmail`).  With `find` declarations gone, that URL
-// is served by an EXPLICIT route — `scaffoldGetApi(of: ByEmail)` or a routed
-// `queryHandler` — which `deriveContextOperations` does not see, so no backend
-// emits the guard and `DELETE /api/customers/by_email` is back to the `{id}`
-// route's 422.  The per-backend mount expectations below stay on record as
-// `it.fails` over the `scaffoldGet` model; drop each `.fails` once the guard
-// reads the explicit static routes too.
+// ── Explicit routes are guarded too ────────────────────────────────────────
+// The static path is usually served by an EXPLICIT route — `scaffoldGetApi`
+// or a routed `queryHandler` mounts `GET /customers/by_email` — not by a
+// derived operation.  The table is the derived operations' static sub-paths
+// PLUS the explicit routes on one (`explicitStaticSubpaths`), so the fixture
+// below has no derived static path at all and every backend must still guard.
 
 import { describe, expect, it } from "vitest";
 import {
+  contextStaticSubpathRoutes,
   deriveContextOperations,
+  explicitStaticSubpaths,
   staticSubpathMethods,
   staticSubpathRoutes,
 } from "../../src/ir/util/api-surface.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
-import { buildLoomModel } from "../_helpers/ir.js";
+import { buildLoomModel, enrichedContexts } from "../_helpers/ir.js";
 
 const CTX = `
   context Shop with scaffoldGet(of: ByEmail) {
@@ -111,6 +110,25 @@ describe("the shared derivation", () => {
     for (const path of Object.keys(table)) expect(path).not.toContain("{");
   });
 
+  it("an explicit route on a static sub-path joins the table", async () => {
+    const model = await buildLoomModel(src("node"));
+    const ctx = enrichedContexts(model).find((c) => c.name === "Shop");
+    expect(ctx, "context Shop did not lower").toBeDefined();
+    const shop = ctx as NonNullable<typeof ctx>;
+    // Vacuity: the derived operations alone mount no static sub-path here —
+    // the explicit route is the guard's only producer.
+    expect(staticSubpathRoutes(deriveContextOperations(shop))).toEqual({});
+    expect(explicitStaticSubpaths(shop)).toEqual([
+      {
+        aggregate: "Customer",
+        segment: "by_email",
+        method: "GET",
+        path: "/api/customers/by_email",
+      },
+    ]);
+    expect(contextStaticSubpathRoutes([shop])).toEqual({ "/api/customers/by_email": ["GET"] });
+  });
+
   it("`extra` carries a static path that is not a lifted operation", async () => {
     // Hono's `GET /prepare` is deliberately outside `deriveAggregateOperations`
     // (see the note at the top of api-surface.ts). Without this seam it would
@@ -121,7 +139,7 @@ describe("the shared derivation", () => {
 });
 
 describe("each backend mounts the guard ahead of routing", () => {
-  it.fails("node — a middleware inside the aggregate router", async () => {
+  it("node — a middleware inside the aggregate router", async () => {
     const files = await generateSystemFiles(src("node"));
     const routes = fileEndingWith(files, "http/customer.routes.ts");
     expect(routes).toContain(
@@ -137,7 +155,7 @@ describe("each backend mounts the guard ahead of routing", () => {
     expect(guard).toBeLessThan(byId);
   });
 
-  it.fails("python — ASGI middleware, added first so it is innermost", async () => {
+  it("python — ASGI middleware, added first so it is innermost", async () => {
     const files = await generateSystemFiles(src("python"));
     const main = fileEndingWith(files, "app/main.py");
     expect(main).toContain('"/api/customers/by_email": ["GET"],');
@@ -153,7 +171,7 @@ describe("each backend mounts the guard ahead of routing", () => {
     expect(guard).toBeLessThan(transaction);
   });
 
-  it.fails("dotnet — app.Use before MapControllers, body left to UseStatusCodePages", async () => {
+  it("dotnet — app.Use before MapControllers, body left to UseStatusCodePages", async () => {
     const files = await generateSystemFiles(src("dotnet"));
     const program = fileEndingWith(files, "Program.cs");
     expect(program).toContain('["/api/customers/by_email"] = new[] { "GET" },');
@@ -174,7 +192,7 @@ describe("each backend mounts the guard ahead of routing", () => {
     expect(guard).toBeLessThan(map);
   });
 
-  it.fails("java — a filter that hands Spring its own exception", async () => {
+  it("java — a filter that hands Spring its own exception", async () => {
     const files = await generateSystemFiles(src("java"));
     const filter = fileEndingWith(files, "api/StaticSubpathMethodFilter.java");
     expect(filter).toContain('Map.entry("/api/customers/by_email", List.of("GET"))');

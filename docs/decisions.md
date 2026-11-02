@@ -5925,13 +5925,58 @@ call statement dropped it, and a workflow answered 204.
 **Consequences.** `loom.unhandled-result` refuses a dropped `or E`
 (`src/language/validators/unhandled-result.ts`). A workflow / handler body
 handles a bound result with the statement `match` (#3367; D-FOR-IN-DOMAIN's
-amendment) or by reading it; binding the result of a MUTATING aggregate
-operation there is still refused (`loom.workflow-mutation-unsaved`).
+amendment) or by reading it.
 Every backend's operation route or handler checks the error variant before it
 stamps, saves, audits or publishes (Java also marks the transaction
 rollback-only, since its loaded aggregate is a managed entity); the
 `operation-returns` corpus golden pins the unchanged read-back on every
 behavioural leg.
+
+A workflow / handler body that binds a MUTATING call whose result has an
+`error` variant (`let r = a.withdraw(x)`, or `let r = Transfer.run(…)` over a
+`mutating` domain service) holds a tentative change, so the same rule applies
+inside the body: the body must `match r`
+(`loom.workflow-mutation-result-unmatched`), each non-error arm saves the
+mutated aggregate at its end and publishes what it drained, and an error arm
+saves nothing for it — its change and its events are dropped. On EF Core and
+JPA, which flush a loaded entity whether or not it was saved, the error arm
+detaches it through the repository's `Discard` / `discard`; node and python
+write only on a save. An `else` arm that covers both a success and an error
+variant is refused, and so is any other change to the same aggregate in that
+body. A bound mutating call whose result has no `error` variant is saved at the
+body's exit, exactly like the call statement. Phoenix refuses the bound form
+(`loom.elixir-bound-mutating-call-unsupported`).
+
+```ddd
+workflow Pay {
+  create(id: Account id, amt: int) {
+    let a = Accounts.get(id)
+    let r = a.withdraw(amt)          // withdraw(amt): int or Insufficient
+    match r {
+      int left => { }                // a is saved here
+      Insufficient e => { notFound } // a's change is dropped
+    }
+  }
+}
+```
+
+```ts
+// node — d/http/workflows.ts
+const a = await accounts.getById(id);
+const r = a.withdraw(amt);
+switch (r.type) {
+  case "int": {
+    const left = r.value;
+    await accounts.save(a);
+    break;
+  }
+  case "Insufficient": {
+    const e = r;
+    throw new AggregateNotFoundError("Resource not found");
+    break;
+  }
+}
+```
 
 ## D-ABSENCE-MODEL — "may be missing" has one type, `T?`; presence is the generated update's rule, not a type
 

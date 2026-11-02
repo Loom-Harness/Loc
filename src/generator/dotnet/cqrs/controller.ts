@@ -30,7 +30,7 @@ import { CS_PAGED_QUERY_PARAMS } from "../emit/common.js";
 import { renderController } from "../emit.js";
 import { AMBIENT_CURRENT_USER, renderCsExpr } from "../render-expr.js";
 import { requestVoValidatorName } from "../validator-emit.js";
-import { isNullableWireDefault } from "../wire-default.js";
+import { isNullableWireDefault, omitsToEmptyCollection } from "../wire-default.js";
 
 /** One arm of a return-typed operation's controller translation. */
 export interface ReturnUnionArm {
@@ -283,6 +283,11 @@ export function emitController(
             currentUserExpr: AMBIENT_CURRENT_USER,
           });
           return `request.${upperFirst(f.name)} is null ? ${dflt} : ${wireArg}`;
+        }
+        // An omitted non-nullable collection is the empty collection (the
+        // request field is nullable; see `omitsToEmptyCollection`).
+        if (omitsToEmptyCollection(agg, f)) {
+          return `request.${upperFirst(f.name)} is null ? [] : ${wireArg}`;
         }
         return wireArg;
       }),

@@ -33,7 +33,8 @@
 // jointly broken.  A server-sourced default is never a value object, so this
 // combination had no reachable source until VO defaults reached the wire.
 
-import type { ExprIR } from "../../ir/types/loom-ir.js";
+import { createOmissionValue } from "../../ir/enrich/wire-projection.js";
+import type { AggregateIR, ExprIR, FieldIR } from "../../ir/types/loom-ir.js";
 import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/server-default.js";
 
 /** True when this default cannot be a C# parameter default, so the request
@@ -44,4 +45,17 @@ export function isNullableWireDefault(e: ExprIR | undefined): e is ExprIR {
   return (
     e !== undefined && (isServerSourcedDefault(e) || isValueObjectDefault(e) || e.kind === "list")
   );
+}
+
+/** True when a create-request field is a non-nullable collection with no
+ *  explicit default: the client may omit it and it initialises to the empty
+ *  collection (`createOmissionValue`'s `empty-collection` arm — the .NET twin of
+ *  node's create-body `.default([])`).  Like a list-literal default, an empty
+ *  collection expression is not a C# parameter-default constant, so the request
+ *  field is emitted nullable (`T? Name = null`, no `[Required]`) and the
+ *  controller coalesces to `[]`.  An event-sourced aggregate binds its `create`
+ *  action's params instead of the field set, and those stay required. */
+export function omitsToEmptyCollection(agg: AggregateIR, f: FieldIR): boolean {
+  if (agg.persistedAs === "eventLog" && agg.creates?.[0]) return false;
+  return createOmissionValue(f).kind === "empty-collection";
 }

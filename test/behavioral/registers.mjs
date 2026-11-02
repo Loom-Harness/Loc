@@ -267,17 +267,6 @@ export const BEHAVIOURAL_XFAIL = {
   },
   java: {
     "provenance-money": moneyLineage('to be "3000\\.3000"'),
-    // The guarded save flushes the dirty entity (its stale `version` included)
-    // before the `where version = :expected` bump, so two simultaneous writers
-    // carrying one `If-Match` both land.  The sequential stale tag is refused.
-    "concurrency-two-writers": {
-      issue: "#3521",
-      expect: "fail",
-      tests: { [RACE_PROBE_TEST]: "pair \\d+: 204, 204" },
-      race:
-        "the lost write needs both requests to load before either saves, which only the server's own timing decides; a run whose pairs all serialise passes",
-      reason: "RS-46 — two simultaneous writers with one `If-Match` both answer 204 and one write is lost",
-    },
   },
   python: {
     // A routed command handler's body model takes snake_case keys.
@@ -294,6 +283,15 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
+    // A mutating call bound with `let` is refused on Phoenix, so generation
+    // stops at phase ⑦ (unsupported register).
+    "match-op-result": {
+      issue: "#4541",
+      expect: "error",
+      match: "loom\\.elixir-bound-mutating-call-unsupported",
+      reason:
+        "`let r = a.withdraw(x)` in a workflow body: the Phoenix with-chain sites match an op call's `{:ok, _}` away and never bind its result",
+    },
     // A value object nested inside another is cast as `:map`, so the nested
     // VO's invariant never runs and the bad create commits.
     "vo-root-kernel": {

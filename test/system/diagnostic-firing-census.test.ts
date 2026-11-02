@@ -1946,7 +1946,22 @@ system P {
     workflow W {
       create(oid: Order id) {
         let o = Orders.get(oid)
-        let r = o.rename("x")
+        let r = o.rename("x") + "!"
+      }
+    }`),
+  // `let r = o.hold()` whose result can be an error, never matched: nothing may
+  // save the tentative change.
+  "loom.workflow-mutation-result-unmatched": repoOnly(`    error Held { reason: string }
+    aggregate Order with crudish {
+      name: string
+      operation hold(): string or Held { name := "held"  return Held { reason: name } }
+    }
+    repository Orders for Order
+    workflow W {
+      create(oid: Order id) {
+        let o = Orders.get(oid)
+        let r = o.hold()
+        let s = r
       }
     }`),
   // An aggregate factory call in the retired record form.
@@ -3059,6 +3074,27 @@ system P {
           string s => { precondition s.length > 0  code := s }
           else => { code := "none" }
         }
+      }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
+}`,
+
+  // A `let`-bound mutating call in a workflow an elixir deployable emits.
+  "loom.elixir-bound-mutating-call-unsupported": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish {
+      code: string
+      operation touch(): int { code := "t"  return 1 }
+    }
+    repository Orders for Order
+    workflow W {
+      create(oid: Order id) {
+        let o = Orders.get(oid)
+        let n = o.touch()
       }
     }
   } }

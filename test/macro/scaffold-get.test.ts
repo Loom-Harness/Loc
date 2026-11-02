@@ -172,8 +172,9 @@ describe("scaffoldGet — generated on every backend", () => {
 });
 
 describe("scaffoldGet — the aggregate's read gate", () => {
-  // A declared find's route enforced `policy { read <Agg> requires … }`; a
-  // handler does not inherit it, so the macro splices it ahead of the read.
+  // A declared find's route enforced `policy { read <Agg> requires … }`; the
+  // handler gets the same gate from enrichment (`applyHandlerReadGates`), not
+  // from the macro, so the expanded source stays free of it.
   const GATED = (platform: string): string =>
     MACRO(platform)
       .replace("system Shop {", "system Shop {\n    user { id: guid  role: string }")
@@ -183,10 +184,10 @@ describe("scaffoldGet — the aggregate's read gate", () => {
       )
       .replace("port: 5001 }", "port: 5001, auth: required }");
 
-  it("splices the read gate as the first statement, ahead of `requires:`", async () => {
+  it("leaves the read gate to enrichment: only `requires:` is spliced", async () => {
     const printed = printStructural((await parsed(GATED("node"))).ctx);
     expect(printed).toMatch(
-      /queryHandler GetOrderByCode\(code: string\): Order \{\s*requires currentUser\.role == "agent"\s*requires Staff\(\)\s*if let x/,
+      /queryHandler GetOrderByCode\(code: string\): Order \{\s*requires Staff\(\)\s*if let x/,
     );
     // The ungated aggregate's read carries no gate.
     expect(printed).toMatch(/queryHandler GetItemBySku\(sku: string\): Item \{\s*let x = Items/);
@@ -196,7 +197,9 @@ describe("scaffoldGet — the aggregate's read gate", () => {
     it(`${platform}: answers the gate's 403 before the read`, async () => {
       const files = await generateSystemFiles(GATED(platform));
       const all = [...files.values()].join("\n");
-      const gateAt = all.search(/Forbidden: currentUser\.role == \\?"agent\\?"/);
+      const gateAt = all.search(
+        /Forbidden: read Order requires currentUser\.role == \\?"agent\\?"/,
+      );
       expect(gateAt, "gate rendered").toBeGreaterThan(-1);
       expect(all.slice(gateAt).search(/ByCode|by_code/), "read after the gate").toBeGreaterThan(0);
     });

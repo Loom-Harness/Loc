@@ -45,4 +45,39 @@ describe("python create request model — declared field default", () => {
       /active: bool = False/,
     );
   });
+
+  it("defaults an omitted non-nullable collection to [] (node's `.default([])`), leaves T[]? None and the Update model required", async () => {
+    const { model, errors } = await parseString(`
+system S {
+  subdomain Sales {
+    context Sales {
+      valueobject Rule { name: string  weight: int }
+      aggregate Tag with crudish { label: string }
+      aggregate Attr with crudish {
+        name: string
+        options: string[]
+        rules: Rule[]
+        tags: Tag id[]
+        extras: string[]?
+      }
+      repository Tags for Tag { }
+      repository Attrs for Attr { }
+    }
+  }
+  api SalesApi from Sales
+  storage pg { type: postgres }
+  resource s { for: Sales, kind: state, use: pg }
+  deployable api { platform: python  contexts: [Sales]  dataSources: [s]  serves: SalesApi  port: 8000 }
+}`);
+    expect(errors).toEqual([]);
+    const routes = generateSystems(model).files.get("api/app/http/attr_routes.py") ?? "";
+    const start = routes.indexOf("class CreateAttrRequest");
+    const block = routes.slice(start, routes.indexOf("class CreateAttrResponse", start));
+    expect(block).toContain("    options: list[WireStr] = []");
+    expect(block).toContain("    rules: list[RuleModel] = []");
+    expect(block).toContain("    tags: list[UuidStr] = []");
+    expect(block).toContain("    extras: list[WireStr] | None = None");
+    // Update is full-replacement: an absent collection stays a missing field.
+    expect(routes).not.toMatch(/class Update\w*Request[\s\S]*?options: list\[WireStr\] = \[\]/);
+  });
 });
