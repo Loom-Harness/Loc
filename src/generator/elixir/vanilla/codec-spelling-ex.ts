@@ -81,6 +81,15 @@ export function exMigrationKeyType(c: ColumnType): string {
   return c.kind === "text" ? ":string" : exMigrationColumnType(c);
 }
 
+/** The Postgres type NAME of a `datetime` column, for a SQL `fragment` that
+ *  casts a bound instant parameter (`?::timestamptz`). */
+export function exPgInstantType(): string {
+  const c = scalarCodec("datetime").column;
+  if (c.kind !== "datetime")
+    throw new Error("codec-spelling: a datetime is no longer an instant column");
+  return "timestamptz";
+}
+
 /** The migration type of a synthetic row id (a value-collection child row, a
  *  table that names no `id` column) — a `guid`'s column. */
 export function exMigrationRowIdType(): string {

@@ -348,8 +348,8 @@ ${
     ? `
   # A bucketed grouping key is SELECTed as a raw \`fragment\`, which bypasses
   # Ecto's schema type mapping — Postgrex returns a \`%NaiveDateTime{}\` with
-  # microsecond precision where the schema-typed \`:utc_datetime\` field would
-  # give a second-precision \`%DateTime{}\`.  Without this the key serialised
+  # microsecond precision where the schema-typed \`Loom.Datetime\` field would
+  # give the canonical millisecond \`%DateTime{}\`.  Without this the key serialised
   # \`2026-08-01T00:00:00.000000\` instead of \`2026-08-01T00:00:00Z\`, diverging
   # from the other four backends.  Accepts either shape so a driver that
   # already hands back a \`%DateTime{}\` stays correct.

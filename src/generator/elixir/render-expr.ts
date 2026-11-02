@@ -48,6 +48,7 @@ import {
   type UnaryExpr,
 } from "../_expr/target.js";
 import { elixirFindFacadeFn } from "./find-facade-name.js";
+import { exPgInstantType } from "./vanilla/codec-spelling-ex.js";
 import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-object-type-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -1942,7 +1943,7 @@ function renderEctoTemporalBinary(l: string, r: string, e: BinaryExpr): string |
   // side is already typed by the table, and a nested interval fragment must
   // NOT be cast (the suffix would bind to `make_interval(...)`, not the sum),
   // so this is a POSITIVE test for the bound-scalar shapes only.
-  const cast = isBoundDatetimeOperand(otherRaw) ? "::timestamptz" : "";
+  const cast = isBoundDatetimeOperand(otherRaw) ? `::${exPgInstantType()}` : "";
   return `fragment("?${cast} ${e.op} make_interval(${MAKE_INTERVAL_ARG[dur.unit]} => ?)", ${side}, ${amount})`;
 }
 
