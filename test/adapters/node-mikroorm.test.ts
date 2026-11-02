@@ -46,8 +46,10 @@ system M {
         note:     string?
         ${body}
       }
-      repository Orders for Order {
-        find byCustomer(customer: string): Order? where this.customer == customer
+      repository Orders for Order
+      criterion ByCustomer(customer: string) of Order = this.customer == customer
+      queryHandler OrderByCustomer(customer: string): Order {
+        if let x = Orders.find(ByCustomer(customer)) { return x } else { notFound "not_found" }
       }
     }
   }
@@ -266,9 +268,21 @@ describe("mikroorm — widened find predicates (bare boolean / unary NOT)", () =
       }
       repository Orders for Order { }
       criterion OrdersLive of Order = this.active
+      queryHandler GetOrdersLive(): Order {
+        if let x = Orders.find(OrdersLive) { return x } else { notFound "not_found" }
+      }
       criterion OrdersInactive of Order = !this.active
+      queryHandler GetOrdersInactive(): Order {
+        if let x = Orders.find(OrdersInactive) { return x } else { notFound "not_found" }
+      }
       criterion OrdersLiveOrArchived of Order = this.active || this.archived
+      queryHandler GetOrdersLiveOrArchived(): Order {
+        if let x = Orders.find(OrdersLiveOrArchived) { return x } else { notFound "not_found" }
+      }
       criterion OrdersComplex of Order = this.active && !this.archived
+      queryHandler GetOrdersComplex(): Order {
+        if let x = Orders.find(OrdersComplex) { return x } else { notFound "not_found" }
+      }
     }
   }
   storage pg { type: postgres }
@@ -280,12 +294,15 @@ describe("mikroorm — widened find predicates (bare boolean / unary NOT)", () =
     const { files, errors } = await emit(BOOL_SRC);
     expect(errors).toEqual([]);
     const repo = files.get("api/db/repositories/order-repository.ts")!;
-    expect(repo).toContain("await em.findOne(OrderRow, { active: true })");
-    expect(repo).toContain("await em.findOne(OrderRow, { active: false })");
+    // Each criterion's read (`find(C)` runs its `findAllBy<C>`) carries the
+    // lowered FilterQuery.
+    const PAGE = "{ limit: page?.limit, offset: page?.offset }";
+    expect(repo).toContain(`await em.find(OrderRow, { active: true }, ${PAGE})`);
+    expect(repo).toContain(`await em.find(OrderRow, { active: false }, ${PAGE})`);
     expect(repo).toContain(
-      "await em.findOne(OrderRow, { $or: [{ active: true }, { archived: true }] })",
+      `await em.find(OrderRow, { $or: [{ active: true }, { archived: true }] }, ${PAGE})`,
     );
-    expect(repo).toContain("await em.findOne(OrderRow, { active: true, archived: false })");
+    expect(repo).toContain(`await em.find(OrderRow, { active: true, archived: false }, ${PAGE})`);
   });
 });
 
@@ -309,6 +326,9 @@ describe("mikroorm — `filter` capability predicates", () => {
       }
       repository Orders for Order { }
       criterion OrdersByCustomer(customer: string) of Order = this.customer == customer
+      queryHandler GetOrdersByCustomer(customer: string): Order {
+        if let x = Orders.find(OrdersByCustomer(customer)) { return x } else { notFound "not_found" }
+      }
     }
   }
   storage pg { type: postgres }
@@ -330,11 +350,13 @@ describe("mikroorm — `filter` capability predicates", () => {
       '"loom.filter": { name: "loom.filter", cond: () => ({ $and: [{ status: "Active" }, { deleted: false }] }), default: true },',
     );
     const repo = files.get("api/db/repositories/order-repository.ts")!;
-    // findById / findManyByIds / a declared find / the paged auto-findAll carry
-    // no hand-ANDed conjunct: the ORM applies the schema filters.
+    // findById / findManyByIds / a criterion read / the paged auto-findAll
+    // carry no hand-ANDed conjunct: the ORM applies the schema filters.
     expect(repo).toContain("await em.findOne(OrderRow, { id: id as string });");
     expect(repo).toContain("await em.find(OrderRow, { id: { $in: ids as string[] } });");
-    expect(repo).toContain("await em.findOne(OrderRow, { customer: customer });");
+    expect(repo).toContain(
+      "await em.find(OrderRow, { customer: customer }, { limit: page?.limit, offset: page?.offset });",
+    );
     expect(repo).toContain("await em.find(OrderRow, {}, { limit: pageSize,");
     expect(repo).not.toContain('status: "Active"');
     expect(repo).not.toContain("$and");
@@ -350,8 +372,17 @@ describe("mikroorm — `filter` capability predicates", () => {
       }
       repository Orders for Order { }
       criterion OrdersActive(customer: string) of Order = this.customer == customer
+      queryHandler GetOrdersActive(customer: string): Order {
+        if let x = Orders.find(OrdersActive(customer)) { return x } else { notFound "not_found" }
+      }
       criterion OrdersWithDeleted(customer: string) of Order = this.customer == customer
+      queryHandler GetOrdersWithDeleted(customer: string): Order {
+        if let x = Orders.find(OrdersWithDeleted(customer)) ignoring softDeletable { return x } else { notFound "not_found" }
+      }
       criterion OrdersReallyAll(customer: string) of Order = this.customer == customer
+      queryHandler GetOrdersReallyAll(customer: string): Order {
+        if let x = Orders.find(OrdersReallyAll(customer)) ignoring * { return x } else { notFound "not_found" }
+      }
     }
   }
   storage pg { type: postgres }
@@ -369,14 +400,14 @@ describe("mikroorm — `filter` capability predicates", () => {
     );
     // …so the plain read states only its own where…
     expect(repo).toContain(
-      "async active(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer });",
+      "async runFindAllByOrdersActive(customer: string, page?: { offset?: number; limit?: number }): Promise<Order[]> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const rows = await em.find(OrderRow, { customer: customer }, { limit: page?.limit, offset: page?.offset });",
     );
     // …and a read that bypasses it by name or with `*` switches that filter off.
     expect(repo).toContain(
-      'async withDeleted(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer }, { filters: { "softDeletable": false } });',
+      'async findFirstOrdersWithDeletedIgnoringSoftDeletable(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer }, { filters: { "softDeletable": false } });',
     );
     expect(repo).toContain(
-      'async reallyAll(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer }, { filters: { "softDeletable": false } });',
+      'async findFirstOrdersReallyAllIgnoringAll(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer }, { filters: { "softDeletable": false } });',
     );
   });
 });
@@ -394,6 +425,9 @@ describe("mikroorm — principal-referencing (tenancy) `filter` predicates", () 
       }
       repository Accounts for Account { }
       criterion AccountsByMinBalance(min: int) of Account = this.balance >= min
+      queryHandler GetAccountsByMinBalance(min: int): Account {
+        if let x = Accounts.find(AccountsByMinBalance(min)) { return x } else { notFound "not_found" }
+      }
     }
   }
   storage pg { type: postgres }
@@ -415,7 +449,9 @@ describe("mikroorm — principal-referencing (tenancy) `filter` predicates", () 
     // The reads carry no tenant conjunct of their own.
     const repo = files.get("api/db/repositories/account-repository.ts")!;
     expect(repo).toContain("await em.findOne(AccountRow, { id: id as string });");
-    expect(repo).toContain("await em.findOne(AccountRow, { balance: { $gte: min } });");
+    expect(repo).toContain(
+      "await em.find(AccountRow, { balance: { $gte: min } }, { limit: page?.limit, offset: page?.offset });",
+    );
     expect(repo).not.toContain("requireCurrentUser");
     // The scope is a real FilterQuery, not a dropped/stubbed predicate.
     expect(repo).not.toContain("this find's predicate is not yet supported");
@@ -733,8 +769,10 @@ describe("mikroorm — aggregate inheritance (wave 2)", () => {
       aggregate BankAccount extends PaymentMethod with crudish {
         routingNumber: string
       }
-      repository CreditCards for CreditCard {
-        find byNetwork(network: CardNetwork): CreditCard? where this.network == network
+      repository CreditCards for CreditCard
+      criterion ByNetwork(network: CardNetwork) of CreditCard = this.network == network
+      queryHandler CreditCardByNetwork(network: CardNetwork): CreditCard {
+        if let x = CreditCards.find(ByNetwork(network)) { return x } else { notFound "not_found" }
       }
       repository BankAccounts for BankAccount { }
     }
@@ -1076,7 +1114,7 @@ describe("mikroorm — shape: embedded (wave 2)", () => {
 // ---------------------------------------------------------------------------
 describe("mikroorm — shape: document (wave 3)", () => {
   const DOC_SRC = `system M {
-  api A from S
+  api A from S { route GET "/articles/popular" -> O.GetArticlesPopular }
   subdomain S {
     context O {
       aggregate Article shape: document, with crudish {
@@ -1090,6 +1128,9 @@ describe("mikroorm — shape: document (wave 3)", () => {
       }
       repository Articles for Article { }
       criterion ArticlesPopular(min: int) of Article = this.viewCount >= min
+      queryHandler GetArticlesPopular(min: int): Article {
+        if let x = Articles.find(ArticlesPopular(min)) { return x } else { notFound "not_found" }
+      }
     }
   }
   storage pg { type: postgres }
@@ -1148,7 +1189,13 @@ describe("mikroorm — shape: document (wave 3)", () => {
     expect(repo).toContain(
       'const rows = await em.find(ArticleRow, {}, { orderBy: { id: "ASC" } });',
     );
-    expect(repo).toContain("const result = all.find((x) => x.viewCount >= min) ?? null;");
+    // The criterion read the routed handler makes
+    // (`runFindAllByArticlesPopular(min, { limit: 1 })`) is a method the
+    // repository has, filtering the rehydrated documents in-app.
+    expect(files.get("api/http/a-routes.ts")!).toContain(
+      "articles.runFindAllByArticlesPopular(min,",
+    );
+    expect(repo).toContain("runFindAllByArticlesPopular(");
   });
 });
 
