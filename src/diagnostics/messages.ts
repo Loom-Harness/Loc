@@ -2022,6 +2022,9 @@ export const DIAGNOSTIC_MESSAGES = {
     `context '${p.name}': ${p.kind} '${p.hName}' has a parameter named 'id', which is ` +
     `reserved — a bare 'id' in a handler body resolves to the current entity's implicit id, ` +
     `not the parameter. Rename it (e.g. 'orderId').`,
+  "loom.option-deprecated":
+    "`T option` is deprecated: it means `T?`, the one way to say a value may be missing. " +
+    "Write `T?` instead — the quick fix rewrites it.",
   "loom.query-handler-saves": (p: { name: unknown; qName: unknown }) =>
     `context '${p.name}': queryHandler '${p.qName}' mutates state (a save, op-call, emit, ` +
     `create, or assignment). A queryHandler must be read-only — use a commandHandler or a ` +
@@ -3095,6 +3098,16 @@ export const DIAGNOSTIC_MESSAGES = {
     `which deployable '${p.dName}' can't serve (frontend '${p.target}'): its read layer does ` +
     `not collect the history read or render 'Timeline'. Host this page on a frontend that does, ` +
     `or read the history through a backend query.`,
+  "loom.target-unsupported#match-await-standard-op": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what} awaits a STANDARD aggregate operation, which deployable '${p.dName}' can't ` +
+    `render (frontend '${p.target}'): its action renderer resolves \`match await\` only against ` +
+    `a DECLARED \`operation\`, so the effect cannot be emitted. Declare an \`operation\` that ` +
+    `does the work and await that, or drive the standard op through a form primitive ` +
+    `(\`DestroyForm\` / \`CreateForm\`).`,
   "loom.ui-projection-read-unsupported#frontend-has-no-client": (p: {
     what: unknown;
     name: unknown;

@@ -302,6 +302,11 @@ export const AUTHZ_LADDERS = {
       // arm is "a malformed identifier claim fails `!= null`" — 204 here means
       // the raw value reached the principal.
       { label: "malformed id claim", method: "POST", path: "/api/tickets/{id}/assign", body: {} },
+      // `sub` → id, a string-array claim, and an absent int[] claim (which must
+      // be the empty list, or the authorized arm answers 500).
+      { label: "sub-default id claim", method: "POST", path: "/api/tickets/{id}/escalate", body: {} },
+      { label: "string-array claim", method: "POST", path: "/api/tickets/{id}/reassign", body: {} },
+      { label: "absent non-string array claim", method: "POST", path: "/api/tickets/{id}/triage", body: {} },
     ],
     arms: { anonymous: 401, unauthorized: 403, authorized: 204 },
   },

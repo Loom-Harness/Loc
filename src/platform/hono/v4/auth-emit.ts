@@ -1,5 +1,5 @@
 import { claimShapes, UUID_PATTERN } from "../../../generator/_auth/claim-decode.js";
-import { claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
+import { claimEnumNames, claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
 import {
   DEV_CLAIMS_HEADER,
   MALFORMED_DEV_CLAIMS_DETAIL,
@@ -203,6 +203,14 @@ function idsImport(user: UserIR): string[] {
   return claimsReferenceIds(user.fields) ? ['import * as Ids from "../domain/ids";', ""] : [];
 }
 
+/** The enum types a claim shape names live in `domain/value-objects.ts`;
+ *  `auth/user-types.ts` only spells them as types. */
+function enumsImport(user: UserIR): string[] {
+  const names = claimEnumNames(user.fields);
+  if (names.length === 0) return [];
+  return [`import type { ${names.join(", ")} } from "../domain/value-objects";`, ""];
+}
+
 function renderUserTypes(user: UserIR, orgPathClaim?: string, orgContext = false): string {
   // User shape lives in its own module so any per-aggregate file (or
   // workflow route) can `import type { User }` without
@@ -263,6 +271,7 @@ function renderUserTypes(user: UserIR, orgPathClaim?: string, orgContext = false
       "// tenancy).  Downstream route handlers / workflow handlers",
       "// reference `User` via the magic `currentUser` identifier.",
       ...idsImport(user),
+      ...enumsImport(user),
       "export interface UserClaims {",
       ...fields,
       "}",
@@ -732,6 +741,7 @@ function systemValueFor(f: FieldIR): string {
   // type — `middleware.ts` has no `Ids` import, and the dev stub's zero GUID
   // would be a real-looking id rather than "no claim".
   if (t.kind === "id") return `"" as UserClaims["${snakeToCamel(f.name)}"]`;
+  if (t.kind === "enum") return noEnumClaim(f);
   return stubValueForType(t);
 }
 
@@ -1218,8 +1228,16 @@ function renderStubUserLiteral(userShape: UserIR): string {
   return `{\n${entries.join(",\n")},\n}`;
 }
 
+/** "No claim" for an enum-typed field: the declared type has no null member,
+ *  so the null is cast to the claim's own type.  A gate comparing the claim to
+ *  an enum value never matches it. */
+function noEnumClaim(f: FieldIR): string {
+  return `null as unknown as UserClaims["${snakeToCamel(f.name)}"]`;
+}
+
 function stubValueFor(f: FieldIR): string {
   if (f.optional) return "null";
+  if (f.type.kind === "enum") return noEnumClaim(f);
   return stubValueForType(f.type);
 }
 

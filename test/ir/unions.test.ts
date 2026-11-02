@@ -48,11 +48,10 @@ describe("unions — lowering (P4a)", () => {
     });
   });
 
-  it("lowers `T option` to `union[T, none]`", async () => {
-    const t = await findReturn(REPO("Order option"));
-    expect(t).toEqual({
-      kind: "union",
-      variants: [{ kind: "entity", name: "Order" }, { kind: "none" }],
+  it("lowers `T option` to `T?` (D-ABSENCE-MODEL)", async () => {
+    expect(await findReturn(REPO("Order option"))).toEqual({
+      kind: "optional",
+      inner: { kind: "entity", name: "Order" },
     });
   });
 

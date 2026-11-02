@@ -17,7 +17,7 @@
 // and the MVC input formatter files it under the field's JSON path — which is
 // how `ValidationProblem.FromModelState` recognises it.
 
-import { INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
+import { csIntegerRangeMessage } from "../wire-policy-cs.js";
 
 export function renderInt32RangeConverter(ns: string): string {
   return `// Auto-generated.
@@ -37,7 +37,7 @@ namespace ${ns}.Serialization;
 public sealed class Int32RangeJsonConverter : JsonConverter<int>
 {
     /// <summary>The refusal message every backend sends for an int32 overflow.</summary>
-    public const string Message = ${JSON.stringify(INTEGER_RANGE_MESSAGE)};
+    public const string Message = ${JSON.stringify(csIntegerRangeMessage())};
 
     public override int Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {

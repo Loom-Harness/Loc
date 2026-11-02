@@ -41,6 +41,7 @@ import type {
   TypeIR,
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
+import { handlerUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import {
@@ -372,7 +373,7 @@ defmodule ${moduleName} do
 ${contextAlias}
 
 ${
-  threadsActor
+  handlerTakesActor(h, ctx)
     ? `  @spec run(map(), term()) :: {:ok, term()} | {:error, term()}
   def run(params, current_user \\\\ nil) when is_map(params) do`
     : `  @spec run(map()) :: {:ok, term()} | {:error, term()}
@@ -384,14 +385,33 @@ end
 `;
 }
 
-/** Does a (non-extern) handler run a `Repo.run` read whose retrieval reads the
- *  request actor?  Then its `run` takes `current_user` and the route passes it. */
+/** Does the handler need the request actor — a body that reads `currentUser`
+ *  (a `requires` gate or an expression), or a principal-filtered `Repo.run`
+ *  read?  Then its `run` takes `current_user` and the route passes it. */
+function handlerTakesActor(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
+  return handlerUsesCurrentUser(h) || handlerThreadsActor(h, ctx);
+}
+
+/** Does a (non-extern) handler run a criterion read — `Repo.run(<C>)`, or the
+ *  single-row `Repo.find(<C>)` as a `let` or `if let` — whose retrieval reads
+ *  the request actor (a principal filter such as `tenantOwned` on its target,
+ *  or a `currentUser` criterion)?  Then the read forwards `current_user` as its
+ *  opt; without it the retrieval fails closed to no rows. */
 function handlerThreadsActor(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
   if (h.extern) return false;
+  const reads = (name: string | undefined): boolean => !!name && retrievalReadsActor(name, ctx);
   let found = false;
   for (const top of h.statements) {
     walkWorkflowStmtsDeep(top, (st) => {
-      if (st.kind === "repo-run" && retrievalReadsActor(st.retrievalName, ctx)) found = true;
+      if (st.kind === "repo-run" && reads(st.retrievalName)) found = true;
+      if (
+        st.kind === "repo-let" &&
+        st.returnType.kind === "optional" &&
+        st.op === "select-one" &&
+        reads(st.retrievalName)
+      )
+        found = true;
+      if (st.kind === "if-let" && st.op === "select-one" && reads(st.retrievalName)) found = true;
     });
   }
   return found;
@@ -698,7 +718,7 @@ ${pagingElseArm("ProblemDetails", "    ")}
         requiredWireParams(slots.filter((f) => !routeTokens.has(f.name))),
       );
     }
-    const runArgs = handlerThreadsActor(handler, ctx)
+    const runArgs = handlerTakesActor(handler, ctx)
       ? "params, Map.get(conn.assigns, :current_user)"
       : "params";
     actions.push(`  def ${action}(conn, params) do

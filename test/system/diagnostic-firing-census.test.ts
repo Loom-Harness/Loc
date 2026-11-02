@@ -2064,6 +2064,11 @@ system S {
     queryHandler Q(n: int): int { if n > 0 { return 1 } else { return 2 } }
   } }
 }`,
+  // `T option` is the deprecated spelling of `T?`.
+  "loom.option-deprecated": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order {
+      find byCode(code: string): Order option where this.code == code
+    }`),
   // A dropped `or E` result: the call statement throws the `error` case away.
   "loom.unhandled-result": repoOnly(`    error Rejected { reason: string }
     aggregate Order with crudish {

@@ -93,9 +93,23 @@ export function canonicalUnion(variants: TypeIR[]): TypeIR {
   const flat: TypeIR[] = [];
   for (const v of variants) {
     if (v.kind === "union") flat.push(...v.variants);
+    // Inside a union, a `T?` member contributes `T` and `none`: `string or
+    // int option` is `union[string, int, none]`.
+    else if (v.kind === "optional" && variants.length > 1) flat.push(v.inner, OPTION_NONE);
     else flat.push(v);
   }
-  return { kind: "union", variants: flat };
+  return absenceOf(flat) ?? { kind: "union", variants: flat };
+}
+
+/** `T or none` (and `T option`) is `T?` — one IR shape for "may be missing"
+ *  (D-ABSENCE-MODEL).  Only the binary union canonicalizes: with two or more
+ *  present variants the `none` stays a tagged variant. */
+function absenceOf(flat: readonly TypeIR[]): TypeIR | undefined {
+  if (flat.length !== 2) return undefined;
+  const [a, b] = flat as [TypeIR, TypeIR];
+  const present = a.kind === "none" ? b : b.kind === "none" ? a : undefined;
+  if (!present || present.kind === "none") return undefined;
+  return present.kind === "optional" ? present : { kind: "optional", inner: present };
 }
 
 /** Deterministic PascalCase name for an anonymous `A or B` union — the stem of

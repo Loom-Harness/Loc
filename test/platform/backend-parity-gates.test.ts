@@ -753,13 +753,13 @@ const FEATURES: readonly Feature[] = [
     },
   },
   {
-    name: "discriminated union (`T option` find — tagged wire + absence producer)",
+    name: "`T option` find (lowers to `T?` — the absence producer)",
     ddd: unionDdd,
     marker: {
       node: "async f(): Promise<Order | null> {",
       dotnet: "Task<Order?> F(CancellationToken cancellationToken = default);",
       java: "return found == null ? null : OrderResponse.from(found);",
-      python: "if (found := await repo.f()) is None:",
+      python: "found = await repo.f()\n    if found is None:",
       elixir: "case Shop.f_order() do",
     },
   },

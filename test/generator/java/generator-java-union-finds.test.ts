@@ -74,8 +74,11 @@ describe("java generator — union finds", () => {
     // the behavioural java leg.  Same class as RS-27, same repair: throw, so
     // the shared producer answers.
     const c = (await files()).get(`${ROOT}/features/orders/OrdersController.java`)!;
-    expect(c).toContain("public ResponseEntity<?> maybeFirstOrder(@RequestParam String code) {");
-    expect(c).toContain('            throw new AggregateNotFoundException("not_found");');
+    // `Order option` lowers to `Order?` (D-ABSENCE-MODEL): the nullable arm.
+    expect(c).toContain(
+      "public ResponseEntity<OrderResponse> maybeFirstOrder(@RequestParam String code) {",
+    );
+    expect(c).toContain('if (response == null) throw new AggregateNotFoundException("not_found");');
     expect(c).not.toContain("ResponseEntity.notFound().build()");
   });
 });

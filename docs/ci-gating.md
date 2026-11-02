@@ -1147,7 +1147,21 @@ fits any sane budget. **A leg that is slow is a different problem from a leg
 that is tight-budgeted, and it wants a different fix** — the budget stops the
 bleeding, cutting the runtime is the repair.
 
-### The 2026-10-05 re-measure (current)
+### The 2026-11-01 node re-measure (current for node)
+
+Each node case now boots in its own worker process (`test/behavioral/run.mjs`),
+which adds process start and package load per case. After that landed, four
+`behavioral` runs were killed at the 10m cap while a successful one took
+6m33s, so the p95 is censored at the cap: 600 s → `max(10, ceil_to_5(900 s))`.
+
+| leg | job median | job p95 | job max | was | now |
+|---|---:|---:|---:|---:|---:|
+| `behavioral-e2e` (node) | — | ≥10m00s § | ≥10m00s | 10m | **15m** |
+
+§ censored — re-derive with `ci-budget-report.mjs` once the leg has uncensored
+samples (#4401 tracks bringing the per-case cost back down).
+
+### The 2026-10-05 re-measure (current for the other legs)
 
 Re-run after the behavioral corpus grew by the wave C3 drains, when
 `behavioral-dotnet` was killed at its 15m cap on a PR adding six fixtures — on

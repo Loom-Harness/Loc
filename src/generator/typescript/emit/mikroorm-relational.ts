@@ -26,6 +26,8 @@ import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fiel
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
+import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
+import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
 import { joinColumnName } from "../emit.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
@@ -255,7 +257,16 @@ function partProjection(
     { fieldName: "parentId", expr: parentIdExpr ?? `${varExpr}.parentId as string` },
     ...part.fields.flatMap((f) =>
       isCollectionFieldType(f.type)
-        ? [{ fieldName: f.name, expr: serializeField(f.type, `${varExpr}.${f.name}`, ctx) }]
+        ? [
+            {
+              fieldName: f.name,
+              expr: serializeField(
+                f.type,
+                `${varExpr}.${escapeTargetFieldMember("ts", f.name)}`,
+                ctx,
+              ),
+            },
+          ]
         : projectFieldEntries(f, varExpr, ctx),
     ),
   ]);
@@ -437,8 +448,8 @@ function containSaveLines(
       const cap = `${upperFirst(c.name)}${suffix}`;
       const loopVar = `child${suffix}`;
       const itemsRef = c.collection
-        ? `${ownerExpr}.${c.name}`
-        : `(${ownerExpr}.${c.name} ? [${ownerExpr}.${c.name}] : [])`;
+        ? `${ownerExpr}.${escapeTargetFieldMember("ts", c.name)}`
+        : `(${ownerExpr}.${escapeTargetFieldMember("ts", c.name)} ? [${ownerExpr}.${escapeTargetFieldMember("ts", c.name)}] : [])`;
       // Root-level part keeps its own `parentId`; a nested part FKs to the
       // enclosing loop variable's id (tree position).
       const parentIdExpr = depth === 0 ? undefined : `${ownerExpr}.id as string`;
@@ -541,7 +552,7 @@ export function renderMikroRepository(
   const valueCollFields = valueCollFieldsOf(agg);
   const valueCollEntries = valueCollFields.map((f) => ({
     fieldName: f.name,
-    expr: serializeField(f.type, `aggregate.${f.name}`, ctx),
+    expr: serializeField(f.type, `aggregate.${escapeTargetFieldMember("ts", f.name)}`, ctx),
   }));
   const hasAssocs = (agg.associations ?? []).length > 0;
   const hasContains = (agg.contains ?? []).length > 0;
@@ -741,12 +752,19 @@ export function renderMikroRepository(
     // hydrate, mirroring findById.  Value-object collections need a per-row
     // local too (deserialised off the row's inline jsonb column), so the block
     // form fires for them as well as for associations / contained parts.
+    // A must-exist read (`T`) answers the find-absence 404 on a miss, as the
+    // drizzle path does; only a `T?` read answers null.
+    const optional = f.returnType.kind === "optional" || f.returnType.kind === "union";
+    const rowType = optional ? `${agg.name} | null` : agg.name;
+    const onMiss = optional
+      ? "return null"
+      : `throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)})`;
     if (hasHydrateLocals) {
       return lines(
-        `  async ${name}(${params}): Promise<${agg.name} | null> {`,
+        `  async ${name}(${params}): Promise<${rowType}> {`,
         `    const em = this.em.fork({ keepTransactionContext: true });`,
         `    const row = await em.findOne(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
-        `    if (row === null) return null;`,
+        `    if (row === null) ${onMiss};`,
         ...assocInlineLoadLines(agg, "em", "row.id", "    "),
         ...containInlineLoadLines(agg, ctx, "em", "row.id", "    "),
         ...valueCollRowDeclLines(agg, ctx, "row", "    "),
@@ -755,10 +773,12 @@ export function renderMikroRepository(
       );
     }
     return lines(
-      `  async ${name}(${params}): Promise<${agg.name} | null> {`,
+      `  async ${name}(${params}): Promise<${rowType}> {`,
       `    const em = this.em.fork({ keepTransactionContext: true });`,
       `    const row = await em.findOne(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
-      `    return row === null ? null : ${hydrate("row")};`,
+      optional
+        ? `    return row === null ? null : ${hydrate("row")};`
+        : [`    if (row === null) ${onMiss};`, `    return ${hydrate("row")};`],
       `  }`,
     );
   });

@@ -49,6 +49,7 @@ import type {
   SystemIR,
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
+import { handlerUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
 import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
@@ -251,11 +252,13 @@ function lookupGatedOp(ctx: EnrichedBoundedContextIR, aggName: string, opName: s
   return !!op && operationBodyUsesCurrentUser(op);
 }
 
-/** Whether the handler body calls a currentUser-gated operation — the op's
- *  method takes a trailing `current_user`, so the handler (and its caller
- *  route) must bind the actor.  v1 handlers are ids/scalars, so this is inert
- *  for the common case (byte-identical to a no-user handler). */
+/** Whether the handler needs the actor: its body reads `currentUser` (a
+ *  `requires` gate or an expression), or it calls a currentUser-gated
+ *  operation whose method takes a trailing `current_user`.  Either way the
+ *  handler takes `current_user` and its route binds it; a handler that does
+ *  neither stays byte-identical to a no-user handler. */
 function handlerUsesUser(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
+  if (handlerUsesCurrentUser(h)) return true;
   for (const s of h.statements) {
     let hit = false;
     walkWorkflowStmtsDeep(s, (st) => {

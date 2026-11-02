@@ -697,6 +697,48 @@ describe("ts renderTsExpr — binary, unary, paren, ternary", () => {
       }),
     ).toBe("true ? 1 : 2");
   });
+
+  it("renders the lowered coalesce shape (`left == null ? x : left`) as `??`, left evaluated once", () => {
+    const left = thisProp("nick");
+    const out = renderTsExpr({
+      kind: "ternary",
+      cond: {
+        kind: "binary",
+        op: "==",
+        left,
+        right: { kind: "literal", lit: "null", value: "" },
+        leftType: STRING,
+        rightType: STRING,
+        resultType: BOOL,
+      },
+      // biome-ignore lint/suspicious/noThenProperty: the ternary IR node's branch field is named `then`
+      then: litStr("dflt"),
+      otherwise: left,
+    });
+    expect(out).toContain(" ?? ");
+    expect(out).not.toContain("=== null");
+    expect(out.match(/_nick/g)?.length).toBe(1);
+  });
+
+  it("keeps a hand-written `a == null ? x : b` (different else node) as a ternary", () => {
+    const out = renderTsExpr({
+      kind: "ternary",
+      cond: {
+        kind: "binary",
+        op: "==",
+        left: refParam("a"),
+        right: { kind: "literal", lit: "null", value: "" },
+        leftType: STRING,
+        rightType: STRING,
+        resultType: BOOL,
+      },
+      // biome-ignore lint/suspicious/noThenProperty: the ternary IR node's branch field is named `then`
+      then: litStr("x"),
+      otherwise: refParam("b"),
+    });
+    expect(out).toContain("?");
+    expect(out).not.toContain("??");
+  });
 });
 
 describe("ts renderTsExpr — convert", () => {

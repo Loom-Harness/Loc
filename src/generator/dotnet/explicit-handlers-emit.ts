@@ -48,6 +48,7 @@ import type {
   TypeIR,
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
+import { handlerUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { domainServicesCalled } from "../../ir/util/domain-service-read-ports.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
@@ -265,19 +266,26 @@ function renderHandlerClass(
   const calledServices = domainServicesCalled(h.statements, ctx.domainServices ?? [], [
     h.returnValue,
   ]);
+  // A body that reads `currentUser` (a `requires` gate or an expression)
+  // resolves the actor through the injected accessor, as the workflow and
+  // paged-run handlers do.
+  const usesUser = handlerUsesCurrentUser(h);
   const fields = [
     ...[...repos].map(([repo, a]) => `    private readonly I${a}Repository ${repoField(repo)};`),
     ...calledServices.reading.map(
       (svc) => `    private readonly ${upperFirst(svc)} _${lowerFirst(svc)};`,
     ),
+    ...(usesUser ? ["    private readonly ICurrentUserAccessor _currentUser;"] : []),
   ];
   const ctorParams = [
     ...[...repos].map(([repo, a]) => `I${a}Repository ${repoField(repo).slice(1)}`),
     ...calledServices.reading.map((svc) => `${upperFirst(svc)} ${lowerFirst(svc)}`),
+    ...(usesUser ? ["ICurrentUserAccessor currentUser"] : []),
   ].join(", ");
   const ctorAssigns = [
     ...[...repos].map(([repo]) => `${repoField(repo)} = ${repoField(repo).slice(1)}`),
     ...calledServices.reading.map((svc) => `_${lowerFirst(svc)} = ${lowerFirst(svc)}`),
+    ...(usesUser ? ["_currentUser = currentUser"] : []),
   ].join("; ");
   const ctor =
     fields.length === 0
@@ -323,7 +331,8 @@ function renderHandlerClass(
   const returnLine = h.returnValue
     ? `        return ${renderArg(h.returnValue)}${returnsRunList ? ".ToList()" : ""};`
     : "        return Unit.Value;";
-  const body = [...stmtLines, ...saveLines, returnLine].join("\n");
+  const userLines = usesUser ? ["        var currentUser = _currentUser.User;"] : [];
+  const body = [...userLines, ...stmtLines, ...saveLines, returnLine].join("\n");
 
   // The `Handle` signature (`ValueTask<Order>`) needs the return aggregate's
   // domain namespace too — usually the same as the loaded one, but not always.
@@ -352,6 +361,7 @@ function renderHandlerClass(
     calledServices.reading.length + calledServices.pure.length > 0
       ? `\nusing ${ns}.Domain.Services;`
       : "";
+  const authUsing = usesUser ? `\nusing ${ns}.Auth;` : "";
 
   return `// Auto-generated.
 using System.Threading;
@@ -360,7 +370,7 @@ using Mediator;
 using ${ns}.Domain.Common;
 using ${ns}.Domain.Ids;
 using ${ns}.Domain.ValueObjects;
-using ${ns}.Domain.Enums;${serviceUsing}${resourceUsing}${aggUsings}
+using ${ns}.Domain.Enums;${serviceUsing}${resourceUsing}${aggUsings}${authUsing}
 
 namespace ${handlerHome(ns, agg, kind).ns};
 

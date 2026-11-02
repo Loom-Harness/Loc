@@ -446,10 +446,15 @@ export function optionalReadLookup(
   read: { op: RepoOp; method: string; aggregate: string; retrievalName?: string },
   args: readonly string[],
   contextModule: string,
+  /** The retrieval reads the request actor and the caller has `current_user`
+   *  bound: pass it as the `current_user:` opt, so a principal-filtered read
+   *  scopes to the caller instead of failing closed. */
+  passActor = false,
 ): { call: string; hit: string } {
   if (read.op === "select-one" && read.retrievalName) {
+    const opts = passActor ? ["limit: 1", "current_user: current_user"] : ["limit: 1"];
     return {
-      call: `${contextModule}.run_${snake(read.retrievalName)}_${snake(read.aggregate)}(${[...args, "limit: 1"].join(", ")})`,
+      call: `${contextModule}.run_${snake(read.retrievalName)}_${snake(read.aggregate)}(${[...args, ...opts].join(", ")})`,
       hit: "{:ok, [hit | _]}",
     };
   }

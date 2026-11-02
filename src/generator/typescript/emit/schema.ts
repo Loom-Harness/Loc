@@ -453,6 +453,7 @@ const OUTBOX_TABLE = `export const loomOutbox = pgTable("__loom_outbox", {
   payload: jsonb("payload").notNull(),
   dispatchedAt: timestamp("dispatched_at", { withTimezone: true }),
   attempts: integer("attempts").notNull().default(0),
+  deadAt: timestamp("dead_at", { withTimezone: true }),
 });`;
 
 const AUDIT_TABLE = `export const auditRecords = pgTable("audit_records", {
