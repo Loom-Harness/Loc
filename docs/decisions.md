@@ -5861,9 +5861,13 @@ and `numeric-codec.ts`, guarded by `test/generator/java/codec-census.test.ts`
 (the `?::jsonb` casts, money scale, bound and grammar, the int range, the
 `truncatedTo(MILLIS)` instant, `LocalDate` text, the `Instant.now().toString()`
 envelope time); a lineage value goes through the emitted `ProvWire` helper.
-elixir moves onto the fact last. Until it does, it boots
-`corpus/provenance-money` as a tracked expected failure (`BEHAVIOURAL_XFAIL`,
-#4402).
+elixir (plain Phoenix / Ecto) spells it in
+`src/generator/elixir/vanilla/codec-spelling-ex.ts`, `numeric-codec.ts` and
+`datetime-type-emit.ts` (the `Loom.Datetime` Ecto type, whose `wire/1` is the
+instant's spelling), guarded by `test/generator/elixir/codec-census.test.ts`
+(Ecto schema and migration types, the money bound, scale and grammar, the int
+range, `to_iso8601` / `DateTime.truncate`, the Ecto datetime types). Every
+backend is on the fact.
 
 java/Spring renders the fact through `src/generator/java/wire-policy-java.ts`
 (`test/generator/java/wire-policy-census.test.ts` is its census, with the

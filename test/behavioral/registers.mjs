@@ -232,17 +232,6 @@ function baseReads({ passes = [], pins = {} } = {}) {
  * issue and a well-formed pin, and every behavioural corpus fixture is
  * accounted for on every one of the five backends.
  */
-/** A provenanced field's lineage (`provenance-money`): the `Codec` fact writes
- *  every scalar there in its wire form — money as its RS-12 string (#3527).
- *  The elixir leg still records the domain value, so the first lineage
- *  assertion (a money one) fails with an unscaled Decimal string. */
-const MONEY_LINEAGE_BLOCK = "a provenanced money lineage carries money at the wire scale";
-const moneyLineage = (re) => ({
-  issue: "#4402",
-  expect: "fail",
-  tests: { [MONEY_LINEAGE_BLOCK]: re },
-  reason: "a money value in a provenance lineage is the RS-12 wire string (Codec fact); this leg still writes the domain value",
-});
 /** The two-writer probe's test name (`__twoWriterProbe`, wire-differential.mjs) —
  *  the one test a `race` entry may pin: only a race can show what it measures. */
 export const RACE_PROBE_TEST = "two writers with the same If-Match";
@@ -291,7 +280,6 @@ export const BEHAVIOURAL_XFAIL = {
       reason:
         "`let r = a.withdraw(x)` in a workflow body: the Phoenix with-chain sites match an op call's `{:ok, _}` away and never bind its result",
     },
-    "provenance-money": moneyLineage('to be "3000\\.3000"'),
     // A value object nested inside another is cast as `:map`, so the nested
     // VO's invariant never runs and the bad create commits.
     "vo-root-kernel": {

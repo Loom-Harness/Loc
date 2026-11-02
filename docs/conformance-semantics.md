@@ -1830,15 +1830,14 @@ nothing and the test passes vacuously.
 - **Extended by owner ruling (#3593, D-CODEC).** The same form applies to a
   `datetime` in a provenance lineage and inside a channel (CloudEvents)
   envelope or realtime frame. The lineage half is booted by
-  `corpus/provenance-money` (node, python, .NET, java; elixir is a tracked
-  expected failure there on its money lineage first). In the envelope, node
+  `corpus/provenance-money` on every backend. In the envelope, node
   spells `time` canonically but still serializes a `datetime` in `data` and in
   a realtime frame with `JSON.stringify` (`.000Z` on a whole second); python
   spells all three through `iso()`; .NET spells all three through the same wire
   instant (`CanonicalInstant`); java spells all three through
-  `javaInstantWire` (the envelope `time` was `Instant.now().toString()`, with
-  micro- or nanosecond digits); elixir still puts sub-millisecond digits there
-  (#3394). None of the envelope is goldened. Elixir's framework columns (`inserted_at`, the audit/provenance
+  `javaInstantWire`; elixir spells the envelope `time` and a `datetime` in
+  `data` through `Loom.Datetime.wire/1`, and its realtime frame is not yet
+  audited (#3394). None of the envelope is goldened. Elixir's framework columns (`inserted_at`, the audit/provenance
   `at`) stay `:utc_datetime` — second precision, canonically spelled. A deployed
   elixir database created before this rule keeps its `timestamp(0)` columns until
   an operator alters them — see [`migrations.md`](migrations.md).

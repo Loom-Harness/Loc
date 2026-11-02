@@ -1339,6 +1339,36 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
   },
+  // src/generator/elixir/vanilla/codec-spelling-ex.ts
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exPgInstantType": {
+    invariant:
+      "The Codec fact's datetime column is the `datetime` instant column (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exSchemaType": {
+    invariant:
+      "exSchemaType is reached only from exEctoScalarType, exEctoIdType, exEctoIdJsonType and exEctoJsonType, which pass the Codec fact's column for a storable scalar or an id value type; the fact maps none of those to `bigserial` or `array` (pinned by test/ir/codec.test.ts). (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exMoneyColumnSql": {
+    invariant:
+      "The Codec fact's money column is the bounded `NUMERIC(19,4)` decimal (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exMoneyGrammarRegex": {
+    invariant:
+      "The Codec fact's money grammar is the fixed `MONEY_WIRE_GRAMMAR` the emitted regex spells (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exCalendarDateWire": {
+    invariant:
+      "The Codec fact's date wire form is `calendar-date` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exEnvelopeInstant": {
+    invariant:
+      "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  // src/generator/elixir/vanilla/datetime-type-emit.ts
+  "src/generator/elixir/vanilla/datetime-type-emit.ts#renderLoomDatetimeModule": {
+    invariant:
+      "The Codec fact's datetime wire form is three truncated fraction digits with none on a whole second (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
 
   // src/generator/typescript/emit/channels.ts
   "src/generator/typescript/emit/channels.ts#transportFactoryLine": {

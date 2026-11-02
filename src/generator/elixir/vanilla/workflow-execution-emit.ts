@@ -110,6 +110,7 @@ import { optionalReadLookup, type RenderCtx, renderExpr } from "../render-expr.j
 import { stateDefault, stateDefaultDecls } from "../state-default.js";
 import { exLit, exSentence, exValuePrefix, strictIngressFields } from "../wire-policy-ex.js";
 import { customFindReadsActor } from "./capability-filter.js";
+import { exMoneyGrammarRegex } from "./codec-spelling-ex.js";
 import {
   contextsHaveWireDenials,
   denialOverrides,
@@ -1966,7 +1967,7 @@ function renderWorkflowModule(
   # context's operation-param guard.
   defp __loom_payload_money(checks) do
     Enum.find_value(checks, :ok, fn {param, field, value} ->
-      if is_nil(value) or (is_binary(value) and Regex.match?(~r/^-?\\d+(\\.\\d+)?$/, value)) do
+      if is_nil(value) or (is_binary(value) and Regex.match?(${exMoneyGrammarRegex()}, value)) do
         nil
       else
         {:error,

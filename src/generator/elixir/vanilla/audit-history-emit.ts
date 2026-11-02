@@ -42,6 +42,7 @@ import {
 } from "../../../ir/util/audit-history.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { exFrameworkTimestampType } from "./codec-spelling-ex.js";
 import { denialOverrides, denialResponse } from "./denial.js";
 import { effectiveGate } from "./gate.js";
 
@@ -103,7 +104,7 @@ defmodule ${appModule}.Audit.History do
   \`at\` plus the \`(target_type, target_id)\` index make it the natural scan order.
 
   The \`audit_id\` tiebreak is load-bearing on THIS backend and on no other: the
-  \`at\` column is written through Ecto's \`:utc_datetime\`, which truncates to the
+  \`at\` column is written through Ecto's \`${exFrameworkTimestampType()}\`, which truncates to the
   second, so two commands on the same entity inside one second tie on \`at\` alone
   and the row order would be whatever the planner felt like.  \`audit_id\` is a
   UUIDv7 — time-ordered by construction — so it breaks the tie in commit order

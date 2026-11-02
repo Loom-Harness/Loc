@@ -64,6 +64,7 @@ import { opUsesCurrentUser } from "../domain/predicates.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { strictIngressFields } from "../wire-policy-ex.js";
+import { exLogInstantType } from "./codec-spelling-ex.js";
 import {
   contextAliasLine,
   contextCallRef,
@@ -300,7 +301,7 @@ ${prefixLine}  @primary_key false
     field :version, :integer, primary_key: true
     field :type, :string
     field :data, :map
-    field :occurred_at, :utc_datetime_usec
+    field :occurred_at, ${exLogInstantType()}
     field :seq, :integer
   end
 end
