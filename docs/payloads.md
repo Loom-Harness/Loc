@@ -346,7 +346,7 @@ domainService Pricing {
 }
 workflow Settle {
   create(orderId: Order id, code: string) {
-    let o = Orders.getById(orderId)
+    let o = Orders.get(orderId)
     let q = Pricing.quote(code)
     match q {
       Receipt rc => { o.touch() }

@@ -93,7 +93,7 @@ describe("statement match — lowering", () => {
   it("a handler arm that mutates its binding saves it at the arm's end, not at exit", async () => {
     const ctx = await context(
       CTX(`commandHandler Close(aId: A id) {
-             let found = As.findById(aId)
+             let found = As.find(aId)
              match found {
                A x => { x.touch() }
                else => { notFound }
@@ -116,7 +116,7 @@ describe("statement match — lowering", () => {
              operation judge(code: string): string or NF { return code }
            }
            commandHandler Mark(aId: A id, code: string) {
-             let a = As.getById(aId)
+             let a = As.get(aId)
              let v = Vet.judge(code)
              match v {
                string s => { a.touch() }

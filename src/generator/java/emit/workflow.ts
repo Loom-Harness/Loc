@@ -302,6 +302,23 @@ export function reactorReposUsed(wf: WorkflowIR, ctx: EnrichedBoundedContextIR):
 // recursion live in the spine; the base indent (8 spaces) is threaded in by
 // the driver and `for-each` bodies step +`indentUnit` (4 spaces), matching
 // the pre-seam hand-indentation exactly.
+/** The package resolver for the unions a context's domain services return:
+ *  their carrier records are emitted into the services package, so a body in
+ *  another package that matches over a service result imports them. */
+export function domainServiceUnionPkgOf(
+  ctx: EnrichedBoundedContextIR,
+  servicesPkg: string | undefined,
+): ((unionName: string) => string | undefined) | undefined {
+  if (!servicesPkg) return undefined;
+  const names = new Set<string>();
+  for (const svc of ctx.domainServices ?? []) {
+    for (const op of svc.operations) {
+      if (op.returnType?.kind === "union") names.add(unionInstanceName(op.returnType.variants));
+    }
+  }
+  return names.size > 0 ? (u) => (names.has(u) ? servicesPkg : undefined) : undefined;
+}
+
 export function javaWorkflowStmtTarget(
   ctx: EnrichedBoundedContextIR,
   renderCtx: JavaRenderContext = baseRenderCtx,
@@ -575,7 +592,9 @@ export function javaWorkflowStmtTarget(
       const caseInner = `${indent}        `;
       const out = [`${indent}switch (${subject}) {`];
       s.arms.forEach((arm, i) => {
-        const carrier = `${unionName}_${variantTag(arm.varType)}`;
+        const carrierName = `${unionName}_${variantTag(arm.varType)}`;
+        const carrierPkg = renderCtx.unionPkgOf?.(unionName);
+        const carrier = carrierPkg ? javaRef(carrierPkg, carrierName) : carrierName;
         const scalar = isScalarVariant(arm.varType);
         const binder =
           arm.binding && !scalar
@@ -1150,7 +1169,11 @@ export function renderJavaWorkflows(
     // takes one), the param locals bound above, and everything else in
     // `methodNames` — by `withLetLocals` (identity when nothing collides).
     const bodyRenderCtx: JavaRenderContext = withLetLocals(
-      { ...wfRenderCtx, paramExpr: (n) => paramLocals.get(n) },
+      {
+        ...wfRenderCtx,
+        paramExpr: (n) => paramLocals.get(n),
+        unionPkgOf: domainServiceUnionPkgOf(ctx, wctx.domainServicePkg),
+      },
       workflowBoundNames([wf.statements]),
       new Set([
         ...(wf.params.length > 0 ? ["request"] : []),

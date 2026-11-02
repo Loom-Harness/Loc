@@ -1306,7 +1306,7 @@ system S {
   // A retired verb names its replacement (the hard cutover, D-REPO-VERBS).
   "loom.repo-verb-renamed": repoOnly(`    aggregate Order with crudish { code: string }
     repository Orders for Order
-    workflow w { create(id: Order id) { let o = Orders.getById(id) } }`),
+    workflow w { create(id: Order id) { let o = Orders.get(id) } }`),
   // `get` takes an id; a criterion read is `find`.
   "loom.repo-get-criterion": repoOnly(`    aggregate Order with crudish { code: string }
     repository Orders for Order

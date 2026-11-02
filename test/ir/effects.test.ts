@@ -224,7 +224,7 @@ describe("workflow body effects", () => {
   it("scopes each `match` arm, the present arm saving the binding it mutated", async () => {
     await expectEffects(
       `commandHandler close(itemId: Item id) {
-         let found = Items.findById(itemId)
+         let found = Items.find(itemId)
          match found {
            Item i => { i.bump() }
            else => { notFound }

@@ -872,7 +872,7 @@ context Sales {
   }
   repository Orders for Order
   commandHandler Close(orderId: Order id) {
-    let o = Orders.findById(orderId)
+    let o = Orders.find(orderId)
     match o {
       Order x => { x.touch() }
       else    => { notFound }

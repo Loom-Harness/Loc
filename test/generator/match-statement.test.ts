@@ -44,7 +44,7 @@ system Shop {
       }
       repository Orders for Order
       commandHandler Close(orderId: Order id) {
-        let o = Orders.findById(orderId)
+        let o = Orders.find(orderId)
         match o {
           Order x => { x.touch() }
           else => { notFound }
@@ -52,7 +52,7 @@ system Shop {
       }
       workflow Settle {
         create(orderId: Order id, code: string) {
-          let o = Orders.getById(orderId)
+          let o = Orders.get(orderId)
           let q = Pricing.quote(code)
           match q {
             Receipt rc => { o.touch() }
@@ -193,6 +193,9 @@ describe("statement match — dotnet / java / python handler and workflow bodies
   it("java: the workflow switches on the service result", async () => {
     const src = await fileOf("java", "application/workflows/SalesWorkflows.java");
     expectBlock(src, ["switch (q) {", "case ReceiptOrRejected_Receipt rc -> {", "o.touch();"]);
+    // The carriers live beside the service, in another package — javac
+    // "cannot find symbol" without these imports.
+    expect(src).toMatch(/^import [\w.]+\.domain\.services\.ReceiptOrRejected_Receipt;$/m);
   });
 
   it("python: the handler binds and saves the row only on the present side", async () => {

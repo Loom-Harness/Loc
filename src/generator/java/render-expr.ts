@@ -49,6 +49,11 @@ import { J } from "./java-symbols.js";
 // ---------------------------------------------------------------------------
 
 export interface JavaRenderContext {
+  /** The package a union's `<Union>_<Tag>` carrier records live in, when it
+   *  is not the rendering file's own — a workflow or handler body that
+   *  matches over a domain-service result names carriers emitted beside the
+   *  service.  Absent, or `undefined` for a union, ⇒ same package. */
+  unionPkgOf?: (unionName: string) => string | undefined;
   /** Variant-`match` binding side-channel — maps a bound name to the text
    *  its arm reads it as (the pattern variable, or its scalar `value`). */
   matchBindings?: ReadonlyMap<string, string>;
