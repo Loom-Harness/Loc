@@ -89,10 +89,41 @@ interface Site {
   exhaustive: boolean;
 }
 
-function typeNameMatches(checker: ts.TypeChecker, t: ts.Type): TargetUnion | null {
+/** For each target union, the set of its member types (`RefExpr`, `MemberExpr`,
+ *  …) as the checker resolves them. A receiver narrowed before the dispatch
+ *  prints as a union of members (`RefExpr | MemberExpr`) with no mention of the
+ *  alias, so the name test alone cannot see it. */
+type UnionMembers = ReadonlyMap<TargetUnion, ReadonlySet<ts.Type>>;
+
+function collectUnionMembers(program: ts.Program, checker: ts.TypeChecker): UnionMembers {
+  const out = new Map<TargetUnion, Set<ts.Type>>();
+  for (const sf of program.getSourceFiles()) {
+    if (sf.isDeclarationFile) continue;
+    for (const stmt of sf.statements) {
+      if (!ts.isTypeAliasDeclaration(stmt)) continue;
+      const name = stmt.name.text as TargetUnion;
+      if (!TARGET_UNIONS.includes(name) || out.has(name)) continue;
+      const t = checker.getTypeAtLocation(stmt.name);
+      if (t.isUnion()) out.set(name, new Set(t.types));
+    }
+  }
+  return out;
+}
+
+function typeNameMatches(
+  checker: ts.TypeChecker,
+  t: ts.Type,
+  members?: UnionMembers,
+): TargetUnion | null {
   const str = checker.typeToString(t, undefined, ts.TypeFormatFlags.None);
   for (const name of TARGET_UNIONS) {
     if (new RegExp(`\\b${name}\\b`).test(str)) return name;
+  }
+  // A narrowed receiver: every constituent is a member of one target union.
+  if (members && t.isUnion()) {
+    for (const [name, set] of members) {
+      if (t.types.every((c) => set.has(c))) return name;
+    }
   }
   return null;
 }
@@ -174,6 +205,7 @@ function computeSites(): Site[] {
   const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, repoRoot);
   const program = ts.createProgram({ rootNames: parsed.fileNames, options: parsed.options });
   const checker = program.getTypeChecker();
+  const members = collectUnionMembers(program, checker);
 
   const sites: Site[] = [];
   const idCounts = new Map<string, number>();
@@ -199,7 +231,7 @@ function computeSites(): Site[] {
         ts.isCallExpression(node) &&
         node.expression.getText() === "Object.values" &&
         node.arguments.length === 1 &&
-        typeNameMatches(checker, checker.getTypeAtLocation(node.arguments[0]))
+        typeNameMatches(checker, checker.getTypeAtLocation(node.arguments[0]), members)
       ) {
         reflectiveSites.push(`${rel}#${enclosingName(node)}:${lineOf(node)}`);
       }
@@ -208,7 +240,11 @@ function computeSites(): Site[] {
       if (ts.isSwitchStatement(node)) {
         const expr = node.expression;
         if (ts.isPropertyAccessExpression(expr) && expr.name.text === "kind") {
-          const union = typeNameMatches(checker, checker.getTypeAtLocation(expr.expression));
+          const union = typeNameMatches(
+            checker,
+            checker.getTypeAtLocation(expr.expression),
+            members,
+          );
           if (union) {
             const defaultClause = node.caseBlock.clauses.find((c) => ts.isDefaultClause(c));
             const exhaustive = !!defaultClause && defaultClause.statements.some(hasNeverCheck);
@@ -283,7 +319,11 @@ function computeSites(): Site[] {
           }
           for (const [, info] of byRecv) {
             if (info.lits.size < 3) continue;
-            const union = typeNameMatches(checker, checker.getTypeAtLocation(info.recvNode));
+            const union = typeNameMatches(
+              checker,
+              checker.getTypeAtLocation(info.recvNode),
+              members,
+            );
             if (!union) continue;
             const base = `${rel}#${enclosingName(node)}`;
             sites.push({
@@ -539,6 +579,28 @@ const DELEGATES_TO_SANCTIONED_WALKER = {
 const WAIVERS: Record<string, Waiver> = {
   "src/ir/util/ui-gate.ts#firstNonUiGateNode": UI_GATE_CLOSED_SUBSET,
   "src/ir/util/ui-gate.ts#printGateExpr": UI_GATE_CLOSED_SUBSET,
+
+  // -- receiver-chain peelers (reachable only through a narrowed receiver) ----
+  // These follow ONE spine (`member` / `method-call` / `paren` / `i18nFormat`
+  // / `convert` → their single child) and stop at the first kind that is not
+  // on it. An unlisted kind ends the walk with a defined result, so a new
+  // union member cannot be silently mis-handled: it is simply not a link.
+  "src/ir/validate/checks/ui-action-body-checks.ts#rootRef": {
+    standing:
+      "a single-spine receiver peel (member / method-call / paren) that returns `undefined` at the first non-link kind — a new ExprIR kind is correctly 'not a receiver chain', not a dropped child",
+  },
+  "src/generator/_walker/i18n-extract.ts#peelHole": {
+    standing:
+      "a single-spine peel of a hole expression (i18nFormat / string convert / `.display` / paren) that stops at the first non-wrapper kind; the kind-specific naming after the loop reads only member / ref / method-call and leaves every other kind nameless by design",
+  },
+  // A traversal, not a peel: `default: return null` skips every kind it does not
+  // list (e.g. `i18nFormat`'s `inner`), so a gate-ineligible ref hidden under
+  // such a kind is not reported.
+  "src/ir/validate/checks/query-checks.ts#firstNonGateRef": {
+    deferred:
+      "a traversal ('first ref outside the gate's allowed set') whose `default: return null` does not descend every kind that has children; migrating onto `walkExprDeep` widens what the gate sees, which is a behaviour change to the validator and needs its own measurement of newly-refused models",
+    reviewUntil: "2026-12-31",
+  },
   // NOTE — the two BULK deferral buckets that stood here are GONE.
   //
   //   * `CLOSED_PREDICATE` (42 entries) — sites waived because the SHAPE of
@@ -830,5 +892,57 @@ describe("IR walk census — no hand-rolled switch/if-chain over ExprIR/StmtIR/W
       (s) => s.file === "src/generator/elixir/render-expr.ts" && s.union === "ExprIR",
     );
     expect(found).toBeDefined();
+  });
+});
+
+describe("IR walk census — receiver classification", () => {
+  const FIXTURE = [
+    "interface RefExpr { kind: 'ref'; name: string }",
+    "interface MemberExpr { kind: 'member'; member: string }",
+    "interface LitExpr { kind: 'lit' }",
+    "type ExprIR = RefExpr | MemberExpr | LitExpr;",
+    "interface Other { kind: 'x' }",
+    "interface Other2 { kind: 'y' }",
+    "declare const u: Other | Other2;",
+    "export function f(e: ExprIR) {",
+    "  if (e.kind === 'lit') return;",
+    "  switch (e.kind) { case 'ref': return 1; case 'member': return 2; }",
+    "  switch (u.kind) { case 'x': return 3; case 'y': return 4; }",
+    "}",
+  ].join("\n");
+
+  function classifyFixtureSwitches(): (TargetUnion | null)[] {
+    const file = "/fixture-census.ts";
+    const options: ts.CompilerOptions = {
+      strict: true,
+      noEmit: true,
+      target: ts.ScriptTarget.ES2022,
+    };
+    const host = ts.createCompilerHost(options);
+    const getSourceFile = host.getSourceFile.bind(host);
+    host.getSourceFile = (name, lang, ...rest) =>
+      name === file
+        ? ts.createSourceFile(name, FIXTURE, lang, true)
+        : getSourceFile(name, lang, ...rest);
+    const program = ts.createProgram({ rootNames: [file], options, host });
+    const checker = program.getTypeChecker();
+    const members = collectUnionMembers(program, checker);
+    const sf = program.getSourceFile(file);
+    const out: (TargetUnion | null)[] = [];
+    const visit = (n: ts.Node): void => {
+      if (ts.isSwitchStatement(n) && ts.isPropertyAccessExpression(n.expression)) {
+        const recv = n.expression.expression;
+        out.push(typeNameMatches(checker, checker.getTypeAtLocation(recv), members));
+      }
+      ts.forEachChild(n, visit);
+    };
+    if (sf) visit(sf);
+    return out;
+  }
+
+  it("classifies a switch whose receiver was narrowed to a union of members", () => {
+    // Narrowed `e` prints as `RefExpr | MemberExpr` — no `ExprIR` in the text.
+    // `u` is a union of unrelated types and must stay unclassified.
+    expect(classifyFixtureSwitches()).toEqual(["ExprIR", null]);
   });
 });
