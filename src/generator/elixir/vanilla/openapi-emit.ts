@@ -46,12 +46,7 @@ import { AUDIT_ENTRY_TYPE, auditEntryWireShape } from "../../../ir/util/audit-hi
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { foreignValueTypeSeeds, foreignValueTypes } from "../../../ir/util/foreign-event-types.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
-import {
-  errorStatuses,
-  type OpErrorKind,
-  PROBLEM_JSON,
-  problemTitle,
-} from "../../../ir/util/openapi-errors.js";
+import { errorStatuses, type OpErrorKind, PROBLEM_JSON } from "../../../ir/util/openapi-errors.js";
 import {
   camelId,
   opCreate,
