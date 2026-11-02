@@ -143,7 +143,7 @@ export default defineMacro({
           "x",
           memberAccess(nameRef(repo.name), repoOpVerb("load-by-key", "key"), {
             call: true,
-            args: src.columns.map((c) => ({ name: c, value: nameRef(c) })),
+            namedArgs: src.columns.map((c) => ({ name: c, value: nameRef(c) })),
           }),
         ),
         returnStmt(nameRef("x")),

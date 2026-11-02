@@ -18,7 +18,7 @@ system Shop {
     aggregate Order { code: string  qty: int }
     repository Orders for Order { }
     test "persists and reads back an order" {
-      let o = Order.create({ code: "abc", qty: 2 })
+      let o = Order.create(code: "abc", qty: 2)
       let found = Order.findById(o.id)
       expect(found.qty).toBe(2)
     }
@@ -73,7 +73,7 @@ describe("Python: context integration test emission (Phase 3b)", () => {
       expect(a.city).toBe("Oslo")
     }
     test "persists a customer" {
-      let c = Customer.create({ name: "Ada" })
+      let c = Customer.create(name: "Ada")
       expect(c.name).toBe("Ada")
     }`,
   );
@@ -146,10 +146,10 @@ system Ship {
     channel Lifecycle { carries: OrderPlaced  delivery: queue  retention: log }
     workflow OrderFulfillment {
       orderId: Order id
-      create(p: OrderPlaced) by p.order { let s = Shipment.create({ orderRef: p.order, status: "Pending" }) }
+      create(p: OrderPlaced) by p.order { let s = Shipment.create(orderRef: p.order, status: "Pending") }
     }
     test "placing transitions to Placed" {
-      let o = Order.create({ customerId: "c1", status: "Draft" })
+      let o = Order.create(customerId: "c1", status: "Draft")
       o.place()
       let found = Order.findById(o.id)
       expect(found.status).toBe("Placed")
@@ -183,10 +183,10 @@ system Shop {
     repository Orders for Order { }
     event OrderBumped { order: Order id }
     workflow placeOrder {
-      create(code: string) { let o = Order.create({ code: code, qty: 1 }) }
+      create(code: string) { let o = Order.create(code: code, qty: 1) }
     }
     test "persists and reads back an order" {
-      let o = Order.create({ code: "abc", qty: 2 })
+      let o = Order.create(code: "abc", qty: 2)
       let found = Order.findById(o.id)
       expect(found.qty).toBe(2)
     }

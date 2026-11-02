@@ -38,7 +38,7 @@ system Demo {
           name := newName
         }
         test "partial create omits the optional field" {
-          let p = Project.create({ name: "demo", budget: 0.0 })
+          let p = Project.create(name: "demo", budget: 0.0)
           expect(p.rename("")).toThrow()
         }
       }

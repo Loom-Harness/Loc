@@ -25,7 +25,7 @@ system AuthSys {
         }
 
         test "manager cancels" {
-          let o = Order.create({ customerId: "c-1", status: "open" })
+          let o = Order.create(customerId: "c-1", status: "open")
           o.cancel()
           expect(o.status).toBe("cancelled")
         }

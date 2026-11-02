@@ -118,11 +118,11 @@ system SalesSystem {
         }
 
         test "adding a line then confirming yields a confirmed order" verifies TC-001 {
-          let order = Order.create({
+          let order = Order.create(
             customerId: "00000000-0000-0000-0000-000000000001",
             status: Draft,
             placedAt: "2024-01-01T00:00:00Z"
-          })
+          )
           order.addLine("00000000-0000-0000-0000-000000000002", 2)
           order.confirm()
           expect(order.status).toBe(Confirmed)
@@ -130,11 +130,11 @@ system SalesSystem {
         }
 
         test "lines cannot be added once the order is confirmed" verifies TC-002 {
-          let order = Order.create({
+          let order = Order.create(
             customerId: "00000000-0000-0000-0000-000000000001",
             status: Draft,
             placedAt: "2024-01-01T00:00:00Z"
-          })
+          )
           order.addLine("00000000-0000-0000-0000-000000000002", 2)
           order.confirm()
           expect(order.addLine("00000000-0000-0000-0000-000000000002", 1)).toThrow()
@@ -150,11 +150,11 @@ system SalesSystem {
           precondition qty > 0
           let customer = Customers.getById(customerId)
           let product = Products.getById(productId)
-          let order = Order.create({
+          let order = Order.create(
             customerId: customer.id,
             status: Draft,
             placedAt: now()
-          })
+          )
           order.addLine(productId, qty)
           order.confirm()
         }

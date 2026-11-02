@@ -83,7 +83,7 @@ system S {
       repository Orders for Order { }
       workflow Pay {
         create(total: Money) {
-          let o = Order.create({ sku: "x", placedAt: now() })
+          let o = Order.create(sku: "x", placedAt: now())
         }
       }
     }

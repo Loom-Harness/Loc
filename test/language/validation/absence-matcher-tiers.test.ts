@@ -51,7 +51,7 @@ ${
   opts.unitBody
     ? `
         test "probe" {
-          let t = Ticket.create({ title: "Ship it" })
+          let t = Ticket.create(title: "Ship it")
 ${opts.unitBody}
         }`
     : ""

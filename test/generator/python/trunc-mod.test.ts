@@ -55,7 +55,7 @@ system ModProbe {
         create(total: int) {
           let bucket = Sharding.shardOf(total % 8)
           let s2 = Slot { offset: 1 }
-          let j = Job.create({ seq: bucket, bay: s2 })
+          let j = Job.create(seq: bucket, bay: s2)
         }
       }
     }

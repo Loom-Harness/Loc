@@ -86,11 +86,11 @@ system SalesBackend {
           precondition quantity > 0
           let customer = Customers.getById(customerId)
           let product = Products.getById(productId)
-          let order = Order.create({
+          let order = Order.create(
             customerId: customerId,
             status: Draft,
             placedAt: now()
-          })
+          )
           order.addLine(productId, quantity)
           order.confirm()
         }

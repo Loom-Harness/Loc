@@ -147,7 +147,7 @@ system Cross {
       workflow fulfil {
         create(orderId: Order id) {
           let o = orders.getOrderById(orderId)
-          let s = Shipment.create({ orderCode: o.code })
+          let s = Shipment.create(orderCode: o.code)
         }
       }
     }

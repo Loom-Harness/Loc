@@ -32,14 +32,14 @@ system PyShell {
         }
 
         test "widget activates from draft" {
-          let w = Widget.create({ label: "gizmo", size: 1, status: Draft, price: Price { amount: 1.0, currency: "USD" } })
+          let w = Widget.create(label: "gizmo", size: 1, status: Draft, price: Price { amount: 1.0, currency: "USD" })
           w.activate()
           expect(w.status).toBe(Active)
           expect(w.size).toBeGreaterThan(0)
         }
 
         test "activate requires draft" {
-          let w = Widget.create({ label: "gizmo", size: 1, status: Active, price: Price { amount: 1.0, currency: "USD" } })
+          let w = Widget.create(label: "gizmo", size: 1, status: Active, price: Price { amount: 1.0, currency: "USD" })
           expect(w.activate()).toThrow()
         }
 

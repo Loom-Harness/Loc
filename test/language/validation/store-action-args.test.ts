@@ -64,7 +64,7 @@ describe("store-action call args (M-T6.18 gap #3)", () => {
   it("does not touch a non-store dotted call (`Order.create({…})`)", async () => {
     // `Order` is an aggregate, not a store — resolveStoreAction returns undefined,
     // so no store-action diagnostic (the aggregate factory has its own gates).
-    const c = await codes("Cart.add(5)  let o = Order.create({ qty: 1 })");
+    const c = await codes("Cart.add(5)  let o = Order.create(qty: 1)");
     expect(c).not.toContain(TYPE);
     expect(c).not.toContain(COUNT);
   });

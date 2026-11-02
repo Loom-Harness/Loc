@@ -24,7 +24,7 @@ system CoreShop {
         // the cross-backend coercion surface.  All five backends expose the
         // derived as a domain accessor (elixir via the B18 pure-core accessor).
         test "place transitions a draft order and folds a line" {
-          let o = Order.create({ code: "CD1", status: Draft, total: Money { amount: 10.00, currency: "USD" } })
+          let o = Order.create(code: "CD1", status: Draft, total: Money { amount: 10.00, currency: "USD" })
           expect(o.isDraft).toBe(true)
           o.addLine("S1", 2)
           o.place()

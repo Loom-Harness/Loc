@@ -131,7 +131,7 @@ system FieldOps {
         }
 
         test "consuming more than stock is rejected" verifies TC-002 {
-          let p = Part.create({ sku: "SKU-1", onHand: 2, unitPrice: money("10.00"), currency: "EUR" })
+          let p = Part.create(sku: "SKU-1", onHand: 2, unitPrice: money("10.00"), currency: "EUR")
           expect(p.consume(5)).toThrow()
         }
       }

@@ -292,7 +292,7 @@ system AC {
       workflow fulfil {
         create(code: string) {
           let fetched = ${call}
-          let s = Shipment.create({ orderCode: code })
+          let s = Shipment.create(orderCode: code)
         }
       }
     }

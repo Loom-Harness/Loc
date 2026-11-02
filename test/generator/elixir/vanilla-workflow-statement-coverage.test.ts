@@ -111,7 +111,7 @@ describe("vanilla if-let branches — broader statement set", () => {
             o.confirm()
             emit Confirmed { order: o.id }
           } else {
-            let fresh = Order.create({ open: false, total: 0, tags: ["t"] })
+            let fresh = Order.create(open: false, total: 0, tags: ["t"])
           }
         }
       }`);
@@ -121,8 +121,9 @@ describe("vanilla if-let branches — broader statement set", () => {
     expect(wf).toMatch(/Context\.confirm_order\(o, %\{\}\)/);
     expect(wf).toMatch(/PostCommit\.broadcast\(.*Events\.Confirmed\{order: o\.id\}\)/);
     // The else-branch factory-let bind is unread, so it `_`-discards (an unused
-    // real-named bind would trip `--warnings-as-errors`).
-    expect(wf).toMatch(/\{:ok, _\} = Context\.create_order\(%\{[^}]*\}\)/);
+    // real-named bind would trip `--warnings-as-errors`).  The create is
+    // fallible, so it threads the branch's with-chain instead of a raising `=`.
+    expect(wf).toMatch(/with \{:ok, _\} <- Context\.create_order\(%\{[^}]*\}\) do/);
   });
 
   it("emits no `# TODO: lower if-let branch statement kind` comment", async () => {

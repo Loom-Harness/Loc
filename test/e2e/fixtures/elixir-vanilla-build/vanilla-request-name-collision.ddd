@@ -40,7 +40,7 @@ system Dispatch {
       // Mints `ScheduleWorkOrderRequest` by the workflow rule — the collision.
       workflow scheduleWorkOrder transactional {
         create(note: string) {
-          let w = WorkOrder.create({ title: note, scheduled: false })
+          let w = WorkOrder.create(title: note, scheduled: false)
         }
       }
 
@@ -54,7 +54,7 @@ system Dispatch {
       // if they ever collapse back onto one module.
       workflow createWorkOrder transactional {
         create(label: string) {
-          let w = WorkOrder.create({ title: label, scheduled: false })
+          let w = WorkOrder.create(title: label, scheduled: false)
         }
       }
     }

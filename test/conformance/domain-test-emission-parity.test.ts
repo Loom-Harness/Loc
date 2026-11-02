@@ -39,7 +39,7 @@ system S {
         invariant customer.length > 0
         operation confirm() { precondition status == "open"  status := "confirmed" }
         test "blank customer rejected" {
-          expect(Order.create({ customer: "" })).toThrow()
+          expect(Order.create(customer: "")).toThrow()
         }
         test "money builds" {
           let m = Money { amount: 1.0, currency: "USD" }
@@ -48,7 +48,7 @@ system S {
         // A happy-path post-operation STATE assertion — runnable on every
         // full-port backend (no skip marker).
         test "confirming an open order" {
-          let o = Order.create({ customer: "acme" })
+          let o = Order.create(customer: "acme")
           o.confirm()
           expect(o.status).toBe("confirmed")
         }

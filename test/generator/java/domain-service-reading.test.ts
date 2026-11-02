@@ -45,7 +45,7 @@ system Banking {
       workflow RegisterAccount transactional {
         create(source: string, dest: string, balance: Money) {
           precondition Registration.isEmailAvailable(source)
-          let acct = Account.create({ holder: dest, balance: balance })
+          let acct = Account.create(holder: dest, balance: balance)
         }
       }
     }

@@ -394,7 +394,7 @@ function lowerStatement(
 ): BodyLine[] {
   switch (st.kind) {
     case "factory-let": {
-      // `let order = Order.create({ field: value, … })` →
+      // `let order = Order.create(field: value, …)` →
       // `{:ok, order} <- Context.create_order(%{field: value, …})`
       const fields = st.fields
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
@@ -816,14 +816,23 @@ function lowerStatement(
         const body = endsNotFound ? all.slice(0, -1) : all;
         // A branch needs a `with`-chain when it holds a fallible statement that
         // must short-circuit to `{:error, tag}` (so it threads up the outer
-        // with-chain): a guard (`precondition` / `requires`) OR nested control
+        // with-chain): a guard (`precondition` / `requires`), an op-call, a
+        // factory create, a `mutating` domain-service call, or nested control
         // flow / repo binds (`for-each` / `if-let` / `repo-run` / `repo-let`).
-        // A branch of only flat side-effects keeps the sequential `=`-bind form.
+        // The flat form would discard an op-call's `{:error, _}` — a failed
+        // operation precondition would then let a transactional workflow
+        // commit and answer success.  A branch of only infallible side-effects
+        // (emit / resource-call / assign / expr-let / a non-mutating service
+        // call) keeps the sequential `=`-bind form.
         const needsWith = body.some(
           (s) =>
             s.kind === "precondition" ||
             s.kind === "requires" ||
             s.kind === "not-found" ||
+            s.kind === "op-call" ||
+            s.kind === "factory-let" ||
+            (s.kind === "domain-service-call" &&
+              resolveInlinedServiceClauses(s, renderCtx, contextModule, ctx).length > 0) ||
             NESTED_FLOW_KINDS.has(s.kind),
         );
         if (needsWith) {
@@ -890,7 +899,7 @@ function lowerStatement(
               case "resource-call":
               case "assign":
                 // Pure side-effects / own-state rebinds — run in the do-branch.
-                tail.push(...renderBranchStmt(inner, renderCtx, contextModule, [], ctx));
+                tail.push(...renderBranchStmt(inner, renderCtx, contextModule, []));
                 break;
               default: {
                 const _exhaustive: never = inner;
@@ -908,7 +917,7 @@ function lowerStatement(
           ];
         }
         const stmtLines = body.flatMap((inner, i) =>
-          renderBranchStmt(inner, renderCtx, contextModule, body.slice(i + 1), ctx),
+          renderBranchStmt(inner, renderCtx, contextModule, body.slice(i + 1)),
         );
         return [...stmtLines, result];
       };
@@ -1343,29 +1352,18 @@ function collectWorkflowStmtParamRefsAll(st: WorkflowStmtIR, acc: Set<string>): 
  *  inner sequential Elixir lines.  `rest` is the statements that follow `st`
  *  in the same branch — used to `_`-discard an unread `let`-bind.  The branch
  *  ends in `{:ok, present}` (added by the caller) so the enclosing
- *  `{:ok, _} <-` clause threads through the with-chain.  Branch statements run
- *  sequentially with `=` binds (a raised error rolls the transaction back),
- *  covering the full statement set the validator admits inside an if-let
- *  branch: op-call / factory-let / emit / expr-let / resource-call / assign /
- *  domain-service-call (guards + nested control flow ride the with-chain path
- *  in `renderBranch`). */
+ *  `{:ok, _} <-` clause threads through the with-chain.  Only infallible
+ *  statements reach this flat path: emit / expr-let / resource-call / assign /
+ *  a non-mutating domain-service-call.  Every fallible statement (guards,
+ *  op-calls, factory creates, mutating service calls, nested control flow)
+ *  rides the with-chain path in `renderBranch`. */
 function renderBranchStmt(
   st: WorkflowStmtIR,
   renderCtx: RenderCtx,
   contextModule: string,
   rest: WorkflowStmtIR[] = [],
-  ctx?: BoundedContextIR,
 ): string[] {
   switch (st.kind) {
-    case "op-call":
-      return [opCallSource(st, renderCtx, contextModule, ctx)];
-    case "factory-let": {
-      const fields = st.fields
-        .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
-        .join(", ");
-      const bind = bindUsedLater(st.name, rest) ? escapeElixirIdent(snake(st.name)) : "_";
-      return [`{:ok, ${bind}} = ${factoryCreateCall(st.aggName, fields, contextModule, ctx)}`];
-    }
     case "emit": {
       const fields = st.fields
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
@@ -1389,15 +1387,13 @@ function renderBranchStmt(
       return [
         `state = %{state | ${snake(st.target.segments[0]!)}: ${renderExpr(st.value, renderCtx)}}`,
       ];
-    case "domain-service-call": {
-      // A `mutating` domain-service call inside a branch — inline the same
-      // context mutating-fn calls the loop-body arm emits, so each mutated arg
-      // persists.  `resolveInlinedServiceClauses` returns `<-` with-clause text;
-      // the flat branch path binds sequentially, so strip the arrow into an `=`.
-      const inlined = resolveInlinedServiceClauses(st, renderCtx, contextModule, ctx);
-      if (inlined.length === 0) return [`_ = ${renderExpr(st.call, renderCtx)}`];
-      return inlined.map((c) => c.text.replace(" <- ", " = "));
-    }
+    case "domain-service-call":
+      // Only a NON-mutating service call reaches the flat path (a mutating one
+      // inlines fallible context calls, so `renderBranch` routes it through the
+      // with-chain): a plain side effect.
+      return [`_ = ${renderExpr(st.call, renderCtx)}`];
+    case "op-call":
+    case "factory-let":
     case "precondition":
     case "requires":
     case "not-found":
@@ -1406,8 +1402,9 @@ function renderBranchStmt(
     case "repo-run":
     case "repo-delete":
     case "repo-let":
-      // `renderBranch` routes guards + nested control flow / repo binds through
-      // the with-chain path (they must short-circuit to `{:error, _}`), so the
+      // `renderBranch` routes guards, op-calls, factory creates and nested
+      // control flow / repo binds through the with-chain path (they must
+      // short-circuit to `{:error, _}`), so the
       // flat path never sees them.  If that routing ever changes, fail loudly
       // here.  A `# TODO` fallthrough would be worse than useless: an Elixir
       // comment compiles, so `mix compile` accepts the mutilated output.

@@ -364,7 +364,7 @@ describe("loom.unknown-primitive-member — the negated matcher prefix", () => {
       at: datetime
       name: string
       test "negated matchers on primitives" {
-        let a = A.create({ at: "2026-02-02T12:30:00Z", name: "n" })
+        let a = A.create(at: "2026-02-02T12:30:00Z", name: "n")
         expect(a.at).not.toBe("2027-01-01T00:00:00Z")
         expect(a.name).not.toBe("m")
       }

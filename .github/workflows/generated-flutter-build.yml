@@ -132,7 +132,7 @@ jobs:
                   derived display: string = name
                 }
                 workflow addCategory transactional {
-                  create(label: string) { let c = Category.create({ name: label }) }
+                  create(label: string) { let c = Category.create(name: label) }
                 }
                 error OutOfStock { detail: string }
                 aggregate Product {

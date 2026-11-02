@@ -52,7 +52,7 @@ system CreateContract {
 
 
         test "the factory initialises every field the create does not list" {
-          let a = Appointment.create({ patient: "pat", minutes: 30, fee: Fee { amount: 50.00, currency: "EUR" } })
+          let a = Appointment.create(patient: "pat", minutes: 30, fee: Fee { amount: 50.00, currency: "EUR" })
           expect(a.status).toBe(Requested)
           expect(a.room).toBe("A1")
           expect(a.priority).toBe(3)
@@ -61,7 +61,7 @@ system CreateContract {
         }
 
         test "the create body's precondition guards construction" {
-          expect(Appointment.create({ patient: "x", minutes: 30, fee: Fee { amount: 50.00, currency: "EUR" } })).toThrow()
+          expect(Appointment.create(patient: "x", minutes: 30, fee: Fee { amount: 50.00, currency: "EUR" })).toThrow()
         }
       }
 

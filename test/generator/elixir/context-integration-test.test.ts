@@ -16,7 +16,7 @@ system Shop {
     aggregate Order { code: string  qty: int }
     repository Orders for Order { }
     test "persists and reads back an order" {
-      let o = Order.create({ code: "abc", qty: 2 })
+      let o = Order.create(code: "abc", qty: 2)
       let found = Order.findById(o.id)
       expect(found.qty).toBe(2)
     }
@@ -63,7 +63,7 @@ system Ship {
     }
     repository Orders for Order { }
     test "placing transitions to Placed" {
-      let o = Order.create({ customerId: "c1", status: "Draft" })
+      let o = Order.create(customerId: "c1", status: "Draft")
       o.place()
       let found = Order.findById(o.id)
       expect(found.status).toBe("Placed")

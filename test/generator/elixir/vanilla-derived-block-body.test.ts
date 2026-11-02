@@ -29,7 +29,7 @@ system S {
         derived plain: string = name
         operation rename(newName: string) { name := newName }
         test "renames" {
-          let t = Thing.create({ active: true, name: "a" })
+          let t = Thing.create(active: true, name: "a")
           t.rename("b")
           expect(t.name).toBe("b")
         }

@@ -54,7 +54,7 @@ system Tasks {
       // create-fields (the simplest mutating shape).
       workflow createAndComplete transactional {
         create() {
-          let t = Task.create({ title: "Untitled", done: false, labels: ["init"] })
+          let t = Task.create(title: "Untitled", done: false, labels: ["init"])
           t.markDone()
         }
       }
@@ -71,7 +71,7 @@ system Tasks {
           precondition initialTitle.length > 0
           requires true
           let normalised = initialTitle
-          let t = Task.create({ title: normalised, done: false, labels: ["init"] })
+          let t = Task.create(title: normalised, done: false, labels: ["init"])
           t.markDone()
         }
       }
@@ -176,7 +176,7 @@ system Tasks {
             t.markDone()
             emit TaskFinished { task: t.id, at: now() }
           } else {
-            let fresh = Task.create({ title: "fallback", done: false, labels: ["init"] })
+            let fresh = Task.create(title: "fallback", done: false, labels: ["init"])
           }
         }
       }
