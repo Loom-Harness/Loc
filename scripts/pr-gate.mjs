@@ -131,10 +131,12 @@ export function latestPerName(runs) {
  *   * only `cancelled` is dropped.  A superseded suite's genuine `failure`
  *     still condemns the SHA — a job that ran and failed before its suite was
  *     cancelled reported a real verdict, and this must not launder it.
- *   * only from a STRICTLY OLDER suite.  A cancelled run in the newest suite
- *     still fails, and a SHA carrying nothing but corpses (no newer suite
- *     present at all) still fails — there is no live suite to defer to, so
- *     deferring would be inventing one.
+ *   * only from a STRICTLY OLDER suite of the SAME workflow.  A cancelled run
+ *     in the newest suite still fails, a SHA carrying nothing but corpses (no
+ *     newer suite present at all) still fails, and so does a cancelled run
+ *     whose workflow has produced no newer suite — an unrelated workflow's
+ *     newer suite is not a live replacement for it.  There is no live suite to
+ *     defer to in those cases, so deferring would be inventing one.
  *
  * The effect on the motivating SHA is `failure` -> `in_progress`: blocking,
  * but honest.  A name whose only bearer was a corpse simply stops reporting,
@@ -142,17 +144,41 @@ export function latestPerName(runs) {
  *
  * Runs with no `suite` sort as 0 (only the hand-built snapshots in the tests —
  * every API-returned run carries `check_suite.id`), so an all-suiteless
- * snapshot has `newestSuite === 0`, nothing is dropped, and the pre-existing
+ * snapshot is a single suite, nothing is dropped, and the pre-existing
  * behaviour is byte-identical.
  *
- * @template {{conclusion: string | null, suite?: number}} T
+ * @template {{name: string, conclusion: string | null, suite?: number}} T
  * @param {ReadonlyArray<T>} runs
  * @returns {T[]}
  */
 export function liveRuns(runs) {
   if (runs.length === 0) return [];
-  const newestSuite = Math.max(...runs.map((r) => r.suite ?? 0));
-  return runs.filter((r) => !(r.conclusion === "cancelled" && (r.suite ?? 0) < newestSuite));
+  // Every workflow run is its own check suite, so "a newer suite exists" says
+  // nothing about WHICH workflow superseded a cancelled run.  A suite is only
+  // superseded by a newer suite of the same workflow, and the check-run
+  // payload carries no workflow id — but two runs of one workflow carry the
+  // same job names (at minimum the job that created the dynamic matrix), while
+  // a different workflow's suite shares none of them.  So a newer suite counts
+  // as the superseder only if it shares a check name with the cancelled run's
+  // own suite.  This is strictly narrower than "any newer suite": when in
+  // doubt the cancelled run stays and fails closed.
+  /** @type {Map<number, Set<string>>} */
+  const namesBySuite = new Map();
+  for (const r of runs) {
+    const suite = r.suite ?? 0;
+    if (!namesBySuite.has(suite)) namesBySuite.set(suite, new Set());
+    namesBySuite.get(suite)?.add(r.name);
+  }
+  const supersededSuites = new Set();
+  for (const [suite, names] of namesBySuite) {
+    for (const [other, otherNames] of namesBySuite) {
+      if (other > suite && [...names].some((n) => otherNames.has(n))) {
+        supersededSuites.add(suite);
+        break;
+      }
+    }
+  }
+  return runs.filter((r) => !(r.conclusion === "cancelled" && supersededSuites.has(r.suite ?? 0)));
 }
 
 /**
