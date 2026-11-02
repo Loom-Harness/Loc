@@ -52,6 +52,7 @@ import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import {
+  nestedSaves,
   type PresenceSide,
   presenceSides,
   renderWorkflowStmtChunks,
@@ -350,8 +351,10 @@ function reposFor(wf: WorkflowIR): RepoNeed[] {
       }
     }
     walkWorkflowStmtChildren(st, { workflowStmt: visit });
-    if (st.kind === "for-each") {
-      for (const s of st.savesPerIteration) {
+    if (st.kind === "for-each" || st.kind === "variant-match") {
+      // A loop iteration's and a match arm's saves (an arm may create an
+      // aggregate no read in the body names).
+      for (const s of nestedSaves(st)) {
         out.set(s.repoName, { repoName: s.repoName, aggName: s.aggName });
       }
     }

@@ -36,6 +36,16 @@ system Bank {
           }
         }
       }
+      workflow TryPay {
+        create(id: Account id, amt: int) {
+          let a = Accounts.get(id)
+          let r = a.withdraw(amt)
+          match r {
+            int left => { }
+            Insufficient e => { let n = Note.create(text: "declined") }
+          }
+        }
+      }
       workflow Announce {
         create(id: Account id) { emit Paid { accountId: id } }
       }
@@ -165,6 +175,21 @@ describe("matched op result — java", () => {
     expect(notes).not.toContain("discard");
   });
 
+  it("every body imports the operation union's carriers from the aggregate's package", async () => {
+    const files = await filesOf("java");
+    const bodies = [...files.entries()].filter(
+      ([p, c]) => p.includes("/application/") && c.includes("case intOrInsufficient_Insufficient"),
+    );
+    expect(bodies.map(([p]) => p.split("/").pop()).sort()).toStrictEqual([
+      "ChargeHandler.java",
+      "LedgerDispatcher.java",
+      "LedgerWorkflows.java",
+    ]);
+    for (const [p, c] of bodies) {
+      expect(c, p).toContain("import com.loom.d.features.accounts.intOrInsufficient_Insufficient;");
+    }
+  });
+
   it("the reactor dispatch detaches in its error arm too", async () => {
     const files = await filesOf("java");
     const reactor = [...files.entries()].find(
@@ -180,5 +205,15 @@ describe("matched op result — python", () => {
     const src = await fileOf("python", "app/http/workflows_routes.py");
     expectBlock(src, ["r = a.withdraw(amt)", 'if r["type"] == "int":']);
     expectBlock(src, ["await accounts.save(a)", 'elif r["type"] == "Insufficient":']);
+  });
+
+  it("builds the repository an arm saves a created aggregate through", async () => {
+    const src = await fileOf("python", "app/http/workflows_routes.py");
+    expectBlock(src, [
+      "accounts = AccountRepository(session, make_dispatcher(session))",
+      "notes = NoteRepository(session, make_dispatcher(session))",
+      "a = await accounts.get_by_id(id)",
+    ]);
+    expectBlock(src, ['n = Note.create(text="declined")', "await notes.save(n)"]);
   });
 });

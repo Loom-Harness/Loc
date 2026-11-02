@@ -303,21 +303,36 @@ export function reactorReposUsed(wf: WorkflowIR, ctx: EnrichedBoundedContextIR):
 // recursion live in the spine; the base indent (8 spaces) is threaded in by
 // the driver and `for-each` bodies step +`indentUnit` (4 spaces), matching
 // the pre-seam hand-indentation exactly.
-/** The package resolver for the unions a context's domain services return:
- *  their carrier records are emitted into the services package, so a body in
- *  another package that matches over a service result imports them. */
+/** The package resolver for the unions a workflow / handler body can match
+ *  over: a domain service's return union has its carrier records in the
+ *  services package, an aggregate operation's in that aggregate's entity
+ *  package (`let r = a.withdraw(x)`).  A body in another package imports
+ *  them from there. */
 export function domainServiceUnionPkgOf(
   ctx: EnrichedBoundedContextIR,
   servicesPkg: string | undefined,
+  entityPkgOf?: (aggName: string) => string,
 ): ((unionName: string) => string | undefined) | undefined {
-  if (!servicesPkg) return undefined;
-  const names = new Set<string>();
-  for (const svc of ctx.domainServices ?? []) {
-    for (const op of svc.operations) {
-      if (op.returnType?.kind === "union") names.add(unionInstanceName(op.returnType.variants));
+  const pkgs = new Map<string, string>();
+  if (servicesPkg) {
+    for (const svc of ctx.domainServices ?? []) {
+      for (const op of svc.operations) {
+        if (op.returnType?.kind === "union") {
+          pkgs.set(unionInstanceName(op.returnType.variants), servicesPkg);
+        }
+      }
     }
   }
-  return names.size > 0 ? (u) => (names.has(u) ? servicesPkg : undefined) : undefined;
+  if (entityPkgOf) {
+    for (const agg of ctx.aggregates) {
+      for (const op of agg.operations) {
+        const name =
+          op.returnType?.kind === "union" ? unionInstanceName(op.returnType.variants) : undefined;
+        if (name && !pkgs.has(name)) pkgs.set(name, entityPkgOf(agg.name));
+      }
+    }
+  }
+  return pkgs.size > 0 ? (u) => pkgs.get(u) : undefined;
 }
 
 export function javaWorkflowStmtTarget(
@@ -1183,7 +1198,7 @@ export function renderJavaWorkflows(
       {
         ...wfRenderCtx,
         paramExpr: (n) => paramLocals.get(n),
-        unionPkgOf: domainServiceUnionPkgOf(ctx, wctx.domainServicePkg),
+        unionPkgOf: domainServiceUnionPkgOf(ctx, wctx.domainServicePkg, wctx.entityPkgOf),
       },
       workflowBoundNames([wf.statements]),
       new Set([
