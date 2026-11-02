@@ -57,12 +57,12 @@ const system = (platform: string) => `
         }
         workflow ClaimHandling {
           create(c: FileClaim) {
-            let claim = Claim.create({
+            let claim = Claim.create(
               cargo: c.cargo,
               description: c.description,
               amount: c.amount,
               note: c.note
-            })
+            )
           }
         }
       }
@@ -227,7 +227,7 @@ const voFieldSystem = (platform: string) => `
         command FileClaim { total: Money2 }
         workflow ClaimHandling {
           create(c: FileClaim) {
-            let cl = Claim.create({ total: c.total })
+            let cl = Claim.create(total: c.total)
           }
         }
       }

@@ -74,27 +74,27 @@ system UnitTestOmission {
         invariant code.length > 0
 
         test "omitting every optional input still constructs" {
-          let t = Ticket.create({ code: "T-1" })
+          let t = Ticket.create(code: "T-1")
           expect(t.code).toBe("T-1")
         }
 
         test "an omitted declared default is applied by the factory" {
-          let t = Ticket.create({ code: "T-2", note: "n" })
+          let t = Ticket.create(code: "T-2", note: "n")
           expect(t.severity).toBe(Normal)
         }
 
         test "an omitted bool is false" {
-          let t = Ticket.create({ code: "T-3" })
+          let t = Ticket.create(code: "T-3")
           expect(t.escalated).toBe(false)
         }
 
         test "a supplied optional survives" {
-          let t = Ticket.create({ code: "T-4", note: "kept" })
+          let t = Ticket.create(code: "T-4", note: "kept")
           expect(t.note).toBe("kept")
         }
 
         test "an empty code is refused" {
-          expect(Ticket.create({ code: "" })).toThrow()
+          expect(Ticket.create(code: "")).toThrow()
         }
       }
 

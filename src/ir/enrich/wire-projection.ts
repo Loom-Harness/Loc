@@ -263,7 +263,7 @@ export function omittableCreateInputs(agg: AggregateIR): ReadonlySet<string> {
  *     what this function's callers actually are;
  *   - the DOMAIN FACTORY accepts an omitted defaulted field only on Elixir
  *     (`create(attrs)` over a changeset).  The other four require every
- *     create-input field, so hand-written `Item.create({ name })` against
+ *     create-input field, so hand-written `Item.create(name: n)` against
  *     `qty: int = 1` does not compile there.
  *
  * That 4-vs-1 split is an open question — is `= default` a wire-boundary

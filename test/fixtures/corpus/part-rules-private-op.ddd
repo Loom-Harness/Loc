@@ -100,7 +100,7 @@ system PartRulesPrivateOp {
         // helper has to exist in; without a test block that host is never built
         // and a helper missing there would only surface in a compile leg.
         test "a private operation's write reaches the caller's result" {
-          let inv = Invoice.create({ note: "n", taxRate: 1, total: 0 })
+          let inv = Invoice.create(note: "n", taxRate: 1, total: 0)
           inv.bump(4)
           expect(inv.taxRate).toBe(5)
           expect(inv.total).toBe(10)

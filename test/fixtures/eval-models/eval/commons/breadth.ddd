@@ -155,7 +155,7 @@ system Commons {
         postId: Post id
         on(e: PostPublished) by e.post {
           for f in Follows.run(FollowersOf(e.author)) {
-            let n = Notification.create({ member: f.follower, post: e.post })
+            let n = Notification.create(member: f.follower, post: e.post)
           }
         }
       }

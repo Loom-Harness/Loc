@@ -58,7 +58,7 @@ const source = (isolation: string): string => `system R {
       create(src: Acct id, reference: string) {
         let s = Accts.getById(src)
         s.debit(money("10"))
-        let t = Transfer.create({ reference: reference, source: src })
+        let t = Transfer.create(reference: reference, source: src)
       }
     }
   } }

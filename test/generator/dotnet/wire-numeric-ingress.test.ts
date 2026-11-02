@@ -43,7 +43,7 @@ system Mon {
       repository Orders for Order { }
       workflow Settle transactional {
         create(amount: money) {
-          let o = Order.create({ code: "x", price: amount, due: now(), best: Bid { offer: amount } })
+          let o = Order.create(code: "x", price: amount, due: now(), best: Bid { offer: amount })
         }
       }
     }

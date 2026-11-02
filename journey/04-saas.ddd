@@ -89,8 +89,8 @@ system Todo {
         }
 
         test "completing a task is idempotent-guarded" {
-          let t = Task.create({ project: "00000000-0000-0000-0000-000000000001",
-                                title: "ship", status: Open, priority: High })
+          let t = Task.create(project: "00000000-0000-0000-0000-000000000001",
+                                title: "ship", status: Open, priority: High)
           t.complete()
           expect(t.status).toBe(Done)
           expect(t.complete()).toThrow()

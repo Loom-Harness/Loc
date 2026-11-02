@@ -62,8 +62,8 @@ system Ports {
         // aggregate: a `Ship id` inside the value object needs a `Ship` to
         // take it from.
         test "a ship id carried by a berth survives construction" {
-          let s = Ship.create({ name: "Aurora" })
-          let d = Dock.create({ name: "North", berth: Berth { ship: s.id, position: 3 } })
+          let s = Ship.create(name: "Aurora")
+          let d = Dock.create(name: "North", berth: Berth { ship: s.id, position: 3 })
           expect(d.berth.position).toBe(3)
           expect(d.berth.ship).toBe(s.id)
         }

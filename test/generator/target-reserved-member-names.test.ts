@@ -358,7 +358,7 @@ const TS_RESERVED_SRC = `
         workflow MakeThing transactional {
           create(class: string, new: int) {
             precondition new >= 0
-            let t = Thing.create({ class: class, new: new, default: true, interface: "i", yield: 2, span: Span { yield: 3, label: "x" } })
+            let t = Thing.create(class: class, new: new, default: true, interface: "i", yield: 2, span: Span { yield: 3, label: "x" })
           }
         }
       }
