@@ -202,3 +202,34 @@ describe("main-red alarm coverage", () => {
     expect(source).toContain("github.event.workflow_run.head_branch == 'main'");
   });
 });
+
+// The recovery job closes the `ci-red` issue only when the latest run of every
+// unattended workflow on main is non-failing.  `workflow_run` runs (PR gate's
+// re-evaluations, the alarm's own) also carry head_branch=main and arrive by the
+// hundred, so an unfiltered "newest N runs on main" window held no nightly at
+// all and read a red nightly as green — the issue closed itself while
+// Schemathesis, pairwise and SAST were still failing.  Measured 2026-11-02: 494
+// of the newest 500 main runs were `workflow_run`, spanning 3.5 hours.
+describe("main-red alarm recovery reads the unattended runs", () => {
+  const src = readFileSync(path.join(workflowsDir, ALARM), "utf8");
+  const recovered = src.slice(src.indexOf("\n  recovered:"));
+
+  it("queries main's runs per unattended event, never an unfiltered window", () => {
+    expect(recovered.length, "the recovered job exists").toBeGreaterThan(20);
+    const calls = recovered.split("listWorkflowRunsForRepo(").slice(1);
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      const args = call.slice(0, call.indexOf("})"));
+      expect(args, "every recovery query filters by event").toMatch(/\bevent\b/);
+    }
+  });
+
+  it("the event set covers both watchlist triggers and excludes workflow_run", () => {
+    const m = recovered.match(/for \(const event of \[([^\]]*)\]\)/);
+    expect(m, "recovery iterates an explicit event list").not.toBeNull();
+    const events = [...m![1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+    // The watchlist rule above is "push: main gates AND schedule: ones".
+    expect(events).toEqual(expect.arrayContaining(["push", "schedule"]));
+    expect(events).not.toContain("workflow_run");
+  });
+});
