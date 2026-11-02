@@ -200,13 +200,21 @@ describe("BEHAVIOURAL_XFAIL — the register's shape", () => {
     expect(bad.map((x) => `${x.leg}/${x.name}`)).toEqual([]);
   });
 
-  it("the two-writer case forgives a non-overlapping run on java (#3521) only; every other leg stays strict", () => {
-    const java = XFAIL.java?.["concurrency-two-writers"] ?? null;
-    expect(java?.race).toBeTruthy();
-    expect(settle(java, { kind: "pass" }).verdict).toBe("xfail");
-    for (const leg of LEGS.filter((l) => l !== "java")) {
-      expect(XFAIL[leg]?.["concurrency-two-writers"]?.race, leg).toBeUndefined();
+  it("the two-writer case is strict on every leg: no leg registers it, so one 2xx and one 409 per pair is required", () => {
+    for (const leg of LEGS) {
+      expect(XFAIL[leg]?.["concurrency-two-writers"], leg).toBeUndefined();
     }
+  });
+
+  it("a `race` entry still forgives a pair that did not overlap (the mechanism, on a synthetic entry)", () => {
+    const entry = {
+      issue: "#0",
+      expect: "fail",
+      tests: { [RACE_PROBE_TEST]: "pair \\d+: 204, 204" },
+      race: "needs overlap",
+      reason: "synthetic",
+    };
+    expect(settle(entry as ExpectedFailure, { kind: "pass" }).verdict).toBe("xfail");
   });
 
   it("the probe's test name is the one a `race` entry pins", () => {
