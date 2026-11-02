@@ -40,6 +40,10 @@ system Cover {
       }
       repository Clms for Clm { }
       criterion ClmsByPol(p: Pol id) of Clm = pol == p
+      queryHandler ListByPol(p: Pol id): Clm[] {
+        let r = Clms.run(ClmsByPol(p))
+        return r
+      }
     }
   }
   storage primary { type: postgres }
