@@ -1,18 +1,13 @@
 // ---------------------------------------------------------------------------
-// .NET document store — a repository `find … ignoring <Cap>` / `ignoring *`
-// narrows the in-app capability filter (C2, M-T6.75).
+// .NET document store — the in-app capability filter on the root reads.
 //
 // A `shape: document` aggregate's capability filters are evaluated in-app
 // over the rehydrated jsonb blob (`_CapabilityVisible`), not as an EF
-// `HasQueryFilter`, so the relational `.IgnoreQueryFilters(…)` never reached
-// them: every declared find — scoped, `ignoring tenantOwned`, `ignoring *` —
-// got the same `.Where(_CapabilityVisible)` and a bypassing read was silently
-// over-restricted.
-//
-// Every assertion is paired presence + ABSENCE: the failure mode is a
-// RETAINED conjunct, which a presence-only assertion cannot see.  The root
-// reads (by-id / `FindManyByIdsAsync`) carry no clause and must keep BOTH
-// filters whatever a sibling find bypasses (the fail-OPEN direction).
+// `HasQueryFilter`.  The root reads (by-id / `FindManyByIdsAsync`) carry no
+// `ignoring` clause and must keep BOTH filters whatever a sibling read on the
+// relational aggregate of the same fixture bypasses (the fail-OPEN direction).
+// A document aggregate has no single-row criterion read on every backend, so
+// the fixture carries no bypassing read over `Note`.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
@@ -40,7 +35,7 @@ function bodyOf(impl: string, method: string): string {
   return impl.slice(start, end);
 }
 
-describe(".NET document store — `find … ignoring` (C2, M-T6.75)", () => {
+describe(".NET document store — the in-app capability filter", () => {
   it("the shared `_CapabilityVisible` still ANDs both filters", async () => {
     const impl = await noteRepo();
     const m = /private static bool _CapabilityVisible\(Note x\) => (.*);/.exec(impl);
@@ -49,26 +44,7 @@ describe(".NET document store — `find … ignoring` (C2, M-T6.75)", () => {
     expect(m![1]).toContain(DELETED);
   });
 
-  it("a find with NO clause keeps both filters", async () => {
-    const body = bodyOf(await noteRepo(), "ScopedNote");
-    expect(body).toContain(".Where(_CapabilityVisible)");
-  });
-
-  it("`ignoring tenantOwned` drops the tenant conjunct and keeps not-deleted", async () => {
-    const body = bodyOf(await noteRepo(), "AnyTenantNote");
-    expect(body).not.toContain("_CapabilityVisible");
-    expect(body).not.toContain(TENANT);
-    expect(body).toContain(DELETED);
-  });
-
-  it("`ignoring *` drops both conjuncts", async () => {
-    const body = bodyOf(await noteRepo(), "UnfilteredNote");
-    expect(body).not.toContain("_CapabilityVisible");
-    expect(body).not.toContain(TENANT);
-    expect(body).not.toContain(DELETED);
-  });
-
-  it("the root reads keep both filters whatever a find bypasses", async () => {
+  it("the root reads keep both filters", async () => {
     const impl = await noteRepo();
     expect(bodyOf(impl, "GetByIdAsync")).toContain("_CapabilityVisible(__rec)");
     expect(bodyOf(impl, "FindManyByIdsAsync")).toContain(".Where(_CapabilityVisible)");

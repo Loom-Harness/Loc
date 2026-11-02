@@ -56,10 +56,16 @@ const model = (criterionBody: string, platform = "dotnet"): string => `
         abstract aggregate Vehicle { name: string  retired: bool }
         aggregate Car extends Vehicle { doors: int  filter Live }
         aggregate Truck extends Vehicle { payloadKg: int }
-        repository Cars for Car {
-          find everyCar(): Car[] where this.doors >= 0 ignoring *
+        criterion EveryCar of Car = this.doors >= 0
+        repository Cars for Car
+        repository Trucks for Truck
+        workflow Sweep {
+          create(x: int) {
+            if let c = Cars.find(EveryCar()) ignoring * { }
+            let cs = Cars.findAll(EveryCar()) ignoring *
+            for e in cs { }
+          }
         }
-        repository Trucks for Truck { }
       }
     }
     storage primary { type: postgres }
@@ -102,10 +108,15 @@ describe(".NET TPH × capability filter", () => {
 
   it("`ignoring *` on a TPH concrete names what it drops, never every filter", async () => {
     // The parameterless `IgnoreQueryFilters()` would lift every filter the root
-    // hosts — a bare `filter`, which `ignoring` cannot name, included.
-    const { files } = await emit(model("this.doors > 0"));
+    // hosts — a bare `filter`, which `ignoring` cannot name, included.  Both the
+    // static single-row read and the runtime-bypass retrieval are widened here.
+    const { files, diags } = await emit(model("this.doors > 0"));
+    expect(errors(diags)).toEqual([]);
     const cars = fileNamed(files, "Repositories/CarRepository.cs");
-    expect(cars).toContain("_db.Vehicles.OfType<Car>()");
+    expect(cars).toContain(
+      "_db.Vehicles.OfType<Car>().Where(new EveryCarCriterion().ToExpression()).FirstOrDefaultAsync",
+    );
+    expect(cars).toContain("var __q = _db.Vehicles.OfType<Car>().AsQueryable();");
     expect(cars).not.toContain(".IgnoreQueryFilters()");
   });
 
@@ -143,10 +154,14 @@ describe(".NET TPH × capability filter", () => {
             abstract aggregate Vehicle { name: string }
             aggregate Car extends Vehicle with softDeletable, crudish { doors: int }
             aggregate Truck extends Vehicle with crudish { payloadKg: int }
-            repository Cars for Car {
-              find withDeleted(): Car[] where this.doors >= 0 ignoring softDeletable
+            criterion WithDeleted of Car = this.doors >= 0
+            repository Cars for Car
+            repository Trucks for Truck
+            workflow Sweep {
+              create(x: int) {
+                if let c = Cars.find(WithDeleted()) ignoring softDeletable { }
+              }
             }
-            repository Trucks for Truck { }
           }
         }
         storage primary { type: postgres }
@@ -219,9 +234,14 @@ describe(".NET TPH × capability filter", () => {
             abstract aggregate Vehicle with tenantOwned { name: string }
             aggregate Car extends Vehicle with tenantOwned { doors: int }
             aggregate Truck extends Vehicle { payloadKg: int }
-            repository Cars for Car { }
-            repository Trucks for Truck { }
+            repository Cars for Car
+            repository Trucks for Truck
             criterion TrucksAnyTenant of Truck = this.payloadKg > 0
+            workflow Sweep {
+              create(x: int) {
+                if let t = Trucks.find(TrucksAnyTenant()) ignoring tenantOwned { }
+              }
+            }
           }
         }
         storage primary { type: postgres }

@@ -34,10 +34,8 @@ system S {
         origin: Origin
         create(system: string, enum: int, static: int, origin: Origin) { }
       }
-      repository Plugins for Plugin {
-        find byLevel(enum: int, static: int): Plugin? where this.enum == enum && this.static >= static
-        find bySystem(system: string): Plugin? where this.system == system
-      }
+      repository Plugins for Plugin
+      criterion ByLevel(enum: int, static: int) of Plugin = this.enum == enum && this.static >= static
       criterion StaticAtLeast(static: int) of Plugin = this.static >= static
       test "a plugin builds" {
         let p = Plugin.create({ system: "s", enum: 1, static: 2, origin: Origin { system: "s", static: 2 } })
@@ -49,6 +47,7 @@ system S {
       workflow Bootstrap {
         create(system: string, enum: int) {
           let rows = Plugins.run(StaticAtLeast(enum), page: { offset: 0, limit: 10 })
+          let levelled = Plugins.run(ByLevel(enum, enum), page: { offset: 0, limit: 10 })
           let p = Plugin.create({ system: system, enum: enum, static: enum, origin: Origin { system: system, static: enum } })
         }
       }
@@ -102,7 +101,7 @@ describe.each([
 
   it("CA1716 is a project-wide NoWarn, not a per-member suppression", async () => {
     const port = await file(platform, "Domain/Plugins/IPluginRepository.cs");
-    expect(port).toContain("ByLevel(int @enum, int @static,");
+    expect(port).toContain("RunFindAllByByLevelAsync(int @enum, int @static,");
     expect(port).toContain("RunFindAllByStaticAtLeastAsync(int @static,");
     expect(port).not.toContain("SuppressMessage");
     const csproj = await file(platform, "api/Api.csproj");

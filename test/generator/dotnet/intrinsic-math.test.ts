@@ -1,7 +1,7 @@
 // A3 math batch of the scalar-intrinsic catalogue (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md):
 // numeric abs/min/max ({int,long,decimal,money}) + round/floor/ceil
 // ({decimal,money}) on the .NET backend — in-memory rendering in domain
-// bodies AND the EF LINQ `Where` path.  The catalogue rows live in
+// bodies AND the EF query position (a criterion's expression tree).  The catalogue rows live in
 // src/util/intrinsics.ts; the C# snippets in render-expr.ts.
 //
 // The one .NET-specific wrinkle is `round`: the catalogue contract is
@@ -36,7 +36,7 @@ const SRC = `
         amount := amount.max(delta).round(2)
       }
     }
-    repository Invoices for Invoice { }
+    repository Invoices for Invoice
     criterion InvoicesPricierThan(q: money) of Invoice = this.amount.round(2) > q
     criterion InvoicesWholeAbove(q: money) of Invoice = this.amount.round() > q
     criterion InvoicesByAbsQty(n: int) of Invoice = this.qty.abs() > n
@@ -76,22 +76,32 @@ describe("dotnet generator — numeric math intrinsics (stdlib A3)", () => {
     );
   });
 
-  it("renders round in the find Where lambda WITHOUT MidpointRounding (EF-translatable form)", async () => {
-    const model = await parseValid(SRC);
-    const repo = generateDotnet(model).get("Infrastructure/Repositories/InvoiceRepository.cs")!;
+  /** The criterion's EF expression tree — the query position. */
+  const queryOf = (files: Map<string, string>, criterion: string): string => {
+    const src = files.get(`Domain/Criteria/${criterion}Criterion.cs`)!;
+    const m = /ToExpression\(\) => candidate => (.*);/.exec(src);
+    expect(m, `${criterion}: no ToExpression`).not.toBeNull();
+    return m![1]!;
+  };
+
+  it("renders round in the criterion expression WITHOUT MidpointRounding (EF-translatable form)", async () => {
+    const files = generateDotnet(await parseValid(SRC));
     // Query override: MidpointRounding overloads don't translate; Postgres
     // round() is half-away-from-zero anyway, so the contract holds.
-    expect(repo).toContain(".Where(x => Math.Round(x.Amount, 2) > q)");
-    expect(repo).toContain(".Where(x => Math.Round(x.Amount, 0) > q)");
-    expect(repo).not.toContain("MidpointRounding");
+    expect(queryOf(files, "InvoicesPricierThan")).toBe("Math.Round(candidate.Amount, 2) > q");
+    expect(queryOf(files, "InvoicesWholeAbove")).toBe("Math.Round(candidate.Amount, 0) > q");
+    for (const c of ["InvoicesPricierThan", "InvoicesWholeAbove"]) {
+      expect(files.get(`Domain/Criteria/${c}Criterion.cs`)).not.toContain("MidpointRounding");
+    }
   });
 
-  it("renders abs/min/max/floor/ceil in Where lambdas as-is (EF translates them natively)", async () => {
-    const model = await parseValid(SRC);
-    const repo = generateDotnet(model).get("Infrastructure/Repositories/InvoiceRepository.cs")!;
-    expect(repo).toContain(".Where(x => Math.Abs(x.Qty) > n)");
-    expect(repo).toContain(".Where(x => Math.Min(x.Amount, q) == q)");
-    expect(repo).toContain(".Where(x => Math.Max(x.Big, l) == l)");
-    expect(repo).toContain(".Where(x => Math.Floor(x.Rate) <= r && Math.Ceiling(x.Rate) >= r)");
+  it("renders abs/min/max/floor/ceil in criterion expressions as-is (EF translates them natively)", async () => {
+    const files = generateDotnet(await parseValid(SRC));
+    expect(queryOf(files, "InvoicesByAbsQty")).toBe("Math.Abs(candidate.Qty) > n");
+    expect(queryOf(files, "InvoicesCappedAt")).toBe("Math.Min(candidate.Amount, q) == q");
+    expect(queryOf(files, "InvoicesByMaxBig")).toBe("Math.Max(candidate.Big, l) == l");
+    expect(queryOf(files, "InvoicesByRateBand")).toBe(
+      "Math.Floor(candidate.Rate) <= r && Math.Ceiling(candidate.Rate) >= r",
+    );
   });
 });

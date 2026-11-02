@@ -1,16 +1,16 @@
-// An ENUM-typed find PARAMETER must bind as its declared NAME, not its ordinal.
+// An ENUM-typed read PARAMETER must bind as its declared NAME, not its ordinal.
 //
 // Every backend stores an enum column as `text` — `sql-pg.ts` emits `TEXT`, and
 // this very file's `columnFor` declares `sql: "text"` with `save:
 // ${acc}.ToString()`.  Dapper's default handler, though, maps a C# enum
-// PARAMETER to its integer ordinal, so a find whose `where` keys on an enum
+// PARAMETER to its integer ordinal, so a read whose predicate keys on an enum
 // reached Postgres as `WHERE status = 1` against a text column:
 //
 //     operator does not exist: text = integer
 //
 // …i.e. a 500 at the route.  The SAVE path in `emit/dapper.ts` already spelled
-// `.ToString()`; only the find binder had been written without it, so an
-// enum-keyed find was broken on Dapper for as long as the adapter has shipped.
+// `.ToString()`; only the read binder had been written without it, so an
+// enum-keyed read was broken on Dapper for as long as the adapter has shipped.
 //
 // Invisible because no test had ever CALLED one.  The caller census (#2380)
 // named `byStatus` (core-domain) and `byNetwork` (payments) as zero-caller
@@ -38,8 +38,8 @@ async function build(source: string): Promise<Model> {
   return doc.parseResult?.value as Model;
 }
 
-/** One enum-keyed find, one optional-enum-keyed find, and — as the scope guard
- *  — one STRING-keyed find that must keep binding the bare parameter. */
+/** One enum-keyed criterion read and — as the scope guard — one STRING-keyed
+ *  read that must keep binding the bare parameter. */
 const SOURCE = `
 system Shop {
   api OrdersApi from Sales
@@ -50,9 +50,17 @@ system Shop {
         code: string
         status: Status
       }
-      repository Orders for Order { }
+      repository Orders for Order
       criterion OrdersByStatus(s: Status) of Order = this.status == s
       criterion OrdersByCode(c: string) of Order = this.code == c
+      queryHandler orderByStatus(s: Status): Order? {
+        let o = Orders.find(OrdersByStatus(s))
+        return o
+      }
+      queryHandler orderByCode(c: string): Order? {
+        let o = Orders.find(OrdersByCode(c))
+        return o
+      }
     }
   }
   storage pg { type: postgres }
@@ -71,28 +79,32 @@ const repoFor = async (): Promise<string> =>
     "api/Infrastructure/Repositories/OrderRepository.cs",
   )!;
 
-describe("Dapper binds an enum find parameter by name", () => {
+describe("Dapper binds an enum read parameter by name", () => {
   it("binds `.ToString()` for the enum param and the BARE name for the string param", async () => {
     const repo = await repoFor();
     expect(repo).toBeDefined();
 
-    // Premise: both finds are emitted, and the enum one really does key on the
-    // enum column — so a failure below is about the BINDING, not a missing find.
-    expect(repo).toContain("public async Task<Order?> ByStatus(Status s,");
-    expect(repo).toContain("public async Task<Order?> ByCode(string c,");
+    // Premise: both reads are emitted, and the enum one really does key on the
+    // enum column — so a failure below is about the BINDING, not a missing read.
+    expect(repo).toContain(
+      "public async Task<IReadOnlyList<Order>> RunFindAllByOrdersByStatusAsync(Status s,",
+    );
+    expect(repo).toContain(
+      "public async Task<IReadOnlyList<Order>> RunFindAllByOrdersByCodeAsync(string c,",
+    );
     expect(repo).toContain("WHERE (status = @s)");
 
     // The fix: the enum parameter is bound as its declared name.
-    expect(repo).toContain("new { s = s.ToString() }");
+    expect(repo).toContain('p.Add("s", s.ToString());');
     // Never the raw enum — that is the ordinal Postgres refuses to compare
     // against a text column.
-    expect(repo).not.toContain("new { s }");
+    expect(repo).not.toContain('p.Add("s", s);');
 
     // Scope guard: a STRING param must NOT grow a `.ToString()` — it would be a
     // gratuitous output change, and it is what a fix that stringified every
     // parameter would produce.
-    expect(repo).toContain("new { c }");
-    expect(repo).not.toContain("c = c.ToString()");
+    expect(repo).toContain('p.Add("c", c);');
+    expect(repo).not.toContain("c.ToString()");
   });
 
   it("agrees with the SAVE path, which already bound the enum by name", async () => {

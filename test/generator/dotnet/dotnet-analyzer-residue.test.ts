@@ -50,8 +50,7 @@ system Probe {
         }
       }
       criterion XItem of Item = this.name.startsWith("q")
-      repository Items for Item { }
-      criterion ItemsXs of Item = this.name.startsWith("w")
+      repository Items for Item
     }
   }
   api SalesApi from Shop
@@ -152,10 +151,10 @@ describe("dotnet — one-character string literal → char overload (CA1865)", (
 
   it("EF query position keeps the translatable string overload; CA1866 is NoWarn'd", async () => {
     const files = await generateSystemFiles(MODEL("ef"));
-    expect(files.get("api/Infrastructure/Repositories/ItemRepository.cs")).toContain(
-      'x.Name.StartsWith("w")',
+    // The EF query position is the criterion's expression tree.
+    expect(files.get("api/Domain/Criteria/XItemCriterion.cs")).toContain(
+      'ToExpression() => candidate => candidate.Name.StartsWith("q");',
     );
-    expect(files.get("api/Domain/Criteria/XItemCriterion.cs")).toContain('StartsWith("q")');
     const csproj = files.get("api/Api.csproj")!;
     expect(csproj).toMatch(/<NoWarn>[^<]*\bCA1866\b[^<]*<\/NoWarn>/);
     expect(csproj).not.toMatch(/<NoWarn>[^<]*\bCA1865\b[^<]*<\/NoWarn>/);
