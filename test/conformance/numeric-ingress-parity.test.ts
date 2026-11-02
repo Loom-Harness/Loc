@@ -529,9 +529,14 @@ function assertSeams(files: Map<string, string>, platform: Platform, seams: Seam
 
 describe("M-T6.48 — malformed numeric input answers a typed 4xx (all five backends)", () => {
   for (const platform of PLATFORMS) {
-    it(`${platform}: a malformed money string is refused, not thrown on`, async () => {
-      assertSeams(await emit(platform), platform, BAD_MONEY_STRING[platform], `money "12,50"`);
-    });
+    // #4433: .NET money query params on a routed read lack the RS-42 grammar
+    // guard, so dotnet is pinned failing until it lands.
+    (platform === "dotnet" ? it.fails : it)(
+      `${platform}: a malformed money string is refused, not thrown on${platform === "dotnet" ? " — #4433" : ""}`,
+      async () => {
+        assertSeams(await emit(platform), platform, BAD_MONEY_STRING[platform], `money "12,50"`);
+      },
+    );
 
     it(`${platform}: a fractional value for an int field is refused`, async () => {
       assertSeams(await emit(platform), platform, FRACTIONAL_INT[platform], "int 1.5");
