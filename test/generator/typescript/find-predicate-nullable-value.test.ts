@@ -31,23 +31,23 @@ system X {
     criterion Above(p: int?) of WorkOrder = this.priority > p
     criterion Exact(t: Technician id) of WorkOrder = this.technicianId == t
     queryHandler ListMine(): WorkOrder[] {
-      let r = WorkOrders.findAll(Mine())
+      let r = WorkOrders.all(Mine())
       return r
     }
     queryHandler ListNotMine(): WorkOrder[] {
-      let r = WorkOrders.findAll(NotMine())
+      let r = WorkOrders.all(NotMine())
       return r
     }
     queryHandler ListByTech(t: Technician id?): WorkOrder[] {
-      let r = WorkOrders.findAll(ByTech(t))
+      let r = WorkOrders.all(ByTech(t))
       return r
     }
     queryHandler ListAbove(p: int?): WorkOrder[] {
-      let r = WorkOrders.findAll(Above(p))
+      let r = WorkOrders.all(Above(p))
       return r
     }
     queryHandler ListExact(t: Technician id): WorkOrder[] {
-      let r = WorkOrders.findAll(Exact(t))
+      let r = WorkOrders.all(Exact(t))
       return r
     }
     policy { read WorkOrder requires true }

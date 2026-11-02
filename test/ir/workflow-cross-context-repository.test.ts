@@ -49,7 +49,7 @@ system WorkflowCrossContext {
       repository Tickets for Ticket { }
       workflow consume transactional {
         create(ticketId: Ticket id, partId: Part id, qty: int) {
-          let part = Parts.getById(partId)
+          let part = Parts.get(partId)
           part.decrement(qty)
         }
       }
@@ -68,7 +68,7 @@ system WorkflowCrossContext {
 `;
 
 /** Variant B — the cross-context binding is only READ.  Note the SAME-context
- *  sibling `let wo = WorkOrders.getById(...)`, which must stay legal. */
+ *  sibling `let wo = WorkOrders.get(...)`, which must stay legal. */
 const VARIANT_B = `
 system CrossContextTest {
   subdomain Core {
@@ -84,8 +84,8 @@ system CrossContextTest {
       repository WorkOrders for WorkOrder { }
       workflow scheduleWorkOrder transactional {
         create(workOrderId: WorkOrder id, assignTo: Technician id) {
-          let tech = Technicians.getById(assignTo)
-          let wo = WorkOrders.getById(workOrderId)
+          let tech = Technicians.get(assignTo)
+          let wo = WorkOrders.get(workOrderId)
           precondition tech.skills.count > 0
           wo.assign()
         }
@@ -114,8 +114,8 @@ system SameContextTest {
       repository WorkOrders for WorkOrder { }
       workflow scheduleWorkOrder transactional {
         create(workOrderId: WorkOrder id, assignTo: Technician id) {
-          let tech = Technicians.getById(assignTo)
-          let wo = WorkOrders.getById(workOrderId)
+          let tech = Technicians.get(assignTo)
+          let wo = WorkOrders.get(workOrderId)
           precondition tech.skills.count > 0
           wo.assign()
         }
@@ -147,11 +147,11 @@ system NamedCreateCrossContext {
       workflow scheduleWorkOrder {
         workOrderId: WorkOrder id
         create(workOrderId: WorkOrder id) {
-          let wo = WorkOrders.getById(workOrderId)
+          let wo = WorkOrders.get(workOrderId)
           wo.assign()
         }
         create reassign(workOrderId: WorkOrder id, assignTo: Technician id) {
-          let tech = Technicians.getById(assignTo)
+          let tech = Technicians.get(assignTo)
           precondition tech.skills.count > 0
         }
       }
@@ -238,8 +238,8 @@ describe("workflow reading a repository from another context", () => {
     // The same foreign repository read twice in one body states one boundary
     // problem — the author fixes it once.
     const src = VARIANT_B.replace(
-      "let tech = Technicians.getById(assignTo)",
-      "let tech = Technicians.getById(assignTo)\n          let tech2 = Technicians.getById(assignTo)",
+      "let tech = Technicians.get(assignTo)",
+      "let tech = Technicians.get(assignTo)\n          let tech2 = Technicians.get(assignTo)",
     );
     const diags = await diagnose(src);
     expect(diags.filter((d) => d.code === CODE)).toHaveLength(1);

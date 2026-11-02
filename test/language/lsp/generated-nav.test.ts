@@ -30,7 +30,7 @@ context Sales {
 
   workflow placeOrder {
     create(customerId: Customer id) {
-      let customer = Customers.getById(customerId)
+      let customer = Customers.get(customerId)
     }
   }
 }

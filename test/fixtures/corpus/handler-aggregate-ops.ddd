@@ -38,20 +38,20 @@ system HandlerAggregateOps {
       repository Orders for Order { }
 
       commandHandler Cancel(orderId: Order id): Order id {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         o.cancel()
         return o.id
       }
       queryHandler Status(orderId: Order id): string {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         return o.status
       }
       queryHandler Fetch(orderId: Order id): Order {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         return o
       }
       commandHandler Discount(orderId: Order id, amount: Money, reason: string): Order id {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         o.applyDiscount(amount, reason)
         return o.id
       }
@@ -60,8 +60,8 @@ system HandlerAggregateOps {
       // `/warnaserror` build failure (the same family as `dotnet-bcl-type-
       // collision`) — not this fixture's subject.
       commandHandler Purge(orderId: Order id) {
-        let o = Orders.getById(orderId)
-        Orders.delete(o)
+        let o = Orders.get(orderId)
+        Orders.remove(o)
       }
     }
   }

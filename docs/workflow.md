@@ -42,7 +42,7 @@ context Sales {
   // Non-transactional: each save commits independently.
   workflow placeOrder {
     create(customerId: Customer id, placedAt: datetime) {
-      let customer = Customers.getById(customerId)
+      let customer = Customers.get(customerId)
       let order = Order.create(
         customerId: customerId,
         status: Draft,
@@ -56,8 +56,8 @@ context Sales {
   workflow transferCredit transactional {
     create(src: Customer id, dst: Customer id, amount: decimal) {
       precondition amount > 0
-      let source = Customers.getById(src)
-      let target = Customers.getById(dst)
+      let source = Customers.get(src)
+      let target = Customers.get(dst)
       source.deductCredit(amount)
       target.addCredit(amount)
     }
@@ -72,13 +72,13 @@ context Sales {
 | `precondition Expr` | Workflow-level guard.  Failure → 422 (`DomainException` / `DomainError`) — RS-15. |
 | `requires Expr` | Authorization guard.  Same syntactic shape as `precondition`, but failure → 403 (`ForbiddenException` / `ForbiddenError`).  Use this for `currentUser`-based permission checks; use `precondition` for business-rule checks. |
 | `let x = Agg.create(field: expr, ...)` | Factory call (named or positional arguments).  Saved at workflow exit. |
-| `let x = Repo.getById(idExpr)` | Load by id; throws `AggregateNotFound` (→ 404) if missing.  Result is non-nullable. |
+| `let x = Repo.get(idExpr)` | Load by id; throws `AggregateNotFound` (→ 404) if missing.  Result is non-nullable. |
 | `let x = Repo.<find>(args)` | Call any repo-declared find whose return is a single non-nullable aggregate.  A plain `let` can't bind an array result. |
-| `let x = Repo.find(<Criterion>)` / `Repo.findById(id)` / `Repo.findBy(<col>: v)` / a `T?` find | An **optional** read: `x` is `T?` — the first match, or none.  Read it through a null test (`precondition x != null`, `x ?? y`) or narrow it with `if let`; a member read or an op-call on it before that is `loom.nullable-receiver`. |
-| `let xs = Repo.run(<Retrieval>(args), page?)` / `let xs = Repo.findAll(<Criterion>, page?)` | Bind an aggregate **array**; consumable only by a `for` loop. |
+| `let x = Repo.find(<Criterion>)` / `Repo.find(id)` / `Repo.findBy(<col>: v)` / a `T?` find | An **optional** read: `x` is `T?` — the first match, or none.  Read it through a null test (`precondition x != null`, `x ?? y`) or narrow it with `if let`; a member read or an op-call on it before that is `loom.nullable-receiver`. |
+| `let xs = Repo.all(<Retrieval>(args), page?)` / `let xs = Repo.all(<Criterion>, page?)` | Bind an aggregate **array**; consumable only by a `for` loop. |
 | `for x in xs { ... }` | Iterate an aggregate array, binding each element to `x`; per-iteration mutations save inside the loop. |
-| `if let x = Repo.find(<Criterion>) { ... } else { ... }` / `if let x = Repo.findBy(<col>: v, ...) { ... }` / `if let x = Repo.findById(id) { ... }` / `if let x = y { ... }` | Look up a **single** aggregate by criterion (the shared `findAllBy<Criterion>` retrieval, capped at one row), by a declared `unique (…)` key (`findBy`), by id (`findById`), or through a declared optional `find` (`T?`) — or narrow an optional binding `y` already in scope (no second read).  `x` is bound (non-null) only in the then-branch; `else` runs on no match.  `else` is optional. |
-| `notFound` / `notFound "detail"` | End the body with the standard ProblemDetails 404 — the same response a `getById` miss produces.  Workflow / handler bodies only (`loom.not-found-placement`), last in its block (`loom.not-found-unreachable`).  The canonical home is the `else` of an `if let`; see below. |
+| `if let x = Repo.find(<Criterion>) { ... } else { ... }` / `if let x = Repo.findBy(<col>: v, ...) { ... }` / `if let x = Repo.find(id) { ... }` / `if let x = y { ... }` | Look up a **single** aggregate by criterion (the shared `findAllBy<Criterion>` retrieval, capped at one row), by a declared `unique (…)` key (`findBy`), by id (`findById`), or through a declared optional `find` (`T?`) — or narrow an optional binding `y` already in scope (no second read).  `x` is bound (non-null) only in the then-branch; `else` runs on no match.  `else` is optional. |
+| `notFound` / `notFound "detail"` | End the body with the standard ProblemDetails 404 — the same response a `get` miss produces.  Workflow / handler bodies only (`loom.not-found-placement`), last in its block (`loom.not-found-unreachable`).  The canonical home is the `else` of an `if let`; see below. |
 | `name.opName(args)` | Invoke a public operation on a let-bound aggregate.  The op's own preconditions / invariants run inside that call. |
 | `let x = expr` | Plain expression binding. |
 | `emit EventName { field: expr, ... }` | Workflow-level event.  Event must be declared in the same context.  Drains through `IDomainEventDispatcher` after all saves (after commit when `transactional`). |
@@ -109,7 +109,7 @@ criterion DueOpen(asOf: datetime) of Ticket = dueAt < asOf && status == Open
 retrieval Due(asOf: datetime) of Ticket { where: DueOpen(asOf) }
 
 // in the workflow / timer body
-let due = Tickets.run(Due(now()))
+let due = Tickets.all(Due(now()))
 for t in due { t.flagBreached() }
 ```
 
@@ -129,8 +129,8 @@ Directory`, while the workflow is in `context Dispatch`:
 ```ddd
 workflow scheduleWorkOrder transactional {
   create(workOrderId: WorkOrder id, assignTo: Technician id) {
-    let tech = Technicians.getById(assignTo)   // ERROR — `Technicians` is Directory's
-    let wo   = WorkOrders.getById(workOrderId) // fine — Dispatch's own
+    let tech = Technicians.get(assignTo)   // ERROR — `Technicians` is Directory's
+    let wo   = WorkOrders.get(workOrderId) // fine — Dispatch's own
     wo.assign()
   }
 }
@@ -139,7 +139,7 @@ workflow scheduleWorkOrder transactional {
 Lowering resolves a `let` read against the enclosing context's repositories
 alone, so a foreign name never becomes a repository load at all — before the
 gate, every backend rendered the receiver verbatim into code that references a
-name it never defines (node: `const tech = Technicians.getById(assignTo);` —
+name it never defines (node: `const tech = Technicians.get(assignTo);` —
 no repository constructed, no `await`, `tsc`: *Cannot find name 'Technicians'*).
 
 Reach the other context at its **public surface** instead — the same two
@@ -175,7 +175,7 @@ one transaction, they belong in the same context.
 
 ### `if let` — single-result criterion lookup
 
-`Repo.find(<Criterion>)` is the single-result sibling of `Repo.findAll`: it
+`Repo.find(<Criterion>)` is the single-result sibling of `Repo.all`: it
 returns an optional aggregate.  A workflow body has no standalone way to bind
 or branch on a nullable, so the lookup and the branch are one construct —
 `if let`:
@@ -192,9 +192,8 @@ workflow ReserveSeat {
 }
 ```
 
-Both `find` and `findAll` over one criterion share a single internal
-`findAllBy<Criterion>` retrieval (no public endpoint is exposed — unlike a
-declared `find`).  The else-branch may create a fallback aggregate
+Both `find` and `all` over one criterion share a single internal
+`findAllBy<Criterion>` retrieval (no public endpoint is exposed).  The else-branch may create a fallback aggregate
 (`let s = Seat.create(...)`); branch-local creations / mutations save at the
 end of their branch.
 
@@ -204,8 +203,8 @@ Orders.findBy(code: c.code) { … }` over an aggregate declaring `unique (code)`
 The generated code calls the repository's `findByCode` method (derived from the
 call; no retrieval is synthesised) and branches on presence, exactly as above;
 the same form works in a `commandHandler` / `queryHandler` body, and a trailing
-`ignoring …` widens the read.  `if let o = Orders.findById(c.oid) { … }` reads
-by id.  Any other source (`getById`, `getBy`, a binding that is not optional)
+`ignoring …` widens the read.  `if let o = Orders.find(c.oid) { … }` reads
+by id.  Any other source (`get`, `getBy`, a binding that is not optional)
 is `loom.iflet-bad-source`.  A row the body must have reads with
 `let o = Orders.getBy(code: c.code)` — a miss answers the standard 404.
 
@@ -213,7 +212,7 @@ A criterion read has no uniqueness guarantee, so there is no must-exist
 `get(<Criterion>)`.  A body that needs the row spells the miss: `notFound`
 ends the body with the standard 404 — the error the backend's by-id read
 raises, so the response (status, `title`, `type`, `instance`) is byte-for-byte
-the one a `getById` miss produces.  `notFound "detail"` sets the `detail`; a
+the one a `get` miss produces.  `notFound "detail"` sets the `detail`; a
 bare `notFound` in an `if let` else names the lookup's aggregate
 (`Ticket not found`).
 
@@ -283,8 +282,8 @@ can't call private
 operations, can call `extern` operations (parameterless or
 parameterized — see docs/extern.md; the workflow handler
 injects the user's `IXAggHandler` and runs the same dispatch
-dance the auto HTTP route does), and can't `findById` (use
-`getById` for must-exist loads).
+dance the auto HTTP route does), and read a must-exist row with
+`get(id)` (`find(id)` answers `T?`).
 
 ## `function` — private pure helper
 
@@ -300,7 +299,7 @@ workflow FulfillOrder {
   function slaDays(priority: int): int = priority > 5 ? 1 : 5
 
   create(orderId: Order id, priority: int) {
-    let order = Orders.getById(orderId)
+    let order = Orders.get(orderId)
     order.scheduleShipment(slaDays(priority))   // ← call
   }
 }
@@ -370,8 +369,8 @@ workflow openAccount {
 
 workflow transfer transactional {
   create(fromAccount: Account id, toAccount: Account id, amount: int): int {
-    let source = Accounts.getById(fromAccount)
-    let target = Accounts.getById(toAccount)
+    let source = Accounts.get(fromAccount)
+    let target = Accounts.get(toAccount)
     source.withdraw(amount)
     target.deposit(amount)
     return source.balance          // read inside the tx, answered after commit
@@ -435,12 +434,12 @@ has) — return the id and read the record back, or use a `commandHandler`.
 
 - **Fresh aggregates** (`Agg.create`) are always saved at workflow
   exit, in declaration order.
-- **Loaded aggregates** (`Repo.getById` etc.) are saved only if at
+- **Loaded aggregates** (`Repo.get` etc.) are saved only if at
   least one operation was invoked on them inside the workflow body.
 - **There is no save statement.**  An explicit `Repo.save(x)` (or
   `insert` / `update` / `add` / `commit`) in a workflow or handler body
   is an error, `loom.workflow-explicit-save`: the exit save above is the
-  one way a body persists.  `Repo.delete(x)` / `Repo.remove(x)` is the
+  one way a body persists.  `Repo.remove(x)` is the
   one repository write a body states, and the removed aggregate is not
   saved again on the way out.
 - **State needs a key.**  A command `create` that assigns workflow state
@@ -730,8 +729,8 @@ is a context-level `commandHandler`, which every backend routes:
 workflow Settle {                          workflow Settle {
   create(orderId: Order id) { … }            create(orderId: Order id) { … }
   handle close(orderId: Order id) {        }
-    let o = Orders.getById(orderId)        commandHandler close(orderId: Order id) {
-    o.close()                                let o = Orders.getById(orderId)
+    let o = Orders.get(orderId)        commandHandler close(orderId: Order id) {
+    o.close()                                let o = Orders.get(orderId)
   }                                          o.close()
 }                                          }
 ```

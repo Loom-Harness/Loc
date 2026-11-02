@@ -13,7 +13,7 @@
 // instantiates the repository or awaits the call, and every backend renders the
 // unresolved receiver VERBATIM.
 //
-// The give-away is the SAME-CONTEXT sibling `let wo = WorkOrders.getById(...)`
+// The give-away is the SAME-CONTEXT sibling `let wo = WorkOrders.get(...)`
 // in the same body, two lines down: it lowers to a real `repo-let`, gets its
 // repository constructed and its call awaited.  The two lines sit next to each
 // other in the emitted file, one correct and one dangling.
@@ -55,8 +55,8 @@ system CrossContextTest {
       repository WorkOrders for WorkOrder { }
       workflow scheduleWorkOrder transactional {
         create(workOrderId: WorkOrder id, assignTo: Technician id) {
-          let tech = Technicians.getById(assignTo)
-          let wo = WorkOrders.getById(workOrderId)
+          let tech = Technicians.get(assignTo)
+          let wo = WorkOrders.get(workOrderId)
           precondition tech.skills.count > 0
           wo.assign()
         }
@@ -79,10 +79,10 @@ const WHY =
  * correctly two lines below it.  Captured 2026-09-13 by generating this exact
  * system on each backend:
  *
- *   TS      `const tech = Technicians.getById(assignTo);` — no repository
+ *   TS      `const tech = Technicians.get(assignTo);` — no repository
  *           constructed, no `await`                          → TS2304.
  *   .NET    `var tech = Technicians.GetById(command.AssignTo);`  → CS0103.
- *   Java    `var tech = Technicians.getById(assignTo);`      → "cannot find
+ *   Java    `var tech = Technicians.get(assignTo);`      → "cannot find
  *                                                                symbol".
  *   Python  `tech = Technicians.get_by_id(assign_to)`        → NameError (F821).
  *   Phoenix `with tech <- (technicians.get_by_id(assign_to)),` — the ref is
@@ -102,7 +102,7 @@ const BACKENDS: {
   {
     platform: "node",
     file: "api/http/workflows.ts",
-    dangling: "const tech = Technicians.getById(assignTo);",
+    dangling: "const tech = Technicians.get(assignTo);",
     sibling: "new WorkOrderRepository(",
   },
   {
@@ -114,7 +114,7 @@ const BACKENDS: {
   {
     platform: "java",
     file: "application/workflows/DispatchWorkflows.java",
-    dangling: "var tech = Technicians.getById(assignTo);",
+    dangling: "var tech = Technicians.get(assignTo);",
     sibling: "var wo = workOrdersRepository.getById(workOrderId);",
   },
   {

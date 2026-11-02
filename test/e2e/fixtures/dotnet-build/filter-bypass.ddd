@@ -27,8 +27,8 @@ system PS {
       criterion OrdersNormal of Order = this.total > 0
       workflow Sweep {
         create(x: int) {
-          let scoped = Orders.findAll(BigOrders()) ignoring softDeletable
-          let everything = Orders.findAll(BigOrders()) ignoring *
+          let scoped = Orders.all(BigOrders()) ignoring softDeletable
+          let everything = Orders.all(BigOrders()) ignoring *
           for o in scoped { }
           for o in everything { }
           if let recent = Orders.find(OrdersRecent()) ignoring softDeletable { }

@@ -123,7 +123,7 @@ subdomain Procurement {
     // back too.
     workflow receiveGoods transactional {
       create(poId: PurchaseOrder id, warehouseRef: string) {
-        let po = PurchaseOrders.getById(poId)
+        let po = PurchaseOrders.get(poId)
         let receipt = GoodsReceipt.create(
           poId: poId,
           warehouseRef: warehouseRef

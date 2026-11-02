@@ -49,7 +49,7 @@ system Shop {
       }
       repository Orders for Order { }
       commandHandler CancelOrder(orderId: Order id): Order {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         o.cancel()
         return o
       }
@@ -176,15 +176,15 @@ system Shop {
       }
       repository Orders for Order { }
       queryHandler GetTotal(orderId: Order id): Money {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         return o.total
       }
       queryHandler GetPlacedAt(orderId: Order id): datetime {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         return o.placedAt
       }
       queryHandler GetAmount(orderId: Order id): decimal {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         return o.total.amount
       }
     }
@@ -215,7 +215,7 @@ system Shop {
       }
       repository Orders for Order { }
       queryHandler GetOrder(orderId: Order id): Order {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         return o
       }
     }

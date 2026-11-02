@@ -78,7 +78,7 @@ system InventorySystem {
         create(warehouseId: Warehouse id, sku: string, qty: int) {
           precondition qty > 0
           precondition sku.length > 0
-          let warehouse = Warehouses.getById(warehouseId)
+          let warehouse = Warehouses.get(warehouseId)
           warehouse.reserve(sku, qty)
         }
       }

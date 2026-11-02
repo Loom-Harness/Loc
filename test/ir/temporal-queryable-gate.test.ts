@@ -27,7 +27,7 @@ const sys = (pred: string) => `
     repository Invoices for Invoice
     criterion W(q: datetime) of Invoice = ${pred}
     queryHandler ListW(q: datetime): Invoice[] {
-      let r = Invoices.run(W(q))
+      let r = Invoices.all(W(q))
       return r
     }
   }

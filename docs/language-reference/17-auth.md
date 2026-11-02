@@ -664,7 +664,7 @@ aggregate Order {
 workflow closeOrder {
   orderRef: Order id
   create(e: Shipped) by e.order {
-    let o = Orders.getById(e.order)
+    let o = Orders.get(e.order)
     o.finish()                       // gate evaluated against the system principal
   }
 }
@@ -715,7 +715,7 @@ The request principal is unchanged on the wire: `isSystem` / `causedBy` are opti
 Two diagnostics follow from the rule:
 
 - **`loom.reactor-gate-unsatisfiable`** (warning) — a reactor reaches a `requires` (its own, or the hoisted gate of an operation it calls) that reads `currentUser` and never mentions `currentUser.isSystem`. With every claim empty that gate refuses every event with 403. Add the disjunct, call an ungated operation, or move the check onto the command that emits the event.
-- **`loom.timer-tenant-read`** (error) — a reactor on a `timerSource` tick reads a `tenantOwned` aggregate. A tick has no originating request, so the system principal has no tenant and the read's tenant filter matches nothing. Make the cross-tenant read explicit — a `find` (or inline `Repo.run`) with `ignoring tenantOwned`.
+- **`loom.timer-tenant-read`** (error) — a reactor on a `timerSource` tick reads a `tenantOwned` aggregate. A tick has no originating request, so the system principal has no tenant and the read's tenant filter matches nothing. Make the cross-tenant read explicit — a `find` (or inline `Repo.all`) with `ignoring tenantOwned`.
 
 ## Tenancy — `tenancy by user.<claim> of <Registry>`
 

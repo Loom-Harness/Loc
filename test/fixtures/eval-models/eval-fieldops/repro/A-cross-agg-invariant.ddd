@@ -7,7 +7,7 @@ system P {
       assetId: Asset id
       technicianId: Technician id?
       // THE RULE: technician's skills must cover the asset's required skill
-      invariant Technicians.getById(technicianId).skills.contains(Assets.getById(assetId).requiredSkill)
+      invariant Technicians.get(technicianId).skills.contains(Assets.get(assetId).requiredSkill)
       derived display: string = "w"
     }
     repository Assets for Asset {}

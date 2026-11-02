@@ -56,7 +56,7 @@ describe(".NET workflow handler — repository call sites", () => {
 
   it("injects a repository first used inside an if-let branch body (walks the branches)", async () => {
     const src = await handler(
-      `if let o = Orders.find(ActiveOrder) { let cu = Customers.getById(c.cust)  cu.touch() }`,
+      `if let o = Orders.find(ActiveOrder) { let cu = Customers.get(c.cust)  cu.touch() }`,
     );
     // Customers appears ONLY inside the then-branch — reachable exclusively
     // by recursing into the if-let's bodies.
@@ -76,7 +76,7 @@ describe(".NET workflow handler — repository call sites", () => {
 describe(".NET workflow handler — getById load-or-throw guard covers expression derefs", () => {
   it("guards a load deref'd only via a member read inside an emit field", async () => {
     const src = await handler(
-      `let cu = Customers.getById(c.cust)
+      `let cu = Customers.get(c.cust)
        emit OrderMissing { code: cu.name }`,
     );
     expect(src).toContain("await _customers.GetByIdAsync(");
@@ -85,7 +85,7 @@ describe(".NET workflow handler — getById load-or-throw guard covers expressio
 
   it("guards a load deref'd only inside an op-call ARGUMENT on another aggregate", async () => {
     const src = await handler(
-      `let cu = Customers.getById(c.cust)
+      `let cu = Customers.get(c.cust)
        if let o = Orders.find(ActiveOrder) { o.cancel()  emit OrderMissing { code: cu.name } }`,
     );
     // `cu` is never an op-call target — only its member is read inside the
@@ -94,7 +94,7 @@ describe(".NET workflow handler — getById load-or-throw guard covers expressio
   });
 
   it("leaves a never-dereferenced load unguarded (byte-identity)", async () => {
-    const src = await handler(`let cu = Customers.getById(c.cust)`);
+    const src = await handler(`let cu = Customers.get(c.cust)`);
     expect(src).toContain("await _customers.GetByIdAsync(");
     expect(src).not.toContain("?? throw new AggregateNotFoundException");
   });

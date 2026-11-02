@@ -39,9 +39,9 @@ system P {
       criterion EmbsByOwner(owner: string) of Emb = this.owner == owner
       criterion DocsInRegion(region: string) of Doc = this.region == region
       criterion LedgersByOwner(owner: string) of Ledger = this.owner == owner
-      queryHandler ListEmbsByOwner(owner: string): Emb paged { let r = Embs.run(EmbsByOwner(owner))  return r }
-      queryHandler ListDocsInRegion(region: string): Doc paged { let r = Docs.run(DocsInRegion(region))  return r }
-      queryHandler ListLedgersByOwner(owner: string): Ledger paged { let r = Ledgers.run(LedgersByOwner(owner))  return r }
+      queryHandler ListEmbsByOwner(owner: string): Emb paged { let r = Embs.all(EmbsByOwner(owner))  return r }
+      queryHandler ListDocsInRegion(region: string): Doc paged { let r = Docs.all(DocsInRegion(region))  return r }
+      queryHandler ListLedgersByOwner(owner: string): Ledger paged { let r = Ledgers.all(LedgersByOwner(owner))  return r }
     }
   }
   api A from S {

@@ -17,7 +17,7 @@ system Shop {
     repository Orders for Order { }
     test "persists and reads back an order" {
       let o = Order.create(code: "abc", qty: 2)
-      let found = Order.findById(o.id)
+      let found = Order.find(o.id)
       expect(found.qty).toBe(2)
     }
   } }
@@ -71,7 +71,7 @@ system Ship {
     test "placing transitions to Placed" {
       let o = Order.create(customerId: "c1", status: "Draft")
       o.place()
-      let found = Order.findById(o.id)
+      let found = Order.find(o.id)
       expect(found.status).toBe("Placed")
     }
   } }
@@ -102,7 +102,7 @@ system Ports {
     test "a dock holds a berth naming a ship" {
       let s = Ship.create(name: "Aurora", size: Size.Large)
       let d = Dock.create(name: "North", berth: Berth { ship: s.id, position: 3 })
-      let found = Dock.findById(d.id)
+      let found = Dock.find(d.id)
       expect(found.berth.position).toBe(3)
     }
   } }

@@ -12,13 +12,13 @@ system R08b {
       retrieval PracDay(p: string) of Appt { where: ForPrac(p)  sort: [startAt asc] }
 
       queryHandler ListForPrac(p: string): Appt paged {
-        let r = Appts.run(ForPrac(p))
+        let r = Appts.all(ForPrac(p))
         return r
       }
 
       // Uncomment to reproduce the emitter crash:
       // queryHandler ListViaRetrieval(p: string): Appt paged {
-      //   let r = Appts.run(PracDay(p))
+      //   let r = Appts.all(PracDay(p))
       //   return r
       // }
     }

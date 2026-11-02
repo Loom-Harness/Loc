@@ -51,8 +51,8 @@ system WorkflowTwoHandlesDocumentEventlog {
       // Only the SECOND handle is touched: it saves at the version it read.
       workflow hitViaSecond {
         create(n: Note id) {
-          let first = Notes.getById(n)
-          let second = Notes.getById(n)
+          let first = Notes.get(n)
+          let second = Notes.get(n)
           second.hit()
         }
       }
@@ -60,7 +60,7 @@ system WorkflowTwoHandlesDocumentEventlog {
       // One handle, two changes: never a conflict with itself.
       workflow hitSameTwice {
         create(n: Note id) {
-          let only = Notes.getById(n)
+          let only = Notes.get(n)
           only.hit()
           only.hit()
         }
@@ -70,8 +70,8 @@ system WorkflowTwoHandlesDocumentEventlog {
       // transactional workflow persists neither hit.
       workflow hitTwice transactional {
         create(n: Note id) {
-          let first = Notes.getById(n)
-          let second = Notes.getById(n)
+          let first = Notes.get(n)
+          let second = Notes.get(n)
           first.hit()
           second.hit()
         }
@@ -79,15 +79,15 @@ system WorkflowTwoHandlesDocumentEventlog {
 
       workflow withdrawViaSecond {
         create(a: Account id, amount: int) {
-          let first = Accounts.getById(a)
-          let second = Accounts.getById(a)
+          let first = Accounts.get(a)
+          let second = Accounts.get(a)
           second.withdraw(amount)
         }
       }
 
       workflow withdrawSameTwice {
         create(a: Account id) {
-          let only = Accounts.getById(a)
+          let only = Accounts.get(a)
           only.withdraw(10)
           only.withdraw(10)
         }
@@ -98,8 +98,8 @@ system WorkflowTwoHandlesDocumentEventlog {
       // check both land and the account overdraws past its precondition.
       workflow withdrawTwice transactional {
         create(a: Account id, amount: int) {
-          let first = Accounts.getById(a)
-          let second = Accounts.getById(a)
+          let first = Accounts.get(a)
+          let second = Accounts.get(a)
           first.withdraw(amount)
           second.withdraw(amount)
         }

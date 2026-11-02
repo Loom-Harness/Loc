@@ -291,7 +291,7 @@ system D {
       repository Orders for Order { }
       criterion OrdersWithTag(tag: Tag id) of Order = this.tags.contains(tag)
       queryHandler ListOrdersWithTag(tag: Tag id): Order[] {
-        let r = Orders.run(OrdersWithTag(tag))
+        let r = Orders.all(OrdersWithTag(tag))
         return r
       }
       repository Tags for Tag { }
@@ -681,7 +681,7 @@ system D {
       repository Orders for Order { }
       criterion OrdersByCustomer(customer: string) of Order = this.customer == customer
       queryHandler ListOrdersByCustomer(customer: string): Order[] {
-        let r = Orders.run(OrdersByCustomer(customer))
+        let r = Orders.all(OrdersByCustomer(customer))
         return r
       }
       repository Tags for Tag { }
@@ -841,7 +841,7 @@ system D {
       repository Carts for Cart { }
       criterion CartsByCustomer(customer: string) of Cart = this.customer == customer
       queryHandler ListCartsByCustomer(customer: string): Cart[] {
-        let r = Carts.run(CartsByCustomer(customer))
+        let r = Carts.all(CartsByCustomer(customer))
         return r
       }
     }
@@ -876,7 +876,7 @@ system D {
     );
     // Reads run in-memory over the rehydrated documents (no SQL WHERE).
     expect(repo).toContain("var __all = __rows.Select(__d => Cart.FromSnapshot(");
-    // The criterion read the handler makes (`Carts.run(CartsByCustomer(…))`
+    // The criterion read the handler makes (`Carts.all(CartsByCustomer(…))`
     // → `RunFindAllByCartsByCustomerAsync`) is a method the repository has.
     expect(repo).toContain("RunFindAllByCartsByCustomerAsync(");
     // Snapshot DTOs are emitted; the EF <Agg>Document POCO / configuration are NOT.
@@ -913,7 +913,7 @@ system D {
       repository Carts for Cart { }
       criterion CartsByCustomer(customer: string) of Cart = this.customer == customer
       queryHandler ListCartsByCustomer(customer: string): Cart[] {
-        let r = Carts.run(CartsByCustomer(customer))
+        let r = Carts.all(CartsByCustomer(customer))
         return r
       }
     }
@@ -977,7 +977,7 @@ system D {
       repository Customers for Customer { }
       criterion CustomersByEmail(email: string) of Customer = this.email == email
       queryHandler ListCustomersByEmail(email: string): Customer[] {
-        let r = Customers.run(CustomersByEmail(email))
+        let r = Customers.all(CustomersByEmail(email))
         return r
       }
       repository Vendors for Vendor { }
@@ -1090,7 +1090,7 @@ system D {
       repository Customers for Customer { }
       criterion CustomersByEmail(email: string) of Customer = this.email == email
       queryHandler ListCustomersByEmail(email: string): Customer[] {
-        let r = Customers.run(CustomersByEmail(email))
+        let r = Customers.all(CustomersByEmail(email))
         return r
       }
       repository Vendors for Vendor { }
@@ -1245,7 +1245,7 @@ system D {
         if let x = Invoices.find(InvoicesMine) { return x } else { notFound "not_found" }
       }
       queryHandler ListByNumber(n: string): Invoice[] {
-        let r = Invoices.run(InvoicesByNumber(n))
+        let r = Invoices.all(InvoicesByNumber(n))
         return r
       }
       repository Orgs for Org { }

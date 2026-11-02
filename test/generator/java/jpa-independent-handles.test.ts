@@ -30,8 +30,8 @@ const source = (caps: string): string => `system R {
     repository Carts for Cart { }
     workflow addTwice transactional {
       create(c: Cart id) {
-        let first = Carts.getById(c)
-        let second = Carts.getById(c)
+        let first = Carts.get(c)
+        let second = Carts.get(c)
         first.addLine("A", 1)
         second.addLine("B", 1)
       }

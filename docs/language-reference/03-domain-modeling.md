@@ -858,12 +858,12 @@ context Orders {
   response OrderResponse { reference: string }
 
   commandHandler CloseOrder(cmd: CloseOrder): OrderResponse {
-    let o = Orders.getById(cmd.orderId)
+    let o = Orders.get(cmd.orderId)
     o.close()
     return o
   }
   queryHandler GetOrder(orderId: Order id): OrderResponse {
-    let o = Orders.getById(orderId)
+    let o = Orders.get(orderId)
     return o
   }
 }

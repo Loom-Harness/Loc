@@ -27,14 +27,14 @@ system Shop {
       }
       repository Orders for Order { }
       commandHandler CancelOrder(orderId: Order id): Order id {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         o.cancel()
         return o.id
       }
       workflow cancelTwice transactional {
         create(src: Order id) {
-          let a = Orders.getById(src)
-          let b = Orders.getById(src)
+          let a = Orders.get(src)
+          let b = Orders.get(src)
           a.cancel()
           b.cancel()
         }
@@ -72,8 +72,8 @@ system Bank {
       repository Accounts for Account { }
       workflow depositTwice transactional {
         create(src: Account id) {
-          let a = Accounts.getById(src)
-          let b = Accounts.getById(src)
+          let a = Accounts.get(src)
+          let b = Accounts.get(src)
           a.deposit(1)
           b.deposit(1)
         }

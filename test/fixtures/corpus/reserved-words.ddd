@@ -54,7 +54,7 @@ system ReservedWords {
       // CREATE TABLE.
       criterion TicketsByGroup(g: string) of Ticket = group == g
       queryHandler ListTicketsByGroup(g: string): Ticket[] {
-        let r = Tickets.run(TicketsByGroup(g))
+        let r = Tickets.all(TicketsByGroup(g))
         return r
       }
 

@@ -13,7 +13,7 @@ system P {
     repository WorkOrders for WorkOrder {}
     workflow scheduleWorkOrder {
       create(workOrder: WorkOrder id, technician: Tech id, at: datetime) {
-        let w = WorkOrders.getById(workOrder)
+        let w = WorkOrders.get(workOrder)
         w.schedule(technician, at)
       }
     }

@@ -57,7 +57,7 @@ system W {
     }
     workflow escalateTicket {
       create(id: Ticket id) {
-        let t = Tickets.getById(id)
+        let t = Tickets.get(id)
         t.escalate()
       }
     }
@@ -68,7 +68,7 @@ system W {
         let p = Pin.create(label: "escalated")
       }
     }
-    commandHandler EscalateCmd(ticketId: Ticket id): Ticket id { let t = Tickets.getById(ticketId)  t.escalate()  return t.id }
+    commandHandler EscalateCmd(ticketId: Ticket id): Ticket id { let t = Tickets.get(ticketId)  t.escalate()  return t.id }
   } }
   api A from S { route POST "/tickets/{ticketId}/escalations" -> C.EscalateCmd }
   storage pg { type: postgres }

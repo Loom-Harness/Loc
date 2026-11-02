@@ -47,7 +47,7 @@ system PagedNonRelational {
       repository Invoices for Invoice { }
       criterion InvoicesInRegion(region: string) of Invoice = this.region == region
       queryHandler ListInvoicesInRegion(region: string): Invoice paged {
-        let r = Invoices.run(InvoicesInRegion(region))
+        let r = Invoices.all(InvoicesInRegion(region))
         return r
       }
 
@@ -68,7 +68,7 @@ system PagedNonRelational {
       repository Accounts for Account { }
       criterion AccountsByOwner(owner: string) of Account = this.owner == owner
       queryHandler ListAccountsByOwner(owner: string): Account paged {
-        let r = Accounts.run(AccountsByOwner(owner))
+        let r = Accounts.all(AccountsByOwner(owner))
         return r
       }
     }

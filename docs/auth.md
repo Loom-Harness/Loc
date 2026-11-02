@@ -398,7 +398,7 @@ criterion OrdersMine of Order = customerId == currentUser.customerId
 
 What gets emitted:
 
-A `queryHandler` runs it with `Orders.run(OrdersMine())`:
+A `queryHandler` runs it with `Orders.all(OrdersMine())`:
 
 ```ts
 // db/repositories/order-repository.ts (Hono)

@@ -37,7 +37,7 @@ system CoreShop {
       repository Orders for Order { }
       criterion OrdersByStatus(s: Status) of Order = this.status == s
       queryHandler ListOrdersByStatus(s: Status): Order[] {
-        let r = Orders.run(OrdersByStatus(s))
+        let r = Orders.all(OrdersByStatus(s))
         return r
       }
     }

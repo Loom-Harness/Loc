@@ -67,7 +67,7 @@ system PythonReservedWords {
       // keyword argument on the repository.
       criterion ThingsByDef(def: string, elif: int) of Thing = this.def == def && this.lambda >= elif
       queryHandler ListThingsByDef(def: string, elif: int): Thing[] {
-        let r = Things.run(ThingsByDef(def, elif))
+        let r = Things.all(ThingsByDef(def, elif))
         return r
       }
     }

@@ -20,7 +20,7 @@ system S { subdomain O { context O {
   channel L { carries: OrderPlaced, ShipmentRequested  delivery: broadcast  retention: ephemeral }
   workflow OrderFulfillment { orderId: Order id  attempts: int
     create(p: OrderPlaced) by p.order { let s = Shipment.create(orderRef: p.order, status: "P") emit ShipmentRequested { shipment: s.id, order: p.order } }
-    on(s: ShipmentRequested) by s.order { let sh = Shipments.getById(s.shipment) sh.mark() } }
+    on(s: ShipmentRequested) by s.order { let sh = Shipments.get(s.shipment) sh.mark() } }
 } } api A from O  storage pg { type: postgres }
   resource oState { for: O, kind: state, use: pg }
   deployable api { platform: java  contexts: [O]  serves: A  dataSources: [oState]  port: 8080 } }
@@ -30,7 +30,7 @@ const COMMAND = `
 system S { subdomain O { context O {
   aggregate Customer { name: string  operation rename(n: string) { name := n } }
   repository Customers for Customer { }
-  workflow renameCustomer { create(customerId: Customer id, newName: string) { let c = Customers.getById(customerId) c.rename(newName) } }
+  workflow renameCustomer { create(customerId: Customer id, newName: string) { let c = Customers.get(customerId) c.rename(newName) } }
 } } api A from O  storage pg { type: postgres }
   resource oState { for: O, kind: state, use: pg }
   deployable api { platform: java  contexts: [O]  serves: A  dataSources: [oState]  port: 8080 } }

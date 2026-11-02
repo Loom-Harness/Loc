@@ -26,7 +26,7 @@ system S {
       repository Things for Thing { }
       criterion Ranked(${criterionParam}: int) of Thing = rank == ${criterionParam}
       queryHandler ListRanked(${handlerParam}: int): ${ret} {
-        let r = Things.run(Ranked(${handlerParam}))
+        let r = Things.all(Ranked(${handlerParam}))
         return r
       }
     }

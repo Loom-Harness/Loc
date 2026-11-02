@@ -36,7 +36,7 @@ system AuthSys {
       workflow CancelOrder {
         create(order: Order id) {
           requires currentUser.role == "admin"
-          let o = Orders.getById(order)
+          let o = Orders.get(order)
           o.cancel()
         }
       }

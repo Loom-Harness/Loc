@@ -2,8 +2,8 @@
 // narrows it — in workflow, handler and domain-service bodies.
 //
 //   let c = Customers.find(ByEmail(e))     // Customer?  (select-one)
-//   let o = Orders.findById(oid)           // Order?     (load-optional)
-//   if let o = Orders.findById(oid) { … }  // findById as an `if let` source
+//   let o = Orders.find(oid)           // Order?     (load-optional)
+//   if let o = Orders.find(oid) { … }  // findById as an `if let` source
 //   if let o = x { … }                     // narrowing a binding in scope
 //
 // A member read of the binding before it is narrowed is refused at phase ④
@@ -47,7 +47,7 @@ system S {
       }
       workflow W {
         create(c: C) {
-          ${body.workflow ?? "let x = Orders.findById(c.oid)\n          if let o = x { o.touch() }"}
+          ${body.workflow ?? "let x = Orders.find(c.oid)\n          if let o = x { o.touch() }"}
         }
       }
     }
@@ -103,7 +103,7 @@ describe("lowering", () => {
   });
 
   it("`findById` is an `if let` source", async () => {
-    const ctx = await ctxOf(sys({ workflow: "if let o = Orders.findById(c.oid) { o.touch() }" }));
+    const ctx = await ctxOf(sys({ workflow: "if let o = Orders.find(c.oid) { o.touch() }" }));
     const il = first(ctx.workflows[0]!.creates[0]!.statements, "if-let");
     expect(il).toMatchObject({ op: "load-optional", repoName: "Orders", aggName: "Order" });
     expect(il.retrievalArgs).toHaveLength(1);
@@ -127,7 +127,7 @@ describe("lowering", () => {
     const ctx = await ctxOf(sys({}));
     expect(workflowCanAnswerNotFound(ctx.workflows[0]!)).toBe(false);
     const must = await ctxOf(
-      sys({ workflow: "let o = Orders.getById(c.oid)\n          o.touch()" }),
+      sys({ workflow: "let o = Orders.get(c.oid)\n          o.touch()" }),
     );
     expect(workflowCanAnswerNotFound(must.workflows[0]!)).toBe(true);
   });
@@ -140,15 +140,15 @@ describe("a guarded optional binding is clean in every body", () => {
 
   it("every optional read, each guarded", async () => {
     const src = sys({
-      handler: `let b = Orders.findById(oid)
+      handler: `let b = Orders.find(oid)
         let k = Orders.findBy(code: code)
         let d = Orders.find(OrderCode(code))
         precondition b == null
         if let o = k { o.touch() } else { if let p = d { p.touch() } }`,
-      service: "let o = Orders.findById(oid)\n          return o != null ? o.qty > 0 : false",
+      service: "let o = Orders.find(oid)\n          return o != null ? o.qty > 0 : false",
       workflow: `let a = Customers.find(ByEmail(c.e))
           precondition a != null
-          let x = Orders.findById(c.oid)
+          let x = Orders.find(c.oid)
           if let x = x { x.touch() }`,
     });
     expect(await errorCodes(src)).toEqual([]);
@@ -160,18 +160,18 @@ describe("an un-narrowed optional binding is refused when dereferenced", () => {
 
   it("a member read in a handler (phase ④)", async () => {
     const src = sys({
-      handler: "let o = Orders.findById(oid)\n        precondition o.qty > 0",
+      handler: "let o = Orders.find(oid)\n        precondition o.qty > 0",
     });
     expect(await errorCodes(src)).toContain(NULLABLE);
   });
 
   it("a member read in a domain service (phase ④)", async () => {
-    const src = sys({ service: "let o = Orders.findById(oid)\n          return o.qty > 0" });
+    const src = sys({ service: "let o = Orders.find(oid)\n          return o.qty > 0" });
     expect(await errorCodes(src)).toContain(NULLABLE);
   });
 
   it("an op-call statement in a workflow (phase ⑦), naming the binding", async () => {
-    const src = sys({ workflow: "let x = Orders.findById(c.oid)\n          x.touch()" });
+    const src = sys({ workflow: "let x = Orders.find(c.oid)\n          x.touch()" });
     const { model } = await parseString(src, { validate: false });
     const hits = validateLoomModel(enrichLoomModel(lowerModel(model))).filter(
       (d) => d.code === NULLABLE,
@@ -186,19 +186,19 @@ describe("an un-narrowed optional binding is refused when dereferenced", () => {
   it("an op-call in a handler, and in the else branch of an `if let`", async () => {
     for (const handler of [
       "let x = Customers.find(ByEmail(e))\n        x.touch()",
-      "let x = Orders.find(OrderCode(code))\n        if let y = Orders.findById(oid) { y.touch() } else { x.touch() }",
+      "let x = Orders.find(OrderCode(code))\n        if let y = Orders.find(oid) { y.touch() } else { x.touch() }",
     ]) {
       expect(await errorCodes(sys({ handler })), handler).toContain(NULLABLE);
     }
   });
 
   it("a repository delete of the binding", async () => {
-    const src = sys({ handler: "let x = Orders.findById(oid)\n        Orders.delete(x)" });
+    const src = sys({ handler: "let x = Orders.find(oid)\n        Orders.remove(x)" });
     expect(await errorCodes(src)).toContain(NULLABLE);
   });
 
   it("CONTROL — `getById` binds the row, which an op-call may use", async () => {
-    const src = sys({ handler: "let x = Orders.getById(oid)\n        x.touch()" });
+    const src = sys({ handler: "let x = Orders.get(oid)\n        x.touch()" });
     expect(await errorCodes(src)).not.toContain(NULLABLE);
   });
 });
@@ -206,8 +206,8 @@ describe("an un-narrowed optional binding is refused when dereferenced", () => {
 describe("`if let` sources that are not optional reads", () => {
   it("`getById` and a non-optional binding stay bad sources", async () => {
     for (const workflow of [
-      "if let o = Orders.getById(c.oid) { o.touch() }",
-      "let g = Orders.getById(c.oid)\n          if let o = g { o.touch() }",
+      "if let o = Orders.get(c.oid) { o.touch() }",
+      "let g = Orders.get(c.oid)\n          if let o = g { o.touch() }",
     ]) {
       expect(await errorCodes(sys({ workflow })), workflow).toContain("loom.iflet-bad-source");
     }

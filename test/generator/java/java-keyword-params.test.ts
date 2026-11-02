@@ -66,7 +66,7 @@ system Probe {
       criterion InRegion(case: string) of Order = region == case
 
       commandHandler BumpR(case: Order id, final: int): Order id {
-        let o = Orders.getById(case)
+        let o = Orders.get(case)
         let k = [1, 2].where(final => final > 0).count
         o.bump(final + k)
         return o.id
@@ -76,10 +76,10 @@ system Probe {
       workflow LetW {
         create(do: Order id, final: int) {
           let n = [1, 2].where(final => final > 0).count
-          let case = Orders.getById(do)
+          let case = Orders.get(do)
           case.bump(final + n)
           let new = Order.create(status: "s", qty: final, region: "r")
-          let default = Orders.run(ByReg("r"))
+          let default = Orders.all(ByReg("r"))
           for final in default {
             final.bump(1)
           }

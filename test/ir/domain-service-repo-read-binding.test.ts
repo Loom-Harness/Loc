@@ -59,14 +59,14 @@ system RosterSys {
       // the other half: bind findAll as one aggregate and .count emits verbatim;
       // bind findById as non-null and every backend dereferences it unguarded
       // (and .NET/elixir emit a method name that does not even exist).
-      operation builtinGetById(o: Owner id): string { let f = Owners.getById(o)  return f.label }
-      operation builtinFindById(o: Owner id): string { let f = Owners.findById(o)  return f != null ? f.label : "" }
-      operation builtinFindAll(): bool { let f = Owners.findAll()  return f.count > 0 }
+      operation builtinGetById(o: Owner id): string { let f = Owners.get(o)  return f.label }
+      operation builtinFindById(o: Owner id): string { let f = Owners.find(o)  return f != null ? f.label : "" }
+      operation builtinFindAll(): bool { let f = Owners.all()  return f.count > 0 }
       operation builtinAll(): bool { let f = Owners.all()  return f.count > 0 }
       // the criterion / retrieval shapes
-      operation criterionAll(t: string): bool { let f = Owners.findAll(InTier(t))  return f.count > 0 }
+      operation criterionAll(t: string): bool { let f = Owners.all(InTier(t))  return f.count > 0 }
       operation criterionOne(t: string): bool { let f = Owners.find(InTier(t))  return f == null }
-      operation retrievalRun(): bool { let f = Owners.run(TopOwners)  return f.count > 0 }
+      operation retrievalRun(): bool { let f = Owners.all(TopOwners)  return f.count > 0 }
     }
   } }
 

@@ -92,7 +92,7 @@ const PREFIX = system(`
         repository Docs for Doc { }
         criterion DocsUnder(prefix: string) of Doc = this.path.startsWith(prefix)
         queryHandler ListDocsUnder(prefix: string): Doc[] {
-          let r = Docs.findAll(DocsUnder(prefix))
+          let r = Docs.all(DocsUnder(prefix))
           return r
         }
 `);
@@ -144,7 +144,7 @@ const PRINCIPAL = system(`
         repository Docs for Doc { }
         criterion Mine of Doc = this.owner == currentUser.tenantId
         queryHandler ListMine(): Doc[] {
-          let r = Docs.findAll(Mine())
+          let r = Docs.all(Mine())
           return r
         }
         queryHandler GetMine(): Doc {
@@ -236,7 +236,7 @@ const MEMBERSHIP_SYSTEM = `
         repository Docs for Doc { }
         criterion DocsTagged(t: Tag id) of Doc = this.tags.contains(t)
         queryHandler ListDocsTagged(t: Tag id): Doc[] {
-          let r = Docs.findAll(DocsTagged(t))
+          let r = Docs.all(DocsTagged(t))
           return r
         }
     `;

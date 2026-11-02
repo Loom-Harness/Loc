@@ -62,7 +62,7 @@ system ExternShowcase {
       // dance the auto HTTP route does.
       workflow confirmOrder {
         create(orderId: Order id) {
-          let order = Orders.getById(orderId)
+          let order = Orders.get(orderId)
           order.confirm()
         }
       }

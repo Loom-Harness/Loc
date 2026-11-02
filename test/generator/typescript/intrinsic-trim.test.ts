@@ -53,15 +53,15 @@ describe("typescript generator — A3 math intrinsics end-to-end", () => {
       criterion InvoicesQtyNear(n: int) of Invoice = this.qty.abs() == n.abs()
       criterion InvoicesCapped(a: decimal) of Invoice = this.amount.min(a) == a
       queryHandler ListPricier(m: money): Invoice[] {
-        let r = Invoices.findAll(InvoicesPricier(m))
+        let r = Invoices.all(InvoicesPricier(m))
         return r
       }
       queryHandler ListQtyNear(n: int): Invoice[] {
-        let r = Invoices.findAll(InvoicesQtyNear(n))
+        let r = Invoices.all(InvoicesQtyNear(n))
         return r
       }
       queryHandler ListCapped(a: decimal): Invoice[] {
-        let r = Invoices.findAll(InvoicesCapped(a))
+        let r = Invoices.all(InvoicesCapped(a))
         return r
       }
     }

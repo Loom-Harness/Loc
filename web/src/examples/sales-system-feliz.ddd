@@ -140,8 +140,8 @@ system SalesSystem {
       workflow placeOrder transactional {
         create(customerId: Customer id, productId: Product id, qty: int) {
           precondition qty > 0
-          let customer = Customers.getById(customerId)
-          let product = Products.getById(productId)
+          let customer = Customers.get(customerId)
+          let product = Products.get(productId)
           let order = Order.create(
             customerId: customer.id,
             status: Draft,

@@ -23,12 +23,12 @@ system ImplicitFindFilter {
       criterion ByReference(reference: string) of WorkOrder = this.reference == reference
       criterion WorkOrdersByRegionAndRef(region: string, reference: string) of WorkOrder = this.region == region && this.reference == reference
       queryHandler ListWorkOrdersByRegionAndRef(region: string, reference: string): WorkOrder[] {
-        let r = WorkOrders.run(WorkOrdersByRegionAndRef(region, reference))
+        let r = WorkOrders.all(WorkOrdersByRegionAndRef(region, reference))
         return r
       }
       criterion WorkOrdersInRegion(region: string) of WorkOrder = this.region == region
       queryHandler ListWorkOrdersInRegion(region: string): WorkOrder paged {
-        let r = WorkOrders.run(WorkOrdersInRegion(region))
+        let r = WorkOrders.all(WorkOrdersInRegion(region))
         return r
       }
     }

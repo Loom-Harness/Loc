@@ -311,7 +311,7 @@ aggregate Car   extends Vehicle { seats: int }
 aggregate Truck extends Vehicle { payload: int }
 repository Trucks for Truck { }
 criterion TrucksByPlate(plate: string) of Truck = this.plate == plate
-// … let all = Trucks.run(TrucksByPlate(plate)) ignoring softDeletable
+// … let all = Trucks.all(TrucksByPlate(plate)) ignoring softDeletable
 ```
 
 ```ts

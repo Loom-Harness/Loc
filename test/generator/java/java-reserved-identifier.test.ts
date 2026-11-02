@@ -82,7 +82,7 @@ system RW {
       repository Tickets for Ticket
       criterion ByCase(case: string) of Ticket = this.case == case
       queryHandler ListByCase(case: string): Ticket paged {
-        let r = Tickets.run(ByCase(case))
+        let r = Tickets.all(ByCase(case))
         return r
       }
     }

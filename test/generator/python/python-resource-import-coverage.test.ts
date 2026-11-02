@@ -63,7 +63,7 @@ const IF_LET_SRC = system(`          if let o = Orders.find(ByRef(name)) {
           }`);
 
 const FOR_EACH_SRC =
-  system(`          let hits = Orders.findAll(ByRef(name), page: { offset: 0, limit: 50 })
+  system(`          let hits = Orders.all(ByRef(name), page: { offset: 0, limit: 50 })
           for o in hits {
             salesFiles.put("orders/" + name, name)
             salesJobs.enqueue(name)

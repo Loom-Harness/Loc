@@ -240,7 +240,7 @@ describe("Agg.create({…}) nested in a workflow branch (claims eval D5)", () =>
       retrieval Active of Rep { where: active }
       workflow fileAll {
         create(lossDate: datetime, description: string) {
-          let rs = Reps.run(Active)
+          let rs = Reps.all(Active)
           for r in rs {
             if let x = Reps.find(ForPid(r.pid)) {
               let c = Claim.create(lossDate: lossDate, description: description)

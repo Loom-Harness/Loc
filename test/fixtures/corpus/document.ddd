@@ -23,7 +23,7 @@ system DocSys {
       // PAGED: a non-relational repository serves a criterion read through the
       // synthesised paged find; an unpaged `run` has no repository method there.
       queryHandler ListArticlesPopular(min: int): Article paged {
-        let r = Articles.run(ArticlesPopular(min))
+        let r = Articles.all(ArticlesPopular(min))
         return r
       }
       // A capability `filter` on a document aggregate (PROMOTED from the
@@ -42,7 +42,7 @@ system DocSys {
       repository Drafts for Draft { }
       criterion DraftsByTitle(t: string) of Draft = this.title == t
       queryHandler ListDraftsByTitle(t: string): Draft paged {
-        let r = Drafts.run(DraftsByTitle(t))
+        let r = Drafts.all(DraftsByTitle(t))
         return r
       }
     }

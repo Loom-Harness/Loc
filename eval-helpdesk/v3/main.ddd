@@ -233,7 +233,7 @@ system Helpdesk {
       workflow askForRating requires currentUser.permissions.contains(permissions.ticketsAdmin) {
         ticket: Ticket id
         create(e: TicketResolved) by e.ticket {
-          let c = Customers.getById(e.requester)
+          let c = Customers.get(e.requester)
           let s = Survey.create(ticket: e.ticket, requester: e.requester)
           mail.send(c.email, "How did we do?", "Please rate your ticket: /surveys/" + s.id)
         }
@@ -246,7 +246,7 @@ system Helpdesk {
       workflow escalateOverdue requires currentUser.permissions.contains(permissions.ticketsAdmin) {
         run: EscalationRun id
         create(t: EscalationTick) by t.run {
-          let due = Tickets.run(OverdueCandidates(t.at - hours(24)))
+          let due = Tickets.all(OverdueCandidates(t.at - hours(24)))
           for tk in due {
             tk.escalate()
           }

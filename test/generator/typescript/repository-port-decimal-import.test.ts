@@ -20,7 +20,7 @@ system Shop {
       repository Products for Product { }
       criterion ProductsByFloorPrice(whole: money) of Product = this.price.floor() == whole
       queryHandler ListByFloorPrice(whole: money): Product[] {
-        let r = Products.findAll(ProductsByFloorPrice(whole))
+        let r = Products.all(ProductsByFloorPrice(whole))
         return r
       }
     }
@@ -44,8 +44,8 @@ const withoutMoneyFind = withMoneyFind
     "criterion ProductsByName(q: string) of Product = this.name == q",
   )
   .replace(
-    "ListByFloorPrice(whole: money): Product[] {\n        let r = Products.findAll(ProductsByFloorPrice(whole))",
-    "ListByName(q: string): Product[] {\n        let r = Products.findAll(ProductsByName(q))",
+    "ListByFloorPrice(whole: money): Product[] {\n        let r = Products.all(ProductsByFloorPrice(whole))",
+    "ListByName(q: string): Product[] {\n        let r = Products.all(ProductsByName(q))",
   );
 
 function portsFile(files: Map<string, string>): string {

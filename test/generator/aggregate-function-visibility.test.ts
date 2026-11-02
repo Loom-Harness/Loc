@@ -72,8 +72,8 @@ const CROSS_AGGREGATE = (platform: string) => `system R16 {
     repository Jobs for Job { }
     workflow assign transactional {
       create(job: Job id, tech: Tech id) {
-        let j = Jobs.getById(job)
-        let t = Techs.getById(tech)
+        let j = Jobs.get(job)
+        let t = Techs.get(tech)
         precondition t.hasSkill("physio")
         j.finish()
       }

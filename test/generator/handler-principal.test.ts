@@ -24,7 +24,7 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 const USER_HANDLERS = `
       queryHandler FindForAgent(s: string): Ticket[] {
         requires currentUser.role == "agent"
-        let r = Tickets.run(BySubject(s))
+        let r = Tickets.all(BySubject(s))
         return r
       }
       queryHandler WhoAmI(): string {
@@ -45,7 +45,7 @@ system Sys {
       repository Tickets for Ticket { }
       criterion BySubject(s: string) of Ticket = this.subject == s${withUser ? USER_HANDLERS : ""}
       queryHandler FindPlain(s: string): Ticket[] {
-        let r = Tickets.run(BySubject(s))
+        let r = Tickets.all(BySubject(s))
         return r
       }
     }

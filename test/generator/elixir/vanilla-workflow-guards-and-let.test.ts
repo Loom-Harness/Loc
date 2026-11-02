@@ -134,7 +134,7 @@ system PageLet {
       workflow escalateBacklog {
         create(p: Priority) {
           let cap = 50
-          let batch = Orders.run(PendingByPriority(p), page: { offset: 0, limit: cap })
+          let batch = Orders.all(PendingByPriority(p), page: { offset: 0, limit: cap })
           for o in batch {
             o.escalate()
           }

@@ -72,7 +72,7 @@ system KwSys {
       workflow Spawn {
         create(end: int, fn: string, receive: string) {
           let do = fn
-          let rows = Kws.run(EndsAt(end), page: { offset: 0, limit: 10 })
+          let rows = Kws.all(EndsAt(end), page: { offset: 0, limit: 10 })
           for catch in rows {
             let k2 = Kw.create(after: catch.after, end: end, fn: do, do: do, quote: receive)
           }

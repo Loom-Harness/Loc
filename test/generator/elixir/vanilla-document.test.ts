@@ -180,7 +180,7 @@ system Carting {
       repository Carts for Cart { }
       criterion CartsCheckedOutOnes of Cart = this.status == checkedOut
       queryHandler ListCheckedOut(): Cart paged {
-        let r = Carts.run(CartsCheckedOutOnes())
+        let r = Carts.all(CartsCheckedOutOnes())
         return r
       }
     }
@@ -347,7 +347,7 @@ system Shop {
       repository Tickets for Ticket { }
       criterion ByStatus(status: Status) of Ticket = this.status == status
       queryHandler ListByStatus(status: Status): Ticket paged {
-        let r = Tickets.run(ByStatus(status))
+        let r = Tickets.all(ByStatus(status))
         return r
       }
     }

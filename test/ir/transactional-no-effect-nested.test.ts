@@ -26,7 +26,7 @@ system Tx {
       repository Jobs for Job { }
       workflow sweep transactional {
         create(needle: string) {
-          let matched = Jobs.run(ByName(needle), page: { offset: 0, limit: 100 })
+          let matched = Jobs.all(ByName(needle), page: { offset: 0, limit: 100 })
           for j in matched {
             ${loopBody}
           }
@@ -52,7 +52,7 @@ describe("transactional-no-effect sees an effect nested in a for-each", () => {
   it.each([
     ["an emit", "emit Pinged { job: j.id }"],
     ["a factory let", "let c = Job.create(name: j.name)"],
-    ["a repository delete", "Jobs.delete(j)"],
+    ["a repository delete", "Jobs.remove(j)"],
   ])("%s inside the loop is an effect", async (_label, body) => {
     const diags = await diagnose(body);
     expect(diags.filter((d) => d.severity === "error")).toEqual([]);

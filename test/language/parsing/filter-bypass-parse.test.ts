@@ -68,7 +68,7 @@ describe("ignoring filter-bypass clause parses", () => {
   });
 
   it("single-row read: `ignoring *` sets bypassAll", async () => {
-    const read = await letRead(sweep("R.findById(x) ignoring *"));
+    const read = await letRead(sweep("R.find(x) ignoring *"));
     expect(read.bypassAll).toBe(true);
     expect(read.bypass).toEqual([]);
   });
@@ -82,7 +82,7 @@ describe("ignoring filter-bypass clause parses", () => {
     const source = wrap(`repository R for Order { }
       workflow Sweep {
         create(x: int) {
-          let xs = R.findAll(BigOrders()) ignoring softDeletable
+          let xs = R.all(BigOrders()) ignoring softDeletable
           for o in xs { }
         }
       }`);
@@ -107,7 +107,7 @@ describe("ignoring filter-bypass clause parses", () => {
     const source = wrap(`repository R for Order { }
       workflow Sweep {
         create(x: int) {
-          let ys = R.findAll(BigOrders()) ignoring *
+          let ys = R.all(BigOrders()) ignoring *
           for o in ys { }
         }
       }`);

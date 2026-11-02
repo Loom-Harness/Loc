@@ -72,8 +72,8 @@ const SERVICE_SRC = `system PyMutating {
       }
       workflow MoveMoney transactional {
         create(src: Account id, dst: Account id, amount: decimal) {
-          let s = Accounts.getById(src)
-          let d = Accounts.getById(dst)
+          let s = Accounts.get(src)
+          let d = Accounts.get(dst)
           let fee = amount + amount
           Transfer.run(s, d, fee)
         }
@@ -94,9 +94,9 @@ const DELETE_SRC = `system PyDel {
       repository Orders for Order { }
       workflow Purge {
         create(oid: Order id) {
-          let target = Orders.getById(oid)
+          let target = Orders.get(oid)
           let doomed = target
-          Orders.delete(doomed)
+          Orders.remove(doomed)
         }
       }
     }
@@ -135,7 +135,7 @@ const READ_PORT_SRC = `system PyPorts {
       }
       workflow Note transactional {
         create(src: Account id, code: string) {
-          let s = Accounts.getById(src)
+          let s = Accounts.get(src)
           Audit.record(s, code)
         }
       }

@@ -56,7 +56,7 @@ const source = (isolation: string): string => `system R {
     }
     workflow pay transactional${isolation} {
       create(src: Acct id, reference: string) {
-        let s = Accts.getById(src)
+        let s = Accts.get(src)
         s.debit(money("10"))
         let t = Transfer.create(reference: reference, source: src)
       }

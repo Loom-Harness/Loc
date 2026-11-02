@@ -14,7 +14,7 @@ context Sched {
     unique (practitioner, startAt)
 
     // attempt 2: a set-level invariant referring to the repository
-    invariant Appointments.run(OverlapsExisting(practitioner, startAt, endsAt)).count == 0
+    invariant Appointments.all(OverlapsExisting(practitioner, startAt, endsAt)).count == 0
   }
   criterion OverlapsExisting(p: Practitioner id, s: datetime, e: datetime) of Appointment =
     practitioner == p && startAt < e && endsAt > s

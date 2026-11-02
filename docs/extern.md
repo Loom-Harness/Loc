@@ -392,7 +392,7 @@ other public operation:
 
 ```ddd
 workflow placeAndConfirm(orderId: Order id) {
-  let order = Orders.getById(orderId)
+  let order = Orders.get(orderId)
   order.confirm()   // confirm() is extern — workflow runs the dance
 }
 ```

@@ -26,7 +26,7 @@ system Shop {
       // (1) if-let nested inside a for-each body.
       workflow ifLetInForEach {
         create(d: bool) {
-          let xs = Orders.run(PendingQ(d), page: { offset: 0, limit: 50 })
+          let xs = Orders.all(PendingQ(d), page: { offset: 0, limit: 50 })
           for x in xs {
             if let o = Orders.find(Pending(d)) { x.confirm() }
           }
@@ -37,7 +37,7 @@ system Shop {
       workflow forEachInIfLet {
         create(d: bool) {
           if let o = Orders.find(Pending(d)) {
-            let ys = Orders.run(PendingQ(d))
+            let ys = Orders.all(PendingQ(d))
             for y in ys { y.confirm() }
           }
         }
@@ -56,9 +56,9 @@ system Shop {
       //     branch-local repo-run binding).
       workflow forEachInForEach {
         create(d: bool) {
-          let xs = Orders.run(PendingQ(d))
+          let xs = Orders.all(PendingQ(d))
           for x in xs {
-            let ys = Orders.run(PendingQ(d))
+            let ys = Orders.all(PendingQ(d))
             for y in ys { y.confirm() }
           }
         }

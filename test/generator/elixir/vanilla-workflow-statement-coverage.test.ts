@@ -66,7 +66,7 @@ describe("vanilla for-each body — broader statement set", () => {
   const SRC = wrap(`
       workflow batchConfirm {
         create(d: bool) {
-          let xs = Orders.run(PendingQ(d), page: { offset: 0, limit: 50 })
+          let xs = Orders.all(PendingQ(d), page: { offset: 0, limit: 50 })
           for x in xs {
             x.confirm()
             emit Confirmed { order: x.id }
@@ -93,7 +93,7 @@ describe("vanilla for-each body — broader statement set", () => {
     const src = wrap(`
       workflow loneConfirm {
         create(d: bool) {
-          let xs = Orders.run(PendingQ(d), page: { offset: 0, limit: 50 })
+          let xs = Orders.all(PendingQ(d), page: { offset: 0, limit: 50 })
           for x in xs { x.confirm() }
         }
       }`);
@@ -134,7 +134,7 @@ describe("vanilla if-let branches — broader statement set", () => {
 
 describe("vanilla exception-less returning op — collection mutations + call", () => {
   const SRC = wrap(`
-      workflow noop { create(d: bool) { let xs = Orders.run(PendingQ(d)) for x in xs { } } }`);
+      workflow noop { create(d: bool) { let xs = Orders.all(PendingQ(d)) for x in xs { } } }`);
 
   it("renders add/remove collection mutations and a bare call (no # TODO)", async () => {
     const ctx = await fileEndingIn(SRC, "/orders.ex");
@@ -166,7 +166,7 @@ describe("vanilla nested control flow — for-each / if-let bodies recurse", () 
     const wf = await fileEndingIn(
       wrap(`workflow ifLetInForEach {
         create(d: bool) {
-          let xs = Orders.run(PendingQ(d), page: { offset: 0, limit: 50 })
+          let xs = Orders.all(PendingQ(d), page: { offset: 0, limit: 50 })
           for x in xs { if let o = Orders.find(Pending(d)) { x.confirm() } }
         }
       }`),
@@ -182,7 +182,7 @@ describe("vanilla nested control flow — for-each / if-let bodies recurse", () 
       wrap(`workflow forEachInIfLet {
         create(d: bool) {
           if let o = Orders.find(Pending(d)) {
-            let ys = Orders.run(PendingQ(d))
+            let ys = Orders.all(PendingQ(d))
             for y in ys { y.confirm() }
           }
         }
@@ -213,9 +213,9 @@ describe("vanilla nested control flow — for-each / if-let bodies recurse", () 
     const wf = await fileEndingIn(
       wrap(`workflow forEachInForEach {
         create(d: bool) {
-          let xs = Orders.run(PendingQ(d))
+          let xs = Orders.all(PendingQ(d))
           for x in xs {
-            let ys = Orders.run(PendingQ(d))
+            let ys = Orders.all(PendingQ(d))
             for y in ys { y.confirm() }
           }
         }
@@ -232,7 +232,7 @@ describe("vanilla nested control flow — for-each / if-let bodies recurse", () 
     const wf = await fileEndingIn(
       wrap(`workflow unusedRow {
         create(d: bool) {
-          let xs = Orders.run(PendingQ(d))
+          let xs = Orders.all(PendingQ(d))
           for x in xs { if let o = Orders.find(Pending(d)) { o.confirm() } }
         }
       }`),

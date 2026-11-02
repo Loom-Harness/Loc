@@ -41,7 +41,7 @@ system FindAllShape {
     context C {
       aggregate Doc${shape} { title: string  derived display: string = title }
       repository Docs for Doc
-      workflow touch { create(doc: Doc id) { let d = Docs.getById(doc) } }
+      workflow touch { create(doc: Doc id) { let d = Docs.get(doc) } }
     }
   }
   ui Web with scaffold(subdomains: [S]) { }

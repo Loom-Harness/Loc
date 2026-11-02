@@ -633,7 +633,7 @@ system TpcUnique {
   // none (the in-process dispatcher drops whatever it would return).
   "loom.workflow-return-no-caller": workflowResult(`
       create(e: Opened): int by e.account {
-        let a = Accounts.getById(e.account)
+        let a = Accounts.get(e.account)
         return a.balance
       }`),
   // A `return` before the last statement would be lowered apart from the body
@@ -724,7 +724,7 @@ system ReactorGate {
       workflow closeOrder {
         orderRef: Order id
         create(e: Shipped) by e.order {
-          let o = Orders.getById(e.order)
+          let o = Orders.get(e.order)
           o.finish()
         }
       }
@@ -858,7 +858,7 @@ system PagedParam {
     repository Things for Thing
     criterion ThingsByRank(page: int) of Thing = this.rank == page
     queryHandler ListThingsByRank(page: int): Thing paged {
-      let r = Things.run(ThingsByRank(page))
+      let r = Things.all(ThingsByRank(page))
       return r
     }
   } }
@@ -1182,13 +1182,13 @@ system S {
     repository As for A`),
 
   // A cross-aggregate invariant that reads through a repository.  It validated
-  // clean and emitted `Technicians.getById(...)` into the per-instance floor —
+  // clean and emitted `Technicians.get(...)` into the per-instance floor —
   // TS2304 on hono, the same unresolvable symbol on .NET/java, and on elixir the
   // rule was silently emitted nowhere at all.
   "loom.rule-expr-impure": repoOnly(`    aggregate Technician with crudish { skill: string }
     aggregate WorkOrder with crudish {
       technicianId: Technician id
-      invariant Technicians.getById(technicianId).skill.length > 0
+      invariant Technicians.get(technicianId).skill.length > 0
     }
     repository Technicians for Technician
     repository WorkOrders for WorkOrder`),
@@ -1336,7 +1336,7 @@ system S {
     repository Orders for Order
     workflow resolve {
       create(id: Order id) {
-        let label = match Orders.getById(id) { Order o => o.code, NotFound => "" }
+        let label = match Orders.get(id) { Order o => o.code, NotFound => "" }
       }
     }`),
 
@@ -1923,7 +1923,7 @@ system P {
     repository Orders for Order
     workflow W {
       create(oid: Order id) {
-        let o = Orders.getById(oid)
+        let o = Orders.get(oid)
         let r = o.rename("x")
       }
     }`),
@@ -1953,7 +1953,7 @@ system P {
     repository Orders for Order
     workflow W {
       create(oid: Order id) {
-        let o = Orders.getById(oid)
+        let o = Orders.get(oid)
         o.rename("x")
         Orders.save(o)
       }
@@ -1970,8 +1970,8 @@ system P {
     repository Others for Other
     workflow W {
       create(tid: Thing id) {
-        let t = Things.getById(tid)
-        precondition t.name == Others.getById(t.otherId).label
+        let t = Things.get(tid)
+        precondition t.name == Others.get(t.otherId).label
       }
     }`),
   // The code whose "covered by message in validation.test.ts" claim outlived
@@ -2072,7 +2072,7 @@ system S {
     criterion ActiveOrder of Order = region != ""
     command C { region: string }
     workflow W {
-      create(c: C) { let xs = Orders.run(retrieval { where: this.region == c.region }) }
+      create(c: C) { let xs = Orders.all(this.region == c.region) }
     }
   } }
 }`,
@@ -2088,7 +2088,7 @@ system S {
     retrieval ByRegion(rgn: string) of Order { where: InRegion(rgn)  sort: [code asc] }
     queryHandler ListViaRetrieval(rgn: string): Order paged {
       let tag = "x"
-      let r = Orders.run(ByRegion(rgn))
+      let r = Orders.all(ByRegion(rgn))
       return r
     }
   } }
@@ -2111,7 +2111,7 @@ system S {
     retrieval ActiveOrders() of Order { where: Active  sort: [code asc] }
     repository Orders for Order
     workflow W {
-      create(n: string) { let batch = Orders.run(Nope()) }
+      create(n: string) { let batch = Orders.all(Nope()) }
     }`),
 
   // --- the last singletons, each DRIVEN before being classified -----------
@@ -2306,8 +2306,8 @@ system S {
       repository WorkOrders for WorkOrder
       workflow scheduleWorkOrder transactional {
         create(workOrderId: WorkOrder id, assignTo: Technician id) {
-          let tech = Technicians.getById(assignTo)
-          let wo = WorkOrders.getById(workOrderId)
+          let tech = Technicians.get(assignTo)
+          let wo = WorkOrders.get(workOrderId)
           precondition tech.skills.count > 0
           wo.assign()
         }
@@ -2329,7 +2329,7 @@ system S {
       assignedName: string
       operation assign(assignTo: Technician id) {
         technicianId := assignTo
-        assignedName := Technicians.getById(assignTo).name
+        assignedName := Technicians.get(assignTo).name
       }
     }
     repository Jobs for Job
@@ -3949,7 +3949,7 @@ const UNREACHABLE_PINS: Record<string, string> = {
   "loom.workflow-run-unknown-repository":
     "`Missing.run(ActiveOrders())` raises `loom.unknown-name` and never lowers to a `repo-run`, " +
     "so the repository half of that arm is unreachable — while its RETRIEVAL half is drivable " +
-    "(`Orders.run(Nope())`) and has a fixture.  Both halves driven; only this one is dead.",
+    "(`Orders.all(Nope())`) and has a fixture.  Both halves driven; only this one is dead.",
   "loom.isolation-requires-transactional":
     "The gate calls itself defence-in-depth against a future grammar change, and the grammar " +
     "still gates `isolation:` behind `transactional`: a workflow carrying `isolation:` alone is " +

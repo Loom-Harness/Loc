@@ -39,7 +39,7 @@ system WfGate {
       repository Tickets for Ticket { }
       workflow Sweep {
         create run(ticketId: Ticket id, note: string) requires currentUser.role == "ops" {
-          let t = Tickets.getById(ticketId)
+          let t = Tickets.get(ticketId)
           t.close(note)
         }
       }

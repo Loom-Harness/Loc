@@ -52,7 +52,7 @@ system R {
     repository Ledgers for Ledger
     criterion Over(min: money) of Ledger = this.balance > min
     queryHandler ListOver(min: money): Ledger[] {
-      let r = Ledgers.run(Over(min))
+      let r = Ledgers.all(Over(min))
       return r
     }
   } }

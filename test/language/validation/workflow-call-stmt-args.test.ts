@@ -87,15 +87,15 @@ describe("workflow-body operation-call statement args (M-T6.18 gap #3 follow-on)
   });
 
   it("flags a wrong-typed operation-call arg on a repository (getById) loaded receiver", async () => {
-    expect(await codes('let o = Orders.getById("id")  o.bump("x")')).toContain(TYPE);
+    expect(await codes('let o = Orders.get("id")  o.bump("x")')).toContain(TYPE);
   });
 
   it("flags a wrong-arity operation-call on a findById-loaded receiver", async () => {
-    expect(await codes('let o = Orders.findById("id")  o.bump()')).toContain(COUNT);
+    expect(await codes('let o = Orders.find("id")  o.bump()')).toContain(COUNT);
   });
 
   it("is CLEAN for a correctly-typed operation-call on a repository-loaded receiver", async () => {
-    const c = await codes('let o = Orders.getById("id")  o.bump(3)');
+    const c = await codes('let o = Orders.get("id")  o.bump(3)');
     expect(c).not.toContain(TYPE);
     expect(c).not.toContain(COUNT);
   });

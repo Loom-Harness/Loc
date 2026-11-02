@@ -13,7 +13,7 @@
 //     (`chargePort.handle(chargePort)` on an `int`).
 //   * `let` (and repo / for-each) BINDINGS in workflow / handler / reactor /
 //     projection-fold bodies — the earlier fix moved params only, so
-//     `let request = Orders.getById(id)` still redeclared the `request`
+//     `let request = Orders.get(id)` still redeclared the `request`
 //     parameter and `let ordersRepository = …` shadowed the field the exit
 //     save dereferences (`ordersRepository.save(ordersRepository)`).
 //   * a reading domain service — a param / `let` named like its injected
@@ -56,7 +56,7 @@ system Probe {
           return Orders.find(OrdersByRegion(ordersRepository)) == null
         }
         operation isFree2(rgn: string): bool {
-          let ordersRepository = Orders.run(OrdersAllByRegion(rgn))
+          let ordersRepository = Orders.all(OrdersAllByRegion(rgn))
           return ordersRepository.count == 0
         }
       }
@@ -71,38 +71,38 @@ system Probe {
       channel L { carries: OrderBumped  delivery: broadcast  retention: ephemeral }
 
       commandHandler BumpR(result: Order id, n: int): Order id {
-        let o = Orders.getById(result)
+        let o = Orders.get(result)
         o.bump(n)
         return o.id
       }
       commandHandler BumpB(body: Order id, n: int): Order id {
-        let o = Orders.getById(body)
+        let o = Orders.get(body)
         o.bump(n)
         return o.id
       }
       commandHandler BumpH(bumpHHandler: Order id, n: int): Order id {
-        let o = Orders.getById(bumpHHandler)
+        let o = Orders.get(bumpHHandler)
         o.bump(n)
         return o.id
       }
       commandHandler BumpV(result: Order id) {
-        let o = Orders.getById(result)
+        let o = Orders.get(result)
         o.bump(1)
       }
       queryHandler ListQ(result: string): Order paged {
-        let r = Orders.run(InRegion(result))
+        let r = Orders.all(InRegion(result))
         return r
       }
       extern commandHandler Charge(chargePort: int): int;
 
       commandHandler LetH(orderId: Order id): Order id {
-        let ordersRepository = Orders.getById(orderId)
+        let ordersRepository = Orders.get(orderId)
         ordersRepository.bump(1)
         return ordersRepository.id
       }
       workflow LetW {
         create(orderId: Order id) {
-          let request = Orders.getById(orderId)
+          let request = Orders.get(orderId)
           let ordersRepository = 2
           request.bump(ordersRepository)
         }
@@ -118,7 +118,7 @@ system Probe {
         note: int
         create(orderId: Order id) {
           let sagaStateRepository = 3
-          let ordersRepository = Orders.getById(orderId)
+          let ordersRepository = Orders.get(orderId)
           note := sagaStateRepository
           ordersRepository.bump(note)
         }

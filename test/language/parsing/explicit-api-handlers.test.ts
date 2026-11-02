@@ -26,11 +26,11 @@ const SRC = `
         repository Orders for Order { }
 
         commandHandler CancelOrder(id: Order id) {
-          let o = Orders.getById(id)
+          let o = Orders.get(id)
           o.cancel()
         }
         queryHandler GetOrder(id: Order id): Order {
-          let o = Orders.getById(id)
+          let o = Orders.get(id)
           return o
         }
       }

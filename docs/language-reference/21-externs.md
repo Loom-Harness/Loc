@@ -180,7 +180,7 @@ A workflow invokes an extern op like any other public operation; the op-call is 
 ```ddd
 workflow confirmOrder {
   create(orderId: Order id) {
-    let order = Orders.getById(orderId)
+    let order = Orders.get(orderId)
     order.confirm()              // confirm() is extern — the aggregate runs the dance
   }
 }

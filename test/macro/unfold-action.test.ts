@@ -305,7 +305,7 @@ context Sales {
   criterion OrdersBySubject(s: string) of Order = this.subject == s
   workflow Sweep {
     create(s: string) {
-      let xs = Orders.findAll(OrdersBySubject(s)) ignoring softDeletable
+      let xs = Orders.all(OrdersBySubject(s)) ignoring softDeletable
       for o in xs { }
     }
   }

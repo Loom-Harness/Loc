@@ -120,17 +120,17 @@ describe("callable returns", () => {
       "",
       `response AccountResponse { balance: int }
        queryHandler get(accountId: Account id): AccountResponse {
-         let a = Accounts.getById(accountId)
+         let a = Accounts.get(accountId)
          return a
        }
-       queryHandler all(): AccountResponse[] { let r = Accounts.findAll()  return r }`,
+       queryHandler all(): AccountResponse[] { let r = Accounts.all()  return r }`,
     );
     expect(c).not.toContain(MISMATCH);
     // The model must reach validation for that to mean anything.
     const wrong = await codes(
       "",
       `queryHandler get(accountId: Account id): Snap {
-         let a = Accounts.getById(accountId)
+         let a = Accounts.get(accountId)
          return a
        }`,
     );

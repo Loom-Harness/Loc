@@ -68,11 +68,11 @@ const EXPLICIT = `
         query GetOrderQuery { orderId: Order id }
         response OrderResponse { status: string }
         queryHandler GetOrder(query: GetOrderQuery): OrderResponse {
-          let o = Orders.getById(query.orderId)
+          let o = Orders.get(query.orderId)
           return o
         }
         commandHandler CancelOrder(orderId: Order id) {
-          let o = Orders.getById(orderId)
+          let o = Orders.get(orderId)
           o.cancel()
         }
       }
@@ -101,7 +101,7 @@ describe("scaffoldHandlers + scaffoldApi — expansion (operation + get-by-id)",
     expect(cmd).toBeDefined();
     // Param: `orderId: Order id` — NOT `id` (reserved), derived <camel(agg)>Id.
     expect(cmd.params.map((p) => p.name)).toEqual(["orderId"]);
-    // Body: `let o = Orders.getById(orderId)` then `o.cancel()`.
+    // Body: `let o = Orders.get(orderId)` then `o.cancel()`.
     expect(cmd.body.map((s) => s.$type)).toEqual(["LetStmt", "AssignOrCallStmt"]);
     expect(cmd.returnType).toBeUndefined();
   });
@@ -272,13 +272,13 @@ describe("scaffoldHandlers + scaffoldApi — A3.2 create source kind", () => {
   it("emits a DestroyOrder commandHandler + DELETE /orders/{orderId} route (canonical destroy)", async () => {
     const { model } = await parseString(A32, { validate: false });
     // The aggregate carries a canonical `destroy { }`, so the destroy target is
-    // emitted: a void commandHandler whose body loads by id then `Orders.delete(o)`.
+    // emitted: a void commandHandler whose body loads by id then `Orders.remove(o)`.
     const cmd = [...AstUtils.streamAllContents(model)]
       .filter(isCommandHandler)
       .find((c) => c.name === "DestroyOrder") as CommandHandler;
     expect(cmd).toBeDefined();
     expect(cmd.params.map((p) => p.name)).toEqual(["orderId"]);
-    // Body: `let o = Orders.getById(orderId)` then `Orders.delete(o)`.
+    // Body: `let o = Orders.get(orderId)` then `Orders.remove(o)`.
     expect(cmd.body.map((s) => s.$type)).toEqual(["LetStmt", "AssignOrCallStmt"]);
     // Void — no return value after a delete.
     expect(cmd.returnType).toBeUndefined();

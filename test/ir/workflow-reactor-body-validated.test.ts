@@ -8,7 +8,7 @@
 //
 // The construct that exposed it is a notification fan-out:
 //
-//   for f in Follows.run(FollowersOf(e.author)) { let n = Note.create({ … }) }
+//   for f in Follows.all(FollowersOf(e.author)) { let n = Note.create({ … }) }
 //
 // In a `create` body that is rejected by `loom.workflow-foreach-source` ("must
 // iterate a `let xs = Repo.run(...)` result").  In a reactor body it validated
@@ -66,11 +66,11 @@ ${body}
   deployable api { platform: node contexts: [C] serves: A dataSources: [st] port: 8080 } }`;
 }
 
-const INLINE_FOR = `      for f in Follows.run(FollowersOf(e.author)) {
+const INLINE_FOR = `      for f in Follows.all(FollowersOf(e.author)) {
         let n = Note.create(member: f.follower, post: e.post)
       }`;
 
-const LET_FOR = `      let fs = Follows.run(FollowersOf(e.author), page: { offset: 0, limit: 50 })
+const LET_FOR = `      let fs = Follows.all(FollowersOf(e.author), page: { offset: 0, limit: 50 })
       for f in fs {
         let n = Note.create(member: f.follower, post: e.post)
       }`;

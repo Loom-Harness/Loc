@@ -187,7 +187,7 @@ resource mail  { for: Sales, kind: mailer,      use: mailServer }
 // inside `context Sales { … }` — a workflow's body lives in a member
 workflow archiveOrder {
   create(orderId: Order id) {
-    let order = Orders.getById(orderId)
+    let order = Orders.get(orderId)
     let prev = files.get("orders/" + order.id)        // objectStore
     files.put("orders/" + order.id, { id: order.id }) // json payload
     jobs.enqueue({ event: "archived", id: order.id }) // queue

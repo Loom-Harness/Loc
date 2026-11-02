@@ -35,7 +35,7 @@ describe("loom.repo-unknown-read", () => {
   });
 
   it("accepts every contract read in the same position", async () => {
-    for (const body of ["Orders.findBy(code: c)", "Orders.find(ByCode(c))", `Orders.findById(c)`]) {
+    for (const body of ["Orders.findBy(code: c)", "Orders.find(ByCode(c))", `Orders.find(c)`]) {
       expect(await codes(body), body).not.toContain("loom.repo-unknown-read");
     }
   });

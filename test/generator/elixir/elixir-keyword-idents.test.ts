@@ -49,7 +49,7 @@ system ExWords {
       repository Kws for Kw { }
       criterion KwsByEnd(end: int) of Kw = this.end == end
       queryHandler KwsEndingAt(end: int): Kw[] {
-        let r = Kws.findAll(KwsByEnd(end))
+        let r = Kws.all(KwsByEnd(end))
         return r
       }
     }

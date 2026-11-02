@@ -287,7 +287,7 @@ system S {
       channel L { carries: OrderPlaced, ShipmentRequested  delivery: broadcast  retention: ephemeral }
       workflow OrderFulfillment { orderId: Order id  attempts: int
         create(p: OrderPlaced) by p.order { let s = Shipment.create(orderRef: p.order, status: "P") emit ShipmentRequested { shipment: s.id, order: p.order } }
-        on(s: ShipmentRequested) by s.order { let sh = Shipments.getById(s.shipment) sh.mark() } }
+        on(s: ShipmentRequested) by s.order { let sh = Shipments.get(s.shipment) sh.mark() } }
     }
   }
   api A from O

@@ -44,7 +44,7 @@ const FANOUT = `system S { subdomain D { context Community {
     // This command create names the correlation field, so it is addressable.
     create(postId: Post id) { }
     on(e: PostPublished) by e.post {
-      let fs = Follows.run(FollowersOf(e.author), page: { offset: 0, limit: 100 })
+      let fs = Follows.all(FollowersOf(e.author), page: { offset: 0, limit: 100 })
       for f in fs {
         let n = Note.create(member: f.follower, post: e.post)
       }
@@ -114,7 +114,7 @@ describe("java dispatcher injects the repositories its reactor bodies use", () =
     const d = await dispatcher(
       FANOUT.replace(
         "on(e: PostPublished) by e.post {",
-        "create bootstrap(p: Post id) { let sp = Posts.getById(p) }\n    create onPublish(e: PostPublished) by e.post {",
+        "create bootstrap(p: Post id) { let sp = Posts.get(p) }\n    create onPublish(e: PostPublished) by e.post {",
       ),
     );
     expect(d).toContain("private final FollowRepository followsRepository;");

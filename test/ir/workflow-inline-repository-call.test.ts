@@ -12,7 +12,7 @@
 // nothing is constructed and the unresolved receiver renders verbatim.  Measured
 // on node before the gate existed: `ddd parse` and `generate system` both
 // reported ZERO diagnostics while `api/http/workflows.ts` emitted
-// `Assets.getById(job.assetId)` with no `AssetRepository` in the transaction →
+// `Assets.get(job.assetId)` with no `AssetRepository` in the transaction →
 // `Cannot find name 'Assets'` under `tsc`.
 //
 // The pairs below are the point: each "flags" case has an "accepts" twin that
@@ -64,64 +64,64 @@ const codes = async (body: string): Promise<string[]> => (await diags(body)).map
 
 describe("loom.workflow-inline-repository-call (IR, phase ⑦)", () => {
   it("flags a repository read inline inside a precondition", async () => {
-    const body = `let job = Jobs.getById(jobId)
-        precondition job.skill == Assets.getById(job.assetId).requiredSkill`;
+    const body = `let job = Jobs.get(jobId)
+        precondition job.skill == Assets.get(job.assetId).requiredSkill`;
     expect(await codes(body)).toContain(CODE);
   });
 
   it("accepts the same read bound to its own let", async () => {
-    const body = `let job = Jobs.getById(jobId)
-        let asset = Assets.getById(job.assetId)
+    const body = `let job = Jobs.get(jobId)
+        let asset = Assets.get(job.assetId)
         precondition job.skill == asset.requiredSkill`;
     expect(await codes(body)).not.toContain(CODE);
   });
 
   it("names the repository and spells out the let-bound rewrite", async () => {
-    const body = `let job = Jobs.getById(jobId)
-        precondition job.skill == Assets.getById(job.assetId).requiredSkill`;
+    const body = `let job = Jobs.get(jobId)
+        precondition job.skill == Assets.get(job.assetId).requiredSkill`;
     const msg = (await diags(body)).find((d) => d.code === CODE)?.message ?? "";
     expect(msg).toContain("'Assets'");
     // The suggested rewrite is the exact shape that DOES compile — echoing the
     // method the author wrote, not a generic placeholder.
-    expect(msg).toContain("let asset = Assets.getById(…)");
+    expect(msg).toContain("let asset = Assets.get(…)");
   });
 
   it("flags an inline read in a requires gate", async () => {
-    const body = `let job = Jobs.getById(jobId)
-        requires Assets.getById(job.assetId).requiredSkill != ""`;
+    const body = `let job = Jobs.get(jobId)
+        requires Assets.get(job.assetId).requiredSkill != ""`;
     expect(await codes(body)).toContain(CODE);
   });
 
   it("flags an inline read in an emit field", async () => {
-    const body = `let job = Jobs.getById(jobId)
-        emit Assigned { skill: Assets.getById(job.assetId).requiredSkill }`;
+    const body = `let job = Jobs.get(jobId)
+        emit Assigned { skill: Assets.get(job.assetId).requiredSkill }`;
     expect(await codes(body)).toContain(CODE);
   });
 
   it("flags an inline read nested inside a for-each body", async () => {
     // The nesting is the point: a shallow scan of `wf.statements` would miss
     // this, which is exactly the dead-zone `walkWorkflowStmtExprsDeep` closes.
-    const body = `let jobs = Jobs.findAll(AnyJob)
-        for j in jobs { precondition j.skill == Assets.getById(j.assetId).requiredSkill }`;
+    const body = `let jobs = Jobs.all(AnyJob)
+        for j in jobs { precondition j.skill == Assets.get(j.assetId).requiredSkill }`;
     expect(await codes(body)).toContain(CODE);
   });
 
   it("flags a criterion-shaped inline read the same way", async () => {
-    const body = `let job = Jobs.getById(jobId)
+    const body = `let job = Jobs.get(jobId)
         precondition Assets.find(AnySkill).requiredSkill != ""`;
     expect(await codes(body)).toContain(CODE);
   });
 
   it("reports one diagnostic per repository per body, not one per mention", async () => {
-    const body = `let job = Jobs.getById(jobId)
-        precondition Assets.getById(job.assetId).requiredSkill != ""
-        precondition Assets.getById(job.assetId).requiredSkill != "n/a"`;
+    const body = `let job = Jobs.get(jobId)
+        precondition Assets.get(job.assetId).requiredSkill != ""
+        precondition Assets.get(job.assetId).requiredSkill != "n/a"`;
     expect((await codes(body)).filter((c) => c === CODE)).toHaveLength(1);
   });
 
   it("never flags a workflow whose repository reads are all let-bound", async () => {
-    const body = `let job = Jobs.getById(jobId)
-        let asset = Assets.getById(job.assetId)
+    const body = `let job = Jobs.get(jobId)
+        let asset = Assets.get(job.assetId)
         job.assign()
         asset.retire()`;
     expect(await codes(body)).not.toContain(CODE);
@@ -139,7 +139,7 @@ describe("loom.workflow-inline-repository-call (IR, phase ⑦)", () => {
     repository Jobs for Job { }
     workflow W {
       create(jobId: Job id) {
-        let Assets = Jobs.getById(jobId)
+        let Assets = Jobs.get(jobId)
         precondition Assets.skill != ""
       }
     }

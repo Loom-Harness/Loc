@@ -50,7 +50,7 @@ system HandlerResourceOps {
       // command leg: three resource kinds (objectStore / queue / mailer) in
       // one body, so a per-kind import/using regression cannot hide.
       commandHandler ArchiveOrder(name: string): int {
-        let matches = Orders.run(OrdersByName(name))
+        let matches = Orders.all(OrdersByName(name))
         salesFiles.put("orders/" + name, name)
         salesJobs.enqueue(name)
         mail.send(name, "Order archived", "Your order " + name + " was archived.")
@@ -60,7 +60,7 @@ system HandlerResourceOps {
       // query leg: a LET-BOUND resource read (the `expr-let` statement shape,
       // distinct from the bare `resource-call` above).
       queryHandler PeekArchive(name: string): int {
-        let matches = Orders.run(OrdersByName(name))
+        let matches = Orders.all(OrdersByName(name))
         let archived = salesFiles.get("orders/" + name)
         return matches.count
       }

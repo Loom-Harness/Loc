@@ -42,8 +42,8 @@ describe("validator: extern handler ↔ body pairing", () => {
   it("accepts a normal (bodied) commandHandler / queryHandler", async () => {
     const { errors } = await parseString(
       wrap(`
-        commandHandler Touch(orderId: Order id) { let o = Orders.getById(orderId) }
-        queryHandler   Get(orderId: Order id): Order { let o = Orders.getById(orderId)  return o }
+        commandHandler Touch(orderId: Order id) { let o = Orders.get(orderId) }
+        queryHandler   Get(orderId: Order id): Order { let o = Orders.get(orderId)  return o }
       `),
     );
     expect(errors, errors.join("\n")).toEqual([]);
@@ -52,7 +52,7 @@ describe("validator: extern handler ↔ body pairing", () => {
   it("rejects an extern handler that declares a body (loom.extern-handler-has-body)", async () => {
     const found = await codes(
       wrap(
-        `extern commandHandler PlaceOrder(code: string): Order id { let o = Orders.getById(code) }`,
+        `extern commandHandler PlaceOrder(code: string): Order id { let o = Orders.get(code) }`,
       ),
     );
     expect(found).toContain("loom.extern-handler-has-body");

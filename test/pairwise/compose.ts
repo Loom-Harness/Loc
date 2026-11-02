@@ -221,7 +221,7 @@ function repositoryBlock(read: Read): string[] {
     "      repository Things for Thing { }",
     "      criterion ThingsByLabel(l: string) of Thing = this.label == l",
     `      queryHandler ListThingsByLabel(l: string): ${ret} {`,
-    "        let r = Things.run(ThingsByLabel(l))",
+    "        let r = Things.all(ThingsByLabel(l))",
     "        return r",
     "      }",
   ];

@@ -20,7 +20,7 @@ system Repro {
     workflow FanOut {
       postId: Post id
       on(e: PostPublished) by e.post {
-        for f in Follows.run(FollowersOf(e.author)) {
+        for f in Follows.all(FollowersOf(e.author)) {
           let n = Note.create(member: f.follower, post: e.post)
         }
       }

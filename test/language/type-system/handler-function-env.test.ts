@@ -52,12 +52,12 @@ const SRC = `
     repository Orders for Order { }
     criterion OrdersByName(name: string) of Order = this.name == name
     commandHandler Archive(oid: Order id, label: string): int {
-      let o = Orders.getById(oid)
-      let all = Orders.run(OrdersByName(label))
+      let o = Orders.get(oid)
+      let all = Orders.all(OrdersByName(label))
       return all.count
     }
     queryHandler Lookup(oid: Order id): int {
-      let o = Orders.getById(oid)
+      let o = Orders.get(oid)
       return o.qty
     }
   }
@@ -124,12 +124,12 @@ const withMember = (where: "agg" | "cmd" | "qry", member: string) => `
       name: string
       qty: int
       operation probe(oid: Order id) {
-        ${where === "agg" ? `let o = Orders.getById(oid)  if (o.${member} != null) { name := "x" }` : `name := "y"`}
+        ${where === "agg" ? `let o = Orders.get(oid)  if (o.${member} != null) { name := "x" }` : `name := "y"`}
       }
     }
     repository Orders for Order
-    ${where === "cmd" ? `commandHandler Probe(oid: Order id): bool { let o = Orders.getById(oid)  return o.${member} != null }` : ""}
-    ${where === "qry" ? `queryHandler Probe(oid: Order id): bool { let o = Orders.getById(oid)  return o.${member} != null }` : ""}
+    ${where === "cmd" ? `commandHandler Probe(oid: Order id): bool { let o = Orders.get(oid)  return o.${member} != null }` : ""}
+    ${where === "qry" ? `queryHandler Probe(oid: Order id): bool { let o = Orders.get(oid)  return o.${member} != null }` : ""}
   }
 `;
 

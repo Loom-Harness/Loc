@@ -53,7 +53,7 @@ const DEEP_AND_DENY = `system PD {
       repository Things for Thing { }
       criterion ThingsByLabel(l: string) of Thing = this.label == l
       queryHandler ThingsLabelled(l: string): Thing paged {
-        let r = Things.run(ThingsByLabel(l))
+        let r = Things.all(ThingsByLabel(l))
         return r
       }
       repository Notes for Note { }
@@ -127,15 +127,15 @@ const DOC_IGNORING = `system DI {
       criterion DocsByLabelAll(l: string) of Doc = this.label == l
       criterion DocsByNoteAny(n: string) of Doc = this.note == n
       queryHandler ListByLabel(l: string): Doc paged {
-        let r = Docs.run(DocsByLabel(l))
+        let r = Docs.all(DocsByLabel(l))
         return r
       }
       queryHandler ListByLabelAll(l: string): Doc paged {
-        let r = Docs.run(DocsByLabelAll(l)) ignoring softDeletable
+        let r = Docs.all(DocsByLabelAll(l)) ignoring softDeletable
         return r
       }
       queryHandler ListByNoteAny(n: string): Doc paged {
-        let r = Docs.run(DocsByNoteAny(n)) ignoring *
+        let r = Docs.all(DocsByNoteAny(n)) ignoring *
         return r
       }
     }

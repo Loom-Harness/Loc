@@ -79,7 +79,7 @@ system PolicyDeny {
       // AND-ed into the author's own `where`, not just the auto findAll.
       criterion SecretsByCode(c: string) of Secret = this.code == c
       queryHandler ListSecretsByCode(c: string): Secret[] {
-        let r = Secrets.run(SecretsByCode(c))
+        let r = Secrets.all(SecretsByCode(c))
         return r
       }
       repository Accounts for Account { }

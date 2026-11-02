@@ -59,7 +59,7 @@ function repoReadCall(body: StmtIR[]): Extract<ExprIR, { kind: "call" }> {
 describe("B10 — domain-service criterion read carries the criterion", () => {
   it("lowers findAll(<Criterion>) to a repo-read marked synthCriterion + retrievalName", async () => {
     const m = await enriched(
-      `operation richOnes(): Account[] { return AccountsRepo.findAll(Rich) }`,
+      `operation richOnes(): Account[] { return AccountsRepo.all(Rich) }`,
     );
     const call = repoReadCall(opBody(m));
     expect(call.callKind).toBe("repo-read");
@@ -71,7 +71,7 @@ describe("B10 — domain-service criterion read carries the criterion", () => {
 
   it("materialises the synthetic retrieval from a domain-service body (not just workflows)", async () => {
     const m = await enriched(
-      `operation richOnes(): Account[] { return AccountsRepo.findAll(Rich) }`,
+      `operation richOnes(): Account[] { return AccountsRepo.all(Rich) }`,
     );
     const ret = allContexts(m)[0]!.retrievals.find((r) => r.name === "findAllByRich");
     expect(ret, "findAllByRich retrieval materialised").toBeDefined();
@@ -81,7 +81,7 @@ describe("B10 — domain-service criterion read carries the criterion", () => {
 
   it("carries a parameterised criterion's args through the read", async () => {
     const m = await enriched(
-      `operation richerThan(n: int): Account[] { return AccountsRepo.findAll(Above(n)) }`,
+      `operation richerThan(n: int): Account[] { return AccountsRepo.all(Above(n)) }`,
     );
     const call = repoReadCall(opBody(m));
     expect(call.repoRead?.retrievalName).toBe("findAllByAbove");
@@ -92,7 +92,7 @@ describe("B10 — domain-service criterion read carries the criterion", () => {
 
   it("lowers Repo.run(<Retrieval>) to a repo-read against the named retrieval", async () => {
     const m = await enriched(
-      `operation recent(): Account[] { return AccountsRepo.run(Recent) }`,
+      `operation recent(): Account[] { return AccountsRepo.all(Recent) }`,
       `retrieval Recent of Account = Rich`,
     );
     const call = repoReadCall(opBody(m));
@@ -102,7 +102,7 @@ describe("B10 — domain-service criterion read carries the criterion", () => {
 
   it("emits a Hono service that calls the retrieval method (criterion applied, not dropped)", async () => {
     const files = await generateSystemFiles(
-      SYS(`operation richOnes(): Account[] { return AccountsRepo.findAll(Rich) }`),
+      SYS(`operation richOnes(): Account[] { return AccountsRepo.all(Rich) }`),
     );
     const services = [...files.entries()].find(([k]) => k.endsWith("domain/services.ts"))?.[1];
     expect(services, "domain/services.ts").toBeDefined();

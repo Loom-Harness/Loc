@@ -44,7 +44,7 @@ system Payments {
       repository CreditCards for CreditCard { }
       criterion CreditCardsByNetwork(network: CardNetwork) of CreditCard = this.network == network
       queryHandler ListCreditCardsByNetwork(network: CardNetwork): CreditCard[] {
-        let r = CreditCards.run(CreditCardsByNetwork(network))
+        let r = CreditCards.all(CreditCardsByNetwork(network))
         return r
       }
       repository BankAccounts for BankAccount { }

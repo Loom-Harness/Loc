@@ -50,12 +50,12 @@ system IntrinsicsSystem {
       repository Products for Product { }
       criterion ProductsByExactName(q: string) of Product = this.name.trim() == q
       queryHandler ListProductsByExactName(q: string): Product[] {
-        let r = Products.run(ProductsByExactName(q))
+        let r = Products.all(ProductsByExactName(q))
         return r
       }
       criterion ProductsByLowerName(q: string) of Product = this.name.toLower() == q
       queryHandler ListProductsByLowerName(q: string): Product[] {
-        let r = Products.run(ProductsByLowerName(q))
+        let r = Products.all(ProductsByLowerName(q))
         return r
       }
       // Not `x`: a find parameter named `x` collides with the .NET emitter's
@@ -63,26 +63,26 @@ system IntrinsicsSystem {
       // handed off.
       criterion ProductsByFloorPrice(whole: money) of Product = this.price.floor() == whole
       queryHandler ListProductsByFloorPrice(whole: money): Product[] {
-        let r = Products.run(ProductsByFloorPrice(whole))
+        let r = Products.all(ProductsByFloorPrice(whole))
         return r
       }
       criterion ProductsByAbsQty(n: int) of Product = this.qty.abs() == n
       queryHandler ListProductsByAbsQty(n: int): Product[] {
-        let r = Products.run(ProductsByAbsQty(n))
+        let r = Products.all(ProductsByAbsQty(n))
         return r
       }
       queryHandler ListBobbish(): Product[] {
-        let r = Products.run(Bobbish())
+        let r = Products.all(Bobbish())
         return r
       }
       criterion ProductsByTrimmedQuery(q: string) of Product = this.name == q.trim()
       queryHandler ListProductsByTrimmedQuery(q: string): Product[] {
-        let r = Products.run(ProductsByTrimmedQuery(q))
+        let r = Products.all(ProductsByTrimmedQuery(q))
         return r
       }
       criterion ProductsByLoweredQuery(q: string) of Product = this.name.toLower() == q.toLower()
       queryHandler ListProductsByLoweredQuery(q: string): Product[] {
-        let r = Products.run(ProductsByLoweredQuery(q))
+        let r = Products.all(ProductsByLoweredQuery(q))
         return r
       }
     }

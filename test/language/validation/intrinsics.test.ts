@@ -78,7 +78,7 @@ describe("validation — scalar intrinsic calls", () => {
         repository Products for Product { }
         criterion ProductsBad(q: string) of Product = this.name.substring(0, 3) == q
         queryHandler ListBad(q: string): Product[] {
-          let r = Products.run(ProductsBad(q))
+          let r = Products.all(ProductsBad(q))
           return r
         }
       }

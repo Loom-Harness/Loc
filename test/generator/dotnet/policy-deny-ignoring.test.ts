@@ -25,7 +25,7 @@ const SRC = (persistence: string) => `
       repository SecretRepo for Secret
       workflow Sweep {
         create(c: string) {
-          let xs = SecretRepo.findAll(AnyCode()) ignoring *
+          let xs = SecretRepo.all(AnyCode()) ignoring *
           for o in xs { }
           if let a = SecretRepo.find(AllIgnoring(c)) ignoring * { }
           if let n = SecretRepo.find(Normal(c)) { }

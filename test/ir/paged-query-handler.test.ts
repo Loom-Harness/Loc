@@ -25,7 +25,7 @@ system S {
       repository Orders for Order { }
       criterion InRegion(rgn: string) of Order = region == rgn
       queryHandler ListInRegion(rgn: string): Order paged {
-        let r = Orders.run(InRegion(rgn))
+        let r = Orders.all(InRegion(rgn))
         return r
       }
     }
@@ -107,7 +107,7 @@ system S {
       retrieval RegionByCode(rgn: string) of Order { where: InRegion(rgn)  sort: [code desc] }
       queryHandler ListViaRetrieval(rgn: string): Order paged {
         ${extra}
-        let r = Orders.run(RegionByCode(rgn))
+        let r = Orders.all(RegionByCode(rgn))
         return r
       }
     }

@@ -29,7 +29,7 @@ system TenantClaimName {
       repository Invoices for Invoice { }
       criterion InvoicesByNumber(n: string) of Invoice = this.number == n
       queryHandler ListInvoicesByNumber(n: string): Invoice[] {
-        let r = Invoices.run(InvoicesByNumber(n))
+        let r = Invoices.all(InvoicesByNumber(n))
         return r
       }
 

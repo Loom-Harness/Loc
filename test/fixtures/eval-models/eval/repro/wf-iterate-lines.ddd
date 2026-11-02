@@ -15,9 +15,9 @@ system X {
       repository Orders for Order { }
       workflow finish transactional {
         create(orderId: Order id) {
-          let o = Orders.getById(orderId)
+          let o = Orders.get(orderId)
           for l in o.lines {
-            let p = Parts.getById(l.partId)
+            let p = Parts.get(l.partId)
             p.consume(l.qty)
           }
         }

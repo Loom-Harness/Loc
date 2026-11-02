@@ -25,7 +25,7 @@ system Shop {
 
       // Single-entity return → `schema: OrderResponse` + `import { OrderResponse }`.
       queryHandler GetOrder(orderId: Order id): Order {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         return o
       }
       // Scalar return → keeps `z.unknown()` (body is `0 as unknown`).
@@ -34,7 +34,7 @@ system Shop {
       }
       // Id return → keeps `z.unknown()` (body is `o.id as unknown`).
       commandHandler CancelOrder(orderId: Order id): Order id {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         o.cancel()
         return o.id
       }

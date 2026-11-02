@@ -51,7 +51,7 @@ system S {
     repository WorkOrders for WorkOrder
     criterion ByRef(ref: string) of WorkOrder = this.ref == ref
     queryHandler ListByRef(ref: string): WorkOrder[] {
-      let r = WorkOrders.run(ByRef(ref))${opts.findIgnoring ?? ""}
+      let r = WorkOrders.all(ByRef(ref))${opts.findIgnoring ?? ""}
       return r
     }
     projection PlatformRevenue {

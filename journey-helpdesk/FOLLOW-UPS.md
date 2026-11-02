@@ -194,7 +194,7 @@ The helpdesk's SLA sweep ran:
 
 ```ddd
 criterion Overdue(at: datetime) of Ticket = status != Resolved && dueAt < at
-let due = Tickets.run(OverdueTickets(t.at))
+let due = Tickets.all(OverdueTickets(t.at))
 for ticket in due { ticket.flagBreached() }          // operation flagBreached() when !breached && status != Closed
 ```
 
@@ -202,7 +202,7 @@ The first already-breached ticket made the `when` gate refuse it with a 409. The
 
 **Sketch.** A **suggestion**, never an error or warning, because implication is undecidable in general and a false positive must not block a build. Call it `loom.loop-gate-not-implied`. It fires when all of these hold:
 - a workflow, `commandHandler` or `on` body contains `for x in xs { … x.op(…) … }`;
-- `xs` is bound by `let xs = Repo.run(R(args))` (the only legal `for` source, per `loom.workflow-foreach-source`);
+- `xs` is bound by `let xs = Repo.all(R(args))` (the only legal `for` source, per `loom.workflow-foreach-source`);
 - `op` carries a `when` gate;
 - a conservative syntactic check cannot show that `R`'s criterion (after inlining named criteria) implies the gate. Take the gate as a conjunction of atoms; each atom must occur among the criterion's conjuncts, or be entailed by one of them through a small table (`a == V` entails `a != W` for distinct enum values V and W; `b == false` entails `!b`).
 

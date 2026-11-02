@@ -92,7 +92,7 @@ const POSITIVE_CASES: Record<string, Case> = {
   },
   "CommandHandlerIR.statements": {
     body: `commandHandler Stash(name: string): int {
-      let matches = Orders.run(OrdersByName(name))
+      let matches = Orders.all(OrdersByName(name))
       salesFiles.put("k/" + name, name)
       return matches.count
     }`,
@@ -100,7 +100,7 @@ const POSITIVE_CASES: Record<string, Case> = {
   },
   "QueryHandlerIR.statements": {
     body: `queryHandler Peek(name: string): int {
-      let matches = Orders.run(OrdersByName(name))
+      let matches = Orders.all(OrdersByName(name))
       let blob = salesFiles.get("k/" + name)
       return matches.count
     }`,
@@ -150,7 +150,7 @@ const REFUSED_CASES: Record<string, Case> = {
   },
   "CommandHandlerIR.returnValue": {
     body: `commandHandler Stash(name: string): json? {
-      let matches = Orders.run(OrdersByName(name))
+      let matches = Orders.all(OrdersByName(name))
       return salesFiles.get("k/" + name)
     }`,
     api: `route POST "/stash/{name}" -> Sales.Stash`,

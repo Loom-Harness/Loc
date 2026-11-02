@@ -23,7 +23,7 @@ const SRC = `
     repository Docs for Doc { }
     criterion DocsBySubject(s: string) of Doc = subject == s
     queryHandler ListBySubject(s: string): Doc[] {
-      let r = Docs.findAll(DocsBySubject(s))
+      let r = Docs.all(DocsBySubject(s))
       return r
     }
   }
@@ -80,7 +80,7 @@ describe("typescript generator — capability filter (contextFilters)", () => {
         repository Docs for Doc { }
         criterion DocsBySubject(s: string) of Doc = subject == s
         queryHandler ListBySubject(s: string): Doc[] {
-          let r = Docs.findAll(DocsBySubject(s))
+          let r = Docs.all(DocsBySubject(s))
           return r
         }
       }

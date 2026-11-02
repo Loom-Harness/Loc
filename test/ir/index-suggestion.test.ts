@@ -123,7 +123,7 @@ describe("loom.index-suggestion", () => {
             repository Invoices for Invoice
             criterion ForTenant(t: string) of Invoice = this.tenantId == t
             queryHandler ListForTenant(t: string): Invoice[] {
-              let r = Invoices.run(ForTenant(t))
+              let r = Invoices.all(ForTenant(t))
               return r
             }
           }

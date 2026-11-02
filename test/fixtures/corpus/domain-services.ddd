@@ -142,8 +142,8 @@ system DomainSvc {
 
       workflow MoveMoney transactional {
         create(source: Account id, dest: Account id, amount: Money) {
-          let s = Accounts.getById(source)
-          let d = Accounts.getById(dest)
+          let s = Accounts.get(source)
+          let d = Accounts.get(dest)
           // The cross-aggregate `function` call (see `tier` above).  Always
           // true — `tier` returns "gold" or "bronze" — so the precondition
           // never changes what this workflow does; the point is that the call

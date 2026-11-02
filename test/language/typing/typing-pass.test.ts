@@ -55,10 +55,10 @@ describe("single typing pass", () => {
   it("types repository reads by verb, findById as optional", async () => {
     const src = ctx(`aggregate O { n: int }
       repository Os for O { }
-      workflow W { create(id: O id) { let a = Os.findById(id)  let b = Os.getById(id)  let c = Os.findAll() } }`);
-    expect(await typeOfText(src, "Os.findById(id)")).toBe("rec:O?");
-    expect(await typeOfText(src, "Os.getById(id)")).toBe("rec:O");
-    expect(await typeOfText(src, "Os.findAll()")).toBe("[rec:O]");
+      workflow W { create(id: O id) { let a = Os.find(id)  let b = Os.get(id)  let c = Os.all() } }`);
+    expect(await typeOfText(src, "Os.find(id)")).toBe("rec:O?");
+    expect(await typeOfText(src, "Os.get(id)")).toBe("rec:O");
+    expect(await typeOfText(src, "Os.all()")).toBe("[rec:O]");
   });
 
   it("binds a collection-op lambda parameter to the element type", async () => {
@@ -71,8 +71,8 @@ describe("single typing pass", () => {
     const src = ctx(`aggregate O { n: int }
       repository Os for O { }
       workflow W { create(id: O id) {
-        let o = Os.findById(id)
-        if let found = Os.findById(id) { let k = found.n }
+        let o = Os.find(id)
+        if let found = Os.find(id) { let k = found.n }
       } }`);
     expect(await typeOfText(src, "found.n")).toBe("p:int");
   });

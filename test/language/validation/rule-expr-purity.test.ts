@@ -47,7 +47,7 @@ describe("validator: rule-expression purity", () => {
   it("refuses a cross-aggregate invariant that reads through a repository", async () => {
     const { errors } = await parse(
       withRule(
-        `invariant Technicians.getById(technicianId).skills.contains(Assets.getById(assetId).requiredSkill)`,
+        `invariant Technicians.get(technicianId).skills.contains(Assets.get(assetId).requiredSkill)`,
       ),
     );
     expect(
@@ -66,7 +66,7 @@ describe("validator: rule-expression purity", () => {
   // They do — all four positions lower through the same expression path.
   it("refuses the same reach in an invariant `when` guard", async () => {
     const { errors } = await parse(
-      withRule(`invariant qty > 0 when Assets.getById(assetId).requiredSkill == Skill.HVAC`),
+      withRule(`invariant qty > 0 when Assets.get(assetId).requiredSkill == Skill.HVAC`),
     );
     expect(
       errors.some((e) => /invariant guard \('when \.\.\.'\) references 'Assets'/.test(e)),
@@ -76,7 +76,7 @@ describe("validator: rule-expression purity", () => {
 
   it("refuses the same reach in a field `check`", async () => {
     const { errors } = await parse(
-      withRule(`n: int check Assets.getById(assetId).requiredSkill == Skill.HVAC`),
+      withRule(`n: int check Assets.get(assetId).requiredSkill == Skill.HVAC`),
     );
     expect(
       errors.some((e) => /check on 'n' references 'Assets'/.test(e)),
@@ -86,7 +86,7 @@ describe("validator: rule-expression purity", () => {
 
   it("refuses the same reach in a `derived`", async () => {
     const { errors } = await parse(
-      withRule(`derived skill: string = Assets.getById(assetId).requiredSkill`),
+      withRule(`derived skill: string = Assets.get(assetId).requiredSkill`),
     );
     expect(
       errors.some((e) => /derived 'skill' references 'Assets'/.test(e)),

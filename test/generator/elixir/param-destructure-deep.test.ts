@@ -21,7 +21,7 @@ system Shop {
       repository Orders for Order { }
       command ExtendOrder { orderId: Order id  n: int }
       commandHandler ExtendIt(cmd: ExtendOrder): Order id {
-        let o = Orders.getById(cmd.orderId)
+        let o = Orders.get(cmd.orderId)
         o.extend(now() + days(cmd.n))
         return o.id
       }

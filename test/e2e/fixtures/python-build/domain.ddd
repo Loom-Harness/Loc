@@ -112,7 +112,7 @@ system PySales {
       // (one transaction per request).
       workflow renameCustomer transactional {
         create(customerId: Customer id, newName: string) {
-          let c = Customers.getById(customerId)
+          let c = Customers.get(customerId)
           c.rename(newName)
         }
       }

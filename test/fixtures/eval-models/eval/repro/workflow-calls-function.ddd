@@ -13,8 +13,8 @@ system X {
     repository Jobs for Job { }
     workflow give transactional {
       create(job: Job id, tech: Tech id, skill: string) {
-        let t = Techs.getById(tech)
-        let j = Jobs.getById(job)
+        let t = Techs.get(tech)
+        let j = Jobs.get(job)
         precondition t.hasSkill(skill)
         j.assign()
       }

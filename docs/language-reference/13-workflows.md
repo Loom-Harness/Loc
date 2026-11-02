@@ -102,7 +102,7 @@ There is no workflow `handle name(params) { body }` member: a named command entr
 ```ddd
 workflow placeOrder {
   create(customerId: Customer id, placedAt: datetime) {
-    let customer = Customers.getById(customerId)        // load (must exist → 404)
+    let customer = Customers.get(customerId)        // load (must exist → 404)
     let order = Order.create(                          // factory — saved at exit
       customerId: customerId, status: Draft, placedAt: placedAt
     )
@@ -307,12 +307,12 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 | Form | Meaning |
 |---|---|
 | `let x = Agg.create(field: expr, …)` | Factory call, named or positional. Always saved at workflow exit, in declaration order. |
-| `let x = Repo.getById(idExpr)` | Load by id — throws `AggregateNotFound` → 404 if missing; result is non-nullable. |
+| `let x = Repo.get(idExpr)` | Load by id — throws `AggregateNotFound` → 404 if missing; result is non-nullable. |
 | `let x = Repo.<find>(args)` | A declared find returning a single non-nullable aggregate (an array return is `loom.workflow-load-array-unsupported` — iterate it with `for`). |
-| `let x = Repo.find(<Criterion>)` / `Repo.findById(id)` / `Repo.findBy(col: v)` / a declared `T?` find | An optional read: `x` is `T?` (the first match, or none). It is read through a null test (`x == null`, `x ?? y`) or narrowed by `if let`; a member read or an op-call on it un-narrowed is `loom.nullable-receiver`. |
-| `let xs = Repo.run(<Retrieval>(args), page?)` / `Repo.findAll(<Criterion>, page?)` | Bind an aggregate **array** — consumable only by a `for` loop. |
+| `let x = Repo.find(<Criterion>)` / `Repo.find(id)` / `Repo.findBy(col: v)` / a declared `T?` find | An optional read: `x` is `T?` (the first match, or none). It is read through a null test (`x == null`, `x ?? y`) or narrowed by `if let`; a member read or an op-call on it un-narrowed is `loom.nullable-receiver`. |
+| `let xs = Repo.all(<Retrieval>(args), page?)` / `Repo.all(<Criterion>, page?)` | Bind an aggregate **array** — consumable only by a `for` loop. |
 | `for x in xs { … }` | Iterate an aggregate array; per-iteration op-calls save inside the loop. |
-| `if let x = Repo.find(<Criterion>) { … } else { … }` / `if let x = Repo.findById(id) { … }` / `if let x = y { … }` | Single-result lookup — a criterion, `findById`, `findBy`, or an optional binding already in scope; `x` bound (non-null) only in the then-branch. |
+| `if let x = Repo.find(<Criterion>) { … } else { … }` / `if let x = Repo.find(id) { … }` / `if let x = y { … }` | Single-result lookup — a criterion, `findById`, `findBy`, or an optional binding already in scope; `x` bound (non-null) only in the then-branch. |
 | `name.op(args)` | Invoke a public operation on a let-bound aggregate (its own preconditions / invariants run inside the call). `private` ops are rejected (`loom.workflow-private-operation`). |
 | `precondition Expr` / `requires Expr` | Guard → 400 (`DomainError`) / 403 (`ForbiddenError`). |
 | `emit Event { … }` | Workflow-level event; drains after all saves (after commit when `transactional`). |
@@ -340,13 +340,13 @@ await notes.save(n);
 
 A loaded aggregate is saved **only if** an operation was invoked on it inside the body; fresh `Agg.create` results always save. See [`../workflow.md`](../workflow.md) §"Save + event drain semantics".
 
-There is no save statement: `Repo.save(x)` (or `insert` / `update` / `add` / `commit`) in a workflow or handler body is `loom.workflow-explicit-save`. `Repo.delete(x)` / `Repo.remove(x)` is the one repository write a body states.
+There is no save statement: `Repo.save(x)` (or `insert` / `update` / `add` / `commit`) in a workflow or handler body is `loom.workflow-explicit-save`. `Repo.remove(x)` is the one repository write a body states.
 
 Which effects a body may have depends on where it sits, not on how a statement is spelled. A `queryHandler` may load, call and return, and nothing else (`loom.query-handler-saves`). A command `create` of a workflow with no id-shaped state field can neither assign nor read that state (`loom.workflow-uncorrelated-state-write` / `loom.workflow-uncorrelated-state-read`). In every body, an aggregate the body mutates must be one a save covers: a mutating call whose result is bound (`let r = a.withdraw(x)`, or a `mutating` domain service bound with `let`) is not saved yet and is `loom.workflow-mutation-unsaved` — write the call as its own statement. A factory call is positional or named — `Agg.create(a, b)` and `Agg.create(x: a, y: b)` create and save the same aggregate (the record form `Agg.create({ x: a })` is `loom.create-record-form`), positions binding to the declared `create(…)` parameters in order — with no declared signature, name each argument; an argument list that maps onto no record is `loom.create-args`.
 
 ```ddd
 // rejected — the exit save already writes `i`
-let i = Items.getById(id)
+let i = Items.get(id)
 i.bump()
 Items.save(i)
 ```
@@ -364,10 +364,10 @@ Every `Repo` above is a repository of the workflow's **own context**. Naming ano
 
 ```ddd
 // rejected — `Assets` is reached inline, so no repository is ever instantiated
-precondition tech.skills.contains(Assets.getById(job.assetId).requiredSkill)
+precondition tech.skills.contains(Assets.get(job.assetId).requiredSkill)
 
 // correct — bind the read first, then reference the binding
-let asset = Assets.getById(job.assetId)
+let asset = Assets.get(job.assetId)
 precondition tech.skills.contains(asset.requiredSkill)
 ```
 
@@ -379,7 +379,7 @@ precondition tech.skills.contains(asset.requiredSkill)
 workflow fulfil {
   function slaDays(priority: int): int = priority > 5 ? 1 : 5
   create(orderId: Order id) {
-    let order = Orders.getById(orderId)
+    let order = Orders.get(orderId)
     order.scheduleShipment(slaDays(order.priority))
   }
 }
@@ -436,10 +436,10 @@ channel sagaBus { carries: OrderPlaced, PaymentReceived, Settled }
 workflow fulfillment {
   orderId: Order id
   create(placed: OrderPlaced) by placed.order {
-    let order = Orders.getById(placed.order)
+    let order = Orders.get(placed.order)
   }
   on(paid: PaymentReceived) by paid.order {        // routed by paid.order
-    let order = Orders.getById(orderId)            // orderId = the loaded instance's correlation
+    let order = Orders.get(orderId)            // orderId = the loaded instance's correlation
     order.markSettled()
   }
 }
@@ -669,8 +669,8 @@ A bare `transactional` keyword wraps the body, all saves, and the workflow-event
 workflow transferCredit transactional(serializable) {
   create(payer: Customer id, payee: Customer id, amount: int) {
     precondition amount > 0
-    let srcCust = Customers.getById(payer)
-    let dstCust = Customers.getById(payee)
+    let srcCust = Customers.get(payer)
+    let dstCust = Customers.get(payee)
     srcCust.deductCredit(amount)
     dstCust.addCredit(amount)
   }

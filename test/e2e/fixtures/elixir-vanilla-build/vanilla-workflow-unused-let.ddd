@@ -50,7 +50,7 @@ system Catalog {
       // bind (the create below is) — so it lowers to `{:ok, _probe} <- …`.
       workflow discardUnreadReads {
         create(ref: string, id: Order id) {
-          let probe = Orders.getById(id)
+          let probe = Orders.get(id)
           let placed = Order.create(customerId: ref)
           emit Resolved { label: ref }
         }
@@ -60,7 +60,7 @@ system Catalog {
       // bind — `extra` is created for its side effect and never read.
       workflow discardUnreadRetrieval {
         create(ref: string) {
-          let rows = Orders.run(ByCustomer(ref))
+          let rows = Orders.all(ByCustomer(ref))
           let extra = Order.create(customerId: ref)
           let kept = Order.create(customerId: ref)
         }
@@ -71,7 +71,7 @@ system Catalog {
       // workflow returns (and reference an undefined variable).
       workflow keepsResultBind {
         create(id: Order id) {
-          let only = Orders.getById(id)
+          let only = Orders.get(id)
         }
       }
 

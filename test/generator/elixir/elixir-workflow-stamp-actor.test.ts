@@ -41,7 +41,7 @@ system W {
     retrieval Labelled(l: string) of Tag { where: this.label == l }
     workflow openMany {
       create(l: string) {
-        let gs = Tags.run(Labelled(l), page: { offset: 0, limit: 100 })
+        let gs = Tags.all(Labelled(l), page: { offset: 0, limit: 100 })
         for g in gs {
           let t = Ticket.create(subject: g.label, priority: Low)
         }

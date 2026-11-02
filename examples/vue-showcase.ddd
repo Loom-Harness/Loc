@@ -143,7 +143,7 @@ system AcmeVue {
             repository Orders for Order { }
             criterion OrdersByCustomer(customerId: string) of Order = this.customerId == customerId
             queryHandler ListOrdersByCustomer(customerId: string): Order[] {
-              let r = Orders.run(OrdersByCustomer(customerId))
+              let r = Orders.all(OrdersByCustomer(customerId))
               return r
             }
 

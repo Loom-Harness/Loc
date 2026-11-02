@@ -5,7 +5,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // Slice 5c body-lowering follow-up #4 — `repo-let` (load an existing
 // aggregate by id).
 //
-//   let t = Tasks.getById(taskId)  →  {:ok, t} <- Context.get_task(task_id)
+//   let t = Tasks.get(taskId)  →  {:ok, t} <- Context.get_task(task_id)
 //
 // The auto-generated `getById` finder maps to the vanilla context's
 // `get_<agg>/1` (find_by_id) facade — `{:ok, _} | {:error, :not_found}`,
@@ -57,13 +57,13 @@ const GET_BY_ID = `repository Tasks for Task { }
 
       workflow completeExisting transactional {
         create(taskId: Task id) {
-          let t = Tasks.getById(taskId)
+          let t = Tasks.get(taskId)
           t.markDone()
         }
       }`;
 
 describe("vanilla — workflow body lowering (repo-let / getById)", () => {
-  it("lowers `Tasks.getById(taskId)` to a Context.get_task with-clause", async () => {
+  it("lowers `Tasks.get(taskId)` to a Context.get_task with-clause", async () => {
     const wf = await workflowFor(GET_BY_ID, "complete_existing");
     // M-T5.1 A4 — the load tags its miss with the detail the other four
     // backends' AggregateNotFound carries, so the 404 names the row.

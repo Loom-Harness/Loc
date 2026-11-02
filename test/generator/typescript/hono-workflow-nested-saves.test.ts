@@ -4,7 +4,7 @@
 // targets from the CURRENT statement level only.  A workflow that loads an
 // aggregate, then mutates it inside a loop over a different collection —
 //
-//   let acct = Accounts.getById(id)
+//   let acct = Accounts.get(id)
 //   for o in orders { o.markShipped(); acct.charge(o.total) }
 //
 // — saved `o` per iteration (the loop-local) but NEVER saved `acct`: the
@@ -35,8 +35,8 @@ const SRC = `
 
     workflow ShipAll {
       create(acctId: Account id) {
-        let acct = Accounts.getById(acctId)
-        let orders = Orders.run(Pending)
+        let acct = Accounts.get(acctId)
+        let orders = Orders.all(Pending)
         for o in orders {
           o.markShipped()
           acct.charge(o.total)

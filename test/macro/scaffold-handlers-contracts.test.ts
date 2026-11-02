@@ -239,11 +239,11 @@ describe("scaffoldHandlers handlers CONSUME the contract records (byte-identical
           query GetOrderQuery { orderId: Order id }
           command CancelOrderCommand { }
           queryHandler GetOrder(query: GetOrderQuery): OrderResponse {
-            let o = Orders.getById(query.orderId)
+            let o = Orders.get(query.orderId)
             return o
           }
           commandHandler CancelOrder(orderId: Order id) {
-            let o = Orders.getById(orderId)
+            let o = Orders.get(orderId)
             o.cancel()
           }
         }

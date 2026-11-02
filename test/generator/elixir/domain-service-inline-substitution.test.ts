@@ -25,7 +25,7 @@ system Shop {
       }
       workflow BumpOrder transactional {
         create(id: Order id, k: int) {
-          let o = Orders.getById(id)
+          let o = Orders.get(id)
           Bumper.bump(o, k)
         }
       }

@@ -41,7 +41,7 @@ describe("loom.unhandled-result", () => {
 
   it("refuses a call statement in a workflow body", async () => {
     const wf = `workflow Pay { create(id: Account id, amt: money) {
-      let a = Accounts.getById(id)
+      let a = Accounts.get(id)
       a.withdraw(amt)
     } }`;
     expect(await codes("", wf)).toEqual([CODE]);

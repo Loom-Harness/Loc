@@ -19,7 +19,7 @@ const SRC = `
     repository Trainers for Trainer
     criterion TrainersHoldingInParty(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
     queryHandler HoldingInParty(pokemon: Pokemon id): Trainer[] {
-      let r = Trainers.run(TrainersHoldingInParty(pokemon))
+      let r = Trainers.all(TrainersHoldingInParty(pokemon))
       return r
     }
   }
@@ -85,7 +85,7 @@ describe("reference-collection join tables (TS/Hono)", () => {
         repository Trainers for Trainer
         criterion TrainersHolding(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
         queryHandler Holding(pokemon: Pokemon id): Trainer[] {
-          let r = Trainers.run(TrainersHolding(pokemon))
+          let r = Trainers.all(TrainersHolding(pokemon))
           return r
         }
       }
@@ -100,7 +100,7 @@ describe("reference-collection join tables (TS/Hono)", () => {
         repository Trainers for Trainer
         criterion TrainersBig of Trainer = this.party.count > 0
         queryHandler Big(): Trainer[] {
-          let r = Trainers.run(TrainersBig)
+          let r = Trainers.all(TrainersBig)
           return r
         }
       }

@@ -43,7 +43,7 @@ system S {
       workflow closeOrder {
         orderRef: Order id
         create(e: Shipped) by e.order {
-          let o = Orders.getById(e.order)
+          let o = Orders.get(e.order)
           o.finish()
         }
       }

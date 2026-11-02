@@ -401,7 +401,7 @@ system M2 {
       repository Orders for Order { }
       criterion OrdersTagged(t: Tag id) of Order = this.tags.contains(t)
       queryHandler ListOrdersTagged(t: Tag id): Order[] {
-        let r = Orders.run(OrdersTagged(t))
+        let r = Orders.all(OrdersTagged(t))
         return r
       }
     }

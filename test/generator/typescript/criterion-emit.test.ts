@@ -16,11 +16,11 @@ const SRC = `
     criterion ActiveCustomer of Customer = active == true
     criterion InRegion(rgn: string) of Customer = region == rgn
     queryHandler ListViaCriterion(r: string): Customer[] {
-      let x = Customers.findAll(CustomersInRegionViaCriterion(r))
+      let x = Customers.all(CustomersInRegionViaCriterion(r))
       return x
     }
     queryHandler ListInline(r: string): Customer[] {
-      let x = Customers.findAll(CustomersInRegionInline(r))
+      let x = Customers.all(CustomersInRegionInline(r))
       return x
     }
   }

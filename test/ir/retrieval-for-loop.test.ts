@@ -22,7 +22,7 @@ const SRC = `
 
     workflow deactivateRegion {
       create(rgn: string) {
-      let matched = Customers.run(ByRegion(rgn), page: { offset: 0, limit: 100 })
+      let matched = Customers.all(ByRegion(rgn), page: { offset: 0, limit: 100 })
       for c in matched {
         c.deactivate()
       }
@@ -92,7 +92,7 @@ describe("workflow for-loop — validation negatives", () => {
         repository Customers for Customer { }
         workflow bad {
       create(id: Customer id) {
-          let one = Customers.getById(id)
+          let one = Customers.get(id)
           for c in one { c.deactivate() }
         }
     }
@@ -113,7 +113,7 @@ describe("workflow for-loop — validation negatives", () => {
         retrieval BigOrders of Order = Big
         workflow bad {
       create() {
-          let xs = Customers.run(BigOrders)
+          let xs = Customers.all(BigOrders)
           for x in xs { }
         }
     }

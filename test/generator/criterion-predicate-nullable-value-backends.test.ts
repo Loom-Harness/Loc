@@ -42,14 +42,14 @@ system X {
     criterion BossOf of WorkOrder = this.technicianId == currentUser.boss
     criterion Pricey of WorkOrder = this.cost.amount > 100
     criterion InCur(c: string) of WorkOrder = this.cost.currency == c
-    queryHandler ListMine(): WorkOrder[] { let r = WorkOrders.run(Mine) return r }
-    queryHandler ListNotMine(): WorkOrder[] { let r = WorkOrders.run(NotMine) return r }
-    queryHandler ListByTech(t: Technician id?): WorkOrder[] { let r = WorkOrders.run(ByTech(t)) return r }
-    queryHandler ListAbove(p: int?): WorkOrder[] { let r = WorkOrders.run(Above(p)) return r }
-    queryHandler ListExact(t: Technician id): WorkOrder[] { let r = WorkOrders.run(Exact(t)) return r }
-    queryHandler ListBossOf(): WorkOrder[] { let r = WorkOrders.run(BossOf) return r }
-    queryHandler ListPricey(): WorkOrder[] { let r = WorkOrders.run(Pricey) return r }
-    queryHandler ListInCur(c: string): WorkOrder[] { let r = WorkOrders.run(InCur(c)) return r }
+    queryHandler ListMine(): WorkOrder[] { let r = WorkOrders.all(Mine) return r }
+    queryHandler ListNotMine(): WorkOrder[] { let r = WorkOrders.all(NotMine) return r }
+    queryHandler ListByTech(t: Technician id?): WorkOrder[] { let r = WorkOrders.all(ByTech(t)) return r }
+    queryHandler ListAbove(p: int?): WorkOrder[] { let r = WorkOrders.all(Above(p)) return r }
+    queryHandler ListExact(t: Technician id): WorkOrder[] { let r = WorkOrders.all(Exact(t)) return r }
+    queryHandler ListBossOf(): WorkOrder[] { let r = WorkOrders.all(BossOf) return r }
+    queryHandler ListPricey(): WorkOrder[] { let r = WorkOrders.all(Pricey) return r }
+    queryHandler ListInCur(c: string): WorkOrder[] { let r = WorkOrders.all(InCur(c)) return r }
     policy { read WorkOrder requires true }
   } }
   storage p { type: postgres }

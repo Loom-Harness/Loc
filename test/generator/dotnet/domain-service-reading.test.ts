@@ -88,7 +88,7 @@ system Banking {
       criterion AccountsByHolder(holder: string) of Account = this.holder == holder
       domainService Lookup {
         operation holderOf(a: Account id): string {
-          let one = Accounts.getById(a)
+          let one = Accounts.get(a)
           return one.holder
         }
       }

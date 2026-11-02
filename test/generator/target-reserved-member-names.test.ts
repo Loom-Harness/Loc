@@ -141,7 +141,7 @@ describe.skipIf(!PY)("python: every keyword Loom accepts as a name, in every mem
             repository Items for A
             criterion ByKw(${accepted[0]}: int) of A = this.${accepted[0]} == ${accepted[0]}
             queryHandler ListByKw(${accepted[0]}: int): A[] {
-              let r = Items.run(ByKw(${accepted[0]}))
+              let r = Items.all(ByKw(${accepted[0]}))
               return r
             }
           }
@@ -171,7 +171,7 @@ describe("python: a keyword-named repository read by a handler", () => {
             repository As for A
             criterion ByN(n: int) of A = this.n == n
             queryHandler ListByN(n: int): A[] {
-              let r = As.run(ByN(n))
+              let r = As.all(ByN(n))
               return r
             }
           }
@@ -380,11 +380,11 @@ const TS_RESERVED_SRC = `
         repository Things for Thing
         criterion ThingsByClass(class: string, new: int) of Thing = this.class == class && this.new >= new
         queryHandler ListByClass(class: string, new: int): Thing[] {
-          let r = Things.run(ThingsByClass(class, new))
+          let r = Things.all(ThingsByClass(class, new))
           return r
         }
         queryHandler ListInClass(class: string): Thing[] {
-          let r = Things.run(InClass(class))
+          let r = Things.all(InClass(class))
           return r
         }
 
@@ -523,7 +523,7 @@ describe("byte-identity: a model with no reserved names keeps its node bindings"
             repository Notes for Note
             criterion NotesByTitle(title: string) of Note = this.title == title
             queryHandler ListByTitle(title: string): Note[] {
-              let r = Notes.run(NotesByTitle(title))
+              let r = Notes.all(NotesByTitle(title))
               return r
             }
           }

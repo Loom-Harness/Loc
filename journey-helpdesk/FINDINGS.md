@@ -125,7 +125,7 @@ open PR covers it. **PLANNED M-x** = a `docs/new-plan` mission tracks it.
 
 | # | Finding | Status |
 |---|---|---|
-| D1 | `docs/language.md` statements table: `for x in Repo.run(R(args)) { … }`. The validator requires `let xs = Repo.run(…)` first (`loom.workflow-foreach-source`). | NEW |
+| D1 | `docs/language.md` statements table: `for x in Repo.all(R(args)) { … }`. The validator requires `let xs = Repo.all(…)` first (`loom.workflow-foreach-source`). | NEW |
 | D2 | `docs/resources.md` § "Consuming a resource" shows `workflow ArchiveOrder(order: Order id) {`, which is a parse error (workflows are members-only). | NEW |
 | D3 | `storage mail { type: smtp, from: "…" }` produced "'from' is a Loom keyword, so it cannot be used as a name". The real fix is `config: { from: … }`; the message should say so. | NEW |
 | D4 | Several diagnostics carry no `file:line` (`loom.retrieval-sort-unknown-field`, `loom.current-user-needs-auth-ui`, `loom.default-deny-list-ungated`). Many `default-deny-by-id` warnings all point at the same unrelated line. | NEW |

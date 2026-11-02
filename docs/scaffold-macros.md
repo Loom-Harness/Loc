@@ -201,7 +201,7 @@ Notes:
 
 A `criterion` or `retrieval` is a domain declaration with no route of its own.
 This pair is how one reaches a client: `scaffoldPaged` (target `context`) emits
-a paged `queryHandler` over `Repo.run(<read>)`, and `scaffoldPagedApi` (target
+a paged `queryHandler` over `Repo.all(<read>)`, and `scaffoldPagedApi` (target
 `api`) emits the `GET /<plural>/projections/<read>` route bound to it. `of:` takes
 either kind, and the macro reads the argument's kind. Over a retrieval, the
 `sort:` is the page's default order. `requires: <Policy>` (a parameterless
@@ -217,7 +217,7 @@ expands to (unfold ejects exactly this):
 ```ddd
 queryHandler ListTaskByTasksInProject(p: Project id): Task paged {
   requires Members()
-  let r = Tasks.run(TasksInProject(p))
+  let r = Tasks.all(TasksInProject(p))
   return r
 }
 route GET "/tasks/projections/tasks_in_project" -> Projects.ListTaskByTasksInProject
@@ -415,7 +415,7 @@ aggregate Order {
 These surface on a backend as the `POST` (create), `POST /{id}/update`,
 and `DELETE` routes — alongside the `GET /{id}` and `findAll` the
 repository always emits.  A `repository` without `crudish` gets only
-the read side (`getById` + `findAll`); `crudish` is what adds the
+the read side (`get` + `all`); `crudish` is what adds the
 write side.
 
 Which fields become parameters is decided per-surface (see the access

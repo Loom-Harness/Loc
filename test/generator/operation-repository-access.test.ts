@@ -51,7 +51,7 @@ system FieldOps {
 
         operation assign(assignTo: Technician id) {
           technicianId := assignTo
-          assignedName := Technicians.getById(assignTo).name
+          assignedName := Technicians.get(assignTo).name
         }
       }
       repository Jobs for Job { }
@@ -73,11 +73,11 @@ system FieldOps {
  * DANGLING IDENTIFIER it renders for the unresolved repository receiver.
  * Captured 2026-09-13 by generating this exact system on each backend:
  *
- *   TS      `Technicians.getById(assignTo).name` in `domain/job.ts`, a file
+ *   TS      `Technicians.get(assignTo).name` in `domain/job.ts`, a file
  *           that defines/imports no `Technicians`      → TS2304.
  *   .NET    `Technicians.GetById(assignTo).Name` in `Domain/Jobs/Job.cs`
  *                                                      → CS0103.
- *   Java    `Technicians.getById(assignTo).name()`     → "cannot find symbol".
+ *   Java    `Technicians.get(assignTo).name()`     → "cannot find symbol".
  *   Python  `Technicians.get_by_id(assign_to).name`    → NameError (F821).
  *   Phoenix `technicians.get_by_id(assign_to).name` — the ref is snake-cased
  *           into a LOCAL that was never bound          → "undefined variable".
@@ -86,9 +86,9 @@ system FieldOps {
  * gate is what has to change first — this table is the evidence it rests on.
  */
 const BACKENDS: { platform: string; file: string; dangling: string }[] = [
-  { platform: "node", file: "domain/job.ts", dangling: "Technicians.getById(assignTo)" },
+  { platform: "node", file: "domain/job.ts", dangling: "Technicians.get(assignTo)" },
   { platform: "dotnet", file: "Domain/Jobs/Job.cs", dangling: "Technicians.GetById(assignTo)" },
-  { platform: "java", file: "jobs/Job.java", dangling: "Technicians.getById(assignTo)" },
+  { platform: "java", file: "jobs/Job.java", dangling: "Technicians.get(assignTo)" },
   { platform: "python", file: "domain/job.py", dangling: "Technicians.get_by_id(assign_to)" },
   { platform: "elixir", file: "lib/api/ops.ex", dangling: "technicians.get_by_id(assign_to)" },
 ];

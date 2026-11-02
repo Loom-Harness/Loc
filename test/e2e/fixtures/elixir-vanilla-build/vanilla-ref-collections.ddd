@@ -45,7 +45,7 @@ system Roster {
       }
       workflow verifyByName {
         create(needle: string) {
-          let matched = Trainers.run(ByName(needle), page: { offset: 0, limit: 100 })
+          let matched = Trainers.all(ByName(needle), page: { offset: 0, limit: 100 })
           for t in matched {
             t.verify()
           }

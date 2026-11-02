@@ -55,7 +55,7 @@ system Fable {
     repository Projects for Project { }
     workflow closeProject {
       create(project: Project id) {
-        let p = Projects.getById(project)
+        let p = Projects.get(project)
       }
     }
   } }

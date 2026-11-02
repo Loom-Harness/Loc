@@ -19,7 +19,7 @@ system Shop {
     repository Orders for Order { }
     test "persists and reads back an order" {
       let o = Order.create(code: "abc", qty: 2)
-      let found = Order.findById(o.id)
+      let found = Order.find(o.id)
       expect(found.qty).toBe(2)
     }
   } }
@@ -79,7 +79,7 @@ system Ship {
     test "placing transitions to Placed" {
       let o = Order.create(customerId: "c1", status: "Draft")
       o.place()
-      let found = Order.findById(o.id)
+      let found = Order.find(o.id)
       expect(found.status).toBe("Placed")
     }
   } }
@@ -127,7 +127,7 @@ describe("dotnet: context integration test usings the value objects / enums its 
         await generateSystemFiles(
           DOCKING(`      let s = Ship.create(name: "Aurora", size: Size.Large)
       let d = Dock.create(name: "North", berth: Berth { ship: s.id, position: 3 })
-      let found = Dock.findById(d.id)
+      let found = Dock.find(d.id)
       expect(found.berth.position).toBe(3)`),
         ),
         "DockingIntegrationTests.cs",
@@ -143,7 +143,7 @@ describe("dotnet: context integration test usings the value objects / enums its 
       get(
         await generateSystemFiles(
           DOCKING(`      let c = Crew.create(name: "Aurora")
-      let found = Crew.findById(c.id)
+      let found = Crew.find(c.id)
       expect(found.name).toBe("Aurora")`),
         ),
         "DockingIntegrationTests.cs",

@@ -43,7 +43,7 @@ system VoInBody {
       repository Orders for Order { }
       workflow bump {
         create(orderId: Order id, n: int) {
-          let o = Orders.getById(orderId)
+          let o = Orders.get(orderId)
           o.resize(n)
         }
       }

@@ -33,7 +33,7 @@ system AllowedPlacement {
       // WorkflowStmtIR kinds.
       workflow sweep {
         create(code: string) {
-          let matched = Orders.run(Coded(code), page: { offset: 0, limit: 100 })
+          let matched = Orders.all(Coded(code), page: { offset: 0, limit: 100 })
           for o in matched { o.reserve() }
           if let hit = Orders.find(ByCode(code)) { hit.reserve() }
         }
@@ -41,7 +41,7 @@ system AllowedPlacement {
 
       // …and in a top-level handler, which shares the workflow lowering.
       commandHandler sweepAgain(code: string) {
-        let more = Orders.run(Coded(code), page: { offset: 0, limit: 100 })
+        let more = Orders.all(Coded(code), page: { offset: 0, limit: 100 })
         for o in more { o.reserve() }
         if let hit = Orders.find(ByCode(code)) { hit.reserve() }
       }

@@ -57,7 +57,7 @@ const system = (platform: string): string => `
         repository WorkOrders for WorkOrder { }
         workflow annotateOrders {
           create(target: WorkOrder id, memo: string) {
-            let wo = WorkOrders.getById(target)
+            let wo = WorkOrders.get(target)
             wo.annotate(memo)
           }
         }

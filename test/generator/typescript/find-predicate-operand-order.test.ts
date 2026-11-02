@@ -92,7 +92,7 @@ function criterionReads(criteria: Record<string, string>): string {
       ([name, where]) => `
         criterion ${name} of Item = ${where}
         queryHandler List${name}(): Item[] {
-          let r = Items.findAll(${name}())
+          let r = Items.all(${name}())
           return r
         }`,
     )
@@ -213,7 +213,7 @@ const POSITIONS = `
         }
         repository Items for Item { }
         queryHandler ListCheap(): Item[] {
-          let r = Items.findAll(Cheap())
+          let r = Items.all(Cheap())
           return r
         }
 `;

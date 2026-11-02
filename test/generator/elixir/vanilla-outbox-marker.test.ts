@@ -33,7 +33,7 @@ const DURABLE = `system Acme { subdomain Sales { context Orders {
       emit ShipmentRequested { shipment: ship.id, order: p.order }
     }
     on(s: ShipmentRequested) by s.order {
-      let ship = Shipments.getById(s.shipment)
+      let ship = Shipments.get(s.shipment)
       ship.markTracked()
     }
   }

@@ -34,7 +34,7 @@ const SRC = `
     workflow BatchCharge transactional {
       create(ids: Account id[], amount: decimal) {
         for accId in ids {
-          let acct = Accounts.getById(accId)
+          let acct = Accounts.get(accId)
           Charge.run(acct, amount)
         }
       }

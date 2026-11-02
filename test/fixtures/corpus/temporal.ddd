@@ -59,7 +59,7 @@ system TemporalShop {
       // column-side: an interval added to a datetime COLUMN, pushed to SQL
       criterion InvoicesOverdueBy(q: datetime) of Invoice = this.dueDate + days(30) < q
       queryHandler ListInvoicesOverdueBy(q: datetime): Invoice[] {
-        let r = Invoices.run(InvoicesOverdueBy(q))
+        let r = Invoices.all(InvoicesOverdueBy(q))
         return r
       }
       // column-side with a bound parameter inside the interval
@@ -68,12 +68,12 @@ system TemporalShop {
       // column, so it lowers on the fragment side of the predicate instead
       criterion InvoicesDueBefore(q: datetime) of Invoice = this.dueDate < q + days(2)
       queryHandler ListInvoicesDueBefore(q: datetime): Invoice[] {
-        let r = Invoices.run(InvoicesDueBefore(q))
+        let r = Invoices.all(InvoicesDueBefore(q))
         return r
       }
       // the same column-side predicate again, but through the criterion
       queryHandler ListOverdueAt(q: datetime): Invoice[] {
-        let r = Invoices.run(OverdueAt(q))
+        let r = Invoices.all(OverdueAt(q))
         return r
       }
     }

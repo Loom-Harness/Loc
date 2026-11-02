@@ -65,7 +65,7 @@ system NotFoundDecl {
 
       workflow spend transactional {
         create(walletId: Wallet id, amount: decimal) {
-          let w = Wallets.getById(walletId)
+          let w = Wallets.get(walletId)
           w.debit(amount)
         }
       }

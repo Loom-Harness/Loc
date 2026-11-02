@@ -51,7 +51,7 @@ system DateScalar {
       repository Patients for Patient { }
       criterion PatientsBornBefore(cutoff: date) of Patient = this.birthDate < cutoff
       queryHandler ListPatientsBornBefore(cutoff: date): Patient[] {
-        let r = Patients.run(PatientsBornBefore(cutoff))
+        let r = Patients.all(PatientsBornBefore(cutoff))
         return r
       }
     }

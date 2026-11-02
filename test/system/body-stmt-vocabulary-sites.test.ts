@@ -189,8 +189,8 @@ system R {
       on(s: Noted) by s.order {
         if let o6 = Orders.find(Placed) { o6.place() }
         mail.send("a@b.c", "s", "b")
-        let o3 = Orders.getById(s.order)
-        Orders.delete(o3)
+        let o3 = Orders.get(s.order)
+        Orders.remove(o3)
       }
     }
   } }

@@ -35,7 +35,7 @@ system R { subdomain S { context A {
     if let p = Ps.find(Named(n)) { precondition true } else { emit Missed { at: now() } }
   } }
   workflow LoopEmit { create(n: string) {
-    let xs = Ps.findAll(Named(n), page: { offset: 0, limit: 10 })
+    let xs = Ps.all(Named(n), page: { offset: 0, limit: 10 })
     for x in xs { emit Looped { at: now() } }
   } }
   workflow React { pId: P id

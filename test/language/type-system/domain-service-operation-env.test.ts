@@ -78,9 +78,9 @@ const SRC = `
       // these on main, so whatever this column reports is the correct answer
       // the service column must match.
       operation inAggregate(t: string, oid: Owner id) {
-        let arr = Owners.run(OwnersByTier(t))
+        let arr = Owners.all(OwnersByTier(t))
         let maybeOwner = Owners.find(OwnersByLabel(t))
-        let one = Owners.getById(oid)
+        let one = Owners.get(oid)
         label := t
       }
     }
@@ -93,9 +93,9 @@ const SRC = `
       // THE SUBJECT.  Byte-for-byte the same params and lets, in a
       // 'domainService' operation instead.
       operation inService(t: string, oid: Owner id): bool {
-        let arr = Owners.run(OwnersByTier(t))
+        let arr = Owners.all(OwnersByTier(t))
         let maybeOwner = Owners.find(OwnersByLabel(t))
-        let one = Owners.getById(oid)
+        let one = Owners.get(oid)
         return t != null
       }
     }
@@ -173,7 +173,7 @@ describe("domainService operation body: the typing environment (F1, language hal
 // ---------------------------------------------------------------------------
 
 function twoPositionSrc(expr: string): { agg: string; svc: string } {
-  const body = `let one = Owners.getById(oid)`;
+  const body = `let one = Owners.get(oid)`;
   const mk = (aggStmt: string, svcStmt: string) => `
   context Fleet {
     aggregate Owner with crudish {

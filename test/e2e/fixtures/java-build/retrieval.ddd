@@ -28,7 +28,7 @@ system RetrievalShop {
 
       workflow deactivateRegion {
         create(rgn: string) {
-          let matched = Customers.run(ByRegion(rgn))
+          let matched = Customers.all(ByRegion(rgn))
           for c in matched {
             c.deactivate()
           }
@@ -38,7 +38,7 @@ system RetrievalShop {
 
       workflow boostTopScorers {
         create(min: int) {
-          let top = Customers.run(ActiveHighScorers(min), page: { offset: 1, limit: 1 })
+          let top = Customers.all(ActiveHighScorers(min), page: { offset: 1, limit: 1 })
           for c in top {
             c.boost()
           }

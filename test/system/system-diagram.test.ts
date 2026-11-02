@@ -181,7 +181,7 @@ system Sweep {
       repository StockItems for StockItem { }
       workflow recountWarehouse {
         create(w: string) {
-          let items = StockItems.run(ItemsToRecount(w), page: { offset: 0, limit: 100 })
+          let items = StockItems.all(ItemsToRecount(w), page: { offset: 0, limit: 100 })
           for s in items {
             s.markCounted()
           }

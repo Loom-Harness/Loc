@@ -156,7 +156,7 @@ describe("IR unknown-name diagnostics suggest the nearest real name", () => {
 
   it("loom.workflow-unknown-operation", async () => {
     const m = await messageOf("loom.workflow-unknown-operation", {
-      ctx: `workflow W { create(orderId: Order id) { let o = Orders.getById(orderId)  o.bmp() } }`,
+      ctx: `workflow W { create(orderId: Order id) { let o = Orders.get(orderId)  o.bmp() } }`,
     });
     expect(m).toContain("has no operation 'bmp'. Did you mean 'bump'?");
   });
