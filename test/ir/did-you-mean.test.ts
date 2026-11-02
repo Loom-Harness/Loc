@@ -91,16 +91,10 @@ describe("IR unknown-name diagnostics suggest the nearest real name", () => {
     expect(m).toContain("Did you mean 'this.title'?");
   });
 
-  it("loom.find-where-unknown-field", async () => {
-    const m = await messageOf("loom.find-where-unknown-field", {
-      repo: `find byTitle(t: string): Order? where this.titel == t`,
-    });
-    expect(m).toContain("Did you mean 'this.title'?");
-  });
-
-  it("loom.find-where-unknown-field — a value-object sub-field", async () => {
-    const m = await messageOf("loom.find-where-unknown-field", {
-      repo: `find byCity(c: string): Order? where this.addr.cty == c`,
+  it("loom.retrieval-where-unknown-field — a value-object sub-field", async () => {
+    const m = await messageOf("loom.retrieval-where-unknown-field", {
+      ctx: `criterion ByCity(c: string) of Order = this.addr.cty == c
+            retrieval R(c: string) of Order { where: ByCity(c) }`,
     });
     expect(m).toContain("Did you mean 'this.addr.city'?");
   });
@@ -147,7 +141,7 @@ describe("IR unknown-name diagnostics suggest the nearest real name", () => {
   it("loom.workflow-create-unknown-field", async () => {
     const m = await messageOf("loom.workflow-create-unknown-field", {
       ctx: `workflow W { create(orderId: Order id) {
-              let n = Order.create({ title: "t", total: 1, priority: Low, addr: Addr { city: "x" }, titel: "u" })
+              let n = Order.create(title: "t", total: 1, priority: Low, addr: Addr { city: "x" }, titel: "u")
             } }`,
     });
     expect(m).toContain("unknown field 'titel'. Did you mean 'title'?");

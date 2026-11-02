@@ -1,5 +1,5 @@
 import { repoOpVerb } from "../../../util/repository-contract.js";
-import type { BoundedContext, TypeRef } from "../../api/index.js";
+import type { BoundedContext } from "../../api/index.js";
 import {
   callStmt,
   commandHandler,
@@ -10,9 +10,7 @@ import {
   memberAccess,
   namedType,
   nameRef,
-  objectLit,
   param,
-  primType,
   queryHandler,
   returnStmt,
 } from "../../api/index.js";
@@ -44,7 +42,7 @@ import {
  *   queryHandler   GetOrder(query: GetOrderQuery): OrderResponse  { let o = Orders.getById(query.orderId)  return o }
  *   queryHandler   ByStatusOrder(query: ByStatusOrderQuery): OrderResponse[] { let r = Orders.byStatus(query.status)  return r }
  *   commandHandler CreateOrder(cmd: CreateOrderCommand): Order id {
- *     let o = Order.create({ code: cmd.code, status: cmd.status })
+ *     let o = Order.create(code: cmd.code, status: cmd.status)
  *     return o.id
  *   }
  *   commandHandler CancelOrder(orderId: Order id) {   // cmd omitted — cancel has no params
@@ -132,18 +130,17 @@ function buildHandler(t: HandlerTarget) {
       const params =
         fields.length > 0 ? [param("cmd", namedType(`${targetHandlerName(t)}Command`))] : [];
       const body = [
-        // `let o = <Agg>.create({ <field>: cmd.<field>, … })` — a factory-let;
-        // each field value reads off the command record.  `computeSaves`
+        // `let o = <Agg>.create(<field>: cmd.<field>, …)` — a factory-let;
+        // each argument reads off the command record.  `computeSaves`
         // persists the constructed `o` at exit.
         letStmt(
           "o",
           memberAccess(nameRef(t.agg.name), "create", {
             call: true,
-            args: [
-              objectLit(
-                fields.map((f) => ({ name: f.name, value: memberAccess(nameRef("cmd"), f.name) })),
-              ),
-            ],
+            namedArgs: fields.map((f) => ({
+              name: f.name,
+              value: memberAccess(nameRef("cmd"), f.name),
+            })),
           }),
         ),
         // `return o.id` — the new aggregate's id.
@@ -151,34 +148,6 @@ function buildHandler(t: HandlerTarget) {
       ];
       // Return type `<Agg> id` (a create yields the new id, not a response).
       return commandHandler(targetHandlerName(t), params, body, { returnType: idRef(t.agg.name) });
-    }
-    case "find": {
-      // A query handler running the repository find.  Its params ride in a
-      // single `query: <Find>Query` record (assembled from path/query-string);
-      // `let r = <Repo>.<find>(query.<p>, …)` lowers to a repo-let and `return r`
-      // yields the read's response shape.
-      const findParams = t.find.params.filter((p) => p.type != null);
-      const params =
-        findParams.length > 0 ? [param("query", namedType(`${targetHandlerName(t)}Query`))] : [];
-      const body = [
-        letStmt(
-          "r",
-          memberAccess(nameRef(t.repo.name), t.find.name, {
-            call: true,
-            args: findParams.map((p) => memberAccess(nameRef("query"), p.name)),
-          }),
-        ),
-        returnStmt(nameRef("r")),
-      ];
-      // Reads over the aggregate declare a `<Agg>Response[]` return (the wire is
-      // already that shape via transport projection); non-aggregate finds keep
-      // their own return type.
-      return queryHandler(
-        targetHandlerName(t),
-        params,
-        responseReturnType(t.find.returnType, t.agg.name),
-        body,
-      );
     }
     case "getById": {
       // The canonical get-by-id read: the id rides in a single-field
@@ -224,36 +193,4 @@ function buildHandler(t: HandlerTarget) {
       return commandHandler(targetHandlerName(t), params, body);
     }
   }
-}
-
-/** The declared return type for a read handler.  A find/getById yielding the
- * aggregate (`Order` / `Order[]`) declares the response record instead
- * (`OrderResponse` / `OrderResponse[]`) — the transport layer already projects
- * the entity to that shape, so this only aligns the declaration with the wire.
- * A find returning a non-aggregate type (scalar / projection) keeps it. */
-function responseReturnType(t: TypeRef, aggName: string): TypeRef {
-  const b = t.base;
-  const isAgg =
-    b.$type === "NamedType" && (b as { target: { $refText: string } }).target.$refText === aggName;
-  if (isAgg) {
-    return namedType(`${aggName}Response`, { array: !!t.array, optional: !!t.optional });
-  }
-  return cloneType(t);
-}
-
-/** Rebuild a source param / field / return TypeRef as a fresh, macro-tagged
- * handler-param type — the same factory-based reconstruction `crudish` uses so
- * a type of `Money` / `OrderStatus` / `X id` / `Order[]` keeps its resolved
- * type after splicing (hand-rolled `mk*` refs never re-link and silently lower
- * to `string`). */
-function cloneType(t: TypeRef): TypeRef {
-  const opts = { array: !!t.array, optional: !!t.optional };
-  const b = t.base;
-  if (b.$type === "PrimitiveType") {
-    return primType(b.name as Parameters<typeof primType>[0], opts);
-  }
-  if (b.$type === "IdType") {
-    return idRef(b.target.$refText, opts);
-  }
-  return namedType((b as { target: { $refText: string } }).target.$refText, opts);
 }

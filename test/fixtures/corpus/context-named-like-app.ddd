@@ -24,12 +24,11 @@ system Claims {
           ref := r
         }
       }
-      repository Clms for Clm {
-        // Not `byRef`: .NET's analyzer refuses an interface member named like
-        // the VB keyword `ByRef` (CA1716 under /warnaserror) — a separate
-        // defect, kept out of this row.
-        find withRef(r: string): Clm? where ref == r
-      }
+      repository Clms for Clm { }
+      // Not `byRef`: .NET's analyzer refuses an interface member named like
+      // the VB keyword `ByRef` (CA1716 under /warnaserror) — a separate
+      // defect, kept out of this row.
+      criterion ClmsWithRef(r: string) of Clm = ref == r
 
       event Filed { ledger: Ledger id, amount: int }
       aggregate Ledger persistedAs: eventLog {

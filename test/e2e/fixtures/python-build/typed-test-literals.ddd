@@ -34,19 +34,19 @@ system TypedLiterals {
         }
 
         test "an id literal reaches an operation parameter" {
-          let w = Widget.create({ code: "W1" })
+          let w = Widget.create(code: "W1")
           w.assign("00000000-0000-0000-0000-000000000001")
           expect(w.code).toBe("W1")
         }
 
         test "a datetime literal reaches an operation parameter" {
-          let w = Widget.create({ code: "W2" })
+          let w = Widget.create(code: "W2")
           w.schedule("2026-01-01T00:00:00Z")
           expect(w.code).toBe("W2")
         }
 
         test "both literal kinds reach one operation" {
-          let w = Widget.create({ code: "W3" })
+          let w = Widget.create(code: "W3")
           w.reassign("00000000-0000-0000-0000-000000000002", "2026-02-02T12:30:00Z")
           expect(w.code).toBe("W3")
         }
@@ -55,11 +55,11 @@ system TypedLiterals {
         // `datetime` create-input field, the variant the rule missed before it
         // unwrapped `optional`.
         test "both literal kinds reach a create input" {
-          let w = Widget.create({
+          let w = Widget.create(
             code: "W4",
             ownerId: "00000000-0000-0000-0000-000000000003",
             scheduledAt: "2026-03-03T08:00:00Z"
-          })
+          )
           expect(w.code).toBe("W4")
         }
       }

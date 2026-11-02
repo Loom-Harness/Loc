@@ -21,7 +21,7 @@ async function irCodes(source: string): Promise<string[]> {
     .map((d) => d.code ?? "");
 }
 
-const wrap = (aggBody: string, repoBody = "") => `
+const wrap = (aggBody: string, reads = "") => `
   system S { subdomain M {
     context C {
       event E { at: datetime }
@@ -32,7 +32,8 @@ const wrap = (aggBody: string, repoBody = "") => `
         domestic: bool
         ${aggBody}
       }
-      repository R for A { ${repoBody} }
+      repository R for A
+      ${reads}
     }
   } }
 `;
@@ -162,10 +163,19 @@ describe("block-body function — purity gate (loom.function-block-impure)", () 
 });
 
 describe("block-body function — non-queryable", () => {
-  it("rejects a block-body function call in a find `where`", async () => {
+  it("rejects a block-body function call in a criterion a read runs", async () => {
     const codes = await irCodes(
-      wrap(`function big(): bool { let t = n  return t > 100 }`, `find heavy(): A[] where big()`),
+      wrap(
+        `function big(): bool { let t = n  return t > 100 }`,
+        `criterion Heavy of A = big()
+      queryHandler ListHeavy(): A[] {
+        let r = R.run(Heavy())
+        return r
+      }`,
+      ),
     );
-    expect(codes).toContain("loom.find-where-not-queryable");
+    expect(codes.join(" ")).toMatch(
+      /loom\.(criterion-not-selectable|retrieval-where-not-queryable)/,
+    );
   });
 });

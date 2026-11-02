@@ -1,4 +1,4 @@
-import { factoryArgs } from "../../language/factory-call.js";
+import { factoryRecordFields } from "../../language/factory-call.js";
 import type {
   Aggregate,
   BoundedContext,
@@ -33,6 +33,7 @@ import {
   isReturnStmt,
   isWorkflowCreateDecl,
 } from "../../language/generated/ast.js";
+import { handlerReturnGuard } from "../../language/handler-return.js";
 import { upperFirst } from "../../util/naming.js";
 import { namedRepoCallOp, repoVerbEffect } from "../../util/repository-contract.js";
 import { findVerb } from "../resource-verbs.js";
@@ -85,7 +86,6 @@ import {
   matchFindAllCall,
   matchFindCall,
   matchKeyLookupCall,
-  matchOptionalFindCall,
   matchRepoCall,
   matchRetrievalRunCall,
   runCriterionMatcher,
@@ -402,9 +402,12 @@ export function lowerQueryHandler(
 /** Lower a `commandHandler` / `queryHandler` body: every non-return statement
  *  through the shared workflow-statement lowerer, and the terminal `return
  *  <expr>` as a distinct `returnValue` (the workflow statement vocabulary has
- *  no return form).  A return may only appear as the LAST statement — the
- *  validator/grammar don't yet forbid a mid-body return, so a defensive guard
- *  keeps the last-return semantics (an earlier return would be dead code). */
+ *  no return form).  `loom.handler-return-not-last` keeps every other return
+ *  out, with one shape besides a last top-level return: a trailing
+ *  `if let x = <lookup> { return <expr> } else { …; notFound }`
+ *  (`handlerReturnGuard`).  Its `else` cannot fall through, so it lowers as a
+ *  GUARD — an `if-let` with an empty then-branch, after which `x` stays bound
+ *  — and its `return` becomes the `returnValue`, read with `x` in scope. */
 function lowerHandlerBody(
   body: readonly Statement[],
   env: Env,
@@ -416,12 +419,19 @@ function lowerHandlerBody(
   const statements: WorkflowStmtIR[] = [];
   let returnValue: ExprIR | undefined;
   let inner = env;
+  const guard = handlerReturnGuard(body);
   for (const s of body) {
     if (isReturnStmt(s)) {
       returnValue = lowerExpr(s.value, inner);
       continue;
     }
     const l = lowerWorkflowStatement(s, inner, aggsByName, reposByName, repoForAgg, saveResolver);
+    if (guard && s === guard.ifLet && l.stmt?.kind === "if-let") {
+      statements.push({ ...l.stmt, thenBody: [], savesInThen: [] });
+      const bound = withLocal(inner, l.stmt.var, "let", { kind: "entity", name: l.stmt.aggName });
+      returnValue = lowerExpr(guard.ret.value, bound);
+      continue;
+    }
     if (l.stmt) statements.push(l.stmt);
     inner = l.envAfter;
   }
@@ -632,8 +642,8 @@ function lowerWorkflowStatementInner(
   }
   if (isIfLetStmt(stmt)) {
     // `if let <var> = Repo.find(<Criterion>) { then } else { else }`
-    // (criterion.md, use site 3), or `if let <var> = Repo.<find>(args)` over a
-    // declared optional find.  Any other source leaves both
+    // (criterion.md, use site 3), `Repo.findBy(…)`, `Repo.findById(id)`, or an
+    // optional binding already in scope.  Any other source leaves both
     // `synthCriterion.name` and `findMethod` empty for the validator
     // (`loom.iflet-bad-source`) — still naming the repository's aggregate when
     // the source called one, so the binder is typed and no phantom `Unknown`
@@ -642,24 +652,18 @@ function lowerWorkflowStatementInner(
     // in `elseBody`.
     const findCall = matchFindCall(stmt.source, reposByName);
     // A natural-key `Repo.findBy(…)` is the third source form: the backends
-    // call its synthesised nullable method exactly like a declared optional
-    // find's.  (`getBy` never answers absence, so it is not an `if let`
+    // call its synthesised nullable method by name.  (`getBy` never answers absence, so it is not an `if let`
     // source — it falls through to `loom.iflet-bad-source`.)
     const keyFind = findCall ? undefined : matchKeyLookupCall(stmt.source, reposByName);
     const keySource = keyFind?.op === "load-by-key-optional" ? keyFind : undefined;
-    const declaredFind =
-      findCall || keyFind ? undefined : matchOptionalFindCall(stmt.source, reposByName, env);
     // `Repo.findById(id)` — the by-id read that answers absence.
     const anyRepoCall = matchRepoCall(stmt.source, reposByName);
     const byIdFind =
-      findCall || keyFind || declaredFind || anyRepoCall?.method !== "findById"
-        ? undefined
-        : anyRepoCall;
+      findCall || keyFind || anyRepoCall?.method !== "findById" ? undefined : anyRepoCall;
     // `if let o = x` over an optional binding already in scope (`let x =
     // Repo.find…`): no read, only the narrowing.
-    const boundLocal =
-      findCall || keyFind || declaredFind || byIdFind ? undefined : localOf(stmt.source, env);
-    const repo = findCall?.repo ?? keyFind?.repo ?? declaredFind?.repo ?? anyRepoCall?.repo;
+    const boundLocal = findCall || keyFind || byIdFind ? undefined : localOf(stmt.source, env);
+    const repo = findCall?.repo ?? keyFind?.repo ?? anyRepoCall?.repo;
     const aggName = repo?.aggregate?.ref?.name ?? boundLocal?.aggName ?? "Unknown";
     const repoName = repo?.name ?? (boundLocal ? (repoForAgg.get(aggName) ?? "") : "");
     const saveRepoName = repoForAgg.get(aggName) ?? plural(aggName);
@@ -702,13 +706,11 @@ function lowerWorkflowStatementInner(
         var: stmt.var,
         op: keySource
           ? "load-by-key-optional"
-          : declaredFind
-            ? "declared-find"
-            : byIdFind
-              ? "load-optional"
-              : boundLocal
-                ? "bound"
-                : "select-one",
+          : byIdFind
+            ? "load-optional"
+            : boundLocal
+              ? "bound"
+              : "select-one",
         repoName,
         aggName,
         // A widened criterion source calls its own method, not the shared
@@ -717,12 +719,10 @@ function lowerWorkflowStatementInner(
         retrievalArgs: (
           findCall?.criterionArgs ??
           keySource?.args ??
-          declaredFind?.args ??
           byIdFind?.args ??
           (boundLocal ? [stmt.source] : [])
         ).map((a) => lowerExpr(a, env)),
         synthCriterion: { name: findCall?.criterionName ?? "" },
-        ...(declaredFind ? { findMethod: declaredFind.method } : {}),
         ...(keySource ? { findMethod: keySource.method, key: keyLookupIR(keySource) } : {}),
         ...(findCall?.bypassRead
           ? { findMethod: bypassReadMethod(findCall.bypassRead), bypassRead: findCall.bypassRead }
@@ -741,7 +741,7 @@ function lowerWorkflowStatementInner(
     // postfix chain (`Repo.findAll(...) ignoring …`) carries it; resolve it
     // once so the two `repo-run` arms below can spread it into the IR.
     const bypass = isPostfixChain(expr) ? resolveBypass(expr) : {};
-    // factory-let: `Agg.create({fields})`
+    // factory-let: `Agg.create(…)`
     const factory = matchFactoryCall(expr, aggsByName);
     if (factory) {
       const repoName = repoForAgg.get(factory.aggName) ?? plural(factory.aggName);
@@ -947,14 +947,9 @@ function lowerWorkflowStatementInner(
           name: stmt.name,
           repoName: repo.name,
           aggName,
-          // A name that is neither a declared find nor a by-name contract verb
-          // rides `declared-find`; `loom.workflow-unknown-repository-method`
-          // reports it.
-          op:
-            namedRepoCallOp(
-              repoCall.method,
-              repo.finds.some((f) => f.name === repoCall.method),
-            ) ?? "declared-find",
+          // A name that is no by-name contract verb rides `unknown-read`;
+          // `loom.workflow-unknown-repository-method` reports it.
+          op: namedRepoCallOp(repoCall.method) ?? "unknown-read",
           method: repoCall.method,
           args,
           returnType,
@@ -1229,8 +1224,8 @@ function matchFactoryCall(
   aggsByName: Map<string, Aggregate>,
 ): FactoryMatch | undefined {
   if (!expr || !isPostfixChain(expr)) return undefined;
-  // Factory shape: `<NameRef>.create({...})` — exactly one
-  // MemberSuffix with member==="create" and a call payload.
+  // Factory shape: `<NameRef>.create(…)` — exactly one MemberSuffix with
+  // member==="create" and a call payload.
   if (expr.suffixes.length !== 1) return undefined;
   const s = expr.suffixes[0]!;
   if (!isMemberSuffix(s) || !s.call) return undefined;
@@ -1239,13 +1234,13 @@ function matchFactoryCall(
   if (!isNameRef(recv)) return undefined;
   const agg = aggsByName.get(recv.name);
   if (!agg) return undefined;
-  // The record, positional and named shapes all mean one record keyed by
-  // field name (`language/factory-call.ts`).  An argument list that maps onto
-  // no record is refused at phase ④ (`loom.workflow-create-args`); it falls
-  // through to the generic `let` here.
-  const mapped = factoryArgs(agg, s.args);
-  if (mapped.kind !== "fields") return undefined;
-  return { aggName: recv.name, fields: mapped.fields };
+  // The positional and named shapes both mean one record keyed by field name
+  // (`language/factory-call.ts`).  The retired record form and an argument
+  // list that maps onto no record are refused at phase ④
+  // (`loom.create-record-form` / `loom.create-args`); they fall through to
+  // the generic `let` here.
+  const fields = factoryRecordFields(agg, s.args);
+  return fields ? { aggName: recv.name, fields } : undefined;
 }
 
 /** Lower a structural `LoadPath` AST node (`lines[].product`) to its

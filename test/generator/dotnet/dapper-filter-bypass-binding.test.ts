@@ -3,7 +3,7 @@
 //
 // `capabilityFilterSqlFor(bypass)` drops the bypassed conjuncts from the WHERE,
 // but the principal-claim binding was collected once from the FULL
-// `capabilityFilters` list and reused for every find.  So an `ignoring *` find
+// `capabilityFilters` list and reused for every read.  So an `ignoring *` read
 // emitted:
 //
 //     "… FROM deeps"          ← no WHERE at all
@@ -36,10 +36,16 @@ system BypassShop {
         label: string
         filter this.label != ""
       }
-      repository Deeps for Deep {
-        find allDeep(): Deep? ignoring *
-        find justCap(): Deep? ignoring owned
-        find scoped(): Deep? where this.label != "x"
+      repository Deeps for Deep
+      criterion AllDeep of Deep = this.label != "y"
+      criterion JustCap of Deep = this.label != "z"
+      criterion DeepsScoped of Deep = this.label != "x"
+      workflow Probe {
+        create(x: int) {
+          if let a = Deeps.find(AllDeep()) ignoring * { }
+          if let b = Deeps.find(JustCap()) ignoring owned { }
+          if let c = Deeps.find(DeepsScoped()) { }
+        }
       }
     }
   }
@@ -57,25 +63,25 @@ system BypassShop {
 }
 `;
 
-function methodBody(repo: string, name: string): string {
-  const start = repo.indexOf(`public async Task<Deep?> ${name}(`);
+function methodBody(repo: string, name: string, returns = "Deep?"): string {
+  const start = repo.indexOf(`public async Task<${returns}> ${name}(`);
   if (start < 0) throw new Error(`no ${name} method in the emitted repository`);
   const end = repo.indexOf("\n    public ", start + 1);
   return repo.slice(start, end < 0 ? undefined : end);
 }
 
-async function repository(): Promise<string> {
+async function repository(opts: { runtime?: boolean } = {}): Promise<string> {
   const files = await generateSystemFiles(SRC);
   const key = [...files.keys()].find((k) =>
     k.endsWith("Infrastructure/Repositories/DeepRepository.cs"),
   );
   if (!key) throw new Error("no DeepRepository.cs");
-  return inlineDapperScope(files.get(key)!);
+  return inlineDapperScope(files.get(key)!, opts);
 }
 
 describe("dapper — `ignoring` drops the principal BINDING, not just the SQL", () => {
   it("`ignoring *` binds no principal param and never dereferences CurrentUser", async () => {
-    const body = methodBody(await repository(), "AllDeep");
+    const body = methodBody(await repository(), "FindFirstAllDeepIgnoringAll");
     // The capability conjunct is gone from the statement; the origin-less
     // `filter this.label != ""` is no capability's, so `ignoring *` keeps it
     // (the read-scope fact: only a capability-contributed restriction is droppable) …
@@ -91,7 +97,7 @@ describe("dapper — `ignoring` drops the principal BINDING, not just the SQL", 
   });
 
   it("`ignoring <Cap>` drops only that capability's claim", async () => {
-    const body = methodBody(await repository(), "JustCap");
+    const body = methodBody(await repository(), "FindFirstJustCapIgnoringOwned");
     // The named capability's predicate is gone …
     expect(body).not.toContain("tenant_id = @__cu_tenantId");
     expect(body).not.toContain("__cu_tenantId");
@@ -99,10 +105,16 @@ describe("dapper — `ignoring` drops the principal BINDING, not just the SQL", 
     expect(body).toContain("label <> ''");
   });
 
-  it("a plain find is untouched — it names the claim and binds it", async () => {
-    const body = methodBody(await repository(), "Scoped");
+  it("a plain find(C) is untouched — it names the claim and binds it", async () => {
+    // The un-widened read rides the criterion's retrieval; with the default
+    // (empty) bypass its runtime scope keeps the capability conjunct.
+    const body = methodBody(
+      await repository({ runtime: true }),
+      "RunFindAllByDeepsScopedAsync",
+      "IReadOnlyList<Deep>",
+    );
     expect(body).toContain("tenant_id = @__cu_tenantId");
-    expect(body).toContain("__cu_tenantId = RequestContext.Current!.CurrentUser!.TenantId");
+    expect(body).toContain('p.Add("__cu_tenantId", RequestContext.Current!.CurrentUser!.TenantId)');
   });
 
   it("GetById keeps the full filter set — it carries no bypass", async () => {

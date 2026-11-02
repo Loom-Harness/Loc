@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
 // Java backend — `reading`-tier `domainService` (domain-services.md rev. 4,
 // Slice 1).  A service whose body runs read-only repository queries
-// (`Accounts.byHolder(holder)`, lowered to a `repo-read` Call) becomes a Spring
+// (`Accounts.find(AccountsByHolder(holder))`, lowered to a `repo-read` Call) becomes a Spring
 // `@Service` bean with one constructor-injected `<Aggregate>Repository` per
 // read-port; the read methods carry `@Transactional(readOnly = true)` and the
 // `repo-read` arm renders against the injected field
-// (`accountsRepository.byHolder(holder)`).  The orchestrating workflow
+// (`accountsRepository.runFindAllByAccountsByHolder(holder)`).  The orchestrating workflow
 // constructor-injects the service bean and calls it as an INSTANCE call
 // (`registration.isEmailAvailable(source)`).  A PURE service (no read-ports)
 // stays the static utility class — BYTE-IDENTICAL to the pre-rev.4 shell.
@@ -27,13 +27,12 @@ system Banking {
         holder: string
         balance: Money
       }
-      repository Accounts for Account {
-        find byHolder(holder: string): Account? where this.holder == holder
-      }
+      repository Accounts for Account { }
+      criterion AccountsByHolder(holder: string) of Account = this.holder == holder
       // reading tier — read-only repo query, orchestrated by a workflow.
       domainService Registration {
         operation isEmailAvailable(holder: string): bool {
-          return Accounts.byHolder(holder) == null
+          return Accounts.find(AccountsByHolder(holder)) == null
         }
       }
       // pure tier — no infrastructure; stays byte-identical.
@@ -45,7 +44,7 @@ system Banking {
       workflow RegisterAccount transactional {
         create(source: string, dest: string, balance: Money) {
           precondition Registration.isEmailAvailable(source)
-          let acct = Account.create({ holder: dest, balance: balance })
+          let acct = Account.create(holder: dest, balance: balance)
         }
       }
     }
@@ -118,9 +117,11 @@ describe("java generator — reading-tier domainService", () => {
 
   it("renders the repo-read against the injected repository field", async () => {
     const svc = (await files()).get(`${ROOT}/domain/services/Registration.java`)!;
-    expect(svc).toContain("return accountsRepository.byHolder(holder) == null;");
-    // The pre-rev.4 stub fell through to a bare `byHolder(holder)` — gone now.
-    expect(svc).not.toMatch(/return byHolder\(holder\)/);
+    expect(svc).toContain(
+      "return accountsRepository.runFindAllByAccountsByHolder(holder).stream().findFirst().orElse(null) == null;",
+    );
+    // Never a bare, un-receivered repository call.
+    expect(svc).not.toMatch(/return runFindAllByAccountsByHolder\(holder\)/);
   });
 
   it("injects the reading service into the workflow and calls it as an instance call", async () => {

@@ -61,7 +61,7 @@ system Acme {
       workflow Fulfil {
         orderId: Order id
         create(p: OrderPlaced) by p.order {
-          let s = Shipment.create({ orderRef: p.order, status: "Pending" })
+          let s = Shipment.create(orderRef: p.order, status: "Pending")
         }
       }
     }
@@ -244,7 +244,8 @@ describe("item 12 — .NET and python decoders guard an optional event field", (
     );
     expect(py).not.toContain('payload["shippedAt"]');
     expect(py).toContain(
-      '"shippedAt": (None if event.shipped_at is None else event.shipped_at.isoformat())',
+      // The envelope datetime is the RS-38 wire instant (`Codec` ruling 4).
+      '"shippedAt": (None if event.shipped_at is None else iso(event.shipped_at))',
     );
   });
 });

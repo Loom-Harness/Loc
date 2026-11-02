@@ -164,8 +164,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.bare-statement-invalid": "06-behavior-and-statements.md#assignment-----",
   "loom.retrieval-where-not-criterion": "10-repositories-and-queries.md#retrieval",
   "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
-  "loom.find-param-unbound":
-    "10-repositories-and-queries.md#a-find-without-where--key-lookup-by-parameter-name",
+  "loom.repo-unknown-read": "10-repositories-and-queries.md#repository--the-read-contract",
   "loom.repo-key-not-unique": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
   "loom.repo-key-incomplete": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
   "loom.paged-query-handler-shape":
@@ -173,6 +172,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.let-type-mismatch": "06-behavior-and-statements.md#let--emit",
   "loom.return-type-mismatch": "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.return-missing": "06-behavior-and-statements.md#return--the-exception-less-outcome",
+  "loom.handler-return-not-last":
+    "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.unhandled-result": "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.function-return-type-mismatch":
     "07-invariants-derived-functions.md#function--a-pure-helper",
@@ -223,8 +224,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.projection-aggregate-arg-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-aggregate-arity":
     "10-repositories-and-queries.md#whole-table-aggregation--the-singleton",
-  "loom.single-row-find-not-unique": "10-repositories-and-queries.md#list-finds-are-removed",
-  "loom.list-find-removed": "10-repositories-and-queries.md#list-finds-are-removed",
   "loom.persisted-table-collision": "13-workflows.md#13-workflows",
   "loom.projection-aggregate-type-mismatch": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-join-invalid": "10-repositories-and-queries.md#grouped--group-by",
@@ -291,7 +290,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-explicit-save": "13-workflows.md#body-vocabulary",
   "loom.workflow-uncorrelated-state-read": "13-workflows.md#workflow--state",
   "loom.workflow-mutation-unsaved": "13-workflows.md#body-vocabulary",
-  "loom.workflow-create-args": "13-workflows.md#body-vocabulary",
+  "loom.create-args": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
+  "loom.create-record-form": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.channel-key-missing-field": "14-apis-storage-resources-channels.md#channel--channelsource",
   "loom.reserved-not-emitted": "14-apis-storage-resources-channels.md#connection-sources",
   "loom.channelsource-incompatible":
@@ -427,15 +427,12 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.auth-oidc-no-audience": "17-auth.md#auth-----oidc-config",
   "loom.auth-without-user": "17-auth.md#auth-required--per-deployable-middleware--verifier-seam",
   "loom.currentuser-not-in-request-scope": "17-auth.md#currentuser--claim-access-in-domain-logic",
-  "loom.workflow-currentuser-find": "17-auth.md#currentuser--claim-access-in-domain-logic",
   "loom.auth-unknown-provider": "17-auth.md#errors",
   "loom.duplicate-permission": "17-auth.md#permissions--a-typed-catalogue-with-implies",
   "loom.unknown-permission": "17-auth.md#permissions--a-typed-catalogue-with-implies",
   "loom.create-param-not-a-field":
     "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.create-param-required-omitted":
-    "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
-  "loom.create-call-field-not-in-create":
     "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.policy-read-gate-not-current-user": "17-auth.md#read--who-may-read-an-aggregate",
@@ -469,8 +466,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.e2e-unrouted-verb": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-call-options": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-routed-handler-arity":
-    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
-  "loom.e2e-routed-handler-bodyless-method":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-unknown-body-key": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-missing-required-field":

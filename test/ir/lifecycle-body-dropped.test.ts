@@ -10,7 +10,7 @@
 // `+=`, a call) still never reaches an emitter, and a named error beats a
 // silent drop.  What a gate may READ is enforced separately
 // (`loom.lifecycle-guard-unreadable`), and an EVENT-SOURCED lifecycle guard is
-// refused outright (`loom.lifecycle-guard-event-sourced`) because it would
+// refused outright (`loom.target-unsupported#lifecycle-guard-event-sourced`) because it would
 // render into a domain `_init` with no principal in scope.
 //
 // The negative cases matter as much as the positive ones.  A diagnostic that
@@ -36,7 +36,7 @@ system P {
       enum Priority { low  high }
       valueobject Money { amount: decimal  currency: string }
 ${agg}
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   storage pg { type: postgres }
@@ -58,10 +58,7 @@ system P {
       enum Priority { low  high }
       valueobject Money { amount: decimal  currency: string }
 ${agg}
-      repository Orders for Order {
-        find all(): Order[]
-        find byId(id: Order id): Order?
-      }
+      repository Orders for Order
       policy { read Order requires true }
     }
   }
@@ -184,7 +181,7 @@ describe("validator — the lifecycle body no backend renders", () => {
         }
         apply(e: Opened) { }
       }`);
-    expect(codes).toContain("loom.lifecycle-guard-event-sourced");
+    expect(codes).toContain("loom.target-unsupported");
   });
 
   it("rejects a literal default written in the body with no matching field default", async () => {

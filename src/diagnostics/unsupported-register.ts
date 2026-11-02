@@ -212,7 +212,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // proves every supported cell renders and every refused one is raised.
     code: "loom.target-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/target-capability-checks.ts:164",
+    site: "src/ir/validate/checks/target-capability-checks.ts:262",
     what:
       "a construct × position its target cannot render, per the capability table.  LATENT: " +
       "every refused cell today is a settled never — `DataGrid` on flutter and phoenixLiveView " +
@@ -737,14 +737,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/language/validators/inheritance.ts:193",
     what: "per-concrete ownTable override inside a TPH hierarchy",
     mission: "#3372",
-    verified: true,
-  },
-  {
-    code: "loom.union-find-shape-unsupported",
-    kind: "scope",
-    site: "src/ir/validate/checks/structural-checks.ts:443",
-    what: "repository finds returning a union — v1 shape only",
-    mission: "#3369",
     verified: true,
   },
   {

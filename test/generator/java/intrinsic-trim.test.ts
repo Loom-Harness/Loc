@@ -1,7 +1,7 @@
 // A1 pilot for the scalar-intrinsic catalogue (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md):
 // `string.trim()` end-to-end on the Java/Spring backend — in-memory
 // rendering in domain bodies AND JPQL rendering in a queryable
-// `find … where` position.  The catalogue row lives in
+// criterion position (the paged `queryHandler`'s `@Query`).  The catalogue row lives in
 // src/util/intrinsics.ts; the Java snippet in render-expr.ts
 // (JAVA_INTRINSIC_RENDERERS); the JPQL snippet in render-jpql.ts
 // (JPQL_INTRINSIC_SQL).  The Java twin of the TS pilot
@@ -20,8 +20,11 @@ system Shop {
         derived cleanName: string = name.trim()
         invariant name.trim().length > 0
       }
-      repository Products for Product {
-        find byExactName(q: string): Product? where this.name.trim() == q
+      repository Products for Product { }
+      criterion ProductsByExactName(q: string) of Product = this.name.trim() == q
+      queryHandler ListByExactName(q: string): Product paged {
+        let r = Products.run(ProductsByExactName(q))
+        return r
       }
     }
   }
@@ -43,8 +46,8 @@ const ROOT = "shop_api/src/main/java/com/loom/shopapi";
 describe("java generator — string.trim() intrinsic (stdlib A1 pilot)", () => {
   it("renders a value-side trim (param receiver) as trim(:q) — JPQL trim works on parameters", async () => {
     const src = SRC.replace(
-      "find byExactName(q: string): Product? where this.name.trim() == q",
-      "find byName(q: string): Product? where this.name == q.trim()",
+      "of Product = this.name.trim() == q",
+      "of Product = this.name == q.trim()",
     );
     const { errors } = await parseString(src);
     expect(errors).toEqual([]);

@@ -8,25 +8,40 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // A capability `filter` is a `Repo.prepare_query/3` clause on the schema.  An
 // `ignoring` read passes `skip_filters:` naming the capabilities it drops —
 // for that read only (`ignoring *` → `:all`).  CRUD reads + a non-bypassing
-// find skip nothing; a bare filter lives in `base_query/0` and is never
-// skippable.  Inline `Repo.findAll(...) ignoring …` rides as the same
-// `skip_filters:` opt into the retrieval.
+// criterion find skip nothing; a bare filter lives in `base_query/0` and is
+// never skippable.  A single-row `find(C) ignoring …` is its own repository
+// function (`find_first_<criterion>_ignoring_<cap>`).  Inline
+// `Repo.findAll(...) ignoring …` rides as the same `skip_filters:` opt into
+// the retrieval.
 // ---------------------------------------------------------------------------
 
 const SOURCE = `
 system Catalog {
   capability softDeletable { isDeleted: bool  filter this.isDeleted == false }
   subdomain Core {
-    context Shop {
+    context Shop with scaffoldPaged(of: Normal) {
       criterion BigOrders() of Order = this.total > 0
       aggregate Order with softDeletable {
         customerId: string
         total: int
       }
-      repository Orders for Order {
-        find recent(): Order? where this.total > 0 ignoring softDeletable
-        find allRows(): Order? ignoring *
-        find normal(): Order? where this.total > 0
+      repository Orders for Order
+      criterion Recent of Order = this.total > 0
+      criterion AllRows of Order = this.total >= 0
+      criterion Normal of Order = this.total > 0
+      queryHandler GetRecent(): Order {
+        if let x = Orders.find(Recent()) ignoring softDeletable {
+          return x
+        } else {
+          notFound "not_found"
+        }
+      }
+      queryHandler GetAnyRow(): Order {
+        if let x = Orders.find(AllRows()) ignoring * {
+          return x
+        } else {
+          notFound "not_found"
+        }
       }
       workflow Sweep {
         create(min: int) {
@@ -38,7 +53,7 @@ system Catalog {
       }
     }
   }
-  api CatalogApi from Core
+  api CatalogApi with scaffoldPagedApi(of: Normal) from Core
   storage pg { type: postgres }
   resource orderState { for: Shop, kind: state, use: pg }
   deployable api {
@@ -64,7 +79,8 @@ function file(files: Map<string, string>, suffix: string): string {
 }
 
 function defBody(src: string, name: string): string {
-  // `def list do` (no parens) and `def recent()` / `def find_by_id(id)` both occur.
+  // `def list(…)` and `def find_first_recent_ignoring_soft_deletable()` /
+  // `def find_by_id(id)` all occur.
   const re = new RegExp(`def ${name}(\\(| )`);
   const m = re.exec(src);
   expect(m, `def ${name} not found`).not.toBeNull();
@@ -82,27 +98,33 @@ describe("vanilla ignoring filter-bypass — skip_filters on the read", () => {
 
   it("`ignoring <Cap>` skips exactly that capability on that find", async () => {
     const repo = file(await gen(), "/shop/order_repository.ex");
-    const recent = defBody(repo, "recent");
+    const recent = defBody(repo, "find_first_recent_ignoring_soft_deletable");
     expect(recent).toContain(
       "from(record in Api.Shop.Order.base_query(), where: record.total > 0)",
     );
-    expect(recent).toContain("Repo.one(query, skip_filters: [:soft_deletable])");
+    expect(recent).toContain("skip_filters: [:soft_deletable])");
     expect(recent).not.toContain("is_deleted");
   });
 
   it("`ignoring *` skips every capability", async () => {
     const repo = file(await gen(), "/shop/order_repository.ex");
-    const allRows = defBody(repo, "all_rows");
-    expect(allRows).toContain("query = Api.Shop.Order.base_query()");
-    expect(allRows).toContain("Repo.one(query, skip_filters: :all)");
+    const allRows = defBody(repo, "find_first_all_rows_ignoring_all");
+    expect(allRows).toContain(
+      "from(record in Api.Shop.Order.base_query(), where: record.total >= 0)",
+    );
+    expect(allRows).toContain("skip_filters: :all)");
+    expect(allRows).not.toContain("is_deleted");
   });
 
   it("a non-bypassing find skips nothing and spells no restriction", async () => {
     const repo = file(await gen(), "/shop/order_repository.ex");
-    const normal = defBody(repo, "normal");
-    expect(normal).toContain("where: record.total > 0)");
-    expect(normal).toContain("Repo.one(query)");
-    expect(normal).not.toContain("is_deleted");
+    const normal = defBody(repo, "find_all_by_normal");
+    expect(normal).toContain(
+      "from(record in Api.Shop.Order.base_query(), where: record.total > 0)",
+    );
+    expect(normal).not.toContain("skip_filters");
+    // (`is_deleted` itself appears as a sortable column.)
+    expect(normal).not.toContain("is_deleted ==");
   });
 
   it("CRUD list/find_by_id skip nothing", async () => {

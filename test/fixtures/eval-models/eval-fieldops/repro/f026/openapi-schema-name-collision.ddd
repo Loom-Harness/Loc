@@ -13,7 +13,7 @@ system Probe {
 
       workflow scheduleWorkOrder {
         create(note: string) {
-          let w = WorkOrder.create({ title: note, scheduled: false })
+          let w = WorkOrder.create(title: note, scheduled: false)
         }
       }
     }

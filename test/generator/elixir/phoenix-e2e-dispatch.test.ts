@@ -24,7 +24,7 @@ const repoRoot = path.resolve(here, "..", "..", "..");
 const FIXTURE_SOURCE = `system PhoenixShop {
 
   subdomain Store {
-    context Store {
+    context Store with scaffoldGet(of: ByName) {
       aggregate Item {
         name: string
         derived display: string = name
@@ -34,13 +34,12 @@ const FIXTURE_SOURCE = `system PhoenixShop {
           price := 0
         }
       }
-      repository Items for Item {
-        find byName(name: string): Item? where this.name == name
-      }
+      repository Items for Item { }
+      criterion ByName(name: string) of Item = this.name == name
     }
   }
 
-  api StoreApi from Store
+  api StoreApi with scaffoldGetApi(of: ByName) from Store
 
   storage pg { type: postgres }
   resource storeState { for: Store, kind: state, use: pg }
@@ -65,7 +64,7 @@ const FIXTURE_SOURCE = `system PhoenixShop {
   }
 
   test e2e "find items by name" against shopBackend {
-    let result = api.items.byName({ name: "Gadget" })
+    let result = api.store.getItemByName("Gadget")
   }
 }
 `;
@@ -124,12 +123,12 @@ describe("e2e dispatch to phoenixLiveView", () => {
     expect(e2e).toMatch(/__post\(`\$\{base\}\/api\/items\/\$\{it\.id\}\/archive`/);
   });
 
-  it("prefixes find (repository query) calls with /api for phoenix", async () => {
+  it("prefixes a routed single-row read (scaffoldGet) with /api for phoenix", async () => {
     const model = await buildFixture();
     const { files } = generateSystems(model);
     const e2e = files.get("e2e/PhoenixShop.e2e.test.ts")!;
     // GET /api/items/by_name?name=...
-    expect(e2e).toMatch(/__getQuery\(`\$\{base\}\/api\/items\/by_name`/);
+    expect(e2e).toContain('__route("GET", __qs(`${base}/api/items/by_name`, { name: "Gadget" }))');
   });
 
   it("adds the /api prefix to hono/dotnet deployables too", async () => {

@@ -169,9 +169,8 @@ system Sys {
         invariant name.length > 0
         operation confirm() { precondition status == 0  status := 1 }
       }
-      repository Orders for Order {
-        find byName(name: string): Order? where this.name == name
-      }
+      repository Orders for Order { }
+      criterion OrdersByName(name: string) of Order = this.name == name
     }
   }
   storage primary { type: postgres }
@@ -288,7 +287,7 @@ describe("byFeature end-to-end emit — dotnet", () => {
     expect(files.get("Features/Orders/Commands/CreateOrderCommand.cs")).toContain(
       "namespace Api.Features.Orders.Commands;",
     );
-    expect(files.get("Features/Orders/Queries/ByNameQuery.cs")).toContain(
+    expect(files.get("Features/Orders/Queries/GetOrderByIdQuery.cs")).toContain(
       "namespace Api.Features.Orders.Queries;",
     );
     expect(files.get("Features/Orders/Requests/OrderRequests.cs")).toContain(

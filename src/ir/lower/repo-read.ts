@@ -47,7 +47,6 @@ import {
   resolveKeyTuple,
 } from "../../util/repository-contract.js";
 import type { BypassReadIR, KeyLookupIR, TypeIR } from "../types/loom-ir.js";
-import { type Env, lowerType } from "./lower-types.js";
 
 /** A predicate that decides whether a bare `run(<Name>)` / `run(<Name>(args))`
  *  target names a **criterion** (so the read runs `findAllBy<Criterion>`) rather
@@ -241,28 +240,8 @@ export function matchByIdBypassCall(
 ): (RepoMatch & { bypassRead: BypassReadIR }) | undefined {
   const call = matchRepoCall(expr, reposByName);
   if (call?.method !== "findById" || !isPostfixChain(expr)) return undefined;
-  if (call.repo.finds.some((f) => f.name === "findById")) return undefined;
   const bypassRead = bypassReadOf(expr, { kind: "id" });
   return bypassRead ? { ...call, bypassRead } : undefined;
-}
-
-/** Recognise `<Repo>.<find>(args)` where `<find>` is a DECLARED find whose
- *  return type is optional (`find byCode(c: string): Order?`) — the second
- *  `if let` source form beside `Repo.find(<Criterion>)`.  A built-in verb
- *  (`getById` / `findById` / `findAll`) or a find declared non-optional,
- *  array-valued or union-valued declines: only a declared nullable find is
- *  emitted under its own name, returning the aggregate or absence, on every
- *  backend. */
-export function matchOptionalFindCall(
-  expr: Expression | undefined,
-  reposByName: Map<string, Repository>,
-  env?: Env,
-): RepoMatch | undefined {
-  const call = matchRepoCall(expr, reposByName);
-  if (!call) return undefined;
-  const decl = call.repo.finds.find((f) => f.name === call.method);
-  if (!decl) return undefined;
-  return lowerType(decl.returnType, env).kind === "optional" ? call : undefined;
 }
 
 export interface FindAllMatch {
@@ -548,11 +527,9 @@ export function matchRepoRead(
     };
   const repo = matchRepoCall(expr, reposByName);
   if (repo && !isRepoWriteName(repo.method)) {
-    // A read name that is neither a declared find nor a contract verb rides
-    // `declared-find`: it is resolved by name, and its validator reports the
-    // unknown method.
-    const declared = repo.repo.finds.some((f) => f.name === repo.method);
-    const op = namedRepoCallOp(repo.method, declared) ?? "declared-find";
+    // A read name that is no contract verb rides `unknown-read`: its
+    // validator reports the unknown method.
+    const op = namedRepoCallOp(repo.method) ?? "unknown-read";
     if (op === "remove") return undefined;
     return { op, repo: repo.repo, method: repo.method, args: repo.args };
   }
@@ -581,16 +558,11 @@ export function matchRepoRead(
  *  returns: `findAll` / `run` mirror its `repo-run` arms' `arrayType`, `named`
  *  mirrors its `repo-let` arm (a declared `returnType`, else the built-in's own
  *  shape), and `find` takes the `T?` its `if let` arm implies. */
-export function repoReadResultType(read: RepoReadMatch, env?: Env): TypeIR {
+export function repoReadResultType(read: RepoReadMatch): TypeIR {
   const entity: TypeIR = { kind: "entity", name: read.repo.aggregate?.ref?.name ?? "Unknown" };
-  // A DECLARED find is the repository's own contract, so it wins and is
-  // honoured verbatim (`Owner[]`, `Owner?`, a union…).
-  if (read.op === "declared-find") {
-    const decl = read.repo.finds.find((f) => f.name === read.method);
-    // An unresolvable named read falls back to the bare aggregate, like the
-    // workflow `repo-let` arm.
-    return decl ? lowerType(decl.returnType, env) : entity;
-  }
+  // An unknown named read falls back to the bare aggregate, like the workflow
+  // `repo-let` arm; its validator refuses it.
+  if (read.op === "unknown-read") return entity;
   return repoResultTypeIR(read.op, entity);
 }
 
@@ -602,7 +574,7 @@ export function repoReadResultType(read: RepoReadMatch, env?: Env): TypeIR {
  *  dereference.  `select-one` is the `T?` an `if let` source unwraps, and
  *  `select-many` is the row array, so a member read off it (`.count`) takes
  *  the collection lowering. */
-function repoResultTypeIR(op: Exclude<RepoOp, "declared-find">, entity: TypeIR): TypeIR {
+function repoResultTypeIR(op: Exclude<RepoOp, "unknown-read">, entity: TypeIR): TypeIR {
   switch (repoOpResult(op)) {
     case "optional-row":
       return { kind: "optional", inner: entity };

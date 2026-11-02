@@ -6,7 +6,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { nearestName } from "../../../util/edit-distance.js";
 import { lowerFirst } from "../../../util/naming.js";
-import { repoOpVerb } from "../../../util/repository-contract.js";
+import { REPOSITORY_CONTRACT, repoOpVerb } from "../../../util/repository-contract.js";
 import {
   constructionBlockingInvariants,
   createInputFields,
@@ -25,7 +25,6 @@ import type {
   WorkflowIR,
   WorkflowStmtIR,
 } from "../../types/loom-ir.js";
-import { findUsesCurrentUser } from "../../types/loom-ir.js";
 import { contextSaveResolver } from "../../util/domain-service-tier.js";
 import { bodyEffects } from "../../util/effects.js";
 import {
@@ -46,6 +45,10 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 import { isBadIfLetSource } from "./optional-binding-checks.js";
 import { foreignRepositoryOwners } from "./shared.js";
 
+/** The read verbs every repository offers — the did-you-mean candidates for a
+ *  named read no verb recognises. */
+const READ_VERBS = REPOSITORY_CONTRACT.filter((c) => c.face === "read").map((c) => c.verb);
+
 // ---------------------------------------------------------------------------
 // Workflow validation.
 //
@@ -53,7 +56,7 @@ import { foreignRepositoryOwners } from "./shared.js";
 // The grammar reuses operation-body Statement rules; this validator
 // constrains the surface to what workflow lowering supports:
 //
-//   - factory-let (`let x = Agg.create({...})`)
+//   - factory-let (`let x = Agg.create(…)`)
 //   - repo-let (`let x = Repo.method(args)`) returning a single
 //     non-nullable aggregate
 //   - op-call (`name.op(args)` on a let binding)
@@ -422,7 +425,7 @@ function validateWorkflowInlineRepoCalls(
 // `refKind: "unknown"`: a factory call whose arguments map onto no record
 // (`Category.create(name: x, label)`) lowers to a `method-call` on an
 // unresolved `Category` ref, and has its own phase-④ refusal
-// (`loom.workflow-create-args`).  Only a name that binds to NOTHING
+// (`loom.create-args`).  Only a name that binds to NOTHING
 // model-wide — or to a projection — is a defect here.
 // ---------------------------------------------------------------------------
 
@@ -1196,7 +1199,7 @@ function validateWorkflowStatements(
    *  on {@link validateWorkflowBody}. */
   crossContextBindings: ReadonlySet<string> = new Set(),
 ): void {
-  /** Every check a `let x = Agg.create({ … })` (`factory-let`) owes, wherever
+  /** Every check a `let x = Agg.create(…)` (`factory-let`) owes, wherever
    *  in the body it sits — the top level AND inside an `if let` branch / a
    *  `for` body (via {@link checkNestedBodyOpCalls}).  Before it was shared,
    *  only the TOP-LEVEL arm ran these: the claims eval's `fileClaim` built a
@@ -1221,7 +1224,7 @@ function validateWorkflowStatements(
       });
       return false;
     }
-    // A workflow `Agg.create({...})` invokes the canonical create,
+    // A workflow `Agg.create(…)` invokes the canonical create,
     // which is parameterized by the aggregate's *create-input* fields
     // — `forCreateInput` drops the server-populated roles
     // (`managed`/`token`/`internal`) and the required subset further
@@ -1233,7 +1236,7 @@ function validateWorkflowStatements(
     // The aggregate may have no `create` AT ALL.  An invariant that reaches
     // outside the create input makes it non-constructible (`isConstructible`),
     // and every backend then CORRECTLY emits no `static create(...)` — while
-    // this workflow's emitter goes on emitting `Agg.create({ … })` against it
+    // this workflow's emitter goes on emitting `Agg.create(…)` against it
     // (`http/workflows.ts(46,23): TS2551: Property 'create' does not exist on
     // type 'typeof Order'. Did you mean '_create'?`).  Checked before the
     // field contract: when there is no factory, arguing about its arguments
@@ -1595,10 +1598,9 @@ function validateWorkflowStatements(
             optionalBindings.add(st.name);
           break;
         }
-        // Only a declared find (or a name that is no contract verb, which rides
-        // `declared-find` too) is looked up among the repository's finds — the
-        // contract verbs are generated on every repository.
-        if (st.op === "declared-find" && !repo.finds.some((f) => f.name === st.method)) {
+        // A name that is no contract verb rides `unknown-read`: a repository
+        // declares no reads of its own, so there is nothing to resolve it to.
+        if (st.op === "unknown-read") {
           diags.push({
             severity: "error",
             code: "loom.workflow-unknown-repository-method",
@@ -1606,31 +1608,7 @@ function validateWorkflowStatements(
               name: wf.name,
               repoName: st.repoName,
               method: st.method,
-              finds: repo.finds.map((f) => f.name).join(", ") || "(no declared finds)",
-              suggestion: nearestName(st.method, [
-                repoOpVerb("load"),
-                ...repo.finds.map((f) => f.name),
-              ]),
-            }),
-            source: `${ctx.name}/${wf.name}`,
-            origin: wf.origin,
-          });
-          break;
-        }
-        // A workflow can't call a find whose where clause references
-        // currentUser — the workflow handler doesn't inject
-        // ICurrentUserAccessor, and threading the user through saves +
-        // ops would be a larger reshape.  Surface a friendly error
-        // pointing at the alternative (load by id).
-        const calledFind = repo.finds.find((f) => f.name === st.method);
-        if (calledFind && findUsesCurrentUser(calledFind)) {
-          diags.push({
-            severity: "error",
-            code: "loom.workflow-currentuser-find",
-            message: diagMessage("loom.workflow-currentuser-find", {
-              name: wf.name,
-              repoName: st.repoName,
-              method: st.method,
+              suggestion: nearestName(st.method, READ_VERBS),
             }),
             source: `${ctx.name}/${wf.name}`,
             origin: wf.origin,

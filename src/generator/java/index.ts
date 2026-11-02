@@ -1617,7 +1617,12 @@ function emitProjectFromContexts(
   // other backends' contract (success bodies under application/json + named
   // <Agg>ListResponse array wrappers; RFC 7807 ProblemDetails error responses
   // under application/problem+json).  Skipped when there's no API surface.
-  const openApiContract = buildJavaOpenApiContract(contexts, routePrefix);
+  const servedRoutes = system
+    ? system.deployable.serves.flatMap(
+        (n) => system.sys.apis.find((a) => a.name === n)?.routes ?? [],
+      )
+    : [];
+  const openApiContract = buildJavaOpenApiContract(contexts, routePrefix, servedRoutes);
   const openApiCustomizer = renderJavaOpenApiCustomizer(basePkg, openApiContract);
   if (openApiCustomizer) {
     place("OpenApiContractCustomizer.java", "config", openApiCustomizer);

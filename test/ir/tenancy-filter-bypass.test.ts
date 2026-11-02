@@ -34,7 +34,7 @@ function sys(opts: {
   enforcement?: string;
   /** e.g. ` ignoring tenantOwned` — the projection's bypass clause. */
   projectionIgnoring?: string;
-  /** e.g. ` ignoring *` — a repository find's bypass clause. */
+  /** e.g. ` ignoring *` — an inline repository read's bypass clause. */
   findIgnoring?: string;
   /** extra capabilities on the tenant-owned aggregate. */
   caps?: string;
@@ -48,8 +48,11 @@ system S {
     aggregate Org with crudish { name: string }
     aggregate WorkOrder with tenantOwned${opts.caps ?? ""}, crudish { ref: string  amount: money }
     repository Orgs for Org { }
-    repository WorkOrders for WorkOrder {
-      find byRef(ref: string): WorkOrder[] where this.ref == ref${opts.findIgnoring ?? ""}
+    repository WorkOrders for WorkOrder
+    criterion ByRef(ref: string) of WorkOrder = this.ref == ref
+    queryHandler ListByRef(ref: string): WorkOrder[] {
+      let r = WorkOrders.run(ByRef(ref))${opts.findIgnoring ?? ""}
+      return r
     }
     projection PlatformRevenue {
       revenue: money
@@ -86,7 +89,7 @@ describe("loom.tenancy-filter-bypass — the tenancy escape hatch is loud", () =
   it("fires on `ignoring *` over a tenant-owned aggregate", async () => {
     const { bypass } = await diagnose(sys({ findIgnoring: " ignoring *" }));
     expect(bypass).toHaveLength(1);
-    expect(bypass[0]).toContain("WorkOrders.byRef");
+    expect(bypass[0]).toContain("QueryHandler 'ListByRef' inline read 'r'");
   });
 
   it("warns, never errors — the platform-admin cross-tenant report still compiles", async () => {

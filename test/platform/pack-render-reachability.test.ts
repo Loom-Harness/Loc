@@ -452,11 +452,11 @@ system Shop {
           placedAt: datetime, status: Status, customer: Customer id,
           ship: Address, items: LineItem[], doc: File
         ) {
-          let o = Order.create({
+          let o = Order.create(
             reference: reference, qty: qty, rate: rate, price: price, active: active,
             placedAt: placedAt, status: status, customer: customer,
             ship: ship, items: items, doc: doc
-          })
+          )
         }
       }
     }

@@ -102,7 +102,7 @@ system DevPlatform {
         // filtered list read (read-path-architecture.md).  Exercises a scalar
         // `ref` macro arg (MacroArgRef) and is the surviving replacement for the
         // shorthand `view` a paged list read used to spell.
-        context Catalog with scaffoldPaged(of: ActiveNamed) {
+        context Catalog with scaffoldPaged(of: ActiveNamed), scaffoldGet(of: Project, key: "name") {
 
             enum Visibility { Private, Internal, Public }
 
@@ -151,7 +151,7 @@ system DevPlatform {
             // without mutation/commit (DomainService + DomainServiceOperation).
             domainService ProjectQueries {
                 operation nameTaken(name: string): bool {
-                    return Projects.byName(name) != null
+                    return Projects.findBy(name: name) != null
                 }
             }
 
@@ -249,25 +249,20 @@ system DevPlatform {
                 }
 
                 test "renaming to empty is rejected" verifies TC-001 {
-                    let p = Project.create({
+                    let p = Project.create(
                         name: "demo",
                         visibility: Public,
                         active: true,
                         sequence: 1,
                         budget: 0.0,
                         createdAt: now()
-                    })
+                    )
                     expect(p.rename("")).toThrow()
                 }
                 derived display: string = name
             }
 
-            repository Projects for Project {
-                find byName(name: string): Project? where this.name == name
-                // Union-returning find (absence → the error variant) — the
-                // subject a VariantArm `match` narrows.
-                find locate(name: string): Project or ProjectNotFound where this.name == name
-            }
+            repository Projects for Project
 
             // Non-transactional workflow.  The guard references the module
             // permission catalogue (permissions.manageProjects → the runtime
@@ -279,25 +274,26 @@ system DevPlatform {
               create(name: string, visibility: Visibility) {
                 requires currentUser.permissions.contains(permissions.manageProjects)
                   precondition name.length > 0
-                  let proj = Project.create({
+                  let proj = Project.create(
                       name: name,
                       visibility: visibility,
                       active: true,
                       sequence: 0,
                           budget: 0.0,
                       createdAt: now()
-                  })
+                  )
                   proj.addPipeline("default")
               }
             }
 
-            // VariantArm — narrow a union-returning find via `match`.
+            // A natural-key read answers absence (`T?`): `if let` narrows it,
+            // and the `else` answers the miss as a 404.
             workflow resolveProject {
               create(name: string) {
-                  let outcome = Projects.locate(name)
-                  let label = match outcome {
-                      Project p => p.name,
-                      ProjectNotFound => "not found"
+                  if let p = Projects.findBy(name: name) {
+                      p.addPipeline("resolved")
+                  } else {
+                      notFound
                   }
               }
             }
@@ -360,7 +356,7 @@ system DevPlatform {
     // Delivery module — builds + deployments.
     // -----------------------------------------------------------------
     subdomain Delivery {
-        context Builds {
+        context Builds with scaffoldGet(of: BySha) {
 
             enum BuildState { Queued, Running, Passed, Failed }
 
@@ -399,9 +395,8 @@ system DevPlatform {
                 derived display: string = commitSha
             }
 
-            repository Builds for Build {
-                find bySha(commitSha: string): Build? where this.commitSha == commitSha
-            }
+            repository Builds for Build { }
+            criterion BySha(commitSha: string) of Build = this.commitSha == commitSha
 
             // Transactional workflow with explicit isolation level.
             workflow promoteToProduction transactional(serializable) {
@@ -418,7 +413,7 @@ system DevPlatform {
     // Accounts module — engineers (wire-validation showcase).
     // -----------------------------------------------------------------
     subdomain Accounts {
-        context People {
+        context People with scaffoldGet(of: ByHandle) {
 
             aggregate Engineer with crudish {
                 handle: string
@@ -445,9 +440,8 @@ system DevPlatform {
                 derived display: string = name
             }
 
-            repository Engineers for Engineer {
-                find byHandle(handle: string): Engineer? where this.handle == handle
-            }
+            repository Engineers for Engineer { }
+            criterion ByHandle(handle: string) of Engineer = this.handle == handle
         }
     }
 
@@ -455,11 +449,11 @@ system DevPlatform {
     // Layered architecture: api / storage / ui / deployable.
     // -----------------------------------------------------------------
     // ApiStatus — per-error HTTP status mapping in an api contract block.
-    api ProjectsApi from Projects {
+    api ProjectsApi with scaffoldGetApi(of: Project, key: "name") from Projects {
         httpStatus ProjectNotFound -> 404
     }
-    api DeliveryApi from Delivery
-    api AccountsApi from Accounts
+    api DeliveryApi with scaffoldGetApi(of: BySha) from Delivery
+    api AccountsApi with scaffoldGetApi(of: ByHandle) from Accounts
 
     // Connection sources (all four variants) + a vendor config map covering
     // the three ConfigValue types (string / int / bool).
@@ -895,14 +889,14 @@ system DevPlatform {
     // Find route (nullable single): `byName` returns the created project.
     test e2e "finding a project by name returns it" against honoApi {
         let p = api.projects.create({ name: "Findable", visibility: "Public", active: true, sequence: 2, externalId: "00000000-0000-0000-0000-000000000000", budget: 0.0, createdAt: "2024-01-01T00:00:00Z" })
-        let found = api.projects.byName({ name: "Findable" })
+        let found = api.catalog.getProjectByName("Findable")
         expect(found.name).toBe("Findable")
     }
 
     // Find route (nullable single): `bySha` on the Delivery module.
     test e2e "finding a build by commit sha returns it" against honoApi {
         let b = api.builds.create({ commitSha: "sha9999", buildState: "Queued", total: 0, startedAt: "2024-01-01T00:00:00Z" })
-        let found = api.builds.bySha({ commitSha: "sha9999" })
+        let found = api.builds.getBuildBySha("sha9999")
         expect(found.commitSha).toBe("sha9999")
     }
 
@@ -910,7 +904,7 @@ system DevPlatform {
     // beyond its negative-path checks below.
     test e2e "finding an engineer by handle returns it" against honoApi {
         let e = api.engineers.create({ handle: "linus", email: "linus@example.com", level: 7, onCall: true })
-        let found = api.engineers.byHandle({ handle: "linus" })
+        let found = api.people.getEngineerByHandle("linus")
         expect(found.handle).toBe("linus")
     }
 

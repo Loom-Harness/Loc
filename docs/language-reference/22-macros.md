@@ -56,8 +56,10 @@ Thirteen macros ship in [`src/macros/stdlib/`](../../src/macros/stdlib/), regist
 | `scaffoldDashboard` | `context` | — | one singleton query-time `projection` per aggregate (row count + a sum per numeric/money field, and a per-day series when a date field exists) |
 | `scaffoldHandlers` | `context` | — | the contract records (`command`/`query`/`response`) + a `commandHandler`/`queryHandler` per operation, create, find and get-by-id read |
 | `scaffoldPaged` | `context` | `of: Criterion \| Retrieval`, `requires?: Policy` | a paged `queryHandler` over the read-only port (`Repo.run(<read>)`), optionally gated |
+| `scaffoldGet` | `context` | `of: Criterion \| Aggregate`, `key?: string`, `requires?: Policy` | a single-row `queryHandler` answering a criterion's first match or a unique key's row, 404 on a miss, optionally gated |
 | `scaffoldApi` | `api` | `of: Subdomain` | one `route` per handler `scaffoldHandlers` emits for the subdomain |
 | `scaffoldPagedApi` | `api` | `of: Criterion \| Retrieval` | the `GET …/projections/<read>` route binding to `scaffoldPaged`'s handler |
+| `scaffoldGetApi` | `api` | `of: Criterion \| Aggregate`, `key?: string` | the `GET /<aggs>/<read>` route binding to `scaffoldGet`'s handler — the URL a declared find of that name had |
 | `scaffold` | `ui` | `subdomains:`, `contexts:`, `aggregates:`, `workflows:` (all ref-lists) | Home / WorkflowsIndex singletons + delegates to the composers below |
 | `scaffoldSubdomain` | `ui` | `of: Subdomain` | one `scaffoldContext` per context in the subdomain |
 | `scaffoldContext` | `ui` | `of: BoundedContext` | one `scaffoldAggregate` / `scaffoldWorkflow` per member |

@@ -53,7 +53,7 @@ describe(".NET generator — versioned optimistic-concurrency", () => {
       "api/Infrastructure/Repositories/CustomerRepository.cs",
     )!;
     expect(repo).toContain("var __version = entry.Property(x => x.Version);");
-    expect(repo).toContain("var __expected = RequestContext.Current?.ExpectedVersion;");
+    expect(repo).toContain("var __expected = expectedVersion;");
     expect(repo).toContain("if (__expected.HasValue) __version.OriginalValue = __expected.Value;");
     expect(repo).toContain("__version.CurrentValue = __version.OriginalValue + 1;");
   });
@@ -117,7 +117,7 @@ describe(".NET generator — versioned optimistic-concurrency", () => {
     expect(cfg).toContain(
       'builder.Property(x => x.Version).HasColumnName("version").IsConcurrencyToken();',
     );
-    expect(repo).toContain("var __expected = RequestContext.Current?.ExpectedVersion;");
+    expect(repo).toContain("var __expected = expectedVersion;");
     expect(repo).toContain("if (__expected.HasValue) __version.OriginalValue = __expected.Value;");
     expect(filter).toContain(
       "if (context.Exception is Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)",

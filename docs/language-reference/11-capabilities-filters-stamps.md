@@ -262,20 +262,11 @@ static create(input: { subject: string; /* … */ parent?: Ids.OrderId | null })
 
 ## `ignoring` — bypassing a filter at a read site
 
-The clause has exactly three homes: a repository `find … ignoring …`, a query-time projection's `where` slot (*before* `join` / `group by` / `select`), and an inline read bound by a `let` (`let xs = Repo.findAll(…) ignoring …`, `Repo.run(…) ignoring …`). `ignoring *` drops every capability filter on the aggregate; `ignoring A, B` drops exactly those capabilities'. The `let` form rides an ordinary postfix chain, so `group by o.status ignoring softDeletable` also *parses* — it would bind the clause to the grouping expression, where nothing reads it back, so any position other than the three above is `loom.ignoring-clause-placement`; naming a capability the aggregate lacks is `loom.filter-bypass-unknown-capability`, naming one that contributes no filter (`ignoring auditable`) is `loom.filter-bypass-no-filter`. All five backends honour the bypass (EF `IgnoreQueryFilters`, a dropped Drizzle / SQLAlchemy / Ecto conjunct, a Hibernate `@FilterDef`/`@Filter` the read disables) — the per-backend output is in [chapter 10](10-repositories-and-queries.md#ignoring--capability-filter-bypass). One Java gap to know about: a *principal* filter (`currentUser` in the predicate) rides the JPQL `@Query`, and a declared `find … ignoring` currently keeps that conjunct (`select e from Order e where (e.tenantId = …)`) — only the non-principal, `@SQLRestriction`-resident filters are actually bypassed there.
+The clause has exactly two homes: a query-time projection's `where` slot (*before* `join` / `group by` / `select`), and an inline repository read (`let xs = Repo.findAll(…) ignoring …`, `Repo.run(…) ignoring …`, `if let o = Repo.find(C) ignoring …`, `Repo.getBy(…) ignoring …`). `ignoring *` drops every capability filter on the aggregate; `ignoring A, B` drops exactly those capabilities'. The `let` form rides an ordinary postfix chain, so `group by o.status ignoring softDeletable` also *parses* — it would bind the clause to the grouping expression, where nothing reads it back, so any position other than the two above is `loom.ignoring-clause-placement`; naming a capability the aggregate lacks is `loom.filter-bypass-unknown-capability`, naming one that contributes no filter (`ignoring auditable`) is `loom.filter-bypass-no-filter`. All five backends honour the bypass (EF `IgnoreQueryFilters`, a dropped Drizzle / SQLAlchemy / Ecto conjunct, a Hibernate `@FilterDef`/`@Filter` the read disables) — the per-backend output is in [chapter 10](10-repositories-and-queries.md#ignoring--capability-filter-bypass). One Java gap to know about: a *principal* filter (`currentUser` in the predicate) rides the JPQL `@Query`, and a widened read currently keeps that conjunct (`select e from Order e where (e.tenantId = …)`) — only the non-principal, `@SQLRestriction`-resident filters are actually bypassed there.
 
 ```ddd
-repository Orders for Order {
-  find all(): Order[] ignoring *                              // skips every capability filter
-}
-```
-
-```ts
-// db/repositories/order-repository.ts (node) — no tenant term
-async all(): Promise<Order[]> {
-  const rootRows = await this.db.select().from(schema.orders);
-  // …
-}
+criterion Big of Order = this.total > 1000
+// … let xs = Orders.findAll(Big()) ignoring *   — skips every capability filter
 ```
 
 ## The built-in capabilities

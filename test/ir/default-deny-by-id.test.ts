@@ -28,12 +28,7 @@ async function diagnose(source: string): Promise<LoomDiagnostic[]> {
 
 /** Every command gated admin-only; the reads gated only when `readGate` is
  *  given (the policy line), so without it the by-id read is ungated. */
-function vault(opts: {
-  enforcement: string;
-  authRequired?: boolean;
-  readGate?: string;
-  finds?: string;
-}): string {
+function vault(opts: { enforcement: string; authRequired?: boolean; readGate?: string }): string {
   return `
 system S {
   user { id: guid  role: string }
@@ -43,7 +38,7 @@ system S {
       body: string
       create() { requires currentUser.role == "admin" }
     }
-    repository Secrets for Secret { ${opts.finds ?? ""} }
+    repository Secrets for Secret
     ${opts.readGate ? `policy { read Secret requires ${opts.readGate} }` : ""}
   } }
   api Api from D
@@ -80,8 +75,8 @@ system S {
     abstract aggregate Vehicle { name: string }
     aggregate Car extends Vehicle { doors: int }
     aggregate Van extends Vehicle { volume: int }
-    repository Cars for Car { }
-    repository Vans for Van { }
+    repository Cars for Car
+    repository Vans for Van
   } }
   api Api from Fleet
   storage pg { type: postgres }
@@ -132,29 +127,6 @@ system S {
     });
     const optCtx = enrichLoomModel(lowerModel(optModel)).systems[0]!.subdomains[0]!.contexts[0]!;
     expect(deriveContextOperations(optCtx).find((o) => o.kind === "getById")?.find).toBeUndefined();
-  });
-
-  it("a declared `find byId` with no read gate is refused (once, as a find)", async () => {
-    const diags = await diagnose(
-      vault({ enforcement: "denyByDefault", finds: "find byId(id: Secret id): Secret?" }),
-    );
-    const errors = diags.filter((d) => d.severity === "error");
-    expect(errors).toHaveLength(1);
-    expect(errors[0]!.code).toBe("loom.default-deny-ungated");
-    expect(errors[0]!.message).toContain("Secrets.byId");
-    expect(errors[0]!.message).toContain("policy { read Secret requires <expr> }");
-  });
-
-  it("a `find byId` of a different SHAPE is not the by-id read", async () => {
-    // Recognition is by name AND shape — `byId` returning a list is an
-    // ordinary find and does not gate `GET /secrets/{id}`.
-    const diags = await diagnose(
-      vault({
-        enforcement: "denyByDefault",
-        finds: "find byId(id: Secret id): Secret[] where this.id == id",
-      }),
-    );
-    expect(diags.filter((d) => d.code === CODE)).toHaveLength(1);
   });
 
   // --- non-vacuity ---------------------------------------------------------

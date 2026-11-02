@@ -1465,20 +1465,16 @@ PayloadDecl:
 PayloadKind returns string:
     'payload' | 'command' | 'query' | 'response' | 'error';
 
+// A repository declares no reads of its own: every read is the repository
+// contract (`all`, `findById` / `getById`, `findBy` / `getBy` over a declared
+// `unique (…)` key, `find` / `findAll` / `run` over a `criterion`).  The body
+// is optional and, when written, empty.  A leftover `find` inside it is a
+// parse error naming those replacements (`parse-errors.ts`).
 Repository:
-    'repository' name=ID 'for' aggregate=[Aggregate:ID] '{'
-        finds+=FindDecl*
-    '}';
+    'repository' name=ID 'for' aggregate=[Aggregate:ID] ('{' '}')?;
 
-// A find carries no authorization gate: who may read the aggregate is
-// `policy { read <Aggregate> requires <expr> }`, which covers every find.
-FindDecl:
-    'find' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')' ':' returnType=TypeRef
-        ('where' filter=Expression)?
-        IgnoringClause?;
-
-// Selective capability-filter bypass.  A trailing clause on a read (find /
-// view / inline `Repo.findAll`) that lets it skip a capability's contributed
+// Selective capability-filter bypass.  A trailing clause on a read (view /
+// inline `Repo.findAll` / `Repo.find`) that lets it skip a capability's contributed
 // query-filter(s), keyed on the CAPABILITY name.  `ignoring *` bypasses every
 // capability filter on the aggregate; `ignoring A, B` bypasses exactly those
 // capabilities' filters.  Capability names are bare IDs resolved by name

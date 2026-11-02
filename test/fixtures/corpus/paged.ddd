@@ -1,11 +1,9 @@
-// Pagination: `find ... paged` returns the Paged<T> envelope.
+// Pagination: the implicit `all` returns the Paged<T> envelope.
 system PagedShop {
   subdomain Sales {
     context Orders {
       aggregate Order with crudish { code: string  region: string }
-      repository Orders for Order {
-        find all(): Order paged
-      }
+      repository Orders for Order
       criterion OrdersInRegion(region: string) of Order = this.region == region
       queryHandler ListOrdersInRegion(region: string): Order paged {
         let r = Orders.run(OrdersInRegion(region))

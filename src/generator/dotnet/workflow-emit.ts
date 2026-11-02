@@ -2336,7 +2336,7 @@ function renderController(
       "workflow",
       workflowIsGuarded(wf),
       wireStatusResolver(ctx.structuralErrorStatuses),
-      { readsAggregate: workflowCanAnswerNotFound(wf, ctx.repositories) },
+      { readsAggregate: workflowCanAnswerNotFound(wf) },
     )
       .map((s) => `    [ProducesResponseType(typeof(ProblemDetails), ${s})]\n`)
       .join("");

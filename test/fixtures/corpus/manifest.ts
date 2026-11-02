@@ -141,19 +141,18 @@ const FOREIGN_ID_LIST: readonly Backend[] = ALL.filter((b) => b !== "vanilla");
  *  (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs, #4023). */
 const PROJECTION_VO_ROW: readonly Backend[] = ["node", "java", "vanilla"];
 
-/** The backends that write a provenanced `money` value into its lineage in the
- *  `Codec` fact's lineage encoding — the RS-12 wire string (owner ruling on
- *  #3527).  Only node is on the fact so far.  The other four generate the case
- *  cleanly, and each boots it as a tracked expected failure
- *  (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs):
+/** The backends that write a provenanced value into its lineage in the
+ *  `Codec` fact's lineage encoding — the wire form: money's RS-12 string
+ *  (owner ruling on #3527), a decimal's RS-24 number and a datetime's RS-38
+ *  instant (owner rulings on #3593).  node and python are on the fact.  The
+ *  other three generate the case cleanly, and each boots it as a tracked
+ *  expected failure (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs):
  *  - **dotnet** / **java**: the lineage's `object` slot serializes a JSON
  *    number (`3000.3`).
- *  - **python**: the lineage jsonb bind cannot serialize a `Decimal`; the
- *    write answers 500.
  *  - **elixir** (`vanilla`): Jason encodes the `Decimal` unscaled (`"3000.3"`).
  *  Each backend joins this row in the change that moves it onto the fact and
  *  deletes its expected-failure entry. */
-const MONEY_LINEAGE_WIRE: readonly Backend[] = ["node"];
+const MONEY_LINEAGE_WIRE: readonly Backend[] = ["node", "python"];
 
 // M-T6.96: .NET EF cannot re-host a part's nested OWNED instances under a new
 // owner (they are deleted with the old one), so the rebuild shape is held off
@@ -198,8 +197,22 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "core-domain", title: "enum/VO/event/containment/derived/invariant/operation/find", doc: "language", backends: ALL },
   { id: "state-gate", title: "`when` canCommand state gate + GET can-query companion", doc: "criterion", backends: ALL },
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
-  { id: "union-find-absence", title: "union-returning finds (`Order or NotFound`, `Order option`)", doc: "payloads", backends: ALL },
-  { id: "paged", title: "pagination — `find ... paged` Paged<T> envelope", doc: "payloads", backends: ALL },
+  {
+    id: "scaffold-get",
+    title:
+      "`scaffoldGet` / `scaffoldGetApi` — a single-row read route (criterion first match, unique key) with no declared find: the row or 404",
+    doc: "scaffold-macros",
+    backends: ALL,
+    note: "paired with `scaffold-get-find`, the same system read through declared finds: `scaffold-get-wire.test.ts` holds the two wire goldens request-for-request equal, which is the wire a find's replacement must keep",
+  },
+  {
+    id: "scaffold-get-find",
+    title:
+      "the codemod's migration of the declared-find original of `scaffold-get` — its golden was recorded from the `find byCode` / `find bySku` routes and still holds",
+    doc: "scaffold-macros",
+    backends: ALL,
+  },
+  { id: "paged", title: "pagination — the implicit `all` returns the Paged<T> envelope", doc: "payloads", backends: ALL },
   {
     id: "implicit-find-filter",
     title:
@@ -207,13 +220,6 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "minted by the 2026-10-04 testability re-audit (N2): every other corpus find spells its `where` out, so no booted leg ran the documented unique-key form.  Java's JPA `@Query`, Dapper's SQL and MikroORM's `em.find` filter all carried no predicate for it — a miss answered 200 with another row, two rows a non-unique 500 — while validating, compiling and passing the generated unit tests.  The pairing is the shared `implicitFindMatches` rule (`src/ir/util/implicit-find-filter.ts`)",
-  },
-  {
-    id: "envelope",
-    title: "`find … : T envelope` — the single-row find carrier (M-T6.57)",
-    doc: "payloads",
-    backends: ALL,
-    note: "Minted by audit F57.  NO `.ddd` in the repo instantiated `envelope` before this fixture, so every compile gate was blind to the carrier by construction — java emitted an UNDECLARED `Envelope<Order>` in three signatures (port, Spring-Data interface, impl) and dotnet returned a bare `Order` from a `Task<Envelope<Order>>` (CS0029), while elixir `Repo.all`-ed EVERY row and answered a JSON array against its own single-object OpenAPI.  The carrier is ratified as a single-row find, so the point of the fixture is that `T envelope` emits exactly what `T` emits.",
   },
   {
     id: "paged-nonrelational",
@@ -758,10 +764,10 @@ export const CORPUS: readonly CorpusFeature[] = [
   {
     id: "provenance-money",
     title:
-      "a provenanced `money` field's lineage — `inputs[].value` and `computedValue` carry money as the RS-12 wire string",
+      "a provenanced field's lineage — `inputs[].value` and `computedValue` carry money as the RS-12 wire string, a decimal as the RS-24 number and a datetime as the RS-38 instant",
     doc: "provenance",
     backends: MONEY_LINEAGE_WIRE,
-    note: "The `Codec` fact (`src/ir/enrich/codec.ts`) rules a money value's lineage encoding to be its wire encoding (owner ruling on #3527).  node writes it through the money wire encoder; the other four legs boot it as tracked expected failures (`BEHAVIOURAL_XFAIL`, #3527) until each is moved onto the fact — java and .NET send a JSON number, elixir an unscaled Decimal string, python 500s on the write",
+    note: "The `Codec` fact (`src/ir/enrich/codec.ts`) rules every scalar's lineage encoding to be its wire encoding (owner rulings on #3527 and #3593).  node and python write it through their wire encoders; the other three legs boot it as tracked expected failures (`BEHAVIOURAL_XFAIL`, #4402) until each is moved onto the fact — java and .NET send money as a JSON number, elixir as an unscaled Decimal string.  The money assertions come first, so those legs fail on them before the decimal and datetime writes",
   },
   {
     id: "audited",
@@ -784,6 +790,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "capabilities",
     backends: ALL,
     note: "Minted with the `checksVersion` fact (#3593 item 6).  Node and elixir read `If-Match` only on the canonical `update`, so a stale tag on any other operation overwrote newer data with a 204 (#3531); java's guarded save let two simultaneous writers carrying the same tag both land (#3521).  The `test e2e` block drives the sequential half; the wire tier's two-writer probe replays the block's first `If-Match` write as concurrent pairs.",
+  },
+  {
+    id: "concurrency-workflow-ifmatch",
+    title:
+      "a workflow's saves are checked against the version each handle loaded, never the request's `If-Match` — a stale tag on a workflow that changes two rows at different versions still lands",
+    doc: "capabilities",
+    backends: ALL,
+    note: "Minted with the .NET move onto the `checksVersion` fact (#4324).  .NET carried the request's `If-Match` as an ambient expected version, so every save in the request — a workflow's included — was checked against the header and one of two rows at different versions answered a spurious 409.  Runs on every leg: the other four read `If-Match` only on a named-operation route, so a workflow body never sees it.",
   },
   {
     id: "workflow-two-handles-document-eventlog",

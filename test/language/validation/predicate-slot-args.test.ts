@@ -29,35 +29,10 @@ system Demo {
   deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
 }`;
 
-// Variant with the extra member injected on the REPOSITORY (for find slots).
-const sysRepo = (finds: string) => `
-system Demo {
-  subdomain S {
-    context C {
-      criterion InRegion(r: string) of Order = region == r
-      aggregate Order with crudish {
-        region: string
-        qty: int
-      }
-      repository Orders for Order {
-        ${finds}
-      }
-    }
-  }
-  storage primary { type: postgres }
-  resource st { for: C, kind: state, use: primary }
-  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
-}`;
-
 async function codes(members: string): Promise<string[]> {
   const { diagnostics } = await parseString(sys(members), { validate: true });
   return lspCodes(diagnostics);
 }
-async function repoCodes(finds: string): Promise<string[]> {
-  const { diagnostics } = await parseString(sysRepo(finds), { validate: true });
-  return lspCodes(diagnostics);
-}
-
 const TYPE = "loom.call-arg-type";
 
 describe("predicate-slot arg types (M-T6.18 gap #3)", () => {
@@ -117,15 +92,6 @@ system Demo {
       { validate: true },
     );
     expect(lspCodes(diagnostics)).not.toContain(TYPE);
-  });
-
-  // --- repository find `where` ---------------------------------------------
-  it("flags a wrong-typed criterion arg in a repository `find … where`", async () => {
-    expect(await repoCodes("find inR(): Order[] where InRegion(5)")).toContain(TYPE);
-  });
-
-  it("is CLEAN for a correctly-typed criterion arg in a `find … where`", async () => {
-    expect(await repoCodes('find inR(): Order[] where InRegion("EU")')).not.toContain(TYPE);
   });
 
   // --- capability `filter` declaration site --------------------------------

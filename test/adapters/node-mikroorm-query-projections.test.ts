@@ -398,8 +398,11 @@ system M2 {
       aggregate Tag with crudish { label: string }
       aggregate Order with crudish { owner: string  tags: Tag id[] }
       repository Tags for Tag { }
-      repository Orders for Order {
-        find tagged(t: Tag id): Order? where this.tags.contains(t)
+      repository Orders for Order { }
+      criterion OrdersTagged(t: Tag id) of Order = this.tags.contains(t)
+      queryHandler ListOrdersTagged(t: Tag id): Order[] {
+        let r = Orders.run(OrdersTagged(t))
+        return r
       }
     }
   }

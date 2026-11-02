@@ -94,6 +94,7 @@ import {
 } from "../../../ir/util/walk.js";
 import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../../_trace/sourcemap.js";
 import {
@@ -107,6 +108,7 @@ import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
 import { optionalReadLookup, type RenderCtx, renderExpr } from "../render-expr.js";
 import { stateDefault, stateDefaultDecls } from "../state-default.js";
+import { customFindReadsActor } from "./capability-filter.js";
 import {
   contextsHaveWireDenials,
   denialOverrides,
@@ -120,6 +122,22 @@ import { renderRequiredParamsPlug, requiredWireParams } from "./problem-details-
 import { skipFiltersOption } from "./read-scope-emit.js";
 import { retrievalReadsActor } from "./retrieval-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
+
+/** Does this read pass the request actor?  Only where the body binds
+ *  `current_user` (`repoRunActor`) and the read consumes it: a criterion
+ *  read's retrieval with a principal filter or a `currentUser` where, or a
+ *  repository find whose bypass-applied capability filter still scopes by the
+ *  actor (`… ignoring softDeletable` on a `tenantOwned` aggregate). */
+function readPassesActor(
+  retrievalName: string | undefined,
+  renderCtx: RenderCtx,
+  ctx: BoundedContextIR | undefined,
+  find?: { aggName: string; method: string | undefined },
+): boolean {
+  if (!renderCtx.repoRunActor || !ctx) return false;
+  if (retrievalName) return retrievalReadsActor(retrievalName, ctx);
+  return !!find?.method && customFindReadsActor(ctx, find.aggName, find.method);
+}
 
 /** The aggregate a workflow step targets, for the lifecycle-seam decision (which
  *  context function an IN-PROCESS caller may use).  `undefined` when the step
@@ -378,7 +396,7 @@ function lowerStatement(
 ): BodyLine[] {
   switch (st.kind) {
     case "factory-let": {
-      // `let order = Order.create({ field: value, … })` →
+      // `let order = Order.create(field: value, …)` →
       // `{:ok, order} <- Context.create_order(%{field: value, …})`
       const fields = st.fields
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
@@ -527,6 +545,10 @@ function lowerStatement(
           },
           st.args.map((a) => renderExpr(a, renderCtx)),
           contextModule,
+          readPassesActor(st.retrievalName, renderCtx, ctx, {
+            aggName: st.aggName,
+            method: st.method,
+          }),
         );
         const { pattern, bindName } = tupleBind(st.name, rest, reads);
         return [
@@ -553,10 +575,18 @@ function lowerStatement(
       // (`renderCtx.tagGetByIdMiss`): the explicit-handler and mutating
       // domain-service paths share this lowering, and their dispatchers know
       // only the bare term.
+      // A natural-key `getBy` miss is the find-absence 404 — the `not_found`
+      // token a declared find's route answers (RS-27) — tagged the same way.
+      const missDetail =
+        st.op === "load"
+          ? `"${upperFirst(st.aggName)} #{${argList}} not found"`
+          : st.op === "load-by-key"
+            ? JSON.stringify(FIND_ABSENT_DETAIL)
+            : undefined;
       const call =
-        st.op === "load" && renderCtx.tagGetByIdMiss
+        missDetail && renderCtx.tagGetByIdMiss
           ? `(case ${contextModule}.${action}(${argList}) do
-           {:error, :not_found} -> {:error, {:not_found, "${upperFirst(st.aggName)} #{${argList}} not found"}}
+           {:error, :not_found} -> {:error, {:not_found, ${missDetail}}}
            found -> found
          end)`
           : `${contextModule}.${action}(${argList})`;
@@ -665,7 +695,7 @@ function lowerStatement(
         if (st.page.offset) optEntries.push(`offset: ${renderExpr(st.page.offset, renderCtx)}`);
         if (st.page.limit) optEntries.push(`limit: ${renderExpr(st.page.limit, renderCtx)}`);
       }
-      if (renderCtx.repoRunActor && ctx && retrievalReadsActor(st.retrievalName, ctx)) {
+      if (readPassesActor(st.retrievalName, renderCtx, ctx)) {
         optEntries.push("current_user: current_user");
       }
       const skip = skipFiltersOption(st);
@@ -773,6 +803,10 @@ function lowerStatement(
                 },
                 args,
                 contextModule,
+                readPassesActor(st.retrievalName, renderCtx, ctx, {
+                  aggName: st.aggName,
+                  method: st.findMethod,
+                }),
               ),
             );
       const renderBranch = (all: WorkflowStmtIR[], present: string): string[] => {
@@ -784,14 +818,23 @@ function lowerStatement(
         const body = endsNotFound ? all.slice(0, -1) : all;
         // A branch needs a `with`-chain when it holds a fallible statement that
         // must short-circuit to `{:error, tag}` (so it threads up the outer
-        // with-chain): a guard (`precondition` / `requires`) OR nested control
+        // with-chain): a guard (`precondition` / `requires`), an op-call, a
+        // factory create, a `mutating` domain-service call, or nested control
         // flow / repo binds (`for-each` / `if-let` / `repo-run` / `repo-let`).
-        // A branch of only flat side-effects keeps the sequential `=`-bind form.
+        // The flat form would discard an op-call's `{:error, _}` — a failed
+        // operation precondition would then let a transactional workflow
+        // commit and answer success.  A branch of only infallible side-effects
+        // (emit / resource-call / assign / expr-let / a non-mutating service
+        // call) keeps the sequential `=`-bind form.
         const needsWith = body.some(
           (s) =>
             s.kind === "precondition" ||
             s.kind === "requires" ||
             s.kind === "not-found" ||
+            s.kind === "op-call" ||
+            s.kind === "factory-let" ||
+            (s.kind === "domain-service-call" &&
+              resolveInlinedServiceClauses(s, renderCtx, contextModule, ctx).length > 0) ||
             NESTED_FLOW_KINDS.has(s.kind),
         );
         if (needsWith) {
@@ -858,7 +901,7 @@ function lowerStatement(
               case "resource-call":
               case "assign":
                 // Pure side-effects / own-state rebinds — run in the do-branch.
-                tail.push(...renderBranchStmt(inner, renderCtx, contextModule, [], ctx));
+                tail.push(...renderBranchStmt(inner, renderCtx, contextModule, []));
                 break;
               default: {
                 const _exhaustive: never = inner;
@@ -876,12 +919,17 @@ function lowerStatement(
           ];
         }
         const stmtLines = body.flatMap((inner, i) =>
-          renderBranchStmt(inner, renderCtx, contextModule, body.slice(i + 1), ctx),
+          renderBranchStmt(inner, renderCtx, contextModule, body.slice(i + 1)),
         );
         return [...stmtLines, result];
       };
+      // A guard — an empty then-branch over an `else` that answers the 404 —
+      // keeps the hit bound for the statements after it (a handler's
+      // `if let o = … { return o } else { notFound }`), so the clause binds
+      // the branch's `{:ok, o}` instead of discarding it.
+      const guard = st.thenBody.length === 0 && st.elseBody?.at(-1)?.kind === "not-found";
       const lines = [
-        `{:ok, _} <- (`,
+        `{:ok, ${guard ? v : "_"}} <- (`,
         ...lookupLines,
         `           if ${v} != nil do`,
         ...renderBranch(st.thenBody, v).map((l) => `             ${l}`),
@@ -890,7 +938,7 @@ function lowerStatement(
         `           end`,
         `         )`,
       ];
-      return [{ kind: "with-clause", text: lines.join("\n"), bindName: undefined }];
+      return [{ kind: "with-clause", text: lines.join("\n"), bindName: guard ? v : undefined }];
     }
     default: {
       // CR1-f (wave CR1, audit row P0-2b): all 14 `WorkflowStmtIR` kinds are
@@ -1306,29 +1354,18 @@ function collectWorkflowStmtParamRefsAll(st: WorkflowStmtIR, acc: Set<string>): 
  *  inner sequential Elixir lines.  `rest` is the statements that follow `st`
  *  in the same branch — used to `_`-discard an unread `let`-bind.  The branch
  *  ends in `{:ok, present}` (added by the caller) so the enclosing
- *  `{:ok, _} <-` clause threads through the with-chain.  Branch statements run
- *  sequentially with `=` binds (a raised error rolls the transaction back),
- *  covering the full statement set the validator admits inside an if-let
- *  branch: op-call / factory-let / emit / expr-let / resource-call / assign /
- *  domain-service-call (guards + nested control flow ride the with-chain path
- *  in `renderBranch`). */
+ *  `{:ok, _} <-` clause threads through the with-chain.  Only infallible
+ *  statements reach this flat path: emit / expr-let / resource-call / assign /
+ *  a non-mutating domain-service-call.  Every fallible statement (guards,
+ *  op-calls, factory creates, mutating service calls, nested control flow)
+ *  rides the with-chain path in `renderBranch`. */
 function renderBranchStmt(
   st: WorkflowStmtIR,
   renderCtx: RenderCtx,
   contextModule: string,
   rest: WorkflowStmtIR[] = [],
-  ctx?: BoundedContextIR,
 ): string[] {
   switch (st.kind) {
-    case "op-call":
-      return [opCallSource(st, renderCtx, contextModule, ctx)];
-    case "factory-let": {
-      const fields = st.fields
-        .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
-        .join(", ");
-      const bind = bindUsedLater(st.name, rest) ? escapeElixirIdent(snake(st.name)) : "_";
-      return [`{:ok, ${bind}} = ${factoryCreateCall(st.aggName, fields, contextModule, ctx)}`];
-    }
     case "emit": {
       const fields = st.fields
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
@@ -1352,15 +1389,13 @@ function renderBranchStmt(
       return [
         `state = %{state | ${snake(st.target.segments[0]!)}: ${renderExpr(st.value, renderCtx)}}`,
       ];
-    case "domain-service-call": {
-      // A `mutating` domain-service call inside a branch — inline the same
-      // context mutating-fn calls the loop-body arm emits, so each mutated arg
-      // persists.  `resolveInlinedServiceClauses` returns `<-` with-clause text;
-      // the flat branch path binds sequentially, so strip the arrow into an `=`.
-      const inlined = resolveInlinedServiceClauses(st, renderCtx, contextModule, ctx);
-      if (inlined.length === 0) return [`_ = ${renderExpr(st.call, renderCtx)}`];
-      return inlined.map((c) => c.text.replace(" <- ", " = "));
-    }
+    case "domain-service-call":
+      // Only a NON-mutating service call reaches the flat path (a mutating one
+      // inlines fallible context calls, so `renderBranch` routes it through the
+      // with-chain): a plain side effect.
+      return [`_ = ${renderExpr(st.call, renderCtx)}`];
+    case "op-call":
+    case "factory-let":
     case "precondition":
     case "requires":
     case "not-found":
@@ -1369,8 +1404,9 @@ function renderBranchStmt(
     case "repo-run":
     case "repo-delete":
     case "repo-let":
-      // `renderBranch` routes guards + nested control flow / repo binds through
-      // the with-chain path (they must short-circuit to `{:error, _}`), so the
+      // `renderBranch` routes guards, op-calls, factory creates and nested
+      // control flow / repo binds through the with-chain path (they must
+      // short-circuit to `{:error, _}`), so the
       // flat path never sees them.  If that routing ever changes, fail loudly
       // here.  A `# TODO` fallthrough would be worse than useless: an Elixir
       // comment compiles, so `mix compile` accepts the mutilated output.
@@ -1993,6 +2029,15 @@ end
 
 /** Does any body of this workflow load through `getById` or answer `notFound`
  *  (at any depth)?  Gates the dispatcher's `{:not_found, detail}` arm. */
+/** A statement whose miss reaches the dispatcher as the detail-carrying
+ *  `{:not_found, detail}` term: a by-id or natural-key load (tagged under
+ *  `tagGetByIdMiss`), or `notFound` itself. */
+export function tagsNotFoundMiss(s: WorkflowStmtIR): boolean {
+  return (
+    (s.kind === "repo-let" && (s.op === "load" || s.op === "load-by-key")) || s.kind === "not-found"
+  );
+}
+
 function workflowLoadsById(wf: WorkflowIR): boolean {
   const lists: readonly (readonly WorkflowStmtIR[])[] = [
     wf.statements,
@@ -2003,7 +2048,7 @@ function workflowLoadsById(wf: WorkflowIR): boolean {
   for (const list of lists) {
     for (const top of list) {
       walkWorkflowStmtsDeep(top, (s) => {
-        if ((s.kind === "repo-let" && s.op === "load") || s.kind === "not-found") found = true;
+        if (tagsNotFoundMiss(s)) found = true;
       });
     }
   }

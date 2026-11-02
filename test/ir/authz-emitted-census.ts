@@ -709,7 +709,9 @@ export const LOCATORS: Record<VariantId, Locator> = {
     openers: [/^[ \t]*defp?\s+(\w+[?!]?)/m],
     reads: [
       /\b([A-Z][\w.]*?)\.base_query\(\)/,
-      /\bfrom\(\s*\w+\s+in\s+([\w.]+)(?=[\s,)])/,
+      // A module, never a query variable: `from(record in query, limit: 1)`
+      // narrows the read above it, so it must not cut that read's window.
+      /\bfrom\(\s*\w+\s+in\s+([A-Z][\w.]*)(?=[\s,)])/,
       /\bRepo\.(?:get|get_by|one|all)\(\s*([A-Z][\w.]+)/,
       /\bEcto\.Query\.(?:order_by|where|select|limit)\(\s*([A-Z][\w.]+)/,
       /^\s*([A-Z][\w.]+)\s*\n\s*\|>[^\n]*\n?(?:\s*\|>[^\n]*\n?)*?\s*\|>\s*Repo\.all\(\)/m,

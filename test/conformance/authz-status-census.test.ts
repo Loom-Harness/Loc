@@ -33,30 +33,24 @@
 //     rather than re-fixed — closing it must delete the waiver and move the arm
 //     into SITES, the repo's no-stale-allowlist rule (WAIVER_401 below).
 //
-//   * The 403 DETAIL on a declared-FIND `requires` gate diverges: node emits a
-//     bare "Forbidden" where dotnet/java/python/elixir emit the descriptive
-//     "Forbidden: find <name>".  node's find-guard emitter (routes-builder.ts:
-//     1820) hardcodes the bare string while its OPERATION-guard emitter threads
-//     the predicate — the exact intra-backend split this mission exists to name.
-//     The audit-history read is the derived find `history`, so it carries the
-//     same declared-find detail, "Forbidden: find history", on all five.
+//   * The 403 DETAIL on a READ gate (`policy { read … requires … }`) names the
+//     read it refuses, "Forbidden: find <read>", on all five — the by-id read
+//     is "Forbidden: find byId".  The audit-history read is the derived read
+//     `history`, so it carries "Forbidden: find history" on all five.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { gateSites, type VariantId } from "../ir/authz-emitted-census.js";
 
 /** One aggregate with BOTH an operation `requires` gate and a policy read gate
- *  (`policy { read Item requires … }`) on a declared find, under
- *  `auth: required`, so all three authz arms are emitted:
+ *  (`policy { read Item requires … }`), under `auth: required`, so all three
+ *  authz arms are emitted:
  *
- *    operation bump() requires …  → the 403 arm on a WRITE  (detail agrees)
- *    find openOnes() (read gate)  → the 403 arm on a READ   (detail diverges)
- *    auth: required               → the 401 arm on every route (no envelope)
+ *    operation bump() requires …  → the 403 arm on a WRITE
+ *    the by-id read (read gate)   → the 403 arm on a READ
+ *    auth: required               → the 401 arm on every route
  *
- *  The context is fixed to `S` so elixir's domain module is a stable `s.ex`.
- *  `find all()` is deliberately NOT declared: its name collides with the
- *  auto-`findAll` enrichment, and on four backends the unguarded auto-find wins,
- *  which would confound the read-gate census with a name-resolution artefact. */
+ *  The context is fixed to `S` so elixir's domain module is a stable `s.ex`. */
 const SOURCE = (platform: string) => `
 system Census {
   user { id: string  level: int }
@@ -69,9 +63,7 @@ system Census {
           qty := qty + 1
         }
       }
-      repository Items for Item {
-        find openOnes(): Item? where this.qty > 0
-      }
+      repository Items for Item
       policy { read Item requires currentUser.level > 2 }
     }
   }
@@ -323,38 +315,34 @@ describe("M-T9.25 round 2, probe 2 — the 401 arm is a problem document on ALL 
   }
 });
 
-/** The 403 DETAIL on a declared-find `requires` gate.  Since #2541 this AGREES
- *  five-way — every backend threads the find name into "Forbidden: find
- *  openOnes".  node used to be the lone outlier (a bare "Forbidden" on its read
- *  gates while its OPERATION gates were already descriptive); #2541 made node's
- *  read-side gates carry the source label like the other four, retiring the
- *  ratchet this block used to hold.  Anchored on the full literal so it cannot
- *  slide onto the OPERATION guard's string, mirroring OP_DETAIL. */
+/** The 403 DETAIL on a read gate: every backend threads the read's name into
+ *  "Forbidden: find byId" for the by-id read.  Anchored on the full literal so
+ *  it cannot slide onto the OPERATION guard's string, mirroring OP_DETAIL. */
 const FIND_DETAIL: Record<Platform, { file: string; at: RegExp }> = {
   node: {
     file: "http/item.routes.ts",
-    at: /ForbiddenError\("(Forbidden: find openOnes)"\)/,
+    at: /ForbiddenError\("(Forbidden: find byId)"\)/,
   },
   python: {
     file: "http/item_routes.py",
-    at: /ForbiddenError\("(Forbidden: find openOnes)"\)/,
+    at: /ForbiddenError\("(Forbidden: find byId)"\)/,
   },
   dotnet: {
-    file: "Queries/OpenOnesHandler.cs",
-    at: /ForbiddenException\("(Forbidden: find openOnes)"\)/,
+    file: "Queries/GetItemByIdHandler.cs",
+    at: /ForbiddenException\("(Forbidden: find byId)"\)/,
   },
   java: {
     file: "items/ItemsController.java",
-    at: /ForbiddenException\("(Forbidden: find openOnes)"\)/,
+    at: /ForbiddenException\("(Forbidden: find byId)"\)/,
   },
   elixir: {
     file: "controllers/item_controller.ex",
-    at: /"Forbidden", "(Forbidden: find openOnes)"/,
+    at: /"Forbidden", "(Forbidden: find byId)"/,
   },
 };
 
-describe("M-T9.25 round 2, probe 2 — the find-guard 403 detail agrees five-way (#2541)", () => {
-  it("cross-backend: the declared-find `requires` 403 detail is byte-identical on all five", async () => {
+describe("M-T9.25 round 2, probe 2 — the read-gate 403 detail agrees five-way", () => {
+  it("cross-backend: the by-id read gate's 403 detail is byte-identical on all five", async () => {
     const details = await Promise.all(
       PLATFORMS.map(async (p) => {
         const spec = FIND_DETAIL[p];
@@ -362,10 +350,10 @@ describe("M-T9.25 round 2, probe 2 — the find-guard 403 detail agrees five-way
         return [p, m ? m[1] : "<no find-gate detail found>"] as const;
       }),
     );
-    const expected = "Forbidden: find openOnes";
+    const expected = "Forbidden: find byId";
     expect(
       Object.fromEntries(details),
-      "a declared-find `requires` gate's 403 detail diverged — it threads the find name on every backend since #2541",
+      "a read gate's 403 detail diverged — it threads the read's name on every backend",
     ).toEqual({
       node: expected,
       dotnet: expected,
@@ -379,7 +367,7 @@ describe("M-T9.25 round 2, probe 2 — the find-guard 403 detail agrees five-way
 // ---------------------------------------------------------------------------
 // The AUDIT-HISTORY read gate's 403 detail.
 //
-// An `audited` aggregate's history read inherits its `find all` gate
+// An `audited` aggregate's history read inherits its list read's gate
 // (`docs/audit.md`), and the history read is a find named `history` — so its
 // refusal carries the same `Forbidden: find <name>` label every other read gate
 // does, five-way.  The booted witness is the `audit-history-guarded` wire golden
@@ -395,9 +383,7 @@ system Census {
       aggregate Item audited with crudish {
         name: string
       }
-      repository Items for Item {
-        find all(): Item[]
-      }
+      repository Items for Item
       policy { read Item requires currentUser.level > 2 }
     }
   }

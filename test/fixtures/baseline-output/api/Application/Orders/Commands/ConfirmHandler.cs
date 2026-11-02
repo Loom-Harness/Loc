@@ -23,7 +23,7 @@ public sealed class ConfirmHandler : ICommandHandler<ConfirmCommand, Unit>
         var aggregate = await _repo.GetByIdAsync(command.Id, cancellationToken)
             ?? throw new AggregateNotFoundException($"Order {command.Id} not found");
         aggregate.Confirm();
-        await _repo.SaveAsync(aggregate, cancellationToken);
+        await _repo.SaveAsync(aggregate, RequestContext.Current?.ExpectedVersion, cancellationToken);
         return Unit.Value;
     }
 }

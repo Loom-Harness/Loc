@@ -152,7 +152,7 @@ describe("currentUser.isSystem — the language surface", () => {
 });
 
 /** A timer tick drives an event starter that reads a tenant-owned aggregate. */
-const timer = (find: "byCode" | "anyTenant") => `
+const timer = (read: "scoped" | "anyTenant") => `
 system Sweeper {
   user { id: guid  tenantId: string }
   tenancy by user.tenantId of Organization
@@ -166,15 +166,13 @@ system Sweeper {
         derived display: string = code
         operation close() { done := true }
       }
-      repository Jobs for Job {
-        find byCode(c: string): Job where this.code == c
-        find anyTenant(c: string): Job where this.code == c ignoring tenantOwned
-      }
+      repository Jobs for Job
+      criterion ByCode(c: string) of Job = this.code == c
       workflow sweepRun {
         sweep: Sweep id
         create(t: SweepTick) by t.sweep {
-          let j = Jobs.${find}("x")
-          j.close()
+          let js = Jobs.findAll(ByCode("x"))${read === "anyTenant" ? " ignoring tenantOwned" : ""}
+          for j in js { j.close() }
         }
       }
     }
@@ -191,13 +189,13 @@ system Sweeper {
 
 describe("loom.timer-tenant-read (ruling D1)", () => {
   it("refuses a tenant-scoped read from a timer-driven reactor", async () => {
-    const { ast, ir } = await diags(timer("byCode"));
+    const { ast, ir } = await diags(timer("scoped"));
     expect(ast).toEqual([]);
     const hit = ir.filter((d) => d.code === "loom.timer-tenant-read");
     expect(hit).toHaveLength(1);
     expect(hit[0]!.severity).toBe("error");
     expect(hit[0]!.message).toContain("timer 'nightly'");
-    expect(hit[0]!.message).toContain("Jobs.byCode(…)");
+    expect(hit[0]!.message).toContain("Jobs.run(findAllByByCode)");
   });
 
   it("accepts the read once it is explicitly cross-tenant (`ignoring tenantOwned`)", async () => {
@@ -207,7 +205,7 @@ describe("loom.timer-tenant-read (ruling D1)", () => {
   });
 
   it("does not fire for the same read when no timer drives the event", async () => {
-    const src = timer("byCode").replace(
+    const src = timer("scoped").replace(
       `  timerSource nightly { for: SweepTick, cron: "0 3 * * *" }\n`,
       "",
     );

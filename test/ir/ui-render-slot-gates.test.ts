@@ -30,7 +30,7 @@ system Shop {
         weight: decimal
         address: Address
       }
-      repository Items for Item { }
+      repository Items for Item
       projection Totals {
         gross: money
         rows: int
@@ -84,7 +84,7 @@ async function diagsWith(
   contextExtra: string,
   pageBody: string,
 ): Promise<{ code: string; message: string }[]> {
-  const src = system(pageBody).replace("      repository Items for Item { }", contextExtra.trim());
+  const src = system(pageBody).replace("      repository Items for Item", contextExtra.trim());
   const { model } = await parseString(src, { validate: false });
   return validateLoomModel(enrichLoomModel(lowerModel(model)))
     .filter(
@@ -180,7 +180,7 @@ describe("D4 — a `money` value in a slot that renders it as text", () => {
   // this PR does not claim to fix — spelled around here so the assertion is
   // about the `Column` slot and nothing else.
   const COLUMN_MODEL = `
-      repository Items for Item { find all(): Item[] }` as const;
+      repository Items for Item` as const;
 
   it("rejects a money read in a `Column` lambda, which the row scope never bound", async () => {
     const ds = await diagsWith(

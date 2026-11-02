@@ -82,7 +82,7 @@ describe("loom.default-deny-list-ungated — the ungated list read is reported",
     const diags = await diagnose(
       vault({
         enforcement: "denyByDefault",
-        repo: "repository Vaulted for Secret { find all(): Secret[] }",
+        repo: "repository Vaulted for Secret",
       }),
     );
     const list = diags.filter((d) => d.code === CODE);
@@ -95,7 +95,7 @@ describe("loom.default-deny-list-ungated — the ungated list read is reported",
       const diags = await diagnose(
         vault({
           enforcement: "denyByDefault",
-          repo: `repository Secrets for Secret { }
+          repo: `repository Secrets for Secret
           policy { read Secret requires ${gate} }`,
         }),
       );

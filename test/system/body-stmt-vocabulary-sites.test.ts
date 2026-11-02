@@ -124,7 +124,7 @@ system WF {
         if n > 0 { return "pos" }
         return "neg"
       }
-      create(n: int) { let t = Thing.create({ name: label(n) }) }
+      create(n: int) { let t = Thing.create(name: label(n)) }
     }
   } }
   api XApi from S

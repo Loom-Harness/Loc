@@ -20,6 +20,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = readFileSync("test/e2e/fixtures/java-build/filter-bypass.ddd", "utf8");
 const ROOT = "api/src/main/java/com/loom/api/features/products";
+const WORKFLOWS = "api/src/main/java/com/loom/api/application/workflows";
 
 describe("java generator — `ignoring` filter bypass (§11.6 triage)", () => {
   it("(a) a never-bypassed bare filter stays in @SQLRestriction; the promoted cap leaves it", async () => {
@@ -27,8 +28,8 @@ describe("java generator — `ignoring` filter bypass (§11.6 triage)", () => {
     const entity = files.get(`${ROOT}/Product.java`)!;
     // The bare `filter this.price > 0` is never bypassable → @SQLRestriction.
     expect(entity).toContain('@SQLRestriction("price > 0")');
-    // softDeletable is bypassed by `recent`/`allRows` → it does NOT
-    // appear in @SQLRestriction.
+    // softDeletable is bypassed by the `Recent`/`AllRows` reads → it does
+    // NOT appear in @SQLRestriction.
     expect(entity).not.toMatch(/@SQLRestriction\([^)]*is_deleted/);
   });
 
@@ -43,33 +44,38 @@ describe("java generator — `ignoring` filter bypass (§11.6 triage)", () => {
     expect(entity).toContain("import org.hibernate.annotations.FilterDef;");
   });
 
-  it("(c) a bypassing find wraps its impl body with disableFilter/enableFilter", async () => {
+  it("(c) a bypassing read wraps its impl body with disableFilter/enableFilter", async () => {
     const files = await generateSystemFiles(SRC);
     const impl = files.get(`${ROOT}/ProductRepositoryImpl.java`)!;
     // EntityManager injected to reach the Hibernate Session.
     expect(impl).toContain("@PersistenceContext");
     expect(impl).toContain("private EntityManager em;");
-    // `recent` ignores softDeletable → disable/re-arm around the delegate.
+    // `Recent`'s read ignores softDeletable → disable/re-arm around the delegate.
     expect(impl).toMatch(
-      /public Product recent\(\) \{[\s\S]*em\.unwrap\(org\.hibernate\.Session\.class\)[\s\S]*disableFilter\("softDeletable"\)[\s\S]*var result = jpa\.recent\(\);[\s\S]*return result;[\s\S]*finally[\s\S]*enableFilter\("softDeletable"\)/,
+      /public Product findFirstProductsRecentIgnoringSoftDeletable\(\) \{[\s\S]*em\.unwrap\(org\.hibernate\.Session\.class\)[\s\S]*disableFilter\("softDeletable"\)[\s\S]*var result = jpa\.findFirstProductsRecentIgnoringSoftDeletable\(PageRequest\.of\(0, 1\)\)\.stream\(\)\.findFirst\(\)\.orElse\(null\);[\s\S]*return result;[\s\S]*finally[\s\S]*enableFilter\("softDeletable"\)/,
     );
+    // The handler reads through the widened method.
+    const handler = files.get(`${WORKFLOWS}/RecentHandler.java`)!;
+    expect(handler).toContain("productsRepository.findFirstProductsRecentIgnoringSoftDeletable()");
   });
 
   it("(d) `ignoring *` disables every promoted filter for that read", async () => {
     const files = await generateSystemFiles(SRC);
     const impl = files.get(`${ROOT}/ProductRepositoryImpl.java`)!;
     expect(impl).toMatch(
-      /public Product allRows\(\) \{[\s\S]*disableFilter\("softDeletable"\)[\s\S]*var result = jpa\.allRows\(\);[\s\S]*return result;[\s\S]*enableFilter\("softDeletable"\)/,
+      /public Product findFirstProductsAllRowsIgnoringAll\(\) \{[\s\S]*disableFilter\("softDeletable"\)[\s\S]*var result = jpa\.findFirstProductsAllRowsIgnoringAll\(PageRequest\.of\(0, 1\)\)[\s\S]*return result;[\s\S]*enableFilter\("softDeletable"\)/,
     );
   });
 
-  it("(e) a non-bypassing find delegates plainly (the @Filter stays armed)", async () => {
+  it("(e) a non-bypassing read delegates plainly (the @Filter stays armed)", async () => {
     const files = await generateSystemFiles(SRC);
     const impl = files.get(`${ROOT}/ProductRepositoryImpl.java`)!;
-    // `normal` has no `ignoring` clause → a bare delegate (capture + log +
-    // return), no Session unwrap.
+    // `Normal`'s read has no `ignoring` clause → a bare Specification delegate,
+    // no Session unwrap.
     expect(impl).toMatch(
-      /public Product normal\(\) \{\s*var result = jpa\.normal\(\);\s*CatalogLog\.event\("find_executed"[\s\S]*?return result;\s*\}/,
+      /public List<Product> runFindAllByProductsNormal\(Integer offset, Integer limit\) \{\s*return jpa\.findAll\(ProductCriteria\.ProductsNormal\(\), new OffsetLimitPageRequest\(offset, limit, Sort\.unsorted\(\)\)\)\.getContent\(\);\s*\}/,
     );
+    const handler = files.get(`${WORKFLOWS}/NormalHandler.java`)!;
+    expect(handler).toContain("productsRepository.runFindAllByProductsNormal(null, 1)");
   });
 });

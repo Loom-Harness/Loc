@@ -123,8 +123,8 @@ export interface ApiOperationIR {
   /** The `FindIR` a `kind: "find"` operation was derived from — so a route
    *  builder rendering this list can hand its existing find emitter the
    *  underlying IR node instead of re-locating it by name.  On a `getById`
-   *  entry it is the author's by-id read (`byIdReadFind`), when declared —
-   *  the carrier of that route's `requires` gate (M-T3.19). */
+   *  entry it is the synthesised by-id read (`byIdRouteFind`) — the carrier of
+   *  that route's `requires` gate. */
   readonly find?: FindIR;
   /** The `OperationIR` behind a `kind: "operation"` or `"gateProbe"` entry —
    *  same purpose as `find`. */

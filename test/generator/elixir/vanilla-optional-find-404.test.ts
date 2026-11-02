@@ -2,91 +2,69 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// vanilla Phoenix — an OPTIONAL find (`: X?` / `: X option`) that matches no
-// row returns 404, not an HTTP 200 with a `null` body.
+// vanilla Phoenix — a single-row read that matches no row returns 404, not an
+// HTTP 200 with a `null` body.
 //
-// `findOptional` declares `[404]` in the shared OpenAPI matrix
-// (src/ir/util/openapi-errors.ts), and every other backend returns 404 on
-// absence (node throws → 404, .NET NotFound(), python/java 404-at-route).  The
-// elixir controller previously emitted `{:ok, nil} -> json(conn, nil)` — a 200
-// with a `null` body that isn't a valid `<Agg>Response` (the 200 schema), the
-// lone cross-backend divergence for optional-find absence.  A bare `: X` single
-// find (findSingle, which declares no error status) keeps its shape — that
-// default is the separate (softened) exception-less A4 question.
+// The routed single-row read is `scaffoldGet` (D-FINDDECL-REMOVED): a
+// `queryHandler` whose `if let x = Repo.find(C) { return x } else { notFound
+// "not_found" }` answers the miss as `{:error, {:not_found, "not_found"}}`,
+// and the routes controller's shared `respond/2` maps it to the 404
+// ProblemDetails with the canonical `"not_found"` TOKEN as `detail` — the
+// spelling node/python/java/dotnet all send (RS-27 keeps the find-miss token,
+// not a sentence naming the aggregate).
 // ---------------------------------------------------------------------------
 
 const SOURCE = `
 system Shop {
   subdomain Sales {
-    context Catalog {
+    context Catalog with scaffoldGet(of: ItemsBySku) {
       aggregate Item with crudish {
         name: string
         sku: string
       }
-      repository Items for Item {
-        find all(): Item[]
-        find bySku(sku: string): Item? where this.sku == sku
-        find maybeFirst(sku: string): Item option where this.sku == sku
-      }
+      repository Items for Item
+      criterion ItemsBySku(sku: string) of Item = this.sku == sku
     }
   }
-  api CatalogApi from Sales
+  api CatalogApi with scaffoldGetApi(of: ItemsBySku) from Sales
   storage pg { type: postgres }
   resource s { for: Catalog, kind: state, use: pg }
-  deployable d { platform: elixir, contexts: [Catalog], dataSources: [s], port: 4000 }
+  deployable d { platform: elixir, contexts: [Catalog], dataSources: [s], serves: CatalogApi, port: 4000 }
 }
 `;
 
-describe("vanilla Phoenix — optional find absence → 404", () => {
-  it("an optional find returns a 404 ProblemDetails on {:ok, nil}, not a 200 null body", async () => {
+function file(files: Map<string, string>, suffix: string): string {
+  const hit = [...files.entries()].find(([p]) => p.endsWith(suffix))?.[1];
+  expect(hit, `${suffix} not emitted`).toBeDefined();
+  return hit!;
+}
+
+describe("vanilla Phoenix — single-row read absence → 404", () => {
+  it("a scaffoldGet miss answers the 404 ProblemDetails with the not_found token, not a 200 null body", async () => {
     const files = await generateSystemFiles(SOURCE);
-    const ctrl = [...files.entries()].find(([p]) => p.endsWith("item_controller.ex"))?.[1];
-    expect(ctrl).toBeDefined();
-    // The absent arm now maps to the shared 404 ProblemDetails responder, with
-    // the canonical `"not_found"` TOKEN as `detail`.
-    //
-    // RETITLED 2026-08-05.  This used to pin `"Item not found"` — a sentence
-    // that reads like RS-27's by-id form but carries no id and matched no other
-    // backend (node/python/java/dotnet all send `"not_found"`; RS-27 scopes the
-    // find miss OUT of the sentence and keeps the token).  Elixir had TWO
-    // spellings for one 404 in one controller: this arm interpolated the
-    // aggregate, and the `T option` arm below said `"Not Found"` (its
-    // `problem_variant/5` helper sets `detail: title`).  Both now reach the
-    // shared producer with the same token — this rule's own lesson, applied to
-    // the arms that never reached it.  Found by the caller-census drain, whose
-    // first callers for `by_email`/`by_reference`/`by_code`/`by_sku` surfaced it
-    // as 9 of the elixir leg's 11 wire divergences.
+    // The handler answers the miss as the not-found error, carrying the token.
+    const handler = file(files, "/handlers/get_item_by_items_by_sku.ex");
+    expect(handler).toContain('{:error, {:not_found, "not_found"}}');
+    // The routes controller routes the handler's result through `respond/2`…
+    const ctrl = file(files, "/controllers/catalog_api_routes_controller.ex");
+    expect(ctrl).toContain("respond(conn, D.Catalog.Handlers.GetItemByItemsBySku.run(params))");
+    // …whose not-found clause is the shared 404 producer, `detail` passed through.
     expect(ctrl).toMatch(
-      /^ +ProblemDetails\.problem_response\(conn, 404, "Not Found", "not_found"\)$/m,
+      /def respond\(conn, \{:error, \{:not_found, detail\}\}\),\s+do: ProblemDetails\.problem_response\(conn, 404, "Not Found", detail\)/,
     );
-    // Neither old spelling may come back.
+    // Neither the schema-invalid 200 null body nor the old sentence spelling.
+    expect(ctrl).not.toContain("json(conn, nil)");
     expect(ctrl).not.toContain('"Item not found"');
-    expect(ctrl).not.toContain('problem_variant(conn, 404, "about:blank", "Not Found", %{})');
-    // BOTH absence shapes go through the SAME producer — `T?` and `T option`
-    // are wire-identical per docs/payloads.md, so two calls, one spelling.
-    expect(
-      ctrl!.match(/ProblemDetails\.problem_response\(conn, 404, "Not Found", "not_found"\)/g)
-        ?.length,
-    ).toBe(2);
-    // …and the by_sku action no longer emits the schema-invalid 200 null body.
-    // The WHOLE action, up to the next `def` — not a fixed-width slice, which
-    // silently stops covering the arms once anything is added above them.
-    const fromBySku = ctrl!.slice(ctrl!.indexOf("def by_sku"));
-    const bySku = fromBySku.slice(0, fromBySku.indexOf("\n  def ", 1));
-    expect(bySku).not.toContain("{:ok, nil} -> json(conn, nil)");
-    // The success arm still serializes the found record (now multi-line).
-    expect(bySku).toContain("{:ok, record} ->");
-    expect(bySku).toContain("json(conn, serialize(record))");
   });
 
   it("the LIST read is untouched — it has no absence to answer", async () => {
-    // Scope guard: `find all(): Item[]` answers `[]`, never a 404 (RS-23).
-    // Without this a fix that 404'd every nil-ish find would pass the
+    // Scope guard: the `all` read answers an empty page, never a 404 (RS-23).
+    // Without this a fix that 404'd every nil-ish read would pass the
     // assertions above.
     const files = await generateSystemFiles(SOURCE);
-    const ctrl = [...files.entries()].find(([p]) => p.endsWith("item_controller.ex"))?.[1];
-    expect(ctrl!.indexOf("def index(")).toBeGreaterThan(-1);
-    const named = ctrl!.slice(ctrl!.indexOf("def index("));
+    const ctrl = file(files, "item_controller.ex");
+    expect(ctrl.indexOf("def index(")).toBeGreaterThan(-1);
+    const named = ctrl.slice(ctrl.indexOf("def index("));
     const body = named.slice(
       0,
       named.indexOf("\n  def ", 1) === -1 ? undefined : named.indexOf("\n  def ", 1),

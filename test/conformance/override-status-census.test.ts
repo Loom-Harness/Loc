@@ -124,7 +124,7 @@ const SOURCE = (platform: string, apiBody: string) => `
 system Census {
   user { id: string  level: int }
   subdomain S {
-    context S {
+    context S with scaffoldGet(of: Named) {
       aggregate Item audited with versioned {
         name: string
         qty: int
@@ -136,21 +136,18 @@ system Census {
         }
         destroy { }
       }
-      repository Items for Item {
-        find all(): Item[]
-        find openOnes(): Item? where this.status == "open"
-        find byName(n: string): Item? where this.name == n
-      }
+      repository Items for Item
+      criterion Named(n: string) of Item = this.name == n
       policy { read Item requires currentUser.level > 2 }
       aggregate Line {
         item: Item id
         amount: int
         create(item: Item id, amount: int) { }
       }
-      repository Lines for Line { }
+      repository Lines for Line
     }
   }
-  api A from S ${apiBody}
+  api A with scaffoldGetApi(of: Named) from S ${apiBody}
   storage pg { type: postgres }
   resource st { for: S, kind: state, use: pg }
   deployable api {
@@ -235,8 +232,11 @@ const SITES: Record<Platform, Site[]> = {
       rung: "Forbidden",
       what: "the gated list read's DECLARED OpenAPI response set",
       file: "http/item.routes.ts",
-      // Skips past the 200 success entry — the error entry is the SECOND.
-      at: /operationId: "allItem",[\s\S]{0,400}?200: \{ description: "OK"[^\n]*\n\s*(\d+): \{ description:/,
+      // Skips past the 200 success entry.  The list read is the paged `all`, so
+      // its set also declares 422 for a malformed page window — not a rung
+      // here — and the entries are in status order, which puts that 422 first
+      // under the override; every backend's list-read regex steps over it.
+      at: /operationId: "allItem",[\s\S]{0,400}?200: \{ description: "OK"[^\n]*\n(?:\s*422: [^\n]*\n)?\s*(\d+): \{ description:/,
     },
   ],
   dotnet: [
@@ -286,7 +286,7 @@ const SITES: Record<Platform, Site[]> = {
       rung: "Forbidden",
       what: "the gated list read's DECLARED [ProducesResponseType] set",
       file: "Api/ItemsController.cs",
-      at: /ProducesResponseType\(typeof\(ProblemDetails\), (\d+)\)\][\s\S]{0,400}?public async Task<[^\n]*> AllItem/,
+      at: /\[ProducesResponseType\(typeof\(Paged<ItemResponse>\), 200\)\]\s*(?:\[ProducesResponseType\(typeof\(ProblemDetails\), 422\)\]\s*)?\[ProducesResponseType\(typeof\(ProblemDetails\), (\d+)\)\][\s\S]{0,400}?public async Task<[^\n]*> AllItem/,
     },
   ],
   java: [
@@ -341,7 +341,7 @@ const SITES: Record<Platform, Site[]> = {
       rung: "Forbidden",
       what: "the gated list read's DECLARED response set in the OpenAPI customizer",
       file: "config/OpenApiContractCustomizer.java",
-      at: /"\/api\/items", "ItemListResponse", new int\[\] \{(\d+)\}/,
+      at: /new Route\("get", "\/api\/items", null, new int\[\] \{(?:422, )?(\d+)/,
     },
   ],
   python: [
@@ -391,7 +391,7 @@ const SITES: Record<Platform, Site[]> = {
       rung: "Forbidden",
       what: "the gated list read's DECLARED `responses=` set",
       file: "http/item_routes.py",
-      at: /operation_id="allItem", responses=\{(\d+):/,
+      at: /operation_id="allItem", responses=\{(?:422: \{[^}]*\}, )?(\d+):/,
     },
   ],
   elixir: [
@@ -428,9 +428,9 @@ const SITES: Record<Platform, Site[]> = {
     },
     {
       rung: "Forbidden",
-      what: "the read gate of the FIND controller (was a literal until this PR)",
+      what: "the read gate of the by-id read",
       file: "controllers/item_controller.ex",
-      at: /problem_response\(conn, (\d+), "[^"]*", "Forbidden: find openOnes"\)/,
+      at: /problem_response\(conn, (\d+), "[^"]*", "Forbidden: find byId"\)/,
     },
     {
       rung: "Forbidden",
@@ -446,16 +446,16 @@ const SITES: Record<Platform, Site[]> = {
     },
     {
       rung: "NotFound",
-      what: "the absent-row arm of an optional find (was a literal until this PR)",
-      file: "controllers/item_controller.ex",
-      at: /problem_response\(conn, (\d+), "[^"]*", "not_found"\)/,
+      what: "the absent-row arm of a routed single-row read (its handler's `notFound`)",
+      file: "controllers/a_routes_controller.ex",
+      at: /def respond\(conn, \{:error, \{:not_found, detail\}\}\),\s+do: ProblemDetails\.problem_response\(conn, (\d+),/,
     },
     {
       rung: "Forbidden",
       what: "the gated list read's DECLARED OpenApiSpex response set",
       file: "api/a_spec.ex",
       // Skips past the 200 success entry — the error entry is the SECOND.
-      at: /operationId: "allItem",[\s\S]{0,600}?200 => %OpenApiSpex\.Response\{[\s\S]{0,400}?\n\s*(\d+) => %OpenApiSpex\.Response\{/,
+      at: /operationId: "allItem",[\s\S]{0,1200}?200 => %OpenApiSpex\.Response\{[\s\S]{0,400}?\n\s*(?:422 => %OpenApiSpex\.Response\{[\s\S]{0,300}?\n\s*\},\n\s*)?(\d+) => %OpenApiSpex\.Response\{/,
     },
   ],
 };

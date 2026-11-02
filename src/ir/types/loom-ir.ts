@@ -900,12 +900,6 @@ export interface PayloadIR {
   generic?: { ctor: GenericCtorName; arg: TypeIR };
 }
 
-/** One clause-less find parameter and the aggregate field it equals. */
-export interface FindParamBindingIR {
-  param: string;
-  field: string;
-}
-
 export interface FindIR {
   name: string;
   params: ParamIR[];
@@ -923,15 +917,6 @@ export interface FindIR {
   requires?: ExprIR;
   /** Optional `where ...` filter expression in IR form. */
   filter?: ExprIR;
-  /** A clause-less find's parameters, each paired with the aggregate field it
-   *  filters on (`find byReference(reference: string)` → `reference ==
-   *  this.reference`).  Resolved once in enrichment, after the inheritance
-   *  field merge, by `bindFindParams`; backends read it through
-   *  `implicitFindMatches` / `effectiveFindFilter` and never match names
-   *  themselves.  In parameter order; a parameter that names no field has no
-   *  entry (and is refused, `loom.find-param-unbound`).  Absent when the find
-   *  has a `where` (it replaces the convention) or no parameters. */
-  paramBindings?: FindParamBindingIR[];
   /** Set when the `where` filter is *exactly* one named `criterion`
    *  reference — its name + lowered args, for backends that consume the
    *  reified `Criterion`.  `filter` still carries the inlined predicate, so
@@ -1831,7 +1816,7 @@ export interface ProjectionOnIR {
 /** What an `if let` source does: one of the optional repository reads, or
  *  `bound` — narrowing an optional binding already in scope (no read). */
 export type IfLetOp =
-  | Extract<RepoOp, "select-one" | "declared-find" | "load-by-key-optional" | "load-optional">
+  | Extract<RepoOp, "select-one" | "load-by-key-optional" | "load-optional">
   | "bound";
 
 export type WorkflowStmtIR =
@@ -2016,8 +2001,7 @@ export type WorkflowStmtIR =
       // no retrieval is synthesised.
       kind: "if-let";
       var: string;
-      /** `select-one` for a criterion source, `declared-find` for a declared
-       *  optional find (`findMethod` names it), `load-by-key-optional` for a
+      /** `select-one` for a criterion source, `load-by-key-optional` for a
        *  natural-key `Repo.findBy(…)` (`findMethod` names its method),
        *  `load-optional` for `Repo.findById(id)` (`retrievalArgs` carry the
        *  id), and `bound` for an in-scope optional binding (`if let o = x`
@@ -2027,7 +2011,7 @@ export type WorkflowStmtIR =
       repoName: string;
       aggName: string;
       /** Name of the shared synthetic retrieval (`findAllBy<Criterion>`);
-       *  empty for a declared-find source. */
+       *  empty for any other source. */
       retrievalName: string;
       /** The source call's arguments: the criterion's, or — when `findMethod`
        *  is set — the declared find's. */
@@ -3927,7 +3911,8 @@ export type ExprIR =
         method: string;
         /** What the read does (`util/repository-contract.ts`): `load` /
          *  `load-optional` by id, `select-one` / `select-many` over a criterion
-         *  or retrieval (or the whole collection), or a `declared-find`.
+         *  or retrieval (or the whole collection), or an `unknown-read`
+         *  (a name no verb spells — refused).
          *  Backends dispatch on it, never on `method`. */
         op: Exclude<RepoOp, "remove">;
         /** The retrieval a criterion / retrieval read runs against — mirrors the
@@ -4356,24 +4341,11 @@ export function workflowIsGuarded(wf: WorkflowIR): boolean {
  *  Everything else that reads is absence-shaped and cannot throw: `repo-run` /
  *  `findAll` return arrays, `if-let` exists precisely to handle the empty case,
  *  and a criterion `find` read renders as `[0] ?? null`. */
-export function workflowCanAnswerNotFound(
-  wf: WorkflowIR,
-  repositories: readonly RepositoryIR[],
-): boolean {
-  /** A named repository read throws on an absent row when the declared return
-   *  type leaves it nothing else to return.  An unresolvable method is not
-   *  evidence that it throws — a repository/method that does not exist is a
-   *  phase-⑦ error (`loom.workflow-unknown-repository{,-method}`), so the
-   *  declared set for a model that does not compile is moot either way. */
-  const readThrows = (repoName: string, op: RepoOp, method: string): boolean => {
-    if (op === "load" || op === "load-by-key") return true;
-    if (op !== "declared-find") return false;
-    const find = repositories
-      .find((r) => r.name === repoName)
-      ?.finds.find((f) => f.name === method);
-    if (!find) return false;
-    return find.returnType.kind !== "optional" && find.returnType.kind !== "array";
-  };
+export function workflowCanAnswerNotFound(wf: WorkflowIR): boolean {
+  /** A repository read throws on an absent row when it is a must-exist read
+   *  (`getById` / `getBy`).  An unknown method is not evidence that it
+   *  throws — it is a phase-⑦ error (`loom.workflow-unknown-repository-method`). */
+  const readThrows = (op: RepoOp): boolean => op === "load" || op === "load-by-key";
 
   let canNotFound = false;
   for (const top of wf.statements) {
@@ -4391,7 +4363,7 @@ export function workflowCanAnswerNotFound(
       if (e.kind !== "call" || e.callKind !== "repo-read") return;
       const read = e.repoRead;
       if (!read) return;
-      if (readThrows(read.repo, read.op, read.method)) canNotFound = true;
+      if (readThrows(read.op)) canNotFound = true;
     });
   }
   return canNotFound;
@@ -4417,8 +4389,19 @@ export function workflowEmitsCommandRoute(wf: WorkflowIR): boolean {
  *  request-scoped auth actor) before the rendered guard/expr — which
  *  emits the bare token `currentUser` — can resolve.  Shared by the
  *  Hono and .NET workflow emitters. */
-export function workflowUsesCurrentUser(wf: WorkflowIR): boolean {
+export function workflowUsesCurrentUser(wf: Pick<WorkflowIR, "statements">): boolean {
   return wf.statements.some(workflowStmtUsesCurrentUser);
+}
+
+/** True when a `commandHandler` / `queryHandler` body reads `currentUser` — in
+ *  a statement (a `requires` gate: `scaffoldGet` splices the aggregate's read
+ *  gate in) or in its `return` expression.  Every backend's routed-handler
+ *  emitter binds the principal exactly when this holds, so a handler that
+ *  never reads it emits unchanged.  An extern handler has no body. */
+export function handlerUsesCurrentUser(
+  h: Pick<CommandHandlerIR, "statements" | "returnValue" | "extern">,
+): boolean {
+  return !h.extern && (workflowUsesCurrentUser(h) || exprUsesCurrentUser(h.returnValue));
 }
 
 function workflowStmtUsesCurrentUser(s: WorkflowStmtIR): boolean {

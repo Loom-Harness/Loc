@@ -104,8 +104,8 @@ describe("default-deny enforcement", () => {
 
   // --- Creates + workflows (the command surface beyond operations/destroys) ---
 
-  /** A system with an aggregate `create`, a command-triggered `workflow`, and a
-   *  read `find` — commands gated by `gate`, the find by `findGate` (each a
+  /** A system with an aggregate `create` and a command-triggered `workflow` —
+   *  commands gated by `gate`, the aggregate's reads by `findGate` (each a
    *  `requires …` clause, or "" for ungated). */
   function commandSys(gate: string, findGate = ""): string {
     return `
@@ -120,7 +120,6 @@ system Helpdesk {
         create register(s: string) { ${gate}subject := s open := true }
       }
       repository Tickets for Ticket {
-        find openOnes(): Ticket? where open == true
         ${findGate ? reads("Ticket", findGate) : ""}
       }
       workflow openTicket {
@@ -149,17 +148,12 @@ system Helpdesk {
     expect(errs.some((m) => m.includes("workflow 'openTicket'"))).toBe(true);
   });
 
-  it("rejects an ungated repository find under denyByDefault", async () => {
-    const errs = await denyErrors(commandSys(""));
-    expect(errs.some((m) => m.includes("find 'Tickets.openOnes'"))).toBe(true);
-  });
-
-  it("accepts gated creates + workflows + finds (requires on every reachable endpoint)", async () => {
+  it("accepts gated creates + workflows + reads (requires on every reachable endpoint)", async () => {
     const errs = await denyErrors(commandSys(OP_GATE, FIND_GATE));
     expect(errs).toEqual([]);
   });
 
-  it("accepts `requires true` on a find as the intentionally-public escape", async () => {
+  it("accepts a `requires true` read gate as the intentionally-public escape", async () => {
     const errs = await denyErrors(commandSys(OP_GATE, "requires true "));
     expect(errs).toEqual([]);
   });
@@ -203,9 +197,6 @@ system Helpdesk {
     const byId = warnings.find((d) => d.code === "loom.default-deny-by-id-ungated")!;
     expect(byId.message).toContain("/api/tickets/{id}");
     expect(byId.message).toContain("policy { read Ticket requires <expr> }");
-    // A DECLARED-but-ungated `find all` is the same hole: reported once.
-    const declared = await allDiags(src("find all(): Ticket[]"));
-    expect(declared.filter((d) => d.code === "loom.default-deny-list-ungated")).toHaveLength(1);
     // Gated (here: the explicit public escape), both are satisfied.
     const gated = await allDiags(src(reads("Ticket")));
     expect(gated.filter((d) => d.severity === "error")).toEqual([]);
@@ -404,7 +395,7 @@ system Ledger {
 
   it("is BUILDABLE ungated — the deadlock, and the finding's headline claim", async () => {
     // Before: gate absent → `loom.default-deny-ungated` (error), gate present →
-    // `loom.lifecycle-guard-event-sourced` (error).  Every option errored, so the
+    // `loom.target-unsupported#lifecycle-guard-event-sourced` (error).  Every option errored, so the
     // two settings really were mutually exclusive for any event-sourced
     // aggregate with a creation endpoint.  The exit is the RECOURSE rule
     // `default-deny-checks.ts` already states for the by-id read: an arm the
@@ -452,7 +443,7 @@ system Ledger {
     // Downgrading the default-deny arm must not have downgraded THIS.
     const diags = await allDiags(esSys('requires currentUser.role == "admin" '));
     const codes = diags.filter((x) => x.severity === "error").map((x) => x.code);
-    expect(codes).toContain("loom.lifecycle-guard-event-sourced");
+    expect(codes).toContain("loom.target-unsupported");
   });
 
   it("does not hand the ungateable warning to a STATE-BASED create", async () => {

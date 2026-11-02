@@ -6,13 +6,14 @@ import { generateSystems } from "../../../src/system/index.js";
 import { parseString } from "../../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
-// Python backend — user-declared finds (plan S8): `where` clauses lower
-// to SQLAlchemy predicates over the Row class (comparisons, and_/or_/
-// not_, VO sub-columns, enum values, `<refColl>.contains` → correlated
-// EXISTS against the join table); clause-less finds convention-match
-// params to columns.  Find routes register BEFORE /{id} (Starlette
-// matches in declaration order).  Verified live against Postgres
-// during the slice (by_status / cheaper_than / watched_by / by_name).
+// Python backend — criterion reads: a `criterion` body lowers to a SQLAlchemy
+// predicate over the Row class (comparisons, and_/or_/not_, VO sub-columns,
+// enum values, `<refColl>.contains` → correlated EXISTS against the join
+// table) inside the repository's `run_find_all_by_<criterion>` method.  The
+// fixture puts four criteria on the wire with `scaffoldGet` /
+// `scaffoldGetApi`; their router mounts BEFORE the aggregate routers, so
+// `/orders/by_status` is matched before `/orders/{id}` (Starlette matches in
+// registration order).
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -27,14 +28,18 @@ async function build() {
   return generateSystems(model).files;
 }
 
-describe("python find lowering", () => {
+describe("python criterion-read lowering", () => {
   it("comparison predicates lower to column expressions", async () => {
     const files = await build();
     const repo = files.get("api/app/db/repositories/order_repository.py")!;
-    expect(repo).toContain("async def by_status(self, status: OrderStatus) -> Order | None:");
+    expect(repo).toContain(
+      "async def run_find_all_by_by_status(self, status: OrderStatus, offset: int | None = None, limit: int | None = None) -> list[Order]:",
+    );
     expect(repo).toContain("select(OrderRow).where((OrderRow.status == status))");
-    expect(repo).toContain("async def cheaper_than(self, limit: Decimal) -> Order | None:");
-    expect(repo).toContain("select(OrderRow).where((OrderRow.unit_budget <= limit))");
+    expect(repo).toContain(
+      "async def run_find_all_by_cheaper_than(self, ceiling: Decimal, offset: int | None = None, limit: int | None = None) -> list[Order]:",
+    );
+    expect(repo).toContain("select(OrderRow).where((OrderRow.unit_budget <= ceiling))");
   });
 
   it("refColl.contains lowers to a correlated EXISTS on the join table", async () => {
@@ -45,33 +50,39 @@ describe("python find lowering", () => {
     );
   });
 
-  it("find routes register before /{id} with coerced query params", async () => {
+  it("scaffoldGet routes register before /{id} with coerced query params", async () => {
     const files = await build();
-    const routes = files.get("api/app/http/order_routes.py")!;
+    const routes = files.get("api/app/http/sales_api_routes.py")!;
     expect(routes).toContain(
-      '@router.get("/by_status", response_model=OrderResponse, operation_id="byStatusOrder", responses={404: {"model": ProblemDetails, "description": "Not Found"}, 422: {"model": ProblemDetails, "description": "Unprocessable Entity"}})',
+      '@router.get("/orders/by_status", operation_id="getOrderByStatus", responses=',
     );
     expect(routes).toContain(
-      "async def by_status_orders(status: OrderStatus, session: SessionDep) -> dict[str, object]:",
+      "async def get_order_by_status_route(status: OrderStatus, session: SessionDep) -> Any:",
     );
-    expect(routes).toContain("await repo.watched_by(CustomerId(customerId))");
-    // A `money` find param arrives as a wire string and is branded back to the
-    // `Decimal` the repo expects at the wire→domain seam (request-side parity).
-    // `MoneyStr`, not a bare `str`, since M-T6.48: the annotation is what makes
-    // the `Decimal(limit)` below total.  `?limit=12,50` used to reach that
-    // constructor and raise `InvalidOperation` out of the handler — a 500 for
-    // what is plainly a client error.
+    expect(routes).toContain("await get_order_by_watched_by(session, CustomerId(customerId))");
+    // A `money` param arrives as a wire string and is branded back to the
+    // `Decimal` the handler expects at the wire→domain seam.  `MoneyStr`, not a
+    // bare `str`: the annotation is what makes the `Decimal(ceiling)` below
+    // total — `?ceiling=12,50` is a 422, never an `InvalidOperation` 500.
     expect(routes).toContain(
-      "async def cheaper_than_orders(limit: MoneyStr, session: SessionDep) -> dict[str, object]:",
+      "async def get_order_by_cheaper_than_route(ceiling: MoneyStr, session: SessionDep) -> Any:",
     );
-    expect(routes).toContain("await repo.cheaper_than(Decimal(limit))");
-    // Declaration order: finds precede the /{id} pattern.
-    expect(routes.indexOf('@router.get("/by_status"')).toBeLessThan(
-      routes.indexOf('@router.get("/{id}"'),
+    expect(routes).toContain("await get_order_by_cheaper_than(session, Decimal(ceiling))");
+    // The handler reads the first match and answers 404 on a miss.
+    const handler = files.get("api/app/application/get_order_by_cheaper_than.py")!;
+    expect(handler).toContain(
+      "__x_hits = await orders.run_find_all_by_cheaper_than(ceiling, limit=1)",
+    );
+    expect(handler).toContain('raise AggregateNotFoundError("not_found")');
+    // Registration order: the explicit-route router precedes the `/{id}` one.
+    const main = files.get("api/app/main.py")!;
+    expect(main.indexOf("app.include_router(sales_api_router")).toBeGreaterThanOrEqual(0);
+    expect(main.indexOf("app.include_router(sales_api_router")).toBeLessThan(
+      main.indexOf("app.include_router(order_router"),
     );
   });
 
-  it("the auto `all` find stays the dedicated method/route pair (no dupes)", async () => {
+  it("the auto `all` read stays the dedicated method/route pair (no dupes)", async () => {
     const files = await build();
     const routes = files.get("api/app/http/order_routes.py")!;
     expect(routes.match(/@router\.get\(""/g)?.length).toBe(1);

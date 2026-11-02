@@ -5190,7 +5190,7 @@ aggregate disagree about who may read it.
 `policy { }` block, beside the `allow` / `deny` ladder:
 
 ```ddd
-repository Orders for Order {}
+repository Orders for Order
 policy { read Order requires currentUser.role == "clerk" }
 ```
 
@@ -5274,9 +5274,8 @@ went with the hard error.
 ## D-REPO-KEY-LOOKUP — a natural-key read is `getBy` / `findBy` over a declared `unique (…)` tuple
 
 **Status:** PINNED (owner ruling on #3949, 2026-10-25; slice 3 of #3949, #3951).
-The two verbs, their diagnostics, the emission on all five backends and the
-codemod hold now. Removing `FindDecl` from the grammar follows once the list
-finds are gone (#4049).
+The two verbs, their diagnostics and the emission on all five backends hold
+now; `FindDecl` itself is gone (D-FINDDECL-REMOVED).
 
 **Question.** A single-row lookup by a natural key was a repository `find`
 the author wrote by hand — `find bySku(s: string): Product? where this.sku ==
@@ -5335,6 +5334,53 @@ needs a routed `queryHandler` over the read. What the codemod reports (route
 reads, must-exist finds over non-unique keys, variant matches on a
 `T or <Error>` read, row-less finds) is what the `FindDecl` removal still has
 to settle by hand.
+
+## D-FINDDECL-REMOVED — a repository declares no reads of its own; `find` declarations are gone
+
+**Status:** APPLIED (#3951 item 5, hard cutover per the #3608 ruling; slice 3
+of #3949).
+
+**Question.** After D-LIST-FIND-REMOVED and D-REPO-KEY-LOOKUP every read a
+`find` declaration could express had a contract spelling, but the grammar
+still parsed `FindDecl`, so a repository body could still mint a bespoke
+method — with its own route, client hook, param-binding convention, union
+return shapes and a dozen `loom.find-*` diagnostics.
+
+**Decision.**
+
+- `FindDecl` is out of the grammar. A repository is `repository X for T`, with
+  an optional empty `{ }`. A `find` left in a repository body is a parse error,
+  `loom.parse-error#find-removed`, naming the replacements at the stray `find`.
+  There is no warning window.
+- Every read is the repository contract (`src/util/repository-contract.ts`):
+  `getById` / `findById`, `getBy` / `findBy` over a declared `unique (…)`
+  tuple, `find(C)` (first match, `T?`), `findAll(C)` / `run(C | R)` over a
+  `criterion` or `retrieval`, and the paged `all`. A name no verb spells is op
+  `unknown-read` and is always refused.
+- `find all` goes too: the list read is always the implicit `all` (paged for
+  a plain relational aggregate). A filtered or widened list read is a
+  `criterion` read with `findAll(C) [ignoring …]` / `run(C)`, put on the wire
+  with `scaffoldPaged` or a routed `queryHandler`; who may read is
+  `policy { read T requires … }`.
+- A single-row read a client calls keeps its URL through `scaffoldGet` /
+  `scaffoldGetApi` (docs/scaffold-macros.md), or a routed `queryHandler`.
+- `T or <Error>` finds are dropped (2026-10-25 ruling): a miss is `T?`, and a
+  must-exist miss answers the standard ProblemDetails 404.
+- The compiler-synthesised `FindIR`s stay as the internal carrier of every
+  repository method enrichment derives: the auto `all`, key lookups, widened
+  reads, the paged `findAllBy<C>` finds behind `run` / `scaffoldPaged`, and
+  audit `history`.
+
+**Consequences.** The declared-find lowering, the `if let` / `let` declared-find
+sources, the `scaffoldHandlers` find target, the list-find check and the
+workflow currentUser-find check are removed. The three find codemods
+(`codemod-find-to-findby`, `codemod-list-find-to-criterion`,
+`codemod-find-gate-to-policy`) parse with the grammar they migrate FROM, so
+they cannot run after the cutover and are removed with it; a project still
+carrying `find`s runs them from the toolchain before this change (the parent
+of the commit that removed them). The per-backend find-ROUTE emission (a
+non-synthesised, non-`all` find's `GET /<aggs>/<find>`) has no producer left;
+its removal is tracked separately so this cutover stays reviewable.
 
 ## D-TARGET-MATRIX-FROZEN — no new backends or frontends: the target set is five backends and six frontends
 
@@ -5688,8 +5734,8 @@ for the missing-field sentence.
 ## D-CODEC — how a value is encoded on the wire, in a column, in memory and in a lineage comes from one IR fact
 
 **Status:** PINNED (encodes RS-4, RS-12, RS-24, RS-37, RS-38, RS-42,
-D-LONG-AVG-DEFAULTS and the owner ruling on #3527; fact landed for #3593
-item 5).
+D-LONG-AVG-DEFAULTS, the owner ruling on #3527 and the four owner rulings on
+#3593; fact landed for #3593 item 5).
 
 **Question.** Each backend picked the encoding of `money`, `decimal`, the
 integers and `datetime` itself, at each read path, column and lineage write.
@@ -5710,20 +5756,34 @@ collection, id, enum, value object) onto it:
   migrations builder reads it.
 - **Memory** (`MemoryHint`): what the in-memory value must hold exactly, and
   whether arithmetic is exact decimal.
-- **Lineage** (`LineageEncoding`): `money` and the integers are written in
-  their wire encoding (#3527). Every other scalar is `unruled`.
+- **Lineage** (`LineageEncoding`): every scalar is written in its wire
+  encoding — `money` the RS-12 string (#3527), `decimal` the RS-24 number,
+  `datetime` the RS-38 instant.
+- **Channel envelope** (`envelopeInstantWire`): a `datetime` inside a channel
+  (CloudEvents) envelope — its `time` and a datetime in `data` — and in a
+  realtime frame is the RS-38 instant, because events cross deployables and
+  backends.
+- **Value object in a relational field** (`valueObjectStorage`): the flat
+  `<field>_<member>` columns of the one shared migration are canonical. Each
+  ORM maps them idiomatically; elixir regrouping them into a `:map` is its
+  spelling of the same columns, not a divergence.
 
-What the fact does not rule is listed in `UNRULED`, one owner question per
-entry, and no backend is moved onto a value for those.
+The owner decisions that completed the table are listed in `RULINGS`, each with
+the RS-rule or decision it extends. `UNRULED` holds any open owner question;
+no backend is moved onto a value for one. It is empty.
 
 **Consequences.** The generator-layer numeric decision table
 (`_numeric/codec.ts`) and `money-scale.ts` now derive from the fact. node/Hono
 spells it in `src/generator/typescript/codec-spelling.ts` and
 `numeric-codec.ts`, and `test/generator/hono/codec-census.test.ts` fails on a
 scale, range bound, column factory, money grammar or ISO-8601 trim that a node
-emitter chooses itself. The other four backends move onto the fact one at a
-time. Until each does, it boots `corpus/provenance-money` as a tracked
-expected failure (`BEHAVIOURAL_XFAIL`, #3527).
+emitter chooses itself. python/FastAPI spells it in
+`src/generator/python/codec-spelling.ts` and `numeric-codec.ts`, guarded the
+same way by `test/generator/python/codec-census.test.ts` (SQLAlchemy column
+types, money grammar and bounds, `.isoformat()`). The other three backends
+move onto the fact one at a time. Until each does, it boots
+`corpus/provenance-money` as a tracked expected failure (`BEHAVIOURAL_XFAIL`,
+#4402).
 
 java/Spring renders the fact through `src/generator/java/wire-policy-java.ts`
 (`test/generator/java/wire-policy-census.test.ts` is its census, with the
@@ -5820,3 +5880,55 @@ of an `option` find, in a workflow, handler or domain-service body, binds the
 `T?` exactly as a find declared `T?` does: the binding may be null, and its
 reads go through `?.`, `??` or an `if let x = R.find(…) { … } else { … }`
 branch.
+
+## D-CREATE-CALL-STYLE — an aggregate's `create` is called like a method; the record form is retired
+
+**Status:** PINNED (owner ruling on #3301, 2026-10-26; #4309).
+
+**Question.** An aggregate factory call had three spellings: positional
+`Order.create(c, m)`, named `Order.create(customerId: c, total: m)` and the
+record form `Order.create({ customerId: c, total: m })`. Only the record form
+lowered to the factory outside workflow bodies; the other two compiled to a
+plain method call that passed the wrong arguments (the generated TS was
+`Order.create(2, "a")` against `static create(input: { … })`). And the record
+form put the create-command wire record into the domain language.
+
+**Decision.**
+
+- An aggregate's `create` is a lifecycle method and is called like any other
+  method: by name, or by position. The create input is the declared unnamed
+  `create(…)` parameter list when there is one, else the properties minus the
+  server-owned (`managed` / `token` / `internal`) ones. Both spellings lower, in
+  every body (domain bodies, workflows and handlers, unit tests), to the one
+  record each backend's factory takes. `src/language/factory-call.ts` is the
+  one mapping the validator and both lowerings share.
+- **Positions bind to a declared signature only** (owner ruling, 2026-10-26).
+  `Agg.create(a, b)` is allowed against an author-declared `create(x, y)` and
+  binds in its parameter order. With no declared signature — no `create(…)`,
+  the one `with crudish` synthesizes, an event-sourced create — positional
+  arguments are `loom.create-args#positional-without-create`, whose message
+  names the named form. Property declaration order is no call signature:
+  reordering two properties must never silently swap two arguments.
+- **Named arguments keep the order the author wrote** (owner ruling,
+  2026-10-26). They are evaluated in that order, and the record they build is
+  keyed by name, so the order is a rendering, never a binding.
+- The record form is an error, `loom.create-record-form`, with no warning
+  window (the #3608 rule: a `scripts/` codemod plus a hard cutover).
+  `scripts/codemod-create-record-to-call.mjs` rewrites each record-form call
+  into the named form, key for key in the author's order, so the generated
+  output is byte-identical; it refuses, with a marker line, a record beside
+  another argument and a key named twice.
+- An argument list that maps onto no record is `loom.create-args` in every body:
+  positions with no declared signature, more positions than parameters,
+  positional and named mixed, a name outside a
+  declared `create(…)`, or a name given twice. A name outside an undeclared
+  create input stays `loom.create-unknown-field` / `loom.create-server-field`.
+
+**Consequences.** Brace literals are untouched: a value object or entity part
+is still built with `Money { amount: 1, currency: "USD" }`, and a `seed` row
+stays a record literal, `Order { … }` (owner ruling, 2026-10-26): it is data,
+not a factory call, so neither the cutover nor the codemod touches it. An HTTP client call in a `test e2e` body,
+`api.orders.create({ … })`, takes a request body; its receiver is a member
+chain, not an aggregate name, so the rule never reaches it. The generated
+backends keep their `static create(input)` factories — this is the language
+surface only.

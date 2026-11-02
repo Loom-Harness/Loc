@@ -13,12 +13,12 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
-import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
@@ -207,7 +207,7 @@ export function renderMikroEmbeddedRepository(
       // the schema filters keep the ambient accessor, because they ride reads
       // that have no such parameter.  A clause-less find still filters — by its
       // implicit key match.
-      const own = effectiveFindFilter(f, agg);
+      const own = f.filter;
       filter = own
         ? whereToMikroFilter(own, usesUser ? "currentUser" : AMBIENT_PRINCIPAL, agg.associations)
         : "{}";
@@ -266,11 +266,16 @@ export function renderMikroEmbeddedRepository(
         `  }`,
       );
     }
+    // A must-exist read (`T`) answers the find-absence 404 on a miss, as the
+    // drizzle path does; only a `T?` read answers null.
+    const optional = f.returnType.kind === "optional" || f.returnType.kind === "union";
     return lines(
-      `  async ${name}(${params}): Promise<${agg.name} | null> {`,
+      `  async ${name}(${params}): Promise<${optional ? `${agg.name} | null` : agg.name}> {`,
       `    const em = this.em.fork({ keepTransactionContext: true });`,
       `    const row = await em.findOne(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
-      `    if (row === null) return null;`,
+      optional
+        ? `    if (row === null) return null;`
+        : `    if (row === null) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
       ...embeddedHydrateLocals(agg, "row", "    ", ctx),
       `    return ${hydrateRootExpr(agg, "row", ctx)};`,
       `  }`,

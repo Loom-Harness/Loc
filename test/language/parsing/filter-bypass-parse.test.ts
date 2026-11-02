@@ -1,18 +1,16 @@
-// `ignoring` filter-bypass clause (named-filter-bypass.md §11) parses at both
-// read sites: a repository `find` and an inline
-// `Repo.findAll(...)`/`Repo.run(...)` call.  Both the `*` wildcard and a
+// `ignoring` filter-bypass clause (named-filter-bypass.md §11) parses on an
+// inline read: `Repo.find(C)`, `Repo.findAll(...)`, `Repo.run(...)`.  Both the `*` wildcard and a
 // comma-separated capability list are admitted.  `ignoring` is a soft keyword,
 // so a field / parameter named `ignoring` keeps parsing.
 
 import { describe, expect, it } from "vitest";
 import {
   type BoundedContext,
-  type FindDecl,
-  isFindDecl,
   isPostfixChain,
   isSubdomain,
   isSystem,
   type Model,
+  type PostfixChain,
 } from "../../../src/language/generated/ast.js";
 import { parseErrorsOf, parseString } from "../../_helpers/parse.js";
 
@@ -39,56 +37,45 @@ const wrap = (body: string) => `
   }
 `;
 
-async function findDecl(name: string, source: string): Promise<FindDecl> {
+/** The `let`-bound read of a `Sweep` workflow's create body. */
+async function letRead(source: string): Promise<PostfixChain> {
   const { model } = await parseString(source, { validate: false });
-  for (const c of contexts(model)) {
-    for (const member of c.members) {
-      if (member.$type === "Repository") {
-        for (const f of member.finds) if (isFindDecl(f) && f.name === name) return f;
-      }
-    }
-  }
-  throw new Error(`find ${name} not found`);
+  for (const c of contexts(model))
+    for (const member of c.members)
+      if (member.$type === "Workflow")
+        for (const wm of member.members)
+          if (wm.$type === "WorkflowCreateDecl")
+            for (const stmt of wm.body)
+              if (stmt.$type === "LetStmt" && isPostfixChain(stmt.expr)) return stmt.expr;
+  throw new Error("no let-bound read");
 }
 
+const sweep = (read: string) =>
+  wrap(`repository R for Order { }
+      workflow Sweep {
+        create(x: int) {
+          let o = ${read}
+        }
+      }`);
+
 describe("ignoring filter-bypass clause parses", () => {
-  it("find: `ignoring <Cap>` populates bypass and parses cleanly", async () => {
-    expect(
-      parseErrorsOf(
-        wrap(`repository R for Order {
-        find recent(): Order? where this.total > 0 ignoring softDeletable
-      }`),
-      ),
-    ).toEqual([]);
-    const f = await findDecl(
-      "recent",
-      wrap(`repository R for Order {
-        find recent(): Order? where this.total > 0 ignoring softDeletable
-      }`),
-    );
-    expect(f.bypass).toEqual(["softDeletable"]);
-    expect(f.bypassAll).toBe(false);
+  it("single-row read: `Repo.find(C) ignoring <Cap>` populates bypass and parses cleanly", async () => {
+    const source = sweep("R.find(BigOrders()) ignoring softDeletable");
+    expect(parseErrorsOf(source)).toEqual([]);
+    const read = await letRead(source);
+    expect(read.bypass).toEqual(["softDeletable"]);
+    expect(read.bypassAll).toBe(false);
   });
 
-  it("find: `ignoring *` sets bypassAll", async () => {
-    const f = await findDecl(
-      "allRows",
-      wrap(`repository R for Order {
-        find allRows(): Order? ignoring *
-      }`),
-    );
-    expect(f.bypassAll).toBe(true);
-    expect(f.bypass).toEqual([]);
+  it("single-row read: `ignoring *` sets bypassAll", async () => {
+    const read = await letRead(sweep("R.findById(x) ignoring *"));
+    expect(read.bypassAll).toBe(true);
+    expect(read.bypass).toEqual([]);
   });
 
-  it("find: comma-separated capability list", async () => {
-    const f = await findDecl(
-      "multi",
-      wrap(`repository R for Order {
-        find multi(): Order? where this.total > 0 ignoring softDeletable, auditable
-      }`),
-    );
-    expect(f.bypass).toEqual(["softDeletable", "auditable"]);
+  it("single-row read: comma-separated capability list", async () => {
+    const read = await letRead(sweep("R.find(BigOrders()) ignoring softDeletable, auditable"));
+    expect(read.bypass).toEqual(["softDeletable", "auditable"]);
   });
 
   it("inline read: `Repo.findAll(...) ignoring <Cap>` is a PostfixChain bypass", async () => {

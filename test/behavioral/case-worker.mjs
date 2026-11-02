@@ -15,7 +15,8 @@
 // Protocol: argv[2] is the bundle path.  The bundle's `run()` result is sent
 // back over IPC as `{ ok: true, out }`; a throw is sent as
 // `{ ok: false, message }`, which run.mjs re-throws so the case loop sees the
-// same error message the in-process call produced.
+// same error message the in-process call produced.  Either reply also carries
+// `maxRssMb`, the worker's peak RSS.
 
 import { pathToFileURL } from "node:url";
 
@@ -34,6 +35,8 @@ try {
 } catch (err) {
   msg = { ok: false, message: err?.message ?? String(err) };
 }
+// This case's peak resident set, which run.mjs bounds (LOOM_BH_CASE_RSS_LIMIT_MB).
+msg.maxRssMb = Math.round(process.resourceUsage().maxRSS / 1024);
 await send(msg);
 // Exit explicitly: a generated module may leave a timer or socket open, and
 // the point of this process is that nothing outlives the case.

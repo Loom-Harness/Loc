@@ -11,7 +11,6 @@ import type {
 import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
-import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
@@ -326,7 +325,7 @@ function findMethod(
   const sig = ["self", ...params].join(", ");
   const pred = find.filter
     ? `lambda x: ${renderPyExpr(find.filter, { thisName: "x" })}`
-    : conventionPredicate(agg, find);
+    : undefined;
   const isList = find.returnType.kind === "array";
   const isOptional = find.returnType.kind === "optional";
   const isPaged = !!pagedReturn(find.returnType);
@@ -352,9 +351,7 @@ function findMethod(
     // predicate references it AND the find doesn't already take `current_user`
     // as a `where` param (mirrors node's `&& !usesUser`).
     const bindPrincipal = cap?.usesPrincipal && !usesUser;
-    const findCond = find.filter
-      ? renderPyExpr(find.filter, { thisName: "x" })
-      : conventionInline(agg, find);
+    const findCond = find.filter ? renderPyExpr(find.filter, { thisName: "x" }) : undefined;
     const conds = [cap?.expr, findCond].filter((c): c is string => c != null).map((c) => `(${c})`);
     const filtered = conds.length > 0 ? `[x for x in items if ${conds.join(" and ")}]` : "items";
     const loadLines = [
@@ -409,22 +406,6 @@ function findMethod(
     );
   }
   return out.join("\n");
-}
-
-function conventionPredicate(agg: EnrichedAggregateIR, find: FindIR): string | undefined {
-  const inline = conventionInline(agg, find);
-  return inline ? `lambda x: ${inline}` : undefined;
-}
-
-/** The convention-find clause (param-name → matching-field equality) WITHOUT
- *  the `lambda x:` wrapper — used inline by the capability-scoped find path,
- *  where the find condition is AND-ed with the capability predicate over `x`. */
-function conventionInline(agg: EnrichedAggregateIR, find: FindIR): string | undefined {
-  const clauses: string[] = [];
-  for (const { param: p, field: matched } of implicitFindMatches(find, agg)) {
-    clauses.push(`x.${pythonIdent(matched.name)} == ${pythonIdent(p.name)}`);
-  }
-  return clauses.length > 0 ? clauses.join(" and ") : undefined;
 }
 
 // --- (de)serialisers --------------------------------------------------------

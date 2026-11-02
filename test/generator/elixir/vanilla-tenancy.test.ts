@@ -27,21 +27,20 @@ system TenancyShop {
     claims: { tenantId: "tenant_id" }
   }
   subdomain Core {
-    context Ledger {
+    context Ledger with scaffoldPaged(of: AccountsByMinBalance) {
       aggregate Account {
         tenantId: string
         balance: int
         filter this.tenantId == currentUser.tenantId
       }
-      repository Accounts for Account {
-        find byMinBalance(min: int): Account? where this.balance >= min
-      }
+      repository Accounts for Account { }
+      criterion AccountsByMinBalance(min: int) of Account = this.balance >= min
       retrieval RichAccounts(min: int) of Account { where: balance >= min  sort: [balance desc] }
     }
   }
   storage pg { type: postgres }
   resource ledgerState { for: Ledger, kind: state, use: pg }
-  api LedgerApi from Core
+  api LedgerApi with scaffoldPagedApi(of: AccountsByMinBalance) from Core
   deployable api {
     platform: elixir
     contexts: [Ledger]
@@ -76,9 +75,11 @@ describe("vanilla tenancy — principal filter threaded + pinned", () => {
     expect(repo).toContain(
       "Repo.one(from(record in Api.Ledger.Account.base_query(), where: record.id == ^id), current_user: current_user)",
     );
-    // Custom find carries the actor too.
-    expect(repo).toContain("def by_min_balance(min, current_user \\\\ nil) do");
-    expect(repo).toContain("Repo.one(query, current_user: current_user)");
+    // A criterion's find carries the actor too.
+    expect(repo).toContain(
+      'def find_all_by_accounts_by_min_balance(min, page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc", current_user \\\\ nil) do',
+    );
+    expect(repo).toContain("Repo.aggregate(query, :count, current_user: current_user)");
     // No read spells the tenant predicate: the schema hosts it, unskippable.
     expect(repo).not.toContain("tenant_id ==");
     const schema = file(await gen(), "/ledger/account.ex");
@@ -92,7 +93,9 @@ describe("vanilla tenancy — principal filter threaded + pinned", () => {
       'defdelegate list_accounts(page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc", current_user \\\\ nil)',
     );
     expect(ctx).toContain("defdelegate get_account(id, current_user \\\\ nil)");
-    expect(ctx).toContain("defdelegate by_min_balance_account(min, current_user \\\\ nil)");
+    expect(ctx).toContain(
+      'defdelegate find_all_by_accounts_by_min_balance_account(min, page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc", current_user \\\\ nil)',
+    );
   });
 
   it("extracts conn.assigns.current_user in the controller and passes it to reads", async () => {
@@ -150,7 +153,7 @@ system EmbTenancy {
     claims: { tenantId: "tenant_id" }
   }
   subdomain D {
-    context Shop {
+    context Shop with scaffoldPaged(of: OrdersByCode) {
       aggregate Order shape: embedded {
         tenantId: string
         code: string
@@ -159,10 +162,11 @@ system EmbTenancy {
         entity Item { sku: string }
         operation addItem(sku: string) { items += Item { sku: sku } }
       }
-      repository Orders for Order { find byCode(code: string): Order? where this.code == code }
+      repository Orders for Order { }
+      criterion OrdersByCode(code: string) of Order = this.code == code
     }
   }
-  api A from D
+  api A with scaffoldPagedApi(of: OrdersByCode) from D
   storage pg { type: postgres }
   resource st { for: Shop, kind: state, use: pg }
   deployable api {
@@ -185,8 +189,10 @@ describe("vanilla embedded principal (tenancy) capability filter (DEBT-02 Slice 
     expect(repo).toContain("def list(current_user \\\\ nil) do");
     expect(repo).toContain("Repo.all(current_user: current_user)");
     expect(repo).toContain("where: record.id == ^id), current_user: current_user)");
-    // The custom find carries the actor too.
-    expect(repo).toContain("def by_code(code, current_user \\\\ nil) do");
+    // A criterion's find carries the actor too.
+    expect(repo).toContain(
+      'def find_all_by_orders_by_code(code, page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc", current_user \\\\ nil) do',
+    );
     expect(repo).not.toContain("tenant_id ==");
     const schema = file(await generateSystemFiles(EMBEDDED_SOURCE), "/shop/order.ex");
     expect(schema).toContain(`record.tenant_id == ${PIN}`);

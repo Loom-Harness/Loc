@@ -478,20 +478,69 @@ up is the first off-happy-path surprise:
 | You built a… | Construct it with | Why |
 |---|---|---|
 | `valueobject` / `entity` part | `Money { amount: 1, currency: "USD" }` — a **brace literal** | A plain immutable record; the `{ … }` is the whole value. |
-| `aggregate` root | `Order.create({ … })` — the **`create` factory** | An aggregate has identity + invariants; construction must run the `create` action so those are enforced and the create wire shape (not the raw field set) is honoured. |
+| `aggregate` root | `Order.create(customerId: c, total: m)` — the **`create` factory**, called like a method | An aggregate has identity + invariants; construction must run the `create` action so those are enforced and the create input (not the raw field set) is honoured. |
 
 ```ddd
+aggregate Order {
+  customerId: string
+  total: Money
+  create(customerId: string, total: Money) { }   // a declared signature
+}
+
 test "build them" {
   let m = Money { amount: 5, currency: "USD" }      // value object — brace literal
-  let o = Order.create({ customerId: "c1", total: m })  // aggregate — factory call
+  let o = Order.create(customerId: "c1", total: m)  // aggregate — named arguments
+  let p = Order.create("c1", m)                     // aggregate — by position
 }
 ```
 
-Writing `Order { … }` in an expression position is an error — since #2005 the
-diagnostic points you at `Order.create({ … })` rather than the older generic
-"unknown builder type". The factory input follows the **create-input** column
-of the [access-modifier matrix](#field-access-modifiers): a `managed` field
-like `createdAt` is off it, so `Order.create({ createdAt: … })` is rejected.
+```ts
+// domain/order.test.ts — both spellings build the factory's one input record
+const m = new Money(5, "USD");
+const o = Order.create({ customerId: "c1", total: m });
+const p = Order.create({ customerId: "c1", total: m });
+```
+
+An aggregate's `create` is a lifecycle method, called like any other method.
+Its arguments bind to the **create input**: the parameters of the declared
+unnamed `create(…)` when there is one, else the properties a client may write —
+the **create-input** column of the
+[access-modifier matrix](#field-access-modifiers).
+
+- **By name** works against any create input. Named arguments keep the order
+  you write them in; the record they build is keyed by name.
+- **By position** binds to a declared `create(a, b)` signature only, in its
+  parameter order, and trailing parameters may be left out where a default
+  covers them. With no declared signature — no `create(…)`, the one `with
+  crudish` synthesizes, an event-sourced create — positions are refused,
+  `loom.create-args`, and the message names the named form: property
+  declaration order is no call signature, and reordering two properties must
+  never swap two arguments.
+
+```ddd
+aggregate Ticket {   // no declared create
+  title: string
+  priority: int
+}
+test "t" {
+  let a = Ticket.create(title: "x", priority: 2)    // ok
+  let b = Ticket.create("x", 2)                     // loom.create-args — name each argument
+}
+```
+
+A `managed` field like `createdAt` is off the input, so
+`Order.create(createdAt: …)` is rejected (`loom.create-server-field`), and so is
+an argument list that maps onto no input record — too many positions, positions
+mixed with names, a name given twice (`loom.create-args`). The same call means
+the same thing in an operation, a workflow or handler body and a test. A `seed`
+row stays a record literal, `Order { … }`: it is data, not a factory call.
+
+The record form `Order.create({ customerId: "c1", total: m })` is retired
+(`loom.create-record-form`, [D-CREATE-CALL-STYLE](decisions.md)): it put the
+create-command wire record into the domain language. `node
+scripts/codemod-create-record-to-call.mjs <path>` rewrites it into the named
+form. Writing `Order { … }` in an expression position is an error too; the
+diagnostic points you at `Order.create(…)`.
 
 ##### Comparing value objects
 
@@ -687,10 +736,10 @@ projection function in `src/ir/enrich/wire-projection.ts` that every backend
 shares: **Client read** = `forApiRead`, **create input** = `forCreateInput`,
 **update input** = `forUpdateInput` (with `token` fields split out by
 `forPreconditionInput`), **UI-read payloads** = `forUiRead`. If a generated
-`create({ … })` / read DTO surprises you, this is the authority.
+`create(…)` input / read DTO surprises you, this is the authority.
 
-> **Common gotcha.** Passing a `managed` field into `.create({ … })` (e.g.
-> `Task.create({ createdAt: now() })`) is rejected — `managed` is server-owned
+> **Common gotcha.** Passing a `managed` field into `.create(…)` (e.g.
+> `Task.create(createdAt: now())`) is rejected — `managed` is server-owned
 > and off the create input. Likewise a scaffolded/custom page that renders an
 > `internal` or `secret` field (`row.isDeleted`, `row.tenantId`) won't type-check
 > against the API-read DTO, which omits them. Both are the same rule read off the
@@ -1009,7 +1058,7 @@ on either side of the comparison.  `x ?? y` is the same narrowing (it desugars t
 `x == null ? y : x`).
 
 A nullable value into a non-optional slot — an assignment, a call argument, a
-record construction, an `emit` field or an `Agg.create({ … })` field — is an
+record construction, an `emit` field or an `Agg.create(…)` argument — is an
 error (`loom.assign-type-mismatch`, `loom.call-arg-type`,
 `loom.construction-field-type`, `loom.emit-field-type`, `loom.create-field-type`).
 That includes an optional `currentUser` claim, even behind a `requires` that
@@ -1021,8 +1070,8 @@ workflow openTicket {
   create(subject: string, onBehalfOf: Customer id) {
     requires currentUser.customerId != null || IsAgent()
     // requester: currentUser.customerId            ← loom.create-field-type
-    let t = Ticket.create({ subject: subject,
-      requester: currentUser.customerId != null ? currentUser.customerId : onBehalfOf })
+    let t = Ticket.create(subject: subject,
+      requester: currentUser.customerId != null ? currentUser.customerId : onBehalfOf)
   }
 }
 ```
@@ -1095,7 +1144,7 @@ with `loom.slot-out-of-position`.  Member access on a slot ref is also
 rejected (`loom.slot-member-access`) — slots are opaque values, not
 records.  See [`page-metamodel.md`](page-metamodel.md) §5.2.
 
-> Query results and projections are exempt — `find byEmail(e: string): Customer?`
+> Query results and projections are exempt — `Customers.findBy(email: e)`
 > and `derived owner: Customer = ...` may legitimately reference an
 > aggregate as a domain object.  The check only fires in storage /
 > wire-data positions.
@@ -1595,7 +1644,7 @@ test then passed when codegen had emitted an undefined name: the test said
 
 ```ddd
 test "a title must be longer than two characters" {
-    expect(Claim.create({ title: "x", status: Draft })).toThrow()
+    expect(Claim.create(title: "x", status: Draft)).toThrow()
 }
 ```
 
@@ -1671,7 +1720,7 @@ operation complete() {
 }
 
 test "a fresh work order cannot be completed" {
-    let wo = WorkOrder.create({ reference: "WO-1", customerName: "Ada", status: Draft })
+    let wo = WorkOrder.create(reference: "WO-1", customerName: "Ada", status: Draft)
     expect(wo.complete()).toThrow(precondition)
 }
 ```
@@ -1799,10 +1848,9 @@ bounded CONTEXT in the slug position and the HANDLER in the method
 position — the spelling `route POST "/echo/{text}" -> Sales.Echo` already
 uses, so `api.sales.echo("hi")` posts `/api/echo/hi`.  Arguments bind
 POSITIONALLY to the declared params; a wrong count is
-`loom.e2e-routed-handler-arity`, and a `GET`/`DELETE` route whose handler
-declares a param no `{token}` binds is
-`loom.e2e-routed-handler-bodyless-method` (the backends read it from a
-body those methods cannot carry).  An aggregate verb always wins, so a
+`loom.e2e-routed-handler-arity`.  A param no `{token}` binds rides the
+query string on a `GET`/`DELETE` route (those methods carry no body) and
+the JSON body otherwise.  An aggregate verb always wins, so a
 context whose name slugs like an aggregate changes no existing call.
 
 The projection verbs read a folded `projection`'s read model (see
@@ -1853,8 +1901,8 @@ table above is what a verb *lowers to*, not a promise that the route is
 there: `POST /<plural>` appears only when the aggregate declares a
 canonical `create` (by hand or via `with crudish`), `DELETE /{id}` only
 when it declares an unnamed `destroy`, `GET /<plural>/{id}/history` only
-when it is `auditable`, and a find route only for a *declared* find (a
-compiler-synthesized retrieval has none).  Calling a verb whose route the
+when it is `auditable` (a compiler-synthesized retrieval has no route of its
+own).  Calling a verb whose route the
 model does not emit is `loom.e2e-unrouted-verb` — a phase-⑦ error naming
 the aggregate, the verb and the fix.  The check resolves each verb against
 `deriveAggregateOperations`, the same derivation every backend's route
@@ -1973,44 +2021,34 @@ Playwright config in that directory (`npx playwright test` from
 ## Repositories
 
 ```ddd
-repository Orders for Order {
-    // unique-key reconstitution: parameter names match aggregate properties.
-    find byNumber(number: string): Order?
-
-}
-// explicit predicate; `this` refers to the aggregate root.
+aggregate Order with crudish { number: string  customerId: Customer id  status: Status  unique (number) }
+repository Orders for Order
+// a single-row or list read over any other predicate is a criterion
 criterion OrdersActiveForCustomer(forCustomer: Customer id) of Order = this.customerId == forCustomer && this.status == Draft
 ```
 
-The full form is `find name(params): T | T? | T or NotFound | T[] | T paged
-[where Expr] [ignoring Cap, … | ignoring *]` — a find carries no authorization
-gate (who may read the aggregate is `policy { read X requires Expr }`, which
-covers every find), and `ignoring` bypasses a capability's contributed query
-filter (e.g. `softDeletable`).  Each `find` declaration becomes a method
-on the generated repository plus a Mediator query in the .NET backend.
+A repository declares no reads of its own (`find` declarations were removed —
+[D-FINDDECL-REMOVED](decisions.md); a leftover `find` is a parse error).  Every
+read is a contract verb, generated on every backend: `getById` / `findById`,
+`getBy(<col>: v)` / `findBy(…)` over a declared `unique (…)` key,
+`find(<Criterion>)` (the first match, `T?`), `findAll(<Criterion>)` /
+`run(<Criterion | Retrieval>)` (the rows), and the implicit list read `all`.  A
+trailing `ignoring Cap, …` / `ignoring *` on the call bypasses a capability's
+contributed query filter (e.g. `softDeletable`); who may read the aggregate is
+`policy { read X requires Expr }`, which covers every read.  The full reference
+is [chapter 10](language-reference/10-repositories-and-queries.md).
 
-> **List finds are an error.**  A `find` returning a collection (`T[]` /
-> `T paged`), other than `find all`, is `loom.list-find-removed`: the list
-> read-path is `Repo.run(<Criterion>(args))` / a named `retrieval`
-> (composable, page-able, SQL-inlined — see [`criterion.md`](criterion.md)),
-> which is why `activeForCustomer` above is a criterion.  A unique-key find
-> returning `T` / `T?` is the intended shape.
-> `node scripts/codemod-list-find-to-criterion.mjs <path>` rewrites a source.
-
-- **TypeScript**: when no `where` is given, parameters are equality-
-  matched against aggregate columns and lowered to a Drizzle
-  `where(eq(...))`.  When `where` is given, the IR expression is
-  lowered to Drizzle operators (`eq`/`ne`/`lt`/`lte`/`gt`/`gte`/
-  `and`/`or`/`not`/`inArray`) over `this.<col>` and
-  `this.<vo>.<sub>` references, including the membership form
-  `this.<refColl>.contains(param)` against an `X id[]` join table.
-  The queryable-subset validator rejects shapes that don't fit (e.g.
-  `.count`, `.any`, lambdas) with a clear diagnostic.
-- **.NET**: both forms lower to a LINQ `.Where(x => …)` predicate and
-  pass through EF Core to SQL.
+- **TypeScript**: a criterion's predicate is lowered to Drizzle operators
+  (`eq`/`ne`/`lt`/`lte`/`gt`/`gte`/`and`/`or`/`not`/`inArray`) over
+  `this.<col>` and `this.<vo>.<sub>` references, including the membership form
+  `this.<refColl>.contains(param)` against an `X id[]` join table.  The
+  queryable-subset validator rejects shapes that don't fit (e.g. `.count`,
+  `.any`, lambdas) with a clear diagnostic.
+- **.NET**: the same predicate lowers to a LINQ `.Where(x => …)` and passes
+  through EF Core to SQL.
 
 **Null semantics.** A comparison against a *nullable value* — a
-`currentUser.<claim>` declared `T?`, or a find parameter typed `T?` — is
+`currentUser.<claim>` declared `T?`, or a criterion parameter typed `T?` — is
 null-aware on every backend: `this.col == v` with `v` null matches the rows
 whose `col` IS NULL, `!=` matches the rows where it is NOT NULL, and an
 ordering (`<`, `>`, …) against null matches no row.  So
@@ -2019,7 +2057,7 @@ matches the unassigned orders for a principal with no `technicianId` rather
 than none (or, on Ecto, a raised `ArgumentError`).  An absent principal stays
 fail-closed.
 
-A query filter (a criterion body, a find's `where`) may use
+A query filter (a criterion body, a retrieval's `where`) may use
 `this.<refColl>.contains(param)` to query membership over an `X id[]`
 reference collection — for example, `criterion HoldingInParty(pokemon:
 Pokemon id) of Trainer = this.party.contains(pokemon)`.  The TypeScript backend lowers this to
@@ -2027,34 +2065,24 @@ an `inArray(...subquery...)` against the field's join table; other
 collection operations (`.count`, `.any`, `.where`, …) remain rejected
 by the queryable-subset validator.
 
-`findById` and `getById` are auto-generated for every aggregate
-(no need to declare them in the repository).  An auto-included
-`find all(): T paged` is also added to every aggregate's repository (a bare
-`T[]` for an event-sourced, `document`/`embedded`-shaped or `extends`
-subtype aggregate, whose rows cannot page), so
-all five backends always expose `GET /<plural>` and every frontend
-(react, vue, svelte, angular, feliz, flutter) always has a list page to
-render.  Declaring your own `find all(...)` in the DSL overrides the
-implicit one, and its declared return type is the wire contract:
-`find all(): T paged` keeps the `Paged<T>` envelope; `find all(): T[]`
-answers a bare JSON array.  The list is gated by the context's
+The implicit list read `all` is paged (`Paged<T>`) on every aggregate — a bare
+`T[]` for an event-sourced, `document`/`embedded`-shaped or `extends` subtype
+aggregate, whose rows cannot page — so all five backends always expose
+`GET /<plural>` and every frontend (react, vue, svelte, angular, feliz, flutter)
+always has a list page to render.  The list is gated by the context's
 `policy { read T requires <expr> }`, like every other read of `T`.
 
-**Absence, in a body.**  `getById` and a find declared `: T` load a single
-row and answer the declared **404** when it is not there — on the GET route,
-an operation route and a workflow step alike (the not-found-on-load policy;
-the binding is a plain `T`).  To BRANCH on the absent row instead, declare the
-find `: T or NotFound` (or `: T?`) and read the binding through a variant
-`match` (`match r { Order o => o.code, NotFound => "–" }`).  Reading such a
-binding straight through — `r.code`, `r.touch()` — is refused with
-`loom.union-read-undiscriminated`.  A `T?` read — a `: T?` find,
+**Absence, in a body.**  `getById` and `getBy` load a single row and answer the
+standard **404** when it is not there — on the GET route, an operation route and
+a workflow step alike (the binding is a plain `T`).  A `T?` read —
 `Repo.find(<Criterion>)`, `Repo.findById(id)`, `Repo.findBy(col: v)` — stays a
 native nullable: `let c = Customers.find(ByEmail(e))` binds `Customer?`, read
 through a null test (`c == null`, `c ?? d`) or narrowed by
 `if let x = c { … } else { … }` (an `if let` takes the read itself as its
 source too: `if let o = Orders.findById(id) { o.touch() }`).  A member read or
 an op-call on the binding before it is narrowed is `loom.nullable-receiver`.
-See [`payloads.md`](payloads.md) → "Union finds".
+A body that must have the row of a criterion read answers the miss itself:
+`if let o = Orders.find(C(x)) { … } else { notFound }`.
 
 ---
 
@@ -2250,8 +2278,7 @@ context Sales {
         }
     }
 
-    repository Orders for Order {
-        find byNumber(number: string): Order?
-    }
+    repository Orders for Order
+    criterion OrdersByNumber(number: string) of Order = this.number == number
 }
 ```

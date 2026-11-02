@@ -25,6 +25,7 @@ import { lines } from "../../../util/code-builder.js";
 import { pythonIdent, snake, workflowStateTableName } from "../../../util/naming.js";
 import { tableNameFor } from "../../../util/storage-names.js";
 import { pyRef } from "../../_imports/python.js";
+import { pyIdColumnType, pyIntColumnType } from "../codec-spelling.js";
 import {
   columnsForFields,
   contextEventRowClassName,
@@ -291,14 +292,14 @@ function renderModel(
 ): string {
   const tableName = `${prefix ?? ""}${tableNameFor(name)}`;
   const cols: PyColumn[] = [
-    { attr: "id", pyType: "str", saType: "Uuid(as_uuid=False)", optional: false, primaryKey: true },
+    { attr: "id", pyType: "str", saType: pyIdColumnType(), optional: false, primaryKey: true },
     ...(parentName
       ? [
           {
             attr: "parent_id",
             sqlName: `${snake(parentName)}_id`,
             pyType: "str",
-            saType: "Uuid(as_uuid=False)",
+            saType: pyIdColumnType(),
             optional: false,
           },
         ]
@@ -389,7 +390,7 @@ function renderEmbeddedModel(
 ): string {
   const tableName = `${prefix ?? ""}${tableNameFor(agg.name)}`;
   const cols: PyColumn[] = [
-    { attr: "id", pyType: "str", saType: "Uuid(as_uuid=False)", optional: false, primaryKey: true },
+    { attr: "id", pyType: "str", saType: pyIdColumnType(), optional: false, primaryKey: true },
   ];
   for (const f of agg.fields) {
     if (isRefCollectionField(f)) {
@@ -459,7 +460,7 @@ function renderWorkflowStateModel(
       cols.push({
         attr: snake(f.name),
         pyType: "str",
-        saType: "Uuid(as_uuid=False)",
+        saType: pyIdColumnType(),
         optional: false,
         primaryKey: true,
       });
@@ -541,7 +542,7 @@ function renderProjectionStateModel(
       cols.push({
         attr: snake(f.name),
         pyType: "str",
-        saType: "Uuid(as_uuid=False)",
+        saType: pyIdColumnType(),
         optional: false,
         primaryKey: true,
       });
@@ -636,7 +637,7 @@ function renderTphModel(
 ): string {
   const tableName = `${prefix ?? ""}${tableNameFor(base.name)}`;
   const cols: PyColumn[] = [
-    { attr: "id", pyType: "str", saType: "Uuid(as_uuid=False)", optional: false, primaryKey: true },
+    { attr: "id", pyType: "str", saType: pyIdColumnType(), optional: false, primaryKey: true },
     { attr: "kind", pyType: "str", saType: "Text", optional: false },
     ...columnsForFields(base.fields, ctx),
   ];
@@ -691,8 +692,8 @@ function renderValueCollectionModel(
 ): string {
   const tableName = `${prefix ?? ""}${vc.childTable}`;
   const cols: PyColumn[] = [
-    { attr: vc.parentFk, pyType: "str", saType: "Uuid(as_uuid=False)", optional: false },
-    { attr: "ordinal", pyType: "int", saType: "Integer", optional: false },
+    { attr: vc.parentFk, pyType: "str", saType: pyIdColumnType(), optional: false },
+    { attr: "ordinal", pyType: "int", saType: pyIntColumnType(), optional: false },
     ...valueCollectionChildColumns(vc.voName, ctx),
   ];
   return lines(

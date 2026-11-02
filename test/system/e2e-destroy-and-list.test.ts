@@ -31,17 +31,16 @@ import { parseString } from "../_helpers/parse.js";
 const SYS = `
   system Shop {
     subdomain Sales {
-      context Orders {
+      context Orders with scaffoldGet(of: ByStatus) {
         aggregate Order with crudish {
           code: string
           status: string
         }
-        repository Orders for Order {
-          find byStatus(status: string): Order? where this.status == status
-        }
+        repository Orders for Order { }
+        criterion ByStatus(status: string) of Order = this.status == status
       }
     }
-    api OrdersApi from Sales
+    api OrdersApi with scaffoldGetApi(of: ByStatus) from Sales
     storage pg { type: postgres }
     resource s { for: Orders, kind: state, use: pg }
     deployable d {
@@ -60,7 +59,7 @@ const SYS = `
       expect(api.orders.getById(a)).toThrow(404)
       let left = api.orders.all()
       expect(left.items.length).toBe(1)
-      let open = api.orders.byStatus({ status: "Open" })
+      let open = api.orders.getOrderByStatus("Open")
       expect(open.length).toBe(1)
     }
   }
@@ -188,9 +187,11 @@ describe("e2e `all` — the auto-findAll at the bare collection root", () => {
     expect(e2e).not.toContain("/api/orders/all");
   });
 
-  it("still renders a DECLARED find under its own path segment", async () => {
+  it("still renders a named single-row read (`scaffoldGet`) under its own path segment", async () => {
     const e2e = await e2eOf(SYS);
-    expect(e2e).toContain('await __getQuery(`${base}/api/orders/by_status`, ({ status: "Open" }))');
+    expect(e2e).toContain(
+      'await __route("GET", __qs(`${base}/api/orders/by_status`, { status: "Open" }))',
+    );
   });
 
   it("passes an argument object through as the query string (page / pageSize / sort)", async () => {

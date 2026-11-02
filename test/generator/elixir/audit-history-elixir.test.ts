@@ -29,9 +29,7 @@ const MASKED = `system S {
         }
         operation rename(name: string) { name := name }
       }
-      repository Employees for Employee {
-        find all(): Employee[]
-      }
+      repository Employees for Employee
       policy { read Employee requires currentUser.role == "hr" }
     }
   }

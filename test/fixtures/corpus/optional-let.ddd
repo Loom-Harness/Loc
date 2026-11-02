@@ -34,9 +34,7 @@ system OptionalLet {
       criterion ByEmail(e: string) of Customer = email == e
       repository Customers for Customer { }
       repository Products for Product { }
-      repository Orders for Order {
-        find byCode(c: string): Order? where this.code == c
-      }
+      repository Orders for Order { }
       command Place { e: string  oid: Order id }
 
       queryHandler CustomerName(e: string): string {
@@ -55,7 +53,7 @@ system OptionalLet {
         if let o = Orders.findById(oid) { o.touch() }
       }
       commandHandler TouchByCode(code: string) {
-        let x = Orders.byCode(code)
+        let x = Orders.findBy(code: code)
         if let o = x { o.touch() }
       }
 
@@ -77,7 +75,7 @@ system OptionalLet {
         create(orderId: Order id) { }
         on(e: Pinged) by e.order {
           if let o = Orders.findById(e.order) { o.touch() }
-          if let q = Orders.byCode(e.code) { q.touch() }
+          if let q = Orders.findBy(code: e.code) { q.touch() }
           let k = Orders.findBy(code: e.code)
           if let p = k { p.touch() }
         }

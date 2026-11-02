@@ -76,9 +76,8 @@ context Shopping {
     }
   }
 
-  repository Carts for Cart {
-    find byCustomer(customerId: Customer id): Cart?
-  }
+  repository Carts for Cart { }
+  criterion CartsByCustomer(customerId: Customer id) of Cart = this.customerId == customerId
 
   repository Customers for Customer { }
 
@@ -108,7 +107,6 @@ context Shopping {
     }
   }
 
-  repository Wishlists for Wishlist {
-    find byCustomer(customerId: Customer id): Wishlist?
-  }
+  repository Wishlists for Wishlist { }
+  criterion WishlistsByCustomer(customerId: Customer id) of Wishlist = this.customerId == customerId
 }

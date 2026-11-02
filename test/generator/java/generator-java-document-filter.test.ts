@@ -6,8 +6,8 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // DEBT-02 — capability `filter` on a `shape: document` aggregate (java).
 // The whole aggregate lives in one `data` jsonb column, so the filter can't be
 // a SQL predicate — it's applied in-app over the rehydrated aggregate.  Gating
-// findById + filtering findAll covers the custom finds too, since they all read
-// through `findAll().stream()`.
+// findById + filtering findAll covers the criterion reads too, since they all
+// read through `findAll().stream()`.
 // ---------------------------------------------------------------------------
 
 const SRC = readFileSync("test/e2e/fixtures/java-build/document-filter.ddd", "utf8");
@@ -31,14 +31,14 @@ describe("java document capability filter (DEBT-02)", () => {
     expect(r).toContain("if ((!x.isDeleted())) out.add(x);");
   });
 
-  it("leaves custom finds reading through the (now filtered) findAll", async () => {
-    // The find streams over findAll(), which already hides deleted rows — no
-    // separate capability filter is duplicated onto the find.
+  it("leaves criterion reads streaming over the (now filtered) findAll", async () => {
+    // The criterion read streams over findAll(), which already hides deleted
+    // rows — no separate capability filter is duplicated onto the read.
     const r = await repo();
     expect(r).toContain(
-      "findAll().stream().filter(x -> Objects.equals(x.title(), t)).findFirst().orElse(null);",
+      "return findAll().stream().filter(x -> Objects.equals(x.title(), t)).toList();",
     );
-    // A string-equality find renders `Objects.equals` — the document store must
+    // A string-equality criterion renders `Objects.equals` — the document store must
     // import it (a pre-existing gap this fixture surfaced).
     expect(r).toContain("import java.util.Objects;");
   });

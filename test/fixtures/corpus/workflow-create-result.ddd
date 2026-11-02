@@ -42,7 +42,7 @@ system WorkflowCreateResult {
 
       workflow openAccount {
         create(owner: Customer id, number: string, opening: int): Account id {
-          let account = Account.create({ owner: owner, number: number, balance: opening })
+          let account = Account.create(owner: owner, number: number, balance: opening)
           return account.id
         }
       }

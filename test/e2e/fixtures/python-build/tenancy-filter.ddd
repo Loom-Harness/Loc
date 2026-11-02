@@ -4,8 +4,8 @@
 // (`require_current_user().tenant_id` — the ambient `ContextVar[User | None]`
 // accessor, the SQLAlchemy analogue of node's `requireCurrentUser()` weave /
 // EF Core's `HasQueryFilter`) into every root read: the auto findAll /
-// find_by_id / find_many_by_ids, each custom find (its own `where` AND-ed via
-// `and_(...)`), and each view (views merge into repository finds).  No read
+// find_by_id / find_many_by_ids, and each criterion read (its own `where`
+// beside it).  No read
 // method gains a parameter — the accessor reads the request-scoped principal
 // the auth middleware stashed.  `auth: required` emits the User dataclass +
 // `current_user_var` + fail-closed `require_current_user()` the predicate
@@ -24,8 +24,11 @@ system PythonTenancy {
         // Always-on row scoping by the requesting principal's tenant.
         filter this.tenantId == currentUser.tenantId
       }
-      repository Accounts for Account {
-        find byMinBalance(min: int): Account? where this.balance >= min
+      repository Accounts for Account
+      criterion AccountsByMinBalance(min: int) of Account = this.balance >= min
+      queryHandler ListAccountsByMinBalance(min: int): Account[] {
+        let r = Accounts.run(AccountsByMinBalance(min))
+        return r
       }
     }
   }

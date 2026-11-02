@@ -54,9 +54,7 @@ system Ledger {
         }
       }
 
-      repository Accounts for Account {
-        find byOwner(owner: string): Account? where this.owner == owner
-      }
+      repository Accounts for Account
     }
   }
 
@@ -92,15 +90,5 @@ system Ledger {
     // record.
     let listed = api.accounts.all()
     expect(listed.length).toBe(1)
-  }
-
-  // RS-8 fold on a fresh read via the `byOwner` filter query — the event
-  // stream reconstructs `balance` identically through a non-getById reader.
-  test e2e "byOwner reads the folded balance through a filter query" against api {
-    let a = api.accounts.create({ owner: "bob" })
-    api.accounts.deposit(a, { amount: 250 })
-    let found = api.accounts.byOwner({ owner: "bob" })
-    expect(found.owner).toBe("bob")
-    expect(found.balance).toBe(250)
   }
 }

@@ -75,20 +75,20 @@ system Probe {
         }
 
         test "precondition rung" {
-          let w = W.create({ code: "a" })
+          let w = W.create(code: "a")
           w.close()
           expect(w.close()).toThrow(precondition)
           expect(w.code).toBe("a")
         }
 
         test "invariant rung" {
-          let w = W.create({ code: "a" })
-          expect(W.create({ code: "" })).toThrow(invariant)
+          let w = W.create(code: "a")
+          expect(W.create(code: "")).toThrow(invariant)
           expect(w.code).toBe("a")
         }
 
         test "bare" {
-          let w = W.create({ code: "a" })
+          let w = W.create(code: "a")
           w.close()
           expect(w.close()).toThrow()
           expect(w.code).toBe("a")

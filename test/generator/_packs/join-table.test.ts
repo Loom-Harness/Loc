@@ -16,8 +16,11 @@ const SRC = `
       party: Pokemon id[]
       caught: Pokemon id[]
     }
-    repository Trainers for Trainer {
-      find holdingInParty(pokemon: Pokemon id): Trainer? where this.party.contains(pokemon)
+    repository Trainers for Trainer
+    criterion TrainersHoldingInParty(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
+    queryHandler HoldingInParty(pokemon: Pokemon id): Trainer[] {
+      let r = Trainers.run(TrainersHoldingInParty(pokemon))
+      return r
     }
   }
 `;
@@ -79,8 +82,11 @@ describe("reference-collection join tables (TS/Hono)", () => {
       context Roster {
         aggregate Pokemon { species: string }
         aggregate Trainer { name: string  party: Pokemon id[] }
-        repository Trainers for Trainer {
-          find holding(pokemon: Pokemon id): Trainer? where this.party.contains(pokemon)
+        repository Trainers for Trainer
+        criterion TrainersHolding(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
+        queryHandler Holding(pokemon: Pokemon id): Trainer[] {
+          let r = Trainers.run(TrainersHolding(pokemon))
+          return r
         }
       }
     `;
@@ -91,8 +97,11 @@ describe("reference-collection join tables (TS/Hono)", () => {
       context Roster {
         aggregate Pokemon { species: string }
         aggregate Trainer { name: string  party: Pokemon id[] }
-        repository Trainers for Trainer {
-          find big(): Trainer? where this.party.count > 0
+        repository Trainers for Trainer
+        criterion TrainersBig of Trainer = this.party.count > 0
+        queryHandler Big(): Trainer[] {
+          let r = Trainers.run(TrainersBig)
+          return r
         }
       }
     `;

@@ -17,7 +17,7 @@ system E {
         operation pin() { requires currentUser.tier == Gold }
       }
       policy { read Note requires true }
-      repository Notes for Note { find all(): Note paged }
+      repository Notes for Note
     }
   }
   storage pg { type: postgres }

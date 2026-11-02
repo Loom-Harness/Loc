@@ -18,21 +18,24 @@ import { parseRaw, parseRawOk, parseString } from "../../_helpers/parse.js";
 const errorCodes = (diags: Diagnostic[]): (string | number | undefined)[] =>
   diags.filter((d) => d.severity === 1).map((d) => d.code);
 
-/** The single find's return TypeRef in a one-repository context. */
+/** The return TypeRef of `Order.f` — an operation's return is a union's
+ *  transport position. */
 function findReturn(src: string) {
   const model = parseRaw(src);
   const ctx = model.members.find((m) => m.$type === "BoundedContext") as never;
-  const repo = (ctx as { members: { $type: string; finds?: unknown[] }[] }).members.find(
-    (m) => m.$type === "Repository",
-  ) as { finds: { returnType: unknown }[] };
-  return repo.finds[0]!.returnType as import("../../../src/language/generated/ast.js").TypeRef;
+  const agg = (
+    ctx as { members: { $type: string; name?: string; members?: unknown[] }[] }
+  ).members.find((m) => m.$type === "Aggregate" && m.name === "Order") as {
+    members: { $type: string; returnType?: unknown }[];
+  };
+  const op = agg.members.find((m) => m.$type === "Operation")!;
+  return op.returnType as import("../../../src/language/generated/ast.js").TypeRef;
 }
 
 const REPO = (ret: string): string => `
   context C {
-    aggregate Order { code: string }
+    aggregate Order { code: string  operation f(): ${ret} { } }
     aggregate Cancel { reason: string }
-    repository Orders for Order { find f(): ${ret} }
   }
 `;
 
@@ -125,8 +128,7 @@ describe("unions — soft-keyword admission (P4)", () => {
   it("keeps a parameter named `or` parsing", () => {
     expect(
       parseRawOk(`context C {
-        aggregate A { x: int }
-        repository R for A { find g(or: int): A }
+        aggregate A { x: int  operation g(or: int) { x := or } }
       }`),
     ).toBe(true);
   });
@@ -146,8 +148,7 @@ describe("unions — variant validation (P4)", () => {
   it("rejects a duplicate variant in an anonymous `or` union", async () => {
     const { diagnostics } = await parseString(`
       context C {
-        aggregate Order { code: string }
-        repository R for Order { find f(): Order or Order }
+        aggregate Order { code: string  operation f(): Order or Order { } }
       }
     `);
     expect(errorCodes(diagnostics)).toContain("loom.union-duplicate-variant");
@@ -156,9 +157,8 @@ describe("unions — variant validation (P4)", () => {
   it("accepts a union of distinct variants (no duplicate diagnostic)", async () => {
     const { diagnostics } = await parseString(`
       context C {
-        aggregate Order { code: string }
+        aggregate Order { code: string  operation f(): Order or Cancel { } }
         aggregate Cancel { reason: string }
-        repository R for Order { find f(): Order or Cancel }
       }
     `);
     expect(errorCodes(diagnostics)).not.toContain("loom.union-duplicate-variant");
@@ -167,8 +167,7 @@ describe("unions — variant validation (P4)", () => {
   it("rejects a `slot` union variant (`loom.union-variant-not-carrier`)", async () => {
     const { diagnostics } = await parseString(`
       context C {
-        aggregate Order { code: string }
-        repository R for Order { find f(): Order or slot }
+        aggregate Order { code: string  operation f(): Order or slot { } }
       }
     `);
     expect(errorCodes(diagnostics)).toContain("loom.union-variant-not-carrier");
@@ -183,12 +182,11 @@ describe("unions — variant validation (P4)", () => {
     expect(errorCodes(diagnostics)).toContain("loom.union-position");
   });
 
-  it("allows an inline union as a repository find return", async () => {
+  it("allows an inline union as an operation return", async () => {
     const { diagnostics } = await parseString(`
       context C {
-        aggregate Order { code: string }
+        aggregate Order { code: string  operation f(): Order or Cancel { } }
         aggregate Cancel { reason: string }
-        repository R for Order { find f(): Order or Cancel }
       }
     `);
     expect(errorCodes(diagnostics)).not.toContain("loom.union-position");

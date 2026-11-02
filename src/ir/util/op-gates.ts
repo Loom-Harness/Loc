@@ -250,7 +250,7 @@ export function workflowNeedsCurrentUser(
 // `currentUser` is a free identifier, so the guard does not deny, it does not
 // COMPILE (`error TS2304` / `cannot find symbol` / CS0103 / F821).
 //
-// So `loom.lifecycle-guard-event-sourced` is a per-BACKEND refusal, not a
+// So `loom.target-unsupported#lifecycle-guard-event-sourced` is a per-BACKEND refusal, not a
 // property of event sourcing — the `#1442 → #1447/#1449` pattern, where a
 // generic gate narrows as each backend gains support.  Phoenix's support is
 // pinned by `test/generator/elixir/es-command-principal.test.ts` (pairwise F10).

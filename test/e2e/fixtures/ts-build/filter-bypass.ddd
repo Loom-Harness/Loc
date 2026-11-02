@@ -2,17 +2,30 @@
 // bypass.md §11) on node/Hono.  node honors a bypass by OMITTING the bypassed
 // capability's predicate from the Drizzle `and(...)` chain; `ignoring *` drops
 // every capability predicate.  This pins that the bypass read sites a
-// `generate ts` project emits — repository finds — type-check
-// under strict tsc.  `softDeletable` is the built-in prelude capability (adds
-// `isDeleted`/`deletedAt` + a `!this.isDeleted` read filter).
+// `generate ts` project emits — the widened single-row criterion reads — type-
+// check under strict tsc.  `softDeletable` is the built-in prelude capability
+// (adds `isDeleted`/`deletedAt` + a `!this.isDeleted` read filter).
 context Shop {
   aggregate Order with softDeletable {
     total: int
   }
 
-  repository Orders for Order {
-    find all(): Order[] ignoring *
-  }
+  repository Orders for Order
   criterion OrdersRecent of Order = this.total > 0
   criterion OrdersNormal of Order = this.total > 0
+
+  queryHandler GetAnyOrder(): Order {
+    if let x = Orders.find(OrdersRecent()) ignoring * {
+      return x
+    } else {
+      notFound "not_found"
+    }
+  }
+  queryHandler GetUndeletedOrder(): Order {
+    if let x = Orders.find(OrdersNormal()) ignoring softDeletable {
+      return x
+    } else {
+      notFound "not_found"
+    }
+  }
 }

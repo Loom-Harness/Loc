@@ -6,19 +6,13 @@
 // that would have caught the break without docker:
 //
 //   1. workflow `if let` — the retrieval repo must be DI-injected (CS0103).
-//   2. workflow repo-let on a user-declared find — the emitted repository
-//      method is the plain PascalCase name, no `Async` suffix (CS1061).
-//   3. variant-`match` over a UNION-FIND binding — the repository returns the
-//      optional twin (`Agg?`), so the match must render a null-check switch,
-//      never the `<Union>_<Tag>` carrier patterns (CS0246: no such records
-//      exist for finds).
-//   4. seed rows — the `Create(...)` factory takes EVERY create-input
+//   2. seed rows — the `Create(...)` factory takes EVERY create-input
 //      positionally, so omitted optionals must be filled (CS7036) and a
 //      datetime string literal must parse to a UTC DateTime (CS1503).
-//   5. create controller — an optional id-ref wire member is `Guid?`; the
+//   3. create controller — an optional id-ref wire member is `Guid?`; the
 //      null-forgiving `!` does not unwrap a nullable VALUE type, so the id
 //      ctor arg needs `.Value` (CS1503).
-//   6. AuditableInterceptor — a stamp value reaching THROUGH the principal
+//   4. AuditableInterceptor — a stamp value reaching THROUGH the principal
 //      (`currentUser.role`) needs the ambient-principal local materialised
 //      (CS0103: `currentUser` did not exist in the static interceptor).
 import { describe, expect, it } from "vitest";
@@ -46,19 +40,7 @@ const SRC = `
           }
         }
 
-        repository Projects for Project {
-          find locate(name: string): Project or ProjectNotFound where this.name == name
-        }
-
-        workflow resolveProject {
-          create(name: string) {
-              let outcome = Projects.locate(name)
-              let label = match outcome {
-                  Project p => p.name,
-                  ProjectNotFound => "not found"
-              }
-          }
-        }
+        repository Projects for Project
 
         workflow touchActive {
           create(needle: string) {
@@ -93,21 +75,6 @@ function find(files: Map<string, string>, suffix: string): string {
 }
 
 describe(".NET showcase compile regressions (conformance-parity breakers)", () => {
-  it("workflow union-find repo-let calls the plain find name (no Async suffix)", async () => {
-    const handler = find(await build(), "Application/Workflows/ResolveProjectHandler.cs");
-    expect(handler).toContain(".Locate(command.Name, cancellationToken)");
-    expect(handler).not.toContain("LocateAsync");
-  });
-
-  it("variant-match over a union-find binding renders a null-check, not carrier patterns", async () => {
-    const handler = find(await build(), "Application/Workflows/ResolveProjectHandler.cs");
-    // The repository returns the optional twin (`Project?`), so the two-arm
-    // match reduces to a null-check ternary.
-    expect(handler).toContain('outcome is not null ? outcome.Name : "not found"');
-    // The `<Union>_<Tag>` carrier records are never emitted for finds.
-    expect(handler).not.toContain("ProjectOrProjectNotFound_");
-  });
-
   it("an if-let workflow injects the retrieval's repository", async () => {
     const handler = find(await build(), "Application/Workflows/TouchActiveHandler.cs");
     expect(handler).toContain("private readonly IProjectRepository _projects;");

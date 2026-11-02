@@ -1,7 +1,7 @@
 import type { AssociationIR, BoundedContextIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { escapePythonIdent, snake, upperFirst } from "../../util/naming.js";
-import { PY_CALENDAR_DATE_NAME } from "./emit/calendar-date.js";
+import { pyIdColumnType, pyScalarColumn } from "./codec-spelling.js";
 
 // ---------------------------------------------------------------------------
 // Column mapping shared by the SQLAlchemy schema emitter and the
@@ -149,40 +149,15 @@ export function columnsFor(
   const attr = snake(fieldName);
   switch (inner.kind) {
     case "primitive":
-      switch (inner.name) {
-        case "int":
-          return [{ attr, pyType: "int", saType: "Integer", optional: opt }];
-        case "long":
-          return [{ attr, pyType: "int", saType: "BigInteger", optional: opt }];
-        case "decimal":
-          return [{ attr, pyType: "Decimal", saType: "Numeric", optional: opt }];
-        case "money":
-          return [{ attr, pyType: "Decimal", saType: "Numeric(19, 4)", optional: opt }];
-        case "string":
-          return [{ attr, pyType: "str", saType: "Text", optional: opt }];
-        case "bool":
-          return [{ attr, pyType: "bool", saType: "Boolean", optional: opt }];
-        case "datetime":
-          return [{ attr, pyType: "datetime", saType: "DateTime(timezone=True)", optional: opt }];
-        case "date":
-          return [{ attr, pyType: PY_CALENDAR_DATE_NAME, saType: "Date", optional: opt }];
-        case "guid":
-          return [{ attr, pyType: "str", saType: "Uuid(as_uuid=False)", optional: opt }];
-        case "json":
-          return [{ attr, pyType: "object", saType: "JSONB", optional: opt }];
-        case "File":
-          // A `File` field stores its `FileRef` ({url,key,contentType,size}) in
-          // a JSONB column (M-T1.2).  `FileRef` is a TypedDict — a dict at
-          // runtime — so it round-trips JSONB with no serde, and `Mapped[FileRef]`
-          // keeps `row.<f>` typed for the repository.
-          return [{ attr, pyType: "FileRef", saType: "JSONB", optional: opt }];
-        default:
-          return [{ attr, pyType: "str", saType: "Text", optional: opt }];
-      }
+      // `duration` is expression-only and never a field; it keeps the opaque
+      // text column it always fell back to.
+      return inner.name === "duration"
+        ? [{ attr, pyType: "str", saType: "Text", optional: opt }]
+        : [{ attr, ...pyScalarColumn(inner.name), optional: opt }];
     case "id":
       // The shared DDL types id columns UUID — `Uuid(as_uuid=False)`
       // keeps the python side str while binding/reading uuid cleanly.
-      return [{ attr, pyType: "str", saType: "Uuid(as_uuid=False)", optional: opt }];
+      return [{ attr, pyType: "str", saType: pyIdColumnType(), optional: opt }];
     case "enum":
       // Stored as the value text (parity with pgEnum's stored form).
       return [{ attr, pyType: "str", saType: "Text", optional: opt }];

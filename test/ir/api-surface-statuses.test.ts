@@ -24,7 +24,7 @@
 // OpenAPI declaration on five backends at once.
 
 import { describe, expect, it } from "vitest";
-import type { BoundedContextIR, LoomModel } from "../../src/ir/types/loom-ir.js";
+import type { BoundedContextIR, FindIR, LoomModel } from "../../src/ir/types/loom-ir.js";
 import {
   type ApiOperationIR,
   absenceUnionAbsent,
@@ -67,57 +67,6 @@ function opByKey(ops: ApiOperationIR[], method: string, path: string): ApiOperat
 }
 
 describe("api-surface — resolved error statuses", () => {
-  it("declares the error payload's status for an error-payload absence union find", async () => {
-    // `NotFound` is stdlib (404): the union find must declare [404], not the
-    // pre-fix [] that `findSingle` produced for the two-entity union shape.
-    const model = await buildLoomModel(
-      SYS(`
-      error NotFound { resource: string }
-      aggregate Order { code: string }
-      repository Orders for Order { find byCode(code: string): Order or NotFound }
-    `),
-    );
-    const find = opByKey(deriveContextOperations(orders(model)), "get", "/api/orders/by_code");
-    // …plus the 422 its `code` query parameter is parsed against (F6).
-    expect(find?.errorStatuses).toEqual([404, 422]);
-  });
-
-  it("keeps a requires-gate's 403 on an error-payload absence union (#2363's rung)", async () => {
-    // The two-arms landmine in status form: python's union arm hand-declares
-    // [403, <absent>] for a gated union find; the derivation must agree on
-    // BOTH absence shapes, not just the `none`/optional one the shared table
-    // covers.
-    const model = await buildLoomModel(
-      SYS(`
-      error NotFound { resource: string }
-      aggregate Order { code: string }
-      repository Orders for Order {
-        find byCode(code: string): Order or NotFound
-      }
-      policy { read Order requires currentUser.role == "admin" }
-    `),
-    );
-    const find = opByKey(deriveContextOperations(orders(model)), "get", "/api/orders/by_code");
-    expect(find?.errorStatuses).toEqual([403, 404, 422]);
-  });
-
-  it("resolves the union-absent status through the api's httpStatus override", async () => {
-    // The same read every backend performs at its own emit site:
-    // `errorStatusOverrides?.[tag] ?? defaultErrorStatus(tag)`.
-    const model = await buildLoomModel(
-      SYS(
-        `
-      error NotFound { resource: string }
-      aggregate Order { code: string }
-      repository Orders for Order { find byCode(code: string): Order or NotFound }
-    `,
-        "{ httpStatus NotFound -> 410 }",
-      ),
-    );
-    const find = opByKey(deriveContextOperations(orders(model)), "get", "/api/orders/by_code");
-    expect(find?.errorStatuses).toEqual([410, 422]);
-  });
-
   it("resolves destroy's ReferencedInUse and a when-gate's Disallowed through structuralErrorStatuses", async () => {
     const model = await buildLoomModel(
       SYS(
@@ -188,20 +137,14 @@ describe("api-surface — resolved error statuses", () => {
 });
 
 describe("api-surface — 422 follows the PARSED request part, not the kind (F6)", () => {
-  it("declares it on the by-id read, the destroy, and a paged or param-carrying find — and not on a find that parses nothing", async () => {
-    // The pre-fix sets were `[404]`, `[404, 409]`, `[]` and `[]`: every one of
+  it("declares it on the by-id read, the destroy, and the paged list", async () => {
+    // The pre-fix sets were `[404]`, `[404, 409]` and `[]`: every one of
     // those routes parses something and answers 422 on a bad value, and none of
-    // them said so.  The last one is the honest half — `find recent(): Order?`
-    // takes no parameter and is not paged, so it really cannot 422, and
-    // declaring it there would be the inverse defect.  Both single-row finds
-    // also answer 404 on a miss (the shared not-found rung).
+    // them said so.
     const model = await buildLoomModel(
       SYS(`
       aggregate Order with crudish { code: string }
-      repository Orders for Order {
-        find byCode(code: string): Order?
-        find recent(): Order?
-      }
+      repository Orders for Order
     `),
     );
     const ops = deriveContextOperations(orders(model));
@@ -210,28 +153,25 @@ describe("api-surface — 422 follows the PARSED request part, not the kind (F6)
     // The auto-`all` find is PAGED — its `?page=`/`?pageSize=` bounds are
     // parsed even though the find declares no parameter of its own.
     expect(opByKey(ops, "get", "/api/orders")?.errorStatuses).toEqual([422]);
-    expect(opByKey(ops, "get", "/api/orders/by_code")?.errorStatuses).toEqual([404, 422]);
-    expect(opByKey(ops, "get", "/api/orders/recent")?.errorStatuses).toEqual([404]);
   });
 
   it("findValidatesRequest is the predicate, and it keys on params OR paging", async () => {
     const model = await buildLoomModel(
       SYS(`
       aggregate Order with crudish { code: string }
-      repository Orders for Order {
-        find byCode(code: string): Order?
-        find recent(): Order?
-      }
+      repository Orders for Order
     `),
     );
-    const byName = new Map(
-      deriveContextOperations(orders(model))
-        .filter((o) => o.kind === "find")
-        .map((o) => [o.find?.name, o.find!]),
-    );
-    expect(findValidatesRequest(byName.get("byCode")!), "declares a param").toBe(true);
-    expect(findValidatesRequest(byName.get("all")!), "paged return").toBe(true);
-    expect(findValidatesRequest(byName.get("recent")!), "neither").toBe(false);
+    const all = deriveContextOperations(orders(model)).find((o) => o.kind === "find")!.find!;
+    expect(all.name).toBe("all");
+    expect(findValidatesRequest(all), "paged return").toBe(true);
+    const byCode: FindIR = {
+      name: "byCode",
+      params: [{ name: "code", type: { kind: "primitive", name: "string" } }],
+      returnType: { kind: "optional", inner: { kind: "entity", name: "Order" } },
+    };
+    expect(findValidatesRequest(byCode), "declares a param").toBe(true);
+    expect(findValidatesRequest({ ...byCode, params: [] }), "neither").toBe(false);
   });
 
   it("the gate probe declares it too — it parses the same {id}", async () => {
@@ -291,7 +231,7 @@ system P {
     expect(ops.some((o) => o.aggregate === "Person")).toBe(true);
   });
 
-  it("carries the source IR node for finds and operations", async () => {
+  it("carries the source IR node for the list read and operations", async () => {
     const model = await buildLoomModel(
       SYS(`
       aggregate Order with crudish {
@@ -299,11 +239,10 @@ system P {
         status: string
         operation cancel() when status == "Open" { status := "Cancelled" }
       }
-      repository Orders for Order { find byCode(code: string): Order option }
+      repository Orders for Order
     `),
     );
     const ops = deriveContextOperations(orders(model));
-    expect(opByKey(ops, "get", "/api/orders/by_code")?.find?.name).toBe("byCode");
     expect(opByKey(ops, "post", "/api/orders/{id}/cancel")?.operation?.name).toBe("cancel");
     expect(opByKey(ops, "get", "/api/orders/{id}/can_cancel")?.operation?.name).toBe("cancel");
     // The auto-`all` find is synthesized by enrichment but still a FindIR.
@@ -320,7 +259,7 @@ describe("api-surface — render helpers for the unification slices", () => {
         status: string
         operation cancel() when status == "Open" { status := "Cancelled" }
       }
-      repository Orders for Order { find byCode(code: string): Order option }
+      repository Orders for Order
     `),
     );
     const ops = deriveContextOperations(orders(model));
@@ -330,7 +269,6 @@ describe("api-surface — render helpers for the unification slices", () => {
     expect(rel.get("post /api/orders")).toBe("");
     expect(rel.get("get /api/orders")).toBe("");
     expect(rel.get("get /api/orders/{id}")).toBe("/{id}");
-    expect(rel.get("get /api/orders/by_code")).toBe("/by_code");
     expect(rel.get("post /api/orders/{id}/cancel")).toBe("/{id}/cancel");
     expect(rel.get("get /api/orders/{id}/can_cancel")).toBe("/{id}/can_cancel");
 

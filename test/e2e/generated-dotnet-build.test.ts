@@ -137,10 +137,6 @@ describe.skipIf(!ENABLED)(
       // the `Paged<T>` record, the CountAsync + Skip/Take repository methods,
       // the paged CQRS query/handler, and the controller page/pageSize action.
       "examples/paged-dotnet.ddd",
-      // Discriminated-union find (payload-transport-layer.md, P4c): compiles
-      // the JsonPolymorphic base + variant records, the union CQRS
-      // query/handler (Task.FromException stub), and the controller action.
-      "examples/union-dotnet.ddd",
       // Exception-less operation return (exception-less.md, A3): compiles the
       // pure Domain union, the `ICommand<Union>` command + handler returning the
       // tagged value, and the controller action that switch-translates an error

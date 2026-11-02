@@ -21,9 +21,8 @@ async function diags(body: string) {
         subtotal: money
         operation clear() { subtotal := money("0") }
       }
-      repository Customers for Customer {
-        find byTier(tier: string): Customer? where this.tier == tier
-      }
+      repository Customers for Customer { }
+      criterion CustomersByTier(tier: string) of Customer = this.tier == tier
       repository Carts for Cart { }
       workflow Onboarding { create(c: Customer) { let z = 1 } }
       ${body}
@@ -254,15 +253,13 @@ async function crossDiags(orderingBody: string) {
       subdomain Sales {
         context Billing {
           aggregate Customer { name: string }
-          repository Customers for Customer {
-            find byName(name: string): Customer? where this.name == name
-          }
+          repository Customers for Customer { }
+          criterion CustomersByName(name: string) of Customer = this.name == name
         }
         context Ordering {
           aggregate Order { ref: string }
-          repository Orders for Order {
-            find byRef(ref: string): Order? where this.ref == ref
-          }
+          repository Orders for Order { }
+          criterion OrdersByRef(ref: string) of Order = this.ref == ref
           ${orderingBody}
         }
       }

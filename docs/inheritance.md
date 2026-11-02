@@ -130,10 +130,9 @@ aggregate Car extends Vehicle with tenantOwned, softDeletable, softDelete {
   seats: int
   filter this.seats > 0
 }
-repository Cars for Car {
-  find byPlate(p: string): Car? where this.plate == p
-  find byPlateAll(p: string): Car? where this.plate == p ignoring softDeletable
-}
+repository Cars for Car { }
+criterion CarsByPlateAll(p: string) of Car = this.plate == p
+criterion CarsByPlate(p: string) of Car = this.plate == p
 ```
 
 ```ts
@@ -350,9 +349,8 @@ read naming one does not compile.
 ```ddd
 abstract aggregate Vehicle inheritanceUsing: sharedTable with tenantOwned { plate: string }
 aggregate Car extends Vehicle with softDeletable, softDelete { seats: int }
-repository Cars for Car {
-  find byPlateAll(p: string): Car? where this.plate == p ignoring softDeletable
-}
+repository Cars for Car { }
+criterion CarsByPlateAll(p: string) of Car = this.plate == p
 ```
 
 ```csharp

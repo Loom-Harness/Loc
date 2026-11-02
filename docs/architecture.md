@@ -44,9 +44,8 @@ domain runs against Postgres in prod, in-memory in tests.
 subdomain Sales {
   context Orders {
     aggregate Customer { name: string, email: string }
-    repository Customers for Customer {
-      find byEmail(email: string): Customer?
-    }
+    repository Customers for Customer { }
+    criterion CustomersByEmail(email: string) of Customer = this.email == email
     aggregate Order { customerId: Customer id, total: decimal }
     payload Checkout { customerId: Customer id, items: int[] }
     workflow checkout { create(c: Checkout) { } }
@@ -348,8 +347,8 @@ nothing else.
 system Acme {
   subdomain Sales {
     context Orders {
-      aggregate Customer { name: string }
-      repository Customers for Customer { find byEmail(email: string): Customer? }
+      aggregate Customer { name: string  email: string  unique (email) }
+      repository Customers for Customer
     }
   }
 

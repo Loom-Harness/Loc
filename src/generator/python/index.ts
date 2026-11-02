@@ -79,7 +79,6 @@ import {
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
 import { generateFelizForContexts } from "../feliz/index.js";
-import { MONEY_WIRE_SCALE } from "../money-scale.js";
 import { generateReactForContexts } from "../react/index.js";
 import { generateSvelteForContexts } from "../svelte/index.js";
 import { generateVueForContexts } from "../vue/index.js";
@@ -94,6 +93,7 @@ import {
   routesPolymorphicRead,
 } from "./base-reader-builder.js";
 import { buildPyChannelsFile } from "./channels-builder.js";
+import { pyIsoHelperBody, pyMoneyQuantum } from "./codec-spelling.js";
 import { buildPyDispatchFile, dispatchSubscriptionsOf } from "./dispatch-builder.js";
 import { type OpFragment, renderPyAggregate } from "./emit/aggregate.js";
 import { emitPyAudit } from "./emit/audit.js";
@@ -1529,11 +1529,14 @@ function renderMain(
     "# Added last so it runs first (Starlette: later-added is outermost) —",
     "# every request is bracketed, including 401s from the auth middleware.",
     "app.add_middleware(ObservabilityMiddleware)",
+    // Explicit routes first: FastAPI answers with the first registered match,
+    // so an aggregate's `GET /api/orders/{id}` would otherwise take a routed
+    // handler's `GET /api/orders/order_by_code` (`id = "order_by_code"`).
+    ...explicitRouteApis.map((name) => `app.include_router(${snake(name)}_router${routerArgs})`),
     ...routerAggs.map((name) => `app.include_router(${snake(name)}_router${routerArgs})`),
     hasWorkflows ? `app.include_router(${M.workflows_router}${routerArgs})` : null,
     hasProjections ? `app.include_router(${M.projections_router}${routerArgs})` : null,
     hasQueryProjections ? `app.include_router(${M.query_projections_router}${routerArgs})` : null,
-    ...explicitRouteApis.map((name) => `app.include_router(${snake(name)}_router${routerArgs})`),
     // Realtime SSE wire (channels.md Part I): GET /api/realtime/events streams
     // broadcast-channel events to connected browsers (mounted under the shared
     // API base so `${API_BASE_URL}/realtime/events` lines up).
@@ -1784,10 +1787,7 @@ def iso(dt: datetime) -> str:
     whole second, the form every backend ships.  \`isoformat\` alone printed
     six digits (\`.120000Z\`); \`timespec="milliseconds"\` TRUNCATES, so
     \`.9996\` cannot carry into the next second."""
-    utc = dt.astimezone(UTC)
-    if utc.microsecond < 1000:
-        return utc.replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    return utc.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+${pyIsoHelperBody()}
 
 
 def money_str(amount: Decimal) -> str:
@@ -1797,7 +1797,7 @@ def money_str(amount: Decimal) -> str:
     \`quantize\` pins the scale (a value/derived money carries its own scale
     otherwise); \`format(d, "f")\` then avoids the scientific notation bare
     \`str(Decimal)\` can emit (e.g. \`1E+2\`)."""
-    return format(amount.quantize(Decimal("1e-${MONEY_WIRE_SCALE}"), rounding="ROUND_HALF_UP"), "f")
+    return format(amount.quantize(Decimal("${pyMoneyQuantum()}"), rounding="ROUND_HALF_UP"), "f")
 `;
 
 /** One exception-less op-return union to surface in the OpenAPI spec:

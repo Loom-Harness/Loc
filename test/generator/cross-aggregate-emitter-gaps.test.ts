@@ -77,8 +77,8 @@ const SIBLING = (platform: string) => `system Ports {
       name: string
       berth: Berth
       test "an id carried by a value object survives construction" {
-        let s = Ship.create({ name: "Aurora" })
-        let d = Dock.create({ name: "North", berth: Berth { ship: s.id, position: 3 } })
+        let s = Ship.create(name: "Aurora")
+        let d = Dock.create(name: "North", berth: Berth { ship: s.id, position: 3 })
         expect(d.berth.position).toBe(3)
       }
     }
@@ -140,8 +140,8 @@ describe("A — a unit-test body may name a second aggregate", () => {
       name: string
       berth: Berth
       test "sibling reachable" {
-        let s = Ship.create({ name: "Aurora" })
-        let d = Dock.create({ name: "North", berth: Berth { ship: s.id, position: 3 } })
+        let s = Ship.create(name: "Aurora")
+        let d = Dock.create(name: "North", berth: Berth { ship: s.id, position: 3 })
         expect(d.berth.position).toBe(3)
       }
     }
@@ -217,8 +217,8 @@ describe("A — a unit-test body may name a second aggregate", () => {
     // unit test, so an aggregate no test names stays the plain schema.
     const files = await generateSystemFiles(
       SIBLING("elixir").replace(
-        'let s = Ship.create({ name: "Aurora" })\n        let d = Dock.create({ name: "North", berth: Berth { ship: s.id, position: 3 } })',
-        'let d = Dock.create({ name: "North", berth: Berth { ship: "00000000-0000-0000-0000-000000000001", position: 3 } })',
+        'let s = Ship.create(name: "Aurora")\n        let d = Dock.create(name: "North", berth: Berth { ship: s.id, position: 3 })',
+        'let d = Dock.create(name: "North", berth: Berth { ship: "00000000-0000-0000-0000-000000000001", position: 3 })',
       ),
     );
     expect(fileEndingWith(files, "test/docking/dock_test.exs")).not.toContain("Ship.create(");
@@ -235,7 +235,7 @@ describe("A — a unit-test body may name a second aggregate", () => {
     aggregate Widget with crudish {
       size: int
       test "size round-trips" {
-        let w = Widget.create({ size: 3 })
+        let w = Widget.create(size: 3)
         expect(w.size).toBe(3)
       }
     }

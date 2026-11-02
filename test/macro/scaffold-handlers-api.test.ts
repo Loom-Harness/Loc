@@ -1,7 +1,7 @@
 // `scaffoldHandlers` (context) + `scaffoldApi` (api) stdlib macros
 // (unfoldable-api-derivation.md, A3 + A3.2).  The two are a pair:
 // `scaffoldHandlers` emits a `commandHandler` / `queryHandler` per eligible
-// source of every aggregate in the context (operation, create, repository find,
+// source of every aggregate in the context (operation, create,
 // get-by-id read, and destroy when the aggregate has a canonical `destroy { }`);
 // `scaffoldApi` emits the `route <M> … -> Context.Handler` that binds to it.
 // Both derive names / methods / paths from the SAME shared helper, so a route
@@ -202,8 +202,8 @@ describe("scaffoldHandlers + scaffoldApi — equivalence with explicit form", ()
   });
 });
 
-// A3.2 — create (commandHandler → POST /coll) + find (queryHandler → GET
-// /coll/<find>) source kinds, plus the deliberate destroy deferral.
+// A3.2 — the create (commandHandler → POST /coll) source kind, beside the
+// get-by-id read and the destroy.
 const A32 = `
   system Shop {
     subdomain Sales {
@@ -221,9 +221,7 @@ const A32 = `
         }
         // NON-optional, so the handler body dereferences it directly; list
         // finds are removed.
-        repository Orders for Order {
-          find byStatus(status: string): Order where this.status == status
-        }
+        repository Orders for Order { }
       }
     }
     api SalesApi with scaffoldApi(of: Sales)
@@ -233,8 +231,8 @@ const A32 = `
   }
 `;
 
-describe("scaffoldHandlers + scaffoldApi — A3.2 create / find source kinds", () => {
-  it("parses + validates the create/find scaffolded form with no errors", async () => {
+describe("scaffoldHandlers + scaffoldApi — A3.2 create source kind", () => {
+  it("parses + validates the create scaffolded form with no errors", async () => {
     const { errors } = await parseString(A32);
     expect(errors).toEqual([]);
   });
@@ -251,43 +249,19 @@ describe("scaffoldHandlers + scaffoldApi — A3.2 create / find source kinds", (
     expect((cmd.params[0]!.type.base as { target: { $refText: string } }).target.$refText).toBe(
       "CreateOrderCommand",
     );
-    // Body: `let o = Order.create({ code: cmd.code, … })` then `return o.id`.
+    // Body: `let o = Order.create(code: cmd.code, …)` then `return o.id`.
     expect(cmd.body.map((s) => s.$type)).toEqual(["LetStmt", "ReturnStmt"]);
     // Return type `Order id`.
     expect(cmd.returnType?.base.$type).toBe("IdType");
   });
 
-  it("emits a ByStatusOrder queryHandler running the repository find, returning Order", async () => {
-    const { model } = await parseString(A32, { validate: false });
-    const q = [...AstUtils.streamAllContents(model)]
-      .filter(isQueryHandler)
-      .find((h) => h.name === "ByStatusOrder") as QueryHandler;
-    expect(q).toBeDefined();
-    // A single `query: ByStatusOrderQuery` record param carrying the find's params.
-    expect(q.params.map((p) => p.name)).toEqual(["query"]);
-    expect((q.params[0]!.type.base as { target: { $refText: string } }).target.$refText).toBe(
-      "ByStatusOrderQuery",
-    );
-    expect(q.body.map((s) => s.$type)).toEqual(["LetStmt", "ReturnStmt"]);
-    // A find over the aggregate declares `<Agg>Response` (the wire is already
-    // that shape via transport projection).
-    expect(q.returnType.array).toBe(false);
-    expect((q.returnType.base as { target: { $refText: string } }).target.$refText).toBe(
-      "OrderResponse",
-    );
-  });
-
-  it("emits POST /orders (create) + GET /orders/by_status (find) routes", async () => {
+  it("emits POST /orders (create) beside the get-by-id / operation / destroy routes", async () => {
     const { model } = await parseString(A32, { validate: false });
     const api = [...AstUtils.streamAllContents(model)].find(isApi) as Api;
     const routes = api.routes.map((r) => `${r.method} ${r.path} -> ${r.target.handler}`);
     expect(routes).toContain("POST /orders -> CreateOrder");
-    expect(routes).toContain("GET /orders/by_status -> ByStatusOrder");
-    // Full ordered surface: find, get-by-id, create, operation, destroy — the
-    // static `by_status` precedes `{orderId}`, which first-match routers would
-    // otherwise let swallow it.
+    // Full ordered surface: get-by-id, create, operation, destroy.
     expect(routes).toEqual([
-      "GET /orders/by_status -> ByStatusOrder",
       "GET /orders/{orderId} -> GetOrder",
       "POST /orders -> CreateOrder",
       "POST /orders/{orderId}/cancel -> CancelOrder",
@@ -325,7 +299,7 @@ describe("scaffoldHandlers + scaffoldApi — A3.2 create / find source kinds", (
 
 // A declared `create(…)`'s parameter list IS the create input
 // (`declaredCreateParamNames`), so the scaffolded create command record and the
-// `<Agg>.create({ … })` it calls carry exactly those params — naming the
+// `<Agg>.create(…)` it calls carry exactly those params — naming the
 // defaulted `status` would call a factory input the declared create does not take.
 describe("scaffoldHandlers — a narrowed create's params are the command record", () => {
   it("the CreateOrder handler passes only the declared params", async () => {
@@ -334,7 +308,7 @@ describe("scaffoldHandlers — a narrowed create's params are the command record
       .filter(isCommandHandler)
       .find((c) => c.name === "CreateOrder") as CommandHandler;
     const printed = printStructural(cmd);
-    expect(printed).toContain("Order.create({ code: cmd.code })");
+    expect(printed).toContain("Order.create(code: cmd.code)");
     expect(printed).not.toContain("cmd.status");
   });
 
@@ -357,7 +331,7 @@ describe("scaffoldHandlers — a narrowed create's params are the command record
     const cmd = [...AstUtils.streamAllContents(model)]
       .filter(isCommandHandler)
       .find((c) => c.name === "CreateOrder") as CommandHandler;
-    expect(printStructural(cmd)).toContain("Order.create({ code: cmd.code, status: cmd.status })");
+    expect(printStructural(cmd)).toContain("Order.create(code: cmd.code, status: cmd.status)");
   });
 });
 

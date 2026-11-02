@@ -62,7 +62,7 @@ import type {
 } from "../types/loom-ir.js";
 import { isShorthandProjection } from "../types/loom-ir.js";
 import { explicitRouteSlot } from "../util/api-surface.js";
-import { AUDIT_HISTORY_FIND, aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
+import { aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
 import { isTpcConcrete, isTphConcrete } from "../util/inheritance.js";
 import { pagedRunFindName, pagedRunStmt } from "../util/paged-run.js";
 import {
@@ -83,7 +83,6 @@ import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../u
 import { type BypassRead, synthesizeBypassReadFinds } from "./bypass-read-finds.js";
 import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
-import { bindFindParams } from "./find-param-bindings.js";
 import { inheritBaseCapabilities } from "./inherited-capabilities.js";
 import { type KeyLookupRead, synthesizeKeyLookupFinds } from "./key-lookup-finds.js";
 import { applyPolicyReadGates } from "./policy-read-gates.js";
@@ -898,31 +897,28 @@ export function enrichContext(
   // on top of the auto-`findAll` repositories; the synthesized find is flagged
   // so the aggregate router does NOT auto-expose it (the queryHandler's own
   // route is the exposure).
-  const repositories = bindFindParams(
-    synthesizeBypassReadFinds(
-      synthesizeKeyLookupFinds(
-        synthesizePagedQueryHandlerFinds(
-          // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
-          // find's gate + `ignoring` stance, so the implicit `all` must exist first.
-          // `applyPolicyReadGates` sits between them: it puts the
-          // `policy { read X requires … }` gate on the injected `all` (and every
-          // declared find), which history then copies.
-          ensureHistoryFind(
-            aggregates,
-            applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
-          ),
-          ctx.queryHandlers,
-          ctx.criteria,
-          ctx.retrievals,
+  const repositories = synthesizeBypassReadFinds(
+    synthesizeKeyLookupFinds(
+      synthesizePagedQueryHandlerFinds(
+        // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
+        // find's gate + `ignoring` stance, so the implicit `all` must exist first.
+        // `applyPolicyReadGates` sits between them: it puts the
+        // `policy { read X requires … }` gate on the injected `all`, which
+        // history then copies.
+        ensureHistoryFind(
+          aggregates,
+          applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
         ),
-        aggregates,
-        keyLookupReads(ctx),
+        ctx.queryHandlers,
+        ctx.criteria,
+        ctx.retrievals,
       ),
       aggregates,
-      ctx.criteria,
-      bypassReads(ctx),
+      keyLookupReads(ctx),
     ),
     aggregates,
+    ctx.criteria,
+    bypassReads(ctx),
   );
   // P2 (payload-transport-layer.md): give every concrete aggregate's wire
   // shape a named, referenceable `<Agg>Wire` payload.  Purely additive IR
@@ -964,7 +960,7 @@ export function enrichContext(
   // `PayloadIR` carrying `variants` — sibling to the generic monomorphization
   // above.  Named unions (`payload Foo = A | B`) already carry `variants` from
   // lowering, so they pass through `withGenerics` and are skipped here by name.
-  const unions = monomorphizeUnions(aggregates, valueObjects, repositories, withGenerics);
+  const unions = monomorphizeUnions(aggregates, valueObjects, withGenerics);
   const payloads = [...withGenerics, ...unions];
   // Derive each workflow's tail-position success type once, so the backends
   // can narrow `{:ok, term()}` to a concrete `{:ok, T}` instead of re-walking
@@ -1598,7 +1594,6 @@ export function deriveEventSubscriptions(
 function monomorphizeUnions(
   aggregates: EnrichedAggregateIR[],
   valueObjects: EnrichedValueObjectIR[],
-  repositories: RepositoryIR[],
   existing: PayloadIR[],
 ): PayloadIR[] {
   const found = new Map<string, TypeIR[]>();
@@ -1624,12 +1619,6 @@ function monomorphizeUnions(
     for (const part of agg.parts) scanAggregateLike(part);
   }
   for (const vo of valueObjects) scanAggregateLike(vo);
-  for (const repo of repositories) {
-    for (const find of repo.finds) {
-      scan(find.returnType);
-      for (const p of find.params) scan(p.type);
-    }
-  }
   for (const p of existing) {
     for (const f of p.fields) scan(f.type);
     for (const v of p.variants ?? []) scan(v);
@@ -2160,11 +2149,10 @@ function ensureFindAll(
   return out;
 }
 
-/** Every AUDITED aggregate additionally gets an implicit `find history(id):
- *  AuditEntry[]` — the per-entity read over the module's `audit_records` rows
- *  (docs/audit.md).  Same slot and same rule as the auto-`findAll` above: a
- *  synthesized addition in the one pure pass, and an author-declared find named
- *  `history` wins.
+/** Every AUDITED aggregate additionally gets an implicit `history(id):
+ *  AuditEntry[]` read — the per-entity read over the module's `audit_records`
+ *  rows (docs/audit.md).  Same slot as the auto-`findAll` above: a synthesized
+ *  addition in the one pure pass.
  *
  *  ── The gate it inherits ────────────────────────────────────────────────
  *  History is a read of the SAME rows the entity read covers, only replayed
@@ -2197,12 +2185,13 @@ function ensureHistoryFind(
     // `ensureFindAll` runs first and creates a repository for every concrete
     // aggregate, so this is defensive rather than reachable.
     if (!repo) continue;
-    // An author-declared `find history(...)` wins — same rule as `all`.  Their
-    // find keeps its own route; no `historyFind` is derived beside it, so the
-    // aggregate serves exactly one `history` read and it is theirs.
-    if (repo.finds.some((f) => f.name === AUDIT_HISTORY_FIND)) continue;
     const listRead = repo.finds.find((f) => f.name === "all");
-    const history = buildHistoryFind(agg, listRead?.requires);
+    // Its own node: IR nodes are not shared (a pass that rewrites one gate in
+    // place must not rewrite the other).
+    const history = buildHistoryFind(
+      agg,
+      listRead?.requires ? structuredClone(listRead.requires) : undefined,
+    );
     if (listRead?.bypassAll) history.bypassAll = true;
     if (listRead?.bypassCaps) history.bypassCaps = [...listRead.bypassCaps];
     repo.historyFind = history;

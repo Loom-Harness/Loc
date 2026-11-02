@@ -177,30 +177,6 @@ describe("api binding validator", () => {
       expect(errors.filter((e) => /Operation .* is not declared/.test(e))).toEqual([]);
     });
 
-    it("accepts a custom repository finder", async () => {
-      const { errors } = await parse(`
-        system S {
-          subdomain Sales {
-            context Orders {
-              aggregate Customer { name: string }
-              repository Customers for Customer { find byEmail(email: string): Customer? }
-            }
-          }
-          api SalesApi from Sales
-          ui WebApp {
-            api Sales: SalesApi
-            page X(email: string) {
-              route: "/x/:email"
-              body: Text { Sales.Customer.byEmail(email).isLoading }
-            }
-          }
-          deployable api { platform: node, contexts: [Orders], port: 3000 }
-          deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
-        }
-      `);
-      expect(errors.filter((e) => /Operation .* is not declared/.test(e))).toEqual([]);
-    });
-
     it("does NOT flag chains rooted at a non-api-param name (those are different feature)", async () => {
       // `lodash.compact(items)` should not be validated as an api ref.
       const { errors } = await parse(`

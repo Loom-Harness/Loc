@@ -49,9 +49,8 @@ ${body}
           total := base * qty - discount
         }
       }
-      repository Carts for Cart {
-        find byLabel(label: string): Cart? where this.label == label
-      }
+      repository Carts for Cart { }
+      criterion CartsByLabel(label: string) of Cart = this.label == label
     }
   }
   storage pg { type: postgres }
@@ -163,7 +162,8 @@ system S { subdomain M { context C {
     total: int provenanced
     operation noop(x: int) { precondition x > 0 }
   }
-  repository Carts for Cart { find byLabel(label: string): Cart? where this.label == label }
+  repository Carts for Cart { }
+  criterion CartsByLabel(label: string) of Cart = this.label == label
 } } deployable api { platform: node, contexts: [C], port: 3000 } }
 `;
     const { warnings } = await parseModel(src);
@@ -453,7 +453,7 @@ system S {
       repository Carts for Cart { }
       workflow buildCart {
         create(base: int, qty: int) {
-          let cart = Cart.create({ label: "seed", discount: 0, total: 0 })
+          let cart = Cart.create(label: "seed", discount: 0, total: 0)
           cart.applyTotal(base, qty)
         }
       }
@@ -523,7 +523,7 @@ system S {
       workflow Fulfillment {
         orderId: Order id
         create(p: OrderPlaced) by p.order {
-          let ship = Shipment.create({ orderRef: p.order, fee: 0 })
+          let ship = Shipment.create(orderRef: p.order, fee: 0)
           emit ShipmentRequested { shipment: ship.id, order: p.order, at: now() }
         }
         on(s: ShipmentRequested) by s.order {

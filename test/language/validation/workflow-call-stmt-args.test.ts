@@ -38,9 +38,11 @@ system Demo {
     context C {
       aggregate Order with crudish {
         qty: int
+        code: string
+        unique (code)
         operation bump(n: int) { qty := qty + n }
       }
-      repository Orders for Order { ${finds} }
+      repository Orders for Order ${finds}
       workflow W { create(label: string) { ${body} } }
     }
   }
@@ -59,15 +61,15 @@ const TYPE = "loom.call-arg-type";
 
 describe("workflow-body operation-call statement args (M-T6.18 gap #3 follow-on)", () => {
   it("flags a wrong-typed operation-call arg on a factory-loaded receiver", async () => {
-    expect(await codes('let o = Order.create({ qty: 1 })  o.bump("x")')).toContain(TYPE);
+    expect(await codes('let o = Order.create(qty: 1)  o.bump("x")')).toContain(TYPE);
   });
 
   it("flags a wrong-arity operation-call on a factory-loaded receiver", async () => {
-    expect(await codes("let o = Order.create({ qty: 1 })  o.bump()")).toContain(COUNT);
+    expect(await codes("let o = Order.create(qty: 1)  o.bump()")).toContain(COUNT);
   });
 
   it("is CLEAN for a correctly-typed operation-call", async () => {
-    const c = await codes("let o = Order.create({ qty: 1 })  o.bump(3)");
+    const c = await codes("let o = Order.create(qty: 1)  o.bump(3)");
     expect(c).not.toContain(TYPE);
     expect(c).not.toContain(COUNT);
   });
@@ -98,9 +100,9 @@ describe("workflow-body operation-call statement args (M-T6.18 gap #3 follow-on)
     expect(c).not.toContain(COUNT);
   });
 
-  it("flags a wrong-typed operation-call on a declared-find-loaded receiver", async () => {
-    // A declared `find mine(): Order` yields its return type (single Order).
-    const src = sysWith("find mine(): Order", 'let o = Orders.mine()  o.bump("x")');
+  it("flags a wrong-typed operation-call on a natural-key-loaded receiver", async () => {
+    // `getBy` over a declared `unique (…)` key yields the single row.
+    const src = sysWith("", 'let o = Orders.getBy(code: "c")  o.bump("x")');
     const { diagnostics } = await parseString(src, { validate: true });
     expect(lspCodes(diagnostics)).toContain(TYPE);
   });

@@ -33,10 +33,9 @@ system S {
         operation touch() { qty := qty + 1 }
       }
       criterion ByEmail(e: string) of Customer = email == e
+      criterion OrderCode(c: string) of Order = code == c
       repository Customers for Customer { }
-      repository Orders for Order {
-        find byCode(c: string): Order? where this.code == c
-      }
+      repository Orders for Order { }
       command C { e: string  oid: Order id  code: string }
       commandHandler H(e: string, oid: Order id, code: string) {
         ${body.handler ?? "let c = Customers.find(ByEmail(e))\n        precondition c != null"}
@@ -126,11 +125,11 @@ describe("lowering", () => {
 
   it("a body whose only reads are optional cannot answer not-found", async () => {
     const ctx = await ctxOf(sys({}));
-    expect(workflowCanAnswerNotFound(ctx.workflows[0]!, ctx.repositories)).toBe(false);
+    expect(workflowCanAnswerNotFound(ctx.workflows[0]!)).toBe(false);
     const must = await ctxOf(
       sys({ workflow: "let o = Orders.getById(c.oid)\n          o.touch()" }),
     );
-    expect(workflowCanAnswerNotFound(must.workflows[0]!, must.repositories)).toBe(true);
+    expect(workflowCanAnswerNotFound(must.workflows[0]!)).toBe(true);
   });
 });
 
@@ -143,7 +142,7 @@ describe("a guarded optional binding is clean in every body", () => {
     const src = sys({
       handler: `let b = Orders.findById(oid)
         let k = Orders.findBy(code: code)
-        let d = Orders.byCode(code)
+        let d = Orders.find(OrderCode(code))
         precondition b == null
         if let o = k { o.touch() } else { if let p = d { p.touch() } }`,
       service: "let o = Orders.findById(oid)\n          return o != null ? o.qty > 0 : false",
@@ -187,7 +186,7 @@ describe("an un-narrowed optional binding is refused when dereferenced", () => {
   it("an op-call in a handler, and in the else branch of an `if let`", async () => {
     for (const handler of [
       "let x = Customers.find(ByEmail(e))\n        x.touch()",
-      "let x = Orders.byCode(code)\n        if let y = Orders.findById(oid) { y.touch() } else { x.touch() }",
+      "let x = Orders.find(OrderCode(code))\n        if let y = Orders.findById(oid) { y.touch() } else { x.touch() }",
     ]) {
       expect(await errorCodes(sys({ handler })), handler).toContain(NULLABLE);
     }

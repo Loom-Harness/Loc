@@ -52,9 +52,8 @@ system Shop {
         status: OrderStatus
         private operation quiet() audited { code := code }
       }
-      repository Orders for Order {
-        find open(): Order? where this.status == OrderStatus.Open
-      }
+      repository Orders for Order { }
+      criterion OrdersOpen of Order = this.status == OrderStatus.Open
     }
   }
   storage pg { type: postgres }

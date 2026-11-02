@@ -10,7 +10,9 @@
 // diverge in exactly the two places a non-optional read happens WITHOUT one:
 //
 //   F10  POST /api/workflows/<wf>  whose body loads an aggregate
-//   F13  GET  /api/<aggs>/<find>   for a NON-optional declared find
+//   F13  GET  /api/<aggs>/<read>   for a routed single-row read with no path id
+//        (a `scaffoldGet` over a unique key — `getBy`, non-optional — or over
+//        a criterion — `find(C)` + `notFound`)
 //
 // F13 also had a RUNTIME half, found once the declaration forced the question
 // "what does each backend actually answer here?".  All five agreed on the happy
@@ -34,19 +36,21 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 /** One context, five deployables, three workflows chosen to span the predicate:
  *
  *   `spend`      loads by a client-supplied id (`getById`)  → declares 404
- *   `spendByRef` loads via a NON-optional declared find     → declares 404
+ *   `spendByRef` reads a criterion, `notFound` on a miss    → declares 404
  *   `jot`        constructs only, touches no repository     → declares NONE
  *
- * `Wallets.byRef` doubles as the F13 subject: as a route it is a `findSingle`,
- * and its emitted repository method is the same throwing read the workflow
- * calls — which is the whole point that the two findings share a root cause. */
+ * The F13 subjects are the two routed single-row reads: `GET
+ * /wallets/by_owner_ref` (`getBy(ownerRef:)` over `unique (ownerRef)`, whose
+ * repository method throws on a miss) and `GET /wallets/wallets_maybe_by_ref`
+ * (`find(WalletsMaybeByRef(r))`, whose handler answers `notFound`). */
 const SRC = `
 system NotFoundDecl {
   subdomain N {
-    context N {
+    context N with scaffoldGet(of: Wallet, key: "ownerRef"), scaffoldGet(of: WalletsMaybeByRef) {
       aggregate Wallet {
         ownerRef: string
         balance: decimal
+        unique (ownerRef)
         create(ownerRef: string, balance: decimal) { }
         operation debit(amount: decimal) { balance := balance - amount }
       }
@@ -54,10 +58,9 @@ system NotFoundDecl {
         text: string
         create(text: string) { }
       }
-      repository Wallets for Wallet {
-        find byRef(r: string): Wallet where this.ownerRef == r
-        find maybeByRef(r: string): Wallet? where this.ownerRef == r
-      }
+      repository Wallets for Wallet { }
+      criterion WalletsByRef(r: string) of Wallet = this.ownerRef == r
+      criterion WalletsMaybeByRef(r: string) of Wallet = this.ownerRef == r
       repository Notes for Note { }
 
       workflow spend transactional {
@@ -68,18 +71,21 @@ system NotFoundDecl {
       }
       workflow spendByRef transactional {
         create(ref: string, amount: decimal) {
-          let w = Wallets.byRef(ref)
-          w.debit(amount)
+          if let w = Wallets.find(WalletsByRef(ref)) {
+            w.debit(amount)
+          } else {
+            notFound
+          }
         }
       }
       workflow jot transactional {
         create(text: string) {
-          let n = Note.create({ text: text })
+          let n = Note.create(text: text)
         }
       }
     }
   }
-  api NApi from N
+  api NApi with scaffoldGetApi(of: Wallet, key: "ownerRef"), scaffoldGetApi(of: WalletsMaybeByRef) from N
   storage pg { type: postgres }
   resource st { for: N, kind: state, use: pg }
   deployable nodeApi { platform: node,   contexts: [N], dataSources: [st], serves: NApi, port: 3000 }
@@ -222,25 +228,26 @@ describe("F10 — a workflow that reads declares the 404 it answers", () => {
 
 describe("F13 (runtime) — every backend ANSWERS the not-found rung on a miss", () => {
   // The declaration half is only worth having if the code behind it agrees.
-  // These read the emitted handler, which is where the four-way split lived.
+  // These read the emitted `getBy` read, which is where the split once lived
+  // (.NET's `FirstAsync` 500, elixir's `200 null`).
   it("node throws the shared carrier from the repository method", async () => {
     const repo = await fileMatching(/wallet-repository\.ts$/);
     expect(repo).toMatch(
-      /async byRef\([^)]*\)[\s\S]*?if \(rootRows\.length === 0\) throw new AggregateNotFoundError/,
+      /async getByOwnerRef\([^)]*\)[\s\S]*?if \(rootRows\.length === 0\) throw new AggregateNotFoundError/,
     );
   });
 
-  it("python raises it from the route", async () => {
-    const routes = await fileMatching(/wallet_routes\.py$/);
-    expect(routes).toMatch(
-      /found = await repo\.by_ref\(r\)\n\s+if found is None:\n\s+raise AggregateNotFoundError/,
+  it("python raises it from the repository method", async () => {
+    const repo = await fileMatching(/wallet_repository\.py$/);
+    expect(repo).toMatch(
+      /async def get_by_owner_ref\([^)]*\)[\s\S]*?if row is None:\n\s+raise AggregateNotFoundError/,
     );
   });
 
-  it("java throws it from the controller", async () => {
-    const controller = await fileMatching(/WalletsController\.java$/);
-    expect(controller).toMatch(
-      /byRefWallet[\s\S]*?if \(response == null\) throw new AggregateNotFoundException/,
+  it("java throws it from the repository", async () => {
+    const repo = await fileMatching(/WalletRepositoryImpl\.java$/);
+    expect(repo).toMatch(
+      /getByOwnerRef\(String ownerRef\)[\s\S]*?if \(result == null\) throw new AggregateNotFoundException/,
     );
   });
 
@@ -249,29 +256,18 @@ describe("F13 (runtime) — every backend ANSWERS the not-found rung on a miss",
     // filter arm matches — a 500 on a route the other backends 404.
     const repo = await fileMatching(/Infrastructure\/Repositories\/WalletRepository\.cs$/);
     expect(repo).toMatch(
-      /ByRef[\s\S]*?FirstOrDefaultAsync\(cancellationToken\) \?\? throw new AggregateNotFoundException/,
+      /GetByOwnerRef[\s\S]*?FirstOrDefaultAsync\(cancellationToken\) \?\? throw new AggregateNotFoundException/,
     );
     expect(repo).not.toMatch(/\.FirstAsync\(cancellationToken\)/);
   });
 
-  it("dotnet's dapper adapter too — it did not even COMPILE before", async () => {
-    // A third path: `persistence: dapper` builds its own method bodies rather
-    // than riding the EF terminal, and emitted a bare `null` for BOTH find
-    // shapes.  For a non-optional one that is `return null` from a declared
-    // `Task<Agg>` — CS8603 under the `dotnet build /warnaserror` this repo
-    // gates with, so `persistence: dapper` + a non-optional find has never
-    // compiled.  Nothing caught it because no fixture in the dotnet-build
-    // matrix pairs the two.  Verified by compiling the emitted project in the
-    // sdk:10.0 container: FAILED before, `0 Warning(s) 0 Error(s)` after.
-    // The dapper variant is generated from a ONE-DEPLOYABLE source, not from
-    // `SRC` with one platform swapped.  `SRC`'s five deployables share context
-    // `N`, and `loom.dapper-unsupported#schema-split` (F2-ADP-3) now refuses a
-    // self-provisioning adapter beside a migration-chain one on one context —
-    // dapper provisions `public.wallets` while the other four route into the
-    // binding's schema, so the five would start against two different tables.
-    // The comparison harness is an authoring convenience; the deployment it
-    // describes is the very bug that gate exists for, so this arm drops the
-    // siblings instead of asking the gate to look away.
+  it("dotnet's dapper adapter too", async () => {
+    // `persistence: dapper` builds its own method bodies rather than riding
+    // the EF terminal; a `null` from a declared `Task<Wallet>` is CS8603 under
+    // `dotnet build /warnaserror`.  The dapper variant is generated from a
+    // ONE-DEPLOYABLE source: `SRC`'s five deployables share context `N`, and
+    // `loom.dapper-unsupported#schema-split` refuses a self-provisioning adapter
+    // beside a migration-chain one on one context.
     const dapperSrc = SRC.split("\n")
       .filter((l) => !/^ {2}deployable (?!netApi)/.test(l))
       .join("\n")
@@ -283,56 +279,55 @@ describe("F13 (runtime) — every backend ANSWERS the not-found rung on a miss",
     const key = [...files.keys()].find((k) => /Repositories\/WalletRepository\.cs$/.test(k));
     expect(key, "no dapper wallet repository emitted").toBeDefined();
     const repo = files.get(key!)!;
-    // Slice the ONE method: the file also carries `MaybeByRef`, whose `null`
-    // return is correct (its declared type is `Wallet?`), so a file-wide
-    // negative would match the right code and read as a regression.
-    const at = repo.indexOf("public async Task<Wallet> ByRef(");
-    expect(at, "no non-optional ByRef method emitted").toBeGreaterThan(-1);
+    const at = repo.indexOf("public async Task<Wallet> GetByOwnerRef(");
+    expect(at, "no non-optional GetByOwnerRef method emitted").toBeGreaterThan(-1);
     const body = repo.slice(at, repo.indexOf("\n    }", at));
     expect(body).toMatch(/r is null \? throw new AggregateNotFoundException\("not_found"\)/);
     expect(body).not.toMatch(/r is null \? null/);
   });
 
   it("elixir answers the problem response instead of `200 null`", async () => {
-    const controller = await fileMatching(/wallet_controller\.ex$/);
+    const handler = await fileMatching(/handlers\/get_wallet_by_owner_ref\.ex$/);
+    expect(handler).toContain('{:error, :not_found} -> {:error, {:not_found, "not_found"}}');
+    const controller = await fileMatching(/n_api_routes_controller\.ex$/);
     expect(controller).toMatch(
-      /def by_ref[\s\S]*?\{:ok, nil\} ->\n\s+ProblemDetails\.problem_response\(conn, 404/,
+      /def respond\(conn, \{:error, \{:not_found, detail\}\}\),\s+do: ProblemDetails\.problem_response\(conn, 404,/,
     );
-    expect(controller).not.toMatch(/\{:ok, nil\} -> json\(conn, nil\)/);
   });
 });
 
-describe("F13 — a non-optional find route declares the 404 it throws", () => {
+describe("F13 — a routed single-row read declares the 404 it answers", () => {
   it("node", async () => {
-    expect(await statuses.node(/wallet\.routes\.ts$/, "/by_ref")).toContain(404);
+    expect(await statuses.node(/nApi-routes\.ts$/, "/wallets/by_owner_ref")).toContain(404);
   });
 
   it("python", async () => {
-    expect(await statuses.python(/wallet_routes\.py$/, "/by_ref")).toContain(404);
+    expect(await statuses.python(/n_api_routes\.py$/, "/wallets/by_owner_ref")).toContain(404);
   });
 
   it("dotnet", async () => {
-    expect(await statuses.dotnet(/WalletsController\.cs$/, "ByRefWallet(")).toContain(404);
+    expect(await statuses.dotnet(/NApiRoutesController\.cs$/, "GetWalletByOwnerRef(")).toContain(
+      404,
+    );
   });
 
   it("java", async () => {
-    expect(await statuses.java("/api/wallets/by_ref")).toContain(404);
+    expect(await statuses.java("/api/wallets/by_owner_ref")).toContain(404);
   });
 
   it("elixir", async () => {
-    expect(await statuses.elixir("/wallets/by_ref")).toContain(404);
+    expect(await statuses.elixir("/wallets/by_owner_ref")).toContain(404);
   });
 
   it("the COLLECTION read still declares none — `[]` is not an absent row", async () => {
     // The boundary of the fix.  A collection read answers an empty array for
-    // "nothing matched", so it has no absent case and no rung; widening the
-    // findSingle arm must not have swept this one along with it.
+    // "nothing matched", so it has no absent case and no rung.
     expect(await statuses.java("/api/wallets")).not.toContain(404);
     expect(await statuses.node(/wallet\.routes\.ts$/, "/")).not.toContain(404);
   });
 
-  it("an OPTIONAL find keeps its 404 — it RETURNS the absence it declares", async () => {
-    expect(await statuses.java("/api/wallets/maybe_by_ref")).toContain(404);
-    expect(await statuses.node(/wallet\.routes\.ts$/, "/maybe_by_ref")).toContain(404);
+  it("an OPTIONAL read answered with `notFound` declares its 404 too", async () => {
+    expect(await statuses.java("/api/wallets/wallets_maybe_by_ref")).toContain(404);
+    expect(await statuses.node(/nApi-routes\.ts$/, "/wallets/wallets_maybe_by_ref")).toContain(404);
   });
 });

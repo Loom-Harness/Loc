@@ -39,6 +39,7 @@
 // raw SQLAlchemy row.  Id / scalar / void returns are unchanged.
 // ---------------------------------------------------------------------------
 
+import { wireStatus } from "../../ir/enrich/wire-policy.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -49,6 +50,7 @@ import type {
   SystemIR,
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
+import { handlerUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
 import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
@@ -59,6 +61,7 @@ import {
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
+import { routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtChildren, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { walkExpr } from "../../ir/validate/checks/shared.js";
 import { lines } from "../../util/code-builder.js";
@@ -84,10 +87,12 @@ import {
   PY_REQUEST_PARAM,
   PY_SESSION_DEP,
   PY_USER_BIND,
+  pyQueryParam,
   pyWireToDomain,
   repoClassRef,
 } from "./routes-builder.js";
 import { pySaveRenderer } from "./stamp-call.js";
+import { pyProblemResponseEntry } from "./wire-policy-py.js";
 import {
   collectLiveLetNames,
   collectServiceReadPorts,
@@ -249,11 +254,13 @@ function lookupGatedOp(ctx: EnrichedBoundedContextIR, aggName: string, opName: s
   return !!op && operationBodyUsesCurrentUser(op);
 }
 
-/** Whether the handler body calls a currentUser-gated operation — the op's
- *  method takes a trailing `current_user`, so the handler (and its caller
- *  route) must bind the actor.  v1 handlers are ids/scalars, so this is inert
- *  for the common case (byte-identical to a no-user handler). */
+/** Whether the handler needs the actor: its body reads `currentUser` (a
+ *  `requires` gate or an expression), or it calls a currentUser-gated
+ *  operation whose method takes a trailing `current_user`.  Either way the
+ *  handler takes `current_user` and its route binds it; a handler that does
+ *  neither stays byte-identical to a no-user handler. */
 function handlerUsesUser(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
+  if (handlerUsesCurrentUser(h)) return true;
   for (const s of h.statements) {
     let hit = false;
     walkWorkflowStmtsDeep(s, (st) => {
@@ -578,11 +585,50 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
     "dir",
   ].join(", ");
   return lines(
-    `@router.${method}("${path}", operation_id="${opId}")`,
+    `@router.${method}("${path}", operation_id="${opId}"${routedResponsesKwarg(undefined, false, ctx)})`,
     `async def ${routeName}(${sig}) -> dict[str, object]:`,
     usesUser ? PY_USER_BIND : null,
     `    return await ${handlerFnRef(h.name)}(${callArgs})`,
   );
+}
+
+/** The `<Agg>Response` model a routed handler's SINGLE entity return
+ *  wire-projects to, as an import marker for the owning aggregate's routes
+ *  module — or undefined for a scalar / id / collection return, which node
+ *  publishes untyped too. */
+function routedResponseModel(h: Handler, ctx: EnrichedBoundedContextIR): string | undefined {
+  const norm = normalizeHandlerReturn(h.returnType, ctx);
+  if (!norm) return undefined;
+  const info = wireTypeInfo(norm, "response");
+  if (info.refKind !== "entity" || info.isCollection) return undefined;
+  const owning =
+    ctx.aggregates.find((a) => a.name === info.base) ??
+    ctx.aggregates.find((a) => a.parts.some((p) => p.name === info.base));
+  return owning
+    ? pyRef(`app.http.${snake(owning.name)}_routes`, `${info.base}Response`)
+    : undefined;
+}
+
+/** The FastAPI `responses=` kwarg a routed path-op declares — the set node's
+ *  routed handler publishes: the 200 body model for a single entity return,
+ *  400 for a malformed request, the context's not-found status, and 415 only
+ *  where a JSON body is read.  Documentation only: the route still returns
+ *  the handler's projected value as-is (`-> Any`). */
+function routedResponsesKwarg(
+  model: string | undefined,
+  hasBody: boolean,
+  ctx: EnrichedBoundedContextIR,
+): string {
+  const statuses = [
+    wireStatus("malformed-body"),
+    wireStatus("not-found", ctx.structuralErrorStatuses),
+    ...(hasBody ? [wireStatus("unsupported-media-type")] : []),
+  ];
+  const entries = [
+    ...(model ? [`200: {"model": ${model}, "description": "OK"}`] : []),
+    ...statuses.map((st) => pyProblemResponseEntry(st, H.ProblemDetails)),
+  ];
+  return `, responses={${entries.join(", ")}}`;
 }
 
 /** Emit one APIRouter per served api whose route list is non-empty:
@@ -628,11 +674,15 @@ export function emitPyExplicitRouteRouter(
     // `<Handler>Body` + call args carry the flat fields, byte-identical to the
     // flat-param form; a record's field binds from the SAME request location an
     // equivalent flat param would — path if its name is a route `{token}`, else
-    // the body). Then split on the route `{token}`s as before.
-    const pathNames = pathParamNames(r.path);
+    // the body). Then split on the route `{token}`s as before.  On a bodyless
+    // method (GET / DELETE) the unbound params ride the query string instead
+    // (`routedParamSource`), keyed by their `.ddd` name exactly as a declared
+    // find's query params are.
     const effParams = flatHandlerParams(h, ctx);
-    const pathParams = effParams.filter((p) => pathNames.has(p.name));
-    const bodyParams = effParams.filter((p) => !pathNames.has(p.name));
+    const source = (p: ParamIR) => routedParamSource(p.name, r, false);
+    const pathParams = effParams.filter((p) => source(p) === "path");
+    const queryParams = effParams.filter((p) => source(p) === "query");
+    const bodyParams = effParams.filter((p) => source(p) === "body");
 
     let bodyModelName: string | undefined;
     if (bodyParams.length > 0) {
@@ -648,6 +698,7 @@ export function emitPyExplicitRouteRouter(
     }
     const sig = [
       ...pathParams.map((p) => pyAliasedParam(p.name, paramPyType(p.type, ctx), "Path")),
+      ...queryParams.map((p) => pyQueryParam(p.name, paramPyType(p.type, ctx))),
       ...(bodyModelName ? [`body: ${bodyModelName}`] : []),
       ...(usesUser ? [PY_REQUEST_PARAM] : []),
       "session: SessionDep",
@@ -657,9 +708,11 @@ export function emitPyExplicitRouteRouter(
     const callArgs = [
       "session",
       ...effParams.map((p) =>
-        pathNames.has(p.name)
+        source(p) === "path"
           ? pyWireToDomain(pythonIdent(p.name), p.type, ctx)
-          : pyWireToDomain(`body.${pythonIdent(p.name)}`, p.type, ctx),
+          : source(p) === "query"
+            ? pyWireToDomain(pythonWireIdent(p.name), p.type, ctx)
+            : pyWireToDomain(`body.${pythonIdent(p.name)}`, p.type, ctx),
       ),
       ...(usesUser ? ["current_user"] : []),
     ].join(", ");
@@ -672,10 +725,15 @@ export function emitPyExplicitRouteRouter(
     const hasReturn = !!qry || !!cmd?.returnValue || !!(cmd?.extern && cmd.returnType);
     const routeName = `${snake(h.name)}_route`;
 
+    const responses = routedResponsesKwarg(
+      hasReturn && !h.extern ? routedResponseModel(h, ctx) : undefined,
+      bodyParams.length > 0,
+      ctx,
+    );
     if (hasReturn) {
       routeBlocks.push(
         lines(
-          `@router.${method}("${path}", operation_id="${opId}")`,
+          `@router.${method}("${path}", operation_id="${opId}"${responses})`,
           // `-> Any`, and the handler's value returned UNWRAPPED (M-T6.73).
           // This route used to answer `{"result": <value>}` where every other
           // backend answers the bare value — `POST /api/echo/hi` → `{"result":
@@ -696,7 +754,7 @@ export function emitPyExplicitRouteRouter(
     } else {
       routeBlocks.push(
         lines(
-          `@router.${method}("${path}", status_code=204, operation_id="${opId}")`,
+          `@router.${method}("${path}", status_code=204, operation_id="${opId}"${responses})`,
           `async def ${routeName}(${sig}) -> ${H.Response}:`,
           usesUser ? PY_USER_BIND : null,
           `    await ${handlerFnRef(h.name)}(${callArgs})`,

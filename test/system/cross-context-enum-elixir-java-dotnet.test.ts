@@ -32,9 +32,14 @@ system R {
         kind: Kind
         title: string
         derived display: string = title
-        test "pos" { let c = Clm.create({ kind: Fire, title: "abc" })  expect(c.kind).toBe(Fire) }
+        test "pos" { let c = Clm.create(kind: Fire, title: "abc")  expect(c.kind).toBe(Fire) }
       }
-      repository Clms for Clm { find byKind(k: Kind): Clm? where this.kind == k }
+      repository Clms for Clm
+      criterion ClmsByKind(k: Kind) of Clm = this.kind == k
+      queryHandler ListClmsByKind(k: Kind): Clm[] {
+        let r = Clms.run(ClmsByKind(k))
+        return r
+      }
       event Opened { clm: Clm id, title: string }
       workflow Track {
         clm: Clm id

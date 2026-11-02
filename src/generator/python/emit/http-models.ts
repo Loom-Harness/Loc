@@ -2,11 +2,15 @@ import { fieldFixedMessage, fieldValuePrefix } from "../../../ir/enrich/wire-pol
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { UUID_WIRE_PATTERN } from "../../../util/uuid-wire.js";
 import { PY_IMPORTS, pyRef } from "../../_imports/python.js";
 import { provenancedTypeMembers } from "../../_payload/provenanced-wire.js";
-import { MONEY_INTEGER_DIGITS, MONEY_PRECISION, MONEY_WIRE_SCALE } from "../../money-scale.js";
+import {
+  pyIntegerRange,
+  pyMoneyColumnLabel,
+  pyMoneyGrammar,
+  pyMoneyIntegerDigits,
+} from "../codec-spelling.js";
 import { PY, pyVoOrEnum } from "../py-symbols.js";
 import { PY_CALENDAR_DATE } from "./calendar-date.js";
 import {
@@ -93,12 +97,12 @@ export const PY_MONEY_STR = "MoneyStr";
  *  real divergence.  `PydanticCustomError` carries the text verbatim; a bare
  *  `ValueError` would prefix it with "Value error, ".
  *
- *  The regex is node's, character for character (`^-?\d+(\.\d+)?$`) — no
- *  exponent, no grouping, no leading `+`, which is exactly the grammar the
+ *  The regex is the `Codec` fact's grammar (`pyMoneyGrammar`) — ASCII digits,
+ *  no exponent, no grouping, no leading `+`, which is exactly the grammar the
  *  `NUMERIC(19,4)` column and every other backend's parser accept. */
 const PY_MONEY_STR_DEF = [
   "",
-  `_MONEY_RE = ${PY.re}.compile(r"^-?\\d+(\\.\\d+)?$")`,
+  `_MONEY_RE = ${PY.re}.compile(${pyMoneyGrammar()})`,
   "",
   "",
   "def _money_str(value: str) -> str:",
@@ -111,10 +115,10 @@ const PY_MONEY_STR_DEF = [
   "    # RANGE, not format: the grammar above already passed, and what is left is",
   "    # a magnitude question the COLUMN answers.  Without this a 40-digit price",
   "    # is a well-formed decimal string a str passthrough happily forwards, so it",
-  `    # reached NUMERIC(${MONEY_PRECISION},${MONEY_WIRE_SCALE}) and the DATABASE refused it — a 500 for a`,
+  `    # reached ${pyMoneyColumnLabel()} and the DATABASE refused it — a 500 for a`,
   "    # client fault (M-T6.60 divergence 3).  Counted on the digits rather than",
   "    # computed, so a value too large to hold is never constructed.",
-  `    if len(value.lstrip("-").split(".")[0].lstrip("0") or "0") > ${MONEY_INTEGER_DIGITS}:`,
+  `    if len(value.lstrip("-").split(".")[0].lstrip("0") or "0") > ${pyMoneyIntegerDigits()}:`,
   `        raise ${PYDANTIC_CUSTOM_ERROR}(`,
   `            "money_range", ${JSON.stringify(`${fieldValuePrefix("money-range")}: {value}`)}, {"value": ${PY.json}.dumps(value)}`,
   "        )",
@@ -203,7 +207,7 @@ export const PY_INT32 = "Int32";
  *  or node can carry exactly — a bound nothing enforces is the F21 mistake. */
 const PY_INT32_CHECK_DEF = [
   "def _int32(value: int) -> int:",
-  `    if not ${INT32_MIN} <= value <= ${INT32_MAX}:`,
+  `    if not ${pyIntegerRange("int").min} <= value <= ${pyIntegerRange("int").max}:`,
   `        raise ${PYDANTIC_CUSTOM_ERROR}("int_range", ${JSON.stringify(fieldFixedMessage("integer-range"))})`,
   "    return value",
   "",

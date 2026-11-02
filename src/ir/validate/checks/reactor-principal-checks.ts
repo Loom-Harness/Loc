@@ -19,7 +19,7 @@
 //      `tenantOwned` aggregate without opting out of the tenant filter.  A
 //      tick has no tenant, so the read's tenant filter matches nothing; the
 //      read must say it is deliberately cross-tenant (`ignoring tenantOwned`
-//      on the declared `find` / inline `Repo.run`).
+//      on the inline `Repo.run` / natural-key read).
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
@@ -83,20 +83,12 @@ export function validateReactorGates(ctx: BoundedContextIR, diags: LoomDiagnosti
   }
 }
 
-/** Does a workflow read of `aggName` via `method` opt out of the tenant
- *  filter?  Only a declared `find` / inline `Repo.run` carries an `ignoring`
- *  clause; `getById` and the auto-reads cannot. */
-function readIgnoresTenant(
-  ctx: BoundedContextIR,
-  s: Extract<WorkflowStmtIR, { kind: "repo-let" | "repo-run" }>,
-): boolean {
-  if (s.kind === "repo-run") {
-    return !!s.bypassAll || (s.bypassCaps ?? []).includes(TENANT_OWNED_CAPABILITY);
-  }
-  const find = ctx.repositories
-    .find((r) => r.name === s.repoName)
-    ?.finds.find((f) => f.name === s.method);
-  return !!find && (!!find.bypassAll || (find.bypassCaps ?? []).includes(TENANT_OWNED_CAPABILITY));
+/** Does a workflow read opt out of the tenant filter?  An inline
+ *  `Repo.run` / `findAll` and a natural-key read carry their `ignoring`
+ *  stance on the statement; `getById` and the auto-reads cannot widen. */
+function readIgnoresTenant(s: Extract<WorkflowStmtIR, { kind: "repo-let" | "repo-run" }>): boolean {
+  const stance = s.kind === "repo-run" ? s : s.key;
+  return !!stance?.bypassAll || (stance?.bypassCaps ?? []).includes(TENANT_OWNED_CAPABILITY);
 }
 
 export function validateTimerTenantReads(sys: SystemIR, diags: LoomDiagnostic[]): void {
@@ -115,7 +107,7 @@ export function validateTimerTenantReads(sys: SystemIR, diags: LoomDiagnostic[])
           eachStmt(body.statements, (s) => {
             if (s.kind !== "repo-let" && s.kind !== "repo-run") return;
             const agg = ctx.aggregates.find((a) => a.name === s.aggName);
-            if (!agg || !hasTenantOwned(agg) || readIgnoresTenant(ctx, s)) return;
+            if (!agg || !hasTenantOwned(agg) || readIgnoresTenant(s)) return;
             diags.push({
               severity: "error",
               code: "loom.timer-tenant-read",

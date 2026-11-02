@@ -120,9 +120,7 @@ describe(".NET document-persistence emission (normalised(false))", () => {
     // M-T6.98: the write-time CAS compares against the HANDLE's version (or
     // `If-Match`) — the concurrency token's original value — not the re-read
     // tracked row a sibling handle may already have advanced.
-    expect(repo).toContain(
-      "var __expected = RequestContext.Current?.ExpectedVersion ?? aggregate.Version;",
-    );
+    expect(repo).toContain("var __expected = expectedVersion ?? aggregate.Version;");
     expect(repo).toContain(
       "if (__existing != null) _db.Entry(__existing).Property(x => x.Version).OriginalValue = __expected;",
     );
@@ -138,12 +136,6 @@ describe(".NET document-persistence emission (normalised(false))", () => {
     expect(repo).toContain(
       "return Cart.FromSnapshot(System.Text.Json.JsonSerializer.Deserialize<CartSnapshot>(__doc.Data, __json)!);",
     );
-    // Find evaluates client-side over rehydrated documents (de-asynced
-    // terminal): `.ToList()`, not `.ToListAsync(cancellationToken)`.
-    expect(repo).toContain(
-      "var result = __all.Where(x => x.CustomerId == customerId).FirstOrDefault();",
-    );
-    expect(repo).not.toContain("_db.Carts.Where(x => x.CustomerId");
   });
 
   it("routes the DbSet to the document record and skips the join layer", () => {
@@ -166,7 +158,7 @@ describe(".NET document-persistence emission (normalised(false))", () => {
   // shape: embedded: queryable root row + contained parts folded into a
   // JSONB column via EF owned-types `.ToJson()`.  Unlike `document`, the
   // entity/repository/DbSet are the NORMAL relational ones — only the EF
-  // configuration changes, so finds stay real SQL.
+  // configuration changes, so reads stay real SQL.
   it("embedded: folds the containment into a JSONB column via OwnsMany().ToJson()", () => {
     const cfg = files.get("Infrastructure/Persistence/Configurations/WishlistConfiguration.cs")!;
     expect(cfg).toContain("IEntityTypeConfiguration<Wishlist>");
@@ -180,7 +172,7 @@ describe(".NET document-persistence emission (normalised(false))", () => {
     expect(cfg).not.toContain('o.WithOwner().HasForeignKey("ParentId")');
   });
 
-  it("embedded: uses the normal entity + DbSet<T> + relational repository (real SQL finds)", () => {
+  it("embedded: uses the normal entity + DbSet<T> + relational repository (real SQL reads)", () => {
     const keys = [...files.keys()];
     // No document POCO / snapshot for an embedded aggregate.
     expect(keys).not.toContain("Infrastructure/Persistence/Documents/WishlistDocument.cs");
@@ -188,9 +180,10 @@ describe(".NET document-persistence emission (normalised(false))", () => {
     const dbctx = files.get("Infrastructure/Persistence/AppDbContext.cs")!;
     expect(dbctx).toContain("public DbSet<Wishlist> Wishlists => Set<Wishlist>();");
     const repo = files.get("Infrastructure/Repositories/WishlistRepository.cs")!;
-    // Find is a real indexed SQL WHERE on the root column, not in-memory.
+    // A read is a real SQL WHERE over the entity set, not in-memory over
+    // rehydrated documents.
     expect(repo).toContain(
-      "_db.Wishlists.Where(x => x.CustomerId == customerId).FirstOrDefaultAsync(cancellationToken)",
+      "_db.Wishlists.Where(x => ids.Contains(x.Id)).ToListAsync(cancellationToken)",
     );
     expect(repo).not.toContain("FromSnapshot");
     // Entity carries no snapshot machinery.

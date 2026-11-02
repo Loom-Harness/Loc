@@ -1,3 +1,4 @@
+import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -14,7 +15,6 @@ import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
@@ -34,6 +34,7 @@ import { bypassableFilterNames, hasNonBypassableFilter, queryFilterNames } from 
 import { csClaimStampsFor } from "./entity.js";
 import { eventDbSetName, eventRecordClass } from "./event-store.js";
 import { joinDbSetName, joinEntityName, joinFkPropName } from "./join-entities.js";
+import { handleSaveOverloadLines, saveInterfaceLines, saveParamsCs } from "./version-check-cs.js";
 
 /** The locals an EF relational `find` method (plain + paged) declares for
  *  itself — each yields to a same-named find param. */
@@ -119,7 +120,7 @@ export function renderRepositoryInterface(
           ]
         : []),
       `    Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${idClass}> ids, CancellationToken cancellationToken = default);`,
-      `    ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default);`,
+      ...saveInterfaceLines(agg, bclTask),
       // Hard delete — only when the aggregate has a canonical `destroy`
       // (declared or via `crudish`); keeps plain repos unchanged.
       ...(canonicalDestroy(agg)
@@ -233,12 +234,12 @@ export function renderRepositoryImpl(
   // zero-row result raises DbUpdateConcurrencyException, which the
   // DomainExceptionFilter maps to 409.  Not applied to INSERTs (a new row keeps
   // its seeded version).  Empty (byte-identical) for a non-versioned aggregate.
-  const versionGuardLines = aggregateIsVersioned(agg)
+  const versionGuardLines = rowVersionGuarded(agg)
     ? [
         "        if (entry.State != EntityState.Added && entry.State != EntityState.Detached)",
         "        {",
         "            var __version = entry.Property(x => x.Version);",
-        "            var __expected = RequestContext.Current?.ExpectedVersion;",
+        "            var __expected = expectedVersion;",
         "            if (__expected.HasValue) __version.OriginalValue = __expected.Value;",
         "            __version.CurrentValue = __version.OriginalValue + 1;",
         "        }",
@@ -543,7 +544,8 @@ export function renderRepositoryImpl(
       ...(findsHydrate
         ? [...buildHydrateReferenceCollectionsLines(agg.name, associations), ""]
         : []),
-      `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
+      ...handleSaveOverloadLines(agg, bclTask),
+      `    public async ${bclTask} SaveAsync(${agg.name} aggregate, ${saveParamsCs(agg)})`,
       "    {",
       // The context tracking this handle — a fork for a second load of a row
       // (see GetByIdAsync), else the scoped context.
@@ -1087,7 +1089,8 @@ export function renderDocumentRepositoryImpl(
       "    }",
       ...capMethod,
       "",
-      `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
+      ...handleSaveOverloadLines(agg, bclTask),
+      `    public async ${bclTask} SaveAsync(${agg.name} aggregate, ${saveParamsCs(agg)})`,
       "    {",
       // RS-14 — a document aggregate's `version` is served from the SNAPSHOT
       // inside `data`, while the optimistic-concurrency counter EF bumps lives
@@ -1098,7 +1101,7 @@ export function renderDocumentRepositoryImpl(
       // serialized snapshot, so `data.version` and the row agree.  The
       // relational path needs no equivalent — there the bumped column IS the
       // wire value (see `versionGuardLines`).
-      ...(aggregateIsVersioned(agg)
+      ...(rowVersionGuarded(agg)
         ? [
             `        var __existing = await _db.${setName}.FirstOrDefaultAsync(x => x.Id == aggregate.Id.Value, cancellationToken);`,
             // M-T6.98 — the write-time CAS compares against the version THIS
@@ -1109,7 +1112,7 @@ export function renderDocumentRepositoryImpl(
             // concurrency token's ORIGINAL value makes SaveChanges issue
             // `UPDATE … WHERE version = <expected>`; zero rows raise EF's
             // native DbUpdateConcurrencyException → the RS-40 409.
-            "        var __expected = RequestContext.Current?.ExpectedVersion ?? aggregate.Version;",
+            "        var __expected = expectedVersion ?? aggregate.Version;",
             "        if (__existing != null) _db.Entry(__existing).Property(x => x.Version).OriginalValue = __expected;",
             "        var __nextVersion = __existing == null ? 1 : __expected + 1;",
             // INSERT only: a jsonb aggregate is not EF-tracked, so the

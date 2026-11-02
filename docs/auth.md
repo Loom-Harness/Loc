@@ -54,7 +54,7 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   block (see [Read gates](#read-gates)):
 
   ```ddd
-  repository Secrets for Secret {}
+  repository Secrets for Secret
   policy { read Secret requires currentUser.role == "admin" }
   ```
 
@@ -77,7 +77,7 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
 - **an event-sourced `create` is the one remaining exception — on the four backends that
   cannot gate it.**  A `persistedAs: eventLog` aggregate's create body renders
   into the domain `_init`, which has no principal in scope, so a `requires` there
-  is refused (`loom.lifecycle-guard-event-sourced`, below) on `node` / `dotnet` /
+  is refused (`loom.target-unsupported#lifecycle-guard-event-sourced`, below) on `node` / `dotnet` /
   `python` / `java`.  **`elixir` is not affected** — Phoenix hoists the gate to
   its context function and binds a principal, so there the gate is accepted and
   the missing-gate case stays a hard error.  Demanding one
@@ -178,41 +178,21 @@ policy { read Order requires currentUser.role == "clerk" }
 `loom.default-deny-list-ungated` for the list read and
 `loom.default-deny-by-id-ungated` for the by-id read.  Both warnings become
 **errors** in a later release (target ~2026-11-01), so treat them as a to-do
-list now.  A *declared* find of an aggregate with no read gate is already an
-error (`loom.default-deny-ungated`).
+list now.
 
-### Migration: `find … requires` moved to the policy block
+### Read gates live in the policy block
 
-A repository `find` no longer carries a `requires` clause — `find … requires`
-does not parse.  Who may read an aggregate is an access fact, not a property of
-one collection query, so it lives beside the `allow` / `deny` ladder and covers
-every read at once ([D-READ-GATE-IN-POLICY](decisions.md)).  The codemod moves
-each gate:
-
-```bash
-node scripts/codemod-find-gate-to-policy.mjs <dir-or-file>...   # --check / --list write nothing; --embedded also rewrites .ts/.md/.yml
-```
+A repository declares no reads of its own, so there is no per-read `requires`:
+who may read an aggregate is an access fact, not a property of one query, so it
+lives beside the `allow` / `deny` ladder and covers every read at once
+([D-READ-GATE-IN-POLICY](decisions.md)):
 
 ```ddd
-// before
-repository Orders for Order {
-  find all(): Order paged requires currentUser.role == "clerk"
-  find byId(id: Order id): Order? requires currentUser.role == "clerk"
-}
-
-// after
-repository Orders for Order {
-  find byId(id: Order id): Order?
-}
+repository Orders for Order
 policy { read Order requires currentUser.role == "clerk" }
 ```
 
-It deletes a find left identical to the one the compiler injects
-(`find all(): T paged`) and keeps every other find, so the wire surface is
-unchanged.  Where one repository's finds carried **different** gates, there is
-no one-to-one translation — the gate is per aggregate now; the codemod keeps the
-list read's gate, writes a review comment naming the dropped ones, and reports
-the file.  Two reads of one aggregate that must answer to different principals
+Two reads of one aggregate that must answer to different principals
 belong on different aggregates (or behind an exposure gate:
 `scaffoldPaged(requires:)`, a route / handler `requires`).
 
@@ -274,7 +254,7 @@ system Acme {
         }
       }
 
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
 
@@ -412,7 +392,7 @@ single-row find's `where`); the renderer reads the resolved User
 inside the generated repository method:
 
 ```ddd
-repository Orders for Order { }
+repository Orders for Order
 criterion OrdersMine of Order = customerId == currentUser.customerId
 ```
 
@@ -761,7 +741,7 @@ passing the real principal — so an `eventLog` aggregate's `create ... { requir
 ... }` binds and enforces there like any other gate.  The other four render the
 ES create body into the domain `_init`, which has no principal in scope:
 `currentUser` is a free identifier, so the guard does not deny, it does not
-compile.  `loom.lifecycle-guard-event-sourced` refuses it **naming the hosting
+compile.  `loom.target-unsupported#lifecycle-guard-event-sourced` refuses it **naming the hosting
 backends that cannot enforce it**, and points at the caller (the named
 `operation` / `workflow` that issues the create) instead.
 
@@ -819,7 +799,7 @@ subdomain Sales {
         status := OrderStatus.Approved
       }
     }
-    repository Orders for Order { }
+    repository Orders for Order
   }
 }
 ```
@@ -1043,7 +1023,7 @@ Who may read an aggregate is one line in its context's `policy` block, beside
 the `allow` / `deny` ladder:
 
 ```ddd
-repository Tickets for Ticket { }
+repository Tickets for Ticket
 policy {
   read Ticket requires currentUser.role == "agent"
   read Product requires true          // intentionally public

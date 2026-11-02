@@ -4,8 +4,9 @@
 // `.IgnoreQueryFilters(["<Name>"])` (or the parameterless overload for `*`) on
 // the `_db.<Set>` IQueryable before `.Where(...)`.
 //
-// Covered: repository find and inline
-// `Repo.findAll(...)` in a workflow body.  The EF filter name must match the
+// Covered: a widened single-row read (`if let o = Repo.find(C) ignoring …`,
+// which derives its own repository method) and inline `Repo.findAll(...)` in a
+// workflow body.  The EF filter name must match the
 // `HasQueryFilter("<Name>", ...)` the entity configuration emits.
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
@@ -16,15 +17,15 @@ const SRC = `
     subdomain D { context C {
       criterion BigOrders() of Order = this.total > 0
       aggregate Order with softDeletable { total: int }
-      repository OrderRepo for Order {
-        find recent(): Order? where this.total > 0 ignoring softDeletable
-        find allRows(): Order? ignoring *
-        find normal(): Order? where this.total > 0
-      }
+      repository OrderRepo for Order
+      criterion OrdersRecent of Order = this.total > 0
+      criterion OrdersNormal of Order = this.total > 0
       workflow Sweep {
         create(x: int) {
           let xs = OrderRepo.findAll(BigOrders()) ignoring softDeletable
           let ys = OrderRepo.findAll(BigOrders()) ignoring *
+          if let a = OrderRepo.find(BigOrders()) ignoring softDeletable { }
+          if let b = OrderRepo.find(BigOrders()) ignoring * { }
           for o in xs { }
           for o in ys { }
         }
@@ -58,16 +59,18 @@ describe("dotnet ignoring filter-bypass emission", () => {
     expect(cfg).toContain('builder.HasQueryFilter("IsDeletedFilter",');
   });
 
-  it('find `ignoring <Cap>` → IgnoreQueryFilters(["<Name>"]) before Where', async () => {
+  it('find(C) `ignoring <Cap>` → IgnoreQueryFilters(["<Name>"]) before Where', async () => {
     const repo = get(await files(), "Infrastructure/Repositories/OrderRepository.cs");
     expect(repo).toContain(
-      '_db.Orders.IgnoreQueryFilters(["IsDeletedFilter"]).Where(x => x.Total > 0)',
+      '_db.Orders.IgnoreQueryFilters(["IsDeletedFilter"]).Where(new BigOrdersCriterion().ToExpression()).FirstOrDefaultAsync',
     );
   });
 
-  it("find `ignoring *` → parameterless IgnoreQueryFilters()", async () => {
+  it("find(C) `ignoring *` → parameterless IgnoreQueryFilters()", async () => {
     const repo = get(await files(), "Infrastructure/Repositories/OrderRepository.cs");
-    expect(repo).toContain("_db.Orders.IgnoreQueryFilters().FirstOrDefaultAsync");
+    expect(repo).toContain(
+      "_db.Orders.IgnoreQueryFilters().Where(new BigOrdersCriterion().ToExpression()).FirstOrDefaultAsync",
+    );
   });
 
   it("inline `Repo.findAll(...) ignoring <Cap>` passes a DOMAIN FilterBypass (capability names), not EF filter names (audit S7)", async () => {

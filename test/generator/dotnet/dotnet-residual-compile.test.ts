@@ -43,10 +43,7 @@ system Repro {
       criterion NameIs(n: string) of Item = name == n
       criterion Tok(cancellationToken: string, bypass: string) of Item = name == cancellationToken || name == bypass
       retrieval ByToken(cancellationToken: string) of Item { where: NameIs(cancellationToken) }
-      repository Items for Item {
-        find byToken(cancellationToken: string): Item? where this.name == cancellationToken
-        find byName(name: string): Item? where this.name == name
-      }
+      repository Items for Item
       repository Modules for Module { }
       domainService Lookup {
         operation anyTok(a: string): bool {
@@ -62,10 +59,13 @@ system Repro {
           let ys = Items.findAll(Tok("b", "c")) ignoring *
           for y in ys { }
           if let it = Items.find(Tok("d", "e")) { } else { }
+          if let z = Items.find(Tok("f", "g")) ignoring * { } else { }
+          let ns = Items.findAll(NameIs("x"))
+          for n in ns { }
         }
       }
       test "persists and reads back an item" {
-        let i = Item.create({ name: "abc", tags: [] })
+        let i = Item.create(name: "abc", tags: [])
         let found = Item.findById(i.id)
         expect(found.name).toBe("abc")
       }
@@ -142,7 +142,7 @@ describe.each(ADAPTERS)("%s: .NET residual /warnaserror failures", (adapter, pla
   it("a read param named cancellationToken / bypass keeps its name; the method's own param yields", async () => {
     const port = await file(platform, "Domain/Items/IItemRepository.cs");
     expect(port).toContain(
-      "ByToken(string cancellationToken, CancellationToken __cancellationToken = default);",
+      "FindFirstTokIgnoringAll(string cancellationToken, string bypass, CancellationToken __cancellationToken = default);",
     );
     expect(port).toContain(
       "RunByTokenAsync(string cancellationToken, (int? offset, int? limit)? page = null, FilterBypass bypass = default, CancellationToken __cancellationToken = default);",
@@ -151,11 +151,13 @@ describe.each(ADAPTERS)("%s: .NET residual /warnaserror failures", (adapter, pla
       "RunFindAllByTokAsync(string cancellationToken, string bypass, (int? offset, int? limit)? page = null, FilterBypass __bypass = default, CancellationToken __cancellationToken = default);",
     );
     // A read whose params miss the plumbing names is unchanged.
-    expect(port).toContain("ByName(string name, CancellationToken cancellationToken = default);");
+    expect(port).toContain(
+      "RunFindAllByNameIsAsync(string n, (int? offset, int? limit)? page = null, FilterBypass bypass = default, CancellationToken cancellationToken = default);",
+    );
 
     const impl = await file(platform, "Infrastructure/Repositories/ItemRepository.cs");
     expect(impl).toContain(
-      "ByToken(string cancellationToken, CancellationToken __cancellationToken = default)",
+      "FindFirstTokIgnoringAll(string cancellationToken, string bypass, CancellationToken __cancellationToken = default)",
     );
     // Every plumbing use inside the renamed method reads the yielded name.
     const body = (sig: string): string => {
@@ -163,8 +165,8 @@ describe.each(ADAPTERS)("%s: .NET residual /warnaserror failures", (adapter, pla
       expect(at, sig).toBeGreaterThan(-1);
       return impl.slice(at, impl.indexOf("\n    }\n", at));
     };
-    const byToken = body("ByToken(string cancellationToken, CancellationToken __cancellationToken");
-    expect(byToken).toMatch(/\(__cancellationToken\)|cancellationToken: __cancellationToken/);
+    const first = body("FindFirstTokIgnoringAll(string cancellationToken, string bypass,");
+    expect(first).toMatch(/\(__cancellationToken\)|cancellationToken: __cancellationToken/);
     const tok = body("RunFindAllByTokAsync(string cancellationToken, string bypass,");
     expect(tok).toMatch(/\(__cancellationToken\)|cancellationToken: __cancellationToken/);
     if (adapter === "efcore") {
@@ -180,6 +182,7 @@ describe.each(ADAPTERS)("%s: .NET residual /warnaserror failures", (adapter, pla
     expect(wf).toContain(
       'RunFindAllByTokAsync("d", "e", (null, 1), __cancellationToken: cancellationToken)',
     );
+    expect(wf).toContain('FindFirstTokIgnoringAll("f", "g", cancellationToken)');
     const svc = await file(platform, "Domain/Services/Lookup.cs");
     expect(svc).toContain("RunFindAllByTokAsync(a, a, __cancellationToken: cancellationToken)");
   });

@@ -17,7 +17,6 @@ import {
   findUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
-import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { lines } from "../../util/code-builder.js";
@@ -555,23 +554,15 @@ function documentFindMethod(
 }
 
 /** In-memory predicate `(x) => …` for a document find, or `undefined`
- *  for a parameterless filter-less find (findAll). */
+ *  for a filter-less find (findAll). */
 export function findPredicate(
   agg: AggregateIR,
   find: FindIR,
   ctx: EnrichedBoundedContextIR,
 ): string | undefined {
-  if (find.filter) {
-    void ctx;
-    return `(x) => ${renderTsExpr(find.filter, { thisName: "x" })}`;
-  }
-  if (find.params.length === 0) return undefined;
-  const conds: string[] = [];
-  for (const { param: p, field: matched } of implicitFindMatches(find, agg)) {
-    conds.push(`x.${matched.name} === ${escapeTsIdent(p.name)}`);
-  }
-  if (conds.length === 0) return undefined;
-  return `(x) => ${conds.join(" && ")}`;
+  void agg;
+  void ctx;
+  return find.filter ? `(x) => ${renderTsExpr(find.filter, { thisName: "x" })}` : undefined;
 }
 
 // --- document (de)serialisers --------------------------------------------

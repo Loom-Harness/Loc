@@ -32,8 +32,11 @@ system ReservedSys {
         limit: int
         total: money
       }
-      repository Tickets for Ticket {
-        find byGroup(g: string): Ticket? where group == g
+      repository Tickets for Ticket
+      criterion ByGroup(g: string) of Ticket = this.group == g
+      queryHandler ticketByGroup(g: string): Ticket? {
+        let t = Tickets.find(ByGroup(g))
+        return t
       }
       criterion Live of Ticket as t = t.limit > 0
       retrieval OpenByOrder() of Ticket {
@@ -77,7 +80,7 @@ describe("Dapper quotes reserved-word identifiers", () => {
       `INSERT INTO tickets (id, ${q}order${q}, ${q}group${q}, ${q}limit${q}, total, version)`,
     );
     expect(src).toContain(`SET ${q}order${q} = excluded.${q}order${q}`);
-    // A find's WHERE — `whereToSql`'s column arm.
+    // A criterion read's WHERE — `whereToSql`'s column arm.
     expect(src).toContain(`FROM tickets WHERE (${q}group${q} = @g)`);
     // A retrieval's WHERE + ORDER BY.
     expect(src).toContain(`WHERE (${q}limit${q} > 0) ORDER BY ${q}order${q} ASC`);

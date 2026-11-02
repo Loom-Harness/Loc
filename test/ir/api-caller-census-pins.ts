@@ -592,6 +592,8 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   ],
   // A workflow run (`POST /api/workflows/labeller`) — the `notLifted` class.
   "corpus/nullable-load": ["api.labeller.run (no such aggregate)"],
+  // A workflow run carrying a stale `If-Match` — not a lifted route class.
+  "corpus/concurrency-workflow-ifmatch": ["api.renameBoth.run (no such aggregate)"],
   // Workflow runs (M-T6.98) — not a lifted route class.
   "corpus/workflow-two-handles-document-eventlog": [
     "api.hitSameTwice.run (no such aggregate)",
@@ -897,12 +899,6 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // the fixture exposes are the ones `core-domain` already boots.  Reasoned
   // permanent entry.
   "foreign-id-field",
-  // COMPILE-TIER by design — the `envelope` carrier.  The oracle is the five
-  // corpus compile legs plus the byte-identity gate in
-  // `test/generator/envelope-carrier.test.ts`: `T envelope` emits exactly what
-  // `T` emits, so a behavioural block would replay a single-row find other
-  // cases already boot.
-  "envelope",
   // `vo-id-reference` DRAINED (wave C3 packet 3g, defect D4): java overrides
   // the VO's `X id` column at `ship.value`, elixir no longer indexes the
   // flattened leaf of a VO it stores as one `:map`, and elixir's VO / VO-row

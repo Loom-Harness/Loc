@@ -27,7 +27,7 @@ const COMMAND_ONLY = `
   system S { subdomain M { context C {
     aggregate Order { total: int }
     workflow placeOrder transactional {
-      create(total: int) { let o = Order.create({ total: total }) }
+      create(total: int) { let o = Order.create(total: total) }
     }
   }}}`;
 

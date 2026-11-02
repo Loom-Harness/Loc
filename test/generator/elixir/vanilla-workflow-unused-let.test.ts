@@ -29,14 +29,12 @@ const SOURCE = `
 system Catalog {
   subdomain Core {
     context Shop {
-      error NotFound { resource: string }
       event Resolved { label: string }
       aggregate Order with crudish {
         customerId: string
       }
-      repository Orders for Order {
-        find locate(ref: string): Order or NotFound where this.customerId == ref
-      }
+      repository Orders for Order
+      criterion Locate(ref: string) of Order = this.customerId == ref
       retrieval ByCustomer(ref: string) of Order {
         where: this.customerId == ref
       }
@@ -44,22 +42,16 @@ system Catalog {
       // The label binding is NEVER read after it is bound → must underscore.
       workflow resolveUnused {
         create(ref: string) {
-          let outcome = Orders.locate(ref)
-          let label = match outcome {
-            Order o => o.customerId,
-            NotFound => "missing"
-          }
+          let outcome = Orders.find(Locate(ref))
+          let label = outcome != null ? outcome.customerId : "missing"
         }
       }
 
       // The label binding IS read (the emit) → must stay bare.
       workflow resolveUsed {
         create(ref: string) {
-          let outcome = Orders.locate(ref)
-          let label = match outcome {
-            Order o => o.customerId,
-            NotFound => "missing"
-          }
+          let outcome = Orders.find(Locate(ref))
+          let label = outcome != null ? outcome.customerId : "missing"
           emit Resolved { label: label }
         }
       }
@@ -69,8 +61,8 @@ system Catalog {
         create(ref: string, id: Order id) {
           let probe = Orders.getById(id)
           let rows = Orders.run(ByCustomer(ref))
-          let extra = Order.create({ customerId: ref })
-          let kept = Order.create({ customerId: ref })
+          let extra = Order.create(customerId: ref)
+          let kept = Order.create(customerId: ref)
         }
       }
 
@@ -83,11 +75,8 @@ system Catalog {
 
       // The handler's \`return\` is the binding's only reader.
       queryHandler DescribeOrder(ref: string): string {
-        let found = Orders.locate(ref)
-        let label = match found {
-          Order o => o.customerId,
-          NotFound => "missing"
-        }
+        let found = Orders.find(Locate(ref))
+        let label = found != null ? found.customerId : "missing"
         return label
       }
     }
@@ -139,9 +128,12 @@ describe("vanilla — unused workflow `let` binding is underscore-prefixed (M-T6
 
   it("keeps a read binding (`outcome`) bare and as the with-chain result", async () => {
     const wf = await workflowFile("resolve_unused");
-    // `outcome` is read by `match outcome` → bare, and (last bound name) wins
-    // the `{:ok, outcome}` result slot — underscoring `label` left it intact.
-    expect(wf).toMatch(/\{:ok, outcome\} <- Context\.locate_order\(ref\)/);
+    // `outcome` is read by the `outcome != null ? …` ternary → bare, and (last
+    // bound name) wins the `{:ok, outcome}` result slot — underscoring `label`
+    // left it intact.  `find(C)` is a `T?` read: it binds the first row or nil.
+    expect(wf).toMatch(
+      /with outcome <- \(case Context\.run_find_all_by_locate_order\(ref, limit: 1\) do/,
+    );
     expect(wf).toMatch(/\{:ok, outcome\}\n\s+end/);
   });
 

@@ -141,29 +141,28 @@ Two **carrier-bounded generic payloads** are built in. They are instantiated
 with **ML-postfix** syntax — the carrier keyword follows its type argument:
 
 ```
-repository Orders for Order {
-  find all(): Order paged                    # paged(Order)   — the { items, page, … } wrapper
-  find latest(): OrderPlaced envelope        # envelope(…)    — a single-row read; the BARE body
-}
+queryHandler ListOrders(region: string): Order paged   # paged(Order) — the { items, page, … } wrapper
+response Latest { last: OrderPlaced envelope }         # envelope(…) — the BARE body
 ```
 
 The argument must be a **carrier**: a primitive, an `X id`, an enum, a value
 object, or an aggregate/entity (which projects through its `<Agg>Wire`). A
-carrier may appear only in a **transport position** — a repository find's
-return type or a payload field — never as a stored property. v1 ships only this
+carrier may appear only in a **transport position** — a `queryHandler`'s
+return type or a payload field — never as a stored property.  (The implicit
+list read `all` is paged too.) v1 ships only this
 closed, blessed set (`loom.generic-*` codes guard the rules).
 
 ### Pinned wire shapes
 
 ```
 paged(T)    → { items: T[]; page: int; pageSize: int; total: int; totalPages: int }
-envelope(T) → T          # NOT a wrapper — a SINGLE-ROW find (see below)
+envelope(T) → T          # NOT a wrapper (see below)
 ```
 
-**`envelope` is a read cardinality, not a wire shape** (M-T6.57, ratified
-2026-09-10). `find latest(): OrderPlaced envelope` means "read at most one
-`OrderPlaced`": the repository answers the bare `OrderPlaced`, the route
-serialises it directly at `200`, and an empty result set is a `404`. The
+**`envelope` is not a wire shape** (M-T6.57, ratified 2026-09-10): `T
+envelope` serialises as the bare `T`.  It was a single-row `find` return; with
+`find` declarations removed it has no read position left (its removal is
+#4122). The
 `{ id, ts, body }` wrapper this document used to pin was the P3 design and never
 shipped on any backend — nothing in the IR can source `ts` — and two backends
 emitted code that did not compile while carrying its type in their signatures.
@@ -171,7 +170,7 @@ emitted code that did not compile while carrying its type in their signatures.
 [`language-reference/04-type-system.md` § `envelope`](language-reference/04-type-system.md#envelope).
 
 `paged` is **1-based** (`page` starts at 1) and offset-based; `totalPages` is
-included so clients don't recompute it. A paged find auto-gains `page` /
+included so clients don't recompute it. A paged read auto-gains `page` /
 `pageSize` query controls (defaults `1` / `20`). The shape is the *uniform
 backend-exchange guarantee*: no backend serializes its framework-native paging
 type (EF, Ecto `limit`/`offset`, …) — each maps to this one DTO.
@@ -206,8 +205,7 @@ aggregate Order {
 }
 ```
 
-(A **repository find** is the one union position that does *not* produce this
-tagged wire — see [Union finds](#union-finds--the-untagged-exception) below.)
+(A repository read never returns a union — see [Union finds are removed](#union-finds-are-removed) below.)
 
 **Named `payload Foo = A | B`** — declared up front, reusable, identity by name:
 
@@ -222,11 +220,11 @@ commutative — `A or B` ≡ `B or A`); a named union is **nominal** (by its nam
 ### `option` — a deprecated spelling of `T?`
 
 ```
-find findByCode(code: string): Order option       # Order? — warns, the fix writes `Order?`
+queryHandler ByCode(code: string): Order option   # Order? — warns, the fix writes `Order?`
 ```
 
 `T option` lowers to `T?` (D-ABSENCE-MODEL), so it is the nullable shape in
-every position: a find answers `200 OrderResponse` or `404`, and a payload
+every position: a read answers `200 OrderResponse` or `404`, and a payload
 field is `null` when absent. `loom.option-deprecated` warns on the keyword and
 its quick fix rewrites it.
 
@@ -280,32 +278,14 @@ in `src/generator/_payload/union-wire.ts`, and is gated by
 `test/conformance/op-union-openapi-parity.test.ts`. (Elixir names its modules
 upper-first: `StringOrNotFoundSuccess`.)
 
-### Union finds — the untagged exception
+### Union finds are removed
 
-A **repository find** may return a union, but only in the constrained
-*absence* shape — exactly two variants, the repository's own aggregate plus one
-absent variant (`none` or an `error` payload carrying at most `resource:
-string`). Anything else is rejected (`loom.union-find-shape-unsupported`):
-
-```
-find recent(): Order or NotFound      # NotFound is an `error { resource: string }`
-find findByCode(code: string): Order option   # sugar for `Order or none`
-```
-
-This is **not** the tagged wire above. A single-success union find is
-wire-identical to `Order?` / `Order option`: the success variant is returned
-**directly** as `OrderResponse` at `200`, and the absent variant rides its own
-status — an `error` payload → its mapped RFC-7807 ProblemDetails status
-(`resource` filled with the aggregate name), `none` → `404`. There is no `type`
-discriminator and no union component in the OpenAPI schema. All five backends
-agree by construction (the wire matches a plain optional find); the tagged
-`oneOf` survives only for operation returns.
-
-> **Why the split.** A find's absent case is an *edge* (the row wasn't there),
-> not a domain-modelled alternative the producer chose — so it belongs at a
-> status code, exactly like an optional find's miss. An operation return is
-> producer-selected variant data, so it carries the tag. (Rationale:
-> [`proposals/exception-less.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/exception-less.md) §4.)
+A repository `find` once returned the absence shape `Order or NotFound` /
+`Order option`, answered untagged at a status code.  `find` declarations are
+removed ([D-FINDDECL-REMOVED](decisions.md)) and the 2026-10-25 ruling dropped
+the shape: a miss is `T?` (`findById` / `findBy` / `find(<Criterion>)`), and a
+must-exist read (`getById` / `getBy`) answers the standard ProblemDetails
+`404`.  The tagged `oneOf` is the union wire, for operation returns.
 
 ### Precedence
 
@@ -319,8 +299,8 @@ A or B[]               ≡  A or (B[])
 ### Position
 
 An **inline `or`** union (like a carrier) is a transport shape — it may appear
-only as a repository find return type or an operation /
-domain-service-operation return (`loom.union-position`).  A payload field is
+only as an operation / domain-service-operation return
+(`loom.union-position`).  A payload field is
 refused as well: the tagged wire is emitted at the top of a return, and no
 backend renders a union nested inside a record. A **named** union is
 referenced by its name and so is unaffected.
@@ -346,10 +326,6 @@ referenced by its name and so is unaffected.
 A union's *wire contract* — its DTO/schema and the serialization — is fully
 generated on every backend. The two surfaces differ in who selects the variant:
 
-- **Union finds** are fully implemented, no stub: the framework derives the
-  selection from the row's presence (found → the success variant at `200`;
-  absent → the `none`/`error` variant at its status). That's why they're
-  constrained to the absence shape and render untagged (see [Union finds](#union-finds--the-untagged-exception)).
 - **Exception-less operation returns** (`placeOrder(): OrderId or NotFound`) are
   producer-selected: the domain body returns the variant it chose, which the
   backend maps to the tagged wire (success) or an RFC-7807 ProblemDetails

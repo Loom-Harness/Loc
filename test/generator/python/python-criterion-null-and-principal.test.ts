@@ -14,11 +14,10 @@
 //                                                                            ^^^^^^^^^^^^ unbound
 //
 //   The SAME line is correct for the compiler-generated tenancy filter, which
-//   lowers with `require_current_user()`, and wrong here.  A `find` gets away
-//   with the bare name because `relationalFindMethod` appends a
-//   `current_user: User` parameter; a retrieval's signature is fixed by the DSL
-//   and gains none, so the name is simply free.  `ruff check` → `F821 Undefined
-//   name 'current_user'`; at runtime, `NameError` on the first request.
+//   lowers with `require_current_user()`, and wrong here.  A retrieval's
+//   signature is fixed by the DSL and gains no principal parameter, so the name
+//   is simply free.  `ruff check` → `F821 Undefined name 'current_user'`; at
+//   runtime, `NameError` on the first request.
 //
 // F-007 (python half) — THE CLEANUP, and it is honest about being one.
 //   `this.technicianId != null` emitted `(WorkOrderRow.technician_id != None)`.
@@ -35,11 +34,8 @@
 //   longer fires on the showcase python deployable at all — only E712
 //   (`== True`), which is a different shape and a different slice.
 //
-// NON-VACUITY is asserted in both directions: an ordinary comparison in the
-// same system must still render `==`/`!=` against a bind value, and a find (the
-// path that DOES take a principal parameter) must keep the bare `current_user`
-// it binds — a fix that rewrote every principal read to the ambient accessor
-// would leave the find's parameter unused, which is ruff `ARG002`/dead weight.
+// NON-VACUITY: an ordinary comparison in the same system must still render
+// `==`/`!=` against a bind value.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
@@ -52,7 +48,7 @@ function system(body: string): string {
   subdomain Core {
     context Ops {
       aggregate Tech with crudish { name: string }
-      repository Techs for Tech { }
+      repository Techs for Tech
       aggregate WorkOrder with crudish {
         title: string
         technicianId: Tech id?
@@ -82,7 +78,7 @@ describe("python retrieval reads the principal through require_current_user() (F
     const src =
       await repo(`      criterion MineAsTechnician() of WorkOrder = this.technicianUserId == currentUser.id
       retrieval MyWorkOrders() of WorkOrder { where: MineAsTechnician()  sort: [title desc] }
-      repository WorkOrders for WorkOrder { }`);
+      repository WorkOrders for WorkOrder`);
 
     // The F821 shape itself, asserted FIRST so a regression fails on the
     // defect rather than on the replacement spelling: the retrieval method
@@ -103,18 +99,6 @@ describe("python retrieval reads the principal through require_current_user() (F
     // …and the accessor has to be imported, or F821 is merely traded for F821.
     expect(src).toMatch(/^from app\.auth\.user import .*\brequire_current_user\b/m);
   });
-
-  it("NON-VACUITY: a `find` still threads the principal as its own parameter", async () => {
-    const src = await repo(`      repository WorkOrders for WorkOrder {
-        find mine(): WorkOrder? where technicianUserId == currentUser.id
-      }`);
-
-    // The find DECLARES the principal, so the bare name is bound here and the
-    // ambient accessor would make the parameter dead.
-    expect(src).toContain("async def mine(self, current_user: User)");
-    expect(src).toContain("WorkOrderRow.technician_user_id == current_user.id");
-    expect(src).not.toContain("require_current_user().id");
-  });
 });
 
 describe("python lowers a null comparison to is_() / is_not() (F-007 cleanup)", () => {
@@ -123,7 +107,7 @@ describe("python lowers a null comparison to is_() / is_not() (F-007 cleanup)", 
       criterion Unassigned() of WorkOrder = null == this.technicianId
       retrieval AssignedOrders() of WorkOrder { where: Assigned() }
       retrieval UnassignedOrders() of WorkOrder { where: Unassigned() }
-      repository WorkOrders for WorkOrder { }`);
+      repository WorkOrders for WorkOrder`);
 
     expect(src).toContain("select(WorkOrderRow).where(WorkOrderRow.technician_id.is_not(None))");
     expect(src).toContain("select(WorkOrderRow).where(WorkOrderRow.technician_id.is_(None))");
@@ -138,7 +122,7 @@ describe("python lowers a null comparison to is_() / is_not() (F-007 cleanup)", 
       retrieval TitledOrders(t: string) of WorkOrder { where: Titled(t) }
       retrieval NotTitledOrders(t: string) of WorkOrder { where: NotTitled(t) }
       retrieval AssignedOrders() of WorkOrder { where: Assigned() }
-      repository WorkOrders for WorkOrder { }`);
+      repository WorkOrders for WorkOrder`);
 
     expect(src).toContain("(WorkOrderRow.title == t)");
     expect(src).toContain("(WorkOrderRow.title != t)");

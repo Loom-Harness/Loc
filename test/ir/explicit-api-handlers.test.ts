@@ -278,3 +278,32 @@ describe("explicit api handlers — layering gates", () => {
     );
   });
 });
+
+describe("handler lowering — the trailing single-row guard", () => {
+  it("lowers `if let x = … { return x } else { notFound }` to a guard + returnValue", async () => {
+    const guard = `
+      criterion ByCode(code: string) of Order = this.code == code
+      queryHandler GetOrderByCode(code: string): Order {
+        if let x = Orders.find(ByCode(code)) {
+          return x
+        } else {
+          notFound
+        }
+      }`;
+    const { model } = await parseString(
+      SYS(guard, `route GET "/orders/by_code" -> Ordering.GetOrderByCode`),
+      { validate: false },
+    );
+    const ctx = allContexts(lowerModel(model)).find((c) => c.name === "Ordering")!;
+    const h = ctx.queryHandlers!.find((q) => q.name === "GetOrderByCode")!;
+    // The return leaves the branch: an empty then-branch over an else that
+    // answers the 404, after which the handler answers the bound row.
+    expect(h.statements).toHaveLength(1);
+    const st = h.statements[0]!;
+    expect(st.kind).toBe("if-let");
+    if (st.kind !== "if-let") return;
+    expect(st.thenBody).toEqual([]);
+    expect(st.elseBody?.map((s) => s.kind)).toEqual(["not-found"]);
+    expect(h.returnValue).toMatchObject({ kind: "ref", name: "x" });
+  });
+});

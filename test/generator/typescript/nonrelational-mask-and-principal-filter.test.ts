@@ -102,9 +102,7 @@ system TenancyDocMikro {
         balance: int
         filter this.tenantId == currentUser.tenantId
       }
-      repository Accounts for Account {
-        find byMinBalance(min: int): Account? where this.balance >= min
-      }
+      repository Accounts for Account { }
     }
   }
   api LedgerApi from Core
@@ -247,7 +245,7 @@ describe("F5 — the mikroorm document repository binds the request principal", 
     // read USES `currentUser` without binding it first.  Check that per
     // method, so a bind emitted into one read and forgotten in the next
     // (exactly how this bug looked) still fails.
-    for (const name of ["findById", "findManyByIds", "all", "byMinBalance"]) {
+    for (const name of ["findById", "findManyByIds", "all"]) {
       const body = methodText(repo, name);
       if (!/\bcurrentUser\b/.test(body)) continue;
       expect(body, `${name} binds the principal before using it`).toContain(
@@ -260,12 +258,12 @@ describe("F5 — the mikroorm document repository binds the request principal", 
     }
   });
 
-  it("the emitted find FILTERS — the other tenant's row is not returned", async () => {
+  it("the emitted read FILTERS — the other tenant's row is not returned", async () => {
     const files = await generateSystemFiles(MIKRO_DOC_SRC);
     const repo = repoFileOf(files, "account");
 
-    // The other tenant's row comes FIRST: a single-row find returns the first
-    // match, so without the capability filter it would answer `other`.
+    // The other tenant's row comes FIRST, so a read that skipped the
+    // capability filter would answer it.
     const rows = [
       { data: { id: "b", tenantId: "other", balance: 200 }, version: 1 },
       { data: { id: "a", tenantId: "acme", balance: 100 }, version: 1 },
@@ -273,7 +271,7 @@ describe("F5 — the mikroorm document repository binds the request principal", 
     const Klass = evalTs(
       `return class R {
          constructor(em) { this.em = em; }
-${methodText(repo, "byMinBalance")}
+${methodText(repo, "all")}
        }`,
       {
         AccountRow: class {},
@@ -286,15 +284,15 @@ ${methodText(repo, "byMinBalance")}
       },
     ) as new (
       em: unknown,
-    ) => { byMinBalance(min: number): Promise<{ tenantId: string } | null> };
+    ) => { all(): Promise<{ tenantId: string }[]> };
 
     const em = { fork: () => ({ find: async () => rows }) };
-    const result = await new Klass(em).byMinBalance(0);
+    const result = await new Klass(em).all();
 
-    // Both rows clear the find's own `balance >= 0` predicate, so the ONLY
-    // thing that can skip the first one is the capability filter.  A
-    // repository that emitted the filter but never bound the principal cannot
-    // reach this assertion at all — it throws first.
-    expect(result?.tenantId).toBe("acme");
+    // The root read has no predicate of its own, so the ONLY thing that can
+    // skip the first row is the capability filter.  A repository that emitted
+    // the filter but never bound the principal cannot reach this assertion at
+    // all — it throws first.
+    expect(result.map((r) => r.tenantId)).toEqual(["acme"]);
   });
 });

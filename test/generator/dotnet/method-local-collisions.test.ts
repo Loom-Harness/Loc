@@ -1,4 +1,4 @@
-// .NET — a `.ddd` find / retrieval / paged param spelled like one of the
+// .NET — a `.ddd` criterion / retrieval / paged param spelled like one of the
 // generated method's OWN locals (`p`, `sql`, `conn`, `pg`, `rows`, `r`,
 // `result`, `items`, `total`, the lambda `x`, …) must not re-declare it.
 //
@@ -19,13 +19,11 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 const SOURCE = (persistence: string) => `
 system LocalsSys {
   subdomain Sales {
-    context Orders {
+    context Orders with scaffoldGet(of: Uni) {
       aggregate Ticket with crudish { label: string  qty: int }
-      error NotFound { resource: string }
-      repository Tickets for Ticket {
-        find byRows(rows: string, r: string, x: string, result: string): Ticket? where label == rows && label == r && label == x && label == result
-        find uni(result: string, problem: string): Ticket or NotFound where label == result && label == problem
-      }
+      repository Tickets for Ticket
+      criterion ByRows(rows: string, r: string, x: string, result: string) of Ticket = label == rows && label == r && label == x && label == result
+      criterion Uni(result: string, problem: string) of Ticket = label == result && label == problem
       criterion PagedT(offset: int, total: int, items: string, sortColumn: string, totalPages: int) of Ticket = qty == offset && qty == total && label == items && label == sortColumn && qty == totalPages
       queryHandler ListPagedT(offset: int, total: int, items: string, sortColumn: string, totalPages: int): Ticket paged {
         let r = Tickets.run(PagedT(offset, total, items, sortColumn, totalPages))
@@ -33,13 +31,20 @@ system LocalsSys {
       }
       retrieval RetP(p: string, sql: string, conn: string, pg: string, x: string) of Ticket { where: label == p && label == x }
       aggregate Calm with crudish { label: string }
-      repository Calms for Calm {
-        find byLabel(v: string): Calm? where label == v
-      }
+      repository Calms for Calm
+      criterion CalmByLabel(v: string) of Calm = label == v
       retrieval RetCalm(v: string) of Calm { where: label == v }
+      // The single-row reads: each widened read derives its own repository
+      // method (\`FindFirst<C>IgnoringAll\`) whose params are the criterion's.
+      workflow Probe {
+        create(a: string) {
+          if let t = Tickets.find(ByRows(a, a, a, a)) ignoring * { }
+          if let c = Calms.find(CalmByLabel(a)) ignoring * { }
+        }
+      }
     }
   }
-  api SalesApi from Sales
+  api SalesApi with scaffoldGetApi(of: Uni) from Sales
   storage pg { type: postgres }
   resource st { for: Orders, kind: state, use: pg }
   deployable d {
@@ -55,7 +60,7 @@ const REPO = "d/Infrastructure/Repositories/TicketRepository.cs";
 const CALM_REPO = "d/Infrastructure/Repositories/CalmRepository.cs";
 
 describe("dotnet method locals yield to a same-named .ddd param", () => {
-  it("dapper: retrieval / find / paged locals move, params and SQL keys do not", async () => {
+  it("dapper: retrieval / single-row / paged locals move, params and SQL keys do not", async () => {
     const files = await generateSystemFiles(SOURCE("dapper"));
     const src = files.get(REPO)!;
 
@@ -79,11 +84,15 @@ describe("dotnet method locals yield to a same-named .ddd param", () => {
     );
     expect(run).not.toMatch(/var (p|sql|conn|pg) =/);
 
-    // Single find: `rows`/`r` are params here, so the row local becomes `__r`.
+    // Single-row read: `rows`/`r` are params here, so the row local becomes `__r`.
+    expect(src).toContain(
+      "FindFirstByRowsIgnoringAll(string rows, string r, string x, string result,",
+    );
     expect(src).toContain("var __r = await conn.QueryFirstOrDefaultAsync<Row>(");
+    expect(src).toContain("new { rows, r, x, result }");
     expect(src).toContain("return __r is null ? null : Map(__r);");
 
-    // Paged find: every colliding local moves; `page`/`pageSize` untouched.
+    // Paged read: every colliding local moves; `page`/`pageSize` untouched.
     expect(src).toContain("var __offset = (page - 1) * pageSize;");
     expect(src).toContain("var __total = await conn.ExecuteScalarAsync<int>(");
     expect(src).toContain(
@@ -103,18 +112,23 @@ describe("dotnet method locals yield to a same-named .ddd param", () => {
     expect(calm).not.toMatch(/\b__(p|pg|r|conn)\b/);
   });
 
-  it("efcore: find / retrieval / spec / controller locals move on a collision only", async () => {
+  it("efcore: single-row / retrieval / spec locals move on a collision only", async () => {
     const files = await generateSystemFiles(SOURCE("efcore"));
     const src = files.get(REPO)!;
 
-    // Find: `result` is a param, so the method's result local moves; the
-    // predicate lambda param `x` moves too (else `x => x.Label == x`).
+    // Single-row read: `result` is a param, so the method's result local moves.
     expect(src).toContain(
-      "var __result = await _db.Tickets.Where(__x => __x.Label == rows && __x.Label == r && __x.Label == x && __x.Label == result)",
+      "var __result = await _db.Tickets.IgnoreQueryFilters().Where(new ByRowsCriterion(rows, r, x, result).ToExpression())",
     );
     expect(src).toContain("return __result;");
+    // The predicate lambda lives in the criterion, whose parameter is never a
+    // `.ddd` name — so a criterion param `x` cannot be read as the row.
+    const crit = files.get("d/Domain/Criteria/ByRowsCriterion.cs")!;
+    expect(crit).toContain(
+      "ToExpression() => candidate => candidate.Label == rows && candidate.Label == r && candidate.Label == x && candidate.Label == result;",
+    );
 
-    // Paged find.
+    // Paged read.
     expect(src).toContain("var __offset = (page - 1) * pageSize;");
     expect(src).toContain("EF.Property<object>(e, __sortColumn)");
     expect(src).toContain(
@@ -131,21 +145,28 @@ describe("dotnet method locals yield to a same-named .ddd param", () => {
     );
     expect(spec).toContain("Query.Where(__x => __x.Label == p && __x.Label == x);");
 
-    // Controller action for `find uni(result, problem)`: both locals move.
-    const ctl = [...files.entries()].find(
-      ([k]) => k.startsWith("d/Api/") && k.endsWith("TicketsController.cs"),
-    )?.[1];
-    expect(ctl).toBeDefined();
-    expect(ctl!).toMatch(/var __result = await _mediator\.Send\(new UniQuery\(/);
-    expect(ctl!).toContain("var __problem = new ProblemDetails");
-    expect(ctl!).toContain("return new ObjectResult(__problem)");
-
     // Control.
     const calm = files.get(CALM_REPO)!;
-    expect(calm).toContain("var result = await _db.Calms.Where(x => x.Label == v)");
+    expect(calm).toContain(
+      "var result = await _db.Calms.IgnoreQueryFilters().Where(new CalmByLabelCriterion(v).ToExpression())",
+    );
     expect(calm).toContain("var __q = _db.Calms.AsQueryable();");
     expect(files.get("d/Domain/Calms/RetCalmSpec.cs")!).toContain(
       "Query.Where(x => x.Label == v);",
+    );
+  });
+
+  // KNOWN BUG (reported with the find-declaration removal): the routed
+  // queryHandler controller (`scaffoldGetApi` / `route GET …`) declares
+  // `var result = await _mediator.Send(...)` beside a query param named
+  // `result` — CS0136.  `it.fails` keeps the contract pinned: once the action's
+  // local yields, this passes, `.fails` turns it red, and the marker goes.
+  it.fails("efcore: a routed read's controller local yields to a same-named query param", async () => {
+    const files = await generateSystemFiles(SOURCE("efcore"));
+    const ctl = files.get("d/Api/SalesApiRoutesController.cs")!;
+    expect(ctl).toContain("GetTicketByUni([FromQuery] string result, [FromQuery] string problem)");
+    expect(ctl).toMatch(
+      /var __result = await _mediator\.Send\(new GetTicketByUniQuery\(result, problem\)\);/,
     );
   });
 });

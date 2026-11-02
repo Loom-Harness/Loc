@@ -143,11 +143,12 @@ interface BypassRead {
 
 /** Recursively collect inline `Repo.findAll(...)`/`Repo.run(...)` reads that
  *  carry an `ignoring` clause from a workflow-statement body (descends into
- *  `for-each` + `if-let` bodies). */
+ *  `for-each` + `if-let` bodies).  `owner` names the body (`workflow 'x'`,
+ *  `queryHandler 'y'`). */
 
 function collectBypassRepoRuns(
   stmts: readonly WorkflowStmtIR[],
-  wfName: string,
+  owner: string,
   out: BypassRead[],
 ): void {
   for (const s of stmts) {
@@ -156,20 +157,20 @@ function collectBypassRepoRuns(
         bypassAll: s.bypassAll,
         bypassCaps: s.bypassCaps,
         aggName: s.aggName,
-        site: `workflow '${wfName}' inline read '${s.name}'`,
+        site: `${owner} inline read '${s.name}'`,
       });
     }
-    if (s.kind === "for-each") collectBypassRepoRuns(s.body, wfName, out);
+    if (s.kind === "for-each") collectBypassRepoRuns(s.body, owner, out);
     if (s.kind === "if-let") {
-      collectBypassRepoRuns(s.thenBody, wfName, out);
-      collectBypassRepoRuns(s.elseBody ?? [], wfName, out);
+      collectBypassRepoRuns(s.thenBody, owner, out);
+      collectBypassRepoRuns(s.elseBody ?? [], owner, out);
     }
   }
 }
 
 /** Every `ignoring`-bearing read in a context, paired with its target
- *  aggregate: repository finds, views over an aggregate source, and inline
- *  repo-runs in workflow bodies. */
+ *  aggregate: the repository methods widened reads synthesise, query-time
+ *  projections, and inline repo-runs in workflow and handler bodies. */
 
 function bypassReadsInContext(ctx: BoundedContextIR): BypassRead[] {
   const out: BypassRead[] = [];
@@ -180,17 +181,22 @@ function bypassReadsInContext(ctx: BoundedContextIR): BypassRead[] {
           bypassAll: f.bypassAll,
           bypassCaps: f.bypassCaps,
           aggName: repo.aggregateName,
-          site: `find '${repo.name}.${f.name}'`,
+          site: `read '${repo.name}.${f.name}'`,
         });
       }
     }
   }
   for (const wf of ctx.workflows) {
-    for (const c of wf.creates) collectBypassRepoRuns(c.statements, wf.name, out);
-    for (const on of wf.subscriptions ?? []) collectBypassRepoRuns(on.statements, wf.name, out);
+    const owner = `workflow '${wf.name}'`;
+    for (const c of wf.creates) collectBypassRepoRuns(c.statements, owner, out);
+    for (const on of wf.subscriptions ?? []) collectBypassRepoRuns(on.statements, owner, out);
   }
+  for (const h of ctx.queryHandlers ?? [])
+    collectBypassRepoRuns(h.statements, `queryHandler '${h.name}'`, out);
+  for (const h of ctx.commandHandlers ?? [])
+    collectBypassRepoRuns(h.statements, `commandHandler '${h.name}'`, out);
   // A query-time projection's `ignoring` clause bypasses its `from` source
-  // aggregate's capability filters — same triage as a repository find.
+  // aggregate's capability filters — same triage as any other read.
   for (const p of ctx.projections ?? []) {
     const q = p.query;
     if (!q?.source) continue;

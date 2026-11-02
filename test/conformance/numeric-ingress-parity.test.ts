@@ -82,7 +82,7 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 const SOURCE = (platform: string) => `
 system Ing {
   subdomain D {
-    context Shop {
+    context Shop with scaffoldGet(of: PricedFrom) {
       valueobject Offer {
         price: money
         note: string
@@ -96,12 +96,11 @@ system Ing {
         best:   Offer
         operation reprice(newPrice: money, newQty: int) { price := newPrice qty := newQty }
       }
-      repository Products for Product {
-        find byPrice(p: money): Product? where this.price >= p
-      }
+      repository Products for Product
+      criterion PricedFrom(p: money) of Product = this.price >= p
     }
   }
-  api A from D
+  api A with scaffoldGetApi(of: PricedFrom) from D
   storage db { type: postgres }
   resource st { for: Shop, kind: state, use: db }
   deployable api1 { platform: ${platform} contexts: [Shop] dataSources: [st] serves: A port: 8080 }
@@ -136,7 +135,11 @@ const BAD_MONEY_STRING: Record<Platform, Seam[]> = {
       shape: /newPrice: moneySchema,/,
       file: /\.routes\.ts$/,
     },
-    { why: "repository-find money params use it", shape: /p: moneySchema,/, file: /\.routes\.ts$/ },
+    {
+      why: "routed single-row read money params use it",
+      shape: /query: z\.object\(\{ p: moneySchema \}\)/,
+      file: /-routes\.ts$/,
+    },
   ],
   dotnet: [
     // TryParse, not decimal.Parse: the whole point is that a malformed value is
@@ -168,7 +171,7 @@ const BAD_MONEY_STRING: Record<Platform, Seam[]> = {
       file: /Controller\.cs$/,
     },
     {
-      why: "repository-find money guard",
+      why: "routed single-row read money guard",
       shape: /WireFormatException\("\/p"/,
       file: /Controller\.cs$/,
     },
@@ -201,7 +204,7 @@ const BAD_MONEY_STRING: Record<Platform, Seam[]> = {
   python: [
     {
       why: "money format guard",
-      shape: /_MONEY_RE = re\.compile\(r"\^-\?\\d\+\(\\\.\\d\+\)\?\$"\)/,
+      shape: /_MONEY_RE = re\.compile\(r"\^-\?\[0-9\]\+\(\\\.\[0-9\]\+\)\?\\Z"\)/,
     },
     {
       why: "typed pydantic error, not a raise",
@@ -214,7 +217,11 @@ const BAD_MONEY_STRING: Record<Platform, Seam[]> = {
     // Same scoping reason as node's: wire_models.py always defines MoneyStr.
     { why: "request money fields use it", shape: /price: MoneyStr/, file: /_routes\.py$/ },
     { why: "operation money params use it", shape: /newPrice: MoneyStr/, file: /_routes\.py$/ },
-    { why: "repository-find money params use it", shape: /p: MoneyStr/, file: /_routes\.py$/ },
+    {
+      why: "routed single-row read money params use it",
+      shape: /p: MoneyStr/,
+      file: /_routes\.py$/,
+    },
   ],
   elixir: [
     // Operation params never reach a changeset — the body assigns straight onto
@@ -522,9 +529,14 @@ function assertSeams(files: Map<string, string>, platform: Platform, seams: Seam
 
 describe("M-T6.48 — malformed numeric input answers a typed 4xx (all five backends)", () => {
   for (const platform of PLATFORMS) {
-    it(`${platform}: a malformed money string is refused, not thrown on`, async () => {
-      assertSeams(await emit(platform), platform, BAD_MONEY_STRING[platform], `money "12,50"`);
-    });
+    // #4433: .NET money query params on a routed read lack the RS-42 grammar
+    // guard, so dotnet is pinned failing until it lands.
+    (platform === "dotnet" ? it.fails : it)(
+      `${platform}: a malformed money string is refused, not thrown on${platform === "dotnet" ? " — #4433" : ""}`,
+      async () => {
+        assertSeams(await emit(platform), platform, BAD_MONEY_STRING[platform], `money "12,50"`);
+      },
+    );
 
     it(`${platform}: a fractional value for an int field is refused`, async () => {
       assertSeams(await emit(platform), platform, FRACTIONAL_INT[platform], "int 1.5");

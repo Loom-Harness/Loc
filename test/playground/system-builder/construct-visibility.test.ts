@@ -95,10 +95,9 @@ const SRC = `system Shop {
         test "confirming an order" {
         }
       }
-      repository Orders for Order {
-        find byId(id: int): Order? where this.id == id
-        find open(): Order? where true
-      }
+      repository Orders for Order { }
+      criterion OrdersById(id: int) of Order = this.id == id
+      criterion OrdersOpen of Order = true
       projection OrderRow(limit: int) keyed by sku requires permissions.read {
         total: decimal
         on(e: Placed) {
@@ -468,12 +467,6 @@ describe("Model v2 — authz visibility", () => {
     ]);
     // An unmasked sibling carries no badge at all.
     expect(byId(aggGraph(), "field:sku").badges).toBeUndefined();
-  });
-
-  it("a repository find carries no gate badge — the read gate is a policy rule", () => {
-    const g = buildViewGraph(AST, [{ kind: "repository", name: "Orders" }]);
-    expect(byId(g, "find:byId").badges).toBeUndefined();
-    expect(byId(g, "find:open").badges).toBeUndefined();
   });
 
   it("a gated projection read gets a `requires` badge too", () => {

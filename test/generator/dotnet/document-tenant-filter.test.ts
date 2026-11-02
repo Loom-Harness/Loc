@@ -11,8 +11,8 @@
 // the rehydrated aggregate, at every read seam.  These pins therefore assert
 // three separable things, because each failed independently during development:
 //
-//   1. the document path FILTERS at all three read seams (findById /
-//      findManyByIds / every find, incl. the auto `findAll`),
+//   1. the document path FILTERS at every read seam (findById /
+//      findManyByIds / the collection read `All`),
 //   2. the RELATIONAL twin still filters through EF `HasQueryFilter` — the
 //      fix must not have migrated the relational path to in-app filtering,
 //   3. a document aggregate with NO capability filter emits NO predicate
@@ -56,9 +56,7 @@ const tenantSystem = `
           name: string
           implements tenantRegistry
         }
-        repository Notes for Note {
-          find byTitle(t: string): Note? where this.title == t
-        }
+        repository Notes for Note { }
         repository Ledgers for Ledger { }
         repository Orgs for Org { }
       }
@@ -167,24 +165,18 @@ describe("dotnet: shape: document × tenantOwned — the in-app tenant read filt
     expect(repo).toContain("return _CapabilityVisible(__rec) ? __rec : null;");
   });
 
-  it("filters findManyByIds and EVERY find, including the auto findAll", async () => {
+  it("filters findManyByIds and the collection read", async () => {
     const repo = await fileNamed(tenantSystem, "NoteRepository.cs");
     // findManyByIds.
     expect(repo).toContain(".Where(_CapabilityVisible).ToList();");
-    // THREE multi-row seams narrow the rehydrated set: findManyByIds, the auto
-    // `findAll`, and the declared `byTitle` — each BEFORE its own predicate
-    // runs, so a find never returns a capability-hidden document.  Counted
-    // rather than merely `toContain`-ed: the original bug was one seam filtered
-    // and another silently not, which a substring pin cannot tell apart.
+    // TWO multi-row seams narrow the rehydrated set: findManyByIds and the
+    // collection read `All`.  Counted rather than merely `toContain`-ed: the
+    // original bug was one seam filtered and another silently not, which a
+    // substring pin cannot tell apart.
     const narrowed = repo.match(
       /\.Select\(__d => Note\.FromSnapshot\([^\n]*?\)\.Where\(_CapabilityVisible\)/g,
     );
-    expect(
-      narrowed?.length,
-      "findManyByIds + both find bodies each narrow to the visible set",
-    ).toBe(3);
-    // …and `byTitle`'s own predicate still runs, AFTER the narrowing.
-    expect(repo).toContain("__all.Where(x => x.Title == t)");
+    expect(narrowed?.length, "findManyByIds + All each narrow to the visible set").toBe(2);
   });
 
   it("resolves the principal through the ambient accessor, re-read per call", async () => {

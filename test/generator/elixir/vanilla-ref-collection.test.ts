@@ -18,7 +18,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 const SOURCE = `
 system RC {
   subdomain Roster {
-    context Roster {
+    context Roster with scaffoldPaged(of: TrainersHoldingInParty) {
       aggregate Pokemon with crudish {
         species: string
       }
@@ -26,14 +26,12 @@ system RC {
         name: string
         party: Pokemon id[]
       }
-      repository Trainers for Trainer {
-        find holdingInParty(pokemon: Pokemon id): Trainer?
-            where this.party.contains(pokemon)
-      }
+      repository Trainers for Trainer { }
+      criterion TrainersHoldingInParty(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
       repository Pokemons for Pokemon {}
     }
   }
-  api RApi from Roster
+  api RApi with scaffoldPagedApi(of: TrainersHoldingInParty) from Roster
   storage pg { type: postgres }
   resource st { for: Roster, kind: state, use: pg }
   deployable api {
@@ -93,13 +91,13 @@ describe("vanilla `X id[]` reference collections", () => {
     expect(files.get(mig!)!).not.toMatch(/add :party/);
   });
 
-  // §4: a `where this.party.contains(pokemon)` find short-circuits to a valid
-  // Ecto membership query — a `join: … in assoc(record, :party)` over the
+  // §4: a `this.party.contains(pokemon)` criterion's find short-circuits to a
+  // valid Ecto membership query — a `join: … in assoc(record, :party)` over the
   // many_to_many with `where: join_row.id == ^arg` — NOT the dead Ash-shaped
   // `exists(...)` arm in render-expr.ts (the filter never reaches it).
   it("a contains-in-where find emits the assoc-join membership query", async () => {
     const repo = file(await generateSystemFiles(SOURCE), "/roster/trainer_repository.ex");
-    expect(repo).toContain("def holding_in_party(pokemon)");
+    expect(repo).toContain("def find_all_by_trainers_holding_in_party(pokemon,");
     expect(repo).toContain("join: join_row in assoc(record, :party)");
     expect(repo).toContain("where: join_row.id == ^pokemon");
   });

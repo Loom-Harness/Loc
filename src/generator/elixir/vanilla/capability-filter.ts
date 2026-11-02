@@ -19,7 +19,7 @@
 // (Ecto binds `= NULL`, never `IS NULL`).
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
+import type { AggregateIR, ExprIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
@@ -52,6 +52,28 @@ export { aggregateUsesPrincipalContextFilter };
  *  rendered one — "undefined variable current_user" at `mix compile`. */
 export function findUsesPrincipal(f: { filter?: ExprIR }): boolean {
   return !!f.filter && exprUsesCurrentUser(f.filter);
+}
+
+/** Does the repository find `method` on `aggName` take the request actor?
+ *  Every find on a principal-filtered aggregate does: the read passes it as the
+ *  `current_user:` option and `Repo.prepare_query/3` applies (or, under the
+ *  find's `ignoring`, skips) the principal-bound restrictions, so the head
+ *  always reads it whatever the bypass.  A caller holding the actor passes it
+ *  exactly when this holds. */
+export function customFindReadsActor(
+  ctx: {
+    aggregates: readonly AggregateIR[];
+    repositories?: readonly RepositoryIR[];
+  },
+  aggName: string,
+  method: string,
+): boolean {
+  const agg = ctx.aggregates.find((a) => a.name === aggName);
+  const f = (ctx.repositories ?? [])
+    .find((r) => r.aggregateName === aggName)
+    ?.finds.find((x) => x.name === method);
+  if (!agg || !f) return false;
+  return aggregateUsesPrincipalContextFilter(agg) || findUsesPrincipal(f);
 }
 
 /** True when the aggregate's LIST read (`list/…`, fronting the `all` find)

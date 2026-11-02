@@ -36,6 +36,7 @@
 // (single or `.Select(...).ToList()`) at the boundary.
 // ---------------------------------------------------------------------------
 
+import { wireStatus } from "../../ir/enrich/wire-policy.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -48,6 +49,7 @@ import type {
   TypeIR,
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
+import { handlerUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { domainServicesCalled } from "../../ir/util/domain-service-read-ports.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
@@ -58,6 +60,7 @@ import {
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
+import { routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { rewrite } from "../../util/emission-sink.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
@@ -81,6 +84,31 @@ import {
 } from "./workflow-emit.js";
 
 const INDENT = "        ";
+
+/** The `<ns>.Domain.Common` types a routed action's emitted text can name. */
+const DOMAIN_COMMON_TYPE_REF = /\b(?:Provenanced|ProvLineage|RequestContext|Paged|FileRef)\b/;
+
+/** A routed action's declared responses: its success line, then the RFC 7807
+ *  set node's routed handler declares — 400 for a malformed request, the
+ *  context's not-found status, and 415 only where a JSON body is read.  The
+ *  `ProblemDetailsResponsesFilter` moves each onto `application/problem+json`. */
+function routedResponseDecls(
+  successDecl: string,
+  hasBody: boolean,
+  ctx: EnrichedBoundedContextIR,
+): string {
+  const statuses = [
+    wireStatus("malformed-body"),
+    wireStatus("not-found", ctx.structuralErrorStatuses),
+    ...(hasBody ? [wireStatus("unsupported-media-type")] : []),
+  ];
+  return [
+    successDecl,
+    ...statuses.map((s) => `    [ProducesResponseType(typeof(ProblemDetails), ${s})]`),
+  ]
+    .map((l) => `${l}\n`)
+    .join("");
+}
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
 
@@ -264,19 +292,26 @@ function renderHandlerClass(
   const calledServices = domainServicesCalled(h.statements, ctx.domainServices ?? [], [
     h.returnValue,
   ]);
+  // A body that reads `currentUser` (a `requires` gate or an expression)
+  // resolves the actor through the injected accessor, as the workflow and
+  // paged-run handlers do.
+  const usesUser = handlerUsesCurrentUser(h);
   const fields = [
     ...[...repos].map(([repo, a]) => `    private readonly I${a}Repository ${repoField(repo)};`),
     ...calledServices.reading.map(
       (svc) => `    private readonly ${upperFirst(svc)} _${lowerFirst(svc)};`,
     ),
+    ...(usesUser ? ["    private readonly ICurrentUserAccessor _currentUser;"] : []),
   ];
   const ctorParams = [
     ...[...repos].map(([repo, a]) => `I${a}Repository ${repoField(repo).slice(1)}`),
     ...calledServices.reading.map((svc) => `${upperFirst(svc)} ${lowerFirst(svc)}`),
+    ...(usesUser ? ["ICurrentUserAccessor currentUser"] : []),
   ].join(", ");
   const ctorAssigns = [
     ...[...repos].map(([repo]) => `${repoField(repo)} = ${repoField(repo).slice(1)}`),
     ...calledServices.reading.map((svc) => `_${lowerFirst(svc)} = ${lowerFirst(svc)}`),
+    ...(usesUser ? ["_currentUser = currentUser"] : []),
   ].join("; ");
   const ctor =
     fields.length === 0
@@ -322,7 +357,8 @@ function renderHandlerClass(
   const returnLine = h.returnValue
     ? `        return ${renderArg(h.returnValue)}${returnsRunList ? ".ToList()" : ""};`
     : "        return Unit.Value;";
-  const body = [...stmtLines, ...saveLines, returnLine].join("\n");
+  const userLines = usesUser ? ["        var currentUser = _currentUser.User;"] : [];
+  const body = [...userLines, ...stmtLines, ...saveLines, returnLine].join("\n");
 
   // The `Handle` signature (`ValueTask<Order>`) needs the return aggregate's
   // domain namespace too — usually the same as the loaded one, but not always.
@@ -351,6 +387,7 @@ function renderHandlerClass(
     calledServices.reading.length + calledServices.pure.length > 0
       ? `\nusing ${ns}.Domain.Services;`
       : "";
+  const authUsing = usesUser ? `\nusing ${ns}.Auth;` : "";
 
   return `// Auto-generated.
 using System.Threading;
@@ -359,7 +396,7 @@ using Mediator;
 using ${ns}.Domain.Common;
 using ${ns}.Domain.Ids;
 using ${ns}.Domain.ValueObjects;
-using ${ns}.Domain.Enums;${serviceUsing}${resourceUsing}${aggUsings}
+using ${ns}.Domain.Enums;${serviceUsing}${resourceUsing}${aggUsings}${authUsing}
 
 namespace ${handlerHome(ns, agg, kind).ns};
 
@@ -747,18 +784,29 @@ function pathActionParam(p: ParamIR): { actionParam: string; commandArg: string 
  *  coerced with `new <Agg>Id(...)`; scalar → the rendered domain type verbatim.
  *  Shared with the query-time-projection controller, whose parameters bind from
  *  the query string in exactly this shape. */
-export function queryActionParam(p: ParamIR): { actionParam: string; commandArg: string } {
+export function queryActionParam(
+  p: ParamIR,
+  opts: { bindRequired?: boolean } = {},
+): { actionParam: string; commandArg: string } {
   const t: TypeIR = p.type;
   const n = escapeCsharpIdent(p.name);
+  // A required param of a routed handler binds required, so Swashbuckle
+  // publishes `required: true` as node / phoenix do: a non-nullable reference
+  // type alone reads as optional.  Fully qualified to avoid an unused `using`
+  // under /warnaserror.
+  const bind =
+    opts.bindRequired && t.kind !== "optional"
+      ? "[Microsoft.AspNetCore.Mvc.ModelBinding.BindRequired] "
+      : "";
   if (t.kind === "id") {
     // Same shared derivation as `pathActionParam` — see the note there.
     const wire = csIdValueClrType(t.valueType);
     return {
-      actionParam: `[FromQuery] ${wire} ${n}`,
+      actionParam: `[FromQuery] ${bind}${wire} ${n}`,
       commandArg: `new ${t.targetName}Id(${n})`,
     };
   }
-  return { actionParam: `[FromQuery] ${renderCsType(t)} ${n}`, commandArg: n };
+  return { actionParam: `[FromQuery] ${bind}${renderCsType(t)} ${n}`, commandArg: n };
 }
 
 const HTTP_ATTR: Record<string, string> = {
@@ -824,6 +872,7 @@ export function emitExplicitRouteController(
       ].join(", ");
       actions.push(
         `    [HttpGet("${explicitRoutePath(r)}")]\n` +
+          routedResponseDecls("    [ProducesResponseType(200)]", false, ctx) +
           `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
           `    {\n        var result = await _mediator.Send(new ${h.name}Query(${queryArgs}));\n        return Ok(result);\n    }`,
       );
@@ -844,13 +893,20 @@ export function emitExplicitRouteController(
     // record + `[FromBody]` body carry the flat fields, byte-identical to the
     // flat-param form); extern handlers keep their raw params (their impl owns
     // the signature).  Then split on the route `{token}`s as before.
-    const pathNames = pathParamNames(r.path);
+    // On a bodyless method (GET / DELETE) the unbound params ride the query
+    // string instead (`routedParamSource`), each a `[FromQuery]` action param.
     const effParams = h.extern ? h.params : flatHandlerParams(h, ctx);
-    const pathParams = effParams.filter((p) => pathNames.has(p.name));
-    const bodyParams = effParams.filter((p) => !pathNames.has(p.name));
-    const pathArg = new Map(pathParams.map((p) => [p.name, pathActionParam(p)]));
+    const source = (p: ParamIR) => routedParamSource(p.name, r, false);
+    const urlParams = effParams.filter((p) => source(p) !== "body");
+    const bodyParams = effParams.filter((p) => source(p) === "body");
+    const urlArg = new Map(
+      urlParams.map((p) => [
+        p.name,
+        source(p) === "path" ? pathActionParam(p) : queryActionParam(p, { bindRequired: true }),
+      ]),
+    );
 
-    const actionParamParts = pathParams.map((p) => pathArg.get(p.name)!.actionParam);
+    const actionParamParts = urlParams.map((p) => urlArg.get(p.name)!.actionParam);
     let bodyRecName: string | undefined;
     if (bodyParams.length > 0) {
       bodyRecName = `${h.name}Body`;
@@ -864,9 +920,7 @@ export function emitExplicitRouteController(
     // Command/query ctor args stay in flat declared order: path params coerce
     // from the route token, body params read off `body.<Pascal>`.
     const ctorArgs = effParams
-      .map((p) =>
-        pathNames.has(p.name) ? pathArg.get(p.name)!.commandArg : `body.${upperFirst(p.name)}`,
-      )
+      .map((p) => urlArg.get(p.name)?.commandArg ?? `body.${upperFirst(p.name)}`)
       .join(", ");
 
     const rec = `${h.name}${kind}`;
@@ -879,6 +933,14 @@ export function emitExplicitRouteController(
       ctx,
     );
     let sendBlock: string;
+    // The success response the action DECLARES: a single entity return names its
+    // `<Agg>Response` schema (the same `[ProducesResponseType]` the derived read
+    // actions carry), any other return an untyped 200, and a void handler 204.
+    // `IActionResult` is opaque to Swashbuckle, so without the attribute the
+    // spec publishes no body schema where node publishes one.
+    let successDecl = retType
+      ? "    [ProducesResponseType(200)]"
+      : "    [ProducesResponseType(204)]";
     if (retType) {
       // An aggregate/entity return is projected to its wire-shape `<Agg>Response`
       // — the same projection the auto-derived read endpoints use — so the route
@@ -895,6 +957,8 @@ export function emitExplicitRouteController(
         if (owning) {
           okExpr = projectToResponse("result", retType, ctx);
           nsUsings.add(`${ns}.Application.${plural(owning.name)}.Responses`);
+          if (!info.isCollection)
+            successDecl = `    [ProducesResponseType(typeof(${info.base}Response), 200)]`;
         }
       }
       // A scalar / id return crosses the same wire boundary.  An `<Agg> id` is a
@@ -926,11 +990,18 @@ export function emitExplicitRouteController(
     }
     actions.push(
       `    [${attr}("${explicitRoutePath(r)}")]\n` +
+        routedResponseDecls(successDecl, bodyParams.length > 0, ctx) +
         `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
         `    {\n${sendBlock}\n    }`,
     );
   }
   if (actions.length === 0) return;
+  // An action's response projection can name a `Domain.Common` type — a
+  // provenanced field's `Provenanced<T>`, a masked field's `RequestContext`
+  // principal read.  Scanned off the emitted text, so the using is present
+  // exactly when something in the file needs it.
+  if (DOMAIN_COMMON_TYPE_REF.test(`${actions.join("\n")}\n${bodyRecords.join("\n")}`))
+    nsUsings.add(`${ns}.Domain.Common`);
   const usings = [...nsUsings].sort().map((u) => `using ${u};`);
   const className = `${apiName}RoutesController`;
   const bodyBlock = bodyRecords.length > 0 ? `${bodyRecords.join("\n")}\n\n` : "";

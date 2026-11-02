@@ -12,8 +12,9 @@
 // EF adapter alone).
 //
 // Two paths, because the bypass arrives differently:
-//   - a repository `find … ignoring <Cap>` is STATIC (part of the declaration)
-//     → the predicate is simply never emitted into that method's SQL;
+//   - a single-row `if let o = Repo.find(C) ignoring <Cap>` derives its own
+//     repository method per stance (`FindFirst<C>Ignoring<Cap>`), so the
+//     bypass is STATIC → the predicate is simply never emitted into its SQL;
 //   - a retrieval `Run<Name>Async` takes a RUNTIME `FilterBypass bypass` port
 //     param (bound by a workflow's inline `Repo.run(...) ignoring …`), so the
 //     SQL is composed per call from the capability predicates the caller did
@@ -31,15 +32,16 @@ const SRC = `
     subdomain D { context C {
       criterion BigOrders() of Order = this.total > 0
       aggregate Order with softDeletable, tenantScoped { total: int }
-      repository OrderRepo for Order {
-        find recent(): Order? where this.total > 0 ignoring softDeletable
-        find allRows(): Order? ignoring *
-        find normal(): Order? where this.total > 0
-      }
+      repository OrderRepo for Order
+      criterion OrdersRecent of Order = this.total > 0
+      criterion OrdersNormal of Order = this.total > 0
       workflow Sweep {
         create(x: int) {
           let xs = OrderRepo.findAll(BigOrders()) ignoring softDeletable
           for o in xs { }
+          if let r = OrderRepo.find(OrdersRecent()) ignoring softDeletable { }
+          if let n = OrderRepo.find(OrdersNormal()) { }
+          if let a = OrderRepo.find(BigOrders()) ignoring * { }
         }
       }
     }}
@@ -73,14 +75,22 @@ function method(src: string, signatureFragment: string): string {
 }
 
 describe("dapper ignoring filter-bypass emission", () => {
-  it("a find with no `ignoring` still carries every capability predicate", async () => {
-    const normal = method(await repo(), "public async Task<Order?> Normal(");
+  it("a find(C) with no `ignoring` still carries every capability predicate", async () => {
+    // The plain read rides the criterion's runtime-bypass retrieval with the
+    // default (empty) bypass, so every guarded conjunct applies.
+    const normal = method(
+      inlineDapperScope(await rawRepo(), { runtime: true }),
+      "public async Task<IReadOnlyList<Order>> RunFindAllByOrdersNormalAsync(",
+    );
     expect(normal).toContain("(is_deleted = FALSE)");
     expect(normal).toContain("(tenant_key = 'acme')");
   });
 
-  it("`find … ignoring <Cap>` OMITS that capability's predicate, keeping the others", async () => {
-    const recent = method(await repo(), "public async Task<Order?> Recent(");
+  it("`find(C) … ignoring <Cap>` OMITS that capability's predicate, keeping the others", async () => {
+    const recent = method(
+      await repo(),
+      "public async Task<Order?> FindFirstOrdersRecentIgnoringSoftDeletable(",
+    );
     // The whole point: the bypassed capability's conjunct is gone from the SQL.
     expect(recent).not.toContain("is_deleted = FALSE");
     // …and the capability that was NOT named still scopes the read.
@@ -88,12 +98,13 @@ describe("dapper ignoring filter-bypass emission", () => {
     expect(recent).toContain("(total > 0)");
   });
 
-  it("`find … ignoring *` drops every capability predicate", async () => {
-    const all = method(await repo(), "public async Task<Order?> AllRows(");
+  it("`find(C) … ignoring *` drops every capability predicate", async () => {
+    const all = method(await repo(), "public async Task<Order?> FindFirstBigOrdersIgnoringAll(");
     expect(all).not.toContain("is_deleted = FALSE");
     expect(all).not.toContain("tenant_key = 'acme'");
     expect(all).toContain("FROM orders");
-    expect(all).not.toContain("WHERE");
+    // Only the criterion's own predicate is left — it is the query.
+    expect(all).toContain("WHERE (total > 0) LIMIT 1");
   });
 
   it("a retrieval composes its WHERE from the runtime FilterBypass (capability names, not EF filter names)", async () => {

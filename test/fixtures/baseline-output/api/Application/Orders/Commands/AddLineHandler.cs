@@ -23,7 +23,7 @@ public sealed class AddLineHandler : ICommandHandler<AddLineCommand, Unit>
         var aggregate = await _repo.GetByIdAsync(command.Id, cancellationToken)
             ?? throw new AggregateNotFoundException($"Order {command.Id} not found");
         aggregate.AddLine(command.ProductId, command.Qty);
-        await _repo.SaveAsync(aggregate, cancellationToken);
+        await _repo.SaveAsync(aggregate, RequestContext.Current?.ExpectedVersion, cancellationToken);
         return Unit.Value;
     }
 }

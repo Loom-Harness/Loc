@@ -32,9 +32,7 @@ system Helpdesk {
         operation close() requires currentUser.role == "admin" { open := false }
         derived display: string = subject
       }
-      repository Tickets for Ticket {
-        find byId(id: Ticket id): Ticket?
-      }
+      repository Tickets for Ticket
       policy { read Ticket requires true }
     }
   }

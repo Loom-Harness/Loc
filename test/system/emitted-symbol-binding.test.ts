@@ -124,16 +124,15 @@ system BindMoney {
  *  now find in the body on its own). */
 const COMBINED = `
 system BindBoth {
-  context C {
+  context C with scaffoldPaged(of: OpenPage) {
     enum Status { Open, Closed }
     aggregate Ticket with crudish {
       status: Status
       fee: money = money("1.50")
       derived display: string = \`t {status}\`
     }
-    repository Tickets for Ticket {
-      find openPage(): Ticket? where status != Closed
-    }
+    repository Tickets for Ticket
+    criterion OpenPage of Ticket = this.status != Closed
     projection OpenTickets {
       status: Status
       n: int

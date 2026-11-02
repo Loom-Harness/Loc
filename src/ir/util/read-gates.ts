@@ -54,41 +54,11 @@ export function listReadGate(repo: RepositoryIR | undefined): ExprIR | undefined
 //
 // Every non-abstract aggregate also serves `GET /<aggs>/{id}`.  The route is
 // compiler-derived, and it is gated by the same policy line as the list read:
-// `policy { read X requires … }` covers every read of X.  An author may still
-// DECLARE the by-id read on the repository (`find byId(id: T id): T?`) — it then
-// also serves its own `GET /<aggs>/by_id` route, under the same gate.
-// Recognition is by name AND shape, so a `find byId(oid: Order id): Order[]
-// where …` (a different read that merely shares the name) stays an ordinary
-// find.  When the author writes no `where`, lowering supplies the only filter
-// the shape can mean (`where this == <param>`), so the find's own route and
-// repository method return THE row — not the table's first one.
+// `policy { read X requires … }` covers every read of X.
 
-/** True when `find` has the by-id read shape for aggregate `aggName`:
- *  named `byId`, exactly one parameter of type `<Agg> id`, returning `<Agg>?`. */
-export function isByIdReadShape(find: FindIR, aggName: string): boolean {
-  if (find.name !== "byId" || find.params.length !== 1) return false;
-  const p = find.params[0]!.type;
-  const r = find.returnType;
-  return (
-    p.kind === "id" &&
-    p.targetName === aggName &&
-    r.kind === "optional" &&
-    r.inner.kind === "entity" &&
-    r.inner.name === aggName
-  );
-}
-
-/** The repository find the author declared as the aggregate's by-id read, if
- *  any (`find byId(id: T id): T? …`). */
-export function byIdReadFind(repo: RepositoryIR | undefined): FindIR | undefined {
-  if (!repo) return undefined;
-  return repo.finds.find((f) => !f.synthesized && isByIdReadShape(f, repo.aggregateName));
-}
-
-/** The find that carries `GET /<aggs>/{id}`'s gate: the author's declared
- *  by-id read; else, when the aggregate has a `policy { read X requires … }`
- *  gate, a synthesised by-id find carrying it (read off the list read `all`,
- *  which enrichment gave the same gate); else, when the repository is
+/** The find that carries `GET /<aggs>/{id}`'s gate: when the aggregate has a
+ *  `policy { read X requires … }` gate, a synthesised by-id find carrying it
+ *  (read off the list read `all`, which enrichment gave the same gate); else, when the repository is
  *  `readsDefaultDenied`, a synthesised by-id find whose gate is the DENY
  *  literal, so the route fails closed (403) on every backend.  A synthesised
  *  one is never in `repo.finds`: it owns no route or repository method of its
@@ -97,8 +67,7 @@ export function byIdRouteFind(
   repo: RepositoryIR | undefined,
   idValueType: IdValueType,
 ): FindIR | undefined {
-  const declared = byIdReadFind(repo);
-  if (declared || !repo) return declared;
+  if (!repo) return undefined;
   const listRead = listReadFind(repo);
   const policyGate = listRead?.defaultDenied ? undefined : listRead?.requires;
   if (!policyGate && !repo.readsDefaultDenied) return undefined;

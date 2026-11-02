@@ -20,9 +20,11 @@ import {
   isEmitStmt,
   isEntityPart,
   isFunctionDecl,
+  isIfLetStmt,
   isIfStmt,
   isLambda,
   isMatchStmt,
+  isNotFoundStmt,
   isOperation,
   isQueryHandler,
   isReturnStmt,
@@ -33,6 +35,7 @@ import {
   type Statement,
   type TypeRef,
 } from "../generated/ast.js";
+import { allowedHandlerReturns } from "../handler-return.js";
 import { envForNode, isAssignable, resolveTypeRef, typeOf, typeToString } from "../type-system.js";
 import type { Ty } from "../typing/ty.js";
 import { canPromoteLiteralTo, warnSensitivityDrop } from "./_shared.js";
@@ -70,13 +73,15 @@ function owningCallable(node: AstNode): AstNode | undefined {
   return undefined;
 }
 
-/** Does this statement list yield a value on every path? A `return`; an
- *  `if` / `else if` chain ending in `else` whose every branch does; a `match`
- *  statement whose every arm (and `else`, when written) does. A loop never
- *  counts: its body may not run. */
+/** Does this statement list yield a value on every path? A `return`; a
+ *  `notFound`, which ends the path with the 404; an `if` / `else if` chain
+ *  ending in `else` whose every branch does; an `if let` with an `else` whose
+ *  both branches do; a `match` statement whose every arm (and `else`, when
+ *  written) does. A loop never counts: its body may not run. */
 export function definitelyReturns(stmts: readonly Statement[]): boolean {
   return stmts.some((s) => {
-    if (isReturnStmt(s)) return true;
+    if (isReturnStmt(s) || isNotFoundStmt(s)) return true;
+    if (isIfLetStmt(s)) return definitelyReturns(s.thenBody) && definitelyReturns(s.elseBody);
     if (isIfStmt(s)) {
       if (!definitelyReturns(s.thenBody)) return false;
       if (s.elseIf) return definitelyReturns([s.elseIf]);
@@ -146,6 +151,24 @@ function checkReturns(
   }
 }
 
+/** A handler answers once, after its body has run, so a `return` is its last
+ *  top-level statement or the `return` of a trailing single-row guard
+ *  (`handler-return.ts`).  Anywhere else it would not stop the statements
+ *  after it. */
+function checkHandlerReturnPlacement(
+  h: CommandHandler | QueryHandler,
+  accept: ValidationAcceptor,
+): void {
+  const allowed = allowedHandlerReturns(h.body);
+  for (const n of AstUtils.streamAllContents(h)) {
+    if (!isReturnStmt(n) || owningCallable(n) !== h || allowed.has(n)) continue;
+    accept("error", diagMessage("loom.handler-return-not-last", { label: callableLabel(h) }), {
+      node: n,
+      code: "loom.handler-return-not-last",
+    });
+  }
+}
+
 /** The expression checks an aggregate operation gets from its statement walk,
  *  for the bodies that walk never visits. */
 function checkBodyExpressions(c: Callable, accept: ValidationAcceptor): void {
@@ -172,6 +195,7 @@ export function checkCallableBodies(model: Model, accept: ValidationAcceptor): v
       // An `extern` handler has no body here; its implementation is user code.
       if ((isCommandHandler(node) || isQueryHandler(node)) && node.extern) continue;
       checkBodyExpressions(node, accept);
+      if (!isDomainServiceOperation(node)) checkHandlerReturnPlacement(node, accept);
       const body = isDomainServiceOperation(node) ? node.stmts : node.body;
       if (node.returnType) checkReturns(node, node.returnType, body, accept);
     }

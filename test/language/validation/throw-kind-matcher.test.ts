@@ -66,7 +66,7 @@ ${
   opts.unitBody
     ? `
           test "a fresh work order cannot be completed" {
-            let wo = WorkOrder.create({ reference: "WO-1", customerName: "Ada", status: Draft })
+            let wo = WorkOrder.create(reference: "WO-1", customerName: "Ada", status: Draft)
 ${opts.unitBody}
           }`
     : ""
@@ -78,7 +78,7 @@ ${
   opts.contextTest
     ? `
         test "integration" {
-          let wo = WorkOrder.create({ reference: "WO-1", customerName: "Ada", status: Draft })
+          let wo = WorkOrder.create(reference: "WO-1", customerName: "Ada", status: Draft)
 ${opts.contextTest}
         }`
     : ""

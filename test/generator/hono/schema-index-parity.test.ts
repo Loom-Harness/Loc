@@ -22,11 +22,10 @@ system Acme {
         mentor: Team id?
         unique (badge)
       }
-      repository Employees for Employee {
-        find byKind(kind: string): Employee?
-        find seniors(k: string): Employee? where this.kind == k && this.name == "x"
-        find byTeam(team: Team id): Employee?
-      }
+      repository Employees for Employee { }
+      criterion EmployeesByKind(kind: string) of Employee = this.kind == kind
+      criterion EmployeesSeniors(k: string) of Employee = this.kind == k && this.name == "x"
+      criterion EmployeesByTeam(team: Team id) of Employee = this.team == team
     }
   }
   api PeopleApi from People

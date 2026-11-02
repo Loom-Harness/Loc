@@ -9,9 +9,7 @@ system PagedShop {
         code: string
         region: string
       }
-      repository Orders for Order {
-        find all(): Order paged
-      }
+      repository Orders for Order
       criterion OrdersInRegion(region: string) of Order = this.region == region
     }
   }

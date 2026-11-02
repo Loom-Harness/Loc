@@ -36,9 +36,7 @@ system Helpdesk {
           open := false
         }
       }
-      repository Tickets for Ticket {
-        find byId(id: Ticket id): Ticket?
-      }
+      repository Tickets for Ticket
       policy { read Ticket requires true }
     }
   }

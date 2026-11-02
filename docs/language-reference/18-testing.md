@@ -8,7 +8,7 @@ In-language tests live beside the domain they exercise. A `test "…" { }` block
 
 ## `test "…"` — an in-process unit test
 
-`test name=STRING ('for' target)? ('verifies' TraceId)? { TestStatement* }`. Nested in an **aggregate**, **value object** or **domain service**, the enclosing declaration is the subject. The body may `let`, construct (`Order.create({…})`, `Money { … }`), call operations and pure functions, and `expect`. A statement that mutates aggregate state from the test itself (`n := 2`) or guards it (`precondition` / `requires` / `emit`) is rejected with `loom.aggregate-test-context` — the test has no `this`. The optional `verifies TC-xxx` back-links the test to a `testCase` in the traceability graph ([Requirements & traceability](19-requirements-traceability.md)).
+`test name=STRING ('for' target)? ('verifies' TraceId)? { TestStatement* }`. Nested in an **aggregate**, **value object** or **domain service**, the enclosing declaration is the subject. The body may `let`, construct (`Order.create(…)`, `Money { … }`), call operations and pure functions, and `expect`. A statement that mutates aggregate state from the test itself (`n := 2`) or guards it (`precondition` / `requires` / `emit`) is rejected with `loom.aggregate-test-context` — the test has no `this`. The optional `verifies TC-xxx` back-links the test to a `testCase` in the traceability graph ([Requirements & traceability](19-requirements-traceability.md)).
 
 ```ddd
 valueobject Money {
@@ -30,7 +30,7 @@ aggregate Order with crudish {
   operation confirm() { precondition lines.count > 0  status := Confirmed }
 
   test "adding a line then confirming yields a confirmed order" verifies TC-001 {
-    let order = Order.create({ customerId: "c-1", status: Draft })
+    let order = Order.create(customerId: "c-1", status: Draft)
     order.addLine("00000000-0000-0000-0000-000000000002", 2)
     order.confirm()
     expect(order.status).toBe(Confirmed)
@@ -125,7 +125,7 @@ A `test` may live outside its subject. Reachability is not a home: the `for` hea
 context Sales {
   aggregate Order with crudish { … }
   test "an order starts as Draft" for Order {           // hoisted — emitted into order.test.ts / OrderTests.cs
-    let order = Order.create({ customerId: "c-2", status: Draft })
+    let order = Order.create(customerId: "c-2", status: Draft)
     expect(order.status).toBe(Draft)
   }
 }
@@ -145,7 +145,7 @@ A `test` nested directly in a `context` (no `for`) is an **in-process integratio
 ```ddd
 context Sales {
   test "a saved order can be read back" {
-    let o = Order.create({ customerId: "c-3", status: Draft })
+    let o = Order.create(customerId: "c-3", status: Draft)
     let read = Order.findById(o.id)
     expect(read.customerId).toBe("c-3")
   }
@@ -208,7 +208,7 @@ expect(await __route("GET", `${base}/api/orders/${encodeURIComponent(String("111
 
 Arguments are **positional, in declared param order**. A param whose name is a `{token}` in the path substitutes into the URL; every other param rides the JSON request body — the same split each backend's explicit-route emitter performs. The method comes off the route, not off the verb name.
 
-Two refusals guard the shape: a wrong argument count is `loom.e2e-routed-handler-arity` (arguments bind positionally, so a miscount shifts every later one), and a `GET`/`DELETE` route whose handler declares a param no `{token}` binds is `loom.e2e-routed-handler-bodyless-method` — the backends read that param from a request body those methods cannot carry, so the argument would silently vanish.
+A wrong argument count is `loom.e2e-routed-handler-arity` (arguments bind positionally, so a miscount shifts every later one).  A param no `{token}` binds rides the query string on a `GET`/`DELETE` route — those methods carry no body — and the JSON body on the others.
 
 An aggregate verb always wins: a routed handler is consulted only when the slug names no aggregate, or names one that does not have the verb. So a context whose name slugs like an aggregate changes no existing call.
 
@@ -245,7 +245,7 @@ await __postIfMatch(`${base}/api/notes/${n.id}/update`, ({ text: "second" }), re
 // …which sends  if-match: "<version>"  — the quoted entity-tag every backend parses
 ```
 
-The stale write answers 409 with the `detail` `"Note <id> was modified by another request"` on every backend ([RS-40](../conformance-semantics.md)). Any other shape — another key, a fourth argument, or `ifMatch` on an operation other than a versioned `update` (the one route all five backends read the header on) — is `loom.e2e-call-options`, rather than being dropped. The suite reads its base URL from `E2E_<DEPLOYABLE>_BASE` (defaulting to the compose port) and forwards a principal when the target is `auth: required` — `E2E_BEARER_TOKEN` (OIDC) or `E2E_DEV_CLAIMS` (base64-JSON into `x-loom-dev-claims`).
+The stale write answers 409 with the `detail` `"Note <id> was modified by another request"` on every backend ([RS-40](../conformance-semantics.md)). Any other shape — another key, a fourth argument, or `ifMatch` on an operation other than a versioned `update` (the one route all five backends read the header on) — is `loom.e2e-call-options`, rather than being dropped. A workflow call takes the same option as its second argument — `api.renameBoth.run({ … }, { ifMatch: v })` — to send a header the workflow's saves must ignore: a body is not a request about one row, so each row it loaded is checked against the version its own handle loaded. The suite reads its base URL from `E2E_<DEPLOYABLE>_BASE` (defaulting to the compose port) and forwards a principal when the target is `auth: required` — `E2E_BEARER_TOKEN` (OIDC) or `E2E_DEV_CLAIMS` (base64-JSON into `x-loom-dev-claims`).
 
 ```ts
 // e2e/SalesSystem.e2e.test.ts — emitted once at the output root
@@ -513,7 +513,7 @@ The single-argument **kind** form pins the rung. It is legal only in a unit `tes
 
 ```ddd
 test "a fresh work order cannot be completed" {
-  let wo = WorkOrder.create({ reference: "WO-1", customerName: "Ada", status: Draft })
+  let wo = WorkOrder.create(reference: "WO-1", customerName: "Ada", status: Draft)
   expect(wo.complete()).toThrow(precondition)
 }
 ```

@@ -14,14 +14,13 @@
 // page query must both carry the filter.
 system ImplicitFindFilter {
   subdomain Ops {
-    context Work {
+    context Work with scaffoldGet(of: ByReference) {
       aggregate WorkOrder with crudish {
         reference: string
         region: string
       }
-      repository WorkOrders for WorkOrder {
-        find byReference(reference: string): WorkOrder?
-      }
+      repository WorkOrders for WorkOrder { }
+      criterion ByReference(reference: string) of WorkOrder = this.reference == reference
       criterion WorkOrdersByRegionAndRef(region: string, reference: string) of WorkOrder = this.region == region && this.reference == reference
       queryHandler ListWorkOrdersByRegionAndRef(region: string, reference: string): WorkOrder[] {
         let r = WorkOrders.run(WorkOrdersByRegionAndRef(region, reference))
@@ -34,7 +33,7 @@ system ImplicitFindFilter {
       }
     }
   }
-  api WorkApi from Ops {
+  api WorkApi with scaffoldGetApi(of: ByReference) from Ops {
     route GET "/work_orders/by_region_and_ref/{region}/{reference}" -> Work.ListWorkOrdersByRegionAndRef
     route GET "/work_orders/in_region/{region}" -> Work.ListWorkOrdersInRegion
   }
@@ -52,14 +51,14 @@ system ImplicitFindFilter {
     let first = api.workOrders.create({ reference: "ONLY-ONE", region: "north" })
 
     // A miss on a ONE-row table: an unfiltered read answers that row with a 200.
-    expect(api.workOrders.byReference({ reference: "DOES-NOT-EXIST" })).toThrow(404)
-    let hit = api.workOrders.byReference({ reference: "ONLY-ONE" })
+    expect(api.work.getWorkOrderByReference("DOES-NOT-EXIST")).toThrow(404)
+    let hit = api.work.getWorkOrderByReference("ONLY-ONE")
     expect(hit.region).toBe("north")
 
     // A hit on a TWO-row table: an unfiltered single read is non-unique (500)
     // or answers whichever row comes first.
     api.workOrders.create({ reference: "WO-200", region: "south" })
-    let second = api.workOrders.byReference({ reference: "WO-200" })
+    let second = api.work.getWorkOrderByReference("WO-200")
     expect(second.region).toBe("south")
 
     // Two parameters AND their pairs — neither alone decides the row.
@@ -84,8 +83,8 @@ system ImplicitFindFilter {
 
     // Once the row is gone its key misses — while another row still exists.
     api.workOrders.destroy(first)
-    expect(api.workOrders.byReference({ reference: "ONLY-ONE" })).toThrow(404)
-    let remaining = api.workOrders.byReference({ reference: "WO-200" })
+    expect(api.work.getWorkOrderByReference("ONLY-ONE")).toThrow(404)
+    let remaining = api.work.getWorkOrderByReference("WO-200")
     expect(remaining.region).toBe("south")
   }
 }

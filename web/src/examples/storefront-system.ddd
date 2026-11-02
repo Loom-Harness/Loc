@@ -55,7 +55,7 @@ system StorefrontSystem {
   }
 
   subdomain Storefront {
-    context Storefront {
+    context Storefront with scaffoldGet(of: ByEmail) {
 
       enum OrderStatus { Draft, Confirmed, Shipped, Cancelled }
       enum WalletStatus { Open, Frozen, Closed }
@@ -157,11 +157,11 @@ system StorefrontSystem {
         }
 
         test "adding a line then confirming yields a confirmed order" verifies TC-001 {
-          let order = Order.create({
+          let order = Order.create(
             customerId: "00000000-0000-0000-0000-000000000001",
             status: Draft,
             placedAt: "2024-01-01T00:00:00Z"
-          })
+          )
           order.addLine("00000000-0000-0000-0000-000000000002", Money { amount: 5.00, currency: "USD" }, 2)
           order.confirm()
           expect(order.status).toBe(Confirmed)
@@ -169,20 +169,19 @@ system StorefrontSystem {
         }
 
         test "lines cannot be added once the order is confirmed" verifies TC-001 {
-          let order = Order.create({
+          let order = Order.create(
             customerId: "00000000-0000-0000-0000-000000000001",
             status: Draft,
             placedAt: "2024-01-01T00:00:00Z"
-          })
+          )
           order.addLine("00000000-0000-0000-0000-000000000002", Money { amount: 5.00, currency: "USD" }, 2)
           order.confirm()
           expect(order.addLine("00000000-0000-0000-0000-000000000002", Money { amount: 5.00, currency: "USD" }, 1)).toThrow()
         }
       }
 
-      repository Customers for Customer {
-        find byEmail(email: string): Customer? where this.email == email
-      }
+      repository Customers for Customer { }
+      criterion ByEmail(email: string) of Customer = this.email == email
       repository Products for Product { }
       repository Wallets for Wallet { }
       criterion WalletsByOwner(owner: Customer id) of Wallet = this.ownerId == owner
@@ -206,11 +205,11 @@ system StorefrontSystem {
         create(customerId: Customer id, walletId: Wallet id, productId: Product id, unitPrice: Money, qty: int) {
           precondition qty > 0
           let wallet = Wallets.getById(walletId)
-          let order = Order.create({
+          let order = Order.create(
             customerId: customerId,
             status: Draft,
             placedAt: now()
-          })
+          )
           order.addLine(productId, unitPrice, qty)
           order.confirm()
           wallet.debit(unitPrice)
@@ -224,7 +223,7 @@ system StorefrontSystem {
 
   // A criterion has no route of its own: the two owner-scoped reads the e2e
   // drives are routed queryHandlers over them.
-  api StorefrontApi from Storefront {
+  api StorefrontApi with scaffoldGetApi(of: ByEmail) from Storefront {
     route GET "/wallets/by_owner/{owner}" -> Storefront.ListWalletsByOwner
     route GET "/wallets/open_by_owner/{owner}" -> Storefront.ListWalletsOpenByOwner
   }
@@ -266,7 +265,7 @@ system StorefrontSystem {
   // route-registration-order bug.
   test e2e "find a customer by its static by_email route" against api {
     let cust = api.customers.create({ name: "Email Lookup", email: "lookup@acme.test" })
-    let found = api.customers.byEmail({ email: "lookup@acme.test" })
+    let found = api.storefront.getCustomerByEmail("lookup@acme.test")
     expect(found.id).toBe(cust.id)
     expect(found.name).toBe("Email Lookup")
 
@@ -282,7 +281,7 @@ system StorefrontSystem {
     // …and the DELETE, on the one customer no wallet or order references.
     api.customers.destroy(cust)
     expect(api.customers.getById(cust)).toThrow(404)
-    expect(api.customers.byEmail({ email: "lookup@acme.test" })).toThrow(404)
+    expect(api.storefront.getCustomerByEmail("lookup@acme.test")).toThrow(404)
     let empty = api.customers.all()
     expect(empty.items.length).toBe(0)
     expect(empty.total).toBe(0)

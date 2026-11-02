@@ -8,7 +8,6 @@ import type {
   SortTermIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
-import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -487,7 +486,7 @@ export function renderJavaSpringDataRepository(
     // A clause-less find (`find byReference(reference: string)`) still filters
     // — by its implicit key match.  Without it the @Query selects every row:
     // a miss answers 200 with some other row, two rows a non-unique 500.
-    const own = effectiveFindFilter(f, agg);
+    const own = f.filter;
     const where = jpqlWhere(
       own ? renderJpqlWhere(own, { alias: "e", enumsPkg, mode: "jpql-spring-data" }) : null,
       { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },

@@ -180,24 +180,22 @@ function corpusFixtures(): { name: string; source: string }[] {
     .filter((f) => f.startsWith("test/fixtures/corpus/") && f.endsWith(".ddd"))
     .map((f) => ({
       name: f.slice("test/fixtures/corpus/".length),
-      source: dddSourceOf(f).replace(/^(\s*context\s+\w+)\s*\{/gm, "$1 with scaffoldHandlers {"),
+      // A context that already carries a `with` clause gets the macro appended
+      // to it; one that does not gets a clause.
+      source: dddSourceOf(f).replace(
+        /^(\s*context\s+\w+)(\s+with\s+[^{]*?)?\s*\{/gm,
+        (_m, head: string, clause?: string) =>
+          clause ? `${head}${clause}, scaffoldHandlers {` : `${head} with scaffoldHandlers {`,
+      ),
     }));
 }
 
-/** Injected handlers the validator refuses, per fixture: `scaffoldHandlers`
- *  declares a read handler over a `paged` / `T?` / `or` find as a single
- *  `<Agg>Response`, and that handler's emitted code does not serve its declared
- *  shape (#4262). The refusal is the honest answer, so these errors are
- *  expected; every other error still fails, and an entry that stops firing must
- *  be deleted. */
-const INJECTED_HANDLER_REFUSALS: Record<string, readonly string[]> = {
-  "api-call.ddd": ["queryHandler 'ByCodeOrder' returns 'Order?'"],
-  "paged.ddd": ["queryHandler 'AllOrder' returns 'Order paged'"],
-  "union-find-absence.ddd": [
-    "queryHandler 'ByCodeOrder' returns 'Order or NotFound'",
-    "queryHandler 'MaybeFirstOrder' returns 'Order?'",
-  ],
-};
+/** Injected handlers the validator refuses, per fixture, when a handler
+ *  `scaffoldHandlers` declares does not serve its declared shape.  The refusal
+ *  is the honest answer, so a listed error is expected; every other error
+ *  still fails, and an entry that stops firing must be deleted.  Empty: no
+ *  corpus fixture's injection is refused. */
+const INJECTED_HANDLER_REFUSALS: Record<string, readonly string[]> = {};
 
 async function census(): Promise<{
   found: Record<string, Divergence>;

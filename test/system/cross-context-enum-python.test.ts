@@ -31,10 +31,15 @@ system R {
         title: string
         derived display: string = title
         invariant title.length > 2
-        test "neg" { expect(Clm.create({ kind: Fire, title: "x" })).toThrow() }
-        test "pos" { let c = Clm.create({ kind: Fire, title: "abc" })  expect(c.kind).toBe(Fire) }
+        test "neg" { expect(Clm.create(kind: Fire, title: "x")).toThrow() }
+        test "pos" { let c = Clm.create(kind: Fire, title: "abc")  expect(c.kind).toBe(Fire) }
       }
-      repository Clms for Clm { find byKind(k: Kind): Clm? where this.kind == k }
+      repository Clms for Clm { }
+      criterion ClmsByKind(k: Kind) of Clm = this.kind == k
+      queryHandler ListClmsByKind(k: Kind): Clm[] {
+        let r = Clms.run(ClmsByKind(k))
+        return r
+      }
       event Opened { clm: Clm id, kind: Kind }
       channel L { carries: Opened  delivery: broadcast  retention: ephemeral }
       workflow Track eventSourced {

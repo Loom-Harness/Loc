@@ -42,6 +42,7 @@ import {
   checkComponentPropTypes,
   checkConstructionFields,
   checkContext,
+  checkCreateArgs,
   checkCriteria,
   checkDataSource,
   checkDeployable,
@@ -75,8 +76,8 @@ import {
   checkPredicateSlotArgs,
   checkPrimitiveConversions,
   checkProjectSingletons,
+  checkReadGates,
   checkRepoKeyLookups,
-  checkRepositoryFinds,
   checkRetrievalLiteral,
   checkSeeds,
   checkSelfType,
@@ -103,7 +104,6 @@ import {
   checkUnknownMemberAccess,
   checkUnknownNameRefs,
   checkUserVisibleConcat,
-  checkWorkflowCreateArgs,
   checkWorkflowExplicitSave,
 } from "./validators/index.js";
 
@@ -212,8 +212,9 @@ export class DddValidator {
     // A workflow / handler body persists at its exit, so an explicit
     // `Repo.save(x)` statement is refused rather than reinterpreted.
     guard("workflow-explicit-save", model, () => checkWorkflowExplicitSave(model, accept));
-    // …and a factory call whose arguments map onto a create-input record.
-    guard("workflow-create-args", model, () => checkWorkflowCreateArgs(model, accept));
+    // An aggregate factory call `Agg.create(…)`, in any body: the retired
+    // record form, and an argument list that maps onto no create-input record.
+    guard("create-args", model, () => checkCreateArgs(model, accept));
     // Match expressions: warn on a missing `else` arm.
     // Type-checking arm conditions is best-effort here (the lowering's
     // type system is the source of truth); structural checks run
@@ -230,13 +231,13 @@ export class DddValidator {
     // errors on misses.
     guard("builder-call-type", model, () => checkBuilderCallType(model, accept, this.services));
     guard("construction-fields", model, () => checkConstructionFields(model, accept));
-    // `Agg.create({ … })` factory: reject object-literal keys that aren't on the
+    // `Agg.create(…)` factory: reject argument names that are not on the
     // aggregate's create-input contract (server-owned `managed`/`token`/`internal`
     // fields, or typos) — they compile the .ddd but fail the emitted project's tsc.
     guard("factory-create-fields", model, () => checkFactoryCreateFields(model, accept));
-    // …and the VALUE-type twin: an object-literal entry whose name IS a valid
-    // create-input field but whose value type mismatches (`Order.create({ qty:
-    // "abc" })` where `qty: int`) — the factory analogue of construction-field-type.
+    // …and the VALUE-type twin: an argument that binds a valid create-input
+    // field but whose value type mismatches (`Order.create(qty: "abc")` where
+    // `qty: int`) — the factory analogue of construction-field-type.
     guard("factory-create-field-types", model, () => checkFactoryCreateFieldTypes(model, accept));
     // Per-argument TYPE checks at the predicate-bearing
     // expression slots the statement/expression walk never reaches: find
@@ -321,9 +322,8 @@ export class DddValidator {
     // may appear only in a transport position (find return / payload field).
     guard("generic-carriers", model, () => checkGenericCarriers(model, accept));
 
-    // loom.list-find-removed — a list `find` is an error (a criterion or a
-    // retrieval replaces it); reconstitution finds and `find all` stay legal.
-    guard("repository-finds", model, () => checkRepositoryFinds(model, accept));
+    // loom.requires-not-bool / loom.policy-unknown-rule — the read-path gates.
+    guard("read-gates", model, () => checkReadGates(model, accept));
     // loom.permission-implies-* — `implies` targets resolve by name against the
     // subdomain catalogue; self-implication is rejected.
     guard("permission-implies", model, () => checkPermissionImplies(model, accept));

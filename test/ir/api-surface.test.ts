@@ -66,9 +66,8 @@ system Acme {
           status := status
         }
       }
-      repository Orders for Order {
-        find byCode(c: string): Order? where code == c
-      }
+      repository Orders for Order { }
+      criterion OrdersByCode(c: string) of Order = code == c
     }
   }
   storage primary { type: postgres }
@@ -212,19 +211,6 @@ describe("api-surface lift", () => {
       }
     }
     expect(mismatches, mismatches.join("\n")).toEqual([]);
-  });
-
-  it("orders static find paths before the /{id} param route", async () => {
-    const model = await buildLoomModel(SOURCE);
-    const ctx = ordersContext(model)!;
-    const ops = deriveContextOperations(ctx);
-
-    const byCode = ops.findIndex((o) => o.path.endsWith("/by_code"));
-    const getById = ops.findIndex((o) => o.kind === "getById");
-    expect(byCode).toBeGreaterThanOrEqual(0);
-    // A static segment registered AFTER `/{id}` is shadowed by it — the
-    // ordering is load-bearing, not cosmetic.
-    expect(byCode).toBeLessThan(getById);
   });
 
   it("types the operation route's response and failure statuses", async () => {

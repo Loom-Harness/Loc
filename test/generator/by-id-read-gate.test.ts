@@ -2,30 +2,28 @@
 //
 // Every non-abstract aggregate serves `GET /<aggs>/{id}`.  The route is
 // compiler-derived; it is gated by the aggregate's read gate, the same line
-// that gates the list read and every find:
+// that gates the list read:
 //
 //     policy { read Order requires currentUser.role == "admin" }
 //
 // What is pinned here, per backend:
-//   - the gate is rendered on the `/{id}` route (not only on the find's own
-//     `/by_id` route), and it runs BEFORE the load — a gate after the load
+//   - the gate is rendered on the `/{id}` route, and it runs BEFORE the
+//     load — a gate after the load
 //     would already have read the row, and would turn the route into an
 //     existence oracle (404 vs 403) for a refused caller;
 //   - the negative control: without a read gate, the `/{id}` route carries no
 //     gate machinery at all, so none of the above can pass by emitting a gate
-//     unconditionally;
-//   - the lowering half: a filterless declared `find byId` reads THE row (the
-//     shape's only meaning), not the table's first one.
+//     unconditionally.
 //
-// Plus the elixir EVENT-SOURCED controller, which is a separate emitter and
-// used to render both `index` and `show` without consulting any read gate.
+// Plus the elixir EVENT-SOURCED controller, which is a separate emitter that
+// must consult the read gate on both `index` and `show`.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 const GATE = 'requires currentUser.role == "admin"';
 
-const system = (platform: string, findClauses: string, aggMods = "", gate = "") => `system Shop {
+const system = (platform: string, aggMods = "", gate = "") => `system Shop {
   user { id: string role: string }
   subdomain Sales {
     context Orders {
@@ -34,9 +32,7 @@ const system = (platform: string, findClauses: string, aggMods = "", gate = "") 
         ${aggMods ? "create(code: string) { emit OrderOpened { code: code } }\n        apply(e: OrderOpened) { code := e.code }" : ""}
       }
       ${aggMods ? "event OrderOpened { code: string }" : ""}
-      repository Orders for Order {
-        ${findClauses}
-      }
+      repository Orders for Order
       ${gate ? `policy { read Order ${gate} }` : ""}
     }
   }
@@ -104,7 +100,7 @@ function sliceFrom(out: string, start: string, end: string): string {
 describe("by-id read gate — GET /<aggs>/{id}", () => {
   for (const b of BACKENDS) {
     it(`${b.name}: 403s BEFORE the by-id load`, async () => {
-      const out = await fileEndingWith(system(b.name, "", "", GATE), b.file);
+      const out = await fileEndingWith(system(b.name, "", GATE), b.file);
       const handler = b.region(out);
       const gateAt = handler.indexOf(b.guard);
       expect(gateAt, `gate not on the /{id} route on ${b.name}`).toBeGreaterThan(-1);
@@ -120,7 +116,7 @@ describe("an UNGATED by-id read emits no gate machinery", () => {
   // pass every assertion above.
   for (const b of BACKENDS) {
     it(`${b.name}: no 403, no principal read on the /{id} route`, async () => {
-      const out = await fileEndingWith(system(b.name, "find all(): Order[]"), b.file);
+      const out = await fileEndingWith(system(b.name), b.file);
       const handler = b.region(out);
       expect(handler).not.toContain("Forbidden");
       expect(handler).not.toContain('"admin"');
@@ -130,29 +126,18 @@ describe("an UNGATED by-id read emits no gate machinery", () => {
 
 describe("the by-id route declares 403 only when gated", () => {
   it("node: 403 in the /{id} route's declared responses", async () => {
-    const gated = await fileEndingWith(system("node", "", "", GATE), "http/order.routes.ts");
-    const ungated = await fileEndingWith(system("node", ""), "http/order.routes.ts");
+    const gated = await fileEndingWith(system("node", "", GATE), "http/order.routes.ts");
+    const ungated = await fileEndingWith(system("node"), "http/order.routes.ts");
     const responses = (s: string): string => sliceFrom(s, 'operationId: "getOrderById"', "}),");
     expect(responses(gated)).toContain("403:");
     expect(responses(ungated)).not.toContain("403:");
   });
 });
 
-describe("a filterless `find byId` reads THE row", () => {
-  it("node: the repository method filters on the id (not `.limit(1)` over the table)", async () => {
-    const out = await fileEndingWith(
-      system("node", "find byId(id: Order id): Order?", "", GATE),
-      "repositories/order-repository.ts",
-    );
-    const method = sliceFrom(out, "async byId(", "\n  }\n");
-    expect(method).toContain("eq(schema.orders.id, id)");
-  });
-});
-
 describe("elixir event-sourced controller honours the list AND by-id gates", () => {
   it("gates `index` and `show` before their loads", async () => {
     const out = await fileEndingWith(
-      system("elixir", "", " persistedAs: eventLog", GATE),
+      system("elixir", " persistedAs: eventLog", GATE),
       "controllers/order_controller.ex",
     );
     const index = sliceFrom(out, "def index(conn", "\n  end\n");
@@ -169,7 +154,7 @@ describe("elixir event-sourced controller honours the list AND by-id gates", () 
 
   it("emits no gate when the aggregate has no read gate", async () => {
     const out = await fileEndingWith(
-      system("elixir", "find all(): Order[]", " persistedAs: eventLog"),
+      system("elixir", " persistedAs: eventLog"),
       "controllers/order_controller.ex",
     );
     expect(sliceFrom(out, "def index(conn", "\n  end\n")).not.toContain("Forbidden");
@@ -204,7 +189,7 @@ const DENY_GUARD: Record<(typeof BACKENDS)[number]["name"], string> = {
 describe("denyByDefault: an UNGATED by-id read is refused at runtime (403)", () => {
   for (const b of BACKENDS) {
     it(`${b.name}: deny gate BEFORE the by-id load`, async () => {
-      const out = await fileEndingWith(withAuth(system(b.name, ""), "denyByDefault"), b.file);
+      const out = await fileEndingWith(withAuth(system(b.name), "denyByDefault"), b.file);
       const handler = b.region(out);
       const gateAt = handler.indexOf(DENY_GUARD[b.name]);
       expect(gateAt, `deny gate not on the /{id} route on ${b.name}`).toBeGreaterThan(-1);
@@ -212,14 +197,14 @@ describe("denyByDefault: an UNGATED by-id read is refused at runtime (403)", () 
     });
 
     it(`${b.name}: \`enforcement: opt\` keeps the route open`, async () => {
-      const out = await fileEndingWith(withAuth(system(b.name, ""), "opt"), b.file);
+      const out = await fileEndingWith(withAuth(system(b.name), "opt"), b.file);
       expect(b.region(out)).not.toContain("Forbidden");
     });
   }
 
   it("node: the ungated LIST read is denied too, and both routes declare 403", async () => {
     const out = await fileEndingWith(
-      withAuth(system("node", ""), "denyByDefault"),
+      withAuth(system("node"), "denyByDefault"),
       "http/order.routes.ts",
     );
     expect(out).toContain('if (!(false)) throw new ForbiddenError("Forbidden: find all");');

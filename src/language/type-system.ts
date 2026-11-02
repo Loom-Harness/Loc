@@ -25,7 +25,6 @@ import type {
   PostfixChain,
   PostfixSuffix,
   Property,
-  Repository,
   TypeRef,
   ValueObject,
 } from "./generated/ast.js";
@@ -36,7 +35,6 @@ import {
   isCriterion,
   isDerivedProp,
   isEntityPart,
-  isFindDecl,
   isFunctionDecl,
   isMemberSuffix,
   isModel,
@@ -795,20 +793,17 @@ export function findOperation(agg: Aggregate, name: string): Operation | undefin
 export function envForNode(node: AstNode): Env {
   const part = AstUtils.getContainerOfType(node, isEntityPart);
   const vo = AstUtils.getContainerOfType(node, isValueObject);
-  const find = AstUtils.getContainerOfType(node, isFindDecl);
   // A `criterion`/`retrieval` body's `this` is the candidate aggregate its
   // `of <T>` names.
   const crit = AstUtils.getContainerOfType(node, isCriterion);
   const retr = AstUtils.getContainerOfType(node, isRetrieval);
 
-  // The `this`/root aggregate: an enclosing aggregate container, else the
-  // repository's `for` aggregate (find filters) — reached through a
-  // cross-reference, not containment — else a criterion/retrieval candidate
-  // aggregate (its `of <T>` target).  Workflows orchestrate across aggregates
+  // The `this`/root aggregate: an enclosing aggregate container, else a
+  // criterion/retrieval candidate aggregate (its `of <T>` target) — reached
+  // through a cross-reference, not containment.  Workflows orchestrate across aggregates
   // and have no `this`.
   const agg =
     AstUtils.getContainerOfType(node, isAggregate) ??
-    (find ? (find.$container as Repository | undefined)?.aggregate?.ref : undefined) ??
     (crit ? typeRefAggregate(crit.target) : undefined) ??
     (retr ? typeRefAggregate(retr.target) : undefined);
 

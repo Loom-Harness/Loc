@@ -32,7 +32,7 @@ system S {
         name: string
         create(name: string) { name := name }
       }
-      repository ${agg}s for ${agg} { find byName(n: string): ${agg}? where this.name == n }
+      repository ${agg}s for ${agg}
     }
   }
   api ShopApi from Sales

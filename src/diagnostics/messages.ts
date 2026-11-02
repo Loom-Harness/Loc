@@ -183,7 +183,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `405 and every read over it returns nothing. Add a 'create', give it ` +
     `'with crudish', or say in a comment that it is populated out of band.`,
   "loom.aggregate-not-a-builder": (p: { name: unknown }) =>
-    `'${p.name}' is an aggregate — construct it with '${p.name}.create({ … })', not '${p.name} { … }'. ` +
+    `'${p.name}' is an aggregate — construct it with '${p.name}.create(…)', not '${p.name} { … }'. ` +
     `The '{ }' builder literal is for value objects and entity parts.`,
   "loom.unknown-builder-type": (p: { name: unknown }) =>
     `Unknown builder type '${p.name}'. Expected a ValueObject, EntityPart, user-defined component, or stdlib walker primitive (e.g., Stack, CreateForm, Card).`,
@@ -373,11 +373,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `aggregate '${p.agg}': the \`create\` guard reads ${p.refs}, which the gate cannot see. A \`create\` guard may read \`currentUser\` only — there is no instance until the factory runs, and the emitted POST takes the field-derived create input, not the declared parameter list, so a parameter has no wire slot either. \`requires\` answers "may this caller"; a value check belongs in a \`precondition\` on a named \`operation\`.`,
   "loom.lifecycle-guard-unreadable#destroy": (p: { agg: unknown; refs: unknown }) =>
     `aggregate '${p.agg}': the \`destroy\` guard reads ${p.refs}, which the gate cannot see. A \`destroy\` guard may read \`currentUser\` and \`this\` (the route already loads the row), but not a parameter — a DELETE carries no body. \`requires\` answers "may this caller"; a value check belongs in a \`precondition\` on a named \`operation\`.`,
-  // An EVENT-SOURCED lifecycle guard.  Not a "not yet" gap: the ES create body
-  // renders into the domain `_init`, which has no principal in scope, so the
-  // guard cannot be evaluated there at all.
-  "loom.lifecycle-guard-event-sourced": (p: { agg: unknown; platforms: unknown }) =>
-    `aggregate '${p.agg}': a \`requires\` in an event-sourced \`create\` cannot be enforced on ${p.platforms}. The create body renders into the domain \`_init\`, which has no principal in scope — \`currentUser\` is a free identifier there, so the guard does not compile rather than deny. Gate the caller instead: put the \`requires\` on the named \`operation\` (or \`workflow\`) that issues the create, where the request principal is bound. (Phoenix/\`elixir\` hoists the gate to its context function and binds a principal, so it enforces this one — the refusal names only the hosting backends that cannot.)`,
   // The canonical `create` / `destroy` body no backend renders.  `reason` is
   // computed at the call site (it varies by statement kind AND by action), so
   // the catalog owns the frame and the site owns the clause.
@@ -881,17 +876,6 @@ export const DIAGNOSTIC_MESSAGES = {
     p.argc
       ? `policy function '${p.name}' expects ${p.want} argument${p.want2}; reference it as '${p.name}(…)'.`
       : `policy function '${p.name}' expects ${p.want} argument${p.want2}, but ${p.got} ${p.got2} supplied.`,
-
-  // ----------------------------------------------------------------------
-  // src/language/validators/repository.ts
-  // ----------------------------------------------------------------------
-  "loom.list-find-removed": (p: { name: unknown }) =>
-    `repository find '${p.name}' returns a list, and list finds are removed — declare a ` +
-    `'criterion' (run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead, and put ` +
-    `it on the wire with 'scaffoldPaged(of: <it>)' on the context plus ` +
-    `'scaffoldPagedApi(of: <it>)' on the api when a client must call it; ` +
-    `'node scripts/codemod-list-find-to-criterion.mjs <path>' rewrites it. (A unique-key ` +
-    `find returning a single 'T' / 'T?' stays fine.)`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/seed.ts
@@ -1425,22 +1409,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `enforced per concrete table (${p.concretes}) — each subtype rejects its own duplicates, but ` +
     `the same value can still exist once in EACH sibling table.  If the key must be unique ` +
     `across the whole hierarchy, map it to one shared table: \`inheritanceUsing: sharedTable\`.`,
-  "loom.find-reserved-name": (p: { name: unknown; findName: unknown }) =>
-    `repository '${p.name}' find '${p.findName}': '${p.findName}' is a built-in repository verb of the Loom language, ` +
-    `so '${p.name}.${p.findName}(...)' would already mean the built-in. Choose a different find name (e.g. 'byRef', 'lookup').`,
-  "loom.find-param-unbound": (p: {
-    name: unknown;
-    findName: unknown;
-    param: unknown;
-    aggName: unknown;
-  }) =>
-    `repository '${p.name}' find '${p.findName}' declares no 'where', so each parameter ` +
-    `filters on the field of '${p.aggName}' it names — but '${p.param}' names no field ` +
-    `(nor a '<field>Id' spelling of one). The find would ignore it and answer with an ` +
-    `arbitrary row. Rename the parameter to the field it should match, or add a ` +
-    `'where' clause that uses it.`,
-  "loom.duplicate-find": (p: { name: unknown; findName: unknown }) =>
-    `repository '${p.name}' declares find '${p.findName}' more than once.`,
   "loom.paged-param-reserved#find": (p: {
     name: unknown;
     findName: unknown;
@@ -1473,15 +1441,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `the paging query parameter '${p.key}' every paged read adds (${p.reserved}) — the request would ` +
     `carry two values for one query key, and the generated handler / route signature a duplicate ` +
     `parameter.  Rename the parameter (e.g. '${p.param}Filter').`,
-  "loom.union-find-shape-unsupported": (p: {
-    name: unknown;
-    repoName: unknown;
-    why: unknown;
-    aggregateName: unknown;
-  }) =>
-    `find '${p.name}' on repository '${p.repoName}': ${p.why}. Supported v1 shape: ` +
-    `\`find ${p.name}(...): ${p.aggregateName} or <Error>\` (absence → the error's ` +
-    `HTTP status) or \`: ${p.aggregateName} option\` (absence → 404).`,
   // --- M-T5.34 / #2864 D6, decision D-2 -----------------------------------
   // An entity-PART-typed parameter on a public action.  The materialization
   // step has a value-object arm (`new LineVO(e.sku, e.qty)`) and no entity arm,
@@ -1796,6 +1755,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `${p.label} is declared to return '${p.declared}' but not every path ends in a \`return\`. ` +
     `End each branch with \`return <value>\` (an \`if\` needs an \`else\` that returns too).`,
 
+  "loom.handler-return-not-last": (p: { label: unknown }) =>
+    `${p.label}: 'return' must be the last top-level statement of the body, or the whole ` +
+    `then-branch of a final 'if let … { return x } else { … notFound }'. A handler answers ` +
+    `once, after its body has run, so a 'return' anywhere else would not stop the statements ` +
+    `after it.`,
   "loom.function-return-type-mismatch": (p: {
     name: unknown;
     actual: unknown;
@@ -3139,6 +3103,28 @@ export const DIAGNOSTIC_MESSAGES = {
     `a DECLARED \`operation\`, so the effect cannot be emitted. Declare an \`operation\` that ` +
     `does the work and await that, or drive the standard op through a form primitive ` +
     `(\`DestroyForm\` / \`CreateForm\`).`,
+  // An EVENT-SOURCED `create` gate.  Not a "not yet" gap: the create body
+  // renders into the domain `_init`, which has no principal in scope, so the
+  // guard cannot be evaluated there at all.  Phoenix hoists the gate to its
+  // context function and binds a principal, so only the other four refuse.
+  "loom.target-unsupported#lifecycle-guard-event-sourced": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what}: a \`requires\` in an event-sourced \`create\` cannot be enforced on deployable '${p.dName}' (backend '${p.target}'). The create body renders into the domain \`_init\`, which has no principal in scope — \`currentUser\` is a free identifier there, so the guard does not compile rather than deny. Gate the caller instead: put the \`requires\` on the named \`operation\` (or \`workflow\`) that issues the create, where the request principal is bound. (Phoenix/\`elixir\` hoists the gate to its context function and binds a principal, so it enforces this one.)`,
+  "loom.target-unsupported#resource-kind-unrealized": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what} binds a resource kind that deployable '${p.dName}' (backend '${p.target}') can't realize: no backend emits a read-replica connection or a Kafka-held event log, so the context would run on its primary Postgres alone and the declared resource would change nothing. Bind the context to a \`state\` resource (and, for an event-sourced aggregate, an \`eventLog\` resource) on a \`type: postgres\` storage.`,
+  "loom.target-unsupported#storage-type-unrealized": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what} binds a persistence resource to a storage type that deployable '${p.dName}' (backend '${p.target}') can't realize: every backend emits Postgres (its migrations, ORM mapping and compose \`db\` service), so the generated project would run on Postgres instead of the declared database. Use \`type: postgres\`.`,
   "loom.ui-projection-read-unsupported#frontend-has-no-client": (p: {
     what: unknown;
     name: unknown;
@@ -3312,7 +3298,7 @@ export const DIAGNOSTIC_MESSAGES = {
   // An event-sourced `create` under denyByDefault.  A WARNING with its own code,
   // for RECOURSE (the reason the by-id read was a warning until M-T3.19 gave it
   // a surface): the author cannot gate this one — a body `requires` here is refused outright by
-  // `loom.lifecycle-guard-event-sourced`, so demanding one would be an
+  // `loom.target-unsupported#lifecycle-guard-event-sourced`, so demanding one would be an
   // unsatisfiable error.  See the long-form reason at the call site in
   // `default-deny-checks.ts`.
   "loom.default-deny-es-create-ungateable": (p: {
@@ -3323,7 +3309,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `denyByDefault: '${p.name}.${p.opName}' serves \`POST ${p.path}\` to ANY authenticated ` +
     `caller, and it cannot be gated where it is declared: '${p.name}' is ` +
     `\`persistedAs: eventLog\`, and a \`requires\` in an event-sourced \`create\` body is ` +
-    `refused (\`loom.lifecycle-guard-event-sourced\`) because that body renders into the ` +
+    `refused (\`loom.target-unsupported#lifecycle-guard-event-sourced\`) because that body renders into the ` +
     `domain \`_init\`, which has no principal in scope. This is a WARNING rather than an ` +
     `error precisely because there is no \`requires\` you could add — erroring would make ` +
     `every event-sourced aggregate with a creation endpoint unbuildable under ` +
@@ -3425,7 +3411,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `nothing. Host '${p.owner}' on '${p.relayName}', or add a channelSource for ` +
     `'${p.channelName}' to its 'channels:' clause.`,
   "loom.create-call-not-constructible": (p: { agg: unknown; blocking: unknown }) =>
-    `\`${p.agg}.create({ … })\` calls a factory that does not exist: '${p.agg}' is NOT CONSTRUCTIBLE, ` +
+    `\`${p.agg}.create(…)\` calls a factory that does not exist: '${p.agg}' is NOT CONSTRUCTIBLE, ` +
     `so every backend deliberately emits no \`create\`.${p.blocking}  ` +
     `An aggregate is constructible only when every invariant can be satisfied from the create input alone; ` +
     `one that reads containments, managed fields or post-create state cannot be built by a plain create. ` +
@@ -3437,14 +3423,10 @@ export const DIAGNOSTIC_MESSAGES = {
     plural: unknown;
     input: unknown;
   }) =>
-    `\`${p.agg}.create({ … })\` omits ${p.missing}, which ${p.plural} REQUIRED create input. ` +
-    `The factory input is the field-derived create-input contract, not the keys the call happens to pass: ` +
+    `\`${p.agg}.create(…)\` omits ${p.missing}, which ${p.plural} REQUIRED create input. ` +
+    `The factory input is the field-derived create-input contract, not the arguments the call happens to pass: ` +
     `${p.input}.  A field is omittable only when it is optional, carries an \`= default\`, or has a ` +
     `language-defined implicit default (a bare \`bool\`). Supply it, give it a default, or make it optional.`,
-  "loom.create-call-field-not-in-create": (p: { agg: unknown; fields: unknown; params: unknown }) =>
-    `\`${p.agg}.create({ … })\` passes ${p.fields}, which the declared \`create(…)\` does not ` +
-    `list.  Its parameters (${p.params}) are the factory input; every other field takes its ` +
-    `declared default.  Drop the key, or add the field to the \`create\` parameters.`,
   // A declared `create(…)`'s parameter list is the create input, so each
   // param must BE a client-suppliable field.
   "loom.create-param-not-a-field": (p: { agg: unknown; param: unknown; fields: unknown }) =>
@@ -3983,8 +3965,8 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `reactor '${p.reactor}' runs on timer '${p.timer}', which has no tenant, but reads the ` +
     `tenant-owned aggregate '${p.agg}' through \`${p.read}\`.  The read's tenant filter would match ` +
-    `nothing.  Make the cross-tenant read explicit: declare it as a \`find\` (or an inline ` +
-    `\`Repo.run\`) with \`ignoring tenantOwned\`.`,
+    `nothing.  Make the cross-tenant read explicit: widen the read with \`ignoring tenantOwned\` ` +
+    `(\`Repo.run(C) ignoring tenantOwned\`, \`Repo.getBy(…) ignoring tenantOwned\`).`,
   "loom.user-reserved-field": (p: { name: unknown; fName: unknown }) =>
     `system '${p.name}': user block declares field '${p.fName}', but that name is reserved for the ` +
     `built-in system principal (\`currentUser.isSystem\`, and \`causedBy\` — the originating user an ` +
@@ -4802,6 +4784,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `e2e: 'api.${p.slug}.${p.verb}(id, body, options)' — the optional third argument must be ` +
     `exactly '{ ifMatch: <version> }', which sends the 'If-Match' precondition header. No other ` +
     `key and no fourth argument is read, so anything else would be silently dropped.`,
+  "loom.e2e-call-options#workflow-shape": (p: { slug: unknown }) =>
+    `e2e: 'api.${p.slug}.run(body, options)' — the optional second argument must be exactly ` +
+    `'{ ifMatch: <version> }', which sends the 'If-Match' header. No other key and no third ` +
+    `argument is read, so anything else would be silently dropped.`,
   "loom.e2e-call-options#if-match-scope": (p: {
     slug: unknown;
     verb: unknown;
@@ -4858,18 +4844,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `e2e: 'api.${p.slug}.${p.verb}(…)' takes ${p.expected} argument(s) (${p.params}), got ` +
     `${p.got}. A routed handler's arguments are POSITIONAL, in declared param order — ` +
     `'route ${p.method} "${p.path}"' binds a param by NAME to the matching {token} and sends ` +
-    `the rest as the request body.`,
-  "loom.e2e-routed-handler-bodyless-method": (p: {
-    slug: unknown;
-    verb: unknown;
-    method: unknown;
-    path: unknown;
-    params: unknown;
-  }) =>
-    `e2e: 'api.${p.slug}.${p.verb}(…)' cannot be driven — 'route ${p.method} "${p.path}"' is a ` +
-    `bodyless method, but the param(s) '${p.params}' are bound by no {token} in the path, so ` +
-    `every backend reads them from a request body a ${p.method} cannot carry. Add the missing ` +
-    `{token}(s) to the route path, or declare the route as POST.`,
+    `the rest as the query string (GET / DELETE) or the request body.`,
   "loom.e2e-unrouted-verb#ui-verb": (p: { slug: unknown; verb: unknown; known: unknown }) =>
     `ui e2e: 'ui.${p.slug}.${p.verb}(…)' drives no page object — the Playwright harness ` +
     `addresses the New-page create flow, the Detail-page read, and a public operation's ` +
@@ -5028,16 +5003,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `context '${p.name}': workflow '${p.wfName}' is declared more than once.`,
   "loom.workflow-name-collision": (p: { name: unknown; wfName: unknown; clash: unknown }) =>
     `context '${p.name}': workflow '${p.wfName}' collides with the ${p.clash} of the same name.`,
-  "loom.single-row-find-not-unique": (p: {
-    repo: unknown;
-    find: unknown;
-    agg: unknown;
-    cols: unknown;
-  }) =>
-    `repository '${p.repo}': find '${p.find}' returns a single '${p.agg}' by (${p.cols}), but no ` +
-    `'unique (${p.cols})' makes that a natural key — when two rows share it, every backend ` +
-    `returns whichever row the database yields first. Declare 'unique (${p.cols})' on '${p.agg}' ` +
-    `(it also derives the DB unique index and the 409 on a duplicate), or read every match through a criterion (Repo.run).`,
   "loom.persisted-table-collision": (p: {
     ctx: unknown;
     first: unknown;
@@ -5133,9 +5098,17 @@ export const DIAGNOSTIC_MESSAGES = {
     `there is no instance to read the value from. Either declare one id-shaped state field (for ` +
     `example 'orderId: Order id') and pass it to the create, or drop the state and pass the ` +
     `value in as a parameter.`,
-  // A factory call in a workflow / handler body whose arguments map onto no
-  // create-input record (`language/factory-call.ts`).
-  "loom.workflow-create-args": (p: {
+  // An aggregate factory call in its retired record form (D-CREATE-CALL-STYLE).
+  "loom.create-record-form": (p: { agg: unknown; owner: unknown }) =>
+    `'${p.agg}.create({ … })' in ${p.owner} passes the create input as one record. An ` +
+    `aggregate's 'create' is called like any other method: by name, '${p.agg}.create(x: a, ` +
+    `y: b)', or by position against a declared 'create(x, y)' signature, ` +
+    `'${p.agg}.create(a, b)'. ` +
+    `'node scripts/codemod-create-record-to-call.mjs <path>' rewrites every record-form call ` +
+    `into the named form.`,
+  // A factory call whose arguments map onto no create-input record
+  // (`language/factory-call.ts`).
+  "loom.create-args": (p: {
     agg: unknown;
     owner: unknown;
     given: unknown;
@@ -5143,20 +5116,31 @@ export const DIAGNOSTIC_MESSAGES = {
     inputs: unknown;
   }) =>
     `'${p.agg}.create(…)' in ${p.owner} passes ${p.given} positional argument(s), but ` +
-    `'${p.agg}' has ${p.count} create input(s), in order: ${p.inputs}. Positions bind to ` +
-    `those inputs in order; drop the extra arguments, or name each one.`,
-  "loom.workflow-create-args#mixed": (p: { agg: unknown; owner: unknown }) =>
+    `the declared '${p.agg}.create(…)' takes ${p.count} parameter(s), in order: ${p.inputs}. ` +
+    `Positions bind to those parameters in order; drop the extra arguments, or name each one.`,
+  "loom.create-args#mixed": (p: { agg: unknown; owner: unknown }) =>
     `'${p.agg}.create(…)' in ${p.owner} mixes positional and named arguments. Pass every ` +
-    `input by position (in the create input's order) or every one by name.`,
-  "loom.workflow-create-args#unknown-name": (p: {
+    `argument by name, or every one by position against a declared 'create(…)' signature.`,
+  "loom.create-args#positional-without-create": (p: {
+    agg: unknown;
+    owner: unknown;
+    example: unknown;
+    inputs: unknown;
+  }) =>
+    `'${p.agg}.create(…)' in ${p.owner} passes positional arguments, but '${p.agg}' declares ` +
+    `no 'create(…)' signature for positions to bind to. Name each argument, ` +
+    `'${p.agg}.create(${p.example})'; its create inputs are ${p.inputs}. Or declare ` +
+    `'create(…)' with parameters to call it by position.`,
+  "loom.create-args#not-in-create": (p: {
     agg: unknown;
     owner: unknown;
     name: unknown;
     inputs: unknown;
   }) =>
-    `'${p.agg}.create(…)' in ${p.owner} names '${p.name}', which is not a create input of ` +
-    `'${p.agg}'. Its inputs are: ${p.inputs}.`,
-  "loom.workflow-create-args#duplicate": (p: { agg: unknown; owner: unknown; name: unknown }) =>
+    `'${p.agg}.create(…)' in ${p.owner} passes '${p.name}', which the declared 'create(…)' ` +
+    `does not list. Its parameters (${p.inputs}) are the factory input; every other field ` +
+    `takes its declared default. Drop the argument, or add the field to the 'create' parameters.`,
+  "loom.create-args#duplicate": (p: { agg: unknown; owner: unknown; name: unknown }) =>
     `'${p.agg}.create(…)' in ${p.owner} passes '${p.name}' twice. Pass each input once.`,
   // A body mutates an aggregate that none of its saves covers (effect IR: a
   // `mutate` with no `persist` of the same local in an enclosing scope).
@@ -5254,18 +5238,15 @@ export const DIAGNOSTIC_MESSAGES = {
     otherContext: unknown;
   }) =>
     `${p.where}: repository '${p.repoName}' is declared in context '${p.otherContext}', not in this workflow's own context '${p.ownContext}' — a workflow orchestrates the aggregates of ONE context, so it may only load through its own repositories. No backend can emit this read: the repository is never constructed and the call is never awaited, so the generated code references a name that does not exist. Cross-context data crosses at the context's PUBLIC surface instead: fetch it through '${p.otherContext}''s api (a 'resource { kind: api }' binding gives a typed in-system call), or read a local projection folded over '${p.otherContext}''s published events (via a channel), and pass the value in as a parameter. If the two aggregates really do change together in one transaction, they belong in the SAME context — move one across, or move this workflow into '${p.otherContext}'.`,
+  "loom.repo-unknown-read": (p: { repoName: unknown; method: unknown; suggestion?: unknown }) =>
+    `repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  A repository declares no reads of its own: read with getById / findById, getBy / findBy over a declared \`unique (…)\` key, or find / findAll / run over a criterion.`,
   "loom.workflow-unknown-repository-method": (p: {
     name: unknown;
     repoName: unknown;
     method: unknown;
-    finds: unknown;
     suggestion?: unknown;
   }) =>
-    `workflow '${p.name}': repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  Available: getById, ${p.finds}.`,
-  "loom.workflow-currentuser-find": (p: { name: unknown; repoName: unknown; method: unknown }) =>
-    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' references a currentUser-bound find, ` +
-    `which workflows don't yet pass the user into.  Use 'getById' with an explicit id parameter, ` +
-    `or call the user-aware find from the route layer instead.`,
+    `workflow '${p.name}': repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  A repository declares no reads of its own: read with getById / findById, getBy / findBy over a declared \`unique (…)\` key, or find / findAll / run over a criterion.`,
   "loom.workflow-load-array-unsupported": (p: {
     name: unknown;
     repoName: unknown;
@@ -5610,13 +5591,16 @@ export const DIAGNOSTIC_MESSAGES = {
   // below.  Say the order (`src/language/parse-errors.ts`).
   "loom.parse-error#access-modifier-after-default": (p: { modifier: unknown; fixed: unknown }) =>
     `The access modifier '${p.modifier}' goes before the default: \`${p.fixed}\`.`,
-  // A `requires` gate on a repository find — the clause moved to the policy
-  // block (`src/language/parse-errors.ts`).
-  "loom.parse-error#find-requires-moved": (p: { aggregate: unknown }) =>
-    `A repository find carries no \`requires\` gate: who may read an aggregate is ` +
-    `\`policy { read ${p.aggregate} requires <expr> }\` in its context, and it gates every ` +
-    `read of '${p.aggregate}'. Move the gate there (\`node scripts/codemod-find-gate-to-policy.mjs\` ` +
-    `does it for a whole project).`,
+  // A `find` declared in a repository body — the declaration was removed
+  // (D-FINDDECL-REMOVED): every read is the repository contract
+  // (`src/language/parse-errors.ts`).
+  "loom.parse-error#find-removed": (p: { repository: unknown; aggregate: unknown }) =>
+    `A repository declares no \`find\`s any more: read '${p.aggregate}' through the ` +
+    `repository contract instead — \`${p.repository}.findById(id)\` / \`getById(id)\`, ` +
+    `\`${p.repository}.findBy(<column>: v)\` / \`getBy(…)\` over a declared \`unique (…)\` key, ` +
+    `or a \`criterion\` read with \`${p.repository}.find(C)\` (the first match), ` +
+    `\`findAll(C)\` or \`run(C)\`. A read a client calls is a \`queryHandler\` or ` +
+    `\`scaffoldGet\`. Leave the repository body empty (\`repository ${p.repository} for ${p.aggregate}\`).`,
   // A workflow `handle` member — the declaration was removed (D-HANDLE-REMOVAL):
   // it had no correlation surface and no backend ever routed it.  The named
   // command entry is a context-level `commandHandler` (`src/language/parse-errors.ts`).

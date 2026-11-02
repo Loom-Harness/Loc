@@ -64,42 +64,37 @@ const SRC = `
       archived: bool
     }
     criterion Archived of Account = this.archived
-    repository Accounts for Account {
-      find byHolder(holder: string): Account? where this.holder == holder
-    }
+    repository Accounts for Account { }
+    criterion AccountsByHolder(holder: string) of Account = this.holder == holder
 
     aggregate Blocklist { holder: string }
-    repository Blocklists for Blocklist {
-      find byHolder(holder: string): Blocklist? where this.holder == holder
-    }
+    repository Blocklists for Blocklist { }
+    criterion BlocklistsByHolder(holder: string) of Blocklist = this.holder == holder
 
     aggregate Quota { holder: string }
-    repository Quotas for Quota {
-      find byHolder(holder: string): Quota? where this.holder == holder
-    }
+    repository Quotas for Quota { }
+    criterion QuotasByHolder(holder: string) of Quota = this.holder == holder
 
     aggregate Region { holder: string }
-    repository Regions for Region {
-      find byHolder(holder: string): Region? where this.holder == holder
-    }
+    repository Regions for Region { }
+    criterion RegionsByHolder(holder: string) of Region = this.holder == holder
 
     aggregate Ledger { holder: string }
-    repository Ledgers for Ledger {
-      find byHolder(holder: string): Ledger? where this.holder == holder
-    }
+    repository Ledgers for Ledger { }
+    criterion LedgersByHolder(holder: string) of Ledger = this.holder == holder
 
     domainService Screening {
       operation notBlocked(holder: string): bool {
-        return Blocklists.byHolder(holder) == null
+        return Blocklists.find(BlocklistsByHolder(holder)) == null
       }
       operation hasQuota(holder: string): bool {
-        return Quotas.byHolder(holder) == null
+        return Quotas.find(QuotasByHolder(holder)) == null
       }
       operation inRegion(holder: string): bool {
-        return Regions.byHolder(holder) == null
+        return Regions.find(RegionsByHolder(holder)) == null
       }
       operation isReconciled(holder: string): bool {
-        return Ledgers.byHolder(holder) == null
+        return Ledgers.find(LedgersByHolder(holder)) == null
       }
     }
 
@@ -110,7 +105,7 @@ const SRC = `
           holder == "" => false
           else => Screening.notBlocked(holder)
         }
-        let acct = Account.create({ holder: holder, archived: false })
+        let acct = Account.create(holder: holder, archived: false)
       }
     }
 
@@ -118,7 +113,7 @@ const SRC = `
     workflow ListLiteral transactional {
       create(holder: string) {
         precondition [Screening.hasQuota(holder)].all(b => b)
-        let acct = Account.create({ holder: holder, archived: false })
+        let acct = Account.create(holder: holder, archived: false)
       }
     }
 
@@ -128,7 +123,7 @@ const SRC = `
       screened: bool
       create(accountId: Account id, holder: string) {
         screened := Screening.inRegion(holder)
-        let acct = Account.create({ holder: holder, archived: false })
+        let acct = Account.create(holder: holder, archived: false)
       }
     }
 
@@ -143,7 +138,7 @@ const SRC = `
           precondition Screening.isReconciled(holder)
           stale.update(holder, false)
         }
-        let acct = Account.create({ holder: holder, archived: false })
+        let acct = Account.create(holder: holder, archived: false)
       }
     }
     }

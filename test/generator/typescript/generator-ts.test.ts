@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { URI } from "langium";
@@ -7,6 +8,7 @@ import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
 import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
 import { BACKEND_PINS as HONO_PINS } from "../../../src/platform/hono/v5/pins.js";
+import { parseValid } from "../../_helpers/parse.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
@@ -91,7 +93,7 @@ describe("typescript generator", () => {
           }
           entity OrderLine { quantity: int  invariant quantity > 0 }
           test "count on a local lowers to length" {
-            let order = Order.create({ status: Draft })
+            let order = Order.create(status: Draft)
             order.addLine(2)
             expect(order.lines.count).toBe(1)
           }
@@ -481,13 +483,37 @@ describe("typescript generator", () => {
       expect(repo).toMatch(
         /requestLog\(\)\.info\(\{ event: "event_dispatched", event_type: \(event as \{ type: string \}\)\.type, aggregate: "Order", id: aggregate\.id as string \}\)/,
       );
-      // find_executed debug at every find return — including the empty-rows
-      // branch so a no-result query is still observable.
-      expect(repo).toMatch(
-        /requestLog\(\)\.debug\(\{ event: "find_executed", aggregate: "Order", find: "[^"]+", rows: 0 \}\)/,
+    });
+
+    it("repository emits find_executed at every read return, empty branch included", async () => {
+      const model = await parseValid(`
+        context Sales {
+          aggregate Order { code: string  unique (code) }
+          repository Orders for Order { }
+          criterion OrdersByCode(c: string) of Order = this.code == c
+          queryHandler GetOrder(code: string): Order {
+            if let x = Orders.findBy(code: code) { return x } else { notFound "not_found" }
+          }
+          queryHandler ListOrders(c: string): Order[] {
+            let r = Orders.findAll(OrdersByCode(c))
+            return r
+          }
+        }
+      `);
+      const repo = generateTypeScript(model, HONO_PINS).get("db/repositories/order-repository.ts")!;
+      // The single-row key lookup: a no-result query is still observable…
+      expect(repo).toContain(
+        'requestLog().debug({ event: "find_executed", aggregate: "Order", find: "findByCode", rows: 0 });',
       );
-      expect(repo).toMatch(
-        /requestLog\(\)\.debug\(\{ event: "find_executed", aggregate: "Order", find: "[^"]+", rows: 1 \}\)/,
+      expect(repo).toContain(
+        'requestLog().debug({ event: "find_executed", aggregate: "Order", find: "findByCode", rows: 1 });',
+      );
+      // …and the criterion list read reports its row count on both branches.
+      expect(repo).toContain(
+        'requestLog().debug({ event: "find_executed", aggregate: "Order", find: "runFindAllByOrdersByCode", rows: 0 });',
+      );
+      expect(repo).toContain(
+        'requestLog().debug({ event: "find_executed", aggregate: "Order", find: "runFindAllByOrdersByCode", rows: result.length });',
       );
     });
 
@@ -672,19 +698,32 @@ describe("typescript generator", () => {
   });
 
   it("lowers `where` filter expressions to Drizzle operators (not a TODO comment)", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateTypeScript(model, HONO_PINS);
-    const repo = files.get("db/repositories/order-repository.ts")!;
-    // sales.ddd's `activeForCustomer` declares
-    //   where this.customerId == forCustomer && this.status == Draft
-    // Both branches lower cleanly; the `&&` becomes `and(...)`.
-    expect(repo).toMatch(
-      /\.where\(and\(eq\(schema\.orders\.customerId, forCustomer\), eq\(schema\.orders\.status, "Draft"\)\)\)/,
+    // sales.ddd declares the criterion; a handler reading it emits its query.
+    const withRead = await parseValid(
+      readFileSync(path.join(repoRoot, "examples/sales.ddd"), "utf8").replace(
+        "  repository Orders for Order { }",
+        `  repository Orders for Order { }
+  queryHandler ListActiveForCustomer(c: Customer id): Order[] {
+    let r = Orders.findAll(OrdersActiveForCustomer(c))
+    return r
+  }`,
+      ),
     );
-    // `as never` casts are gone from generated finds.
+    const files = generateTypeScript(withRead, HONO_PINS);
+    const repo = files.get("db/repositories/order-repository.ts")!;
+    // sales.ddd's `OrdersActiveForCustomer` criterion is
+    //   this.customerId == forCustomer && this.status == Draft
+    // Both branches lower cleanly; the `&&` becomes `and(...)`.
+    expect(repo).toContain(
+      'const ordersActiveForCustomerCriterion = (forCustomer: Ids.CustomerId) => and(eq(schema.orders.customerId, forCustomer), eq(schema.orders.status, "Draft"));',
+    );
+    expect(repo).toMatch(
+      /async runFindAllByOrdersActiveForCustomer\([\s\S]*?\.where\(ordersActiveForCustomerCriterion\(forCustomer\)\)/,
+    );
+    // `as never` casts are gone from generated reads.
     expect(repo).not.toMatch(/as never/);
-    // No TODO fallback for this find.
-    expect(repo).not.toMatch(/TODO: translate where-clause[\s\S]*activeForCustomer/);
+    // No TODO fallback for this read.
+    expect(repo).not.toMatch(/TODO: translate where-clause/);
     // The import line picks up `and` (in addition to the always-present
     // `eq` / `inArray`).
     expect(repo).toMatch(/import \{[^}]*\band\b[^}]*\} from "drizzle-orm"/);
@@ -930,11 +969,11 @@ describe("typescript generator", () => {
           precondition amount > 0
           let customer = Customers.getById(customerId)
           customer.deductCredit(amount)
-          let order = Order.create({
+          let order = Order.create(
             customerId: customerId,
             status: Draft,
             placedAt: placedAt
-          })
+          )
           emit OrderPlaced { order: order.id, at: placedAt }
         }
     }
@@ -1406,12 +1445,12 @@ describe("typescript generator", () => {
             workflow archiveAll {
       create() {
               requires currentUser.role == "admin"
-              let o = Order.create({ customerId: "c", status: "archived" })
+              let o = Order.create(customerId: "c", status: "archived")
             }
     }
             workflow touchOne {
       create() {
-              let o = Order.create({ customerId: "c", status: "new" })
+              let o = Order.create(customerId: "c", status: "new")
             }
     }
           }
@@ -1489,49 +1528,6 @@ describe("typescript generator", () => {
       expect((route.match(/403: \{ description: "Forbidden"/g) ?? []).length).toBe(1);
     });
 
-    // -----------------------------------------------------------------------
-    // currentUser inside find filters
-    // -----------------------------------------------------------------------
-
-    const SRC_FILTER_AUTH = `
-      system Acme {
-        user {
-          id: string
-          customerId: string
-        }
-        subdomain Sales {
-          context Orders {
-            aggregate Order {
-              customerId: string
-              status: string
-            }
-            repository Orders for Order {
-              find mine(): Order? where customerId == currentUser.customerId
-            }
-          }
-        }
-        deployable api {
-          platform: node
-          contexts: [Orders]
-          port: 3000
-          auth: required
-        }
-      }
-    `;
-
-    it("repository find with currentUser filter gains a User parameter and imports the type", async () => {
-      const files = await emitForAuthSystem(SRC_FILTER_AUTH);
-      const repo = files.get("db/repositories/order-repository.ts")!;
-      expect(repo).toMatch(/import type \{ User \} from "\.\.\/\.\.\/auth\/user-types";/);
-      expect(repo).toMatch(/async mine\([^)]*currentUser: User[^)]*\)/);
-    });
-
-    it('find route reads c.get("currentUser") and threads it into the repo call', async () => {
-      const files = await emitForAuthSystem(SRC_FILTER_AUTH);
-      const route = files.get("http/order.routes.ts")!;
-      expect(route).toMatch(/const currentUser = \(c as unknown as \{ get\(k: "currentUser"\)/);
-      expect(route).toMatch(/repo\.mine\(currentUser\)/);
-    });
     // -----------------------------------------------------------------------
     // `requires` clauses
     // -----------------------------------------------------------------------

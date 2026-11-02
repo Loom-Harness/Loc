@@ -34,7 +34,7 @@ import { parseString } from "../_helpers/parse.js";
 // A context whose aggregate exercises the full apiRead access matrix
 // (editable / immutable / managed / token kept; internal / secret dropped),
 // a containment (→ `<Part>Response[]` + a sibling `LineResponse`), a derived
-// getter, plus create / operation / find / destroy handler targets.
+// getter, plus create / operation / get-by-id / destroy handler targets.
 const SRC = `
   system Shop {
     subdomain Sales {
@@ -61,9 +61,7 @@ const SRC = `
           operation cancel() { status := "cancelled" }
           destroy { }
         }
-        repository Orders for Order {
-          find byStatus(status: string): Order? where this.status == status
-        }
+        repository Orders for Order { }
       }
     }
     api SalesApi with scaffoldApi(of: Sales)
@@ -155,17 +153,13 @@ describe("scaffoldHandlers — contract records (M-T5.10 PR1)", () => {
     expect(fieldNames(destroy!)).toEqual([]); // id is a route param, not a body field
   });
 
-  it("splices query records for find / get-by-id targets", async () => {
+  it("splices the query record for the get-by-id target", async () => {
     const payloads = await contextPayloads();
     const getById = byName(payloads, "GetOrderQuery");
     expect(getById?.kind).toBe("query");
     // A single `orderId: Order id`.
     expect(fieldNames(getById!)).toEqual(["orderId"]);
     expect(getById!.fields[0]!.type.base.$type).toBe("IdType");
-
-    const find = byName(payloads, "ByStatusOrderQuery");
-    expect(find?.kind).toBe("query");
-    expect(fieldNames(find!)).toEqual(["status"]);
   });
 
   it("unfolds (prints) the records as valid `.ddd` inside the context", async () => {
@@ -177,7 +171,7 @@ describe("scaffoldHandlers — contract records (M-T5.10 PR1)", () => {
     expect(printed).toContain("response OrderResponse {");
     expect(printed).toContain("response LineResponse {");
     expect(printed).toContain("command CreateOrderCommand {");
-    expect(printed).toContain("query ByStatusOrderQuery {");
+    expect(printed).toContain("query GetOrderQuery {");
     expect(printed).toContain("lines: LineResponse[]");
     // A single field is re-quoted / re-emitted as source (spot check).
     expect(printed).toContain("orderId: Order id");

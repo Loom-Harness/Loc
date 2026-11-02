@@ -163,3 +163,95 @@ describe("dotnet — paged-run queryHandler over run(criterion)", () => {
     if (key) expect(m.get(key)!).not.toContain("FindAllByInRegion");
   });
 });
+
+// A routed read's response projection names `Domain.Common` types the plain
+// projection never does — a `provenanced` field's `Provenanced<T>` carrier, a
+// `mask unless` field's `RequestContext` principal read — so the routes
+// controller has to import that namespace exactly when its actions use one
+// (CS0246 / CS0103 under `/warnaserror` otherwise).
+const routedReadSrc = (field: string, auth = false) => `
+system S {
+  ${auth ? "user { id: string  permissions: string[] }" : ""}
+  subdomain Sales {
+    context Orders with scaffoldGet(of: ByCode) {
+      aggregate Order with crudish { code: string  ${field} }
+      repository Orders for Order
+      criterion ByCode(code: string) of Order = this.code == code
+    }
+  }
+  api A with scaffoldGetApi(of: ByCode) from Sales
+  storage pg { type: postgres }
+  resource s { for: Orders, kind: state, use: pg }
+  deployable d {
+    platform: dotnet, contexts: [Orders], dataSources: [s], serves: A, port: 5001
+    ${auth ? "auth: required" : ""}
+  }
+}
+`;
+describe("dotnet — routed read controller imports what its projection names", () => {
+  it("a provenanced field's Provenanced<T> brings in Domain.Common", async () => {
+    const ctrl = fileEndingWith(
+      await generateSystemFiles(routedReadSrc("total: int provenanced")),
+      "Api/ARoutesController.cs",
+    );
+    expect(ctrl).toContain("new Provenanced<int>(");
+    expect(ctrl).toMatch(/^using \w+\.Domain\.Common;$/m);
+  });
+
+  it("a masked field's RequestContext read brings in Domain.Common", async () => {
+    const ctrl = fileEndingWith(
+      await generateSystemFiles(
+        routedReadSrc(
+          'secret: string mask unless currentUser.permissions.contains("orders.unmask")',
+          true,
+        ),
+      ),
+      "Api/ARoutesController.cs",
+    );
+    expect(ctrl).toContain("RequestContext.Current");
+    expect(ctrl).toMatch(/^using \w+\.Domain\.Common;$/m);
+  });
+
+  it("a plain projection does not import Domain.Common", async () => {
+    const ctrl = fileEndingWith(
+      await generateSystemFiles(routedReadSrc("total: int")),
+      "Api/ARoutesController.cs",
+    );
+    expect(ctrl).not.toMatch(/^using \w+\.Domain\.Common;$/m);
+  });
+});
+
+// A routed action returns `IActionResult`, which Swashbuckle cannot see
+// through, so the action declares its responses the way node's routed handler
+// does: the success body (`<Agg>Response` for a single entity, 204 for a void
+// command), 400, the not-found status, and 415 where a JSON body is read.
+describe("dotnet — a routed action declares its OpenAPI responses", () => {
+  it("a single-entity read declares <Agg>Response at 200 plus 400 / 404", async () => {
+    const ctrl = fileEndingWith(
+      await generateSystemFiles(routedReadSrc("total: int")),
+      "Api/ARoutesController.cs",
+    );
+    const action = ctrl.slice(ctrl.indexOf("[HttpGet("), ctrl.indexOf("public async Task"));
+    expect(action).toContain("[ProducesResponseType(typeof(OrderResponse), 200)]");
+    expect(action).toContain("[ProducesResponseType(typeof(ProblemDetails), 400)]");
+    expect(action).toContain("[ProducesResponseType(typeof(ProblemDetails), 404)]");
+    expect(action).not.toContain(", 415)]");
+  });
+
+  it("a void command with a body declares 204 and 415", async () => {
+    const ctrl = fileEndingWith(
+      await generateSystemFiles(SCAFFOLD_SRC),
+      "Api/SalesApiRoutesController.cs",
+    );
+    const start = ctrl.indexOf('/set_note")]');
+    const head = ctrl.slice(start, ctrl.indexOf("public async Task", start));
+    expect(head).toContain("[ProducesResponseType(204)]");
+    expect(head).toContain("[ProducesResponseType(typeof(ProblemDetails), 415)]");
+  });
+
+  it("a paged-run read declares an untyped 200 plus 400 / 404", async () => {
+    const ctrl = fileEndingWith(await generateSystemFiles(PAGED_SRC), "Api/ARoutesController.cs");
+    expect(ctrl).toContain("[ProducesResponseType(200)]");
+    expect(ctrl).toContain("[ProducesResponseType(typeof(ProblemDetails), 404)]");
+  });
+});

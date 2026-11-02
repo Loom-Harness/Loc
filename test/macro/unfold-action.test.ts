@@ -301,8 +301,13 @@ context Sales {
   aggregate Order with softDeletable {
     subject: string
   }
-  repository Orders for Order {
-    find bySubject(s: string): Order? where this.subject == s ignoring softDeletable
+  repository Orders for Order { }
+  criterion OrdersBySubject(s: string) of Order = this.subject == s
+  workflow Sweep {
+    create(s: string) {
+      let xs = Orders.findAll(OrdersBySubject(s)) ignoring softDeletable
+      for o in xs { }
+    }
   }
 }
 `;
@@ -347,6 +352,43 @@ context Sales with scaffoldPaged(of: TopInRegion, requires: Staff) {
     expect(unfolded).not.toContain("scaffoldPaged");
     expect(unfolded).toMatch(
       /queryHandler ListOrderByTopInRegion\(rgn: string\): Order paged \{\s*requires Staff\(\)\s*let r = Orders\.run\(TopInRegion\(rgn\)\)\s*return r\s*\}/,
+    );
+    const reparse = await validate(unfolded);
+    expect(reparse.diagnostics.filter((d) => d.severity === 1)).toEqual([]);
+  });
+
+  it("unfolds `scaffoldGet(of: <criterion>, requires: <Policy>)` into the guarded single-row handler", async () => {
+    const source = `
+context Shop with scaffoldGet(of: ByCode, requires: Staff) {
+  aggregate Order { code: string }
+  repository Orders for Order { }
+  policy Staff(): bool = true
+  criterion ByCode(code: string) of Order = this.code == code
+}
+`;
+    const unfolded = await unfold(source, "scaffoldGet");
+    expect(unfolded).not.toContain("scaffoldGet");
+    expect(unfolded).toMatch(
+      /queryHandler GetOrderByCode\(code: string\): Order \{\s*requires Staff\(\)\s*if let x = Orders\.find\(ByCode\(code\)\) \{\s*return x\s*\} else \{\s*notFound "not_found"\s*\}\s*\}/,
+    );
+    const reparse = await validate(unfolded);
+    expect(reparse.diagnostics.filter((d) => d.severity === 1)).toEqual([]);
+  });
+
+  it("unfolds `scaffoldGet(of: <Aggregate>, key: …)` into a `getBy` read", async () => {
+    const source = `
+context Shop with scaffoldGet(of: Item, key: "sku") {
+  aggregate Item {
+    sku: string
+    unique (sku)
+  }
+  repository Items for Item { }
+}
+`;
+    const unfolded = await unfold(source, "scaffoldGet");
+    expect(unfolded).not.toContain("scaffoldGet");
+    expect(unfolded).toMatch(
+      /queryHandler GetItemBySku\(sku: string\): Item \{\s*let x = Items\.getBy\(sku: sku\)\s*return x\s*\}/,
     );
     const reparse = await validate(unfolded);
     expect(reparse.diagnostics.filter((d) => d.severity === 1)).toEqual([]);

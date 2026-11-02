@@ -21,7 +21,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 const TPH = `
 system Parties {
   subdomain Registry {
-    context Parties {
+    context Parties with scaffoldPaged(of: CustomersByEmail) {
       abstract aggregate Party inheritanceUsing: sharedTable {
         name: string
         email: string
@@ -30,13 +30,12 @@ system Parties {
         creditLimit: int
       }
       aggregate Vendor extends Party { rating: int }
-      repository Customers for Customer {
-        find byEmail(email: string): Customer? where this.email == email
-      }
+      repository Customers for Customer { }
+      criterion CustomersByEmail(email: string) of Customer = this.email == email
       repository Vendors for Vendor { }
     }
   }
-  api PartiesApi from Registry
+  api PartiesApi with scaffoldPagedApi(of: CustomersByEmail) from Registry
   storage pg { type: postgres }
   resource partiesState { for: Parties, kind: state, use: pg }
   deployable api {
@@ -113,8 +112,10 @@ describe("vanilla aggregate inheritance — TPH (sharedTable)", () => {
     expect(repo).toMatch(/def find_by_id\(id\)[\s\S]*Api\.Parties\.Customer\.base_query\(\)/);
     // insert stamps the discriminator so the shared-table row is routable back.
     expect(repo).toContain('Ecto.Changeset.put_change(:kind, "Customer")');
-    // a custom find ALSO scopes to the subtype.
-    expect(repo).toMatch(/def by_email\([\s\S]*Api\.Parties\.Customer\.base_query\(\)/);
+    // a criterion's find ALSO scopes to the subtype, through its base_query/0.
+    expect(repo).toMatch(
+      /def find_all_by_customers_by_email\([\s\S]*Api\.Parties\.Customer\.base_query\(\)/,
+    );
     expect(repo).not.toContain("record.kind ==");
   });
 

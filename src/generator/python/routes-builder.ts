@@ -74,6 +74,7 @@ import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/serve
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
 import { findUnionSpec } from "../_payload/union-wire.js";
+import { pyCalendarDateWire } from "./codec-spelling.js";
 import { pyCommandBodyParam } from "./command-body.js";
 import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
 import { paramPyType, requestPyType, responsePyType, wireModelRef } from "./emit/http-models.js";
@@ -1159,7 +1160,7 @@ function pyScalarReturnToWire(expr: string, t: TypeIR): string {
       inner.name === "money"
         ? numericEncode(PY_NUMERIC, "money", "dto-map", expr)
         : inner.name === "date"
-          ? `${expr}.isoformat()`
+          ? pyCalendarDateWire(expr)
           : `${H.iso}(${expr})`;
     return t.kind === "optional" ? `${wire} if ${expr} is not None else None` : wire;
   }
@@ -1299,7 +1300,7 @@ function operationRoute(
  *  wire query key, so a key that is a python keyword (`def`) binds under the
  *  escaped identifier with the key restored by `Query(alias=…)` (eval item 6,
  *  ruling D2); every other parameter is byte-identical. */
-function pyQueryParam(name: string, type: string): string {
+export function pyQueryParam(name: string, type: string): string {
   if (!pythonWireNeedsAlias(name)) return `${name}: ${type}`;
   return `${pythonWireIdent(name)}: ${H.Annotated}[${type}, ${H.Query}(alias=${JSON.stringify(name)})]`;
 }

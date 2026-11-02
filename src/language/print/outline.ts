@@ -61,7 +61,6 @@ const KEYWORD_BY_TYPE: Record<string, string> = {
   EnumValue: "value",
   EventDecl: "event",
   Repository: "repository",
-  FindDecl: "find",
   Deployable: "deployable",
   Workflow: "workflow",
   Projection: "projection",

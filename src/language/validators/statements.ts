@@ -17,7 +17,6 @@ import type {
   Destroy,
   EmitStmt,
   Expression,
-  FindDecl,
   FunctionDecl,
   LValue,
   Model,
@@ -37,7 +36,6 @@ import {
   isDerivedProp,
   isEmitStmt,
   isFilterDecl,
-  isFindDecl,
   isFunctionDecl,
   isLetStmt,
   isMemberSuffix,
@@ -519,13 +517,13 @@ export function checkExprCallArgs(
 
 /** Arg-type + construction-value checking at the EXPRESSION
  *  slots the operation/function/default/invariant/derived walk never reaches:
- *  repository `find … where` / `… requires`, retrieval `where:` (named +
+ *  retrieval `where:` (named +
  *  anonymous), criterion / policy-fn bodies, and operation `requires` / `when`
  *  gates.  Each holds an `Expression` that can nest a criterion/policy predicate
  *  call, a free/member domain call, or a record construction — all already
  *  type-checkable by the shared `checkExprCallArgs` / `checkConstructionArgTypes`
- *  under the slot's lexical env (`envForNode`, which binds a find's `for`
- *  aggregate + params and an operation's `this` + params).  Predicate-call ARITY
+ *  under the slot's lexical env (`envForNode`, which binds a criterion's
+ *  candidate + params and an operation's `this` + params).  Predicate-call ARITY
  *  is already model-wide (`loom.criterion-arity` / `loom.policy-fn-arity`); this
  *  adds the per-argument TYPE those gates don't touch, reusing the same
  *  `loom.call-arg-type` / `loom.construction-field-type` codes as the statement
@@ -539,9 +537,7 @@ export function checkPredicateSlotArgs(model: Model, accept: ValidationAcceptor)
     checkExprCallArgs(expr, env, accept);
   };
   for (const node of AstUtils.streamAllContents(model)) {
-    if (isFindDecl(node)) {
-      visit((node as FindDecl).filter);
-    } else if (isRetrieval(node)) {
+    if (isRetrieval(node)) {
       visit((node as Retrieval).where);
     } else if (isRetrievalLiteral(node)) {
       visit(node.where);
@@ -778,7 +774,7 @@ export function checkComponentPropTypes(model: Model, accept: ValidationAcceptor
 /** Arg-check ONE bare member-call statement (`recv.method(args)`) in a workflow
  *  or unit-`test` body.  Neither has a `this` aggregate, so — unlike `checkCallStmt` — the
  *  receiver is resolved ONLY through the body's typed lets / params (`envForNode`,
- *  with the bounded-context anchor that lets `Agg.create({ … })` type as the
+ *  with the bounded-context anchor that lets `Agg.create(…)` type as the
  *  aggregate), with no aggregate-root fallback.  The check FAILS OPEN (returns
  *  silently) whenever the receiver, an intermediate segment, or the final member
  *  doesn't resolve to a callable — workflow-body receiver typing is still partial
@@ -811,7 +807,7 @@ function checkLocalMemberCallStmt(lv: LValue, accept: ValidationAcceptor, admit?
 }
 
 /** Operation/function-call ARGUMENTS inside a unit /
- *  integration `test` body (`let r = Claim.create({ … })` then `r.bump("x")` on
+ *  integration `test` body (`let r = Claim.create(…)` then `r.bump("x")` on
  *  `bump(k: int)`).  A `test` body is not an aggregate operation, so neither
  *  `checkStatement` (which threads `checkExprCallArgs`) nor `checkCallStmt`
  *  (which needs a `this` aggregate) ever visited it: a wrong-typed or miscounted

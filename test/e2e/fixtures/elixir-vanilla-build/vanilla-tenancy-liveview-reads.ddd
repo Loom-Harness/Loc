@@ -1,6 +1,6 @@
 // The LiveView twin of `vanilla-tenancy.ddd`: every LiveView read over a
 // principal-filtered aggregate — the scaffolded paged list and by-id detail,
-// and a hand-written page reading a declared find — threads the socket's
+// and a hand-written page reading a criterion's paged find — threads the socket's
 // `current_user` into its context function, so `mix compile
 // --warnings-as-errors` checks every call against the arity the context
 // module declares.
@@ -21,29 +21,32 @@ system TenancyShopLive {
   }
 
   subdomain Core {
-    context Ledger {
+    context Ledger with scaffoldPaged(of: AccountsWithMinBalance) {
       aggregate Account with crudish {
         tenantId: string
         balance: int
         // Always-on row scoping: every read is constrained to the principal's tenant.
         filter this.tenantId == currentUser.tenantId
       }
-      // A custom find exercises the threaded-actor find path.
-      repository Accounts for Account {
-        find byMinBalance(min: int): Account? where this.balance >= min
-      }
+      repository Accounts for Account
+      // A criterion read (its `scaffoldPaged` find) exercises the
+      // threaded-actor find path.
+      criterion AccountsWithMinBalance(min: int) of Account = this.balance >= min
     }
   }
 
   storage primary { type: postgres }
   resource ledgerState { for: Ledger, kind: state, use: primary, index: [Account.tenantId, Account.balance] }
 
-  api LedgerApi from Core
+  api LedgerApi with scaffoldPagedApi(of: AccountsWithMinBalance) from Core
   ui Web with scaffold(subdomains: [Core]) {
     page Rich {
       route: "/rich"
       state { min: int = 0 }
-      body: QueryView { of: Account.byMinBalance(min), data: a => Text { a.tenantId } }
+      body: QueryView {
+        of: Account.findAllByAccountsWithMinBalance(min),
+        data: rows => Stack { For { each: rows, a => Text { a.tenantId } } }
+      }
     }
   }
   deployable api {

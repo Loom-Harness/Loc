@@ -27,9 +27,8 @@ describe("v2 — context-edges", () => {
     const ast = parse(`context Sales {
   aggregate Order {
   }
-  repository Orders for Order {
-    find byId(id: int): Order? where this.id == id
-  }
+  repository Orders for Order { }
+  criterion OrdersById(id: int) of Order = this.id == id
 }`);
     const rel = computeContextRelations(findContext(ast, "Sales"));
     expect(rel.repoFor.get("Orders")).toBe("Order");
@@ -67,12 +66,11 @@ describe("v2 — context-edges", () => {
       status := "ok"
     }
   }
-  repository Orders for Order {
-    find byId(id: int): Order? where this.id == id
-  }
+  repository Orders for Order { }
+  criterion OrdersById(id: int) of Order = this.id == id
   workflow place {
       create(x: int) {
-    let o = Orders.byId(x)
+    let o = Orders.find(OrdersById(x))
     o.confirm()
   }
     }

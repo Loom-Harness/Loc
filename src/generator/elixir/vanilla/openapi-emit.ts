@@ -1,4 +1,5 @@
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
+import { wireStatus } from "../../../ir/enrich/wire-policy.js";
 import {
   createInputFields,
   forApiRead,
@@ -17,6 +18,7 @@ import type {
   FieldIR,
   ParamIR,
   PayloadIR,
+  RouteIR,
   SystemIR,
   TypeIR,
   ValueObjectIR,
@@ -43,6 +45,7 @@ import {
 import { AUDIT_ENTRY_TYPE, auditEntryWireShape } from "../../../ir/util/audit-history.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { foreignValueTypeSeeds, foreignValueTypes } from "../../../ir/util/foreign-event-types.js";
+import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import {
   errorStatuses,
   type OpErrorKind,
@@ -61,6 +64,7 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../../ir/util/openapi-ids.js";
+import { routedParamSource } from "../../../ir/util/routed-handler.js";
 import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { emissionSink } from "../../../util/emission-sink.js";
@@ -262,6 +266,7 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
       allWorkflows,
       observableWorkflows,
       reqNameFor,
+      servedRoutes(args),
     ),
   );
 
@@ -600,6 +605,9 @@ function renderApiSpec(
    *  rather than re-derived, so the spec's `$ref`s and the emitted schema
    *  modules cannot disagree about a name. */
   reqNameFor: (owner: RequestComponentOwner) => string,
+  /** The explicit `route`s of the apis this deployable serves, each with the
+   *  hosted context its handler lives in. */
+  explicitRoutes: readonly { route: RouteIR; ctx: EnrichedBoundedContextIR }[] = [],
 ): string {
   const specModule = `${webModule}.Api.${apiPascal}Spec`;
   const schemasModule = `${webModule}.Api.Schemas`;
@@ -608,7 +616,7 @@ function renderApiSpec(
   const pathEntries: string[] = [];
 
   // Workflow paths: POST /workflows/<slug>
-  for (const { ctx, wf } of allWorkflows) {
+  for (const { wf } of allWorkflows) {
     const slug = snake(wf.name);
     const reqMod = `${schemasModule}.${reqNameFor({ kind: "workflow", workflow: wf.name })}`;
     // `create(…): T` answers 200 with the value (`respond_result`), typed by
@@ -638,7 +646,7 @@ function renderApiSpec(
               workflowIsGuarded(wf),
               undefined,
               {
-                readsAggregate: workflowCanAnswerNotFound(wf, ctx.repositories),
+                readsAggregate: workflowCanAnswerNotFound(wf),
               },
             )}
           }
@@ -1012,6 +1020,21 @@ ${pagingQueryParams()}
     }
   }
 
+  // Explicit routes, grouped per path so two methods on one path share a
+  // PathItem.  A path a derived builder above already published is skipped:
+  // the explicit route claims a derived slot only by answering it the same way.
+  const published = new Set(pathEntries.map((e) => /^ {6}"([^"]+)"/.exec(e)?.[1]));
+  const routedByPath = new Map<string, string[]>();
+  for (const { route, ctx } of explicitRoutes) {
+    if (published.has(route.path)) continue;
+    const op = routedOperation(route, ctx, schemasModule);
+    if (!op) continue;
+    routedByPath.set(route.path, [...(routedByPath.get(route.path) ?? []), op]);
+  }
+  for (const [path, ops] of routedByPath) {
+    pathEntries.push(`      "${path}" => %OpenApiSpex.PathItem{\n${ops.join(",\n")}\n      }`);
+  }
+
   // Every path item is built RELATIVE to the `scope "/api"` the router mounts
   // it under; the published key carries the base itself (M-T6.70 / L1-E E9).
   // Elixir used to publish `servers: [%Server{url: "/api"}]` with relative
@@ -1117,6 +1140,115 @@ const OPENAPI_ID_VALUE: Record<string, string> = {
  *  registered by anything: it is left dangling, and a client that resolves
  *  the document (Schemathesis, any code generator) refuses every operation
  *  whose body or response reaches it. */
+/** The explicit routes of every api the deployable serves whose handler
+ *  lives in a hosted context. */
+function servedRoutes(args: OpenApiEmitArgs): { route: RouteIR; ctx: EnrichedBoundedContextIR }[] {
+  const byName = new Map(args.contexts.map((c) => [c.name, c]));
+  return (args.deployable.serves ?? []).flatMap((apiName) =>
+    (args.sys.apis.find((a) => a.name === apiName)?.routes ?? []).flatMap((route) => {
+      const ctx = byName.get(route.target.context);
+      return ctx ? [{ route, ctx }] : [];
+    }),
+  );
+}
+
+/** One explicit route's `%OpenApiSpex.Operation{}` — the contract node's
+ *  routed handler declares: the bare lower-first handler name as operationId,
+ *  path / query params from the route template, an inline JSON body of the
+ *  remaining params, the `<Agg>Response` body of a single entity return (any
+ *  other return untyped, a void command 204), then 400, the context's
+ *  not-found status, and 415 where a body is read. */
+function routedOperation(
+  route: RouteIR,
+  ctx: EnrichedBoundedContextIR,
+  schemasModule: string,
+): string | undefined {
+  const h =
+    (ctx.commandHandlers ?? []).find((x) => x.name === route.target.handler) ??
+    (ctx.queryHandlers ?? []).find((x) => x.name === route.target.handler);
+  if (!h) return undefined;
+  const paged = !!h.returnType && !!pagedReturn(h.returnType);
+  const params = paged || h.extern ? h.params : flatRoutedParams(h.params, ctx);
+  const source = (name: string) => routedParamSource(name, route, false);
+  const required = (t: TypeIR) => (wireTypeInfo(t, "request").isNullable ? "false" : "true");
+  const paramLines = params
+    .filter((p) => source(p.name) !== "body" || paged)
+    .map((p) => {
+      const where = source(p.name) === "path" ? "path" : "query";
+      const req = where === "path" ? "true" : required(p.type);
+      return `            %OpenApiSpex.Parameter{name: :${p.name}, in: :${where}, required: ${req}, schema: ${openApiType(p.type, schemasModule)}}`;
+    });
+  if (paged) paramLines.push(pagingQueryParams());
+  const bodyParams = paged ? [] : params.filter((p) => source(p.name) === "body");
+  const bodyBlock =
+    bodyParams.length > 0
+      ? `
+          requestBody: %OpenApiSpex.RequestBody{
+            required: true,
+            content: %{"application/json" => %OpenApiSpex.MediaType{schema: %OpenApiSpex.Schema{
+              type: :object,
+              properties: %{${bodyParams.map((p) => `${p.name}: ${openApiType(p.type, schemasModule)}`).join(", ")}},
+              required: [${bodyParams
+                .filter((p) => required(p.type) === "true")
+                .map((p) => `:${p.name}`)
+                .join(", ")}]
+            }}}
+          },`
+      : "";
+  const ret = normalizeHandlerReturn(h.returnType, ctx);
+  let successSchema: string | undefined;
+  if (ret && !h.extern && !paged) {
+    const info = wireTypeInfo(ret, "response");
+    const owning =
+      info.refKind === "entity" && !info.isCollection
+        ? (ctx.aggregates.find((a) => a.name === info.base) ??
+          ctx.aggregates.find((a) => a.parts.some((p) => p.name === info.base)))
+        : undefined;
+    if (owning) successSchema = `${schemasModule}.${info.base}Response`;
+  }
+  const success = ret
+    ? `            200 => %OpenApiSpex.Response{
+              description: "OK"${
+                successSchema
+                  ? `,
+              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${successSchema}}}`
+                  : ""
+              }
+            }`
+    : `            204 => %OpenApiSpex.Response{description: "No Content"}`;
+  const statuses = [
+    wireStatus("malformed-body"),
+    wireStatus("not-found", ctx.structuralErrorStatuses),
+    ...(bodyParams.length > 0 ? [wireStatus("unsupported-media-type")] : []),
+  ];
+  const paramsBlock =
+    paramLines.length > 0
+      ? `\n          parameters: [\n${paramLines.join(",\n")}\n          ],`
+      : "";
+  return `        ${route.method.toLowerCase()}: %OpenApiSpex.Operation{
+          summary: "${h.name}",
+          operationId: "${h.name.charAt(0).toLowerCase()}${h.name.slice(1)}",
+          tags: ["${route.path.split("/")[1] ?? ""}"],${paramsBlock}${bodyBlock}
+          responses: %{
+${success}${statusResponseEntries(statuses, schemasModule)}
+          }
+        }`;
+}
+
+/** A routed handler's params with each `command`/`query` record param
+ *  flattened into its fields — the shape every backend binds on the wire. */
+function flatRoutedParams(
+  params: readonly { name: string; type: TypeIR }[],
+  ctx: EnrichedBoundedContextIR,
+): { name: string; type: TypeIR }[] {
+  return params.flatMap((p) => {
+    const rec = requestRecordFor(p.type, ctx);
+    return rec
+      ? rec.fields.map((f) => ({ name: f.name, type: f.type }))
+      : [{ name: p.name, type: p.type }];
+  });
+}
+
 function openApiType(t: TypeIR, schemasModule: string): string {
   const info = wireTypeInfo(t, "response");
   // Nullable rides on the parent property (`required[]`), not the

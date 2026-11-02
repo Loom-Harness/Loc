@@ -26,7 +26,6 @@ import { diagMessage } from "../../diagnostics/messages.js";
 import type { Model, TypeAtom, TypeRef } from "../generated/ast.js";
 import {
   isCapability,
-  isFindDecl,
   isPayloadDecl,
   isProperty,
   isQueryHandler,
@@ -78,7 +77,7 @@ function checkOptionDeprecated(t: TypeRef | TypeAtom, accept: ValidationAcceptor
 }
 
 /** A generic carrier is a transport shape, not a stored value — it may only
- *  appear as a repository find's return type or as a field of a payload
+ *  appear as a queryHandler's return type or as a field of a payload
  *  (payload-transport-layer.md, P3b).  Anywhere else (a stored aggregate /
  *  value-object property, a parameter, a derived/state field, a function
  *  signature) is rejected, which also keeps the storage-side emitters
@@ -89,15 +88,12 @@ function checkTypeRefPosition(t: TypeRef, accept: ValidationAcceptor): void {
   const carriers = t.ctors.filter((c) => c !== "option");
   if (carriers.length === 0) return;
   const container = t.$container;
-  // A find's return type: the TypeRef sits directly on the FindDecl (its
-  // params are wrapped in `Parameter` nodes, so they don't match here).
-  if (isFindDecl(container)) return;
   // A queryHandler's return type: the TypeRef sits directly on the QueryHandler
   // (`queryHandler X(...): <T> paged`).  A paged read exposed through the
   // application layer is the durable read-path vehicle (read-path-architecture.md,
   // "The ergonomic default") — the criterion runs through the read-only port and
   // the handler returns the `Paged<T>` envelope, so `paged`/`envelope` are legal
-  // here exactly as on a find return.  Params are wrapped in `Parameter` nodes,
+  // here.  Params are wrapped in `Parameter` nodes,
   // so a param carrier still doesn't match.
   if (isQueryHandler(container)) return;
   // A payload field: a `Property` whose owner is a `PayloadDecl`.

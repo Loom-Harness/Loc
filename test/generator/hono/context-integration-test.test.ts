@@ -15,7 +15,7 @@ system Shop {
     aggregate Order { code: string  qty: int }
     repository Orders for Order { }
     test "persists and reads back an order" {
-      let o = Order.create({ code: "abc", qty: 2 })
+      let o = Order.create(code: "abc", qty: 2)
       let found = Order.findById(o.id)
       expect(found.qty).toBe(2)
     }
@@ -70,10 +70,10 @@ system Ship {
     channel Lifecycle { carries: OrderPlaced  delivery: queue  retention: log }
     workflow OrderFulfillment {
       orderId: Order id
-      create(p: OrderPlaced) by p.order { let s = Shipment.create({ orderRef: p.order, status: "Pending" }) }
+      create(p: OrderPlaced) by p.order { let s = Shipment.create(orderRef: p.order, status: "Pending") }
     }
     test "placing transitions to Placed" {
-      let o = Order.create({ customerId: "c1", status: "Draft" })
+      let o = Order.create(customerId: "c1", status: "Draft")
       o.place()
       let found = Order.findById(o.id)
       expect(found.status).toBe("Placed")
@@ -113,10 +113,10 @@ system Shop {
     repository Orders for Order { }
     event OrderBumped { order: Order id }
     workflow placeOrder {
-      create(code: string) { let o = Order.create({ code: code, qty: 1 }) }
+      create(code: string) { let o = Order.create(code: code, qty: 1) }
     }
     test "persists and reads back an order" {
-      let o = Order.create({ code: "abc", qty: 2 })
+      let o = Order.create(code: "abc", qty: 2)
       let found = Order.findById(o.id)
       expect(found.qty).toBe(2)
     }
@@ -167,8 +167,8 @@ describe("Hono: context integration test imports the value objects / enums its b
     const f =
       get(
         await generateSystemFiles(
-          DOCKING(`      let s = Ship.create({ name: "Aurora", size: Size.Large })
-      let d = Dock.create({ name: "North", berth: Berth { ship: s.id, position: 3 } })
+          DOCKING(`      let s = Ship.create(name: "Aurora", size: Size.Large)
+      let d = Dock.create(name: "North", berth: Berth { ship: s.id, position: 3 })
       let found = Dock.findById(d.id)
       expect(found.berth.position).toBe(3)`),
         ),
@@ -184,7 +184,7 @@ describe("Hono: context integration test imports the value objects / enums its b
     const f =
       get(
         await generateSystemFiles(
-          DOCKING(`      let c = Crew.create({ name: "Aurora" })
+          DOCKING(`      let c = Crew.create(name: "Aurora")
       let found = Crew.findById(c.id)
       expect(found.name).toBe("Aurora")`),
         ),

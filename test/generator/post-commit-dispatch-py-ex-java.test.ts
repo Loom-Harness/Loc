@@ -38,7 +38,7 @@ const source = (platform: string): string => `system R {
     repository Audits for Audit { }
     workflow onDebit {
       a: Acct id
-      create(e: Debited) by e.acct { let x = Audit.create({ note: "debited" }) }
+      create(e: Debited) by e.acct { let x = Audit.create(note: "debited") }
     }
     workflow pay transactional {
       create(src: Acct id) {

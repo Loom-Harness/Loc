@@ -27,7 +27,7 @@ system Fleet {
         name: string
         implements tenantRegistry
       }
-      repository Orgs for Org { }
+      repository Orgs for Org
     }
   }
   api A from D
@@ -48,26 +48,24 @@ const TPH = SYS(`
       abstract aggregate Vehicle inheritanceUsing: sharedTable { name: string }
       aggregate Car extends Vehicle with crudish, tenantOwned, softDeletable { seats: int }
       aggregate Truck extends Vehicle with crudish, tenantOwned, softDeletable { payloadKg: int }
-      repository Cars for Car {
-        find all(): Car paged
-      }
-      repository Trucks for Truck { }
+      repository Cars for Car
+      repository Trucks for Truck
 `);
 
 const TPC = SYS(`
       abstract aggregate Asset inheritanceUsing: ownTable { label: string }
       aggregate Machine extends Asset with crudish, tenantOwned { serial: string }
       aggregate Rig extends Asset shape: document, with crudish, tenantOwned { tag: string }
-      repository Machines for Machine { }
-      repository Rigs for Rig { }
+      repository Machines for Machine
+      repository Rigs for Rig
 `);
 
 const TPH_RETRIEVAL = SYS(`
       abstract aggregate Vehicle inheritanceUsing: sharedTable { name: string }
       aggregate Car extends Vehicle with crudish, tenantOwned { seats: int }
       aggregate Truck extends Vehicle with crudish, tenantOwned { payloadKg: int }
-      repository Cars for Car { }
-      repository Trucks for Truck { }
+      repository Cars for Car
+      repository Trucks for Truck
       retrieval BigCars(min: int) of Car { where: seats >= min }
 `);
 
@@ -137,9 +135,10 @@ describe("elixir/vanilla — abstract base reader applies the concretes' read re
 
   it("does not route the base read past a concrete's list gate", async () => {
     const gated = TPH.replace(
-      "repository Trucks for Truck { }",
-      'repository Trucks for Truck { }\n      policy { read Truck requires currentUser.tenantId == "root" }',
+      "repository Trucks for Truck\n",
+      'repository Trucks for Truck\n      policy { read Truck requires currentUser.tenantId == "root" }\n',
     );
+    expect(gated).not.toBe(TPH);
     const router = file(await generateSystemFiles(gated), "/api_web/router.ex");
     expect(router).not.toContain('get "/vehicles"');
   });

@@ -28,7 +28,6 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
-import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 import { defaultSortOrder, sortableFields } from "../../ir/util/sortable-fields.js";
 import { valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { indent, lines } from "../../util/code-builder.js";
@@ -742,24 +741,9 @@ export function buildFindWhereClause(
       : lowered.expr;
     return `.where(${combinePredicate(whereInner, filterPred)})`;
   }
-  // Drizzle's `eq<T>(left, right)` infers `T` from the column's TS type
-  // (plain `string` for `text(...)` columns).  Branded id params
-  // (`Ids.CustomerId = string & {…}`) are structurally assignable to
-  // `string`, so no cast is needed.  An older version of this code
-  // wrote `${p.name} as never` defensively; the cast hid type safety
-  // (a column rename desyncing from a find name produced bad runtime
-  // SQL with no compile error) and is gone now.
-  const conditions: string[] = [];
-  for (const { param: p, field: matched } of implicitFindMatches(find, agg)) {
-    conditions.push(`eq(schema.${tableName}.${matched.name}, ${p.name})`);
-  }
-  if (conditions.length === 0) {
-    // No find-level predicate — but the read scope still applies to every root
-    // read, so emit it alone when present.
-    return filterPred ? `.where(${filterPred})` : "";
-  }
-  const findPred = conditions.length === 1 ? conditions[0]! : `and(${conditions.join(", ")})`;
-  return `.where(${combinePredicate(findPred, filterPred)})`;
+  // No find-level predicate — but the read scope still applies to every root
+  // read, so emit it alone when present.
+  return filterPred ? `.where(${filterPred})` : "";
 }
 
 function tsTypeForReturn(t: TypeIR): string {

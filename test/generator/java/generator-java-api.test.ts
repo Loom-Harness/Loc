@@ -44,9 +44,7 @@ system Shop {
           lineItems += LineItem { sku: sku, qty: qty, price: price }
         }
       }
-      repository Orders for Order {
-        find byCode(code: string): Order? where this.code == code
-      }
+      repository Orders for Order
     }
   }
   api OrdersApi from Sales
@@ -77,7 +75,6 @@ describe("java generator — controller routes (S5)", () => {
     expect(ctrl).toContain("    @GetMapping");
     expect(ctrl).toContain('    @PostMapping("/{id}/confirm")');
     expect(ctrl).toContain('    @PostMapping("/{id}/add_item")');
-    expect(ctrl).toContain('    @GetMapping("/by_code")');
   });
 
   it("create returns 201 `{ id }` with a Location header; ops return 204", async () => {
@@ -139,7 +136,7 @@ system S {
         name: string
         apiKey: string secret
       }
-      repository Squads for Squad { }
+      repository Squads for Squad
     }
   }
   api A from Core
@@ -211,10 +208,8 @@ describe("java generator — layered service (S5)", () => {
 });
 
 describe("java generator — paged reads", () => {
-  const PAGED_SRC = SRC.replace(
-    "find byCode(code: string): Order? where this.code == code",
-    "find all(): Order paged\n        find byCode(code: string): Order? where this.code == code",
-  );
+  // The implicit `all` of a plain relational aggregate is the paged list read.
+  const PAGED_SRC = SRC;
 
   it("emits the Paged<T> envelope, Pageable repository path, and the paged route", async () => {
     const f = await generateSystemFiles(PAGED_SRC);
@@ -299,7 +294,7 @@ system Demo {
         handle: string
         invariant handle.length > 0
       }
-      repository Accounts for Account { }
+      repository Accounts for Account
     }
   }
   api AccountApi from S
@@ -380,84 +375,54 @@ system Demo {
 });
 
 // ---------------------------------------------------------------------------
-// RS-22/RS-27 — a FIND-ABSENCE 404 goes through the shared producer.
+// RS-22/RS-27 — a single-row read's ABSENCE 404 goes through the shared
+// producer.
 //
-// Both arms below used to answer `ResponseEntity.notFound().build()` — Spring's
-// own bare 404 with an EMPTY BODY, which never reaches the
-// `@RestControllerAdvice` and therefore carries none of the five RFC-9457
-// members RS-22 requires on ANY error response.  It is the identical defect
-// RS-27 fixed on the by-id read, at the two route arms that read `null` and
-// answered locally instead of throwing.
-//
-// It also made ONE controller emit two different wires for shapes
-// `docs/payloads.md` declares wire-identical: a union find with a declared
-// `error` variant built a real ProblemDetail, while the `T option` / `T?` finds
-// beside it built nothing.
-//
-// Found by the caller census drain (2026-08-05): `maybeFirst` (option) and
-// `byEmail` (optional) got their first-ever callers and the java behavioural
-// leg read `golden {…} ≠ java ""` on both.
+// Spring's own `ResponseEntity.notFound().build()` is a bare 404 with an EMPTY
+// BODY: it never reaches the `@RestControllerAdvice` and so carries none of the
+// five RFC-9457 members RS-22 requires on ANY error response — the defect RS-27
+// fixed on the by-id read.  A `scaffoldGet` route's miss must throw the shared
+// not-found carrier instead, so it answers the same envelope as every other 404.
 // ---------------------------------------------------------------------------
 
 const ABSENCE_SRC = `
 system Abs {
   subdomain S {
-    context C {
-      error Missing { resource: string }
+    context C with scaffoldGet(of: ByCode) {
       aggregate Order with crudish { code: string }
-      repository Orders for Order {
-        find all(): Order[]
-        find optionFind(code: string): Order option where this.code == code
-        find nullableFind(code: string): Order? where this.code == code
-        find errorFind(code: string): Order or Missing where this.code == code
-      }
+      repository Orders for Order
+      criterion ByCode(code: string) of Order = this.code == code
     }
   }
-  api A from S
+  api A with scaffoldGetApi(of: ByCode) from S
   storage primary { type: postgres }
   resource cState { for: C, kind: state, use: primary }
   deployable api { platform: java contexts: [C] dataSources: [cState] serves: A port: 8080 }
 }
 `;
 
-describe("java generator — find-absence 404 (RS-22/RS-27)", () => {
-  it("throws through the shared producer for BOTH the `option` and the `?` find", async () => {
+const ABS_ROOT = "api/src/main/java/com/loom/api";
+
+describe("java generator — single-row read absence 404 (RS-22/RS-27)", () => {
+  it("a scaffoldGet miss throws through the shared producer", async () => {
     const files_ = await generateSystemFiles(ABSENCE_SRC);
-    const ctrl = files_.get(
-      "api/src/main/java/com/loom/api/features/orders/OrdersController.java",
-    )!;
-    expect(ctrl, "the controller must be emitted for the premise to hold").toBeDefined();
-
-    // Premise: all four find shapes really are in this controller, so the
-    // assertions below are about the ABSENCE arm and not about a find the
-    // emitter dropped.
-    for (const route of ["/option_find", "/nullable_find", "/error_find"]) {
-      expect(ctrl).toContain(`@GetMapping("${route}")`);
-    }
-
-    // `T option` and `T?` — the two shapes that answered an empty body.
-    expect(ctrl).toContain('throw new AggregateNotFoundException("not_found");');
-    expect(ctrl.match(/throw new AggregateNotFoundException\("not_found"\);/g)?.length).toBe(2);
-    // …and the import that makes it compile.
-    expect(ctrl).toContain("import com.loom.api.domain.common.AggregateNotFoundException;");
-
-    // NOT the bare Spring 404, anywhere in the controller.  This is the exact
-    // line the defect was: `ResponseEntity.notFound().build()` bypasses the
-    // advice, so it can never carry the RS-22 envelope.
-    expect(ctrl).not.toContain("ResponseEntity.notFound().build()");
-
-    // The declared-`error` variant keeps its own mapped status + `resource`
-    // extension (RS-19) — this fix must not collapse the two absence classes
-    // into one.
-    expect(ctrl).toContain('problem.setProperty("resource", "Order");');
+    const routes = files_.get(`${ABS_ROOT}/api/ARoutesController.java`)!;
+    // Premise: the route really is mounted, so the assertions below are about
+    // its absence arm and not about a route the emitter dropped.
+    expect(routes).toContain('@GetMapping("/api/orders/by_code")');
+    const handler = files_.get(`${ABS_ROOT}/application/workflows/GetOrderByCodeHandler.java`)!;
+    expect(handler).toContain('throw new AggregateNotFoundException("not_found");');
+    // NOT the bare Spring 404, on either side of the route.
+    expect(routes).not.toContain("ResponseEntity.notFound().build()");
+    expect(handler).not.toContain("ResponseEntity.notFound().build()");
   });
 
   it("routes that throw reach the advice's five-member envelope", async () => {
     // The other half of the contract: the producer the throw lands in really
     // does build the RS-22 envelope, so the two assertions compose into "the
-    // find-absence 404 carries type/title/status/detail/instance".
+    // absence 404 carries type/title/status/detail/instance".
     const files_ = await generateSystemFiles(ABSENCE_SRC);
-    const advice = files_.get("api/src/main/java/com/loom/api/api/ApiExceptionAdvice.java")!;
+    const advice = files_.get(`${ABS_ROOT}/api/ApiExceptionAdvice.java`)!;
     expect(advice).toContain("@ExceptionHandler(AggregateNotFoundException.class)");
     expect(advice).toContain(
       'return respond(problem(404, "Not Found", e.getMessage(), request), 404);',
@@ -468,19 +433,16 @@ describe("java generator — find-absence 404 (RS-22/RS-27)", () => {
   });
 
   it("the LIST read is untouched — it has no absence to answer", async () => {
-    // Scope guard: `find all(): Order[]` answers `[]`, never a 404 (RS-23), so the arm
-    // must not have grown a throw.  Without this, a fix that threw on every
-    // null-ish find would pass the two tests above.
+    // Scope guard: the list read answers an empty page, never a 404 (RS-23), so
+    // its arm must not have grown a throw.
     const files_ = await generateSystemFiles(ABSENCE_SRC);
-    const ctrl = files_.get(
-      "api/src/main/java/com/loom/api/features/orders/OrdersController.java",
-    )!;
+    const ctrl = files_.get(`${ABS_ROOT}/features/orders/OrdersController.java`)!;
     const at = ctrl.indexOf("@GetMapping\n");
     expect(at).toBeGreaterThan(-1);
     const listArm = ctrl.slice(at);
-    const nextRoute = listArm.indexOf("@GetMapping", 1);
+    const nextRoute = listArm.indexOf("Mapping", "@GetMapping".length);
     const body = nextRoute === -1 ? listArm : listArm.slice(0, nextRoute);
-    expect(body).toContain("return service.allOrder();");
+    expect(body).toContain("var result = service.allOrder(page, pageSize, sort, dir);");
     expect(body).not.toContain("AggregateNotFoundException");
   });
 });

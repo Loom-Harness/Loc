@@ -18,11 +18,7 @@ system AC {
         code: string
         status: string
       }
-      repository Orders for Order {
-        // An ABSENCE union: the caller gets a 404 as a VALUE to match on
-        // rather than a raise (payloads.md §Union finds).
-        find byCode(code: string): Order option
-      }
+      repository Orders for Order
     }
     context Shipping {
       aggregate Shipment with crudish {
@@ -36,7 +32,7 @@ system AC {
         // that broke every backend before `src/ir/util/foreign-ids.ts`.
         create(orderId: Order id) {
           let o = orders.getOrderById(orderId)
-          let s = Shipment.create({ orderCode: o.code, status: "Pending" })
+          let s = Shipment.create(orderCode: o.code, status: "Pending")
         }
       }
       // The COLLECTION half.  Two things are pinned here that nothing else
@@ -53,7 +49,7 @@ system AC {
         create(label: string) {
           let listing = orders.allOrder()
           let note = match { listing.total > 0 => "SEEN", else => "EMPTY" }
-          let s = Shipment.create({ orderCode: label, status: note })
+          let s = Shipment.create(orderCode: label, status: note)
         }
       }
       // The WRITE half: the caller creates a row in the CALLEE's database
@@ -63,16 +59,7 @@ system AC {
       workflow placeOrder {
         create(code: string) {
           let created = orders.createOrder({ code: code, status: "Draft" })
-          let s = Shipment.create({ orderCode: code, status: "Placed" })
-        }
-      }
-      // The absence-union half: `byCode` may legitimately find nothing, so the
-      // caller MUST handle it — the union does not type-check as bare `Order`.
-      workflow lookup {
-        create(code: string) {
-          let maybe = orders.byCodeOrder(code)
-          let note = match maybe { Order x => x.code, else => "missing" }
-          let s = Shipment.create({ orderCode: note, status: "Pending" })
+          let s = Shipment.create(orderCode: code, status: "Placed")
         }
       }
     }

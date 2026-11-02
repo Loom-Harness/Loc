@@ -1,3 +1,4 @@
+import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
 import { errorVariantResponse } from "../../../ir/enrich/wire-policy.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import { unionInstanceName } from "../../../ir/stdlib/unions.js";
@@ -15,7 +16,6 @@ import {
   isAllFind,
 } from "../../../ir/util/api-surface.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { findUnionSpec, unionMembers } from "../../_payload/union-wire.js";
@@ -100,7 +100,7 @@ export function buildOperationSpec(
     // A versioned aggregate's `update` declares 409 (stale `If-Match` →
     // optimistic-concurrency conflict), mirroring the Hono contract so the
     // conformance error-response dimension compares equal.
-    versionedUpdate: op.name === "update" && aggregateIsVersioned(agg),
+    versionedUpdate: readsIfMatch(operationVersionCheck(agg, op)),
     // Exception-less return-typed op: the controller-side translation spec
     // (Domain union → ProblemDetails / Ok-wrapped wire DTO).
     returnUnion: buildReturnUnionSpec(op, agg, ctx, ns),

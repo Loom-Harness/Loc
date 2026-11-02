@@ -141,10 +141,8 @@ export function describeOwner(node: AstNode): string {
   return "this body";
 }
 
-/** Where a `notFound` may stand: a workflow / handler body.  Shared with the
- *  find-to-findBy codemod, which rewrites a must-exist read into an
- *  `if let … else { notFound }` only where this holds. */
-export function notFoundAllowedAt(node: AstNode): boolean {
+/** Where a `notFound` may stand: a workflow / handler body. */
+function notFoundAllowedAt(node: AstNode): boolean {
   return zoneOf(node) === "workflow";
 }
 

@@ -186,7 +186,7 @@ context Work {
     expect(identityMarkers(nodes)).toEqual([]);
   });
 
-  it("a repository `find` whose predicate names its `id` parameter still emits", async () => {
+  it("a criterion whose predicate names its `id` parameter still emits", async () => {
     // The HARDEST manifestation of the same root cause, and the reason the fix
     // belongs at the one lowering site rather than in the workflow lowerer: a
     // `where` clause is validated against the declared query vocabulary, and the
@@ -202,8 +202,11 @@ system FindShadow {
         title: string
         done: bool
       }
-      repository WorkOrders for WorkOrder {
-        find byTrace(id: string): WorkOrder? where this.title == id
+      repository WorkOrders for WorkOrder { }
+      criterion WorkOrdersByTrace(id: string) of WorkOrder = this.title == id
+      queryHandler ListByTrace(t: string): WorkOrder[] {
+        let r = WorkOrders.run(WorkOrdersByTrace(t))
+        return r
       }
     }
   }

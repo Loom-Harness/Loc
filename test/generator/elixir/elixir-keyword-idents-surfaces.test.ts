@@ -41,9 +41,7 @@ system KwSys {
           quote := quote
         }
       }
-      repository Kws for Kw {
-        find byQuote(quote: string, do: string): Kw? where this.quote == quote && this.do == do
-      }
+      repository Kws for Kw { }
       criterion EndsAt(end: int) of Kw = this.end == end
       command Shift {
         end: int
@@ -76,9 +74,9 @@ system KwSys {
           let do = fn
           let rows = Kws.run(EndsAt(end), page: { offset: 0, limit: 10 })
           for catch in rows {
-            let k2 = Kw.create({ after: catch.after, end: end, fn: do, do: do, quote: receive })
+            let k2 = Kw.create(after: catch.after, end: end, fn: do, do: do, quote: receive)
           }
-          let k = Kw.create({ after: 1, end: end, fn: do, do: do, quote: fn })
+          let k = Kw.create(after: 1, end: end, fn: do, do: do, quote: fn)
           k.move(1, end, fn, do, receive)
         }
       }
@@ -89,9 +87,9 @@ system KwSys {
       }
       repository Notes for Note { }
       workflow ping {
-        create(quote: string) {
-          let listing = kws.byQuoteKw(quote, quote)
-          let n = Note.create({ text: quote })
+        create(quote: string, kw: string) {
+          let moved = kws.moveKw(kw, 1, 2, quote, quote, quote)
+          let n = Note.create(text: quote)
         }
       }
     }
@@ -197,9 +195,10 @@ describe("phoenix generator — Elixir reserved words on the remaining local-bin
       await generateSystemFiles(SRC),
       "caller_svc/lib/caller_svc/resources/api_clients.ex",
     );
-    expect(client).toContain("def kws_by_quote_kw(quote_, do_) do");
-    expect(client).toContain(`"quote" => quote_,`);
-    expect(client).toContain(`"do" => do_,`);
+    expect(client).toContain("def kws_move_kw(id, after_, end_, fn_, do_, quote_) do");
+    expect(client).toContain(
+      `json: %{"after" => after_, "end" => end_, "fn" => fn_, "do" => do_, "quote" => quote_}`,
+    );
   });
 
   it("workflow: create-param destructure, let, loop var and op-call target escape together", async () => {
@@ -210,8 +209,8 @@ describe("phoenix generator — Elixir reserved words on the remaining local-bin
     expect(spawn).toContain("fn catch_, _acc ->");
     expect(spawn).toContain("after: catch_.after, end: end_");
     const ping = bySuffix(files, "caller_svc/lib/caller_svc/caller/workflows/ping.ex");
-    expect(ping).toContain(`%{"quote" => quote_} = params`);
-    expect(ping).toContain("kws_by_quote_kw(quote_, quote_)");
+    expect(ping).toContain(`%{"quote" => quote_, "kw" => kw} = params`);
+    expect(ping).toContain("kws_move_kw(kw, 1, 2, quote_, quote_, quote_)");
   });
 
   it("explicit handlers: scalar AND flattened-record destructures escape with their reads", async () => {
@@ -261,7 +260,7 @@ system Wk {
       repository Rows for Row { }
       workflow Make {
         create(n: int, amt: decimal, ok: bool, label: string) {
-          let r = Row.create({ n: n, amt: amt, ok: ok, label: label })
+          let r = Row.create(n: n, amt: amt, ok: ok, label: label)
         }
       }
     }

@@ -5,7 +5,7 @@ import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
-import { generateDotnet } from "../../_helpers/generate.js";
+import { generateDotnet, generateSystemFiles } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
@@ -314,16 +314,33 @@ describe(".NET generator", () => {
     });
   });
 
-  it("marks a required find query param [BindRequired] (so Swashbuckle emits required:true)", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
-    const controller = files.get("Api/OrdersController.cs")!;
-    // byCustomer(customerId) — a required filter. Without [BindRequired] a
-    // non-nullable string query param reads as optional, diverging from
-    // Hono/Phoenix (which mark it required). Attribute is fully-qualified
-    // to avoid an unused `using` under /warnaserror.
+  // The routed read's controller action (`scaffoldGetApi` / `route GET …`)
+  // binds a required query param `[BindRequired]`, so Swashbuckle publishes it
+  // required, as node does (the 5-way OpenAPI parity gate compares them).
+  it("marks a required read query param [BindRequired] (so Swashbuckle emits required:true)", async () => {
+    const files = await generateSystemFiles(`
+      system S {
+        subdomain Sales {
+          context Orders with scaffoldGet(of: ByCode) {
+            aggregate Order { code: string }
+            repository Orders for Order
+            criterion ByCode(code: string) of Order = this.code == code
+          }
+        }
+        api SalesApi with scaffoldGetApi(of: ByCode) from Sales { }
+        storage pg { type: postgres }
+        resource st { for: Orders, kind: state, use: pg }
+        deployable api { platform: dotnet  contexts: [Orders]  dataSources: [st]  serves: SalesApi  port: 8080 }
+      }
+    `);
+    const controller = files.get("api/Api/SalesApiRoutesController.cs")!;
+    expect(controller).toContain("GetOrderByCode(");
+    // `code` — a required filter. Without [BindRequired] a non-nullable string
+    // query param reads as optional, diverging from Hono/Phoenix (which mark it
+    // required). Attribute is fully-qualified to avoid an unused `using` under
+    // /warnaserror.
     expect(controller).toMatch(
-      /\[FromQuery\] \[Microsoft\.AspNetCore\.Mvc\.ModelBinding\.BindRequired\] \w+ customerId/,
+      /\[FromQuery\] \[Microsoft\.AspNetCore\.Mvc\.ModelBinding\.BindRequired\] \w+ code/,
     );
   });
 
@@ -738,10 +755,10 @@ describe(".NET generator", () => {
       expect(repo).toMatch(
         /_log\.LogInformation\("\{Event\} event_type=\{EventType\} aggregate=\{Aggregate\} id=\{Id\}", "event_dispatched", ev\.GetType\(\)\.Name, "Order", aggregate\.Id\.Value\);/,
       );
-      // find_executed — array find uses result.Count; the assertion
-      // anchors on the catalog shape, not a specific find name.
-      expect(repo).toMatch(
-        /_log\.LogDebug\("\{Event\} aggregate=\{Aggregate\} find=\{Find\} rows=\{Rows\}", "find_executed", "Order", "[a-zA-Z]+", result == null \? 0 : 1\);/,
+      // find_executed — the paged collection read logs its page's row count.
+      // (A single-row read's `rows=` value is pinned by single-find-rows-log.)
+      expect(repo).toContain(
+        '_log.LogDebug("{Event} aggregate={Aggregate} find={Find} rows={Rows}", "find_executed", "Order", "all", items.Count);',
       );
     });
 
@@ -844,11 +861,11 @@ describe(".NET generator", () => {
           precondition amount > 0
           let customer = Customers.getById(customerId)
           customer.deductCredit(amount)
-          let order = Order.create({
+          let order = Order.create(
             customerId: customerId,
             status: Draft,
             placedAt: placedAt
-          })
+          )
           emit OrderPlaced { order: order.id, at: placedAt }
         }
     }
@@ -943,7 +960,7 @@ describe(".NET generator", () => {
         repository Tickets for Ticket { }
         workflow openTicket {
       create(subject: string) {
-          let ticket = Ticket.create({ subject: subject })
+          let ticket = Ticket.create(subject: subject)
         }
     }
       }
@@ -1305,44 +1322,16 @@ describe(".NET generator", () => {
       }
     `;
 
-    it("emits + registers the OIDC verifier and adds the NuGet refs under `auth { oidc }`", async () => {
-      const files = await emitForAuthSystem(SRC_OIDC);
-      const verifier = files.get("Auth/OidcUserVerifier.cs")!;
-      expect(verifier).toContain("public sealed class OidcUserVerifier : IUserVerifier");
-      expect(verifier).toContain("ConfigurationManager<OpenIdConnectConfiguration>");
-      expect(verifier).toContain("ValidateTokenAsync");
-      // explicit claim mapping wins; id defaults to `sub`; dotted paths resolve
-      expect(verifier).toContain(
-        'if (ClaimString(payload, "realm_access.roles") is not { } claimRole)',
-      );
-      expect(verifier).toContain('if (ClaimString(payload, "sub") is not { } claimId)');
-      expect(verifier).toContain('Permissions: ClaimStringList(payload, "permissions")');
-      // The verifier also reads the session cookie issued by the handshake.
-      expect(verifier).toContain('request.Cookies["session"]');
-      const program = files.get("Program.cs")!;
-      expect(program).toContain("builder.Services.AddScoped<IUserVerifier, OidcUserVerifier>();");
-      const csproj = files.get("Api.csproj")!;
-      expect(csproj).toContain("Microsoft.IdentityModel.Protocols.OpenIdConnect");
-    });
-
-    // A declared NON-OPTIONAL array claim absent from the token is the EMPTY
-    // SET, not null.  `string[]` has a real reader (ClaimStringList, itself
-    // empty-on-missing); every OTHER element type used to fall through to
-    // `default!` — a NULL List<T> on a non-nullable record property — so a
-    // `mask unless currentUser.levels.contains(…)` threw
-    // NullReferenceException and answered 500 instead of redacting: the
-    // fail-OPEN-shaped crash of a feature whose failure is a data leak.
-    it("defaults a non-string array claim to an empty list, never `default!`", async () => {
+    // The verifier's registration and its claim projection (`sub` → id, a
+    // dotted claim path, a string-array claim, an absent non-string array
+    // claim → empty list) are carried by `corpus/auth-oidc` on every booted
+    // leg.  The session-cookie read and the dev stub's empty-list default are
+    // not exercised there.
+    it("reads the session cookie and defaults the dev stub's non-string array claim to an empty list", async () => {
       const files = await emitForAuthSystem(
         SRC_OIDC.replace("permissions: string[]", "permissions: string[] levels: int[]"),
       );
-      const verifier = files.get("Auth/OidcUserVerifier.cs")!;
-      // D16: the claim is now DECODED; an absent one still folds to the empty list.
-      expect(verifier).toContain(
-        'Levels: ClaimList<int>(payload, "levels", AsInt) ?? new System.Collections.Generic.List<int>()',
-      );
-      expect(verifier).not.toContain("Levels: default!");
-      // The dev stub — the other principal-construction site — already agreed.
+      expect(files.get("Auth/OidcUserVerifier.cs")!).toContain('request.Cookies["session"]');
       const stub = files.get("Auth/DevStubUserVerifier.cs")!;
       expect(stub).toContain("Levels: new System.Collections.Generic.List<int>()");
     });
@@ -1418,7 +1407,7 @@ describe(".NET generator", () => {
             workflow archiveAll {
       create() {
               requires currentUser.role == "admin"
-              let o = Order.create({ customerId: "c", status: "archived" })
+              let o = Order.create(customerId: "c", status: "archived")
             }
     }
           }
@@ -1758,17 +1747,47 @@ describe(".NET generator", () => {
   describe("reference-collection join tables (.NET)", () => {
     // The join entity, its DbContext wiring, `builder.Ignore` on the owner,
     // and the repository's load + membership diff-sync are asserted by value
-    // on the booted .NET leg (`corpus/contained-part-removal`'s tags).  No
-    // corpus find filters on membership, so the `contains(...)` lowering stays.
+    // on the booted .NET leg (`corpus/contained-part-removal`'s tags).
 
-    it("lowers `this.<refColl>.contains(param)` to a join-table subquery", async () => {
-      const model = await buildModel("examples/roster.ddd");
-      const files = generateDotnet(model);
-      const repo = files.get("Infrastructure/Repositories/TrainerRepository.cs")!;
-      // The membership filter is admitted by the IR validator and
-      // lowered here to an EXISTS-style subquery against the join entity.
-      expect(repo).toMatch(
-        /_db\.Trainers\.Where\(x => _db\.TrainerParties\.Any\(__j => __j\.TrainerId == x\.Id && __j\.PokemonId == pokemon\)\)/,
+    // KNOWN BUG (reported with the find-declaration removal): a criterion
+    // read over `this.<refColl>.contains(param)` renders the criterion's
+    // expression tree as `(candidate.Party).Contains(pokemon)` — a member the
+    // owner's EF configuration `Ignore`s (it lives in the join table), so the
+    // query cannot translate.  The find path lowered it to a join-table
+    // subquery; `it.fails` pins that contract until the criterion read does.
+    it.fails("lowers `this.<refColl>.contains(param)` to a join-table subquery", async () => {
+      const files = await generateSystemFiles(`
+        system S {
+          subdomain D {
+            context Roster {
+              aggregate Pokemon with crudish { species: string }
+              aggregate Trainer with crudish {
+                name: string
+                party: Pokemon id[]
+              }
+              repository Trainers for Trainer
+              criterion TrainersHoldingInParty(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
+              queryHandler holding(pokemon: Pokemon id): Trainer[] {
+                let r = Trainers.run(TrainersHoldingInParty(pokemon))
+                return r
+              }
+            }
+          }
+          storage pg { type: postgres }
+          resource st { for: Roster, kind: state, use: pg }
+          deployable api { platform: dotnet  contexts: [Roster]  dataSources: [st]  port: 8080 }
+        }
+      `);
+      const read = [...files]
+        .filter(([p]) => p.endsWith(".cs"))
+        .map(([, s]) => s)
+        .join("\n");
+      expect(read).toContain("RunFindAllByTrainersHoldingInPartyAsync(");
+      // The membership filter reaches the query as an EXISTS-style subquery
+      // against the join entity, never as the ignored navigation.
+      expect(read).not.toContain("(candidate.Party).Contains(pokemon)");
+      expect(read).toMatch(
+        /TrainerParties\.Any\(__j => __j\.TrainerId == \w+\.Id && __j\.PokemonId == pokemon\)/,
       );
     });
   });

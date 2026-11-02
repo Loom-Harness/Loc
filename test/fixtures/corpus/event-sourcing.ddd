@@ -28,9 +28,7 @@ system Ledger {
         apply(e: Deposited) { balance := balance + e.amount }
         apply(e: Withdrawn) { balance := balance - e.amount }
       }
-      repository Accounts for Account {
-        find byOwner(owner: string): Account? where this.owner == owner
-      }
+      repository Accounts for Account
     }
   }
   api LedgerApi from Core
@@ -75,15 +73,5 @@ system Ledger {
     // declared order to record.
     let listed = api.accounts.all()
     expect(listed.length).toBe(1)
-  }
-
-  // The same fold reconstructed through a non-getById reader (the `byOwner`
-  // filter query) — proves the stream reconstitution is reader-independent.
-  test e2e "the fold reconstructs balance through a filter-query read" against d {
-    let a = api.accounts.create({ owner: "bob" })
-    api.accounts.deposit(a, { amount: 250 })
-    let found = api.accounts.byOwner({ owner: "bob" })
-    expect(found.owner).toBe("bob")
-    expect(found.balance).toBe(250)
   }
 }

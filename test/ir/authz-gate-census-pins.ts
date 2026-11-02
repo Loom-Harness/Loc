@@ -246,7 +246,6 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
 
   "corpus/field-mask": {
     "find GET /api/employees": R.maskIsNotAStatus,
-    "find GET /api/employees/by_name": R.maskIsNotAStatus,
     "getById GET /api/employees/{id}": R.maskIsNotAStatus,
     // The audit-history read projects the same masked shape (`historyFind`
     // copies the list read's gate at enrichment), so it inherits the mask.
@@ -383,12 +382,8 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "destroy DELETE /api/dispatchers/{id}": R.sharedTenancyIdentity,
     "destroy DELETE /api/trucks/{id}": R.sharedTenancyIdentity,
     "find GET /api/cars": R.sharedTenancyIdentity,
-    "find GET /api/cars/by_plate_any_tenant": R.sharedTenancyIdentity,
-    "find GET /api/cars/by_plate_all": R.sharedTenancyIdentity,
     "find GET /api/dispatchers": R.sharedTenancyIdentity,
     "find GET /api/drivers": R.sharedTenancyIdentity,
-    "find GET /api/drivers/by_name": R.sharedTenancyIdentity,
-    "find GET /api/drivers/by_name_all": R.sharedTenancyIdentity,
     "find GET /api/organizations": R.sharedTenancyIdentity,
     "find GET /api/trucks": R.sharedTenancyIdentity,
     "getById GET /api/dispatchers/{id}": R.sharedTenancyIdentity,
@@ -403,20 +398,16 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "operation POST /api/drivers/{id}/update": R.sharedTenancyIdentity,
   },
 
-  // `find … ignoring` on both persistence shapes.  The ladder reads every
-  // seeded row back as a FOREIGN tenant — 404 on the by-id and clause-less
-  // finds, ABSENT from the collection, PRESENT under the two bypassing finds —
-  // so these surfaces' refusals are tenant-scoped, which only a second tenant
-  // can observe.
+  // Widened reads (`find(C) ignoring …`) on both persistence shapes.  The
+  // ladder reads every seeded row back as a FOREIGN tenant — 404 on the by-id
+  // read, ABSENT from the collection, PRESENT under the bypassing reads — so
+  // these surfaces' refusals are tenant-scoped, which only a second tenant can
+  // observe.
   "corpus/find-bypass": {
     "create POST /api/notes": R.sharedTenancyIdentity,
     "create POST /api/orders": R.sharedTenancyIdentity,
     "find GET /api/notes": R.sharedTenancyIdentity,
-    "find GET /api/notes/any_tenant_note": R.sharedTenancyIdentity,
-    "find GET /api/notes/unfiltered_note": R.sharedTenancyIdentity,
     "find GET /api/orders": R.sharedTenancyIdentity,
-    "find GET /api/orders/any_tenant": R.sharedTenancyIdentity,
-    "find GET /api/orders/unfiltered": R.sharedTenancyIdentity,
     "find GET /api/organizations": R.sharedTenancyIdentity,
     "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
     "operation POST /api/notes/{id}/restore": R.sharedTenancyIdentity,
@@ -437,7 +428,6 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "create POST /api/engineers": R.notABehaviouralCase,
     "destroy DELETE /api/engineers/{id}": R.notABehaviouralCase,
     "find GET /api/engineers": R.notABehaviouralCase,
-    "find GET /api/engineers/by_handle": R.notABehaviouralCase,
     "getById GET /api/engineers/{id}": R.notABehaviouralCase,
     "operation POST /api/builds/{id}/promote": R.notABehaviouralCase,
     "operation POST /api/engineers/{id}/update": R.notABehaviouralCase,
@@ -471,9 +461,9 @@ export const NON_PARSING_SOURCES: readonly string[] = [];
  * when it recurs.
  */
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
-  maskIsNotAStatus: 8,
-  notABehaviouralCase: 11,
+  maskIsNotAStatus: 7,
+  notABehaviouralCase: 10,
   importGateOnly: 1,
   principalFreeGate: 16,
-  sharedTenancyIdentity: 88,
+  sharedTenancyIdentity: 80,
 };

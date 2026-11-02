@@ -40,6 +40,7 @@ import {
   resolveErrorStatus,
 } from "../../util/error-defaults.js";
 import { INTEGER_RANGE_MESSAGE } from "../../util/numeric-range.js";
+import { FIND_ABSENT_DETAIL } from "../../util/repository-contract.js";
 import { UUID_WIRE_MESSAGE } from "../../util/uuid-wire.js";
 import type { InvariantIR } from "../types/loom-ir.js";
 import type { WirePrimitive } from "../types/wire-types.js";
@@ -563,9 +564,8 @@ export interface ErrorVariantResponse {
   stage: "domain";
 }
 
-/** The `detail` a FIND's absence answers with (optional or single) — a machine token,
- *  deliberately not the by-id `not-found` sentence (RS-27 scope). */
-export const FIND_ABSENT_DETAIL = "not_found";
+/** The `detail` a FIND's absence answers with — see `util/repository-contract.ts`. */
+export { FIND_ABSENT_DETAIL };
 
 /** The `none` unit's response: the stdlib `NotFound`, never retargeted by an
  *  error-variant override map. */

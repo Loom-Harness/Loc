@@ -4,11 +4,12 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // ---------------------------------------------------------------------------
 // Capability `filter` on the plain-Ecto backend.
 //
-// A bare `filter <expr>` no `ignoring` can drop lives in the schema's
-// `base_query/0`, and EVERY root read of the aggregate — `list`,
-// `find_by_id`, each custom find, every retrieval — starts from it, so none
-// spells the predicate itself (read-scope-emit.ts; the corpus-wide census is
-// elixir-read-scope-census.test.ts).
+// The Ash foundation installs a `filter <expr>` capability once via the
+// resource `base_filter`; plain Ecto has no global query filter, so the
+// generated vanilla modules must AND the predicate into EVERY root read of the
+// aggregate — `list/0`, `find_by_id/1`, each criterion find, and every retrieval.
+// (Before this, a vanilla capability filter was silently dropped,
+// so reads returned soft-deleted / out-of-scope rows.)
 //
 // Predicates render under the `record` Ecto binding (`!this.archived` →
 // `not record.archived`).
@@ -17,20 +18,19 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 const SOURCE = `
 system Catalog {
   subdomain Core {
-    context Shop {
+    context Shop with scaffoldPaged(of: OrdersByCustomer) {
       aggregate Order {
         customerId: string
         total: int
         archived: bool
         filter !this.archived
       }
-      repository Orders for Order {
-        find byCustomer(customerId: string): Order? where this.customerId == customerId
-      }
+      repository Orders for Order { }
+      criterion OrdersByCustomer(customerId: string) of Order = this.customerId == customerId
       retrieval BigOrders(min: int) of Order { where: total >= min  sort: [total desc] }
     }
   }
-  api CatalogApi from Core
+  api CatalogApi with scaffoldPagedApi(of: OrdersByCustomer) from Core
   storage pg { type: postgres }
   resource orderState { for: Shop, kind: state, use: pg }
   deployable api {
@@ -63,13 +63,11 @@ describe("vanilla capability filter — every read starts from base_query/0", ()
     expect(schema).toContain("def __loom_filters__, do: []");
   });
 
-  it("starts list and find_by_id from base_query/0", async () => {
+  it("a criterion find leaves the filter to the schema", async () => {
+    // `scaffoldPaged` synthesises the repository's `find_all_by_<criterion>`.
     const repo = file(await gen(), "/shop/order_repository.ex");
-    expect(repo).toContain("query = Api.Shop.Order.base_query()");
-    expect(repo).toContain(
-      "Repo.one(from(record in Api.Shop.Order.base_query(), where: record.id == ^id))",
-    );
-    expect(repo).not.toContain("not record.archived");
+    expect(repo).toContain("def find_all_by_orders_by_customer(customer_id,");
+    expect(repo).not.toContain("record.archived");
   });
 
   it("starts a custom find from base_query/0 with only its own where", async () => {
