@@ -311,6 +311,7 @@ function renderNumericParamHelpers(
   needsInt32: boolean,
   needsDate = false,
   needsVo = false,
+  needsId = false,
 ): string {
   // Emitted SEPARATELY, not as one block: `mix compile --warnings-as-errors`
   // rejects an unused private function, so a context whose ops take an `int`
@@ -399,6 +400,17 @@ function renderNumericParamHelpers(
   defp __loom_date_param(record, field, value),
     do: {:error, __loom_param_error(record, field, value, "Invalid date")}
 `;
+  // A uuid `X id` param: the same check the find-param and path-id edges make
+  // (36 characters that cast), refused with the fact's `malformed-id` message.
+  const id = `
+  defp __loom_id_param(_record, _field, nil), do: {:ok, nil}
+
+  defp __loom_id_param(record, field, value) do
+    if is_binary(value) and byte_size(value) == 36 and match?({:ok, _}, Ecto.UUID.cast(value)),
+      do: {:ok, value},
+      else: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, ${exFieldMessage("malformed-id")})}
+  end
+`;
   // A value-object param is cast against its declared fields; each member error
   // keeps its own key on `loom_path`, so the 422 points at `/<param>/<member>`.
   const vo = `
@@ -429,7 +441,7 @@ function renderNumericParamHelpers(
   return `  # Wire-format guards for operation params (M-T6.48).  Each returns
   # \`{:ok, value}\` or \`{:error, changeset}\` — the latter renders as the
   # standard 422 with a \`/<param>\` pointer.
-${err}${needsDecimal ? dec : ""}${needsInt ? int : ""}${needsInt32 ? int32 : ""}${needsDate ? date : ""}${needsVo ? vo : ""}`;
+${err}${needsDecimal ? dec : ""}${needsInt ? int : ""}${needsInt32 ? int32 : ""}${needsDate ? date : ""}${needsId ? id : ""}${needsVo ? vo : ""}`;
 }
 
 function renderContextModule(
@@ -1063,9 +1075,15 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   const needsInt32Param = assembledBody.includes("__loom_int32_param(");
   const needsDateParam = assembledBody.includes("__loom_date_param(");
   const needsVoParam = assembledBody.includes("__loom_vo_param(");
+  const needsIdParam = assembledBody.includes("__loom_id_param(");
   const numericParamHelpers =
-    needsDecimalParam || needsIntParam || needsInt32Param || needsDateParam || needsVoParam
-      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam, needsInt32Param, needsDateParam, needsVoParam)}`
+    needsDecimalParam ||
+    needsIntParam ||
+    needsInt32Param ||
+    needsDateParam ||
+    needsVoParam ||
+    needsIdParam
+      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam, needsInt32Param, needsDateParam, needsVoParam, needsIdParam)}`
       : "";
 
   return `# Auto-generated.
