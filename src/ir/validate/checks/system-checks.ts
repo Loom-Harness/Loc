@@ -22,10 +22,8 @@ export {
 } from "./context-filter-checks.js";
 export {
   validateDataSourceCoverage,
-  validateDataSourceUnwiredKnobs,
   validateFileFieldObjectStorage,
   validateSavingShapeSupport,
-  validateStorageTypeBinding,
   validateVanillaDocumentScope,
 } from "./datasource-checks.js";
 export { validateDefaultDeny } from "./default-deny-checks.js";

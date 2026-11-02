@@ -17,9 +17,8 @@
 //                                            declared secret.
 //
 // The repo's standing rule is that a capability no backend emits gets a NAMED
-// diagnostic rather than silence (`docs/decisions.md`, and the sibling
-// `loom.datasource-knob-unwired` pass a few hundred lines up in
-// `system-checks.ts`, which does exactly this for `DataSourceIR`).  What was
+// diagnostic rather than silence (`docs/decisions.md`, and the capability-table
+// rows in `target-capability-checks.ts`, which do exactly this for `DataSourceIR`).  What was
 // missing is the general home: every new inert surface invented its own code,
 // or — far more often — none at all.
 //

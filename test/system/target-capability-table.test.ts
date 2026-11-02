@@ -252,6 +252,30 @@ const storageTypeWitness = (platform: string, type: string): string =>
     "resource st { for: Main, kind: state, use: pg }",
   );
 
+/** A `state` resource plus one extra resource of `kind` carrying `knob`. The
+ *  extra resource is not listed in the deployable, so only the knob is under
+ *  test (a `cache` / `eventLog` kind is not itself refused by these rows'
+ *  detectors). */
+const knobWitness = (platform: string, kind: string, knob: string): string =>
+  resourceWitness(
+    platform,
+    kind === "cache"
+      ? "storage pg { type: postgres }\n  storage rd { type: redis }"
+      : "storage pg { type: postgres }",
+    `resource st { for: Main, kind: state, use: pg${kind === "state" ? `, ${knob}` : ""} }` +
+      (kind === "state"
+        ? ""
+        : `\n  resource kn { for: Main, kind: ${kind}, use: ${kind === "cache" ? "rd" : "pg"}, ${knob} }`),
+  );
+
+/** A storage of a type that binds to no kind, declared and unused. */
+const unboundStorageWitness = (platform: string, type: string): string =>
+  resourceWitness(
+    platform,
+    `storage pg { type: postgres }\n  storage x { type: ${type} }`,
+    "resource st { for: Main, kind: state, use: pg }",
+  );
+
 /** One witness per backend construct, hosted on `platform`. */
 const BACKEND_WITNESSES: Readonly<Record<BackendConstruct, (platform: string) => string>> = {
   // An event-sourced aggregate whose create carries a `requires`.
@@ -285,6 +309,23 @@ system W {
       "storage pg { type: postgres }",
       "resource st { for: Main, kind: state, use: pg }\n  resource rd { for: Main, kind: replica, use: pg }",
     ),
+  "resource:cache@resource": (platform) =>
+    resourceWitness(
+      platform,
+      "storage pg { type: postgres }\n  storage rd { type: redis }",
+      "resource st { for: Main, kind: state, use: pg }\n  resource ca { for: Main, kind: cache, use: rd }",
+    ),
+  "resource:snapshot@resource": (platform) =>
+    resourceWitness(
+      platform,
+      "storage pg { type: postgres }",
+      "resource st { for: Main, kind: state, use: pg }\n  resource sn { for: Main, kind: snapshot, use: pg }",
+    ),
+  "knob:ttl@resource": (platform) => knobWitness(platform, "cache", "ttl: 60"),
+  "knob:keyPrefix@resource": (platform) => knobWitness(platform, "cache", 'keyPrefix: "x:"'),
+  "knob:every@resource": (platform) => knobWitness(platform, "eventLog", "every: 100"),
+  "knob:retain@resource": (platform) => knobWitness(platform, "eventLog", "retain: 5"),
+  "knob:readonly@resource": (platform) => knobWitness(platform, "state", "readonly: true"),
   "resource:eventLog-on-kafka@resource": (platform) =>
     resourceWitness(
       platform,
@@ -294,6 +335,11 @@ system W {
   "storage:mysql@resource": (platform) => storageTypeWitness(platform, "mysql"),
   "storage:sqlite@resource": (platform) => storageTypeWitness(platform, "sqlite"),
   "storage:inMemory@resource": (platform) => storageTypeWitness(platform, "inMemory"),
+  "storage:elastic@declaration": (platform) => unboundStorageWitness(platform, "elastic"),
+  "storage:meilisearch@declaration": (platform) => unboundStorageWitness(platform, "meilisearch"),
+  "storage:clickhouse@declaration": (platform) => unboundStorageWitness(platform, "clickhouse"),
+  "storage:bigquery@declaration": (platform) => unboundStorageWitness(platform, "bigquery"),
+  "storage:nats@declaration": (platform) => unboundStorageWitness(platform, "nats"),
 };
 
 // --- the cells ---------------------------------------------------------------
@@ -379,7 +425,7 @@ describe("capability table — every cell is implemented (with a witness) or ref
     const unproven: string[] = [];
     for (const [platform, table] of Object.entries(TARGET_CAPABILITIES)) {
       for (const c of BACKEND_CONSTRUCTS) {
-        if (!c.startsWith("resource:") && !c.startsWith("storage:")) continue;
+        if (!/^(resource|storage|knob):/.test(c)) continue;
         if (table.backend?.[c].verdict === "supported") unproven.push(`${platform}|${c}`);
       }
     }

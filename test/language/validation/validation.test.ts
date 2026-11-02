@@ -2868,11 +2868,12 @@ describe("Loom IR validation (post-lowering)", async () => {
   // -------------------------------------------------------------------
   // Honest-note pass: knobs accepted by the AST validator but not yet
   // consumed by any emitter.  Today: ttl / every / retain /
-  // isolationLevel / readonly / keyPrefix.  These warn at IR-validate
-  // time so authors don't believe a no-op value has effect.
+  // readonly / keyPrefix.  These are refused at IR-validate time
+  // (`loom.target-unsupported#resource-knob-unrealized`) so authors don't
+  // believe a no-op value has effect.
   // -------------------------------------------------------------------
 
-  it("warns when 'ttl' is set on a kind: cache dataSource", async () => {
+  it("refuses 'ttl' on a kind: cache dataSource", async () => {
     const loom = await loomFrom(`
       system S {
         subdomain M { context C { aggregate A { x: int } } }
@@ -2886,18 +2887,16 @@ describe("Loom IR validation (post-lowering)", async () => {
         }
       }
     `);
-    const warnings = validateLoomModel(loom).filter((d) => d.severity === "warning");
+    const errors = validateLoomModel(loom).filter((d) => d.code === "loom.target-unsupported");
     expect(
-      warnings.some(
-        (d) =>
-          /resource 'cCache' sets 'ttl'/.test(d.message) &&
-          /no Redis-backed cache adapter is implemented yet/.test(d.message),
+      errors.some(
+        (d) => /resource 'cCache' \(sets `ttl:`/.test(d.message) && /can't realize/.test(d.message),
       ),
-      JSON.stringify(warnings),
+      JSON.stringify(errors),
     ).toBe(true);
   });
 
-  it("warns when 'every' and 'retain' are set on a kind: eventLog dataSource", async () => {
+  it("refuses 'every' and 'retain' on a kind: eventLog dataSource", async () => {
     const loom = await loomFrom(`
       system S {
         subdomain M { context C {
@@ -2911,14 +2910,14 @@ describe("Loom IR validation (post-lowering)", async () => {
         }
       }
     `);
-    const warnings = validateLoomModel(loom).filter((d) => d.severity === "warning");
+    const errors = validateLoomModel(loom).filter((d) => d.code === "loom.target-unsupported");
     expect(
-      warnings.some((d) => /resource 'cLog' sets 'every'/.test(d.message)),
-      JSON.stringify(warnings),
+      errors.some((d) => /resource 'cLog' \(sets `every:`/.test(d.message)),
+      JSON.stringify(errors),
     ).toBe(true);
     expect(
-      warnings.some((d) => /resource 'cLog' sets 'retain'/.test(d.message)),
-      JSON.stringify(warnings),
+      errors.some((d) => /resource 'cLog' \(sets `retain:`/.test(d.message)),
+      JSON.stringify(errors),
     ).toBe(true);
   });
 
@@ -2944,7 +2943,7 @@ describe("Loom IR validation (post-lowering)", async () => {
     ).toEqual([]);
   });
 
-  it("warns when 'keyPrefix' is set on a kind: cache dataSource", async () => {
+  it("refuses 'keyPrefix' on a kind: cache dataSource", async () => {
     const loom = await loomFrom(`
       system S {
         subdomain M { context C { aggregate A { x: int } } }
@@ -2958,10 +2957,10 @@ describe("Loom IR validation (post-lowering)", async () => {
         }
       }
     `);
-    const warnings = validateLoomModel(loom).filter((d) => d.severity === "warning");
+    const errors = validateLoomModel(loom).filter((d) => d.code === "loom.target-unsupported");
     expect(
-      warnings.some((d) => /resource 'cCache' sets 'keyPrefix'/.test(d.message)),
-      JSON.stringify(warnings),
+      errors.some((d) => /resource 'cCache' \(sets `keyPrefix:`/.test(d.message)),
+      JSON.stringify(errors),
     ).toBe(true);
   });
 

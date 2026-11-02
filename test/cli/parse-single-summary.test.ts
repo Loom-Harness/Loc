@@ -61,11 +61,10 @@ function summaryLines(stream: string): string[] {
   return stream.split("\n").filter((l) => SUMMARY_LINE.test(l.trim()));
 }
 
-/** A model with no AST errors and three phase-⑦ WARNINGS: an `eventLog`
- *  resource nothing is persisted as (`loom.datasource-unused`) whose `every:` /
- *  `retain:` snapshot knobs no emitter reads (`loom.datasource-knob-unwired`
- *  ×2).  Phase ④ finds nothing here, so the old first footer said `0 error(s),
- *  0 warning(s).` about a file with three warnings. */
+/** A model with no AST errors and one phase-⑦ WARNING: an `eventLog`
+ *  resource nothing is persisted as (`loom.datasource-unused`).  Phase ④ finds
+ *  nothing here, so the old first footer said `0 error(s), 0 warning(s).`
+ *  about a file with a warning. */
 const IR_WARNED = `
 system WarnSystem {
   subdomain D {
@@ -76,7 +75,7 @@ system WarnSystem {
   }
   storage pg { type: postgres }
   resource st { for: Orders, kind: state, use: pg }
-  resource evtLog { for: Orders, kind: eventLog, use: pg, every: 100, retain: 3 }
+  resource evtLog { for: Orders, kind: eventLog, use: pg }
   deployable d {
     platform: node
     contexts: [Orders]
@@ -115,14 +114,13 @@ describe("ddd parse — one summary, counting every phase", () => {
     // The warnings are really there (a vacuous pass would otherwise assert
     // `0 error(s), 0 warning(s).` and call it correct).
     expect(stderr).toContain("loom.datasource-unused");
-    expect(stderr).toContain("loom.datasource-knob-unwired");
 
     const lines = summaryLines(stderr);
     expect(lines, `expected exactly one summary, got: ${JSON.stringify(lines)}`).toHaveLength(1);
-    // Phase ④ contributes 0/0 here, phase ⑦ contributes the three warnings —
-    // so the ONE footer has to say 3, which is precisely what the old first
+    // Phase ④ contributes 0/0 here, phase ⑦ contributes the warning —
+    // so the ONE footer has to say 1, which is precisely what the old first
     // footer did not.
-    expect(lines[0]).toBe("0 error(s), 3 warning(s).");
+    expect(lines[0]).toBe("0 error(s), 1 warning(s).");
   });
 
   it("counts a phase-⑦ error in the single summary — no clean footer above it", () => {
@@ -178,7 +176,7 @@ system Both {
   }
   storage pg { type: postgres }
   resource st { for: Orders, kind: state, use: pg }
-  resource evtLog { for: Orders, kind: eventLog, use: pg, every: 100, retain: 3 }
+  resource evtLog { for: Orders, kind: eventLog, use: pg }
   deployable d {
     platform: node
     contexts: [Orders]
@@ -190,12 +188,12 @@ system Both {
     );
     expect(status).toBe(0);
     expect(stderr).toContain("'audited' has no effect on private operation 'quiet'");
-    expect(stderr).toContain("loom.datasource-knob-unwired");
+    expect(stderr).toContain("loom.datasource-unused");
 
     const lines = summaryLines(stderr);
     expect(lines, `expected exactly one summary, got: ${JSON.stringify(lines)}`).toHaveLength(1);
-    // 1 from phase ④ + 3 from phase ⑦.
-    expect(lines[0]).toBe("0 error(s), 4 warning(s).");
+    // 1 from phase ④ + 1 from phase ⑦.
+    expect(lines[0]).toBe("0 error(s), 2 warning(s).");
   });
 
   it("keeps advisory index suggestions out of the counted warnings", () => {

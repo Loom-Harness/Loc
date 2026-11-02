@@ -88,7 +88,6 @@ import {
   validateCurrentUserNeedsAuthUi,
   validateDapperSupport,
   validateDataSourceCoverage,
-  validateDataSourceUnwiredKnobs,
   validateDefaultDeny,
   validateDocumentAggregationFilters,
   validateDotnetNameCollisions,
@@ -116,7 +115,6 @@ import {
   validateResourceConfig,
   validateSavingShapeSupport,
   validateStampSupport,
-  validateStorageTypeBinding,
   validateSystem,
   validateTenancyFilterBypass,
   validateUiBodyStatementKinds,
@@ -248,8 +246,6 @@ export function validateLoomModel(
     validateNeedCapabilities(sys, diags);
     validateResourceConfig(sys, diags);
     validateApiResourceBindings(sys, diags);
-    validateDataSourceUnwiredKnobs(sys, diags);
-    validateStorageTypeBinding(sys, diags);
     validateReservedSurfaces(sys, diags);
     validateReactIdReferences(sys, diags);
     validateAuthUiFramework(sys, diags);

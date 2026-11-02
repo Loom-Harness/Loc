@@ -116,10 +116,8 @@ describe("ddd parse — IR-level validation", () => {
 // the error half above fixed.
 // ---------------------------------------------------------------------------
 
-/** A model with no errors and three phase-⑦ warnings: an `eventLog` resource
- *  nothing is persisted as (`loom.datasource-unused`) whose `every:` /
- *  `retain:` snapshot knobs no emitter reads (`loom.datasource-knob-unwired`
- *  ×2). */
+/** A model with no errors and one phase-⑦ warning: an `eventLog` resource
+ *  nothing is persisted as (`loom.datasource-unused`). */
 const IR_WARNED = `
 system WarnSystem {
   subdomain D {
@@ -130,7 +128,7 @@ system WarnSystem {
   }
   storage pg { type: postgres }
   resource st { for: Orders, kind: state, use: pg }
-  resource evtLog { for: Orders, kind: eventLog, use: pg, every: 100, retain: 3 }
+  resource evtLog { for: Orders, kind: eventLog, use: pg }
   deployable d {
     platform: node
     contexts: [Orders]
@@ -152,11 +150,10 @@ describe("IR warnings are visible, not discarded", () => {
   it("`ddd parse` prints every IR warning, with a severity label, and still exits 0", () => {
     const { out, status } = parse(write("warned.ddd", IR_WARNED));
     expect(status).toBe(0);
-    // Both warning codes reach the user…
-    expect(out).toContain("loom.datasource-knob-unwired");
+    // The warning code reaches the user…
     expect(out).toContain("loom.datasource-unused");
-    // …labelled as warnings, not passed off as errors…
-    expect(out).toMatch(/loom\.datasource-knob-unwired \S+ warning: /);
+    // …labelled as a warning, not passed off as an error…
+    expect(out).toMatch(/loom\.datasource-unused \S+ warning: /);
     // …and the run still succeeds.
     expect(out).toContain("OK:");
     // …and are counted in the command's footer.  That footer used to be the
@@ -165,7 +162,7 @@ describe("IR warnings are visible, not discarded", () => {
     // model was clean.  There is one footer now, covering both phases
     // (M-T9.60); `parse-single-summary.test.ts` is the gate on there being
     // exactly one of it.
-    expect(out).toMatch(/^0 error\(s\), 3 warning\(s\)\.$/m);
+    expect(out).toMatch(/^0 error\(s\), 1 warning\(s\)\.$/m);
   });
 
   it("`ddd generate system` prints IR warnings on the SUCCESS path", () => {
@@ -173,7 +170,7 @@ describe("IR warnings are visible, not discarded", () => {
     expect(status).toBe(0);
     // The generate path prints `<source> <severity>: <message>` — same shape
     // it already used on the error path, now reached when there are no errors.
-    expect(out).toMatch(/warning: resource 'evtLog' sets 'every'/);
+    expect(out).toMatch(/warning: Deployable 'd' lists resource 'evtLog'/);
     expect(out).toMatch(/warning: Deployable 'd' lists resource 'evtLog'/);
     expect(out).toContain("warning(s).");
   });
@@ -199,7 +196,7 @@ describe("IR warnings are visible, not discarded", () => {
     );
     const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
     expect(r.status ?? 1).toBe(0);
-    expect(out).toMatch(/warning: resource 'evtLog' sets 'every'/);
+    expect(out).toMatch(/warning: Deployable 'd' lists resource 'evtLog'/);
     expect(out).toContain("warning(s).");
   });
 
@@ -240,7 +237,7 @@ describe("IR warnings are visible, not discarded", () => {
       { encoding: "utf8" },
     );
     const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
-    expect(out, out).toMatch(/warning: resource 'evtLog' sets 'every'/);
+    expect(out, out).toMatch(/warning: Deployable 'd' lists resource 'evtLog'/);
     expect(out).toContain("warning(s).");
   });
 });
