@@ -298,7 +298,7 @@ export const BEHAVIOURAL_XFAIL = {
     // A mutating call bound with `let` is refused on Phoenix, so generation
     // stops at phase ⑦ (unsupported register).
     "match-op-result": {
-      issue: "#3367",
+      issue: "#4541",
       expect: "error",
       match: "loom\\.elixir-bound-mutating-call-unsupported",
       reason:

@@ -104,7 +104,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "matches its `{:ok, _}` away at five render sites (workflow body, branch, single-op " +
       "case, reactor dispatch, explicit handler); a `mutating` service is inlined clause by " +
       "clause and computes no value at all",
-    mission: "#3367",
+    mission: "#4541",
     verified: false,
   },
   {
