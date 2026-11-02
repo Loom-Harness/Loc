@@ -112,7 +112,10 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
     }),
     async (c) => {
       const { id } = c.req.valid("param");
-      await repo.getById(Ids.ProductId(id));
+      const __loaded = await repo.getById(Ids.ProductId(id));
+      const ifMatch = c.req.header("if-match");
+      const expectedVersion = parseIfMatch(ifMatch, __loaded.version);
+      if (expectedVersion !== __loaded.version) throw new ConcurrencyError("Product", id);
       try {
         await repo.delete(Ids.ProductId(id));
       } catch (err) {

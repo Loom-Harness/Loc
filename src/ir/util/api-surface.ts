@@ -54,6 +54,7 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { destroyVersionCheck, readsIfMatch } from "../enrich/version-check.js";
 import { emitsRestCreate, emitsRestDestroy } from "../enrich/wire-projection.js";
 import { pagedReturn } from "../stdlib/generics.js";
 import {
@@ -583,7 +584,20 @@ export function deriveAggregateOperations(
       // exactly as the `operation` kind does; `ReferencedInUse` is unaffected —
       // the structural fold enumerates all four structural names by
       // construction and is spread last, so it still wins.
-      errorStatuses("destroy", lifecycleGates(canonicalDestroy(agg)).length > 0, resolveStatus),
+      [
+        ...new Set([
+          ...errorStatuses(
+            "destroy",
+            lifecycleGates(canonicalDestroy(agg)).length > 0,
+            resolveStatus,
+          ),
+          // A `versioned` row's DELETE reads `If-Match` like a named operation, so
+          // a stale tag answers `ConcurrencyConflict`.
+          ...(readsIfMatch(destroyVersionCheck(agg))
+            ? [resolveErrorStatus("ConcurrencyConflict", statuses?.structuralErrorStatuses)]
+            : []),
+        ]),
+      ].sort((a, b) => a - b),
     );
   }
 

@@ -110,7 +110,10 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
     }),
     async (c) => {
       const { id } = c.req.valid("param");
-      await repo.getById(Ids.CustomerId(id));
+      const __loaded = await repo.getById(Ids.CustomerId(id));
+      const ifMatch = c.req.header("if-match");
+      const expectedVersion = parseIfMatch(ifMatch, __loaded.version);
+      if (expectedVersion !== __loaded.version) throw new ConcurrencyError("Customer", id);
       try {
         await repo.delete(Ids.CustomerId(id));
       } catch (err) {

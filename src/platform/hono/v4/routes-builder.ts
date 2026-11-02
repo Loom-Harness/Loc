@@ -52,6 +52,7 @@ import {
 } from "../../../generator/zod-refine.js";
 import {
   aggregateCanConflict,
+  destroyVersionCheck,
   operationVersionCheck,
   readsIfMatch,
   type VersionCheck,
@@ -1337,6 +1338,9 @@ export function buildRoutesFile(
     lines.push(`    async (c) => {`);
     lines.push(`      const { id } = c.req.valid("param");`);
     const destroyGates = lifecycleGates(canonicalDestroy(agg));
+    // A `versioned` row's DELETE reads `If-Match` like a named operation
+    // (`destroyVersionCheck`): a stale tag is refused before the delete.
+    const destroyIfMatch = readsIfMatch(destroyVersionCheck(agg));
     if (destroyGates.length > 0) {
       // GUARDED destroy — the row loads FIRST (a destroy guard may read `this`,
       // and the route loads anyway for the 404 probe), then the gate, then the
@@ -1351,7 +1355,7 @@ export function buildRoutesFile(
       // receiver to name.
       const readsRow = lifecycleGatesReadRow(canonicalDestroy(agg));
       lines.push(
-        readsRow
+        readsRow || destroyIfMatch
           ? `      const __loaded = await repo.getById(Ids.${agg.name}Id(id));`
           : `      await repo.getById(Ids.${agg.name}Id(id));`,
       );
@@ -1361,11 +1365,17 @@ export function buildRoutesFile(
       lines.push(
         ...lifecycleGateLines(canonicalDestroy(agg), "      ", readsRow ? "__loaded" : undefined),
       );
+      if (destroyIfMatch) lines.push(...destroyIfMatchLines(agg, "__loaded", "      "));
     } else if (!auditDestroy) {
       // Non-audited: the not-found probe stays OUTSIDE the FK-violation
       // try, byte-identical to the pre-audit baseline.  getById throws
       // AggregateNotFoundError (→ 404) when absent.
-      lines.push(`      await repo.getById(Ids.${agg.name}Id(id));`);
+      lines.push(
+        destroyIfMatch
+          ? `      const __loaded = await repo.getById(Ids.${agg.name}Id(id));`
+          : `      await repo.getById(Ids.${agg.name}Id(id));`,
+      );
+      if (destroyIfMatch) lines.push(...destroyIfMatchLines(agg, "__loaded", "      "));
     }
     lines.push(`      try {`);
     if (auditDestroy) {
@@ -1382,6 +1392,8 @@ export function buildRoutesFile(
       lines.push(`          const repoTx = new ${agg.name}Repository(tx, __deferred);`);
       // getById throws AggregateNotFoundError (→ 404) when absent.
       lines.push(`          const loaded = await repoTx.getById(Ids.${agg.name}Id(id));`);
+      if (destroyIfMatch && destroyGates.length === 0)
+        lines.push(...destroyIfMatchLines(agg, "loaded", "          "));
       lines.push(`          const before = repoTx.toWire(loaded);`);
       lines.push(`          await ${historyInsertCall(usingMikro, "auditRecords")}`);
       lines.push(`            auditId: randomUUID(),`);
@@ -1900,11 +1912,22 @@ function emitCanOpRoute(
  *  guarded UPDATE on NaN matches no row and answers a spurious 409.  A `handle`
  *  or `none` path binds nothing: the repository's save checks the handle's own
  *  version, or nothing. */
-function expectedVersionLines(check: VersionCheck, pad: string): string[] {
+function expectedVersionLines(check: VersionCheck, pad: string, loadedVar = "aggregate"): string[] {
   if (!readsIfMatch(check)) return [];
   return [
     `${pad}const ifMatch = c.req.header("if-match");`,
-    `${pad}const expectedVersion = parseIfMatch(ifMatch, aggregate.version);`,
+    `${pad}const expectedVersion = parseIfMatch(ifMatch, ${loadedVar}.version);`,
+  ];
+}
+
+/** The precondition of a `versioned` row's canonical DELETE: the client's
+ *  `If-Match` tag (the loaded version when absent) must equal the version of the
+ *  row just loaded as `loadedVar`, else the same `ConcurrencyError` a stale save
+ *  raises (409). */
+function destroyIfMatchLines(agg: AggregateIR, loadedVar: string, pad: string): string[] {
+  return [
+    ...expectedVersionLines(destroyVersionCheck(agg), pad, loadedVar),
+    `${pad}if (expectedVersion !== ${loadedVar}.version) throw new ConcurrencyError("${agg.name}", id);`,
   ];
 }
 
