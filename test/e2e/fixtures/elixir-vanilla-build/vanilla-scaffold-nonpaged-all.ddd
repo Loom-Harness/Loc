@@ -10,15 +10,17 @@
 // --warnings-as-errors` failed on `undefined function list_orders/4`.  Nothing
 // in the pipeline compared the two, so it was silent everywhere else.
 //
-// Both branches are exercised: `Order` is a `shape: document` aggregate whose
-// `all` is NOT paged (the bug's shape) and `Invoice` is relational, whose `all`
-// IS paged, so a "fix" that just deleted the four arguments unconditionally
-// breaks the second aggregate here.
+// Both branches are exercised: `Order` is a subtype (`extends Sale`), whose
+// `all` is NOT paged (the bug's shape), and `Invoice` is a plain relational
+// aggregate, whose `all` IS paged, so a "fix" that just deleted the four
+// arguments unconditionally breaks the second aggregate here.  A subtype rather
+// than a `shape: document` aggregate: the LiveView scaffold's forms need the
+// `change_<agg>` changeset facade, which a document aggregate does not get.
 system ShopArity {
   subdomain Sales {
     context Shop {
-      aggregate Order shape: document, with crudish {
-        code: string
+      abstract aggregate Sale inheritanceUsing: ownTable { code: string }
+      aggregate Order extends Sale with crudish {
         total: int
       }
       aggregate Invoice with crudish {
