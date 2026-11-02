@@ -26,7 +26,7 @@
 
 import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { emissionSink } from "../../util/emission-sink.js";
-import { chromeMergedWhenEnabled } from "../_walker/i18n-chrome.js";
+import { chromeMergedWhenEnabled, type FormSentenceScope } from "../_walker/i18n-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
 import { sourceText } from "../_walker/source-text.js";
 
@@ -45,12 +45,18 @@ export function buildUiCatalog(
    *  (`heexI18nEnabled` and friends), which must not see a UI turn
    *  translatable just because its pack ships chrome. */
   packChrome: Record<string, string> = {},
+  /** What the UI's forms render over, and which per-operation / per-item-type
+   *  sentences (`chrome.operationSucceeded.<op>`, `chrome.addItem.<valueobject>`)
+   *  the active pack reads.  Without it only the sentences readable off the UI
+   *  itself (the `DestroyForm` ones) are catalogued. */
+  scope?: FormSentenceScope,
 ): Record<string, string> {
   const byKey = new Map<string, string>();
   // Same key ⇒ same content hash ⇒ same message; collapses repeats.
   for (const { key, message } of collectUiMessages(ui)) byKey.set(key, message);
   if (byKey.size > 0) {
-    for (const [key, message] of Object.entries(chromeMergedWhenEnabled())) byKey.set(key, message);
+    for (const [key, message] of Object.entries(chromeMergedWhenEnabled(ui, scope)))
+      byKey.set(key, message);
     for (const [key, message] of Object.entries(packChrome)) byKey.set(key, message);
   }
   const out: Record<string, string> = {};
@@ -59,8 +65,12 @@ export function buildUiCatalog(
 }
 
 /** `src/locales/<source>.json` — the source-language catalog for this UI. */
-export function renderLocaleCatalog(ui: UiIR, packChrome: Record<string, string> = {}): string {
-  return `${JSON.stringify(buildUiCatalog(ui, packChrome), null, 2)}\n`;
+export function renderLocaleCatalog(
+  ui: UiIR,
+  packChrome: Record<string, string> = {},
+  scope?: FormSentenceScope,
+): string {
+  return `${JSON.stringify(buildUiCatalog(ui, packChrome, scope), null, 2)}\n`;
 }
 
 /** Translated locale catalogs, keyed by locale tag (`de`, `pt-BR`), as read off
@@ -90,10 +100,11 @@ export function renderTranslatedCatalogs(
   translations: TranslationCatalogs | undefined,
   packChrome: Record<string, string> = {},
   sourceLocale: string = DEFAULT_SOURCE_LOCALE,
+  scope?: FormSentenceScope,
 ): Map<string, string> {
   const out = emissionSink("generator/_frontend/i18n-runtime");
   if (!translations || translations.size === 0) return out;
-  const keys = Object.keys(buildUiCatalog(ui, packChrome));
+  const keys = Object.keys(buildUiCatalog(ui, packChrome, scope));
   if (keys.length === 0) return out;
   for (const locale of [...translations.keys()].sort()) {
     if (locale === sourceLocale) continue;

@@ -32,7 +32,7 @@ function AddLineForm({ mut, onClose }: { mut: ReturnType<typeof useAddLineOrder>
       onSubmit={handleSubmit(async (vals) => {
         try {
           await mut.mutateAsync(vals);
-          notifications.show({ color: "green", message: t("pack.mantine.operationSucceeded.tpnozz", "{operation} succeeded", { operation: "Add Line" }) });
+          notifications.show({ color: "green", message: t("chrome.operationSucceeded.addLine", "Add Line succeeded") });
           onClose();
         } catch (e) {
           const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
@@ -88,7 +88,7 @@ function ConfirmForm({ mut, onClose }: { mut: ReturnType<typeof useConfirmOrder>
       onSubmit={handleSubmit(async (vals) => {
         try {
           await mut.mutateAsync(vals);
-          notifications.show({ color: "green", message: t("pack.mantine.operationSucceeded.tpnozz", "{operation} succeeded", { operation: "Confirm" }) });
+          notifications.show({ color: "green", message: t("chrome.operationSucceeded.confirm", "Confirm succeeded") });
           onClose();
         } catch (e) {
           const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
@@ -129,7 +129,7 @@ function UpdateForm({ mut, onClose }: { mut: ReturnType<typeof useUpdateOrder>; 
       onSubmit={handleSubmit(async (vals) => {
         try {
           await mut.mutateAsync(vals);
-          notifications.show({ color: "green", message: t("pack.mantine.operationSucceeded.tpnozz", "{operation} succeeded", { operation: "Update" }) });
+          notifications.show({ color: "green", message: t("chrome.operationSucceeded.update", "Update succeeded") });
           onClose();
         } catch (e) {
           const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });

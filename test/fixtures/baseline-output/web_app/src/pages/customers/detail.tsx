@@ -29,7 +29,7 @@ function UpdateForm({ mut, onClose }: { mut: ReturnType<typeof useUpdateCustomer
       onSubmit={handleSubmit(async (vals) => {
         try {
           await mut.mutateAsync(vals);
-          notifications.show({ color: "green", message: t("pack.mantine.operationSucceeded.tpnozz", "{operation} succeeded", { operation: "Update" }) });
+          notifications.show({ color: "green", message: t("chrome.operationSucceeded.update", "Update succeeded") });
           onClose();
         } catch (e) {
           const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });

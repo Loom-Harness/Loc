@@ -253,8 +253,9 @@ export interface FormFieldVM {
    *  `rowFields` as repeatable rows (React `useFieldArray`, Feliz MVU list …);
    *  a pack that doesn't yet ignores it and keeps the disabled stub. */
   rowFields?: FormFieldVM[];
-  /** Humanised singular label for one row (`Line item`) — the add-button text. */
-  elementLabel?: string;
+  /** The row element's DSL name (`LineItem`) — the subject of the add-button's
+   *  whole-sentence label (`chrome.addItem.<name>`). */
+  elementName?: string;
   /** Pascal-cased array name (`Items`) — for the hoisted `useFieldArray` var
    *  names a dynamic-row template references (`appendItems` / `removeItems`). */
   arrayPascal?: string;

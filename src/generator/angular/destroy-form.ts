@@ -1,8 +1,9 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
-import { humanize, lowerFirst } from "../../util/naming.js";
+import { lowerFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { giveUp } from "../_walker/give-up.js";
+import { sentenceChromeName } from "../_walker/i18n-chrome.js";
 import { localizedPageChromeText, localizedPageChromeValue } from "../_walker/i18n-emit.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
@@ -102,12 +103,8 @@ export function renderAngularDestroyForm(
   // The prompt and the button label are emitter-built chrome: `chrome.*` keys
   // with the entity name as an ICU hole, as on every frontend.  The method body
   // reads the module-level `t` import the page shell already carries.
-  const confirmMsg = localizedPageChromeValue(ctx, "deleteConfirm", [
-    { name: "entity", expr: JSON.stringify(humanize(agg.name).toLowerCase()) },
-  ]);
-  const label = localizedPageChromeText(ctx, "deleteEntity", [
-    { name: "entity", expr: JSON.stringify(humanize(agg.name)) },
-  ]);
+  const confirmMsg = localizedPageChromeValue(ctx, sentenceChromeName("deleteConfirm", agg.name));
+  const label = localizedPageChromeText(ctx, sentenceChromeName("deleteEntity", agg.name));
   const ns = stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-destroy`;
   ctx.collectedTestids.add(ns);
 
