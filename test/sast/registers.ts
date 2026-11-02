@@ -33,12 +33,24 @@ export const OIDC_FEATURES = ["auth-oidc"] as const;
 
 /** `<rule> @ <tree>/<file> :: <line>` → why the hit is not a defect. */
 export const TRIAGE: Readonly<Record<string, string>> = {
-  "loom-ef-bypass-lifts-every-filter @ find-bypass/dotnet/d/Infrastructure/Repositories/OrderRepository.cs :: var result = await _db.Orders.IgnoreQueryFilters().Where(x => x.Code == c).FirstOrDefaultAsync(cancellationToken);":
-    "find-bypass's `unfiltered … ignoring *` on `Order`, which carries no `policy { deny }` — lifting every filter is the authored intent",
+  "loom-ef-bypass-lifts-every-filter @ audit-history/dotnet/d/Infrastructure/Repositories/OrderRepository.cs :: if (bypass.All) __q = __q.IgnoreQueryFilters();":
+    "the runtime `bypass.All` path of a criterion read (`Repo.run` / `Repo.find … ignoring *`) on `Order`, which carries no `policy { deny }`, so `ignoring *` may lift every filter — the .NET repository emitter names the bypassable filters only when a deny carve-out must survive",
+  "loom-ef-bypass-lifts-every-filter @ field-mask/dotnet/d/Infrastructure/Repositories/EmployeeRepository.cs :: if (bypass.All) __q = __q.IgnoreQueryFilters();":
+    "the runtime `bypass.All` path of a criterion read (`Repo.run` / `Repo.find … ignoring *`) on `Employee`, which carries no `policy { deny }`, so `ignoring *` may lift every filter — the .NET repository emitter names the bypassable filters only when a deny carve-out must survive",
+  "loom-ef-bypass-lifts-every-filter @ find-bypass/dotnet/d/Infrastructure/Repositories/OrderRepository.cs :: var result = await _db.Orders.IgnoreQueryFilters().Where(new ByCodeCriterion(c).ToExpression()).FirstOrDefaultAsync(cancellationToken);":
+    "find-bypass's `Orders.find(ByCode(c)) ignoring *` on `Order`, which carries no `policy { deny }`, so `ignoring *` may lift every filter — the .NET repository emitter names the bypassable filters only when a deny carve-out must survive",
+  "loom-ef-bypass-lifts-every-filter @ find-bypass/dotnet/d/Infrastructure/Repositories/OrderRepository.cs :: if (bypass.All) __q = __q.IgnoreQueryFilters();":
+    "the runtime `bypass.All` path of a criterion read (`Repo.run` / `Repo.find … ignoring *`) on `Order`, which carries no `policy { deny }`, so `ignoring *` may lift every filter — the .NET repository emitter names the bypassable filters only when a deny carve-out must survive",
+  "loom-ef-bypass-lifts-every-filter @ inheritance-read-restrictions/dotnet/d/Infrastructure/Repositories/DriverRepository.cs :: if (bypass.All) __q = __q.IgnoreQueryFilters();":
+    "the runtime `bypass.All` path of a criterion read (`Repo.run` / `Repo.find … ignoring *`) on `Driver`, which carries no `policy { deny }`, so `ignoring *` may lift every filter — the .NET repository emitter names the bypassable filters only when a deny carve-out must survive",
   "loom-ef-bypass-lifts-every-filter @ principal-read-filter/dotnet/d/Infrastructure/Repositories/WorkOrderRepository.cs :: if (bypass.All) __q = __q.IgnoreQueryFilters();":
-    "the runtime `bypass` path of a principal-filtered read on `WorkOrder`, which carries no `policy { deny }`",
-  "loom-ef-bypass-lifts-every-filter @ sast~leak-shapes/dotnet/d/Infrastructure/Repositories/OrderRepository.cs :: var result = await _db.Orders.IgnoreQueryFilters().Where(x => x.Code == c).ToListAsync(cancellationToken);":
-    "`Order` carries no NON-bypassable filter (no `policy { deny }`), so `ignoring *` may lift every filter — find-emit.ts `ignoreFiltersClause` emits the parameterless form only then",
+    "the runtime `bypass.All` path of a criterion read (`Repo.run` / `Repo.find … ignoring *`) on `WorkOrder`, which carries no `policy { deny }`, so `ignoring *` may lift every filter — the .NET repository emitter names the bypassable filters only when a deny carve-out must survive",
+  "loom-ef-bypass-lifts-every-filter @ sast~leak-shapes/dotnet/d/Infrastructure/Repositories/OrderRepository.cs :: var result = await _db.Orders.IgnoreQueryFilters().Where(new OrdersByCodeCriterion(c).ToExpression()).FirstOrDefaultAsync(cancellationToken);":
+    "the fixture's deliberate no-deny half: `Orders.find(OrdersByCode(c)) ignoring *` on `Order`, which carries no `policy { deny }`, so `ignoring *` may lift every filter — the .NET repository emitter names the bypassable filters only when a deny carve-out must survive (its deny half, `Secret`, carries the F2-ADP-1 seed)",
+  "loom-ef-bypass-lifts-every-filter @ tenancy-claim-name/dotnet/d/Infrastructure/Repositories/InvoiceRepository.cs :: if (bypass.All) __q = __q.IgnoreQueryFilters();":
+    "the runtime `bypass.All` path of a criterion read (`Repo.run` / `Repo.find … ignoring *`) on `Invoice`, which carries no `policy { deny }`, so `ignoring *` may lift every filter — the .NET repository emitter names the bypassable filters only when a deny carve-out must survive",
+  "loom-ef-bypass-lifts-every-filter @ tenancy-owned/dotnet/d/Infrastructure/Repositories/InvoiceRepository.cs :: if (bypass.All) __q = __q.IgnoreQueryFilters();":
+    "the runtime `bypass.All` path of a criterion read (`Repo.run` / `Repo.find … ignoring *`) on `Invoice`, which carries no `policy { deny }`, so `ignoring *` may lift every filter — the .NET repository emitter names the bypassable filters only when a deny carve-out must survive",
 };
 
 export interface Seed {
@@ -71,7 +83,7 @@ export const SEEDS: readonly Seed[] = [
     fixture: LEAK_SHAPES_ID,
     backend: "node",
     file: /http\/query-projections\.ts$/,
-    from: "const [row] = await db.select({ total: count() }).from(schema.orders).where(eq(schema.orders.tenantId, requireCurrentUser().tenantId));",
+    from: "const [row] = await db.select({ total: count() }).from(schema.orders).where(orderScope());",
     to: "const [row] = await db.select({ total: count() }).from(schema.orders);",
     defect: "audit A1: the aggregation read the source table with only its own `where`",
   },
@@ -81,9 +93,9 @@ export const SEEDS: readonly Seed[] = [
     fixture: LEAK_SHAPES_ID,
     backend: "python",
     file: /query_projections_routes\.py$/,
-    from: "select(func.count()).select_from(OrderRow).where((OrderRow.tenant_id == require_current_user().tenant_id))",
-    to: "select(func.count()).select_from(OrderRow)",
-    defect: "audit A1 (python arm)",
+    from: "select(func.count()).select_from(OrderRow))",
+    to: 'select(func.count()).select_from(OrderRow).execution_options(loom_ignoring=frozenset({"tenantOwned"})))',
+    defect: "audit A1 (python arm): the aggregation read leaves the read-scope hook's tenant floor",
   },
   {
     id: "A1/java",
@@ -91,9 +103,9 @@ export const SEEDS: readonly Seed[] = [
     fixture: LEAK_SHAPES_ID,
     backend: "java",
     file: /StoreQueryProjections\.java$/,
-    from: '"select count(e) from Order e where (e.tenantId = :__cuTenantId)"',
-    to: '"select count(e) from Order e"',
-    defect: "audit A1 (java arm)",
+    from: 'entityManager.createQuery("select count(e) from Order e")',
+    to: 'entityManager.createNativeQuery("select count(*) from orders")',
+    defect: "audit A1 (java arm): native SQL, which the entity's tenant `@Filter` never sees",
   },
   {
     id: "A1/elixir",

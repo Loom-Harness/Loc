@@ -41,33 +41,42 @@ rules:
     severity: ERROR
     message: >-
       A query-time aggregation (count/sum/avg/min/max) reads a table with no
-      `tenantId` conjunct — a cross-tenant COUNT/SUM (audit A1,
-      `projection-agg-filters`).  The tenant floor must be ANDed into the read.
+      tenant floor — a cross-tenant COUNT/SUM (audit A1,
+      `projection-agg-filters`).  The floor is the aggregate's read-scope helper
+      (`<agg>Scope()`, db/read-scopes.ts), or a `tenantId` conjunct, ANDed into
+      the same read; a helper call that drops `tenantOwned` / `tenancy` / `*`
+      is no floor.
     paths:
       include: ["**/http/query-projections.ts"]
-    pattern-regex: '^(?![^\n]*tenantId)[^\n]*\.select\(\{[^\n]*\b(?:count|sum|avg|min|max)\([^\n]*\.from\(schema\.\w+\)'
+    pattern-regex: '^(?![^\n]*(?:tenantId|\b\w+Scope\((?![^)\n]*(?:tenantOwned|tenancy|"\*"))))[^\n]*\.select\(\{[^\n]*\b(?:count|sum|avg|min|max)\([^\n]*\.from\(schema\.\w+\)'
     metadata: { family: forbidden, leak: A1 }
 
   - id: loom-aggregation-without-tenant-floor-py
     languages: [regex]
     severity: ERROR
     message: >-
-      A query-time aggregation selects from a row class with no `tenant_id`
-      conjunct on the same read — a cross-tenant COUNT/SUM (audit A1).
+      A query-time aggregation lifts the tenant floor — a cross-tenant
+      COUNT/SUM (audit A1).  The floor is the session-wide read-scope hook
+      (app/db/read_scope.py), which ANDs each aggregate's tenant criterion into
+      every ORM SELECT, aggregates included; the one way a read leaves it is a
+      `loom_ignoring` execution option naming `tenantOwned`, `tenancy` or `*`.
     paths:
       include: ["**/query_projections_routes.py"]
-    pattern-regex: '\.select_from\(\w+Row\)(?!\.where\([^\n]*tenant_id)'
+    pattern-regex: '\.select_from\(\w+Row\)(?:(?!\n\s*\n)[\s\S]){0,400}?loom_ignoring=frozenset\(\{[^}]*"(?:\*|tenantOwned|tenancy)"'
     metadata: { family: forbidden, leak: A1 }
 
   - id: loom-aggregation-without-tenant-floor-java
     languages: [regex]
     severity: ERROR
     message: >-
-      A JPQL aggregation has no `tenantId` predicate — a cross-tenant COUNT/SUM
-      (audit A1).
+      A query-time aggregation leaves the tenant floor — a cross-tenant
+      COUNT/SUM (audit A1).  The floor is the entity's auto-enabled Hibernate
+      `@Filter` (`<Entity>_tenantOwned` / `_tenancy`), which applies to every
+      JPQL read of the entity, aggregates included.  It does not apply to
+      native SQL, and a projection that disables it has lifted it.
     paths:
       include: ["**/*QueryProjections.java"]
-    pattern-regex: 'createQuery\("(?![^"]*tenantId)select [^"]*\b(?:count|sum|avg|min|max)\('
+    pattern-regex: '(?:createNativeQuery\("(?![^"]*tenant_id)[^"]*\b(?:count|sum|avg|min|max)\(|disableFilter\("\w*(?:tenantOwned|tenancy)"\))'
     metadata: { family: forbidden, leak: A1 }
 
   - id: loom-aggregation-without-tenant-floor-ex
