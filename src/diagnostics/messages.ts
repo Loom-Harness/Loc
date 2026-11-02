@@ -3754,6 +3754,34 @@ export const DIAGNOSTIC_MESSAGES = {
     `'ignoring' clause. No 'auth { enforcement: }' mode restores the filter — ` +
     `'enforcement: opt' checks nothing and 'requires true' satisfies ` +
     `'enforcement: denyByDefault' while still leaking.`,
+  // A folded read model's row is written by the fold, not by a tenant's
+  // command, so it carries no tenant column and its generated read routes no
+  // tenant predicate: under `tenancy by` every tenant would read every other
+  // tenant's rows.  Refused until a fold can carry the event's tenant.
+  "loom.tenancy-folded-projection-unscoped": (p: {
+    name: unknown;
+    ctxName: unknown;
+    events: unknown;
+    claim: unknown;
+  }) =>
+    `Projection '${p.ctxName}.${p.name}' folds ${p.events} into a read model under ` +
+    `'tenancy by user.${p.claim}', but a folded projection's rows carry no tenant and its ` +
+    `generated read routes apply no tenant predicate, so every tenant would read every ` +
+    `other tenant's rows. Read the source aggregate through a query-time projection ` +
+    `instead ('from <Aggregate> as a … select …', optionally 'group by'), which applies ` +
+    `the aggregate's own tenant floor on every backend.`,
+  "loom.projection-cross-context-source-unsupported": (p: {
+    name: unknown;
+    ctxName: unknown;
+    source: unknown;
+    homeName: unknown;
+    platform: unknown;
+  }) =>
+    `Query-time projection '${p.ctxName}.${p.name}' reads '${p.source}' row by row from ` +
+    `context '${p.homeName}', but '${p.platform}' synthesises a per-row projection's source ` +
+    `read only on a repository in the projection's own context. Declare the projection in ` +
+    `'${p.homeName}', or aggregate it ('select n = count()', 'group by'), which reads the ` +
+    `table directly.`,
   "loom.filter-bypass-no-filter": (p: {
     site: unknown;
     ctxName: unknown;

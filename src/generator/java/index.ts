@@ -801,6 +801,7 @@ function emitProjectFromContexts(
         routePrefix,
         sourcemap,
         reqNameFor,
+        contexts,
       );
     }
     // Value-object / domain-service unit tests (test-placement.md) —
@@ -1187,16 +1188,17 @@ function emitProjectFromContexts(
       // one thing an aggregation over it CAN name: there is no JPA entity, so
       // the query runs native.  Mirrors the document repository's own table
       // resolution (`renderJavaDocumentRepositoryImpl`).
-      documentTableOf: (aggName) => {
-        const a = ctx.aggregates.find((x) => x.name === aggName);
+      documentTableOf: (aggName, home) => {
+        const a = home.aggregates.find((x) => x.name === aggName);
         if (!a) return undefined;
-        const cfg = system?.sys ? resolveDataSourceConfig(a, ctx, system.sys) : undefined;
+        const cfg = system?.sys ? resolveDataSourceConfig(a, home, system.sys) : undefined;
         if (effectiveSavingShape(a, cfg) !== "document" || a.persistedAs === "eventLog") {
           return undefined;
         }
         const bare = tableNameFor(a.name);
         return cfg?.schema ? `${cfg.schema}.${bare}` : bare;
       },
+      contexts,
     });
     if (queryProjectionFiles) {
       const qpRowOrigin = new Map<string, ProjectionIR>(
@@ -1711,6 +1713,9 @@ function emitAggregate(
   sourcemap?: SourceMapRecorder,
   /** Deployable-wide request-component name lookup (F-026). */
   reqNameFor?: (owner: RequestComponentOwner) => string,
+  /** The deployable's hosted contexts — query-time projections declared in
+   *  any of them may read this aggregate. */
+  contexts: readonly EnrichedBoundedContextIR[] = [ctx],
 ): void {
   const eventFields = new Map(ctx.events.map((e) => [e.name, e.fields.map((f) => f.name)]));
   // The JPA mapping mirrors `schemaFromModule`: binding-resolved schema +
@@ -1732,7 +1737,7 @@ function emitAggregate(
   // for a bypassable Hibernate named @Filter on the entity; the repository impl
   // wraps a bypassing read with disableFilter/enableFilter.  Derived per
   // aggregate from the context's read-decls — never stamped (capability-filter.ts).
-  const promotedCaps = new Set(promotedCapabilities(agg, ctx));
+  const promotedCaps = new Set(promotedCapabilities(agg, ctx, contexts));
   const construct = `${ctx.name}.${agg.name}`;
   // Only collected when a recorder is actually threaded in — a no-sourcemap
   // run pays no per-statement bookkeeping cost.  Regular (non-extern) op
@@ -1751,7 +1756,7 @@ function emitAggregate(
       renderJavaAbstractBaseEntity(agg, basePkg, pkgFor("entity", agg.name), {
         tph,
         persistence: { schema, voLookup, mangledEnums },
-        restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`),
+        restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`, contexts),
       }),
       agg.name,
       agg.origin,
@@ -1870,7 +1875,7 @@ function emitAggregate(
       superType,
       operationReturnUnions,
       eventFields,
-      restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`),
+      restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`, contexts),
       construct,
       opFragments,
       // Event-sourced / document aggregates have no normalised state
@@ -1916,7 +1921,9 @@ function emitAggregate(
   };
   // Views + query-time projections sourced from this aggregate both ride
   // synthesized parameterless finds (the mergeViewsAsFinds analog).
-  const viewFinds = [...queryProjectionFindsFor(agg.name, ctx)] as unknown as RepositoryIR["finds"];
+  const viewFinds = [
+    ...queryProjectionFindsFor(agg.name, ctx, contexts),
+  ] as unknown as RepositoryIR["finds"];
   const repoWithViews: RepositoryIR =
     viewFinds.length > 0
       ? repo
@@ -1935,7 +1942,7 @@ function emitAggregate(
     isReified,
     provenance: provenancedFieldsOf(agg).length > 0,
     promotedCaps,
-    bypassFilters: bypassFilterNames(agg, ctx),
+    bypassFilters: bypassFilterNames(agg, ctx, contexts),
     staticRestriction: hasStaticRestriction(agg, ctx),
     bypassByRetrieval: inlineRunBypassesByRetrieval(ctx, agg.name),
   };

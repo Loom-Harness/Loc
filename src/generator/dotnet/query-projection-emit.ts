@@ -24,6 +24,7 @@ import {
   isValueObjectLeaf,
   type ProjectionColumn,
 } from "../../ir/util/projection-column.js";
+import { projectionSourceContext } from "../../ir/util/projection-source.js";
 import { queryProjectionArm } from "../../ir/util/query-projection-arm.js";
 import { escapeCsharpIdent, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { PG_INTRINSIC_SQL } from "../_expr/pg-intrinsics.js";
@@ -86,11 +87,41 @@ import {
 // to join (after node/python/elixir/java).
 // ---------------------------------------------------------------------------
 
+/** `ctx` as the handler of `proj` reads it: when the projection's `from` source
+ *  is declared in another hosted context, that context's declarations come
+ *  first, so every lookup of the source — its scope, its table, its `ignoring`
+ *  filters — answers from the HOME context rather than finding nothing. */
+function withSourceHome(
+  proj: ProjectionIR,
+  ctx: EnrichedBoundedContextIR,
+  contexts: readonly EnrichedBoundedContextIR[],
+): EnrichedBoundedContextIR {
+  const home = projectionSourceContext(proj, ctx, contexts);
+  if (!home || home === ctx) return ctx;
+  const first = <T extends { name: string }>(own: readonly T[], src: readonly T[]): T[] => {
+    const names = new Set(src.map((x) => x.name));
+    return [...src, ...own.filter((x) => !names.has(x.name))];
+  };
+  return {
+    ...ctx,
+    aggregates: first(ctx.aggregates, home.aggregates),
+    workflows: first(ctx.workflows, home.workflows),
+    projections: first(ctx.projections, home.projections),
+  };
+}
+
 export function emitQueryProjections(
   ctx: EnrichedBoundedContextIR,
   ns: string,
   out: Map<string, string>,
-  options?: { routePrefix?: string; sourcemap?: SourceMapRecorder; usingDapper?: boolean },
+  options?: {
+    routePrefix?: string;
+    sourcemap?: SourceMapRecorder;
+    usingDapper?: boolean;
+    /** The deployable's hosted contexts — a projection's `from` source may be
+     *  declared in another one of them than the projection itself. */
+    contexts?: readonly EnrichedBoundedContextIR[];
+  },
 ): void {
   const projections = (ctx.projections ?? []).filter(isQueryTimeProjection);
   if (projections.length === 0) return;
@@ -109,7 +140,12 @@ export function emitQueryProjections(
     sourcemap?.file(queryPath, queryContent, proj.origin, construct);
 
     const handlerPath = `Application/Projections/${upperFirst(proj.name)}QpHandler.cs`;
-    const handlerContent = renderHandler(proj, ctx, ns, usingDapper);
+    const handlerContent = renderHandler(
+      proj,
+      withSourceHome(proj, ctx, options?.contexts ?? [ctx]),
+      ns,
+      usingDapper,
+    );
     out.set(handlerPath, handlerContent);
     sourcemap?.file(handlerPath, handlerContent, proj.origin, construct);
   }
