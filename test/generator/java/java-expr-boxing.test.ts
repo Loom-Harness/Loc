@@ -102,3 +102,11 @@ describe("java — variant match without else", () => {
     expect(wf).not.toContain("default -> null;");
   });
 });
+
+describe("java — collection assignment", () => {
+  it("copies into a mutable list so a following += appends", async () => {
+    const cond = await file(COND);
+    expect(cond).toContain("this.attributes = new java.util.ArrayList<>(w);");
+    expect(cond).toContain("this.attributes.add(v);");
+  });
+});
