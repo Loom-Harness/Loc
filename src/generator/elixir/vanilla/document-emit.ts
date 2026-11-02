@@ -61,7 +61,6 @@ import type {
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { isDocumentShaped, resolveDataSourceConfig } from "../../../ir/util/resolve-datasource.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import {
   elixirLocal,
@@ -97,6 +96,7 @@ import {
 } from "./operation-returns-emit.js";
 import { renderEctoDefault } from "./schema-emit.js";
 import { stampAssignmentPairs, stampUsesPrincipal, stampUsesPrincipalFor } from "./stamp-emit.js";
+import { savesLockVersion } from "./version-check-ex.js";
 /** True iff the aggregate's effective saving shape is `document` (binding-aware,
  *  matching the migration + validator).  `sys` may be absent in a few legacy
  *  test paths — then the header alone decides (`agg.savingShape`). */
@@ -561,7 +561,7 @@ export function renderDocRepository(
   const repoMod = `${aggModule}Repository`;
   const changesetMod = `${aggModule}Changeset`;
   const contextModule = `${appModule}.${ctxModule}`;
-  const versioned = aggregateIsVersioned(agg);
+  const versioned = savesLockVersion(agg);
 
   // Lifecycle stamps on the write seam.  The ARITY mirrors the relational
   // repository exactly, because the context facade derives the delegate's
@@ -1045,7 +1045,7 @@ export function renderDocNamedOpFunction(
   // `persist_change/1`).  An UNVERSIONED document keeps the plain bump: its
   // row column still exists and must advance, but there is no CAS contract.
   const opVersionPipe = (indent: string): string =>
-    aggregateIsVersioned(agg)
+    savesLockVersion(agg)
       ? `${indent}|> Ecto.Changeset.change(%{})\n${indent}|> Ecto.Changeset.optimistic_lock(:version)`
       : `${indent}|> Ecto.Changeset.change(%{version: row.version + 1})`;
   const persistTail = hasAudit
@@ -1174,7 +1174,7 @@ export function renderDocReturningOpFunction(
   const persistChangeset = [
     "    changeset =",
     "      row",
-    aggregateIsVersioned(agg)
+    savesLockVersion(agg)
       ? "      |> Ecto.Changeset.change(%{})\n      |> Ecto.Changeset.optimistic_lock(:version)"
       : "      |> Ecto.Changeset.change(%{version: row.version + 1})",
     "      |> Ecto.Changeset.put_embed(:data, Map.from_struct(record))",

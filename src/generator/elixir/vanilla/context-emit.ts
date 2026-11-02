@@ -36,7 +36,6 @@ import {
   lifecycleGatesUseCurrentUser,
 } from "../../../ir/util/op-gates.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
@@ -107,6 +106,7 @@ import { emitsRetrievalModule } from "./retrieval-emit.js";
 import { usesRelationalContainments } from "./schema-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
 import { valueRowFieldsOf } from "./value-collection-schema-emit.js";
+import { savesLockVersion } from "./version-check-ex.js";
 
 // ---------------------------------------------------------------------------
 // The canonical `create` / `destroy` authorization gate — IN THE CONTEXT.
@@ -501,7 +501,7 @@ function renderContextModule(
     // A `versioned` aggregate threads the client's expected version (parsed from
     // the If-Match header at the controller) as a trailing `expected_version \\ nil`
     // arg through the update defdelegate to the repository's optimistic-lock write.
-    const versionedArg = aggregateIsVersioned(agg) ? ", expected_version \\\\ nil" : "";
+    const versionedArg = savesLockVersion(agg) ? ", expected_version \\\\ nil" : "";
     // An AUDITED `update` (aggregate-wide `audited`, or `operation update(…)
     // audited`) records its row in the context seam both the REST action and
     // the LiveView edit form call: the field update goes through the
@@ -1666,7 +1666,7 @@ function renderNamedOpFunction(
   // with — a stale write raises `Ecto.StaleEntryError`, rescued to
   // `{:error, :conflict}` in `persist_change/1` (→ 409 at the controller),
   // the same protocol the generic PATCH seam has always used.
-  const opVersioned = aggregateIsVersioned(agg);
+  const opVersioned = savesLockVersion(agg);
   const opLockPipe6 = opVersioned ? "\n      |> Ecto.Changeset.optimistic_lock(:version)" : "";
   const opLockPipe = opVersioned ? "\n    |> Ecto.Changeset.optimistic_lock(:version)" : "";
 

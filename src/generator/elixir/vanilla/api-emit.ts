@@ -13,6 +13,7 @@
 // byte-identical to the other backends.
 // ---------------------------------------------------------------------------
 
+import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
 import {
   createInputFields,
   emitsRestCreate as sharedEmitsRestCreate,
@@ -37,7 +38,6 @@ import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-li
 import { createBodyStatements, lifecycleGates } from "../../../ir/util/op-gates.js";
 import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { elixirOpAction, snake, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
@@ -93,6 +93,12 @@ import {
 import { hasRefColls } from "./ref-collection-emit.js";
 import { emitsRestDelete } from "./rest-surface.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
+import {
+  EXPECTED_VERSION_BIND,
+  EXPECTED_VERSION_HELPER,
+  RECORD_AT_EXPECTED_VERSION,
+  savesLockVersion,
+} from "./version-check-ex.js";
 import { renderWireSerialize } from "./wire-serialize.js";
 
 /** Public operations that earn a dedicated `POST /<plural>/:id/<op>`
@@ -590,6 +596,9 @@ ${cuBind}${showBody}
         return renderReturningOpControllerAction(appModule, ctxModule, agg, op, ctx);
       }
       const opSnake = snake(op.name);
+      // The `checksVersion` fact: this route lays the client's `If-Match` over
+      // the loaded row's version, so the save's lock filters on what the client saw.
+      const opReadsIfMatch = readsIfMatch(operationVersionCheck(agg, op));
       // An op whose guard/body references `currentUser` needs `current_user`
       // threaded into the context call (the context fn carries the matching
       // `current_user \\ nil` arity).  Bind it off `conn.assigns` here unless
@@ -643,7 +652,7 @@ ${cuBind}${showBody}
       // (rescued in `persist_change/1`) — map it to the shared 409 responder.
       // Gated on `versioned` so an unversioned aggregate emits no unreachable
       // clause (`--warnings-as-errors`).
-      const conflictArm = aggregateIsVersioned(agg)
+      const conflictArm = savesLockVersion(agg)
         ? `
 
       {:error, :conflict} ->
@@ -652,15 +661,18 @@ ${cuBind}${showBody}
       return `
   def ${elixirOpAction(op.name)}(conn, %{"id" => id} = params) do
     attrs = Map.drop(params, ["id"])
-${opCuBind}    ${renderPhoenixLogCall("operationInvoked", [
-        { name: "aggregate", valueExpr: `"${aggPascal}"` },
-        { name: "op", valueExpr: `"${op.name}"` },
-        { name: "id", valueExpr: "id" },
-      ])}
+${opCuBind}${opReadsIfMatch ? EXPECTED_VERSION_BIND : ""}    ${renderPhoenixLogCall(
+        "operationInvoked",
+        [
+          { name: "aggregate", valueExpr: `"${aggPascal}"` },
+          { name: "op", valueExpr: `"${op.name}"` },
+          { name: "id", valueExpr: "id" },
+        ],
+      )}
     ${renderPhoenixDomainOperation(aggPascal, op.name)}
 
     with {:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),
-         {:ok, _updated} <- ${ctxModule}.${opSnake}_${aggSnake}(record, attrs${opCallActor}) do
+         {:ok, _updated} <- ${ctxModule}.${opSnake}_${aggSnake}(${opReadsIfMatch ? RECORD_AT_EXPECTED_VERSION : "record"}, attrs${opCallActor}) do
       send_resp(conn, 204, "")
     else
       {:error, :not_found} ->
@@ -876,21 +888,19 @@ ${cuBind}${destroyCuBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${ge
     end${fkRestrictRescue}
   end`;
 
-  // Optimistic concurrency (`versioned` capability, D-VERSIONED).  The update
-  // reads the client's expected version from the `if-match` request header
-  // (parsed to int by `__expected_version/1`), threads it into the context
-  // update, and maps the `{:error, :conflict}` a stale write yields (the
-  // repository rescued `Ecto.StaleEntryError`) onto a 409 ProblemDetails.
-  // Gated: a non-versioned aggregate's update action stays byte-identical.
-  // The `__expected_version/1` helper (and its binding) is only consumed by the
-  // generic `update` action, so it is gated on BOTH `versioned` AND the presence
-  // of an explicit `update` op — otherwise a versioned aggregate with no update
-  // op (default-on versioning makes EVERY aggregate versioned) would emit an
-  // unused private fn and fail `mix compile --warnings-as-errors`.
+  // Optimistic concurrency (`versioned` capability, D-VERSIONED).  A route reads
+  // the client's expected version from the `if-match` request header exactly
+  // where the `checksVersion` fact says `if-match` (`version-check-ex.ts`):
+  // every named operation of a `versioned` row, the canonical `update` among
+  // them.  The `{:error, :conflict}` a stale write yields (the repository
+  // rescued `Ecto.StaleEntryError`) maps onto a 409 ProblemDetails.  The
+  // `__expected_version/1` helper is emitted only when some route consumes it,
+  // or it would be an unused private fn under `--warnings-as-errors`.
   const hasUpdateOp = agg.operations.some((o) => o.name === "update");
-  const versioned = aggregateIsVersioned(agg);
-  const versionsUpdate = versioned && hasUpdateOp;
-  const versionBind = versionsUpdate ? "    expected_version = __expected_version(conn)\n" : "";
+  const updateOpIR = agg.operations.find((o) => o.name === "update");
+  const versionsUpdate =
+    updateOpIR !== undefined && readsIfMatch(operationVersionCheck(agg, updateOpIR));
+  const versionBind = versionsUpdate ? EXPECTED_VERSION_BIND : "";
   const versionCallArg = versionsUpdate ? ", expected_version" : "";
   const conflictClause = versionsUpdate
     ? `
@@ -898,29 +908,10 @@ ${cuBind}${destroyCuBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${ge
       {:error, :conflict} ->
         ProblemDetails.conflict_response(conn, "${aggPascal}", id)`
     : "";
-  // Private helper — parse the client's expected `version` from the `if-match`
-  // request header (bare int or a quoted ETag).  Absent/unparseable → nil, which
-  // the write path treats as write-time CAS (the loaded row's own version).
-  const versionHelper = versionsUpdate
-    ? `
-
-  # Parse the optimistic-concurrency precondition (the client's expected
-  # \`version\`) from the \`if-match\` request header.  Absent or unparseable → nil,
-  # which the write path treats as write-time CAS (the loaded row's own version).
-  defp __expected_version(conn) do
-    case get_req_header(conn, "if-match") do
-      [value | _] ->
-        case value |> String.trim("\\"") |> Integer.parse() do
-          {n, _} -> n
-          :error -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-`
-    : "";
+  const versionHelper =
+    versionsUpdate || memberOps.some((op) => readsIfMatch(operationVersionCheck(agg, op)))
+      ? EXPECTED_VERSION_HELPER
+      : "";
 
   // The mutating actions (create / update / delete).  An abstract inheritance
   // base is read-only — it emits none of these (no write-seam context fns to
