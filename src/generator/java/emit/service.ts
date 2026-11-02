@@ -7,6 +7,7 @@ import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   FieldIR,
+  OperationIR,
   ParamIR,
   RepositoryIR,
   TypeIR,
@@ -24,7 +25,7 @@ import {
   operationGatesUseCurrentUser,
   type RequiresStmtIR,
 } from "../../../ir/util/op-gates.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
+import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
@@ -503,19 +504,21 @@ export function renderJavaService(
     // references an uninjected field.
     lifecycleGatesUseCurrentUser(canonicalCreate(agg)) ||
     lifecycleGatesUseCurrentUser(canonicalDestroy(agg));
-  // Optimistic concurrency (`versioned`): every public mutation threads the
-  // client's expected version from the `If-Match` request header (think-time
-  // CAS).  When supplied and it disagrees with the freshly-loaded aggregate's
-  // counter, we raise ObjectOptimisticLockingFailureException up-front — the
-  // same exception the repository's guarded version bump raises when it matches
-  // zero rows (write-time CAS, emit/repository.ts) — so both surface through the
-  // ApiExceptionAdvice 409 arm.  A non-versioned aggregate threads nothing and
-  // stays byte-identical.
-  const versioned = aggregateIsVersioned(agg);
-  const ifMatchParam = versioned ? ", Integer ifMatch" : "";
-  const ifMatchGuard = versioned
-    ? `        if (ifMatch != null && aggregate.version() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, id.value());`
-    : null;
+  // Optimistic concurrency: an operation threads the client's expected version
+  // from the `If-Match` request header (think-time CAS) exactly where the
+  // `checksVersion` fact says `if-match`.  When supplied and it disagrees with
+  // the freshly-loaded aggregate's counter, we raise
+  // ObjectOptimisticLockingFailureException up-front — the same exception the
+  // repository's guarded version bump raises when it matches zero rows
+  // (write-time CAS, emit/repository.ts) — so both surface through the
+  // ApiExceptionAdvice 409 arm.  Other operations thread nothing and stay
+  // byte-identical.
+  const ifMatchParam = (op: OperationIR): string =>
+    readsIfMatch(operationVersionCheck(agg, op)) ? ", Integer ifMatch" : "";
+  const ifMatchGuardFor = (op: OperationIR): string | null =>
+    readsIfMatch(operationVersionCheck(agg, op))
+      ? `        if (ifMatch != null && aggregate.version() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, id.value());`
+      : null;
   const unionReturnNames = new Set<string>();
   const opLines = agg.operations
     .filter((op) => op.visibility === "public")
@@ -523,7 +526,7 @@ export function renderJavaService(
       const hasParams = op.params.length > 0;
       const reqType = `${upperFirst(op.name)}${agg.name}Request`;
       const paramSig =
-        (hasParams ? `${idClass} id, ${reqType} request` : `${idClass} id`) + ifMatchParam;
+        (hasParams ? `${idClass} id, ${reqType} request` : `${idClass} id`) + ifMatchParam(op);
       const opLocals = javaLocals(
         op.params.map((p) => p.name),
         OPERATION_METHOD_NAMES,
@@ -553,7 +556,7 @@ export function renderJavaService(
           ...lets,
           usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
           `        var aggregate = repository.getById(id);`,
-          ifMatchGuard,
+          ifMatchGuardFor(op),
           ...requiresGateLines(op, opLocals),
           whenGateLine(op, opLocals),
           `        aggregate.${jid(op.name)}(${args});`,
@@ -607,7 +610,7 @@ export function renderJavaService(
         ...lets,
         usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
         `        var aggregate = repository.getById(id);`,
-        ifMatchGuard,
+        ifMatchGuardFor(op),
         ...requiresGateLines(op, opLocals),
         whenGateLine(op, opLocals),
         audited ? `        var __before = ${agg.name}Response.from(aggregate);` : null,
