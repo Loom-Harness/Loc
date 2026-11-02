@@ -53,3 +53,30 @@ describe("money seed literals (#3535)", () => {
     expect(seed).not.toMatch(/min_rent=500/);
   });
 });
+
+const UNION = `
+      payload Repaired { notes: string  unitCost: money  extra: money? }
+      payload Deferred { reason: string }
+      aggregate Ticket with crudish {
+        title: string
+        operation resolve(notes: string, cost: money): Repaired or Deferred {
+          return Repaired { notes: notes, unitCost: cost }
+        }
+      }
+      repository Tickets for Ticket { }`;
+
+describe("union-variant money payload (#3544)", () => {
+  it("node: the success arm's money rides as the 4-dp string", async () => {
+    const r = pick(await gen(sys("node", UNION)), /ticket\.routes\.ts$/);
+    expect(r).toContain('if (result.type === "Repaired") {');
+    expect(r).toContain("unitCost: result.unitCost.toFixed(4)");
+    expect(r).toContain("extra: result.extra == null ? null : result.extra.toFixed(4)");
+  });
+
+  it("python: the success arm's money rides as money_str()", async () => {
+    const r = pick(await gen(sys("python", UNION)), /ticket_routes\.py$/);
+    expect(r).toContain('if result["type"] == "Repaired":');
+    expect(r).toContain('"unitCost": money_str(result["unitCost"])');
+    expect(r).toContain('"extra": None if result["extra"] is None else money_str(result["extra"])');
+  });
+});

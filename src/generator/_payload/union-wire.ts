@@ -21,6 +21,7 @@ import {
   wireFieldsForPart,
   wireFieldsForValueObject,
 } from "../../ir/enrich/wire-projection.js";
+import { scalarCodecOf } from "../../ir/enrich/codec.js";
 import { unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import type { BoundedContextIR, TypeIR, WireField } from "../../ir/types/loom-ir.js";
 import { peelCollection, peelNullable, wireTypeInfo } from "../../ir/types/wire-types.js";
@@ -90,6 +91,40 @@ function wireToMembers(wire: readonly WireField[] | undefined): UnionMemberField
     optional: wf.optional,
     isId: wf.source === "id",
   }));
+}
+
+/** The `money` positions of one SUCCESS variant of an operation-return union,
+ *  whose in-memory tagged dict holds a decimal value the wire must carry as the
+ *  fixed-scale string (RS-12).  `key` is the tagged dict's key: the payload
+ *  field's name, or `value` for a scalar `money` variant. */
+export interface UnionMoneyArm {
+  tag: string;
+  keys: { key: string; optional: boolean }[];
+}
+
+/** Which success variants of `variants` carry `money` that the route must
+ *  encode before answering.  A payload / event variant contributes its direct
+ *  `money` fields; a scalar `money` variant its `value`.  An `error` variant
+ *  answers as a ProblemDetails, so it is skipped. */
+export function unionMoneyArms(variants: TypeIR[], ctx: BoundedContextIR): UnionMoneyArm[] {
+  const arms: UnionMoneyArm[] = [];
+  for (const m of unionMembers(variants, ctx)) {
+    const isPayloadArm = (() => {
+      const v = variants.find((x) => variantTag(x) === m.tag);
+      return v?.kind === "entity" && ctx.payloads.some((p) => p.name === v.name && p.kind !== "error");
+    })();
+    const moneyOf = (t: TypeIR): boolean =>
+      scalarCodecOf(t)?.wire.form === "fixed-scale-decimal";
+    if (m.shape === "record" && isPayloadArm) {
+      const keys = m.fields
+        .filter((f) => moneyOf(f.type))
+        .map((f) => ({ key: f.name, optional: f.optional || f.type.kind === "optional" }));
+      if (keys.length) arms.push({ tag: m.tag, keys });
+    } else if (m.shape === "scalar" && moneyOf(m.type)) {
+      arms.push({ tag: m.tag, keys: [{ key: "value", optional: m.type.kind === "optional" }] });
+    }
+  }
+  return arms;
 }
 
 /** Producer-side spec for a union-returning find (payload-transport-layer.md

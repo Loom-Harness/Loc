@@ -18,6 +18,7 @@ import {
   type UnionMemberField,
   unionMemberObjects,
   unionMembers,
+  unionMoneyArms,
 } from "../../../generator/_payload/union-wire.js";
 import {
   PG_FOREIGN_KEY_VIOLATION,
@@ -2321,6 +2322,18 @@ function emitReturningOperationRoute(
   const successResult = scalarMoneyReturn
     ? `result === null ? null : ${numericEncode(TS_NUMERIC, "money", "dto-map", "result")}`
     : "result";
+  // A `money` field of a payload success variant rides as the fixed-scale
+  // string (RS-12) — the tagged dict holds the decimal.js value.
+  for (const arm of u ? unionMoneyArms(u.variants, ctx) : []) {
+    const enc = arm.keys.map(({ key, optional }) => {
+      const access = `result.${key}`;
+      const wire = numericEncode(TS_NUMERIC, "money", "dto-map", access);
+      return `${key}: ${optional ? `${access} == null ? null : ${wire}` : wire}`;
+    });
+    out.push(`    if (result.type === ${JSON.stringify(arm.tag)}) {`);
+    out.push(`      return c.json({ ...result, ${enc.join(", ")} }, 200);`);
+    out.push(`    }`);
+  }
   out.push(`    return c.json(${successResult}, 200);`);
   out.push(`  },`);
   out.push(`);`);
