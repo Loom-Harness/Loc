@@ -183,7 +183,7 @@ export interface RoutedRequestSlot {
 
 /** Every wire value `route` parses for handler `h`, in declared order.  Empty
  *  for a param-less handler, whose route parses nothing. */
-export function routedRequestSlots(
+function routedRequestSlots(
   route: RouteIR,
   h: CommandHandlerIR | QueryHandlerIR,
   ctx: BoundedContextIR,
@@ -204,7 +204,7 @@ export function routedRequestSlots(
  *  `<Agg> paged`, whose route parses `page` / `pageSize` / `sort` / `dir` on
  *  top of its own params.  An extern handler's body is not the `Repo.run`
  *  the paged route is built around, so it binds like any other handler. */
-export function routedPagedRun(h: CommandHandlerIR | QueryHandlerIR): boolean {
+function routedPagedRun(h: CommandHandlerIR | QueryHandlerIR): boolean {
   return !h.extern && !!h.returnType && pagedReturn(h.returnType) !== null;
 }
 
