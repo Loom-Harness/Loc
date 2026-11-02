@@ -3447,7 +3447,10 @@ system P {
       "repository Orders for Order",
       "repository Orders for Order\n    criterion ByCode(code: string) of Order = this.code == code",
     )
-    .replace("api SalesApi from Sales", "api SalesApi with scaffoldPagedApi(of: ByCode) from Sales"),
+    .replace(
+      "api SalesApi from Sales",
+      "api SalesApi with scaffoldPagedApi(of: ByCode) from Sales",
+    ),
   "loom.ui-body-feature-unsupported": flutterUi(
     `    page Detail(id: Order id) {
       route: "/orders/:id"

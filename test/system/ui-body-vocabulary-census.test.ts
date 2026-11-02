@@ -89,7 +89,11 @@ const PROBES: readonly Probe[] = [
     expect: { renders: true },
   },
   { id: "match-await", host: { page: AWAIT("s := o.customerId") }, expect: { renders: true } },
-  { id: "find-scalar", host: { body: QV("Order.findAllByOrdersByCustomer(s)") }, expect: { renders: true } },
+  {
+    id: "find-scalar",
+    host: { body: QV("Order.findAllByOrdersByCustomer(s)") },
+    expect: { renders: true },
+  },
   {
     id: "where-body",
     host: { body: "Stack { For { each: xs.where(x => x > 1), x => Text { string(x) } } }" },
@@ -415,9 +419,7 @@ async function measure(fw: Frontend): Promise<Map<number, Outcome>> {
     const want = expectedCode(PROBES[i]!, fw);
     out.set(
       i,
-      want && sameCodes(codes, want)
-        ? "refused"
-        : `refused-other: ${[...codes].join(",")}`,
+      want && sameCodes(codes, want) ? "refused" : `refused-other: ${[...codes].join(",")}`,
     );
   }
   const admitted = all.filter((i) => !codesByProbe.has(i));
