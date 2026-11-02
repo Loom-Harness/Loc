@@ -113,8 +113,8 @@ export const SEEDS: readonly Seed[] = [
     fixture: LEAK_SHAPES_ID,
     backend: "vanilla",
     file: /query_projections\/order_volume\.ex$/,
-    from: "where: record.tenant_id == ^(current_user && current_user.tenant_id), ",
-    to: "",
+    from: "|> Repo.one(current_user: current_user)",
+    to: "|> Repo.one(current_user: current_user, skip_filters: [:tenant_owned])",
     defect: "audit A1 (elixir arm)",
   },
   {

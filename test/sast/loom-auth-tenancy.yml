@@ -83,11 +83,14 @@ rules:
     languages: [regex]
     severity: ERROR
     message: >-
-      An Ecto aggregation query has no `tenant_id` predicate — a cross-tenant
-      COUNT/SUM (audit A1).
+      A query-time aggregation lifts the tenant floor — a cross-tenant
+      COUNT/SUM (audit A1).  The floor is the schema's tenant clause, which
+      `Repo.prepare_query/3` ANDs into every query of the schema, aggregates
+      included; the one way a read leaves it is a `skip_filters:` option naming
+      `:all`, `:tenant_owned` or `:tenancy`.
     paths:
       include: ["**/query_projections/*.ex"]
-    pattern-regex: 'from\(\w+ in [\w.]+,(?![^\n]*tenant_id)[^\n]*\b(?:count|sum|avg|min|max)\('
+    pattern-regex: '\b(?:count|sum|avg|min|max)\((?:(?!\n\s*\n)[\s\S]){0,400}?\bRepo\.(?:one|all)\([^\n]*skip_filters: (?::all\b|\[[^\]]*:(?:tenant_owned|tenancy)\b)'
     metadata: { family: forbidden, leak: A1 }
 
   # ------------------------------------------------------------------- auth --
