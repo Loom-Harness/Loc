@@ -33,7 +33,7 @@ function model(platform: Backend): string {
           amount: int
           invariant amount >= 0
           test "an entry keeps its memo" {
-            let e = Entry.create({ memo: "rent", amount: 100 })
+            let e = Entry.create(memo: "rent", amount: 100)
             expect(e.memo).toBe("rent")
           }
         }

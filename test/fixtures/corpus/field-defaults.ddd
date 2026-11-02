@@ -35,7 +35,7 @@ system Defaults {
         flag: bool
 
         test "an omitted default is applied at construction" {
-          let i = Item.create({ name: "N" })
+          let i = Item.create(name: "N")
           expect(i.qty).toBe(1)
           expect(i.note).toBe("none")
           expect(i.active).toBe(true)
@@ -43,7 +43,7 @@ system Defaults {
         }
 
         test "an explicit value overrides the default" {
-          let i = Item.create({ name: "N", qty: 7, active: false })
+          let i = Item.create(name: "N", qty: 7, active: false)
           expect(i.qty).toBe(7)
           expect(i.active).toBe(false)
         }

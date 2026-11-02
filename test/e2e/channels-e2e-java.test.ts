@@ -56,7 +56,7 @@ system Acme {
       workflow Fulfil {
         orderId: Order id
         create(p: OrderPlaced) by p.order {
-          let s = Shipment.create({ orderRef: p.order, status: "Pending" })
+          let s = Shipment.create(orderRef: p.order, status: "Pending")
         }
       }
     }

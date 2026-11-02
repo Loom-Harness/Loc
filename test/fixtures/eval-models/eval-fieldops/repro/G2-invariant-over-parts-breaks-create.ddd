@@ -9,14 +9,14 @@ system P {
       invariant lines.all(l => l.currency == currency)   // <-- remove this and it compiles
       entity Line { currency: string  amt: money }
       test "an order can be built" {
-        let o = Order.create({ currency: "EUR" })
+        let o = Order.create(currency: "EUR")
         expect(o.display).toBe("EUR")
       }
     }
     repository Orders for Order {}
     workflow openOrder {
       create(currency: string) {
-        let o = Order.create({ currency: currency })
+        let o = Order.create(currency: currency)
       }
     }
   } }

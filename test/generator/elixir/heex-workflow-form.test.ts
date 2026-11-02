@@ -39,7 +39,7 @@ system Shop {
       repository Orders for Order { }
       workflow PlaceOrder transactional {
         create(ref: string, qty: int, unitTotal: decimal, rush: bool) {
-          let o = Order.create({ ref: ref, qty: qty, total: unitTotal, rush: rush })
+          let o = Order.create(ref: ref, qty: qty, total: unitTotal, rush: rush)
         }
       }
       workflow SweepOrders {

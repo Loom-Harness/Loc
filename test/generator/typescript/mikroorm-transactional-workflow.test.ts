@@ -25,7 +25,7 @@ system MikroWf {
 
       workflow Open transactional {
         create(holder: string) {
-          let acct = Account.create({ holder: holder, balance: 0 })
+          let acct = Account.create(holder: holder, balance: 0)
         }
       }
 

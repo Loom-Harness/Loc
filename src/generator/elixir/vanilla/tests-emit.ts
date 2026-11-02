@@ -45,8 +45,8 @@ const EX_TEST_LITERAL: TestLiteralTarget = {
 // Vanilla (Ecto/Phoenix) domain `test "..."` → runnable ExUnit, ported 1:1 from
 // the Loom test idiom onto the aggregate's PURE DOMAIN CORE (domain-core-emit.ts):
 //
-//   let p = Agg.create({...})            →  {:ok, p} = Agg.create(%{...})
-//   expect(Agg.create({bad})).toThrow()  →  assert {:error, _} = Agg.create(%{...})
+//   let p = Agg.create(...)              →  {:ok, p} = Agg.create(%{...})
+//   expect(Agg.create(bad)).toThrow()    →  assert {:error, _} = Agg.create(%{...})
 //   p.op(x)                              →  p = Agg.op(p, %{"x" => ...})  (threads state)
 //   expect(p.op(bad)).toThrow()          →  assert_raise ArgumentError, fn -> Agg.op(p, %{...}) end
 //   expect(p.field).toBe(v)              →  assert p.field == v   (money/decimal via Decimal)

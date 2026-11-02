@@ -47,7 +47,7 @@ describe("loom.union-read-undiscriminated", () => {
     workflow label {
       create(code: string) {
         let r = Orders.byCode(code)
-        let n = Note.create({ text: r.code })
+        let n = Note.create(text: r.code)
       }
     }`);
     expect(msgs).toHaveLength(1);
@@ -62,7 +62,7 @@ describe("loom.union-read-undiscriminated", () => {
     workflow label {
       create(code: string) {
         let m = Orders.maybe(code)
-        let n = Note.create({ text: m.code })
+        let n = Note.create(text: m.code)
       }
     }`);
     expect(msgs).toHaveLength(0);
@@ -98,7 +98,7 @@ describe("loom.union-read-undiscriminated", () => {
         let r = Orders.byCode(code)
         let t = match r { Order o => o.code, NotFound => "missing" }
         let u = match r { Order => r.code, else => "missing" }
-        let n = Note.create({ text: t })
+        let n = Note.create(text: t)
       }
     }`);
     expect(msgs).toEqual([]);
@@ -112,7 +112,7 @@ describe("loom.union-read-undiscriminated", () => {
       create(code: string) {
         let r = Orders.byCode(code)
         let t = match r { Order o => o.code, NotFound => "missing" }
-        let n = Note.create({ text: r.code })
+        let n = Note.create(text: r.code)
       }
     }`);
     expect(msgs).toHaveLength(1);
@@ -124,7 +124,7 @@ describe("loom.union-read-undiscriminated", () => {
       create(code: string, id: Order id) {
         let o = Orders.getById(id)
         o.touch()
-        let n = Note.create({ text: o.code })
+        let n = Note.create(text: o.code)
       }
     }`);
     expect(msgs).toEqual([]);

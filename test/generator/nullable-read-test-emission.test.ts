@@ -27,7 +27,7 @@ system NS {
           shipment := Shipment { carrier: carrier, trackingCode: tracking }
         }
         test "reads a single containment and an optional field null-safely" {
-          let o = Order.create({ code: "SC1" })
+          let o = Order.create(code: "SC1")
           o.ship("UPS", "1Z999")
           expect(o.shipment.carrier).toBe("UPS")
           expect(o.shipment.trackingCode).toBe("1Z999")

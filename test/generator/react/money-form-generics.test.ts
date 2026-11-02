@@ -33,7 +33,7 @@ system MoneyForm {
       repository Invoices for Invoice { }
       workflow IssueInvoice transactional {
         create(ref: string, total: ${totalType}) {
-          let inv = Invoice.create({ ref: ref, total: total })
+          let inv = Invoice.create(ref: ref, total: total)
         }
       }
     }

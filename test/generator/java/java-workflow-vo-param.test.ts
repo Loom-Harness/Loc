@@ -24,7 +24,7 @@ const SRC = `system S { subdomain Core { context Wallet {
   repository Accounts for Account { }
   workflow topUp {
     create(amount: Money) {
-      let acct = Account.create({ balance: amount, threshold: 0 })
+      let acct = Account.create(balance: amount, threshold: 0)
     }
   }
 } } api A from Core  storage pg { type: postgres }

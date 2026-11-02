@@ -32,7 +32,7 @@ system R { subdomain S { context A {
   repository Ps for P { }
   repository R2s for R2 { }
   event Went { p: P id }
-  workflow replicatePolicies { p: P id  create(e: Went) by e.p { let r = R2.create({ p: e.p }) } }
+  workflow replicatePolicies { p: P id  create(e: Went) by e.p { let r = R2.create(p: e.p) } }
   workflow fulfillOrder { p: P id  create(e: Went) by e.p { } }
 } }
   storage primary { type: postgres }

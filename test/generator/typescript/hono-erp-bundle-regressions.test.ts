@@ -119,12 +119,12 @@ describe("Hono ERP-bundle generator regressions", () => {
           shipTo: Address
           placedAt: datetime
           test "creates" {
-            let o = Order.create({
+            let o = Order.create(
               reference: "R1",
               buyerId: "00000000-0000-0000-0000-000000000001",
               shipTo: { line1: "1 Main St", city: "Town" },
               placedAt: "2020-01-01T00:00:00Z"
-            })
+            )
             expect(o.reference).toBe("R1")
           }
         }

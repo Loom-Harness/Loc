@@ -30,7 +30,7 @@
 // What this file does NOT own, because the construct has no IR form by the
 // time it could look: an explicit `Repo.save(x)` (`loom.workflow-explicit-save`,
 // phase ④), a factory call whose arguments map onto no record
-// (`loom.workflow-create-args`, phase ④), and a state write in an `eventSourced` workflow
+// (`loom.create-args`, phase ④), and a state write in an `eventSourced` workflow
 // (`loom.workflow-event-sourced-mutation`, phase ④).  The aggregate-side
 // positions (operation, applier) lower to `StmtIR` and keep their statement
 // vocabulary in `body-stmt-vocabulary.ts`.
