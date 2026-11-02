@@ -419,7 +419,7 @@ function emitAgg(agg: AggSpec): string {
       return (
         head +
         `\n      queryHandler List${crit}(v: ${f.fieldType}): ${ret} {` +
-        `\n        let r = ${repo}.run(${crit}(v))\n        return r\n      }`
+        `\n        let r = ${repo}.all(${crit}(v))\n        return r\n      }`
       );
     })
     .join("");

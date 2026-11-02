@@ -11,7 +11,7 @@
 //   for f in Follows.all(FollowersOf(e.author)) { let n = Note.create({ … }) }
 //
 // In a `create` body that is rejected by `loom.workflow-foreach-source` ("must
-// iterate a `let xs = Repo.run(...)` result").  In a reactor body it validated
+// iterate a `let xs = Repo.all(...)` result").  In a reactor body it validated
 // CLEAN and reached codegen, where each backend failed differently:
 //
 //   * elixir  — `dispatch-emit` threw `unsupported reactor statement kind
@@ -76,7 +76,7 @@ const LET_FOR = `      let fs = Follows.all(FollowersOf(e.author), page: { offse
       }`;
 
 describe("workflow reactor / handler bodies are validated (not just the create facade)", () => {
-  it("rejects an inline `for x in Repo.run(...)` inside an `on` REACTOR body", async () => {
+  it("rejects an inline `for x in Repo.all(...)` inside an `on` REACTOR body", async () => {
     const diags = await irDiagnostics(
       model(`    on(e: PostPublished) by e.post {\n${INLINE_FOR}\n    }`),
     );
@@ -91,10 +91,10 @@ describe("workflow reactor / handler bodies are validated (not just the create f
     // The diagnostic must name the loop variable and the remedy, so the author
     // can act on it without reading the compiler.
     expect(hit?.message).toContain("for f in");
-    expect(hit?.message).toContain("Repo.run(...)");
+    expect(hit?.message).toContain("Repo.all(...)");
   });
 
-  it("accepts the supported `let xs = Repo.run(...)` + `for x in xs` spelling in a reactor", async () => {
+  it("accepts the supported `let xs = Repo.all(...)` + `for x in xs` spelling in a reactor", async () => {
     const diags = await irDiagnostics(
       model(`    on(e: PostPublished) by e.post {\n${LET_FOR}\n    }`),
     );

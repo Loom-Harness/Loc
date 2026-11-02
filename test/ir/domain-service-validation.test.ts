@@ -378,7 +378,7 @@ describe("a repository read in MEMBER-RECEIVER position is refused, not mis-emit
     expect(hit, `got: ${d.map((x) => x.code).join(", ") || "(none)"}`).toBeDefined();
     expect(hit!.severity).toBe("error");
     expect(hit!.source).toBe("Sales/Lookup.tierOf");
-    expect(hit!.message).toContain("Customers.getById");
+    expect(hit!.message).toContain("'Customers.get(…)' is used as a MEMBER RECEIVER");
     // The message must name the WORKING spelling, not just the rule.
     expect(hit!.message).toContain("let x = Customers.get(…)");
   });

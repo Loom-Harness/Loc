@@ -16,7 +16,11 @@ import {
   isSystem,
   type Repository,
 } from "../../../src/language/generated/ast.js";
-import { classifyRepoArg, type QueryNames, queryNamesOf } from "../../../src/language/repo-query-arg.js";
+import {
+  classifyRepoArg,
+  type QueryNames,
+  queryNamesOf,
+} from "../../../src/language/repo-query-arg.js";
 import { parseString } from "../../_helpers/parse.js";
 
 // `repo-read.ts` is the single source of truth for "is this expression a
@@ -156,9 +160,7 @@ describe("classifyRepoArg — a criterion vs a retrieval vs an id", () => {
   it("says a plain criterion IS a criterion", async () => {
     const { names, expr } = await exprOf(`Orders.all(Active)`);
     expect(names.criteria.has("Active")).toBe(true);
-    expect(classifyRepoArg(argOf(expr), names)).toBe(
-      "criterion",
-    );
+    expect(classifyRepoArg(argOf(expr), names)).toBe("criterion");
   });
 
   it("gives RETRIEVAL precedence for a name that is both", async () => {

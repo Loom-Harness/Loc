@@ -56,7 +56,7 @@ describe("System builder — operation/workflow body editing", () => {
     // Workflow body, including a multi-line statement, comes through verbatim.
     const wf = listStatements(parse(sales), placeOrder)!;
     expect(wf).toHaveLength(2);
-    expect(wf[0]).toBe("let customer = Customers.getById(customerId)");
+    expect(wf[0]).toBe("let customer = Customers.get(customerId)");
     expect(wf[1]).toMatch(/^let order = Order\.create\(\n\s+customerId: customerId,/);
   });
 

@@ -1,5 +1,5 @@
 // Parsing + lowering coverage for the workflow `for` loop and the
-// `Repo.run(<Retrieval>(args), page?)` call it consumes (retrieval.md /
+// `Repo.all(<Retrieval>(args), page?)` call it consumes (retrieval.md /
 // PR3-B).
 
 import { describe, expect, it } from "vitest";
@@ -42,7 +42,7 @@ describe("workflow for-loop — parsing + lowering", () => {
     expect(errors).toEqual([]);
   });
 
-  it("lowers `Repo.run(...)` to a repo-run statement carrying the retrieval + page", async () => {
+  it("lowers `Repo.all(...)` to a repo-run statement carrying the retrieval + page", async () => {
     const w = await wf();
     const run = w.statements.find((s) => s.kind === "repo-run");
     expect(run).toBeDefined();
@@ -99,10 +99,10 @@ describe("workflow for-loop — validation negatives", () => {
       }
     `);
     const diags = validateLoomModel(loom).filter((d) => d.source.includes("bad"));
-    expect(diags.some((d) => /must iterate a 'let .* = Repo\.run/.test(d.message))).toBe(true);
+    expect(diags.some((d) => /must iterate a 'let .* = Repo\.all/.test(d.message))).toBe(true);
   });
 
-  it("rejects `Repo.run` of a retrieval whose target ≠ the repository aggregate", async () => {
+  it("rejects `Repo.all` of a retrieval whose target ≠ the repository aggregate", async () => {
     const loom = await buildLoomModel(`
       context Sales {
         aggregate Customer { active: bool }

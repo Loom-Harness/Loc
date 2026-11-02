@@ -98,9 +98,15 @@ describe("Repo.findAll(<Criterion>) — validation", () => {
   });
 
   it("rejects an unknown criterion, a non-aggregate candidate, and arity mismatch", async () => {
-    expect(await codes(`let xs = Orders.all(Nope)`)).toContain(
-      "error:loom.findall-unknown-criterion",
-    );
+    // `all(x)` reads `x` as a criterion only when the context declares one by
+    // that name (`language/repo-query-arg.ts`); any other reference names a
+    // retrieval, so an undeclared name is refused as an unknown retrieval.
+    const { model } = await parseString(SYS(`let xs = Orders.all(Nope)`), { validate: false });
+    expect(
+      validateLoomModel(enrichLoomModel(lowerModel(model)))
+        .filter((d) => d.severity === "error")
+        .map((d) => d.code),
+    ).toContain("loom.workflow-run-unknown-retrieval");
     expect(await codes(`let xs = Orders.all(AmbientOk)`)).toContain(
       "error:loom.findall-criterion-mismatch",
     );

@@ -31,7 +31,7 @@ describe("loom.repo-unknown-read", () => {
     const model = await buildLoomModel(src("Orders.findByID(c)"));
     const hit = validateLoomModel(model).find((d) => d.code === "loom.repo-unknown-read");
     expect(hit?.message).toContain("repository 'Orders' has no method 'findByID'");
-    expect(hit?.message).toContain("Did you mean 'findById'?");
+    expect(hit?.message).toContain("Did you mean 'findBy'?");
   });
 
   it("accepts every contract read in the same position", async () => {

@@ -137,7 +137,7 @@ describe("the repository verb → effect table", () => {
     expect(repoVerbEffect("toString")).toBeUndefined();
     expect(isRepoWriteName("byCode")).toBe(false);
     expect(isRepoWriteName("save")).toBe(true);
-    expect(isRepoWriteName("delete")).toBe(true);
+    expect(isRepoWriteName("remove")).toBe(true);
   });
 });
 

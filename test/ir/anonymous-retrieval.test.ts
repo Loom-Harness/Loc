@@ -108,12 +108,18 @@ describe("anonymous retrieval — run(retrieval { where, sort, loads })", () => 
     ]);
   });
 
-  it("rejects a non-criterion where: at the language layer", async () => {
+  it("rejects an inline predicate argument at the language layer", async () => {
     const errs = await langErrors(
       `let xs = Orders.all(status != Cancelled)
         for o in xs { }`,
     );
-    expect(errs.some((m) => /'where:' must be a criterion reference/.test(m))).toBe(true);
+    expect(
+      errs.some((m) =>
+        /'Orders\.all\(…\)' takes a criterion or a retrieval reference.*not an inline predicate/.test(
+          m,
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("reuses the criterion checks: unknown sort field, non-aggregate candidate", async () => {

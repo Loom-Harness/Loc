@@ -151,7 +151,7 @@ describe("IR unknown-name diagnostics suggest the nearest real name", () => {
     const m = await messageOf("loom.workflow-unknown-repository-method", {
       ctx: `workflow W { create(orderId: Order id) { let o = Orders.getByld(orderId) } }`,
     });
-    expect(m).toContain("has no method 'getByld'. Did you mean 'getById'?");
+    expect(m).toContain("has no method 'getByld'. Did you mean 'getBy'?");
   });
 
   it("loom.workflow-unknown-operation", async () => {
