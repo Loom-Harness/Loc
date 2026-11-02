@@ -20,7 +20,7 @@
         "balance": 101,
         "id": "<volatile:key>",
         "owner": "ann",
-        "version": 1
+        "version": 2
       }
     },
     {
@@ -33,7 +33,7 @@
         "id": "<volatile:key>",
         "owner": "ann",
         "type": "Account",
-        "version": 2
+        "version": 3
       }
     },
     {

@@ -466,8 +466,14 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  four other backends render it, and Phoenix — whose op calls persist inside
  *  the context function and match `{:ok, _}` away at every with-chain site —
  *  refuses it instead of dropping the binding.  Drains when the Phoenix
- *  with-chain sites bind the call's tuple. */
-const MAX_OPEN_GAPS = 17;
+ *  with-chain sites bind the call's tuple.
+ *
+ *  17 -> 18: `loom.elixir-entry-result-unsupported`.  A routed workflow
+ *  `create` / handler answering `T or E` (and a create answering its own
+ *  workflow) ships on the other four backends, each running the command in
+ *  one transaction rolled back whole on an error answer; the Phoenix routes
+ *  have neither a tagged result nor a rollback seam for it, and refuse it. */
+const MAX_OPEN_GAPS = 18;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

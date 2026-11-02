@@ -218,10 +218,10 @@ workflow openAccount {
 
 | Rule | Diagnostic |
 |---|---|
-| The result type is an `X id`, `string`, `int`, `long` or `bool` (an aggregate / payload / value object / decimal / money / datetime needs a wire projection the workflow route doesn't have yet — use a `commandHandler`, or return the id and read it back) | `loom.workflow-return-type-unsupported` |
+| The result type is an `X id`, `string`, `int`, `long` or `bool`, the workflow itself (`return this`, its instance state — a correlated workflow only, `loom.workflow-return-this-uncorrelated`), or an expected failure `T or E` (below).  A value object / decimal / money / datetime result needs a wire projection the route doesn't have yet — return it inside a payload | `loom.workflow-return-type-unsupported` |
 | The returned value is assignable to the declared type | `loom.workflow-return-type-mismatch` |
 | A `: T` needs a terminal `return`, and a `return` needs a `: T` | `loom.workflow-return-missing` / `loom.workflow-return-untyped` |
-| `return` is the last top-level statement (not nested in `if` / `for`, not mid-body) | `loom.workflow-return-not-last` |
+| `return` is the last top-level statement (not nested in `if` / `for`, not mid-body) — or, for a `T or E` result, the last statement of every arm of a terminal `match` | `loom.workflow-return-not-last` |
 | Only the create the `POST` route serves may declare one — not an event-triggered `create(e: E) by …`, not a named create beside the unnamed one | `loom.workflow-return-no-caller` |
 | An `eventSourced` workflow's create may only `emit`, so it declares no result | `loom.workflow-return-event-sourced` |
 
@@ -299,6 +299,149 @@ def respond_result(conn, other), do: respond(conn, other)
 ::: end
 
 Elixir's operations return the updated struct rather than mutating in place, so on this path an operation whose receiver the result reads rebinds it (`{:ok, source} <- Context.withdraw_account(source, …)`) — `return source.balance` answers the post-operation value, as on the other four backends. The generated workflow form pages on all six frontends accept a 2xx with or without a body, so a result changes nothing on the UI side.
+
+### Expected failures
+
+A routed command entry point — the workflow `create` the `POST` serves, a `commandHandler`, a `queryHandler` — may declare a result that is an **expected failure**: a union with at least one `error` variant, `T or E`.  Its success variants may be an `X id`, a scalar, a payload record, an aggregate (answered as its `<Agg>Response`) or — on a create — the workflow itself (`return this`, the instance state `GET /workflows/<name>/instances/{id}` serves).  The body answers either from a tail `return` of one variant, or from the arms of its **terminal `match`**: every arm (and the `else`) ends in `return <expr>` or `notFound`.
+
+```ddd
+error PaymentDeclined { available: int }
+payload Receipt { left: int }
+
+workflow Pay {
+  create(account: Account id, amt: int): Receipt or PaymentDeclined {
+    emit Attempted { account: account, amt: amt }
+    let a = Accounts.get(account)
+    let r = a.withdraw(amt)                       // int or Insufficient
+    match r {
+      int left => { return Receipt { left: left } }
+      Insufficient e => {
+        let n = Note.create(text: "declined")
+        return PaymentDeclined { available: amt - e.needed }
+      }
+    }
+  }
+}
+api BankApi from Banking { httpStatus PaymentDeclined -> 409 }
+```
+
+The answer is the operation's `or E` translation: a success variant answers **200** with its tagged body (`{"type": "Receipt", "left": 70}`), an error variant answers its `httpStatus` (else the stdlib default) as `application/problem+json` with its fields beside the RFC 7807 members.  The OpenAPI document splits the union exactly as an operation's: 200 → `ReceiptOrPaymentDeclinedSuccess`, 409 → ProblemDetails or `PaymentDeclinedProblem`.
+
+**An error answer rolls the whole command back** (D-FAILURE-MODEL).  The entry point runs in ONE transaction whether or not it is `transactional` (no `loom.transactional-with-continuations` follows from it): the aggregates it saved, the saga row, outbox / audit / provenance rows and the error arm's own writes (the `Note` above) are discarded, and no event is dispatched — neither the workflow's `emit`s nor the aggregates' events.  A success commits, then dispatches.
+
+The body answers once, after the `match`: lowering keeps each arm's statements in the statement `match` and answers a value `match` over the same subject, so an arm's `return` may read the arm's binding and the lets declared before the `match`, not a `let` declared inside the arm (`loom.workflow-return-not-last#arm-local-let`; `loom.handler-return-not-last#arm-local-let` on a handler).  A union with no `error` variant stays a transport shape out of place (`loom.union-position`), and an `on(…)` reactor, an event-triggered or named create, and an `eventSourced` workflow keep refusing a result.  Elixir refuses an expected-failure entry point (`loom.elixir-entry-result-unsupported`, tracked by #3916).
+
+::: tabs backend
+== node
+```ts
+// http/workflows.ts — POST /api/workflows/pay
+let workflowResult!: { type: string } & Record<string, unknown>;
+const __rollback = new Error("expected failure");
+const __deferred = deferredDispatcher(events);
+try {
+await db.transaction(async (tx) => {
+  const accounts = new AccountRepository(tx, __deferred);
+  const notes = new NoteRepository(tx, __deferred);
+  workflowEvents.push({ type: "Attempted", account: account, amt: amt });
+  const a = await accounts.getById(account);
+  const r = a.withdraw(amt);
+  switch (r.type) { /* the statement match: the success arm saves `a`, the error arm the Note */ }
+  switch (r.type) {
+    case "int": { const left = r.value; workflowResult = { type: "Receipt", ...(({ left: left })) }; break; }
+    case "Insufficient": { const e = r; workflowResult = { type: "PaymentDeclined", ...(({ available: amt - e.needed })) }; break; }
+  }
+  if (workflowResult.type === "PaymentDeclined") throw __rollback;
+});
+} catch (err) {
+  if (err !== __rollback) throw err;
+}
+if (!(workflowResult.type === "PaymentDeclined")) await __deferred.flush();
+if (workflowResult.type === "PaymentDeclined") {
+  return httpCtx.json({ ...workflowResult, type: "/errors/payment-declined", title: "Payment Declined", status: 409, detail: "Payment Declined", instance: httpCtx.req.path }, 409, { "content-type": "application/problem+json" });
+}
+for (const ev of workflowEvents) await events.dispatch(ev);
+return httpCtx.json(workflowResult as unknown as z.infer<typeof ReceiptOrPaymentDeclinedSuccess>, 200);
+```
+== dotnet
+```csharp
+// Application/Workflows/PayHandler.cs — answers the Application.EntryResults union
+using var __deferral = DomainEventDeferral.Begin();
+await using var tx = await _uow.BeginTransactionAsync(cancellationToken);
+try
+{
+    …
+    switch (r)
+    {
+        case intOrInsufficient_int __leftCarrier: { var left = __leftCarrier.Value; workflowResult = new global::D.Application.EntryResults.ReceiptOrPaymentDeclined_Receipt(left); break; }
+        case intOrInsufficient_Insufficient e: { workflowResult = new global::D.Application.EntryResults.ReceiptOrPaymentDeclined_PaymentDeclined(command.Amt - e.Needed); break; }
+    }
+    if (workflowResult is global::D.Application.EntryResults.ReceiptOrPaymentDeclined_PaymentDeclined) await tx.RollbackAsync(cancellationToken);
+    else await tx.CommitAsync(cancellationToken);
+}
+catch { await tx.RollbackAsync(cancellationToken); throw; }
+if (workflowResult is global::D.Application.EntryResults.ReceiptOrPaymentDeclined_PaymentDeclined) return workflowResult;
+await __deferral.FlushAsync(cancellationToken);
+// Api/LedgerWorkflowsController.cs
+case global::D.Application.EntryResults.ReceiptOrPaymentDeclined_PaymentDeclined __e:
+{
+    var problem = new Microsoft.AspNetCore.Mvc.ProblemDetails { Status = 409, Title = "Payment Declined", Type = "/errors/payment-declined", Detail = "Payment Declined", Instance = HttpContext.Request.Path };
+    problem.Extensions["available"] = __e.Available;
+    return new ObjectResult(problem) { StatusCode = 409, ContentTypes = { "application/problem+json" } };
+}
+default:
+    return new ObjectResult(result) { StatusCode = 200, DeclaredType = typeof(global::D.Application.EntryResults.ReceiptOrPaymentDeclined) };
+```
+== python
+```python
+# app/http/workflows_routes.py — the 4xx answer rolls the request's session back
+workflow_result: dict[str, object] = {}
+if r["type"] == "int":
+    left = cast(int, r["value"])
+    workflow_result = {"type": "Receipt", "left": left}
+elif r["type"] == "Insufficient":
+    e = r
+    workflow_result = {"type": "PaymentDeclined", "available": amt - cast(int, e["needed"])}
+if workflow_result["type"] == "PaymentDeclined":
+    return JSONResponse(
+        {**workflow_result, "type": "/errors/payment-declined", "title": "Payment Declined", "status": 409, "detail": "Payment Declined", "instance": request.url.path},
+        status_code=409,
+        media_type="application/problem+json",
+    )
+dispatcher = make_dispatcher(session)
+for ev in workflow_events:
+    await dispatcher.dispatch(ev)
+return workflow_result
+```
+== java
+```java
+// application/workflows/LedgerWorkflows.java — the class is @Transactional
+ReceiptOrPaymentDeclinedResponse workflowResult = null;
+switch (r) {
+    case intOrInsufficient_int leftCarrier -> { var left = leftCarrier.value(); workflowResult = new ReceiptOrPaymentDeclinedResponse_Receipt(left); }
+    case intOrInsufficient_Insufficient e -> { workflowResult = new ReceiptOrPaymentDeclinedResponse_PaymentDeclined(amt - e.needed()); }
+    default -> { }
+}
+if (workflowResult instanceof ReceiptOrPaymentDeclinedResponse_PaymentDeclined) {
+    TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+    return workflowResult;           // the AFTER_COMMIT reactors never see its events
+}
+// api/LedgerWorkflowsController.java
+if (result instanceof ReceiptOrPaymentDeclinedResponse_PaymentDeclined __e) {
+    var problem = ProblemDetail.forStatus(409);
+    …
+    problem.setProperty("available", __e.available());
+    return ResponseEntity.status(409).contentType(MediaType.APPLICATION_PROBLEM_JSON).body(problem);
+}
+return ResponseEntity.ok(result);
+```
+== elixir
+```text
+loom.elixir-entry-result-unsupported — workflow 'Pay' declares an expected-failure result ('T or E'), and the
+Phoenix/Elixir deployable 'd' hosts its context. …
+```
+::: end
+
+A `commandHandler` / `queryHandler` answers the same way (`commandHandler Charge(account: Account id, amt: int): Account or PaymentDeclined { … match r { int left => { return a } Insufficient e => { return PaymentDeclined { … } } } }` answers `{"type": "Account", "id": …, "owner": …, "balance": …, "version": …}` at 200), and a correlated create may answer its own instance state: `create(account: Account id, amt: int): Hold or PaymentDeclined { holdOf := account … int left => { return this } … }` answers `{"type": "Hold", "holdOf": …, "amount": …}`.  The corpus case `workflow-expected-failure` drives all of it over the wire.
 
 ## Body vocabulary
 

@@ -5911,8 +5911,8 @@ call statement dropped it, and a workflow answered 204.
 - **A read does not encode absence as an error.** `T or NotFound` finds go; a
   read that may miss is `T?` (`find…`), one that must hit is `T` (`get…`, the
   standard 404). (#3951)
-- **Workflows return `or E` too**, once a workflow body can `match` a result
-  (#3367). (#3916)
+- **Workflows return `or E` too**: a routed command entry point answers an
+  expected failure, rolled back whole on the error (see Consequences). (#3916)
 - **The wire is the boundary.** In process an `E` is a value; a route renders
   it as problem+json at its `httpStatus` (D-WIRE-POLICY,
   `errorVariantResponse`), never as a 200 union.
@@ -5972,6 +5972,43 @@ switch (r.type) {
   }
 }
 ```
+
+A routed command entry point — the workflow `create` its `POST` serves, a
+`commandHandler`, a `queryHandler` — may itself answer `or E`, from a tail
+`return` or from the `return` ending each arm of its terminal `match`
+(13-workflows.md, "Expected failures").  "An error leaves no trace" then
+covers the WHOLE command, not one call: the entry point runs in one
+transaction whether or not it is `transactional`, and an error answer rolls
+back everything it did — the saves before the `match`, the saga row,
+outbox / audit / provenance rows, the error arm's own writes — and dispatches
+no event; the route translates the error exactly as an operation route does.
+
+```ddd
+workflow Pay {
+  create(account: Account id, amt: int): Receipt or PaymentDeclined {
+    let a = Accounts.get(account)
+    let r = a.withdraw(amt)
+    match r {
+      int left => { return Receipt { left: left } }
+      Insufficient e => { let n = Note.create(text: "declined")  return PaymentDeclined { available: amt - e.needed } }
+    }
+  }
+}
+```
+
+```ts
+// node — the rollback marker leaves the transaction; nothing is flushed or dispatched
+  if (workflowResult.type === "PaymentDeclined") throw __rollback;
+});
+} catch (err) { if (err !== __rollback) throw err; }
+if (!(workflowResult.type === "PaymentDeclined")) await __deferred.flush();
+if (workflowResult.type === "PaymentDeclined") return httpCtx.json({ ...workflowResult, … status: 409 … }, 409, …);
+```
+
+(.NET rolls back the `IUnitOfWork` transaction and leaves the event deferral
+unflushed; Java marks the `@Transactional` rollback-only, so no AFTER_COMMIT
+listener sees its events; Python's 4xx answer rolls back the request
+session.  Elixir refuses it, `loom.elixir-entry-result-unsupported`.)
 
 ## D-ABSENCE-MODEL — "may be missing" has one type, `T?`; presence is the generated update's rule, not a type
 

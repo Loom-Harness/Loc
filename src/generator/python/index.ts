@@ -13,8 +13,10 @@ import type {
   EnrichedBoundedContextIR,
   EnrichedSystemIR,
   EventIR,
+  RouteIR,
   SystemIR,
   TimerSourceIR,
+  TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { isMaterializedProjection, isQueryTimeProjection } from "../../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../../ir/types/migrations-ir.js";
@@ -27,6 +29,7 @@ import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { deriveContextOperations, staticSubpathRoutes } from "../../ir/util/api-surface.js";
 import { durableEventTypes, realtimeEventTypes } from "../../ir/util/channels.js";
 import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../ir/util/denial-detail.js";
+import { entryResult } from "../../ir/util/entry-result.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
   foreignValueTypeSeeds,
@@ -51,6 +54,10 @@ import {
 } from "../../ir/util/resolve-datasource.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
+import {
+  commandCreateEntryResult,
+  commandCreateResult,
+} from "../../ir/util/workflow-command-route.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
@@ -62,6 +69,7 @@ import {
   TEST_RESET_TOKEN_ENV,
 } from "../../util/test-reset.js";
 import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
+import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { devClaimFields } from "../_auth/dev-claims.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { DEBIAN_CERTS_BLOCK, NODE_CERTS_BLOCK, NPM_INSTALL_BLOCK } from "../_docker/node-stage.js";
@@ -734,7 +742,12 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   out.set(
     "app/http/problem.py",
     renderProblemPy(
-      collectOpUnions([merged]),
+      collectOpUnions(
+        [merged],
+        args.deployable.serves.flatMap(
+          (n) => args.sys.apis.find((a) => a.name === n)?.routes ?? [],
+        ),
+      ),
       aggregatesHaveUniqueKeys(merged.aggregates),
       hasConcurrency,
       // The dangling-reference arm's own gate — a project with no cross-aggregate
@@ -1805,6 +1818,8 @@ def money_str(amount: Decimal) -> str:
  *  JSON schema (built by `collectOpUnions`). */
 interface PyOpUnion {
   path: string;
+  /** The route's method when it is not `post` (a routed `GET` handler). */
+  method?: string;
   name: string;
   schema: unknown;
   /** The error arms' problem responses, keyed by status (M-FT.24); empty when
@@ -1819,7 +1834,10 @@ interface PyOpUnion {
  *  already returns the tagged dict; the spec side injects the component +
  *  200 in `install_openapi` (a pydantic Union response_model would
  *  register per-variant components no other backend publishes). */
-function collectOpUnions(contexts: readonly EnrichedBoundedContextIR[]): PyOpUnion[] {
+function collectOpUnions(
+  contexts: readonly EnrichedBoundedContextIR[],
+  entryRoutes: readonly RouteIR[] = [],
+): PyOpUnion[] {
   const seen = new Set<string>();
   const out: PyOpUnion[] = [];
   for (const ctx of contexts) {
@@ -1862,6 +1880,54 @@ function collectOpUnions(contexts: readonly EnrichedBoundedContextIR[]): PyOpUni
           ),
         });
       }
+    }
+    // The routed command entry points whose result is an expected failure
+    // (`T or E`) split their union exactly as an operation does.
+    const entries: { path: string; method: string; type: TypeIR }[] = [];
+    for (const wf of ctx.workflows) {
+      const r = commandCreateResult(wf);
+      if (r?.type.kind === "union" && commandCreateEntryResult(wf, ctx)) {
+        entries.push({
+          path: `${API_BASE_PATH}/workflows/${snake(wf.name)}`,
+          method: "post",
+          type: r.type,
+        });
+      }
+    }
+    for (const r of entryRoutes) {
+      if (r.target.context !== ctx.name) continue;
+      const h =
+        (ctx.commandHandlers ?? []).find((x) => x.name === r.target.handler) ??
+        (ctx.queryHandlers ?? []).find((x) => x.name === r.target.handler);
+      if (!h || h.extern || h.returnType?.kind !== "union" || !entryResult(h, ctx)) continue;
+      entries.push({
+        path: explicitRoutePath(r),
+        method: r.method.toLowerCase(),
+        type: h.returnType,
+      });
+    }
+    for (const e of entries) {
+      if (e.type.kind !== "union") continue;
+      const split = opUnionResponses(e.type.variants, ctx);
+      const ref = (n: string): string => `#/components/schemas/${n}`;
+      out.push({
+        path: e.path,
+        ...(e.method !== "post" ? { method: e.method } : {}),
+        name: split.successName,
+        schema: unionMembersJsonSchema(split.success),
+        errors: Object.fromEntries(
+          split.errorStatuses.map((es) => [
+            String(es.status),
+            errorStatusJsonSchema(es.arms, "ProblemDetails", ref),
+          ]),
+        ),
+        problems: Object.fromEntries(
+          split.errors.map((a) => [
+            a.problemName,
+            errorArmProblemJsonSchema(a, ref("ProblemDetails")),
+          ]),
+        ),
+      });
     }
   }
   return out;
@@ -1928,6 +1994,12 @@ function renderProblemPy(
   // JSON literals are valid Python for the value kinds used here (strings,
   // arrays, objects — no booleans/nulls cross).
   const responsesDict = JSON.stringify(Object.fromEntries(opUnions.map((u) => [u.path, u.name])));
+  // A routed `GET` handler's union: its path-op is not under `post`.
+  const methods = opUnions.filter((u) => u.method !== undefined);
+  const methodsDecl = methods.length
+    ? `\n_OP_UNION_METHODS: dict[str, str] = ${JSON.stringify(Object.fromEntries(methods.map((u) => [u.path, u.method])))}`
+    : "";
+  const methodOf = methods.length ? `_OP_UNION_METHODS.get(path, "post")` : `"post"`;
   const componentsDict = JSON.stringify(
     Object.fromEntries(
       opUnions.flatMap((u) => [[u.name, u.schema] as const, ...Object.entries(u.problems)]),
@@ -1946,7 +2018,7 @@ function renderProblemPy(
         # An error arm answers a problem at its own status, so that status
         # declares ProblemDetails or the arm's problem body (M-FT.24).
         for path, by_status in _OP_UNION_ERRORS.items():
-            post_op = cast(dict[str, Any], schema.get("paths", {})).get(path, {}).get("post")
+            post_op = cast(dict[str, Any], schema.get("paths", {})).get(path, {}).get(${methodOf})
             if not isinstance(post_op, dict):
                 continue
             responses = cast(dict[str, Any], post_op.setdefault("responses", {}))
@@ -2112,7 +2184,7 @@ class ProblemDetails(BaseModel):
 # Exception-less op-return unions (path → tagged-union component name, and
 # the raw oneOf components) — injected into the spec by install_openapi.
 _OP_UNION_RESPONSES: dict[str, str] = ${responsesDict}
-_OP_UNION_COMPONENTS: dict[str, Any] = ${componentsDict}${errorsDecl}
+_OP_UNION_COMPONENTS: dict[str, Any] = ${componentsDict}${errorsDecl}${methodsDecl}
 
 
 def install_openapi(app: FastAPI) -> None:
@@ -2153,7 +2225,7 @@ def install_openapi(app: FastAPI) -> None:
         # 200 + the named oneOf component are wired here for parity with
         # Hono's discriminatedUnion / .NET's Application union DTO.
         for path, union_name in _OP_UNION_RESPONSES.items():
-            post_op = cast(dict[str, Any], schema.get("paths", {})).get(path, {}).get("post")
+            post_op = cast(dict[str, Any], schema.get("paths", {})).get(path, {}).get(${methodOf})
             if isinstance(post_op, dict):
                 cast(dict[str, Any], post_op.setdefault("responses", {}))["200"] = {
                     "description": "OK",

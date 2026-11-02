@@ -427,6 +427,12 @@ export function emitOperationCommandAndHandler(
       op.returnType && op.returnType.kind !== "union"
         ? wireType(op.returnType, ctx, "response")
         : undefined;
+    // An entity return (`return this`) answers its `<Agg>Response`, which
+    // lives in the aggregate's `Responses` namespace.
+    const responseUsing =
+      op.returnType?.kind === "entity" && !op.audited
+        ? `${ns}.Application.${plural(agg.name)}.Responses`
+        : undefined;
     out.set(
       `Application/${aggFolder}/Commands/${upperFirst(op.name)}Command.cs`,
       renderCommand({
@@ -435,7 +441,11 @@ export function emitOperationCommandAndHandler(
         commandName: `${upperFirst(op.name)}Command`,
         commandParams: params,
         returnType: returnUnion ?? scalarWireType,
-        extraUsings: returnUnion ? [`${ns}.Domain.${plural(agg.name)}`] : undefined,
+        extraUsings: returnUnion
+          ? [`${ns}.Domain.${plural(agg.name)}`]
+          : responseUsing
+            ? [responseUsing]
+            : undefined,
       }),
     );
     // Per-op FluentValidation rules from wire-translatable
@@ -637,7 +647,11 @@ export function emitOperationCommandAndHandler(
         commandName: `${upperFirst(op.name)}Command`,
         returnType: handlerReturnType,
         extraDeps: [...userExtraDeps, ...auditDeps],
-        extraUsings: [...userExtraUsings, ...auditUsings],
+        extraUsings: [
+          ...userExtraUsings,
+          ...auditUsings,
+          ...(responseUsing ? [responseUsing] : []),
+        ],
         body: handlerBody,
       }),
     );

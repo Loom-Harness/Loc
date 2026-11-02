@@ -1150,7 +1150,7 @@ function versionedSave(
  *  money → its canonical decimal string (`money_str`), datetime → ISO-8601
  *  (`iso`), every other scalar rides as-is.  Optionals guard `None` so a
  *  `T?` return doesn't feed `None` into the string helper. */
-function pyScalarReturnToWire(expr: string, t: TypeIR): string {
+export function pyScalarReturnToWire(expr: string, t: TypeIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
   if (
     inner.kind === "primitive" &&
@@ -1176,9 +1176,11 @@ function hostArmReturn(agg: EnrichedAggregateIR, op: OperationIR): string[] {
     rt?.kind === "union" && rt.variants.some((v) => v.kind === "entity" && v.name === agg.name);
   if (!host) return ["    return result"];
   const tag = JSON.stringify(agg.name);
+  // Read back after the save: the saved row carries the version the save
+  // advanced to.
   return [
     `    if result["type"] == ${tag}:`,
-    `        return {"type": ${tag}, **repo.to_wire(found)}`,
+    `        return {"type": ${tag}, **repo.to_wire(await repo.get_by_id(found.id))}`,
     "    return result",
   ];
 }
@@ -1286,14 +1288,16 @@ function operationRoute(
       ...requiresGate(op, ctx),
       ...whenGate(agg, op),
       op.audited ? "    __before = repo.to_wire(found)" : null,
-      `    result = found.${pythonIdent(op.name)}(${callArgs.join(", ")})`,
+      hostReturn
+        ? `    found.${pythonIdent(op.name)}(${callArgs.join(", ")})`
+        : `    result = found.${pythonIdent(op.name)}(${callArgs.join(", ")})`,
       hasStamp(agg, "update") ? stampCall(agg, "update", "found") : null,
       ...vsave.ifMatch,
       vsave.save,
       op.audited ? "    __after = repo.to_wire(found)" : null,
       ...(op.audited ? auditRecordCall(agg, op) : []),
       hostReturn
-        ? "    return repo.to_wire(found)"
+        ? "    return repo.to_wire(await repo.get_by_id(found.id))"
         : `    return ${pyScalarReturnToWire("result", op.returnType)}`,
     );
   }

@@ -2245,7 +2245,10 @@ NamedType:
 // `create(c: SettleOrder)` — so they cannot leak into aggregate field /
 // operation-param / UI positions, where a bare event name stays unresolved.
 // IdType (`X id`) filters them back out — `PaymentReceived id` is meaningless.
-type NamedDecl = Aggregate | EntityPart | EnumDecl | ValueObject | EventDecl | PayloadDecl;
+// A Workflow joins for one position only: a workflow `create`'s result type
+// may name its own workflow (`create(…): Fulfillment { …; return this }`),
+// and the scope provider offers it nowhere else.
+type NamedDecl = Aggregate | EntityPart | EnumDecl | ValueObject | EventDecl | PayloadDecl | Workflow;
 
 // ---------------------------------------------------------------------------
 // Statements

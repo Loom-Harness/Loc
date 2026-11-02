@@ -2373,7 +2373,7 @@ export function isModelMember(item: unknown): item is ModelMember {
     return reflection.isInstance(item, ModelMember.$type);
 }
 
-export type NamedDecl = Aggregate | EntityPart | EnumDecl | EventDecl | PayloadDecl | ValueObject;
+export type NamedDecl = Aggregate | EntityPart | EnumDecl | EventDecl | PayloadDecl | ValueObject | Workflow;
 
 export const NamedDecl = {
     $type: 'NamedDecl'
@@ -8026,7 +8026,7 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     optional: true
                 }
             },
-            superTypes: [ContextMember.$type, ProjectionSource.$type, Targetable.$type]
+            superTypes: [ContextMember.$type, NamedDecl.$type, ProjectionSource.$type, Targetable.$type]
         },
         WorkflowCreateDecl: {
             name: WorkflowCreateDecl.$type,

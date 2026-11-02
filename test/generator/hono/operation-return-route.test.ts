@@ -68,6 +68,9 @@ describe("hono routes — exception-less operation returns (spike)", () => {
 
   it("returns the success variant as HTTP 200", async () => {
     const r = await routes();
-    expect(r).toContain("return c.json(result, 200);");
+    // The aggregate's own arm answers its projection read after the save.
+    expect(r).toContain(
+      'return c.json((result.type === "Order" ? { type: "Order" as const, ...(repo.toWire(await repo.getById(aggregate.id)) as Record<string, unknown>) } : result) as unknown as z.infer<typeof OrderOrNotFoundSuccess>, 200);',
+    );
   });
 });

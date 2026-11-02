@@ -2032,10 +2032,13 @@ function hostReturnProjection(
 ): string {
   const rt = op.returnType;
   const isHost = (t: TypeIR) => t.kind === "entity" && t.name === agg.name;
-  if (rt && isHost(rt)) return `${repo}.toWire(${aggregate})`;
+  // Read back after the save: the saved row carries the version the save
+  // advanced to, which the in-memory aggregate does not.
+  const saved = `${repo}.toWire(await ${repo}.getById(${aggregate}.id))`;
+  if (rt && isHost(rt)) return saved;
   if (rt?.kind === "union" && rt.variants.some(isHost)) {
     const tag = JSON.stringify(agg.name);
-    return `(${result}.type === ${tag} ? { type: ${tag} as const, ...(${repo}.toWire(${aggregate}) as Record<string, unknown>) } : ${result})`;
+    return `(${result}.type === ${tag} ? { type: ${tag} as const, ...(${saved} as Record<string, unknown>) } : ${result})`;
   }
   return result;
 }
@@ -2342,7 +2345,14 @@ function emitReturningOperationRoute(
     : audit || prov
       ? "result"
       : hostReturnProjection(agg, op, "result", "repo", "aggregate");
-  out.push(`    return c.json(${successResult}, 200);`);
+  // The projected aggregate is typed `unknown` by `toWire`; it IS the declared
+  // 200 body.
+  const answersHost = hostReturnProjection(agg, op, "result", "repo", "aggregate") !== "result";
+  out.push(
+    answersHost
+      ? `    return c.json(${successResult} as unknown as z.infer<typeof ${successSchema}>, 200);`
+      : `    return c.json(${successResult}, 200);`,
+  );
   out.push(`  },`);
   out.push(`);`);
   return out;
@@ -2927,7 +2937,7 @@ function isResponsePayloadName(ctx: BoundedContextIR, name: string): boolean {
   return ctx.payloads.some((p) => p.kind === "response" && p.name === name);
 }
 
-function zodForResponseInner(t: TypeIR): string {
+export function zodForResponseInner(t: TypeIR): string {
   const info = wireTypeInfo(t, "response");
   if (info.isNullable) return `${zodForResponseInner(peelNullable(t))}.nullish()`;
   if (info.isCollection) return `z.array(${zodForResponseInner(peelCollection(t))})`;
