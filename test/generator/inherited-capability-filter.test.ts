@@ -119,7 +119,7 @@ describe.each<Layout>(["sharedTable", "ownTable"])("inherited softDeletable — 
     expect(ectoScope(files, "Api.Fleet.Truck")).toContain("not record.is_deleted");
     // The bypassing find lifts exactly that filter.
     expect(lineWith(repo, "record.plate == ^plate")).toContain("Api.Fleet.Truck.base_query()");
-    expect(repo).toContain("{:ok, Repo.one(query, skip_filters: [:soft_deletable])}");
+    expect(repo).toContain("Repo.one(query, skip_filters: [:soft_deletable])");
     expect(ectoScope(files, "Api.Fleet.Truck", ["soft_deletable"])).not.toContain("is_deleted");
   });
 

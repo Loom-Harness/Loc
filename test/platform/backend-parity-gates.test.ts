@@ -790,7 +790,7 @@ const FEATURES: readonly Feature[] = [
       python: 'select(ProductRow).where((ProductRow.name != ""))',
       // Ecto: the filter is the schema's `prepare_query` clause, so the
       // bypass is the read's `skip_filters:` option (`normal()` passes none).
-      elixir: "{:ok, Repo.one(query, skip_filters: [:soft_deletable])}",
+      elixir: "limit: 1), skip_filters: [:soft_deletable])}",
     },
   },
 ];

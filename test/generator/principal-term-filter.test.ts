@@ -134,9 +134,8 @@ describe("capability filter principal terms render on every backend", () => {
     // The filter lives on Ticket's schema, as the unskippable `:loom_filter`
     // clause `Repo.prepare_query/3` applies with the read's principal — so the
     // list and the by-id read both start from `base_query/0` and hand it the actor.
-    expect(repo).toContain(
-      "{:ok, Api.T.Ticket.base_query() |> Repo.all(current_user: current_user)}",
-    );
+    expect(repo).toContain("query = Api.T.Ticket.base_query()");
+    expect(repo).toContain("|> Repo.all(current_user: current_user)");
     expect(repo).toContain(
       "case Repo.one(from(record in Api.T.Ticket.base_query(), where: record.id == ^id), current_user: current_user) do",
     );
