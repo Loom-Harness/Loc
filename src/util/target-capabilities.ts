@@ -47,7 +47,10 @@ export type TargetRefusalSlug =
   | "datagrid"
   | "chart"
   | "entity-history-read"
-  | "match-await-standard-op";
+  | "match-await-standard-op"
+  | "lifecycle-guard-event-sourced"
+  | "resource-kind-unrealized"
+  | "storage-type-unrealized";
 
 /** A target's verdict on one construct × position. */
 export type CapabilityVerdict =
@@ -102,7 +105,19 @@ export type UiConstruct = RefusableUiConstruct | OwnedUiConstruct;
 /** Backend constructs, each at its position. */
 export type BackendConstruct =
   /** A `requires` gate inside an event-sourced aggregate's `create` body. */
-  "stmt:requires@event-sourced-create";
+  | "stmt:requires@event-sourced-create"
+  /** `resource r { kind: replica, … }` — a read-replica binding. */
+  | "resource:replica@resource"
+  /** `resource r { kind: eventLog, use: <kafka storage> }` — an event stream
+   *  held in Kafka rather than the relational event table. */
+  | "resource:eventLog-on-kafka@resource"
+  /** A `state` / `snapshot` / `eventLog` resource bound to a `type: mysql`
+   *  storage. */
+  | "storage:mysql@resource"
+  /** The same, bound to a `type: sqlite` storage. */
+  | "storage:sqlite@resource"
+  /** The same, bound to a `type: inMemory` storage. */
+  | "storage:inMemory@resource";
 
 /** Every refusable UI construct, in a stable order (the table test iterates it). */
 export const UI_CONSTRUCTS: readonly RefusableUiConstruct[] = [
@@ -130,6 +145,11 @@ export const ALL_UI_CONSTRUCTS: readonly UiConstruct[] = [...UI_CONSTRUCTS, ...O
 /** Every backend construct, in a stable order. */
 export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "stmt:requires@event-sourced-create",
+  "resource:replica@resource",
+  "resource:eventLog-on-kafka@resource",
+  "storage:mysql@resource",
+  "storage:sqlite@resource",
+  "storage:inMemory@resource",
 ];
 
 /** The refusal a UI construct gets on a framework NO target renders (an
@@ -230,15 +250,40 @@ const JS_FRONTEND_UI: Readonly<Record<UiConstruct, CapabilityVerdict>> = {
 /** An event-sourced create renders into the domain `_init`, which has no
  *  principal in scope on these four — `currentUser` there does not deny, it
  *  does not compile.  Phoenix hoists the gate to the context function, which
- *  binds one.  Refused by the older `loom.lifecycle-guard-event-sourced`. */
-const ES_CREATE_REQUIRES_OWNED: CapabilityVerdict = {
-  verdict: "owned",
-  code: "loom.lifecycle-guard-event-sourced",
+ *  binds one. */
+const ES_CREATE_REQUIRES_REFUSED: CapabilityVerdict = {
+  verdict: "refused",
+  slug: "lifecycle-guard-event-sourced",
+};
+
+/** The persistence cells no backend realizes.  A relational `state` /
+ *  `snapshot` / `eventLog` resource is emitted as Postgres (the migrations, the
+ *  ORM mapping and the compose `db` service are all Postgres), so a model that
+ *  names another database would silently run on Postgres; `replica` and a
+ *  Kafka-held event log have no emitter at all.  Every backend shares the
+ *  verdicts, so the part of the table that moves when one gains support is
+ *  this one object. */
+const UNREALIZED_RESOURCES: Pick<
+  Record<BackendConstruct, CapabilityVerdict>,
+  | "resource:replica@resource"
+  | "resource:eventLog-on-kafka@resource"
+  | "storage:mysql@resource"
+  | "storage:sqlite@resource"
+  | "storage:inMemory@resource"
+> = {
+  "resource:replica@resource": refused("resource-kind-unrealized"),
+  "resource:eventLog-on-kafka@resource": refused("resource-kind-unrealized"),
+  "storage:mysql@resource": refused("storage-type-unrealized"),
+  "storage:sqlite@resource": refused("storage-type-unrealized"),
+  "storage:inMemory@resource": refused("storage-type-unrealized"),
 };
 
 /** The table for a static-bundle backend: it renders no ui framework. */
 const STATIC_HOST_BACKEND: TargetCapabilityTable = {
-  backend: { "stmt:requires@event-sourced-create": ES_CREATE_REQUIRES_OWNED },
+  backend: {
+    "stmt:requires@event-sourced-create": ES_CREATE_REQUIRES_REFUSED,
+    ...UNREALIZED_RESOURCES,
+  },
 };
 
 const REACT_CAPABILITIES: TargetCapabilityTable = {
@@ -294,7 +339,7 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
         "Chart",
       ],
     },
-    backend: { "stmt:requires@event-sourced-create": SUPPORTED },
+    backend: { "stmt:requires@event-sourced-create": SUPPORTED, ...UNREALIZED_RESOURCES },
   },
   react: REACT_CAPABILITIES,
   static: REACT_CAPABILITIES,
