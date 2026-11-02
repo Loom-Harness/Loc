@@ -46,7 +46,7 @@ describe("python single-row read gate (policy read)", () => {
     );
     expect(handler).toContain('    if not (current_user.role == "agent"):');
     expect(handler).toContain(
-      '        raise ForbiddenError("Forbidden: currentUser.role == \\"agent\\"")',
+      '        raise ForbiddenError("Forbidden: read Ticket requires currentUser.role == \\"agent\\"")',
     );
     const gateIdx = handler.indexOf("raise ForbiddenError");
     const queryIdx = handler.indexOf("await tickets.run_find_all_by_by_subject(s, limit=1)");

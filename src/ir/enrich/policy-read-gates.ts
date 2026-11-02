@@ -97,7 +97,12 @@ function withReadGates<H extends QueryHandlerIR | CommandHandlerIR>(
     const rule = byAggregate.get(agg);
     if (!rule) continue;
     if (leading.some((st) => st.kind === "requires" && sameExpr(st.expr, rule.gate))) continue;
-    gates.push({ kind: "requires", expr: structuredClone(rule.gate), source: rule.source });
+    gates.push({
+      kind: "requires",
+      expr: structuredClone(rule.gate),
+      source: rule.source,
+      readGateOf: agg,
+    });
   }
   return gates.length === 0 ? h : { ...h, statements: [...gates, ...h.statements] };
 }
