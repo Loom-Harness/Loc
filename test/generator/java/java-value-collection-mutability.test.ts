@@ -86,6 +86,6 @@ describe("java generator — value-object collections arrive mutable", () => {
     expect(entity).toContain(
       "public void update(String reference, List<Money> lineItems, List<Money> surcharges) {",
     );
-    expect(entity).toContain("this.lineItems = lineItems;");
+    expect(entity).toContain("this.lineItems = new java.util.ArrayList<>(lineItems);");
   });
 });

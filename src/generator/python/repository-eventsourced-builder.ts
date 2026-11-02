@@ -188,9 +188,9 @@ export function buildPyEventSourcedRepositoryFile(
     "        await self._session.flush()",
     `        ${PY.log}("debug", "repository_save", aggregate=${JSON.stringify(agg.name)}, id=str(aggregate.id))`,
     "",
-    rowToEvent(agg, events, row),
+    rowToEvent(agg, events, row, ctx),
     "",
-    eventToData(events),
+    eventToData(events, ctx),
     "",
     toWireStub(agg, ctx),
     // `mask unless` response redaction (pairwise F6 — the python half of F2).
@@ -274,11 +274,16 @@ function pyParam(t: TypeIR): string {
 }
 
 /** Stream row → event dataclass (wire keys are the DSL spellings). */
-function rowToEvent(agg: EnrichedAggregateIR, events: EventIR[], row: string): string {
+function rowToEvent(
+  agg: EnrichedAggregateIR,
+  events: EventIR[],
+  row: string,
+  ctx: EnrichedBoundedContextIR,
+): string {
   const arms = events.flatMap((ev, i) => [
     `        ${i === 0 ? "if" : "elif"} row.type == "${ev.name}":`,
     `            return ${eventRef(ev.name)}(${ev.fields
-      .map((f) => `${pythonIdent(f.name)}=${fromData(f.name, f.type)}`)
+      .map((f) => `${pythonIdent(f.name)}=${fromData(f.name, f.type, ctx)}`)
       .join(", ")})`,
   ]);
   return lines(
@@ -289,8 +294,16 @@ function rowToEvent(agg: EnrichedAggregateIR, events: EventIR[], row: string): s
   );
 }
 
-export function fromData(name: string, t: TypeIR): string {
-  const access = `data["${name}"]`;
+/** Decode the event field `name` from the JSONB payload `data`. */
+export function fromData(name: string, t: TypeIR, ctx: EnrichedBoundedContextIR): string {
+  return decodeValue(`data["${name}"]`, t, ctx);
+}
+
+/** Decode the JSON value `access` to its domain type.  A value object is
+ *  rebuilt through its constructor (which re-checks the invariant) from the
+ *  nested `{"<field>": …}` map {@link encodeValue} wrote; an optional VO or a
+ *  VO/other array decodes element-wise, `null` staying `None`. */
+function decodeValue(access: string, t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
   switch (inner.kind) {
     case "primitive":
@@ -316,16 +329,29 @@ export function fromData(name: string, t: TypeIR): string {
       return `${pyIdType(inner.targetName)}(${PY.cast}(str, ${access}))`;
     case "enum":
       return `${pyVoOrEnum(inner.name)}(${PY.cast}(str, ${access}))`;
+    case "valueobject": {
+      const vo = findValueObjectInScope(ctx, inner.name);
+      if (!vo) return `${PY.cast}(str, ${access})`;
+      const map = `${PY.cast}(dict[str, object], ${access})`;
+      const args = vo.fields.map((vf) => decodeValue(`${map}["${vf.name}"]`, vf.type, ctx));
+      const built = `${pyVoOrEnum(vo.name)}(${args.join(", ")})`;
+      return t.kind === "optional" ? `(None if ${access} is None else ${built})` : built;
+    }
+    case "array": {
+      const list = `${PY.cast}(list[object], ${access})`;
+      const comp = `[${decodeValue("__e", inner.element, ctx)} for __e in ${list}]`;
+      return t.kind === "optional" ? `(None if ${access} is None else ${comp})` : comp;
+    }
     default:
       return `${PY.cast}(str, ${access})`;
   }
 }
 
 /** Event dataclass → the JSONB payload (DSL-keyed, JSON-safe values). */
-function eventToData(events: EventIR[]): string {
+function eventToData(events: EventIR[], ctx: EnrichedBoundedContextIR): string {
   const arms = events.flatMap((ev, i) => [
     `        ${i === 0 ? "if" : "elif"} isinstance(ev, ${eventRef(ev.name)}):`,
-    `            return {${ev.fields.map((f) => `"${f.name}": ${toData(`ev.${pythonIdent(f.name)}`, f.type)}`).join(", ")}}`,
+    `            return {${ev.fields.map((f) => `"${f.name}": ${toData(`ev.${pythonIdent(f.name)}`, f.type, ctx)}`).join(", ")}}`,
   ]);
   return lines(
     `    def _event_to_data(self, ev: ${R.DomainEvent}) -> dict[str, object]:`,
@@ -334,11 +360,28 @@ function eventToData(events: EventIR[]): string {
   );
 }
 
-export function toData(expr: string, t: TypeIR): string {
+/** Encode the event field value `expr` to its JSON-safe payload form.  A value
+ *  object becomes its nested `{"<field>": …}` map (the shape {@link decodeValue}
+ *  reads back); an array encodes element-wise when its elements need it. */
+export function toData(expr: string, t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
   if (inner.kind === "primitive" && (inner.name === "datetime" || inner.name === "date"))
     return `${expr}.isoformat()`;
   if (inner.kind === "primitive" && inner.name === "money") return `str(${expr})`;
+  const nullable = (v: string): string =>
+    t.kind === "optional" ? `(None if ${expr} is None else ${v})` : v;
+  if (inner.kind === "valueobject") {
+    const vo = findValueObjectInScope(ctx, inner.name);
+    if (!vo) return expr;
+    const fields = vo.fields.map(
+      (vf) => `"${vf.name}": ${toData(`${expr}.${pythonIdent(vf.name)}`, vf.type, ctx)}`,
+    );
+    return nullable(`{${fields.join(", ")}}`);
+  }
+  if (inner.kind === "array") {
+    const el = toData("__e", inner.element, ctx);
+    return el === "__e" ? expr : nullable(`[${el} for __e in ${expr}]`);
+  }
   return expr;
 }
 

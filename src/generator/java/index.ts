@@ -29,7 +29,7 @@ import {
   aggregatesNeedConcurrency,
 } from "../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
-import { deriveContextOperations, staticSubpathRoutes } from "../../ir/util/api-surface.js";
+import { contextStaticSubpathRoutes } from "../../ir/util/api-surface.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentOf } from "../../ir/util/containment-parent.js";
 import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
@@ -581,7 +581,7 @@ function emitProjectFromContexts(
   // The guard runs before handler mapping and answers the honest 405 + `Allow`.
   // Emitted only when the model HAS such a path, so a system with no declared
   // find keeps its file set byte-identical.
-  const staticSubpaths = staticSubpathRoutes(contexts.flatMap(deriveContextOperations));
+  const staticSubpaths = contextStaticSubpathRoutes(contexts);
   if (Object.keys(staticSubpaths).length > 0) {
     place(
       "StaticSubpathMethodFilter.java",
