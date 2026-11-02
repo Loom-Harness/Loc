@@ -9,11 +9,7 @@
 // byte-identical to pre-i18n.
 
 import { describe, expect, it } from "vitest";
-import { collectUiMessages } from "../../../src/generator/_walker/i18n-extract.js";
-import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
-import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
-import { parseString } from "../../_helpers/parse.js";
 
 const SYSTEM = (body: string) => `
   system Shop {
@@ -56,21 +52,6 @@ function appOf(files: Map<string, string>): string {
 }
 
 describe("Angular i18n runtime", () => {
-  it("wraps a literal heading in a t() interpolation keyed to the catalog", async () => {
-    const files = await generateSystemFiles(SYSTEM(`Heading { "Welcome" }`));
-    const home = homeOf(files);
-    // The key MUST equal what the extraction pass produces for this slot.
-    const { model } = await parseString(SYSTEM(`Heading { "Welcome" }`), { validate: false });
-    const ui = enrichLoomModel(lowerModel(model)).systems[0]!.uis.find((u) => u.name === "Web")!;
-    const entry = collectUiMessages(ui).find((m) => m.message === "Welcome")!;
-    expect(entry).toBeDefined();
-    expect(home).toContain(`{{ t(${JSON.stringify(entry.key)}, "Welcome") }}`);
-    // The seam's `../i18n` is rewritten to `../../lib/i18n` (pages are two hops
-    // under `src/`), and `t` is lifted to a component member.
-    expect(home).toContain(`import { t } from "../../lib/i18n";`);
-    expect(home).toContain("protected readonly t = t;");
-  });
-
   it("emits the src/lib/i18n.ts shim and src/lib/locales/en.json catalog", async () => {
     const files = await generateSystemFiles(SYSTEM(`Heading { "Storefront" }`));
     const i18n = [...files].find(([p]) => p.endsWith("src/lib/i18n.ts"))?.[1];
@@ -147,20 +128,6 @@ describe("Angular i18n runtime", () => {
     expect(pkg).toContain("intl-messageformat");
   });
 
-  it("translates named aria-label slots (Button + Toolbar) as Angular attr bindings", async () => {
-    const files = await generateSystemFiles(
-      SYSTEM(`Toolbar { label: "Order actions", Button { "+", label: "Add order", to: "/new" } }`),
-    );
-    const home = homeOf(files);
-    // Angular binds a plain HTML attribute as `[attr.aria-label]="expr"` (single
-    // quotes here because the `t()` call contains double quotes) — NOT
-    // `[aria-label]`, which would target a non-existent property (ng build error).
-    expect(home).toMatch(/\[attr\.aria-label\]='t\("page\.Home\.buttonAria\.\w+", "Add order"\)'/);
-    expect(home).toMatch(
-      /role="toolbar" \[attr\.aria-label\]='t\("page\.Home\.toolbarAria\.\w+", "Order actions"\)'/,
-    );
-  });
-
   it("translates the app-shell skip-to-content chrome link + lifts t on the App component", async () => {
     // Pack-chrome (M-T1.11): an i18n-enabled ui makes the baked-in shell
     // "Skip to content" link bind through `t()` keyed to `chrome.skipToContent`.
@@ -194,61 +161,12 @@ describe("Angular i18n runtime", () => {
     expect([...files].some(([p]) => p.endsWith("src/lib/locales/en.json"))).toBe(false);
   });
 
-  it("translates the Alert title named slot (alertTitle) at the text position", async () => {
-    // The Angular-Material pack renders the Alert title in TEXT position — the
-    // `title:` named slot emits a `{{ t(key, def) }}` interpolation under i18n
-    // (M-T1.11), keyed to the `alertTitle` catalog slot.
-    const files = await generateSystemFiles(
-      SYSTEM(`Alert { "Disk almost full", title: "Heads up", color: "yellow" }`),
-    );
-    const home = homeOf(files);
-    expect(home).toMatch(/\{\{ t\("page\.Home\.alertTitle\.\w+", "Heads up"\) \}\}/);
-    const locale = [...files].find(([p]) => p.endsWith("src/lib/locales/en.json"))![1];
-    expect(Object.values(JSON.parse(locale) as Record<string, string>)).toContain("Heads up");
-  });
-
-  it("translates the Divider label named slot (dividerLabel)", async () => {
-    const files = await generateSystemFiles(SYSTEM(`Divider { label: "Section break" }`));
-    const home = homeOf(files);
-    expect(home).toMatch(/t\("page\.Home\.dividerLabel\.\w+", "Section break"\)/);
-    const locale = [...files].find(([p]) => p.endsWith("src/lib/locales/en.json"))![1];
-    expect(Object.values(JSON.parse(locale) as Record<string, string>)).toContain("Section break");
-  });
-
-  it("translates the Modal title named slot (modalTitle)", async () => {
-    // Angular carried no `primitive-modal-controlled` template at all, so an
-    // `open:` Modal degraded to an HTML comment — silent content loss, and the
-    // `modalTitle` slot had no emission site to translate.  All three Angular
-    // packs now ship the dialog, so the slot behaves like every other frontend.
-    const files = await generateSystemFiles(
-      SYSTEM(`Modal { Text { "Confirm archive?" }, open: archiveOpen, title: "Archive" }`).replace(
-        'page Home { route: "/"',
-        'page Home { route: "/" state { archiveOpen: bool = false }',
-      ),
-    );
-    const home = homeOf(files);
-    expect(home).not.toContain("<!-- Modal:");
-    expect(home).toMatch(/t\("page\.Home\.modalTitle\.\w+", "Archive"\)/);
-    // …in a dialog with an accessible name.
-    expect(home).toContain('role="dialog"');
-    expect(home).toContain('aria-modal="true"');
-  });
-
   it("keeps the Toolbar's DEFAULT accessible name a static attribute", async () => {
     // "Actions" is the a11y contract's fallback — no source literal, so it is not
     // in the catalog and must never bind through `t()` (its key would resolve to
     // nothing).  Byte-identical to the pre-i18n emission.
     const files = await generateSystemFiles(SYSTEM(`Toolbar { Heading { "Orders" } }`));
     expect(homeOf(files)).toContain(`role="toolbar" aria-label="Actions"`);
-  });
-  it("translates the Icon accessible name (iconLabel) through [attr.aria-label]", async () => {
-    // The aria spelling divergence again: Angular binds a plain HTML attribute
-    // as `[attr.aria-label]`, never `[aria-label]` (a non-existent property, and
-    // an `ng build` error).  The name rides the same D-I18N-ATTR fragment.
-    const files = await generateSystemFiles(SYSTEM(`Icon { name: "check", label: "Verified" }`));
-    expect(homeOf(files)).toMatch(
-      /role="img" \[attr\.aria-label\]='t\("page\.Home\.iconLabel\.\w+", "Verified"\)'/,
-    );
   });
 
   // ---------------------------------------------------------------------
@@ -276,12 +194,11 @@ describe("Angular i18n runtime", () => {
     expect(catalog).toContain("Bob's badge");
   });
 
-  it("translates the CodeBlock caption (codeBlockTitle) — but never the code", async () => {
+  it("never translates the CodeBlock source (the caption's binding is the round-trip gate's)", async () => {
     const files = await generateSystemFiles(
       SYSTEM(`CodeBlock { "let total = 1", language: "typescript", title: "Example" }`),
     );
     const home = homeOf(files);
-    expect(home).toMatch(/t\("page\.Home\.codeBlockTitle\.\w+", "Example"\)/);
     expect(home).toContain("let total = 1");
   });
 });

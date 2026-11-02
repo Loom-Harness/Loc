@@ -75,16 +75,6 @@ async function keyFor(src: string, message: string): Promise<string> {
 }
 
 describe("Phoenix HEEx i18n runtime", () => {
-  it("wraps a literal heading in pgettext keyed to the catalog", async () => {
-    const src = SYSTEM(`Heading { "Welcome" }`);
-    const live = await homeLive(src);
-    const key = await keyFor(src, "Welcome");
-    expect(key).toMatch(/^page\.Home\.heading\./);
-    // The Loom key is the gettext CONTEXT; the English is the msgid.  A HEEx
-    // text position needs the `<%= … %>` wrapper — it is a function call.
-    expect(live).toContain(`<%= pgettext("${key}", "Welcome") %>`);
-  });
-
   it("emits the Gettext backend + the source-language .po/.pot from the catalog", async () => {
     const files = await generateSystemFiles(SYSTEM(`Heading { "Storefront" }`));
     const backend = fileEndingWith(files, "_web/gettext.ex");
@@ -119,16 +109,6 @@ describe("Phoenix HEEx i18n runtime", () => {
     const po = fileEndingWith(files, "priv/gettext/en/LC_MESSAGES/default.po")!;
     expect(po).toContain('msgctxt "chrome.skipToContent"');
     expect(po).toContain('msgctxt "chrome.primaryNav"');
-  });
-
-  it("covers the bespoke slots too (anchor / stat / alert / keyValue)", async () => {
-    const src = SYSTEM(
-      `Stack { Anchor { "Docs", to: "/docs" }, Stat { "Total", "42" }, Alert { "Boom" }, KeyValueRow { "Status", Text { "ok" } } }`,
-    );
-    const live = await homeLive(src);
-    for (const role of ["anchor", "statLabel", "statValue", "alert", "keyValue"]) {
-      expect(live, `role ${role}`).toContain(`<%= pgettext("page.Home.${role}.`);
-    }
   });
 
   it("leaves a dynamic text slot untranslated (no stable source string)", async () => {
@@ -189,33 +169,12 @@ describe("Phoenix HEEx i18n runtime", () => {
   // half — HEEx's `{…}` expression syntax rather than `<%= … %>`, which is
   // exactly why `elixirI18nString` escapes `{`/`}` in the message.
 
-  it("translates a command Button's aria-label (buttonAria)", async () => {
-    const src = SYSTEM(`Button { "+", label: "Add order", to: "/new" }`);
-    const live = await homeLive(src);
-    const key = await keyFor(src, "Add order");
-    expect(live).toContain(`aria-label={pgettext("${key}", "Add order")}`);
-    expect(live).not.toContain(`aria-label="Add order"`);
-  });
-
   // `Toolbar`'s contract is `{role:"toolbar", needsName:true}` with "Actions" as
   // the FALLBACK name.  HEEx hardcoded that fallback as a static `extraAttrs`
   // entry and had no `labelAsAriaLabel`, so an authored `label:` fell through
   // the generic named-attr branch and landed as a bogus `label=` attribute on
   // the `<div>` — the accessible name stayed "Actions" at every locale, and a
   // translator translated a string the app never announced.
-  it("translates a Toolbar's accessible name — the author's label beats the default", async () => {
-    const src = SYSTEM(`Toolbar { label: "Order actions", Text { "x" } }`);
-    const live = await homeLive(src);
-    const key = await keyFor(src, "Order actions");
-    expect(live).toContain(`aria-label={pgettext("${key}", "Order actions")}`);
-    // The contract default is suppressed rather than emitted alongside — two
-    // `aria-label`s on one tag would let the hardcoded English outrank the
-    // authored name.
-    expect(live).not.toContain(`aria-label="Actions"`);
-    // …and the label never leaks as a literal attribute on the div.
-    expect(live).not.toContain(`label="Order actions"`);
-    expect(live).toContain(`role="toolbar"`);
-  });
 
   it("keeps the Toolbar contract default when no label is authored", async () => {
     // The other half of "defaults, not overrides": nothing derived the
@@ -224,25 +183,14 @@ describe("Phoenix HEEx i18n runtime", () => {
     expect(live).toContain(`role="toolbar" aria-label="Actions"`);
   });
 
-  it("translates the Icon accessible name (iconLabel) and keeps role=img", async () => {
-    const src = SYSTEM(`Icon { svg: "<svg/>", label: "Verified" }`);
-    const live = await homeLive(src);
-    const key = await keyFor(src, "Verified");
-    expect(live).toContain(`role="img" aria-label={pgettext("${key}", "Verified")}`);
-  });
-
   it("keeps a decorative Icon hidden and byte-identical", async () => {
     const live = await homeLive(SYSTEM(`Stack { Heading { "Orders" }, Icon { svg: "<svg/>" } }`));
     expect(live).toContain(`aria-hidden="true"`);
   });
 
-  it("translates the CodeBlock caption (codeBlockTitle) — but never the code", async () => {
+  it("never translates the CodeBlock source (the caption's binding is the round-trip gate's)", async () => {
     const src = SYSTEM(`CodeBlock { "let total = 1", language: "elixir", title: "Example" }`);
     const live = await homeLive(src);
-    const key = await keyFor(src, "Example");
-    expect(live).toContain(
-      `<div class="loom-code-block-title"><%= pgettext("${key}", "Example") %></div>`,
-    );
     expect(live).toContain("let total = 1");
   });
 

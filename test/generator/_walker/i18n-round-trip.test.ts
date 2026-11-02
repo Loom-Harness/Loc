@@ -526,8 +526,33 @@ interface RoundTrip {
    *  the key is not merely unused: the text ships untranslated at every locale. */
   rawDead: string[];
   raw: { key: string; file: string; line: string }[];
+  /** Lines where an authored slot's translation call is inert markup — inside
+   *  a plain quoted attribute (`title="t(…)"`) or a bare text node (`>t(…)`),
+   *  where the framework renders the call as literal text instead of
+   *  evaluating it. */
+  unbound: { key: string; file: string; line: string }[];
   missing: string[];
   treeSize: number;
+}
+
+/** Files that can carry MARKUP a framework interprets (JSX, SFC templates,
+ *  Angular's inline `template:`, HEEx `~H`), where a translation call only runs
+ *  inside a binding (`{…}` / `{{…}}` / `:attr` / `[attr]` / `attr={…}`).
+ *  Feliz and Flutter emit plain F# / Dart, where every call is an expression,
+ *  so they have no inert position. */
+const MARKUP_FILE = /\.(tsx?|vue|svelte|html|heex|exs?)$/;
+
+/** A translation call for `key` in an INERT position: the value of a plain
+ *  quoted attribute (`title="t('k', …)"` — no `:` / `[` / `{` binding), or a
+ *  text node outside any interpolation braces (`>t("k", …)`; a `>` closing an
+ *  arrow `=>` / `->` is not a tag end).  Either renders the call's source text
+ *  to the user. */
+function inertCall(key: string): RegExp {
+  const k = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const call = `(?:\\bt|\\bpgettext)\\(\\s*["']${k}["']`;
+  return new RegExp(
+    `(?:(?:^|[\\s<])[A-Za-z_][\\w.-]*=(["'])[^"'{]*?${call}|(?<![=-])>[^<{]*?${call})`,
+  );
 }
 
 function roundTrip(
@@ -558,6 +583,7 @@ function roundTrip(
       .split("\n")
       .some((line) => literal.test(line) && !sameText.some((o) => line.includes(o)));
   });
+  const unbound: RoundTrip["unbound"] = [];
   for (const literal of authored(menu)) {
     const keys = Object.keys(catalog).filter((k) => catalog[k] === literal);
     if (keys.length === 0) {
@@ -565,15 +591,20 @@ function roundTrip(
       continue;
     }
     const word = new RegExp(`(?<![A-Za-z])${literal}(?![A-Za-z])`);
+    const inert = keys.map(inertCall);
     for (const [file, src] of tree) {
+      const markup = MARKUP_FILE.test(file);
       for (const line of src.split("\n")) {
         if (word.test(line) && !keys.some((k) => line.includes(k))) {
           raw.push({ key: keys.join("|"), file, line: line.trim().slice(0, 160) });
         }
+        if (markup && inert.some((re) => re.test(line))) {
+          unbound.push({ key: keys.join("|"), file, line: line.trim().slice(0, 160) });
+        }
       }
     }
   }
-  return { catalog, dead, rawDead, raw, missing, treeSize: tree.size };
+  return { catalog, dead, rawDead, raw, unbound, missing, treeSize: tree.size };
 }
 
 const waiversFor = (t: FrontendTarget, menu: MenuShape, key: string): Waiver | undefined =>
@@ -631,11 +662,19 @@ describe("i18n round trip — frontends (M-T9.39)", () => {
             uncatalogued: r.missing,
             // (b) lines that render an authored literal without its key.
             rawRendered: r.raw,
+            // (c) lines whose translation call the framework never evaluates.
+            unbound: r.unbound,
             // (b) at catalog scope: raw text hiding behind an over-merge waiver.
             rawOverMerged,
           },
           `${t.id} (${menu})`,
-        ).toEqual({ deadKeys: [], uncatalogued: [], rawRendered: [], rawOverMerged: [] });
+        ).toEqual({
+          deadKeys: [],
+          uncatalogued: [],
+          rawRendered: [],
+          unbound: [],
+          rawOverMerged: [],
+        });
         // A waiver that covers this cell must still be matched by a dead key —
         // the per-cell stale arm (a key that came alive un-waives itself).
         for (const w of DEAD_KEY_WAIVERS) {
