@@ -294,10 +294,11 @@ D-CODEC).  Every scalar input or `computedValue` is written in its wire
 encoding: a `money` as the RS-12 fixed-scale-4 string (`"3000.3000"`, never
 `3000.3` or `"3000.3"`), a `decimal` as the RS-24 number, a `datetime` as the
 RS-38 instant (`"2024-03-01T10:20:30Z"`, never `…30.000Z`), and an `int` /
-`long` as its wire number (owner rulings on #3527 and #3593).  node, python and
-.NET (EF Core and Dapper) write each value through their wire encoders.  The
-other two backends boot `corpus/provenance-money` as tracked expected failures
-(#4402) until each one is moved onto the fact.
+`long` as its wire number (owner rulings on #3527 and #3593).  node, python,
+.NET (EF Core and Dapper) and java write each value through their wire encoders
+(java through the emitted `ProvWire` helper).  elixir boots
+`corpus/provenance-money` as a tracked expected failure (#4402) until it is
+moved onto the fact.
 
 ```ddd
 market: money provenanced

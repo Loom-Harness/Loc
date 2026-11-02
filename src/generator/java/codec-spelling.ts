@@ -28,19 +28,15 @@ import { JAVA_NUMERIC } from "./numeric-codec.js";
 // Columns — Postgres type names as a JDBC statement's casts spell them
 // ---------------------------------------------------------------------------
 
-/** The Postgres type NAME of a JSON codec column.  JPA entities name no column
- *  type (Hibernate's `@JdbcTypeCode(SqlTypes.JSON)` is the ORM's own mapping of
- *  the same column); only the hand-written JDBC inserts cast to it. */
-function javaSqlTypeName(c: ColumnType): string {
-  if (c.kind !== "json")
-    throw new Error(`codec-spelling: java casts only to a json column, not '${c.kind}'`);
-  return "jsonb";
-}
-
 /** The Postgres type name a JDBC insert casts a JSON payload to
- *  (`?::jsonb`) — an event-store row's `data`, a document's body. */
+ *  (`?::jsonb`) — an event-store row's `data`, a document's body.  JPA
+ *  entities name no column type (Hibernate's `@JdbcTypeCode(SqlTypes.JSON)` is
+ *  the ORM's own mapping of the same column); only these inserts cast to it. */
 export function javaJsonSqlType(): string {
-  return javaSqlTypeName(scalarCodec("json").column);
+  const c: ColumnType = scalarCodec("json").column;
+  if (c.kind !== "json")
+    throw new Error(`codec-spelling: the json scalar is no longer a json column ('${c.kind}')`);
+  return "jsonb";
 }
 
 // ---------------------------------------------------------------------------
@@ -49,7 +45,7 @@ export function javaJsonSqlType(): string {
 
 /** Fractional digits a money wire string carries (RS-12) — the
  *  `setScale(n, HALF_UP)` every egress pins. */
-export function javaMoneyScale(): number {
+function javaMoneyScale(): number {
   return moneyWire().scale;
 }
 

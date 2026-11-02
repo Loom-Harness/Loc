@@ -234,9 +234,8 @@ function baseReads({ passes = [], pins = {} } = {}) {
  */
 /** A provenanced field's lineage (`provenance-money`): the `Codec` fact writes
  *  every scalar there in its wire form — money as its RS-12 string (#3527).
- *  The java and elixir legs still record the domain value, so the first
- *  lineage assertion (a money one) fails — java with a JSON number, elixir
- *  with an unscaled Decimal string. */
+ *  The elixir leg still records the domain value, so the first lineage
+ *  assertion (a money one) fails with an unscaled Decimal string. */
 const MONEY_LINEAGE_BLOCK = "a provenanced money lineage carries money at the wire scale";
 const moneyLineage = (re) => ({
   issue: "#4402",
@@ -267,7 +266,6 @@ export const BEHAVIOURAL_XFAIL = {
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
   java: {
-    "provenance-money": moneyLineage('to be "3000\\.3000"'),
     // The guarded save flushes the dirty entity (its stale `version` included)
     // before the `where version = :expected` bump, so two simultaneous writers
     // carrying one `If-Match` both land.  The sequential stale tag is refused.

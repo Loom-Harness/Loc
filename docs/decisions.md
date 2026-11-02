@@ -5856,9 +5856,14 @@ types, money grammar and bounds, `.isoformat()`). .NET (EF Core and Dapper)
 spells it in `src/generator/dotnet/codec-spelling.ts` and `numeric-codec.ts`,
 guarded by `test/generator/dotnet/codec-census.test.ts` (Postgres column types,
 money bound and grammar, the `yyyy-MM-dd` / `fff` formats, the `ToString("o")`
-envelope time). The other two backends move onto the fact one at a time. Until
-each does, it boots `corpus/provenance-money` as a tracked expected failure
-(`BEHAVIOURAL_XFAIL`, #4402).
+envelope time). java/Spring spells it in `src/generator/java/codec-spelling.ts`
+and `numeric-codec.ts`, guarded by `test/generator/java/codec-census.test.ts`
+(the `?::jsonb` casts, money scale, bound and grammar, the int range, the
+`truncatedTo(MILLIS)` instant, `LocalDate` text, the `Instant.now().toString()`
+envelope time); a lineage value goes through the emitted `ProvWire` helper.
+elixir moves onto the fact last. Until it does, it boots
+`corpus/provenance-money` as a tracked expected failure (`BEHAVIOURAL_XFAIL`,
+#4402).
 
 java/Spring renders the fact through `src/generator/java/wire-policy-java.ts`
 (`test/generator/java/wire-policy-census.test.ts` is its census, with the
