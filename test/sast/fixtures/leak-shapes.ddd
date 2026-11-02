@@ -37,10 +37,25 @@ system LeakShapes {
 
       repository Secrets for Secret { }
       criterion SecretsByCode(c: string) of Secret = this.code == c
-      criterion SecretsEverything(c: string) of Secret = this.code == c
+      // F2-ADP-1: `ignoring *` on a `policy { deny }` aggregate must keep the deny.
+      queryHandler GetSecretEverything(c: string): Secret {
+        if let x = Secrets.find(SecretsByCode(c)) ignoring * {
+          return x
+        } else {
+          notFound "not_found"
+        }
+      }
 
       repository Orders for Order { }
-      criterion OrdersAllTenants(c: string) of Order = this.code == c
+      criterion OrdersByCode(c: string) of Order = this.code == c
+      // No deny on Order: `ignoring *` may lift every filter.
+      queryHandler GetOrderAllTenants(c: string): Order {
+        if let x = Orders.find(OrdersByCode(c)) ignoring * {
+          return x
+        } else {
+          notFound "not_found"
+        }
+      }
 
       projection OrderVolume {
         total: int
@@ -65,7 +80,10 @@ system LeakShapes {
     }
   }
 
-  api VaultApi from Vault
+  api VaultApi from Vault {
+    route GET "/secrets/everything" -> Store.GetSecretEverything
+    route GET "/orders/all_tenants" -> Store.GetOrderAllTenants
+  }
   storage db { type: postgres }
   resource st { for: Store, kind: state, use: db }
   deployable d {
