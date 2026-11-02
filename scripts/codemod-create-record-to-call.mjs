@@ -15,9 +15,15 @@
 //
 //   node scripts/codemod-create-record-to-call.mjs [--check] [--list] <path>...
 //
-//   <path>   a `.ddd` or `.md` file or a directory (walked recursively,
-//            skipping node_modules / .git / dist / out / .loom).  Defaults to
-//            `.`.  In a `.md` file only fenced ```ddd blocks are rewritten.
+//   <path>   a `.ddd`, `.md`, `.ts`, `.mts`, `.mjs`, `.yml` or `.yaml` file or a
+//            directory (walked recursively, skipping node_modules / .git /
+//            dist / out / .loom).  Defaults to `.`.  In a `.md` file only
+//            fenced ```ddd blocks are rewritten.  In a `.ts`/`.mts`/`.mjs`
+//            file only the string and template literals that contain a
+//            `system`/`context`/`aggregate` declaration are rewritten (an
+//            inline model, whatever the variable, tag or helper holding it);
+//            in a `.yml`/`.yaml` file a file that contains such a declaration
+//            (a heredoc model) is rewritten as a whole.
 //   --check  write nothing; exit 1 when any file still has a record-form call.
 //   --list   write nothing; print the files that would change.
 //
@@ -26,6 +32,9 @@
 // <Name>`): `api.orders.create({ … })` in a `test e2e` body takes an HTTP
 // request body, and a value-object brace literal `Money { … }` is no call at
 // all — neither is touched.
+//
+// A line `// codemod-create-record-to-call: keep` directly above a call keeps
+// it as it is: for a fixture that proves the compiler refuses the record form.
 //
 // Text-level and deliberately conservative: it never re-parses or reprints a
 // file, so formatting and comments survive.  It is comment- and string-aware
@@ -48,8 +57,11 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "out", ".loom"]);
+const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "out", ".loom", ".claude"]);
 const MARKER = "// codemod-create-record-to-call: not rewritten";
+/** A line comment directly above a call keeps its record form: a fixture that
+ *  exists to prove the compiler refuses the form (`loom.create-record-form`). */
+const KEEP = "// codemod-create-record-to-call: keep";
 
 /** Per-offset flag: 1 when the character is code (not in a comment or a
  *  double-quoted string).  `.ddd` has `//` and `/* *\/` comments and
@@ -158,6 +170,7 @@ export function rewriteCreateRecords(src, aggregates = declaredAggregates(src)) 
     const agg = m[1];
     if (!aggregates.has(agg)) continue;
     const paren = at + m[0].length - 1;
+    if (src.slice(0, lineOf(src, at).start).trimEnd().split("\n").pop().trim() === KEEP) continue;
     const close = matching(src, code, paren);
     if (close < 0) continue;
     const first = nextCode(src, code, paren + 1, close);
@@ -252,10 +265,93 @@ export function rewriteMarkdown(src, aggregates) {
   return { text: out, changed, refused };
 }
 
+/** A `.ddd` model declares one of these at its top level or inside it. */
+const MODEL_DECL =
+  /(?:^|[^A-Za-z0-9_.])(?:abstract\s+)?(?:system|context|aggregate)\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:\{|with\b|extends\b)/;
+
+/** The `[start, end)` offsets of every string / template literal body in a
+ *  TypeScript or JavaScript source, comments skipped, `${ … }` holes scanned
+ *  as code (a literal inside a hole is its own region). */
+export function stringLiteralRegions(src) {
+  const regions = [];
+  let i = 0;
+  const code = (stopAtBrace) => {
+    let depth = 0;
+    while (i < src.length) {
+      const c = src[i];
+      const n = src[i + 1];
+      if (c === "/" && n === "/") {
+        while (i < src.length && src[i] !== "\n") i++;
+      } else if (c === "/" && n === "*") {
+        const end = src.indexOf("*/", i + 2);
+        i = end < 0 ? src.length : end + 2;
+      } else if (c === '"' || c === "'" || c === "`") {
+        literal(c);
+      } else if (c === "{") {
+        depth++;
+        i++;
+      } else if (c === "}") {
+        if (stopAtBrace && depth === 0) return;
+        depth--;
+        i++;
+      } else i++;
+    }
+  };
+  const literal = (q) => {
+    const start = ++i;
+    while (i < src.length && src[i] !== q) {
+      if (src[i] === "\\") i += 2;
+      else if (q === "`" && src[i] === "$" && src[i + 1] === "{") {
+        i += 2;
+        code(true);
+        i++;
+      } else if (q !== "`" && src[i] === "\n") break;
+      else i++;
+    }
+    regions.push([start, Math.min(i, src.length)]);
+    i++;
+  };
+  code(false);
+  return regions;
+}
+
+/** Rewrite the record-form create calls of the `.ddd` models embedded in a
+ *  `.ts` / `.mts` / `.mjs` (string and template literals declaring a
+ *  `system` / `context` / `aggregate`) or `.yml` / `.yaml` (the whole file, for
+ *  a heredoc model) source.  The aggregate names are those every embedded
+ *  model of the file declares, so a model split across literals still binds. */
+export function rewriteEmbedded(src, file) {
+  const yaml = /\.ya?ml$/.test(file);
+  const regions = (yaml ? [[0, src.length]] : stringLiteralRegions(src)).filter(([a, b]) =>
+    MODEL_DECL.test(src.slice(a, b)),
+  );
+  const aggregates = new Set();
+  for (const [a, b] of regions)
+    for (const n of declaredAggregates(src.slice(a, b))) aggregates.add(n);
+  let out = src;
+  let changed = 0;
+  const refused = [];
+  // Back to front, so an earlier offset stays valid.  Regions nested in a
+  // `${ }` hole are inside an outer region: the outer one covers them.
+  const outer = regions.filter(
+    ([a, b]) => !regions.some(([c, d]) => (c < a && b <= d) || (c <= a && b < d)),
+  );
+  for (const [a, b] of outer.reverse()) {
+    const r = rewriteCreateRecords(src.slice(a, b), aggregates);
+    changed += r.changed;
+    const base = src.slice(0, a).split("\n").length - 1;
+    for (const x of r.refused) refused.push({ ...x, line: x.line + base });
+    out = out.slice(0, a) + r.text + out.slice(b);
+  }
+  return { text: out, changed, refused };
+}
+
+const EMBEDDING = /\.(?:m?ts|mjs|ya?ml)$/;
+
 async function* walk(p) {
   const st = await fs.stat(p);
   if (st.isFile()) {
-    if (p.endsWith(".ddd") || p.endsWith(".md")) yield p;
+    if (p.endsWith(".ddd") || p.endsWith(".md") || EMBEDDING.test(p)) yield p;
     return;
   }
   for (const e of await fs.readdir(p, { withFileTypes: true })) {
@@ -288,7 +384,9 @@ async function main() {
     const src = sources.get(f);
     const { text, changed, refused } = f.endsWith(".md")
       ? rewriteMarkdown(src)
-      : rewriteCreateRecords(src, aggregates);
+      : EMBEDDING.test(f)
+        ? rewriteEmbedded(src, f)
+        : rewriteCreateRecords(src, aggregates);
     for (const r of refused) {
       console.log(`not rewritten  ${f}:${r.line}: ${r.aggregate}.create — ${r.reason}`);
     }
