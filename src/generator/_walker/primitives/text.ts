@@ -5,7 +5,12 @@
 
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
 import { giveUp } from "../give-up.js";
-import { localizedChromeAria, localizedPositionalAttr, localizedText } from "../i18n-emit.js";
+import {
+  localizedChromeAria,
+  localizedPageChromeValue,
+  localizedPositionalAttr,
+  localizedText,
+} from "../i18n-emit.js";
 import { renderPrimitive } from "../render-primitive.js";
 import {
   boolNamed,
@@ -167,6 +172,11 @@ export function emitLoader(
     // Pack-chrome: the spinner's `aria-label="Loading"` translates through the
     // shared `chrome.loading` catalog under i18n (M-T1.11), else byte-identical.
     loadingAria: localizedChromeAria(ctx, "loading", "Loading"),
+    // The same name as a target-native VALUE, for the packs that build the
+    // spinner in F# / Dart (`prop.ariaLabel …`, `Semantics(label: …)`).
+    loadingValue: ctx.i18nPrefix
+      ? localizedPageChromeValue(ctx, "loading")
+      : (ctx.target.renderStringLiteral?.("Loading") ?? JSON.stringify("Loading")),
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
   });

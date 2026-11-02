@@ -370,8 +370,8 @@ function primitiveSkeleton(_c: Ctx): string {
 /** Loader() — a centred Material spinner.  The JSX packs give the spinner a
  *  `role="status" aria-label="Loading"`; the Dart twin is a `Semantics` with a
  *  `Loading` label + `liveRegion` so the pending state is announced. */
-function primitiveLoader(_c: Ctx): string {
-  return "Semantics(label: 'Loading', liveRegion: true, child: const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())))";
+function primitiveLoader(c: Ctx): string {
+  return `Semantics(label: ${String(c.loadingValue ?? "'Loading'")}, liveRegion: true, child: const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())))`;
 }
 
 // --- Data-display -----------------------------------------------------------

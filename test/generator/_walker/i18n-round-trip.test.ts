@@ -106,13 +106,12 @@ const PROBE_BODY = `Stack {
           of: Shop.Product.all,
           data: rows => Table { rows: rows, Column { "SlotColumnHeader", o => Text { o.name } } }
         },
-        Text { "SlotGridAnchor" }__GRID__
+        Loader()__GRID__
       }`;
 
 /** A sortable, filterable, selectable `DataGrid` — its pager, filter, sort and
  *  selection chrome.  Only where the grid ships (`loom.target-unsupported` on
- *  Flutter and HEEx).  `Loader()` is not probed yet: eleven cells leave
- *  `chrome.loading` unread (#4485). */
+ *  Flutter and HEEx). */
 const GRID_PROBE = `,
         QueryView {
           of: Shop.Product.all,

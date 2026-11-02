@@ -6,10 +6,10 @@
 // binds through `t("chrome.loading", "Loading")` keyed to the merged catalog,
 // and stays byte-identical raw text when the app opts out.
 //
-// The loader `aria-label="Loading"` is the first chrome string wired.  It lives
-// in the shadcn-family packs (shadcn / shadcnVue / shadcnSvelte / spartanNg), so
-// these tests pin one pack per frontend to exercise every attribute-binding
-// form (React `{…}`, Vue `:x="…"`, Svelte `{…}`, Angular `[attr.x]="…"`).
+// That every pack on every frontend binds a page-body chrome string (the
+// loader aria, the grid's control names) is the round-trip gate's job
+// (`_walker/i18n-round-trip.test.ts`); this file pins what that gate cannot
+// see — catalog membership rules and the app-shell / hoisted-child wiring.
 //
 // The `DataGrid` pager block at the bottom is the harder case: its markup is
 // rendered into a HOISTED CHILD component, which on three of the four frontends
@@ -274,44 +274,6 @@ describe("pack-chrome i18n — nav-toggle aria", () => {
 });
 
 describe("pack-chrome i18n — loader aria-label", () => {
-  it("React (shadcn): binds the spinner aria through t() keyed to chrome.loading", async () => {
-    const files = await generateSystemFiles(
-      SYSTEM("react", "shadcn", `Stack { Heading { "Welcome" }, Loader() }`),
-    );
-    const page = pageOf(files, "home.tsx");
-    expect(page).toContain(`role="status" aria-label={t("chrome.loading", "Loading")}`);
-    expect(catalogOf(files)["chrome.loading"]).toBe("Loading");
-  });
-
-  it("Vue (shadcnVue): binds aria as :aria-label='t(…)'", async () => {
-    const files = await generateSystemFiles(
-      SYSTEM("vue", "shadcnVue", `Stack { Heading { "Welcome" }, Loader() }`),
-    );
-    const page = pageOf(files, "home.vue");
-    expect(page).toContain(`role="status" :aria-label='t("chrome.loading", "Loading")'`);
-    expect(catalogOf(files)["chrome.loading"]).toBe("Loading");
-  });
-
-  it("Svelte (shadcnSvelte): binds aria as aria-label={t(…)}", async () => {
-    const files = await generateSystemFiles(
-      SYSTEM("svelte", "shadcnSvelte", `Stack { Heading { "Welcome" }, Loader() }`),
-    );
-    const page = pageOf(files, "(app)/+page.svelte", "+page.svelte");
-    expect(page).toContain(`role="status" aria-label={t("chrome.loading", "Loading")}`);
-    expect(catalogOf(files)["chrome.loading"]).toBe("Loading");
-  });
-
-  it("Angular (spartanNg): binds aria as [attr.aria-label]='t(…)' with t lifted onto the component", async () => {
-    const files = await generateSystemFiles(
-      SYSTEM("angular", "spartanNg", `Stack { Heading { "Welcome" }, Loader() }`),
-    );
-    const page = pageOf(files, "home.component.ts");
-    expect(page).toContain(`role="status" [attr.aria-label]='t("chrome.loading", "Loading")'`);
-    // Angular resolves template refs against the instance — `t` must be a member.
-    expect(page).toContain("protected readonly t = t;");
-    expect(catalogOf(files)["chrome.loading"]).toBe("Loading");
-  });
-
   it("a chrome primitive alone turns i18n on (used-only chrome is translatable)", async () => {
     // `Loader()` renders pack chrome, so even with no AUTHORED string the page is
     // translatable: the extractor yields `chrome.loading`, the runtime ships, and
