@@ -74,7 +74,7 @@ api OrdersApi from Sales {
 }
 ```
 
-Routes emit only on a deployable that **`serves:` that api** (the derived `/api/<plural>` CRUD mounts either way). A `{brace}` path segment binds a same-named handler parameter as a path param; every other parameter is bound from a JSON request body — **including on `GET`** (`route GET "/orders/by-code" -> C.FindByCode` with a `code: string` parameter emits a GET whose request schema is a JSON body on node and `[FromBody]` on .NET). Model a filtered read as `POST`, or take the value in the path, if a GET body is unacceptable to your clients.
+Routes emit only on a deployable that **`serves:` that api** (the derived `/api/<plural>` CRUD mounts either way). A `{brace}` path segment binds a same-named handler parameter as a path param. On a `GET` / `DELETE` route every other parameter is a **query-string** parameter keyed by its name (`route GET "/orders/by_code" -> C.GetOrderByCode` with a `code: string` parameter answers `GET /api/orders/by_code?code=…` — the URL a declared `find byCode` had, which is what [`scaffoldGet`](22-macros.md) relies on); on `POST` / `PUT` / `PATCH` it is bound from the JSON request body. An explicit route is matched ahead of the derived `/api/<plural>/{id}` route on every backend.
 
 ::: tabs backend
 == node

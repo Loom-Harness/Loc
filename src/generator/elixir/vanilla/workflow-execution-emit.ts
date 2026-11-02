@@ -94,6 +94,7 @@ import {
 } from "../../../ir/util/walk.js";
 import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../../_trace/sourcemap.js";
 import {
@@ -119,6 +120,22 @@ import { renderFunctionBodyLines } from "./function-emit.js";
 import { renderRequiredParamsPlug, requiredWireParams } from "./problem-details-emit.js";
 import { retrievalReadsActor } from "./retrieval-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
+
+/** Does this criterion read pass the request actor to its retrieval?  Only
+ *  where the body binds `current_user` (`repoRunActor`) and the retrieval
+ *  reads it (a principal filter on its target, or a `currentUser` where). */
+function readPassesActor(
+  retrievalName: string | undefined,
+  renderCtx: RenderCtx,
+  ctx: BoundedContextIR | undefined,
+): boolean {
+  return !!(
+    renderCtx.repoRunActor &&
+    ctx &&
+    retrievalName &&
+    retrievalReadsActor(retrievalName, ctx)
+  );
+}
 
 /** The aggregate a workflow step targets, for the lifecycle-seam decision (which
  *  context function an IN-PROCESS caller may use).  `undefined` when the step
@@ -526,6 +543,7 @@ function lowerStatement(
           },
           st.args.map((a) => renderExpr(a, renderCtx)),
           contextModule,
+          readPassesActor(st.retrievalName, renderCtx, ctx),
         );
         const { pattern, bindName } = tupleBind(st.name, rest, reads);
         return [
@@ -552,10 +570,18 @@ function lowerStatement(
       // (`renderCtx.tagGetByIdMiss`): the explicit-handler and mutating
       // domain-service paths share this lowering, and their dispatchers know
       // only the bare term.
+      // A natural-key `getBy` miss is the find-absence 404 — the `not_found`
+      // token a declared find's route answers (RS-27) — tagged the same way.
+      const missDetail =
+        st.op === "load"
+          ? `"${upperFirst(st.aggName)} #{${argList}} not found"`
+          : st.op === "load-by-key"
+            ? JSON.stringify(FIND_ABSENT_DETAIL)
+            : undefined;
       const call =
-        st.op === "load" && renderCtx.tagGetByIdMiss
+        missDetail && renderCtx.tagGetByIdMiss
           ? `(case ${contextModule}.${action}(${argList}) do
-           {:error, :not_found} -> {:error, {:not_found, "${upperFirst(st.aggName)} #{${argList}} not found"}}
+           {:error, :not_found} -> {:error, {:not_found, ${missDetail}}}
            found -> found
          end)`
           : `${contextModule}.${action}(${argList})`;
@@ -665,7 +691,7 @@ function lowerStatement(
         if (st.page.offset) optEntries.push(`offset: ${renderExpr(st.page.offset, renderCtx)}`);
         if (st.page.limit) optEntries.push(`limit: ${renderExpr(st.page.limit, renderCtx)}`);
       }
-      if (renderCtx.repoRunActor && ctx && retrievalReadsActor(st.retrievalName, ctx)) {
+      if (readPassesActor(st.retrievalName, renderCtx, ctx)) {
         optEntries.push("current_user: current_user");
       }
       if (st.bypassAll) {
@@ -778,6 +804,7 @@ function lowerStatement(
                 },
                 args,
                 contextModule,
+                readPassesActor(st.retrievalName, renderCtx, ctx),
               ),
             );
       const renderBranch = (all: WorkflowStmtIR[], present: string): string[] => {
@@ -894,8 +921,13 @@ function lowerStatement(
         );
         return [...stmtLines, result];
       };
+      // A guard — an empty then-branch over an `else` that answers the 404 —
+      // keeps the hit bound for the statements after it (a handler's
+      // `if let o = … { return o } else { notFound }`), so the clause binds
+      // the branch's `{:ok, o}` instead of discarding it.
+      const guard = st.thenBody.length === 0 && st.elseBody?.at(-1)?.kind === "not-found";
       const lines = [
-        `{:ok, _} <- (`,
+        `{:ok, ${guard ? v : "_"}} <- (`,
         ...lookupLines,
         `           if ${v} != nil do`,
         ...renderBranch(st.thenBody, v).map((l) => `             ${l}`),
@@ -904,7 +936,7 @@ function lowerStatement(
         `           end`,
         `         )`,
       ];
-      return [{ kind: "with-clause", text: lines.join("\n"), bindName: undefined }];
+      return [{ kind: "with-clause", text: lines.join("\n"), bindName: guard ? v : undefined }];
     }
     default: {
       // CR1-f (wave CR1, audit row P0-2b): all 14 `WorkflowStmtIR` kinds are
@@ -1995,6 +2027,15 @@ end
 
 /** Does any body of this workflow load through `getById` or answer `notFound`
  *  (at any depth)?  Gates the dispatcher's `{:not_found, detail}` arm. */
+/** A statement whose miss reaches the dispatcher as the detail-carrying
+ *  `{:not_found, detail}` term: a by-id or natural-key load (tagged under
+ *  `tagGetByIdMiss`), or `notFound` itself. */
+export function tagsNotFoundMiss(s: WorkflowStmtIR): boolean {
+  return (
+    (s.kind === "repo-let" && (s.op === "load" || s.op === "load-by-key")) || s.kind === "not-found"
+  );
+}
+
 function workflowLoadsById(wf: WorkflowIR): boolean {
   const lists: readonly (readonly WorkflowStmtIR[])[] = [
     wf.statements,
@@ -2005,7 +2046,7 @@ function workflowLoadsById(wf: WorkflowIR): boolean {
   for (const list of lists) {
     for (const top of list) {
       walkWorkflowStmtsDeep(top, (s) => {
-        if ((s.kind === "repo-let" && s.op === "load") || s.kind === "not-found") found = true;
+        if (tagsNotFoundMiss(s)) found = true;
       });
     }
   }

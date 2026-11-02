@@ -195,6 +195,8 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
       "projection-valueobject-row",
       "provenance",
       "python-reserved-words",
+      "scaffold-get-find",
+      "scaffold-get",
       "scaffold-macros",
       "shapes",
       "single-containment",

@@ -28,12 +28,14 @@ import type {
   HandlerRef,
   HttpMethod,
   IdType,
+  IfLetStmt,
   LetStmt,
   LValue,
   MemberSuffix,
   NamedDecl,
   NamedType,
   NameRef,
+  NotFoundStmt,
   ObjectFieldInit,
   ObjectLit,
   Operation,
@@ -71,12 +73,14 @@ import {
   mkFilterDecl,
   mkHandlerRef,
   mkIdType,
+  mkIfLetStmt,
   mkImplementsDecl,
   mkLetStmt,
   mkLValue,
   mkMemberSuffix,
   mkNamedType,
   mkNameRef,
+  mkNotFoundStmt,
   mkNullLit,
   mkObjectFieldInit,
   mkObjectLit,
@@ -570,6 +574,38 @@ export function returnStmt(value: Expression): ReturnStmt {
   const stmt: ReturnStmt = tag(mkReturnStmt({ $type: "ReturnStmt", value }), origin);
   setContainer(value, stmt, "value");
   return stmt;
+}
+
+/** `if let <name> = <source> { then } else { else }` (grammar `IfLetStmt`) —
+ * the single-row lookup that binds its hit in the then-branch. */
+export function ifLetStmt(
+  name: string,
+  source: Expression,
+  thenBody: Statement[],
+  elseBody: Statement[],
+): IfLetStmt {
+  const origin = currentOrigin();
+  const stmt: IfLetStmt = tag(
+    mkIfLetStmt({ $type: "IfLetStmt", var: name, source, thenBody, elseBody }),
+    origin,
+  );
+  setContainer(source, stmt, "source");
+  thenBody.forEach((s, i) => {
+    setContainer(s, stmt, "thenBody", i);
+  });
+  elseBody.forEach((s, i) => {
+    setContainer(s, stmt, "elseBody", i);
+  });
+  return stmt;
+}
+
+/** `notFound` / `notFound "<detail>"` (grammar `NotFoundStmt`) — ends a
+ * workflow / handler body with the standard 404, its `detail` when given. */
+export function notFoundStmt(detail?: string): NotFoundStmt {
+  return tag(
+    mkNotFoundStmt({ $type: "NotFoundStmt", ...(detail !== undefined ? { detail } : {}) }),
+    currentOrigin(),
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -227,6 +227,77 @@ The generated route and repository code for every backend are in
 [language reference §22](language-reference/22-macros.md). The
 `ddd new --template crud` starter uses this pair for `TasksInProject`.
 
+### `scaffoldGet` / `scaffoldGetApi` — one row on the wire
+
+The single-row twin of the pair above, and the route a declared repository
+`find` used to give for free.  `scaffoldGet` (target `context`) emits a
+`queryHandler` that answers one row or 404; `scaffoldGetApi` (target `api`)
+mounts it on the URL a find of the same name had — `GET /<aggs>/<read>`, its
+params on the query string — so a client of the find keeps its URL, query
+parameters, 200 body and 404.  `of:` is a `criterion` (its first match), or an
+aggregate with `key:` naming the columns of one of its `unique (…)` keys.
+The aggregate's read gate (`policy { read Order requires … }`), which a find's
+route enforced and a handler does not inherit, is spliced ahead of the read, and
+`requires: <Policy>` adds a gate after it, as it does on `scaffoldPaged`:
+
+```ddd
+context Shop with scaffoldGet(of: ByCode, requires: Clerks),
+                  scaffoldGet(of: Item, key: "sku") {
+  criterion ByCode(code: string) of Order = this.code == code
+  …
+}
+api ShopApi with scaffoldGetApi(of: ByCode), scaffoldGetApi(of: Item, key: "sku") from Sales { }
+```
+
+expands to (unfold ejects exactly this):
+
+```ddd
+queryHandler GetOrderByCode(code: string): Order {
+  requires Clerks()
+  if let x = Orders.find(ByCode(code)) {
+    return x
+  } else {
+    notFound "not_found"
+  }
+}
+queryHandler GetItemBySku(sku: string): Item {
+  let x = Items.getBy(sku: sku)
+  return x
+}
+route GET "/orders/by_code" -> Shop.GetOrderByCode   // GET /api/orders/by_code?code=…
+route GET "/items/by_sku" -> Shop.GetItemBySku       // GET /api/items/by_sku?sku=…
+```
+
+The path is the aggregate's collection route plus the read's snake-cased name
+(`ByCode` → `by_code`; a key `(sku)` reads `by_sku`), so naming the criterion
+after the find (`find byCode` → `criterion ByCode`) keeps its URL.  The miss
+answers the find-absence `detail` (`"not_found"`) a find's route answered.  The
+`scaffold-get` / `scaffold-get-find` corpus pair runs the same requests through
+both on every backend, and `test/behavioral/scaffold-get-wire.test.ts` holds
+their wire goldens equal.
+
+Generated (node, `http/shopApi-routes.ts`):
+
+```ts
+createRoute({
+  method: "get",
+  path: "/orders/by_code",
+  operationId: "shopGetOrderByCode",
+  request: { query: z.object({ code: z.string() }) },
+  …
+}),
+async (httpCtx) => {
+  const __query = httpCtx.req.valid("query");
+  const code = __query.code;
+  const orders = new OrderRepository(db, events);
+  const x = (await orders.runFindAllByByCode(code, { limit: 1 }))[0] ?? null;
+  if (x === null) {
+    throw new AggregateNotFoundError("not_found");
+  }
+  return httpCtx.json(orders.toWire(x) as z.infer<typeof OrderResponse>, 200);
+},
+```
+
 ### Composability
 
 Unfolding one level on `with scaffold(subdomains: [Sales])` reveals one

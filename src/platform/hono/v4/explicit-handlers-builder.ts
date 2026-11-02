@@ -76,6 +76,7 @@ import type {
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
+import { handlerUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import {
   aggregatesHaveUniqueKeys,
@@ -95,6 +96,7 @@ import {
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
+import { type RoutedParamSource, routedParamSource } from "../../../ir/util/routed-handler.js";
 import { walkExprDeep, walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
 import { escapeTsIdent, lowerFirst, plural, snake } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
@@ -336,22 +338,25 @@ function emitRouteHandler(
   if (!h.extern && h.returnType && pagedReturn(h.returnType)) {
     return emitPagedRunHandler(apiName, route, h, ctx);
   }
-  const pathNames = new Set([...route.path.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!));
   const method = route.method.toLowerCase();
   // Classify each handler param: a path-bound id/scalar (name in a `{token}`),
   // a `command`/`query` request RECORD (`cmd`/`query` — the body/query-string
   // deserialises into the payload's DTO; the body reads `cmd.<field>`), or a
   // legacy scalar body param.  A record's fields bind from the SAME request
   // location an equivalent flat param would (path if the field name is a route
-  // token, else body), so the wire is unchanged.
-  type Slot = { name: string; type: TypeIR; source: "path" | "body" };
+  // token, else the query string on a bodyless method, else the body), so the
+  // wire is unchanged.  The location is `routedParamSource`'s — the rule the
+  // e2e surface and every other backend read too.
+  type Slot = { name: string; type: TypeIR; source: RoutedParamSource };
   const bodySlots: Slot[] = [];
   const pathSlots: Slot[] = [];
+  const querySlots: Slot[] = [];
   const addSlot = (name: string, type: TypeIR): void => {
-    (pathNames.has(name) ? pathSlots : bodySlots).push({
+    const source = routedParamSource(name, route, false);
+    (source === "path" ? pathSlots : source === "query" ? querySlots : bodySlots).push({
       name,
       type,
-      source: pathNames.has(name) ? "path" : "body",
+      source,
     });
   };
   // Per-param materialisation: a record param builds an object literal from its
@@ -398,6 +403,11 @@ function emitRouteHandler(
       `params: z.object({ ${pathSlots.map((s) => `${s.name}: ${pathParamZod(s.type, ctx)}`).join(", ")} })`,
     );
   }
+  if (querySlots.length > 0) {
+    reqParts.push(
+      `query: z.object({ ${querySlots.map((s) => `${s.name}: ${pathParamZod(s.type, ctx)}`).join(", ")} })`,
+    );
+  }
   if (bodySlots.length > 0) {
     reqParts.push(
       `body: { content: { "application/json": { schema: z.object({ ${bodySlots
@@ -436,6 +446,7 @@ function emitRouteHandler(
   out.push(`  }),`);
   out.push(`  async (httpCtx) => {`);
   if (pathSlots.length > 0) out.push(`    const params = httpCtx.req.valid("param");`);
+  if (querySlots.length > 0) out.push(`    const __query = httpCtx.req.valid("query");`);
   if (bodySlots.length > 0) {
     // A foreign Content-Type SKIPS hono's zod body validator (schemathesis F1).
     out.push(`    requireJsonContentType(httpCtx);`);
@@ -445,8 +456,13 @@ function emitRouteHandler(
   // local; record → an object literal of wire-coerced fields), so every param
   // `ref` / `cmd.<field>` in the body renders against a local in scope.
   const paramExprs = new Map<string, string>();
-  const wireSrc = (name: string): string =>
-    pathNames.has(name) ? `params.${name}` : `body.${name}`;
+  const slotSource = new Map(
+    [...pathSlots, ...querySlots, ...bodySlots].map((sl) => [sl.name, sl.source]),
+  );
+  const wireSrc = (name: string): string => {
+    const src = slotSource.get(name);
+    return src === "path" ? `params.${name}` : src === "query" ? `__query.${name}` : `body.${name}`;
+  };
   for (const m of materialised) {
     if (m.kind === "scalar") {
       const p = h.params.find((pp) => pp.name === m.name)!;
@@ -460,6 +476,14 @@ function emitRouteHandler(
       out.push(`    const ${escapeTsIdent(m.name)} = { ${fields} };`);
     }
     paramExprs.set(m.name, escapeTsIdent(m.name));
+  }
+  // A body that reads `currentUser` (a `requires` gate — `scaffoldGet` splices
+  // the aggregate's read gate in — or an expression) needs it bound, exactly as
+  // the workflow and aggregate routes bind it.
+  if (handlerUsesCurrentUser(h)) {
+    out.push(
+      `    const currentUser = (httpCtx as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
+    );
   }
   // Extern handler: no DSL body — no repos, no workflow statements, no wire
   // projection.  Delegate to the scaffold-once user impl module (imported by
@@ -613,15 +637,15 @@ export function buildExplicitRoutesFile(
     if (!h) continue;
     for (const st of h.statements) walkWorkflowStmtExprsDeep(st, collectResourceHelpers);
     if (h.returnValue) walkExprDeep(h.returnValue, collectResourceHelpers);
-    const pathNames = new Set([...r.path.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!));
+    const inBody = (name: string): boolean => routedParamSource(name, r, false) === "body";
     // Seed the VO/enum wire-schema closure from every body-bound field.  A
     // record param contributes its individual field types (the body deserialises
     // into the record's fields), not the record type itself.
     for (const p of h.params) {
       const rec = requestRecordFor(p.type, ctx);
       if (rec) {
-        for (const f of rec.fields) if (!pathNames.has(f.name)) bodySchemaSeeds.push(f.type);
-      } else if (!pathNames.has(p.name)) {
+        for (const f of rec.fields) if (inBody(f.name)) bodySchemaSeeds.push(f.type);
+      } else if (inBody(p.name)) {
         bodySchemaSeeds.push(p.type);
       }
     }

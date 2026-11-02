@@ -47,6 +47,7 @@ import type {
   TypeIR,
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
+import { handlerUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import {
   domainServicesCalled,
@@ -60,6 +61,7 @@ import {
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
+import { routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst } from "../../util/naming.js";
@@ -428,6 +430,10 @@ function renderHandlerClass(
     h.returnValue,
   ]);
   const repoAggs = reposUsed(h);
+  // A body that reads `currentUser` (a `requires` gate or an expression)
+  // resolves the actor through the injected accessor, as the workflow and
+  // paged-run handlers do.
+  const usesUser = handlerUsesCurrentUser(h);
 
   // The (flattened) params are `handle(...)`'s own parameters, in a method
   // whose body dereferences the injected repository / service fields — a param
@@ -441,6 +447,7 @@ function renderHandlerClass(
     ...calledServices.reading.map((s) => lowerFirst(s)),
     ...calledServices.reading,
     ...calledServices.pure,
+    ...(usesUser ? ["currentUser", "currentUserAccessor"] : []),
   ]);
   const locals = javaLocals(
     flat.map((p) => p.name),
@@ -487,14 +494,17 @@ function renderHandlerClass(
   const fields = [
     ...repoAggs.map((a) => `    private final ${a}Repository ${repoField(a)};`),
     ...calledServices.reading.map((s) => `    private final ${s} ${lowerFirst(s)};`),
+    ...(usesUser ? ["    private final CurrentUserAccessor currentUserAccessor;"] : []),
   ];
   const ctorParams = [
     ...repoAggs.map((a) => `${a}Repository ${repoField(a)}`),
     ...calledServices.reading.map((s) => `${s} ${lowerFirst(s)}`),
+    ...(usesUser ? ["CurrentUserAccessor currentUserAccessor"] : []),
   ].join(", ");
   const ctorAssigns = [
     ...repoAggs.map((a) => `        this.${repoField(a)} = ${repoField(a)};`),
     ...calledServices.reading.map((s) => `        this.${lowerFirst(s)} = ${lowerFirst(s)};`),
+    ...(usesUser ? ["        this.currentUserAccessor = currentUserAccessor;"] : []),
   ];
   const ctor =
     ctorAssigns.length > 0
@@ -548,6 +558,7 @@ function renderHandlerClass(
           .map((svc) => `import ${domainServicePkg}.${svc};`)
       : []),
     resourceImport,
+    usesUser ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
     `import ${basePkg}.domain.common.*;`,
     `import ${basePkg}.domain.enums.*;`,
     `import ${basePkg}.domain.ids.*;`,
@@ -561,6 +572,7 @@ function renderHandlerClass(
     fields.length > 0 ? `` : null,
     ...ctor,
     `    public ${retType} handle(${params}) {`,
+    usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
     ...bodyLines,
     ...saveLines,
     ...returnLines,
@@ -885,10 +897,12 @@ export function emitExplicitRouteController(
     // body record + call args carry the flat fields, identical to a
     // hand-written flat-param form); an extern handler keeps its raw
     // params (its impl owns the signature).  Then split on the route `{token}`s.
-    const pathNames = pathParamNames(r.path);
+    // On a bodyless method (GET / DELETE) the unbound params ride the query
+    // string instead (`routedParamSource`), each a `@RequestParam`.
     const effParams = h.extern ? h.params : flatHandlerParams(h, ctx);
-    const pathParams = effParams.filter((p) => pathNames.has(p.name));
-    const bodyParams = effParams.filter((p) => !pathNames.has(p.name));
+    const source = (p: ParamIR) => routedParamSource(p.name, r, false);
+    const pathParams = effParams.filter((p) => source(p) !== "body");
+    const bodyParams = effParams.filter((p) => source(p) === "body");
     if (pathParams.some((p) => isEnumType(p.type))) usesEnumParam = true;
     // The path params are the action's own parameters, next to the
     // `@RequestBody … body` record, the `result` local, the injected handler
@@ -908,7 +922,10 @@ export function emitExplicitRouteController(
       ]),
     );
     const pathArg = new Map(
-      pathParams.map((p) => [p.name, wireActionParam(p, localOf(pathLocals, p.name))]),
+      pathParams.map((p) => [
+        p.name,
+        (source(p) === "path" ? wireActionParam : wireQueryParam)(p, localOf(pathLocals, p.name)),
+      ]),
     );
 
     const actionParamParts = pathParams.map((p) => pathArg.get(p.name)!.actionParam);
@@ -929,7 +946,7 @@ export function emitExplicitRouteController(
     // coerce from the route token, body params read off `body.<name>()` (record
     // accessor).
     const callArgs = effParams
-      .map((p) => (pathNames.has(p.name) ? pathArg.get(p.name)!.callArg : `body.${jid(p.name)}()`))
+      .map((p) => pathArg.get(p.name)?.callArg ?? `body.${jid(p.name)}()`)
       .join(", ");
     // A query always returns; a command returns only with an explicit type.  A
     // scaffolded read declares `<Agg>Response` — normalise to the entity the

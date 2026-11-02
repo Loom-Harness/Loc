@@ -49,6 +49,7 @@ import type {
   SystemIR,
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
+import { handlerUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
 import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
@@ -59,6 +60,7 @@ import {
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
+import { routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtChildren, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { walkExpr } from "../../ir/validate/checks/shared.js";
 import { lines } from "../../util/code-builder.js";
@@ -84,6 +86,7 @@ import {
   PY_REQUEST_PARAM,
   PY_SESSION_DEP,
   PY_USER_BIND,
+  pyQueryParam,
   pyWireToDomain,
   repoClassRef,
 } from "./routes-builder.js";
@@ -249,11 +252,13 @@ function lookupGatedOp(ctx: EnrichedBoundedContextIR, aggName: string, opName: s
   return !!op && operationBodyUsesCurrentUser(op);
 }
 
-/** Whether the handler body calls a currentUser-gated operation — the op's
- *  method takes a trailing `current_user`, so the handler (and its caller
- *  route) must bind the actor.  v1 handlers are ids/scalars, so this is inert
- *  for the common case (byte-identical to a no-user handler). */
+/** Whether the handler needs the actor: its body reads `currentUser` (a
+ *  `requires` gate or an expression), or it calls a currentUser-gated
+ *  operation whose method takes a trailing `current_user`.  Either way the
+ *  handler takes `current_user` and its route binds it; a handler that does
+ *  neither stays byte-identical to a no-user handler. */
 function handlerUsesUser(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
+  if (handlerUsesCurrentUser(h)) return true;
   for (const s of h.statements) {
     let hit = false;
     walkWorkflowStmtsDeep(s, (st) => {
@@ -628,11 +633,15 @@ export function emitPyExplicitRouteRouter(
     // `<Handler>Body` + call args carry the flat fields, byte-identical to the
     // flat-param form; a record's field binds from the SAME request location an
     // equivalent flat param would — path if its name is a route `{token}`, else
-    // the body). Then split on the route `{token}`s as before.
-    const pathNames = pathParamNames(r.path);
+    // the body). Then split on the route `{token}`s as before.  On a bodyless
+    // method (GET / DELETE) the unbound params ride the query string instead
+    // (`routedParamSource`), keyed by their `.ddd` name exactly as a declared
+    // find's query params are.
     const effParams = flatHandlerParams(h, ctx);
-    const pathParams = effParams.filter((p) => pathNames.has(p.name));
-    const bodyParams = effParams.filter((p) => !pathNames.has(p.name));
+    const source = (p: ParamIR) => routedParamSource(p.name, r, false);
+    const pathParams = effParams.filter((p) => source(p) === "path");
+    const queryParams = effParams.filter((p) => source(p) === "query");
+    const bodyParams = effParams.filter((p) => source(p) === "body");
 
     let bodyModelName: string | undefined;
     if (bodyParams.length > 0) {
@@ -648,6 +657,7 @@ export function emitPyExplicitRouteRouter(
     }
     const sig = [
       ...pathParams.map((p) => pyAliasedParam(p.name, paramPyType(p.type, ctx), "Path")),
+      ...queryParams.map((p) => pyQueryParam(p.name, paramPyType(p.type, ctx))),
       ...(bodyModelName ? [`body: ${bodyModelName}`] : []),
       ...(usesUser ? [PY_REQUEST_PARAM] : []),
       "session: SessionDep",
@@ -657,9 +667,11 @@ export function emitPyExplicitRouteRouter(
     const callArgs = [
       "session",
       ...effParams.map((p) =>
-        pathNames.has(p.name)
+        source(p) === "path"
           ? pyWireToDomain(pythonIdent(p.name), p.type, ctx)
-          : pyWireToDomain(`body.${pythonIdent(p.name)}`, p.type, ctx),
+          : source(p) === "query"
+            ? pyWireToDomain(pythonWireIdent(p.name), p.type, ctx)
+            : pyWireToDomain(`body.${pythonIdent(p.name)}`, p.type, ctx),
       ),
       ...(usesUser ? ["current_user"] : []),
     ].join(", ");

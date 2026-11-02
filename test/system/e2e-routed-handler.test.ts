@@ -21,7 +21,8 @@
 //
 // What these tests pin, and why each matters:
 //   • the REQUEST — method off the route, `{token}`s substituted from the
-//     positionally matching argument, the rest in the JSON body.  That split
+//     positionally matching argument, the rest in the JSON body (the query
+//     string on a GET / DELETE).  That split
 //     is not this file's invention: it mirrors what every backend's
 //     explicit-route emitter reads (`emitRouteHandler` in
 //     `src/platform/hono/v4/explicit-handlers-builder.ts` and its four twins),
@@ -30,11 +31,10 @@
 //     IR-validate checks.
 //   • PRECEDENCE — an aggregate verb always wins, so a context whose name
 //     slugs like an aggregate changes no existing call's meaning.
-//   • the two REFUSALS — a wrong argument count (arguments bind positionally,
-//     so a miscount shifts every later one and renders `undefined` into a URL
-//     segment), and a bodyless method whose handler declares a param no
-//     `{token}` binds (the backends read it from a request body a GET cannot
-//     carry, so the argument would silently vanish).
+//   • the REFUSAL — a wrong argument count (arguments bind positionally, so a
+//     miscount shifts every later one and renders `undefined` into a URL
+//     segment).  A bodyless method's param no `{token}` binds rides the query
+//     string, as it does on every backend.
 
 import { describe, expect, it } from "vitest";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
@@ -217,10 +217,10 @@ describe("e2e routed handlers — the refusals", () => {
     expect(await codesOf(short)).toContain("loom.e2e-routed-handler-arity");
   });
 
-  it("refuses a bodyless method whose param no {token} binds", async () => {
-    // `GET /quote` + `queryHandler Quote(sku: string)`: every backend reads
-    // `sku` from a request BODY, which `fetch` cannot send on a GET — so the
-    // argument would vanish and the assertion would silently test the default.
+  it("sends a bodyless method's unbound param on the query string", async () => {
+    // `GET /quote` + `queryHandler Quote(sku: string)`: a GET carries no body,
+    // so every backend reads `sku` from the query string and the call sends it
+    // there — the wire a declared find's `GET /<aggs>/<find>?<param>=…` has.
     const bodyless = `
   system Bodyless {
     subdomain D {
@@ -236,12 +236,14 @@ describe("e2e routed handlers — the refusals", () => {
     deployable d {
       platform: node contexts: [Sales] dataSources: [s] serves: A port: 4000
     }
-    test e2e "unsendable" against d {
+    test e2e "query-bound" against d {
       expect(api.sales.quote("SKU-1")).toBe("SKU-1")
     }
   }
 `;
-    expect(await codesOf(bodyless)).toContain("loom.e2e-routed-handler-bodyless-method");
+    expect(await codesOf(bodyless)).toEqual([]);
+    const e2e = (await generateSystemFiles(bodyless)).get("e2e/Bodyless.e2e.test.ts") as string;
+    expect(e2e).toContain('await __route("GET", __qs(`${base}/api/quote`, { sku: "SKU-1" }))');
   });
 
   it("still refuses a genuinely unknown slug, and names the routed handlers", async () => {

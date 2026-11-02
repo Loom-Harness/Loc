@@ -88,11 +88,11 @@ export interface RenderCtx {
   repoRunActor?: boolean;
   /** Module prefix for the current bounded context, e.g. `"MyApp.Sales"`. */
   contextModule: string;
-  /** Set only by the WORKFLOW `run/1` body (M-T5.1 A4): a `getById` load tags
-   *  its miss `{:not_found, "<Agg> <id> not found"}` so the workflows
-   *  dispatcher answers the 404 naming the row.  Unset on every other path
-   *  (explicit handlers, mutating domain services), whose dispatchers only know
-   *  the bare `{:error, :not_found}` term. */
+  /** Set by the workflow `run/1` and explicit-handler bodies: a `getById` load
+   *  tags its miss `{:not_found, "<Agg> <id> not found"}` (and a natural-key
+   *  `getBy` its miss `{:not_found, "not_found"}`) so the dispatcher answers
+   *  the 404 with that detail.  Unset on the mutating domain-service path,
+   *  whose callers only know the bare `{:error, :not_found}` term. */
   tagGetByIdMiss?: boolean;
   /** Variant-`match` binding side-channel (variant-match.md) — maps a bound
    *  name to its `case`-clause pattern variable while rendering an arm value. */
@@ -446,10 +446,15 @@ export function optionalReadLookup(
   read: { op: RepoOp; method: string; aggregate: string; retrievalName?: string },
   args: readonly string[],
   contextModule: string,
+  /** The retrieval reads the request actor and the caller has `current_user`
+   *  bound: pass it as the `current_user:` opt, so a principal-filtered read
+   *  scopes to the caller instead of failing closed. */
+  passActor = false,
 ): { call: string; hit: string } {
   if (read.op === "select-one" && read.retrievalName) {
+    const opts = passActor ? ["limit: 1", "current_user: current_user"] : ["limit: 1"];
     return {
-      call: `${contextModule}.run_${snake(read.retrievalName)}_${snake(read.aggregate)}(${[...args, "limit: 1"].join(", ")})`,
+      call: `${contextModule}.run_${snake(read.retrievalName)}_${snake(read.aggregate)}(${[...args, ...opts].join(", ")})`,
       hit: "{:ok, [hit | _]}",
     };
   }

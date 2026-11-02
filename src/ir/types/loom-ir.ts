@@ -4417,8 +4417,19 @@ export function workflowEmitsCommandRoute(wf: WorkflowIR): boolean {
  *  request-scoped auth actor) before the rendered guard/expr — which
  *  emits the bare token `currentUser` — can resolve.  Shared by the
  *  Hono and .NET workflow emitters. */
-export function workflowUsesCurrentUser(wf: WorkflowIR): boolean {
+export function workflowUsesCurrentUser(wf: Pick<WorkflowIR, "statements">): boolean {
   return wf.statements.some(workflowStmtUsesCurrentUser);
+}
+
+/** True when a `commandHandler` / `queryHandler` body reads `currentUser` — in
+ *  a statement (a `requires` gate: `scaffoldGet` splices the aggregate's read
+ *  gate in) or in its `return` expression.  Every backend's routed-handler
+ *  emitter binds the principal exactly when this holds, so a handler that
+ *  never reads it emits unchanged.  An extern handler has no body. */
+export function handlerUsesCurrentUser(
+  h: Pick<CommandHandlerIR, "statements" | "returnValue" | "extern">,
+): boolean {
+  return !h.extern && (workflowUsesCurrentUser(h) || exprUsesCurrentUser(h.returnValue));
 }
 
 function workflowStmtUsesCurrentUser(s: WorkflowStmtIR): boolean {

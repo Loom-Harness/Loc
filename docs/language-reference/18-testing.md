@@ -208,7 +208,7 @@ expect(await __route("GET", `${base}/api/orders/${encodeURIComponent(String("111
 
 Arguments are **positional, in declared param order**. A param whose name is a `{token}` in the path substitutes into the URL; every other param rides the JSON request body — the same split each backend's explicit-route emitter performs. The method comes off the route, not off the verb name.
 
-Two refusals guard the shape: a wrong argument count is `loom.e2e-routed-handler-arity` (arguments bind positionally, so a miscount shifts every later one), and a `GET`/`DELETE` route whose handler declares a param no `{token}` binds is `loom.e2e-routed-handler-bodyless-method` — the backends read that param from a request body those methods cannot carry, so the argument would silently vanish.
+A wrong argument count is `loom.e2e-routed-handler-arity` (arguments bind positionally, so a miscount shifts every later one).  A param no `{token}` binds rides the query string on a `GET`/`DELETE` route — those methods carry no body — and the JSON body on the others.
 
 An aggregate verb always wins: a routed handler is consulted only when the slug names no aggregate, or names one that does not have the verb. So a context whose name slugs like an aggregate changes no existing call.
 

@@ -173,6 +173,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.let-type-mismatch": "06-behavior-and-statements.md#let--emit",
   "loom.return-type-mismatch": "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.return-missing": "06-behavior-and-statements.md#return--the-exception-less-outcome",
+  "loom.handler-return-not-last":
+    "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.unhandled-result": "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.function-return-type-mismatch":
     "07-invariants-derived-functions.md#function--a-pure-helper",
@@ -468,8 +470,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.e2e-unrouted-verb": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-call-options": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-routed-handler-arity":
-    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
-  "loom.e2e-routed-handler-bodyless-method":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-unknown-body-key": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-missing-required-field":
