@@ -2744,7 +2744,9 @@ const PLAIN_STRING_BASE = "z.string()";
  *  equal to …" on 3). */
 const INT32_BOUND = tsIntegerRange("int");
 const LONG_BOUND = tsIntegerRange("long");
-const INT32_RANGE = `.min(${INT32_BOUND.min}, ${JSON.stringify(fieldFixedMessage("integer-range"))}).max(${INT32_BOUND.max}, ${JSON.stringify(fieldFixedMessage("integer-range"))})`;
+const INT32_MIN_CALL = `.min(${INT32_BOUND.min}, ${JSON.stringify(fieldFixedMessage("integer-range"))})`;
+const INT32_MAX_CALL = `.max(${INT32_BOUND.max}, ${JSON.stringify(fieldFixedMessage("integer-range"))})`;
+const INT32_RANGE = `${INT32_MIN_CALL}${INT32_MAX_CALL}`;
 /** `long`'s enforced-but-unpublished safe-integer bound — see the block comment
  *  above.  A `.refine` is invisible to the OpenAPI emitter, so the published
  *  shape stays the plain integer every other backend publishes while this
@@ -3103,14 +3105,17 @@ export function emitWireSchema(
     const patterns = chainByField.get(f.name);
     if (patterns) {
       // A DECLARED numeric bound is authoritative and lies inside int32, so the
-      // structural int4 range would only stack a wider, redundant pair in front
-      // of it — `.min(-2147483648).max(2147483647).min(1).max(5)` — and leave
-      // the published `minimum`/`maximum` depending on which of two `.min`
-      // calls the OpenAPI emitter reads last. Drop the range and keep the
-      // format: the invariant states the bound, the format states the column.
-      if (patterns.some((p) => p.kind === "min" || p.kind === "max" || p.kind === "between")) {
-        schema = schema.replace(INT32_RANGE, "");
-      }
+      // structural int4 bound on THAT side would only stack a wider, redundant
+      // one in front of it — `.min(-2147483648).min(1)` — and leave the
+      // published `minimum` depending on which of two `.min` calls the OpenAPI
+      // emitter reads last. Drop the side the invariant states and keep the
+      // other: `precondition n > 0` bounds only the low side, so the int32
+      // ceiling must stay or `2147483648` reaches the driver as a 500.
+      const declaresMin = patterns.some((p) => p.kind === "min" || p.kind === "between");
+      const declaresMax = patterns.some((p) => p.kind === "max" || p.kind === "between");
+      if (declaresMin && declaresMax) schema = schema.replace(INT32_RANGE, "");
+      else if (declaresMin) schema = schema.replace(INT32_MIN_CALL, "");
+      else if (declaresMax) schema = schema.replace(INT32_MAX_CALL, "");
       for (const p of orderSingleFieldPatterns(patterns))
         schema = chainSingleFieldNative(schema, p, f.name);
       // A `len-*` bound is CHECKED as a code-point refine, which zod cannot
