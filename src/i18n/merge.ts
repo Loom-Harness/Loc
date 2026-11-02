@@ -3,9 +3,11 @@
 //
 // `git merge` for strings.  Three inputs, all flat `{ key: message }` objects:
 //
-//   BASE   locales/.loom/source.lock.json  — source snapshot at the last sync
-//   OURS   locales/<locale>.json           — the translator's current file
-//   THEIRS out/.loom/messages.en.json       — what codegen just extracted
+//   BASE   locales/.loom/source.lock/<ns>.json — source snapshot at the last sync
+//   OURS   locales/<locale>/<ns>.json          — the translator's current file
+//   THEIRS .loom/messages.<source>.json         — what codegen just extracted
+//
+// The merge runs once per namespace file: `Catalog` here is one file's content.
 //
 // The current extraction (THEIRS) is the authority for WHICH keys exist; the
 // translator's file (OURS) is the authority for their VALUES.  BASE lags THEIRS
@@ -50,6 +52,11 @@ export interface MergeReport {
   dropped: string[];
   /** Same-key source changes over a human translation — conflict markers written. */
   conflicted: string[];
+  /** Keys whose source only RENAMED its placeholders (`Order {id}` ->
+   *  `Order {number}`): the translation is carried with its holes renamed to
+   *  match.  The file changes, so this counts as pending, but no human has to
+   *  look at it. */
+  updated: string[];
   /** Translations moved onto a new `pack.*` key by the design-pack family
    *  carry-over (case 5 below).  Each names the key that RECEIVED the
    *  translation and the now-dropped key it came from, so `sync` can list them
@@ -224,15 +231,20 @@ function planPackFamilyCarry(
  *  1. New key       — in THEIRS, not in OURS            → `TODO: <source>`.
  *  2. Deleted key   — in OURS, not in THEIRS            → dropped (or `_stale`).
  *  3. Unchanged     — in THEIRS & OURS, source == BASE  → keep OURS.
- *  4. Source-changed— same key, THEIRS != BASE, has OURS→ conflict markers.
+ *  4. Source-changed— same key, THEIRS != BASE, has OURS→ conflict markers,
+ *     unless the two differ only in placeholder NAMES (the key hashes the
+ *     positional form, so a renamed hole keeps its key): then OURS' holes are
+ *     renamed to match and the key is reported `updated`.
  *  5. Pack family swap — `pack.<family>.<role>.<hash>` re-keyed by a design-pack
  *     swap alone (same role, same message hash) → the translation is CARRIED
  *     onto the new key instead of being dropped and re-TODO'd.  See the case-5
  *     note above for the four preconditions and the ambiguity rule.
  *
  * Content-hashed keys (page/component/menu) turn case 4 into a clean
- * delete-old + add-new (the rephrased string gets a new hash key), so the
- * conflict path only fires for stable named keys.
+ * delete-old + add-new (the rephrased string gets a new hash key) - except
+ * when only a placeholder was renamed, which keeps the key; that is the
+ * rename path above.  The conflict path therefore fires for stable named keys
+ * and for a hashed key whose wording changed in a way the hash ignores.
  */
 export function mergeCatalog(
   base: Catalog,
@@ -241,7 +253,14 @@ export function mergeCatalog(
   options: MergeOptions = {},
 ): MergeResult {
   const merged: Catalog = {};
-  const report: MergeReport = { added: [], kept: [], dropped: [], conflicted: [], carried: [] };
+  const report: MergeReport = {
+    added: [],
+    kept: [],
+    dropped: [],
+    conflicted: [],
+    updated: [],
+    carried: [],
+  };
   const carry = planPackFamilyCarry(base, ours, theirs);
 
   for (const key of Object.keys(theirs).sort()) {
@@ -263,10 +282,15 @@ export function mergeCatalog(
         report.added.push(key);
       }
     } else if (based !== undefined && based !== source) {
-      // Case 4 — the source moved under a translation that's still here (only
-      // reachable for stable named keys; hashed keys re-key instead).
-      merged[key] = conflictMarker(translated, based, source);
-      report.conflicted.push(key);
+      // Case 4 — the source moved under a translation that's still here.
+      const renamed = renamePlaceholders(translated, based, source);
+      if (renamed !== undefined) {
+        merged[key] = renamed;
+        report.updated.push(key);
+      } else {
+        merged[key] = conflictMarker(translated, based, source);
+        report.conflicted.push(key);
+      }
     } else {
       // Case 3 — unchanged, or new-since-base but already translated.
       merged[key] = translated;
@@ -290,6 +314,50 @@ export function mergeCatalog(
   return result(merged, report);
 }
 
+// ---------------------------------------------------------------------------
+// Placeholder renames (case 4, rename path).
+//
+// An interpolated message is stored with NAMED holes (`Order {id}`) but keyed
+// by its POSITIONAL form (`Order {0}`), so renaming the interpolated field
+// keeps the key while the stored text changes.  That is not a wording change:
+// the translation is still right once its holes carry the new names.
+// ---------------------------------------------------------------------------
+
+/** A named ICU hole: `{name}` or `{name, type…}` (the name is the capture). */
+const NAMED_HOLE = /\{\s*([A-Za-z_$][\w$]*)\s*(?=[,}])/g;
+
+/** The hole names of `message` in order of first appearance, and the message
+ *  with each name replaced by its position (`Order {0}`). */
+function positionalForm(message: string): { form: string; names: string[] } {
+  const names: string[] = [];
+  const form = message.replace(NAMED_HOLE, (_whole, name: string) => {
+    let index = names.indexOf(name);
+    if (index < 0) index = names.push(name) - 1;
+    return `{${index}`;
+  });
+  return { form, names };
+}
+
+/** OURS with the placeholders BASE named one way renamed to the way THEIRS
+ *  names them, or undefined when BASE and THEIRS differ in anything but
+ *  placeholder names (a real wording change, which stays a conflict).
+ *
+ *  Holes pair up by position in the source (BASE's n-th hole is THEIRS' n-th),
+ *  not by position in OURS: a translation may reorder them. */
+function renamePlaceholders(ours: string, base: string, theirs: string): string | undefined {
+  const b = positionalForm(base);
+  const t = positionalForm(theirs);
+  if (b.form !== t.form || b.names.length !== t.names.length) return undefined;
+  const rename = new Map<string, string>();
+  b.names.forEach((name, i) => {
+    rename.set(name, t.names[i]!);
+  });
+  return ours.replace(NAMED_HOLE, (whole, name: string) => {
+    const to = rename.get(name);
+    return to === undefined ? whole : whole.replace(name, to);
+  });
+}
+
 function result(merged: Catalog, report: MergeReport): MergeResult {
   // Stable, key-sorted output so the written file diffs cleanly.
   const sorted: Catalog = {};
@@ -297,13 +365,18 @@ function result(merged: Catalog, report: MergeReport): MergeResult {
   return { merged: sorted, report };
 }
 
-/** True when a merge would change anything a human must look at — a new
- *  `TODO`, a conflict, or a dropped key.  Drives `status`/`sync` exit codes.
+/** True when a merge would change the file — a new `TODO`, a conflict, a
+ *  renamed placeholder, or a dropped key.  Drives `status`/`sync` exit codes.
  *
  *  A case-5 carry-over needs no arm of its own: a carry exists only where a
  *  donor key was dropped, so `dropped` is already non-empty whenever `carried`
  *  is.  (`status` therefore still says "pending" after a pack swap, which is
  *  right — the file on disk is about to change.) */
 export function reportHasPending(report: MergeReport): boolean {
-  return report.added.length > 0 || report.conflicted.length > 0 || report.dropped.length > 0;
+  return (
+    report.added.length > 0 ||
+    report.conflicted.length > 0 ||
+    report.updated.length > 0 ||
+    report.dropped.length > 0
+  );
 }

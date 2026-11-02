@@ -65,6 +65,7 @@ import {
   isEventDecl,
   isExpectStmt,
   isFunctionDecl,
+  isI18nBlock,
   isInvariant,
   isLayout,
   isMigration,
@@ -126,6 +127,7 @@ import type {
   EventIR,
   ExprIR,
   FieldIR,
+  I18nIR,
   IdValueType,
   LayoutIR,
   LoadPlanIR,
@@ -163,7 +165,7 @@ import type {
   ValueObjectIR,
   WorkflowIR,
 } from "../types/loom-ir.js";
-import { lit } from "../types/loom-ir.js";
+import { DEFAULT_SOURCE_LOCALE, lit } from "../types/loom-ir.js";
 import { type ApiOperationIR, deriveContextOperations } from "../util/api-surface.js";
 import { classifyPage, type PageKind, type PageNameCtx } from "../util/page-kind.js";
 import { computePermissionClosures, type PermissionEdge } from "../util/permission-closure.js";
@@ -602,6 +604,8 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
   // (otherwise reserved for aggregate identity) is admissible.
   let user: UserIR | undefined;
   let theme: ThemeIR | undefined;
+  let i18n: I18nIR = { source: DEFAULT_SOURCE_LOCALE };
+  let i18nSeen = false;
   let auth: AuthIR | undefined;
   let tenancy: TenancyIR | undefined;
   for (const m of members) {
@@ -631,6 +635,12 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
         claimField: m.claim?.ref?.name ?? m.claim?.$refText ?? "",
         registryName: m.registry?.ref?.name ?? m.registry?.$refText ?? "",
       };
+    } else if (isI18nBlock(m)) {
+      // At most one block (validator enforces); the first wins.
+      if (m.source !== undefined && i18n.source === DEFAULT_SOURCE_LOCALE && !i18nSeen) {
+        i18n = { source: m.source };
+      }
+      i18nSeen = true;
     } else if (isThemeBlock(m)) {
       // Theme props are name/value pairs; we lower into a typed
       // partial.  Validation (known names, hex colours, radius
@@ -890,6 +900,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
     auth,
     tenancy,
     theme,
+    i18n,
     uis,
     apis,
     storages,

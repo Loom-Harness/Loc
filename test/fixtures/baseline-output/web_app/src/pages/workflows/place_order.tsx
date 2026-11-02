@@ -20,11 +20,11 @@ export default function PlaceOrderWorkflow() {
   return (
     <Stack gap="md" data-testid="workflow-place_order-page">
       <Breadcrumbs>
-        <Anchor component={RouterLink} to="/">{t("page.PlaceOrderWorkflow.anchor.n0mxf2", "Home")}</Anchor>
-        <Anchor component={RouterLink} to="/workflows">{t("page.PlaceOrderWorkflow.anchor.qrue75", "Workflows")}</Anchor>
-        <Text>{t("page.PlaceOrderWorkflow.text.gb2crw", "Place Order")}</Text>
+        <Anchor component={RouterLink} to="/">{t("WebApp.page.PlaceOrderWorkflow.anchor.n0mxf2", "Home")}</Anchor>
+        <Anchor component={RouterLink} to="/workflows">{t("WebApp.page.PlaceOrderWorkflow.anchor.qrue75", "Workflows")}</Anchor>
+        <Text>{t("WebApp.page.PlaceOrderWorkflow.text.gb2crw", "Place Order")}</Text>
       </Breadcrumbs>
-      <Title order={2}>{t("page.PlaceOrderWorkflow.heading.gb2crw", "Place Order")}</Title>
+      <Title order={2}>{t("WebApp.page.PlaceOrderWorkflow.heading.gb2crw", "Place Order")}</Title>
       <Card withBorder padding="md">
         <form onSubmit={handleSubmit(async (vals) => {
                   try {

@@ -130,6 +130,11 @@ const PINNED: Record<string, Pin> = {
       "Late-bound `printStmt` reference, installed once to break the " +
       "print-expr / print-stmt import cycle.  Never reassigned per call.",
   },
+  "src/generator/_walker/source-text.ts:active": {
+    discipline: "scoped-restore",
+    reason:
+      "`withSourceOverrides` saves the previous override set and restores it in a `finally`; `sourceText` only reads it.",
+  },
   "src/language/print/print-expr.ts:currentCol": {
     discipline: "scoped-restore",
     reason: "`withColumn` and `atColumn` both restore the prior column in a `finally`.",

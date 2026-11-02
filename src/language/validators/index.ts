@@ -104,6 +104,7 @@ export {
 export {
   checkApiBodyRefs,
   checkComponent,
+  checkI18nBlock,
   checkLayout,
   checkMenuBlock,
   checkPage,

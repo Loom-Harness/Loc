@@ -942,6 +942,16 @@
     "paramName",
     "stateField"
   ],
+  "i18n": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "id": [
     "lValue",
     "memberAccess",
@@ -2139,6 +2149,16 @@
     "stateField"
   ],
   "sort": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "source": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",

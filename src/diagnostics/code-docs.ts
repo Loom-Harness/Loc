@@ -51,6 +51,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.param-default-unsupported": "06-behavior-and-statements.md#parameter-defaults",
   "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
+  "loom.i18n-source-invalid": "02-systems-and-topology.md#i18n",
+  "loom.i18n-duplicate": "02-systems-and-topology.md#i18n",
   "loom.unconstructible-server-field":
     "03-domain-modeling.md#a-server-owned-field-must-have-a-value",
   "loom.ambiguous-enum-value": "03-domain-modeling.md#bare-values-across-two-enums",

@@ -12,7 +12,7 @@ import { Controller, useForm } from "react-hook-form";
 import { useCustomerById } from "../../api/customer";
 function openUpdateModal(mut: ReturnType<typeof useUpdateCustomer>): void {
   modals.open({
-    title: t("page.Detail.modalTitle.uk4kus", "Update"),
+    title: t("WebApp.page.Detail.modalTitle.uk4kus", "Update"),
     closeButtonProps: { "aria-label": t("chrome.close", "Close") },
     children: <UpdateForm mut={mut} onClose={() => modals.closeAll()} />,
   });
@@ -70,11 +70,11 @@ export default function CustomerDetail() {
   return (
     <Stack gap="md" data-testid="customers-detail">
       <Breadcrumbs>
-        <Anchor component={RouterLink} to="/">{t("page.Detail.anchor.n0mxf2", "Home")}</Anchor>
-        <Anchor component={RouterLink} to="/customers">{t("page.Detail.anchor.vweyym", "Customers")}</Anchor>
-        <Text>{t("page.Detail.text.ei31dg", "Detail")}</Text>
+        <Anchor component={RouterLink} to="/">{t("WebApp.page.Detail.anchor.n0mxf2", "Home")}</Anchor>
+        <Anchor component={RouterLink} to="/customers">{t("WebApp.page.Detail.anchor.vweyym", "Customers")}</Anchor>
+        <Text>{t("WebApp.page.Detail.text.ei31dg", "Detail")}</Text>
       </Breadcrumbs>
-      <Title order={2}>{t("page.Detail.heading.hw9b7u", "Customer detail")}</Title>
+      <Title order={2}>{t("WebApp.page.Detail.heading.hw9b7u", "Customer detail")}</Title>
       <>
         { customerById.isLoading && (
           <Stack gap="xs" aria-hidden="true">
@@ -84,23 +84,23 @@ export default function CustomerDetail() {
     </Stack>
         ) }
         { customerById.isError && (
-          <Alert color="red" variant="light">{t("page.Detail.alert.lz0k2j", "Couldn't load customer")}</Alert>
+          <Alert color="red" variant="light">{t("WebApp.page.Detail.alert.lz0k2j", "Couldn't load customer")}</Alert>
         ) }
         { !customerById.isLoading && !customerById.isError && !customerById.data && (
-          <Alert color="yellow" variant="light">{t("page.Detail.alert.lf0b2h", "No customer matches that id.")}</Alert>
+          <Alert color="yellow" variant="light">{t("WebApp.page.Detail.alert.lf0b2h", "No customer matches that id.")}</Alert>
         ) }
         { customerById.data && (
           <Stack gap="md">
             <Card withBorder padding="md">
               <Stack gap="md">
-                <KeyValueRow label={t("page.Detail.keyValue.7s11ax", "Username")} data-testid="customers-detail-username"><Text>{customerById.data.username}</Text></KeyValueRow>
-                <KeyValueRow label={t("page.Detail.keyValue.inbfc7", "Email")} data-testid="customers-detail-email"><Text>{customerById.data.email}</Text></KeyValueRow>
-                <KeyValueRow label={t("page.Detail.keyValue.3mcq4c", "Age")} data-testid="customers-detail-age"><Text>{customerById.data.age}</Text></KeyValueRow>
-                <KeyValueRow label={t("page.Detail.keyValue.oz7oad", "Display")} data-testid="customers-detail-display"><Text>{customerById.data.display}</Text></KeyValueRow>
+                <KeyValueRow label={t("WebApp.page.Detail.keyValue.7s11ax", "Username")} data-testid="customers-detail-username"><Text>{customerById.data.username}</Text></KeyValueRow>
+                <KeyValueRow label={t("WebApp.page.Detail.keyValue.inbfc7", "Email")} data-testid="customers-detail-email"><Text>{customerById.data.email}</Text></KeyValueRow>
+                <KeyValueRow label={t("WebApp.page.Detail.keyValue.3mcq4c", "Age")} data-testid="customers-detail-age"><Text>{customerById.data.age}</Text></KeyValueRow>
+                <KeyValueRow label={t("WebApp.page.Detail.keyValue.oz7oad", "Display")} data-testid="customers-detail-display"><Text>{customerById.data.display}</Text></KeyValueRow>
               </Stack>
             </Card>
             <Group gap="xs">
-              <Button variant="filled" onClick={() => openUpdateModal(update)} data-testid="customers-op-update">{t("page.Detail.button.uk4kus", "Update")}</Button>
+              <Button variant="filled" onClick={() => openUpdateModal(update)} data-testid="customers-op-update">{t("WebApp.page.Detail.button.uk4kus", "Update")}</Button>
     
             </Group>
           </Stack>

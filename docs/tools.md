@@ -332,20 +332,38 @@ three-way merge core in `src/i18n/merge.ts` (CLI in `src/cli/i18n/`).
 
 | Command | What it does |
 |---|---|
-| `ddd i18n extract <file> [-o out]` | write the fresh source catalog to `<out>/.loom/messages.en.json` (front of the pipeline only, no codegen) |
-| `ddd i18n init <file> <locale>` | scaffold `locales/<locale>.json` (every key as `TODO:`) and the source lock if absent |
-| `ddd i18n sync <file> [--locale l] [--keep-stale]` | three-way merge every locale, then advance the lock; `--keep-stale` keeps source-deleted keys as `_stale.<key>` |
-| `ddd i18n status <file>` | what `sync` would do; exits non-zero if any locale has pending changes |
-| `ddd i18n check <file> [--strict]` | report `TODO:` values, unresolved conflict markers and missing keys; `--strict` exits non-zero on any finding (the CI gate) |
-| `ddd i18n prune <file>` | delete keys the source no longer emits (deliberate, never automatic) |
+| `ddd i18n extract <file> [-o out]` | write the fresh source catalog to `<out>/.loom/messages.<source>.json` (front of the pipeline only, no codegen) |
+| `ddd i18n init <file> <locale>` | scaffold `locales/<locale>/<ns>.json` (every key as `TODO:`) and the source lock if absent; the source language gets no scaffold |
+| `ddd i18n sync <file> [--locale l] [--keep-stale]` | three-way merge every locale (one file at a time), then advance the lock; migrates a flat `locales/<locale>.json` tree to the split layout; `--keep-stale` keeps source-deleted keys as `_stale.<key>` |
+| `ddd i18n status <file>` | what `sync` would do, including a pending layout migration; exits non-zero if anything is pending |
+| `ddd i18n check <file> [--strict]` | report `TODO:` values, unresolved conflict markers, missing keys and source overrides the source no longer emits; `--strict` exits non-zero on any finding (the CI gate) |
+| `ddd i18n prune <file>` | delete keys (and source overrides) the source no longer emits (deliberate, never automatic) |
 
 The translator tree defaults to `locales/` next to the `.ddd` file (`--dir`
 overrides it; `generate system --locales <dir>` reads the same tree):
 
-- **BASE** — `locales/.loom/source.lock.json`, the source catalog as of the last
-  successful sync;
-- **OURS** — `locales/<locale>.json`, owned by the translator;
+- **BASE** — `locales/.loom/source.lock/<ns>.json`, the source catalog as of the
+  last successful sync;
+- **OURS** — `locales/<locale>/<ns>.json`, owned by the translator;
 - **THEIRS** — the fresh extraction.
+
+**Layout.** One file per namespace, where `<ns>` is `_chrome`, `_system`, a
+bounded-context name or a `ui` name. `_chrome.json` stores keys verbatim
+(`chrome.*`, `pack.*`, `msg.*`, anything outside the other namespaces); every
+other file drops its `<ns>.` prefix, so `WebApp.page.Home.heading.k2f` lives in
+`locales/de/WebApp.json` as `page.Home.heading.k2f`. The mapping is
+`src/i18n/namespace.ts`. The merge runs per key and per file.
+
+A pre-split tree (`locales/<locale>.json` + `locales/.loom/source.lock.json`) is
+rewritten by `ddd i18n sync` (idempotent; legacy `page.*`/`component.*`/`menu.*`
+keys are re-filed under their ui). `sync` refuses a locale present in both
+layouts.
+
+**Source-language overrides.** `locales/<source>/<ns>.json` (the language named by
+`i18n { source }`, `en` by default) holds *overrides* of the source text, keyed
+like any other namespace file. They change the default every `t()` carries, the
+generated source catalog and the extraction, so editing one makes `sync` flag
+every translation of that string.
 
 **Why `sync` is a separate, deliberate step.** Codegen stays idempotent on the
 source tree and never writes under `locales/`; reconciling translations is a

@@ -41,8 +41,11 @@ import { chromeKey, chromeMessage } from "./i18n-chrome.js";
 import { icuFromConcat, literalString, messageKey } from "./i18n-extract.js";
 import { registerI18nImport } from "./render-primitive.js";
 import { namedArgValue, positionalArgs, unwrapTextLiteral } from "./shared/args.js";
+import { sourceText } from "./source-text.js";
 import type { StringPart } from "./target.js";
 import { emitExpr, renderTextContent, type WalkContext } from "./walker-core.js";
+
+export { sourceText, withSourceOverrides } from "./source-text.js";
 
 /** `t()` always returns a `string`, so the interpolation seam is told so.  The
  *  four JSX/markup targets ignore `exprType` (interpolation auto-coerces), which
@@ -87,6 +90,7 @@ function translateExpr(
   message: string,
   values?: ReadonlyArray<{ name: string; expr: string }>,
 ): string {
+  message = sourceText(key, message);
   if (ctx.target.renderTranslate) return ctx.target.renderTranslate({ key, message, values });
   const args = [JSON.stringify(key), JSON.stringify(message)];
   if (values) args.push(`{ ${values.map((v) => `${v.name}: ${v.expr}`).join(", ")} }`);

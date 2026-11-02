@@ -14,6 +14,7 @@ import { generateDotnet } from "../generator/dotnet/index.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel, lowerProject } from "../ir/lower/lower.js";
 import type { EnrichedLoomModel, TestOutcome } from "../ir/types/loom-ir.js";
+import { DEFAULT_SOURCE_LOCALE, sourceLocaleOf } from "../ir/types/loom-ir.js";
 import {
   irDiagnosticSourceRef,
   type LoomDiagnostic,
@@ -91,6 +92,7 @@ import {
   renderDiffReport,
 } from "./diff-report.js";
 import {
+  loadSourceOverrides,
   loadTranslations,
   runI18nCheck,
   runI18nExtract,
@@ -1132,6 +1134,9 @@ async function runGenerate(
     // its own.  No chain yet ⇒ each module's initial migration, derived from
     // the model.  See docs/migrations.md.
     try {
+      const sourceLocale = loom.systems[0]
+        ? sourceLocaleOf(loom.systems[0])
+        : DEFAULT_SOURCE_LOCALE;
       const emission = generateSystemsFromLoom(loom, {
         emitTrace: options.emitTrace,
         emitKubernetes: options.emitKubernetes,
@@ -1141,7 +1146,13 @@ async function runGenerate(
         // Locale catalogs from the translator tree (`ddd i18n init/sync`).
         // Read HERE, not in `src/system/`, which stays fs-free — the same
         // split `sourceTexts` uses.  Empty map ⇒ nothing changes.
-        translations: loadTranslations(file, { dir: options.localesDir }),
+        translations: loadTranslations(file, { dir: options.localesDir, source: sourceLocale }),
+        // The source language's own `locales/<source>/` directory: overrides of
+        // the text the model derives, applied to every emitted default.
+        sourceOverrides: loadSourceOverrides(file, {
+          dir: options.localesDir,
+          source: sourceLocale,
+        }),
         // Harmless to pass unconditionally — v3 sidecar emission is still
         // gated on `sourcemap` inside `generateSystemsFromLoom`.
         sourceTexts,
@@ -2522,7 +2533,7 @@ const i18n = program
 i18n
   .command("extract <file>")
   .description(
-    "Write the fresh source catalog to <out>/.loom/messages.en.json (phases ①–⑥, no codegen).",
+    "Write the fresh source catalog to <out>/.loom/messages.<source>.json (phases ①–⑥, no codegen).",
   )
   .option("-o, --out <dir>", "output directory (default: the .ddd file's dir)")
   .action(async (file: string, options: { out?: string }) => {
@@ -2531,7 +2542,9 @@ i18n
 
 i18n
   .command("init <file> <locale>")
-  .description("Scaffold locales/<locale>.json (all keys as TODO) and the source lock if absent.")
+  .description(
+    "Scaffold locales/<locale>/<ns>.json (all keys as TODO) and the source lock if absent.",
+  )
   .option("--dir <dir>", "translator tree root (default: <.ddd file's dir>/locales)")
   .action(async (file: string, locale: string, options: { dir?: string }) => {
     await runI18nInit(file, locale, options);

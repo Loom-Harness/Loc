@@ -25,6 +25,7 @@ import type {
   UserIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { sourceLocaleOf } from "../../ir/types/loom-ir.js";
 import { backendServesRealtime } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesDataGrid } from "../../ir/util/data-grid.js";
@@ -50,8 +51,10 @@ import { deriveSidebarFromUi, type NavSectionVM } from "../_frontend/menu-emitte
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { APP_SHELL_CHROME, chromeKey } from "../_walker/i18n-chrome.js";
+import { pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import { bcByAggregateOf, type PagedQueryContext } from "../_walker/paged-query.js";
+import { sourceText } from "../_walker/source-text.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import {
@@ -468,7 +471,7 @@ function renderPageView(
     // i18n key prefix — `page.<Name>` matches the catalog (the scaffold's
     // role-scoped `page.name`, e.g. `List`, not the router emit name);
     // undefined when the ui has no extractable strings (byte-identical).
-    i18nEnabled ? `page.${page.name}` : undefined,
+    i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
   );
   if (used) {
     for (const c of result.usedUserComponents) used.components.add(c);
@@ -752,7 +755,9 @@ function renderNavbar(
       ? `(match model.CurrentUser with Some currentUser when ${renderFelizGate(page.requires, "currentUser")} -> ${li} | _ -> Html.none)`
       : li;
   const label = (text: string, key: string | undefined): string =>
-    i18nEnabled && key ? `(I18n.t ${fsString(key)} ${fsString(text)})` : fsString(text);
+    i18nEnabled && key
+      ? `(I18n.t ${fsString(key)} ${fsString(sourceText(key, text))})`
+      : fsString(text);
   let entries: string[];
   if (menu) {
     entries = menu.flatMap((section) => [
@@ -1269,6 +1274,8 @@ function renderAppFs(
    *  cannot recover them from the finished string — it collects them here and
    *  anchors each one afterwards. */
   onPageView?: (page: PageIR, viewText: string) => void,
+  /** The system's source language — the catalog the `I18n` module falls back to. */
+  sourceLocale?: string,
 ): string {
   const pages = ui.pages;
   if (pages.length === 0) {
@@ -1585,6 +1592,7 @@ function renderAppFs(
     externFunctionNames,
     authUi,
     i18nEnabled,
+    uiName: ui.name,
     emittedRecords,
     // The Model fields the record ACTUALLY declares — same `reads` list
     // `renderModel` is built from, so a component naming `model.<Field>` can
@@ -1750,7 +1758,7 @@ function renderAppFs(
     // else: F# is order-sensitive and every page view below calls into it, while
     // the module itself references nothing.
     i18nEnabled ? "" : false,
-    i18nEnabled ? renderFelizI18nModule(ui) : false,
+    i18nEnabled ? renderFelizI18nModule(ui, sourceLocale) : false,
     // Auth session gate — SessionState (gates the Model) + the Auth probe module.
     // Under a page gate the probe decodes the verified claims into `CurrentUser`
     // (record + decoder ahead of the claims-variant Auth module); a gate-free
@@ -2131,8 +2139,8 @@ EXPOSE 3000
 CMD ["nginx", "-g", "daemon off;"]
 `;
 
-const INDEX_HTML = (theme: string, title: string): string => `<!doctype html>
-<html lang="en" data-theme="${theme}">
+const INDEX_HTML = (theme: string, title: string, lang: string): string => `<!doctype html>
+<html lang="${lang}" data-theme="${theme}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -2225,6 +2233,7 @@ export function generateFelizForContexts(
     // SAME gate the app's other authenticated traffic rides.
     realtimeStreamCredential(deployable, target, sys.user),
     options.sourcemap ? (page, text) => pageViews.push({ page, text }) : undefined,
+    sourceLocaleOf(sys),
   );
   out.set("src/App.fs", appFs);
   if (options.sourcemap) {
@@ -2257,7 +2266,7 @@ export function generateFelizForContexts(
       target ? { port: deployable.port, apiTarget: `http://localhost:${target.port}` } : undefined,
     ),
   );
-  out.set("index.html", INDEX_HTML(theme, humanize(sys.name)));
+  out.set("index.html", INDEX_HTML(theme, humanize(sys.name), sourceLocaleOf(sys)));
   out.set("styles.css", STYLES_CSS);
   out.set("tailwind.config.js", TAILWIND_CONFIG(theme));
   out.set("postcss.config.js", POSTCSS_CONFIG);

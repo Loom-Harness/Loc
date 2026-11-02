@@ -72,7 +72,7 @@ describe("vue pack format groundwork", () => {
     expect(pack.templates.has("api-client")).toBe(true);
     // index-html resolves to the VUE shared layer (mounts /src/main.ts
     // into #app), not the React `vite/` one (/src/main.tsx into #root).
-    const indexHtml = pack.render("index-html", { title: "t" });
+    const indexHtml = pack.render("index-html", { title: "t", lang: "en" });
     expect(indexHtml).toContain('<div id="app">');
     expect(indexHtml).toContain("/src/main.ts");
     expect(indexHtml).not.toContain("main.tsx");

@@ -313,8 +313,8 @@ describe("menu emitter", () => {
         ["Aggregates", ["/orders"]],
         ["Work", ["/board"]],
       ]);
-      expect(sidebar[0]!.labelKey).toMatch(/^page\.List\.menu\.section\./);
-      expect(sidebar[0]!.entries[0]!.labelKey).toMatch(/^page\.List\.menu\.label\./);
+      expect(sidebar[0]!.labelKey).toMatch(/^\w+\.page\.List\.menu\.section\./);
+      expect(sidebar[0]!.entries[0]!.labelKey).toMatch(/^\w+\.page\.List\.menu\.label\./);
     });
 
     it("an explicit ui-level menu block still REPLACES the defaults", async () => {

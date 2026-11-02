@@ -48,7 +48,7 @@ describe("MultilineField + SelectField with bind: state binding", () => {
     expect(content).toMatch(/import \{ Textarea \} from "@mantine\/core";/);
     expect(content).toMatch(/const \[notes, setNotes\] = useState<string>\(""\);/);
     expect(content).toMatch(
-      /<Textarea label=\{t\("page\.\w+\.inputLabel\.\w+", "Notes"\)\} value=\{notes\} onChange=\{\(e\) => setNotes\(e\.currentTarget\.value\)\} \/>/,
+      /<Textarea label=\{t\("\w+\.page\.\w+\.inputLabel\.\w+", "Notes"\)\} value=\{notes\} onChange=\{\(e\) => setNotes\(e\.currentTarget\.value\)\} \/>/,
     );
   });
 
@@ -60,7 +60,7 @@ describe("MultilineField + SelectField with bind: state binding", () => {
     expect(content).toMatch(/import \{ Select \} from "@mantine\/core";/);
     expect(content).toContain('data={ ["EU", "US"] }');
     expect(content).toMatch(
-      /<Select label=\{t\("page\.\w+\.inputLabel\.\w+", "Region"\)\} data=\{ \["EU", "US"\] \} value=\{region\} onChange=\{\(v\) => setRegion\(v \?\? ""\)\} \/>/,
+      /<Select label=\{t\("\w+\.page\.\w+\.inputLabel\.\w+", "Region"\)\} data=\{ \["EU", "US"\] \} value=\{region\} onChange=\{\(v\) => setRegion\(v \?\? ""\)\} \/>/,
     );
   });
 
@@ -69,6 +69,8 @@ describe("MultilineField + SelectField with bind: state binding", () => {
       page(`MultilineField { "Notes" }`, `unused: string = ""`),
     );
     const content = files.get("web/src/pages/form.tsx")!;
-    expect(content).toMatch(/<Textarea label=\{t\("page\.\w+\.inputLabel\.\w+", "Notes"\)\} \/>/);
+    expect(content).toMatch(
+      /<Textarea label=\{t\("\w+\.page\.\w+\.inputLabel\.\w+", "Notes"\)\} \/>/,
+    );
   });
 });

@@ -2635,6 +2635,10 @@ export interface SystemIR {
    *  emitter translates the framework-agnostic tokens into Mantine /
    *  shadcn / etc. theming knobs. */
   theme?: ThemeIR;
+  /** System-wide i18n settings.  Always present: `source` is the declared
+   *  `i18n { source: … }` tag, or {@link DEFAULT_SOURCE_LOCALE} when the block
+   *  is absent. */
+  i18n: I18nIR;
   /** UI declarations at system scope.  Each is referenced by
    *  zero-or-more deployables via `DeployableIR.uiName`.  Empty when
    *  the system declares no `ui { ... }` blocks.  Order preserves
@@ -2776,6 +2780,21 @@ export type StorageKind =
  *  the platform's defaults.  Color values are validated to be
  *  CSS hex strings (#RGB / #RRGGBB / #RRGGBBAA); radius is one
  *  of the five named scale steps. */
+/** The default source language of a system with no `i18n { … }` block. */
+export const DEFAULT_SOURCE_LOCALE = "en";
+
+/** The source language of a system.  Tolerates a hand-built system with no
+ *  `i18n` (the default source). */
+export function sourceLocaleOf(sys: { i18n?: I18nIR }): string {
+  return sys.i18n?.source ?? DEFAULT_SOURCE_LOCALE;
+}
+
+/** The resolved `i18n { … }` block of a system. */
+export interface I18nIR {
+  /** BCP-47 tag of the language the `.ddd` text is written in. */
+  source: string;
+}
+
 export interface ThemeIR {
   /** Brand color — e.g. "#3b82f6".  Mantine emitter generates a
    *  10-shade ramp from this hex and registers it as the project's

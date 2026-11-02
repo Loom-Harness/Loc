@@ -15,12 +15,12 @@ export default function OrderList() {
   return (
     <Stack gap="md" data-testid="orders-list">
       <Breadcrumbs>
-        <Anchor component={RouterLink} to="/">{t("page.List.anchor.n0mxf2", "Home")}</Anchor>
-        <Text>{t("page.List.text.xf3i18", "Orders")}</Text>
+        <Anchor component={RouterLink} to="/">{t("WebApp.page.List.anchor.n0mxf2", "Home")}</Anchor>
+        <Text>{t("WebApp.page.List.text.xf3i18", "Orders")}</Text>
       </Breadcrumbs>
       <Group justify="space-between" align="center" gap="md" role="toolbar" aria-label="Actions">
-        <Title order={2}>{t("page.List.heading.xf3i18", "Orders")}</Title>
-        <Button onClick={() => navigate("/orders/new")} data-testid="orders-list-create">{t("page.List.button.i38a1x", "New order")}</Button>
+        <Title order={2}>{t("WebApp.page.List.heading.xf3i18", "Orders")}</Title>
+        <Button onClick={() => navigate("/orders/new")} data-testid="orders-list-create">{t("WebApp.page.List.button.i38a1x", "New order")}</Button>
       </Group>
       <>
         { orderAll.isLoading && (
@@ -31,20 +31,20 @@ export default function OrderList() {
     </Stack>
         ) }
         { orderAll.isError && (
-          <Alert color="red" variant="light">{t("page.List.alert.cpshqe", "Couldn't load orders")}</Alert>
+          <Alert color="red" variant="light">{t("WebApp.page.List.alert.cpshqe", "Couldn't load orders")}</Alert>
         ) }
         { orderAll.data && orderAll.data.items.length === 0 && (
-          <Center mih={200}><Text c="dimmed">{t("page.List.empty.louti1", "No orders yet.")}</Text></Center>
+          <Center mih={200}><Text c="dimmed">{t("WebApp.page.List.empty.louti1", "No orders yet.")}</Text></Center>
         ) }
         { orderAll.data && orderAll.data.items.length > 0 && (
           <Paper p="md">
             <><div className="loom-table-scroll" style={{ width: "100%", overflowX: "auto" }}><Table striped highlightOnHover stickyHeader>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "id") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("id"); setSortDir("asc"); } }}>{t("page.List.columnHeader.o4495s", "ID")}{sortKey === "id" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "customerId") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("customerId"); setSortDir("asc"); } }}>{t("page.List.columnHeader.0ysfxy", "Customer Id")}{sortKey === "customerId" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "status") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("status"); setSortDir("asc"); } }}>{t("page.List.columnHeader.03pd73", "Status")}{sortKey === "status" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "placedAt") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("placedAt"); setSortDir("asc"); } }}>{t("page.List.columnHeader.cl05q5", "Placed At")}{sortKey === "placedAt" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
+                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "id") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("id"); setSortDir("asc"); } }}>{t("WebApp.page.List.columnHeader.o4495s", "ID")}{sortKey === "id" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
+                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "customerId") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("customerId"); setSortDir("asc"); } }}>{t("WebApp.page.List.columnHeader.0ysfxy", "Customer Id")}{sortKey === "customerId" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
+                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "status") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("status"); setSortDir("asc"); } }}>{t("WebApp.page.List.columnHeader.03pd73", "Status")}{sortKey === "status" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
+                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "placedAt") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("placedAt"); setSortDir("asc"); } }}>{t("WebApp.page.List.columnHeader.cl05q5", "Placed At")}{sortKey === "placedAt" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>

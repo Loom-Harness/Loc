@@ -7,6 +7,7 @@ import {
   type EnrichedBoundedContextIR,
   type PageIR,
   type SystemIR,
+  sourceLocaleOf,
   type UiIR,
   uiUsesMoney,
 } from "../../ir/types/loom-ir.js";
@@ -254,12 +255,17 @@ export function generateReactForContexts(
     // the loader).  The shim imports and registers exactly the locales emitted
     // here, so what the translator wrote is what the app can resolve — with no
     // translator tree the list is empty and the shim is byte-identical.
-    out.set("src/locales/en.json", renderLocaleCatalog(ui, packChrome));
-    const translated = renderTranslatedCatalogs(ui, options.translations, packChrome);
+    out.set(`src/locales/${sourceLocaleOf(sys)}.json`, renderLocaleCatalog(ui, packChrome));
+    const translated = renderTranslatedCatalogs(
+      ui,
+      options.translations,
+      packChrome,
+      sourceLocaleOf(sys),
+    );
     for (const [locale, content] of translated) {
       out.set(`src/locales/${locale}.json`, content);
     }
-    out.set("src/i18n.ts", renderI18nModule([...translated.keys()]));
+    out.set("src/i18n.ts", renderI18nModule([...translated.keys()], sourceLocaleOf(sys)));
   }
   const pages = emitPagesForUi(ui, emitCtx);
   for (const [path, content] of pages) out.set(path, content);
@@ -639,6 +645,7 @@ export function generateReactForContexts(
 
 interface IndexHtmlVM {
   title: string;
+  lang: string;
   description?: string;
   ogImage?: string;
   canonical?: string;
@@ -655,6 +662,7 @@ function prepareIndexHtmlVM(sys: SystemIR, deployable: DeployableIR, ui: UiIR): 
   const metadata = page?.metadata;
   return {
     title,
+    lang: sourceLocaleOf(sys),
     description: metadata?.description,
     ogImage: metadata?.ogImage,
     canonical: metadata?.canonical,

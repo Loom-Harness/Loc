@@ -18,11 +18,11 @@ export default function ProductNew() {
   return (
     <Stack gap="md" data-testid="products-new-page">
       <Breadcrumbs>
-        <Anchor component={RouterLink} to="/">{t("page.New.anchor.n0mxf2", "Home")}</Anchor>
-        <Anchor component={RouterLink} to="/products">{t("page.New.anchor.kdfstp", "Products")}</Anchor>
-        <Text>{t("page.New.text.2ludo1", "New")}</Text>
+        <Anchor component={RouterLink} to="/">{t("WebApp.page.New.anchor.n0mxf2", "Home")}</Anchor>
+        <Anchor component={RouterLink} to="/products">{t("WebApp.page.New.anchor.kdfstp", "Products")}</Anchor>
+        <Text>{t("WebApp.page.New.text.2ludo1", "New")}</Text>
       </Breadcrumbs>
-      <Title order={2}>{t("page.New.heading.lcl3va", "Create product")}</Title>
+      <Title order={2}>{t("WebApp.page.New.heading.lcl3va", "Create product")}</Title>
       <Card withBorder padding="md">
         <form onSubmit={handleSubmit(async (vals) => {
                   try {

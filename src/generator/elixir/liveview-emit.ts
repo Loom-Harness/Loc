@@ -58,6 +58,7 @@ import {
 } from "../_frontend/e2e-harness.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
+import { componentKeyPrefix, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { opUsesCurrentUser } from "./domain/predicates.js";
 import {
   type ActionBinding,
@@ -363,7 +364,7 @@ export function emitLiveViewPages(args: {
       partContextModule,
       contextModuleByAggName,
       contextByAggName,
-      i18nEnabled ? `component.${c.name}` : undefined,
+      i18nEnabled ? componentKeyPrefix(ui, c) : undefined,
       c.name,
     );
     componentInfo.set(c.name, {
@@ -876,7 +877,7 @@ function renderLiveView(a: RenderArgs): {
     // i18n key prefix — `page.<Name>` matches the catalog (the scaffold's
     // role-scoped `page.name`, not the router emit name); undefined when the ui
     // has no extractable strings (byte-identical to pre-i18n).
-    a.i18nEnabled ? `page.${page.name}` : undefined,
+    a.i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
     undefined,
     a.refLabelBatchAggs,
   );
@@ -2388,7 +2389,7 @@ function renderUiComponents(args: {
         partContextModule,
         contextModuleByAggName,
         args.bcByAggregate,
-        args.i18nEnabled ? `component.${c.name}` : undefined,
+        args.i18nEnabled ? componentKeyPrefix(ui, c) : undefined,
         c.name,
       );
       // Lifted state arrives as an attr of the same namespaced name the host

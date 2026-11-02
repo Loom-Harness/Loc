@@ -51,7 +51,7 @@ import {
   renderPrimitive,
   type WalkContext,
 } from "./heex-walker-core.js";
-import { elixirI18nString, formChromeAttr } from "./i18n.js";
+import { elixirI18nString, formChromeAttr, pgettextCall } from "./i18n.js";
 import { liveViewCallsOp, servesCanProbe } from "./vanilla/op-form.js";
 // ---------------------------------------------------------------------------
 // Scaffold expander primitive renderers.
@@ -2087,7 +2087,7 @@ function heexChrome(
   const message = chromeMessage(name);
   const english = message.replace(/\{(\w+)\}/g, (whole, hole: string) => holes[hole] ?? whole);
   if (!ctx.i18nPrefix) return { english };
-  let call = `pgettext(${elixirI18nString(chromeKey(name))}, ${elixirI18nString(message)})`;
+  let call = pgettextCall(chromeKey(name), message);
   for (const [hole, value] of Object.entries(holes)) {
     call = `String.replace(${call}, ${elixirI18nString(`{${hole}}`)}, ${elixirI18nString(value)})`;
   }

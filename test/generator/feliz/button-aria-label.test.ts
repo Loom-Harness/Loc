@@ -28,7 +28,9 @@ describe("feliz Button — label: → prop.ariaLabel (a11y)", () => {
     // extractable strings and the accessible name rides the translation runtime
     // (M-T1.11 / D-I18N-ATTR).  Before that seam the pack read the RAW label and
     // shipped `prop.ariaLabel "Delete item"` — English at every locale.
-    expect(app).toMatch(/prop\.ariaLabel \(I18n\.t "page\.\w+\.buttonAria\.\w+" "Delete item"\)/);
+    expect(app).toMatch(
+      /prop\.ariaLabel \(I18n\.t "\w+\.page\.\w+\.buttonAria\.\w+" "Delete item"\)/,
+    );
   });
 
   it("a plain text Button gets no ariaLabel (its text is the name)", async () => {
@@ -38,7 +40,7 @@ describe("feliz Button — label: → prop.ariaLabel (a11y)", () => {
     // runtime (M-T1.11); `prop.text` takes a string, so the `I18n.t` ELEMENT
     // goes through `prop.children` instead.
     expect(app).toMatch(
-      /prop\.children \[ Html\.text \(\(I18n\.t "page\.\w+\.button\.\w+" "Save"\)\) \]/,
+      /prop\.children \[ Html\.text \(\(I18n\.t "\w+\.page\.\w+\.button\.\w+" "Save"\)\) \]/,
     );
   });
 });

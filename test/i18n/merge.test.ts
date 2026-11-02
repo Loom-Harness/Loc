@@ -86,6 +86,60 @@ describe("mergeCatalog — the four cases", () => {
   });
 });
 
+describe("mergeCatalog — placeholder renames", () => {
+  const K = "WebApp.page.P.text.k1";
+
+  it("a pure placeholder rename carries the translation with its holes renamed", () => {
+    const { merged, report } = mergeCatalog(
+      { [K]: "Order {id}" }, // BASE
+      { [K]: "Commande {id}" }, // OURS
+      { [K]: "Order {number}" }, // THEIRS
+    );
+    expect(merged[K]).toBe("Commande {number}");
+    expect(hasConflictMarkers(merged[K])).toBe(false);
+    expect(report.updated).toEqual([K]);
+    expect(report.conflicted).toEqual([]);
+  });
+
+  it("renames by source position, so a translation that reorders its holes follows", () => {
+    const { merged } = mergeCatalog(
+      { [K]: "{a} then {b}" },
+      { [K]: "{b} puis {a}" },
+      { [K]: "{x} then {y}" },
+    );
+    expect(merged[K]).toBe("{y} puis {x}");
+  });
+
+  it("keeps a hole's format suffix and swaps names without chaining", () => {
+    const { merged } = mergeCatalog(
+      { [K]: "{a, number} / {b}" },
+      { [K]: "{b} / {a, number}" },
+      { [K]: "{b, number} / {a}" },
+    );
+    expect(merged[K]).toBe("{a} / {b, number}");
+  });
+
+  it("a real wording change next to a rename still conflicts", () => {
+    const { merged, report } = mergeCatalog(
+      { [K]: "Order {id}" },
+      { [K]: "Commande {id}" },
+      { [K]: "Purchase {number}" },
+    );
+    expect(hasConflictMarkers(merged[K])).toBe(true);
+    expect(report.conflicted).toEqual([K]);
+    expect(report.updated).toEqual([]);
+  });
+
+  it("a format change is a wording change, not a rename", () => {
+    const { report } = mergeCatalog(
+      { [K]: "Total {t, number}" },
+      { [K]: "Total {t, number}" },
+      { [K]: "Total {t, date}" },
+    );
+    expect(report.conflicted).toEqual([K]);
+  });
+});
+
 describe("merge helpers", () => {
   it("output is key-sorted for a clean diff", () => {
     const { merged } = mergeCatalog({}, {}, { "b.k": "B", "a.k": "A" });
@@ -98,12 +152,14 @@ describe("merge helpers", () => {
       kept: [],
       dropped: [],
       conflicted: [],
+      updated: [],
       carried: [],
       ...over,
     });
     expect(reportHasPending(report({ added: ["x"] }))).toBe(true);
     expect(reportHasPending(report({ dropped: ["x"] }))).toBe(true);
     expect(reportHasPending(report({ conflicted: ["x"] }))).toBe(true);
+    expect(reportHasPending(report({ updated: ["x"] }))).toBe(true);
     expect(reportHasPending(report({ kept: ["x"] }))).toBe(false);
     // A carry always coexists with the dropped donor it came from, so it needs
     // no arm of its own here - but a carry-only report is still not "nothing

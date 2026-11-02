@@ -33,6 +33,7 @@ import {
   gridHasSelection,
   gridHasSortableColumn,
 } from "./primitives/data-grid-shape.js";
+import { sourceText } from "./source-text.js";
 
 /** Stable key for a pack-chrome string: `chrome.<name>`. */
 export function chromeKey(name: string): string {
@@ -145,7 +146,7 @@ export function opDialogChrome(submitLabel: string): OpDialogChrome {
 export function chromeMessage(name: string): string {
   const message = CHROME_MESSAGES[chromeKey(name)];
   if (message === undefined) throw new Error(`i18n-chrome: unknown chrome string "${name}"`);
-  return message;
+  return sourceText(chromeKey(name), message);
 }
 
 /** One catalog entry for a chrome name. */

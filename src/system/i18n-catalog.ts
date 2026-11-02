@@ -3,13 +3,14 @@ import { loadPack, resolvePackDir } from "../generator/_packs/loader-fs.js";
 import { packChromeCatalog } from "../generator/_packs/pack-chrome.js";
 import { chromeMergedWhenEnabled } from "../generator/_walker/i18n-chrome.js";
 import { collectUiMessages } from "../generator/_walker/i18n-extract.js";
+import { sourceText } from "../generator/_walker/source-text.js";
 import type { EnrichedSystemIR, UiIR } from "../ir/types/loom-ir.js";
 import { packFormatForBuiltin } from "../util/builtin-formats.js";
 
 // ---------------------------------------------------------------------------
-// `<system>/.loom/messages.en.json` artifact (M-T1.11, i18n.md).
+// `<system>/.loom/messages.<source>.json` artifact (M-T1.11, i18n.md).
 //
-// The source-language (English) message catalog: every user-visible string
+// The source-language message catalog: every user-visible string
 // extracted from the system's UIs, keyed by its stable content-hash key
 // (D-I18N-KEY).  One flat `{ key: message }` object, keys sorted, one per line
 // — the translator-friendly shape from i18n.md open-question #3, and the diff
@@ -86,7 +87,7 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
     for (const { code, text } of collectWireValidationMessages(sub.contexts)) byKey.set(code, text);
   }
   const out: Record<string, string> = {};
-  for (const key of [...byKey.keys()].sort()) out[key] = byKey.get(key)!;
+  for (const key of [...byKey.keys()].sort()) out[key] = sourceText(key, byKey.get(key)!);
   return out;
 }
 
