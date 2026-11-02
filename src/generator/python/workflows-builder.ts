@@ -51,6 +51,7 @@ import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import { renderWorkflowStmtChunks, type WorkflowStmtTarget } from "../_workflow/stmt-target.js";
+import { pyCalendarDateWire } from "./codec-spelling.js";
 import { pyCommandBodyParam } from "./command-body.js";
 import { allocateKwargs, zeroFor } from "./dispatch-builder.js";
 import type { OpFragment } from "./emit/aggregate.js";
@@ -914,8 +915,8 @@ export function instanceFieldValue(rowVar: string, f: WireField): string {
   }
   if (t.kind === "primitive" && t.name === "date") {
     return f.optional || f.type.kind === "optional"
-      ? `(None if ${attr} is None else ${attr}.isoformat())`
-      : `${attr}.isoformat()`;
+      ? `(None if ${attr} is None else ${pyCalendarDateWire(attr)})`
+      : pyCalendarDateWire(attr);
   }
   if (t.kind === "primitive" && t.name === "money") {
     // Precise-decimal string on the wire (parity with the other backends).

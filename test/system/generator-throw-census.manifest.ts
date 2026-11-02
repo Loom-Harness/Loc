@@ -1239,6 +1239,32 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "The Codec fact's datetime wire form carries exactly three fraction digits (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
   },
+  "src/generator/typescript/codec-spelling.ts#tsEnvelopeInstant": {
+    invariant:
+      "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+
+  // src/generator/python/codec-spelling.ts
+  "src/generator/python/codec-spelling.ts#pySaColumnType": {
+    invariant:
+      "pySaColumnType is reached only from pyScalarColumn and the id / instant / int column helpers, which pass the Codec fact's column for a storable scalar; the fact maps none of those to `bigserial` or `array` (pinned by test/ir/codec.test.ts). (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/python/codec-spelling.ts#pyCalendarDateWire": {
+    invariant:
+      "The Codec fact's date wire form is `calendar-date` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/python/codec-spelling.ts#pyIsoHelperBody": {
+    invariant:
+      "The Codec fact's datetime wire form is three fraction digits, truncated at ingress, none on a whole second (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/python/codec-spelling.ts#pyMoneyGrammar": {
+    invariant:
+      "The Codec fact's money grammar is the fixed end-anchored `MONEY_WIRE_GRAMMAR` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/python/codec-spelling.ts#pyEnvelopeInstant": {
+    invariant:
+      "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
 
   // src/generator/typescript/emit/channels.ts
   "src/generator/typescript/emit/channels.ts#transportFactoryLine": {

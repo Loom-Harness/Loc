@@ -57,6 +57,7 @@ import { pythonIdent, snake } from "../../util/naming.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
 import { provenancedEntries } from "../_payload/provenanced-wire.js";
+import { pyCalendarDateWire } from "./codec-spelling.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
 import { PY_PROV_SUFFIX, provColumn, provenancedFieldsOf } from "./emit/provenance.js";
 import {
@@ -1754,7 +1755,9 @@ export function wireValue(
     return optional ? `(None if ${expr} is None else ${R.iso}(${expr}))` : `${R.iso}(${expr})`;
   }
   if (t.kind === "primitive" && t.name === "date") {
-    return optional ? `(None if ${expr} is None else ${expr}.isoformat())` : `${expr}.isoformat()`;
+    return optional
+      ? `(None if ${expr} is None else ${pyCalendarDateWire(expr)})`
+      : pyCalendarDateWire(expr);
   }
   if (t.kind === "primitive" && t.name === "money") {
     // Money crosses the wire as its canonical decimal STRING via the shared

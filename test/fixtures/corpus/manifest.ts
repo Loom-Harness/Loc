@@ -141,19 +141,18 @@ const FOREIGN_ID_LIST: readonly Backend[] = ALL.filter((b) => b !== "vanilla");
  *  (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs, #4023). */
 const PROJECTION_VO_ROW: readonly Backend[] = ["node", "java", "vanilla"];
 
-/** The backends that write a provenanced `money` value into its lineage in the
- *  `Codec` fact's lineage encoding — the RS-12 wire string (owner ruling on
- *  #3527).  Only node is on the fact so far.  The other four generate the case
- *  cleanly, and each boots it as a tracked expected failure
- *  (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs):
+/** The backends that write a provenanced value into its lineage in the
+ *  `Codec` fact's lineage encoding — the wire form: money's RS-12 string
+ *  (owner ruling on #3527), a decimal's RS-24 number and a datetime's RS-38
+ *  instant (owner rulings on #3593).  node and python are on the fact.  The
+ *  other three generate the case cleanly, and each boots it as a tracked
+ *  expected failure (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs):
  *  - **dotnet** / **java**: the lineage's `object` slot serializes a JSON
  *    number (`3000.3`).
- *  - **python**: the lineage jsonb bind cannot serialize a `Decimal`; the
- *    write answers 500.
  *  - **elixir** (`vanilla`): Jason encodes the `Decimal` unscaled (`"3000.3"`).
  *  Each backend joins this row in the change that moves it onto the fact and
  *  deletes its expected-failure entry. */
-const MONEY_LINEAGE_WIRE: readonly Backend[] = ["node"];
+const MONEY_LINEAGE_WIRE: readonly Backend[] = ["node", "python"];
 
 // M-T6.96: .NET EF cannot re-host a part's nested OWNED instances under a new
 // owner (they are deleted with the old one), so the rebuild shape is held off
@@ -765,10 +764,10 @@ export const CORPUS: readonly CorpusFeature[] = [
   {
     id: "provenance-money",
     title:
-      "a provenanced `money` field's lineage — `inputs[].value` and `computedValue` carry money as the RS-12 wire string",
+      "a provenanced field's lineage — `inputs[].value` and `computedValue` carry money as the RS-12 wire string, a decimal as the RS-24 number and a datetime as the RS-38 instant",
     doc: "provenance",
     backends: MONEY_LINEAGE_WIRE,
-    note: "The `Codec` fact (`src/ir/enrich/codec.ts`) rules a money value's lineage encoding to be its wire encoding (owner ruling on #3527).  node writes it through the money wire encoder; the other four legs boot it as tracked expected failures (`BEHAVIOURAL_XFAIL`, #3527) until each is moved onto the fact — java and .NET send a JSON number, elixir an unscaled Decimal string, python 500s on the write",
+    note: "The `Codec` fact (`src/ir/enrich/codec.ts`) rules every scalar's lineage encoding to be its wire encoding (owner rulings on #3527 and #3593).  node and python write it through their wire encoders; the other three legs boot it as tracked expected failures (`BEHAVIOURAL_XFAIL`, #4402) until each is moved onto the fact — java and .NET send money as a JSON number, elixir as an unscaled Decimal string.  The money assertions come first, so those legs fail on them before the decimal and datetime writes",
   },
   {
     id: "audited",

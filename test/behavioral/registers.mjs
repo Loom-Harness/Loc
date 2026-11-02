@@ -232,13 +232,14 @@ function baseReads({ passes = [], pins = {} } = {}) {
  * issue and a well-formed pin, and every behavioural corpus fixture is
  * accounted for on every one of the five backends.
  */
-/** A provenanced money field's lineage (`provenance-money`): the `Codec` fact
- *  writes money there as its RS-12 wire string (#3527).  Every leg but node
- *  still records the domain value, so the first lineage assertion fails —
- *  java / .NET with a JSON number, elixir with an unscaled Decimal string. */
+/** A provenanced field's lineage (`provenance-money`): the `Codec` fact writes
+ *  every scalar there in its wire form — money as its RS-12 string (#3527).
+ *  The .NET, java and elixir legs still record the domain value, so the first
+ *  lineage assertion (a money one) fails — java / .NET with a JSON number,
+ *  elixir with an unscaled Decimal string. */
 const MONEY_LINEAGE_BLOCK = "a provenanced money lineage carries money at the wire scale";
 const moneyLineage = (re) => ({
-  issue: "#3527",
+  issue: "#4402",
   expect: "fail",
   tests: { [MONEY_LINEAGE_BLOCK]: re },
   reason: "a money value in a provenance lineage is the RS-12 wire string (Codec fact); this leg still writes the domain value",
@@ -294,8 +295,6 @@ export const BEHAVIOURAL_XFAIL = {
     },
   },
   python: {
-    // The lineage jsonb bind cannot serialize a `Decimal`, so the write 500s.
-    "provenance-money": moneyLineage("assess → 500"),
     // A routed command handler's body model takes snake_case keys.
     "extern-handlers": {
       issue: "#4211",

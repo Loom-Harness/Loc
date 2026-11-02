@@ -1,9 +1,10 @@
-import type { ExprIR, PathIR, ProvSite, StmtIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR, PathIR, ProvSite, StmtIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { escapePythonIdent, pythonIdent, snake } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { pyRef } from "../_imports/python.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
+import { pyLineageValue } from "./codec-spelling.js";
 import { PY } from "./py-symbols.js";
 
 const prov = (n: string): string => pyRef("app.domain.provenance", n);
@@ -107,13 +108,18 @@ function withProv(
   emitProvenance: boolean,
   i: string,
   index: number,
+  targetType?: TypeIR,
 ): string {
   if (!emitProvenance || !prov) return base;
   const { tmp, lin } = provTempNames(index);
-  const computed = renderPath(target);
+  // A collection target (`add`) records the collection as it is.
+  const computed = pyLineageValue(renderPath(target), targetType);
   const field = prov.target.field;
   const inputs = collectLeaves(value, renderPyExpr)
-    .map((l) => `${PROV.ProvInput}(path=${JSON.stringify(l.path)}, value=${l.value})`)
+    .map(
+      (l) =>
+        `${PROV.ProvInput}(path=${JSON.stringify(l.path)}, value=${pyLineageValue(l.value, l.type)})`,
+    )
     .join(", ");
   return wrapProvCapture(base, {
     snapshot: `${i}${tmp} = [${inputs}]`,
@@ -197,7 +203,16 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
           ),
         ].join("\n");
       }
-      return withProv(base, s.prov, s.target, s.value, !!ctx.emitProvenance, i, ix.prov);
+      return withProv(
+        base,
+        s.prov,
+        s.target,
+        s.value,
+        !!ctx.emitProvenance,
+        i,
+        ix.prov,
+        s.targetType,
+      );
     },
 
     add: (s, ix) => {

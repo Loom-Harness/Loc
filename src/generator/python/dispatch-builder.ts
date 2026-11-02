@@ -32,6 +32,7 @@ import { ref } from "../_imports/symbol.js";
 import { numericEncode } from "../_numeric/target.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
+import { pyCalendarDateWire, pyEnvelopeInstant } from "./codec-spelling.js";
 import type { OpFragment } from "./emit/aggregate.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import { PY_NUMERIC, pyEventSourcedDecimalDecode } from "./numeric-codec.js";
@@ -1355,8 +1356,11 @@ export function toPayload(expr: string, t: TypeIR, vos: PyVoFields = new Map()):
 }
 
 function toPayloadValue(expr: string, t: TypeIR, vos: PyVoFields): string {
-  if (t.kind === "primitive" && t.name === "datetime") return `${expr}.isoformat()`;
-  if (t.kind === "primitive" && t.name === "date") return `${expr}.isoformat()`;
+  // A datetime crosses as the RS-38 wire instant — the payload is the channel
+  // envelope's `data` and the outbox row the relay publishes it from (the
+  // `Codec` fact's `envelopeInstantWire`).
+  if (t.kind === "primitive" && t.name === "datetime") return pyEnvelopeInstant(expr);
+  if (t.kind === "primitive" && t.name === "date") return pyCalendarDateWire(expr);
   if (t.kind === "primitive" && t.name === "money") return `str(${expr})`;
   const fields = t.kind === "valueobject" ? vos.get(t.name) : undefined;
   if (t.kind === "valueobject" && fields) {

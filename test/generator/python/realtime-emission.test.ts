@@ -95,10 +95,10 @@ describe("realtime SSE wire — Python (delivery: broadcast)", () => {
     expect(rt).toContain('@realtime_router.get("/realtime/events", include_in_schema=False)');
     expect(rt).toContain('media_type="text/event-stream"');
     expect(rt).toContain('yield "event: ping\\ndata: \\n\\n"');
-    // camelCase JSON with the `type` tag; branded-str ids + StrEnum are wire-safe.
-    expect(rt).toContain(
-      '{"type": "OrderPlaced", "order": event.order, "at": event.at.isoformat()}',
-    );
+    // camelCase JSON with the `type` tag; branded-str ids + StrEnum are wire-safe,
+    // and a datetime is the RS-38 wire instant (`Codec` ruling 4).
+    expect(rt).toContain('{"type": "OrderPlaced", "order": event.order, "at": iso(event.at)}');
+    expect(rt).toContain("from app.db.wire import iso");
 
     // (c) The tee wraps the in-process dispatcher in make_dispatcher.
     expect(rt).toContain("class RealtimeDispatcher:");
