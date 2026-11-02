@@ -1,9 +1,10 @@
 // A routed read (`scaffoldGet` + `scaffoldGetApi`, or a hand-written
 // `route GET … -> Ctx.Handler`) publishes the same OpenAPI contract on every
 // backend: operationId = the bare lower-first handler name, the single-entity
-// return's `<Agg>Response` at 200, and the RFC 7807 set node declares — 400 +
-// the not-found status.  The 5-way parity gate (`test/e2e/e2e.test.ts`) only
-// sees this on a booted stack; these pin each backend's emitted declaration.
+// return's `<Agg>Response` at 200, and the shared RFC 7807 set — 400, the
+// not-found status, 422 for the `?code=` it parses.  The 5-way parity gate
+// (`test/e2e/e2e.test.ts`) only sees this on a booted stack; these pin each
+// backend's emitted declaration.
 // (.NET's half lives beside its routes controller, in
 // `dotnet/explicit-handlers.test.ts`.)
 import { describe, expect, it } from "vitest";
@@ -51,7 +52,7 @@ describe("routed read — the OpenAPI contract every backend declares", () => {
   it("java: the contract customizer pins the 200 body and the error set", async () => {
     const customizer = await fileEndingWith("java", "OpenApiContractCustomizer.java");
     expect(customizer).toContain(
-      'new Route("get", "/api/orders/by_code", "OrderResponse", new int[] {400, 404}, null, 0)',
+      'new Route("get", "/api/orders/by_code", "OrderResponse", new int[] {400, 404, 422}, null, 0)',
     );
   });
 

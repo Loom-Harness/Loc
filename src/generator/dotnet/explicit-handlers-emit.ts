@@ -36,7 +36,6 @@
 // (single or `.Select(...).ToList()`) at the boundary.
 // ---------------------------------------------------------------------------
 
-import { wireStatus } from "../../ir/enrich/wire-policy.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -60,7 +59,7 @@ import {
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
-import { routedParamSource } from "../../ir/util/routed-handler.js";
+import { routedErrorStatuses, routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { rewrite } from "../../util/emission-sink.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
@@ -88,20 +87,16 @@ const INDENT = "        ";
 /** The `<ns>.Domain.Common` types a routed action's emitted text can name. */
 const DOMAIN_COMMON_TYPE_REF = /\b(?:Provenanced|ProvLineage|RequestContext|Paged|FileRef)\b/;
 
-/** A routed action's declared responses: its success line, then the RFC 7807
- *  set node's routed handler declares — 400 for a malformed request, the
- *  context's not-found status, and 415 only where a JSON body is read.  The
+/** A routed action's declared responses: its success line, then the shared
+ *  `routedErrorStatuses` set every backend publishes for the route.  The
  *  `ProblemDetailsResponsesFilter` moves each onto `application/problem+json`. */
 function routedResponseDecls(
   successDecl: string,
-  hasBody: boolean,
+  r: RouteIR,
+  h: Handler,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  const statuses = [
-    wireStatus("malformed-body"),
-    wireStatus("not-found", ctx.structuralErrorStatuses),
-    ...(hasBody ? [wireStatus("unsupported-media-type")] : []),
-  ];
+  const statuses = routedErrorStatuses(r, h, ctx);
   return [
     successDecl,
     ...statuses.map((s) => `    [ProducesResponseType(typeof(ProblemDetails), ${s})]`),
@@ -877,7 +872,7 @@ export function emitExplicitRouteController(
       ].join(", ");
       actions.push(
         `    [HttpGet("${explicitRoutePath(r)}")]\n` +
-          routedResponseDecls("    [ProducesResponseType(200)]", false, ctx) +
+          routedResponseDecls("    [ProducesResponseType(200)]", r, h, ctx) +
           `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
           `    {\n        var result = await _mediator.Send(new ${h.name}Query(${queryArgs}));\n        return Ok(result);\n    }`,
       );
@@ -995,7 +990,7 @@ export function emitExplicitRouteController(
     }
     actions.push(
       `    [${attr}("${explicitRoutePath(r)}")]\n` +
-        routedResponseDecls(successDecl, bodyParams.length > 0, ctx) +
+        routedResponseDecls(successDecl, r, h, ctx) +
         `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
         `    {\n${sendBlock}\n    }`,
     );

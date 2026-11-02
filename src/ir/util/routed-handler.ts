@@ -24,6 +24,8 @@
 // ---------------------------------------------------------------------------
 
 import { lowerFirst, snake } from "../../util/naming.js";
+import { wireStatus } from "../enrich/wire-policy.js";
+import { pagedReturn } from "../stdlib/generics.js";
 import type {
   ApiIR,
   BoundedContextIR,
@@ -32,7 +34,9 @@ import type {
   ParamIR,
   QueryHandlerIR,
   RouteIR,
+  TypeIR,
 } from "../types/loom-ir.js";
+import { requestRecordFor } from "./handler-contracts.js";
 
 /** The `{token}` names of a route path, in path order. */
 export function routePathTokens(path: string): string[] {
@@ -166,4 +170,69 @@ export function routedHandlerCallHints(
     }
   }
   return [...new Set(out)].sort();
+}
+
+/** One wire value a routed handler's route parses: a handler param, or one
+ *  field of a `command`/`query` record param (a record binds field by field,
+ *  each from where an equivalent flat param would ride). */
+export interface RoutedRequestSlot {
+  readonly name: string;
+  readonly type: TypeIR;
+  readonly source: RoutedParamSource;
+}
+
+/** Every wire value `route` parses for handler `h`, in declared order.  Empty
+ *  for a param-less handler, whose route parses nothing. */
+export function routedRequestSlots(
+  route: RouteIR,
+  h: CommandHandlerIR | QueryHandlerIR,
+  ctx: BoundedContextIR,
+): RoutedRequestSlot[] {
+  const paged = routedPagedRun(h);
+  return h.params.flatMap((p) => {
+    const rec = requestRecordFor(p.type, ctx);
+    const fields = rec ? rec.fields.map((f) => ({ name: f.name, type: f.type })) : [p];
+    return fields.map((f) => ({
+      name: f.name,
+      type: f.type,
+      source: routedParamSource(f.name, route, paged),
+    }));
+  });
+}
+
+/** The paged-run route shape: a DSL-bodied `queryHandler` returning
+ *  `<Agg> paged`, whose route parses `page` / `pageSize` / `sort` / `dir` on
+ *  top of its own params.  An extern handler's body is not the `Repo.run`
+ *  the paged route is built around, so it binds like any other handler. */
+export function routedPagedRun(h: CommandHandlerIR | QueryHandlerIR): boolean {
+  return !h.extern && !!h.returnType && pagedReturn(h.returnType) !== null;
+}
+
+/** The error statuses a routed handler's route declares, ascending — the one
+ *  set every backend publishes for it, because every backend's routed route
+ *  answers each of them:
+ *   - 400, a body the framework cannot parse;
+ *   - the context's not-found status (`httpStatus NotFound` resolved), which a
+ *     handler body that loads an absent row raises;
+ *   - 415 where a JSON body is read (the media-type guard runs only then);
+ *   - 422 where any request part is parsed — a typed path / query param, a
+ *     body field, or a paged run's `page` / `pageSize` — since a value that
+ *     fails its type answers the shared wire-validation 422.  A param-less,
+ *     un-paged route parses nothing and declares none. */
+export function routedErrorStatuses(
+  route: RouteIR,
+  h: CommandHandlerIR | QueryHandlerIR,
+  ctx: BoundedContextIR,
+): number[] {
+  const paged = routedPagedRun(h);
+  const slots = routedRequestSlots(route, h, ctx);
+  const hasBody = !paged && slots.some((s) => s.source === "body");
+  const validates = paged || slots.length > 0;
+  const statuses = [
+    wireStatus("malformed-body"),
+    wireStatus("not-found", ctx.structuralErrorStatuses),
+    ...(hasBody ? [wireStatus("unsupported-media-type")] : []),
+    ...(validates ? [wireStatus("field-invalid")] : []),
+  ];
+  return [...new Set(statuses)].sort((a, b) => a - b);
 }
