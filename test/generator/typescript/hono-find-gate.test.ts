@@ -41,7 +41,7 @@ describe("Hono single-row read requires gate", () => {
   it("emits the 403 gate before the query", async () => {
     const rf = await routesFile('requires currentUser.role == "agent" ');
     expect(rf).toContain(
-      'if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: currentUser.role == \\"agent\\"");',
+      'if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: read Ticket requires currentUser.role == \\"agent\\"");',
     );
     const gateIdx = rf.indexOf("throw new ForbiddenError");
     const queryIdx = rf.indexOf("await tickets.runFindAllByBySubject(s, { limit: 1 })");
@@ -56,7 +56,7 @@ describe("Hono single-row read requires gate", () => {
     const rf = await routesFile('requires currentUser.role == "agent" ');
     expect(rf).toContain('.get("currentUser")');
     expect(rf).toContain(
-      'if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: currentUser.role == \\"agent\\"");',
+      'if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: read Ticket requires currentUser.role == \\"agent\\"");',
     );
     const gateIdx = rf.indexOf("throw new ForbiddenError");
     const queryIdx = rf.indexOf("await tickets.runFindAllByBySubject(s, { limit: 1 })");

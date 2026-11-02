@@ -1821,7 +1821,17 @@ export type IfLetOp =
 
 export type WorkflowStmtIR =
   | { kind: "precondition"; expr: ExprIR; source: string; message?: MessageIR; origin?: OriginRef }
-  | { kind: "requires"; expr: ExprIR; source: string; origin?: OriginRef }
+  | {
+      kind: "requires";
+      expr: ExprIR;
+      source: string;
+      /** Set on the gate enrichment prepends to a handler that reads this
+       *  aggregate (`policy { read X requires … }`, `applyHandlerReadGates`).
+       *  It authorizes the READ only, so `validateDefaultDeny` does not count
+       *  it as the handler's own exposure gate. */
+      readGateOf?: string;
+      origin?: OriginRef;
+    }
   | {
       kind: "emit";
       eventName: string;
