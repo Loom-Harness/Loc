@@ -228,7 +228,7 @@ export async function runSchemathesis({ workDir, base }) {
       rej(
         new Error(
           `could not run \`${BIN}\`: ${err.message}\n` +
-            "Install it with `uv tool install schemathesis==4.24.3 --with jsonschema-rs==0.49.1` (the pins schemathesis.yml uses).",
+            "Install it with `uv tool install schemathesis==4.24.3 -c test/behavioral/schemathesis-constraints.txt` (the pins schemathesis.yml uses).",
         ),
       ),
     );

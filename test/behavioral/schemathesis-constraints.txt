@@ -1,0 +1,14 @@
+# Exact pins for the schemathesis tool environment (schemathesis.yml and the
+# local `test:schemathesis*` legs).  schemathesis 4.24.3 itself only declares
+# floors, so a fresh resolve floats these to releases it was never run with:
+#   jsonschema-rs >= 0.56 drops `CanonicalSchema.is_satisfiable`, and
+#   hypothesis 6.170 breaks the strategy combinator schemathesis calls
+#   (`'many' object has no attribute 'more'`) — either one turns every
+#   parameterised operation into an `error:AttributeError` finding.
+# hypothesis-jsonschema 0.23.2 needs hypothesis >= 6.170.10, so it is pinned
+# back with it.  Install with this file as a CONSTRAINT on the one resolve:
+#   pipx install schemathesis==4.24.3 --pip-args="-c test/behavioral/schemathesis-constraints.txt"
+#   uv tool install schemathesis==4.24.3 -c test/behavioral/schemathesis-constraints.txt
+jsonschema-rs==0.49.1
+hypothesis==6.169.4
+hypothesis-jsonschema==0.23.1
