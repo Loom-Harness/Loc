@@ -25,8 +25,7 @@ import {
   resolveContextSchema,
   resolveDataSourceConfig,
 } from "../../../ir/util/resolve-datasource.js";
-import { emissionSink } from "../../../util/emission-sink.js";
-import { resolveErrorStatus } from "../../../util/error-defaults.js";
+import { emissionSink, rewrite } from "../../../util/emission-sink.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { brokerChannelBindings } from "../../_channels/bindings.js";
 import { embedSpaInto } from "../../_frontend/embedded-spa.js";
@@ -64,6 +63,7 @@ import { renderRelEnv, renderRelease, renderRelServer } from "../shell/config.js
 import { renderDockerfile, renderDockerignore } from "../shell/project.js";
 import { renderSidebarComponent } from "../sidebar-emit.js";
 import { emitAggregateTests, emitTestHelper } from "../tests-emit.js";
+import { exStatus } from "../wire-policy-ex.js";
 import { emitVanillaApiControllers } from "./api-emit.js";
 import { emitVanillaAudit } from "./audit-emit.js";
 import { emitVanillaChangesets } from "./changeset-emit.js";
@@ -150,8 +150,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   const structuralStatuses = contexts.find(
     (c) => c.structuralErrorStatuses,
   )?.structuralErrorStatuses;
-  const uniquenessStatus = resolveErrorStatus("UniquenessConflict", structuralStatuses);
-  const concurrencyStatus = resolveErrorStatus("ConcurrencyConflict", structuralStatuses);
+  const uniquenessStatus = exStatus("unique-conflict", structuralStatuses);
+  const concurrencyStatus = exStatus("version-conflict", structuralStatuses);
   // The `NotFound` rung of the denial ladder rides the same override path
   // (M-T5.20) — `httpStatus NotFound -> 410` moves both `not_found_response/3`
   // and every per-controller 404 arm, together.  `not_found_response/3` is
@@ -189,8 +189,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     contexts.some((c) =>
       c.workflows.some((w) => workflowEmitsCommandRoute(w) && (w.params ?? []).length > 0),
     );
-  out.set(
-    `lib/${appName}_web/problem_details.ex`,
+  const renderProblemDetails = (hasStrictIngress: boolean): string =>
     renderVanillaProblemDetailsModule(
       appModule,
       hasUniqueKeys,
@@ -200,7 +199,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       notFoundStatus,
       denialStatus("forbidden", ladderStatuses),
       denialStatus("disallowed", ladderStatuses),
-      resolveErrorStatus("ReferencedInUse", structuralStatuses),
+      exStatus("referenced-in-use", structuralStatuses),
       validationMessages.length > 0,
       hasWireDenials,
       // M-T5.1 — an op body builds a constructor-carrying value object; its
@@ -218,8 +217,9 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       contexts.some(hasDomainFloorMessages),
       // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
       echoesDenialDetail(deployable, sys),
-    ),
-  );
+      hasStrictIngress,
+    );
+  out.set(`lib/${appName}_web/problem_details.ex`, renderProblemDetails(false));
 
   // Resource-adapter helper modules — `lib/<app>/resources/<source_type>.ex`.
   // Plain Elixir helper fns from the shared Phoenix adapter set.  Workflows'
@@ -913,6 +913,12 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   out.set("rel/env.sh.eex", renderRelEnv(appName));
   out.set("rel/overlays/bin/server", renderRelServer(appName));
   out.set(`lib/${appName}/release.ex`, renderRelease(appName, appModule));
+
+  // The strict-ingress responders are emitted iff a controller calls them —
+  // derived from the assembled files, so the gate cannot drift from the render
+  // sites (an app with no int/decimal/money/bool request field is byte-identical).
+  if ([...out.values()].some((content) => content.includes("ProblemDetails.type_mismatches(")))
+    rewrite(out, `lib/${appName}_web/problem_details.ex`, renderProblemDetails(true));
 
   return out;
 }

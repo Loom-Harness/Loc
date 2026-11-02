@@ -3150,7 +3150,19 @@ export const DIAGNOSTIC_MESSAGES = {
     dName: unknown;
     target: unknown;
   }) =>
-    `${p.what} binds a resource kind that deployable '${p.dName}' (backend '${p.target}') can't realize: no backend emits a read-replica connection or a Kafka-held event log, so the context would run on its primary Postgres alone and the declared resource would change nothing. Bind the context to a \`state\` resource (and, for an event-sourced aggregate, an \`eventLog\` resource) on a \`type: postgres\` storage.`,
+    `${p.what} binds a resource kind that deployable '${p.dName}' (backend '${p.target}') can't realize: no backend emits a read-replica connection, a read-through cache (#4440), an event-sourced snapshot store or a Kafka-held event log, so the context would run on its primary Postgres alone and the declared resource would change nothing. Bind the context to a \`state\` resource (and, for an event-sourced aggregate, an \`eventLog\` resource) on a \`type: postgres\` storage.`,
+  "loom.target-unsupported#resource-knob-unrealized": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what} — a resource knob that deployable '${p.dName}' (backend '${p.target}') can't realize: no emitter reads \`ttl\`, \`keyPrefix\`, \`every\`, \`retain\` or \`readonly\` (each gates an adapter that does not exist: a cache, a snapshot policy, a replica-aware connection), so the value would be accepted and change nothing. Drop the knob.`,
+  "loom.target-unsupported#storage-type-unbound": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what} binds to no kind that deployable '${p.dName}' (backend '${p.target}') can realize: no dataSource, channelSource or resource can use it and no backend emits anything for it, so the declaration is a no-op. Use a supported type (postgres for state, redis for a cache transport, rabbitmq / kafka for queues and channels, s3 / localDisk for objects, restApi, smtp / ses / sendgrid), or drop the declaration.`,
   "loom.target-unsupported#storage-type-unrealized": (p: {
     what: unknown;
     dName: unknown;
@@ -3943,17 +3955,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `aggregate '${p.name}' has 'audited' ${p.kind}(s) ${p.names}, but no backend deployable ` +
     `hosts this context, so no audit record is emitted for them. Host the context on a backend ` +
     `deployable, or drop the 'audited' modifier. Tracked in audit-and-logging.md.`,
-  // M-T5.42, V9 — a storage type the sourceType registry binds to no kind.
-  "loom.storage-type-unbound": (p: { name: unknown; type: unknown }) =>
-    `storage '${p.name}' has 'type: ${p.type}', which binds to no kind today — no dataSource, ` +
-    `channelSource or resource can use it, and no backend emits anything for it.  The declaration ` +
-    `is a no-op.  Use a supported type (postgres / inMemory for state, redis for a cache, ` +
-    `rabbitmq / kafka for queues and channels, s3 / localDisk for objects, restApi, smtp / ses / ` +
-    `sendgrid), or drop the declaration.`,
-  "loom.datasource-knob-unwired": (p: { name: unknown; property: unknown; description: unknown }) =>
-    `resource '${p.name}' sets '${p.property}', but ${p.description}.  ` +
-    `The value is accepted by validation and persisted in the IR but no current ` +
-    `emitter consumes it — this is a no-op at runtime.`,
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/reserved-surfaces.ts
   // ----------------------------------------------------------------------

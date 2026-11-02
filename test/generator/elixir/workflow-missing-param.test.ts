@@ -111,7 +111,7 @@ describe("a workflow request missing a referenced param", () => {
     // entry per missing param, its RFC 6901 pointer naming WHICH one — the
     // whole point of returning the list rather than a bare atom.
     expect(ctl).toContain(
-      'ProblemDetails.validation_errors_response(conn, Enum.map(missing, &%{pointer: "/" <> &1, message: "Required"}))',
+      'ProblemDetails.validation_errors_response(conn, Enum.map(missing, &%{pointer: "/" <> &1, message: &1 <> " is required"}))',
     );
   });
 

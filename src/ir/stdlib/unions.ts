@@ -57,6 +57,16 @@ export function typeKey(t: TypeIR): string {
  *  its declared name; an `id`/primitive variant by a readable stem; `none` by
  *  the literal `"none"`.  Shared by every backend so the tag is identical on
  *  the wire. */
+/** Whether a union variant travels as a scalar carrier — `{ type, value }`
+ *  on the tagged wire, a one-field `Value` record on .NET / Java — rather
+ *  than flattening its own fields beside `type`.  Records are the
+ *  aggregate / part / payload / event (`entity`) and value-object variants;
+ *  `none` carries nothing; every other variant (primitive, id, enum, array)
+ *  wraps a `value`.  A match arm over a scalar variant binds that value. */
+export function isScalarVariant(t: TypeIR): boolean {
+  return t.kind !== "entity" && t.kind !== "valueobject" && t.kind !== "none";
+}
+
 export function variantTag(t: TypeIR): string {
   switch (t.kind) {
     case "entity":

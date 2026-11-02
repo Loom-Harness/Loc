@@ -49,6 +49,9 @@ import { J } from "./java-symbols.js";
 // ---------------------------------------------------------------------------
 
 export interface JavaRenderContext {
+  /** Variant-`match` binding side-channel — maps a bound name to the text
+   *  its arm reads it as (the pattern variable, or its scalar `value`). */
+  matchBindings?: ReadonlyMap<string, string>;
   /** Rendered name for the implicit receiver (`this` by default). */
   thisName: string;
   /** Override for a `current-user` ref — the local the ambient principal was
@@ -399,6 +402,7 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
     return `switch (${m.subject}) {\n${arms.join("\n")}\n${tail}\n    }`;
   },
   bindingRefText: (binding) => binding,
+  scalarVariantValue: (carrier) => `${carrier}.value()`,
   // Union-find repos return a nullable aggregate (payloads.md §Union finds).
   absenceCheck: (subject) => `${subject} != null`,
   list: (elements) => `${J.List}.of(${elements.join(", ")})`,
@@ -421,6 +425,10 @@ function renderLiteral(lit: string, value: string): string {
 
 function renderRef(e: RefExpr, ctx: JavaRenderContext): string {
   switch (e.refKind) {
+    case "match-binding":
+      // The arm's pattern variable — read through its scalar carrier's
+      // `value()` when the variant is scalar (installed in `ctx.matchBindings`).
+      return ctx.matchBindings?.get(e.name) ?? escapeJavaIdent(e.name);
     case "let":
       // A body-introduced local; escape keyword collisions so the use matches
       // the (also-escaped) binding (`let class` → `class_`) — or the

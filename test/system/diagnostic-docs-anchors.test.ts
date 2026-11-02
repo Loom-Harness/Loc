@@ -185,7 +185,8 @@ describe("the undocumented-codes ratchet", () => {
 // `loom.nullable-receiver`.
 // 347 -> 343: the codes only declared finds could raise left with FindDecl
 // (D-FINDDECL-REMOVED), and the capability table folded one more.
-const UNDOCUMENTED_BASELINE = 343;
+// 343 -> 342: `loom.datasource-knob-unwired` retired (now target-unsupported rows).
+const UNDOCUMENTED_BASELINE = 342;
 
 describe("the undocumented-codes LENGTH ratchet", () => {
   it("only shrinks", () => {

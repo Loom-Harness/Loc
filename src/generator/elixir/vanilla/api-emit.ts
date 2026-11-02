@@ -35,11 +35,9 @@ import {
 } from "../../../ir/util/api-surface.js";
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { createBodyStatements, lifecycleGates } from "../../../ir/util/op-gates.js";
-import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
-import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { elixirOpAction, snake, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
@@ -48,6 +46,7 @@ import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import type { ApiRoute } from "../api-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { renderExpr as renderElixirExpr } from "../render-expr.js";
+import { exSentence, exStatus, exTitle, strictIngressFields } from "../wire-policy-ex.js";
 import { auditRecordCall, createAuditMeta, destroyAuditMeta } from "./audit-emit.js";
 import {
   aggregateServesHistoryRoute,
@@ -88,6 +87,7 @@ import {
 import {
   renderPathIdCastPlug,
   renderRequiredParamsPlug,
+  renderStrictParamsPlug,
   requiredWireParams,
 } from "./problem-details-emit.js";
 import { hasRefColls } from "./ref-collection-emit.js";
@@ -806,7 +806,7 @@ ${createCuBind}    case ${ctxModule}.create_${aggSnake}(params${createActor}) do
   // default, or the `httpStatus ReferencedInUse -> <Code>` override).  A non-FK
   // constraint can't fire on a delete, so any other type reraises (keeps its
   // 500).  Mirrors the Hono 23503 → 409 arm.
-  const referencedInUseStatus = resolveErrorStatus("ReferencedInUse", ctx.structuralErrorStatuses);
+  const referencedInUseStatus = exStatus("referenced-in-use", ctx.structuralErrorStatuses);
   const fkRestrictRescue = `
   rescue
     fk_error in Ecto.ConstraintError ->
@@ -814,8 +814,8 @@ ${createCuBind}    case ${ctxModule}.create_${aggSnake}(params${createActor}) do
         ProblemDetails.problem_response(
           conn,
           ${referencedInUseStatus},
-          ${JSON.stringify(problemTitle(referencedInUseStatus))},
-          "${aggPascal} is still referenced and cannot be deleted."
+          ${exTitle("referenced-in-use", ctx.structuralErrorStatuses)},
+          ${exSentence("referenced-in-use", aggPascal)}
         )
       else
         reraise(fk_error, __STACKTRACE__)
@@ -994,7 +994,7 @@ defmodule ${appModule}Web.${aggPascal}Controller do
 ${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
-${renderRequiredParamsPlug(new Map([...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), requiredWireParams(op.params)])))}
+${renderRequiredParamsPlug(new Map([...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), requiredWireParams(op.params)])))}${renderStrictParamsPlug(new Map([["create", strictIngressFields(createInputFields(agg))], ...[...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), strictIngressFields(op.params)] as const)]))}
 ${indexAction}
 
 ${showAction}${historyAction}

@@ -116,6 +116,31 @@ function resourceUses(
 /** The persistence kinds a relational store backs. */
 const RELATIONAL_KINDS: ReadonlySet<string> = new Set(["state", "snapshot", "eventLog"]);
 
+const kindUses =
+  (kind: string): BackendDetector =>
+  (ctx, sys) =>
+    resourceUses(ctx, sys, (ds) =>
+      ds.kind === kind ? `kind: ${kind}, storage '${ds.storageName}'` : undefined,
+    );
+
+const knobUses =
+  (knob: "ttl" | "keyPrefix" | "every" | "retain" | "readonly"): BackendDetector =>
+  (ctx, sys) =>
+    resourceUses(ctx, sys, (ds) =>
+      ds[knob] !== undefined ? `sets \`${knob}:\`, kind: ${ds.kind}` : undefined,
+    );
+
+/** Every storage of `type`, wherever the system declares it. */
+const storageDeclarations =
+  (type: string): BackendDetector =>
+  (_ctx, sys) =>
+    sys.storages
+      .filter((st) => st.type === type)
+      .map((st) => ({
+        what: `storage '${st.name}' (type: ${type})`,
+        source: `${sys.name}/${st.name}`,
+      }));
+
 const storageTypeUses =
   (type: string): BackendDetector =>
   (ctx, sys) =>
@@ -147,6 +172,13 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
     resourceUses(ctx, sys, (ds) =>
       ds.kind === "replica" ? `kind: replica, storage '${ds.storageName}'` : undefined,
     ),
+  "resource:cache@resource": kindUses("cache"),
+  "resource:snapshot@resource": kindUses("snapshot"),
+  "knob:ttl@resource": knobUses("ttl"),
+  "knob:keyPrefix@resource": knobUses("keyPrefix"),
+  "knob:every@resource": knobUses("every"),
+  "knob:retain@resource": knobUses("retain"),
+  "knob:readonly@resource": knobUses("readonly"),
   "resource:eventLog-on-kafka@resource": (ctx, sys) =>
     resourceUses(ctx, sys, (ds, t) =>
       ds.kind === "eventLog" && t === "kafka"
@@ -156,7 +188,22 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
   "storage:mysql@resource": storageTypeUses("mysql"),
   "storage:sqlite@resource": storageTypeUses("sqlite"),
   "storage:inMemory@resource": storageTypeUses("inMemory"),
+  "storage:elastic@declaration": storageDeclarations("elastic"),
+  "storage:meilisearch@declaration": storageDeclarations("meilisearch"),
+  "storage:clickhouse@declaration": storageDeclarations("clickhouse"),
+  "storage:bigquery@declaration": storageDeclarations("bigquery"),
+  "storage:nats@declaration": storageDeclarations("nats"),
 };
+
+/** Constructs declared once per system rather than per context: a refusal is
+ *  raised once however many backend deployables share the verdict. */
+const SYSTEM_SCOPED: ReadonlySet<BackendConstruct> = new Set([
+  "storage:elastic@declaration",
+  "storage:meilisearch@declaration",
+  "storage:clickhouse@declaration",
+  "storage:bigquery@declaration",
+  "storage:nats@declaration",
+]);
 
 /** How the check looks a verdict up.  The default reads the shipped table; a
  *  test passes its own to prove every detector bites. */
@@ -238,6 +285,28 @@ function refuse(
         use,
       );
       return;
+    case "resource-knob-unrealized":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#resource-knob-unrealized", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
+        use,
+      );
+      return;
+    case "storage-type-unbound":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#storage-type-unbound", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
+        use,
+      );
+      return;
     case "storage-type-unrealized":
       refused(
         diags,
@@ -274,6 +343,7 @@ export function validateTargetCapabilities(
 ): void {
   const ctxByName = new Map<string, BoundedContextIR>();
   for (const sd of sys.subdomains) for (const c of sd.contexts) ctxByName.set(c.name, c);
+  const seen = new Set<string>();
   for (const d of sys.deployables) {
     for (const { ui, fw } of mountedUis(sys, d)) {
       for (const construct of UI_CONSTRUCTS) {
@@ -289,6 +359,11 @@ export function validateTargetCapabilities(
         const ctx = ctxByName.get(ctxName);
         if (!ctx) continue;
         for (const use of BACKEND_DETECTORS[construct](ctx, sys)) {
+          if (SYSTEM_SCOPED.has(construct)) {
+            const key = `${construct}|${use.source}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+          }
           refuse(diags, v.slug, use, d, d.platform);
         }
       }

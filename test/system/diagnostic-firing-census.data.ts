@@ -91,7 +91,6 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.dapper-unsupported",
   "loom.datagrid-selection-not-array",
   "loom.datagrid-selection-not-state",
-  "loom.datasource-knob-unwired",
   "loom.datasource-unused",
   "loom.default-deny-ungated",
   "loom.deployable-channel-unrelated",

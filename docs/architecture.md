@@ -469,7 +469,7 @@ shape end-to-end.
 | `storage X { type: <other> }` | Parses + validates; no generator output yet |
 | `resource X { for: C, kind: state, use: Y, schema: "...", tablePrefix: "..." }` | EF Core `ToTable("name", "schema")`, Drizzle `pgSchema("...").table(...)`, Ecto `@schema_prefix "..." + schema "prefix_..."`.  Schema defaults to `snake(contextName)` when omitted on a relational store. |
 | `resource X { ..., isolationLevel: <level> }` | Default isolation for transactional workflows in the bound context, overridden by per-workflow `transactional(<level>)`. |
-| `resource X { ..., ttl/every/retain/readonly/keyPrefix: ... }` | Validated for shape and compatibility; emitters do not yet consume — the IR validator warns at emit time so authors don't believe no-op knobs have effect. |
+| `resource X { ..., ttl/every/retain/readonly/keyPrefix: ... }` | Validated for shape and compatibility; no emitter consumes them, so the IR validator refuses each as `loom.target-unsupported#resource-knob-unrealized` on every backend. |
 | `resource X { for: C, kind: objectStore\|queue\|api, use: Y }` | Per-backend client module + dev-compose sidecar; consumed from workflows via the verb vocabulary.  See [`resources.md`](resources.md). |
 | UI `api X: Y` parameter + body refs | Walker hook injection (slices 11.24–11.25) |
 | Deployable `serves:` / `ui: X { ... }` | Validator + composition checks (slice 11.26) |
