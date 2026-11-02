@@ -38,7 +38,6 @@ import type {
   QueryHandlerIR,
   RouteIR,
   SystemIR,
-  TypeIR,
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { handlerUsesCurrentUser } from "../../../ir/types/loom-ir.js";
@@ -51,6 +50,7 @@ import {
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../../ir/util/paged-run.js";
+import { isPagedRun, routedParamSource } from "../../../ir/util/routed-handler.js";
 import {
   walkExprDeep,
   walkWorkflowStmtExprsDeep,
@@ -58,7 +58,7 @@ import {
 } from "../../../ir/util/walk.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
-import { claimsDerivedSlot, pathParamNames } from "../../_api/explicit-route-mount.js";
+import { claimsDerivedSlot } from "../../_api/explicit-route-mount.js";
 import type { ApiRoute } from "../api-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { type StrictIngressField, strictIngressFields } from "../wire-policy-ex.js";
@@ -86,6 +86,14 @@ import {
   renderStrictParamsPlug,
   requiredWireParams,
 } from "./problem-details-emit.js";
+import {
+  findParamCoercion,
+  findParamRead,
+  type QueryParam,
+  queryParamSpecs,
+  renderQueryParamHelpers,
+  type ScopedQueryParam,
+} from "./query-param.js";
 import { retrievalReadsActor } from "./retrieval-emit.js";
 import {
   type BodyLine,
@@ -503,67 +511,72 @@ function resolveRoute(
   return handler ? { ctx, handler } : undefined;
 }
 
-/** Phoenix delivers every PATH segment as a BINARY, and a handler's `run/1`
- *  destructures the params map raw — so a `queryHandler Sum(a: int, b: int)`
- *  bound to `route GET "/sum/{a}/{b}"` evaluated `"2" + "3"` and answered a 500
- *  (`** (ArithmeticError) :erlang.+("2", "3")`), measured on a booted app.
- *
- *  This is elixir's alone: every other backend gets the coercion from its
- *  framework — hono declares `z.coerce.number().int()`, FastAPI reads the
- *  annotation, Spring binds `@PathVariable int`, ASP.NET binds a typed action
- *  param.  Phoenix has no such layer, so the controller does it before calling
- *  `run/1`.  It stays a PATH-param concern: a body param arrives through JSON
- *  already typed, and re-parsing it would be wrong.
- *
- *  A path value is unconditionally a binary, so no `is_binary/1` guard is
- *  needed.  `guid` is deliberately absent: a guid IS its string form here (the
- *  id types are string-backed).  A `datetime` / `date` parses from its ISO text,
- *  as the declared-find controller does: Postgrex refuses to encode a binary
- *  where the parameter is a timestamp (`DBConnection.EncodeError`, a 500), and
- *  an in-memory compare against a binary is silently wrong.  A value that does
- *  not parse passes through unchanged. */
-function coerceExpr(name: string, t: TypeIR): string | undefined {
-  if (t.kind !== "primitive") return undefined;
-  switch (t.name) {
-    case "int":
-    case "long":
-      return `String.to_integer(params[${JSON.stringify(name)}])`;
-    case "decimal":
-    case "money":
-      return `Decimal.new(params[${JSON.stringify(name)}])`;
-    case "bool":
-      return `params[${JSON.stringify(name)}] == "true"`;
-    case "datetime": {
-      const raw = `params[${JSON.stringify(name)}]`;
-      return `(case DateTime.from_iso8601(${raw}) do {:ok, dt, _} -> dt; _ -> ${raw} end)`;
-    }
-    case "date": {
-      const raw = `params[${JSON.stringify(name)}]`;
-      return `(case Date.from_iso8601(${raw}) do {:ok, d} -> d; _ -> ${raw} end)`;
-    }
-    default:
-      return undefined;
-  }
+/** The params a route action reads off Phoenix's `params` rather than a JSON
+ *  body: each handler param (a `command`/`query` record stands in as its
+ *  fields, exactly as the request schema flattens it) that
+ *  `routedParamSource` places on the URL or the query string.  Phoenix
+ *  delivers each as a binary, and nothing checks it against the type the
+ *  route's spec publishes — so the action checks and coerces them
+ *  (query-param.ts).  A body param arrives through JSON already typed and is
+ *  the RequiredParams / StrictParams plugs' concern. */
+export function routeQueryParams(
+  r: RouteIR,
+  h: Handler,
+  ctx: EnrichedBoundedContextIR,
+): QueryParam[] {
+  const paged = isPagedRun(h);
+  return h.params
+    .flatMap((p) => requestRecordFor(p.type, ctx)?.fields ?? [p])
+    .filter((f) => routedParamSource(f.name, r, paged) !== "body")
+    .map((f) => ({ name: f.name, type: f.type }));
 }
 
-/** The `params = %{params | "k" => <coerced>}` line for a route's path params
- *  that need one, or "" when none do (keeping every other action's emitted body
- *  byte-identical). */
-function pathParamCoercions(r: RouteIR, h: Handler): string {
-  const pathNames = pathParamNames(r.path);
-  const parts: string[] = [];
-  for (const p of h.params) {
-    if (!pathNames.has(p.name)) continue;
-    const key = snake(p.name);
-    const expr = coerceExpr(key, p.type);
-    if (expr) parts.push(`${JSON.stringify(key)} => ${expr}`);
-  }
-  return parts.length > 0 ? `    params = %{params | ${parts.join(", ")}}\n` : "";
+/** Does any route these apis bind read a query/path param?  Gates the
+ *  `ProblemDetails.validation_errors_response/2` responder the param check
+ *  answers through — an unused `def` fails `--warnings-as-errors`. */
+export function routesHaveCheckedParams(
+  routes: readonly RouteIR[],
+  contexts: readonly EnrichedBoundedContextIR[],
+): boolean {
+  const byName = new Map<string, EnrichedBoundedContextIR>(contexts.map((c) => [c.name, c]));
+  return routes.some((r) => {
+    const resolved = resolveRoute(r, byName);
+    return !!resolved && routeQueryParams(r, resolved.handler, resolved.ctx).length > 0;
+  });
 }
 
-/** Rewrite a `{braced}` RouteIR path template into the Phoenix `:snake` form,
- *  snake-casing each param so it matches the handler's `run/1` destructure key
- *  (`{orderId}` → `:order_id`, keyed as `"order_id"` in `params`). */
+/** Wrap an action body in the query/path param check: a request whose params
+ *  are missing or do not parse as their published type answers the
+ *  `field-invalid` 422 before the body runs.  No params → the body unchanged. */
+function checkRouteParams(
+  params: readonly QueryParam[],
+  ctx: EnrichedBoundedContextIR,
+  body: string,
+): string {
+  if (params.length === 0) return body;
+  return `    case __check_find_params(params, ${queryParamSpecs(params, ctx)}) do
+      {:error, param_errors} ->
+        ProblemDetails.validation_errors_response(conn, param_errors)
+
+      :ok ->
+${body
+  .split("\n")
+  .map((l) => (l.length > 0 ? `    ${l}` : l))
+  .join("\n")}
+    end`;
+}
+
+/** The `params = Map.merge(params, %{…})` line that hands `run/1` each checked
+ *  param as its declared type: a coerced param is replaced by its coerced
+ *  value, and an absent optional one is bound to `nil` so `run/1`'s
+ *  destructure matches.  "" when no param needs either. */
+function normalizeRouteParams(params: readonly QueryParam[]): string {
+  const entries = params
+    .filter((p) => findParamCoercion(p.type) !== undefined || p.type.kind === "optional")
+    .map((p) => `${JSON.stringify(p.name)} => ${findParamRead(p)}`);
+  return entries.length > 0 ? `    params = Map.merge(params, %{${entries.join(", ")}})\n` : "";
+}
+
 /** True when a handler body performs a by-id or natural-key load (whose miss
  *  `tagGetByIdMiss` tags with its detail) or answers `notFound`, at any depth —
  *  each threads the detail-carrying `{:not_found, detail}` term. */
@@ -617,6 +630,8 @@ export function emitExplicitRoutesController(
   });
   const apiRoutes: ApiRoute[] = [];
   const actions: string[] = [];
+  // Every query/path param an action checks — one helper set per controller.
+  const checkedParams: ScopedQueryParam[] = [];
   // Set when any route is a paged-run queryHandler — the controller then carries
   // a `page_param/3` coercion helper (Phoenix delivers query params as strings).
   let hasPaged = false;
@@ -634,22 +649,19 @@ export function emitExplicitRoutesController(
     if (!resolved) continue;
     const { ctx, handler } = resolved;
     const action = snake(handler.name);
+    const queryParams = routeQueryParams(r, handler, ctx);
+    checkedParams.push(...queryParams.map((param) => ({ param, ctx })));
     // paged-run queryHandler: call the aggregate context's synthesized paged FIND
     // (`<find>_<agg>`) directly with the criterion params + page/pageSize/sort/dir
     // (coerced), then render the `{items,…}` wire envelope (items serialised).
     if (!handler.extern && handler.returnType && pagedReturn(handler.returnType)) {
       hasPaged = true;
       const run = pagedRunStmt(handler, ctx);
-      const pathNames = new Set([...r.path.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!));
       const ctxFn = `${appModule}.${upperFirst(ctx.name)}.${snake(pagedRunFindName(run))}_${snake(run.aggName)}`;
-      // A path-bound criterion param is coerced exactly as a plain route's is
-      // (`pathParamCoercions`) — the paged FIND over a document carrier filters
-      // in memory, where `6 >= "6"` is silently false.
-      const critArgs = handler.params.map((p) =>
-        pathNames.has(p.name)
-          ? (coerceExpr(snake(p.name), p.type) ?? `params[${JSON.stringify(snake(p.name))}]`)
-          : `params[${JSON.stringify(p.name)}]`,
-      );
+      // Each criterion param is read coerced to its declared type (checked
+      // first, below) — the paged FIND over a document carrier filters in
+      // memory, where `6 >= "6"` is silently false.
+      const critArgs = handler.params.map((p) => findParamRead(p));
       // The paged FIND takes the trailing `current_user` when its read is
       // principal-scoped (the same predicate as its context defdelegate); a
       // call that leaves it at the `nil` default scopes to no rows.
@@ -682,17 +694,14 @@ ${pagingElseArm("ProblemDetails", "    ")}
       // `Forbidden: <source>` detail the other four backends throw.
       const gates = pagedRunGates(handler);
       if (gates.length === 0) {
-        actions.push(`  def ${action}(conn, params) do\n${read}\n  end`);
+        actions.push(
+          `  def ${action}(conn, params) do\n${checkRouteParams(queryParams, ctx, read)}\n  end`,
+        );
       } else {
         const gateCtx: RenderCtx = {
           thisName: "record",
           contextModule: `${appModule}.${upperFirst(ctx.name)}`,
-          paramRenames: Object.fromEntries(
-            handler.params.map((p) => [
-              p.name,
-              `params[${JSON.stringify(pathNames.has(p.name) ? snake(p.name) : p.name)}]`,
-            ]),
-          ),
+          paramRenames: Object.fromEntries(handler.params.map((p) => [p.name, findParamRead(p)])),
         };
         const arms = gates.map(
           (g) =>
@@ -707,21 +716,20 @@ ${pagingElseArm("ProblemDetails", "    ")}
           .split("\n")
           .map((l) => (l.length > 0 ? `    ${l}` : l))
           .join("\n");
+        const gated = [
+          pagedRunGatesUseCurrentUser(handler)
+            ? "    current_user = Map.get(conn.assigns, :current_user)\n"
+            : null,
+          "    cond do",
+          ...arms,
+          "      true ->",
+          nestedRead,
+          "    end",
+        ]
+          .filter((l): l is string => l !== null)
+          .join("\n");
         actions.push(
-          [
-            `  def ${action}(conn, params) do`,
-            pagedRunGatesUseCurrentUser(handler)
-              ? "    current_user = Map.get(conn.assigns, :current_user)\n"
-              : null,
-            "    cond do",
-            ...arms,
-            "      true ->",
-            nestedRead,
-            "    end",
-            "  end",
-          ]
-            .filter((l): l is string => l !== null)
-            .join("\n"),
+          `  def ${action}(conn, params) do\n${checkRouteParams(queryParams, ctx, gated)}\n  end`,
         );
       }
       apiRoutes.push(routeEntry(r, action));
@@ -732,7 +740,6 @@ ${pagingElseArm("ProblemDetails", "    ")}
       if (!handler.returnType) hasVoid = true;
     }
     const handlerMod = `${appModule}.${upperFirst(ctx.name)}.Handlers.${upperFirst(handler.name)}`;
-    const coercions = pathParamCoercions(r, handler);
     if (["POST", "PUT", "PATCH"].includes(r.method.toUpperCase())) {
       const routeTokens = new Set([...r.path.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!));
       const slots = handler.params.flatMap((p) => requestRecordFor(p.type, ctx)?.fields ?? [p]);
@@ -748,8 +755,9 @@ ${pagingElseArm("ProblemDetails", "    ")}
     const runArgs = handlerTakesActor(handler, ctx)
       ? "params, Map.get(conn.assigns, :current_user)"
       : "params";
+    const call = `${normalizeRouteParams(queryParams)}    respond(conn, ${handlerMod}.run(${runArgs}))`;
     actions.push(`  def ${action}(conn, params) do
-${coercions}    respond(conn, ${handlerMod}.run(${runArgs}))
+${checkRouteParams(queryParams, ctx, call)}
   end`);
     apiRoutes.push(routeEntry(r, action));
   }
@@ -829,7 +837,7 @@ ${serializeBlock.clauses}${
     ? `
 ${PAGE_PARAM_HELPER}`
     : ""
-}${serializeBlock.helpers}
+}${renderQueryParamHelpers(checkedParams)}${serializeBlock.helpers}
 end
 `,
   );
