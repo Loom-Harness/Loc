@@ -1,15 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
-// A `this.<refColl>.contains(x)` find over an `X id[]` field. The collection
-// is an `@ElementCollection` of an embeddable id (`PokemonId(UUID value)`), so
-// the old `:x member of e.<refColl>` JPQL threw at runtime on Hibernate 6
+// A `this.<refColl>.contains(x)` criterion over an `X id[]` field, read
+// through a paged `queryHandler` (its `@Query`).  The collection is an
+// `@ElementCollection` of an embeddable id (`PokemonId(UUID value)`), so a
+// `:x member of e.<refColl>` JPQL throws at runtime on Hibernate 6
 // ("Unsupported tuple comparison" — the element is a tuple, the bind param is
-// not). It must render as a correlated `exists` subquery with an
+// not).  It must render as a correlated `exists` subquery with an
 // embeddable-equality predicate (Hibernate decomposes it per attribute).
-// Verified end-to-end: booted the generated jar against Postgres, created a
-// trainer holding a pokemon, and `GET /api/trainers/holding_in_party?pokemon=…`
-// returns the trainer (200), while an unheld id returns `[]`.
 
 const SRC = `
 system Pokedex {
@@ -25,6 +23,10 @@ system Pokedex {
       }
       repository Trainers for Trainer { }
       criterion TrainersHoldingInParty(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
+      queryHandler ListHoldingInParty(pokemon: Pokemon id): Trainer paged {
+        let r = Trainers.run(TrainersHoldingInParty(pokemon))
+        return r
+      }
     }
   }
   api RosterApi from Battles
@@ -36,7 +38,7 @@ system Pokedex {
 
 const ROOT = "d/src/main/java/com/loom/d";
 
-describe("java generator — refColl.contains find", () => {
+describe("java generator — refColl.contains criterion read", () => {
   it("renders `this.<refColl>.contains(x)` as a correlated exists subquery, not `member of`", async () => {
     const f = await generateSystemFiles(SRC);
     const jpa = f.get(`${ROOT}/features/trainers/TrainerJpaRepository.java`)!;

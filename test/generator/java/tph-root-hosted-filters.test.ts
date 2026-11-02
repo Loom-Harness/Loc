@@ -62,7 +62,9 @@ describe("java generator — TPH restrictions are root-hosted", () => {
     // The never-bypassed subtype-only-column filter stays always-on.
     expect(vehicle).toContain(`@SQLRestriction("(kind <> 'Car' or (seats > 0))")`);
     const impl = files.get(`${ROOT}/features/cars/CarRepositoryImpl.java`)!;
-    const byPlateAll = impl.slice(impl.indexOf("public Car byPlateAll("));
+    const at = impl.indexOf("public Car findFirstByPlateIgnoringSoftDeletable(");
+    expect(at, "the GetCarByPlateAll handler's widened read").toBeGreaterThan(-1);
+    const byPlateAll = impl.slice(at);
     expect(byPlateAll.slice(0, byPlateAll.indexOf("\n    }\n"))).toContain(
       '__session.disableFilter("Car_softDeletable");',
     );

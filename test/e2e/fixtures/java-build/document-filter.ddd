@@ -1,7 +1,7 @@
 // DEBT-02 — a capability `filter` on a `shape: document` aggregate (java).
 // The whole aggregate lives in one `data` jsonb column, so the filter is
 // applied in-app over the rehydrated aggregate on every read (the document
-// store already deserialises every row + filters finds via findAll().stream()).
+// store already deserialises every row + filters criterion reads via findAll().stream()).
 // Compiles the gated findById + filtered findAll under `gradle testClasses
 // bootJar` (the java-build gate).
 system DocFilter {
@@ -19,6 +19,10 @@ system DocFilter {
       repository Articles for Article { }
       criterion ArticlesByTitle(t: string) of Article = this.title == t
       criterion ArticlesFirst(t: string) of Article = this.title == t
+      queryHandler FirstByTitle(t: string): Article? {
+        let a = Articles.find(ArticlesByTitle(t))
+        return a
+      }
     }
   }
   api A from D

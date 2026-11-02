@@ -26,6 +26,10 @@ system JavaDocTenancy {
       }
       repository Accounts for Account { }
       criterion AccountsByMinBalance(min: int) of Account = this.balance >= min
+      queryHandler FirstByMinBalance(min: int): Account? {
+        let a = Accounts.find(AccountsByMinBalance(min))
+        return a
+      }
     }
   }
 

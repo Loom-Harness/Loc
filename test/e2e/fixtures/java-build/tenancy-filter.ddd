@@ -3,8 +3,8 @@
 // currentUser.tenantId` AND-s a SpEL-principal JPQL clause
 // (`:#{@currentUserAccessor.user()?.tenantId()}`) — the JPA analogue of node's
 // ambient `requireCurrentUser()` — into every read: the scoped
-// findAll/findById overrides, each custom find, and each view (views merge into
-// repository finds on java).  The non-principal `@SQLRestriction` path is
+// findAll/findById overrides and each criterion read (the paged
+// `ListByMinBalance` handler's `@Query`).  The non-principal `@SQLRestriction` path is
 // unaffected.  `auth: required` emits the CurrentUserAccessor / UserFilter the
 // SpEL resolves the request principal through (DevStub verifier here).
 //
@@ -23,6 +23,10 @@ system JavaTenancy {
       }
       repository Accounts for Account { }
       criterion AccountsByMinBalance(min: int) of Account = this.balance >= min
+      queryHandler ListByMinBalance(min: int): Account paged {
+        let r = Accounts.run(AccountsByMinBalance(min))
+        return r
+      }
     }
   }
 

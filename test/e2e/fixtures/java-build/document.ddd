@@ -13,6 +13,10 @@ system DOC {
       }
       repository Articles for Article { }
       criterion ArticlesPopular(min: int) of Article = this.viewCount >= min
+      queryHandler ListPopular(min: int): Article paged {
+        let r = Articles.run(ArticlesPopular(min))
+        return r
+      }
     }
   }
   api A from D

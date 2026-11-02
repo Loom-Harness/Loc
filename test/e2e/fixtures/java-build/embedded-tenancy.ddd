@@ -31,6 +31,10 @@ system EmbTenancy {
       }
       repository Orders for Order { }
       criterion OrdersByCode(code: string) of Order = this.code == code
+      queryHandler ListByCode(code: string): Order paged {
+        let r = Orders.run(OrdersByCode(code))
+        return r
+      }
     }
   }
 

@@ -10,11 +10,11 @@
 //
 // Triage shapes exercised on `Product`:
 //   * softDeletable — a capability filter (`is_deleted = false`) BYPASSED by
-//     `recent`/`allRows`, so it is PROMOTED to a bypassable @Filter and disabled
-//     per-read; `normal` + the default reads keep it (always-on autoEnabled).
+//     the `Recent`/`AllRows` handlers' reads, so it is PROMOTED to a bypassable
+//     @Filter and disabled per-read; `Normal` + the default reads keep it (always-on autoEnabled).
 //   * a bare `filter this.price > 0` — NOT bypassable (no capability origin),
 //     so it STAYS in @SQLRestriction (always-on) even though softDeletable left.
-//   * `allRows` uses `ignoring *` (bypass every promoted capability).
+//   * `AllRows` uses `ignoring *` (bypass every promoted capability).
 system BypassShop {
   capability softDeletable {
     isDeleted: bool
@@ -28,11 +28,19 @@ system BypassShop {
         // bare capability-less filter — never bypassable, stays in @SQLRestriction.
         filter this.price > 0
       }
-      repository Products for Product {
-        find allRows(): Product? ignoring *
-      }
+      repository Products for Product
       criterion ProductsRecent of Product = this.name != ""
       criterion ProductsNormal of Product = this.name != ""
+      criterion ProductsAllRows of Product = this.name != ""
+      queryHandler Recent(): Product {
+        if let p = Products.find(ProductsRecent) ignoring softDeletable { return p } else { notFound }
+      }
+      queryHandler AllRows(): Product {
+        if let p = Products.find(ProductsAllRows) ignoring * { return p } else { notFound }
+      }
+      queryHandler Normal(): Product {
+        if let p = Products.find(ProductsNormal) { return p } else { notFound }
+      }
     }
   }
   api CatalogApi from Sales
