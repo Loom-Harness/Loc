@@ -295,6 +295,15 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
+    // A mutating call bound with `let` is refused on Phoenix, so generation
+    // stops at phase ⑦ (unsupported register).
+    "match-op-result": {
+      issue: "#3367",
+      expect: "error",
+      match: "loom\\.elixir-bound-mutating-call-unsupported",
+      reason:
+        "`let r = a.withdraw(x)` in a workflow body: the Phoenix with-chain sites match an op call's `{:ok, _}` away and never bind its result",
+    },
     "provenance-money": moneyLineage('to be "3000\\.3000"'),
     // A value object nested inside another is cast as `:map`, so the nested
     // VO's invariant never runs and the bad create commits.
