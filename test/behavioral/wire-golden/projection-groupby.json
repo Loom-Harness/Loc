@@ -98,7 +98,7 @@
     {
       "seq": 8,
       "method": "GET",
-      "path": "/api/projections/{id}",
+      "path": "/api/projections/volume_by_customer_and_status",
       "status": 200,
       "body": [
         {
@@ -173,7 +173,7 @@
     {
       "seq": 13,
       "method": "GET",
-      "path": "/api/projections/{id}",
+      "path": "/api/projections/volume_by_customer_and_status",
       "status": 200,
       "body": [
         {

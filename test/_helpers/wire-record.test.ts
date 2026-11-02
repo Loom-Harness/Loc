@@ -52,6 +52,26 @@ describe("templatePath", () => {
     );
   });
 
+  it("keeps a long readable route word (20+ chars) but collapses long id-shaped tokens", () => {
+    for (const word of [
+      "by_plate_with_deleted",
+      "findByPlateWithDeleted",
+      "register-project-with-members",
+    ]) {
+      expect(isVolatileSegment(word), word).toBe(false);
+    }
+    expect(templatePath("http://x/api/vehicles/by_plate_with_deleted")).toBe(
+      "/api/vehicles/by_plate_with_deleted",
+    );
+    for (const id of [
+      "01HQ8XZ4KJ9M2P7R3T5V6W8Y0A",
+      "ABCDEFGHJKMNPQRSTVWXYZ",
+      "k3j9x_a8Qm2zT-r5v7Lp0w",
+    ]) {
+      expect(isVolatileSegment(id), id).toBe(true);
+    }
+  });
+
   it("sorts query params and normalizes volatile query values", () => {
     expect(templatePath("http://x/api/products?size=10&page=2")).toBe(
       "/api/products?page=2&size=10",

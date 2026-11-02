@@ -15,12 +15,16 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { BUILTIN_PACK_LATEST } from "../../src/util/builtin-formats.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
 const cli = path.join(repoRoot, "bin", "cli.js");
+
+// Every case and fixture hook spawns CLI subprocesses, each of which boots the
+// language services; on a loaded runner that outlasts the 30s / 10s defaults.
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
 let tmp: string;
 

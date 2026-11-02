@@ -109,12 +109,15 @@ export interface WireGolden {
 const UUID_SEG = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const INT_SEG = /^\d+$/;
 // A ULID/base32-ish or long opaque token — id-shaped enough that a per-run
-// value in a path segment would otherwise read as a route difference.
-const OPAQUE_SEG = /^[0-9A-Za-z_-]{20,}$/;
+// value in a path segment would otherwise read as a route difference.  Length
+// alone is not enough: a readable find route (`by_plate_with_deleted`) is long
+// and still a route literal, so the token must also look generated — it
+// carries a digit, or is an all-uppercase base32 run (a digit-free ULID).
+const OPAQUE_SEG = /^(?=[0-9A-Za-z_-]{20,}$)(?:[A-Za-z_-]*\d[0-9A-Za-z_-]*|[A-Z]+)$/;
 
 /** True when a URL path segment is a per-run identifier rather than a route
  *  literal.  Deliberately conservative — a false positive silently merges two
- *  distinct routes, so only uuid / all-digits / long-opaque qualify. */
+ *  distinct routes, so only uuid / all-digits / long id-shaped tokens qualify. */
 export function isVolatileSegment(seg: string): boolean {
   return UUID_SEG.test(seg) || INT_SEG.test(seg) || OPAQUE_SEG.test(seg);
 }

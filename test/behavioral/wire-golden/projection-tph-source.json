@@ -50,7 +50,7 @@
     {
       "seq": 5,
       "method": "GET",
-      "path": "/api/projections/{id}",
+      "path": "/api/projections/auto_claims_by_status",
       "status": 200,
       "body": [
         {

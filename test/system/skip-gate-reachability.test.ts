@@ -195,16 +195,57 @@ const allGates: SkipGate[] = [
 const hatchVars = new Set(allGates.filter((g) => g.escapeHatch).map((g) => g.varName));
 const requiredGates = allGates.filter((g) => !g.escapeHatch && !hatchVars.has(g.varName));
 
+/**
+ * The `LOOM_*` vars a workflow actually SETS for a step: a key of an `env:`
+ * mapping (workflow, job or step level) or an assignment inside a `run:`
+ * script.  A mention anywhere else — a `paths:` filter, a `with:` input, a
+ * comment, a label name — wires nothing.  A line scanner rather than a YAML
+ * parse (no YAML parser is a dependency); workflows here use plain block
+ * mappings, which is all it needs to follow.
+ */
+function workflowSetVars(text: string): Set<string> {
+  const out = new Set<string>();
+  const indentOf = (l: string): number => l.length - l.trimStart().length;
+  let blockIndent = -1; // column of the `env:` / `run:` key that opened the block
+  let blockKind: "env" | "run" | null = null;
+  for (const raw of text.split("\n")) {
+    if (raw.trim() === "" || raw.trimStart().startsWith("#")) continue;
+    const ind = indentOf(raw);
+    if (blockKind !== null && ind <= blockIndent) blockKind = null;
+    const body = raw.trimStart().replace(/^-\s+/, "");
+    // A list-item prefix (`- run:`) shifts the key's column by the dash.
+    const keyIndent = ind + (raw.trimStart().length - body.length);
+    if (blockKind === "env") {
+      const m = body.match(/^(LOOM_[A-Z0-9_]+)\s*:/);
+      if (m) out.add(m[1]);
+      continue;
+    }
+    if (blockKind === "run") {
+      for (const m of body.matchAll(/\b(LOOM_[A-Z0-9_]+)=/g)) out.add(m[1]);
+      continue;
+    }
+    if (/^env:\s*$/.test(body)) {
+      blockKind = "env";
+      blockIndent = keyIndent;
+    } else if (/^env:\s*\{/.test(body)) {
+      for (const m of body.matchAll(/\b(LOOM_[A-Z0-9_]+)\s*:/g)) out.add(m[1]);
+    } else if (/^run:/.test(body)) {
+      blockKind = "run";
+      blockIndent = keyIndent;
+      for (const m of body.matchAll(/\b(LOOM_[A-Z0-9_]+)=/g)) out.add(m[1]);
+    }
+  }
+  return out;
+}
+
 /** Every `LOOM_*` a `package.json` script or a workflow actually SETS. */
 function settableVars(): Set<string> {
   const out = new Set<string>();
-  const collect = (text: string): void => {
-    // `LOOM_X=1 vitest …` in a script, `LOOM_X: '1'` in a workflow `env:`.
-    for (const m of text.matchAll(/\b(LOOM_[A-Z0-9_]+)\s*[:=]/g)) out.add(m[1]);
-  };
-  collect(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+  // `LOOM_X=1 vitest …` in a script.
+  const pkg = readFileSync(path.join(repoRoot, "package.json"), "utf8");
+  for (const m of pkg.matchAll(/\b(LOOM_[A-Z0-9_]+)\s*=/g)) out.add(m[1]);
   for (const f of readdirSync(workflowsDir).filter((x) => x.endsWith(".yml"))) {
-    collect(readFileSync(path.join(workflowsDir, f), "utf8"));
+    for (const v of workflowSetVars(readFileSync(path.join(workflowsDir, f), "utf8"))) out.add(v);
   }
   return out;
 }
@@ -226,6 +267,51 @@ describe("every skip-gating LOOM_* var is reachable", () => {
     // itself would find almost nothing and report a clean tree.
     const java = skipGatesIn(path.join(testDir, "e2e/generated-java-build.test.ts"));
     expect(java.map((g) => g.varName)).toContain("LOOM_JAVA_BUILD");
+  });
+
+  it("a workflow counts a var as wired only when a step's env: or run: sets it", () => {
+    const wired = workflowSetVars(
+      [
+        "env:",
+        "  LOOM_WORKFLOW_LEVEL: '1'",
+        "jobs:",
+        "  a:",
+        "    steps:",
+        "      - run: LOOM_INLINE=1 npx vitest run x",
+        "      - name: multi",
+        "        run: |",
+        "          LOOM_BLOCK=1 npm run test:y",
+        "        env:",
+        "          LOOM_STEP_ENV: '1'",
+      ].join("\n"),
+    );
+    expect([...wired].sort()).toEqual([
+      "LOOM_BLOCK",
+      "LOOM_INLINE",
+      "LOOM_STEP_ENV",
+      "LOOM_WORKFLOW_LEVEL",
+    ]);
+  });
+
+  it("a var named only in paths:, with:, a comment or a label is NOT wired", () => {
+    const wired = workflowSetVars(
+      [
+        "on:",
+        "  pull_request:",
+        "    paths:",
+        "      - 'test/LOOM_ONLY_IN_PATHS=x'",
+        "      - LOOM_PATH_KEY: nope",
+        "jobs:",
+        "  a:",
+        "    steps:",
+        "      # LOOM_IN_COMMENT=1",
+        "      - uses: some/action@v1",
+        "        with:",
+        "          LOOM_IN_WITH: '1'",
+        "      - run: npm test",
+      ].join("\n"),
+    );
+    expect([...wired]).toEqual([]);
   });
 
   it("an escape-hatch read is classified as one, not as a gate", () => {

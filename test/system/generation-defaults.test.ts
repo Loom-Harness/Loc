@@ -277,9 +277,12 @@ describe("G7b — no emitted Dockerfile runs `npm ci`", () => {
       // the generator does not have.
       expect(line, `${name}: ${line}`).not.toContain("package-lock.json");
       // Quiet: no audit report, no funding banner, no extra registry
-      // round-trips on a build that just needs the tree.
+      // round-trips on a build that just needs the tree.  Registry fetch
+      // retries: one ECONNRESET must not fail the whole image build.
       if (/\bnpm install\b/.test(line)) {
-        expect(line.trim(), name).toBe("RUN npm install --no-audit --no-fund");
+        expect(line.trim(), name).toBe(
+          "RUN npm install --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000",
+        );
       }
     }
   });
