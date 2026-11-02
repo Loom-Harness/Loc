@@ -1257,7 +1257,7 @@ function droppedStmtReason(kind: StmtIR["kind"], label: "create" | "destroy"): s
     // which `errorStatuses(<kind>, guarded)` declares.  What the guard may READ
     // is enforced separately by `loom.lifecycle-guard-unreadable` below, and an
     // EVENT-SOURCED lifecycle guard is refused by
-    // `loom.lifecycle-guard-event-sourced` — so the only `requires` that
+    // `loom.target-unsupported#lifecycle-guard-event-sourced` — so the only `requires` that
     // reaches here is one an emitter actually renders.  Reporting it as dropped
     // would make the emitted gate unreachable from any valid source.
     case "requires":
@@ -1487,55 +1487,14 @@ export function validateLifecycleBodyDropped(
     // silently exempted the half it was never justified for.
     const esCreateRendered = aggregateIsEventSourced(agg);
 
-    // An EVENT-SOURCED lifecycle guard is refused rather than rendered.  The ES
-    // create body renders into the domain `_init`, and `_init` has no principal
-    // in scope — `currentUser` is a free identifier there, so the guard does not
-    // raise, it does not COMPILE (`cannot find symbol` / CS0103 / F821).  The
-    // route cannot take it over either: the ES create arm dispatches a command
-    // whose handler is the fold, so hoisting the gate out of `_init` is a
-    // different (and larger) change than the state-based emission.  Naming it is
-    // honest and cheap; the state-based form is the supported one.
-    // WHICH BACKENDS cannot enforce an ES create gate.  Phoenix hoists a
-    // lifecycle gate to the CONTEXT function and binds a principal there, so an
-    // event-sourced `create ... { requires ... }` works on elixir and is golden-
-    // pinned (pairwise F10, `es-command-principal.test.ts`).  The refusal is
-    // therefore per-backend, not a property of event sourcing — refusing it
-    // everywhere would reject a model one backend emits correctly.
+    // An EVENT-SOURCED `create` gate is refused by the capability-table check
+    // (`loom.target-unsupported#lifecycle-guard-event-sourced`,
+    // `target-capability-checks.ts`): the create body renders into the domain
+    // `_init`, which has no principal in scope, on every backend whose row is
+    // not `supported` (Phoenix hoists the gate to its context function).  This
+    // check only needs to know WHERE that refusal fires, so the guard-read
+    // contract below stands down for it.
     const esGateUnsupportedOn = esCreateGateUnsupportedOn(backendPlatforms);
-    if (esCreateRendered && esGateUnsupportedOn.length > 0) {
-      // EVERY create, not just the canonical one.  An event-sourced create is
-      // rendered BY INDEX (`agg.creates[0]`), so a NAMED `create open(...)` on
-      // an event stream IS the emitted one — and reading only
-      // `canonicalCreate(agg)` here let its guard through untouched: it rendered
-      // into the domain `_init` as a free `currentUser`, so `ddd parse` said
-      // `0 error(s)` and the generated project then failed to COMPILE (measured
-      // on node: `acct.ts(68,11): error TS2304: Cannot find name 'currentUser'`;
-      // `cannot find symbol` / CS0103 / F821 elsewhere).  A security gate that
-      // silently does not deny, in other words — the exact outcome this refusal
-      // exists to prevent.  Same blind spot `loom.named-lifecycle-dropped`
-      // (#2532) closed one check over, for the DROPPED body rather than the guard.
-      //
-      // Per-create rather than per-canonical-create because NO create body on an
-      // ES aggregate can host an enforceable guard: the rendered one has no
-      // principal in scope, and any other is dropped outright.  `canonicalCreate`
-      // is a convenience accessor over `creates`, so this strictly WIDENS the old
-      // arm — the canonical case keeps its wording and its `.create` source.
-      for (const create of agg.creates ?? []) {
-        for (const s of create.statements) {
-          if (s.kind !== "requires") continue;
-          diags.push({
-            severity: "error",
-            code: "loom.lifecycle-guard-event-sourced",
-            message: diagMessage("loom.lifecycle-guard-event-sourced", {
-              agg: agg.name,
-              platforms: esGateUnsupportedOn.join(", "),
-            }),
-            source: `${ctx.name}/aggregate ${agg.name}.${create.name}`,
-            origin: create.origin,
-          });
-        }
-      }
-    }
 
     for (const [label, action] of [
       ["create", canonicalCreate(agg)],
@@ -1553,7 +1512,7 @@ export function validateLifecycleBodyDropped(
       // WHICH LAYER OWNS THE ES CASE.  This check answers "what may a guard
       // READ" for every lifecycle guard, ES included — that is why it now runs
       // first and unconditionally.  A separate, stronger refusal
-      // (`loom.lifecycle-guard-event-sourced`, M-T3.16 step 3) answers a
+      // (`loom.target-unsupported#lifecycle-guard-event-sourced`, M-T3.16 step 3) answers a
       // different question: "can this guard be ENFORCED at all", and for an
       // event-sourced create the answer is no, because `_init` has no principal
       // in scope.  Where both apply the ES refusal is the actionable one, so

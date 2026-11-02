@@ -20,6 +20,7 @@
 // `text` (`.ToString()` / `Enum.Parse`).
 // ---------------------------------------------------------------------------
 
+import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   ContainmentIR,
@@ -47,7 +48,6 @@ import {
   TENANT_OWNED_DATA_KEY_FIELD,
   TENANT_OWNED_TENANT_ID_FIELD,
 } from "../../../ir/util/tenant-stance.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { rewrite } from "../../../util/emission-sink.js";
@@ -85,6 +85,7 @@ import {
   renderRetrievalParamsWithCt,
 } from "./repository.js";
 import { csStateHolderOf } from "./state-holder.js";
+import { handleSaveOverloadLines, saveParamsCs } from "./version-check-cs.js";
 
 /** The locals a relational Dapper `find` method (list / single / paged)
  *  declares for itself — each yields to a same-named find param. */
@@ -1429,7 +1430,7 @@ export function renderDapperRepository(
   // repository threads it, so the port signature `SaveAsync(agg, ct)` is
   // unchanged.  A non-versioned aggregate keeps the blind upsert below
   // (byte-identical).
-  const versioned = aggregateIsVersioned(agg);
+  const versioned = rowVersionGuarded(agg);
   const versionCol = "version";
   const upsertSetNoVersion = cols
     .filter((c) => c.col !== "id" && c.col !== versionCol && !onCreateCols.has(c.col))
@@ -1472,7 +1473,7 @@ export function renderDapperRepository(
     ? [
         `        ${dapperOpenConn(ns)}`,
         `        ${DAPPER_BEGIN_TX}`,
-        "        var __expected = RequestContext.Current?.ExpectedVersion ?? aggregate.Version;",
+        "        var __expected = expectedVersion ?? aggregate.Version;",
         `        var __affected = await conn.ExecuteAsync(new CommandDefinition(${csSqlLiteral(`INSERT INTO ${table} (${insertColList}) VALUES (${versionedInsertValsTph}) ON CONFLICT (id) DO UPDATE SET ${versionedSetClause} WHERE ${table}.${versionCol} = @ExpectedVersion${tph ? ` AND ${scope.writeKindOn(table)}` : ""}`)}, new { ${saveParams}, ExpectedVersion = __expected }, transaction: __tx, cancellationToken: cancellationToken));`,
         `        if (__affected == 0) throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
       ]
@@ -2169,7 +2170,8 @@ export function renderDapperRepository(
           : ["        return rows.Select(Map).ToList();"]),
       "    }",
       "",
-      `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
+      ...handleSaveOverloadLines(agg, bclTask),
+      `    public async ${bclTask} SaveAsync(${agg.name} aggregate, ${saveParamsCs(agg)})`,
       "    {",
       ...stampLines,
       ...saveUpsertLines,
@@ -2247,7 +2249,7 @@ export function renderDapperDocumentRepository(
   const table = sqlIdent(tableOf(agg.name));
   const snap = `${agg.name}Snapshot`;
   const idCs = idTypes(agg.idValueType).cs;
-  const versioned = aggregateIsVersioned(agg);
+  const versioned = rowVersionGuarded(agg);
   const finds = (repo?.finds ?? []).map((raw) => domainFindShape(raw, agg.name));
   const anyFindUsesUser = finds.some(findUsesCurrentUser);
   // Rehydrate from the JSONB snapshot, but the `version` COLUMN is the
@@ -2359,7 +2361,7 @@ export function renderDapperDocumentRepository(
   const saveLines = versioned
     ? [
         ...savePrelude,
-        "        var __expected = RequestContext.Current?.ExpectedVersion ?? aggregate.Version;",
+        "        var __expected = expectedVersion ?? aggregate.Version;",
         `        var __affected = await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (id, data, version) VALUES (@id, CAST(@data AS jsonb), 1) ON CONFLICT (id) DO UPDATE SET data = excluded.data, version = ${table}.version + 1 WHERE ${table}.version = @ExpectedVersion", new { id = aggregate.Id.Value, data = __data, ExpectedVersion = __expected }, ${audit.txArg}cancellationToken: cancellationToken));`,
         `        if (__affected == 0) throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
         ...audit.flush,
@@ -2507,7 +2509,8 @@ export function renderDapperDocumentRepository(
       "    }",
       ...capMethod,
       "",
-      `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
+      ...handleSaveOverloadLines(agg, bclTask),
+      `    public async ${bclTask} SaveAsync(${agg.name} aggregate, ${saveParamsCs(agg)})`,
       "    {",
       ...saveLines,
       "        foreach (var ev in aggregate.PullEvents())",

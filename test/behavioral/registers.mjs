@@ -321,6 +321,16 @@ export const BEHAVIOURAL_XFAIL = {
       },
       reason: "RS-46 — a named operation ignores a stale `If-Match`",
     },
+    // The workflow half passes: its saves ignore the stale tag.  The closing
+    // operation-route call is the same #3531 gap as concurrency-two-writers.
+    "concurrency-workflow-ifmatch": {
+      issue: "#3531",
+      expect: "fail",
+      tests: {
+        "a workflow's saves ignore the request's stale If-Match": "expected the call to reject, but it resolved",
+      },
+      reason: "RS-46 — a named operation ignores a stale `If-Match` (the workflow half passes)",
+    },
     // A value object nested inside another is cast as `:map`, so the nested
     // VO's invariant never runs and the bad create commits.
     "vo-root-kernel": {

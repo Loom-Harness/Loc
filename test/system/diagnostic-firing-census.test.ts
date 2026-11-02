@@ -1715,13 +1715,6 @@ system S {
     }
     repository Accounts for Account`),
 
-  "loom.lifecycle-guard-event-sourced": deployed(`      event Made { order: Order id, code: string }
-      aggregate Order persistedAs: eventLog {
-        code: string
-        create(code: string) { requires 1 == 1  emit Made { order: id, code: code } }
-        apply(e: Made) { code := e.code }
-      }`),
-
   // `Slot { }` is a placement contract — only a `component` body has a caller
   // whose children it can render; in a PAGE body it is an unbound reference.
   "loom.slot-outside-component": `
@@ -3701,7 +3694,7 @@ system S {
 
   // F-004: `denyByDefault` + `persistedAs: eventLog`.  An event-sourced create
   // cannot carry an ENFORCEABLE gate — its body renders into the domain `_init`,
-  // which has no principal in scope, so `loom.lifecycle-guard-event-sourced`
+  // which has no principal in scope, so `loom.target-unsupported#lifecycle-guard-event-sourced`
   // refuses one outright.  Demanding a `requires` here was therefore an
   // unsatisfiable error, and the two settings were mutually exclusive for any
   // event-sourced aggregate with a creation endpoint: gate present → 1 error,

@@ -395,7 +395,7 @@ system Ledger {
 
   it("is BUILDABLE ungated — the deadlock, and the finding's headline claim", async () => {
     // Before: gate absent → `loom.default-deny-ungated` (error), gate present →
-    // `loom.lifecycle-guard-event-sourced` (error).  Every option errored, so the
+    // `loom.target-unsupported#lifecycle-guard-event-sourced` (error).  Every option errored, so the
     // two settings really were mutually exclusive for any event-sourced
     // aggregate with a creation endpoint.  The exit is the RECOURSE rule
     // `default-deny-checks.ts` already states for the by-id read: an arm the
@@ -443,7 +443,7 @@ system Ledger {
     // Downgrading the default-deny arm must not have downgraded THIS.
     const diags = await allDiags(esSys('requires currentUser.role == "admin" '));
     const codes = diags.filter((x) => x.severity === "error").map((x) => x.code);
-    expect(codes).toContain("loom.lifecycle-guard-event-sourced");
+    expect(codes).toContain("loom.target-unsupported");
   });
 
   it("does not hand the ungateable warning to a STATE-BASED create", async () => {

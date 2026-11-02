@@ -373,11 +373,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `aggregate '${p.agg}': the \`create\` guard reads ${p.refs}, which the gate cannot see. A \`create\` guard may read \`currentUser\` only — there is no instance until the factory runs, and the emitted POST takes the field-derived create input, not the declared parameter list, so a parameter has no wire slot either. \`requires\` answers "may this caller"; a value check belongs in a \`precondition\` on a named \`operation\`.`,
   "loom.lifecycle-guard-unreadable#destroy": (p: { agg: unknown; refs: unknown }) =>
     `aggregate '${p.agg}': the \`destroy\` guard reads ${p.refs}, which the gate cannot see. A \`destroy\` guard may read \`currentUser\` and \`this\` (the route already loads the row), but not a parameter — a DELETE carries no body. \`requires\` answers "may this caller"; a value check belongs in a \`precondition\` on a named \`operation\`.`,
-  // An EVENT-SOURCED lifecycle guard.  Not a "not yet" gap: the ES create body
-  // renders into the domain `_init`, which has no principal in scope, so the
-  // guard cannot be evaluated there at all.
-  "loom.lifecycle-guard-event-sourced": (p: { agg: unknown; platforms: unknown }) =>
-    `aggregate '${p.agg}': a \`requires\` in an event-sourced \`create\` cannot be enforced on ${p.platforms}. The create body renders into the domain \`_init\`, which has no principal in scope — \`currentUser\` is a free identifier there, so the guard does not compile rather than deny. Gate the caller instead: put the \`requires\` on the named \`operation\` (or \`workflow\`) that issues the create, where the request principal is bound. (Phoenix/\`elixir\` hoists the gate to its context function and binds a principal, so it enforces this one — the refusal names only the hosting backends that cannot.)`,
   // The canonical `create` / `destroy` body no backend renders.  `reason` is
   // computed at the call site (it varies by statement kind AND by action), so
   // the catalog owns the frame and the site owns the clause.
@@ -3108,6 +3103,28 @@ export const DIAGNOSTIC_MESSAGES = {
     `a DECLARED \`operation\`, so the effect cannot be emitted. Declare an \`operation\` that ` +
     `does the work and await that, or drive the standard op through a form primitive ` +
     `(\`DestroyForm\` / \`CreateForm\`).`,
+  // An EVENT-SOURCED `create` gate.  Not a "not yet" gap: the create body
+  // renders into the domain `_init`, which has no principal in scope, so the
+  // guard cannot be evaluated there at all.  Phoenix hoists the gate to its
+  // context function and binds a principal, so only the other four refuse.
+  "loom.target-unsupported#lifecycle-guard-event-sourced": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what}: a \`requires\` in an event-sourced \`create\` cannot be enforced on deployable '${p.dName}' (backend '${p.target}'). The create body renders into the domain \`_init\`, which has no principal in scope — \`currentUser\` is a free identifier there, so the guard does not compile rather than deny. Gate the caller instead: put the \`requires\` on the named \`operation\` (or \`workflow\`) that issues the create, where the request principal is bound. (Phoenix/\`elixir\` hoists the gate to its context function and binds a principal, so it enforces this one.)`,
+  "loom.target-unsupported#resource-kind-unrealized": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what} binds a resource kind that deployable '${p.dName}' (backend '${p.target}') can't realize: no backend emits a read-replica connection or a Kafka-held event log, so the context would run on its primary Postgres alone and the declared resource would change nothing. Bind the context to a \`state\` resource (and, for an event-sourced aggregate, an \`eventLog\` resource) on a \`type: postgres\` storage.`,
+  "loom.target-unsupported#storage-type-unrealized": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what} binds a persistence resource to a storage type that deployable '${p.dName}' (backend '${p.target}') can't realize: every backend emits Postgres (its migrations, ORM mapping and compose \`db\` service), so the generated project would run on Postgres instead of the declared database. Use \`type: postgres\`.`,
   "loom.ui-projection-read-unsupported#frontend-has-no-client": (p: {
     what: unknown;
     name: unknown;
@@ -3281,7 +3298,7 @@ export const DIAGNOSTIC_MESSAGES = {
   // An event-sourced `create` under denyByDefault.  A WARNING with its own code,
   // for RECOURSE (the reason the by-id read was a warning until M-T3.19 gave it
   // a surface): the author cannot gate this one — a body `requires` here is refused outright by
-  // `loom.lifecycle-guard-event-sourced`, so demanding one would be an
+  // `loom.target-unsupported#lifecycle-guard-event-sourced`, so demanding one would be an
   // unsatisfiable error.  See the long-form reason at the call site in
   // `default-deny-checks.ts`.
   "loom.default-deny-es-create-ungateable": (p: {
@@ -3292,7 +3309,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `denyByDefault: '${p.name}.${p.opName}' serves \`POST ${p.path}\` to ANY authenticated ` +
     `caller, and it cannot be gated where it is declared: '${p.name}' is ` +
     `\`persistedAs: eventLog\`, and a \`requires\` in an event-sourced \`create\` body is ` +
-    `refused (\`loom.lifecycle-guard-event-sourced\`) because that body renders into the ` +
+    `refused (\`loom.target-unsupported#lifecycle-guard-event-sourced\`) because that body renders into the ` +
     `domain \`_init\`, which has no principal in scope. This is a WARNING rather than an ` +
     `error precisely because there is no \`requires\` you could add — erroring would make ` +
     `every event-sourced aggregate with a creation endpoint unbuildable under ` +
@@ -4767,6 +4784,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `e2e: 'api.${p.slug}.${p.verb}(id, body, options)' — the optional third argument must be ` +
     `exactly '{ ifMatch: <version> }', which sends the 'If-Match' precondition header. No other ` +
     `key and no fourth argument is read, so anything else would be silently dropped.`,
+  "loom.e2e-call-options#workflow-shape": (p: { slug: unknown }) =>
+    `e2e: 'api.${p.slug}.run(body, options)' — the optional second argument must be exactly ` +
+    `'{ ifMatch: <version> }', which sends the 'If-Match' header. No other key and no third ` +
+    `argument is read, so anything else would be silently dropped.`,
   "loom.e2e-call-options#if-match-scope": (p: {
     slug: unknown;
     verb: unknown;

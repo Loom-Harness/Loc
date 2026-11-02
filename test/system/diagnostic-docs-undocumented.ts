@@ -152,7 +152,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.legacy-part-call",
   "loom.legacy-vo-call",
   "loom.lifecycle-body-dropped",
-  "loom.lifecycle-guard-event-sourced",
   "loom.lifecycle-guard-unreadable",
   "loom.macro-arg-duplicate",
   "loom.macro-arg-kind-mismatch",

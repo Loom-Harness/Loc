@@ -183,7 +183,9 @@ describe("the undocumented-codes ratchet", () => {
 // `loom.workflow-load-nullable-unsupported` deleted — a `let` binds a `T?`
 // read now, and its un-narrowed dereference is the documented
 // `loom.nullable-receiver`.
-const UNDOCUMENTED_BASELINE = 344;
+// 347 -> 343: the codes only declared finds could raise left with FindDecl
+// (D-FINDDECL-REMOVED), and the capability table folded one more.
+const UNDOCUMENTED_BASELINE = 343;
 
 describe("the undocumented-codes LENGTH ratchet", () => {
   it("only shrinks", () => {

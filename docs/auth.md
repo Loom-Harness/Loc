@@ -77,7 +77,7 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
 - **an event-sourced `create` is the one remaining exception — on the four backends that
   cannot gate it.**  A `persistedAs: eventLog` aggregate's create body renders
   into the domain `_init`, which has no principal in scope, so a `requires` there
-  is refused (`loom.lifecycle-guard-event-sourced`, below) on `node` / `dotnet` /
+  is refused (`loom.target-unsupported#lifecycle-guard-event-sourced`, below) on `node` / `dotnet` /
   `python` / `java`.  **`elixir` is not affected** — Phoenix hoists the gate to
   its context function and binds a principal, so there the gate is accepted and
   the missing-gate case stays a hard error.  Demanding one
@@ -741,7 +741,7 @@ passing the real principal — so an `eventLog` aggregate's `create ... { requir
 ... }` binds and enforces there like any other gate.  The other four render the
 ES create body into the domain `_init`, which has no principal in scope:
 `currentUser` is a free identifier, so the guard does not deny, it does not
-compile.  `loom.lifecycle-guard-event-sourced` refuses it **naming the hosting
+compile.  `loom.target-unsupported#lifecycle-guard-event-sourced` refuses it **naming the hosting
 backends that cannot enforce it**, and points at the caller (the named
 `operation` / `workflow` that issues the create) instead.
 
