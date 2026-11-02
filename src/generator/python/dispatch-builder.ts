@@ -434,7 +434,15 @@ export function buildPyDispatchFile(
       "DomainEvent",
       ...(hasChannels ? ["DomainEventDispatcher"] : []),
       "PostCommitDispatcher",
-      ...[...new Set([...eventNames, ...esEventNames, ...emittedEventNames])].sort(),
+      ...[
+        ...new Set([
+          ...eventNames,
+          ...esEventNames,
+          ...emittedEventNames,
+          // The outbox codec constructs every durable event by name.
+          ...(hasOutbox ? durableEvents.map((e) => e.name) : []),
+        ]),
+      ].sort(),
     ].join(", ")}`,
     ...factoryAggs.map((n) => `from app.domain.${snake(n)} import ${n}`),
     ...resourceImports,
