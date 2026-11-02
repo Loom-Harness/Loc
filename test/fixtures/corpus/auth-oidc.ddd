@@ -12,6 +12,7 @@ system Helpdesk {
     // OPTIONAL and identifier-typed: a value that is present but not a UUID must
     // read as null too — `assign()` below is gated on it.
     assignee: Ticket id?
+    levels: int[]
   }
   auth {
     enforcement: opt
@@ -46,6 +47,23 @@ system Helpdesk {
         // the authorized one carries a UUID.
         operation assign() {
           requires currentUser.assignee != null
+          open := true
+        }
+        // Claims the gates above never read.  `id` defaults to the token's
+        // `sub`; `permissions` is a string-array claim; `levels` is a declared
+        // non-string array claim NO token carries, so it must read as the
+        // empty list rather than null (`triage` ANDs the role so the ladder's
+        // unauthorized principal is refused there too).
+        operation escalate() {
+          requires currentUser.id == "00000000-0000-0000-0000-000000000000"
+          open := true
+        }
+        operation reassign() {
+          requires currentUser.permissions.contains("close")
+          open := true
+        }
+        operation triage() {
+          requires currentUser.levels.count == 0 && currentUser.role == "agent"
           open := true
         }
       }
@@ -92,6 +110,17 @@ system Helpdesk {
     api.tickets.assign(t)
     let assigned = api.tickets.getById(t)
     expect(assigned.open).toBe(true)
+
+    // Each gate below reads one claim; a 403 or 500 names which one broke.
+    api.tickets.close(t)
+    api.tickets.escalate(t)
+    expect(api.tickets.getById(t).open).toBe(true)
+    api.tickets.close(t)
+    api.tickets.reassign(t)
+    expect(api.tickets.getById(t).open).toBe(true)
+    api.tickets.close(t)
+    api.tickets.triage(t)
+    expect(api.tickets.getById(t).open).toBe(true)
 
     // The canonical `update` is UNGUARDED — no `requires` clause — but it still
     // sits behind `auth: required`, so it exercises the other half of the
