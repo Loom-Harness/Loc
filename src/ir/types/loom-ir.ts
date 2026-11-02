@@ -4421,6 +4421,17 @@ export function workflowUsesCurrentUser(wf: Pick<WorkflowIR, "statements">): boo
   return wf.statements.some(workflowStmtUsesCurrentUser);
 }
 
+/** True when a `commandHandler` / `queryHandler` body reads `currentUser` — in
+ *  a statement (a `requires` gate: `scaffoldGet` splices the aggregate's read
+ *  gate in) or in its `return` expression.  Every backend's routed-handler
+ *  emitter binds the principal exactly when this holds, so a handler that
+ *  never reads it emits unchanged.  An extern handler has no body. */
+export function handlerUsesCurrentUser(
+  h: Pick<CommandHandlerIR, "statements" | "returnValue" | "extern">,
+): boolean {
+  return !h.extern && (workflowUsesCurrentUser(h) || exprUsesCurrentUser(h.returnValue));
+}
+
 function workflowStmtUsesCurrentUser(s: WorkflowStmtIR): boolean {
   let found = false;
   walkWorkflowStmtExprsDeep(s, (node) => {

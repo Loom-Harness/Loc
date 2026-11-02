@@ -76,7 +76,7 @@ import type {
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
-import { exprUsesCurrentUser, workflowUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { handlerUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import {
   aggregatesHaveUniqueKeys,
@@ -480,7 +480,7 @@ function emitRouteHandler(
   // A body that reads `currentUser` (a `requires` gate — `scaffoldGet` splices
   // the aggregate's read gate in — or an expression) needs it bound, exactly as
   // the workflow and aggregate routes bind it.
-  if (!h.extern && (workflowUsesCurrentUser(h) || exprUsesCurrentUser(h.returnValue))) {
+  if (handlerUsesCurrentUser(h)) {
     out.push(
       `    const currentUser = (httpCtx as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
     );

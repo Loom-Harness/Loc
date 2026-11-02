@@ -47,6 +47,7 @@ import type {
   TypeIR,
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
+import { handlerUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import {
   domainServicesCalled,
@@ -429,6 +430,10 @@ function renderHandlerClass(
     h.returnValue,
   ]);
   const repoAggs = reposUsed(h);
+  // A body that reads `currentUser` (a `requires` gate or an expression)
+  // resolves the actor through the injected accessor, as the workflow and
+  // paged-run handlers do.
+  const usesUser = handlerUsesCurrentUser(h);
 
   // The (flattened) params are `handle(...)`'s own parameters, in a method
   // whose body dereferences the injected repository / service fields — a param
@@ -442,6 +447,7 @@ function renderHandlerClass(
     ...calledServices.reading.map((s) => lowerFirst(s)),
     ...calledServices.reading,
     ...calledServices.pure,
+    ...(usesUser ? ["currentUser", "currentUserAccessor"] : []),
   ]);
   const locals = javaLocals(
     flat.map((p) => p.name),
@@ -488,14 +494,17 @@ function renderHandlerClass(
   const fields = [
     ...repoAggs.map((a) => `    private final ${a}Repository ${repoField(a)};`),
     ...calledServices.reading.map((s) => `    private final ${s} ${lowerFirst(s)};`),
+    ...(usesUser ? ["    private final CurrentUserAccessor currentUserAccessor;"] : []),
   ];
   const ctorParams = [
     ...repoAggs.map((a) => `${a}Repository ${repoField(a)}`),
     ...calledServices.reading.map((s) => `${s} ${lowerFirst(s)}`),
+    ...(usesUser ? ["CurrentUserAccessor currentUserAccessor"] : []),
   ].join(", ");
   const ctorAssigns = [
     ...repoAggs.map((a) => `        this.${repoField(a)} = ${repoField(a)};`),
     ...calledServices.reading.map((s) => `        this.${lowerFirst(s)} = ${lowerFirst(s)};`),
+    ...(usesUser ? ["        this.currentUserAccessor = currentUserAccessor;"] : []),
   ];
   const ctor =
     ctorAssigns.length > 0
@@ -549,6 +558,7 @@ function renderHandlerClass(
           .map((svc) => `import ${domainServicePkg}.${svc};`)
       : []),
     resourceImport,
+    usesUser ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
     `import ${basePkg}.domain.common.*;`,
     `import ${basePkg}.domain.enums.*;`,
     `import ${basePkg}.domain.ids.*;`,
@@ -562,6 +572,7 @@ function renderHandlerClass(
     fields.length > 0 ? `` : null,
     ...ctor,
     `    public ${retType} handle(${params}) {`,
+    usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
     ...bodyLines,
     ...saveLines,
     ...returnLines,

@@ -121,6 +121,22 @@ import { renderRequiredParamsPlug, requiredWireParams } from "./problem-details-
 import { retrievalReadsActor } from "./retrieval-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
 
+/** Does this criterion read pass the request actor to its retrieval?  Only
+ *  where the body binds `current_user` (`repoRunActor`) and the retrieval
+ *  reads it (a principal filter on its target, or a `currentUser` where). */
+function readPassesActor(
+  retrievalName: string | undefined,
+  renderCtx: RenderCtx,
+  ctx: BoundedContextIR | undefined,
+): boolean {
+  return !!(
+    renderCtx.repoRunActor &&
+    ctx &&
+    retrievalName &&
+    retrievalReadsActor(retrievalName, ctx)
+  );
+}
+
 /** The aggregate a workflow step targets, for the lifecycle-seam decision (which
  *  context function an IN-PROCESS caller may use).  `undefined` when the step
  *  names an aggregate in another context — then the seam falls back to the plain
@@ -527,6 +543,7 @@ function lowerStatement(
           },
           st.args.map((a) => renderExpr(a, renderCtx)),
           contextModule,
+          readPassesActor(st.retrievalName, renderCtx, ctx),
         );
         const { pattern, bindName } = tupleBind(st.name, rest, reads);
         return [
@@ -674,7 +691,7 @@ function lowerStatement(
         if (st.page.offset) optEntries.push(`offset: ${renderExpr(st.page.offset, renderCtx)}`);
         if (st.page.limit) optEntries.push(`limit: ${renderExpr(st.page.limit, renderCtx)}`);
       }
-      if (renderCtx.repoRunActor && ctx && retrievalReadsActor(st.retrievalName, ctx)) {
+      if (readPassesActor(st.retrievalName, renderCtx, ctx)) {
         optEntries.push("current_user: current_user");
       }
       if (st.bypassAll) {
@@ -787,6 +804,7 @@ function lowerStatement(
                 },
                 args,
                 contextModule,
+                readPassesActor(st.retrievalName, renderCtx, ctx),
               ),
             );
       const renderBranch = (all: WorkflowStmtIR[], present: string): string[] => {
