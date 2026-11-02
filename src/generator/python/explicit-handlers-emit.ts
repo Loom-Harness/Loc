@@ -39,6 +39,7 @@
 // raw SQLAlchemy row.  Id / scalar / void returns are unchanged.
 // ---------------------------------------------------------------------------
 
+import { wireStatus } from "../../ir/enrich/wire-policy.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -91,6 +92,7 @@ import {
   repoClassRef,
 } from "./routes-builder.js";
 import { pySaveRenderer } from "./stamp-call.js";
+import { pyProblemResponseEntry } from "./wire-policy-py.js";
 import {
   collectLiveLetNames,
   collectServiceReadPorts,
@@ -583,11 +585,50 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
     "dir",
   ].join(", ");
   return lines(
-    `@router.${method}("${path}", operation_id="${opId}")`,
+    `@router.${method}("${path}", operation_id="${opId}"${routedResponsesKwarg(undefined, false, ctx)})`,
     `async def ${routeName}(${sig}) -> dict[str, object]:`,
     usesUser ? PY_USER_BIND : null,
     `    return await ${handlerFnRef(h.name)}(${callArgs})`,
   );
+}
+
+/** The `<Agg>Response` model a routed handler's SINGLE entity return
+ *  wire-projects to, as an import marker for the owning aggregate's routes
+ *  module — or undefined for a scalar / id / collection return, which node
+ *  publishes untyped too. */
+function routedResponseModel(h: Handler, ctx: EnrichedBoundedContextIR): string | undefined {
+  const norm = normalizeHandlerReturn(h.returnType, ctx);
+  if (!norm) return undefined;
+  const info = wireTypeInfo(norm, "response");
+  if (info.refKind !== "entity" || info.isCollection) return undefined;
+  const owning =
+    ctx.aggregates.find((a) => a.name === info.base) ??
+    ctx.aggregates.find((a) => a.parts.some((p) => p.name === info.base));
+  return owning
+    ? pyRef(`app.http.${snake(owning.name)}_routes`, `${info.base}Response`)
+    : undefined;
+}
+
+/** The FastAPI `responses=` kwarg a routed path-op declares — the set node's
+ *  routed handler publishes: the 200 body model for a single entity return,
+ *  400 for a malformed request, the context's not-found status, and 415 only
+ *  where a JSON body is read.  Documentation only: the route still returns
+ *  the handler's projected value as-is (`-> Any`). */
+function routedResponsesKwarg(
+  model: string | undefined,
+  hasBody: boolean,
+  ctx: EnrichedBoundedContextIR,
+): string {
+  const statuses = [
+    wireStatus("malformed-body"),
+    wireStatus("not-found", ctx.structuralErrorStatuses),
+    ...(hasBody ? [wireStatus("unsupported-media-type")] : []),
+  ];
+  const entries = [
+    ...(model ? [`200: {"model": ${model}, "description": "OK"}`] : []),
+    ...statuses.map((st) => pyProblemResponseEntry(st, H.ProblemDetails)),
+  ];
+  return `, responses={${entries.join(", ")}}`;
 }
 
 /** Emit one APIRouter per served api whose route list is non-empty:
@@ -684,10 +725,15 @@ export function emitPyExplicitRouteRouter(
     const hasReturn = !!qry || !!cmd?.returnValue || !!(cmd?.extern && cmd.returnType);
     const routeName = `${snake(h.name)}_route`;
 
+    const responses = routedResponsesKwarg(
+      hasReturn && !h.extern ? routedResponseModel(h, ctx) : undefined,
+      bodyParams.length > 0,
+      ctx,
+    );
     if (hasReturn) {
       routeBlocks.push(
         lines(
-          `@router.${method}("${path}", operation_id="${opId}")`,
+          `@router.${method}("${path}", operation_id="${opId}"${responses})`,
           // `-> Any`, and the handler's value returned UNWRAPPED (M-T6.73).
           // This route used to answer `{"result": <value>}` where every other
           // backend answers the bare value — `POST /api/echo/hi` → `{"result":
@@ -708,7 +754,7 @@ export function emitPyExplicitRouteRouter(
     } else {
       routeBlocks.push(
         lines(
-          `@router.${method}("${path}", status_code=204, operation_id="${opId}")`,
+          `@router.${method}("${path}", status_code=204, operation_id="${opId}"${responses})`,
           `async def ${routeName}(${sig}) -> ${H.Response}:`,
           usesUser ? PY_USER_BIND : null,
           `    await ${handlerFnRef(h.name)}(${callArgs})`,

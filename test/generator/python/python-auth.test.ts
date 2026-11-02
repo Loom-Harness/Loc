@@ -118,7 +118,9 @@ describe("python auth gate", () => {
     const handler = files.get("api/app/application/get_order_by_mine.py")!;
     expect(handler).toContain("await orders.run_find_all_by_mine(limit=1)");
     const routes = files.get("api/app/http/orders_api_routes.py")!;
-    expect(routes).toContain('@router.get("/orders/mine", operation_id="getOrderByMine")');
+    expect(routes).toContain(
+      '@router.get("/orders/mine", operation_id="getOrderByMine", responses=',
+    );
   });
 
   it("guarded workflow binds the actor, threads gated op-calls, declares 403", async () => {

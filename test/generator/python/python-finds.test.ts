@@ -53,7 +53,9 @@ describe("python criterion-read lowering", () => {
   it("scaffoldGet routes register before /{id} with coerced query params", async () => {
     const files = await build();
     const routes = files.get("api/app/http/sales_api_routes.py")!;
-    expect(routes).toContain('@router.get("/orders/by_status", operation_id="getOrderByStatus")');
+    expect(routes).toContain(
+      '@router.get("/orders/by_status", operation_id="getOrderByStatus", responses=',
+    );
     expect(routes).toContain(
       "async def get_order_by_status_route(status: OrderStatus, session: SessionDep) -> Any:",
     );

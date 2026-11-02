@@ -78,17 +78,17 @@ function handlerBody(src: string, operationId: string): string {
 
 describe("node/Hono handler → reading domain service", () => {
   it("the reading call gets its read-port handle, ahead of the user args", async () => {
-    const body = handlerBody(await routes(), "cHolderFree");
+    const body = handlerBody(await routes(), "holderFree");
     expect(body).toContain("Registration.isHolderFree(accounts, holder)");
   });
 
   it("the reading call is awaited — the service op is async", async () => {
-    const body = handlerBody(await routes(), "cHolderFree");
+    const body = handlerBody(await routes(), "holderFree");
     expect(body).toContain("(await Registration.isHolderFree(accounts, holder))");
   });
 
   it("the handler CONSTRUCTS the port repository, even though its own body never reads it", async () => {
-    const body = handlerBody(await routes(), "cHolderFree");
+    const body = handlerBody(await routes(), "holderFree");
     expect(body).toContain("const accounts = new AccountRepository(db, events);");
   });
 
@@ -98,7 +98,7 @@ describe("node/Hono handler → reading domain service", () => {
   });
 
   it("a PURE service call stays byte-identical: no handle, no await", async () => {
-    const body = handlerBody(await routes(), "cDoubled");
+    const body = handlerBody(await routes(), "doubled");
     expect(body).toContain("Fees.double(n)");
     expect(body).not.toContain("await Fees.double");
   });

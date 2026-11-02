@@ -297,29 +297,25 @@ describe("F13 (runtime) — every backend ANSWERS the not-found rung on a miss",
 });
 
 describe("F13 — a routed single-row read declares the 404 it answers", () => {
-  // #4433: python / .NET / java / elixir routed-handler routes don't declare
-  // their 404 yet (java's OpenAPI customizer omits the route outright, #4408),
-  // so those four — and the java half of the optional case — are pinned
-  // `it.fails` until the declaration lands.
   it("node", async () => {
     expect(await statuses.node(/nApi-routes\.ts$/, "/wallets/by_owner_ref")).toContain(404);
   });
 
-  it.fails("python — #4433", async () => {
+  it("python", async () => {
     expect(await statuses.python(/n_api_routes\.py$/, "/wallets/by_owner_ref")).toContain(404);
   });
 
-  it.fails("dotnet — #4433", async () => {
+  it("dotnet", async () => {
     expect(await statuses.dotnet(/NApiRoutesController\.cs$/, "GetWalletByOwnerRef(")).toContain(
       404,
     );
   });
 
-  it.fails("java — #4433", async () => {
+  it("java", async () => {
     expect(await statuses.java("/api/wallets/by_owner_ref")).toContain(404);
   });
 
-  it.fails("elixir — #4433", async () => {
+  it("elixir", async () => {
     expect(await statuses.elixir("/wallets/by_owner_ref")).toContain(404);
   });
 
@@ -330,7 +326,7 @@ describe("F13 — a routed single-row read declares the 404 it answers", () => {
     expect(await statuses.node(/wallet\.routes\.ts$/, "/")).not.toContain(404);
   });
 
-  it.fails("an OPTIONAL read answered with `notFound` declares its 404 too — #4433", async () => {
+  it("an OPTIONAL read answered with `notFound` declares its 404 too", async () => {
     expect(await statuses.java("/api/wallets/wallets_maybe_by_ref")).toContain(404);
     expect(await statuses.node(/nApi-routes\.ts$/, "/wallets/wallets_maybe_by_ref")).toContain(404);
   });

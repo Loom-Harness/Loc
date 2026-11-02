@@ -32,7 +32,9 @@ async function emitted(readGate: string): Promise<{ handler: string; routes: str
   const routes = files.get("api/app/http/api_routes.py");
   expect(handler, "get_ticket_by_subject.py not emitted").toBeDefined();
   expect(routes, "api_routes.py not emitted").toBeDefined();
-  expect(routes).toContain('@router.get("/tickets/by_subject", operation_id="getTicketBySubject")');
+  expect(routes).toContain(
+    '@router.get("/tickets/by_subject", operation_id="getTicketBySubject", responses=',
+  );
   return { handler: handler!, routes: routes! };
 }
 

@@ -1,14 +1,16 @@
-import { reasonPhrase } from "../../../ir/enrich/wire-policy.js";
+import { reasonPhrase, wireStatus } from "../../../ir/enrich/wire-policy.js";
 import {
   forApiRead,
   wireFieldsForAggregate,
   wireFieldsForPart,
 } from "../../../ir/enrich/wire-projection.js";
+import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   EnrichedBoundedContextIR,
   EnumIR,
   OperationIR,
   RepositoryIR,
+  RouteIR,
   TypeIR,
   WireField,
 } from "../../../ir/types/loom-ir.js";
@@ -17,6 +19,7 @@ import {
   workflowEmitsCommandRoute,
   workflowIsGuarded,
 } from "../../../ir/types/loom-ir.js";
+import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import {
   type ApiOperationIR,
   aggregateSegment,
@@ -26,10 +29,13 @@ import {
   relativeOpPath,
 } from "../../../ir/util/api-surface.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
+import { normalizeHandlerReturn } from "../../../ir/util/handler-contracts.js";
 import { errorStatuses, PROBLEM_JSON, PROBLEM_SCHEMA } from "../../../ir/util/openapi-errors.js";
+import { routedParamSource } from "../../../ir/util/routed-handler.js";
 import { lines } from "../../../util/code-builder.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, snake, upperFirst } from "../../../util/naming.js";
+import { explicitRoutePath } from "../../_api/explicit-route-mount.js";
 import { requestComponentNamerFor } from "../../_openapi/request-component-names.js";
 import {
   errorArmProblemJsonSchema,
@@ -173,6 +179,8 @@ interface Contract {
 export function buildJavaOpenApiContract(
   contexts: readonly EnrichedBoundedContextIR[],
   routePrefix: string,
+  /** The explicit `route`s of the apis this deployable serves. */
+  explicitRoutes: readonly RouteIR[] = [],
 ): Contract {
   // The PUBLISHED names this table is keyed by.  Derived from the one shared
   // owner list (`../request-component-owners.js`) that the record emitters also
@@ -556,6 +564,47 @@ export function buildJavaOpenApiContract(
         requiredWireFields(wf.instanceWireShape),
       );
     }
+  }
+
+  // Explicit routes.  The routes controller returns `ResponseEntity<?>`, so
+  // springdoc infers neither the success body nor the error set; both are
+  // pinned to what node's routed handler declares: the `<Agg>Response` of a
+  // single entity return (any other return stays untyped), 204 for a void
+  // command, then 400, the context's not-found status, and 415 where a JSON
+  // body is read.
+  const byCtx = new Map(contexts.map((c) => [c.name, c]));
+  for (const r of explicitRoutes) {
+    const ctx = byCtx.get(r.target.context);
+    if (!ctx) continue;
+    const cmd = (ctx.commandHandlers ?? []).find((h) => h.name === r.target.handler);
+    const qry = (ctx.queryHandlers ?? []).find((h) => h.name === r.target.handler);
+    const h = cmd ?? qry;
+    if (!h) continue;
+    const paged = !!h.returnType && pagedReturn(h.returnType);
+    const hasBody = !paged && h.params.some((p) => routedParamSource(p.name, r, false) === "body");
+    const statuses = [
+      wireStatus("malformed-body"),
+      wireStatus("not-found", ctx.structuralErrorStatuses),
+      ...(hasBody ? [wireStatus("unsupported-media-type")] : []),
+    ];
+    const ret = normalizeHandlerReturn(h.returnType, ctx);
+    let successRef: string | undefined;
+    if (ret && !h.extern && !paged) {
+      const info = wireTypeInfo(ret, "response");
+      const owning =
+        info.refKind === "entity" && !info.isCollection
+          ? (ctx.aggregates.find((a) => a.name === info.base) ??
+            ctx.aggregates.find((a) => a.parts.some((p) => p.name === info.base)))
+          : undefined;
+      if (owning) successRef = `${info.base}Response`;
+    }
+    routes.push({
+      method: r.method.toLowerCase(),
+      path: explicitRoutePath(r),
+      ...(successRef ? { successRef } : {}),
+      errors: err(statuses),
+      ...(ret ? {} : { successStatus: 204 }),
+    });
   }
 
   // Unambiguous field-name → enum retargets only: a field name mapping to
