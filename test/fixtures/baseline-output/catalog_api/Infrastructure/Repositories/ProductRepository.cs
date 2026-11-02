@@ -40,7 +40,10 @@ public sealed class ProductRepository : IProductRepository
         return await _db.Products.Where(x => ids.Contains(x.Id)).ToListAsync(cancellationToken);
     }
 
-    public async Task SaveAsync(Product aggregate, CancellationToken cancellationToken = default)
+    public Task SaveAsync(Product aggregate, CancellationToken cancellationToken = default)
+        => SaveAsync(aggregate, null, cancellationToken);
+
+    public async Task SaveAsync(Product aggregate, int? expectedVersion, CancellationToken cancellationToken = default)
     {
         var __db = _db.TrackerOf(aggregate);
         var entry = __db.Entry(aggregate);
@@ -51,7 +54,7 @@ public sealed class ProductRepository : IProductRepository
         if (entry.State != EntityState.Added && entry.State != EntityState.Detached)
         {
             var __version = entry.Property(x => x.Version);
-            var __expected = RequestContext.Current?.ExpectedVersion;
+            var __expected = expectedVersion;
             if (__expected.HasValue) __version.OriginalValue = __expected.Value;
             __version.CurrentValue = __version.OriginalValue + 1;
         }

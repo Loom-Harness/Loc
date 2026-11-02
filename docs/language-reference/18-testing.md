@@ -245,7 +245,7 @@ await __postIfMatch(`${base}/api/notes/${n.id}/update`, ({ text: "second" }), re
 // …which sends  if-match: "<version>"  — the quoted entity-tag every backend parses
 ```
 
-The stale write answers 409 with the `detail` `"Note <id> was modified by another request"` on every backend ([RS-40](../conformance-semantics.md)). Any other shape — another key, a fourth argument, or `ifMatch` on an operation other than a versioned `update` (the one route all five backends read the header on) — is `loom.e2e-call-options`, rather than being dropped. The suite reads its base URL from `E2E_<DEPLOYABLE>_BASE` (defaulting to the compose port) and forwards a principal when the target is `auth: required` — `E2E_BEARER_TOKEN` (OIDC) or `E2E_DEV_CLAIMS` (base64-JSON into `x-loom-dev-claims`).
+The stale write answers 409 with the `detail` `"Note <id> was modified by another request"` on every backend ([RS-40](../conformance-semantics.md)). Any other shape — another key, a fourth argument, or `ifMatch` on an operation other than a versioned `update` (the one route all five backends read the header on) — is `loom.e2e-call-options`, rather than being dropped. A workflow call takes the same option as its second argument — `api.renameBoth.run({ … }, { ifMatch: v })` — to send a header the workflow's saves must ignore: a body is not a request about one row, so each row it loaded is checked against the version its own handle loaded. The suite reads its base URL from `E2E_<DEPLOYABLE>_BASE` (defaulting to the compose port) and forwards a principal when the target is `auth: required` — `E2E_BEARER_TOKEN` (OIDC) or `E2E_DEV_CLAIMS` (base64-JSON into `x-loom-dev-claims`).
 
 ```ts
 // e2e/SalesSystem.e2e.test.ts — emitted once at the output root
