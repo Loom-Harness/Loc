@@ -50,6 +50,7 @@ import { dapperAmbientTxClassFq, dapperOpenConn } from "./dapper-session.js";
 import { eventRecordClass, renderEventRecordPoco } from "./event-store.js";
 import {
   outboxDeadLetteredLog,
+  outboxExecuteLoop,
   outboxOriginFrame,
   outboxPayloadExpr,
   outboxRetentionMembers,
@@ -631,22 +632,7 @@ ${outboxRetentionMembers(`            await using var conn = await _db.OpenConne
         _log = log;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            try
-            {
-                await MaybePurgeAsync(stoppingToken);
-                await DrainAsync(stoppingToken);
-                await Task.Delay(Interval, stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-        }
-    }
+${outboxExecuteLoop()}
 
     private sealed class OutboxRow
     {
