@@ -459,3 +459,42 @@ describe("elixir — a routed action checks and coerces its query/path params", 
     );
   });
 });
+
+// A malformed `date` must be refused at the boundary: `__find_date/1` hands an
+// unparseable string through unchanged, and Postgrex refuses a binary where a
+// date is expected — a 500 instead of the field-invalid 422.
+const DATE_PARAM_SRC = `
+system Ledger {
+  subdomain Core {
+    context Books {
+      aggregate Entry with crudish {
+        bookedOn: date
+      }
+      repository Entries for Entry
+      criterion OnDay(day: date) of Entry = this.bookedOn == day
+      queryHandler CountOn(day: date): int {
+        let r = Entries.all(OnDay(day))
+        return r.count()
+      }
+    }
+  }
+  api LedgerApi from Core {
+    route GET "/entries/count_on" -> Books.CountOn
+  }
+  storage pg { type: postgres }
+  resource st { for: Books, kind: state, use: pg }
+  deployable api { platform: elixir, contexts: [Books], dataSources: [st], serves: LedgerApi, port: 4000 }
+}
+`;
+
+describe("elixir — a routed date param is checked, not passed through", () => {
+  it("checks a date query param as an ISO 8601 date", async () => {
+    const m = await generateSystemFiles(DATE_PARAM_SRC);
+    const ctrl = fileEndingWith(m, "lib/api_web/controllers/ledger_api_routes_controller.ex");
+    expect(actionBody(ctrl, "count_on")).toContain(
+      'case __check_find_params(params, [{"day", :date, true}]) do',
+    );
+    expect(ctrl).toContain("defp __find_param_error(value, :date, _required) do");
+    expect(ctrl).toContain("case Date.from_iso8601(value) do");
+  });
+});

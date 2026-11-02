@@ -105,6 +105,7 @@ type FindParamCheck =
   | { kind: "decimal" }
   | { kind: "bool" }
   | { kind: "datetime" }
+  | { kind: "date" }
   | { kind: "enum"; values: readonly string[] };
 
 function findParamCheck(t: TypeIR, ctx: BoundedContextIR): FindParamCheck {
@@ -123,6 +124,8 @@ function findParamCheck(t: TypeIR, ctx: BoundedContextIR): FindParamCheck {
           return { kind: "bool" };
         case "datetime":
           return { kind: "datetime" };
+        case "date":
+          return { kind: "date" };
         case "guid":
           return { kind: "uuid" };
         case "string":
@@ -226,6 +229,14 @@ function renderFindParamCheck(kinds: ReadonlySet<FindParamCheck["kind"]>): strin
     case DateTime.from_iso8601(value) do
       {:ok, _, _} -> nil
       _ -> "Expected an ISO 8601 date-time with an offset."
+    end
+  end`);
+  }
+  if (kinds.has("date")) {
+    clauses.push(`  defp __find_param_error(value, :date, _required) do
+    case Date.from_iso8601(value) do
+      {:ok, _} -> nil
+      _ -> "Expected an ISO 8601 date."
     end
   end`);
   }
