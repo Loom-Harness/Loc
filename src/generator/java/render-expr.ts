@@ -292,6 +292,17 @@ function needsObjectsEquals(t: TypeIR | undefined, e: BinaryExpr): boolean {
   return t.kind === "id" || t.kind === "valueobject" || t.kind === "entity" || t.kind === "array";
 }
 
+/** An optional primitive (`bool?` / `int?` / `long?`) is a boxed
+ *  `Boolean`/`Integer`/`Long` in Java, where `==` is reference identity (and an
+ *  NPE-free `Objects.equals` is the null-safe value comparison).  `unwrapOptional`
+ *  hides the box from `needsObjectsEquals`, so the optionality is read off the
+ *  operand types directly. */
+function comparesBoxedPrimitive(e: BinaryExpr): boolean {
+  const boxed = (t: TypeIR | undefined): boolean =>
+    t?.kind === "optional" && t.inner.kind === "primitive";
+  return boxed(e.leftType) || boxed(e.rightType);
+}
+
 function comparesNullLiteral(e: BinaryExpr): boolean {
   const isNull = (x: ExprIR): boolean => x.kind === "literal" && x.lit === "null";
   return isNull(e.left) || isNull(e.right);
@@ -900,6 +911,18 @@ function renderBinary(l: string, r: string, e: BinaryExpr): string {
   if (temporal !== null) return temporal;
   if (e.op === "==" || e.op === "!=") {
     if (comparesNullLiteral(e)) return `${l} ${e.op} ${r}`;
+    if (comparesBoxedPrimitive(e)) {
+      // `Objects.equals(Long, Integer)` is false for equal values — widen an
+      // `int` side when the other side is a `long`.
+      const isLong = (t: TypeIR | undefined): boolean => {
+        const u = unwrapOptional(t);
+        return u?.kind === "primitive" && u.name === "long";
+      };
+      const widen = (text: string, t: TypeIR | undefined): string =>
+        (isLong(e.leftType) || isLong(e.rightType)) && !isLong(t) ? `(long) (${text})` : text;
+      const eq = `${J.Objects}.equals(${widen(l, e.leftType)}, ${widen(r, e.rightType)})`;
+      return e.op === "==" ? eq : `!${eq}`;
+    }
     if (needsObjectsEquals(lt, e)) {
       return e.op === "==" ? `${J.Objects}.equals(${l}, ${r})` : `!${J.Objects}.equals(${l}, ${r})`;
     }
