@@ -450,13 +450,60 @@ has) — return the id and read the record back, or use a `commandHandler`.
   `loom.workflow-uncorrelated-state-read`: there is no instance to read.
 - **A mutation needs a save.**  Every aggregate a body mutates must be one
   the exit save (or a loop's / branch's save) writes.  A mutating call
-  whose result is bound — `let r = a.withdraw(x)`, or
-  `let r = Transfer.run(src, dst, x)` on a `mutating` domain service — is
-  not saved yet, so it is an error, `loom.workflow-mutation-unsaved`;
-  write the call as its own statement.  The same code refuses a mutation
-  of a local that is neither created nor loaded from a repository, and an
-  aggregate passed to a mutating service as an expression rather than a
-  bound local.
+  written as a statement or bound with `let` to the call itself —
+  `let r = a.withdraw(x)`, or `let r = Transfer.run(src, dst, x)` on a
+  `mutating` domain service — is saved; one nested inside a larger
+  expression is not, and is an error, `loom.workflow-mutation-unsaved`.
+  The same code refuses a mutation of a local that is neither created nor
+  loaded from a repository, and an aggregate passed to a mutating service
+  as an expression rather than a bound local.
+- **A result that can be an error is matched before anything is saved.**
+  When the bound call's result has an `error` variant, the change is
+  tentative (an operation that answers its error leaves no trace,
+  D-FAILURE-MODEL): the body must `match` the result, the mutated
+  aggregate is saved — and its events published — at the end of each arm
+  that is not an error, and an error arm drops the change.  On .NET and
+  Java the error arm detaches the loaded entity through the repository's
+  `Discard` / `discard`, since EF Core and JPA would otherwise flush it;
+  node and python write only on a save.  Refused as
+  `loom.workflow-mutation-result-unmatched`: a result no `match` reads, an
+  `else` arm covering both a success and an error variant, and any other
+  change to the same aggregate in that body.  Elixir refuses the bound
+  form (`loom.elixir-bound-mutating-call-unsupported`).  See
+  [the language reference](language-reference/13-workflows.md#matching-a-mutating-calls-result)
+  for the generated shapes.
+
+  ```ddd
+  workflow Pay {
+    create(id: Account id, amt: int) {
+      let a = Accounts.get(id)
+      let r = a.withdraw(amt)        // int or Insufficient
+      match r {
+        int left => { }
+        Insufficient e => { notFound }
+      }
+    }
+  }
+  ```
+
+  ```csharp
+  // .NET — Application/Workflows/PayHandler.cs
+  var r = a.Withdraw(command.Amt);
+  switch (r)
+  {
+      case intOrInsufficient_int __leftCarrier:
+      {
+          var left = __leftCarrier.Value;
+          await _accounts.SaveAsync(a, cancellationToken);
+          break;
+      }
+      case intOrInsufficient_Insufficient e:
+      {
+          _accounts.Discard(a);
+          throw new AggregateNotFoundException("Resource not found");
+      }
+  }
+  ```
 - **Two spellings, one create.**  `Agg.create(a, b)` (positional) and
   `Agg.create(x: a, y: b)` (named) are the same factory call, created and
   saved alike; the record form `Agg.create({ x: a })` is retired

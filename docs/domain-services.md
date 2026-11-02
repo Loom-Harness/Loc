@@ -107,6 +107,39 @@ workflow MoveMoney transactional {
 
 (`from`/`to` are reserved words — params are `source`/`dest`.)
 
+A **mutating** call keeps its saves when its result is bound with `let`:
+the bound form lowers to the same call statement, so the mutated args are
+saved at the body's exit exactly as for `Transfer.run(src, dst, amount)`
+written alone.
+
+```ddd
+workflow Move transactional {
+  create(s: Account id, d: Account id, amt: int) {
+    let src = Accounts.get(s)
+    let dst = Accounts.get(d)
+    let moved = Transfer.run(src, dst, amt)   // run(…): int
+    precondition moved > 0
+  }
+}
+```
+```ts
+// http/workflows.ts (node), inside the transaction
+const src = await accounts.getById(s);
+const dst = await accounts.getById(d);
+const moved = Transfer.run(src, dst, amt);
+if (!(moved > 0)) throw new DomainError("Precondition failed: moved > 0", "precondition");
+await accounts.save(src);
+await accounts.save(dst);
+```
+
+When the result has an `error` variant (`tryRun(…): int or Insufficient`),
+the args' changes are tentative: the body must `match` the result, and the
+args are saved in its non-error arms only — see
+[Matching a mutating call's result](language-reference/13-workflows.md#matching-a-mutating-calls-result).
+The bound form is refused on an elixir deployable
+(`loom.elixir-bound-mutating-call-unsupported`), whose mutating services are
+inlined clause by clause.
+
 ## The contract (phase ⑦ IR validator)
 
 | Forbidden in any tier | Diagnostic |
