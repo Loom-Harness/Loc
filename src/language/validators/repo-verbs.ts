@@ -159,11 +159,11 @@ export function checkRepoVerbs(model: Model, accept: ValidationAcceptor): void {
       const ctx = isRepoReceiver(receiver, node);
       if (!ctx) {
         if (s.sorted)
-          accept(
-            "error",
-            diagMessage("loom.repo-sort-placement", { receiver, verb: s.member }),
-            { node: s, property: "sorted", code: "loom.repo-sort-placement" },
-          );
+          accept("error", diagMessage("loom.repo-sort-placement", { receiver, verb: s.member }), {
+            node: s,
+            property: "sorted",
+            code: "loom.repo-sort-placement",
+          });
         continue;
       }
       if (retiredRepoVerb(s.member)) reportRenamed(receiver, s.member, s, accept);
