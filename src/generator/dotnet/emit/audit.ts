@@ -1,4 +1,5 @@
 import { lines } from "../../../util/code-builder.js";
+import { csJsonSqlType } from "../codec-spelling.js";
 
 // ---------------------------------------------------------------------------
 // Per-operation audit runtime — .NET counterpart of the Hono `audit_records`
@@ -89,9 +90,9 @@ export function renderAuditRecordConfiguration(ns: string): string {
       '        builder.Property(x => x.Action).HasColumnName("action");',
       '        builder.Property(x => x.TargetType).HasColumnName("target_type");',
       '        builder.Property(x => x.TargetId).HasColumnName("target_id");',
-      '        builder.Property(x => x.Actor).HasColumnName("actor").HasColumnType("jsonb");',
-      '        builder.Property(x => x.Before).HasColumnName("before").HasColumnType("jsonb");',
-      '        builder.Property(x => x.After).HasColumnName("after").HasColumnType("jsonb");',
+      `        builder.Property(x => x.Actor).HasColumnName("actor").HasColumnType("${csJsonSqlType()}");`,
+      `        builder.Property(x => x.Before).HasColumnName("before").HasColumnType("${csJsonSqlType()}");`,
+      `        builder.Property(x => x.After).HasColumnName("after").HasColumnType("${csJsonSqlType()}");`,
       '        builder.Property(x => x.At).HasColumnName("at");',
       '        builder.Property(x => x.Status).HasColumnName("status");',
       '        builder.Property(x => x.CorrelationId).HasColumnName("correlation_id");',

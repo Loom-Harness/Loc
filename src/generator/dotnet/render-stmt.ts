@@ -1,10 +1,18 @@
-import type { ExprIR, MessageIR, PathIR, ProvSite, StmtIR } from "../../ir/types/loom-ir.js";
+import type {
+  ExprIR,
+  MessageIR,
+  PathIR,
+  ProvSite,
+  StmtIR,
+  TypeIR,
+} from "../../ir/types/loom-ir.js";
 import { walkStmtExprsDeep } from "../../ir/util/walk.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { csProjectType } from "./bcl-collision.js";
+import { csLineageValue } from "./codec-spelling.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { addCsExprUsing, renderCsExpr } from "./render-expr.js";
 
@@ -122,7 +130,7 @@ function csStmtTarget(ctx: CsRenderContext, traceCtx: TraceCtx): StmtTarget {
       // NOTE the wrap ORDER: .NET (like java / python) puts `value_computed`
       // INSIDE the provenance capture; node puts it outside.  Preserved.
       const traced = withValueComputed(base, s.target, traceCtx, ctx);
-      const full = withProvCapture(traced, s.prov, s.target, s.value, ix.prov, ctx);
+      const full = withProvCapture(traced, s.prov, s.target, s.value, ix.prov, ctx, s.targetType);
       return isSelfAssign(s.target, s.value) ? withCa2245Suppressed(full) : full;
     },
 
@@ -323,6 +331,7 @@ function withProvCapture(
   value: ExprIR,
   index: number,
   ctx: CsRenderContext,
+  targetType?: TypeIR,
 ): string {
   if (!prov) return base;
   // Co-located capture is for top-level provenanced fields of the aggregate
@@ -332,10 +341,11 @@ function withProvCapture(
   // value-computed trace's same guard.
   if (target.segments.length !== 1) return base;
   const inputs = collectLeaves(value, (x) => renderCsExpr(x, ctx))
-    .map((l) => `new ProvInput(${JSON.stringify(l.path)}, ${l.value})`)
+    .map((l) => `new ProvInput(${JSON.stringify(l.path)}, ${csLineageValue(l.value, l.type)})`)
     .join(", ");
   const { tmp, lin } = provTempNames(index);
-  const computed = renderPath(target);
+  // A collection target (`add` / `remove`) records the collection as it is.
+  const computed = csLineageValue(renderPath(target), targetType);
   const field = `${upperFirst(prov.target.field)}Provenance`;
   const targetLit = `new ProvTarget(${JSON.stringify(prov.target.type)}, ${JSON.stringify(prov.target.field)})`;
   return wrapProvCapture(base, {

@@ -15,6 +15,7 @@ import {
   OUTBOX_RETENTION_ENV,
 } from "../../../util/channels.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
+import { csJsonSqlType } from "../codec-spelling.js";
 
 /** The EF entity + configuration mapped onto `__loom_outbox` (the table
  *  itself ships via the shared MigrationsIR — EF only maps it). */
@@ -48,7 +49,7 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
         builder.Property(x => x.Id).HasColumnName("id");
         builder.Property(x => x.OccurredAt).HasColumnName("occurred_at");
         builder.Property(x => x.Type).HasColumnName("type");
-        builder.Property(x => x.Payload).HasColumnName("payload").HasColumnType("jsonb");
+        builder.Property(x => x.Payload).HasColumnName("payload").HasColumnType("${csJsonSqlType()}");
         builder.Property(x => x.DispatchedAt).HasColumnName("dispatched_at");
         builder.Property(x => x.Attempts).HasColumnName("attempts");
         builder.Property(x => x.DeadAt).HasColumnName("dead_at");

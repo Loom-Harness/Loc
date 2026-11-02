@@ -33,6 +33,7 @@ import {
 import { OUTBOX_PENDING_PREDICATE, OUTBOX_PURGE_BATCH } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
+import { csSqlType } from "../codec-spelling.js";
 import {
   projectionRowClass,
   projectionRowTable,
@@ -89,7 +90,7 @@ function stateColumns(wf: WorkflowIR, durable: boolean, accBase = "s"): DapperCo
   if (durable) {
     cols.push({
       col: "last_event_id",
-      sql: "text",
+      sql: csSqlType("string"),
       nullable: true,
       rowCs: "string?",
       cast: "",

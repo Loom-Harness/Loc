@@ -26,7 +26,13 @@ import { upperFirst } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
 import { recordPayloadOf } from "../_payload/workflow-param-payloads.js";
-import { MONEY_MAX_EXCLUSIVE } from "../money-scale.js";
+import {
+  csCalendarDateTryParseExact,
+  csCalendarDateWire,
+  csInstantIngressTruncate,
+  csInstantWire,
+  csMoneyMaxExclusive,
+} from "./codec-spelling.js";
 import { csProvSibling, PROVENANCED_CS_RECORD } from "./emit/provenance.js";
 import { CS_NUMERIC } from "./numeric-codec.js";
 import { renderCsExpr } from "./render-expr.js";
@@ -130,26 +136,6 @@ const CS_WIRE_PRIMITIVE: Record<WirePrimitive, string> = {
   // (bytes live in object storage; the DTO carries only the reference).
   File: "FileRef",
 };
-
-/** The C# `DateOnly` → wire-text half of a `date` field: ISO `yyyy-MM-dd`,
- *  culture-pinned so a non-Gregorian host calendar cannot respell it. */
-function csCalendarDateWire(domainExpr: string): string {
-  return `${domainExpr}.ToString("yyyy'-'MM'-'dd", System.Globalization.CultureInfo.InvariantCulture)`;
-}
-
-/** C# expression rendering a domain `DateTime` as its canonical wire string
- *  (RS-4 + RS-38): ISO-8601 UTC in MILLISECONDS — exactly three fractional
- *  digits when the instant has a sub-second part (`…30.120Z`), none on a whole
- *  second (`…30Z`).  The custom `fff` specifier TRUNCATES to the millisecond
- *  (it never rounds, so `.9996` cannot carry into the next second), and the
- *  all-zero `.000` group is then dropped.  Do not trim the 7-digit `"o"` form
- *  with `@"\.?0+Z$"`: that strips EVERY trailing zero — `.120` spelled `.12Z` —
- *  and ships a microsecond value with six or seven digits
- *  (D-ABSENT-JOIN-DATETIME-WIRE).  The emitted `CanonicalInstant.Format` helper
- *  (canonical-instant.ts) applies the same rule to raw-DateTime serialization. */
-export function csCanonicalInstantWire(domainExpr: string): string {
-  return `${domainExpr}.ToUniversalTime().ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss'.'fff'Z'", System.Globalization.CultureInfo.InvariantCulture).Replace(".000Z", "Z")`;
-}
 
 /** C# DTO property type for a `TypeIR`.  `dir` selects the suffix for
  *  nested value-object DTOs (`Request` for inputs, `Response` for
@@ -505,21 +491,14 @@ export function wireToCommandArgument(
           // stored value and the wire value agree and a read-back equals the
           // write.  Truncation, never rounding: rounding `.9996` would carry the
           // instant into the next second.
-          (out) => `${out}.AddTicks(-(${out}.Ticks % TimeSpan.TicksPerMillisecond))`,
+          csInstantIngressTruncate,
         );
       }
       if (info.primitive === "date") {
         // Wire string → DateOnly.  EXACT `yyyy-MM-dd`: a datetime-shaped value
         // (`2026-01-01T00:00Z`) is refused as a typed 422 rather than having
         // its time-of-day dropped silently.
-        return wireParseGuard(
-          expr,
-          site,
-          "date",
-          (out) =>
-            `DateOnly.TryParseExact(${expr}, "yyyy-MM-dd", CultureInfo.InvariantCulture, ` +
-            `DateTimeStyles.None, out var ${out})`,
-        );
+        return wireParseGuard(expr, site, "date", (out) => csCalendarDateTryParseExact(expr, out));
       }
       if (info.primitive === "money") {
         // Wire string → System.Decimal, gated by node's money GRAMMAR
@@ -544,7 +523,7 @@ export function wireToCommandArgument(
             `decimal.TryParse(${expr}, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, ` +
             `CultureInfo.InvariantCulture, out var ${out})`,
           {
-            predicate: (out) => `System.Math.Abs(${out}) < ${MONEY_MAX_EXCLUSIVE}m`,
+            predicate: (out) => `System.Math.Abs(${out}) < ${csMoneyMaxExclusive()}m`,
             message: csMoneyRangeMessage(),
           },
         );
@@ -658,8 +637,8 @@ export function projectToResponse(
     case "primitive":
       if (info.primitive === "datetime") {
         // Canonical ISO-8601 UTC with Z suffix — matches Hono/Python/Java so
-        // clients see one shape (RS-4).  See `csCanonicalInstantWire`.
-        return csCanonicalInstantWire(domainExpr);
+        // clients see one shape (RS-4).  See `csInstantWire`.
+        return csInstantWire(domainExpr);
       }
       if (info.primitive === "date") return csCalendarDateWire(domainExpr);
       if (info.primitive === "money") {
@@ -743,7 +722,7 @@ export function domainToRequestExpr(
   switch (info.refKind) {
     case "primitive":
       if (info.primitive === "datetime") {
-        return csCanonicalInstantWire(domainExpr);
+        return csInstantWire(domainExpr);
       }
       if (info.primitive === "date") return csCalendarDateWire(domainExpr);
       return domainExpr;

@@ -1280,6 +1280,36 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
   },
 
+  // src/generator/dotnet/codec-spelling.ts
+  "src/generator/dotnet/codec-spelling.ts#csSqlTypeName": {
+    invariant:
+      "csSqlTypeName is reached only from csSqlType, csIdSqlType and csJsonSqlType, which pass the Codec fact's column for a storable scalar or an id value type; the fact maps none of those to `bigserial` or `array` (pinned by test/ir/codec.test.ts). (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/dotnet/codec-spelling.ts#csMoneyGrammar": {
+    invariant:
+      "The Codec fact's money grammar is the fixed `MONEY_WIRE_GRAMMAR` the emitted IsMoneyGrammar loop spells (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/dotnet/codec-spelling.ts#csInt32Range": {
+    invariant:
+      "The Codec fact's int range is the CLR int32 (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/dotnet/codec-spelling.ts#instantFormat": {
+    invariant:
+      "The Codec fact's datetime wire form truncates at ingress and drops the fraction on a whole second (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/dotnet/codec-spelling.ts#csInstantIngressTruncate": {
+    invariant:
+      "The Codec fact's datetime wire form carries exactly three fraction digits (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/dotnet/codec-spelling.ts#calendarDateFormat": {
+    invariant:
+      "The Codec fact's date wire form is `calendar-date` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/dotnet/codec-spelling.ts#csEnvelopeInstant": {
+    invariant:
+      "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+
   // src/generator/typescript/emit/channels.ts
   "src/generator/typescript/emit/channels.ts#transportFactoryLine": {
     invariant:

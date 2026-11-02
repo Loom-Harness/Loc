@@ -33,6 +33,7 @@ import { lines } from "../../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { tableNameFor } from "../../../util/storage-names.js";
 import { BCL_COLLIDING_TYPE_NAMES, collidingNamesOfAggregate } from "../bcl-collision.js";
+import { csJsonSqlType } from "../codec-spelling.js";
 import { projectionRowClass, projectionRowDbSet } from "../projection-state-emit.js";
 import { renderCsExpr } from "../render-expr.js";
 import {
@@ -682,7 +683,7 @@ export function renderConfiguration(
   const provFields = tph ? [] : agg.fields.filter((f) => f.provenanced);
   const provColumnLines = provFields.map(
     (f) =>
-      `        builder.Property(x => x.${upperFirst(f.name)}Provenance).HasColumnName("${snake(f.name)}_provenance").HasColumnType("jsonb")` +
+      `        builder.Property(x => x.${upperFirst(f.name)}Provenance).HasColumnName("${snake(f.name)}_provenance").HasColumnType("${csJsonSqlType()}")` +
       ".HasConversion(" +
       "v => System.Text.Json.JsonSerializer.Serialize(v, ProvJson.Options), " +
       "v => System.Text.Json.JsonSerializer.Deserialize<ProvLineage>(v, ProvJson.Options)!);",
@@ -794,7 +795,7 @@ function embeddedRefCollectionLines(a: AssociationIR): string[] {
   return [
     `        builder.Property(x => x.${prop})`,
     `            .HasColumnName("${snake(a.fieldName)}")`,
-    `            .HasColumnType("jsonb")`,
+    `            .HasColumnType("${csJsonSqlType()}")`,
     `            .HasConversion(`,
     `                v => System.Text.Json.JsonSerializer.Serialize(v.Select(__e => __e.Value).ToList(), (System.Text.Json.JsonSerializerOptions?)null),`,
     `                v => System.Text.Json.JsonSerializer.Deserialize<${listOfInner}>(v, (System.Text.Json.JsonSerializerOptions?)null)!.Select(__v => new ${idClass}(__v)).ToList(),`,
@@ -1195,7 +1196,7 @@ function fieldConfigLines(
       ? `.HasConversion(v => v == null ? null : System.Text.Json.JsonSerializer.Serialize(v, ${opts}), v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<FileRef>(v, ${opts}))`
       : `.HasConversion(v => System.Text.Json.JsonSerializer.Serialize(v, ${opts}), v => System.Text.Json.JsonSerializer.Deserialize<FileRef>(v, ${opts})!)`;
     return [
-      `${indent}${builder}.Property(x => x.${upperFirst(f.name)})${colName}.HasColumnType("jsonb")${conv};`,
+      `${indent}${builder}.Property(x => x.${upperFirst(f.name)})${colName}.HasColumnType("${csJsonSqlType()}")${conv};`,
     ];
   }
   const tokenSuffix = concurrencyToken ? ".IsConcurrencyToken()" : "";

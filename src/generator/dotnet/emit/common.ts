@@ -11,6 +11,7 @@ import {
   PAGED_MAX_PAGE_SIZE,
 } from "../../../ir/stdlib/generics.js";
 import { renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
+import { csMoneyGrammar } from "../codec-spelling.js";
 import { csFindAbsentException, csNotFoundException, csSentence } from "../wire-policy-cs.js";
 
 export function renderCommon(
@@ -193,7 +194,7 @@ public sealed class WireFormatException : Exception
         : base(message) => FieldPointer = fieldPointer;
 
     /// <summary>node's money grammar, character for character:
-    /// <c>^-?[0-9]+(\\.[0-9]+)?$</c> — ASCII digits only, no exponent, no
+    /// <c>${csMoneyGrammar()}</c> — ASCII digits only, no exponent, no
     /// leading '+', no surrounding whitespace and no GROUPING.  It gates the
     /// parse because no NumberStyles combination states it:
     /// <c>NumberStyles.Number</c> takes "12,50" as 1250 (the invariant
