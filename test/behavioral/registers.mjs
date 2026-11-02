@@ -234,9 +234,8 @@ function baseReads({ passes = [], pins = {} } = {}) {
  */
 /** A provenanced field's lineage (`provenance-money`): the `Codec` fact writes
  *  every scalar there in its wire form — money as its RS-12 string (#3527).
- *  The java and elixir legs still record the domain value, so the first
- *  lineage assertion (a money one) fails — java with a JSON number, elixir
- *  with an unscaled Decimal string. */
+ *  The java leg still records the domain value, so the first lineage
+ *  assertion (a money one) fails with a JSON number. */
 const MONEY_LINEAGE_BLOCK = "a provenanced money lineage carries money at the wire scale";
 const moneyLineage = (re) => ({
   issue: "#4402",
@@ -295,7 +294,6 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
-    "provenance-money": moneyLineage('to be "3000\\.3000"'),
     // A value object nested inside another is cast as `:map`, so the nested
     // VO's invariant never runs and the bad create commits.
     "vo-root-kernel": {

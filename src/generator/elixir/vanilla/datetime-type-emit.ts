@@ -107,10 +107,21 @@ defmodule ${LOOM_DATETIME_MODULE} do
 
   @doc """
   The wire string of an instant (RS-4, RS-38): ISO-8601 UTC, three fraction
-  digits when the instant has a sub-second part, none on a whole second.
+  digits when the instant has a sub-second part, none on a whole second.  An
+  ISO-8601 string (a value not yet cast) is parsed first; anything else is
+  returned as it is.
   """
   def wire(nil), do: nil
   def wire(%DateTime{} = dt), do: dt |> normalize() |> DateTime.to_iso8601()
+
+  def wire(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, dt, _offset} -> wire(dt)
+      _ -> value
+    end
+  end
+
+  def wire(other), do: other
 end
 `;
 }
