@@ -1,3 +1,4 @@
+import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
 import {
   fieldFixedMessage,
   type WireRejectionClass,
@@ -10,6 +11,7 @@ import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
+  OperationIR,
   RepositoryIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
@@ -24,7 +26,6 @@ import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { listReadFind } from "../../../ir/util/read-gates.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
@@ -132,10 +133,13 @@ export function renderJavaController(
   const findEntries = derivedOps.filter(
     (o) => o.kind === "find" && !isAllFind(o) && !o.claimedByExplicitRoute,
   );
-  // Optimistic concurrency (`versioned`): a mutation carries the client's
-  // expected version in the `If-Match` header (think-time CAS), forwarded to the
-  // service.  Non-versioned aggregates thread nothing → byte-identical routes.
-  const versioned = aggregateIsVersioned(agg);
+  // Optimistic concurrency: an operation route reads the client's expected
+  // version from the `If-Match` header (think-time CAS) exactly where the
+  // `checksVersion` fact says `if-match`, and forwards it to the service.
+  // Other routes thread nothing → byte-identical routes.
+  const readsIfMatchFor = (op: OperationIR): boolean =>
+    readsIfMatch(operationVersionCheck(agg, op));
+  const versioned = agg.operations.some(readsIfMatchFor);
   //
   // The header binds as a STRING and is parsed by the shared `IfMatch` helper,
   // not as a `@RequestHeader … Integer`.  An entity-tag is a QUOTED string
@@ -147,10 +151,12 @@ export function renderJavaController(
   // so java binding the raw value to a number was the one backend that could
   // not accept what the others do — invisible because no generated client has
   // ever sent the header.
-  const ifMatchHeaderParam = versioned
-    ? `, @RequestHeader(value = "If-Match", required = false) String ifMatch`
-    : "";
-  const ifMatchServiceArg = versioned ? ", IfMatch.expectedVersion(ifMatch)" : "";
+  const ifMatchHeaderParam = (op: OperationIR): string =>
+    readsIfMatchFor(op)
+      ? `, @RequestHeader(value = "If-Match", required = false) String ifMatch`
+      : "";
+  const ifMatchServiceArg = (op: OperationIR): string =>
+    readsIfMatchFor(op) ? ", IfMatch.expectedVersion(ifMatch)" : "";
   // The id's raw value type — `UUID` as an import marker (M-T9.86), so the
   // path-variable / find-param spellings below derive their own import.
   const idJava = javaIdValueType(agg.idValueType);
@@ -280,13 +286,13 @@ export function renderJavaController(
         return [
           opMapping,
           hasParams
-            ? `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
-            : `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam}) {`,
+            ? `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam(op)}) {`
+            : `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam(op)}) {`,
           `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
           `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
           hasParams
-            ? `        var result = service.${jid(op.name)}(new ${idClass}(id), request${ifMatchServiceArg});`
-            : `        var result = service.${jid(op.name)}(new ${idClass}(id)${ifMatchServiceArg});`,
+            ? `        var result = service.${jid(op.name)}(new ${idClass}(id), request${ifMatchServiceArg(op)});`
+            : `        var result = service.${jid(op.name)}(new ${idClass}(id)${ifMatchServiceArg(op)});`,
           `        return switch (result) {`,
           ...arms,
           `        };`,
@@ -310,13 +316,13 @@ export function renderJavaController(
         return [
           opMapping,
           hasParams
-            ? `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
-            : `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam}) {`,
+            ? `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam(op)}) {`
+            : `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam(op)}) {`,
           `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
           `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
           hasParams
-            ? `        var result = service.${jid(op.name)}(new ${idClass}(id), request${ifMatchServiceArg});`
-            : `        var result = service.${jid(op.name)}(new ${idClass}(id)${ifMatchServiceArg});`,
+            ? `        var result = service.${jid(op.name)}(new ${idClass}(id), request${ifMatchServiceArg(op)});`
+            : `        var result = service.${jid(op.name)}(new ${idClass}(id)${ifMatchServiceArg(op)});`,
           `        return ResponseEntity.ok(result);`,
           `    }`,
           ``,
@@ -327,13 +333,13 @@ export function renderJavaController(
         opMapping,
         `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
         hasParams
-          ? `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
-          : `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam}) {`,
+          ? `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam(op)}) {`
+          : `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam(op)}) {`,
         `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
         `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
         hasParams
-          ? `        service.${jid(op.name)}(new ${idClass}(id), request${ifMatchServiceArg});`
-          : `        service.${jid(op.name)}(new ${idClass}(id)${ifMatchServiceArg});`,
+          ? `        service.${jid(op.name)}(new ${idClass}(id), request${ifMatchServiceArg(op)});`
+          : `        service.${jid(op.name)}(new ${idClass}(id)${ifMatchServiceArg(op)});`,
         `    }`,
         ``,
         ...canRouteLines(op),

@@ -1,3 +1,4 @@
+import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import { envelopeReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -10,7 +11,6 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
@@ -577,7 +577,7 @@ export function renderJavaSpringDataRepository(
   // the elixir `optimistic_lock`: one UPDATE, one row, `+1` per persisted
   // command, and zero rows == another writer moved the row (→ 409).
   const versionBump: string[] = [];
-  if (aggregateIsVersioned(agg)) {
+  if (rowVersionGuarded(agg)) {
     const vf = versionFieldName(agg);
     versionBump.push(
       // `flushAutomatically` writes the command's pending field/child changes
@@ -628,7 +628,7 @@ export function renderJavaRepositoryImpl(
   const offsetLimitPageRequest = javaRef(persistencePkg, "OffsetLimitPageRequest");
   const requestContext = javaRef(`${ctx.basePkg}.config`, "RequestContext");
   const provenance = !!ctx.provenance;
-  const versioned = aggregateIsVersioned(agg);
+  const versioned = rowVersionGuarded(agg);
   const versionField = versionFieldName(agg);
   // Selective bypass: a find / retrieval read that `ignoring`s a capability
   // runs with that capability's Hibernate named filters DISABLED — tenancy's
