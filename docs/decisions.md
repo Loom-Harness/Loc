@@ -2739,10 +2739,12 @@ computes a value: neither has an effect for an arm to run, and the value form
 `let x = match r { … }` already expresses a choice there. The original rationale
 ("its arms render event handlers") described the action form only; the backend
 statement spines (`_stmt/target.ts`, `_workflow/stmt-target.ts`) now give it a
-form on node, .NET, Java and Python. Phoenix refuses it on a backend body
-(`loom.elixir-match-stmt-unsupported`, a `gap`) until its operation and
-`with`-chain renderers gain a `case` form. The `if let` and `for` halves are
-unchanged.
+form on node, .NET, Java and Python, and Phoenix renders it as a
+value-producing `case` in an operation / domain service and a `case`
+with-clause in a workflow / handler.  On Phoenix
+`loom.elixir-match-stmt-unsupported` (`scope`, D-ELIXIR-IF-BRANCH) refuses the
+`if` statement's four body-building sub-shapes and a union of two success
+variants. The `if let` and `for` halves are unchanged.
 
 **Sources.** [`T5-language-core.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T5-language-core.md) M-T5.28;
 [`2026-09-03-language-docs-audit-findings.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-03-language-docs-audit-findings.md)

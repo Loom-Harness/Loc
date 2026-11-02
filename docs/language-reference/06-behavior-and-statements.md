@@ -969,7 +969,32 @@ else:
 ```
 ::: end
 
-Phoenix does not render the statement form in a backend body yet: a context an Elixir deployable hosts refuses it (`loom.elixir-match-stmt-unsupported`, a gap tracked on #3367 — the operation body and the workflow `with`-chain each need a `case` form). The value form renders there today.
+On Phoenix the subject is the tagged tuple an `or`-returning call answers, and the operation threads its `record` through a value-producing `case` (a `T?` subject is a presence `if`, as the `if` statement renders):
+
+```ddd
+operation priced(c: string) {
+  let q = Pricing.quote(c)
+  match q {
+    Receipt rc => { code := rc.code }
+    Rejected e => { code := e.reason }
+  }
+}
+```
+
+```elixir
+# lib/d/sales.ex — every clause ends in `record`, and the `case` rebinds it
+q = D.Domain.Services.Pricing.quote(c)
+record = case Function.identity(q) do
+  {:ok, rc} ->
+    record = %{record | code: rc.code}
+    record
+  {:error, "Rejected", e} ->
+    record = %{record | code: e.reason}
+    record
+end
+```
+
+A workflow or handler runs the same `case` as one `{:ok, _} <- (case … end)` with-clause whose arms end in `{:ok, _}` (or the first `{:error, _}` they hit). `loom.elixir-match-stmt-unsupported` refuses what that rendering cannot express: a `return` (`#return-in-arm`, except from every arm of a domain service's tail `match`), a guard (`#guard-in-arm`) or an `emit` / provenanced write (`#arm-statement`) inside an operation arm, any statement `match` in an event-sourced body (`#event-sourced`), and a union of two success variants (`#multi-success` — their `{:ok, value}` tuples carry no tag).
 
 ### In a page action
 

@@ -447,6 +447,14 @@ export function renderEsWorkflowHandler(
         regions.push({ text, origin: st.origin });
         break;
       }
+      case "variant-match":
+        // Its arms would have nowhere to render (a conditional `emit` cannot
+        // join the one `events = […]` list), and the `default` below would
+        // drop them silently.
+        throw new Error(
+          "platform: elixir — a statement 'match' reached the event-sourced workflow handler " +
+            "emitter; it is refused at validation (loom.elixir-match-stmt-unsupported#event-sourced).",
+        );
       default:
         // ES workflow handlers are emit-only (A1 discipline); other kinds are
         // gated out upstream.  Keep the renderer total.

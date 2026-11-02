@@ -41,6 +41,7 @@
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { typeKey } from "../../stdlib/unions.js";
 import type { EnrichedLoomModel, StmtIR } from "../../types/loom-ir.js";
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
 import { walkExprStmtsDeep, walkStmtDeep } from "../../util/walk.js";
@@ -61,7 +62,7 @@ function containsIf(stmts: readonly StmtIR[]): boolean {
 /** True when any statement reachable from `s` (itself included, and inside a
  *  block-body lambda it carries) matches `pred`.  Rides `walkStmtDeep` rather
  *  than hand-enumerating children — the `ir-walk-census` rule. */
-function anyStmtDeep(s: StmtIR, pred: (n: StmtIR) => boolean): boolean {
+export function anyStmtDeep(s: StmtIR, pred: (n: StmtIR) => boolean): boolean {
   let found = false;
   walkStmtDeep(s, (n) => {
     if (pred(n)) found = true;
@@ -112,20 +113,46 @@ export type ElixirIfRefusal =
  *  enumerate-the-bad-shapes list would admit it. */
 const BRANCH_VOCABULARY: Readonly<Record<ElixirIfBodyKind, ReadonlySet<StmtIR["kind"]>>> = {
   // An aggregate operation body threads a rebound `record`, so a branch may
-  // mutate it, bind a local, call a private operation, or nest another `if`.
-  operation: new Set(["assign", "add", "remove", "let", "expression", "call", "if"]),
+  // mutate it, bind a local, call a private operation, or nest another `if` or
+  // a statement `match` (which threads `record` the same way and is classified
+  // by its own gate, `elixir-match-stmt-checks.ts`).
+  operation: new Set([
+    "assign",
+    "add",
+    "remove",
+    "let",
+    "expression",
+    "call",
+    "if",
+    "variant-match",
+  ]),
   // A tail-value body (a `domainService` operation, a pure `function`) has no
   // record to mutate: its branch produces a value.
-  value: new Set(["let", "expression", "return", "if", "call"]),
+  value: new Set(["let", "expression", "return", "if", "call", "variant-match"]),
   // Nothing — an ES command body is not a statement sequence at all.
   "event-sourced": new Set([]),
 };
 
+/** True when a statement `match` runs a block on every value its subject can
+ *  hold: it has an `else`, or its arms name every variant (both sides of a
+ *  `T?`).  A match that does not cover its subject runs nothing on the
+ *  uncovered values — in a tail-value body that path answers `nil`. */
+function matchCoversSubject(s: Extract<StmtIR, { kind: "variant-match" }>): boolean {
+  if (s.elseBody) return true;
+  const named = new Set(s.arms.map((a) => typeKey(a.varType)));
+  const t = s.subjectType;
+  if (t?.kind === "optional")
+    return named.has(typeKey(t.inner)) && named.has(typeKey({ kind: "none" }));
+  if (t?.kind === "union") return t.variants.every((v) => named.has(typeKey(v)));
+  return false;
+}
+
 /** Every `return` reachable in `stmts` is in TAIL position of its own block —
  *  the shape a `"value"` body can render, because the block's last expression
- *  IS its value.  A non-tail `return` (or a tail `if` missing its `else`, whose
- *  false path would answer `nil` instead of the other branch's value) is not. */
-function returnsAreTailOnly(stmts: readonly StmtIR[]): boolean {
+ *  IS its value.  A non-tail `return` (or a tail `if` missing its `else`, or a
+ *  tail `match` that does not cover its subject, whose uncovered path would
+ *  answer `nil` instead of a branch's value) is not. */
+export function returnsAreTailOnly(stmts: readonly StmtIR[]): boolean {
   for (let i = 0; i < stmts.length; i++) {
     const s = stmts[i]!;
     const isLast = i === stmts.length - 1;
@@ -143,6 +170,15 @@ function returnsAreTailOnly(stmts: readonly StmtIR[]): boolean {
       }
       if (!returnsAreTailOnly(s.thenBody)) return false;
       if (!returnsAreTailOnly(s.elseBody)) return false;
+      continue;
+    }
+    if (s.kind === "variant-match") {
+      if (!isLast || !matchCoversSubject(s)) {
+        if (anyStmtDeep(s, (n) => n.kind === "return")) return false;
+        continue;
+      }
+      if (!s.arms.every((a) => returnsAreTailOnly(a.body))) return false;
+      if (s.elseBody && !returnsAreTailOnly(s.elseBody)) return false;
       continue;
     }
     if (anyStmtDeep(s, (n) => n.kind === "return")) return false;

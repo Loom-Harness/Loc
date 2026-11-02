@@ -3046,8 +3046,9 @@ system P {
   deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
 }`,
 
-  // The statement `match` in an operation of a context an elixir deployable
-  // hosts: the four other backends render it, the Phoenix emitters do not yet.
+  // A guard inside a statement-`match` arm of an operation an elixir
+  // deployable hosts: the statement renders on Phoenix, but a nested guard
+  // could not be hoisted into the op's `with :ok <- ensure(…)` chain.
   "loom.elixir-match-stmt-unsupported": `
 system P {
   subdomain D { context C {
@@ -3055,7 +3056,7 @@ system P {
       code: string
       operation annotate(n: string?) {
         match n {
-          string s => { code := s }
+          string s => { precondition s.length > 0  code := s }
           else => { code := "none" }
         }
       }

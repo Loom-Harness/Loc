@@ -377,9 +377,11 @@ await orders.save(o);
 ```
 
 .NET switches over the `<Union>_<Tag>` carrier records, Java arrow-switches
-over the sealed union, Python probes the tagged dict's `type`.  Phoenix refuses
-the statement form in a backend body (`loom.elixir-match-stmt-unsupported`)
-until its `case` rendering lands.  Binding the result of a MUTATING aggregate
+over the sealed union, Python probes the tagged dict's `type`.  Phoenix runs a
+`case` over the tagged tuple the call answers (`{:ok, value}` /
+`{:error, "Tag", fields}`) as one with-clause; it refuses a union of two success
+variants, whose untagged `{:ok, value}` tuples it cannot tell apart, and the
+`if` statement's sub-shapes (`loom.elixir-match-stmt-unsupported`).  Binding the result of a MUTATING aggregate
 operation in a workflow (`let r = o.withdraw(x)`, then `match r`) is still
 refused by `loom.workflow-mutation-unsaved`.
 

@@ -2756,14 +2756,52 @@ export const DIAGNOSTIC_MESSAGES = {
   // What is left are three sub-shapes that rendering cannot express; each says
   // which one, because "rewrite it as a ternary" is the wrong advice for two of
   // them.
-  "loom.elixir-match-stmt-unsupported": (p: { where: unknown; name: unknown }) =>
-    `A statement \`match\` (arms that run statements) is used in ${p.where}, whose context is ` +
-    `hosted by the Phoenix/Elixir deployable '${p.name}'.  Node, .NET, Java and Python render it; ` +
-    `the Phoenix emitters do not yet — an Elixir operation body rebinds its \`record\` through a ` +
-    `value-producing expression and a workflow body is a \`with\`-chain, so the statement needs ` +
-    `its own \`case\` form there.  Until it lands, compute the value with an expression ` +
-    `\`match\` (\`let x = match r { … }\`) and act on it with \`if\`, or host this context on ` +
-    `another backend.  This is a GAP on one backend, not a design rule.`,
+  // The statement `match` RENDERS on elixir (a value-producing `record = case …
+  // end` in an operation, a tail `case` in a domain service, a `{:ok, _} <-
+  // (case … end)` with-clause in a workflow / handler).  What is left are the
+  // sub-shapes that rendering cannot express, each named by its slug.
+  "loom.elixir-match-stmt-unsupported#return-in-arm": (p: { where: unknown; name: unknown }) =>
+    `A \`return\` appears inside a \`match\` arm in ${p.where}, whose context is hosted by the ` +
+    `Phoenix/Elixir deployable '${p.name}'.  The statement \`match\` renders on Elixir, but a ` +
+    `\`return\` inside an arm is an EARLY EXIT, and an Elixir body has no early return — its ` +
+    `value is its tail expression, so the statements after the \`match\` would still run (a ` +
+    `domain-service body may \`return\` from every arm of a TAIL \`match\` that covers its ` +
+    `subject).  Assign in the arms and return once after the \`match\`, or host this context ` +
+    `on a node / dotnet / java / python backend.`,
+  "loom.elixir-match-stmt-unsupported#guard-in-arm": (p: { where: unknown; name: unknown }) =>
+    `A \`precondition\` / \`requires\` guard appears inside a \`match\` arm in ${p.where}, ` +
+    `whose context is hosted by the Phoenix/Elixir deployable '${p.name}'.  The Phoenix ` +
+    `operation path HOISTS an operation's guards into a leading \`with :ok <- ensure(…)\` ` +
+    `chain so a failed guard answers 403 / 422; a guard nested inside an arm cannot be ` +
+    `hoisted and would raise instead, answering 500 where the other four backends answer a ` +
+    `typed denial.  Lift the guard to the top of the body, or host this context on a node / ` +
+    `dotnet / java / python backend.`,
+  "loom.elixir-match-stmt-unsupported#arm-statement": (p: { where: unknown; name: unknown }) =>
+    `A \`match\` arm in ${p.where} contains a statement the Phoenix/Elixir deployable ` +
+    `'${p.name}' cannot render THERE — an \`emit\` or a \`provenanced\` write.  The statement ` +
+    `\`match\` renders on Elixir; an arm may hold what an \`if\` branch may (assignments, ` +
+    `collection mutations, \`let\`, a call, a nested \`if\` or \`match\`), because the ` +
+    `emitters decide an operation's supporting machinery by scanning its TOP-LEVEL ` +
+    `statements: a conditional \`emit\` would be invisible to that scan and could not be ` +
+    `hoisted past the commit, and a nested \`provenanced\` write would capture lineage in an ` +
+    `operation never put into provenance-flush mode.  Move the statement out of the arm ` +
+    `(compute a value inside the \`match\`, act on it after), or host this context on a ` +
+    `node / dotnet / java / python backend.`,
+  "loom.elixir-match-stmt-unsupported#event-sourced": (p: { where: unknown; name: unknown }) =>
+    `A statement \`match\` is used in ${p.where} — an EVENT-SOURCED command body or workflow ` +
+    `handler — whose context is hosted by the Phoenix/Elixir deployable '${p.name}'.  Such a ` +
+    `body is not rendered as a statement sequence on Phoenix: its guards become ` +
+    `\`with :ok <- ensure(…)\` clauses and its \`emit\`s one \`events = […]\` list, so an ` +
+    `arm has nowhere to render.  Compute the choice as a VALUE (an expression ` +
+    `\`match\` inside the emitted event's fields), or host this context on a node / dotnet / ` +
+    `java / python backend.`,
+  "loom.elixir-match-stmt-unsupported#multi-success": (p: { where: unknown; name: unknown }) =>
+    `A statement \`match\` in ${p.where} matches a union with more than one non-error ` +
+    `variant, and its context is hosted by the Phoenix/Elixir deployable '${p.name}'.  On ` +
+    `Elixir an \`or\`-returning call answers \`{:ok, value}\` for its success variant and ` +
+    `\`{:error, "Tag", fields}\` for an \`error\` one — the success value carries no tag, so ` +
+    `two success variants cannot be told apart at runtime.  Make all but one of the variants ` +
+    `\`error\` records, or host this context on a node / dotnet / java / python backend.`,
   "loom.elixir-if-stmt-unsupported#return-in-branch": (p: { where: unknown; name: unknown }) =>
     `A \`return\` appears inside an \`if\` branch in ${p.where}, whose context is hosted ` +
     `by the Phoenix/Elixir deployable '${p.name}'.  The \`if\` STATEMENT itself renders on ` +
@@ -2783,10 +2821,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `python backend.`,
   "loom.elixir-if-stmt-unsupported#branch-statement": (p: { where: unknown; name: unknown }) =>
     `An \`if\` branch in ${p.where} contains a statement the Phoenix/Elixir deployable ` +
-    `'${p.name}' cannot render THERE — an \`emit\`, an effect-form \`match\`, or a ` +
-    `\`provenanced\` write.  The \`if\` STATEMENT itself renders on Elixir; what a branch may ` +
+    `'${p.name}' cannot render THERE — an \`emit\` or a \`provenanced\` write.  ` +
+    `The \`if\` STATEMENT itself renders on Elixir; what a branch may ` +
     `hold is a CLOSED set (assignments, collection mutations, \`let\`, a call, a nested ` +
-    `\`if\`), because the emitters decide an operation's supporting machinery by scanning its ` +
+    `\`if\` or \`match\`), because the emitters decide an operation's supporting machinery by scanning its ` +
     `TOP-LEVEL statements: a conditional \`emit\` would be invisible to that scan (no ` +
     `\`require Logger\`, and the persist-then-dispatch restructure could not hoist it past the ` +
     `commit, so a phantom event would fire on a failed write), and a nested \`provenanced\` ` +
