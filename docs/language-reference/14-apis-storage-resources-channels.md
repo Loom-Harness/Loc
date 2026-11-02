@@ -197,7 +197,7 @@ volumes:
   blobs-data: {}
 ```
 
-> **Generator support is narrower than the grammar.** Only `postgres` / `inMemory` have full backend codegen, plus `s3` and `localDisk` (object-store clients), `rabbitmq` and `kafka` (queue / channel transports), `redis` (broadcast channel transport), `restApi` (http api client) and `smtp` / `ses` / `sendgrid` (mailer clients). `mysql` / `sqlite` bind the relational kinds in the registry, but every shipped SQL emitter targets Postgres — a `state` binding on either still generates Postgres wiring; `nats`, `elastic`, `meilisearch`, `clickhouse` and `bigquery` parse but bind no kind and emit nothing — declaring one is a warning, `loom.storage-type-unbound`, and any use of it is refused by the consuming gate. (`nats` is *not* a channel transport: `CHANNEL_COMPATIBILITY` in `src/util/channels.ts` lists only `inMemory` / `redis` / `rabbitmq` / `kafka`.)
+> **Generator support is narrower than the grammar.** Only `postgres` / `inMemory` have full backend codegen, plus `s3` and `localDisk` (object-store clients), `rabbitmq` and `kafka` (queue / channel transports), `redis` (broadcast channel transport), `restApi` (http api client) and `smtp` / `ses` / `sendgrid` (mailer clients). `mysql` / `sqlite` bind the relational kinds in the registry, but every shipped SQL emitter targets Postgres — a `state` binding on either still generates Postgres wiring; `nats`, `elastic`, `meilisearch`, `clickhouse` and `bigquery` parse but bind no kind and emit nothing — declaring one is refused on every backend as `loom.target-unsupported#storage-type-unbound`, and any use of it is refused by the consuming gate. (`nats` is *not* a channel transport: `CHANNEL_COMPATIBILITY` in `src/util/channels.ts` lists only `inMemory` / `redis` / `rabbitmq` / `kafka`.)
 
 ### Connection sources
 
@@ -274,6 +274,8 @@ Each optional knob is gated to the kinds / storage types where it's meaningful (
 | `shape` | `relational` \| `embedded` \| `document` saving shape | — |
 | `index` | manual performance indexes, `[Entity.col, Entity.(a, b)]` | `kind: state` only (`loom.resource-index-non-state`); unknown entity / column is `loom.resource-index-unknown-entity` / `-unknown-column` |
 | `config` | vendor parameters, validated against the sourceType's config schema | per sourceType (`loom.config-key-unknown`, …) |
+
+> **Not realized on any backend.** `kind: cache`, `kind: snapshot` and `kind: replica`, and the `ttl` / `keyPrefix` / `every` / `retain` / `readonly` knobs, parse and type-check but no emitter reads them. They are refused as `loom.target-unsupported#resource-kind-unrealized` / `#resource-knob-unrealized` rather than accepted as a no-op; a real read-through cache is tracked in #4440.
 
 ### Manual indexes
 

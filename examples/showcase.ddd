@@ -466,7 +466,6 @@ system DevPlatform {
         type: redis
         connection: literal("redis://cache:6379")
     }
-    storage searchIndex { type: elastic, connection: service(esCluster) }
     storage eventBus    { type: kafka,   connection: secret(kafkaUrl) }
 
     // ChannelSource — physical binding of a channel to a transport storage.
