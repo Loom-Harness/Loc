@@ -24,11 +24,13 @@ import { renderPyExpr } from "./render-expr.js";
 import {
   aggHasFieldMask,
   aggRef,
+  aggregateRetrievals,
   allFindOf,
   emittableFinds,
   findExecutedLine,
   PY_PAGED_FIND_PARAMS,
   pyInMemoryPagedFind,
+  pyInMemoryRunMethod,
   R,
   schemaRow,
   toWireMaskedMethod,
@@ -130,6 +132,17 @@ export function buildPyEventSourcedRepositoryFile(
     ...emittableFinds(repo).flatMap((f) => [
       "",
       inMemoryFind(agg, f, allCond == null ? "self.all()" : "self._all_unfiltered()"),
+    ]),
+    // Criterion reads call `run_<retrieval>` whatever the saving shape.  A
+    // stream has no state columns, so the runner filters the folded aggregates
+    // in-app — over the same unfiltered fold the declared finds read.
+    ...aggregateRetrievals(agg, ctx).flatMap((r) => [
+      "",
+      pyInMemoryRunMethod(agg, r, {
+        loadLines: [
+          `        items = await ${allCond == null ? "self.all()" : "self._all_unfiltered()"}`,
+        ],
+      }),
     ]),
     "",
     // `expected_version` (pairwise F8): the routes emit

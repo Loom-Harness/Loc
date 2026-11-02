@@ -19,16 +19,19 @@ import {
   aggHasFieldMask,
   aggHasReadRestrictions,
   aggRef,
+  aggregateRetrievals,
   allFindIgnoring,
   byIdReadLine,
   declaredAllFilterPredicate,
   emittableFinds,
   hydrateField,
+  inlineRunBypassesByRetrieval,
   partWireMethod,
   persistField,
   R,
   recordAuditMethod,
   relationalFindMethod,
+  runMethod,
   schemaRow,
   toWireMaskedMethod,
   toWireMethod,
@@ -66,6 +69,7 @@ export function buildPyEmbeddedRepositoryFile(
   // An embedded aggregate's root scalars are real columns, so its read
   // restrictions ride the read-scope hook exactly like the relational path's.
   const allPred = declaredAllFilterPredicate(agg, repo, ctx);
+  const runBypasses = inlineRunBypassesByRetrieval(ctx, agg.name);
 
   const body = lines(
     `class ${agg.name}Repository:`,
@@ -106,6 +110,13 @@ export function buildPyEmbeddedRepositoryFile(
     `    async def find_many_by_ids(self, ids: list[${pyIdType(agg.name)}]) -> list[${aggRef(agg)}]:`,
     `        rows = (await self._session.execute(${R.select}(${row}).where(${row}.id.in_(list(ids))))).scalars().all()`,
     "        return [await self._hydrate(row) for row in rows]",
+    // Criterion reads call `run_<retrieval>` whatever the saving shape.  The
+    // root's scalars are real columns, so the relational runner pushes the
+    // criterion into SQL; only the hydrate is per row.
+    ...aggregateRetrievals(agg, ctx).flatMap((r) => [
+      "",
+      runMethod(agg, r, ctx, runBypasses.get(r.name), false),
+    ]),
     "",
     saveMethod(agg, ctx),
     "",

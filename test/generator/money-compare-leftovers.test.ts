@@ -176,17 +176,15 @@ describe("3 — elixir: the document path computes money on %Decimal{}", () => {
     expect(ctx).not.toContain('amount = Map.get(params, "amount")');
   });
 
-  // KNOWN DEFECT: a criterion run over a `shape: document` aggregate renders
-  // the relational retrieval `from(record in Api.C.Ledger, where:
-  // record.balance > ^min)`, but the document schema has only the jsonb `data`
-  // embed — no `balance` field — so the query raises `Ecto.QueryError` when
-  // run.  The read must filter the decoded documents (through
-  // `Decimal.compare`, not term order) instead.  `it.fails` keeps the
-  // expectation on record; drop the `.fails` once the retrieval is
-  // document-aware.
-  it.fails("a criterion run never queries a document field as a column", async () => {
+  // A criterion run over a `shape: document` aggregate: the schema has only the
+  // jsonb `data` embed, so the retrieval filters the decoded documents in-app
+  // (through `Decimal.compare`, not term order) instead of querying a
+  // `balance` column that does not exist.
+  it("a criterion run never queries a document field as a column", async () => {
     const ret = await file(BACKEND("elixir"), "c/retrievals/find_all_by_over.ex");
-    expect(ret).not.toContain("record.balance");
+    expect(ret).not.toContain("from(record in");
+    expect(ret).toContain("record = row.data");
+    expect(ret).toContain("Decimal.compare(record.balance, min) == :gt");
   });
 });
 

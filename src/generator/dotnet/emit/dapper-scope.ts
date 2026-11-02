@@ -273,3 +273,15 @@ export function documentReadPredicates(
 ): ExprIR[] {
   return readFilterRestrictions(readScopeFor(agg, pool)).map((r) => r.predicate);
 }
+
+/** The same restrictions with the capability an `ignoring` clause names to
+ *  drop each one (absent → never dropped: a bare filter, a deny). */
+export function documentReadRestrictions(
+  agg: EnrichedAggregateIR,
+  pool: readonly EnrichedAggregateIR[],
+): { predicate: ExprIR; capability?: string }[] {
+  return readFilterRestrictions(readScopeFor(agg, pool)).map((r) => ({
+    predicate: r.predicate,
+    ...(r.bypassable && r.capability ? { capability: r.capability } : {}),
+  }));
+}

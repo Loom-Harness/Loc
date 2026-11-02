@@ -140,18 +140,22 @@ describe("vanilla — Slice P4.2 event-sourcing emit", () => {
     );
   });
 
-  // KNOWN DEFECT: a criterion run over a `persistedAs: eventLog` aggregate
-  // calls `Context.run_find_all_by_accounts_by_owner_account(owner)`, which the
-  // event-store context never defines (no retrieval, no delegate) — an
-  // undefined-function compile error.  There are no queryable state columns,
-  // so the read has to filter folded aggregates in memory.  `it.fails` keeps
-  // the expectation on record; drop the `.fails` once it is emitted.
-  it.fails("a criterion run is defined, filtering folded aggregates in memory", async () => {
+  // A criterion run over a `persistedAs: eventLog` aggregate calls
+  // `Context.run_find_all_by_accounts_by_owner_account(owner)`.  There are no
+  // queryable state columns, so the retrieval filters the folded aggregates in
+  // memory.
+  it("a criterion run is defined, filtering folded aggregates in memory", async () => {
     const f = await files();
     expect(get(f, "/accounts/handlers/list_by_owner.ex")).toContain(
       "Context.run_find_all_by_accounts_by_owner_account(owner)",
     );
-    expect(get(f, "lib/api/accounts.ex")).toContain("run_find_all_by_accounts_by_owner_account(");
+    expect(get(f, "lib/api/accounts.ex")).toContain(
+      "defdelegate run_find_all_by_accounts_by_owner_account(owner, opts",
+    );
+    const ret = get(f, "/accounts/retrievals/find_all_by_accounts_by_owner.ex");
+    expect(ret).toContain("{:ok, all} = Api.Accounts.AccountRepository.list()");
+    expect(ret).toContain("rows = Enum.filter(all, fn a -> a.owner == owner end)");
+    expect(ret).not.toContain("from(");
   });
 
   it("context create/op runners emit→append→fold; guard helper present", async () => {

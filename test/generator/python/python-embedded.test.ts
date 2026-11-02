@@ -81,11 +81,10 @@ describe("python shape: embedded", () => {
   });
 
   // A criterion read over an embedded aggregate: the handler calls
-  // `run_find_all_by_orders_by_customer`, and the embedded repository emits no
-  // retrieval method, so the call names a method that does not exist.  `fails`
-  // until the embedded repository emits criterion reads (real SQL over the root
-  // columns); then drop `.fails`.
-  it.fails("a criterion read runs as real SQL over the root columns (embedded repository emits none)", async () => {
+  // `run_find_all_by_orders_by_customer` whatever the saving shape, so the
+  // embedded repository must define it.  The root's scalars are real columns,
+  // so the criterion runs as SQL; only the hydrate is per row.
+  it("a criterion read runs as real SQL over the root columns", async () => {
     const { model, errors } = await parseString(
       FIXTURE.replace(
         /(criterion OrdersByCustomer\(name: string\) of Order = this\.customer == name)/,
