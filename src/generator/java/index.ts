@@ -97,6 +97,7 @@ import {
   promotedCapabilities,
   restrictionHostFor,
 } from "./capability-filter.js";
+import { javaProvWireClass } from "./codec-spelling.js";
 import {
   renderApiExceptionAdvice,
   renderIfMatchHeaderParser,
@@ -624,6 +625,7 @@ function emitProjectFromContexts(
     place("ProvTarget.java", "domain-common", renderProvLineage(basePkg));
     place("ProvInput.java", "domain-common", renderProvInput(basePkg));
     place("ProvLineage.java", "domain-common", renderProvLineageRecord(basePkg));
+    place("ProvWire.java", "domain-common", javaProvWireClass(basePkg));
     place("Provenanced.java", "domain-common", renderProvenancedCarrier(basePkg));
     place("ProvenanceRecord.java", "infra-persistence", renderProvenanceRecordEntity(basePkg));
     place(

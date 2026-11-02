@@ -232,17 +232,6 @@ function baseReads({ passes = [], pins = {} } = {}) {
  * issue and a well-formed pin, and every behavioural corpus fixture is
  * accounted for on every one of the five backends.
  */
-/** A provenanced field's lineage (`provenance-money`): the `Codec` fact writes
- *  every scalar there in its wire form — money as its RS-12 string (#3527).
- *  The java leg still records the domain value, so the first lineage
- *  assertion (a money one) fails with a JSON number. */
-const MONEY_LINEAGE_BLOCK = "a provenanced money lineage carries money at the wire scale";
-const moneyLineage = (re) => ({
-  issue: "#4402",
-  expect: "fail",
-  tests: { [MONEY_LINEAGE_BLOCK]: re },
-  reason: "a money value in a provenance lineage is the RS-12 wire string (Codec fact); this leg still writes the domain value",
-});
 /** The two-writer probe's test name (`__twoWriterProbe`, wire-differential.mjs) —
  *  the one test a `race` entry may pin: only a race can show what it measures. */
 export const RACE_PROBE_TEST = "two writers with the same If-Match";
@@ -266,7 +255,6 @@ export const BEHAVIOURAL_XFAIL = {
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
   java: {
-    "provenance-money": moneyLineage('to be "3000\\.3000"'),
   },
   python: {
     // A routed command handler's body model takes snake_case keys.

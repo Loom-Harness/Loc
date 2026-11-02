@@ -145,12 +145,8 @@ const PROJECTION_VO_ROW: readonly Backend[] = ["node", "java", "vanilla"];
  *  `Codec` fact's lineage encoding — the wire form: money's RS-12 string
  *  (owner ruling on #3527), a decimal's RS-24 number and a datetime's RS-38
  *  instant (owner rulings on #3593).  node, python, dotnet (EF and Dapper) and
- *  elixir (`vanilla`) are on the fact.  java generates the case cleanly and
- *  boots it as a tracked expected failure (`BEHAVIOURAL_XFAIL`,
- *  test/behavioral/registers.mjs): the lineage's `object` slot serializes a
- *  JSON number (`3000.3`).  It joins this row in the change that moves it onto
- *  the fact and deletes its expected-failure entry. */
-const MONEY_LINEAGE_WIRE: readonly Backend[] = ["node", "python", "dotnet", "vanilla"];
+ *  java and elixir (`vanilla`) are on the fact — every backend. */
+const MONEY_LINEAGE_WIRE: readonly Backend[] = ["node", "python", "dotnet", "java", "vanilla"];
 
 // M-T6.96: .NET EF cannot re-host a part's nested OWNED instances under a new
 // owner (they are deleted with the old one), so the rebuild shape is held off
@@ -772,7 +768,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "a provenanced field's lineage — `inputs[].value` and `computedValue` carry money as the RS-12 wire string, a decimal as the RS-24 number and a datetime as the RS-38 instant",
     doc: "provenance",
     backends: MONEY_LINEAGE_WIRE,
-    note: "The `Codec` fact (`src/ir/enrich/codec.ts`) rules every scalar's lineage encoding to be its wire encoding (owner rulings on #3527 and #3593).  node, python, .NET and elixir write it through their wire encoders; java boots it as a tracked expected failure (`BEHAVIOURAL_XFAIL`, #4402) until it is moved onto the fact — it sends money as a JSON number.  The money assertions come first, so that leg fails on them before the decimal and datetime writes",
+    note: "The `Codec` fact (`src/ir/enrich/codec.ts`) rules every scalar's lineage encoding to be its wire encoding (owner rulings on #3527 and #3593).  Every backend — node, python, .NET, java and elixir — writes it through its wire encoders.  The money assertions come first, then the decimal and datetime writes",
   },
   {
     id: "audited",
