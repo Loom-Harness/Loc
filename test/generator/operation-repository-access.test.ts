@@ -75,11 +75,11 @@ system FieldOps {
  *
  *   TS      `Technicians.get(assignTo).name` in `domain/job.ts`, a file
  *           that defines/imports no `Technicians`      → TS2304.
- *   .NET    `Technicians.GetById(assignTo).Name` in `Domain/Jobs/Job.cs`
+ *   .NET    `Technicians.Get(assignTo).Name` in `Domain/Jobs/Job.cs`
  *                                                      → CS0103.
  *   Java    `Technicians.get(assignTo).name()`     → "cannot find symbol".
- *   Python  `Technicians.get_by_id(assign_to).name`    → NameError (F821).
- *   Phoenix `technicians.get_by_id(assign_to).name` — the ref is snake-cased
+ *   Python  `Technicians.get(assign_to).name`    → NameError (F821).
+ *   Phoenix `technicians.get(assign_to).name` — the ref is snake-cased
  *           into a LOCAL that was never bound          → "undefined variable".
  *
  * If a backend ever learns to bind a repository inside a domain method, the
@@ -87,10 +87,10 @@ system FieldOps {
  */
 const BACKENDS: { platform: string; file: string; dangling: string }[] = [
   { platform: "node", file: "domain/job.ts", dangling: "Technicians.get(assignTo)" },
-  { platform: "dotnet", file: "Domain/Jobs/Job.cs", dangling: "Technicians.GetById(assignTo)" },
+  { platform: "dotnet", file: "Domain/Jobs/Job.cs", dangling: "Technicians.Get(assignTo)" },
   { platform: "java", file: "jobs/Job.java", dangling: "Technicians.get(assignTo)" },
-  { platform: "python", file: "domain/job.py", dangling: "Technicians.get_by_id(assign_to)" },
-  { platform: "elixir", file: "lib/api/ops.ex", dangling: "technicians.get_by_id(assign_to)" },
+  { platform: "python", file: "domain/job.py", dangling: "Technicians.get(assign_to)" },
+  { platform: "elixir", file: "lib/api/ops.ex", dangling: "technicians.get(assign_to)" },
 ];
 
 function bySuffix(files: Map<string, string>, suffix: string): string {

@@ -81,11 +81,11 @@ const WHY =
  *
  *   TS      `const tech = Technicians.get(assignTo);` — no repository
  *           constructed, no `await`                          → TS2304.
- *   .NET    `var tech = Technicians.GetById(command.AssignTo);`  → CS0103.
+ *   .NET    `var tech = Technicians.Get(command.AssignTo);`  → CS0103.
  *   Java    `var tech = Technicians.get(assignTo);`      → "cannot find
  *                                                                symbol".
- *   Python  `tech = Technicians.get_by_id(assign_to)`        → NameError (F821).
- *   Phoenix `with tech <- (technicians.get_by_id(assign_to)),` — the ref is
+ *   Python  `tech = Technicians.get(assign_to)`        → NameError (F821).
+ *   Phoenix `with tech <- (technicians.get(assign_to)),` — the ref is
  *           snake-cased into a LOCAL that was never bound  → "undefined
  *                                                              variable".
  *
@@ -108,7 +108,7 @@ const BACKENDS: {
   {
     platform: "dotnet",
     file: "api/Application/Workflows/ScheduleWorkOrderHandler.cs",
-    dangling: "var tech = Technicians.GetById(command.AssignTo);",
+    dangling: "var tech = Technicians.Get(command.AssignTo);",
     sibling: "IWorkOrderRepository",
   },
   {
@@ -120,13 +120,13 @@ const BACKENDS: {
   {
     platform: "python",
     file: "api/app/http/workflows_routes.py",
-    dangling: "tech = Technicians.get_by_id(assign_to)",
+    dangling: "tech = Technicians.get(assign_to)",
     sibling: "WorkOrderRepository",
   },
   {
     platform: "elixir",
     file: "api/lib/api/dispatch/workflows/schedule_work_order.ex",
-    dangling: "with tech <- (technicians.get_by_id(assign_to)),",
+    dangling: "with tech <- (technicians.get(assign_to)),",
     // Phoenix routes the local load through the context module rather than the
     // repository directly — the contrast is the same: a resolved call vs an
     // unbound snake-cased local.

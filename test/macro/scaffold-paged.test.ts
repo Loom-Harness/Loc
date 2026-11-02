@@ -235,7 +235,7 @@ describe("scaffoldPaged — over a retrieval, gated by `requires:`", () => {
       .filter(isBoundedContext)
       .find((c) => c.name === "Sales") as BoundedContext;
     expect(printStructural(ctx)).toMatch(
-      /queryHandler ListOrderByTopInRegion\(rgn: string\): Order paged \{\s*requires Staff\(\)\s*let r = Orders\.run\(TopInRegion\(rgn\)\)\s*return r/,
+      /queryHandler ListOrderByTopInRegion\(rgn: string\): Order paged \{\s*requires Staff\(\)\s*let r = Orders\.all\(TopInRegion\(rgn\)\)\s*return r/,
     );
   });
 

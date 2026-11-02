@@ -618,11 +618,27 @@ system S {
   // the failure this pins: re-derive the set from the grammar and compare.
   it("the lexical-structure doc lists exactly the grammar's CommonSoftKeywords", () => {
     const grammar = readFileSync(GRAMMAR, "utf8");
-    const rule = /CommonSoftKeywords returns string:\n([\s\S]*?);\n/.exec(grammar);
-    expect(rule, "CommonSoftKeywords rule not found in the grammar").not.toBeNull();
-    const fromGrammar = [
-      ...new Set([...(rule?.[1] ?? "").matchAll(/'([A-Za-z_][A-Za-z0-9_]*)'/g)].map((m) => m[1])),
-    ].sort();
+    // The set is `SoftKeywordsExceptSort | 'sort'`, so follow every datatype
+    // rule the body calls, not just its own quoted words.
+    const bodyOf = (name: string) =>
+      new RegExp(`^${name} returns string:\\n([\\s\\S]*?);\\n`, "m").exec(grammar)?.[1];
+    expect(
+      bodyOf("CommonSoftKeywords"),
+      "CommonSoftKeywords rule not found in the grammar",
+    ).toBeDefined();
+    const words = new Set<string>();
+    const visit = (name: string, seen: Set<string>) => {
+      if (seen.has(name)) return;
+      seen.add(name);
+      const body = bodyOf(name) ?? "";
+      for (const m of body.matchAll(/'([A-Za-z_][A-Za-z0-9_]*)'/g)) words.add(m[1] as string);
+      const unquoted = body.replace(/'[^']*'/g, "");
+      for (const m of unquoted.matchAll(/\b([A-Z][A-Za-z0-9_]*)\b/g)) {
+        if (bodyOf(m[1] as string) !== undefined) visit(m[1] as string, seen);
+      }
+    };
+    visit("CommonSoftKeywords", new Set());
+    const fromGrammar = [...words].sort();
 
     const doc = readFileSync(LEXICAL_DOC, "utf8");
     const line = /The `CommonSoftKeywords` set today \([^)]*\): ([^.]*)\./.exec(doc);

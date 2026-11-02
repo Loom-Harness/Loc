@@ -91,7 +91,7 @@ describe("constructIdAt", () => {
   });
 
   it("maps a workflow body to Ctx.Wf", async () => {
-    expect(await idsAt("Customers.getById")).toEqual(["Sales.placeOrder"]);
+    expect(await idsAt("Customers.get(customerId)")).toEqual(["Sales.placeOrder"]);
   });
 
   it("returns undefined on an event (no construct regions recorded for events)", async () => {

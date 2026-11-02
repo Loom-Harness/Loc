@@ -25,11 +25,11 @@ describe("a leftover `find` names the repository contract", () => {
       ),
     );
     expect(err).toMatch(/^4:5 A repository declares no `find`s any more: read 'Order'/);
-    expect(err).toContain("`Orders.find(id)` / `getById(id)`");
+    expect(err).toContain("`Orders.find(id)` / `get(id)`");
     expect(err).toContain(
       "`Orders.findBy(<column>: v)` / `getBy(…)` over a declared `unique (…)` key",
     );
-    expect(err).toContain("`Orders.find(C)` (the first match), `findAll(C)` or `run(C)`");
+    expect(err).toContain("`Orders.find(C)` (the first match) or `all(C)`");
     expect(err).toContain("`queryHandler` or `scaffoldGet`");
   });
 
