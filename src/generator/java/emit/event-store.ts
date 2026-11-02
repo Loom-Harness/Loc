@@ -177,7 +177,8 @@ export function renderJavaEventSourcedRepositoryImpl(
     ``,
     `    @Override`,
     `    public ${javaRef(ctx.entityPkg, agg.name)} save(${agg.name} aggregate) {`,
-    `        var pending = aggregate.pullEvents();`,
+    // Appending must not drain: the service publishes the same events afterwards and owns the `event_dispatched` line.
+    `        var pending = aggregate._unappendedEvents();`,
     `        if (!pending.isEmpty()) {`,
     `            var sid = String.valueOf(aggregate.id().value());`,
     // Expected-version append (M-T6.98): continue from the version THIS handle
@@ -202,9 +203,9 @@ export function renderJavaEventSourcedRepositoryImpl(
     `                } catch (tools.jackson.core.JacksonException e) {`,
     `                    throw new IllegalStateException("event serialization failed", e);`,
     `                }`,
-    `                CatalogLog.event(${javaLogEvent("eventDispatched")}, "event_type", ev.getClass().getSimpleName(), "aggregate", "${agg.name}");`,
     `            }`,
     `            aggregate._streamVersion(version);`,
+    `            aggregate._markAppended();`,
     `        }`,
     // repository_save (debug) — after the stream append; (aggregate, id) prefix
     // mirrors the relational repo + .NET/Hono emission (children omitted).

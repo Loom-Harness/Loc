@@ -90,4 +90,26 @@ describe("java generator — event sourcing", () => {
     const c = files_.get(`${ROOT}/features/accounts/AccountsController.java`)!;
     expect(c).toContain("public ResponseEntity<CreateAccountResponse> createAccount(");
   });
+
+  it("save appends without draining, so the service publishes each event exactly once", async () => {
+    const files_ = await files();
+    const impl = files_.get(`${ROOT}/features/accounts/AccountRepositoryImpl.java`)!;
+    // `pullEvents()` is the PUBLISH drain: calling it in `save` left the
+    // service's publishEvents an empty buffer, so no subscriber, workflow
+    // starter or channel relay ever saw an event-sourced aggregate's events.
+    expect(impl).not.toContain("pullEvents()");
+    expect(impl).toContain("var pending = aggregate._unappendedEvents();");
+    expect(impl).toContain("aggregate._markAppended();");
+    const e = files_.get(`${ROOT}/features/accounts/Account.java`)!;
+    // The append reads a tail it marks appended (a second save appends nothing
+    // twice); the publish drain clears the buffer and the mark together.
+    expect(e).toContain(
+      "return List.copyOf(_domainEvents.subList(_appended, _domainEvents.size()));",
+    );
+    expect(e).toMatch(
+      /pullEvents\(\) \{\n\s+var copy = List\.copyOf\(_domainEvents\);\n\s+_domainEvents\.clear\(\);\n\s+_appended = 0;/,
+    );
+    const svc = files_.get(`${ROOT}/features/accounts/AccountService.java`)!;
+    expect(svc).toContain("for (var event : aggregate.pullEvents()) {");
+  });
 });
