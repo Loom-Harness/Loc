@@ -60,6 +60,9 @@ import { csNotFoundException } from "./wire-policy-cs.js";
 // ---------------------------------------------------------------------------
 
 export interface CsRenderContext {
+  /** Variant-`match` binding side-channel — maps a bound name to the text
+   *  its arm reads it as (the pattern variable, or its scalar `value`). */
+  matchBindings?: ReadonlyMap<string, string>;
   /** Rendered name for the implicit receiver (`this` by default). */
   thisName: string;
   /** Aggregate whose finds/derived bodies we're lowering.  Required
@@ -410,6 +413,7 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
     return `${m.subject} switch\n    {\n${arms.join("\n")}\n${tail}\n    }`;
   },
   bindingRefText: (binding) => binding,
+  scalarVariantValue: (carrier) => `${carrier}.Value`,
   // Union-find repos return `Agg?` (payloads.md §Union finds).
   absenceCheck: (subject) => `${subject} is not null`,
   // A C# 12 collection expression, not `new[] { … }`, which is wrong in BOTH
@@ -836,6 +840,10 @@ function renderLiteral(lit: string, value: string, ctx?: CsRenderContext): strin
 
 function renderRef(e: RefExpr, ctx: CsRenderContext): string {
   switch (e.refKind) {
+    case "match-binding":
+      // The arm's pattern variable — read through its scalar carrier's
+      // `Value` when the variant is scalar (installed in `ctx.matchBindings`).
+      return ctx.matchBindings?.get(e.name) ?? escapeCsharpIdent(e.name);
     case "let":
     case "lambda":
       // Locals introduced inside the body; escape keyword collisions so the

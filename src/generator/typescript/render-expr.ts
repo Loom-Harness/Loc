@@ -206,6 +206,7 @@ const TS_TARGET: ExprTarget<TsRenderContext> = {
   // In TS the binding is an alias of the scrutinee (no real bound variable in a
   // ternary), so a match-binding ref renders as the subject text.
   bindingRefText: (_binding, subject) => subject,
+  scalarVariantValue: (carrier) => `${carrier}.value`,
   // Union-find repos return `Agg | null` (payloads.md §Union finds).
   absenceCheck: (subject) => `${subject} !== null`,
   // List literals are walker-config sugar (e.g. responsive Grid cols).  No

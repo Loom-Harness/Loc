@@ -1,5 +1,5 @@
 import { diagMessage } from "../../diagnostics/messages.js";
-import { unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
+import { isScalarVariant, unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import type { ExprIR, LiteralKind } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 
@@ -224,6 +224,11 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
    *  the scrutinee — TS has no expression-level pattern binding).  Called by
    *  `renderExprWith` to populate `ctx.matchBindings` before recursing. */
   bindingRefText(binding: string, subject: string): string;
+  /** The value a scalar variant's carrier holds, given the text that names
+   *  the carrier (`bindingRefText`'s result).  A primitive / id / enum / array
+   *  variant travels as `{ type, value }` (a one-field `Value` record on
+   *  .NET / Java), so its arm binding is that `value`, not the carrier. */
+  scalarVariantValue(carrier: string): string;
   /** Presence test for an absence-shaped union-find subject
    *  (`subjectShape: "absence"`, payloads.md §Union finds) — the runtime
    *  value is the bare aggregate-or-absent, so the variant match renders as
@@ -250,6 +255,17 @@ function variantTypeName(a: Extract<ExprIR, { kind: "match" }>["variantArms"][nu
  * full 17-arm switch and all recursion; the exhaustive switch makes a new
  * `kind` a compile error until handled.
  */
+/** What a match arm's binding renders as: the backend's binding text, read
+ *  through the carrier's `value` when the arm's variant is scalar. */
+function armBindingText(
+  t: Pick<ExprTarget<ExprCtxBase>, "bindingRefText" | "scalarVariantValue">,
+  arm: { binding?: string; varType: Parameters<typeof isScalarVariant>[0] },
+  subject: string,
+): string {
+  const carrier = t.bindingRefText(arm.binding!, subject);
+  return isScalarVariant(arm.varType) ? t.scalarVariantValue(carrier) : carrier;
+}
+
 export function renderExprWith<Ctx extends ExprCtxBase>(
   e: ExprIR,
   t: ExprTarget<Ctx>,
@@ -336,7 +352,7 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
           // renders as the backend's binding text.  `bindingRefText`
           // lets a backend swap the alias (TS → subject) for the real
           // bound identifier (native backends → the binding name).
-          const bindingText = a.binding ? t.bindingRefText(a.binding, subject) : undefined;
+          const bindingText = a.binding ? armBindingText(t, a, subject) : undefined;
           // EXTEND the inherited map, never replace it: `match` nests, and an
           // inner arm may read an OUTER arm's binding.  A fresh single-entry
           // map dropped every enclosing binding, so that read fell back to the
@@ -820,7 +836,7 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
           return compose(text, [subject, onPresent, onAbsent]);
         }
         const arms = e.variantArms.map((a) => {
-          const bindingText = a.binding ? t.bindingRefText(a.binding, subject.text) : undefined;
+          const bindingText = a.binding ? armBindingText(t, a, subject.text) : undefined;
           // EXTEND the inherited map, never replace it: `match` nests, and an
           // inner arm may read an OUTER arm's binding.  A fresh single-entry
           // map dropped every enclosing binding, so that read fell back to the
