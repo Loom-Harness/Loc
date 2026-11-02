@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 // ---------------------------------------------------------------------------
 // M-T9.84 — the hand-predicated import census
@@ -109,7 +110,28 @@ function predicatedImportSites(backend: Backend): { file: string; line: number; 
   return sites;
 }
 
+/** Per-root file floors.  A root missing here fails (floor = Infinity).  A root that moved or emptied would scan nothing and
+ *  report 0 sites — which python's ceiling of 0 would read as a pass. */
+const ROOT_FLOOR: Record<string, number> = {
+  "src/generator/python": 50,
+  "src/generator/typescript": 50,
+  "src/platform/hono": 18,
+  "src/generator/dotnet": 80,
+  "src/generator/java": 60,
+  "src/generator/elixir": 90,
+};
+
 describe("hand-predicated import census (M-T9.84)", () => {
+  it("reaches every backend root", () => {
+    for (const root of Object.values(ROOTS).flat()) {
+      expectReach(
+        `${root} .ts files`,
+        tsFiles(path.join(repoRoot, root)).length,
+        ROOT_FLOOR[root] ?? Number.POSITIVE_INFINITY,
+      );
+    }
+  });
+
   for (const backend of Object.keys(CEILING) as Backend[]) {
     it(`${backend}: predicated import sites equal the ratcheted ceiling`, () => {
       const n = predicatedImportSites(backend).length;

@@ -326,7 +326,7 @@ describe("module-global mutable state in src/ and test/_helpers/", () => {
     expectReach(
       "test/_helpers/ files",
       files.filter((f) => f.startsWith("test/_helpers/")).length,
-      30,
+      32,
     );
   });
 

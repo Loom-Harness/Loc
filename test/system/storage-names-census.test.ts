@@ -27,6 +27,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 const REPO_ROOT = join(import.meta.dirname, "..", "..");
 const SRC = join(REPO_ROOT, "src");
@@ -124,6 +125,12 @@ const WAIVERS: Record<string, { count: number; why: string }> = {
 };
 
 describe("storage-names census", () => {
+  it("reaches src/ and the emitter roots", () => {
+    expectReach("src/ files", ALL_SRC.length, 1050);
+    expectReach("src/generator files", collectTs(join(SRC, "generator")).length, 581);
+    expectReach("src/platform files", collectTs(join(SRC, "platform")).length, 36);
+  });
+
   it("no file outside the naming modules composes snake and plural", () => {
     const hits: string[] = [];
     for (const f of ALL_SRC) {

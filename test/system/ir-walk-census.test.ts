@@ -2,6 +2,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 // ---------------------------------------------------------------------------
 // "No hand-rolled IR walks" (Wave 2 packet 2.3 of
@@ -760,8 +761,8 @@ describe("IR walk census — no hand-rolled switch/if-chain over ExprIR/StmtIR/W
     // `expr-site-census.test.ts`): a broken detector reports zero sites,
     // which reads as "every switch is exhaustive" to anyone who checks this
     // test's colour instead of its count.
-    expect(sites.length).toBeGreaterThan(80);
-    expect(sites.filter((s) => s.form === "switch").length).toBeGreaterThan(70);
+    expectReach("IR dispatch sites", sites.length, 103);
+    expectReach("switch sites", sites.filter((s) => s.form === "switch").length, 99);
   });
 
   it("no reflective Object.values() walk over an IR node", () => {

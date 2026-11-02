@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 // ---------------------------------------------------------------------------
 // String-tier ratchet (Wave CR1 packet h, audit row P1-2).
@@ -143,7 +144,10 @@ describe("string-tier ratchet", () => {
     // under a tenth of that means the measurement went blind, not that the
     // drain went well.
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
-    expect(total).toBeGreaterThan(2_000);
+    // Loose on purpose: this count is meant to fall as string assertions are
+    // replaced by stronger gates, so the floor only catches a scan that lost
+    // most of test/generator.
+    expectReach("string-tier assertions", total, 10000);
     expect(
       "expect(x).not.toContain(y); expect(x).toMatch(/z/);".match(STRING_ASSERTION),
     ).toHaveLength(2);
