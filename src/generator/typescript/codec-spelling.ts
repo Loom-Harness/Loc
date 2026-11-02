@@ -11,6 +11,7 @@
 
 import {
   type CodecPrimitive,
+  envelopeInstantWire,
   idColumn,
   instantWire,
   integerWire,
@@ -172,16 +173,34 @@ export function tsIntegerRange(name: "int" | "long"): { min: number; max: number
 // Lineage — a provenance lineage's `inputs[].value` / `computedValue`
 // ---------------------------------------------------------------------------
 
-/** A value as it is written into a provenance lineage.  Where the fact rules
- *  the lineage encoding to be the wire encoding (`lineageUsesWire` — `money`'s
- *  RS-12 string, #3527), the value goes through the same encoder the wire
- *  does.  Every other type is recorded as the domain value it is.  Without
- *  this, `JSON.stringify` writes a decimal.js money as an unscaled
- *  `"1050.105"`. */
+/** A value as it is written into a provenance lineage: a scalar in its wire
+ *  encoding (`lineageUsesWire` — the fact's `RULINGS` and #3527).  Two node
+ *  values do not serialize to it on their own: a decimal.js money, which
+ *  `JSON.stringify` writes unscaled (`"1050.105"`), and a `Date`, which it
+ *  writes with `toISOString()`'s `.000Z` on a whole second.  Every other
+ *  scalar's in-memory value already IS its wire form (a `decimal` is a JS
+ *  number, a `date` its `YYYY-MM-DD` string).  A non-scalar is recorded as the
+ *  domain value it is. */
 export function tsLineageValue(expr: string, type: TypeIR | undefined): string {
   if (!type || !lineageUsesWire(type)) return expr;
-  if (scalarCodecOf(type)?.wire.form !== "fixed-scale-decimal") return expr;
+  const form = scalarCodecOf(type)?.wire.form;
+  const encoded =
+    form === "fixed-scale-decimal"
+      ? numericEncode(TS_NUMERIC, "money", "dto-map", expr)
+      : form === "instant"
+        ? tsInstantWire(expr)
+        : undefined;
   // Guarded even for a non-optional type: an optional FIELD is a plain
   // primitive type with `FieldIR.optional` set, which this type cannot see.
-  return `(${expr} == null ? null : ${numericEncode(TS_NUMERIC, "money", "dto-map", expr)})`;
+  return encoded === undefined ? expr : `(${expr} == null ? null : ${encoded})`;
+}
+
+/** A `Date` expression as it is written inside a channel (CloudEvents)
+ *  envelope — the RS-38 wire instant (the fact's `envelopeInstantWire`). */
+export function tsEnvelopeInstant(dateExpr: string): string {
+  // The fact rules the envelope instant to BE the wire instant; a fact that
+  // ever split them would need a spelling of its own here.
+  if (JSON.stringify(envelopeInstantWire()) !== JSON.stringify(instantWire()))
+    throw new Error("codec-spelling: the envelope instant is no longer the wire instant");
+  return tsInstantWire(dateExpr);
 }

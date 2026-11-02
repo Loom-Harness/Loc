@@ -90,12 +90,6 @@ const WAIVERS: { file: string; line: string; reason: string }[] = [
     reason: "a timer catch-up log line — operability output, not a domain value",
   },
   {
-    file: "src/generator/typescript/emit/channels.ts",
-    line: "time: new Date().toISOString(),",
-    reason:
-      "the CloudEvents envelope `time` — an unruled encoding (`UNRULED` 'channel envelope: datetime' in the Codec fact); moves when the owner rules it",
-  },
-  {
     file: "src/generator/typescript/render-expr.ts",
     line: 'if (from === "datetime") return `${v}.toISOString()`;',
     reason:

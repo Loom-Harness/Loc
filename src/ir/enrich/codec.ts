@@ -15,19 +15,20 @@
 //               `inputs[].value` / `computedValue` (provenance.md).
 //
 // Those answers are the cross-backend contract (RS-4, RS-12, RS-24, RS-37,
-// RS-38, RS-42 in docs/conformance-semantics.md, plus the owner ruling on #3527
-// that money in a lineage is the money wire string).  They are NOT a backend's
-// choice, so they live here once and backends supply only the spelling — the
-// drizzle column factory, the `.toFixed(4)`, the `isoformat(...)`.
+// RS-38, RS-42 in docs/conformance-semantics.md, plus the owner rulings listed
+// in `RULINGS` below).  They are NOT a backend's choice, so they live here once
+// and backends supply only the spelling — the drizzle column factory, the
+// `.toFixed(4)`, the `iso(...)`.
 //
 // The fact is DERIVED, never stamped (CLAUDE.md "Derive, don't stamp"): the
 // scalar table below is a closed function of the primitive name, and
 // `codecOf` is a pure function of a `TypeIR` (plus a value-object lookup), so
 // it is computed on demand and cannot go stale against the IR it reads.
 //
-// What this table does NOT rule is listed in `UNRULED` — places the backends
-// disagree and no golden or RS-rule pins the answer.  Each is an owner
-// question; until it is answered no backend may be moved onto a value for it.
+// Where the table needed an owner decision to be complete, the decision is in
+// `RULINGS`, with the RS-rule or decision it rests on.  A place the backends
+// disagree that no rule pins goes in `UNRULED` as an owner question; until it
+// is answered no backend may be moved onto a value for it.
 
 import {
   INT32_MAX,
@@ -121,14 +122,15 @@ export interface MemoryHint {
 }
 
 /** How a scalar is written into a provenance lineage (`inputs[].value`,
- *  `computedValue`).
+ *  `computedValue`): exactly its wire encoding, on every backend.
  *
- *   - `wire`    — exactly its wire encoding.  Ruled for `money` (#3527, owner
- *                 2026-10-21: the RS-12 string, on all five backends) and
- *                 pinned for `int` by the `provenance` wire golden.
- *   - `unruled` — no ruling and no golden; see `UNRULED`.  A backend keeps
- *                 what it does today. */
-export type LineageEncoding = "wire" | "unruled";
+ *  `money` is the RS-12 string (#3527), `decimal` the RS-24 number and
+ *  `datetime` the RS-38 instant (`RULINGS`); the integers are pinned by the
+ *  `provenance` wire golden.  Every other scalar's wire form is the JSON value
+ *  it already is, so the rule leaves nothing to choose — but a backend whose
+ *  in-memory value does not serialize to it (python's `date`) still encodes
+ *  it. */
+export type LineageEncoding = "wire";
 
 export interface ScalarCodec {
   primitive: CodecPrimitive;
@@ -173,7 +175,7 @@ const SCALARS: Readonly<Record<CodecPrimitive, ScalarCodec>> = {
     // Unbounded: a plain `decimal` has no declared scale.
     column: { kind: "decimal" },
     memory: { holds: "float64", exactArithmetic: true },
-    lineage: "unruled",
+    lineage: "wire",
   },
   money: {
     primitive: "money",
@@ -192,14 +194,14 @@ const SCALARS: Readonly<Record<CodecPrimitive, ScalarCodec>> = {
     wire: { form: "text", json: "string" },
     column: { kind: "text" },
     memory: { holds: "text", exactArithmetic: false },
-    lineage: "unruled",
+    lineage: "wire",
   },
   bool: {
     primitive: "bool",
     wire: { form: "boolean", json: "boolean" },
     column: { kind: "bool" },
     memory: { holds: "bool", exactArithmetic: false },
-    lineage: "unruled",
+    lineage: "wire",
   },
   date: {
     primitive: "date",
@@ -208,7 +210,7 @@ const SCALARS: Readonly<Record<CodecPrimitive, ScalarCodec>> = {
     // read west of UTC never shifts a day.
     column: { kind: "date" },
     memory: { holds: "calendar-date", exactArithmetic: false },
-    lineage: "unruled",
+    lineage: "wire",
   },
   datetime: {
     primitive: "datetime",
@@ -221,21 +223,21 @@ const SCALARS: Readonly<Record<CodecPrimitive, ScalarCodec>> = {
     },
     column: { kind: "datetime" },
     memory: { holds: "instant-ms", exactArithmetic: false },
-    lineage: "unruled",
+    lineage: "wire",
   },
   guid: {
     primitive: "guid",
     wire: { form: "uuid", json: "string" },
     column: { kind: "uuid" },
     memory: { holds: "uuid", exactArithmetic: false },
-    lineage: "unruled",
+    lineage: "wire",
   },
   json: {
     primitive: "json",
     wire: { form: "json", json: "any" },
     column: { kind: "json" },
     memory: { holds: "json", exactArithmetic: false },
-    lineage: "unruled",
+    lineage: "wire",
   },
   File: {
     primitive: "File",
@@ -243,7 +245,7 @@ const SCALARS: Readonly<Record<CodecPrimitive, ScalarCodec>> = {
     wire: { form: "file-ref", json: "object" },
     column: { kind: "json" },
     memory: { holds: "file-ref", exactArithmetic: false },
-    lineage: "unruled",
+    lineage: "wire",
   },
 };
 
@@ -387,7 +389,9 @@ export function scalarCodecOf(t: TypeIR): ScalarCodec | undefined {
     : undefined;
 }
 
-/** How a value object is stored in a given position. */
+/** How a value object is stored in a given position.  A relational field's
+ *  flattened columns are canonical (`RULINGS`); an ORM may group them in its
+ *  own mapping (elixir's `:map`) over those same columns. */
 export function valueObjectStorage(position: "field" | "element" | "document"): ValueObjectStorage {
   return position === "field" ? "flattened-columns" : "json";
 }
@@ -397,40 +401,67 @@ export function valueObjectStorage(position: "field" | "element" | "document"): 
 // ---------------------------------------------------------------------------
 
 /** Whether a value of this type is written into a provenance lineage in its
- *  WIRE encoding — true only for a scalar whose `lineage` is ruled `wire`.  A
- *  backend applies its wire encoder there; everywhere else it keeps what it
- *  does today (see `UNRULED`). */
+ *  scalar WIRE encoding — every scalar (`RULINGS`, #3527), under any number
+ *  of `optional` wrappers.  A backend applies its wire encoder there.  A
+ *  non-scalar (a collection, a value object) is recorded as the domain value
+ *  it is. */
 export function lineageUsesWire(t: TypeIR): boolean {
   return scalarCodecOf(t)?.lineage === "wire";
 }
+
+// ---------------------------------------------------------------------------
+// Channel envelope
+// ---------------------------------------------------------------------------
+
+/** How a `datetime` is written inside a channel (CloudEvents) envelope — the
+ *  envelope's own `time` attribute and a datetime field of its `data`: the
+ *  RS-38 wire instant (`RULINGS`).  Events cross deployables and backends, so
+ *  the envelope is wire. */
+export function envelopeInstantWire(): WireOf<"instant"> {
+  return instantWire();
+}
+
+// ---------------------------------------------------------------------------
+// Owner rulings the table rests on
+// ---------------------------------------------------------------------------
+
+/** The owner decisions that completed the table (#3593, comment 6415932085,
+ *  answering the questions `UNRULED` used to ask).  `ref` names the RS-rule
+ *  or decision the answer extends.  `codec.test.ts` pins each against the
+ *  table. */
+export const RULINGS: readonly { surface: string; ruling: string; ref: string }[] = [
+  {
+    surface: "lineage: decimal",
+    ruling:
+      "A decimal in a provenance lineage is its wire form, the float64 JSON number; elixir moves off its Decimal string.",
+    ref: "RS-24",
+  },
+  {
+    surface: "lineage: datetime",
+    ruling:
+      "A datetime in a provenance lineage is its wire form; node drops the `.000Z` that `toISOString()` puts on a whole second.",
+    ref: "RS-38",
+  },
+  {
+    surface: "column: value object in a relational field",
+    ruling:
+      "The flat `<field>_<member>` columns are canonical, from the one migration every backend shares; each ORM maps them idiomatically, so elixir regrouping them into a `:map` is its spelling of the same columns.",
+    ref: "D-CODEC",
+  },
+  {
+    surface: "channel envelope: datetime",
+    ruling:
+      "A datetime inside the channel (CloudEvents) envelope is the wire instant, because events cross deployables and backends.",
+    ref: "RS-38",
+  },
+];
 
 // ---------------------------------------------------------------------------
 // What the fact does not rule
 // ---------------------------------------------------------------------------
 
 /** Encodings where the backends disagree and no RS-rule, golden or ruling
- *  pins the answer.  Each is an owner question.  `codec.test.ts` keeps this
- *  list in step with the table: an entry here must name a codec field that is
- *  still `unruled`, or a surface the table does not cover. */
-export const UNRULED: readonly { surface: string; question: string }[] = [
-  {
-    surface: "lineage: datetime",
-    question:
-      "A datetime in a provenance lineage: node writes `toISOString()` (`.000Z` on a whole second); is it the RS-38 wire form?",
-  },
-  {
-    surface: "lineage: decimal",
-    question:
-      "A decimal in a provenance lineage: node/java/.NET a JSON number, elixir a Decimal string; is it the RS-24 float64 number?",
-  },
-  {
-    surface: "column: value object in a relational field",
-    question:
-      "A value-object field: node/.NET/java/python flatten it to `<field>_<member>` columns, elixir regroups the same MigrationsIR columns into one `:map`; which storage is canonical?",
-  },
-  {
-    surface: "channel envelope: datetime",
-    question:
-      "The broker / realtime envelope spells a datetime per backend (python `isoformat()`, elixir `to_iso8601`, node bare `toISOString()`); does RS-38 extend to it?",
-  },
-];
+ *  pins the answer — one owner question per entry.  Empty: every question
+ *  asked so far is answered in `RULINGS`, and `codec.test.ts` refuses an entry
+ *  for a surface `RULINGS` already answers. */
+export const UNRULED: readonly { surface: string; question: string }[] = [];

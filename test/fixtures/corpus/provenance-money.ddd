@@ -1,18 +1,32 @@
-// A provenanced `money` field's lineage carries money as the RS-12 wire string
-// (`Codec` fact: `lineage: "wire"` for money; owner ruling on #3527).  The
-// lineage is persisted as jsonb and read back verbatim, so an input or a
-// computed value that skipped the money encoder reached the wire unscaled
-// (node `"3000.3"`), as a JSON number (java `3000.3`) or not at all (python
-// 500s on the write).  `units` is an `int`, whose lineage encoding is its wire
-// number on every backend (the `provenance` golden pins it).
+// A provenanced field's lineage carries each value in its WIRE form (`Codec`
+// fact: `lineage: "wire"` for every scalar).  Money is the RS-12 string (owner
+// ruling on #3527); a decimal is the RS-24 number and a datetime the RS-38
+// instant (owner rulings 1 and 2 on #3593).  The lineage is persisted as jsonb
+// and read back verbatim, so an input or a computed value that skipped the
+// wire encoder reached the wire unscaled (node `"3000.3"`), as a JSON number
+// (java `3000.3`), with `toISOString()`'s `.000Z` on a whole second (node), or
+// not at all (python 500s on the write: `json.dumps` refuses a `Decimal` and a
+// `datetime`).  `units` is an `int`, whose lineage encoding is its wire number
+// on every backend (the `provenance` golden pins it).
+//
+// The money assertions come FIRST in the block: a leg that still records money
+// as its domain value fails on them, before the decimal and datetime writes.
 system LeasingSystem {
   subdomain Leasing {
     context Leasing {
       aggregate Lease with crudish {
         rent: money
         market: money provenanced
+        rate: decimal provenanced
+        reviewedAt: datetime provenanced
         operation assess(comparable: money, units: int) {
           market := comparable * units
+        }
+        operation rerate(base: decimal, factor: decimal) {
+          rate := base * factor
+        }
+        operation review(at: datetime) {
+          reviewedAt := at
         }
       }
       repository Leases for Lease { }
@@ -30,7 +44,7 @@ system LeasingSystem {
   }
 
   test e2e "a provenanced money lineage carries money at the wire scale" against d {
-    let l = api.leases.create({ rent: money("1000"), market: money("900") })
+    let l = api.leases.create({ rent: money("1000"), market: money("900"), rate: 1.5, reviewedAt: "2024-01-01T00:00:00Z" })
     api.leases.assess(l, { comparable: money("1000.1"), units: 3 })
     let read = api.leases.getById(l)
     expect(read.market.value).toBe("3000.3000")
@@ -39,10 +53,28 @@ system LeasingSystem {
 
     // The crudish `update` is the second write site: the lineage records the
     // submitted value itself, at the same scale.
-    api.leases.update(l, { rent: money("1000"), market: money("12.5") })
+    api.leases.update(l, { rent: money("1000"), market: money("12.5"), rate: 1.5, reviewedAt: "2024-01-01T00:00:00Z" })
     let updated = api.leases.getById(l)
     expect(updated.market.lineage.computedValue).toBe("12.5000")
     expect(updated.market.lineage.inputs.where(i => i.path == "market").first().value).toBe("12.5000")
+
+    // A decimal in a lineage is its RS-24 number (ruling 1).
+    api.leases.rerate(l, { base: 1.25, factor: 2 })
+    let rerated = api.leases.getById(l)
+    expect(rerated.rate.value).toBe(2.5)
+    expect(rerated.rate.lineage.computedValue).toBe(2.5)
+    expect(rerated.rate.lineage.inputs.where(i => i.path == "base").first().value).toBe(1.25)
+
+    // A datetime in a lineage is its RS-38 instant (ruling 2): no fraction on
+    // a whole second, exactly three digits on a sub-second one.
+    api.leases.review(l, { at: "2024-03-01T10:20:30Z" })
+    let whole = api.leases.getById(l)
+    expect(whole.reviewedAt.lineage.computedValue).toBe("2024-03-01T10:20:30Z")
+    expect(whole.reviewedAt.lineage.inputs.where(i => i.path == "at").first().value).toBe("2024-03-01T10:20:30Z")
+    api.leases.review(l, { at: "2024-03-01T10:20:30.120Z" })
+    let fraction = api.leases.getById(l)
+    expect(fraction.reviewedAt.value).toBe("2024-03-01T10:20:30.120Z")
+    expect(fraction.reviewedAt.lineage.computedValue).toBe("2024-03-01T10:20:30.120Z")
 
     // The list route reads the same lineage column in bulk.
     let listed = api.leases.all()

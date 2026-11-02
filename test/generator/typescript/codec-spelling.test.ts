@@ -9,6 +9,7 @@ import {
   drizzleScalarColumn,
   mikroScalar,
   TS_MONEY_GRAMMAR,
+  tsEnvelopeInstant,
   tsInstantWire,
   tsIntegerRange,
   tsLineageValue,
@@ -108,10 +109,29 @@ describe("lineage values (#3527)", () => {
     expect(tsLineageValue("x", prim("money"))).toBe("(x == null ? null : x.toFixed(4))");
   });
 
-  it("leaves every other value as the domain value", () => {
+  it("writes a datetime as the RS-38 instant, null-guarded (ruling 2)", () => {
+    expect(tsLineageValue("x", prim("datetime"))).toBe(
+      '(x == null ? null : x.toISOString().replace(/\\.000Z$/, "Z"))',
+    );
+    expect(tsLineageValue("x", { kind: "optional", inner: prim("datetime") } as TypeIR)).toContain(
+      ".replace(",
+    );
+  });
+
+  it("leaves a value whose node form is already its wire form as it is", () => {
     expect(tsLineageValue("x", prim("int"))).toBe("x");
+    // Ruling 1: a node `decimal` is a JS number — the RS-24 wire number.
     expect(tsLineageValue("x", prim("decimal"))).toBe("x");
-    expect(tsLineageValue("x", prim("datetime"))).toBe("x");
+    expect(tsLineageValue("x", prim("date"))).toBe("x");
+    expect(tsLineageValue("x", { kind: "array", element: prim("datetime") } as TypeIR)).toBe("x");
     expect(tsLineageValue("x", undefined)).toBe("x");
+  });
+});
+
+describe("channel envelope (ruling 4)", () => {
+  it("spells the envelope time as the RS-38 instant", () => {
+    expect(tsEnvelopeInstant("new Date()")).toBe(
+      'new Date().toISOString().replace(/\\.000Z$/, "Z")',
+    );
   });
 });

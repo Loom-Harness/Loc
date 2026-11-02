@@ -25,6 +25,7 @@ import { pyRef } from "../_imports/python.js";
 import { numericKindOf } from "../_numeric/codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { joinReadFieldNames } from "../_projection/join-read.js";
+import { pyCalendarDateWire } from "./codec-spelling.js";
 import { paramPyType, responsePyType } from "./emit/http-models.js";
 import {
   lowerProjectionFilterToSqlAlchemy,
@@ -563,7 +564,9 @@ function pyKeyCoerce(k: GroupKeySelect, expr: string): string {
   // A `date` key is a `datetime.date` off the driver; its wire form is its own
   // ISO text, so the conversion is a method call rather than a helper.
   if (!conv && inner.kind === "primitive" && inner.name === "date") {
-    return optional ? `None if ${expr} is None else ${expr}.isoformat()` : `${expr}.isoformat()`;
+    return optional
+      ? `None if ${expr} is None else ${pyCalendarDateWire(expr)}`
+      : pyCalendarDateWire(expr);
   }
   if (!conv) return expr;
   return optional ? `None if ${expr} is None else ${conv}(${expr})` : `${conv}(${expr})`;
