@@ -35,6 +35,7 @@ import {
   seederAggregates,
 } from "../../_persistence/seed-datasets.js";
 import { renderSeedRowInsert } from "../../sql-pg.js";
+import { csCalendarDateParseExact } from "../codec-spelling.js";
 import { renderCsExpr } from "../render-expr.js";
 
 export function emitDotnetSeeds(
@@ -165,7 +166,7 @@ function coerceSeedValue(type: TypeIR, rendered: string): string {
     return `DateTime.Parse(${rendered}, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal)`;
   }
   if (leaf.kind === "primitive" && leaf.name === "date") {
-    return `DateOnly.ParseExact(${rendered}, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)`;
+    return csCalendarDateParseExact(rendered);
   }
   return rendered;
 }

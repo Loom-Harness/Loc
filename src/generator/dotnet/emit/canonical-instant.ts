@@ -11,6 +11,8 @@
 // applies the same trim — so these converters cover the minimal-API probes and
 // any raw datetime a controller serializes directly.)
 
+import { csInstantFormatterBody } from "../codec-spelling.js";
+
 export function renderCanonicalInstantConverter(ns: string): string {
   return `// Auto-generated.
 using System;
@@ -55,10 +57,7 @@ internal static class CanonicalInstant
     /// ".1200000" -> "....120Z".</summary>
     public static string Format(DateTime value)
     {
-        string s = value.ToUniversalTime().ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss'.'fff'Z'", CultureInfo.InvariantCulture);
-        return s.EndsWith(".000Z", StringComparison.Ordinal)
-            ? string.Concat(s.AsSpan(0, s.Length - 5), "Z")
-            : s;
+${csInstantFormatterBody()}
     }
 }
 `;

@@ -30,6 +30,7 @@ import type {
   FieldIR,
   IdValueType,
   ParamIR,
+  PrimitiveName,
   RepositoryIR,
   RetrievalIR,
   TypeIR,
@@ -61,6 +62,7 @@ import { csSubtreeLikePattern, SQL_LIKE_ESCAPE_CLAUSE } from "../../_expr/subtre
 import { refuseOutOfVocabulary } from "../../_expr/target.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
+import { csIdSqlType, csJsonSqlType, csSqlType } from "../codec-spelling.js";
 import { domainFindShape } from "../find-emit.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { csLocalNamer, csReadOwnParams } from "../local-names.js";
@@ -169,48 +171,50 @@ export function dapperAggregateTable(aggName: string): string {
   return tableOf(aggName);
 }
 
-/** SQL + C# row type for an id value type. */
+/** SQL + C# row type for an id value type.  The SQL type is the `Codec` fact's
+ *  id column. */
 export function idTypes(vt: IdValueType): { sql: string; cs: string } {
+  const sql = csIdSqlType(vt);
   switch (vt) {
     case "int":
-      return { sql: "integer", cs: "int" };
+      return { sql, cs: "int" };
     case "long":
-      return { sql: "bigint", cs: "long" };
+      return { sql, cs: "long" };
     case "string":
-      return { sql: "text", cs: "string" };
+      return { sql, cs: "string" };
     default:
-      return { sql: "uuid", cs: "Guid" };
+      return { sql, cs: "Guid" };
   }
 }
 
-/** SQL + C# row type for a primitive. */
+/** The C# row type of a primitive column. */
+const PRIM_ROW_CS: Readonly<Record<string, string>> = {
+  int: "int",
+  long: "long",
+  decimal: "decimal",
+  money: "decimal",
+  bool: "bool",
+  datetime: "DateTime",
+  date: "DateOnly",
+  guid: "Guid",
+  // A `json` field and a `File` field's FileRef persist as jsonb (M-T1.2); the
+  // row DTO carries the raw JSON string (fieldColumn serializes FileRef <-> string).
+  json: "string",
+  File: "string",
+};
+
+/** SQL + C# row type for a primitive.  The SQL type is the `Codec` fact's
+ *  column; an unknown primitive falls back to `text` / `string`. */
 function primTypes(name: string): { sql: string; cs: string } {
-  switch (name) {
-    case "int":
-      return { sql: "integer", cs: "int" };
-    case "long":
-      return { sql: "bigint", cs: "long" };
-    case "decimal":
-    case "money":
-      return { sql: "numeric", cs: "decimal" };
-    case "bool":
-      return { sql: "boolean", cs: "bool" };
-    case "datetime":
-      return { sql: "timestamptz", cs: "DateTime" };
-    case "date":
-      return { sql: "date", cs: "DateOnly" };
-    case "guid":
-      return { sql: "uuid", cs: "Guid" };
-    case "json":
-      return { sql: "jsonb", cs: "string" };
-    case "File":
-      // A `File` field's FileRef persists as jsonb (M-T1.2); the row DTO
-      // carries the raw JSON string (fieldColumn serializes FileRef ⇄ string).
-      return { sql: "jsonb", cs: "string" };
-    default:
-      return { sql: "text", cs: "string" };
-  }
+  const cs = PRIM_ROW_CS[name];
+  return cs === undefined
+    ? { sql: csSqlType("string"), cs: "string" }
+    : { sql: csSqlType(name as PrimitiveName), cs };
 }
+
+/** The Postgres type of a JSON column and the cast that binds a value to it. */
+const JSON_SQL = csJsonSqlType();
+const JSON_CAST = `::${JSON_SQL}`;
 
 /** A persisted column + the C# expressions that read it off the aggregate
  *  (save) and reconstruct it into the `State` (hydrate). */
@@ -266,10 +270,10 @@ export function fieldColumn(f: FieldIR, accBase = "aggregate"): DapperColumn {
         // structurally the value-object arm, but the CLR type is `FileRef`.
         return {
           col,
-          sql: "jsonb",
+          sql: JSON_SQL,
           nullable,
           rowCs: nullable ? "string?" : "string",
-          cast: "::jsonb",
+          cast: JSON_CAST,
           save: nullable
             ? `${acc} is null ? null : System.Text.Json.JsonSerializer.Serialize(${acc})`
             : `System.Text.Json.JsonSerializer.Serialize(${acc})`,
@@ -294,7 +298,7 @@ export function fieldColumn(f: FieldIR, accBase = "aggregate"): DapperColumn {
     case "enum":
       return {
         col,
-        sql: "text",
+        sql: csSqlType("string"),
         nullable,
         rowCs: nullable ? "string?" : "string",
         cast: "",
@@ -307,10 +311,10 @@ export function fieldColumn(f: FieldIR, accBase = "aggregate"): DapperColumn {
     case "valueobject":
       return {
         col,
-        sql: "jsonb",
+        sql: JSON_SQL,
         nullable,
         rowCs: nullable ? "string?" : "string",
-        cast: "::jsonb",
+        cast: JSON_CAST,
         save: nullable
           ? `${acc} is null ? null : System.Text.Json.JsonSerializer.Serialize(${acc})`
           : `System.Text.Json.JsonSerializer.Serialize(${acc})`,
@@ -346,10 +350,10 @@ export function fieldColumn(f: FieldIR, accBase = "aggregate"): DapperColumn {
       const listCs = `List<${elemCs}>`;
       return {
         col,
-        sql: "jsonb",
+        sql: JSON_SQL,
         nullable,
         rowCs: nullable ? "string?" : "string",
-        cast: "::jsonb",
+        cast: JSON_CAST,
         save: nullable
           ? `${acc} is null ? null : System.Text.Json.JsonSerializer.Serialize(${acc})`
           : `System.Text.Json.JsonSerializer.Serialize(${acc})`,
@@ -400,10 +404,10 @@ function provColumn(f: FieldIR): DapperColumn {
   const prop = `${upperFirst(f.name)}Provenance`;
   return {
     col,
-    sql: "jsonb",
+    sql: JSON_SQL,
     nullable: true,
     rowCs: "string?",
-    cast: "::jsonb",
+    cast: JSON_CAST,
     save: `aggregate.${prop} is null ? null : System.Text.Json.JsonSerializer.Serialize(aggregate.${prop}, ProvJson.Options)`,
     stateProp: prop,
     hydrate: `r.${escapeCsharpIdent(col)} is null ? null : System.Text.Json.JsonSerializer.Deserialize<ProvLineage>(r.${escapeCsharpIdent(col)}, ProvJson.Options)`,
@@ -426,10 +430,10 @@ function embeddedContainmentColumn(cont: ContainmentIR): DapperColumn {
   if (cont.collection) {
     return {
       col,
-      sql: "jsonb",
+      sql: JSON_SQL,
       nullable: false,
       rowCs: "string",
-      cast: "::jsonb",
+      cast: JSON_CAST,
       save: `System.Text.Json.JsonSerializer.Serialize(aggregate.${prop}.Select(__x => __x.ToSnapshot()).ToList(), __json)`,
       stateProp: prop,
       hydrate: `System.Text.Json.JsonSerializer.Deserialize<List<${snapT}>>(r.${escapeCsharpIdent(col)}, __json)!.Select(${cont.partName}.FromSnapshot).ToList()`,
@@ -438,10 +442,10 @@ function embeddedContainmentColumn(cont: ContainmentIR): DapperColumn {
   if (cont.optional) {
     return {
       col,
-      sql: "jsonb",
+      sql: JSON_SQL,
       nullable: true,
       rowCs: "string?",
-      cast: "::jsonb",
+      cast: JSON_CAST,
       save: `aggregate.${prop} is null ? null : System.Text.Json.JsonSerializer.Serialize(aggregate.${prop}.ToSnapshot(), __json)`,
       stateProp: prop,
       hydrate: `r.${escapeCsharpIdent(col)} is null ? null : ${cont.partName}.FromSnapshot(System.Text.Json.JsonSerializer.Deserialize<${snapT}>(r.${escapeCsharpIdent(col)}, __json)!)`,
@@ -449,10 +453,10 @@ function embeddedContainmentColumn(cont: ContainmentIR): DapperColumn {
   }
   return {
     col,
-    sql: "jsonb",
+    sql: JSON_SQL,
     nullable: false,
     rowCs: "string",
-    cast: "::jsonb",
+    cast: JSON_CAST,
     save: `System.Text.Json.JsonSerializer.Serialize(aggregate.${prop}.ToSnapshot(), __json)`,
     stateProp: prop,
     hydrate: `${cont.partName}.FromSnapshot(System.Text.Json.JsonSerializer.Deserialize<${snapT}>(r.${escapeCsharpIdent(col)}, __json)!)`,
@@ -960,12 +964,14 @@ function voLeafSql(voColumn: string, leaf: string, leafType: TypeIR): string {
   if (inner.kind === "id") {
     const cast = idTypes(inner.valueType).sql;
     const extract = `${col}->'${key}'->>'Value'`;
-    return cast === "text" ? `(${extract})` : `(${extract})::${cast}`;
+    return cast === csSqlType("string") ? `(${extract})` : `(${extract})::${cast}`;
   }
   if (inner.kind === "primitive") {
     const cast = primTypes(inner.name).sql;
     const extract = `${col}->>'${key}'`;
-    return cast === "text" || cast === "jsonb" ? `(${extract})` : `(${extract})::${cast}`;
+    return cast === csSqlType("string") || cast === JSON_SQL
+      ? `(${extract})`
+      : `(${extract})::${cast}`;
   }
   return refuseOutOfVocabulary("sql-dapper", `value-object leaf of kind '${inner.kind}' in find`);
 }

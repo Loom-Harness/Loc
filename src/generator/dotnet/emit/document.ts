@@ -8,6 +8,7 @@ import { directParentName } from "../../../ir/util/containment-parent.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import { tableNameFor } from "../../../util/storage-names.js";
+import { csJsonSqlType } from "../codec-spelling.js";
 import { csValueTypeForId, renderCsType } from "../render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -116,7 +117,7 @@ export function renderDocumentConfiguration(
       // every read/insert.  The key is a plain `Guid` (minted app-side), so no
       // value converter is needed, only the column name + ValueGeneratedNever.
       `        builder.Property(x => x.Id).HasColumnName("id").ValueGeneratedNever();`,
-      `        builder.Property(x => x.Data).HasColumnName("data").HasColumnType("jsonb");`,
+      `        builder.Property(x => x.Data).HasColumnName("data").HasColumnType("${csJsonSqlType()}");`,
       `        builder.Property(x => x.Version).HasColumnName("version").IsConcurrencyToken();`,
       "    }",
       "}",
