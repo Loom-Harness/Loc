@@ -1638,20 +1638,25 @@ function syncValueCollection(
 ): string[] {
   const vcRow = schemaRow(valueCollectionRowClassName(vc.childTable));
   const vo = findValueObjectInScope(ctx, vc.voName);
-  // Flattened VO column kwargs: `amount=Decimal(str(__e.amount)), …`.
+  // Loop variables are named per collection: one save method holds several
+  // loops, and `mypy --strict` rejects a name rebound to a different element type.
+  const field = snake(vc.fieldName);
+  const idx = `__i_${field}`;
+  const elem = `__e_${field}`;
+  // Flattened VO column kwargs: `amount=Decimal(str(__e_<field>.amount)), …`.
   const voKwargs = (vo?.fields ?? []).map(
     (vf) =>
-      `${pythonIdent(vf.name)}=${persistScalar(`__e.${pythonIdent(vf.name)}`, vf.type, false)}`,
+      `${pythonIdent(vf.name)}=${persistScalar(`${elem}.${pythonIdent(vf.name)}`, vf.type, false)}`,
   );
   return [
     "        await self._session.execute(",
     `            ${R.delete}(${vcRow}).where(${vcRow}.${vc.parentFk} == ${aggVar}.id)`,
     "        )",
-    `        for __i, __e in enumerate(${aggVar}.${pythonIdent(vc.fieldName)} or []):`,
+    `        for ${idx}, ${elem} in enumerate(${aggVar}.${pythonIdent(vc.fieldName)} or []):`,
     "            await self._session.execute(",
     `                ${R.insert}(${vcRow}).values(`,
     `                    ${vc.parentFk}=${aggVar}.id,`,
-    "                    ordinal=__i,",
+    `                    ordinal=${idx},`,
     ...voKwargs.map((p) => `                    ${p},`),
     "                )",
     "            )",
