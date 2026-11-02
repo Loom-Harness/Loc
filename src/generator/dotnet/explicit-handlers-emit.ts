@@ -84,6 +84,9 @@ import {
 
 const INDENT = "        ";
 
+/** The `<ns>.Domain.Common` types a routed action's emitted text can name. */
+const DOMAIN_COMMON_TYPE_REF = /\b(?:Provenanced|ProvLineage|RequestContext|Paged|FileRef)\b/;
+
 type Handler = CommandHandlerIR | QueryHandlerIR;
 
 /** The repos a handler body references (repo-let loads, `Repo.run` reads,
@@ -958,6 +961,12 @@ export function emitExplicitRouteController(
     );
   }
   if (actions.length === 0) return;
+  // An action's response projection can name a `Domain.Common` type — a
+  // provenanced field's `Provenanced<T>`, a masked field's `RequestContext`
+  // principal read.  Scanned off the emitted text, so the using is present
+  // exactly when something in the file needs it.
+  if (DOMAIN_COMMON_TYPE_REF.test(`${actions.join("\n")}\n${bodyRecords.join("\n")}`))
+    nsUsings.add(`${ns}.Domain.Common`);
   const usings = [...nsUsings].sort().map((u) => `using ${u};`);
   const className = `${apiName}RoutesController`;
   const bodyBlock = bodyRecords.length > 0 ? `${bodyRecords.join("\n")}\n\n` : "";

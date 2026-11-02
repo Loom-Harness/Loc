@@ -163,3 +163,60 @@ describe("dotnet — paged-run queryHandler over run(criterion)", () => {
     if (key) expect(m.get(key)!).not.toContain("FindAllByInRegion");
   });
 });
+
+// A routed read's response projection names `Domain.Common` types the plain
+// projection never does — a `provenanced` field's `Provenanced<T>` carrier, a
+// `mask unless` field's `RequestContext` principal read — so the routes
+// controller has to import that namespace exactly when its actions use one
+// (CS0246 / CS0103 under `/warnaserror` otherwise).
+const routedReadSrc = (field: string, auth = false) => `
+system S {
+  ${auth ? "user { id: string  permissions: string[] }" : ""}
+  subdomain Sales {
+    context Orders with scaffoldGet(of: ByCode) {
+      aggregate Order with crudish { code: string  ${field} }
+      repository Orders for Order
+      criterion ByCode(code: string) of Order = this.code == code
+    }
+  }
+  api A with scaffoldGetApi(of: ByCode) from Sales
+  storage pg { type: postgres }
+  resource s { for: Orders, kind: state, use: pg }
+  deployable d {
+    platform: dotnet, contexts: [Orders], dataSources: [s], serves: A, port: 5001
+    ${auth ? "auth: required" : ""}
+  }
+}
+`;
+describe("dotnet — routed read controller imports what its projection names", () => {
+  it("a provenanced field's Provenanced<T> brings in Domain.Common", async () => {
+    const ctrl = fileEndingWith(
+      await generateSystemFiles(routedReadSrc("total: int provenanced")),
+      "Api/ARoutesController.cs",
+    );
+    expect(ctrl).toContain("new Provenanced<int>(");
+    expect(ctrl).toMatch(/^using \w+\.Domain\.Common;$/m);
+  });
+
+  it("a masked field's RequestContext read brings in Domain.Common", async () => {
+    const ctrl = fileEndingWith(
+      await generateSystemFiles(
+        routedReadSrc(
+          'secret: string mask unless currentUser.permissions.contains("orders.unmask")',
+          true,
+        ),
+      ),
+      "Api/ARoutesController.cs",
+    );
+    expect(ctrl).toContain("RequestContext.Current");
+    expect(ctrl).toMatch(/^using \w+\.Domain\.Common;$/m);
+  });
+
+  it("a plain projection does not import Domain.Common", async () => {
+    const ctrl = fileEndingWith(
+      await generateSystemFiles(routedReadSrc("total: int")),
+      "Api/ARoutesController.cs",
+    );
+    expect(ctrl).not.toMatch(/^using \w+\.Domain\.Common;$/m);
+  });
+});
