@@ -49,6 +49,7 @@ import { renderLayouts } from "../shell/web.js";
 import { renderTelemetry } from "../telemetry-emit.js";
 import { renderLoomDatetimeModule } from "./datetime-type-emit.js";
 import { renderGuardErrorModule } from "./denial.js";
+import { renderRepoReadScope } from "./read-scope-emit.js";
 import { renderObanConfig } from "./scheduler-emit.js";
 import { renderLoomValueObjectModule } from "./value-object-type-emit.js";
 
@@ -467,7 +468,7 @@ defmodule ${appModule}.Repo do
   use Ecto.Repo,
     otp_app: :${appName},
     adapter: Ecto.Adapters.Postgres
-end
+${renderRepoReadScope()}end
 `;
 }
 

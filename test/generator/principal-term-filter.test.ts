@@ -15,6 +15,7 @@
 import { describe, expect, it } from "vitest";
 import { inlineDapperScope } from "../_helpers/dapper-scope.js";
 import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
+import { ectoScope } from "../_helpers/ecto-scope.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 const source = (platform: string): string => `
@@ -128,13 +129,24 @@ describe("capability filter principal terms render on every backend", () => {
   });
 
   it("elixir: an Elixir-decided pinned boolean, false without an actor", async () => {
-    const repo = await emitted("elixir", /ticket_repository\.ex$/);
-    expect(repo).toContain('^(not is_nil(current_user) and current_user.role == "agent")');
+    const files = await generateSystemFiles(source("elixir"));
+    const repo = [...files].find(([p]) => p.endsWith("t/ticket_repository.ex"))?.[1] ?? "";
+    // The filter lives on Ticket's schema, as the unskippable `:loom_filter`
+    // clause `Repo.prepare_query/3` applies with the read's principal — so the
+    // list and the by-id read both start from `base_query/0` and hand it the actor.
+    expect(repo).toContain("query = Api.T.Ticket.base_query()");
+    expect(repo).toContain("|> Repo.all(current_user: current_user)");
     expect(repo).toContain(
+      "case Repo.one(from(record in Api.T.Ticket.base_query(), where: record.id == ^id), current_user: current_user) do",
+    );
+    expect(repo).not.toContain("skip_filters");
+    const scope = ectoScope(files, "Api.T.Ticket", "all");
+    expect(scope).toContain('^(not is_nil(current_user) and current_user.role == "agent")');
+    expect(scope).toContain(
       '^(not is_nil(current_user) and to_string(current_user.tier) == "Gold")',
     );
-    expect(repo).toContain("^(not is_nil(current_user) and not is_nil(current_user.customer_id))");
+    expect(scope).toContain("^(not is_nil(current_user) and not is_nil(current_user.customer_id))");
     // Never the pinned-claim-vs-literal form, whose null semantics are SQL's.
-    expect(repo).not.toContain('^(current_user && current_user.role) == "agent"');
+    expect(scope).not.toContain('^(current_user && current_user.role) == "agent"');
   });
 });

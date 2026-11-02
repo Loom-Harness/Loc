@@ -117,9 +117,14 @@ describe("currentUser.orgPath — registry dataKey read under hierarchy (elixir)
       /defp put_org_path\(user\), do: Map\.put\(user, :org_path, resolve_org_path/,
     );
     // The read goes through the registry's Ecto schema module (schema prefix +
-    // binary_id cast) via the app `Repo`, selecting the `data_key` column.
-    expect(files).toMatch(/Api\.Repo\.one\(/);
-    expect(files).toMatch(/from o in Api\.C\.Org, where: o\.id == \^claim, select: o\.data_key/);
+    // binary_id cast) via the app `Repo`, selecting the `data_key` column.  It
+    // runs before the principal exists, so it lifts the read scope
+    // (`skip_filters: :all`) — the registry's self-scope admits exactly this
+    // `id == claim` row, and a principal-bound clause with no principal would
+    // raise into the fail-safe and silently drop the resolved path.
+    expect(files).toMatch(
+      /Api\.Repo\.one\(\n\s*from\(o in Api\.C\.Org, where: o\.id == \^claim, select: o\.data_key\),\n\s*skip_filters: :all\n\s*\) do/,
+    );
     // Fail-safe: nil/blank/malformed claim and any query error fall back to the
     // claim (the root-segment path) — never crashes.
     expect(files).toMatch(/defp resolve_org_path\(claim\) when is_binary\(claim\) and claim != ""/);

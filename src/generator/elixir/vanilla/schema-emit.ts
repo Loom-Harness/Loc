@@ -50,6 +50,7 @@ import {
 import { renderInspectImpl } from "./inspect-emit.js";
 import { NORMALIZE_KEYS_DEFP } from "./key-normalize.js";
 import { provColumn, provenancedFieldsOf } from "./provenance-emit.js";
+import { ectoReadScope, renderSchemaReadScope } from "./read-scope-emit.js";
 import {
   foreignRefCollFields,
   isRefCollField,
@@ -432,6 +433,11 @@ function renderSchema(
   const pureCore =
     ctx && needsPureDomainCore(agg, ctx) ? renderAggregatePureCore(appModule, ctx, agg, sys) : [];
   const pureCoreBlock = pureCore.length > 0 ? `\n${pureCore.join("\n")}\n` : "";
+  // Every read of the aggregate starts from `base_query/0`; the bypassable
+  // restrictions ride `Repo.prepare_query/3` (read-scope-emit.ts).
+  const readScopeBlock = renderSchemaReadScope(
+    ectoReadScope(agg, pool, `${appModule}.${ctxModule}`),
+  );
 
   return `# Auto-generated.
 defmodule ${moduleName} do
@@ -444,7 +450,7 @@ ${prefixLine}
   schema "${tableName}" do
 ${schemaBody}
   end
-${pureCoreBlock}end
+${readScopeBlock}${pureCoreBlock}end
 `;
 }
 

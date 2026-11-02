@@ -92,7 +92,7 @@ describe("vanilla — key-lookup find functions on the repository module", () =>
       [...files.keys()].find((k) => k.endsWith("/customer_repository.ex"))!,
     )!;
     expect(customer).toContain(
-      "def find_by_email(email) do\n    query = from(record in Api.Orders.Customer, where: record.email == ^email)\n    {:ok, Repo.one(query)}\n  end",
+      "def find_by_email(email) do\n    query = from(record in Api.Orders.Customer.base_query(), where: record.email == ^email)\n    {:ok, Repo.one(query)}\n  end",
     );
   });
 
@@ -102,7 +102,7 @@ describe("vanilla — key-lookup find functions on the repository module", () =>
       [...files.keys()].find((k) => k.endsWith("/customer_repository.ex"))!,
     )!;
     expect(customer).toContain(
-      "def get_by_email(email) do\n    query = from(record in Api.Orders.Customer, where: record.email == ^email)\n\n    case Repo.one(query) do\n      nil -> {:error, :not_found}\n      found -> {:ok, found}\n    end\n  end",
+      "def get_by_email(email) do\n    query = from(record in Api.Orders.Customer.base_query(), where: record.email == ^email)\n\n    case Repo.one(query) do\n      nil -> {:error, :not_found}\n      found -> {:ok, found}\n    end\n  end",
     );
   });
 

@@ -116,6 +116,9 @@ export function contextsHavePagedReads(contexts: readonly EnrichedBoundedContext
     (c) =>
       (c.repositories ?? []).some((r) =>
         (r.finds ?? []).some((f) => !!pagedReturn(f.returnType)),
-      ) || (c.queryHandlers ?? []).some((h) => !!h.returnType && !!pagedReturn(h.returnType)),
+      ) ||
+      (c.queryHandlers ?? []).some((h) => !!h.returnType && !!pagedReturn(h.returnType)) ||
+      // An abstract base's polymorphic `index` pages (base-reader.ts).
+      c.aggregates.some((a) => a.isAbstract === true),
   );
 }

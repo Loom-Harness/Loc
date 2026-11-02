@@ -57,7 +57,6 @@ import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
-import { baseReaderShape } from "./base-reader.js";
 import {
   aggregateUsesPrincipalContextFilter,
   findUsesPrincipal,
@@ -476,11 +475,11 @@ function renderContextModule(
     // seam to delegate to).  Emitting them would reference functions the
     // read-only base repository never defines.
     if (isAbstractBase(agg)) {
-      // The reader threads the actor whenever a concrete read it fronts does.
-      const baseActor = baseReaderShape(agg, ctx, sys).principal ? ", current_user \\\\ nil" : "";
+      // The reader pages over the whole hierarchy and always takes the actor
+      // (its reads pass it to `Repo.prepare_query/3`).
       return `  # ${aggPascal} (abstract base — read-only polymorphic reader)
-  defdelegate list_${aggSnake}s(${baseActor.slice(2)}), to: ${repoMod}, as: :list
-  defdelegate get_${aggSnake}(id${baseActor}), to: ${repoMod}, as: :find_by_id
+  defdelegate list_${aggSnake}s(page \\\\ ${PAGED_DEFAULT_PAGE}, page_size \\\\ ${PAGED_DEFAULT_PAGE_SIZE}, current_user \\\\ nil), to: ${repoMod}, as: :list
+  defdelegate get_${aggSnake}(id, current_user \\\\ nil), to: ${repoMod}, as: :find_by_id
 `;
     }
     // A principal (tenancy) filter threads the request actor through the read
@@ -1373,10 +1372,11 @@ function renderContextRefCollHelpers(appModule: string, includeResolve: boolean)
   // emitted-but-unused under `--warnings-as-errors`.
   const resolveRefs = `
 
-  # Load reference-collection ids back to target structs for \`put_assoc\`.
+  # Load reference-collection ids back to target structs for \`put_assoc\` — a
+  # write, so it resolves them outside the read scope.
   defp __resolve_refs(ids, target_mod) do
     ids = ids |> List.wrap() |> Enum.map(&to_string/1)
-    ${appModule}.Repo.all(from(t in target_mod, where: t.id in ^ids))
+    ${appModule}.Repo.all(from(t in target_mod, where: t.id in ^ids), skip_filters: :all)
   end`;
   return includeResolve ? refIdList + resolveRefs : refIdList;
 }

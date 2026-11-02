@@ -2,13 +2,13 @@
 // Phase 4).  Pins that every one of the five domain-logic backends renders the
 // deny sentinel to its native ALWAYS-FALSE query fragment — through the existing
 // read `contextFilters` seam (deny read) and the `writeScopeFilter` command-load
-// seam (deny write) — and that the Elixir write-scope command load underscores
-// its now-principal-free param (the unused-variable trap under
-// `--warnings-as-errors`).
+// seam (deny write) — and that the Elixir write-scope command load binds no
+// unused param (the unused-variable trap under `--warnings-as-errors`).
 
 import { describe, expect, it } from "vitest";
 import { inlineDapperScope } from "../_helpers/dapper-scope.js";
 import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
+import { ectoBaseWhere, ectoModule, ectoScope } from "../_helpers/ecto-scope.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 // `Secret` is READ-denied (invisible); `Account` is WRITE-denied (read-only).
@@ -403,12 +403,25 @@ describe("policy deny — Java (Spring/JPA)", () => {
 });
 
 describe("policy deny — Elixir (plain Ecto/Phoenix)", () => {
-  it('renders fragment("false") and underscores the principal-free for-write param', async () => {
-    const text = await allText("elixir");
-    expect(text).toContain('fragment("false")');
-    // Deny write leaves the write-scope command load principal-free → the param
-    // is underscored so `mix compile --warnings-as-errors` does not trip.
-    expect(text).toContain("def find_by_id_for_write(id, _current_user");
-    expect(text).not.toContain("def find_by_id_for_write(id, current_user");
+  it('renders fragment("false") on the read and write scopes, and binds the for-write param', async () => {
+    const all = await files("elixir");
+    const at = (suffix: string): string =>
+      [...all].find(([p]) => p.endsWith(suffix))?.[1] ?? `<no ${suffix}>`;
+    // Deny read: the deny is hosted in Secret's `base_query/0`, which no
+    // `skip_filters:` (not even `:all`) lifts, and Secret's reads start there.
+    expect(ectoBaseWhere(ectoModule(all, "Api.C.Secret"))).toBe('fragment("false")');
+    expect(ectoScope(all, "Api.C.Secret", "all")).toContain('fragment("false")');
+    expect(at("c/secret_repository.ex")).toContain("Api.C.Secret.base_query()");
+    // Deny write: the command load swaps the read restrictions for the write
+    // scope (`skip_filters: :all`), and the write scope is the deny itself.
+    const repo = at("c/account_repository.ex");
+    const load = repo.slice(repo.indexOf("def find_by_id_for_write("));
+    const loadFn = load.slice(0, load.indexOf("\n  end"));
+    expect(loadFn).toContain(
+      'where: record.id == ^id and (fragment("false"))), current_user: current_user, skip_filters: :all)',
+    );
+    // The param is used — handed to the Repo as the explicit principal — so
+    // `mix compile --warnings-as-errors` does not trip on an unused variable.
+    expect(loadFn.startsWith("def find_by_id_for_write(id, current_user \\\\ nil)")).toBe(true);
   });
 });

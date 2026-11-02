@@ -13,8 +13,9 @@
 //   elixir         `from(record in Api…AutoClaim, …)` over schema "claims"
 //                  with NO `kind` conjunct — same silent wrong data
 //
-// The other three read the OWNER table (`projectionSourceTable`,
-// src/ir/util/inheritance.ts) and AND the `kind` discriminator in.  The
+// Node/drizzle reads the OWNER table (`projectionSourceTable`,
+// src/ir/util/inheritance.ts) and ANDs the `kind` discriminator in; elixir
+// starts from the concrete's `base_query/0`, which carries it.  The
 // runtime half (the numbers) is the e2e block in
 // test/fixtures/corpus/projection-tph-source.ddd.
 
@@ -24,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { inlineDapperScope } from "../_helpers/dapper-scope.js";
 import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
+import { ectoBaseWhere, ectoModule } from "../_helpers/ecto-scope.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 const FIXTURE = readFileSync(
@@ -82,12 +84,14 @@ describe("projection over a TPH concrete reads the shared table, scoped by `kind
       "elixir",
       /query_projections\/auto_claims_by_status\.ex$/,
     );
-    expect(grouped).toMatch(
-      /from\(record in \S+\.AutoClaim, where: record\.kind == "AutoClaim", group_by:/,
-    );
+    // Both arms start from the concrete's `base_query/0`, which carries the
+    // `kind` conjunct (no `skip_filters:` reaches it).
+    expect(grouped).toMatch(/from\(record in D\.Claims\.AutoClaim\.base_query\(\), group_by:/);
     const volume = await projectionSource("elixir", /query_projections\/auto_claim_volume\.ex$/);
-    expect(volume).toMatch(
-      /from\(record in \S+\.AutoClaim, where: record\.kind == "AutoClaim", select:/,
+    expect(volume).toMatch(/from\(record in D\.Claims\.AutoClaim\.base_query\(\), select:/);
+    const files = await generateSystemFiles(FIXTURE.replace("__PLATFORM__", "elixir"));
+    expect(ectoBaseWhere(ectoModule(files, "D.Claims.AutoClaim"))).toBe(
+      'record.kind == "AutoClaim"',
     );
   }, 120_000);
 });

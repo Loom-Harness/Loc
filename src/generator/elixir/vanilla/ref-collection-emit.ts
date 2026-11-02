@@ -329,7 +329,9 @@ function refCollPutHelper(appModule: string): string {
 
       {:ok, ids} ->
         ids = ids |> List.wrap() |> Enum.map(&to_string/1)
-        targets = ${appModule}.Repo.all(from(t in target_mod, where: t.id in ^ids))
+        # Linking rows by id is a write, not a read: it resolves them outside the
+        # read scope (\`skip_filters: :all\`); the reads that serve them are scoped.
+        targets = ${appModule}.Repo.all(from(t in target_mod, where: t.id in ^ids), skip_filters: :all)
         Ecto.Changeset.put_assoc(changeset, field, targets)
     end
   end
