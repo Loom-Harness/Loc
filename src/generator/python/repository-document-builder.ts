@@ -32,13 +32,16 @@ import {
   type AggregateReadShape,
   aggHasFieldMask,
   aggRef,
+  aggregateRetrievals,
   allFindOf,
   emittableFinds,
   findExecutedLine,
+  inlineRunBypassesByRetrieval,
   PY_PAGED_FIND_PARAMS,
   partRef,
   partWireMethod,
   pyInMemoryPagedFind,
+  pyInMemoryRunMethod,
   queryProjectionViews,
   R,
   recordAuditMethod,
@@ -117,6 +120,8 @@ export function buildPyDocumentRepositoryFile(
   const fromDocCall = (rowVar: string): string =>
     versioned ? `${fromDoc}(${rowVar}.data, ${rowVar}.version)` : `${fromDoc}(${rowVar}.data)`;
 
+  const runBypasses = inlineRunBypassesByRetrieval(ctx, agg.name);
+
   const body = lines(
     `class ${agg.name}Repository:`,
     `    def __init__(self, session: ${R.AsyncSession}, events: ${R.DomainEventDispatcher}) -> None:`,
@@ -189,6 +194,21 @@ export function buildPyDocumentRepositoryFile(
     ...queryProjectionViews(agg, ctx).flatMap((v) => [
       "",
       findMethod(agg, projectionViewFind(agg, v), ctx, capX != null || allShaped),
+    ]),
+    // Criterion reads (`Repo.all(C(…))` / `Repo.find(C(…))`) call
+    // `run_<retrieval>` whatever the saving shape.  The blob is not queryable
+    // per field, so the runner filters in-app over a RAW load (not the
+    // capability-narrowed `all()`), re-applying the capability conjunct minus
+    // what the call-sites' `ignoring` clauses drop.
+    ...aggregateRetrievals(agg, ctx).flatMap((r) => [
+      "",
+      pyInMemoryRunMethod(agg, r, {
+        loadLines: [
+          `        rows = (await self._session.execute(${R.select}(${row}).order_by(${row}.id))).scalars().all()`,
+          `        items = [${fromDocCall("r")} for r in rows]`,
+        ],
+        capability: documentCapabilityBody(agg, "x", runBypasses.get(r.name)),
+      }),
     ]),
     "",
     versioned

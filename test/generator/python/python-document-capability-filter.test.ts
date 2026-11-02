@@ -62,11 +62,10 @@ describe("python shape: document capability filter", () => {
   });
 
   // A criterion read over a document aggregate: the handler calls
-  // `run_find_all_by_articles_popular`, and the document repository emits no
-  // retrieval method, so the call names a method that does not exist.  `fails`
-  // until the document repository emits criterion reads (capability predicate
-  // AND-ed with the criterion over a raw load); then drop `.fails`.
-  it.fails("a criterion read's repository method exists (document repository emits none)", async () => {
+  // `run_find_all_by_articles_popular` whatever the saving shape.  The document
+  // repository answers it in-app over a RAW load, the capability predicate
+  // AND-ed with the criterion.
+  it("a criterion read keeps the capability predicate beside its own", async () => {
     const { model, errors } = await parseString(
       FIXTURE.replace(
         /(criterion ArticlesPopular\(min: int\) of Article = this\.viewCount >= min)/,
@@ -87,5 +86,8 @@ describe("python shape: document capability filter", () => {
     );
     const r = files.get("api/app/db/repositories/article_repository.py")!;
     expect(r).toContain("    async def run_find_all_by_articles_popular(self, min: int");
+    expect(r).toContain(
+      "result = [x for x in items if ((not x.archived) and (x.tenant_id == current_user.tenant_id)) and (x.view_count >= min)]",
+    );
   });
 });

@@ -851,8 +851,7 @@ system D {
   deployable api { platform: dotnet { persistence: dapper }  contexts: [O]  dataSources: [s]  serves: A  port: 8080 }
 }`;
 
-  // #4405: the document repository emits no method for a criterion read yet.
-  it.fails("no longer rejects shape: document; emits a (id, data, version) blob table + JSONB repository — #4405", async () => {
+  it("no longer rejects shape: document; emits a (id, data, version) blob table + JSONB repository", async () => {
     const { files, errors } = await emit(DOC);
     expect(errors).toEqual([]); // the dapper document gate is lifted
     // Blob table (no per-field columns, no child/join tables).
@@ -879,6 +878,7 @@ system D {
     // The criterion read the handler makes (`Carts.all(CartsByCustomer(…))`
     // → `RunFindAllByCartsByCustomerAsync`) is a method the repository has.
     expect(repo).toContain("RunFindAllByCartsByCustomerAsync(");
+    expect(repo).toContain("IEnumerable<Cart> __q = __all.Where(x => (x.Customer == customer));");
     // Snapshot DTOs are emitted; the EF <Agg>Document POCO / configuration are NOT.
     expect(files.has("api/Domain/Carts/CartSnapshots.cs")).toBe(true);
     expect(files.has("api/Domain/Carts/CartDocument.cs")).toBe(false);

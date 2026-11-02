@@ -83,11 +83,10 @@ describe("python event sourcing", () => {
   });
 
   // A criterion read over an event-sourced aggregate: the handler calls
-  // `run_find_all_by_accounts_by_owner`, and the event-store repository emits
-  // no retrieval method, so the call names a method that does not exist.
-  // `fails` until the event-store repository emits criterion reads (in memory
-  // over the folded set); then drop `.fails`.
-  it.fails("a criterion read's repository method exists (event-store repository emits none)", async () => {
+  // `run_find_all_by_accounts_by_owner` whatever the saving shape, so the
+  // event-store repository must define it — filtering the folded aggregates in
+  // memory, since a stream has no state columns.
+  it("a criterion read's repository method filters the folded aggregates", async () => {
     const { model, errors } = await parseString(
       FIXTURE.replace(
         /(criterion AccountsByOwner\(owner: string\) of Account = this\.owner == owner)/,
@@ -108,6 +107,7 @@ describe("python event sourcing", () => {
     );
     const repo = files.get("api/app/db/repositories/account_repository.py")!;
     expect(repo).toContain("    async def run_find_all_by_accounts_by_owner(self, owner: str");
+    expect(repo).toContain("result = [x for x in items if (x.owner == owner)]");
   });
 
   it("the create route takes the create ACTION's params", async () => {

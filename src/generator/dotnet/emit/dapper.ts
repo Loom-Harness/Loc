@@ -78,12 +78,14 @@ import {
   csSqlInterpolated,
   csSqlLiteral,
   documentReadPredicates,
+  documentReadRestrictions,
 } from "./dapper-scope.js";
 import { DAPPER_BEGIN_TX, DAPPER_COMMIT_TX, dapperOpenConn } from "./dapper-session.js";
 import { csClaimStampsFor } from "./entity.js";
 import {
   inMemoryFilter,
   inMemoryPagedFindLines,
+  inMemoryRunMethodLines,
   renderRetrievalParamsWithCt,
 } from "./repository.js";
 import { csStateHolderOf } from "./state-holder.js";
@@ -2240,6 +2242,9 @@ export function renderDapperDocumentRepository(
   /** The aggregate's context pool — the read-scope fact resolves the `extends`
    *  chain through it.  Defaults to the aggregate alone. */
   pool: readonly EnrichedAggregateIR[] = [agg],
+  /** Context retrievals over this aggregate — each a `Run<Name>Async`
+   *  answered in memory (`inMemoryRunMethodLines`). */
+  retrievals: readonly RetrievalIR[] = [],
 ): string {
   // BCL type-name collision (#3024) — the dapper adapter is a SECOND repository
   // emitter beside the EF one, with its own using block and its own non-generic
@@ -2527,6 +2532,18 @@ export function renderDapperDocumentRepository(
       deleteMethod ? "" : null,
       deleteMethod || null,
       ...findMethods.flatMap((m) => ["", m]),
+      // Criterion reads (`Run<Name>Async`): the port declares one per retrieval
+      // whatever the saving shape, so the blob answers it in-app over a RAW
+      // load, re-applying each restriction the call-site bypass keeps.
+      ...inMemoryRunMethodLines(agg, retrievals, {
+        loadAll: (ct, local) => [
+          dapperOpenConn(ns, local("conn"), ct),
+          `var __rows = await ${local("conn")}.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} ORDER BY id", cancellationToken: ${ct}));`,
+          `var __all = __rows.Select(__d => ${deser});`,
+        ],
+        capFilters: documentReadRestrictions(agg, pool),
+        log: false,
+      }),
       "}",
     ) + "\n"
   );
@@ -2552,6 +2569,9 @@ export function renderDapperEventSourcedRepository(
   ctxName: string,
   /** As `renderDapperDocumentRepository`'s. */
   extraUsings: readonly string[] = [],
+  /** Context retrievals over this aggregate — each a `Run<Name>Async`
+   *  answered in memory (`inMemoryRunMethodLines`). */
+  retrievals: readonly RetrievalIR[] = [],
 ): string {
   // BCL type-name collision (#3024) — the dapper adapter is a SECOND repository
   // emitter beside the EF one, with its own using block and its own non-generic
@@ -2774,6 +2794,12 @@ export function renderDapperEventSourcedRepository(
       "        };",
       "    }",
       ...findMethods.flatMap((m) => ["", m]),
+      // Criterion reads (`Run<Name>Async`): a stream has no state columns, so
+      // the folded aggregates answer it in memory, like the declared finds.
+      ...inMemoryRunMethodLines(agg, retrievals, {
+        loadAll: (ct) => [`var __all = await _LoadAllAsync(${ct});`],
+        log: false,
+      }),
       "}",
     ) + "\n"
   );

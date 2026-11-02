@@ -4,6 +4,7 @@ import type {
   AggregateIR,
   AssociationIR,
   EnrichedAggregateIR,
+  ExprIR,
   FindIR,
   ParamIR,
   RepositoryIR,
@@ -20,7 +21,7 @@ import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { efReadSource, efWriteSet } from "../ef-read-source.js";
-import { domainFindShape } from "../find-emit.js";
+import { domainFindShape, orderByClauseFor } from "../find-emit.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { csLocalNamer, csReadOwnParams } from "../local-names.js";
 import {
@@ -885,7 +886,13 @@ export function renderDocumentRepositoryImpl(
     filterClause: string;
     projectionClause: string;
   }>,
-  options?: { extraUsings?: readonly string[]; idClass?: string },
+  options?: {
+    extraUsings?: readonly string[];
+    idClass?: string;
+    /** Context retrievals over this aggregate — each a `Run<Name>Async`
+     *  answered in memory (`inMemoryRunMethodLines`). */
+    retrievals?: readonly RetrievalIR[];
+  },
 ): string {
   // A type named `Task` reached through this file's `using <ns>.Domain.<Plural>;`
   // is CS0104-ambiguous with the implicit `System.Threading.Tasks.Task`. The
@@ -1017,6 +1024,19 @@ export function renderDocumentRepositoryImpl(
       `        return ${result};`,
       "    }",
     ];
+  });
+  // Criterion reads (`Run<Name>Async`): the port declares one per retrieval
+  // whatever the saving shape, so the blob answers it in-app over a RAW load,
+  // re-applying each capability restriction the call-site bypass keeps.
+  const origins = agg.contextFilterOrigins ?? [];
+  const docRunLines = inMemoryRunMethodLines(agg, options?.retrievals ?? [], {
+    loadAll: (ct) => [
+      `var __all = (await _db.${setName}.OrderBy(__d => __d.Id).ToListAsync(${ct})).Select(__d => ${deser});`,
+    ],
+    capFilters: (agg.contextFilters ?? []).map((predicate, i) => ({
+      predicate,
+      ...(origins[i] != null && !isDenyFilter(predicate) ? { capability: origins[i] } : {}),
+    })),
   });
   const extraUsings = (options?.extraUsings ?? []).map((n) => `using ${n};`);
   return (
@@ -1189,6 +1209,7 @@ export function renderDocumentRepositoryImpl(
           ]
         : []),
       ...findMethodLines,
+      ...docRunLines,
       "}",
     ) + "\n"
   );
@@ -1218,7 +1239,13 @@ export function renderEventSourcedRepositoryImpl(
     projectionClause: string;
   }>,
   contextName: string,
-  options?: { extraUsings?: readonly string[]; idClass?: string },
+  options?: {
+    extraUsings?: readonly string[];
+    idClass?: string;
+    /** Context retrievals over this aggregate — each a `Run<Name>Async`
+     *  answered in memory (`inMemoryRunMethodLines`). */
+    retrievals?: readonly RetrievalIR[];
+  },
 ): string {
   // A type named `Task` reached through this file's `using <ns>.Domain.<Plural>;`
   // is CS0104-ambiguous with the implicit `System.Threading.Tasks.Task`. The
@@ -1334,6 +1361,11 @@ export function renderEventSourcedRepositoryImpl(
     ];
   });
 
+  // Criterion reads (`Run<Name>Async`): a stream has no state columns, so the
+  // folded aggregates answer it in memory, like the declared finds above.
+  const esRunLines = inMemoryRunMethodLines(agg, options?.retrievals ?? [], {
+    loadAll: (ct) => [`var __all = await _LoadAllAsync(${ct});`],
+  });
   const extraUsings = (options?.extraUsings ?? []).map((n) => `using ${n};`);
   return (
     lines(
@@ -1492,6 +1524,7 @@ export function renderEventSourcedRepositoryImpl(
       "        };",
       "    }",
       ...findMethodLines,
+      ...esRunLines,
       "}",
     ) + "\n"
   );
@@ -1513,6 +1546,79 @@ export function renderEventSourcedRepositoryImpl(
  *  (`.ToExpression()`, an `Expression<Func<…>>`), so it is compiled first. */
 export function inMemoryFilter(filter: string): string {
   return filter.replace(/\.ToExpression\(\)\)/g, ".ToExpression().Compile())");
+}
+
+/** One in-app capability read restriction an in-memory carrier re-applies to
+ *  a retrieval: its predicate over the rehydrated instance, and the capability
+ *  an `ignoring` clause names to drop it (absent → never dropped). */
+export interface InMemoryCapFilter {
+  predicate: ExprIR;
+  capability?: string;
+}
+
+/** `Run<Name>Async` for the carriers whose state is not queryable columns —
+ *  the document blob and the event-sourced fold, on EF and Dapper alike.  The
+ *  port declares the method whatever the saving shape (the handler calls it),
+ *  so these carriers answer it in memory: `loadAll` binds `__all` to every
+ *  rehydrated candidate, each capability restriction re-applies unless the
+ *  call-site `bypass` drops it (deny-sentinel restrictions carry no capability,
+ *  so nothing drops them), then the retrieval's `where`, its `sort:` and the
+ *  call-site `(offset, limit)` page apply to the sequence. */
+export function inMemoryRunMethodLines(
+  agg: EnrichedAggregateIR,
+  retrievals: readonly RetrievalIR[],
+  opts: {
+    /** Statement lines (unindented) binding `__all`, given the method's token
+     *  and its local namer (a local yields to a same-named retrieval param). */
+    loadAll: (ct: string, local: (base: string) => string) => readonly string[];
+    capFilters?: readonly InMemoryCapFilter[];
+    /** False for the Dapper adapter, whose repositories carry no `_log`. */
+    log?: boolean;
+  },
+): string[] {
+  return retrievals.flatMap((r) => {
+    const names = r.params.map((p) => p.name);
+    const L = csLocalNamer(names, ["__q", "result", "x", "__p", "__off", "__lim"]);
+    const own = csReadOwnParams(names);
+    const x = L("x");
+    const caps = (opts.capFilters ?? []).map((c) => {
+      const pred = `(${renderCsExpr(c.predicate, { thisName: x, agg, currentUserExpr: AMBIENT_CURRENT_USER })})`;
+      return c.capability
+        ? `(${own.bypass}.All || (${own.bypass}.Capabilities?.Contains(${JSON.stringify(c.capability)}) ?? false) || ${pred})`
+        : pred;
+    });
+    const where = renderCsExpr(r.where, {
+      thisName: x,
+      agg,
+      currentUserExpr: AMBIENT_CURRENT_USER,
+    });
+    const conds = [...caps, `(${where})`].join(" && ");
+    const order = orderByClauseFor(r, x);
+    return [
+      "",
+      `    public async Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)})`,
+      "    {",
+      ...opts.loadAll(own.ct, L).map((l) => `        ${l}`),
+      `        IEnumerable<${agg.name}> ${L("__q")} = __all.Where(${x} => ${conds})${order};`,
+      `        if (${own.page} is { } ${L("__p")})`,
+      "        {",
+      `            if (${L("__p")}.offset is { } ${L("__off")}) ${L("__q")} = ${L("__q")}.Skip(${L("__off")});`,
+      `            if (${L("__p")}.limit is { } ${L("__lim")}) ${L("__q")} = ${L("__q")}.Take(${L("__lim")});`,
+      "        }",
+      `        var ${L("result")} = ${L("__q")}.ToList();`,
+      ...(opts.log === false
+        ? []
+        : [
+            `        ${renderDotnetLogCall("findExecuted", [
+              { name: "aggregate", valueExpr: `"${agg.name}"` },
+              { name: "find", valueExpr: `"Run${upperFirst(r.name)}"` },
+              { name: "rows", valueExpr: `${L("result")}.Count` },
+            ])}`,
+          ]),
+      `        return ${L("result")};`,
+      "    }",
+    ];
+  });
 }
 
 /**

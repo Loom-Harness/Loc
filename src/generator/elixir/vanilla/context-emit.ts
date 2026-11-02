@@ -960,7 +960,7 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   // `Retrievals.<Name>`.  Workflow `repo-run` lowerings (follow-up
   // slice) call through this seam.
   const retrievalLines = (ctx.retrievals ?? [])
-    .filter((r) => emitsRetrievalModule(r, ctx))
+    .filter((r) => emitsRetrievalModule(r))
     .map((r) => {
       const aggName = (r.targetType as { kind: "entity"; name: string }).name;
       const retSnake = snake(r.name);

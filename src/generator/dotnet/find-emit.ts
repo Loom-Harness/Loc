@@ -167,8 +167,9 @@ function retrievalWhereClause(
 
 /** `.OrderBy(x => x.Col)[.ThenBy…]` for a retrieval's sort terms (empty
  *  when unsorted).  Only the first path segment is used in v1 (a direct
- *  column), matching the Hono emitter + validateRetrievals gating. */
-function orderByClauseFor(r: RetrievalIR): string {
+ *  column), matching the Hono emitter + validateRetrievals gating.  `x` is
+ *  the lambda parameter (it yields to a same-named retrieval param). */
+export function orderByClauseFor(r: RetrievalIR, x = "x"): string {
   if (r.sort.length === 0) return "";
   return r.sort
     .map((s, i) => {
@@ -181,7 +182,7 @@ function orderByClauseFor(r: RetrievalIR): string {
           : s.direction === "desc"
             ? "ThenByDescending"
             : "ThenBy";
-      return `.${method}(x => x.${col})`;
+      return `.${method}(${x} => ${x}.${col})`;
     })
     .join("");
 }
