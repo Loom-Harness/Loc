@@ -3830,12 +3830,6 @@ system S {
   ).replace("price: money }", "price: money  place: Spot }\n    valueobject Spot { city: string }"),
   // V8 — a `Button { icon: }` name the builtin registry lacks.
   "loom.button-icon-unknown": uiPage(`Button { "Delete", icon: "trash" }`),
-  // V9 — a storage type that binds to no kind.
-  "loom.storage-type-unbound": `
-system S {
-  subdomain Sub { context C { } }
-  storage bus { type: nats }
-}`,
   // V2 — a default on a callable site whose lowerer drops it.
   "loom.param-default-unsupported": repoOnly(`    aggregate Thing with crudish { n: int }
     repository Things for Thing

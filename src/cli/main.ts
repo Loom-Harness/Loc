@@ -391,7 +391,7 @@ function printIrDiagnostics(
   const errors = diagnostics.filter((d) => d.severity === "error");
   for (const d of errors) console.error(`${at(d)}${d.code} ${d.source}: ${d.message}`);
 
-  // Phase ⑦ computes 18 warning codes (datasource-knob-unwired, findall-no-page,
+  // Phase ⑦ computes 18 warning codes (findall-no-page,
   // cross-tenant-without-tenancy, …).  A warning never affects the exit code;
   // it just has to be VISIBLE.  (The ADVISORY codes are excluded here — they
   // keep their own `Suggestions:` footer below, and would otherwise print

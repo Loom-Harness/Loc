@@ -50,7 +50,9 @@ export type TargetRefusalSlug =
   | "match-await-standard-op"
   | "lifecycle-guard-event-sourced"
   | "resource-kind-unrealized"
-  | "storage-type-unrealized";
+  | "storage-type-unrealized"
+  | "resource-knob-unrealized"
+  | "storage-type-unbound";
 
 /** A target's verdict on one construct × position. */
 export type CapabilityVerdict =
@@ -108,6 +110,20 @@ export type BackendConstruct =
   | "stmt:requires@event-sourced-create"
   /** `resource r { kind: replica, … }` — a read-replica binding. */
   | "resource:replica@resource"
+  /** `resource r { kind: cache, … }` — a read-through cache binding. */
+  | "resource:cache@resource"
+  /** `resource r { kind: snapshot, … }` — an event-sourced snapshot store. */
+  | "resource:snapshot@resource"
+  /** `resource r { …, ttl: … }` — a cache expiry. */
+  | "knob:ttl@resource"
+  /** `resource r { …, keyPrefix: … }` — a cache key namespace. */
+  | "knob:keyPrefix@resource"
+  /** `resource r { …, every: … }` — a snapshot cadence. */
+  | "knob:every@resource"
+  /** `resource r { …, retain: … }` — a snapshot retention count. */
+  | "knob:retain@resource"
+  /** `resource r { …, readonly: … }` — a replica-aware connection. */
+  | "knob:readonly@resource"
   /** `resource r { kind: eventLog, use: <kafka storage> }` — an event stream
    *  held in Kafka rather than the relational event table. */
   | "resource:eventLog-on-kafka@resource"
@@ -117,7 +133,14 @@ export type BackendConstruct =
   /** The same, bound to a `type: sqlite` storage. */
   | "storage:sqlite@resource"
   /** The same, bound to a `type: inMemory` storage. */
-  | "storage:inMemory@resource";
+  | "storage:inMemory@resource"
+  /** A `storage` declared with a type that binds to no kind: nothing can use
+   *  it and no backend emits anything for it. */
+  | "storage:elastic@declaration"
+  | "storage:meilisearch@declaration"
+  | "storage:clickhouse@declaration"
+  | "storage:bigquery@declaration"
+  | "storage:nats@declaration";
 
 /** Every refusable UI construct, in a stable order (the table test iterates it). */
 export const UI_CONSTRUCTS: readonly RefusableUiConstruct[] = [
@@ -146,10 +169,22 @@ export const ALL_UI_CONSTRUCTS: readonly UiConstruct[] = [...UI_CONSTRUCTS, ...O
 export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "stmt:requires@event-sourced-create",
   "resource:replica@resource",
+  "resource:cache@resource",
+  "resource:snapshot@resource",
+  "knob:ttl@resource",
+  "knob:keyPrefix@resource",
+  "knob:every@resource",
+  "knob:retain@resource",
+  "knob:readonly@resource",
   "resource:eventLog-on-kafka@resource",
   "storage:mysql@resource",
   "storage:sqlite@resource",
   "storage:inMemory@resource",
+  "storage:elastic@declaration",
+  "storage:meilisearch@declaration",
+  "storage:clickhouse@declaration",
+  "storage:bigquery@declaration",
+  "storage:nats@declaration",
 ];
 
 /** The refusal a UI construct gets on a framework NO target renders (an
@@ -266,12 +301,36 @@ const ES_CREATE_REQUIRES_REFUSED: CapabilityVerdict = {
 const UNREALIZED_RESOURCES: Pick<
   Record<BackendConstruct, CapabilityVerdict>,
   | "resource:replica@resource"
+  | "resource:cache@resource"
+  | "resource:snapshot@resource"
+  | "knob:ttl@resource"
+  | "knob:keyPrefix@resource"
+  | "knob:every@resource"
+  | "knob:retain@resource"
+  | "knob:readonly@resource"
   | "resource:eventLog-on-kafka@resource"
   | "storage:mysql@resource"
   | "storage:sqlite@resource"
   | "storage:inMemory@resource"
+  | "storage:elastic@declaration"
+  | "storage:meilisearch@declaration"
+  | "storage:clickhouse@declaration"
+  | "storage:bigquery@declaration"
+  | "storage:nats@declaration"
 > = {
   "resource:replica@resource": refused("resource-kind-unrealized"),
+  "resource:cache@resource": refused("resource-kind-unrealized"),
+  "resource:snapshot@resource": refused("resource-kind-unrealized"),
+  "knob:ttl@resource": refused("resource-knob-unrealized"),
+  "knob:keyPrefix@resource": refused("resource-knob-unrealized"),
+  "knob:every@resource": refused("resource-knob-unrealized"),
+  "knob:retain@resource": refused("resource-knob-unrealized"),
+  "knob:readonly@resource": refused("resource-knob-unrealized"),
+  "storage:elastic@declaration": refused("storage-type-unbound"),
+  "storage:meilisearch@declaration": refused("storage-type-unbound"),
+  "storage:clickhouse@declaration": refused("storage-type-unbound"),
+  "storage:bigquery@declaration": refused("storage-type-unbound"),
+  "storage:nats@declaration": refused("storage-type-unbound"),
   "resource:eventLog-on-kafka@resource": refused("resource-kind-unrealized"),
   "storage:mysql@resource": refused("storage-type-unrealized"),
   "storage:sqlite@resource": refused("storage-type-unrealized"),

@@ -1,12 +1,6 @@
 // -------------------------------------------------------------------------
-// DataSource coverage, file-field object-storage, saving-shape support, the
-// vanilla-document (Phoenix/Ecto document-shaped) op-body support gate, and
-// the honest-note pass over unwired dataSource knobs.  Split out of
-// system-checks.ts by packet 2.6 (wave-2) — mechanical move, no logic
-// change.  (`coverageGapReason`, `UnwiredKnob` and `UNWIRED_KNOBS` were
-// physically far from their sole caller/user in the original file; moved
-// alongside it here — a pure relocation of private, non-exported helpers,
-// no behavior change.)
+// DataSource coverage, file-field object-storage, saving-shape support, and
+// the vanilla-document (Phoenix/Ecto document-shaped) op-body support gate.
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
@@ -15,7 +9,6 @@ import {
   platformSavingShapes,
 } from "../../../language/validators/data/platform-rules.js";
 import { lowerFirst, snake } from "../../../util/naming.js";
-import { sourceTypeFor } from "../../../util/source-types.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -601,100 +594,4 @@ function coverageGapReason(kind: string, ctx: BoundedContextIR): string | undefi
   // cache / replica only require at least one aggregate, already
   // checked above.
   return undefined;
-}
-
-// ---------------------------------------------------------------------------
-// Honest-note pass: warn on dataSource knobs the AST validator accepts
-// but no current emitter consumes.
-//
-// At time of writing, three knobs route through to generated code:
-//   - `schema`       — EF Core ToTable, Drizzle pgSchema, Ecto schema prefix
-//   - `tablePrefix`  — same three emitters (table-name prefix)
-//
-// The other six knobs validate against the kind/storage compatibility
-// matrix in `src/language/validators/datasource.ts` but no emitter
-// reads them.  Setting one is a no-op at runtime:
-//
-//   - `ttl`            — would gate a Redis-backed cache adapter that
-//                        doesn't exist yet
-//   - `every` / `retain` — would gate snapshot policy on an event-
-//                        sourced persister (Marten / hono-ES adapter)
-//                        that doesn't exist yet
-//   - `readonly`       — would gate a replica-aware DbContext that
-//                        doesn't exist yet
-//   - `keyPrefix`      — would gate the same Redis cache adapter
-//                        gated by `ttl`
-//
-// `isolationLevel` is NOT on this list: it flows through
-// `resolveWorkflowIsolation` into the .NET BeginTransactionAsync and
-// Phoenix `Repo.transaction` opts when a workflow in the context is
-// transactional and doesn't carry its own per-workflow isolation.
-//
-// We surface this as a warning at IR-validate time so the author sees
-// "validation accepts this but it's a no-op" instead of believing the
-// knob has effect.  When an adapter lands that consumes one of these,
-// the corresponding entry comes off the list — the truth-telling is
-// in code, not in a doc that goes stale.
-// ---------------------------------------------------------------------------
-
-interface UnwiredKnob {
-  property: keyof DataSourceIR;
-  description: string;
-}
-
-const UNWIRED_KNOBS: readonly UnwiredKnob[] = [
-  { property: "ttl", description: "no Redis-backed cache adapter is implemented yet" },
-  {
-    property: "every",
-    description: "no event-sourced persister with snapshot policy is implemented yet",
-  },
-  {
-    property: "retain",
-    description: "no event-sourced persister with snapshot policy is implemented yet",
-  },
-  { property: "readonly", description: "no replica-aware persister is implemented yet" },
-  { property: "keyPrefix", description: "no Redis-backed cache adapter is implemented yet" },
-  // Note: the `shape:` knob (D-DOCUMENT-AXIS) is NOT listed here — it is
-  // consumed by the backend emitters (relational / embedded / document),
-  // and an unsupported shape for a given backend is rejected by the
-  // per-PLATFORM saving-shape capability check, not warned as inert.
-];
-
-export function validateDataSourceUnwiredKnobs(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  for (const ds of sys.dataSources) {
-    for (const knob of UNWIRED_KNOBS) {
-      const value = ds[knob.property];
-      if (value === undefined) continue;
-      diags.push({
-        severity: "warning",
-        code: "loom.datasource-knob-unwired",
-        message: diagMessage("loom.datasource-knob-unwired", {
-          name: ds.name,
-          property: knob.property,
-          description: knob.description,
-        }),
-        source: `${sys.name}/${ds.name}`,
-      });
-    }
-  }
-}
-
-// A declared `storage` whose `type:` binds to NO kind in the sourceType
-// registry (`src/util/source-types.ts` — `elastic` / `meilisearch` /
-// `clickhouse` / `bigquery` register with empty `supports`; `nats` parses but
-// is not registered at all).  No dataSource, channelSource or resource can use
-// such a storage and no backend emits anything for it, yet it validated with
-// `0 warning(s)` (M-T5.42, V9).  A warning, not an error: an unused
-// declaration breaks nothing — a USE of it is refused by the consuming gate.
-export function validateStorageTypeBinding(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  for (const st of sys.storages) {
-    const descriptor = sourceTypeFor(st.type);
-    if (descriptor && Object.keys(descriptor.supports).length > 0) continue;
-    diags.push({
-      severity: "warning",
-      code: "loom.storage-type-unbound",
-      message: diagMessage("loom.storage-type-unbound", { name: st.name, type: st.type }),
-      source: `${sys.name}/${st.name}`,
-    });
-  }
 }
