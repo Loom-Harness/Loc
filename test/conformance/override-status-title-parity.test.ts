@@ -60,13 +60,13 @@ const API_BODY = `{ ${Object.entries(OVERRIDE)
   .join("  ")} }`;
 
 /** The status census's fixture, trimmed to the three rungs this suite reads:
- *  a gated find (`Forbidden` on a READ), a `when` state gate (`Disallowed`),
- *  and an optional find (`NotFound`). */
+ *  a gated read (`Forbidden` on a READ), a `when` state gate (`Disallowed`),
+ *  and a routed single-row read that can miss (`NotFound`). */
 const SOURCE = (platform: string, apiBody: string) => `
 system TitleCensus {
   user { id: string  level: int }
   subdomain S {
-    context S {
+    context S with scaffoldGet(of: Named) {
       aggregate Item {
         name: string
         qty: int
@@ -76,13 +76,12 @@ system TitleCensus {
           qty := qty + 1
         }
       }
-      repository Items for Item {
-        find byName(n: string): Item? where this.name == n
-      }
+      repository Items for Item
+      criterion Named(n: string) of Item = this.name == n
       policy { read Item requires currentUser.level > 2 }
     }
   }
-  api A from S ${apiBody}
+  api A with scaffoldGetApi(of: Named) from S ${apiBody}
   storage pg { type: postgres }
   resource st { for: S, kind: state, use: pg }
   deployable api {
@@ -199,9 +198,9 @@ const SITES: Record<Platform, Site[]> = {
     },
     {
       rung: "NotFound",
-      what: "the optional find's absence arm",
-      file: "controllers/item_controller.ex",
-      at: /problem_response\(conn, \d+, "([^"]*)", "not_found"\)/,
+      what: "the routed single-row read's absence arm (its handler's `notFound`)",
+      file: "controllers/a_routes_controller.ex",
+      at: /def respond\(conn, \{:error, \{:not_found, detail\}\}\),\s+do: ProblemDetails\.problem_response\(conn, \d+, "([^"]*)", detail\)/,
     },
     {
       rung: "NotFound",
