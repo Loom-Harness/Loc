@@ -111,3 +111,27 @@ describe("expected-failure entry result — Python", () => {
     expect(pay.indexOf("await dispatcher.dispatch(ev)")).toBeGreaterThan(answer);
   });
 });
+
+describe("an operation answering its own aggregate — .NET", () => {
+  // The own-aggregate arm is rebuilt from the aggregate's wire projection, which
+  // constructs each contained part's `<Part>Response`.  Those records live in
+  // the `Responses` namespace, which also declares an application-side twin of
+  // the domain union, so the handler imports each part record by alias: a
+  // namespace import would make its `AccountOrInsufficient` return type ambiguous.
+  it("imports the contained parts' response records by alias, not the namespace", async () => {
+    const src = readFileSync("test/fixtures/corpus/op-return-this.ddd", "utf8")
+      .replace("__PLATFORM__", "dotnet")
+      .replace(
+        "balance: int\n",
+        "balance: int\n        contains holds: Hold[]\n        entity Hold { amount: int }\n",
+      );
+    const all = await generateSystemFiles(src);
+    const key = [...all.keys()].find((k) => k.endsWith("Commands/WithdrawHandler.cs"))!;
+    const h = all.get(key)!;
+    expect(h).toContain("new HoldResponse(");
+    expect(h).toContain(
+      "using HoldResponse = global::D.Application.Accounts.Responses.HoldResponse;",
+    );
+    expect(h).not.toMatch(/^using [\w.]+\.Application\.Accounts\.Responses;$/m);
+  });
+});

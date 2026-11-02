@@ -602,6 +602,15 @@ export function emitOperationCommandAndHandler(
             return `        if (result is ${arm}) result = new ${arm}(${projectEntityArgs("aggregate", agg as EnrichedAggregateIR, ctx, { unionVariant: true })});\n`;
           })()
         : "";
+    // The projection constructs the contained parts' `<Part>Response` records,
+    // which live in the aggregate's `Responses` namespace.  That namespace also
+    // declares an application-side twin of the domain union, so it is imported
+    // as one alias per part record rather than as a whole namespace (which
+    // would make the handler's union return type ambiguous).
+    const responsesNs = `global::${ns}.Application.${plural(agg.name)}.Responses`;
+    const partResponseAliases = [
+      ...new Set([...hostArmProjection.matchAll(/new (\w+Response)\(/g)].map((m) => m[1]!)),
+    ].map((r) => `${r} = ${responsesNs}.${r}`);
     const handlerBody = returnUnion
       ? loadLine +
         auditBefore +
@@ -651,6 +660,7 @@ export function emitOperationCommandAndHandler(
           ...userExtraUsings,
           ...auditUsings,
           ...(responseUsing ? [responseUsing] : []),
+          ...partResponseAliases,
         ],
         body: handlerBody,
       }),
