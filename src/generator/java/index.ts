@@ -1,3 +1,4 @@
+import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
@@ -60,7 +61,6 @@ import {
 } from "../../ir/util/resolve-datasource.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
-import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { tableNameFor } from "../../util/storage-names.js";
@@ -496,9 +496,9 @@ function emitProjectFromContexts(
   // unconditionally: every project has request DTOs with strings.
   place("NoNulChar.java", "api-common", renderNoNulCharConstraint(basePkg));
   // F-023 — the `If-Match` optimistic-concurrency precondition parser.  Only a
-  // `versioned` aggregate's controller binds the header, so the class is
-  // emitted only then (a project without one is byte-identical).
-  if (contexts.some((c) => c.aggregates.some(aggregateIsVersioned))) {
+  // route the `checksVersion` fact marks `if-match` binds the header, so the
+  // class is emitted only then (a project without one is byte-identical).
+  if (contexts.some((c) => anyRouteReadsIfMatch(c.aggregates))) {
     place("IfMatch.java", "api-common", renderIfMatchHeaderParser(basePkg));
   }
   place("Paged.java", "domain-common", renderPagedRecord(basePkg));
