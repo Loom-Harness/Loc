@@ -45,6 +45,7 @@ import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../_workflow/create-state.js";
 import {
   collectUnionFindLets,
+  nestedSaves,
   type PresenceSide,
   presenceSides,
   renderWorkflowStmtChunks,
@@ -473,7 +474,12 @@ export function javaWorkflowStmtTarget(
           `Forbidden: ${g.source}`,
         )});`;
       });
-      return [...gateLines, `${indent}${bound(s.target)}.${jid(s.op)}(${callArgs.join(", ")});`];
+      // `let r = a.op(…)` binds the call's value; the bare statement discards it.
+      const bind = s.result ? `var ${bound(s.result.name)} = ` : "";
+      return [
+        ...gateLines,
+        `${indent}${bind}${bound(s.target)}.${jid(s.op)}(${callArgs.join(", ")});`,
+      ];
     },
     repoDelete: (s, indent) => {
       // `<Repo>.delete(o)` → `<repo>.delete(<entity>)`.  The Spring Data
@@ -571,6 +577,12 @@ export function javaWorkflowStmtTarget(
       const inner = `${indent}    `;
       const savesAt = (pad: string, saves: readonly { name: string; aggName: string }[]) =>
         saves.flatMap((sv) => saveLines(pad, sv));
+      // An error arm over a guarded call's result drops the call's change first:
+      // the entity is managed, and the commit would flush it otherwise.
+      const discardsAt = (
+        pad: string,
+        drops: readonly { name: string; aggName: string }[] | undefined,
+      ) => (drops ?? []).map((d) => `${pad}${repoField(d.aggName)}.discard(${bound(d.name)});`);
       if (s.subjectShape === "absence") {
         const { present, absent } = presenceSides(s, armLines, elseLines);
         const lines = (side: PresenceSide | undefined) =>
@@ -604,6 +616,7 @@ export function javaWorkflowStmtTarget(
               : `unusedArm${i}`;
         out.push(
           `${indent}    case ${carrier} ${binder} -> {`,
+          ...discardsAt(caseInner, arm.discardsInArm),
           ...(arm.binding && scalar
             ? [`${caseInner}var ${jid(arm.binding)} = ${binder}.value();`]
             : []),
@@ -616,6 +629,7 @@ export function javaWorkflowStmtTarget(
       if (s.elseBody) {
         out.push(
           `${indent}    default -> {`,
+          ...discardsAt(caseInner, s.discardsInElse),
           ...shift(elseLines),
           ...savesAt(caseInner, s.savesInElse),
           `${indent}    }`,
@@ -638,7 +652,8 @@ export function javaWorkflowStmtTarget(
     // flushes them at the `@Transactional` boundary (plus the explicit
     // exit-`save` the workflow emits for new aggregates).
     domainServiceCall: (s, indent) => {
-      return [`${indent}${renderJavaExpr(s.call, renderCtx)};`];
+      const bind = s.result ? `var ${bound(s.result.name)} = ` : "";
+      return [`${indent}${bind}${renderJavaExpr(s.call, renderCtx)};`];
     },
     // The exception a by-id miss throws, so the advice's not-found arm renders
     // the identical ProblemDetails.
@@ -675,13 +690,9 @@ const WORKFLOW_PUBLISHER = "eventPublisher";
  *  `if let` / `for` branch counts. */
 function workflowPublishes(wf: WorkflowIR): boolean {
   if (wf.savesAtExit.length > 0) return true;
-  return anyWorkflowStmt(
-    wf,
-    (s) =>
-      s.kind === "emit" ||
-      (s.kind === "for-each" && s.savesPerIteration.length > 0) ||
-      (s.kind === "if-let" && s.savesInThen.length + s.savesInElse.length > 0),
-  );
+  // A save staged inside a loop iteration, an `if let` branch or a `match` arm
+  // publishes what it drained, exactly like an exit save.
+  return anyWorkflowStmt(wf, (s) => s.kind === "emit" || nestedSaves(s).length > 0);
 }
 
 /** Does the body carry a workflow-level `emit` anywhere (branches included)? */

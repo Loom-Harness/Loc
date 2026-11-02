@@ -1085,7 +1085,13 @@ export function pyWorkflowStmtTarget(
           `${i}    raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)})`,
         ];
       });
-      return [...gateLines, `${i}${snake(st.target)}.${snake(st.op)}(${args})`];
+      // `let r = a.op(…)` binds the call's value (unless nothing reads it —
+      // ruff F841); the bare statement discards it.
+      const bind =
+        st.result && (!usedLets || usedLets.has(st.result.name))
+          ? `${snake(st.result.name)} = `
+          : "";
+      return [...gateLines, `${i}${bind}${snake(st.target)}.${snake(st.op)}(${args})`];
     },
     repoDelete: (st, i) => {
       // `<Repo>.delete(o)` → `await <repo>.delete(<entity>.id)`.  The generated
@@ -1205,7 +1211,11 @@ export function pyWorkflowStmtTarget(
     domainServiceCall: (st, i) => {
       const rendered = renderPyExpr(st.call, rctx);
       const bare = rendered.startsWith("(await ") ? rendered.slice(1, -1) : rendered;
-      return [`${i}${bare}`];
+      const bind =
+        st.result && (!usedLets || usedLets.has(st.result.name))
+          ? `${snake(st.result.name)} = `
+          : "";
+      return [`${i}${bind}${bare}`];
     },
     // The error a by-id miss raises, so the app's not-found handler renders
     // the identical ProblemDetails.

@@ -102,6 +102,13 @@ export interface Env {
        *  tagged wire; payloads.md §Union finds).  Read by the variant-match
        *  lowering to stamp `subjectShape: "absence"` on matches over it. */
       absenceUnion?: boolean;
+      /** Set on the local a workflow / handler body binds an error-carrying
+       *  mutating call's result to (`let r = a.withdraw(x)` whose result has an
+       *  `error` variant).  `saves` are the aggregates the call mutated; a
+       *  statement `match` over the local saves them at the end of each arm
+       *  that is not an error variant.  `errorVariants` are the result's error
+       *  wire tags, so an `else` arm can tell what it covers. */
+      resultGuard?: ResultGuard;
     }
   >;
   /** System-wide user-claim shape — the lowered `user { ... }` block.
@@ -217,15 +224,26 @@ export function newEnv(
   return { ctx, locals: new Map(), user, modulePermissions, resources };
 }
 
+/** See the `resultGuard` field of an `Env` local. */
+export interface ResultGuard {
+  saves: { name: string; aggName: string; repoName: string }[];
+  errorVariants: string[];
+}
+
 export function withLocal(
   env: Env,
   name: string,
   kind: "param" | "let" | "lambda" | "match-binding",
   type: TypeIR,
-  opts?: { absenceUnion?: boolean },
+  opts?: { absenceUnion?: boolean; resultGuard?: ResultGuard },
 ): Env {
   const next = new Map(env.locals);
-  next.set(name, { kind, type, ...(opts?.absenceUnion ? { absenceUnion: true } : {}) });
+  next.set(name, {
+    kind,
+    type,
+    ...(opts?.absenceUnion ? { absenceUnion: true } : {}),
+    ...(opts?.resultGuard ? { resultGuard: opts.resultGuard } : {}),
+  });
   return { ...env, locals: next };
 }
 

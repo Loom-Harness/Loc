@@ -91,6 +91,23 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   // gap — real parity TODOs.  This is the sprint backlog.  Drains to zero.
   // -------------------------------------------------------------------------
   {
+    code: "loom.elixir-bound-mutating-call-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/call-result-checks.ts:194",
+    what:
+      "A mutating call bound with `let` in a workflow / handler body an elixir deployable " +
+      "emits — `let r = a.withdraw(x)` (with or without an `error` variant in the result) and " +
+      "`let r = Transfer.run(…)` over a `mutating` domain service.  The other four backends " +
+      "render it as the call statement plus a binding, and save the mutated aggregate at exit " +
+      "or, for an error-carrying result, in the non-error arms of the `match` over it.  On " +
+      "Phoenix every op call is a with-clause that persists inside the context function and " +
+      "matches its `{:ok, _}` away at five render sites (workflow body, branch, single-op " +
+      "case, reactor dispatch, explicit handler); a `mutating` service is inlined clause by " +
+      "clause and computes no value at all",
+    mission: "#3367",
+    verified: false,
+  },
+  {
     code: "loom.ui-multi-backend-unsupported",
     kind: "gap",
     site: "src/ir/validate/checks/ui-backend-binding-checks.ts:48",

@@ -33,6 +33,7 @@ import { deriveContextOperations, staticSubpathRoutes } from "../../ir/util/api-
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentOf } from "../../ir/util/containment-parent.js";
 import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
+import { discardedAggregates } from "../../ir/util/discards.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
   foreignValueTypeSeeds,
@@ -1938,6 +1939,7 @@ function emitAggregate(
     bypassFilters: bypassFilterNames(agg, ctx),
     staticRestriction: hasStaticRestriction(agg, ctx),
     bypassByRetrieval: inlineRunBypassesByRetrieval(ctx, agg.name),
+    discards: discardedAggregates(ctx).has(agg.name),
   };
   const repoOrigin = repo?.origin ?? agg.origin;
   place(
