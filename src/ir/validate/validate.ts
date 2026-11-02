@@ -87,6 +87,7 @@ import {
   validateComponentChildrenSupport,
   validateComposeUniqueness,
   validateContextFilterSupport,
+  validateCrossContextRepositoryProjections,
   validateCurrentUserNeedsAuthUi,
   validateDapperSupport,
   validateDataSourceCoverage,
@@ -284,6 +285,7 @@ export function validateLoomModel(
     validatePagedQueryHandlerShape(sys, diags);
     validateColumnlessProjectionSources(sys, diags);
     validateDocumentAggregationFilters(sys, diags);
+    validateCrossContextRepositoryProjections(sys, diags);
     validateDefaultDeny(sys, diags);
     validateAuth(sys, diags);
     validatePermissions(sys, diags);

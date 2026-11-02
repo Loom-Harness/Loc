@@ -35,7 +35,6 @@ import type {
   ProjectionIR,
   SystemIR,
   TypeIR,
-  WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import {
   aggregateUsesPrincipalContextFilter,
@@ -51,6 +50,7 @@ import {
   wholeTableAggregates,
 } from "../../../ir/util/projection-aggregate.js";
 import { aggregateArgColumn, isValueObjectLeaf } from "../../../ir/util/projection-column.js";
+import { projectionSourceContext } from "../../../ir/util/projection-source.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { numericKindOf } from "../../_numeric/codec.js";
 import { numericEncode } from "../../_numeric/target.js";
@@ -96,6 +96,9 @@ export function emitVanillaQueryProjectionModules(
    *  columns).  Absent in a few legacy test paths; the aggregate header alone
    *  then decides, matching `isVanillaDocAgg`. */
   sys?: SystemIR,
+  /** The deployable's hosted contexts — a projection's `from` source may be
+   *  declared in another one of them than the projection itself. */
+  contexts: readonly EnrichedBoundedContextIR[] = [ctx],
 ): VanillaQueryProjectionRef[] {
   const projs = ctx.projections.filter(isQueryTimeProjection);
   if (projs.length === 0) return [];
@@ -103,8 +106,6 @@ export function emitVanillaQueryProjectionModules(
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
   const typesModule = `${appModule}.Types`;
   const aggsByName = new Map(ctx.aggregates.map((a) => [a.name, a] as const));
-  const wfsByName = new Map(ctx.workflows.map((w) => [w.name, w] as const));
-  const projsByName = new Map(ctx.projections.map((p) => [p.name, p] as const));
   const refs: VanillaQueryProjectionRef[] = [];
   for (const proj of projs) {
     const path = `lib/${appName}/${ctxSnake}/query_projections/${snake(proj.name)}.ex`;
@@ -114,9 +115,8 @@ export function emitVanillaQueryProjectionModules(
       contextModule,
       typesModule,
       ctx,
+      projectionSourceContext(proj, ctx, contexts) ?? ctx,
       aggsByName,
-      wfsByName,
-      projsByName,
       sys,
     );
     out.set(path, content);
@@ -145,28 +145,35 @@ function renderQueryProjectionModule(
   contextModule: string,
   typesModule: string,
   ctx: EnrichedBoundedContextIR,
+  /** The context `proj`'s `from` source is declared in: its schema module,
+   *  read scope and saving shape all live there, which may not be `ctx`. */
+  srcCtx: EnrichedBoundedContextIR,
+  /** `ctx`'s aggregates — the `join` targets. */
   aggsByName: Map<string, AggregateIR>,
-  wfsByName: Map<string, WorkflowIR>,
-  projsByName: Map<string, ProjectionIR>,
   sys?: SystemIR,
 ): string {
   const query = proj.query!;
   const source = query.source!;
   const moduleName = `${contextModule}.QueryProjections.${upperFirst(proj.name)}`;
+  const srcModule = `${appModule}.${upperFirst(srcCtx.name)}`;
   // A workflow-sourced projection reads the workflow's persisted saga-state
   // Ecto schema (`<Wf>State`) — NON-event-sourced by validation — not an
   // aggregate schema module; it has no aggregate capability filter to honour.
-  const wf = query.sourceKind === "workflow" ? wfsByName.get(source) : undefined;
+  const wf =
+    query.sourceKind === "workflow" ? srcCtx.workflows.find((w) => w.name === source) : undefined;
   // A projection-sourced projection reads the SOURCE folded projection's
   // materialized read-model Ecto schema (`<Proj>Row`) — not an aggregate schema
   // module; it has no aggregate capability filter to honour.
-  const srcProj = query.sourceKind === "projection" ? projsByName.get(source) : undefined;
+  const srcProj =
+    query.sourceKind === "projection"
+      ? srcCtx.projections.find((p) => p.name === source)
+      : undefined;
   const sourceMod = wf
-    ? stateModule(contextModule, wf)
+    ? stateModule(srcModule, wf)
     : srcProj
-      ? projectionRowModule(contextModule, srcProj)
-      : `${contextModule}.${upperFirst(source)}`;
-  const sourceAgg = wf || srcProj ? undefined : aggsByName.get(source);
+      ? projectionRowModule(srcModule, srcProj)
+      : `${srcModule}.${upperFirst(source)}`;
+  const sourceAgg = wf || srcProj ? undefined : srcCtx.aggregates.find((a) => a.name === source);
 
   // SHORTHAND projection (`projection P { from <Agg> as a where … }` — no
   // declared fields, no `select`): the enriched `<Proj>Row` shape equals the
@@ -215,7 +222,7 @@ function renderQueryProjectionModule(
   // aggregation) are untouched: they only ever name `id` over a document source
   // (everything else is refused by `loom.projection-columnless-source`, and a
   // capability-filtered one by `loom.projection-document-source-capability-filtered`).
-  const isDocSource = !!sourceAgg && isVanillaDocAgg(sourceAgg, ctx, sys);
+  const isDocSource = !!sourceAgg && isVanillaDocAgg(sourceAgg, srcCtx, sys);
   // A relational aggregate source reads through its scoped schema.  A
   // projection `… ignoring <Cap>` / `ignoring *` drops the named restrictions
   // for this read only (`skip_filters:`).
@@ -233,10 +240,10 @@ function renderQueryProjectionModule(
   // In-app twins of `filter` / `cap` above, over the `record` embed + `row` root.
   const docFilter =
     isDocSource && query.filter
-      ? renderDocPredicate(query.filter, sourceAgg!, contextModule, "row")
+      ? renderDocPredicate(query.filter, sourceAgg!, srcModule, "row")
       : null;
   const docCap = isDocSource
-    ? vanillaDocCapabilityFilter(sourceAgg!, contextModule, "row", {
+    ? vanillaDocCapabilityFilter(sourceAgg!, srcModule, "row", {
         actor: principal,
         bypass:
           query.bypassAll || (query.bypassCaps?.length ?? 0) > 0
@@ -295,7 +302,9 @@ function renderQueryProjectionModule(
     const groupClause = groupCols.length === 1 ? groupCols[0]! : `[${groupCols.join(", ")}]`;
     const selectCols = [
       ...grouped.keys.map((k) => `${k.field}: ${keyExpr(k.expr)}`),
-      ...grouped.aggregates.map((a) => `${a.field}: ${ectoAggregate(a.aggregate, sourceAgg, ctx)}`),
+      ...grouped.aggregates.map(
+        (a) => `${a.field}: ${ectoAggregate(a.aggregate, sourceAgg, srcCtx)}`,
+      ),
     ].join(", ");
     lines.push("    rows =");
     lines.push(
@@ -370,7 +379,7 @@ ${
   const aggregates = wholeTableAggregates(proj);
   if (aggregates) {
     const cols = aggregates
-      .map((a) => `${a.field}: ${ectoAggregate(a.aggregate, sourceAgg, ctx)}`)
+      .map((a) => `${a.field}: ${ectoAggregate(a.aggregate, sourceAgg, srcCtx)}`)
       .join(", ");
     lines.push("    row =");
     lines.push(
@@ -473,7 +482,7 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
     // there so it can't shadow that lambda's `row`.
     const idRow = join
       ? isDocSource
-        ? renderDocPredicate(join.idRef, sourceAgg!, contextModule, "row")
+        ? renderDocPredicate(join.idRef, sourceAgg!, srcModule, "row")
         : renderExpr(join.idRef, renderCtx)
       : isDocSource
         ? liftDocRootId(`record.${snake(aux.path[0] ?? "id")}`, "row")
@@ -524,14 +533,14 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
     // controller's serializer already uses (`controller-serialize.ts`), so it is
     // reused verbatim rather than re-derived.
     const wire = isDocSource
-      ? renderWireSerialize(sourceAgg, ctx, {
+      ? renderWireSerialize(sourceAgg, srcCtx, {
           headVar: "row",
           bind: "    record = row.data",
           idExpr: "row.id",
           versionExpr: "row.version",
-          contextModule,
+          contextModule: srcModule,
         })
-      : renderWireSerialize(sourceAgg, ctx, { contextModule });
+      : renderWireSerialize(sourceAgg, srcCtx, { contextModule: srcModule });
     const refIds = hasRefColls(sourceAgg)
       ? `
 
