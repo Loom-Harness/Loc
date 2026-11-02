@@ -165,6 +165,18 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "#3378",
   },
   {
+    code: "loom.projection-cross-context-source-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:172",
+    what:
+      "a per-row (repository-sourced) query-time projection reading an aggregate declared in " +
+      "ANOTHER context, on node / python / .NET: their repository emitters synthesise the source " +
+      "find only from projections in the aggregate's own context, so the route called a method " +
+      "never emitted.  java and elixir resolve the home context and emit it; the direct-table " +
+      "arms work everywhere.",
+    mission: "#3519",
+  },
+  {
     code: "loom.dapper-unsupported",
     kind: "gap",
     site: "src/ir/validate/checks/orm-adapter-checks.ts:40",

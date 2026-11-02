@@ -98,6 +98,10 @@ const NO_DOWNSTREAM_READER: readonly string[] = [
   "sessions",
   "sourceAlias",
   "sourceModule",
+  // A projection source's declaring context: read only through
+  // `src/ir/util/projection-source.ts` (`projectionSourceContext`), which the
+  // java / elixir / .NET projection emitters call to find the source's scope.
+  "sourceContext",
   "testCaseId",
   // A migration table step's qualified target context: read only through
   // `src/ir/util/table-step-target.ts` (`resolveTableStepTarget`), which the
