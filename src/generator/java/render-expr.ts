@@ -387,7 +387,9 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   // `${unionName}_${tag}` (java/emit/unions.ts), so a `case ${Union}_${tag} b`
   // pattern binds the narrowed record; `b.field()` reads a component.  A
   // `default` arm always trails so a non-exhaustive match (validator *warns*,
-  // never errors) still compiles against the sealed type.
+  // never errors) still compiles against the sealed type.  Without an `else`
+  // the default throws: a `null` there does not type in a primitive-yielding
+  // switch (`int x = switch … default -> null`), and a throw types as anything.
   matchVariant(m) {
     // EVERY arm renders as its `<Union>_<Tag>` carrier pattern, error variants
     // included — an `error` arm binds a real payload (`NotFound n -> n.resource()`)
@@ -414,7 +416,7 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
       const binder = a.binding ?? "__unused";
       return `      case ${carrier} ${binder} -> ${a.value};`;
     });
-    const tail = `      default -> ${m.otherwise ?? "null"};`;
+    const tail = `      default -> ${m.otherwise ?? `throw new IllegalStateException(${JSON.stringify(`no ${m.unionName || "union"} variant arm matched`)})`};`;
     return `switch (${m.subject}) {\n${arms.join("\n")}\n${tail}\n    }`;
   },
   bindingRefText: (binding) => binding,

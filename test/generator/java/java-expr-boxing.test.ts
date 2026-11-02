@@ -65,6 +65,7 @@ system S {
 `;
 
 const COND = "jsvc/src/main/java/com/loom/jsvc/features/conds/Cond.java";
+const WORKFLOWS = "jsvc/src/main/java/com/loom/jsvc/application/workflows/ShopWorkflows.java";
 
 async function file(path: string): Promise<string> {
   const text = (await generateSystemFiles(SRC)).get(path);
@@ -89,5 +90,15 @@ describe("java — numeric literal fallback of ??", () => {
     expect(cond).toContain(
       '(this.upper == null ? new BigDecimal("0") : this.upper).compareTo(new BigDecimal("5.0")) > 0',
     );
+  });
+});
+
+describe("java — variant match without else", () => {
+  it("ends in a throwing default, never `default -> null`", async () => {
+    const wf = await file(WORKFLOWS);
+    expect(wf).toContain(
+      'default -> throw new IllegalStateException("no HitOrNotFound variant arm matched");',
+    );
+    expect(wf).not.toContain("default -> null;");
   });
 });
