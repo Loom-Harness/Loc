@@ -30,6 +30,7 @@ import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
 import {
   type Entry,
+  asMoneySeedLiteral,
   groupByDataset,
   seederAggregates,
   usedAggregates,
@@ -199,7 +200,7 @@ function renderField(value: ExprIR, type: TypeIR | undefined): string {
   ) {
     return `new Date(${renderTsExpr(value)})`;
   }
-  return renderTsExpr(value);
+  return renderTsExpr(asMoneySeedLiteral(value, type));
 }
 
 function repoVar(agg: string): string {
