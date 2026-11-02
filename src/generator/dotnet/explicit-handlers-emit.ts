@@ -72,6 +72,7 @@ import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import {
+  collectWireUsings,
   csIdValueClrType,
   projectEntityExpr,
   projectToResponse,
@@ -811,7 +812,7 @@ export function queryActionParam(
     /** The routed-handler context: a `money` param then binds as the wire
      *  STRING and parses through the RS-42 grammar guard, so `"12,50"` answers
      *  the shared 422 instead of reading as 1250 through `decimal` binding. */
-    wire?: { ns: string; ctx: EnrichedBoundedContextIR };
+    wire?: { ns: string; ctx: EnrichedBoundedContextIR; usings: Set<string> };
   } = {},
 ): { actionParam: string; commandArg: string } {
   const t: TypeIR = p.type;
@@ -833,6 +834,8 @@ export function queryActionParam(
     };
   }
   if (opts.wire && wireTypeInfo(t, "request").primitive === "money") {
+    // The guarded parse names `NumberStyles` / `CultureInfo`.
+    collectWireUsings(t, opts.wire.ctx, opts.wire.usings);
     return {
       actionParam: `[FromQuery] ${bind}${wireType(t, opts.wire.ctx, "request")} ${n}`,
       commandArg: wireToCommandArgument(n, t, opts.wire.ctx, {
@@ -891,7 +894,9 @@ export function emitExplicitRouteController(
       const bind = new Map(
         h.params.map((p) => [
           p.name,
-          pathNames.has(p.name) ? pathActionParam(p) : queryActionParam(p, { wire: { ns, ctx } }),
+          pathNames.has(p.name)
+            ? pathActionParam(p)
+            : queryActionParam(p, { wire: { ns, ctx, usings: nsUsings } }),
         ]),
       );
       const actionParams = [
@@ -939,7 +944,7 @@ export function emitExplicitRouteController(
         p.name,
         source(p) === "path"
           ? pathActionParam(p)
-          : queryActionParam(p, { bindRequired: true, wire: { ns, ctx } }),
+          : queryActionParam(p, { bindRequired: true, wire: { ns, ctx, usings: nsUsings } }),
       ]),
     );
 
@@ -1045,9 +1050,6 @@ export function emitExplicitRouteController(
   // exactly when something in the file needs it.
   if (DOMAIN_COMMON_TYPE_REF.test(`${actions.join("\n")}\n${bodyRecords.join("\n")}`))
     nsUsings.add(`${ns}.Domain.Common`);
-  // A money query param's grammar-guarded parse names `NumberStyles` / `CultureInfo`.
-  if (/\b(?:NumberStyles|CultureInfo)\b/.test(actions.join("\n")))
-    nsUsings.add("System.Globalization");
   const usings = [...nsUsings].sort().map((u) => `using ${u};`);
   const className = `${apiName}RoutesController`;
   const bodyBlock = bodyRecords.length > 0 ? `${bodyRecords.join("\n")}\n\n` : "";
