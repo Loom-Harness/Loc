@@ -31,8 +31,8 @@ system R {
         title: string
         derived display: string = title
         invariant title.length > 2
-        test "neg" { expect(Clm.create({ kind: Fire, title: "x" })).toThrow() }
-        test "pos" { let c = Clm.create({ kind: Fire, title: "abc" })  expect(c.kind).toBe(Fire) }
+        test "neg" { expect(Clm.create(kind: Fire, title: "x")).toThrow() }
+        test "pos" { let c = Clm.create(kind: Fire, title: "abc")  expect(c.kind).toBe(Fire) }
       }
       repository Clms for Clm { }
       criterion ClmsByKind(k: Kind) of Clm = this.kind == k

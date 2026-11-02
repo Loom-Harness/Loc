@@ -34,7 +34,7 @@ const READING_SRC = `
     workflow RegisterAccount transactional {
       create(holder: string, balance: Money) {
         precondition Registration.isEmailAvailable(holder)
-        let acct = Account.create({ holder: holder, balance: balance })
+        let acct = Account.create(holder: holder, balance: balance)
       }
     }
   }

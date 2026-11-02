@@ -61,8 +61,8 @@ system Catalog {
         create(ref: string, id: Order id) {
           let probe = Orders.getById(id)
           let rows = Orders.run(ByCustomer(ref))
-          let extra = Order.create({ customerId: ref })
-          let kept = Order.create({ customerId: ref })
+          let extra = Order.create(customerId: ref)
+          let kept = Order.create(customerId: ref)
         }
       }
 

@@ -156,7 +156,7 @@ A member call resolves to the `domainService` declaration and lowers to a `Call`
 workflow RegisterAccount transactional {
   create(holder: string, balance: Money) {
     precondition Registration.isHolderFree(holder)          // reading service as a guard
-    let acct = Account.create({ holder: holder, balance: balance })
+    let acct = Account.create(holder: holder, balance: balance)
   }
 }
 workflow MoveMoney transactional {

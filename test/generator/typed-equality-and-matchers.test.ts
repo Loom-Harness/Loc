@@ -34,14 +34,14 @@ system R {
       function isOpen(): bool = closedAt == null
       operation touch() { lastDay := now() }
       test "money matchers" {
-        let a = Acct.create({ balance: money("15.00"), lastDay: now() })
+        let a = Acct.create(balance: money("15.00"), lastDay: now())
         expect(a.balance).toBe(money("15"))
         expect(a.balance).not.toBe(money("16"))
         expect(a.balance).toBeGreaterThan(money("14.99"))
         expect(a.balance).not.toBeLessThan(money("15"))
       }
       test "datetime matchers" {
-        let a = Acct.create({ balance: money("1"), lastDay: now() })
+        let a = Acct.create(balance: money("1"), lastDay: now())
         expect(a.lastDay).toBe(a.lastDay)
         expect(a.lastDay).toBeLessThanOrEqual(now())
       }

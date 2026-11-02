@@ -41,7 +41,7 @@ system Sales {
       workflow placeOrder transactional {
         create(customerId: Customer id, productId: Product id, qty: int) {
           precondition qty > 0
-          let o = Order.create({ customerId: customerId })
+          let o = Order.create(customerId: customerId)
         }
       }
     }

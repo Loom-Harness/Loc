@@ -74,9 +74,9 @@ system KwSys {
           let do = fn
           let rows = Kws.run(EndsAt(end), page: { offset: 0, limit: 10 })
           for catch in rows {
-            let k2 = Kw.create({ after: catch.after, end: end, fn: do, do: do, quote: receive })
+            let k2 = Kw.create(after: catch.after, end: end, fn: do, do: do, quote: receive)
           }
-          let k = Kw.create({ after: 1, end: end, fn: do, do: do, quote: fn })
+          let k = Kw.create(after: 1, end: end, fn: do, do: do, quote: fn)
           k.move(1, end, fn, do, receive)
         }
       }
@@ -89,7 +89,7 @@ system KwSys {
       workflow ping {
         create(quote: string, kw: string) {
           let moved = kws.moveKw(kw, 1, 2, quote, quote, quote)
-          let n = Note.create({ text: quote })
+          let n = Note.create(text: quote)
         }
       }
     }
@@ -260,7 +260,7 @@ system Wk {
       repository Rows for Row { }
       workflow Make {
         create(n: int, amt: decimal, ok: bool, label: string) {
-          let r = Row.create({ n: n, amt: amt, ok: ok, label: label })
+          let r = Row.create(n: n, amt: amt, ok: ok, label: label)
         }
       }
     }

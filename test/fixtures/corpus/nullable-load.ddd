@@ -31,7 +31,7 @@ system NullableLoad {
         create(c: string) {
           let o = Orders.find(ByCode(c))
           let text = o != null ? o.status : "missing"
-          let n = Note.create({ text: text })
+          let n = Note.create(text: text)
         }
       }
 

@@ -105,7 +105,7 @@ const SRC = `
           holder == "" => false
           else => Screening.notBlocked(holder)
         }
-        let acct = Account.create({ holder: holder, archived: false })
+        let acct = Account.create(holder: holder, archived: false)
       }
     }
 
@@ -113,7 +113,7 @@ const SRC = `
     workflow ListLiteral transactional {
       create(holder: string) {
         precondition [Screening.hasQuota(holder)].all(b => b)
-        let acct = Account.create({ holder: holder, archived: false })
+        let acct = Account.create(holder: holder, archived: false)
       }
     }
 
@@ -123,7 +123,7 @@ const SRC = `
       screened: bool
       create(accountId: Account id, holder: string) {
         screened := Screening.inRegion(holder)
-        let acct = Account.create({ holder: holder, archived: false })
+        let acct = Account.create(holder: holder, archived: false)
       }
     }
 
@@ -138,7 +138,7 @@ const SRC = `
           precondition Screening.isReconciled(holder)
           stale.update(holder, false)
         }
-        let acct = Account.create({ holder: holder, archived: false })
+        let acct = Account.create(holder: holder, archived: false)
       }
     }
     }

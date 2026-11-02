@@ -80,7 +80,7 @@ system NotFoundDecl {
       }
       workflow jot transactional {
         create(text: string) {
-          let n = Note.create({ text: text })
+          let n = Note.create(text: text)
         }
       }
     }

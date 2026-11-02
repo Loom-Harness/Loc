@@ -71,7 +71,7 @@ system S {
         count: int
         factor: decimal
         test "comparison inside a matcher" {
-          let o = Order.create({ count: 3, factor: 2.5 })
+          let o = Order.create(count: 3, factor: 2.5)
           expect(o.count < o.factor).toBe(false)
         }
       }

@@ -36,7 +36,7 @@ system Acme {
       workflow reorder {
         create(qty: int) {
           precondition qty > 0
-          let order = Order.create({ placedAt: now(), qty: qty, note: "auto" })
+          let order = Order.create(placedAt: now(), qty: qty, note: "auto")
         }
       }
     }

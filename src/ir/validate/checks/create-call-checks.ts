@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
-// `Agg.create({ … })` CALL-SITE checks (`loom.create-call-not-constructible`,
-// `loom.create-call-missing-field`, `loom.create-call-field-not-in-create`).
+// `Agg.create(…)` CALL-SITE checks (`loom.create-call-not-constructible`,
+// `loom.create-call-missing-field`).
 //
 // Nothing validated the call site against the factory it calls.  Two shapes
 // reached the emitted project and failed its OWN compiler:
@@ -15,9 +15,9 @@
 //          currency: string
 //          contains lines: Line[]
 //          invariant lines.all(l => l.currency == currency)   // ← makes it non-constructible
-//          test "an order can be built" { let o = Order.create({ currency: "EUR" }) }
+//          test "an order can be built" { let o = Order.create(currency: "EUR") }
 //        }
-//        workflow openOrder { create(currency: string) { let o = Order.create({ currency: currency }) } }
+//        workflow openOrder { create(currency: string) { let o = Order.create(currency: currency) } }
 //
 //        domain/order.test.ts(7,21):  TS2551: Property 'create' does not exist on
 //                                     type 'typeof Order'. Did you mean '_create'?
@@ -30,16 +30,14 @@
 //    field-derived create-input contract, not whatever the call site passes:
 //
 //        aggregate Part { sku: string  binCode: string  onHand: int
-//          test "…" { let p = Part.create({ sku: "a", onHand: 1 }) } }
+//          test "…" { let p = Part.create(sku: "a", onHand: 1) } }
 //
 //        domain/part.test.ts(8,27): TS2345: Property 'binCode' is missing in type
 //          '{ sku: string; onHand: number; }' but required in type
 //          '{ sku: string; binCode: string; onHand: number; }'.
 //
-// 3. A KEY OUTSIDE A NARROWED `create(…)`.  A declared parameter list IS the
-//    factory input (`declaredCreateParamNames`), so `Appointment.create({
-//    status: … })` against `create(doctor, minutes)` names a key the factory
-//    does not take.
+// (An argument outside a narrowed `create(…)` is refused at the AST layer,
+// `loom.create-args`: a declared parameter list IS the factory input.)
 //
 // WHY HERE AND NOT AT THE AST LAYER.  `checkFactoryCreateFields` already gates
 // the call site's UNKNOWN and server-owned keys (src/language/validators/
@@ -63,8 +61,6 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import {
   buildCreateInput,
   constructionBlockingInvariants,
-  declaredCreateParamNames,
-  forCreateInput,
   isConstructible,
 } from "../../enrich/wire-projection.js";
 import type { AggregateIR, ExprIR, LoomModel } from "../../types/loom-ir.js";
@@ -73,13 +69,10 @@ import { forEachModelExpr } from "../../util/model-exprs.js";
 import { walkExprDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
-/** The `Agg.create({ … })` shape, as lowering leaves it: a `method-call` whose
+/** The `Agg.create(…)` shape, as lowering leaves it: a `method-call` whose
  *  receiver is the (unresolvable-in-this-scope, hence `refKind: "unknown"`)
- *  aggregate name and whose single argument is an object literal.
- *
- *  A POSITIONAL `create(a, b)` is a different, author-declared arg surface
- *  owned by the domain-call-argument gate, so only the record form is read —
- *  the same restriction `checkFactoryCreateFields` states. */
+ *  aggregate name and whose single argument is the create-input record the
+ *  positional / named arguments build (`language/factory-call.ts`). */
 interface CreateCall {
   aggName: string;
   fields: readonly string[];
@@ -156,31 +149,6 @@ export function validateCreateCallSites(loom: LoomModel, diags: LoomDiagnostic[]
       // `createInput` is the enriched projection; `buildCreateInput` is the same
       // derivation, kept as the fallback for a programmatically-built IR.
       const input = agg.createInput ?? buildCreateInput(agg);
-
-      // --- 3. a key the declared `create(…)` does not list ----------------
-      // A narrowed parameter list IS the factory input, so a field it leaves
-      // out is not a factory key — the factory initialises it.  (Keys naming
-      // no field at all, or a server-owned one, are refused at the AST layer.)
-      const declared = declaredCreateParamNames(agg);
-      if (declared) {
-        const narrowedOut = call.fields.filter(
-          (n) => !declared.has(n) && forCreateInput(agg.fields).some((f) => f.name === n),
-        );
-        const key = `no|${agg.name}|${source}|${narrowedOut.join(",")}`;
-        if (narrowedOut.length > 0 && !seen.has(key)) {
-          seen.add(key);
-          diags.push({
-            severity: "error",
-            code: "loom.create-call-field-not-in-create",
-            message: diagMessage("loom.create-call-field-not-in-create", {
-              agg: agg.name,
-              fields: narrowedOut.map((n) => `\`${n}\``).join(", "),
-              params: [...declared].map((n) => `\`${n}\``).join(", "),
-            }),
-            source,
-          });
-        }
-      }
 
       const supplied = new Set(call.fields);
       const missing = input

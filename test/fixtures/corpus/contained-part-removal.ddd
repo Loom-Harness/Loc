@@ -59,7 +59,7 @@ system ContainedPartRemoval {
         // database — so a backend whose domain core drops the element is
         // told apart from one whose persist tail does.
         test "removing a contained line leaves exactly one" {
-          let c = Cart.create({ name: "u", charges: [], tags: [] })
+          let c = Cart.create(name: "u", charges: [], tags: [])
           c.addLine("A", 1)
           c.addLine("B", 2)
           c.drop("A")

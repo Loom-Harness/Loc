@@ -84,19 +84,19 @@ system Acme {
       workflow Fulfil {
         orderId: Order id
         create(p: OrderPlaced) by p.order {
-          let s = Shipment.create({ orderRef: p.order, status: "Pending" })
+          let s = Shipment.create(orderRef: p.order, status: "Pending")
         }
       }
       workflow Handover {
         orderId: Order id
         create(p: OrderShipped) by p.order {
-          let s = Shipment.create({ orderRef: p.order, status: "Handed" })
+          let s = Shipment.create(orderRef: p.order, status: "Handed")
         }
       }
       workflow Archivist {
         orderId: Order id
         create(p: OrderArchived) by p.order {
-          let s = Shipment.create({ orderRef: p.order, status: "Archived" })
+          let s = Shipment.create(orderRef: p.order, status: "Archived")
         }
       }
     }

@@ -38,22 +38,20 @@ const UNKNOWN = "loom.create-unknown-field";
 describe("loom.create-server-field / -unknown-field (factory input contract)", () => {
   it("rejects a server-owned (managed) field passed to .create()", async () => {
     const c = await codes(
-      'test "t" { let x = Task.create({ title: "a", status: Open, createdAt: now() }) }',
+      'test "t" { let x = Task.create(title: "a", status: Open, createdAt: now()) }',
     );
     expect(c).toContain(SERVER);
     expect(c).not.toContain(UNKNOWN);
   });
 
   it("rejects a field the aggregate doesn't declare", async () => {
-    const c = await codes(
-      'test "t" { let x = Task.create({ title: "a", status: Open, bogus: 3 }) }',
-    );
+    const c = await codes('test "t" { let x = Task.create(title: "a", status: Open, bogus: 3) }');
     expect(c).toContain(UNKNOWN);
     expect(c).not.toContain(SERVER);
   });
 
   it("is CLEAN when every key is on the create-input contract", async () => {
-    const c = await codes('test "t" { let x = Task.create({ title: "a", status: Open }) }');
+    const c = await codes('test "t" { let x = Task.create(title: "a", status: Open) }');
     expect(c).not.toContain(SERVER);
     expect(c).not.toContain(UNKNOWN);
   });

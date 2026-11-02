@@ -20,7 +20,7 @@ system MultiCtxWf {
       workflow placeOrder {
         create(code: string) {
           precondition code.length > 0
-          let o = Order.create({ code: code, active: true })
+          let o = Order.create(code: code, active: true)
         }
       }
     }
@@ -32,7 +32,7 @@ system MultiCtxWf {
       workflow scheduleShipment {
         create(tracking: string) {
           precondition tracking.length > 0
-          let s = Shipment.create({ tracking: tracking })
+          let s = Shipment.create(tracking: tracking)
         }
       }
     }

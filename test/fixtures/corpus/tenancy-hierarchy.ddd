@@ -60,7 +60,7 @@ system TenantHierarchy {
       workflow signUpChild {
         create(nm: string, seg: string, par: Org id) {
           let loaded = Orgs.getById(par)
-          let org = Org.create({ name: nm, parent: par })
+          let org = Org.create(name: nm, parent: par)
           org.setPath(loaded.name + "." + seg)
         }
       }

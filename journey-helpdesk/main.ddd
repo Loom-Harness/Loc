@@ -66,7 +66,7 @@ system Helpdesk {
         ticket: Ticket id
         create(number: string, subject: string, description: string, priority: Priority, customer: Customer id) {
           requires currentUser.customerId == customer
-          let t = Ticket.create({ number: number, subject: subject, description: description, priority: priority, customer: customer })
+          let t = Ticket.create(number: number, subject: subject, description: description, priority: priority, customer: customer)
           emit TicketOpened { ticket: t.id, priority: priority, at: now() }
         }
       }
@@ -252,7 +252,7 @@ system Helpdesk {
         }
 
         test "resolve requires assignee" {
-          let t = Ticket.create({ number: "T-1", subject: "Printer", description: "jam", priority: Normal, customer: "c1" })
+          let t = Ticket.create(number: "T-1", subject: "Printer", description: "jam", priority: Normal, customer: "c1")
           expect(t.resolve()).toThrow()
         }
       }

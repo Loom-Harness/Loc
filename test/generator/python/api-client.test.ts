@@ -42,7 +42,7 @@ system Acme {
       workflow fulfil {
         create(orderId: ${paramType}) {
           let o = orders.getOrderById(orderId)
-          let s = Shipment.create({ orderCode: o.code, status: "Pending" })
+          let s = Shipment.create(orderCode: o.code, status: "Pending")
         }
       }
     }
@@ -87,7 +87,7 @@ system Acme {
       workflow fulfil {
         create(orderId: string) {
           let o = orders.getOrderById(orderId)
-          let s = Shipment.create({ orderCode: o.code, status: "Pending" })
+          let s = Shipment.create(orderCode: o.code, status: "Pending")
         }
       }
     }

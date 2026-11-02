@@ -249,7 +249,7 @@ describe("scaffoldHandlers + scaffoldApi — A3.2 create source kind", () => {
     expect((cmd.params[0]!.type.base as { target: { $refText: string } }).target.$refText).toBe(
       "CreateOrderCommand",
     );
-    // Body: `let o = Order.create({ code: cmd.code, … })` then `return o.id`.
+    // Body: `let o = Order.create(code: cmd.code, …)` then `return o.id`.
     expect(cmd.body.map((s) => s.$type)).toEqual(["LetStmt", "ReturnStmt"]);
     // Return type `Order id`.
     expect(cmd.returnType?.base.$type).toBe("IdType");
@@ -299,7 +299,7 @@ describe("scaffoldHandlers + scaffoldApi — A3.2 create source kind", () => {
 
 // A declared `create(…)`'s parameter list IS the create input
 // (`declaredCreateParamNames`), so the scaffolded create command record and the
-// `<Agg>.create({ … })` it calls carry exactly those params — naming the
+// `<Agg>.create(…)` it calls carry exactly those params — naming the
 // defaulted `status` would call a factory input the declared create does not take.
 describe("scaffoldHandlers — a narrowed create's params are the command record", () => {
   it("the CreateOrder handler passes only the declared params", async () => {
@@ -308,7 +308,7 @@ describe("scaffoldHandlers — a narrowed create's params are the command record
       .filter(isCommandHandler)
       .find((c) => c.name === "CreateOrder") as CommandHandler;
     const printed = printStructural(cmd);
-    expect(printed).toContain("Order.create({ code: cmd.code })");
+    expect(printed).toContain("Order.create(code: cmd.code)");
     expect(printed).not.toContain("cmd.status");
   });
 
@@ -331,7 +331,7 @@ describe("scaffoldHandlers — a narrowed create's params are the command record
     const cmd = [...AstUtils.streamAllContents(model)]
       .filter(isCommandHandler)
       .find((c) => c.name === "CreateOrder") as CommandHandler;
-    expect(printStructural(cmd)).toContain("Order.create({ code: cmd.code, status: cmd.status })");
+    expect(printStructural(cmd)).toContain("Order.create(code: cmd.code, status: cmd.status)");
   });
 });
 

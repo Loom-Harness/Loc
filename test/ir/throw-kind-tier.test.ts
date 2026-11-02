@@ -65,7 +65,7 @@ ${
   opts.unitBody
     ? `
           test "probe" {
-            let wo = WorkOrder.create({ reference: "WO-1", status: Draft })
+            let wo = WorkOrder.create(reference: "WO-1", status: Draft)
 ${opts.unitBody}
           }`
     : ""
@@ -77,7 +77,7 @@ ${
   opts.contextTest
     ? `
         test "integration" {
-          let wo = WorkOrder.create({ reference: "WO-1", status: Draft })
+          let wo = WorkOrder.create(reference: "WO-1", status: Draft)
 ${opts.contextTest}
         }`
     : ""

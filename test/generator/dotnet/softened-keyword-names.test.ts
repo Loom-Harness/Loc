@@ -38,7 +38,7 @@ system S {
       criterion ByLevel(enum: int, static: int) of Plugin = this.enum == enum && this.static >= static
       criterion StaticAtLeast(static: int) of Plugin = this.static >= static
       test "a plugin builds" {
-        let p = Plugin.create({ system: "s", enum: 1, static: 2, origin: Origin { system: "s", static: 2 } })
+        let p = Plugin.create(system: "s", enum: 1, static: 2, origin: Origin { system: "s", static: 2 })
         expect(p.static).toBe(2)
       }
       seed default {
@@ -48,7 +48,7 @@ system S {
         create(system: string, enum: int) {
           let rows = Plugins.run(StaticAtLeast(enum), page: { offset: 0, limit: 10 })
           let levelled = Plugins.run(ByLevel(enum, enum), page: { offset: 0, limit: 10 })
-          let p = Plugin.create({ system: system, enum: enum, static: enum, origin: Origin { system: system, static: enum } })
+          let p = Plugin.create(system: system, enum: enum, static: enum, origin: Origin { system: system, static: enum })
         }
       }
     }

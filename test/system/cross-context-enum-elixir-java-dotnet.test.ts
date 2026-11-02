@@ -32,7 +32,7 @@ system R {
         kind: Kind
         title: string
         derived display: string = title
-        test "pos" { let c = Clm.create({ kind: Fire, title: "abc" })  expect(c.kind).toBe(Fire) }
+        test "pos" { let c = Clm.create(kind: Fire, title: "abc")  expect(c.kind).toBe(Fire) }
       }
       repository Clms for Clm
       criterion ClmsByKind(k: Kind) of Clm = this.kind == k

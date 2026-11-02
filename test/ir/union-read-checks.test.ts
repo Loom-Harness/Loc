@@ -45,7 +45,7 @@ describe("loom.union-read-undiscriminated", () => {
       create(code: string, id: Order id) {
         let o = Orders.getById(id)
         o.touch()
-        let n = Note.create({ text: o.code })
+        let n = Note.create(text: o.code)
       }
     }`);
     expect(msgs).toEqual([]);
