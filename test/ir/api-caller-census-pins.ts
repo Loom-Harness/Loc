@@ -773,6 +773,10 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.moveMoney.run (no such aggregate)",
     "api.registerAccount.run (no such aggregate)",
   ],
+  "corpus/match-op-result": [
+    "api.pay.run (no such aggregate)",
+    "api.tryPay.run (no such aggregate)",
+  ],
   "corpus/projection-implicit-sub": [
     "api.fulfilment.instance (no such aggregate)",
     "api.fulfilment.instances (no such aggregate)",
