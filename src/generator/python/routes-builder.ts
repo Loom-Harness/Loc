@@ -197,7 +197,6 @@ export function buildPyRoutesFile(
   const derivedOps = servedOperations(deriveAggregateOperations(agg, repo, apiStatusContext(ctx)));
   const createOp = derivedOps.find((o) => o.kind === "create");
   const allOp = derivedOps.find((o) => isAllFind(o));
-  const declaredFindOps = derivedOps.filter((o) => o.kind === "find" && !isAllFind(o));
   const getByIdOp = derivedOps.find((o) => o.kind === "getById");
   const destroyOp = derivedOps.find((o) => o.kind === "destroy");
   const opEntries = derivedOps.filter((o) => o.kind === "operation");
@@ -285,9 +284,6 @@ export function buildPyRoutesFile(
       : `    return ${repoClassRef(agg.name)}(session, ${H.NoopDomainEventDispatcher}())`,
     createOp ? ["", "", createRoute(agg, ctx, createOp)] : null,
     allOp ? ["", "", allRoute(agg, repo, allOp)] : null,
-    // Finds register before /{id}: Starlette matches in declaration
-    // order, so the static find paths must win over the id pattern.
-    ...declaredFindOps.flatMap((e) => ["", "", findRoute(agg, e.find!, ctx, e)]),
     getByIdOp ? ["", "", byIdRoute(agg, getByIdOp)] : null,
     // Entity history (docs/audit.md) — two path segments, so no collision with
     // the `/{id}` pattern above.  Driven by the enrichment-derived `historyFind`
@@ -1314,7 +1310,7 @@ export function pyQueryParam(name: string, type: string): string {
   return `${pythonWireIdent(name)}: ${H.Annotated}[${type}, ${H.Query}(alias=${JSON.stringify(name)})]`;
 }
 
-function findRoute(
+function _findRoute(
   agg: EnrichedAggregateIR,
   find: import("../../ir/types/loom-ir.js").FindIR,
   ctx: EnrichedBoundedContextIR,

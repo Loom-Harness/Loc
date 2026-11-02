@@ -258,8 +258,8 @@ export const DIAGNOSTIC_MESSAGES = {
   // src/language/validators/bypass-placement.ts
   // ----------------------------------------------------------------------
   "loom.ignoring-clause-placement": (p: { clause: unknown }) =>
-    `'${p.clause}' sits in a position that DROPS it. A capability-filter bypass has five homes: ` +
-    "a repository 'find … ignoring …', a query-time projection's 'where' slot (before 'join' / " +
+    `'${p.clause}' sits in a position that DROPS it. A capability-filter bypass has four homes: ` +
+    "a query-time projection's 'where' slot (before 'join' / " +
     "'group by' / 'select'), an inline read bound by a 'let' ('let xs = Repo.all(C) " +
     "ignoring …'), an 'if let' source ('if let o = Repo.find(C) ignoring …' / 'Repo.findBy(…) " +
     "ignoring …'), or a single-row read in a domainService operation ('Repo.find(id) " +
@@ -714,7 +714,7 @@ export const DIAGNOSTIC_MESSAGES = {
     "implementing aggregate's type). Use a concrete `<Aggregate> id` here.",
   "loom.generic-position": (p: { ctors: unknown }) =>
     `A generic carrier ('${p.ctors}') is a transport shape — it may only appear as a ` +
-    `repository find return type or a payload field, not in this position.`,
+    `query-handler return type or a payload field, not in this position.`,
   "loom.generic-arg-not-carrier#nested-generic-carriers": (p: {
     ctors: unknown;
     ctors2: unknown;
@@ -1612,7 +1612,7 @@ export const DIAGNOSTIC_MESSAGES = {
     variants: unknown;
     first: unknown;
   }) =>
-    `'${p.receiver}.${p.member}' reads through an 'or'-union value (${p.variants}) — it holds ONE of those variants, so the read is an unguarded dereference (a compile error on node/.NET, a 500 on java/python/elixir). Discriminate it first: 'match ${p.receiver} { ${p.first} x => x.${p.member}, else => … }' — or declare the find ': ${p.first}' to answer 404 when the row is absent.`,
+    `'${p.receiver}.${p.member}' reads through an 'or'-union value (${p.variants}) — it holds ONE of those variants, so the read is an unguarded dereference (a compile error on node/.NET, a 500 on java/python/elixir). Discriminate it first: 'match ${p.receiver} { ${p.first} x => x.${p.member}, else => … }'.`,
   "loom.union-read-undiscriminated#op-call": (p: {
     receiver: unknown;
     op: unknown;
@@ -4311,11 +4311,11 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.ui-read-unresolved": (p: { aggregate: unknown; operation: unknown; known: unknown }) =>
     `reads \`${p.aggregate}.${p.operation}\`, which '${p.aggregate}' does not expose.  A page ` +
     `read names one of: \`all\` (the auto-\`findAll\`), \`byId\`, \`history\` on an audited ` +
-    `aggregate, or a \`find\` declared on its repository.  ${p.known}  Left to codegen this ` +
+    `aggregate, or a paged read a \`queryHandler\` runs.  ${p.known}  Left to codegen this ` +
     `does not fail loudly — it fails DIFFERENTLY on each frontend: the JSX and Feliz/Flutter ` +
     `clients import a hook that was never emitted (a build error), while Phoenix LiveView ` +
     `substitutes the UNFILTERED \`list_<agg>s()\` and renders every row of the table with no ` +
-    `error at all.  Declare the find on the repository, or name one that exists.`,
+    `error at all.  Name a read that exists.`,
   "loom.ui-read-unresolved#unrouted": (p: {
     aggregate: unknown;
     operation: unknown;
@@ -4325,10 +4325,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `reads \`${p.aggregate}.${p.operation}\`, the paged find a paged \`queryHandler\` runs — ` +
     `but deployable '${p.deployable}' renders this page with ${p.framework}, which reaches the ` +
     `read over HTTP, and its backend serves no \`GET\` route for that handler.  The find has ` +
-    `no derived \`/<plural>/<find>\` route of its own, so the client would call a path that ` +
+    `no route of its own, so the client would call a path that ` +
     `404s.  Expose it: add \`scaffoldPagedApi(of: <read>)\` (or a \`route GET … -> <handler>\` ` +
     `with no path tokens) to an api the backend \`serves:\`.  (Feliz and Flutter do not ` +
-    `reach these reads yet; read the aggregate's \`all\` or a declared \`find\` there.)`,
+    `reach these reads yet; read the aggregate's \`all\` there.)`,
   "loom.ui-read-unresolved#unbound": (p: {
     primitive: unknown;
     spelling: unknown;
@@ -5350,8 +5350,6 @@ export const DIAGNOSTIC_MESSAGES = {
     repoName: unknown;
   }) =>
     `workflow '${p.name}': '${p.repoName}.all(...)' references unknown repository '${p.repoName}'.`,
-  "loom.findall-unknown-criterion": (p: { name: unknown; repoName: unknown; critName: unknown }) =>
-    `workflow '${p.name}': criterion query on '${p.repoName}' references unknown criterion '${p.critName}'.`,
   "loom.findall-criterion-mismatch": (p: {
     name: unknown;
     critName: unknown;
@@ -5375,7 +5373,7 @@ export const DIAGNOSTIC_MESSAGES = {
     repoName: unknown;
     retrievalName: unknown;
   }) =>
-    `workflow '${p.name}': '${p.repoName}.all(${p.retrievalName}(...))' references unknown retrieval '${p.retrievalName}'.`,
+    `workflow '${p.name}': '${p.repoName}.all(${p.retrievalName}(...))' names no criterion or retrieval '${p.retrievalName}' in this context.`,
   "loom.workflow-run-retrieval-mismatch": (p: {
     name: unknown;
     retrievalName: unknown;
@@ -5408,9 +5406,9 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `workflow '${p.name}': in the 'match' arm '${p.var}', '${p.target}.${p.op}(...)' references unknown binding '${p.target}'.`,
   "loom.iflet-bad-source": (p: { name: unknown; var: unknown }) =>
-    `workflow '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)' or a declared optional find 'Repo.<find>(args)' (one returning 'T?').`,
+    `workflow '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)', 'Repo.find(id)' or 'Repo.findBy(…)' (a read that answers 'T?').`,
   "loom.iflet-bad-source#handler": (p: { kind: unknown; name: unknown; var: unknown }) =>
-    `${p.kind} '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)' or a declared optional find 'Repo.<find>(args)' (one returning 'T?').`,
+    `${p.kind} '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)', 'Repo.find(id)' or 'Repo.findBy(…)' (a read that answers 'T?').`,
   "loom.workflow-unknown-binding": (p: { name: unknown; target: unknown; op: unknown }) =>
     `workflow '${p.name}': '${p.target}.${p.op}(...)' references unknown let-binding '${p.target}', or '${p.target}' isn't bound to an aggregate.`,
   "loom.workflow-unknown-operation": (p: {

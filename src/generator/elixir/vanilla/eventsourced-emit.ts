@@ -72,7 +72,7 @@ import {
   denialTerm,
   disallowedTerm,
 } from "./denial.js";
-import { renderFindActions } from "./find-controller.js";
+import { renderPageParamHelper } from "./find-controller.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
 import { effectiveGate, renderGateCondition } from "./gate.js";
 import { renderProblemVariantHelper } from "./operation-returns-emit.js";
@@ -703,7 +703,7 @@ export function renderEsController(
   // Fully qualified when `alias <App>.<Ctx>` would shadow the app module.
   const ctxModule = contextCallRef(appModule, ctxName);
   // `GET /<plural>/<find>` actions — event-sourced finds run load-all + filter.
-  const findActions = renderFindActions(appModule, ctxModule, agg, ctx);
+  const findActions = renderPageParamHelper(agg, ctx);
   // The list and by-id reads' authorization gate — the aggregate's
   // `policy { read T requires … }` (`read-gates.ts`).  403 BEFORE the load,
   // with the same carrier + `detail` label the relational controller

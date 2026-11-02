@@ -67,7 +67,7 @@ import {
 } from "./denial.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced, renderEsController } from "./eventsourced-emit.js";
-import { findRoutes, renderFindActions } from "./find-controller.js";
+import { renderPageParamHelper } from "./find-controller.js";
 import { effectiveGate, renderGateCondition } from "./gate.js";
 import { isAbstractBase, isTphBase } from "./inheritance-emit.js";
 import {
@@ -278,7 +278,6 @@ export function emitVanillaApiControllers(
         action: ":index",
       });
     }
-    routes.push(...findRoutes(agg, ctx, allOps));
     const getByIdEntry = derivedOps.find((o) => o.kind === "getById");
     if (getByIdEntry) routes.push(routeOf(getByIdEntry, ":show"));
     else if (polyRouted && isTphBase(agg, ctx.aggregates)) {
@@ -414,11 +413,7 @@ function renderController(
   const pagedListArgs = readOnly
     ? `${PAGE_CALL_ARGS.join(", ")}, current_user`
     : `${PAGE_CALL_ARGS.join(", ")}, Map.get(params, "sort", "id"), Map.get(params, "dir", "asc")${listPrincipal ? ", current_user" : ""}`;
-  // The LIST read's authorization gate — 403 before the query, the same
-  // contract `renderFindActions` gives every NAMED find.  `index` is emitted
-  // here, outside that loop (the list endpoint has its own paged shape), which
-  // is how its `requires` came to be dropped on this backend while every named
-  // find's was honoured.
+  // The LIST read's authorization gate — 403 before the query.
   const indexGate = effectiveGate(listAllFind?.requires);
   const indexGateUsesUser = !!indexGate && exprUsesCurrentUser(indexGate);
   // `current_user` may already be bound by `cuBind` (principal-scoped reads);
@@ -707,8 +702,7 @@ ${cuBind}    case ${ctxModule}.${cmdGet}(id${getActor}) do
     })
     .join("\n");
 
-  // `GET /<plural>/<find>` actions for the aggregate's custom finds.
-  const findActions = renderFindActions(appModule, ctxModule, agg, ctx);
+  const findActions = renderPageParamHelper(agg, ctx);
 
   // Audited lifecycle actions — the create/destroy handler stages an audit row
   // INSIDE a forced `Repo.transaction` so it commits atomically with the

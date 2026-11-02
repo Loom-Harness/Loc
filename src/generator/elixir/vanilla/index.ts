@@ -76,7 +76,6 @@ import { emitVanillaEventSourcedFiles } from "./eventsourced-emit.js";
 import { emitExplicitHandlers, emitExplicitRoutesController } from "./explicit-handlers-emit.js";
 import { emitVanillaExternModules } from "./extern-emit.js";
 import { emitVanillaFilesController } from "./files-controller-emit.js";
-import { contextsHaveCheckedFindParams } from "./find-controller.js";
 import { emitOpenApiSpec } from "./openapi-emit.js";
 import { contextsHavePagedReads } from "./page-param.js";
 import { renderVanillaProblemDetailsModule } from "./problem-details-emit.js";
@@ -177,13 +176,12 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // `errors[]` 422 rather than being clamped past the bounds this app's own
   // OpenAPI document publishes (page-param.ts), and it sends through the same
   // responder.  So does a find whose declared query params fail their
-  // published type (find-controller.ts).  An app with none stays byte-identical.
+  // An app with none stays byte-identical.
   const hasWireDenials =
     contexts.some((c) =>
       c.aggregates.some((agg) => (agg.operations ?? []).some((op) => opHasWireDenial(op))),
     ) ||
     contextsHavePagedReads(contexts) ||
-    contextsHaveCheckedFindParams(contexts) ||
     // …OR a command workflow with params: a request omitting one answers the
     // same `errors[]` 422 (one pointer per missing param, L1-E / E7).
     contexts.some((c) =>

@@ -317,12 +317,6 @@ const DANGER_WAIVERS: ReadonlyArray<{ file: string; arg: string; reason: string 
       "workflowPreconditionThrowArgs (banking eval B-02): its ONLY consumers are the workflow precondition throw sites of the node (platform/hono), .NET, Java and Python WorkflowStmtTargets — a JS-family position plus the three non-interpolating safe targets of SAFE_TARGET_DIRS. Elixir renders the same rule through its own elixirString funnel (vanilla/denial.ts workflowDenialTerm), never through this helper.",
   },
   {
-    file: "src/generator/elixir/vanilla/find-controller.ts",
-    arg: "absent.title",
-    reason:
-      "An RFC7807 `title` resolved through the fixed status→title map (problemTitle/errorTitle), never free author text.",
-  },
-  {
     file: "src/generator/elixir/vanilla/operation-returns-emit.ts",
     arg: "v.title",
     reason:

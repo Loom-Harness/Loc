@@ -202,14 +202,7 @@ export function emitController(
   const probeByOp = new Map<unknown, ApiOperationIR>(
     derivedOps.filter((o) => o.kind === "gateProbe").map((o) => [o.operation, o]),
   );
-  // The derivation registers the auto-`all` LAST (Hono's shadowing order);
-  // .NET has always emitted it first (enrichment prepends it to `repo.finds`),
-  // and ASP.NET attribute routing is registration-order-free — so keep the
-  // historical order rather than churn every controller's method layout.
-  const findEntries = [
-    ...derivedOps.filter((o) => isAllFind(o)),
-    ...derivedOps.filter((o) => o.kind === "find" && !isAllFind(o)),
-  ];
+  const findEntries = derivedOps.filter((o) => isAllFind(o));
   const publicOps = opEntries.map((o) => o.operation!);
   const exposedFinds = findEntries.map((o) => o.find!);
   const usings = new Set<string>();

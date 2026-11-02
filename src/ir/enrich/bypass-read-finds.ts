@@ -84,9 +84,8 @@ function bypassFind(
   }
   const critName = read.source.name;
   const crit = criteria.find((c) => c.name === critName);
-  // A missing criterion, or one over another candidate, is refused in phase ⑦
-  // (`loom.findall-unknown-criterion` / `loom.findall-criterion-mismatch`);
-  // there is no method to derive.
+  // A criterion over another candidate is refused in phase ⑦
+  // (`loom.findall-criterion-mismatch`); there is no method to derive.
   const candidate = crit?.targetType.kind === "entity" ? crit.targetType.name : undefined;
   if (!crit || candidate !== agg.name) {
     return undefined;
