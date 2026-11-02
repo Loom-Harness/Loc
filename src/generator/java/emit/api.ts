@@ -32,7 +32,11 @@ import { routeSegmentFor } from "../../../util/storage-names.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { findUnionSpec } from "../../_payload/union-wire.js";
-import { PG_FOREIGN_KEY_VIOLATION, PG_RESTRICT_VIOLATION } from "../../_persistence/pg-sqlstate.js";
+import {
+  PG_FOREIGN_KEY_VIOLATION,
+  PG_RESTRICT_VIOLATION,
+  PG_UNIQUE_VIOLATION,
+} from "../../_persistence/pg-sqlstate.js";
 import { javaLocals, jid, localOf, requestParam } from "../java-ident.js";
 import { renderJavaExpr, renderJavaType } from "../render-expr.js";
 import {
@@ -1135,7 +1139,9 @@ export function renderApiExceptionAdvice(
       `        // \`foreign_key_violation\` (23503).  Keying the still-referenced arm on`,
       `        // 23503 is why it never fired here and a delete fell through to the`,
       `        // unique-violation arm, answering a conflict about values that already`,
-      `        // exist.  \`unique (...)\` is 23505.  Anything else is a conflict too.`,
+      `        // exist.  \`unique (...)\` is 23505 and is the only conflict this arm`,
+      `        // answers; any other SQLState (a 23514 check violation, a 23502 not-null)`,
+      `        // is not a uniqueness clash and takes the catch-all 500, as on node and .NET.`,
       hasReferencedDelete &&
         `        if (${JSON.stringify(PG_RESTRICT_VIOLATION)}.equals(sqlState(e))) {`,
       hasReferencedDelete &&
@@ -1155,6 +1161,7 @@ export function renderApiExceptionAdvice(
       hasDanglingRef &&
         `            return respond(problem(${domainStatus}, ${title("dangling-reference")}, ${danglingDetail}, request), ${domainStatus});`,
       hasDanglingRef && `        }`,
+      `        if (!${JSON.stringify(PG_UNIQUE_VIOLATION)}.equals(sqlState(e))) return onUnhandled(e, request);`,
       `        CatalogLog.event(${javaLogEvent("disallowed")}, "message", ${uniqueDetail}, "status", ${uniquenessStatus});`,
       `        httpMetrics.recordDomainFault("disallowed");`,
       `        return respond(problem(${uniquenessStatus}, ${title("unique-conflict")}, ${uniqueDetail}, request), ${uniquenessStatus});`,
