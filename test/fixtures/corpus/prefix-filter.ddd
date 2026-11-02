@@ -45,7 +45,7 @@ system PrefixFilter {
       // PARAMETER (so every backend binds it rather than inlining a literal).
       criterion DocsUnder(prefix: string) of Doc = this.path.startsWith(prefix)
       queryHandler ListDocsUnder(prefix: string): Doc[] {
-        let r = Docs.run(DocsUnder(prefix))
+        let r = Docs.all(DocsUnder(prefix))
         return r
       }
     }

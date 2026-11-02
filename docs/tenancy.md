@@ -281,7 +281,7 @@ bases are exempt; a subtype inherits its base's stance). An unmarked aggregate i
 | `loom.tenancy-inherited-stance-conflict` | a subtype declares the OPPOSITE stance from the abstract base it `extends` | error |
 | `loom.tenancy-claim-type-mismatch` | the claim's type can't bind against the registry's `ids` type (see the id-vs-claim rule above) | error |
 | `loom.tenant-owned-claim-type` | a `tenantOwned` aggregate exists but the claim isn't `string` (the capability's field is `tenantId: string`; a `guid` claim mis-compiles typed backends — declare the claim `string`, guid values round-trip as text) | error |
-| `loom.tenancy-filter-bypass` | a read (`find` / query-time `projection` / inline `Repo.run`) whose `ignoring` clause drops the tenant floor or the registry self-scope — see [`ignoring` and the tenant filter](#ignoring-and-the-tenant-filter). Independent of `auth { enforcement: }` | warning |
+| `loom.tenancy-filter-bypass` | a read (`find` / query-time `projection` / inline `Repo.all`) whose `ignoring` clause drops the tenant floor or the registry self-scope — see [`ignoring` and the tenant filter](#ignoring-and-the-tenant-filter). Independent of `auth { enforcement: }` | warning |
 
 ### Inheritance: a subtype inherits its base's stance
 
@@ -334,7 +334,7 @@ raised the event, so a reactor reads and writes in exactly the tenant its event
 came from. A `timerSource` tick has no originating request and therefore **no
 tenant** — a tenant-owned read in a timer-driven reactor would match nothing —
 so it must be explicitly cross-tenant: widen the read with `ignoring
-tenantOwned` (`Repo.run(C) ignoring tenantOwned`, `Repo.getBy(…) ignoring
+tenantOwned` (`Repo.all(C) ignoring tenantOwned`, `Repo.getBy(…) ignoring
 tenantOwned`), or `loom.timer-tenant-read` (error) refuses it.
 
 ```ddd
@@ -343,7 +343,7 @@ criterion ByCode(c: string) of Job = this.code == c
 workflow sweepRun {
   sweep: Sweep id
   create(t: SweepTick) by t.sweep {
-    let js = Jobs.findAll(ByCode("x")) ignoring tenantOwned   // without `ignoring`: loom.timer-tenant-read
+    let js = Jobs.all(ByCode("x")) ignoring tenantOwned   // without `ignoring`: loom.timer-tenant-read
     for j in js { j.close() }
   }
 }

@@ -57,7 +57,7 @@ system S {
       workflow closeOrder {
         orderRef: Order id
         ${trigger} {
-          let o = Orders.getById(${trigger.startsWith("create(orderRef") ? "orderRef" : "e.order"})
+          let o = Orders.get(${trigger.startsWith("create(orderRef") ? "orderRef" : "e.order"})
           o.finish()
         }
       }
@@ -171,7 +171,7 @@ system Sweeper {
       workflow sweepRun {
         sweep: Sweep id
         create(t: SweepTick) by t.sweep {
-          let js = Jobs.findAll(ByCode("x"))${read === "anyTenant" ? " ignoring tenantOwned" : ""}
+          let js = Jobs.all(ByCode("x"))${read === "anyTenant" ? " ignoring tenantOwned" : ""}
           for j in js { j.close() }
         }
       }
@@ -195,7 +195,7 @@ describe("loom.timer-tenant-read (ruling D1)", () => {
     expect(hit).toHaveLength(1);
     expect(hit[0]!.severity).toBe("error");
     expect(hit[0]!.message).toContain("timer 'nightly'");
-    expect(hit[0]!.message).toContain("Jobs.run(findAllByByCode)");
+    expect(hit[0]!.message).toContain("Jobs.all(findAllByByCode)");
   });
 
   it("accepts the read once it is explicitly cross-tenant (`ignoring tenantOwned`)", async () => {

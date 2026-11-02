@@ -49,8 +49,8 @@ system WorkflowCreateResult {
 
       workflow transfer transactional {
         create(fromAccount: Account id, toAccount: Account id, amount: int): int {
-          let source = Accounts.getById(fromAccount)
-          let target = Accounts.getById(toAccount)
+          let source = Accounts.get(fromAccount)
+          let target = Accounts.get(toAccount)
           source.withdraw(amount)
           target.deposit(amount)
           return source.balance
@@ -59,7 +59,7 @@ system WorkflowCreateResult {
 
       workflow topUp {
         create(acct: Account id, amount: int) {
-          let a = Accounts.getById(acct)
+          let a = Accounts.get(acct)
           a.deposit(amount)
         }
       }

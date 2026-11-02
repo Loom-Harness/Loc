@@ -91,7 +91,7 @@ export type HandlerTarget =
  * (`d.name == null`, matching `lowerDestroy`'s `canonical` rule).  This is the
  * exact source the repository's delete verb is gated on (`agg.canonicalDestroy`
  * → `delete`/`DeleteAsync`/… emission), so scaffolding a destroy handler only
- * when one is present keeps the handler body's `<Repo>.delete(o)` call bound to
+ * when one is present keeps the handler body's `<Repo>.remove(o)` call bound to
  * a delete verb the repo actually emits.  `with crudish` supplies one; an
  * explicit unnamed `destroy { }` does too. */
 function canonicalDestroyOf(agg: Aggregate): Destroy | undefined {
@@ -153,7 +153,7 @@ export function unservedAggregateMessages(ctx: BoundedContext): string[] {
  * `destroy` is emitted only for an aggregate carrying a canonical (unnamed)
  * `destroy { }` terminator — the exact source the repository's delete verb is
  * gated on.  The handler body loads the aggregate by id then calls
- * `<Repo>.delete(o)`, a first-class `repo-delete` handler statement (added in
+ * `<Repo>.remove(o)`, a first-class `repo-delete` handler statement (added in
  * the repo-delete slice) that every domain-logic backend renders to its own
  * repository delete verb.  An aggregate with no canonical destroy silently skips
  * the destroy target — mirroring how an aggregate with no repository is skipped

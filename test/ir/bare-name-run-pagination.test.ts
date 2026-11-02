@@ -24,7 +24,7 @@ const SRC = `
 
     workflow sweep {
       create(x: int) {
-        let matched = Customers.run(Recent, page: { offset: 5, limit: 20 })
+        let matched = Customers.all(Recent, page: { offset: 5, limit: 20 })
         for c in matched {
           c.deactivate()
         }

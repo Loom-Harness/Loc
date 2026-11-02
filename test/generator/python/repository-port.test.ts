@@ -15,7 +15,7 @@ const SRC = `
       repository OrderRepo for Order
       criterion OrdersByMin(m: int) of Order = this.total > m
       queryHandler ListOrdersByMin(m: int): Order[] {
-        let r = OrderRepo.run(OrdersByMin(m))
+        let r = OrderRepo.all(OrdersByMin(m))
         return r
       }
     }}

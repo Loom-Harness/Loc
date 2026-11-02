@@ -41,14 +41,14 @@ system Sales {
       workflow approveOrder transactional {
         create(orderId: Order id) {
           requires currentUser.role == "manager"
-          let o = Orders.getById(orderId)
+          let o = Orders.get(orderId)
           o.confirm()
         }
       }
 
       workflow autoConfirm transactional {
         create(orderId: Order id) {
-          let o = Orders.getById(orderId)
+          let o = Orders.get(orderId)
           o.confirm()
         }
       }

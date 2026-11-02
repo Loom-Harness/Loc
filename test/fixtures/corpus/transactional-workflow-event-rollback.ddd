@@ -51,7 +51,7 @@ system TransactionalWorkflowEventRollback {
       // Commits: its `Debited` reaches the reactor once, after the commit.
       workflow debitOnce transactional {
         create(src: Acct id) {
-          let s = Accts.getById(src)
+          let s = Accts.get(src)
           s.debit(10)
         }
       }
@@ -60,8 +60,8 @@ system TransactionalWorkflowEventRollback {
       // first handle's save has already drained its `Debited`.
       workflow debitTwice transactional {
         create(src: Acct id) {
-          let first = Accts.getById(src)
-          let second = Accts.getById(src)
+          let first = Accts.get(src)
+          let second = Accts.get(src)
           first.debit(10)
           second.debit(10)
         }

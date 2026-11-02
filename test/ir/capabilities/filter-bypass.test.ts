@@ -43,8 +43,8 @@ const LOWER_SRC = `
         create(x: int) {
           if let r = OrderRepo.find(OrdersRecent()) ignoring softDeletable { }
           if let a = OrderRepo.find(AllRows()) ignoring * { }
-          let xs = OrderRepo.findAll(BigOrders()) ignoring softDeletable
-          let ys = OrderRepo.findAll(BigOrders()) ignoring *
+          let xs = OrderRepo.all(BigOrders()) ignoring softDeletable
+          let ys = OrderRepo.all(BigOrders()) ignoring *
           for o in xs { }
           for o in ys { }
         }

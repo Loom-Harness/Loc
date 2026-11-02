@@ -440,6 +440,8 @@ export function memberAccess(
       member,
       call: opts.call ?? false,
       args: callArgs,
+      sorted: false,
+      sort: [],
     }),
     origin,
   );
@@ -545,7 +547,7 @@ export function callStmt(path: string[], args: Expression[] = []): AssignOrCallS
 
 /** A `let <name> = <expr>` binding statement.  `name` binds in the rest of
  * the enclosing body's scope (grammar `LetStmt`).  Used to load an aggregate
- * in a generated handler body (`let o = Orders.getById(orderId)`). */
+ * in a generated handler body (`let o = Orders.get(orderId)`). */
 export function letStmt(name: string, expr: Expression): LetStmt {
   const origin = currentOrigin();
   const stmt: LetStmt = tag(mkLetStmt({ $type: "LetStmt", name, expr }), origin);

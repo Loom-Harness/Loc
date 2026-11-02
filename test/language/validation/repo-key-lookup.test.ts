@@ -81,7 +81,7 @@ describe("natural-key reads — accepted", () => {
 
 describe("ignoring on a loop iterable", () => {
   it("parses (the rule is shared with `if let`) but is refused there", async () => {
-    const src = model("for y in Products.findAll(Cheap) ignoring * { y.reprice(2) }").replace(
+    const src = model("for y in Products.all(Cheap) ignoring * { y.reprice(2) }").replace(
       "repository Products for Product { }",
       "repository Products for Product { }\n    criterion Cheap of Product = price < 10",
     );

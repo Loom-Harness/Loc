@@ -25,7 +25,7 @@ const SRC = `
 
     workflow deactivateRegion {
       create(rgn: string) {
-      let matched = Customers.run(ByRegion(rgn), page: { offset: 0, limit: 100 })
+      let matched = Customers.all(ByRegion(rgn), page: { offset: 0, limit: 100 })
       for c in matched {
         c.deactivate()
       }

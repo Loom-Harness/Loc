@@ -64,7 +64,7 @@ describe("workflow-body data-flow checks (IR, phase ⑦)", () => {
   });
 
   it("accepts a precondition over a bound name", async () => {
-    const c = await codes("let o = Orders.getById(orderId)\n        precondition o.total >= 0");
+    const c = await codes("let o = Orders.get(orderId)\n        precondition o.total >= 0");
     expect(c).not.toContain("loom.workflow-unknown-name");
   });
 
@@ -73,12 +73,12 @@ describe("workflow-body data-flow checks (IR, phase ⑦)", () => {
   });
 
   it("flags an op-call of an unknown operation on a bound aggregate", async () => {
-    const c = await codes("let o = Orders.getById(orderId)\n        o.ghostOp()");
+    const c = await codes("let o = Orders.get(orderId)\n        o.ghostOp()");
     expect(c).toContain("loom.workflow-unknown-operation");
   });
 
   it("accepts an op-call of a real operation on a bound aggregate", async () => {
-    const c = await codes("let o = Orders.getById(orderId)\n        o.bump()");
+    const c = await codes("let o = Orders.get(orderId)\n        o.bump()");
     expect(c).not.toContain("loom.workflow-unknown-binding");
     expect(c).not.toContain("loom.workflow-unknown-operation");
   });
@@ -95,20 +95,20 @@ describe("workflow-body data-flow checks (IR, phase ⑦)", () => {
 
   it("flags a `Repo.run(<Retrieval>)` whose retrieval is over another aggregate", async () => {
     // WidgetQ is `of Widget`, but Orders is a repository for Order.
-    expect(await codes("let xs = Orders.run(WidgetQ())")).toContain(
+    expect(await codes("let xs = Orders.all(WidgetQ())")).toContain(
       "loom.workflow-run-retrieval-mismatch",
     );
   });
 
   it("accepts a `Repo.run(<Retrieval>)` whose retrieval matches the repository", async () => {
-    expect(await codes("let xs = Orders.run(OrderQ(High))")).not.toContain(
+    expect(await codes("let xs = Orders.all(OrderQ(High))")).not.toContain(
       "loom.workflow-run-retrieval-mismatch",
     );
   });
 
   it("flags a `for … in` op-call on an unknown binding", async () => {
     const c = await codes(
-      "let xs = Orders.run(OrderQ(High))\n        for o in xs { ghost.bump() }",
+      "let xs = Orders.all(OrderQ(High))\n        for o in xs { ghost.bump() }",
     );
     expect(c).toContain("loom.workflow-foreach-unknown-binding");
   });
@@ -123,27 +123,27 @@ describe("workflow-body data-flow checks (IR, phase ⑦)", () => {
   // the side that was wrong.
   it("accepts an op-call on a binding declared INSIDE the if-let branch", async () => {
     const c = await codes(
-      "if let o = Orders.find(HighP) { let w = Widgets.getById(orderId)  w.grow() }",
+      "if let o = Orders.find(HighP) { let w = Widgets.get(orderId)  w.grow() }",
     );
     expect(c).not.toContain("loom.workflow-foreach-unknown-binding");
   });
 
   it("still flags an op-call on a name no branch ever bound", async () => {
     const c = await codes(
-      "if let o = Orders.find(HighP) { let w = Widgets.getById(orderId)  ghost.grow() }",
+      "if let o = Orders.find(HighP) { let w = Widgets.get(orderId)  ghost.grow() }",
     );
     expect(c).toContain("loom.workflow-foreach-unknown-binding");
   });
 
   it("does not leak a branch-local binding past the branch that declared it", async () => {
     const c = await codes(
-      "if let o = Orders.find(HighP) { let w = Widgets.getById(orderId) } else { w.grow() }",
+      "if let o = Orders.find(HighP) { let w = Widgets.get(orderId) } else { w.grow() }",
     );
     expect(c).toContain("loom.workflow-foreach-unknown-binding");
   });
 
   it("accepts a `for … in` op-call on the loop variable", async () => {
-    const c = await codes("let xs = Orders.run(OrderQ(High))\n        for o in xs { o.bump() }");
+    const c = await codes("let xs = Orders.all(OrderQ(High))\n        for o in xs { o.bump() }");
     expect(c).not.toContain("loom.workflow-foreach-unknown-binding");
   });
 
@@ -158,21 +158,21 @@ describe("workflow-body data-flow checks (IR, phase ⑦)", () => {
   // the side that was wrong — exactly as in the if-let case.
   it("accepts an op-call on a binding declared INSIDE the for-each body", async () => {
     const c = await codes(
-      "let xs = Orders.run(OrderQ(High))\n        for o in xs { let w = Widgets.getById(orderId)  w.grow() }",
+      "let xs = Orders.all(OrderQ(High))\n        for o in xs { let w = Widgets.get(orderId)  w.grow() }",
     );
     expect(c).not.toContain("loom.workflow-foreach-unknown-binding");
   });
 
   it("still flags an op-call on a name the for-each body never bound", async () => {
     const c = await codes(
-      "let xs = Orders.run(OrderQ(High))\n        for o in xs { let w = Widgets.getById(orderId)  ghost.grow() }",
+      "let xs = Orders.all(OrderQ(High))\n        for o in xs { let w = Widgets.get(orderId)  ghost.grow() }",
     );
     expect(c).toContain("loom.workflow-foreach-unknown-binding");
   });
 
   it("does not leak a for-each-body binding past the loop that declared it", async () => {
     const c = await codes(
-      "let xs = Orders.run(OrderQ(High))\n        for o in xs { let w = Widgets.getById(orderId) }\n        w.grow()",
+      "let xs = Orders.all(OrderQ(High))\n        for o in xs { let w = Widgets.get(orderId) }\n        w.grow()",
     );
     expect(c).toContain("loom.workflow-unknown-binding");
   });

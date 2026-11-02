@@ -34,7 +34,7 @@ const AGG = `
       repository Accounts for Account
       criterion AccountsByOwner(owner: string) of Account = this.owner == owner
       queryHandler ListByOwner(owner: string): Account[] {
-        let r = Accounts.run(AccountsByOwner(owner))
+        let r = Accounts.all(AccountsByOwner(owner))
         return r
       }`;
 

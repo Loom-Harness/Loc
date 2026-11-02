@@ -5,9 +5,9 @@ system X { subdomain S { context C {
   repository Things for Thing { }
   workflow after transactional {          // let BEFORE the for  → OK
     create(id0: Thing id) {
-      let xs = Things.run(All(), page: { offset: 0, limit: 10 })
+      let xs = Things.all(All(), page: { offset: 0, limit: 10 })
       for i in xs { if let q = Things.find(All()) { q.bump() } else { precondition false message "x" } }
-      let t = Things.getById(id0)
+      let t = Things.get(id0)
       t.bump()
     }
   }

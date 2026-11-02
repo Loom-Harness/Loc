@@ -42,7 +42,7 @@ const source = (platform: string): string => `system R {
     }
     workflow pay transactional {
       create(src: Acct id) {
-        let s = Accts.getById(src)
+        let s = Accts.get(src)
         s.debit(10)
       }
     }

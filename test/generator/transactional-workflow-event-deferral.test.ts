@@ -44,7 +44,7 @@ const source = (platform: string, transactional: boolean): string => `system R {
     }
     workflow pay ${transactional ? "transactional " : ""}{
       create(src: Acct id, reference: string) {
-        let s = Accts.getById(src)
+        let s = Accts.get(src)
         s.debit(money("10"))
         let t = Transfer.create(reference: reference, source: src)
       }

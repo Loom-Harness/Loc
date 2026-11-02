@@ -43,7 +43,7 @@ system Tree {
       repository Docs for Doc
       criterion Under(prefix: string) of Doc = this.path.startsWith(prefix)
       queryHandler ListUnder(prefix: string): Doc[] {
-        let r = Docs.run(Under(prefix))
+        let r = Docs.all(Under(prefix))
         return r
       }
     }

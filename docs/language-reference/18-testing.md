@@ -146,7 +146,7 @@ A `test` nested directly in a `context` (no `for`) is an **in-process integratio
 context Sales {
   test "a saved order can be read back" {
     let o = Order.create(customerId: "c-3", status: Draft)
-    let read = Order.findById(o.id)
+    let read = Order.find(o.id)
     expect(read.customerId).toBe("c-3")
   }
 }
@@ -173,7 +173,7 @@ describe("Sales (integration)", () => {
 });
 ```
 
-> A repository call spelled the workflow way (`Orders.save(o)` / `Orders.getById(…)`) is **not** part of this vocabulary and is refused with `loom.integration-repository-call` — use `<Agg>.findById` and let the factory save.
+> A repository call spelled the workflow way (`Orders.save(o)` / `Orders.get(…)`) is **not** part of this vocabulary and is refused with `loom.integration-repository-call` — use `<Agg>.findById` and let the factory save.
 
 ## `test e2e "…" against <Deployable>` — a live end-to-end test
 

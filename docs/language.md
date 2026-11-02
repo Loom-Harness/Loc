@@ -340,7 +340,7 @@ order:
 | `event Name { field: Type, … }` | Flat record raised via `emit`. |
 | `payload Name { … }` / `command` / `query` / `response` / `error` / `payload U = A \| B` | Transport records and discriminated unions — the workflow / handler command surface and `or`-union return arms.  See [`payloads.md`](payloads.md). |
 | `repository Name for Aggregate { find … }` | Repository declaration with optional find queries (see [Repositories](#repositories)). |
-| `criterion Name(params) of Aggregate = Expr` / `retrieval Name of Aggregate { where: Expr sort: [field desc, other asc] }` | Reusable, SQL-inlinable predicate specifications and the named list-read shapes `Repo.run(...)` consumes.  A retrieval also has a one-line form, `retrieval Name of Aggregate = Expr`.  **The block's clauses are NOT comma-separated** — `where:` / `sort:` follow one another directly (a newline between them is the readable spelling); only the items *inside* `sort: [...]` take commas.  The grammar also admits a `loads: [path, …]` clause, but declaring one is rejected today (`loom.retrieval-loads-unsupported` — a retrieval loads the whole aggregate).  See [`criterion.md`](criterion.md). |
+| `criterion Name(params) of Aggregate = Expr` / `retrieval Name of Aggregate { where: Expr sort: [field desc, other asc] }` | Reusable, SQL-inlinable predicate specifications and the named list-read shapes `Repo.all(...)` consumes.  A retrieval also has a one-line form, `retrieval Name of Aggregate = Expr`.  **The block's clauses are NOT comma-separated** — `where:` / `sort:` follow one another directly (a newline between them is the readable spelling); only the items *inside* `sort: [...]` take commas.  The grammar also admits a `loads: [path, …]` clause, but declaring one is rejected today (`loom.retrieval-loads-unsupported` — a retrieval loads the whole aggregate).  See [`criterion.md`](criterion.md). |
 | `projection Name[(params)] [keyed by <field>] [requires Expr] { <fields> from <Source> [as x] [where …] [ignoring …] [join Agg as a on …] [group by …] select f = …, … }` / `projection Name keyed by k { <fields> on(e: Event) [by e.key] { … } }` | A read model: **query-time** (a `select` over an aggregate / projection / workflow source — optional `where`, `join`, `group by`, whole-table aggregation, paged reads) or **folded** (`on(e: Event)` arms folding a stream into a keyed row).  Exposed as `GET /projections/<name>` and readable from pages.  ~50 `loom.projection-*` gates; see [`language-reference/10-repositories-and-queries.md`](language-reference/10-repositories-and-queries.md) and [`scaffold-macros.md`](scaffold-macros.md) (`scaffoldDashboard`). |
 | `workflow Name { create(...)[: T] …, on(e: Event) …, function … }` | Context-level orchestration across aggregates, with `create` starters, `on` reactors and workflow-local state (a named command entry is a context-level `commandHandler` — there is no workflow `handle`).  A command-triggered `create(…): T { … return <expr> }` answers its `POST` with 200 + the value (an `X id` / `string` / `int` / `long` / `bool`); without `: T` it stays 204.  See [`workflow.md`](workflow.md#returning-a-result--createt). |
 | `[extern] commandHandler Name(cmd: Cmd)[: Response] { … }` / `[extern] queryHandler Name(q: Query): Response { … }` | Application-layer handlers — a single-aggregate `handle` lifted out of a workflow (load → mutate → save → `return`), routable from an `api { … }` body.  `queryHandler` must not save (`loom.query-handler-saves`); `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`).  An `extern` handler is bodyless (`;`) — see [`extern.md`](extern.md). |
@@ -642,8 +642,8 @@ aggregate Account persistedAs: eventLog {
 ```
 workflow withdrawTwice transactional {
   create(a: Account id, amount: int) {
-    let first = Accounts.getById(a)
-    let second = Accounts.getById(a)
+    let first = Accounts.get(a)
+    let second = Accounts.get(a)
     first.withdraw(amount)
     second.withdraw(amount)   // stale fold → 409, neither withdrawal kept
   }
@@ -1273,7 +1273,7 @@ Pragmatic core, similar to a subset of TypeScript / C# expressions.
 | `f(name: value, …)` | Named call arguments (page primitives, macro-style calls). |
 | `PartName { field: expr, … }` | Construct a contained part; `id` and parent `parentId` are auto-injected. |
 | `Money { amount, currency }` / `Money { amount: 1, currency: "USD" }` | Value-object constructor (positional or named). |
-| `Repo.run(Criterion(args), page?)` / `Repo.run(retrieval { where: …, sort: […], loads: […] })` / `Repo.findAll(...) ignoring Cap` | Repository reads inside workflows / handlers — see [`criterion.md`](criterion.md) and [`capabilities.md`](capabilities.md) for `ignoring`. |
+| `Repo.get(id)` / `Repo.find(id)` / `Repo.find(Criterion(args))` / `Repo.all(Criterion(args), sort: […], page?)` / `Repo.all(Retrieval(args), page?)` / `Repo.all(...) ignoring Cap` / `Repo.remove(x)` | Repository reads inside workflows / handlers — see [`criterion.md`](criterion.md) and [`capabilities.md`](capabilities.md) for `ignoring`. |
 
 ### String interpolation
 
@@ -1483,7 +1483,7 @@ decimal`.
 | `helperName(args)` / `this.op(args)` | Call a helper `function` or `private operation` of the same aggregate (`loom.call-arg-count` / `loom.call-arg-type`). |
 | `return Expression` | The designed-in outcome of an operation / handler declared with an `or`-union return type — an `error` variant maps to a ProblemDetails status, a success variant to 200.  See [`payloads.md`](payloads.md).  Also the result of a workflow `create(…): T` — last top-level statement only, answered as the `POST`'s 200 body (`loom.workflow-return-*`; [`workflow.md`](workflow.md#returning-a-result--createt)). |
 | `match subject { Variant [b] => { … }, else => { … } }` | Statement-form variant match — arms run statements (state writes, `navigate(...)`) rather than yield a value.  In a page `action`, `match await Agg.op(...) { Ok r => …, Err e => … }` is how a remote command is awaited and its Result handled — a remote mutating call *without* the marker is `loom.missing-effect-marker`; `loom.match-await*` gates the awaited call's shape ([`actions.md`](actions.md)). |
-| `let xs = Repo.run(R(args))` then `for x in xs { … }` | **Workflow / handler bodies only** — iterate an aggregate array, saving each element's mutations per iteration ([`workflow.md`](workflow.md)).  The iterable must be a `let`-bound `Repo.run(...)` result; iterating the call inline (`for x in Repo.run(...)`) is refused with `loom.workflow-foreach-source`. |
+| `let xs = Repo.all(R(args))` then `for x in xs { … }` | **Workflow / handler bodies only** — iterate an aggregate array, saving each element's mutations per iteration ([`workflow.md`](workflow.md)).  The iterable must be a `let`-bound `Repo.all(...)` result; iterating the call inline (`for x in Repo.all(...)`) is refused with `loom.workflow-foreach-source`. |
 | `if let x = Repo.find(C(args)) { … } else { … }` | **Workflow / handler bodies only** — bind an optional repository result (`find(C)`, `findById`, `findBy`, a `T?` find, or an optional `let` binding) and branch on presence. |
 | `if Expression { … } else { … }` | Boolean branch; `else` is optional and `else if` chains.  The condition is a full boolean expression EXCEPT that a `{`-opening form (a part / value-object construction, an object literal, a `match`) must be parenthesised — otherwise it would claim the `if`'s own body block.  **Rendered on node / dotnet / java / python.**  Refused with `loom.elixir-if-stmt-unsupported` when an elixir deployable hosts the context (a Phoenix body threads its result through a rebound `record`, and an Elixir `if` block's bindings do not escape it), and with `loom.if-stmt-page-body-unsupported` in a `ui` body — a page expresses a condition as a VALUE (`cond ? a : b` or `match`). |
 
@@ -2075,11 +2075,11 @@ always has a list page to render.  The list is gated by the context's
 **Absence, in a body.**  `getById` and `getBy` load a single row and answer the
 standard **404** when it is not there — on the GET route, an operation route and
 a workflow step alike (the binding is a plain `T`).  A `T?` read —
-`Repo.find(<Criterion>)`, `Repo.findById(id)`, `Repo.findBy(col: v)` — stays a
+`Repo.find(<Criterion>)`, `Repo.find(id)`, `Repo.findBy(col: v)` — stays a
 native nullable: `let c = Customers.find(ByEmail(e))` binds `Customer?`, read
 through a null test (`c == null`, `c ?? d`) or narrowed by
 `if let x = c { … } else { … }` (an `if let` takes the read itself as its
-source too: `if let o = Orders.findById(id) { o.touch() }`).  A member read or
+source too: `if let o = Orders.find(id) { o.touch() }`).  A member read or
 an op-call on the binding before it is narrowed is `loom.nullable-receiver`.
 A body that must have the row of a criterion read answers the miss itself:
 `if let o = Orders.find(C(x)) { … } else { notFound }`.

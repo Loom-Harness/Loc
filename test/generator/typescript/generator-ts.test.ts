@@ -495,7 +495,7 @@ describe("typescript generator", () => {
             if let x = Orders.findBy(code: code) { return x } else { notFound "not_found" }
           }
           queryHandler ListOrders(c: string): Order[] {
-            let r = Orders.findAll(OrdersByCode(c))
+            let r = Orders.all(OrdersByCode(c))
             return r
           }
         }
@@ -704,7 +704,7 @@ describe("typescript generator", () => {
         "  repository Orders for Order { }",
         `  repository Orders for Order { }
   queryHandler ListActiveForCustomer(c: Customer id): Order[] {
-    let r = Orders.findAll(OrdersActiveForCustomer(c))
+    let r = Orders.all(OrdersActiveForCustomer(c))
     return r
   }`,
       ),
@@ -919,7 +919,7 @@ describe("typescript generator", () => {
           repository Orders for Order { }
           workflow confirmOne {
       create(orderId: Order id) {
-            let order = Orders.getById(orderId)
+            let order = Orders.get(orderId)
             order.confirm()
           }
     }
@@ -967,7 +967,7 @@ describe("typescript generator", () => {
         workflow placeOrder {
       create(customerId: Customer id, amount: decimal, placedAt: datetime) {
           precondition amount > 0
-          let customer = Customers.getById(customerId)
+          let customer = Customers.get(customerId)
           customer.deductCredit(amount)
           let order = Order.create(
             customerId: customerId,
@@ -1037,7 +1037,7 @@ describe("typescript generator", () => {
         workflow topUp transactional {
       create(customerId: Customer id, amount: decimal) {
           precondition amount > 0
-          let target = Customers.getById(customerId)
+          let target = Customers.get(customerId)
           target.addCredit(amount)
         }
     }
@@ -1075,7 +1075,7 @@ describe("typescript generator", () => {
         repository Orders for Order { }
         workflow placeAndConfirm {
       create(orderId: Order id) {
-          let order = Orders.getById(orderId)
+          let order = Orders.get(orderId)
           order.confirm()
         }
     }
@@ -1113,7 +1113,7 @@ describe("typescript generator", () => {
         repository Orders for Order { }
         workflow chargeOrder {
       create(orderId: Order id, amount: decimal) {
-          let order = Orders.getById(orderId)
+          let order = Orders.get(orderId)
           order.deduct(amount)
         }
     }
@@ -1173,8 +1173,8 @@ describe("typescript generator", () => {
           toAccount: Account id,
           amount: Money,
         ) {
-          let from = Accounts.getById(fromAccount)
-          let to = Accounts.getById(toAccount)
+          let from = Accounts.get(fromAccount)
+          let to = Accounts.get(toAccount)
           from.withdraw(amount)
           to.deposit(amount)
         }
@@ -1224,31 +1224,31 @@ describe("typescript generator", () => {
         repository Customers for Customer { }
         workflow ser transactional(serializable) {
       create(customerId: Customer id, amount: decimal) {
-          let c = Customers.getById(customerId)
+          let c = Customers.get(customerId)
           c.addCredit(amount)
         }
     }
         workflow rr transactional(repeatableRead) {
       create(customerId: Customer id, amount: decimal) {
-          let c = Customers.getById(customerId)
+          let c = Customers.get(customerId)
           c.addCredit(amount)
         }
     }
         workflow ru transactional(readUncommitted) {
       create(customerId: Customer id, amount: decimal) {
-          let c = Customers.getById(customerId)
+          let c = Customers.get(customerId)
           c.addCredit(amount)
         }
     }
         workflow rc transactional(readCommitted) {
       create(customerId: Customer id, amount: decimal) {
-          let c = Customers.getById(customerId)
+          let c = Customers.get(customerId)
           c.addCredit(amount)
         }
     }
         workflow plain transactional {
       create(customerId: Customer id, amount: decimal) {
-          let c = Customers.getById(customerId)
+          let c = Customers.get(customerId)
           c.addCredit(amount)
         }
     }
@@ -1661,7 +1661,7 @@ describe("typescript generator", () => {
             repository Orders for Order { }
             workflow Sweep {
               create run(orderId: Order id, reason: string) {
-                let o = Orders.getById(orderId)
+                let o = Orders.get(orderId)
                 o.cancel(reason)
                 Orders.save(o)
               }

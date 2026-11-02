@@ -258,7 +258,7 @@ system Denials3 {
       workflow move {
         create(fromOrder: Order id, toOrder: Order id) {
           precondition fromOrder != toOrder message "Cannot move to the same order"
-          let a = Orders.getById(fromOrder)
+          let a = Orders.get(fromOrder)
           a.bump()
         }
       }

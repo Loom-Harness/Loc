@@ -36,7 +36,7 @@ const READS = {
   paged: `repository Widgets for Widget { }
       criterion ByGrade(grade: Grade) of Widget = this.grade == grade
       queryHandler ListByGrade(grade: Grade): Widget paged {
-        let r = Widgets.run(ByGrade(grade))
+        let r = Widgets.all(ByGrade(grade))
         return r
       }`,
 } as const;

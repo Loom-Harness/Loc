@@ -137,7 +137,7 @@ describe("the repository verb → effect table", () => {
     expect(repoVerbEffect("toString")).toBeUndefined();
     expect(isRepoWriteName("byCode")).toBe(false);
     expect(isRepoWriteName("save")).toBe(true);
-    expect(isRepoWriteName("delete")).toBe(true);
+    expect(isRepoWriteName("remove")).toBe(true);
   });
 });
 
@@ -145,7 +145,7 @@ describe("workflow body effects", () => {
   it("load → mutate → exit persist (the #3300 shape without the explicit save)", async () => {
     await expectEffects(
       `workflow bumpItem { create(id: Item id) {
-         let i = Items.getById(id)
+         let i = Items.get(id)
          i.bump()
        } }`,
       ["load Items.load → i", "mutate i.bump", "persist i"],
@@ -155,7 +155,7 @@ describe("workflow body effects", () => {
   it("an explicit `Items.save(i)` contributes no effect — it never becomes a delete", async () => {
     await expectEffects(
       `workflow bumpItem { create(id: Item id) {
-         let i = Items.getById(id)
+         let i = Items.get(id)
          i.bump()
          Items.save(i)
        } }`,
@@ -164,18 +164,18 @@ describe("workflow body effects", () => {
     // Without the mutation the save used to delete the row outright.
     await expectEffects(
       `workflow touchItem { create(id: Item id) {
-         let i = Items.getById(id)
+         let i = Items.get(id)
          Items.save(i)
        } }`,
       ["load Items.load → i"],
     );
   });
 
-  it("`Items.delete(i)` deletes and is not saved again at exit", async () => {
+  it("`Items.remove(i)` deletes and is not saved again at exit", async () => {
     await expectEffects(
       `workflow dropItem { create(id: Item id) {
-         let i = Items.getById(id)
-         Items.delete(i)
+         let i = Items.get(id)
+         Items.remove(i)
        } }`,
       ["load Items.load → i", "delete Items"],
     );
@@ -199,7 +199,7 @@ describe("workflow body effects", () => {
   it("scopes a loop body and an `if let` branch, each with its own saves", async () => {
     await expectEffects(
       `workflow sweep { create() {
-         let xs = Items.findAll(Busy)
+         let xs = Items.all(Busy)
          for o in xs { o.bump() }
          if let b = Items.find(Busy) { b.bump() } else { emit Bumped { item: b.id } }
        } }`,
@@ -218,7 +218,7 @@ describe("workflow body effects", () => {
   it("a command handler's return is its last effect", async () => {
     await expectEffects(
       `commandHandler touch(itemId: Item id): Item {
-         let o = Items.getById(itemId)
+         let o = Items.get(itemId)
          o.bump()
          return o
        }`,
@@ -232,7 +232,7 @@ describe("loom.workflow-explicit-save (#3300)", () => {
     it(`refuses \`Items.${verb}(i)\` in a workflow create`, async () => {
       const got = await codes(
         `workflow bumpItem { create(id: Item id) {
-           let i = Items.getById(id)
+           let i = Items.get(id)
            i.bump()
            Items.${verb}(i)
          } }`,
@@ -245,7 +245,7 @@ describe("loom.workflow-explicit-save (#3300)", () => {
     expect(
       await codes(
         `commandHandler touch(itemId: Item id): Item {
-           let o = Items.getById(itemId)
+           let o = Items.get(itemId)
            o.bump()
            Items.save(o)
            return o
@@ -255,19 +255,19 @@ describe("loom.workflow-explicit-save (#3300)", () => {
     expect(
       await codes(
         `workflow sweep { create() {
-           let xs = Items.findAll(Busy)
+           let xs = Items.all(Busy)
            for o in xs { Items.save(o) }
          } }`,
       ),
     ).toStrictEqual(["loom.workflow-explicit-save"]);
   });
 
-  it("leaves `Items.delete(i)` and an exit-saved mutation alone", async () => {
+  it("leaves `Items.remove(i)` and an exit-saved mutation alone", async () => {
     const got = await codes(
       `workflow dropItem { create(id: Item id) {
-         let i = Items.getById(id)
+         let i = Items.get(id)
          i.bump()
-         Items.delete(i)
+         Items.remove(i)
        } }`,
     );
     expect(got).toStrictEqual([]);
@@ -298,7 +298,7 @@ describe("loom.workflow-uncorrelated-state-write (#3390)", () => {
       ),
     ).toStrictEqual([]);
     expect(
-      await codes(`workflow Tally { create(id: Item id) { let i = Items.getById(id)  i.bump() } }`),
+      await codes(`workflow Tally { create(id: Item id) { let i = Items.get(id)  i.bump() } }`),
     ).toStrictEqual([]);
   });
 });
@@ -321,7 +321,7 @@ describe("the body-position effect vocabulary", () => {
     for (const body of [
       `emit Bumped { item: itemId }`,
       `let x = Item.create(name: "n", count: 0)`,
-      `let o = Boxes.getById(boxId)
+      `let o = Boxes.get(boxId)
        let r = o.peek()`,
     ]) {
       expect(
@@ -332,7 +332,7 @@ describe("the body-position effect vocabulary", () => {
       ).toStrictEqual(["loom.query-handler-saves"]);
     }
     expect(
-      await codes(`queryHandler look(itemId: Item id): Item { return Items.getById(itemId) }`),
+      await codes(`queryHandler look(itemId: Item id): Item { return Items.get(itemId) }`),
     ).toStrictEqual([]);
   });
 });
@@ -391,8 +391,8 @@ describe("a mutation needs a save (#3618)", () => {
     await expectResolvedEffects(
       `${PEEK}
        workflow W { create(a: Box id, b: Box id) {
-         let x = Boxes.getById(a)
-         let y = Boxes.getById(b)
+         let x = Boxes.get(a)
+         let y = Boxes.get(b)
          let r = x.peek()
          let s = Moves.shift(x, y)
        } }`,
@@ -411,8 +411,8 @@ describe("a mutation needs a save (#3618)", () => {
     await expectResolvedEffects(
       `${PEEK}
        workflow W { create(a: Box id, b: Box id) {
-         let x = Boxes.getById(a)
-         let y = Boxes.getById(b)
+         let x = Boxes.get(a)
+         let y = Boxes.get(b)
          Moves.shift(x, y)
        } }`,
       [
@@ -427,14 +427,14 @@ describe("a mutation needs a save (#3618)", () => {
     );
     expect(
       await codes(`${PEEK}
-        workflow W { create(a: Box id) { let x = Boxes.getById(a)  x.peek() } }`),
+        workflow W { create(a: Box id) { let x = Boxes.get(a)  x.peek() } }`),
     ).toStrictEqual([]);
   });
 
   it("refuses a let-bound mutating operation call", async () => {
     expect(
       await codes(`${PEEK}
-        workflow W { create(a: Box id) { let x = Boxes.getById(a)  let r = x.peek() } }`),
+        workflow W { create(a: Box id) { let x = Boxes.get(a)  let r = x.peek() } }`),
     ).toStrictEqual(["loom.workflow-mutation-unsaved"]);
   });
 
@@ -442,8 +442,8 @@ describe("a mutation needs a save (#3618)", () => {
     expect(
       await codes(`${PEEK}
         workflow W { create(a: Box id, b: Box id) {
-          let x = Boxes.getById(a)
-          let y = Boxes.getById(b)
+          let x = Boxes.get(a)
+          let y = Boxes.get(b)
           let s = Moves.shift(x, y)
         } }`),
     ).toStrictEqual(["loom.workflow-mutation-unsaved", "loom.workflow-mutation-unsaved"]);
@@ -453,7 +453,7 @@ describe("a mutation needs a save (#3618)", () => {
     expect(
       await codes(`${PEEK}
         commandHandler poke(a: Box id): int {
-          let x = Boxes.getById(a)
+          let x = Boxes.get(a)
           let r = x.peek()
           return r
         }`),
@@ -462,7 +462,7 @@ describe("a mutation needs a save (#3618)", () => {
       await codes(`${PEEK}
         criterion Full of Box = count > 1
         workflow W { create() {
-          let xs = Boxes.findAll(Full)
+          let xs = Boxes.all(Full)
           for x in xs { let r = x.peek() }
         } }`),
     ).toStrictEqual(["loom.workflow-mutation-unsaved"]);

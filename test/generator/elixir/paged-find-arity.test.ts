@@ -63,10 +63,10 @@ const SHAPES = `system Pg {
       criterion DocLabelled(l: string) of Doc = this.label == l
       criterion EmbLabelled(l: string) of Emb = this.label == l
       criterion EvtLabelled(l: string) of Evt = this.label == l
-      queryHandler RelsByLabel(l: string): Rel paged { let r = Rels.run(RelLabelled(l))  return r }
-      queryHandler DocsByLabel(l: string): Doc paged { let r = Docs.run(DocLabelled(l))  return r }
-      queryHandler EmbsByLabel(l: string): Emb paged { let r = Embs.run(EmbLabelled(l))  return r }
-      queryHandler EvtsByLabel(l: string): Evt paged { let r = Evts.run(EvtLabelled(l))  return r }
+      queryHandler RelsByLabel(l: string): Rel paged { let r = Rels.all(RelLabelled(l))  return r }
+      queryHandler DocsByLabel(l: string): Doc paged { let r = Docs.all(DocLabelled(l))  return r }
+      queryHandler EmbsByLabel(l: string): Emb paged { let r = Embs.all(EmbLabelled(l))  return r }
+      queryHandler EvtsByLabel(l: string): Evt paged { let r = Evts.all(EvtLabelled(l))  return r }
     }
   }
   api MainApi from Core {
@@ -100,7 +100,7 @@ const SCOPED = `system PgScoped {
       }
       repository Docs for Doc { }
       criterion DocLabelled(l: string) of Doc = this.label == l
-      queryHandler DocsByLabel(l: string): Doc paged { let r = Docs.run(DocLabelled(l))  return r }
+      queryHandler DocsByLabel(l: string): Doc paged { let r = Docs.all(DocLabelled(l))  return r }
     }
     context Registry {
       aggregate Org with crudish {

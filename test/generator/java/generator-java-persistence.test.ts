@@ -38,17 +38,17 @@ system Shop {
       repository Orders for Order { }
       criterion OrdersByCode(code: string) of Order = this.code == code
       queryHandler ListByCode(code: string): Order paged {
-        let r = Orders.run(OrdersByCode(code))
+        let r = Orders.all(OrdersByCode(code))
         return r
       }
       criterion OrdersConfirmed of Order = this.status == confirmed
       queryHandler ListConfirmed(): Order paged {
-        let r = Orders.run(OrdersConfirmed())
+        let r = Orders.all(OrdersConfirmed())
         return r
       }
       criterion OrdersInCity(city: string) of Order = this.shipTo.city == city
       queryHandler ListInCity(city: string): Order paged {
-        let r = Orders.run(OrdersInCity(city))
+        let r = Orders.all(OrdersInCity(city))
         return r
       }
       repository Customers for Customer { }

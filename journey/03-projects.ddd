@@ -109,11 +109,11 @@ system Todo {
       // one of its still-open tasks, then archives the project itself.
       workflow closeProject {
         create(projectId: Project id) {
-          let open = Tasks.run(OpenByPriority(projectId), page: { offset: 0, limit: 500 })
+          let open = Tasks.all(OpenByPriority(projectId), page: { offset: 0, limit: 500 })
           for t in open {
             t.complete()
           }
-          let project = Projects.getById(projectId)
+          let project = Projects.get(projectId)
           project.archive()
         }
       }

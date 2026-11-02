@@ -1,8 +1,8 @@
 # 10. Repositories, queries & projections
 
-Reading data: the `repository` and its read contract, the natural-key reads `getBy` / `findBy` over a declared `unique (…)` key, the restricted "queryable subset" a `where` clause admits, reusable `criterion` predicate specifications, `Repo.find(<Criterion>)` / `Repo.run(<Criterion>)` and `retrieval` query bundles with `sort`/`loads`, the `paged` read shape, the `ignoring` capability-filter bypass, and — the read-model surface that replaced the removed `view` — `projection` in its two flavours: **query-time** (`from … where … join … group by … select …`, computed on every read) and **folded** (`keyed by` + `on(e: Event) { … }`, a materialized read-model table). Reach for it when you need to know exactly what SQL a read lowers to on each backend, why a `where` is rejected, or which read shape (contract verb / criterion / retrieval / projection) to pick.
+Reading data: the `repository` and its read contract, the natural-key reads `getBy` / `findBy` over a declared `unique (…)` key, the restricted "queryable subset" a `where` clause admits, reusable `criterion` predicate specifications, `Repo.find(<Criterion>)` / `Repo.all(<Criterion>, sort:)` and `retrieval` query bundles with `sort`/`loads`, the `paged` read shape, the `ignoring` capability-filter bypass, and — the read-model surface that replaced the removed `view` — `projection` in its two flavours: **query-time** (`from … where … join … group by … select …`, computed on every read) and **folded** (`keyed by` + `on(e: Event) { … }`, a materialized read-model table). Reach for it when you need to know exactly what SQL a read lowers to on each backend, why a `where` is rejected, or which read shape (contract verb / criterion / retrieval / projection) to pick.
 
-> **Grammar:** `Repository`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `RetrievalLiteral`, `SortItem`, `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.parse-error#find-removed`, `loom.repo-key-not-unique`, `loom.repo-key-incomplete`, `loom.policy-read-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*` (incl. `loom.criterion-retrieval-name-clash`), `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldGet`, `scaffoldPaged`, `scaffoldDashboard`)
+> **Grammar:** `Repository`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `SortItem` (also the `sort:` slot of a member call), `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.parse-error#find-removed`, `loom.parse-error#retrieval-literal-removed`, `loom.repo-verb-renamed`, `loom.repo-get-criterion`, `loom.repo-find-retrieval`, `loom.repo-all-arg`, `loom.repo-sort-placement`, `loom.repo-key-not-unique`, `loom.repo-key-incomplete`, `loom.policy-read-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*` (incl. `loom.criterion-retrieval-name-clash`), `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldGet`, `scaffoldPaged`, `scaffoldDashboard`)
 
 All multi-backend examples below are generated from one scratch `system` (`Catalog` context: `Product`, `Customer`, `Order with softDeletable`) once per backend pin; output is excerpted.
 
@@ -12,13 +12,15 @@ A `repository` binds reads to one aggregate: `repository Name for Agg`, with an 
 
 | Call | Reads | Yields |
 |---|---|---|
-| `Repo.getById(id)` | the row with that id | `T` — a miss answers the standard ProblemDetails 404 |
-| `Repo.findById(id)` | the row with that id | `T?` |
+| `Repo.get(id)` | the row with that id | `T` — a miss answers the standard ProblemDetails 404 |
+| `Repo.find(id)` | the row with that id | `T?` |
 | `Repo.getBy(<col>: v, …)` | the row with a declared `unique (…)` key | `T` — a miss answers 404 |
 | `Repo.findBy(<col>: v, …)` | the row with a declared `unique (…)` key | `T?` |
 | `Repo.find(<Criterion>(args))` | the first row a criterion matches, in id order | `T?` |
-| `Repo.findAll(<Criterion>(args))` / `Repo.run(<Criterion \| Retrieval>(args))` | every matching row (paged with `page:` / by a paged `queryHandler`) | `T[]` |
-| `Repo.all` | every row — paged (`page`, `pageSize`, `sort`, `dir`) for a plain relational aggregate | `T paged` |
+| `Repo.all(<Criterion>(args), sort: […], page: {…})` | every row a criterion matches, in `sort:` order (paged with `page:` / by a paged `queryHandler`) | `T[]` |
+| `Repo.all(<Retrieval>(args), page: {…})` | every row a retrieval selects, in its declared order | `T[]` |
+| `Repo.all()` | every row | `T[]` |
+| `Repo.remove(x)` | — deletes `x` (a write; it yields nothing) | — |
 
 A `T?` read is an `if let` source, and a plain `let` binds it as `T?`. A trailing `ignoring …` widens one call past the capability filters (see [`ignoring`](#ignoring--capability-filter-bypass)). A name no verb spells — `Orders.byCode(c)` — is refused (`loom.workflow-unknown-repository-method` in a workflow, an unresolved member elsewhere).
 
@@ -30,8 +32,48 @@ criterion Pricey(floor: money) of Product = this.price >= floor
 
 let p = Products.getBy(sku: s)                       // Product
 if let q = Products.find(Pricey(floor)) { … }        // Product? — the first match
-let xs = Products.run(Pricey(floor))                  // Product[]
+let xs = Products.all(Pricey(floor))                  // Product[]
 ```
+
+## The repository verbs
+
+The verbs are `get`, `find`, `getBy`, `findBy`, `all` and `remove` ([D-REPO-VERBS](../decisions.md)). `get` answers the row or a 404; `find` answers the row or nothing; `all` answers a list. Two of them are decided by their argument:
+
+- **`find` is overloaded on its argument.** A reference to a declared `criterion` (`Active`, `ByRef(r)`) is the criterion read — the first match. Any other argument is an id, and the call is the by-id read. A `retrieval` is a list, so `find(<Retrieval>)` is refused (`loom.repo-find-retrieval`) — run it with `all`.
+- **`get` takes an id only.** `get(<Criterion>)` is refused (`loom.repo-get-criterion`), and the message points at `find`.
+- **`all` runs a criterion or a retrieval**, or with no argument reads the whole collection. An inline predicate is not an argument: declare it as a `criterion` and pass the name (`loom.repo-all-arg`). `page: { offset?, limit? }` bounds the read. In a workflow body an `all(<Criterion>)` without `page:` is warned about (`loom.findall-no-page`).
+- **`remove` is the one write.** It deletes the aggregate and yields no value.
+
+Every verb reads the same in a workflow, a handler, a domain service and a context `test` (which names the aggregate instead of the repository: `Order.get(id)`). The emitted repository methods keep their own names (`getById`, `findById`, `findAll`, `run<Retrieval>`, `findAllBy<Criterion>`). Those are generated code, never `.ddd` spellings.
+
+The previous spellings are a hard cutover. Each one is an error that names its replacement, and `node scripts/codemod-repo-verbs.mjs` rewrites a whole tree:
+
+| Was | Is |
+|---|---|
+| `Orders.getById(id)` | `Orders.get(id)` |
+| `Orders.findById(id)` | `Orders.find(id)` |
+| `Orders.findAll(C, page: p)` / `Orders.run(C)` | `Orders.all(C, page: p)` / `Orders.all(C)` |
+| `Orders.run(R(args), page: p)` | `Orders.all(R(args), page: p)` |
+| `Orders.run(retrieval { where: C sort: [s] })` | `Orders.all(C, sort: [s])` |
+| `Orders.findAll()` | `Orders.all()` |
+| `Orders.delete(o)` | `Orders.remove(o)` |
+
+```
+error  loom.repo-verb-renamed
+'Orders.getById(…)' is no longer a repository verb — it is 'Orders.get(…)'. The repository reads are
+get(id) / find(id) / find(<Criterion>) / getBy(…) / findBy(…) / all(…), and the write is remove(x).
+`node scripts/codemod-repo-verbs.mjs` migrates a whole tree.
+```
+
+### Sorting an `all` over a criterion
+
+`sort:` orders an `all` over a criterion. It takes the same `SortItem`s a declared `retrieval` does: a structural path over the candidate (columnar only), each with an optional `asc` / `desc`. The order is completed by `id`, so it is total:
+
+```ddd
+let recent = Orders.all(Active, sort: [placedAt desc, code], page: { limit: 20 })
+```
+
+The read lowers to a synthetic retrieval named after its shape (`findAllByActiveByPlacedAtDescThenCodeAsc`). `sort:` anywhere else is refused (`loom.repo-sort-placement`): a retrieval declares its own `sort:`, and no other call reads one. The anonymous `retrieval { … }` literal this replaces is a parse error (`loom.parse-error#retrieval-literal-removed`).
 
 ### `find` declarations are removed
 
@@ -46,20 +88,20 @@ repository Orders for Order {
 ```
 error  loom.parse-error
 A repository declares no `find`s any more: read 'Order' through the repository contract instead —
-`Orders.findById(id)` / `getById(id)`, `Orders.findBy(<column>: v)` / `getBy(…)` over a declared
-`unique (…)` key, or a `criterion` read with `Orders.find(C)` (the first match), `findAll(C)` or
-`run(C)`. A read a client calls is a `queryHandler` or `scaffoldGet`. Leave the repository body
-empty (`repository Orders for Order`).
+`Orders.find(id)` / `get(id)`, `Orders.findBy(<column>: v)` / `getBy(…)` over a declared
+`unique (…)` key, or a `criterion` read with `Orders.find(C)` (the first match) or `all(C)`. A read
+a client calls is a `queryHandler` or `scaffoldGet`. Leave the repository body empty
+(`repository Orders for Order`).
 ```
 
 Each old shape has one replacement:
 
 | Was | Is |
 |---|---|
-| `find byId(id: Order id): Order?` | `Orders.findById(id)` / `getById(id)` |
+| `find byId(id: Order id): Order?` | `Orders.find(id)` / `get(id)` |
 | `find bySku(sku: string): Product?` over a unique key | `unique (sku)` on the aggregate + `Products.findBy(sku: s)` / `getBy(…)` |
 | `find byCode(c): Order? where <predicate>` | `criterion ByCode(c: string) of Order = <predicate>` + `Orders.find(ByCode(c))` |
-| `find x(…): T[]` / `T paged` (a list) | a `criterion` / `retrieval` + `Orders.run(C(…))` — §[`Repo.run`](#reporun--the-paged-queryhandler) |
+| `find x(…): T[]` / `T paged` (a list) | a `criterion` / `retrieval` + `Orders.all(C(…))` — §[`Repo.all`](#repoall--the-paged-queryhandler) |
 | `find all(): T[]` / `T paged` | the implicit `all` (paged for a plain relational aggregate) |
 | `… ignoring <Cap>` on a find | `ignoring <Cap>` on the call (`Orders.find(C) ignoring softDeletable`) |
 | `T or <Error>` / `T option` / `T envelope` returns | `T?` (a miss is absence) / `T` (a miss is the standard 404) |
@@ -189,7 +231,7 @@ A paged read auto-gains `page`/`pageSize`/`sort`/`dir` parameters and a `total`/
 repository Orders for Order
 criterion OrdersForCustomer(c: string) of Order = this.customer == c
 queryHandler ListForCustomer(c: string): Order paged {
-  let r = Orders.run(OrdersForCustomer(c))
+  let r = Orders.all(OrdersForCustomer(c))
   return r
 }
 ```
@@ -330,7 +372,7 @@ public static Specification<Order> HighValue(BigDecimal min) {
 
 ## `retrieval`
 
-A `retrieval` is a named query *bundle* — a `where` predicate plus the shaping a real query carries: `sort` ordering and (reserved) `loads` fetch paths. Its `where` is a selection position with the same queryable-subset contract as a find — a bare predicate, a criterion, or a composition of both (`loom.retrieval-where-not-queryable` / `-unknown-field` / `-column-column`; a `sort` on a non-field is `loom.retrieval-sort-unknown-field`). The block form carries `where:` / `sort:` / `loads:` slots; the single-line form `retrieval Name of Agg = <expr>` is the bare-predicate shorthand. A retrieval may not share its name with a `criterion` in the same context (`loom.criterion-retrieval-name-clash`, an error): `Repo.run(<Name>)`, `scaffoldPaged(of: <Name>)` and a `where: <Name>` each resolve the bare name, so a name that meant both would have to pick one silently.
+A `retrieval` is a named query *bundle* — a `where` predicate plus the shaping a real query carries: `sort` ordering and (reserved) `loads` fetch paths. Its `where` is a selection position with the same queryable-subset contract as a find — a bare predicate, a criterion, or a composition of both (`loom.retrieval-where-not-queryable` / `-unknown-field` / `-column-column`; a `sort` on a non-field is `loom.retrieval-sort-unknown-field`). The block form carries `where:` / `sort:` / `loads:` slots; the single-line form `retrieval Name of Agg = <expr>` is the bare-predicate shorthand. A retrieval may not share its name with a `criterion` in the same context (`loom.criterion-retrieval-name-clash`, an error): `Repo.all(<Name>)`, `scaffoldPaged(of: <Name>)` and a `where: <Name>` each resolve the bare name, so a name that meant both would have to pick one silently.
 
 ```ddd
 retrieval BigActive(min: money) of Order {
@@ -339,9 +381,9 @@ retrieval BigActive(min: money) of Order {
 }
 ```
 
-A retrieval is a domain declaration: it has no route and no `requires` of its own. To put one on the wire, expose it with [`scaffoldPaged(of: <Retrieval>, requires?: <Policy>)`](22-macros.md) + `scaffoldPagedApi(of: <Retrieval>)` — a paged route whose default order is the retrieval's `sort:` (§[paged `queryHandler`](#reporun--the-paged-queryhandler)).
+A retrieval is a domain declaration: it has no route and no `requires` of its own. To put one on the wire, expose it with [`scaffoldPaged(of: <Retrieval>, requires?: <Policy>)`](22-macros.md) + `scaffoldPagedApi(of: <Retrieval>)` — a paged route whose default order is the retrieval's `sort:` (§[paged `queryHandler`](#repoall--the-paged-queryhandler)).
 
-A retrieval lowers to a `run<Name>` repository method that consumes the reified criterion and applies the sort. Paging is a **call-site** argument (`Repo.run(BigActive(m), page: { offset: 0, limit: 100 })`), never part of the declaration:
+A retrieval lowers to a `run<Name>` repository method that consumes the reified criterion and applies the sort. Paging is a **call-site** argument (`Repo.all(BigActive(m), page: { offset: 0, limit: 100 })`), never part of the declaration:
 
 ::: tabs backend
 == node
@@ -396,7 +438,7 @@ end
 ```
 ::: end
 
-`Repo.run(retrieval { where: <Criterion> sort: […] }, page?)` is the anonymous, call-site twin accepted from workflow / handler bodies (`RetrievalLiteral` in the grammar) — **its** `where:` must be a criterion reference in this release. See [`../workflow.md`](../workflow.md) and [`../criterion.md`](../criterion.md).
+`Repo.all(<Criterion>, sort: […], page?)` is the call-site twin accepted from workflow / handler bodies — a criterion with an order, without declaring a retrieval (§[Sorting an `all` over a criterion](#sorting-an-all-over-a-criterion)). See [`../workflow.md`](../workflow.md) and [`../criterion.md`](../criterion.md).
 
 ### `loads:` shaping
 
@@ -404,13 +446,13 @@ end
 
 **Honest gap:** explicit `loads:` is **not shipped** — a retrieval with one is rejected (`loom.retrieval-loads-unsupported`: "explicit 'loads:' is not supported yet — retrievals load the whole aggregate. (Per-operation autoload is planned.)"). Retrievals load the whole aggregate; treat `loads:` as reserved surface.
 
-## `Repo.run` & the paged `queryHandler`
+## `Repo.all` & the paged `queryHandler`
 
-`Repo.run(<Criterion | Retrieval>(args))` is the read-only port a handler body reads through — the criterion-driven replacement for a list find. A `queryHandler` that returns `<Agg> paged` over it is the ergonomic paged list read (what [`scaffoldPaged`](22-macros.md) expands to): enrichment synthesises a paged find on the aggregate's repository — `findAllBy<Criterion>` for a criterion, `page<Retrieval>` for a retrieval — which is not auto-exposed (the handler's `route` is the exposure). The handler's return is auto-projected to `<Agg>Response paged`, and `page`/`pageSize`/`sort`/`dir` come from the paged infra, never from handler params. Over a retrieval, its `where` filters and its `sort:` is the default order: the route's `sort` defaults to `""`, which the paged find reads as "the declared terms, then `id`" (a whitelisted `sort` column still wins). Emitted on all five backends. The body is the handler's `requires` gates (each a 403 before the read) followed by `let r = Repo.run(<read>(args))` at the top level, then `return r`; anything else is refused with `loom.paged-query-handler-shape`. A sorted retrieval over an aggregate that pages in memory — event-log, `shape: document`/embedded, an inheritance subtype — is refused under the same code (`#sorted-retrieval-shape`) rather than silently left unordered.
+`Repo.all(<Criterion | Retrieval>(args))` is the read-only port a handler body reads through — the criterion-driven replacement for a list find. A `queryHandler` that returns `<Agg> paged` over it is the ergonomic paged list read (what [`scaffoldPaged`](22-macros.md) expands to): enrichment synthesises a paged find on the aggregate's repository — `findAllBy<Criterion>` for a criterion, `page<Retrieval>` for a retrieval — which is not auto-exposed (the handler's `route` is the exposure). The handler's return is auto-projected to `<Agg>Response paged`, and `page`/`pageSize`/`sort`/`dir` come from the paged infra, never from handler params. Over a retrieval, its `where` filters and its `sort:` is the default order: the route's `sort` defaults to `""`, which the paged find reads as "the declared terms, then `id`" (a whitelisted `sort` column still wins). Emitted on all five backends. The body is the handler's `requires` gates (each a 403 before the read) followed by `let r = Repo.all(<read>(args))` at the top level, then `return r`; anything else is refused with `loom.paged-query-handler-shape`. A sorted retrieval over an aggregate that pages in memory — event-log, `shape: document`/embedded, an inheritance subtype — is refused under the same code (`#sorted-retrieval-shape`) rather than silently left unordered.
 
 ```ddd
 queryHandler ListBig(min: money): Order paged {
-  let r = Orders.run(HighValue(min))
+  let r = Orders.all(HighValue(min))
   return r
 }
 api CatalogApi from Sales { route GET "/big" -> Catalog.ListBig }
@@ -462,7 +504,7 @@ end
 ```
 ::: end
 
-The inline twin inside a handler / workflow body is `Repo.findAll(<Criterion>(args), page: { offset: 0, limit: N })` (optionally `… ignoring …`, see below): the criterion must exist on that aggregate with the right arity (`loom.findall-unknown-criterion` / `-criterion-mismatch` / `-criterion-arity`), and in a workflow body the `page:` bound is mandatory — an unbounded list read is `loom.findall-no-page`.
+The inline twin inside a handler / workflow body is `Repo.all(<Criterion>(args), page: { offset: 0, limit: N })` (optionally `… ignoring …`, see below): the criterion must exist on that aggregate with the right arity (`loom.findall-unknown-criterion` / `-criterion-mismatch` / `-criterion-arity`), and in a workflow body the `page:` bound is mandatory — an unbounded list read is `loom.findall-no-page`.
 
 A read position (an api `GET`/`HEAD` route, a `queryHandler`, a `reading` service) may not reach the mutating repository face — a read-method route bound to a mutating `commandHandler` is `loom.read-context-repo-write`. Domain-service reads have their own rules (`loom.domain-service-read-unsupported`, `-cross-context-read` — [chapter 23](23-domain-services-and-seeds.md)), and a repository read inside a test `expect(...)` must be `let`-bound first (`loom.integration-find-must-bind` — [chapter 18](18-testing.md)).
 
@@ -472,7 +514,7 @@ A trailing `ignoring` clause on a read skips the query-filters a capability cont
 
 ```ddd
 criterion Big of Order = this.total > 1000
-// … let xs = Orders.findAll(Big()) ignoring softDeletable   — no `not is_deleted` term
+// … let xs = Orders.all(Big()) ignoring softDeletable   — no `not is_deleted` term
 ```
 
 The per-backend output of a widened read is under [Widened single-row reads](#widened-single-row-reads) below; each backend drops exactly the named capabilities' filters (`IgnoreQueryFilters(["IsDeletedFilter"])` on .NET, a disabled Hibernate filter on Java, the term left out of the `where` on node / Python / Elixir).
@@ -482,9 +524,9 @@ The per-backend output of a widened read is under [Widened single-row reads](#wi
 | Position | Spelling |
 |---|---|
 | a query-time projection's `where` slot — **before** `join` / `group by` / `select` | `from Order as o ignoring softDeletable  group by …` |
-| an inline read bound by a `let` (`findAll`, `run`, `getBy`, `findBy`) | `let xs = Orders.findAll(Big()) ignoring *` |
+| an inline read bound by a `let` (`findAll`, `run`, `getBy`, `findBy`) | `let xs = Orders.all(Big()) ignoring *` |
 | an `if let` source (`find(<Criterion>)`, `findBy`) | `if let o = Orders.find(ByRef(r)) ignoring softDeletable { … }` |
-| a single-row read in a `domainService` operation (`find(<Criterion>)`, `findById`, `getBy`, `findBy`) | `return Orders.findById(id) ignoring * != null` |
+| a single-row read in a `domainService` operation (`find(<Criterion>)`, `findById`, `getBy`, `findBy`) | `return Orders.find(id) ignoring * != null` |
 
 ### Widened single-row reads
 
@@ -500,7 +542,7 @@ commandHandler ArchiveFirstInRegion(region: string): int {
 
 domainService ProductQueries {
   operation everExisted(id: Product id): bool {
-    return Products.findById(id) ignoring softDeletable != null
+    return Products.find(id) ignoring softDeletable != null
   }
 }
 ```
@@ -775,7 +817,7 @@ from(record in D.Catalog.Order, where: not record.is_deleted,
 ```
 ::: end
 
-**No paging, no `order by`.** A projection read returns the whole row list — there is no `paged` carrier or sort clause on a projection (the grammar reserves `order by` for a later slice; no `loom.projection-paged-*` code exists). Grouped reads are ordered by their grouping columns; for a paged list, use a paged `queryHandler` ([above](#reporun--the-paged-queryhandler)).
+**No paging, no `order by`.** A projection read returns the whole row list — there is no `paged` carrier or sort clause on a projection (the grammar reserves `order by` for a later slice; no `loom.projection-paged-*` code exists). Grouped reads are ordered by their grouping columns; for a paged list, use a paged `queryHandler` ([above](#repoall--the-paged-queryhandler)).
 
 ### Sources — aggregate, workflow, projection
 

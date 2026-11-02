@@ -451,7 +451,7 @@ export function firstNonQueryableNode(e: ExprIR): string | null {
       return (
         `bare 'id' — no backend's query renderer emits the primary-key column in ` +
         `a find / criterion predicate; filter on a declared field, or load by ` +
-        `key through '<Repo>.getById(...)'`
+        `key through '<Repo>.get(...)'`
       );
     case "ref":
       // Refs the lowering produces that translate cleanly to SQL —

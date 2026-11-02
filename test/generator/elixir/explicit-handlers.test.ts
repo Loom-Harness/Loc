@@ -35,12 +35,12 @@ system Shop {
       }
       repository Orders for Order { }
       commandHandler CancelOrder(orderId: Order id): Order id {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         o.cancel()
         return o.id
       }
       queryHandler GetStatus(orderId: Order id): string {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         return o.status
       }
     }
@@ -289,7 +289,7 @@ system S {
       repository Orders for Order { }
       criterion InRegion(rgn: string) of Order = region == rgn
       queryHandler ListInRegion(rgn: string): Order paged {
-        let r = Orders.run(InRegion(rgn))
+        let r = Orders.all(InRegion(rgn))
         return r
       }
     }

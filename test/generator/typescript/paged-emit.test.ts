@@ -17,7 +17,7 @@ const SRC = `
     repository Warehouses for Warehouse
     criterion InRegion(region: string) of Warehouse = this.region == region
     queryHandler ListInRegion(region: string): Warehouse paged {
-      let r = Warehouses.run(InRegion(region))
+      let r = Warehouses.all(InRegion(region))
       return r
     }
   }

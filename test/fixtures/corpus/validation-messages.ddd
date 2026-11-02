@@ -85,7 +85,7 @@ system MessagedRules {
       repository Products for Product { }
       criterion ProductsByName(n: string) of Product = this.name == n
       queryHandler ListProductsByName(n: string): Product[] {
-        let r = Products.run(ProductsByName(n))
+        let r = Products.all(ProductsByName(n))
         return r
       }
     }

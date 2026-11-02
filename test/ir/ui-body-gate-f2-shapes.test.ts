@@ -34,7 +34,7 @@ const page = (binding: string, dep: string, body: string) => `
         aggregate Order { customerId: Customer id  tags: string[] }
         repository Customers for Customer { }
         repository Orders for Order { }
-        workflow placeOrder { create(orderId: Order id) { let o = Orders.getById(orderId) } }
+        workflow placeOrder { create(orderId: Order id) { let o = Orders.get(orderId) } }
       }
     }
     api SalesApi from Sales

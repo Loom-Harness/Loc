@@ -45,8 +45,8 @@ system Catalog {
       }
       workflow Sweep {
         create(min: int) {
-          let xs = Orders.findAll(BigOrders()) ignoring softDeletable
-          let ys = Orders.findAll(BigOrders()) ignoring *
+          let xs = Orders.all(BigOrders()) ignoring softDeletable
+          let ys = Orders.all(BigOrders()) ignoring *
           for o in xs { }
           for o in ys { }
         }

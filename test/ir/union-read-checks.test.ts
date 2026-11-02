@@ -43,7 +43,7 @@ describe("loom.union-read-undiscriminated", () => {
     const msgs = await flagged(`
     workflow label {
       create(code: string, id: Order id) {
-        let o = Orders.getById(id)
+        let o = Orders.get(id)
         o.touch()
         let n = Note.create(text: o.code)
       }

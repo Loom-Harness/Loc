@@ -1,7 +1,7 @@
 // Two emitted shapes that failed the generated project's own static bar
 // (eval-closure-review #15b / #15c), pinned by the LOOM_PYTHON_BUILD leg:
 //
-//   #15b  `let t = Techs.getById(tech)` read by nothing — a pure existence
+//   #15b  `let t = Techs.get(tech)` read by nothing — a pure existence
 //         check.  The route kept `t = await techs.get_by_id(tech)`: ruff F841.
 //         Fixed: the awaited load stays (a missing id still 404s), the dead
 //         binding goes.  `j` is only an op-call RECEIVER (`j.mark(...)`) and an
@@ -38,8 +38,8 @@ system LintResidue {
       repository WorkOrders for WorkOrder { }
       workflow assign {
         create(job: Job id, tech: Tech id) {
-          let j = Jobs.getById(job)
-          let t = Techs.getById(tech)
+          let j = Jobs.get(job)
+          let t = Techs.get(tech)
           j.mark("x")
         }
       }

@@ -397,7 +397,7 @@ system S {
           emit ShipmentRequested { shipment: ship.id, order: p.order, at: now() }
         }
         on(s: ShipmentRequested) by s.order {
-          let ship = Shipments.getById(s.shipment)
+          let ship = Shipments.get(s.shipment)
           ship.markTracked()
         }
       }

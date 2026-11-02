@@ -684,7 +684,7 @@ option(T)   → T?                                 # deprecated spelling (see §
 ```
 
 ```ddd
-queryHandler ListOrders(region: string): Order paged { let r = Orders.run(InRegion(region))  return r }
+queryHandler ListOrders(region: string): Order paged { let r = Orders.all(InRegion(region))  return r }
 ```
 
 > A carrier appears in a transport position — a `queryHandler` return or a payload field.  Repository reads are the contract verbs ([Repositories & queries](10-repositories-and-queries.md#repository--the-read-contract)); the implicit list read `all` is `T paged`.

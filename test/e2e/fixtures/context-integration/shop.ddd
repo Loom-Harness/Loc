@@ -14,7 +14,7 @@ system Shop {
       test "places an order and reads it back" {
         let o = Order.create(customerId: "c1", status: "Draft")
         o.place()
-        let found = Order.findById(o.id)
+        let found = Order.find(o.id)
         expect(found.status).toBe("Placed")
       }
     }

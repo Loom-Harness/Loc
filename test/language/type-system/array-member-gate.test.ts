@@ -7,7 +7,7 @@
 // emitters verbatim.
 //
 // WHY THIS IS NOT A DOMAIN-SERVICE BUG.  #3040 gave `envForNode` a
-// `DomainServiceOperation` arm, so `let f = Owners.run(OwnersByTier(t))` now binds
+// `DomainServiceOperation` arm, so `let f = Owners.all(OwnersByTier(t))` now binds
 // `array<Owner>` instead of `unknown` in a service body. That closed the
 // IR/language disagreement; it did NOT make `f.totallyInvented` reported,
 // because no validator covered an array receiver in EITHER position. Hence
@@ -26,7 +26,7 @@ import { parseString } from "../../_helpers/index.js";
 /** The same expression in an aggregate `operation` and in a `domainService`
  *  operation, over an identical `array<Owner>` binding. */
 function twoPosition(expr: string): { agg: string; svc: string } {
-  const bind = `let f = Owners.run(OwnersByTier("gold"))`;
+  const bind = `let f = Owners.all(OwnersByTier("gold"))`;
   const mk = (aggStmt: string, svcStmt: string) => `
   context Fleet {
     aggregate Owner with crudish {
@@ -123,12 +123,12 @@ describe("the false-positive guard: every legal array member stays clean", () =>
     aggregate Owner with crudish {
       tier: string
       label: string
-      operation probe() { let f = Owners.run(OwnersByTier("gold"))  label := "z" }
+      operation probe() { let f = Owners.all(OwnersByTier("gold"))  label := "z" }
     }
     repository Owners for Owner { }
     criterion OwnersByTier(tier: string) of Owner = this.tier == tier
     domainService Probe {
-      operation probe(): bool { let f = Owners.run(OwnersByTier("gold"))  return f.${op}${call} != null }
+      operation probe(): bool { let f = Owners.all(OwnersByTier("gold"))  return f.${op}${call} != null }
     }
   }`;
     const errors = (await parseString(src)).errors.join("\n");

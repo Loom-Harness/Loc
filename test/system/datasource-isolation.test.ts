@@ -36,7 +36,7 @@ describe("resource isolationLevel — end-to-end emit", () => {
             repository Customers for Customer { }
             workflow bumpCredit transactional {
       create(customerId: Customer id, amount: decimal) {
-              let c = Customers.getById(customerId)
+              let c = Customers.get(customerId)
               c.addCredit(amount)
             }
     }
@@ -77,7 +77,7 @@ describe("resource isolationLevel — end-to-end emit", () => {
             repository Customers for Customer { }
             workflow bumpCredit transactional(readCommitted) {
       create(customerId: Customer id, amount: decimal) {
-              let c = Customers.getById(customerId)
+              let c = Customers.get(customerId)
               c.addCredit(amount)
             }
     }
@@ -118,7 +118,7 @@ describe("resource isolationLevel — end-to-end emit", () => {
             repository Customers for Customer { }
             workflow bumpCredit {
       create(customerId: Customer id, amount: decimal) {
-              let c = Customers.getById(customerId)
+              let c = Customers.get(customerId)
               c.addCredit(amount)
             }
     }
@@ -157,7 +157,7 @@ describe("resource isolationLevel — end-to-end emit", () => {
             repository Customers for Customer { }
             workflow bumpCredit transactional {
       create(customerId: Customer id, amount: decimal) {
-              let c = Customers.getById(customerId)
+              let c = Customers.get(customerId)
               c.addCredit(amount)
             }
     }
@@ -207,7 +207,7 @@ describe("resource isolationLevel — end-to-end emit", () => {
             repository Customers for Customer { }
             workflow bumpCredit transactional {
       create(customerId: Customer id, amount: decimal) {
-              let c = Customers.getById(customerId)
+              let c = Customers.get(customerId)
               c.addCredit(amount)
             }
     }

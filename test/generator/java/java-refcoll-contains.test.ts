@@ -24,7 +24,7 @@ system Pokedex {
       repository Trainers for Trainer { }
       criterion TrainersHoldingInParty(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
       queryHandler ListHoldingInParty(pokemon: Pokemon id): Trainer paged {
-        let r = Trainers.run(TrainersHoldingInParty(pokemon))
+        let r = Trainers.all(TrainersHoldingInParty(pokemon))
         return r
       }
     }

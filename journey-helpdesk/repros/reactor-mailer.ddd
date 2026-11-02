@@ -13,7 +13,7 @@ system R {
       workflow notify {
         thing: Thing id
         create(e: Done) by e.thing {
-          let t = Things.getById(e.thing)
+          let t = Things.get(e.thing)
           mail.send(t.email, "Done", "Thing finished")
         }
       }

@@ -4,10 +4,10 @@
 // domain service.
 //
 //   let c = Customers.find(ByEmail(e))     // Customer? — the first match
-//   let o = Orders.findById(oid)           // Order?
+//   let o = Orders.find(oid)           // Order?
 //   let p = Products.findBy(sku: sku)      // Product?  — a declared unique key
 //   let x = Orders.byCode(code)            // Order?    — a declared `T?` find
-//   if let o = Orders.findById(oid) { … }  // findById as an `if let` source
+//   if let o = Orders.find(oid) { … }  // findById as an `if let` source
 //   if let o = x { … }                     // narrowing a binding in scope
 //
 // Each backend binds the nullable value as is (`T | null`, `T?`, `None`,
@@ -42,7 +42,7 @@ system OptionalLet {
         return c != null ? c.name : "none"
       }
       queryHandler OrderQty(oid: Order id): int {
-        let o = Orders.findById(oid)
+        let o = Orders.find(oid)
         return o != null ? o.qty : 0
       }
       queryHandler HasProduct(sku: string): bool {
@@ -50,7 +50,7 @@ system OptionalLet {
         return p != null
       }
       commandHandler TouchById(oid: Order id) {
-        if let o = Orders.findById(oid) { o.touch() }
+        if let o = Orders.find(oid) { o.touch() }
       }
       commandHandler TouchByCode(code: string) {
         let x = Orders.findBy(code: code)
@@ -63,7 +63,7 @@ system OptionalLet {
           return c != null
         }
         operation qtyOf(oid: Order id): int {
-          let o = Orders.findById(oid)
+          let o = Orders.find(oid)
           return o != null ? o.qty : 0
         }
       }
@@ -74,7 +74,7 @@ system OptionalLet {
         orderId: Order id
         create(orderId: Order id) { }
         on(e: Pinged) by e.order {
-          if let o = Orders.findById(e.order) { o.touch() }
+          if let o = Orders.find(e.order) { o.touch() }
           if let q = Orders.findBy(code: e.code) { q.touch() }
           let k = Orders.findBy(code: e.code)
           if let p = k { p.touch() }
@@ -85,8 +85,8 @@ system OptionalLet {
         create(c: Place) {
           let cust = Customers.find(ByEmail(c.e))
           precondition cust != null
-          if let o = Orders.findById(c.oid) { o.touch() }
-          let again = Orders.findById(c.oid)
+          if let o = Orders.find(c.oid) { o.touch() }
+          let again = Orders.find(c.oid)
           if let a = again { a.touch() }
         }
       }

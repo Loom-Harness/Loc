@@ -859,7 +859,7 @@ describe(".NET generator", () => {
         workflow placeOrder {
       create(customerId: Customer id, amount: decimal, placedAt: datetime) {
           precondition amount > 0
-          let customer = Customers.getById(customerId)
+          let customer = Customers.get(customerId)
           customer.deductCredit(amount)
           let order = Order.create(
             customerId: customerId,
@@ -996,7 +996,7 @@ describe(".NET generator", () => {
         repository Orders for Order { }
         workflow placeAndConfirm {
       create(orderId: Order id) {
-          let order = Orders.getById(orderId)
+          let order = Orders.get(orderId)
           order.confirm()
         }
     }
@@ -1083,7 +1083,7 @@ describe(".NET generator", () => {
         repository Orders for Order { }
         workflow chargeOrder {
       create(orderId: Order id, amount: decimal) {
-          let order = Orders.getById(orderId)
+          let order = Orders.get(orderId)
           order.deduct(amount)
         }
     }
@@ -1117,31 +1117,31 @@ describe(".NET generator", () => {
         repository Customers for Customer { }
         workflow ser transactional(serializable) {
       create(customerId: Customer id, amount: decimal) {
-          let c = Customers.getById(customerId)
+          let c = Customers.get(customerId)
           c.addCredit(amount)
         }
     }
         workflow rr transactional(repeatableRead) {
       create(customerId: Customer id, amount: decimal) {
-          let c = Customers.getById(customerId)
+          let c = Customers.get(customerId)
           c.addCredit(amount)
         }
     }
         workflow ru transactional(readUncommitted) {
       create(customerId: Customer id, amount: decimal) {
-          let c = Customers.getById(customerId)
+          let c = Customers.get(customerId)
           c.addCredit(amount)
         }
     }
         workflow rc transactional(readCommitted) {
       create(customerId: Customer id, amount: decimal) {
-          let c = Customers.getById(customerId)
+          let c = Customers.get(customerId)
           c.addCredit(amount)
         }
     }
         workflow plain transactional {
       create(customerId: Customer id, amount: decimal) {
-          let c = Customers.getById(customerId)
+          let c = Customers.get(customerId)
           c.addCredit(amount)
         }
     }
@@ -1768,7 +1768,7 @@ describe(".NET generator", () => {
               repository Trainers for Trainer
               criterion TrainersHoldingInParty(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
               queryHandler holding(pokemon: Pokemon id): Trainer[] {
-                let r = Trainers.run(TrainersHoldingInParty(pokemon))
+                let r = Trainers.all(TrainersHoldingInParty(pokemon))
                 return r
               }
             }

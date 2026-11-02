@@ -24,7 +24,7 @@ system JavaTenancy {
       repository Accounts for Account { }
       criterion AccountsByMinBalance(min: int) of Account = this.balance >= min
       queryHandler ListByMinBalance(min: int): Account paged {
-        let r = Accounts.run(AccountsByMinBalance(min))
+        let r = Accounts.all(AccountsByMinBalance(min))
         return r
       }
     }

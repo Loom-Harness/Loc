@@ -29,8 +29,8 @@ system S {
       command C { region: string }
       workflow W {
         create(c: C) {
-          let active = Orders.run(ActiveOrder, page: { offset: 0, limit: 50 })
-          let regional = Orders.run(InRegion(c.region), page: { offset: 0, limit: 50 })
+          let active = Orders.all(ActiveOrder, page: { offset: 0, limit: 50 })
+          let regional = Orders.all(InRegion(c.region), page: { offset: 0, limit: 50 })
           for o in active { }
         }
       }

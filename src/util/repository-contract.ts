@@ -48,25 +48,20 @@ export type RepoFace = "read" | "write";
 
 /** The argument a contract verb takes.
  *
- *  - `id`                     — one aggregate id.
- *  - `key`                    — named arguments equal to one declared
- *                               `unique (…)` tuple of the aggregate, in any
- *                               order (`Products.getBy(sku: s)`).
- *  - `none`                   — no argument.
- *  - `criterion`              — a criterion reference (`Name` / `Name(args)`).
- *  - `criterion-or-none`      — a criterion reference, or no argument (the
- *                               whole collection).
- *  - `retrieval-or-criterion` — a retrieval reference, an anonymous retrieval
- *                               literal, or a criterion reference.
- *  - `entity`                 — a loaded aggregate value. */
-export type RepoArgShape =
-  | "id"
-  | "key"
-  | "none"
-  | "criterion"
-  | "criterion-or-none"
-  | "retrieval-or-criterion"
-  | "entity";
+ *  - `id`            — one aggregate id.
+ *  - `key`           — named arguments equal to one declared `unique (…)`
+ *                      tuple of the aggregate, in any order
+ *                      (`Products.getBy(sku: s)`).
+ *  - `criterion`     — a criterion reference (`Name` / `Name(args)`).
+ *  - `query-or-none` — a criterion or a retrieval reference, optionally with
+ *                      `sort:` / `page:`, or no argument (the whole
+ *                      collection).
+ *  - `entity`        — a loaded aggregate value.
+ *
+ *  `find` is overloaded on this shape: a criterion reference is the criterion
+ *  read, anything else the by-id read (`classifyRepoArg` in
+ *  `language/repo-query-arg.ts` decides). */
+export type RepoArgShape = "id" | "key" | "criterion" | "query-or-none" | "entity";
 
 /** The value a contract verb yields: the row, an optional row, a list of rows,
  *  or nothing (a write). */
@@ -74,21 +69,27 @@ export type RepoResultShape = "row" | "optional-row" | "rows" | "none";
 
 /** Where a verb is accepted.  `body` is a workflow / handler / domain-service
  *  body; `integration-test` is a context `test` body, which reads through the
- *  generated repository by aggregate name (`Order.getById(id)`). */
+ *  generated repository by aggregate name (`Order.get(id)`). */
 export type RepoVerbPosition = "body" | "integration-test";
 
 /** The surface spellings the contract table offers. */
-export type ContractVerb =
-  | "getById"
-  | "findById"
-  | "getBy"
-  | "findBy"
-  | "find"
-  | "findAll"
-  | "all"
-  | "run"
-  | "delete"
-  | "remove";
+export type ContractVerb = "get" | "find" | "getBy" | "findBy" | "all" | "remove";
+
+/** The verbs the contract no longer offers, each with the verb that replaced
+ *  it (D-REPO-VERBS).  A call spelling one is refused with
+ *  `loom.repo-verb-renamed`, naming the replacement. */
+export const RETIRED_REPO_VERBS: Readonly<Record<string, ContractVerb>> = {
+  getById: "get",
+  findById: "find",
+  findAll: "all",
+  run: "all",
+  delete: "remove",
+};
+
+/** The verb that replaced a retired one, or `undefined` for a current name. */
+export function retiredRepoVerb(name: string): ContractVerb | undefined {
+  return Object.hasOwn(RETIRED_REPO_VERBS, name) ? RETIRED_REPO_VERBS[name] : undefined;
+}
 
 /** Persistence names that are NOT contract verbs.  A body persists at its exit
  *  (or at the end of a loop iteration / branch), never by statement, so a call
@@ -97,8 +98,7 @@ export type ContractVerb =
 export type PersistVerb = "save" | "insert" | "update" | "add" | "commit";
 
 /** Every repository method name the toolchain classifies: the contract verbs
- *  plus the persistence names it refuses.  A declared find is called by its own
- *  name and is not one of these. */
+ *  plus the persistence names it refuses. */
 export type RepoVerb = ContractVerb | PersistVerb;
 
 /** The body effect a repository verb performs (`ir/types/effect-ir.ts`):
@@ -109,15 +109,11 @@ export type RepoVerbEffect = "load" | "delete" | "persist";
  *  verb without an effect is a type error here instead of a fallthrough at a
  *  string-set lookup. */
 export const REPO_VERB_EFFECT: Readonly<Record<RepoVerb, RepoVerbEffect>> = {
-  getById: "load",
-  findById: "load",
+  get: "load",
+  find: "load",
   getBy: "load",
   findBy: "load",
-  find: "load",
-  findAll: "load",
   all: "load",
-  run: "load",
-  delete: "delete",
   remove: "delete",
   save: "persist",
   insert: "persist",
@@ -127,13 +123,13 @@ export const REPO_VERB_EFFECT: Readonly<Record<RepoVerb, RepoVerbEffect>> = {
 };
 
 /** The effect of a repository method name, or `undefined` for a name that is
- *  not a `RepoVerb` (a declared find, or an unknown method). */
+ *  not a `RepoVerb` (an unknown method, or a retired verb). */
 export function repoVerbEffect(name: string): RepoVerbEffect | undefined {
   return Object.hasOwn(REPO_VERB_EFFECT, name) ? REPO_VERB_EFFECT[name as RepoVerb] : undefined;
 }
 
 export interface RepoVerbContract {
-  /** The surface spelling accepted today. */
+  /** The surface spelling. */
   readonly verb: ContractVerb;
   readonly op: RepoOp;
   readonly face: RepoFace;
@@ -141,55 +137,48 @@ export interface RepoVerbContract {
   readonly result: RepoResultShape;
   /** `page:` is accepted beside the argument. */
   readonly paged: boolean;
+  /** `sort:` is accepted beside the argument. */
+  readonly sorted: boolean;
   /** The call consumes a chain-borne `ignoring` filter bypass (the matchers
-   *  that read it are `matchRetrievalRunCall` / `matchFindAllCall` /
-   *  `matchKeyLookupCall` / `matchFindCall` / `matchByIdBypassCall` in
-   *  `ir/lower/repo-read.ts`). */
+   *  that read it are `matchAllCall` / `matchKeyLookupCall` / `matchFindCall` /
+   *  `matchByIdBypassCall` in `ir/lower/repo-read.ts`). */
   readonly ignoring: boolean;
   readonly positions: readonly RepoVerbPosition[];
+  /** The repository method the IR names for this read — what the emitters
+   *  render against the generated repository (`getById`, `findById`, …).
+   *  Emitter vocabulary, never spelled in `.ddd`.  Empty where the method is
+   *  derived instead (a natural-key read's `keyLookupMethodName`) or there is
+   *  none (a write). */
+  readonly method: string;
 }
 
-/** The built-in repository verbs. */
+/** The built-in repository verbs.  `find` appears twice — the by-id read and
+ *  the criterion read — and the by-id entry comes first, so a lookup by name
+ *  alone answers the by-id contract. */
 export const REPOSITORY_CONTRACT: readonly RepoVerbContract[] = [
   {
-    verb: "getById",
+    verb: "get",
     op: "load",
     face: "read",
     args: "id",
     result: "row",
     paged: false,
+    sorted: false,
     ignoring: false,
     positions: ["body", "integration-test"],
+    method: "getById",
   },
   {
-    verb: "findById",
+    verb: "find",
     op: "load-optional",
     face: "read",
     args: "id",
     result: "optional-row",
     paged: false,
+    sorted: false,
     ignoring: true,
     positions: ["body", "integration-test"],
-  },
-  {
-    verb: "getBy",
-    op: "load-by-key",
-    face: "read",
-    args: "key",
-    result: "row",
-    paged: false,
-    ignoring: true,
-    positions: ["body"],
-  },
-  {
-    verb: "findBy",
-    op: "load-by-key-optional",
-    face: "read",
-    args: "key",
-    result: "optional-row",
-    paged: false,
-    ignoring: true,
-    positions: ["body"],
+    method: "findById",
   },
   {
     verb: "find",
@@ -198,48 +187,46 @@ export const REPOSITORY_CONTRACT: readonly RepoVerbContract[] = [
     args: "criterion",
     result: "optional-row",
     paged: false,
+    sorted: false,
     ignoring: true,
     positions: ["body"],
+    method: "find",
   },
   {
-    verb: "findAll",
-    op: "select-many",
+    verb: "getBy",
+    op: "load-by-key",
     face: "read",
-    args: "criterion-or-none",
-    result: "rows",
-    paged: true,
+    args: "key",
+    result: "row",
+    paged: false,
+    sorted: false,
     ignoring: true,
-    positions: ["body", "integration-test"],
+    positions: ["body"],
+    method: "",
+  },
+  {
+    verb: "findBy",
+    op: "load-by-key-optional",
+    face: "read",
+    args: "key",
+    result: "optional-row",
+    paged: false,
+    sorted: false,
+    ignoring: true,
+    positions: ["body"],
+    method: "",
   },
   {
     verb: "all",
     op: "select-many",
     face: "read",
-    args: "none",
-    result: "rows",
-    paged: false,
-    ignoring: false,
-    positions: ["body"],
-  },
-  {
-    verb: "run",
-    op: "select-many",
-    face: "read",
-    args: "retrieval-or-criterion",
+    args: "query-or-none",
     result: "rows",
     paged: true,
+    sorted: true,
     ignoring: true,
-    positions: ["body"],
-  },
-  {
-    verb: "delete",
-    op: "remove",
-    face: "write",
-    args: "entity",
-    result: "none",
-    paged: false,
-    ignoring: false,
-    positions: ["body"],
+    positions: ["body", "integration-test"],
+    method: "findAll",
   },
   {
     verb: "remove",
@@ -248,18 +235,35 @@ export const REPOSITORY_CONTRACT: readonly RepoVerbContract[] = [
     args: "entity",
     result: "none",
     paged: false,
+    sorted: false,
     ignoring: false,
     positions: ["body"],
+    method: "",
   },
 ];
 
+// Built back to front so the FIRST entry of an overloaded verb (`find`'s by-id
+// read) is the one a lookup by name returns.
 const BY_VERB: ReadonlyMap<string, RepoVerbContract> = new Map(
-  REPOSITORY_CONTRACT.map((c) => [c.verb, c]),
+  [...REPOSITORY_CONTRACT].reverse().map((c) => [c.verb, c]),
 );
 
-/** The contract entry for a surface verb, or `undefined` for a declared find
- *  name / a non-contract name. */
+/** The contract entry for a surface verb, or `undefined` for a non-contract
+ *  name.  For `find` this is the by-id entry; `repositoryVerbFor` resolves
+ *  the overload from the argument. */
 export function repositoryVerb(name: string): RepoVerbContract | undefined {
+  return BY_VERB.get(name);
+}
+
+/** The contract entry a call resolves to, given whether its argument is a
+ *  criterion reference.  Only `find` is overloaded: a criterion argument is
+ *  the criterion read, anything else the by-id read. */
+export function repositoryVerbFor(
+  name: string,
+  criterionArg: boolean,
+): RepoVerbContract | undefined {
+  if (name === "find" && criterionArg)
+    return REPOSITORY_CONTRACT.find((c) => c.verb === "find" && c.args === "criterion");
   return BY_VERB.get(name);
 }
 
@@ -270,8 +274,7 @@ export function repoVerbOp(name: string): RepoOp | undefined {
 }
 
 /** True when the named repository call mutates persistence: a `delete` or
- *  `persist` verb.  Every other name (a contract read, a declared find) is a
- *  read. */
+ *  `persist` verb.  Every other name is a read. */
 export function isRepoWriteName(name: string): boolean {
   const effect = repoVerbEffect(name);
   return effect === "delete" || effect === "persist";
@@ -289,28 +292,31 @@ export function repoVerbOpAt(name: string, position: RepoVerbPosition): RepoOp |
   return c?.positions.includes(position) ? c.op : undefined;
 }
 
+/** The repository method a by-name contract read is emitted as (`get` →
+ *  `getById`, `find(id)` → `findById`, `all()` → `findAll`); any other name
+ *  is its own method. */
+export function repoVerbMethod(name: string): string {
+  const c = BY_VERB.get(name);
+  return c?.method ? c.method : name;
+}
+
 /** The surface spelling of a canonical op that takes `args` — the inverse
  *  lookup, used where a diagnostic or a synthesised call has to SPELL a verb
- *  (`load` → `getById`).  The first matching table entry wins. */
+ *  (`load` → `get`).  The first matching table entry wins. */
 export function repoOpVerb(op: RepoOp, args?: RepoArgShape): string {
   const hit = REPOSITORY_CONTRACT.find((c) => c.op === op && (!args || c.args === args));
   if (!hit) throw new Error(`repository contract has no verb for op '${op}'`);
   return hit.verb;
 }
 
-/** The canonical op of a named repository call `Repo.<name>(…)`: a declared
- *  find wins (it is the repository's own contract and is called under its own
- *  name), otherwise the contract verb's op.  `undefined` for a name that is
- *  neither. */
+/** The canonical op of a by-name repository call `Repo.<name>(…)` — one whose
+ *  argument is a plain value (`get(id)`, `find(id)`, `all()`).  `undefined`
+ *  for a name that is not a contract verb, and for the natural-key reads,
+ *  which only `matchKeyLookupCall` recognises (it resolves their named
+ *  arguments against the declared tuples). */
 export function namedRepoCallOp(name: string): RepoOp | undefined {
   const c = BY_VERB.get(name);
-  // A verb whose argument is a criterion / retrieval REFERENCE is that verb
-  // only when the reference is recognised (the reference matchers in
-  // `ir/lower/repo-read.ts` own that); called with anything else it is not.
-  // A natural-key read is likewise recognised only by `matchKeyLookupCall`,
-  // which resolves its named arguments against the declared tuples.
-  if (!c || c.args === "criterion" || c.args === "retrieval-or-criterion" || c.args === "key")
-    return undefined;
+  if (!c || c.args === "key") return undefined;
   return c.op;
 }
 
@@ -361,12 +367,12 @@ export function bypassSuffix(bypass?: ReadBypass): string {
 
 /** The repository method a single-row read that widens its capability filters
  *  is emitted as.  The plain reads run against shared methods (`find(C)` the
- *  criterion's `findAllBy<C>` retrieval, `findById` the by-id load) whose
+ *  criterion's `findAllBy<C>` retrieval, `find(id)` the by-id load) whose
  *  filters every other caller relies on, so a widened read gets a method of
  *  its own, with the stance in its name:
  *
  *    Orders.find(ByRef(r)) ignoring softDeletable → findFirstByRefIgnoringSoftDeletable
- *    Orders.findById(id) ignoring *              → findByIdIgnoringAll
+ *    Orders.find(id) ignoring *                  → findByIdIgnoringAll
  *
  *  `findFirst` keeps a criterion read apart from a natural-key read over a
  *  column of the same spelling (`findBy` over `(ref)` is `findByRef…`). */

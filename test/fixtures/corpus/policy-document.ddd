@@ -83,7 +83,7 @@ system PolicyDocument {
       // PAGED: a non-relational repository serves a criterion read through the
       // synthesised paged find; an unpaged `run` has no repository method there.
       queryHandler ListThingsByLabel(l: string): Thing paged {
-        let r = Things.run(ThingsByLabel(l))
+        let r = Things.all(ThingsByLabel(l))
         return r
       }
       repository Notes for Note { }

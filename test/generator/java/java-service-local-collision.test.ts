@@ -66,7 +66,7 @@ system Collide {
       repository Counters for Counter { }
       criterion CountersByResult(result: int) of Counter = this.result == result
       queryHandler ListByResult(result: int): Counter paged {
-        let r = Counters.run(CountersByResult(result))
+        let r = Counters.all(CountersByResult(result))
         return r
       }
     }

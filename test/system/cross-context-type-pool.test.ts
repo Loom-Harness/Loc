@@ -145,7 +145,7 @@ system EnumXCtx {
       repository RA for Away { }
       criterion AwaysByGrade(k: Grade) of Away = this.g == k
       queryHandler ListAwaysByGrade(k: Grade): Away[] {
-        let r = RA.run(AwaysByGrade(k))
+        let r = RA.all(AwaysByGrade(k))
         return r
       }
     }

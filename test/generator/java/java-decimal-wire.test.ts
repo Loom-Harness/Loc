@@ -75,7 +75,7 @@ system Money {
       }
 
       queryHandler GetUnitFactor(orderId: Order id): decimal {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         return o.unitFactor
       }
     }

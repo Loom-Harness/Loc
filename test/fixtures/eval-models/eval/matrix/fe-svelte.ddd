@@ -289,9 +289,9 @@ system FieldOps {
       workflow scheduleWorkOrder transactional {
         create(workOrder: WorkOrder id, technician: Technician id, asset: Asset id, at: datetime) {
           requires currentUser.permissions.contains(permissions.workOrderDispatch)
-          let wo = WorkOrders.getById(workOrder)
-          let tech = Technicians.getById(technician)
-          let a = Assets.getById(asset)
+          let wo = WorkOrders.get(workOrder)
+          let tech = Technicians.get(technician)
+          let a = Assets.get(asset)
           precondition tech.hasSkill(a.requiredSkill)
             message "technician is not qualified for this asset"
           wo.schedule(technician, at)
@@ -370,7 +370,7 @@ system FieldOps {
       workflow completeWorkOrder transactional(serializable) {
         create(workOrder: WorkOrder id, note: string) {
           requires currentUser.permissions.contains(permissions.workOrderWrite)
-          let usages = PartUsages.run(UsageForOrder(workOrder), page: { offset: 0, limit: 500 })
+          let usages = PartUsages.all(UsageForOrder(workOrder), page: { offset: 0, limit: 500 })
           for u in usages {
             if let p = Parts.find(PartBySku(u.partSku)) {
               p.consume(u.qty)
@@ -378,7 +378,7 @@ system FieldOps {
               precondition false message "part no longer exists"
             }
           }
-          let wo = WorkOrders.getById(workOrder)
+          let wo = WorkOrders.get(workOrder)
           wo.complete(note)
         }
       }

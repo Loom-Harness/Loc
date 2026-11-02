@@ -62,11 +62,11 @@ describe("ignoring filter-bypass printer", () => {
       wrap(`repository R for Order
         workflow Peek {
           create(id: Order id) {
-            let o = R.findById(id) ignoring *
+            let o = R.find(id) ignoring *
           }
         }`),
     );
-    expect(printed).toContain("R.findById(id) ignoring *");
+    expect(printed).toContain("R.find(id) ignoring *");
   });
 
   it("inline read: `Repo.findAll(...) ignoring <Cap>` round-trips", async () => {
@@ -74,7 +74,7 @@ describe("ignoring filter-bypass printer", () => {
       wrap(`repository R for Order { }
         workflow Sweep {
           create(x: int) {
-            let xs = R.findAll(BigOrders()) ignoring softDeletable
+            let xs = R.all(BigOrders()) ignoring softDeletable
             for o in xs { }
           }
         }`),

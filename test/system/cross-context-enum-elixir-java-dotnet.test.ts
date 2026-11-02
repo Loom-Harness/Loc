@@ -37,7 +37,7 @@ system R {
       repository Clms for Clm
       criterion ClmsByKind(k: Kind) of Clm = this.kind == k
       queryHandler ListClmsByKind(k: Kind): Clm[] {
-        let r = Clms.run(ClmsByKind(k))
+        let r = Clms.all(ClmsByKind(k))
         return r
       }
       event Opened { clm: Clm id, title: string }

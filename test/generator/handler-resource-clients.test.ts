@@ -36,14 +36,14 @@ system HRC {
       repository Orders for Order { }
       criterion OrdersByName(name: string) of Order = this.name == name
       commandHandler ArchiveOrder(name: string): int {
-        let matches = Orders.run(OrdersByName(name))
+        let matches = Orders.all(OrdersByName(name))
         salesFiles.put("orders/" + name, name)
         salesJobs.enqueue(name)
         mail.send(name, "Order archived", "gone")
         return matches.count
       }
       queryHandler PeekArchive(name: string): int {
-        let matches = Orders.run(OrdersByName(name))
+        let matches = Orders.all(OrdersByName(name))
         let archived = salesFiles.get("orders/" + name)
         return matches.count
       }
@@ -102,7 +102,7 @@ system Plain {
       repository Orders for Order { }
       criterion OrdersByName(name: string) of Order = this.name == name
       queryHandler Count(name: string): int {
-        let matches = Orders.run(OrdersByName(name))
+        let matches = Orders.all(OrdersByName(name))
         return matches.count
       }
     }

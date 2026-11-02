@@ -61,7 +61,7 @@ system TphCrossings {
       // read-side concern gets dropped on the way through.
       criterion ParcelsByCourier(c: string) of Parcel = this.courier == c
       queryHandler ListParcelsByCourier(c: string): Parcel paged {
-        let r = Parcels.run(ParcelsByCourier(c))
+        let r = Parcels.all(ParcelsByCourier(c))
         return r
       }
       repository Crates for Crate { }

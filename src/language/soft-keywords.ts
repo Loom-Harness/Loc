@@ -203,14 +203,24 @@ function flatChoices(
   return out;
 }
 
+/** The soft keywords every name rule admits: `CommonSoftKeywords` minus
+ *  `sort`, which `CallArgName` leaves out so `sort:` in a member call is only
+ *  ever the repository-read sort slot.  `SoftKeywordsExceptSort` is that core. */
+const NAME_RULE_CORE: ReadonlySet<string> = (() => {
+  const core = keywordsOf(DddGrammar(), "SoftKeywordsExceptSort");
+  // A renamed rule would leave this empty, and then every rule admitting `ID`
+  // would pass for a name rule — fall back to the full shared set instead.
+  return core.size > 0 ? core : COMMON_SOFT;
+})();
+
 /** True for the shape of every "a name goes here" rule (`LooseName`,
- *  `NameRefIdent`, `MacroArgName`, …): a flat alternation that admits `ID`
- *  and the whole shared soft-keyword set.  Read off the grammar so a new name
- *  rule is picked up without a list to maintain. */
+ *  `NameRefIdent`, `CallArgName`, `MacroArgName`, …): a flat alternation that
+ *  admits `ID` and the shared soft-keyword core.  Read off the grammar so a new
+ *  name rule is picked up without a list to maintain. */
 function isNameRule(rule: GrammarAST.ParserRule): boolean {
-  if (rule.name === "CommonSoftKeywords") return true;
+  if (rule.name === "CommonSoftKeywords" || rule.name === "SoftKeywordsExceptSort") return true;
   const choices = flatChoices(rule);
-  return !!choices && choices.has("ID") && [...COMMON_SOFT].every((k) => choices.has(k));
+  return !!choices && choices.has("ID") && [...NAME_RULE_CORE].every((k) => choices.has(k));
 }
 
 /** Per parser rule, the keywords that are only ever a NAME at the start of any

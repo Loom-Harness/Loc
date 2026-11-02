@@ -30,7 +30,7 @@ system Shop {
       repository Products for Product
       criterion ProductsByName(q: string) of Product = this.name == q.trim()
       queryHandler ListByName(q: string): Product[] {
-        let r = Products.run(ProductsByName(q))
+        let r = Products.all(ProductsByName(q))
         return r
       }
     }
@@ -108,19 +108,19 @@ system Shop {
       criterion ProductsByMinQty(q: int) of Product = this.qty.min(5) == q
       criterion ProductsByNormalizedWeight(q: decimal) of Product = this.weight == q.round(1)
       queryHandler ListByRoundedPrice(q: money): Product[] {
-        let r = Products.run(ProductsByRoundedPrice(q))
+        let r = Products.all(ProductsByRoundedPrice(q))
         return r
       }
       queryHandler ListByWholeWeight(q: decimal): Product[] {
-        let r = Products.run(ProductsByWholeWeight(q))
+        let r = Products.all(ProductsByWholeWeight(q))
         return r
       }
       queryHandler ListByMinQty(q: int): Product[] {
-        let r = Products.run(ProductsByMinQty(q))
+        let r = Products.all(ProductsByMinQty(q))
         return r
       }
       queryHandler ListByNormalizedWeight(q: decimal): Product[] {
-        let r = Products.run(ProductsByNormalizedWeight(q))
+        let r = Products.all(ProductsByNormalizedWeight(q))
         return r
       }
     }

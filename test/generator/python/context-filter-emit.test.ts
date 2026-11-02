@@ -27,7 +27,7 @@ system Shop {
       repository Customers for Customer
       criterion CustomersByName(n: string) of Customer = name == n
       queryHandler ListCustomersByName(n: string): Customer[] {
-        let r = Customers.run(CustomersByName(n))
+        let r = Customers.all(CustomersByName(n))
         return r
       }
     }

@@ -18,28 +18,38 @@ import {
 // `if let` source; `select-many` → collection typing; `remove` → the
 // domain-service purity gate.
 
-const WRITE_NAMES = ["save", "insert", "update", "delete", "add", "remove", "commit"];
+// `delete` is a retired verb (refused by `loom.repo-verb-renamed`), so it classifies as nothing.
+const WRITE_NAMES = ["save", "insert", "update", "add", "remove", "commit"];
 const READ_NAMES = ["getById", "find", "findAll", "findByEmail", "query", "count", "load"];
 
 describe("the contract table", () => {
-  it("maps every built-in verb to its canonical op", () => {
-    expect(Object.fromEntries(REPOSITORY_CONTRACT.map((c) => [c.verb, c.op]))).toStrictEqual({
-      getById: "load",
-      findById: "load-optional",
-      getBy: "load-by-key",
-      findBy: "load-by-key-optional",
-      find: "select-one",
-      findAll: "select-many",
-      all: "select-many",
-      run: "select-many",
-      delete: "remove",
-      remove: "remove",
-    });
+  it("maps every built-in verb and argument shape to its canonical op", () => {
+    expect(REPOSITORY_CONTRACT.map((c) => [c.verb, c.args, c.op])).toStrictEqual([
+      ["get", "id", "load"],
+      ["find", "id", "load-optional"],
+      ["find", "criterion", "select-one"],
+      ["getBy", "key", "load-by-key"],
+      ["findBy", "key", "load-by-key-optional"],
+      ["all", "query-or-none", "select-many"],
+      ["remove", "entity", "remove"],
+    ]);
   });
 
-  it("names each verb once", () => {
-    const verbs = REPOSITORY_CONTRACT.map((c) => c.verb);
-    expect(new Set(verbs).size).toBe(verbs.length);
+  it("names each verb and argument shape once", () => {
+    const keys = REPOSITORY_CONTRACT.map((c) => `${c.verb}/${c.args}`);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("keeps the IR method names the emitters render", () => {
+    expect(REPOSITORY_CONTRACT.map((c) => [c.verb, c.args, c.method])).toStrictEqual([
+      ["get", "id", "getById"],
+      ["find", "id", "findById"],
+      ["find", "criterion", "find"],
+      ["getBy", "key", ""],
+      ["findBy", "key", ""],
+      ["all", "query-or-none", "findAll"],
+      ["remove", "entity", ""],
+    ]);
   });
 
   it("gives each op one result shape", () => {
@@ -63,24 +73,33 @@ describe("the contract table", () => {
   });
 
   it("spells an op back to its surface verb", () => {
-    expect(repoOpVerb("load")).toBe("getById");
-    expect(repoOpVerb("load-optional")).toBe("findById");
-    expect(repoOpVerb("select-many", "retrieval-or-criterion")).toBe("run");
+    expect(repoOpVerb("load")).toBe("get");
+    expect(repoOpVerb("load-optional")).toBe("find");
+    expect(repoOpVerb("select-one", "criterion")).toBe("find");
+    expect(repoOpVerb("select-many")).toBe("all");
+    expect(repoOpVerb("remove")).toBe("remove");
     expect(() => repoOpVerb("unknown-read")).toThrow();
   });
 
   it("looks a verb up by its exact spelling", () => {
-    expect(repositoryVerb("getById")?.op).toBe("load");
-    expect(repoVerbOp("GetById")).toBeUndefined();
+    expect(repositoryVerb("get")?.op).toBe("load");
+    expect(repositoryVerb("find")?.op).toBe("load-optional");
+    expect(repoVerbOp("Get")).toBeUndefined();
     expect(repoVerbOp("byCode")).toBeUndefined();
+  });
+
+  it("does not resolve a retired verb", () => {
+    for (const old of ["getById", "findById", "findAll", "run", "delete"]) {
+      expect(repositoryVerb(old), old).toBeUndefined();
+    }
   });
 
   it("accepts in a context integration test only the by-name reads it renders", () => {
     expect(
-      REPOSITORY_CONTRACT.filter((c) => isRepoVerbAt(c.verb, "integration-test")).map(
-        (c) => c.verb,
+      [...new Set(REPOSITORY_CONTRACT.map((c) => c.verb))].filter((v) =>
+        isRepoVerbAt(v, "integration-test"),
       ),
-    ).toStrictEqual(["getById", "findById", "findAll"]);
+    ).toStrictEqual(["get", "find", "all"]);
   });
 });
 
@@ -89,16 +108,10 @@ describe("named repository calls", () => {
     expect(namedRepoCallOp("byCode")).toBeUndefined();
   });
 
-  it("a by-name contract verb resolves to its op", () => {
-    expect(namedRepoCallOp("getById")).toBe("load");
-    expect(namedRepoCallOp("findById")).toBe("load-optional");
-    expect(namedRepoCallOp("findAll")).toBe("select-many");
+  it("a by-name contract verb resolves to its value-argument op", () => {
+    expect(namedRepoCallOp("get")).toBe("load");
+    expect(namedRepoCallOp("find")).toBe("load-optional");
     expect(namedRepoCallOp("all")).toBe("select-many");
-  });
-
-  it("a reference-taking verb is not resolved by name alone", () => {
-    expect(namedRepoCallOp("find")).toBeUndefined();
-    expect(namedRepoCallOp("run")).toBeUndefined();
   });
 
   it("a natural-key verb is not resolved by name alone (its tuple decides the method)", () => {

@@ -9,7 +9,7 @@ system R02 {
     durationMinutes: int
     derived endsAt: datetime = startAt + minutes(durationMinutes)
     unique (practitioner, startAt)
-    invariant Appointments.run(OverlapsExisting(practitioner, startAt, endsAt)).count == 0
+    invariant Appointments.all(OverlapsExisting(practitioner, startAt, endsAt)).count == 0
   }
   criterion OverlapsExisting(p: Practitioner id, s: datetime, e: datetime) of Appointment =
     practitioner == p && startAt < e && endsAt > s

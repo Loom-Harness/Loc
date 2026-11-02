@@ -187,11 +187,11 @@ system StorefrontSystem {
       criterion WalletsByOwner(owner: Customer id) of Wallet = this.ownerId == owner
       criterion WalletsOpenByOwner(owner: Customer id) of Wallet = this.ownerId == owner && this.status == Open
       queryHandler ListWalletsByOwner(owner: Customer id): Wallet[] {
-        let r = Wallets.run(WalletsByOwner(owner))
+        let r = Wallets.all(WalletsByOwner(owner))
         return r
       }
       queryHandler ListWalletsOpenByOwner(owner: Customer id): Wallet[] {
-        let r = Wallets.run(WalletsOpenByOwner(owner))
+        let r = Wallets.all(WalletsOpenByOwner(owner))
         return r
       }
       repository Orders for Order { }
@@ -204,7 +204,7 @@ system StorefrontSystem {
       workflow checkout transactional {
         create(customerId: Customer id, walletId: Wallet id, productId: Product id, unitPrice: Money, qty: int) {
           precondition qty > 0
-          let wallet = Wallets.getById(walletId)
+          let wallet = Wallets.get(walletId)
           let order = Order.create(
             customerId: customerId,
             status: Draft,

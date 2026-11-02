@@ -78,7 +78,7 @@ system JavaReservedWords {
       // identifier and the wire spelling have to be told apart.
       criterion TicketsByLabel(final: bool, label: string) of Ticket = this.label == label
       queryHandler ListTicketsByLabel(final: bool, label: string): Ticket[] {
-        let r = Tickets.run(TicketsByLabel(final, label))
+        let r = Tickets.all(TicketsByLabel(final, label))
         return r
       }
     }

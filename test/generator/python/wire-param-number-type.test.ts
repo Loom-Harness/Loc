@@ -50,7 +50,7 @@ system S {
       // same params off its own template, which is how the .NET \`NoNulChar\`
       // using went missing on one of two call sites.
       queryHandler ListRicher(floor: int): Account paged {
-        let r = Accounts.run(Richer(floor))
+        let r = Accounts.all(Richer(floor))
         return r
       }
     }

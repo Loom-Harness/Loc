@@ -53,9 +53,9 @@ async function errorsOf(src: string): Promise<string[]> {
 describe("codemod-workflow-handle — liftWorkflowHandles", () => {
   it("lifts a handle out of its workflow into a commandHandler after it", async () => {
     const src = wrap(`      workflow Settle {
-        create(orderId: Order id) { let o = Orders.getById(orderId) }
+        create(orderId: Order id) { let o = Orders.get(orderId) }
         handle settle(orderId: Order id) {
-          let o = Orders.getById(orderId)
+          let o = Orders.get(orderId)
           o.close()
         }
       }`);
@@ -64,10 +64,10 @@ describe("codemod-workflow-handle — liftWorkflowHandles", () => {
     expect(refused).toEqual([]);
     expect(text).toBe(
       wrap(`      workflow Settle {
-        create(orderId: Order id) { let o = Orders.getById(orderId) }
+        create(orderId: Order id) { let o = Orders.get(orderId) }
       }
       commandHandler settle(orderId: Order id) {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         o.close()
       }`),
     );
@@ -81,19 +81,19 @@ describe("codemod-workflow-handle — liftWorkflowHandles", () => {
 
   it("lifts every handle of a workflow and leaves an empty workflow valid", async () => {
     const src = wrap(`      workflow Ops {
-        handle a(orderId: Order id) { let o = Orders.getById(orderId) }
+        handle a(orderId: Order id) { let o = Orders.get(orderId) }
         handle b(orderId: Order id) {
-          let o = Orders.getById(orderId)
+          let o = Orders.get(orderId)
         }
       }`);
     const { text, changed } = liftWorkflowHandles(src);
     expect(changed).toBe(2);
     expect(text).toContain("      workflow Ops {\n      }\n");
     expect(text).toContain(
-      "      commandHandler a(orderId: Order id) { let o = Orders.getById(orderId) }\n",
+      "      commandHandler a(orderId: Order id) { let o = Orders.get(orderId) }\n",
     );
     expect(text).toContain(
-      "      commandHandler b(orderId: Order id) {\n        let o = Orders.getById(orderId)\n      }",
+      "      commandHandler b(orderId: Order id) {\n        let o = Orders.get(orderId)\n      }",
     );
     expect(text).not.toMatch(/\bhandle\b/);
     expect(await errorsOf(text)).toEqual([]);
@@ -102,14 +102,14 @@ describe("codemod-workflow-handle — liftWorkflowHandles", () => {
   it("refuses a gated or modified handle — a commandHandler takes no gate or modifier", () => {
     const gated = liftWorkflowHandles(
       wrap(`      workflow W {
-        handle go(orderId: Order id) requires currentUser.role == "clerk" { let o = Orders.getById(orderId) }
+        handle go(orderId: Order id) requires currentUser.role == "clerk" { let o = Orders.get(orderId) }
       }`),
     );
     expect(gated.changed).toBe(0);
     expect(gated.refused[0]?.reason).toMatch(/`requires` gate/);
     const priv = liftWorkflowHandles(
       wrap(`      workflow W {
-        private handle go(orderId: Order id) { let o = Orders.getById(orderId) }
+        private handle go(orderId: Order id) { let o = Orders.get(orderId) }
       }`),
     );
     expect(priv.refused[0]?.reason).toBe("'private' is not allowed on a commandHandler");
@@ -120,7 +120,7 @@ describe("codemod-workflow-handle — liftWorkflowHandles", () => {
     const src = wrap(`      workflow Track {
         orderId: Order id
         create(orderId: Order id) { orderId := orderId }
-        handle poke(orderId: Order id) { let o = Orders.getById(orderId) }
+        handle poke(orderId: Order id) { let o = Orders.get(orderId) }
       }`);
     const { text, changed, refused } = liftWorkflowHandles(src);
     expect(refused).toEqual([]);
@@ -164,7 +164,7 @@ describe("codemod-workflow-handle — liftWorkflowHandles", () => {
   it("refuses a reserved `id` parameter and a body that reaches two aggregates", () => {
     const reserved = liftWorkflowHandles(
       wrap(`      workflow W {
-        handle go(id: Order id) { let o = Orders.getById(id) }
+        handle go(id: Order id) { let o = Orders.get(id) }
       }`),
     );
     expect(reserved.refused[0]?.reason).toMatch(/named 'id'/);
@@ -173,7 +173,7 @@ describe("codemod-workflow-handle — liftWorkflowHandles", () => {
       repository Notes for Note { }
       workflow W {
         handle go(orderId: Order id) {
-          let o = Orders.getById(orderId)
+          let o = Orders.get(orderId)
           let n = Note.create(body: "x")
         }
       }`),
@@ -186,7 +186,7 @@ describe("codemod-workflow-handle — liftWorkflowHandles", () => {
   it("refuses every handle of an eventSourced workflow", () => {
     const { changed, refused } = liftWorkflowHandles(
       wrap(`      workflow Ledger eventSourced {
-        handle post(orderId: Order id) { let o = Orders.getById(orderId) }
+        handle post(orderId: Order id) { let o = Orders.get(orderId) }
       }`),
     );
     expect(changed).toBe(0);
@@ -195,13 +195,13 @@ describe("codemod-workflow-handle — liftWorkflowHandles", () => {
 
   it("refuses a name an existing handler (or an earlier lifted handle) already holds", () => {
     const { text, changed, refused } = liftWorkflowHandles(
-      wrap(`      commandHandler settle(orderId: Order id) { let o = Orders.getById(orderId) }
+      wrap(`      commandHandler settle(orderId: Order id) { let o = Orders.get(orderId) }
       workflow A {
-        handle settle(orderId: Order id) { let o = Orders.getById(orderId) }
-        handle other(orderId: Order id) { let o = Orders.getById(orderId) }
+        handle settle(orderId: Order id) { let o = Orders.get(orderId) }
+        handle other(orderId: Order id) { let o = Orders.get(orderId) }
       }
       workflow B {
-        handle other(orderId: Order id) { let o = Orders.getById(orderId) }
+        handle other(orderId: Order id) { let o = Orders.get(orderId) }
       }`),
     );
     expect(changed).toBe(1);
@@ -212,9 +212,9 @@ describe("codemod-workflow-handle — liftWorkflowHandles", () => {
   it("leaves a source with no workflow handle byte-identical", () => {
     const src = wrap(`      // workflow W { handle go() { } }
       workflow W {
-        create(orderId: Order id) { let o = Orders.getById(orderId) }
+        create(orderId: Order id) { let o = Orders.get(orderId) }
       }
-      commandHandler handle(orderId: Order id) { let o = Orders.getById(orderId) }`);
+      commandHandler handle(orderId: Order id) { let o = Orders.get(orderId) }`);
     expect(liftWorkflowHandles(src)).toEqual({ text: src, changed: 0, refused: [] });
   });
 });

@@ -26,15 +26,15 @@ system Shop {
       criterion OrdersPlacedBefore(t: datetime) of Order = this.placedAt < t
       criterion OrdersOver(m: money) of Order = this.total > m
       queryHandler ListOrdersByStatus(s: Status): Order[] {
-        let r = Orders.run(OrdersByStatus(s))
+        let r = Orders.all(OrdersByStatus(s))
         return r
       }
       queryHandler ListOrdersPlacedBefore(t: datetime): Order[] {
-        let r = Orders.run(OrdersPlacedBefore(t))
+        let r = Orders.all(OrdersPlacedBefore(t))
         return r
       }
       queryHandler ListOrdersOver(m: money): Order[] {
-        let r = Orders.run(OrdersOver(m))
+        let r = Orders.all(OrdersOver(m))
         return r
       }
     }

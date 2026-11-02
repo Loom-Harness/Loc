@@ -378,14 +378,14 @@ describe("structured expression editor — workflow statement slots", () => {
   it("lists a workflow's single-expression statements", () => {
     const opts = workflowSlotOptions(owner<Workflow>(parse(sales), "Workflow", "placeOrder"));
     expect(opts.map((o) => o.value)).toEqual(["wf:0", "wf:1"]);
-    expect(opts[0].label).toBe("let customer = Customers.getById(customerId)");
+    expect(opts[0].label).toBe("let customer = Customers.get(customerId)");
   });
 
   it("resolves and edits a workflow statement expression", () => {
     const tree = seedExpr(
       slotExpr(parse(sales), { kind: "wfStmt", owner: "placeOrder", index: 0 })!,
     );
-    expect(tree).toMatchObject({ kind: "member", member: "getById", call: true });
+    expect(tree).toMatchObject({ kind: "member", member: "get", call: true });
     expect(
       editExprSlot(
         sales,

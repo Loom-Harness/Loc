@@ -26,7 +26,7 @@ const SRC = `
       if let x = Customers.find(InRegion(r)) { return x } else { notFound "not_found" }
     }
     queryHandler ListActiveInRegion(r: string): Customer[] {
-      let x = Customers.findAll(CustomersActiveInRegion(r))
+      let x = Customers.all(CustomersActiveInRegion(r))
       return x
     }
   }

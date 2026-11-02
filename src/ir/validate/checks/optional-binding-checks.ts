@@ -1,7 +1,7 @@
 // -------------------------------------------------------------------------
 // Optional bindings in workflow and handler bodies.
 //
-// `let c = Customers.find(ByEmail(e))`, `let o = Orders.findById(id)`,
+// `let c = Customers.find(ByEmail(e))`, `let o = Orders.find(id)`,
 // `let p = Products.findBy(sku: s)` and a `let` over a declared `find …: T?`
 // bind `T?`.  Each backend binds the nullable value as is (`Order | null`,
 // `Order?`, `None`, `nil`), so the binding is usable only through a null test
@@ -11,7 +11,7 @@
 // phase ④ (`loom.nullable-receiver`, `language/validators/nullable-receiver.ts`).
 // The two statement forms that dereference a binding do not pass through an
 // expression the typing pass sees: an op-call statement (`o.touch()`) and a
-// repository delete (`Orders.delete(o)`).  Both would render as a bare call on
+// repository delete (`Orders.remove(o)`).  Both would render as a bare call on
 // a possibly-null value — TS18047 on node, CS8602 on .NET, a
 // NullPointerException on java, an AttributeError on python, a nil match error
 // on elixir.  This check refuses them under the same code.

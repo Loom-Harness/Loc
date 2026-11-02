@@ -77,14 +77,14 @@ system Tasks {
       }
 
       // repo-let exercise — loads an existing aggregate by id then mutates
-      // it.  `Tasks.getById(taskId)` lowers to a
+      // it.  `Tasks.get(taskId)` lowers to a
       // `{:ok, t} <- Context.get_task(task_id)` with-clause off the
       // find_by_id facade; a missing record short-circuits to
       // `{:error, :not_found}` (controller → 404).  Proves the loaded
       // local + the id param-surfacing compile under --warnings-as-errors.
       workflow completeExisting transactional {
         create(taskId: Task id) {
-          let t = Tasks.getById(taskId)
+          let t = Tasks.get(taskId)
           t.markDone()
         }
       }
@@ -97,7 +97,7 @@ system Tasks {
       event TaskFinished { task: Task id, at: datetime }
       workflow finishExisting transactional {
         create(taskId: Task id) {
-          let t = Tasks.getById(taskId)
+          let t = Tasks.get(taskId)
           t.markDone()
           emit TaskFinished { task: taskId, at: now() }
         }
@@ -142,7 +142,7 @@ system Tasks {
       // test, not a syntactic gate).
       workflow finalizeBatch {
         create(d: bool) {
-          let xs = Tasks.run(DoneTasks(d), page: { offset: 0, limit: 100 })
+          let xs = Tasks.all(DoneTasks(d), page: { offset: 0, limit: 100 })
           for x in xs {
             x.markDone()
           }
@@ -156,7 +156,7 @@ system Tasks {
       // that the broader for-each body compiles under --warnings-as-errors.
       workflow finalizeBatchEmitting {
         create(d: bool) {
-          let xs = Tasks.run(DoneTasks(d), page: { offset: 0, limit: 100 })
+          let xs = Tasks.all(DoneTasks(d), page: { offset: 0, limit: 100 })
           for x in xs {
             x.markDone()
             emit TaskFinished { task: x.id, at: now() }

@@ -104,7 +104,7 @@ describe("shared walker migration — files.put nested in a for-each body", () =
         retrieval AllOrders of Order = Named
         workflow Archive {
           create(name: string) {
-            let os = Orders.run(AllOrders)
+            let os = Orders.all(AllOrders)
             for o in os {
               salesFiles.put("k/" + o.name, o.name)
             }

@@ -15,7 +15,7 @@ system Crit {
       repository Orders for Order { }
       criterion OrdersRecent of Order = this.archived == false
       queryHandler ListOrdersRecent(): Order[] {
-        let r = Orders.run(OrdersRecent())
+        let r = Orders.all(OrdersRecent())
         return r
       }
     }

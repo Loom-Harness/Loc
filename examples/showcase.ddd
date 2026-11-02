@@ -301,11 +301,11 @@ system DevPlatform {
             // ForStmt + Repo.run (named retrieval) + RetrievalLiteral (inline).
             workflow scanProjects {
               create(needle: string) {
-                  let matched = Projects.run(ByActiveName(needle), page: { offset: 0, limit: 100 })
+                  let matched = Projects.all(ByActiveName(needle), page: { offset: 0, limit: 100 })
                   for p in matched {
                       p.addPipeline("scan")
                   }
-                  let adhoc = Projects.run(retrieval { where: ActiveNamed(needle) sort: [sequence desc] })
+                  let adhoc = Projects.all(ActiveNamed(needle), sort: [sequence desc])
               }
             }
 
@@ -402,7 +402,7 @@ system DevPlatform {
             workflow promoteToProduction transactional(serializable) {
               create(buildId: Build id) {
                 requires currentUser.role == "admin"
-                  let b = Builds.getById(buildId)
+                  let b = Builds.get(buildId)
                   b.promote("production")
               }
             }

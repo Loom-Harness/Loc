@@ -46,7 +46,7 @@ system HandlerTriad {
       // renaming the call to `getById` and re-wrapping its argument.
       criterion OrdersById(oid: Order id) of Order = replaces == oid
       queryHandler ListOrdersById(oid: Order id): Order[] {
-        let r = Orders.run(OrdersById(oid))
+        let r = Orders.all(OrdersById(oid))
         return r
       }
 
@@ -60,7 +60,7 @@ system HandlerTriad {
       }
       // B: an `Agg id` path param flowing into the declared `byId` find.
       queryHandler CountReplacing(orderId: Order id): int {
-        let matches = Orders.run(OrdersById(orderId))
+        let matches = Orders.all(OrdersById(orderId))
         return matches.count
       }
 
@@ -97,7 +97,7 @@ system HandlerTriad {
           // (the read-port derivation only recognises a read that is the whole
           // expression).  This fixture takes the supported spelling on purpose
           // — its subject is the handler's handle, not that gate.
-          let hits = Orders.run(OrdersById(oid))
+          let hits = Orders.all(OrdersById(oid))
           return hits.count > 0
         }
       }

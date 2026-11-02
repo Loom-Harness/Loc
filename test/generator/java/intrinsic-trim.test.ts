@@ -23,7 +23,7 @@ system Shop {
       repository Products for Product { }
       criterion ProductsByExactName(q: string) of Product = this.name.trim() == q
       queryHandler ListByExactName(q: string): Product paged {
-        let r = Products.run(ProductsByExactName(q))
+        let r = Products.all(ProductsByExactName(q))
         return r
       }
     }

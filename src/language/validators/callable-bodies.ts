@@ -117,7 +117,7 @@ function checkReturns(
 ): void {
   const declared = resolveTypeRef(returnType);
   if (declared.kind === "unknown") return;
-  // A `paged` handler's body has one supported shape, `let r = Repo.run(…);
+  // A `paged` handler's body has one supported shape, `let r = Repo.all(…);
   // return r`, and `loom.paged-query-handler-shape` owns it: the run's rows
   // are the page's items, which a plain assignability check cannot say.
   if (declared.kind === "generic" && declared.ctor === "paged") return;

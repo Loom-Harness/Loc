@@ -39,7 +39,7 @@ const SRC = `system S { subdomain D { context Community {
     // This command create names the correlation field, so it is addressable.
     create(postId: Post id) { }
     on(e: PostPublished) by e.post {
-      let fs = Follows.run(FollowersOf(e.author), page: { offset: 0, limit: 100 })
+      let fs = Follows.all(FollowersOf(e.author), page: { offset: 0, limit: 100 })
       for f in fs {
         let n = Note.create(member: f.follower, post: e.post)
       }
@@ -126,7 +126,7 @@ const RICH = `system S { subdomain D { context Community {
     create(postId: Post id) { }
     fanned: int
     on(e: PostPublished) by e.post {
-      let fs = Follows.run(FollowersOf(e.author), page: { offset: 0, limit: 100 })
+      let fs = Follows.all(FollowersOf(e.author), page: { offset: 0, limit: 100 })
       for f in fs {
         precondition fanned >= 0
         let n = Note.create(member: f.follower, post: e.post, seen: false)
@@ -223,7 +223,7 @@ const OPCALL = `system S { subdomain D { context Community {
     // This command create names the correlation field, so it is addressable.
     create(postId: Post id) { }
     on(e: PostPublished) by e.post {
-      let ns = Notes.run(NotesFor(e.post), page: { offset: 0, limit: 100 })
+      let ns = Notes.all(NotesFor(e.post), page: { offset: 0, limit: 100 })
       for n in ns {
         n.markSeen()
       }

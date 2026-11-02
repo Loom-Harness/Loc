@@ -2,7 +2,7 @@
 //
 // It did not, for the VALIDATOR only:
 //
-//     for l in ls { let p = Parts.getById(l.partId)  p.consume(l.qty) }
+//     for l in ls { let p = Parts.get(l.partId)  p.consume(l.qty) }
 //     -> loom.workflow-foreach-unknown-binding: 'p.consume(...)' references
 //        unknown binding 'p'
 //
@@ -44,8 +44,8 @@ system X {
       repository Lines for Line { }
       workflow finishB {
         create(orderId: Order id) {
-          let ls = Lines.run(LinesOf(orderId))
-          for l in ls { let p = Parts.getById(l.partId)  p.consume(l.qty) }
+          let ls = Lines.all(LinesOf(orderId))
+          for l in ls { let p = Parts.get(l.partId)  p.consume(l.qty) }
         }
       }
     }
@@ -77,7 +77,7 @@ describe("a `let` in a workflow `for` body is in scope after it", () => {
     // relaxation that swallowed the whole diagnostic would pass the two
     // assertions above and be worthless.
     const bogus = sys("node").replace(
-      "for l in ls { let p = Parts.getById(l.partId)  p.consume(l.qty) }",
+      "for l in ls { let p = Parts.get(l.partId)  p.consume(l.qty) }",
       "for l in ls { q.consume(l.qty) }",
     );
     expect(await errorCodes(bogus)).toContain("loom.workflow-foreach-unknown-binding");
@@ -124,12 +124,12 @@ describe("a `let` in a workflow `for` body is in scope after it", () => {
 describe("a body nested inside a `for` body is checked the same way", () => {
   const nested = (inner: string) =>
     sys("node").replace(
-      "for l in ls { let p = Parts.getById(l.partId)  p.consume(l.qty) }",
+      "for l in ls { let p = Parts.get(l.partId)  p.consume(l.qty) }",
       `for l in ls { for m in ls { ${inner} } }`,
     );
 
   it("an op-call on a name bound by the inner loop validates clean", async () => {
-    const src = nested("let p = Parts.getById(m.partId)  p.consume(m.qty)");
+    const src = nested("let p = Parts.get(m.partId)  p.consume(m.qty)");
     expect(src).toContain("for m in ls");
     expect(await errorCodes(src)).not.toContain("loom.workflow-foreach-unknown-binding");
   });

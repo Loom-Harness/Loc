@@ -7,7 +7,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // Consumes the retrieval emission slice (#1118) — workflows now bind a
 // named query bundle's result and iterate it with per-element saves:
 //
-//     let xs = Tasks.run(Pending(d), page: { offset: 0, limit: 100 })
+//     let xs = Tasks.all(Pending(d), page: { offset: 0, limit: 100 })
 //     for x in xs { x.markDone() }
 //
 // lowers to:
@@ -50,7 +50,7 @@ system Tasks {
 
       workflow finalizePending {
         create(d: bool) {
-          let xs = Tasks.run(Pending(d), page: { offset: 0, limit: 100 })
+          let xs = Tasks.all(Pending(d), page: { offset: 0, limit: 100 })
           for x in xs {
             x.markDone()
           }
@@ -77,7 +77,7 @@ async function loadWorkflow(): Promise<string> {
 }
 
 describe("vanilla — workflow body lowering (repo-run)", () => {
-  it("lowers `let xs = Tasks.run(Pending(d), page: ...)` to a Context.run_<ret>_<agg> with-clause", async () => {
+  it("lowers `let xs = Tasks.all(Pending(d), page: ...)` to a Context.run_<ret>_<agg> with-clause", async () => {
     const wf = await loadWorkflow();
     expect(wf).toMatch(/\{:ok, xs\} <- Context\.run_pending_task\(d, offset: 0, limit: 100\)/);
   });
@@ -97,7 +97,7 @@ describe("vanilla — workflow body lowering (repo-run)", () => {
             retrieval Pending(d: bool) of Task { where: this.done == d }
             workflow pageless {
               create(d: bool) {
-                let xs = Tasks.run(Pending(d))
+                let xs = Tasks.all(Pending(d))
                 for x in xs { }
               }
             }

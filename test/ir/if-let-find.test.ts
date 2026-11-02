@@ -104,7 +104,7 @@ describe("if let — Repo.find(<Criterion>) option handling", () => {
 
   it("dedupes the retrieval with a findAll over the same criterion", async () => {
     const ctx = await ctxOf(
-      `let xs = Orders.findAll(ActiveOrder)
+      `let xs = Orders.all(ActiveOrder)
        for x in xs { }
        if let a = Orders.find(ActiveOrder) { a.cancel() }`,
     );
@@ -112,7 +112,7 @@ describe("if let — Repo.find(<Criterion>) option handling", () => {
   });
 
   it("rejects a non-find source, a non-aggregate criterion, and bad arity", async () => {
-    expect(await irCodes(`if let o = Orders.getById("x") { o.cancel() }`)).toContain(
+    expect(await irCodes(`if let o = Orders.get("x") { o.cancel() }`)).toContain(
       "loom.iflet-bad-source",
     );
     expect(await irCodes(`if let o = Orders.find(AmbientOk) { o.cancel() }`)).toContain(

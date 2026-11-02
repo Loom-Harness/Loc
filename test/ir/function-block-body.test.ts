@@ -169,7 +169,7 @@ describe("block-body function — non-queryable", () => {
         `function big(): bool { let t = n  return t > 100 }`,
         `criterion Heavy of A = big()
       queryHandler ListHeavy(): A[] {
-        let r = R.run(Heavy())
+        let r = R.all(Heavy())
         return r
       }`,
       ),

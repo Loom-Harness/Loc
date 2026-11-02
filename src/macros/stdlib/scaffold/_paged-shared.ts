@@ -1,7 +1,7 @@
 // Shared selection + naming logic for the paged read scaffold macros
 // (read-path-architecture.md, "The ergonomic default").  `scaffoldPaged`
 // (context-targeted) emits the paged `queryHandler` over the read-only
-// port (`<Repo>.run(<Criterion>(args))`) and `scaffoldPagedApi`
+// port (`<Repo>.all(<Criterion>(args))`) and `scaffoldPagedApi`
 // (api-targeted) emits the `route` that binds to it — so the two MUST agree
 // on the derived handler name and route path.  Both derive everything here,
 // exactly like the `scaffoldHandlers` / `scaffoldApi` pair does through
@@ -14,7 +14,7 @@ import { collectionPath } from "./_handlers-shared.js";
 /** The read a paged scaffold exposes — the polymorphic `of:` argument of
  * `scaffoldPaged` / `scaffoldPagedApi`: a `criterion` (the predicate) or a
  * named `retrieval` (predicate + `sort:` / `loads:`).  Both run through
- * `Repo.run(<it>(args))`, take their own params as the handler's, and target
+ * `Repo.all(<it>(args))`, take their own params as the handler's, and target
  * one aggregate (`of T`). */
 export type PagedReadSource = Criterion | Retrieval;
 

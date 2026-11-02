@@ -43,7 +43,6 @@ import {
   isPolicyDecl,
   isProperty,
   isRetrieval,
-  isRetrievalLiteral,
   isSystem,
   isValueObject,
 } from "./generated/ast.js";
@@ -153,8 +152,7 @@ function envContext(env: Env): BoundedContext | undefined {
 /** An expression's type, as the single typing pass synthesized it (null
  *  narrowing included). `unknown` for an expression the pass never reached. */
 export function typeOf(expr: Expression | undefined, _env: Env): Ty {
-  // A `retrieval { … }` literal is a query, not a value; only `run` reads it.
-  if (!expr || isRetrievalLiteral(expr)) return T.unknown;
+  if (!expr) return T.unknown;
   return typingFor(expr).synthAt(expr) ?? T.unknown;
 }
 

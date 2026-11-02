@@ -24,7 +24,7 @@ const SRC = `
       repository OrderRepo for Order
       criterion OrdersByRef(r: RefId) of Order = this.ref == r
       queryHandler ListOrdersByRef(r: RefId): Order[] {
-        let x = OrderRepo.run(OrdersByRef(r))
+        let x = OrderRepo.all(OrdersByRef(r))
         return x
       }
     }}

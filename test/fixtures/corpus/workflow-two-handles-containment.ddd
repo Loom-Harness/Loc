@@ -26,8 +26,8 @@ system WorkflowTwoHandlesContainment {
       // read, so it commits — and its child insert must land exactly once.
       workflow addViaSecond {
         create(c: Cart id, sku: string) {
-          let first = Carts.getById(c)
-          let second = Carts.getById(c)
+          let first = Carts.get(c)
+          let second = Carts.get(c)
           second.addLine(sku, 1)
         }
       }
@@ -35,8 +35,8 @@ system WorkflowTwoHandlesContainment {
       // The same through a child DELETE.
       workflow dropViaSecond {
         create(c: Cart id, sku: string) {
-          let first = Carts.getById(c)
-          let second = Carts.getById(c)
+          let first = Carts.get(c)
+          let second = Carts.get(c)
           second.drop(sku)
         }
       }
@@ -45,8 +45,8 @@ system WorkflowTwoHandlesContainment {
       // transactional workflow persists neither line.
       workflow addTwice transactional {
         create(c: Cart id) {
-          let first = Carts.getById(c)
-          let second = Carts.getById(c)
+          let first = Carts.get(c)
+          let second = Carts.get(c)
           first.addLine("A", 1)
           second.addLine("B", 1)
         }

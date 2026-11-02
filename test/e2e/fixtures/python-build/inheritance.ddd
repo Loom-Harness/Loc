@@ -38,7 +38,7 @@ system PyParties {
       repository Customers for Customer
       criterion CustomersByEmail(email: string) of Customer = this.email == email
       queryHandler ListCustomersByEmail(email: string): Customer[] {
-        let r = Customers.run(CustomersByEmail(email))
+        let r = Customers.all(CustomersByEmail(email))
         return r
       }
       repository Vendors for Vendor

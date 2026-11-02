@@ -79,7 +79,7 @@ const GETBYID_SRC = SRC.replace(
   `      domainService FeeQuote {`,
   `      domainService Lookup {
         operation holderOf(a: Account id): string {
-          let one = Accounts.getById(a)
+          let one = Accounts.get(a)
           return one.holder
         }
       }

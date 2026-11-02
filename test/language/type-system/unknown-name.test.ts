@@ -121,7 +121,7 @@ describe("loom.unknown-name — unresolved bare identifier", () => {
       event Tick { at: datetime }
       workflow W { sum: int
         create(t: Tick) by t.at {
-          for o in Orders.findAll() { sum := sum + o.total }
+          for o in Orders.all() { sum := sum + o.total }
         } }`);
     expect(unknownName(e), e.join("\n")).toHaveLength(0);
   });

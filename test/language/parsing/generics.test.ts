@@ -100,7 +100,7 @@ describe("generics — position restriction (P3b)", () => {
       repository Orders for Order
       criterion InRegion(rgn: string) of Order = region == rgn
       queryHandler ListInRegion(rgn: string): Order paged {
-        let r = Orders.run(InRegion(rgn))
+        let r = Orders.all(InRegion(rgn))
         return r
       }
     }`);

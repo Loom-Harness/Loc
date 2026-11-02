@@ -83,7 +83,7 @@ context Work {
   repository WorkOrders for WorkOrder { }
   workflow closeOrder {
     create(id: WorkOrder id) {
-      let wo = WorkOrders.getById(id)
+      let wo = WorkOrders.get(id)
       wo.close()
     }
   }
@@ -205,7 +205,7 @@ system FindShadow {
       repository WorkOrders for WorkOrder { }
       criterion WorkOrdersByTrace(id: string) of WorkOrder = this.title == id
       queryHandler ListByTrace(t: string): WorkOrder[] {
-        let r = WorkOrders.run(WorkOrdersByTrace(t))
+        let r = WorkOrders.all(WorkOrdersByTrace(t))
         return r
       }
     }
@@ -241,7 +241,7 @@ system IdShadow {
       repository WorkOrders for WorkOrder { }
       workflow closeOrder {
         create(id: WorkOrder id) {
-          let wo = WorkOrders.getById(id)
+          let wo = WorkOrders.get(id)
           wo.close()
         }
       }
@@ -273,7 +273,7 @@ const UNBOUND_RECEIVER = /this\._id|self\._id|\b(?:this|self|record)\.(?:_?id|_?
 
 /** One entry per deployable in `FIVE_BACKENDS`: the emitted directory prefix
  *  (`serviceSlug` of the deployable name) and how THAT backend renders the one
- *  statement under test — `let wo = WorkOrders.getById(id)`.
+ *  statement under test — `let wo = WorkOrders.get(id)`.
  *
  *  Spelled per backend rather than as one loose pattern because the two loose
  *  attempts each went blind on a different backend.  Matching `getById(` /

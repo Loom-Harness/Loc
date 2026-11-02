@@ -9,8 +9,8 @@
 //     the structured-data carriers crossing the API boundary.
 //   • criterion                 — a named, reusable boolean predicate
 //     (the Specification Pattern), inlined wherever a where-clause fits.
-//   • retrieval + Repo.run      — a named query bundle (where + sort),
-//     invoked as `Repo.run(R(args), page?)`.
+//   • retrieval + Repo.all      — a named query bundle (where + sort),
+//     invoked as `Repo.all(R(args), page?)`.
 //   • workflow `for … in`       — iterate a retrieval's result, calling
 //     an operation per row (mutations persist per-iteration).
 //   • seed                      — declarative first-boot datasets, each
@@ -82,12 +82,12 @@ system FulfillmentSystem {
 
       repository Orders for Order { }
 
-      // Workflow consuming the retrieval: `Repo.run` returns the page,
+      // Workflow consuming the retrieval: `Repo.all` returns the page,
       // the `for … in` loop escalates each row (the per-iteration save
       // persists the mutation).
       workflow escalateBacklog {
         create(p: Priority) {
-          let batch = Orders.run(PendingByPriority(p), page: { offset: 0, limit: 50 })
+          let batch = Orders.all(PendingByPriority(p), page: { offset: 0, limit: 50 })
           for o in batch {
             o.escalate()
           }

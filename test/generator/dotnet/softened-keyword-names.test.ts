@@ -46,8 +46,8 @@ system S {
       }
       workflow Bootstrap {
         create(system: string, enum: int) {
-          let rows = Plugins.run(StaticAtLeast(enum), page: { offset: 0, limit: 10 })
-          let levelled = Plugins.run(ByLevel(enum, enum), page: { offset: 0, limit: 10 })
+          let rows = Plugins.all(StaticAtLeast(enum), page: { offset: 0, limit: 10 })
+          let levelled = Plugins.all(ByLevel(enum, enum), page: { offset: 0, limit: 10 })
           let p = Plugin.create(system: system, enum: enum, static: enum, origin: Origin { system: system, static: enum })
         }
       }

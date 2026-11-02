@@ -2,7 +2,7 @@
 // "`run` takes a criterion").
 //
 // `run` historically accepted only a named `retrieval`.  A criterion passed
-// directly to `run` (`Orders.run(ActiveOrder)` / `Orders.run(InRegion("EU"))`)
+// directly to `run` (`Orders.all(ActiveOrder)` / `Orders.all(InRegion("EU"))`)
 // now rides the SAME synthetic-`findAllBy<Criterion>` path as
 // `Repo.findAll(<Criterion>)` — so it is first-class without a new IR shape or a
 // per-backend emitter.  Precedence: a name that is a declared `retrieval` keeps
@@ -50,7 +50,7 @@ function primaryStmts(m: Awaited<ReturnType<typeof enriched>>): WorkflowStmtIR[]
 
 describe("Repo.run(<Criterion>) — lowering", () => {
   it("a parameterless criterion run lowers to a synthCriterion repo-run (findAllBy<Criterion>)", async () => {
-    const m = await enriched(`let xs = Orders.run(ActiveOrder)`);
+    const m = await enriched(`let xs = Orders.all(ActiveOrder)`);
     const run = primaryStmts(m).find((s) => s.kind === "repo-run");
     if (run?.kind !== "repo-run") throw new Error("expected repo-run");
     expect(run.synthCriterion).toEqual({ name: "ActiveOrder" });
@@ -60,7 +60,7 @@ describe("Repo.run(<Criterion>) — lowering", () => {
 
   it("a parameterised criterion run carries the args (identical to findAll)", async () => {
     const m = await enriched(
-      `let xs = Orders.run(InRegion(c.region), page: { offset: 0, limit: 10 })`,
+      `let xs = Orders.all(InRegion(c.region), page: { offset: 0, limit: 10 })`,
     );
     const run = primaryStmts(m).find((s) => s.kind === "repo-run");
     if (run?.kind !== "repo-run") throw new Error("expected repo-run");
@@ -77,7 +77,7 @@ describe("Repo.run(<Criterion>) — lowering", () => {
   it("retrieval precedence — a declared retrieval name stays a retrieval, NOT a criterion", async () => {
     // `Recent` is a declared retrieval; `run(Recent)` must keep the retrieval
     // meaning (no synthCriterion), preserving back-compat.
-    const m = await enriched(`let xs = Orders.run(Recent)`);
+    const m = await enriched(`let xs = Orders.all(Recent)`);
     const run = primaryStmts(m).find((s) => s.kind === "repo-run");
     if (run?.kind !== "repo-run") throw new Error("expected repo-run");
     expect(run.retrievalName).toBe("Recent");
@@ -94,7 +94,7 @@ describe("Repo.run(<Criterion>) — validation", () => {
   }
 
   it("a criterion run is accepted — no unknown-retrieval error (the pre-slice-1 failure)", async () => {
-    const errs = await codes(`let xs = Orders.run(ActiveOrder, page: { offset: 0, limit: 10 })`);
+    const errs = await codes(`let xs = Orders.all(ActiveOrder, page: { offset: 0, limit: 10 })`);
     expect(errs).not.toContain("loom.workflow-run-unknown-retrieval");
     expect(errs).toEqual([]);
   });
@@ -102,7 +102,7 @@ describe("Repo.run(<Criterion>) — validation", () => {
   it("a criterion/aggregate mismatch is still caught via the findall gate", async () => {
     // InRegion is `of Order`; running it on a Customer repo would mismatch — but
     // there's only one repo here, so instead check arity: too few args.
-    const errs = await codes(`let xs = Orders.run(InRegion())`);
+    const errs = await codes(`let xs = Orders.all(InRegion())`);
     expect(errs).toContain("loom.findall-criterion-arity");
   });
 });
@@ -111,9 +111,9 @@ describe("Repo.run(<Criterion>) — domain-service reading tier", () => {
   it("a criterion run in a reading service lowers to a repo-read carrying synthCriterion", async () => {
     const extra = `
       domainService Reads {
-        operation listActive(): Order[] { return Orders.run(ActiveOrder) }
+        operation listActive(): Order[] { return Orders.all(ActiveOrder) }
       }`;
-    const m = await enriched(`let xs = Orders.findAll(ActiveOrder)`, extra);
+    const m = await enriched(`let xs = Orders.all(ActiveOrder)`, extra);
     const svc = allContexts(m)[0]!.domainServices.find((s) => s.name === "Reads");
     expect(svc).toBeDefined();
     // The reading-tier read resolves to a `repo-read` Call carrying the same

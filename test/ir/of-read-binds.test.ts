@@ -40,7 +40,7 @@ system Demo {
         from Customer as c
         select rowCount = count()
       }
-      workflow onboard { create(name: string) { let c = Customers.findAll() } }
+      workflow onboard { create(name: string) { let c = Customers.all() } }
     }
   }
   api A from S

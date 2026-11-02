@@ -26,7 +26,7 @@ system PagedShop {
       repository Orders for Order { }
       criterion InRegion(region: string) of Order = this.region == region
       queryHandler ListInRegion(region: string): Order paged {
-        let r = Orders.run(InRegion(region))
+        let r = Orders.all(InRegion(region))
         return r
       }
     }

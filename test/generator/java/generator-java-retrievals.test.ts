@@ -41,7 +41,7 @@ system RetrievalShop {
 
       workflow deactivateRegion {
         create(rgn: string) {
-          let matched = Customers.run(ByRegion(rgn))
+          let matched = Customers.all(ByRegion(rgn))
           for c in matched {
             c.deactivate()
           }
@@ -51,7 +51,7 @@ system RetrievalShop {
 
       workflow deactivateTopOfRegion {
         create(rgn: string) {
-          let top = Customers.run(ByRegion(rgn), page: { offset: 1, limit: 5 })
+          let top = Customers.all(ByRegion(rgn), page: { offset: 1, limit: 5 })
           for c in top {
             c.deactivate()
           }

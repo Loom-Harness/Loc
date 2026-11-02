@@ -13,7 +13,7 @@
 // while the repository port said `PartyId`.
 //
 // The two only MEET when generated code passes one to the other, which needs a
-// third construct — hence the reactor below, whose `Customers.getById(
+// third construct — hence the reactor below, whose `Customers.get(
 // e.customer)` was the line that failed:
 //
 //   DunningOnInvoiceRaisedHandler.cs(37,50): error CS1503: Argument 1: cannot
@@ -59,8 +59,8 @@ system TphRef {
         // names the correlation field, so the saga is addressable.
         create(invoiceRef: Invoice id) { }
         on(e: InvoiceRaised) by e.invoice {
-          let cust = Customers.getById(e.customer)
-          let inv = Invoices.getById(e.invoice)
+          let cust = Customers.get(e.customer)
+          let inv = Invoices.get(e.invoice)
         }
       }
     }

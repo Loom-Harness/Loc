@@ -35,7 +35,7 @@ describe("elixir generator — string.trim() intrinsic (stdlib A1 pilot)", () =>
             repository Products for Product { }
             criterion ProductsByName(q: string) of Product = this.name == q.trim()
             queryHandler ListProductsByName(q: string): Product[] {
-              let r = Products.run(ProductsByName(q))
+              let r = Products.all(ProductsByName(q))
               return r
             }
           }
@@ -73,7 +73,7 @@ system Shop {
       repository Products for Product { }
       criterion ProductsByNameCi(q: string) of Product = this.name.toLower() == q
       queryHandler ListProductsByNameCi(q: string): Product[] {
-        let r = Products.run(ProductsByNameCi(q))
+        let r = Products.all(ProductsByNameCi(q))
         return r
       }
     }
@@ -125,37 +125,37 @@ system Shop {
       repository Products for Product { }
       criterion ProductsByRoundedRate(q: decimal) of Product = this.rate.round(2) == q
       queryHandler ListProductsByRoundedRate(q: decimal): Product[] {
-        let r = Products.run(ProductsByRoundedRate(q))
+        let r = Products.all(ProductsByRoundedRate(q))
         return r
       }
       criterion ProductsByWholeRate(q: decimal) of Product = this.rate.round() == q
       queryHandler ListProductsByWholeRate(q: decimal): Product[] {
-        let r = Products.run(ProductsByWholeRate(q))
+        let r = Products.all(ProductsByWholeRate(q))
         return r
       }
       criterion ProductsByAbsQty(q: int) of Product = this.qty.abs() == q
       queryHandler ListProductsByAbsQty(q: int): Product[] {
-        let r = Products.run(ProductsByAbsQty(q))
+        let r = Products.all(ProductsByAbsQty(q))
         return r
       }
       criterion ProductsByMinCap(cap: money) of Product = this.amount.min(cap) == cap
       queryHandler ListProductsByMinCap(cap: money): Product[] {
-        let r = Products.run(ProductsByMinCap(cap))
+        let r = Products.all(ProductsByMinCap(cap))
         return r
       }
       criterion ProductsByMaxQty(q: int) of Product = this.qty.max(q) == q
       queryHandler ListProductsByMaxQty(q: int): Product[] {
-        let r = Products.run(ProductsByMaxQty(q))
+        let r = Products.all(ProductsByMaxQty(q))
         return r
       }
       criterion ProductsByFloorAmount(q: money) of Product = this.amount.floor() == q
       queryHandler ListProductsByFloorAmount(q: money): Product[] {
-        let r = Products.run(ProductsByFloorAmount(q))
+        let r = Products.all(ProductsByFloorAmount(q))
         return r
       }
       criterion ProductsByCeilRate(q: decimal) of Product = this.rate.ceil() == q
       queryHandler ListProductsByCeilRate(q: decimal): Product[] {
-        let r = Products.run(ProductsByCeilRate(q))
+        let r = Products.all(ProductsByCeilRate(q))
         return r
       }
     }

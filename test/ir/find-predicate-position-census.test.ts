@@ -163,7 +163,7 @@ function readOf(find: string): { name: string; members: string } {
     members: [
       `criterion ${name}${params ? `(${params})` : ""} of Order = ${where}`,
       `queryHandler List${name}(${params}): Order[] {`,
-      `  let r = Orders.run(${name}(${args}))`,
+      `  let r = Orders.all(${name}(${args}))`,
       `  return r`,
       `}`,
     ].join("\n"),

@@ -30,7 +30,7 @@ import { criterionAggName, type PagedReadSource, pagedHandlerName } from "./_pag
  *
  *   queryHandler ListOrderByTopInRegion(rgn: string): Order paged {
  *     requires SalesTeam()
- *     let r = Orders.run(TopInRegion(rgn))
+ *     let r = Orders.all(TopInRegion(rgn))
  *     return r
  *   }
  *
@@ -52,7 +52,7 @@ export default defineMacro({
   apiVersion: 1,
   description:
     "Exposes a criterion or retrieval as a paged queryHandler over the read-only port " +
-    "(Repo.run(<read>)) — the read's params become the handler's scalar params, the " +
+    "(Repo.all(<read>)) — the read's params become the handler's scalar params, the " +
     "aggregate's wire shape (auto-projected) its paged return; `requires: <Policy>` gates it.",
   params: {
     of: { kind: "ref", of: ["Criterion", "Retrieval"] },
@@ -91,12 +91,12 @@ export default defineMacro({
       // `requires <Policy>()` — the handler's authorization gate, the first
       // body statement (a handler has no header gate).
       ...(policy?.name ? [requiresStmt(callExpr(policy.name, []))] : []),
-      // `let r = <Repo>.run(<Read>(<params>))` — the read-only port.  No `page:`
+      // `let r = <Repo>.all(<Read>(<params>))` — the read-only port.  No `page:`
       // arg: paging is route-level (query params), per retrieval.md's
       // page-is-call-only decision.
       letStmt(
         "r",
-        memberAccess(nameRef(repo.name), repoOpVerb("select-many", "retrieval-or-criterion"), {
+        memberAccess(nameRef(repo.name), repoOpVerb("select-many"), {
           call: true,
           args: [
             callExpr(

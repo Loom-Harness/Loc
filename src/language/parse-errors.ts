@@ -488,6 +488,29 @@ export function findDeclRemoved(
 }
 
 /**
+ * An anonymous retrieval literal — `Orders.all(C, sort: […])`.
+ * The literal is gone (D-REPO-VERBS): its criterion and `sort:` are arguments
+ * of `all` now, `Orders.all(C, sort: […])`.  `retrieval` reads as a name in
+ * argument position, so chevrotain trips on the `{` after it; name the
+ * replacement there.  `undefined` for every other failure.
+ */
+export function retrievalLiteralRemoved(
+  err: IRecognitionException,
+  text: string,
+): RefinedParseError | undefined {
+  const token = err.token;
+  if (!token || Number.isNaN(token.startOffset) || token.image !== "{") return undefined;
+  const lit = /[(,]\s*(retrieval)\s*$/.exec(text.slice(0, token.startOffset));
+  if (!lit) return undefined;
+  const offset = lit.index + lit[0].indexOf("retrieval");
+  return {
+    offset,
+    length: "retrieval".length,
+    message: diagMessage("loom.parse-error#retrieval-literal-removed"),
+  };
+}
+
+/**
  * A workflow `handle name(…) { … }` member — the declaration is gone; a named
  * command entry is a context-level `commandHandler` (D-HANDLE-REMOVAL).
  * `handle` lexes as a plain name now, so the member alternation reads it as a

@@ -304,7 +304,14 @@ function repointBindingReaders(lambda: Lambda, param: string): void {
     // (`memberAccess` flattens for the same reason), so an in-place unshift is
     // the only edit that preserves it exactly.
     const hop = _tag(
-      mkMemberSuffix({ $type: "MemberSuffix", member: "items", call: false, args: [] }),
+      mkMemberSuffix({
+        $type: "MemberSuffix",
+        member: "items",
+        call: false,
+        args: [],
+        sorted: false,
+        sort: [],
+      }),
       undefined,
     );
     chain.suffixes.unshift(hop);

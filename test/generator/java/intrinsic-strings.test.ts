@@ -22,7 +22,7 @@ system Shop {
       repository Products for Product { }
       criterion ProductsByNameCi(q: string) of Product = this.name.toLower() == q
       queryHandler ListByNameCi(q: string): Product paged {
-        let r = Products.run(ProductsByNameCi(q))
+        let r = Products.all(ProductsByNameCi(q))
         return r
       }
     }

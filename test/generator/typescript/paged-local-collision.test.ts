@@ -43,19 +43,19 @@ system PagedLocals {
       }
       repository Orders for Order { }
       criterion OrderPlain(region: string) of Order = this.region == region
-      queryHandler PageOrderPlain(region: string): Order paged { let r = Orders.run(OrderPlain(region))  return r }
+      queryHandler PageOrderPlain(region: string): Order paged { let r = Orders.all(OrderPlain(region))  return r }
       criterion OrderByOffset(offset: int) of Order = this.offset == offset
-      queryHandler PageOrderByOffset(offset: int): Order paged { let r = Orders.run(OrderByOffset(offset))  return r }
+      queryHandler PageOrderByOffset(offset: int): Order paged { let r = Orders.all(OrderByOffset(offset))  return r }
       criterion OrderByTotal(total: int, totalPages: int) of Order = this.total == total && this.totalPages == totalPages
-      queryHandler PageOrderByTotal(total: int, totalPages: int): Order paged { let r = Orders.run(OrderByTotal(total, totalPages))  return r }
+      queryHandler PageOrderByTotal(total: int, totalPages: int): Order paged { let r = Orders.all(OrderByTotal(total, totalPages))  return r }
       criterion OrderByItems(items: int, countRows: int, sortColumns: string, sortColumn: string, orderBy: string) of Order = this.items == items && this.region == sortColumn
-      queryHandler PageOrderByItems(items: int, countRows: int, sortColumns: string, sortColumn: string, orderBy: string): Order paged { let r = Orders.run(OrderByItems(items, countRows, sortColumns, sortColumn, orderBy))  return r }
+      queryHandler PageOrderByItems(items: int, countRows: int, sortColumns: string, sortColumn: string, orderBy: string): Order paged { let r = Orders.all(OrderByItems(items, countRows, sortColumns, sortColumn, orderBy))  return r }
       criterion OrderBySort(sortable: string, sortField: string, orderBy: string, total: int, items: int) of Order = this.code == sortable && this.region == sortField && this.total == total
-      queryHandler PageOrderBySort(sortable: string, sortField: string, orderBy: string, total: int, items: int): Order paged { let r = Orders.run(OrderBySort(sortable, sortField, orderBy, total, items))  return r }
+      queryHandler PageOrderBySort(sortable: string, sortField: string, orderBy: string, total: int, items: int): Order paged { let r = Orders.all(OrderBySort(sortable, sortField, orderBy, total, items))  return r }
       aggregate Doc shape: document, with crudish { total: int  offset: int }
       repository Docs for Doc { }
       criterion DocByTotal(total: int, offset: int, totalPages: int, items: int, matched: int) of Doc = this.total == total && this.offset == offset
-      queryHandler PageDocByTotal(total: int, offset: int, totalPages: int, items: int, matched: int): Doc paged { let r = Docs.run(DocByTotal(total, offset, totalPages, items, matched))  return r }
+      queryHandler PageDocByTotal(total: int, offset: int, totalPages: int, items: int, matched: int): Doc paged { let r = Docs.all(DocByTotal(total, offset, totalPages, items, matched))  return r }
       aggregate Emb shape: embedded, with crudish {
         total: int  offset: int
         contains lines: Line[]
@@ -63,7 +63,7 @@ system PagedLocals {
       }
       repository Embs for Emb { }
       criterion EmbByTotal(total: int, offset: int, totalPages: int, items: int, countRows: int) of Emb = this.total == total && this.offset == offset
-      queryHandler PageEmbByTotal(total: int, offset: int, totalPages: int, items: int, countRows: int): Emb paged { let r = Embs.run(EmbByTotal(total, offset, totalPages, items, countRows))  return r }
+      queryHandler PageEmbByTotal(total: int, offset: int, totalPages: int, items: int, countRows: int): Emb paged { let r = Embs.all(EmbByTotal(total, offset, totalPages, items, countRows))  return r }
       aggregate Account persistedAs: eventLog {
         owner: string
         balance: int
@@ -73,7 +73,7 @@ system PagedLocals {
       event AccountOpened { accountRef: Account id, owner: string }
       repository Accounts for Account { }
       criterion AccountByOwner(owner: string, total: int, offset: int, totalPages: int, items: int, matched: int) of Account = this.owner == owner && this.balance == total
-      queryHandler PageAccountByOwner(owner: string, total: int, offset: int, totalPages: int, items: int, matched: int): Account paged { let r = Accounts.run(AccountByOwner(owner, total, offset, totalPages, items, matched))  return r }
+      queryHandler PageAccountByOwner(owner: string, total: int, offset: int, totalPages: int, items: int, matched: int): Account paged { let r = Accounts.all(AccountByOwner(owner, total, offset, totalPages, items, matched))  return r }
     }
   }
   api A from S

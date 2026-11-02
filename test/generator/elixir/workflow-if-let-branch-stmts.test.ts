@@ -50,7 +50,7 @@ system Shop {
       }
       workflow confirmById transactional {
         create(orderId: Order id) {
-          if let o = Orders.findById(orderId) {
+          if let o = Orders.find(orderId) {
             o.confirm()
           } else {
             notFound

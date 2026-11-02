@@ -21,8 +21,8 @@ system P {
     //  whole operation if stock is insufficient"
     workflow completeWorkOrder transactional {
       create(workOrder: WorkOrder id) {
-        let wo = WorkOrders.getById(workOrder)
-        let part = Parts.getById(wo.partId)
+        let wo = WorkOrders.get(workOrder)
+        let part = Parts.get(wo.partId)
         part.consume(wo.qty)
         wo.complete()
       }

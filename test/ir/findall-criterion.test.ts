@@ -56,7 +56,7 @@ function primaryStmts(m: Awaited<ReturnType<typeof enriched>>): WorkflowStmtIR[]
 
 describe("Repo.findAll(<Criterion>) — lowering + enrich", () => {
   it("lowers to a repo-run marked synthCriterion, naming the retrieval findAllBy<Criterion>", async () => {
-    const m = await enriched(`let xs = Orders.findAll(ActiveOrder)`);
+    const m = await enriched(`let xs = Orders.all(ActiveOrder)`);
     const run = primaryStmts(m).find((s) => s.kind === "repo-run");
     expect(run).toBeDefined();
     if (run?.kind !== "repo-run") throw new Error("expected repo-run");
@@ -66,7 +66,7 @@ describe("Repo.findAll(<Criterion>) — lowering + enrich", () => {
   });
 
   it("enrich materialises the synthetic retrieval from the criterion (params + where + criterionRef)", async () => {
-    const m = await enriched(`let xs = Orders.findAll(InRegion(c.region))`);
+    const m = await enriched(`let xs = Orders.all(InRegion(c.region))`);
     const ret = allContexts(m)[0]!.retrievals.find((r) => r.name === "findAllByInRegion");
     expect(ret).toBeDefined();
     // Params carried through from the criterion, candidate is the aggregate,
@@ -79,8 +79,8 @@ describe("Repo.findAll(<Criterion>) — lowering + enrich", () => {
 
   it("dedupes the synthetic retrieval across repeated call sites", async () => {
     const m = await enriched(
-      `let a = Orders.findAll(ActiveOrder)
-       let b = Orders.findAll(ActiveOrder)`,
+      `let a = Orders.all(ActiveOrder)
+       let b = Orders.all(ActiveOrder)`,
     );
     const matches = allContexts(m)[0]!.retrievals.filter((r) => r.name === "findAllByActiveOrder");
     expect(matches).toHaveLength(1);
@@ -89,26 +89,32 @@ describe("Repo.findAll(<Criterion>) — lowering + enrich", () => {
 
 describe("Repo.findAll(<Criterion>) — validation", () => {
   it("a bounded (paged) findAll is clean; an unbounded one warns", async () => {
-    expect(
-      await codes(`let xs = Orders.findAll(ActiveOrder, page: { offset: 0, limit: 10 })`),
-    ).toEqual([]);
-    expect(await codes(`let xs = Orders.findAll(ActiveOrder)`)).toEqual([
+    expect(await codes(`let xs = Orders.all(ActiveOrder, page: { offset: 0, limit: 10 })`)).toEqual(
+      [],
+    );
+    expect(await codes(`let xs = Orders.all(ActiveOrder)`)).toEqual([
       "warning:loom.findall-no-page",
     ]);
   });
 
   it("rejects an unknown criterion, a non-aggregate candidate, and arity mismatch", async () => {
-    expect(await codes(`let xs = Orders.findAll(Nope)`)).toContain(
-      "error:loom.findall-unknown-criterion",
-    );
-    expect(await codes(`let xs = Orders.findAll(AmbientOk)`)).toContain(
+    // `all(x)` reads `x` as a criterion only when the context declares one by
+    // that name (`language/repo-query-arg.ts`); any other reference names a
+    // retrieval, so an undeclared name is refused as an unknown retrieval.
+    const { model } = await parseString(SYS(`let xs = Orders.all(Nope)`), { validate: false });
+    expect(
+      validateLoomModel(enrichLoomModel(lowerModel(model)))
+        .filter((d) => d.severity === "error")
+        .map((d) => d.code),
+    ).toContain("loom.workflow-run-unknown-retrieval");
+    expect(await codes(`let xs = Orders.all(AmbientOk)`)).toContain(
       "error:loom.findall-criterion-mismatch",
     );
     // `ActiveOrder` is `of Order`, but `Others` is a repo for `Other`.
-    expect(await codes(`let xs = Others.findAll(ActiveOrder)`)).toContain(
+    expect(await codes(`let xs = Others.all(ActiveOrder)`)).toContain(
       "error:loom.findall-criterion-mismatch",
     );
-    expect(await codes(`let xs = Orders.findAll(InRegion)`)).toContain(
+    expect(await codes(`let xs = Orders.all(InRegion)`)).toContain(
       "error:loom.findall-criterion-arity",
     );
   });
@@ -116,9 +122,7 @@ describe("Repo.findAll(<Criterion>) — validation", () => {
 
 describe("Repo.findAll(<Criterion>) — Hono emission", () => {
   it("emits the reified predicate fn, the run method, and the workflow call", async () => {
-    const files = await generateSystemFiles(
-      SYS(`let regional = Orders.findAll(InRegion(c.region))`),
-    );
+    const files = await generateSystemFiles(SYS(`let regional = Orders.all(InRegion(c.region))`));
     const repo = [...files].find(([k]) => /order-repository\.ts$/.test(k))?.[1] ?? "";
     const wf = [...files].find(([k]) => /workflows\.ts$/.test(k))?.[1] ?? "";
     expect(repo).toContain("const inRegionCriterion = (rgn: string) =>");

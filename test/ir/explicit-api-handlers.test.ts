@@ -51,12 +51,12 @@ async function codesFor(handlers: string, routes: string): Promise<string[]> {
 
 const OK_CMD = `
   commandHandler CancelOrder(orderId: Order id) {
-    let o = Orders.getById(orderId)
+    let o = Orders.get(orderId)
     o.cancel()
   }`;
 const OK_QRY = `
   queryHandler GetOrder(orderId: Order id): Order {
-    let o = Orders.getById(orderId)
+    let o = Orders.get(orderId)
   }`;
 const OK_ROUTES = `
   route POST "/orders/{id}/cancellations" -> Ordering.CancelOrder
@@ -121,13 +121,13 @@ describe("explicit api handlers — lowering", () => {
     // as a resolved `returnValue` ExprIR, with no sentinel in the body.
     const cmd = `
       commandHandler CancelOrder(orderId: Order id): Order id {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         o.cancel()
         return o.id
       }`;
     const qry = `
       queryHandler GetStatus(orderId: Order id): string {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         return o.status
       }`;
     const { model } = await parseString(SYS(`${cmd}\n${qry}`, ""), { validate: false });
@@ -144,13 +144,13 @@ describe("explicit api handlers — lowering", () => {
   });
 
   it("lowers `<Repo>.delete(o)` to a repo-delete stmt that does not re-save the removed entity", async () => {
-    // A destroy commandHandler loads by id then hard-deletes.  `Orders.delete(o)`
+    // A destroy commandHandler loads by id then hard-deletes.  `Orders.remove(o)`
     // must lower to a `repo-delete` WorkflowStmtIR (not an op-call on `o`, which
     // would stamp aggName:"Unknown" and re-save the just-removed row at exit).
     const cmd = `
       commandHandler DestroyOrder(orderId: Order id) {
-        let o = Orders.getById(orderId)
-        Orders.delete(o)
+        let o = Orders.get(orderId)
+        Orders.remove(o)
       }`;
     const { model } = await parseString(
       SYS(cmd, `route DELETE "/orders/{id}" -> Ordering.DestroyOrder`),
@@ -191,7 +191,7 @@ describe("explicit api handlers — layering gates", () => {
   it("loom.query-handler-saves — a queryHandler that mutates", async () => {
     const bad = `
       queryHandler BadQuery(orderId: Order id): Order {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         o.cancel()
       }`;
     const codes = await codesFor(bad, `route GET "/orders/{id}" -> Ordering.BadQuery`);
@@ -203,16 +203,16 @@ describe("explicit api handlers — layering gates", () => {
     // (permitted in a commandHandler, which has no no-mutation gate).
     const bad = `
       queryHandler BadDelete(orderId: Order id): Order {
-        let o = Orders.getById(orderId)
-        Orders.delete(o)
+        let o = Orders.get(orderId)
+        Orders.remove(o)
       }`;
     const codes = await codesFor(bad, `route DELETE "/orders/{id}" -> Ordering.BadDelete`);
     expect(codes).toContain("loom.query-handler-saves");
     // The same body in a commandHandler is accepted (delete is a legal command mutation).
     const ok = `
       commandHandler OkDelete(orderId: Order id) {
-        let o = Orders.getById(orderId)
-        Orders.delete(o)
+        let o = Orders.get(orderId)
+        Orders.remove(o)
       }`;
     expect(await codesFor(ok, `route DELETE "/orders/{id}" -> Ordering.OkDelete`)).not.toContain(
       "loom.query-handler-saves",
@@ -225,7 +225,7 @@ describe("explicit api handlers — layering gates", () => {
     // (emitting a `this`-prop read instead of the param). It must be rejected.
     const cmdBad = `
       commandHandler CancelIt(id: Order id) {
-        let o = Orders.getById(id)
+        let o = Orders.get(id)
         o.cancel()
       }`;
     expect(await codesFor(cmdBad, `route POST "/x" -> Ordering.CancelIt`)).toContain(
@@ -233,7 +233,7 @@ describe("explicit api handlers — layering gates", () => {
     );
     const qryBad = `
       queryHandler LookIt(id: Order id): Order {
-        let o = Orders.getById(id)
+        let o = Orders.get(id)
       }`;
     expect(await codesFor(qryBad, `route GET "/y" -> Ordering.LookIt`)).toContain(
       "loom.handler-param-reserved-id",
@@ -247,8 +247,8 @@ describe("explicit api handlers — layering gates", () => {
   it("loom.command-handler-multi-aggregate — a commandHandler touching two aggregates", async () => {
     const bad = `
       commandHandler TransferThing(oid: Order id, cid: Customer id) {
-        let o = Orders.getById(oid)
-        let c = Customers.getById(cid)
+        let o = Orders.get(oid)
+        let c = Customers.get(cid)
         o.cancel()
         c.deactivate()
       }`;

@@ -180,7 +180,7 @@ describe("workflow own-state assignment — validation", () => {
       `orderId: Order id
        attempts: int
        create(p: OrderPlaced) by p.order {
-         let o = Orders.getById(p.order)
+         let o = Orders.get(p.order)
          o.status := "Done"
        }`,
     );

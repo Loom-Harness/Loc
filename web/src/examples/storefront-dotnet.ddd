@@ -135,7 +135,7 @@ system StorefrontDotnet {
       workflow checkout transactional {
         create(customerId: Customer id, walletId: Wallet id, productId: Product id, unitPrice: Money, qty: int) {
           precondition qty > 0
-          let wallet = Wallets.getById(walletId)
+          let wallet = Wallets.get(walletId)
           let order = Order.create(
             customerId: customerId,
             status: Draft,

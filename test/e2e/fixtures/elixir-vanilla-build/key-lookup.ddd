@@ -48,7 +48,7 @@ system KeyShop {
           return Products.find(ProductsInRegion(region)) ignoring * != null
         }
         operation everExisted(id: Product id): bool {
-          return Products.findById(id) ignoring softDeletable != null
+          return Products.find(id) ignoring softDeletable != null
         }
       }
 

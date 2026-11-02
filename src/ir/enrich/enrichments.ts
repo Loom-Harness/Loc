@@ -892,7 +892,7 @@ export function enrichContext(
   });
   const aggregates = withInheritance.map((a) => enrichAggregate(a, valueObjects, urlStyle));
   // paged-run (paged-queryHandler): a paged `queryHandler` over
-  // `Repo.run(<Criterion>)` needs the #1904 paged FIND repo-method synthesized
+  // `Repo.all(<Criterion>)` needs the #1904 paged FIND repo-method synthesized
   // onto its aggregate's repository so the Hono handler can call it.  Layered
   // on top of the auto-`findAll` repositories; the synthesized find is flagged
   // so the aggregate router does NOT auto-expose it (the queryHandler's own
@@ -969,7 +969,7 @@ export function enrichContext(
   // In-process dispatch slice: the channel-routed subscription join.
   const eventSubscriptions = deriveEventSubscriptions(ctx.channels, workflows);
   // criterion.md, use site 3: materialise the synthetic retrievals that back
-  // the `Repo.findAll(<Criterion>)` calls lowered into this context's
+  // the `Repo.all(<Criterion>)` calls lowered into this context's
   // workflows, so they ride the existing retrieval pipeline on every backend.
   const retrievals = synthesizeFindAllRetrievals(
     ctx.retrievals,
@@ -1056,7 +1056,7 @@ function keyLookupReads(ctx: BoundedContextIR): KeyLookupRead[] {
 }
 
 /** Every widened single-row read (`Repo.find(<Criterion>) ignoring …` /
- *  `Repo.findById(id) ignoring …`) the context's bodies make — an `if let`
+ *  `Repo.find(id) ignoring …`) the context's bodies make — an `if let`
  *  source in a workflow or explicit handler, or a read in a domain-service
  *  operation.  Each names the method `synthesizeBypassReadFinds` adds to its
  *  repository. */
@@ -1085,7 +1085,7 @@ function bypassReads(ctx: BoundedContextIR): BypassRead[] {
 }
 
 /** criterion.md, use site 3: materialise the synthetic `findAllBy<Criterion>`
- *  RetrievalIR for every `Repo.findAll(<Criterion>)` a workflow body lowered to
+ *  RetrievalIR for every `Repo.all(<Criterion>)` a workflow body lowered to
  *  a `synthCriterion`-marked `repo-run`.  The criterion's lowered `body` is
  *  already in the retrieval's own scope (params as `param` refs, candidate
  *  fields as `this-prop`), so it drops straight into `where`; the
@@ -1138,7 +1138,7 @@ function synthesizeFindAllRetrievals(
   };
   for (const wf of workflows) {
     for (const st of allWorkflowStmts(wf)) {
-      // `Repo.findAll(<Criterion>)` (repo-run), the `if let` /
+      // `Repo.all(<Criterion>)` (repo-run), the `if let` /
       // `Repo.find(<Criterion>)` (if-let) source and a `let`-bound
       // `Repo.find(<Criterion>)` (repo-let) ride a `findAllBy<Criterion>`
       // retrieval; the single-result two carry no sort/loads (they take the
@@ -1159,7 +1159,7 @@ function synthesizeFindAllRetrievals(
     }
   }
   // Domain-service `reading`-tier bodies ride the SAME synthetic retrievals: a
-  // `Repo.findAll(<Criterion>)` in a `domainService` operation lowers to a
+  // `Repo.all(<Criterion>)` in a `domainService` operation lowers to a
   // `repo-read` Call carrying `synthCriterion` + `retrievalName` (mirror of the
   // workflow `repo-run`).  Walk every operation body so the retrieval the read
   // renders against actually exists on the generated repository — without this
@@ -1172,8 +1172,8 @@ function synthesizeFindAllRetrievals(
     }
   }
   // Explicit application-layer handlers (`queryHandler` / `commandHandler`) run
-  // the SAME workflow-statement bodies, so a `Repo.run(<Criterion>)` /
-  // `Repo.findAll(<Criterion>)` inside one materialises its `findAllBy<Criterion>`
+  // the SAME workflow-statement bodies, so a `Repo.all(<Criterion>)` inside
+  // one materialises its `findAllBy<Criterion>`
   // retrieval exactly like a workflow — without this the criterion is dropped
   // and the read hits the whole-table `findAll` (or references a missing
   // `runFindAllBy...` method).  Underpins the paged-run queryHandler.
@@ -1218,7 +1218,7 @@ function flattenHandlerStmts(statements: WorkflowStmtIR[]): WorkflowStmtIR[] {
 }
 
 /** paged-run (paged-queryHandler): a `queryHandler H(...): <Agg> paged { let r =
- *  Repo.run(<Criterion>(args)); return r }` needs the #1904 paged FIND repo
+ *  Repo.all(<Criterion>(args)); return r }` needs the #1904 paged FIND repo
  *  method emitted so the Hono handler can call it (COUNT + LIMIT/OFFSET + the
  *  `{items,page,pageSize,total,totalPages}` envelope).  Synthesize a paged
  *  `FindIR` named `findAllBy<Criterion>` onto the target aggregate's repository
@@ -1238,7 +1238,7 @@ function synthesizePagedQueryHandlerFinds(
   const out = repositories.map((r) => ({ ...r, finds: [...r.finds] }));
   for (const h of handlers) {
     // The returned value must be a plain `let`-ref bound to a top-level
-    // `Repo.run(<Criterion | Retrieval>)` statement — the only paged-run body
+    // `Repo.all(<Criterion | Retrieval>)` statement — the only paged-run body
     // shape the five backends emit (`pagedRunStmt`).  Any other shape is left
     // un-synthesized: phase ⑦ refuses it (`loom.paged-query-handler-shape`)
     // before any emitter runs.
@@ -1284,7 +1284,7 @@ function synthesizePagedQueryHandlerFinds(
 
 /** Walk an operation-body statement's expressions and materialise the synthetic
  *  retrieval behind every `repo-read` Call that carries a `synthCriterion`
- *  (`Repo.findAll(<Criterion>)` in a `domainService` reading op). */
+ *  (`Repo.all(<Criterion>)` in a `domainService` reading op). */
 function collectRepoReadCriteria(
   stmt: StmtIR,
   materialise: (synth: { name: string; retrievalName: string }) => void,

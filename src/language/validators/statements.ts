@@ -48,7 +48,6 @@ import {
   isProjection,
   isRequiresStmt,
   isRetrieval,
-  isRetrievalLiteral,
   isStore,
   isStringLit,
   isTestBlock,
@@ -210,30 +209,6 @@ export function checkCreate(c: Create, agg: Aggregate, accept: ValidationAccepto
 
 export function checkDestroy(d: Destroy, agg: Aggregate, accept: ValidationAcceptor): void {
   checkActionBody(d, agg, accept);
-}
-
-/** Model-wide: an anonymous retrieval literal's `where:` must be a criterion
- *  reference in this release (`ActiveOrder` / `InRegion(r)`) — composed or
- *  inline predicates are a follow-up (criterion.md, use site 3).  Streams every
- *  `RetrievalLiteral` so it fires wherever one appears. */
-export function checkRetrievalLiteral(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
-    if (!isRetrievalLiteral(node)) continue;
-    const w = node.where;
-    const isCriterionRef =
-      isNameRef(w) ||
-      (isPostfixChain(w) &&
-        isNameRef(w.head) &&
-        w.suffixes.length === 1 &&
-        isCallSuffix(w.suffixes[0]));
-    if (!isCriterionRef) {
-      accept("error", diagMessage("loom.retrieval-where-not-criterion"), {
-        node,
-        property: "where",
-        code: "loom.retrieval-where-not-criterion",
-      });
-    }
-  }
 }
 
 export function checkStatement(
@@ -539,8 +514,6 @@ export function checkPredicateSlotArgs(model: Model, accept: ValidationAcceptor)
   for (const node of AstUtils.streamAllContents(model)) {
     if (isRetrieval(node)) {
       visit((node as Retrieval).where);
-    } else if (isRetrievalLiteral(node)) {
-      visit(node.where);
     } else if (isCriterion(node)) {
       visit((node as Criterion).body);
     } else if (isPolicyDecl(node)) {
@@ -791,7 +764,7 @@ function checkLocalMemberCallStmt(lv: LValue, accept: ValidationAcceptor, admit?
     if (recv.kind === "unknown") return;
   }
   const methodName = lv.tail[lv.tail.length - 1]!;
-  // A nullable read (`Orders.findById(…)`: `Order?`) still names its callee —
+  // A nullable read (`Orders.find(…)`: `Order?`) still names its callee —
   // arity and arg types do not depend on whether the receiver was guarded.
   const memberNode = stepIntoNode(recv.kind === "optional" ? recv.inner : recv, methodName);
   if (!memberNode || (!isOperation(memberNode) && !isFunctionDecl(memberNode))) return;

@@ -41,7 +41,7 @@ function src(shape: string, persistence = ""): string {
       }
       domainService Probe {
         operation exists(id: Order id): bool {
-          return OrderRepo.findById(id) ignoring * != null
+          return OrderRepo.find(id) ignoring * != null
         }
       }
       projection AllOrders {

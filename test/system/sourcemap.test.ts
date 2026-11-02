@@ -79,7 +79,7 @@ system SourceMapDemo {
 
       workflow confirmOrder {
         create(orderId: Order id) {
-          let order = Orders.getById(orderId)
+          let order = Orders.get(orderId)
           order.confirm()
         }
       }
@@ -91,7 +91,7 @@ system SourceMapDemo {
       // copy of confirmOrder's body).
       workflow archiveOrder transactional {
         create(productId: Product id) {
-          let product = Products.getById(productId)
+          let product = Products.get(productId)
           product.discontinue()
         }
       }
@@ -110,7 +110,7 @@ system SourceMapDemo {
       workflow notifyPlaced {
         orderId: Order id
         on(o: OrderPlaced) by o.order {
-          let order = Orders.getById(o.order)
+          let order = Orders.get(o.order)
           order.confirm()
         }
       }
@@ -752,7 +752,7 @@ describe(".loom/sourcemap.json", () => {
   // analogue of the aggregate op-body sub-regions above, riding the SAME
   // machinery (`statementSubRegions` + `SourceMapRecorder.fragment`) via the
   // shared `renderWorkflowStmtChunks` spine.  `confirmOrder`'s `create` body
-  // has 2 statements (`let order = Orders.getById(orderId)` then
+  // has 2 statements (`let order = Orders.get(orderId)` then
   // `order.confirm()`); both carry `origin` at lowering.
   //
   // Unlike the op-body case, three of the four covered backends (node,
@@ -874,7 +874,7 @@ describe(".loom/sourcemap.json", () => {
 
     // Each statement region's origin resolves to a span whose text contains
     // that statement's own distinctive token, in source order.
-    const tokens = ["Orders.getById", "order.confirm"];
+    const tokens = ["Orders.get(", "order.confirm"];
     stmtRegions.forEach((r, i) => {
       const resolved = wireSourceOf(r.origin);
       expect(resolved, `stmt region ${i} origin never resolves to a source span`).toBeDefined();
@@ -885,7 +885,7 @@ describe(".loom/sourcemap.json", () => {
 
   // Milestone 12 (reactor-file recording) — the REACTOR-body analogue of the
   // Milestone 11 command-workflow-body case above.  `notifyPlaced`'s `on`
-  // reactor has 2 statements (`let order = Orders.getById(o.order)` then
+  // reactor has 2 statements (`let order = Orders.get(o.order)` then
   // `order.confirm()`), riding the SAME `renderWorkflowStmtChunks` +
   // `statementSubRegions` + `fragment()` machinery, now extended onto the
   // reactor/event-create dispatch files: .NET's per-subscription
@@ -1009,7 +1009,7 @@ describe(".loom/sourcemap.json", () => {
 
     // Each statement region's origin resolves to a span whose text contains
     // that statement's own distinctive token, in source order.
-    const tokens = ["Orders.getById", "order.confirm"];
+    const tokens = ["Orders.get(", "order.confirm"];
     stmtRegions.forEach((r, i) => {
       const resolved = wireSourceOf(r.origin);
       expect(resolved, `stmt region ${i} origin never resolves to a source span`).toBeDefined();
@@ -1068,7 +1068,7 @@ describe(".loom/sourcemap.json", () => {
     // read `span.start`/`span.end` off a wire span that is a TUPLE: both were
     // `undefined`, so `String.slice` returned the whole source and every
     // `toContain` was vacuous (M-T9.50).
-    const tokens = ["Products.getById", "product.discontinue"];
+    const tokens = ["Products.get(", "product.discontinue"];
     stmtRegions.forEach((r, i) => {
       const resolved = wireSourceOf(r.origin);
       expect(resolved, `stmt region ${i} origin never resolves`).toBeDefined();

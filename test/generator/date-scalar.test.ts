@@ -26,7 +26,7 @@ system Clinic {
       repository Patients for Patient
       criterion Before(cutoff: date) of Patient = this.date < cutoff
       queryHandler ListBefore(cutoff: date): Patient[] {
-        let r = Patients.run(Before(cutoff))
+        let r = Patients.all(Before(cutoff))
         return r
       }
     }

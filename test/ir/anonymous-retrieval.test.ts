@@ -55,7 +55,7 @@ async function irCodes(body: string): Promise<string[]> {
 describe("anonymous retrieval — run(retrieval { where, sort, loads })", () => {
   it("desugars to a synthetic retrieval carrying the criterion + sort terms", async () => {
     const rs = await retrievals(
-      `let xs = Orders.run(retrieval { where: ActiveOrder  sort: [region desc, code asc] })
+      `let xs = Orders.all(ActiveOrder, sort: [region desc, code asc])
        for o in xs { }`,
     );
     // S8: the synthetic name is a READABLE rendering of the shape, not a
@@ -71,7 +71,7 @@ describe("anonymous retrieval — run(retrieval { where, sort, loads })", () => 
 
   it("threads a parameterised criterion's call-site arg through", async () => {
     const files = await generateSystemFiles(
-      SYS(`let ys = Orders.run(retrieval { where: InRegion(c.region) }, page: { offset: 0, limit: 10 })
+      SYS(`let ys = Orders.all(InRegion(c.region), page: { offset: 0, limit: 10 })
         for o in ys { }`),
     );
     const repo = [...files].find(([k]) => /order-repository\.ts$/.test(k))?.[1] ?? "";
@@ -85,7 +85,7 @@ describe("anonymous retrieval — run(retrieval { where, sort, loads })", () => 
 
   it("emits .orderBy(...) on Hono for the shaped run", async () => {
     const files = await generateSystemFiles(
-      SYS(`let xs = Orders.run(retrieval { where: ActiveOrder  sort: [code desc] })
+      SYS(`let xs = Orders.all(ActiveOrder, sort: [code desc])
         for o in xs { }`),
     );
     const repo = [...files].find(([k]) => /order-repository\.ts$/.test(k))?.[1] ?? "";
@@ -94,9 +94,9 @@ describe("anonymous retrieval — run(retrieval { where, sort, loads })", () => 
 
   it("dedupes identical shapes, separates distinct ones", async () => {
     const rs = await retrievals(
-      `let a = Orders.run(retrieval { where: ActiveOrder  sort: [code desc] })
-       let b = Orders.run(retrieval { where: ActiveOrder  sort: [code desc] })
-       let c = Orders.run(retrieval { where: ActiveOrder  sort: [code asc] })
+      `let a = Orders.all(ActiveOrder, sort: [code desc])
+       let b = Orders.all(ActiveOrder, sort: [code desc])
+       let c = Orders.all(ActiveOrder, sort: [code asc])
        for o in a { }
        for o in b { }
        for o in c { }`,
@@ -108,21 +108,27 @@ describe("anonymous retrieval — run(retrieval { where, sort, loads })", () => 
     ]);
   });
 
-  it("rejects a non-criterion where: at the language layer", async () => {
+  it("rejects an inline predicate argument at the language layer", async () => {
     const errs = await langErrors(
-      `let xs = Orders.run(retrieval { where: status != Cancelled })
+      `let xs = Orders.all(status != Cancelled)
         for o in xs { }`,
     );
-    expect(errs.some((m) => /'where:' must be a criterion reference/.test(m))).toBe(true);
+    expect(
+      errs.some((m) =>
+        /'Orders\.all\(…\)' takes a criterion or a retrieval reference.*not an inline predicate/.test(
+          m,
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("reuses the criterion checks: unknown sort field, non-aggregate candidate", async () => {
     expect(
-      await irCodes(`let xs = Orders.run(retrieval { where: ActiveOrder  sort: [nope desc] })
+      await irCodes(`let xs = Orders.all(ActiveOrder, sort: [nope desc])
         for o in xs { }`),
     ).toContain("loom.retrieval-sort-unknown-field");
     expect(
-      await irCodes(`let xs = Orders.run(retrieval { where: AmbientOk })
+      await irCodes(`let xs = Orders.all(AmbientOk)
         for o in xs { }`),
     ).toContain("loom.findall-criterion-mismatch");
   });
@@ -133,7 +139,7 @@ describe("S8 — the synthetic name is readable on every backend's public surfac
   // method on all five backends; a structural hash there leaks compiler
   // internals into the ubiquitous language (audit S8).  Pin the readable
   // rendering AND the absence of the old `Shaped<hash>` residue.
-  const BODY = `let xs = Orders.run(retrieval { where: ActiveOrder  sort: [code desc] })
+  const BODY = `let xs = Orders.all(ActiveOrder, sort: [code desc])
        for o in xs { }`;
   const CASES: [string, RegExp][] = [
     ["node", /runFindAllByActiveOrderByCodeDesc/],

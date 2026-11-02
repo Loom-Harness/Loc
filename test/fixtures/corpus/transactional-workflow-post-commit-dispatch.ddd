@@ -59,7 +59,7 @@ system TransactionalWorkflowPostCommitDispatch {
       workflow onDebit {
         a: Acct id
         create(e: Debited) by e.acct {
-          let p = Accts.getById(e.peer)
+          let p = Accts.get(e.peer)
           let x = Audit.create(note: "debited", peerBalance: p.balance)
         }
       }
@@ -68,7 +68,7 @@ system TransactionalWorkflowPostCommitDispatch {
       // before `d` is credited.
       workflow debitOnce transactional {
         create(name: string, dst: Acct id) {
-          let d = Accts.getById(dst)
+          let d = Accts.get(dst)
           if let s = Accts.find(Named(name)) {
             s.debit(10, dst)
           }
@@ -80,7 +80,7 @@ system TransactionalWorkflowPostCommitDispatch {
       // fails.
       workflow debitThenOverdraw transactional {
         create(name: string, dst: Acct id) {
-          let d = Accts.getById(dst)
+          let d = Accts.get(dst)
           if let s = Accts.find(Named(name)) {
             s.debit(10, dst)
           }

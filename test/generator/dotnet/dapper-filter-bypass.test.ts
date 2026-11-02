@@ -37,7 +37,7 @@ const SRC = `
       criterion OrdersNormal of Order = this.total > 0
       workflow Sweep {
         create(x: int) {
-          let xs = OrderRepo.findAll(BigOrders()) ignoring softDeletable
+          let xs = OrderRepo.all(BigOrders()) ignoring softDeletable
           for o in xs { }
           if let r = OrderRepo.find(OrdersRecent()) ignoring softDeletable { }
           if let n = OrderRepo.find(OrdersNormal()) { }

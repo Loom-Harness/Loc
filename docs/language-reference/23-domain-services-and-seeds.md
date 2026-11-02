@@ -161,8 +161,8 @@ workflow RegisterAccount transactional {
 }
 workflow MoveMoney transactional {
   create(source: Account id, dest: Account id, amount: Money) {
-    let s = Accounts.getById(source)                         // orchestrator LOADS
-    let d = Accounts.getById(dest)
+    let s = Accounts.get(source)                         // orchestrator LOADS
+    let d = Accounts.get(dest)
     Transfer.run(s, d, amount)                               // service MUTATES s, d
   }                                                          // both auto-save at exit
 }

@@ -15,7 +15,7 @@ system EmbSys {
       // PAGED: a non-relational repository serves a criterion read through the
       // synthesised paged find; an unpaged `run` has no repository method there.
       queryHandler ListOrdersByCustomer(name: string): Order paged {
-        let r = Orders.run(OrdersByCustomer(name))
+        let r = Orders.all(OrdersByCustomer(name))
         return r
       }
     }

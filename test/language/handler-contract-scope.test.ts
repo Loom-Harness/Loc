@@ -48,11 +48,11 @@ ${members}
 
 const HANDLERS = `
         queryHandler GetOrder(query: GetOrderQuery): OrderResponse {
-          let o = Orders.getById(query.orderId)
+          let o = Orders.get(query.orderId)
           return o
         }
         commandHandler CancelOrder(cmd: CancelOrderCommand): OrderResponse {
-          let o = Orders.getById(cmd.reason)
+          let o = Orders.get(cmd.reason)
           o.cancel()
           return o
         }

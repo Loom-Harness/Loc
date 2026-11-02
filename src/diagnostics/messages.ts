@@ -189,6 +189,40 @@ export const DIAGNOSTIC_MESSAGES = {
     `Unknown builder type '${p.name}'. Expected a ValueObject, EntityPart, user-defined component, or stdlib walker primitive (e.g., Stack, CreateForm, Card).`,
 
   // ----------------------------------------------------------------------
+  // src/language/validators/repo-verbs.ts
+  // ----------------------------------------------------------------------
+  "loom.repo-verb-renamed": (p: {
+    receiver: unknown;
+    verb: unknown;
+    next: unknown;
+    hint: unknown;
+  }) =>
+    `'${p.receiver}.${p.verb}(…)' is no longer a repository verb — it is '${p.receiver}.${p.next}(…)'.` +
+    `${p.hint} The repository reads are get(id) / find(id) / find(<Criterion>) / ` +
+    `getBy(…) / findBy(…) / all(…), and the write is remove(x). ` +
+    "`node scripts/codemod-repo-verbs.mjs` migrates a whole tree.",
+  "loom.repo-get-criterion": (p: { receiver: unknown; ref: unknown }) =>
+    `'${p.receiver}.get(${p.ref})': 'get' loads one row by its id, and '${p.ref}' is a criterion. ` +
+    `Read the first match with '${p.receiver}.find(${p.ref})', or every match with ` +
+    `'${p.receiver}.all(${p.ref})'.`,
+  "loom.repo-get-criterion#retrieval": (p: { receiver: unknown; ref: unknown }) =>
+    `'${p.receiver}.get(${p.ref})': 'get' loads one row by its id, and '${p.ref}' is a retrieval, ` +
+    `which selects a list. Run it with '${p.receiver}.all(${p.ref})'.`,
+  "loom.repo-find-retrieval": (p: { receiver: unknown; ref: unknown }) =>
+    `'${p.receiver}.find(${p.ref})': '${p.ref}' is a retrieval, which selects a list of rows — run it ` +
+    `with '${p.receiver}.all(${p.ref})'. 'find' takes an id or a criterion.`,
+  "loom.repo-all-arg": (p: { receiver: unknown }) =>
+    `'${p.receiver}.all(…)' takes a criterion or a retrieval reference ('Active', 'InRegion(r)'), ` +
+    "or nothing for the whole collection — not an inline predicate. Declare the predicate as a " +
+    "'criterion' and pass its name.",
+  "loom.repo-sort-placement": (p: { receiver: unknown; verb: unknown }) =>
+    `'sort:' on '${p.receiver ? `${p.receiver}.` : ""}${p.verb}(…)' is never read: it belongs to a ` +
+    "repository read over a criterion — 'Repo.all(<Criterion>, sort: [field desc])'.",
+  "loom.repo-sort-placement#retrieval": (p: { receiver: unknown; ref: unknown }) =>
+    `'${p.receiver}.all(${p.ref}, sort: …)': '${p.ref}' is a retrieval, which declares its own ` +
+    "'sort:'. Change the order on the retrieval, or pass a criterion.",
+
+  // ----------------------------------------------------------------------
   // src/language/validators/repo-key-lookup.ts
   // ----------------------------------------------------------------------
   "loom.repo-key-not-unique": (p: {
@@ -206,7 +240,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.verb}' reads ONE row by a natural key, so its named arguments must equal a ` +
     `'unique (…)' tuple — otherwise two rows can share the key and the read returns whichever ` +
     `the database yields first. Declare 'unique (${p.cols})' on '${p.agg}', or read a list with ` +
-    `'${p.repo}.findAll(<Criterion>)'.`,
+    `'${p.repo}.all(<Criterion>)'.`,
   "loom.repo-key-incomplete": (p: {
     repo: unknown;
     verb: unknown;
@@ -226,9 +260,9 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.ignoring-clause-placement": (p: { clause: unknown }) =>
     `'${p.clause}' sits in a position that DROPS it. A capability-filter bypass has five homes: ` +
     "a repository 'find … ignoring …', a query-time projection's 'where' slot (before 'join' / " +
-    "'group by' / 'select'), an inline read bound by a 'let' ('let xs = Repo.findAll(…) " +
+    "'group by' / 'select'), an inline read bound by a 'let' ('let xs = Repo.all(C) " +
     "ignoring …'), an 'if let' source ('if let o = Repo.find(C) ignoring …' / 'Repo.findBy(…) " +
-    "ignoring …'), or a single-row read in a domainService operation ('Repo.findById(id) " +
+    "ignoring …'), or a single-row read in a domainService operation ('Repo.find(id) " +
     "ignoring … == null'). Written on any other expression it parses, binds to that expression, and is " +
     "never read back — the read still applies every filter you asked it to skip. Move the clause " +
     "to the read it is meant to widen.",
@@ -1103,8 +1137,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `'requires' must be of type 'bool', got '${p.actual}'.`,
   "loom.precondition-not-bool": (p: { actual: unknown }) =>
     `'precondition' must be of type 'bool', got '${p.actual}'.`,
-  "loom.retrieval-where-not-criterion":
-    "an anonymous retrieval's 'where:' must be a criterion reference (e.g. 'ActiveOrder' or 'InRegion(r)') in this release.",
   "loom.assign-to-derived": (p: { path: unknown }) =>
     `Cannot assign to derived property '${p.path}'.`,
   "loom.assign-type-mismatch": (p: { actual: unknown; expected: unknown }) =>
@@ -1584,7 +1616,7 @@ export const DIAGNOSTIC_MESSAGES = {
     variants: unknown;
     first: unknown;
   }) =>
-    `'${p.receiver}.${p.op}()' invokes an operation on an 'or'-union value (${p.variants}) — it holds ONE of those variants, so there is no aggregate to run it on until the value is discriminated. Load it with a find declared ': ${p.first}' (absent → 404) or 'getById', or branch on the variant with 'match'.`,
+    `'${p.receiver}.${p.op}()' invokes an operation on an 'or'-union value (${p.variants}) — it holds ONE of those variants, so there is no aggregate to run it on until the value is discriminated. Load it with a find declared ': ${p.first}' (absent → 404) or 'get', or branch on the variant with 'match'.`,
   "loom.match-unknown-variant": (p: { varType: unknown; variants: unknown }) =>
     `variant 'match' arm names '${p.varType}', which is not a variant of the subject union {${p.variants}}.`,
   "loom.match-duplicate-variant": (p: { varType: unknown }) =>
@@ -2104,7 +2136,7 @@ export const DIAGNOSTIC_MESSAGES = {
     recvName: unknown;
     member: unknown;
   }) =>
-    `${p.where}: repository WRITE '${p.recvName}.${p.member}(…)' is not allowed — a domain service may run read-only queries (the 'reading' tier), but persistence writes (save/insert/update/delete/add/remove/commit) belong to the orchestrator (workflow / command handler).`,
+    `${p.where}: repository WRITE '${p.recvName}.${p.member}(…)' is not allowed — a domain service may run read-only queries (the 'reading' tier), but persistence writes (remove, and the refused save/insert/update/add/commit) belong to the orchestrator (workflow / command handler).`,
   "loom.domain-service-read-unsupported": (p: {
     where: unknown;
     recvName: unknown;
@@ -2149,7 +2181,7 @@ export const DIAGNOSTIC_MESSAGES = {
   // src/ir/validate/checks/repo-access-checks.ts
   // ----------------------------------------------------------------------
   "loom.repository-access-outside-workflow": (p: { where: unknown; repoName: unknown }) =>
-    `${p.where} names repository '${p.repoName}', but a domain member body has no repository in scope — only a workflow (or a command/query handler, or a 'domainService' reading its own context) can load another aggregate. Every backend renders the unresolved name verbatim into a class that never binds it, so the generated project does not compile (node TS2304, .NET CS0103, Java "cannot find symbol", Python NameError, Phoenix an unbound variable). Move the read into a workflow — 'let x = ${p.repoName}.getById(…)' — and pass the value this member needs in as a parameter.`,
+    `${p.where} names repository '${p.repoName}', but a domain member body has no repository in scope — only a workflow (or a command/query handler, or a 'domainService' reading its own context) can load another aggregate. Every backend renders the unresolved name verbatim into a class that never binds it, so the generated project does not compile (node TS2304, .NET CS0103, Java "cannot find symbol", Python NameError, Phoenix an unbound variable). Move the read into a workflow — 'let x = ${p.repoName}.get(…)' — and pass the value this member needs in as a parameter.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/index-suggestion-checks.ts
@@ -2952,7 +2984,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `that will not compile. Spell the destination as a path instead ` +
     `(\`navigate("/products/" + id)\`), or navigate from a body slot that binds the id.`,
   "loom.paged-query-handler-shape": (p: { name: unknown; hint: unknown }) =>
-    `queryHandler '${p.name}' returns a \`paged\` envelope, but its body is not the supported paged shape \`let r = Repo.run(<Criterion | Retrieval>(args)); return r\`, so no backend can generate it. ${p.hint}`,
+    `queryHandler '${p.name}' returns a \`paged\` envelope, but its body is not the supported paged shape \`let r = Repo.all(<Criterion | Retrieval>(args)); return r\`, so no backend can generate it. ${p.hint}`,
   "loom.paged-query-handler-shape#sorted-retrieval-shape": (p: {
     name: unknown;
     retrieval: unknown;
@@ -3966,7 +3998,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `reactor '${p.reactor}' runs on timer '${p.timer}', which has no tenant, but reads the ` +
     `tenant-owned aggregate '${p.agg}' through \`${p.read}\`.  The read's tenant filter would match ` +
     `nothing.  Make the cross-tenant read explicit: widen the read with \`ignoring tenantOwned\` ` +
-    `(\`Repo.run(C) ignoring tenantOwned\`, \`Repo.getBy(…) ignoring tenantOwned\`).`,
+    `(\`Repo.all(C) ignoring tenantOwned\`, \`Repo.getBy(…) ignoring tenantOwned\`).`,
   "loom.user-reserved-field": (p: { name: unknown; fName: unknown }) =>
     `system '${p.name}': user block declares field '${p.fName}', but that name is reserved for the ` +
     `built-in system principal (\`currentUser.isSystem\`, and \`causedBy\` — the originating user an ` +
@@ -4704,7 +4736,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `Exercise the behaviour through an operation call and assert on the result with 'expect' / 'expect-throws'.`,
   "loom.integration-find-must-bind": (p: { name: unknown; testName: unknown }) =>
     `context '${p.name}' integration test '${p.testName}': a repository read inside ` +
-    `'expect(...)' must be let-bound first — write \`let x = <Agg>.findById(...)\` then ` +
+    `'expect(...)' must be let-bound first — write \`let x = <Agg>.find(...)\` then ` +
     `assert over \`x\` (the integration renderer awaits the read at statement level).`,
   "loom.integration-repository-call": (p: {
     name: unknown;
@@ -4715,7 +4747,7 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `context '${p.name}' integration test '${p.testName}': \`${p.repo}.${p.member}(…)\` calls the repository by name, ` +
     `which an integration test body does not resolve. Root persistence reads at the aggregate instead — ` +
-    `\`let x = ${p.agg}.findById(...)\` — and let a factory \`let\` be saved for you.`,
+    `\`let x = ${p.agg}.find(...)\` — and let a factory \`let\` be saved for you.`,
   "loom.e2e-unsupported-statement": (p: { name: unknown; badKind: unknown; magicId: unknown }) =>
     `e2e test '${p.name}': '${p.badKind}' is not supported in an e2e test body. ` +
     `Only expect, expect-throws, let, expression, and ${p.magicId}.<...> calls are allowed.`,
@@ -5239,20 +5271,20 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `${p.where}: repository '${p.repoName}' is declared in context '${p.otherContext}', not in this workflow's own context '${p.ownContext}' — a workflow orchestrates the aggregates of ONE context, so it may only load through its own repositories. No backend can emit this read: the repository is never constructed and the call is never awaited, so the generated code references a name that does not exist. Cross-context data crosses at the context's PUBLIC surface instead: fetch it through '${p.otherContext}''s api (a 'resource { kind: api }' binding gives a typed in-system call), or read a local projection folded over '${p.otherContext}''s published events (via a channel), and pass the value in as a parameter. If the two aggregates really do change together in one transaction, they belong in the SAME context — move one across, or move this workflow into '${p.otherContext}'.`,
   "loom.repo-unknown-read": (p: { repoName: unknown; method: unknown; suggestion?: unknown }) =>
-    `repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  A repository declares no reads of its own: read with getById / findById, getBy / findBy over a declared \`unique (…)\` key, or find / findAll / run over a criterion.`,
+    `repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  A repository declares no reads of its own: read with get / find(id), getBy / findBy over a declared \`unique (…)\` key, or find / all over a criterion or retrieval.`,
   "loom.workflow-unknown-repository-method": (p: {
     name: unknown;
     repoName: unknown;
     method: unknown;
     suggestion?: unknown;
   }) =>
-    `workflow '${p.name}': repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  A repository declares no reads of its own: read with getById / findById, getBy / findBy over a declared \`unique (…)\` key, or find / findAll / run over a criterion.`,
+    `workflow '${p.name}': repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  A repository declares no reads of its own: read with get / find(id), getBy / findBy over a declared \`unique (…)\` key, or find / all over a criterion or retrieval.`,
   "loom.workflow-load-array-unsupported": (p: {
     name: unknown;
     repoName: unknown;
     method: unknown;
   }) =>
-    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns an array; a 'let' over a repository read binds a single row (or none, as 'T?').  Iterate the rows with 'for x in ${p.repoName}.findAll(…) { … }', or use getById.`,
+    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns an array; a 'let' over a repository read binds a single row (or none, as 'T?').  Iterate the rows with 'for x in ${p.repoName}.all(…) { … }', or use get.`,
   "loom.workflow-run-unknown-repository#workflow-a-criterion-query": (p: {
     name: unknown;
     repoName: unknown;
@@ -5262,7 +5294,7 @@ export const DIAGNOSTIC_MESSAGES = {
     name: unknown;
     repoName: unknown;
   }) =>
-    `workflow '${p.name}': '${p.repoName}.run(...)' references unknown repository '${p.repoName}'.`,
+    `workflow '${p.name}': '${p.repoName}.all(...)' references unknown repository '${p.repoName}'.`,
   "loom.findall-unknown-criterion": (p: { name: unknown; repoName: unknown; critName: unknown }) =>
     `workflow '${p.name}': criterion query on '${p.repoName}' references unknown criterion '${p.critName}'.`,
   "loom.findall-criterion-mismatch": (p: {
@@ -5288,7 +5320,7 @@ export const DIAGNOSTIC_MESSAGES = {
     repoName: unknown;
     retrievalName: unknown;
   }) =>
-    `workflow '${p.name}': '${p.repoName}.run(${p.retrievalName}(...))' references unknown retrieval '${p.retrievalName}'.`,
+    `workflow '${p.name}': '${p.repoName}.all(${p.retrievalName}(...))' references unknown retrieval '${p.retrievalName}'.`,
   "loom.workflow-run-retrieval-mismatch": (p: {
     name: unknown;
     retrievalName: unknown;
@@ -5298,7 +5330,7 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `workflow '${p.name}': retrieval '${p.retrievalName}' is over '${p.target}', but '${p.repoName}' is a repository for '${p.aggName}'.`,
   "loom.workflow-foreach-source": (p: { name: unknown; var: unknown }) =>
-    `workflow '${p.name}': 'for ${p.var} in ...' must iterate a 'let xs = Repo.run(...)' result (the only aggregate array in v1).`,
+    `workflow '${p.name}': 'for ${p.var} in ...' must iterate a 'let xs = Repo.all(...)' result (the only aggregate array in v1).`,
   "loom.workflow-foreach-unknown-binding#workflow-in-for-references": (p: {
     name: unknown;
     var: unknown;
@@ -5596,11 +5628,18 @@ export const DIAGNOSTIC_MESSAGES = {
   // (`src/language/parse-errors.ts`).
   "loom.parse-error#find-removed": (p: { repository: unknown; aggregate: unknown }) =>
     `A repository declares no \`find\`s any more: read '${p.aggregate}' through the ` +
-    `repository contract instead — \`${p.repository}.findById(id)\` / \`getById(id)\`, ` +
+    `repository contract instead — \`${p.repository}.find(id)\` / \`get(id)\`, ` +
     `\`${p.repository}.findBy(<column>: v)\` / \`getBy(…)\` over a declared \`unique (…)\` key, ` +
-    `or a \`criterion\` read with \`${p.repository}.find(C)\` (the first match), ` +
-    `\`findAll(C)\` or \`run(C)\`. A read a client calls is a \`queryHandler\` or ` +
+    `or a \`criterion\` read with \`${p.repository}.find(C)\` (the first match) or ` +
+    `\`all(C)\`. A read a client calls is a \`queryHandler\` or ` +
     `\`scaffoldGet\`. Leave the repository body empty (\`repository ${p.repository} for ${p.aggregate}\`).`,
+  // An anonymous `retrieval { … }` literal — removed (D-REPO-VERBS): its
+  // criterion and `sort:` are arguments of `all` (`src/language/parse-errors.ts`).
+  "loom.parse-error#retrieval-literal-removed":
+    "The anonymous `retrieval { where: C sort: […] }` literal is no longer part of the language: " +
+    "pass the criterion and its order to `all` instead — `Orders.all(C, sort: [placedAt desc], " +
+    "page: { limit: 20 })`. A reusable shape is a declared `retrieval`, run with " +
+    "`Orders.all(MyRetrieval(args))`. `node scripts/codemod-repo-verbs.mjs` migrates a whole tree.",
   // A workflow `handle` member — the declaration was removed (D-HANDLE-REMOVAL):
   // it had no correlation surface and no backend ever routed it.  The named
   // command entry is a context-level `commandHandler` (`src/language/parse-errors.ts`).

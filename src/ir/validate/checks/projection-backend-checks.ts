@@ -137,7 +137,7 @@ export function validateDocumentAggregationFilters(sys: SystemIR, diags: LoomDia
 }
 
 // paged-run body shape: every backend's paged branch renders exactly
-// `let r = Repo.run(<Criterion | Retrieval>(args)); return r` — a run the
+// `let r = Repo.all(<Criterion | Retrieval>(args)); return r` — a run the
 // enrich pass turns into a paged FIND repo method.  Any other body passed
 // validation and then crashed `generate` on all five backends with an
 // `internal: … Please file a bug`; it is refused here instead.  A retrieval's

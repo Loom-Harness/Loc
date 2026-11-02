@@ -34,7 +34,7 @@ const source = (read: string) => `
         repository Orders for Order { }
         criterion OrdersByLabel(l: string) of Order = this.label == l
         criterion Labelled(l: string) of Order = this.label == l
-        ${read === "paged" ? "queryHandler ListLabelled(l: string): Order paged { let r = Orders.run(Labelled(l))  return r }" : ""}
+        ${read === "paged" ? "queryHandler ListLabelled(l: string): Order paged { let r = Orders.all(Labelled(l))  return r }" : ""}
       }
     }
     api SalesApi from Sales

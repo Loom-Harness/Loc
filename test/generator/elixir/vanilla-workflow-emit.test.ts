@@ -89,7 +89,7 @@ describe("vanilla — workflow body lowering (emit)", () => {
     const wf = await workflowFor(
       `workflow finish transactional {
         create(taskId: Task id) {
-          let t = Tasks.getById(taskId)
+          let t = Tasks.get(taskId)
           emit TaskFinished { task: taskId, at: now() }
         }
       }`,
@@ -104,7 +104,7 @@ describe("vanilla — workflow body lowering (emit)", () => {
     const wf = await workflowFor(
       `workflow finish transactional {
         create(taskId: Task id) {
-          let t = Tasks.getById(taskId)
+          let t = Tasks.get(taskId)
           emit TaskFinished { task: taskId, at: now() }
         }
       }`,
@@ -155,7 +155,7 @@ describe("vanilla — workflow body lowering (emit)", () => {
     const wf = await workflowFor(
       `workflow finish transactional {
         create(taskId: Task id) {
-          let t = Tasks.getById(taskId)
+          let t = Tasks.get(taskId)
           emit TaskFinished { task: taskId, at: now() }
         }
       }`,
@@ -170,7 +170,7 @@ describe("vanilla — workflow body lowering (emit)", () => {
     const wf = await workflowFor(
       `workflow finish transactional {
         create(taskId: Task id) {
-          let t = Tasks.getById(taskId)
+          let t = Tasks.get(taskId)
           emit TaskFinished { task: taskId, at: now() }
         }
       }`,

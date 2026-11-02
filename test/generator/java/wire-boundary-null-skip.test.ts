@@ -82,7 +82,7 @@ system Bank {
       workflow settle transactional {
         create(walletId: Wallet id, amount: Money, qty: int) {
           precondition qty > 0
-          let wallet = Wallets.getById(walletId)
+          let wallet = Wallets.get(walletId)
           wallet.topUp(amount)
         }
       }

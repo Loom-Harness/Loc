@@ -21,7 +21,7 @@ const SRC = `
       criterion OrdersNormal of Order = this.total > 0
       criterion OrdersAny of Order = this.total > 0
       queryHandler ListAny(): Order[] {
-        let xs = OrderRepo.findAll(OrdersAny()) ignoring softDeletable
+        let xs = OrderRepo.all(OrdersAny()) ignoring softDeletable
         return xs
       }
       queryHandler GetRecent(): Order {
@@ -32,7 +32,7 @@ const SRC = `
       }
       domainService Probe {
         operation exists(id: Order id): bool {
-          return OrderRepo.findById(id) ignoring * != null
+          return OrderRepo.find(id) ignoring * != null
         }
       }
     }}

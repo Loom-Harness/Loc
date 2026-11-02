@@ -62,7 +62,7 @@ describe("IR validator — a repository named from a domain member body", () => 
   it("rejects a repository read in an aggregate `operation` (the reported shape)", async () => {
     const d = await diags(`
       operation assign(assignTo: Technician id) {
-        precondition Technicians.getById(assignTo).skills.contains(requiredSkill)
+        precondition Technicians.get(assignTo).skills.contains(requiredSkill)
         technicianId := assignTo
       }
     `);
@@ -79,7 +79,7 @@ describe("IR validator — a repository named from a domain member body", () => 
     // method call; the expression form is pure by construction and had no gate
     // at all, so it emitted the same dangling receiver in silence.
     const d = await diags(`
-      function skilled(who: Technician id): bool = Technicians.getById(who).skills.count > 0
+      function skilled(who: Technician id): bool = Technicians.get(who).skills.count > 0
     `);
     expect(hits(d)).toHaveLength(1);
     expect(hits(d)[0]?.source).toBe("Ops/Job.function[skilled]");
@@ -89,8 +89,8 @@ describe("IR validator — a repository named from a domain member body", () => 
   it("rejects it in an `invariant` and in a `derived`", async () => {
     const d = await diags(
       `
-      derived skillCount: int = Technicians.getById(technicianId).skills.count
-      invariant Technicians.getById(technicianId).skills.contains(requiredSkill)
+      derived skillCount: int = Technicians.get(technicianId).skills.count
+      invariant Technicians.get(technicianId).skills.contains(requiredSkill)
     `,
       "",
       true,
@@ -105,8 +105,8 @@ describe("IR validator — a repository named from a domain member body", () => 
   it("reports a member ONCE per repository, however many times it is read", async () => {
     const d = await diags(`
       operation assign(assignTo: Technician id) {
-        precondition Technicians.getById(assignTo).skills.count > 0
-        assignedName := Technicians.getById(assignTo).name
+        precondition Technicians.get(assignTo).skills.count > 0
+        assignedName := Technicians.get(assignTo).name
         technicianId := assignTo
       }
     `);
@@ -123,7 +123,7 @@ describe("IR validator — a repository named from a domain member body", () => 
         aggregate Job {
           customerId: Customer id
           label: string
-          operation relabel() { label := Customers.getById(customerId).name }
+          operation relabel() { label := Customers.get(customerId).name }
         }
         repository Jobs for Job { }
       }
@@ -147,8 +147,8 @@ describe("IR validator — a repository named from a domain member body", () => 
       `
       workflow assignJob {
         create(jobId: Job id, techId: Technician id) {
-          let tech = Technicians.getById(techId)
-          let job = Jobs.getById(jobId)
+          let tech = Technicians.get(techId)
+          let job = Jobs.get(jobId)
           job.assign(techId, tech.skills.contains(job.requiredSkill))
         }
       }
@@ -167,7 +167,7 @@ describe("IR validator — a repository named from a domain member body", () => 
       "",
       `
       domainService Staffing {
-        operation anyTechnician(): bool { return Technicians.findAll().count > 0 }
+        operation anyTechnician(): bool { return Technicians.all().count > 0 }
       }
     `,
     );

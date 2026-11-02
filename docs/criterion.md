@@ -19,24 +19,19 @@ guards.
 > auto-exposed side-effect-free `GET /<plural>/{id}/can_<op>` endpoints are
 > **shipped on all five backends** — node / .NET / python / elixir / java (a
 > false gate → 409 Disallowed; the companion returns `{ allowed }`).
-> `Repo.findAll(<Criterion>, page?)` from workflow bodies is **shipped on every
+> `Repo.all(<Criterion>, page?)` from workflow bodies is **shipped on every
 > backend** — it desugars to a synthetic `findAllBy<Criterion>` retrieval (the
 > enrich pass materialises it from the context's criteria), so it rides the
-> existing retrieval pipeline.  **`Repo.run` accepts a criterion too**
-> (read-path-architecture.md, "`run` takes a criterion") — `Repo.run(<Criterion>)`
-> / `Repo.run(<Criterion>(args), page?)` is first-class alongside
-> `Repo.run(<Retrieval>)`, riding the identical `findAllBy<Criterion>` desugar as
-> `findAll`.  A criterion and a retrieval may not share a name in one context
-> (`loom.criterion-retrieval-name-clash`, an error), so `run(<Name>)` always
-> means exactly one of them.  Ordering / fetch-shaping is expressed by an
-> **anonymous retrieval** — `Repo.run(retrieval { where: <Criterion> sort: […]
-> loads: […] }, page?)` — the call-site twin of a declared `retrieval`; `findAll`
-> and bare-criterion `run` stay the un-shaped spellings, shaping lives on the
-> (named or anonymous) retrieval.  Its `where:` is a criterion reference in this
-> release.  A repository declares **no reads of its own** — `find`
-> declarations are removed ([D-FINDDECL-REMOVED](decisions.md); a leftover
-> `find` is a parse error).  A list read is a criterion passed to `run` /
-> `findAll` (or a named `retrieval`), exposed with `scaffoldPaged(of: …)` +
+> existing retrieval pipeline.  `Repo.all(<Retrieval>(args), page?)` runs a
+> named retrieval the same way.  A criterion and a retrieval may not share a
+> name in one context (`loom.criterion-retrieval-name-clash`, an error), so
+> `all(<Name>)` always means exactly one of them.  Ordering is the `sort:`
+> argument — `Repo.all(<Criterion>, sort: [placedAt desc], page?)` — or a
+> named `retrieval`'s `sort:` ([D-REPO-VERBS](decisions.md); the anonymous
+> `retrieval { … }` literal is gone).  A repository declares **no reads of its
+> own** — `find` declarations are removed ([D-FINDDECL-REMOVED](decisions.md);
+> a leftover `find` is a parse error).  A list read is a criterion (or a
+> named `retrieval`) passed to `all`, exposed with `scaffoldPaged(of: …)` +
 > `scaffoldPagedApi(of: …)` when a client must call it; a single-row read over
 > a declared `unique (…)` key is `Repo.getBy(<col>: v)` / `Repo.findBy(…)`
 > ([D-REPO-KEY-LOOKUP](decisions.md)), and over any other predicate a
@@ -148,7 +143,7 @@ involved; criteria ride the existing `where`→SQL path on every backend.
 
 There are positions where a criterion is **not** dissolved into its host:
 when a [`retrieval`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/retrieval.md)'s `where` (including the
-retrieval a `Repo.run(<Criterion>)` / `find(<Criterion>)` runs) is *exactly* a
+retrieval a `Repo.all(<Criterion>)` / `find(<Criterion>)` runs) is *exactly* a
 named criterion reference. There the
 criterion **reifies** — the backend emits a named, constructed predicate
 object (the Specification pattern made real in generated code) that the
@@ -159,7 +154,7 @@ reusable object:
 criterion NamedLike(needle: string) of Customer = this.name == needle
 retrieval ByName(needle: string) of Customer { where: NamedLike(needle) sort: [name asc] }
 repository Customers for Customer { }
-// … Customers.run(NamedLike(needle)) and Customers.run(ByName(needle)) share it
+// … Customers.all(NamedLike(needle)) and Customers.all(ByName(needle)) share it
 ```
 
 | Backend | What the criterion reifies to |
@@ -209,7 +204,7 @@ index model:
 
 | Code | Fires when | Steers you to |
 |---|---|---|
-| `loom.list-find-removed` (error) | A `repository` declares a `find` returning a collection (`: T[]` / `T paged`) other than `find all` — a bespoke list finder accreting on the repo. | Pass a criterion to `run` (`Repo.run(<Criterion>(args))`) or name a `retrieval` instead; put it on the wire with `scaffoldPaged(of: <it>)` on the context and `scaffoldPagedApi(of: <it>)` on the api. `node scripts/codemod-list-find-to-criterion.mjs <path>` rewrites a source. A unique-key reconstitution find returning a single `T` / `T?` stays fine. |
+| `loom.list-find-removed` (error) | A `repository` declares a `find` returning a collection (`: T[]` / `T paged`) other than `find all` — a bespoke list finder accreting on the repo. | Pass a criterion to `all` (`Repo.all(<Criterion>(args))`) or name a `retrieval` instead; put it on the wire with `scaffoldPaged(of: <it>)` on the context and `scaffoldPagedApi(of: <it>)` on the api. `node scripts/codemod-list-find-to-criterion.mjs <path>` rewrites a source. A unique-key reconstitution find returning a single `T` / `T?` stays fine. |
 | `loom.index-suggestion` (warning) | A field is read on a query filter — a `find … where`, a reified `filter`, a `criterion` body or a `retrieval`'s `where` — but has no index. | Add `index: <Agg>.<field>` on the aggregate's `kind: state` resource — the column then shows up in the migration. |
 
 > The index suggestion follows the migration: a `find … where` rewritten as a
@@ -222,7 +217,7 @@ before it becomes a slow query in production.
 ## See also
 
 - [`docs/old/proposals/criterion.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/criterion.md) — the full
-  design, including the deferred `findAll` / `when` / `from` surfaces.
+  design, including the deferred `when` / `from` surfaces.
 - [`docs/old/proposals/reified-criteria.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/reified-criteria.md) —
   the Specification-reification design (shipped for retrieval criteria;
   the remaining-work register for `find` / capability-filter reification).

@@ -1998,7 +1998,7 @@ describe("Loom IR validation (post-lowering)", async () => {
         workflow placeOrder {
       create(customerId: Customer id, amount: decimal, placedAt: datetime) {
           precondition amount > 0
-          let customer = Customers.getById(customerId)
+          let customer = Customers.get(customerId)
           customer.deductCredit(amount)
           let order = Order.create(
             customerId: customerId,
@@ -2030,7 +2030,7 @@ describe("Loom IR validation (post-lowering)", async () => {
         workflow topUp transactional {
       create(customerId: Customer id, amount: decimal) {
           precondition amount > 0
-          let c = Customers.getById(customerId)
+          let c = Customers.get(customerId)
           c.addCredit(amount)
         }
     }
@@ -2051,7 +2051,7 @@ describe("Loom IR validation (post-lowering)", async () => {
         repository Customers for Customer { }
         workflow w {
       create(customerId: Customer id) {
-          let c = Customers.getById(id)
+          let c = Customers.get(id)
           c.hush()
         }
     }
@@ -2075,7 +2075,7 @@ describe("Loom IR validation (post-lowering)", async () => {
         repository Customers for Customer { }
         workflow w {
       create(customerId: Customer id) {
-          let c = Customers.getById(customerId)
+          let c = Customers.get(customerId)
           c.confirm()
         }
     }
@@ -2097,7 +2097,7 @@ describe("Loom IR validation (post-lowering)", async () => {
         repository Customers for Customer { }
         workflow w {
       create(customerId: Customer id, amount: decimal) {
-          let c = Customers.getById(customerId)
+          let c = Customers.get(customerId)
           c.deduct(amount)
         }
     }
@@ -2265,7 +2265,7 @@ describe("Loom IR validation (post-lowering)", async () => {
           repository Customers for Customer { }
           workflow w transactional(${level}) {
       create(customerId: Customer id, amount: decimal) {
-            let c = Customers.getById(customerId)
+            let c = Customers.get(customerId)
             c.addCredit(amount)
           }
     }
@@ -2288,7 +2288,7 @@ describe("Loom IR validation (post-lowering)", async () => {
         repository Customers for Customer { }
         workflow w {
       create(customerId: Customer id) {
-          let c = Customers.getById(id)
+          let c = Customers.get(id)
           c.name := "X"
         }
     }

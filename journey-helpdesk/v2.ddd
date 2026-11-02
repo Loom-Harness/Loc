@@ -43,7 +43,7 @@ system Helpdesk {
       workflow slaWatch requires currentUser.role == "agent" {
         sweep: SlaSweep id
         create(t: SlaTick) by t.sweep {
-          let due = Tickets.run(OverdueTickets(t.at))
+          let due = Tickets.all(OverdueTickets(t.at))
           for ticket in due {
             ticket.flagBreached()
           }
@@ -64,8 +64,8 @@ system Helpdesk {
       workflow notifyResolved requires currentUser.role == "agent" {
         ticket: Ticket id
         create(e: TicketResolved) by e.ticket {
-          let tk = Tickets.getById(e.ticket)
-          let c = Customers.getById(tk.customer)
+          let tk = Tickets.get(e.ticket)
+          let c = Customers.get(tk.customer)
           mail.send(c.email, "Ticket resolved", "Your ticket " + tk.number + " was resolved.")
         }
       }

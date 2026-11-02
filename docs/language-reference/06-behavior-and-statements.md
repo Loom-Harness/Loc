@@ -135,13 +135,13 @@ end
 
 A `private operation` is invoked from another op as a bare call — `recompute()` lowers to `this.recompute()` (TS/.NET/Java), `self._recompute()` (Python) and, on Elixir, to `record = __op_recompute(record)` against a module-local `defp __op_recompute/1` carrying the callee's body as a PURE struct transform (the caller's persist tail writes the columns it assigned). The public twin `recompute_order/2` is not used for this: it persists, and calling it mid-operation would commit a partial write inside the caller's optimistic-lock window. **One narrow refusal on Elixir:** a private operation whose body reads `currentUser` is rejected with `loom.vanilla-op-call-actor` — the helper takes no actor and the caller binds `current_user` only when its own body reads the principal, so the generated project would not compile. Move the `currentUser` read up into the routed operation.
 
-**No repository is in scope.** An operation is a single-aggregate state transition over state that is already loaded, so a body may not name a repository — `precondition Technicians.getById(assignTo).skills.contains(requiredSkill)` is `loom.repository-access-outside-workflow`. The rule covers every body that renders into domain code (`operation`, `create` / `destroy` and their `when` guards, `invariant`, `derived`, and `function` in both body forms), and it covers a repository of any context, not just this one. Loading another aggregate belongs to a [workflow](13-workflows.md), which owns the transaction and the loads — read there and pass the value in as a parameter:
+**No repository is in scope.** An operation is a single-aggregate state transition over state that is already loaded, so a body may not name a repository — `precondition Technicians.get(assignTo).skills.contains(requiredSkill)` is `loom.repository-access-outside-workflow`. The rule covers every body that renders into domain code (`operation`, `create` / `destroy` and their `when` guards, `invariant`, `derived`, and `function` in both body forms), and it covers a repository of any context, not just this one. Loading another aggregate belongs to a [workflow](13-workflows.md), which owns the transaction and the loads — read there and pass the value in as a parameter:
 
 ```ddd
 workflow assignJob {
   create(jobId: Job id, techId: Technician id) {
-    let tech = Technicians.getById(techId)
-    let job = Jobs.getById(jobId)
+    let tech = Technicians.get(techId)
+    let job = Jobs.get(jobId)
     job.assign(techId, tech.skills.contains(job.requiredSkill))
   }
 }
@@ -897,7 +897,7 @@ Vue / Svelte / Angular / Feliz / Flutter emit the same try-match shape through t
 
 ## Handler bodies — `commandHandler` / `queryHandler`
 
-`[extern] commandHandler Name(params) [: Return] { … }` and `[extern] queryHandler Name(params): Return { … }` are context-level, application-layer handlers — the named entry points of a context, routable from an `api { route POST "/…" -> Ctx.Name }` body. Their body is the **workflow vocabulary** (`lower-workflow.ts`, see [Workflows](13-workflows.md#body-vocabulary)): `let x = Repo.getById(id)` / a single non-nullable `find`, an optional read bound as `T?` (`let c = Repo.find(<Criterion>)`, `findById`, `findBy`, a `T?` find), `if let x = <optional read or binding> { … } else { … }`, an operation call on the binding, `Repo.delete(x)`, `precondition` / `requires`, `emit`, `return`. A loaded aggregate is saved automatically when an operation was invoked on it — you don't write the save. Gates: a non-`extern` handler needs a body (`loom.handler-missing-body`) and an `extern` one must be bodyless `;` (`loom.extern-handler-has-body`); a parameter may not be named `id` (`loom.handler-param-reserved-id`); an optional binding is not dereferenced until a null test or an `if let` narrows it (`loom.nullable-receiver`); a `queryHandler` may not mutate (`loom.query-handler-saves`) and a `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`). A handler answers once, after its body has run, so its `return` is the last top-level statement — or the whole then-branch of a final `if let x = <lookup> { return x } else { …; notFound }`, the single-row read [`scaffoldGet`](22-macros.md) emits; a `return` anywhere else is `loom.handler-return-not-last`.
+`[extern] commandHandler Name(params) [: Return] { … }` and `[extern] queryHandler Name(params): Return { … }` are context-level, application-layer handlers — the named entry points of a context, routable from an `api { route POST "/…" -> Ctx.Name }` body. Their body is the **workflow vocabulary** (`lower-workflow.ts`, see [Workflows](13-workflows.md#body-vocabulary)): `let x = Repo.get(id)` / a single non-nullable `find`, an optional read bound as `T?` (`let c = Repo.find(<Criterion>)`, `findById`, `findBy`, a `T?` find), `if let x = <optional read or binding> { … } else { … }`, an operation call on the binding, `Repo.remove(x)`, `precondition` / `requires`, `emit`, `return`. A loaded aggregate is saved automatically when an operation was invoked on it — you don't write the save. Gates: a non-`extern` handler needs a body (`loom.handler-missing-body`) and an `extern` one must be bodyless `;` (`loom.extern-handler-has-body`); a parameter may not be named `id` (`loom.handler-param-reserved-id`); an optional binding is not dereferenced until a null test or an `if let` narrows it (`loom.nullable-receiver`); a `queryHandler` may not mutate (`loom.query-handler-saves`) and a `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`). A handler answers once, after its body has run, so its `return` is the last top-level statement — or the whole then-branch of a final `if let x = <lookup> { return x } else { …; notFound }`, the single-row read [`scaffoldGet`](22-macros.md) emits; a `return` anywhere else is `loom.handler-return-not-last`.
 
 ```ddd
 context Accounts {
@@ -907,7 +907,7 @@ context Accounts {
   }
   repository Wallets for Wallet { }
   commandHandler RenameWallet(walletId: Wallet id, name: string): Wallet {
-    let w = Wallets.getById(walletId)
+    let w = Wallets.get(walletId)
     w.rename(name)
     return w
   }
@@ -1060,18 +1060,18 @@ system Shop {
       workflow checkout transactional {
         orderId: Order id
         create(target: Order id) by target {
-          let o = Orders.getById(target)
+          let o = Orders.get(target)
           o.place()
         }
       }
 
       commandHandler PlaceOrder(orderId: Order id): Order {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         o.place()
         return o
       }
       queryHandler GetOrder(orderId: Order id): Order {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         return o
       }
     }

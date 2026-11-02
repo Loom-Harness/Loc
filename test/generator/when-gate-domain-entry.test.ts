@@ -36,7 +36,7 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 const WORKFLOW = `      workflow AutoCancel {
         orderId: Order id
         create(p: OrderPlaced) by p.order {
-          let o = Orders.getById(p.order)
+          let o = Orders.get(p.order)
           o.cancel()
         }
       }`;

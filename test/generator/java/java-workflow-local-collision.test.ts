@@ -70,7 +70,7 @@ system Collide {
         orderId: Order id
         note: string
         create(orderId: Order id, request: string, state: string, ordersRepository: int) {
-          let o = Orders.getById(orderId)
+          let o = Orders.get(orderId)
           o.bump(ordersRepository)
           note := request + state
         }
@@ -80,7 +80,7 @@ system Collide {
       }
 
       commandHandler Bump(orderId: Order id, ordersRepository: int): Order id {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         o.bump(ordersRepository)
         return o.id
       }

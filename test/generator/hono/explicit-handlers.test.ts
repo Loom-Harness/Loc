@@ -37,14 +37,14 @@ system Shop {
         operation cancel() { status := "cancelled" }
       }
       repository Orders for Order { }
-      queryHandler GetOrder(orderId: Order id): Order { let o = Orders.getById(orderId)  return o }
+      queryHandler GetOrder(orderId: Order id): Order { let o = Orders.get(orderId)  return o }
       queryHandler CountOrders(): int { return 0 }
       commandHandler CancelOrder(orderId: Order id): Order id {
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         o.cancel()
         return o.id
       }
-      commandHandler Purge(orderId: Order id) { let o = Orders.getById(orderId)  o.cancel() }
+      commandHandler Purge(orderId: Order id) { let o = Orders.get(orderId)  o.cancel() }
     }
   }
   api SalesApi from Sales {

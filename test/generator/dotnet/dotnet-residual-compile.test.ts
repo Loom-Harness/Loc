@@ -54,19 +54,19 @@ system Repro {
       workflow Follow {
         itemId: Item id
         create(p: ItemNamed) by p.itemRef {
-          let xs = Items.run(ByToken("a"))
+          let xs = Items.all(ByToken("a"))
           for x in xs { }
-          let ys = Items.findAll(Tok("b", "c")) ignoring *
+          let ys = Items.all(Tok("b", "c")) ignoring *
           for y in ys { }
           if let it = Items.find(Tok("d", "e")) { } else { }
           if let z = Items.find(Tok("f", "g")) ignoring * { } else { }
-          let ns = Items.findAll(NameIs("x"))
+          let ns = Items.all(NameIs("x"))
           for n in ns { }
         }
       }
       test "persists and reads back an item" {
         let i = Item.create(name: "abc", tags: [])
-        let found = Item.findById(i.id)
+        let found = Item.find(i.id)
         expect(found.name).toBe("abc")
       }
     }

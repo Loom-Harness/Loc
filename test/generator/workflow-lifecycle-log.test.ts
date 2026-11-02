@@ -30,7 +30,7 @@ system Acme {
       repository Orders for Order { }
       workflow shipOrder {
         create(orderId: Order id) {
-          let o = Orders.getById(orderId)
+          let o = Orders.get(orderId)
           o.ship()
         }
       }

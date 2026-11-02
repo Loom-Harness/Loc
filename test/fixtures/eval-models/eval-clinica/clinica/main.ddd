@@ -321,8 +321,8 @@ system Clinica {
       workflow scheduleAppointment transactional {
         create(appt: Appointment id, prac: Practitioner id) {
           requires currentUser.permissions.contains(permissions.manageSchedule)
-          let a = Appointments.getById(appt)
-          let p = Practitioners.getById(prac)
+          let a = Appointments.get(appt)
+          let p = Practitioners.get(prac)
           precondition p.skills.contains("physio")   // WORKAROUND F-016: cannot call p.hasSkill()
           a.confirm()
           emit AppointmentConfirmed { appointment: appt, at: now() }
@@ -335,7 +335,7 @@ system Clinica {
       // ---- outbound referral email ----
       workflow sendReferral {
         create(ref: Referral id) {
-          let r = Referrals.getById(ref)
+          let r = Referrals.get(ref)
           r.send()
           mail.send(r.specialistEmail, "Referral", "A referral has been raised.")
         }

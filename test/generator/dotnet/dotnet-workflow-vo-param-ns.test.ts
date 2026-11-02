@@ -46,7 +46,7 @@ const SRC = `
         repository Accounts for Account {}
         workflow recordPayment transactional {
           create(payment: Money, accountId: Account id) {
-            let account = Accounts.getById(accountId)
+            let account = Accounts.get(accountId)
           }
         }
       }

@@ -31,7 +31,7 @@ system MikroWf {
 
       workflow TopUp transactional(serializable) {
         create(target: Account id, amount: int) {
-          let a = Accounts.getById(target)
+          let a = Accounts.get(target)
           a.deposit(amount)
         }
       }

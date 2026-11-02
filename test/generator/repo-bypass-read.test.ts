@@ -179,7 +179,7 @@ describe("dotnet (Dapper)", () => {
         repository Orders for Order { }
         domainService Q {
           operation everBig(min: int): bool { return Orders.find(Big(min)) ignoring softDeletable != null }
-          operation ever(id: Order id): bool { return Orders.findById(id) ignoring * != null }
+          operation ever(id: Order id): bool { return Orders.find(id) ignoring * != null }
         }
       }}
       storage primary { type: postgres }

@@ -63,7 +63,7 @@ context Orders {
     let order = Order.create(code: cmd.code, status: "Draft")
     return order.id
   }
-  queryHandler GetOrder(orderId: Order id): Order { let order = Orders.getById(orderId)  return order }
+  queryHandler GetOrder(orderId: Order id): Order { let order = Orders.get(orderId)  return order }
   extern queryHandler GetQuote(sku: string): string;
 }
 

@@ -88,14 +88,14 @@ const PROJECTION_COLUMN_ARG = `projection MyTotals {
  *  parameters and would otherwise never produce it. */
 const CRITERION_COLUMN_ARG = `criterion Weird of Order = this.tags.contains(this.id)
     queryHandler ListWeird(): Order[] {
-      let r = Orders.run(Weird)
+      let r = Orders.all(Weird)
       return r
     }`;
 
 /** The CONTROL — a bindable argument.  Must stay accepted on every target. */
 const CRITERION_BOUND_ARG = `criterion ByTag(t: Tag id) of Order = this.tags.contains(t)
     queryHandler ListByTag(t: Tag id): Order[] {
-      let r = Orders.run(ByTag(t))
+      let r = Orders.all(ByTag(t))
       return r
     }`;
 

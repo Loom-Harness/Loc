@@ -7,7 +7,7 @@ system R24 {
     event DocFinished { doc: Doc id }
     workflow finishDoc transactional {
       create(d: Doc id) {
-        let x = Docs.getById(d)
+        let x = Docs.get(d)
         x.finish()
         emit DocFinished { doc: d }
       }

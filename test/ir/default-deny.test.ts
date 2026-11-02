@@ -283,7 +283,7 @@ function handlerSys(opts: { gate: string; extern: boolean }): string {
     ? `      extern commandHandler CancelOrder(orderId: Order id): Order id;`
     : `      commandHandler CancelOrder(orderId: Order id): Order id {
         ${opts.gate}
-        let o = Orders.getById(orderId)
+        let o = Orders.get(orderId)
         o.cancel()
         return o.id
       }`;

@@ -274,8 +274,8 @@ system FieldOps {
       workflow scheduleWorkOrder transactional {
         create(workOrder: WorkOrder id, technician: Technician id, at: datetime) {
           requires currentUser.permissions.contains(permissions.manageWorkOrders)
-          let wo = WorkOrders.getById(workOrder)
-          let tech = Technicians.getById(technician)
+          let wo = WorkOrders.get(workOrder)
+          let tech = Technicians.get(technician)
           wo.schedule(technician, at)
           emit WorkOrderScheduled { workOrder: workOrder, technician: technician, at: at }
         }

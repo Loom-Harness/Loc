@@ -58,7 +58,7 @@ const EXPLICIT = `
         repository Orders for Order { }
         criterion InRegion(rgn: string) of Order = region == rgn
         queryHandler ListOrderByInRegion(rgn: string): Order paged {
-          let r = Orders.run(InRegion(rgn))
+          let r = Orders.all(InRegion(rgn))
           return r
         }
       }
@@ -108,7 +108,7 @@ describe("scaffoldPaged — paged criterion read over run(criterion)", () => {
     const ctx = await parsedContext();
     const printed = printStructural(ctx);
     expect(printed).toContain("queryHandler ListOrderByInRegion(rgn: string): Order paged");
-    expect(printed).toContain("let r = Orders.run(InRegion(rgn))");
+    expect(printed).toContain("let r = Orders.all(InRegion(rgn))");
     expect(printed).toContain("return r");
   });
 
@@ -194,7 +194,7 @@ const HAND_FORM = (platform: string): string =>
     "",
     `queryHandler ListOrderByTopInRegion(rgn: string): Order paged {
           requires Staff()
-          let r = Orders.run(TopInRegion(rgn))
+          let r = Orders.all(TopInRegion(rgn))
           return r
         }`,
   ).replace(
@@ -235,7 +235,7 @@ describe("scaffoldPaged — over a retrieval, gated by `requires:`", () => {
       .filter(isBoundedContext)
       .find((c) => c.name === "Sales") as BoundedContext;
     expect(printStructural(ctx)).toMatch(
-      /queryHandler ListOrderByTopInRegion\(rgn: string\): Order paged \{\s*requires Staff\(\)\s*let r = Orders\.run\(TopInRegion\(rgn\)\)\s*return r/,
+      /queryHandler ListOrderByTopInRegion\(rgn: string\): Order paged \{\s*requires Staff\(\)\s*let r = Orders\.all\(TopInRegion\(rgn\)\)\s*return r/,
     );
   });
 

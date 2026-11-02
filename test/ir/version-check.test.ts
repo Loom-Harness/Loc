@@ -44,14 +44,14 @@ system V {
 
       workflow touch {
         create(doc: Doc id, t: string) {
-          let d = Docs.getById(doc)
+          let d = Docs.get(doc)
           d.rename(t)
           let fresh = Doc.create(title: t)
         }
       }
       workflow relabel {
         create(acct: Account id, owner: string) {
-          let a = Accounts.getById(acct)
+          let a = Accounts.get(acct)
           a.rename(owner)
         }
       }

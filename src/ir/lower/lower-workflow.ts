@@ -34,6 +34,7 @@ import {
   isWorkflowCreateDecl,
 } from "../../language/generated/ast.js";
 import { handlerReturnGuard } from "../../language/handler-return.js";
+import { queryNamesOf } from "../../language/repo-query-arg.js";
 import { upperFirst } from "../../util/naming.js";
 import { namedRepoCallOp, repoVerbEffect } from "../../util/repository-contract.js";
 import { findVerb } from "../resource-verbs.js";
@@ -83,12 +84,10 @@ import { originFor } from "./origin.js";
 import {
   bypassReadMethod,
   keyLookupIR,
-  matchFindAllCall,
+  matchAllCall,
   matchFindCall,
   matchKeyLookupCall,
   matchRepoCall,
-  matchRetrievalRunCall,
-  runCriterionMatcher,
 } from "./repo-read.js";
 
 export function lowerWorkflow(
@@ -474,7 +473,7 @@ function lowerOn(
 }
 
 /** An `if let` source naming an optional aggregate binding already in scope
- *  (`if let o = x` over `let x = Orders.findById(id)`). */
+ *  (`if let o = x` over `let x = Orders.find(id)`). */
 function localOf(
   source: Expression | undefined,
   env: Env,
@@ -642,7 +641,7 @@ function lowerWorkflowStatementInner(
   }
   if (isIfLetStmt(stmt)) {
     // `if let <var> = Repo.find(<Criterion>) { then } else { else }`
-    // (criterion.md, use site 3), `Repo.findBy(…)`, `Repo.findById(id)`, or an
+    // (criterion.md, use site 3), `Repo.findBy(…)`, `Repo.find(id)`, or an
     // optional binding already in scope.  Any other source leaves both
     // `synthCriterion.name` and `findMethod` empty for the validator
     // (`loom.iflet-bad-source`) — still naming the repository's aggregate when
@@ -650,16 +649,16 @@ function lowerWorkflowStatementInner(
     // aggregate reaches the handler gates.  The source args lower in the OUTER
     // env; `var` (the unwrapped match) is in scope only in `thenBody`, never
     // in `elseBody`.
-    const findCall = matchFindCall(stmt.source, reposByName);
+    const queryNames = queryNamesOf(env.ctx);
+    const findCall = matchFindCall(stmt.source, reposByName, queryNames);
     // A natural-key `Repo.findBy(…)` is the third source form: the backends
     // call its synthesised nullable method by name.  (`getBy` never answers absence, so it is not an `if let`
     // source — it falls through to `loom.iflet-bad-source`.)
     const keyFind = findCall ? undefined : matchKeyLookupCall(stmt.source, reposByName);
     const keySource = keyFind?.op === "load-by-key-optional" ? keyFind : undefined;
-    // `Repo.findById(id)` — the by-id read that answers absence.
+    // `Repo.find(id)` — the by-id read that answers absence.
     const anyRepoCall = matchRepoCall(stmt.source, reposByName);
-    const byIdFind =
-      findCall || keyFind || anyRepoCall?.method !== "findById" ? undefined : anyRepoCall;
+    const byIdFind = findCall || keyFind || anyRepoCall?.verb !== "find" ? undefined : anyRepoCall;
     // `if let o = x` over an optional binding already in scope (`let x =
     // Repo.find…`): no read, only the narrowing.
     const boundLocal = findCall || keyFind || byIdFind ? undefined : localOf(stmt.source, env);
@@ -738,7 +737,7 @@ function lowerWorkflowStatementInner(
   if (isLetStmt(stmt)) {
     const expr = stmt.expr;
     // `ignoring` filter-bypass clause (named-filter-bypass.md §11) — only a
-    // postfix chain (`Repo.findAll(...) ignoring …`) carries it; resolve it
+    // postfix chain (`Repo.all(...) ignoring …`) carries it; resolve it
     // once so the two `repo-run` arms below can spread it into the IR.
     const bypass = isPostfixChain(expr) ? resolveBypass(expr) : {};
     // factory-let: `Agg.create(…)`
@@ -777,10 +776,11 @@ function lowerWorkflowStatementInner(
         binding: { name: stmt.name, aggName: factory.aggName, repoName },
       };
     }
-    // repo-run: `Repo.run(<Retrieval>(args), page?)` — binds the
-    // retrieval's result array.  Checked before the generic repo-let so
-    // `run` doesn't fall through to the find-method path.
-    const runCall = matchRetrievalRunCall(expr, reposByName, runCriterionMatcher(env.ctx));
+    // repo-run: `Repo.all(<Criterion | Retrieval>(args), sort?, page?)` —
+    // binds the read's result array.  Checked before the generic repo-let so
+    // `all(<Ref>)` doesn't fall through to the by-name path (`all()`).
+    const queryNames = queryNamesOf(env.ctx);
+    const runCall = matchAllCall(expr, reposByName, queryNames);
     if (runCall) {
       const aggName = runCall.repo.aggregate?.ref?.name ?? "Unknown";
       const repoName = runCall.repo.name;
@@ -795,10 +795,10 @@ function lowerWorkflowStatementInner(
               },
             }
           : {};
-      // Anonymous retrieval (`run(retrieval { where: <Criterion> sort: … loads:
-      // … })`): desugar to a `synthCriterion` repo-run + shaping, materialised
-      // into a synthetic retrieval by enrich (same path as `findAll`).  The
-      // shape signature in the name keeps distinct shapes distinct.
+      // A criterion read (`all(<Criterion>, sort: […])`): desugar to a
+      // `synthCriterion` repo-run + shaping, materialised into a synthetic
+      // `findAllBy<Criterion>` retrieval by enrich.  The shape signature in the
+      // name keeps distinct shapes distinct.
       const anon = runCall.anon;
       const sortTerms: SortTermIR[] = (anon?.sort ?? []).map((si) => ({
         path: loadPathSegments(si.path),
@@ -834,54 +834,12 @@ function lowerWorkflowStatementInner(
         envAfter: withLocal(env, stmt.name, "let", arrayType),
       };
     }
-    // repo-findall: `Repo.findAll(<Criterion>, page?)` (criterion.md, use
-    // site 3).  Desugars to a `repo-run` of a synthetic retrieval (named
-    // `findAllBy<Criterion>`) that the enrich pass materialises from the
-    // context's criteria — so it rides the existing retrieval pipeline on
-    // every backend.  Checked before the generic repo-let so `findAll`
-    // doesn't fall through to the find-method path.
-    const findAllCall = matchFindAllCall(expr, reposByName);
-    if (findAllCall) {
-      const aggName = findAllCall.repo.aggregate?.ref?.name ?? "Unknown";
-      const repoName = findAllCall.repo.name;
-      const arrayType: TypeIR = {
-        kind: "array",
-        element: { kind: "entity", name: aggName },
-      };
-      return {
-        stmt: {
-          kind: "repo-run",
-          name: stmt.name,
-          op: "select-many",
-          repoName,
-          aggName,
-          retrievalName: `findAllBy${findAllCall.criterionName}`,
-          retrievalArgs: findAllCall.criterionArgs.map((a) => lowerExpr(a, env)),
-          ...(findAllCall.pageOffset || findAllCall.pageLimit
-            ? {
-                page: {
-                  ...(findAllCall.pageOffset
-                    ? { offset: lowerExpr(findAllCall.pageOffset, env) }
-                    : {}),
-                  ...(findAllCall.pageLimit
-                    ? { limit: lowerExpr(findAllCall.pageLimit, env) }
-                    : {}),
-                },
-              }
-            : {}),
-          synthCriterion: { name: findAllCall.criterionName },
-          ...bypass,
-          returnType: arrayType,
-        },
-        envAfter: withLocal(env, stmt.name, "let", arrayType),
-      };
-    }
     // repo-let over a criterion read: `let c = Repo.find(<Criterion>)` binds
     // the first match or null (`T?`).  It runs the same `findAllBy<Criterion>`
     // retrieval an `if let` over the same source does (limit 1).  Checked
     // before the generic repo-let so the criterion reference is not lowered
     // as an ordinary argument expression.
-    const findOneCall = matchFindCall(expr, reposByName);
+    const findOneCall = matchFindCall(expr, reposByName, queryNames);
     if (findOneCall) {
       const aggName = findOneCall.repo.aggregate?.ref?.name ?? "Unknown";
       const returnType: TypeIR = { kind: "optional", inner: { kind: "entity", name: aggName } };
@@ -929,14 +887,13 @@ function lowerWorkflowStatementInner(
     const repoCall = matchRepoCall(expr, reposByName);
     if (repoCall) {
       const args = repoCall.args.map((a) => lowerExpr(a, env));
-      // Resolve the find's declared return type (or for getById:
-      // single non-null aggregate of the repo's target).
+      // Resolve the read's return type (for `get`: the single non-null
+      // aggregate of the repo's target).
       const repo = repoCall.repo;
       const aggName = repo.aggregate?.ref?.name ?? "Unknown";
       // The read's type is the single pass's (cutover family 3e) — the same
-      // table the domain-service path reads: a declared find's return type,
-      // `getById` the row, the NULLABLE `findById` `T?`, and the built-in
-      // `findAll()` / `all()` the whole collection.  The binding takes that
+      // table the domain-service path reads: `get` the row, the NULLABLE
+      // `find(id)` `T?`, and `all()` the whole collection.  The binding takes that
       // type as is: an optional read binds `T?` (narrowed by `if let`), and
       // the validator refuses an array.
       const returnType: TypeIR = inferExprType(stmt.expr, env);
@@ -949,7 +906,7 @@ function lowerWorkflowStatementInner(
           aggName,
           // A name that is no by-name contract verb rides `unknown-read`;
           // `loom.workflow-unknown-repository-method` reports it.
-          op: namedRepoCallOp(repoCall.method) ?? "unknown-read",
+          op: namedRepoCallOp(repoCall.verb) ?? "unknown-read",
           method: repoCall.method,
           args,
           returnType,
@@ -1052,7 +1009,7 @@ function lowerWorkflowStatementInner(
           };
         }
       }
-      // `<Repo>.delete(o)` / `<Repo>.remove(o)` — a repository DELETE
+      // `<Repo>.remove(o)` — a repository DELETE
       // (destroy) call written as a bare handler statement.  Recognised BEFORE
       // the generic op-call fallback so a repo head naming a write verb isn't
       // mistaken for an aggregate op-call on a let-binding (which would stamp
@@ -1063,7 +1020,7 @@ function lowerWorkflowStatementInner(
       // is not persisted again on the way out.
       //
       // The verb's effect decides the arm, through the exhaustive
-      // `REPO_VERB_EFFECT` table: only a `delete` verb removes.  A `persist`
+      // `REPO_VERB_EFFECT` table: only `remove` removes.  A `persist`
       // verb (`Repo.save(x)` / insert / update / add / commit) is refused at
       // phase ④ (`loom.workflow-explicit-save`) — the body persists at its
       // exit — so it lowers to NO statement.  A bare read statement discards
@@ -1206,7 +1163,7 @@ function aggNameForLocal(env: Env, name: string): string | undefined {
   // with-chain unwraps the `{:ok, i}` so the body receiver is the bare
   // aggregate.  Without unwrapping, `i.markFound()` resolves to "Unknown" and
   // the op-call emits a call to a non-existent `mark_found_unknown` context fn
-  // (getById already binds a bare entity, so only custom finds were affected).
+  // (`get` already binds a bare entity, so only custom finds were affected).
   let t: TypeIR = local.type;
   while (t.kind === "optional" || t.kind === "array") {
     t = t.kind === "optional" ? t.inner : t.element;

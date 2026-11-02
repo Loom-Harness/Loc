@@ -23,8 +23,8 @@ system ConcurrencyWorkflowIfMatchSystem {
       // Both rows are loaded and changed by the one body.
       workflow renameBoth {
         create(a: Doc id, b: Doc id, t: string) {
-          let first = DocRepo.getById(a)
-          let second = DocRepo.getById(b)
+          let first = DocRepo.get(a)
+          let second = DocRepo.get(b)
           first.rename(t)
           second.rename(t)
         }

@@ -33,8 +33,8 @@ const SRC = `
     }
     workflow MoveMoney transactional {
       create(src: Account id, dst: Account id, amount: decimal) {
-        let s = Accounts.getById(src)
-        let d = Accounts.getById(dst)
+        let s = Accounts.get(src)
+        let d = Accounts.get(dst)
         Transfer.run(s, d, amount)
       }
     }

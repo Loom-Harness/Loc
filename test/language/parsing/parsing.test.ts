@@ -202,7 +202,7 @@ describe("parsing & validation of examples", () => {
 
         workflow placeOrder {
       create(customerId: Customer id, placedAt: datetime) {
-          let customer = Customers.getById(customerId)
+          let customer = Customers.get(customerId)
           let order = Order.create(
             customerId: customerId,
             status: Draft,

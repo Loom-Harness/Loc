@@ -164,8 +164,8 @@ system BankingSystem {
       workflow transferFunds transactional {
         create(fromAccount: Account id, toAccount: Account id, amount: Money) {
           precondition amount.amount > 0
-          let src = Accounts.getById(fromAccount)
-          let dst = Accounts.getById(toAccount)
+          let src = Accounts.get(fromAccount)
+          let dst = Accounts.get(toAccount)
           src.withdraw(amount)
           dst.deposit(amount)
         }

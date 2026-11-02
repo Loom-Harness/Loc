@@ -86,7 +86,7 @@ describe(".NET — a legal model that did not compile", () => {
         event DocFinished { doc: Doc id }
         workflow finishDoc transactional {
           create(d: Doc id) {
-            let x = Docs.getById(d)
+            let x = Docs.get(d)
             x.finish()
             emit DocFinished { doc: d }
           }
@@ -121,7 +121,7 @@ describe(".NET — a legal model that did not compile", () => {
         event DocFinished { doc: Doc id }
         workflow finishDoc {
           create(d: Doc id) {
-            let x = Docs.getById(d)
+            let x = Docs.get(d)
             x.finish()
             emit DocFinished { doc: d }
           }

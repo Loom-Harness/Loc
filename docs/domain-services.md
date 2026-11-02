@@ -14,7 +14,7 @@ three-tier capability ladder (`mutating` ⊇ `reading` ⊇ `pure`):
 | Tier | The body may… | Callable from |
 |---|---|---|
 | **pure** | params only; branch, `let`, `match`, `throw`, call other pure services | **anywhere** (aggregate ops, views, workflows, services) |
-| **reading** | the above **+ read-only repository queries** (`Accounts.byHolder(h)`, `Repo.find/findAll/run`) | application orchestrators only |
+| **reading** | the above **+ read-only repository queries** (`Repo.get/find/getBy/findBy/all`) | application orchestrators only |
 | **mutating** | the above **+ call mutating operations on the aggregates passed in** (`src.withdraw(amount)`) | application orchestrators only |
 
 In every tier the **application orchestrator** (a `workflow`) loads the
@@ -98,8 +98,8 @@ variant → RFC-7807 ProblemDetails); persistence is the workflow's
 ```ddd
 workflow MoveMoney transactional {
   create(source: Account id, dest: Account id, amount: Money): Transferred or InsufficientFunds {
-    let src = Accounts.getById(source)            // orchestrator LOADS
-    let dst = Accounts.getById(dest)
+    let src = Accounts.get(source)            // orchestrator LOADS
+    let dst = Accounts.get(dest)
     return Transfer.run(src, dst, amount)         // service MUTATES src,dst; they auto-save at exit
   }
 }
@@ -113,7 +113,7 @@ workflow MoveMoney transactional {
 |---|---|
 | `emit` an event | `loom.domain-service-no-emit` |
 | A `this`-rooted write (`:=` / `+=` / `-=`) — there is no `this` | `loom.domain-service-no-mutation` |
-| A repository **write** (`save`/`insert`/`update`/`delete`/`add`/`remove`/`commit`) | `loom.domain-service-no-repo-write` |
+| A repository **write** (`remove`, and the refused `save`/`insert`/`update`/`add`/`commit`) | `loom.domain-service-no-repo-write` |
 | Start a workflow in the same context | `loom.domain-service-no-workflow-start` |
 | Calling a **reading**/**mutating** service from an aggregate op / view body | `loom.domain-service-infra-call-from-aggregate` |
 | A **resource-op** (`files.put(…)`, `mail.send(…)`, …) — outbound I/O belongs to the orchestrator | `loom.resource-op-outside-workflow` |

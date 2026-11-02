@@ -74,7 +74,7 @@ system ContainedPartRemoval {
 
       workflow dropVia {
         create(c: Cart id, sku: string) {
-          let cart = Carts.getById(c)
+          let cart = Carts.get(c)
           cart.drop(sku)
         }
       }

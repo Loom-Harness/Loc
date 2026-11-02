@@ -181,7 +181,7 @@ system MoneyNullable {
       // PAGED: a non-relational repository serves a criterion read through the
       // synthesised paged find; an unpaged `run` has no repository method there.
       queryHandler ListLedgersOver(min: money): Ledger paged {
-        let r = Ledgers.run(LedgersOver(min))
+        let r = Ledgers.all(LedgersOver(min))
         return r
       }
     }

@@ -74,21 +74,21 @@ system FieldOps {
       // THE SUBJECT — an author-written predicate over the principal.
       criterion WorkOrdersMine of WorkOrder = this.technicianUserId == currentUser.id
       queryHandler ListWorkOrdersMine(): WorkOrder[] {
-        let r = WorkOrders.run(WorkOrdersMine())
+        let r = WorkOrders.all(WorkOrdersMine())
         return r
       }
       // …crossed with a declared parameter, so the pinned principal and the
       // pinned param share one predicate (different renderer arms).
       criterion WorkOrdersMineByState(d: bool) of WorkOrder = this.technicianUserId == currentUser.id && this.done == d
       queryHandler ListWorkOrdersMineByState(d: bool): WorkOrder[] {
-        let r = WorkOrders.run(WorkOrdersMineByState(d))
+        let r = WorkOrders.all(WorkOrdersMineByState(d))
         return r
       }
       // A find with NO principal in its predicate — the threading must stay
       // scoped to the finds that need it, not spread aggregate-wide.
       criterion WorkOrdersByTitle(t: string) of WorkOrder = this.title == t
       queryHandler ListWorkOrdersByTitle(t: string): WorkOrder[] {
-        let r = WorkOrders.run(WorkOrdersByTitle(t))
+        let r = WorkOrders.all(WorkOrdersByTitle(t))
         return r
       }
       // The same predicate on the RETRIEVAL path, which is a separate emitter

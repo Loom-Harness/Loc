@@ -62,7 +62,7 @@ const model = (criterionBody: string, platform = "dotnet"): string => `
         workflow Sweep {
           create(x: int) {
             if let c = Cars.find(EveryCar()) ignoring * { }
-            let cs = Cars.findAll(EveryCar()) ignoring *
+            let cs = Cars.all(EveryCar()) ignoring *
             for e in cs { }
           }
         }

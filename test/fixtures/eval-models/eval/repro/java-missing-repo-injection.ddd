@@ -11,7 +11,7 @@ system X {
     criterion PartBySku(s: string) of Part = this.sku == s
     workflow drain transactional {
       create(note: string) {
-        let us = Usages.run(AllUsages(), page: { offset: 0, limit: 100 })
+        let us = Usages.all(AllUsages(), page: { offset: 0, limit: 100 })
         for u in us {
           if let p = Parts.find(PartBySku(u.sku)) { p.consume(u.qty) }
         }

@@ -59,8 +59,8 @@ system Catalog {
       // All three FALLIBLE bind shapes, unread and not the result slot.
       workflow discardUnreadTuples {
         create(ref: string, id: Order id) {
-          let probe = Orders.getById(id)
-          let rows = Orders.run(ByCustomer(ref))
+          let probe = Orders.get(id)
+          let rows = Orders.all(ByCustomer(ref))
           let extra = Order.create(customerId: ref)
           let kept = Order.create(customerId: ref)
         }
@@ -69,7 +69,7 @@ system Catalog {
       // The SOLE bind fills the with-chain's return → must keep its name.
       workflow keepsResultBind {
         create(id: Order id) {
-          let only = Orders.getById(id)
+          let only = Orders.get(id)
         }
       }
 

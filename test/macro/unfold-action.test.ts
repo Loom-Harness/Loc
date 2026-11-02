@@ -305,7 +305,7 @@ context Sales {
   criterion OrdersBySubject(s: string) of Order = this.subject == s
   workflow Sweep {
     create(s: string) {
-      let xs = Orders.findAll(OrdersBySubject(s)) ignoring softDeletable
+      let xs = Orders.all(OrdersBySubject(s)) ignoring softDeletable
       for o in xs { }
     }
   }
@@ -351,7 +351,7 @@ context Sales with scaffoldPaged(of: TopInRegion, requires: Staff) {
     const unfolded = await unfold(source, "scaffoldPaged");
     expect(unfolded).not.toContain("scaffoldPaged");
     expect(unfolded).toMatch(
-      /queryHandler ListOrderByTopInRegion\(rgn: string\): Order paged \{\s*requires Staff\(\)\s*let r = Orders\.run\(TopInRegion\(rgn\)\)\s*return r\s*\}/,
+      /queryHandler ListOrderByTopInRegion\(rgn: string\): Order paged \{\s*requires Staff\(\)\s*let r = Orders\.all\(TopInRegion\(rgn\)\)\s*return r\s*\}/,
     );
     const reparse = await validate(unfolded);
     expect(reparse.diagnostics.filter((d) => d.severity === 1)).toEqual([]);

@@ -36,7 +36,7 @@ export function criterionRead(
     members: [
       `criterion ${crit}${params ? `(${params})` : ""} of ${agg} = ${where}`,
       `queryHandler List${crit}(${params}): ${agg}[] {`,
-      `  let r = ${repo}.run(${crit}(${args}))`,
+      `  let r = ${repo}.all(${crit}(${args}))`,
       `  return r`,
       `}`,
     ].join("\n"),

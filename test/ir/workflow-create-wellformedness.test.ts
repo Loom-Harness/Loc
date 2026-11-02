@@ -36,30 +36,30 @@ async function diagsFor(members: string): Promise<string[]> {
 describe("workflow create-declaration well-formedness", () => {
   it("accepts one canonical create plus a named variant (rule 21/22)", async () => {
     const diags = await diagsFor(`
-      create(orderId: Order id) { let o = Orders.getById(orderId) }
-      create byImport(orderId: Order id) { let o = Orders.getById(orderId) }
+      create(orderId: Order id) { let o = Orders.get(orderId) }
+      create byImport(orderId: Order id) { let o = Orders.get(orderId) }
     `);
     expect(diags).toEqual([]);
   });
 
   it("rejects two unnamed (canonical) creates (rule 21)", async () => {
     const diags = await diagsFor(`
-      create(orderId: Order id) { let o = Orders.getById(orderId) }
-      create(orderId: Order id) { let o = Orders.getById(orderId) }
+      create(orderId: Order id) { let o = Orders.get(orderId) }
+      create(orderId: Order id) { let o = Orders.get(orderId) }
     `);
     expect(diags).toContain("loom.canonical-create-duplicate-workflow");
   });
 
   it("rejects two creates sharing a name (rule 22)", async () => {
     const diags = await diagsFor(`
-      create start(orderId: Order id) { let o = Orders.getById(orderId) }
-      create start(orderId: Order id) { let o = Orders.getById(orderId) }
+      create start(orderId: Order id) { let o = Orders.get(orderId) }
+      create start(orderId: Order id) { let o = Orders.get(orderId) }
     `);
     expect(diags).toContain("loom.create-name-conflict-workflow");
   });
 
   it("accepts a single canonical create (the common case)", async () => {
-    const diags = await diagsFor(`create(orderId: Order id) { let o = Orders.getById(orderId) }`);
+    const diags = await diagsFor(`create(orderId: Order id) { let o = Orders.get(orderId) }`);
     expect(diags).toEqual([]);
   });
 });

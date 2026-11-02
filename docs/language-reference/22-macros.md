@@ -55,7 +55,7 @@ Thirteen macros ship in [`src/macros/stdlib/`](../../src/macros/stdlib/), regist
 | `softDeleteByDefault` | `context` | — | `implements softDeletable` + `with softDelete` on every child aggregate |
 | `scaffoldDashboard` | `context` | — | one singleton query-time `projection` per aggregate (row count + a sum per numeric/money field, and a per-day series when a date field exists) |
 | `scaffoldHandlers` | `context` | — | the contract records (`command`/`query`/`response`) + a `commandHandler`/`queryHandler` per operation, create, find and get-by-id read |
-| `scaffoldPaged` | `context` | `of: Criterion \| Retrieval`, `requires?: Policy` | a paged `queryHandler` over the read-only port (`Repo.run(<read>)`), optionally gated |
+| `scaffoldPaged` | `context` | `of: Criterion \| Retrieval`, `requires?: Policy` | a paged `queryHandler` over the read-only port (`Repo.all(<read>)`), optionally gated |
 | `scaffoldGet` | `context` | `of: Criterion \| Aggregate`, `key?: string`, `requires?: Policy` | a single-row `queryHandler` answering a criterion's first match or a unique key's row, 404 on a miss, optionally gated |
 | `scaffoldApi` | `api` | `of: Subdomain` | one `route` per handler `scaffoldHandlers` emits for the subdomain |
 | `scaffoldPagedApi` | `api` | `of: Criterion \| Retrieval` | the `GET …/projections/<read>` route binding to `scaffoldPaged`'s handler |
@@ -329,12 +329,12 @@ command RenameProductCommand {
 }
 
 queryHandler GetProduct(query: GetProductQuery): ProductResponse {
-  let o = Products.getById(query.productId)
+  let o = Products.get(query.productId)
   return o
 }
 
 commandHandler RenameProduct(productId: Product id, cmd: RenameProductCommand) {
-  let o = Products.getById(productId)
+  let o = Products.get(productId)
   o.rename(cmd.newName)
 }
 ```
@@ -354,7 +354,7 @@ context Catalog with scaffoldPaged(of: Named) {
 == expanded
 ```ddd
 queryHandler ListProductByNamed(needle: string): Product paged {
-  let r = Products.run(Named(needle))
+  let r = Products.all(Named(needle))
   return r
 }
 ```
@@ -378,7 +378,7 @@ api CatalogApi with scaffoldPagedApi(of: Cheapest) from Sales { }
 ```ddd
 queryHandler ListProductByCheapest(needle: string): Product paged {
   requires Staff()
-  let r = Products.run(Cheapest(needle))
+  let r = Products.all(Cheapest(needle))
   return r
 }
 // on CatalogApi:

@@ -35,27 +35,27 @@ system Bank {
       repository Accounts for Account { }
       criterion AccountsByRound(q: money) of Account = this.balance.round(2) > q
       queryHandler ListAccountsByRound(q: money): Account paged {
-        let r = Accounts.run(AccountsByRound(q))
+        let r = Accounts.all(AccountsByRound(q))
         return r
       }
       criterion AccountsByRoundNoPlaces(q: money) of Account = this.balance.round() > q
       queryHandler ListAccountsByRoundNoPlaces(q: money): Account paged {
-        let r = Accounts.run(AccountsByRoundNoPlaces(q))
+        let r = Accounts.all(AccountsByRoundNoPlaces(q))
         return r
       }
       criterion AccountsByAbsQty(n: int) of Account = this.qty.abs() > n
       queryHandler ListAccountsByAbsQty(n: int): Account paged {
-        let r = Accounts.run(AccountsByAbsQty(n))
+        let r = Accounts.all(AccountsByAbsQty(n))
         return r
       }
       criterion AccountsByMinBal(q: money) of Account = this.balance.min(this.cap) == q
       queryHandler ListAccountsByMinBal(q: money): Account paged {
-        let r = Accounts.run(AccountsByMinBal(q))
+        let r = Accounts.all(AccountsByMinBal(q))
         return r
       }
       criterion AccountsByCeil(q: money) of Account = this.balance.ceil() >= q
       queryHandler ListAccountsByCeil(q: money): Account paged {
-        let r = Accounts.run(AccountsByCeil(q))
+        let r = Accounts.all(AccountsByCeil(q))
         return r
       }
     }

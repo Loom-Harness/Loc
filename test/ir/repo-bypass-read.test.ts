@@ -28,7 +28,7 @@ const SRC = `
     repository Products for Product { }
     criterion InRegion(region: string) of Product = this.region == region
     domainService Q {
-      operation ever(id: Product id): bool { return Products.findById(id) ignoring softDeletable != null }
+      operation ever(id: Product id): bool { return Products.find(id) ignoring softDeletable != null }
       operation used(r: string): bool { return Products.find(InRegion(r)) ignoring * != null }
     }
     workflow w {
