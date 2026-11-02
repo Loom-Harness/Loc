@@ -52,11 +52,9 @@ describe("python single-row read gate (policy read)", () => {
     expect(queryIdx).toBeGreaterThan(gateIdx);
   });
 
-  // The gate reads `current_user`, but neither the handler nor the route binds
-  // it: the handler takes `(session, s)` and spells no `require_current_user()`,
-  // so the first request raises NameError (ruff F821).  `fails` until the
-  // handler binds the principal; then drop `.fails`.
-  it.fails("binds the principal the gate reads", async () => {
+  // The gate reads `current_user`, so the handler must bind the principal;
+  // without it the first request raises NameError (ruff F821).
+  it("binds the principal the gate reads", async () => {
     const { handler } = await emitted('requires currentUser.role == "agent"');
     const gateIdx = handler.indexOf('    if not (current_user.role == "agent"):');
     expect(gateIdx).toBeGreaterThan(0);

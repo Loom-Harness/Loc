@@ -49,12 +49,10 @@ describe("Hono single-row read requires gate", () => {
     expect(queryIdx).toBeGreaterThan(gateIdx);
   });
 
-  // KNOWN DEFECT: a routed queryHandler's `requires currentUser…` (the read
-  // gate `scaffoldGet` splices, or a hand-written one) renders the gate in
-  // `http/api-routes.ts` without binding `currentUser` from the request
-  // context, so the generated project does not type-check.  Flip to `it` once
-  // the handler route binds it.
-  it.fails("binds currentUser from the request before the gate reads it", async () => {
+  // A routed queryHandler's `requires currentUser…` gate (the one `scaffoldGet`
+  // splices, or a hand-written one) reads `currentUser`, so the route must bind
+  // it from the request context or the project does not type-check.
+  it("binds currentUser from the request before the gate reads it", async () => {
     const rf = await routesFile('requires currentUser.role == "agent" ');
     expect(rf).toContain('.get("currentUser")');
     expect(rf).toContain(

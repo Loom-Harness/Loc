@@ -42,13 +42,10 @@ function handlerOf(files: Map<string, string>): string {
 }
 
 describe(".NET single-row read route — policy read gate", () => {
-  // KNOWN BUG (reported with the find-declaration removal): a plain
-  // (non-paged) .NET queryHandler whose `requires` gate reads `currentUser`
-  // renders `currentUser.Role` without injecting ICurrentUserAccessor or
-  // binding `var currentUser = _currentUser.User;` — CS0103.  `it.fails` keeps
-  // the intended contract pinned: once the emitter binds the actor this case
-  // passes, the `.fails` flips it red, and the marker is deleted with the fix.
-  it.fails("emits a ForbiddenException gate evaluated against currentUser before the query", async () => {
+  // A plain (non-paged) .NET queryHandler whose `requires` gate reads
+  // `currentUser` must inject ICurrentUserAccessor and bind
+  // `var currentUser = _currentUser.User;`, or `currentUser.Role` is CS0103.
+  it("emits a ForbiddenException gate evaluated against currentUser before the query", async () => {
     const handler = handlerOf(await emit('requires currentUser.role == "agent"'));
     expect(handler).toContain(
       'if (!(currentUser.Role == "agent")) throw new ForbiddenException("Forbidden: currentUser.role == \\"agent\\"");',

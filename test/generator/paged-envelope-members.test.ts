@@ -182,15 +182,11 @@ system S {
     expect(reads).toContain("final productAllProvider = FutureProvider<List<Product>>(");
   });
 
-  // A ui with no paged read must not pay for any of this.
-  //
-  // KNOWN DEFECT: over a `shape: document` aggregate (whose `all` is a bare
-  // array) `reads.dart` declares the plain `FutureProvider<List<Product>>`, but
-  // the page still watches `productAllProvider(state.pageNum, 20, …)` and reads
-  // `productAll.items` — the page and its provider disagree, a Dart compile
-  // error.  `it.fails` keeps the expectation on record; drop the `.fails` once
-  // the page asks the same paged-or-not question the provider does.
-  it.fails("a non-paged read keeps flutter's plain List<T> provider", async () => {
+  // A ui with no paged read must not pay for any of this.  Over a
+  // `shape: document` aggregate (whose `all` is a bare array) the page and
+  // `reads.dart` must agree: the plain `FutureProvider<List<Product>>`, never a
+  // `productAllProvider(state.pageNum, 20, …)` watch reading `.items`.
+  it("a non-paged read keeps flutter's plain List<T> provider", async () => {
     const files = await generateSystemFiles(UNPAGED);
     // A `shape: document` aggregate's `all` is a bare row list: the binding reads
     // `.isEmpty` / `.map` straight off it, where the paged sibling goes
