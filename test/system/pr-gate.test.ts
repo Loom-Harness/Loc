@@ -258,6 +258,45 @@ describe("liveRuns — a superseded suite's corpse is not a verdict", () => {
     expect(failed).toEqual(["build", "test"]);
   });
 
+  it("CONTROL — a cancelled run whose workflow has no newer suite still fails", () => {
+    // Every workflow is its own check suite.  Suite 9 is a DIFFERENT workflow
+    // (no name in common with suite 1) that happens to be newer; it must not
+    // launder suite 1's cancelled `heavy-e2e`.
+    const runs: CheckRun[] = [
+      { id: 1, suite: 1, name: "heavy-e2e", status: "completed", conclusion: "cancelled" },
+      { id: 2, suite: 1, name: "heavy-e2e-prep", status: "completed", conclusion: "success" },
+      { id: 3, suite: 9, name: "lint", status: "completed", conclusion: "success" },
+    ];
+    expect(liveRuns(runs)).toEqual(runs);
+    const { failed } = evalRuns(runs);
+    expect(failed).toEqual(["heavy-e2e"]);
+    expect(verdict(evalRuns(runs)).state).toBe("failure");
+  });
+
+  it("a cancelled run superseded by a newer run of the same workflow is ignored", () => {
+    const runs: CheckRun[] = [
+      { id: 1, suite: 1, name: "configure", status: "completed", conclusion: "success" },
+      { id: 2, suite: 1, name: "leg", status: "completed", conclusion: "cancelled" },
+      { id: 3, suite: 5, name: "configure", status: "completed", conclusion: "success" },
+      { id: 4, suite: 5, name: "leg", status: "completed", conclusion: "success" },
+      { id: 5, suite: 9, name: "lint", status: "completed", conclusion: "success" },
+    ];
+    expect(liveRuns(runs).map((r: CheckRun) => r.id)).toEqual([1, 3, 4, 5]);
+    expect(verdict(evalRuns(runs)).state).toBe("success");
+  });
+
+  it("only the superseded workflow's corpse is dropped when two workflows both have one", () => {
+    // Workflow A (suites 1 -> 5) was re-run; workflow B (suite 3) was cancelled
+    // and never re-run.  The global rule dropped both and reported success.
+    const runs: CheckRun[] = [
+      { id: 1, suite: 1, name: "a-build", status: "completed", conclusion: "cancelled" },
+      { id: 2, suite: 3, name: "b-e2e", status: "completed", conclusion: "cancelled" },
+      { id: 3, suite: 5, name: "a-build", status: "completed", conclusion: "success" },
+    ];
+    expect(evalRuns(runs).failed).toEqual(["b-e2e"]);
+    expect(verdict(evalRuns(runs)).state).toBe("failure");
+  });
+
   it("a suiteless snapshot is untouched — every pre-existing case is byte-identical", () => {
     // Only the tests hand-build runs without a suite; the API always sends one.
     const runs: CheckRun[] = [
