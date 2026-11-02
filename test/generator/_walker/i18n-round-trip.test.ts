@@ -105,13 +105,32 @@ const PROBE_BODY = `Stack {
         QueryView {
           of: Shop.Product.all,
           data: rows => Table { rows: rows, Column { "SlotColumnHeader", o => Text { o.name } } }
-        }
+        },
+        Text { "SlotGridAnchor" }__GRID__
       }`;
 
+/** A sortable, filterable, selectable `DataGrid` — its pager, filter, sort and
+ *  selection chrome.  Only where the grid ships (`loom.target-unsupported` on
+ *  Flutter and HEEx).  `Loader()` is not probed yet: eleven cells leave
+ *  `chrome.loading` unread (#4485). */
+const GRID_PROBE = `,
+        QueryView {
+          of: Shop.Product.all,
+          data: rows => DataGrid {
+            Column { "SlotGridColumn", o => o.name, sortable: true, filterable: true },
+            rows: rows,
+            selection: picked
+          }
+        }`;
+const GRID_PLATFORMS: ReadonlySet<string> = new Set(["react", "vue", "svelte", "angular", "feliz"]);
+
+const probeBody = (t: FrontendTarget): string =>
+  PROBE_BODY.replace("__GRID__", GRID_PLATFORMS.has(t.platform) ? GRID_PROBE : "");
+
 /** Every authored literal the fixture carries — the (b) direction's input. */
-const authored = (menu: MenuShape): string[] => [
+const authored = (menu: MenuShape, t: FrontendTarget): string[] => [
   ...new Set([
-    ...[...PROBE_BODY.matchAll(/"(Slot[A-Za-z]+)"/g)].map((m) => m[1]!),
+    ...[...probeBody(t).matchAll(/"(Slot[A-Za-z]+)"/g)].map((m) => m[1]!),
     ...(menu === "explicit" ? ["SlotMenuSection", "SlotMenuLink", "SlotMenuExternal"] : []),
     "SlotModalTrigger",
     "SlotModalTriggerTitle",
@@ -154,8 +173,9 @@ function uiBlock(t: FrontendTarget, menu: MenuShape): string {
         choice: string = ""
         flag: bool = false
         doc: File
+        picked: string[] = []
       }
-      body: ${PROBE_BODY}
+      body: ${probeBody(t)}
     }
     page ProductAdmin(id: Product id) {
       route: "/products/:id/admin"
@@ -341,10 +361,12 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
   {
     kind: "over-merge",
     id: "O-sortBy",
-    targets: [...REACT, ...VUE, ...SVELTE, ...NG, "feliz", ...HEEX],
+    targets: ["mui", ...HEEX],
     menus: BOTH,
     key: /^chrome\.sortBy$/,
-    reason: "TABLE_CONTROLS_CHROME: no sortable column in the fixture",
+    reason:
+      "TABLE_CONTROLS_CHROME: MUI's grid sorts on a header click with no labelled control, " +
+      "and HEEx has no sortable column in the fixture (it renders no DataGrid)",
   },
   {
     kind: "over-merge",
@@ -584,7 +606,7 @@ function roundTrip(
       .some((line) => literal.test(line) && !sameText.some((o) => line.includes(o)));
   });
   const unbound: RoundTrip["unbound"] = [];
-  for (const literal of authored(menu)) {
+  for (const literal of authored(menu, t)) {
     const keys = Object.keys(catalog).filter((k) => catalog[k] === literal);
     if (keys.length === 0) {
       missing.push(literal);
@@ -601,6 +623,23 @@ function roundTrip(
         if (markup && inert.some((re) => re.test(line))) {
           unbound.push({ key: keys.join("|"), file, line: line.trim().slice(0, 160) });
         }
+      }
+    }
+  }
+  // The same inert-position check over the rest of the catalog: the chrome a
+  // pack or shell renders (`pack.<pack>.*`, `chrome.*`) has no authored
+  // literal, but its call is just as dead when it lands in a plain attribute.
+  const authoredKeys = new Set(
+    authored(menu, t).flatMap((l) => Object.keys(catalog).filter((k) => catalog[k] === l)),
+  );
+  const chrome = Object.keys(catalog)
+    .filter((k) => !authoredKeys.has(k))
+    .map((k) => [k, inertCall(k)] as const);
+  for (const [file, src] of tree) {
+    if (!MARKUP_FILE.test(file)) continue;
+    for (const line of src.split("\n")) {
+      for (const [k, re] of chrome) {
+        if (re.test(line)) unbound.push({ key: k, file, line: line.trim().slice(0, 160) });
       }
     }
   }

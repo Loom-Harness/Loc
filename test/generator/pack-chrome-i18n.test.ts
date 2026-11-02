@@ -795,13 +795,6 @@ describe("pack-chrome i18n — select placeholder", () => {
     expect(catalogOf(files)["chrome.selectPlaceholder"]).toBe("Select…");
   });
 
-  it("Vue (shadcnVue): binds it as :placeholder='t(…)'", async () => {
-    const files = await generateSystemFiles(SELECT_SYSTEM("vue", "shadcnVue"));
-    const page = pageOf(files, "home.vue");
-    expect(page).toContain(`:placeholder='t("chrome.selectPlaceholder", "Select…")'`);
-    expect(catalogOf(files)["chrome.selectPlaceholder"]).toBe("Select…");
-  });
-
   /** A form whose aggregate has an `X id` (with `derived display`) and an enum
    *  field — so it renders two pickers from `field-input-*-select`. */
   const PICKER_FORM = (body: string) => `
@@ -1122,24 +1115,15 @@ describe("pack-chrome i18n — per-column control ARIA", () => {
   }`;
 
   it.each([
-    ["react", "mantine", "home.tsx", `aria-label={t("chrome.sortBy"`],
-    ["vue", "vuetify", "src/components/OrdersDataGrid.vue", `:aria-label='t("chrome.sortBy"`],
-    [
-      "svelte",
-      "flowbite",
-      "src/lib/components/OrdersDataGrid.svelte",
-      `aria-label={t("chrome.sortBy"`,
-    ],
-    [
-      "angular",
-      "angularMaterial",
-      "src/app/components/orders-data-grid.component.ts",
-      `[attr.aria-label]='t("chrome.sortBy"`,
-    ],
-  ])("%s/%s binds both control names", async (platform, design, file, sortBinding) => {
+    ["react", "mantine", "home.tsx"],
+    ["vue", "vuetify", "src/components/OrdersDataGrid.vue"],
+    ["svelte", "flowbite", "src/lib/components/OrdersDataGrid.svelte"],
+    ["angular", "angularMaterial", "src/app/components/orders-data-grid.component.ts"],
+  ])("%s/%s fills both control names from the column header", async (platform, design, file) => {
+    // That each control's `t()` call is BOUND is the i18n round-trip gate's
+    // `unbound` direction (its probe grid is sortable and filterable).
     const files = await generateSystemFiles(SYSTEM(platform, design, ARIA_GRID(true, true)));
     const child = gridChildOf(files, file);
-    expect(child).toContain(sortBinding);
     expect(child).toContain(`"chrome.filterBy", "Filter by {column}", { column: `);
     // The hole is the COLUMN's own header, so the label still says WHICH column.
     expect(child).toContain("String(h.column.columnDef.header ?? h.id)");
@@ -1166,40 +1150,6 @@ describe("pack-chrome i18n — per-column control ARIA", () => {
     );
     expect(app).not.toContain(`("Sort by " + loomText`);
     expect(app).not.toContain(`("Filter by " + loomText`);
-  });
-
-  it.each([
-    ["react", "mantine", "home.tsx", `aria-label={t("chrome.selectAllRows", "Select all rows")}`],
-    [
-      "vue",
-      "vuetify",
-      "src/components/OrdersDataGrid.vue",
-      `:aria-label='t("chrome.selectAllRows", "Select all rows")'`,
-    ],
-    [
-      "svelte",
-      "flowbite",
-      "src/lib/components/OrdersDataGrid.svelte",
-      `aria-label={t("chrome.selectAllRows", "Select all rows")}`,
-    ],
-    [
-      "angular",
-      "angularMaterial",
-      "src/app/components/orders-data-grid.component.ts",
-      `[attr.aria-label]='t("chrome.selectAllRows", "Select all rows")'`,
-    ],
-  ])("%s/%s names its selection checkboxes", async (platform, design, file, binding) => {
-    // A checkbox has NO visible label, so this string is its entire accessible
-    // name — the one grid control that is unusable, not merely English, when a
-    // locale can't reach it.
-    const files = await generateSystemFiles(SELECTION_SYS(platform, design));
-    const child = gridChildOf(files, file);
-    expect(child).toContain(binding);
-    expect(child).not.toContain(`aria-label="Select all rows"`);
-    expect(child).not.toContain(`aria-label="Select row"`);
-    const catalog = catalogOf(files);
-    expect(catalog["chrome.selectAllRows"]).toBe("Select all rows");
-    expect(catalog["chrome.selectRow"]).toBe("Select row");
   });
 
   it("React stops shadowing the translator with the TanStack table", async () => {
