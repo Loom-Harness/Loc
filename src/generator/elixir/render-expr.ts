@@ -239,6 +239,15 @@ function integralOperand(t: TypeIR | undefined): "" | "?" | null {
   return t?.kind === "optional" ? "?" : "";
 }
 
+/** `a ?? b` — `case` matches ONLY `nil` (`||` would also swallow `false`), binds
+ *  the left once, and evaluates the fallback only on the `nil` clause.  The
+ *  binder is not underscore-prefixed (an underscored variable that is read
+ *  warns, and generated Elixir compiles with warnings as errors); each `case`
+ *  clause scopes it, so nested coalesces cannot collide. */
+function renderElixirCoalesce(left: string, fallback: string): string {
+  return `(case ${left} do nil -> ${fallback}; loom_c -> loom_c end)`;
+}
+
 const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // The one backend whose double-quoted string literal interpolates (`#{…}`)
   // — `elixirString` neutralizes that in addition to JSON's `"`/`\`/control-
@@ -281,6 +290,7 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // the keyword list at the value boundary where it belongs.  Cheap: the pair
   // of parens is inert wherever the bare form already parsed.
   ternary: (cond, then, otherwise) => `(if ${cond}, do: ${then}, else: ${otherwise})`,
+  coalesce: renderElixirCoalesce,
   convert: (value, e) => renderElixirConvert(e.target, e.from, value),
   // Transparent i18n wrapper (M-T1.11) — drop the format, emit the operand.
   i18nFormat: (inner) => inner,
@@ -331,6 +341,7 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
 export const ELIXIR_CTX_FREE_LEAVES = {
   escapeStringLiteral: ELIXIR_TARGET.escapeStringLiteral,
   literal: (lit: LiteralKind, value: string) => renderLiteral(lit, value),
+  coalesce: renderElixirCoalesce,
   convert: (value: string, e: ConvertExpr) => renderElixirConvert(e.target, e.from, value),
   duration: renderDurationInMemory,
   i18nFormat: ELIXIR_TARGET.i18nFormat,

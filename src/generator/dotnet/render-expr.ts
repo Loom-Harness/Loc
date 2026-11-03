@@ -15,6 +15,7 @@ import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
 import type { RepoOp } from "../../util/repository-contract.js";
+import { nullishOperand } from "../_expr/coalesce.js";
 import { csCodePointLength, csCodePointSubstring } from "../_expr/code-point.js";
 import { csSubtreeLikePattern } from "../_expr/subtree-like.js";
 import {
@@ -332,6 +333,9 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
     if (narrowed === "otherwise") otherwise = `${otherwise}.Value`;
     return `${cond} ? ${then} : ${otherwise}`;
   },
+  // `??` evaluates the left once and yields `T` for a `T?` left (value-typed
+  // nullables included), so no `.Value` unwrapping is needed.
+  coalesce: (left, fallback) => `(${nullishOperand(left)} ?? ${nullishOperand(fallback)})`,
   convert: (value, e, ctx) =>
     renderCsConvert(
       e.target,
