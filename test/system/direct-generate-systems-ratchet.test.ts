@@ -71,19 +71,6 @@ const PINNED: readonly string[] = [
   "test/platform/dotnet-fullstack.test.ts",
   "test/platform/dotnet-multi-context-eventlog-naming.test.ts",
   "test/platform/frontend-dispatch.test.ts",
-  "test/system/kubernetes-helm.test.ts",
-  "test/system/launch-config.test.ts",
-  "test/system/multifile-regression.test.ts",
-  "test/system/node-debug.test.ts",
-  "test/system/playground-feature-examples.test.ts",
-  "test/system/playground-remaining-examples.test.ts",
-  "test/system/playground-storybook-examples.test.ts",
-  "test/system/prometheus-collector.test.ts",
-  "test/system/sourcemap.test.ts",
-  "test/system/storage-sidecars.test.ts",
-  "test/system/system.test.ts",
-  "test/system/trace-roundtrip.test.ts",
-  "test/system/traceability.test.ts",
 ];
 
 function testFiles(dir: string, out: string[] = []): string[] {
