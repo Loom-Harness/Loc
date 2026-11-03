@@ -1149,28 +1149,13 @@ export function boxedJavaType(t: TypeIR): string {
   return renderTypeWith(t, JAVA_TYPE_TARGET, "reference");
 }
 
-export function javaValueTypeForId(idValueType: string): string {
-  switch (idValueType) {
-    case "int":
-      return "int";
-    case "long":
-      return "long";
-    case "string":
-      return "String";
-    default:
-      return "UUID";
-  }
+/** The Java type a strong id wraps — every identity is a guid. */
+export function javaValueTypeForId(): string {
+  return "UUID";
 }
 
-export function javaNewIdValue(idValueType: string): string {
-  switch (idValueType) {
-    case "int":
-    case "long":
-      return "0";
-    case "string":
-      // UUIDv7 (time-ordered) via java-uuid-generator — no JDK v7 factory.
-      return "Generators.timeBasedEpochGenerator().generate().toString()";
-    default:
-      return "Generators.timeBasedEpochGenerator().generate()";
-  }
+/** A fresh id value: UUIDv7 (time-ordered) via java-uuid-generator — no JDK
+ *  v7 factory. */
+export function javaNewIdValue(): string {
+  return "Generators.timeBasedEpochGenerator().generate()";
 }

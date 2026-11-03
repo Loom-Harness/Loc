@@ -1,5 +1,6 @@
 import { isScalarVariant, typeKey, unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import type { StmtIR } from "../../ir/types/loom-ir.js";
+import { distributeUnionReturn } from "../../ir/util/union-return.js";
 import { walkStmtExprsDeep } from "../../ir/util/walk.js";
 
 // ---------------------------------------------------------------------------
@@ -245,6 +246,9 @@ function renderStmt(s: StmtIR, target: StmtTarget, ix: StmtIndex, counter: StmtC
     case "expression":
       return target.expression(s, ix);
     case "return":
+      // A `return match { … }` tagged per arm renders as one tagged `return`
+      // per arm, through this target's own `if` / statement-`match` leaves.
+      if (s.armVariants) return renderStmt(distributeUnionReturn(s), target, ix, counter);
       return target.return(s, ix);
     case "if":
       return target.if(

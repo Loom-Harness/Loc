@@ -5,10 +5,7 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../../ir/util/openapi-ids.js";
-import {
-  workflowCorrIdValueType,
-  workflowCorrWireField,
-} from "../../../ir/util/workflow-instances.js";
+import { workflowCorrWireField } from "../../../ir/util/workflow-instances.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
@@ -161,7 +158,7 @@ function renderInstancesController(
     const T = `${upperFirst(wf.name)}InstanceResponse`;
     const slug = snake(wf.name);
     const corr = corrWireField(wf);
-    const idJava = javaIdValueType(workflowCorrIdValueType(wf));
+    const idJava = javaIdValueType();
     // The `{id}` param binds the correlation id's Java value type (UUID / int /
     // long / String), so springdoc emits the matching param schema — guid →
     // `{type: string, format: uuid}`, int/long → integer — parity with Hono /

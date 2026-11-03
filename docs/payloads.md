@@ -359,6 +359,48 @@ generated on every backend. The two surfaces differ in who selects the variant:
   (error). Shipped across all five backends (rationale:
   [`proposals/exception-less.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/exception-less.md)).
 
+### Returning a `match` — one tag per arm
+
+A value `match` whose arms build different variants of the declared union is
+tagged per arm: each arm answers its own variant, and an `error` arm is the
+error path only when that arm runs.  A mutating operation decides its arm
+before it writes, so an error arm leaves no trace.
+
+```ddd
+operation decide(kind: string, notes: string): Repaired or Rejected {
+  return match {
+    kind == "reject" => Rejected { reason: title },
+    else => Repaired { notes: notes }
+  }
+}
+```
+
+```ts
+// node — domain/ticket.ts
+if (kind === "reject") {
+  return { type: "Rejected", ...(({ reason: this._title })) };
+} else {
+  return { type: "Repaired", ...(({ notes: notes })) };
+}
+```
+
+```elixir
+# elixir — lib/d/desk.ex
+cond do
+  kind == "reject" ->
+    {:error, "Rejected", %{reason: record.title}}
+  true ->
+    {:ok, Map.put(%{notes: notes}, :type, "Repaired")}
+end
+```
+
+.NET and Java construct each arm's own `<Union>_<Tag>` record, Python returns
+each arm's tagged dict, and the variant form (`match r { A a => …, B b => … }`)
+dispatches on the subject the same way.  Lowering records the arm variants on
+the `return` (`armVariants`) only when the match is exhaustive — an `else`, or
+a variant form naming every variant; `distributeUnionReturn`
+(`src/ir/util/union-return.ts`) expands it into one tagged `return` per arm.
+
 ### Matching a union in a backend body
 
 The statement `match` runs statements per variant in an operation / `create` /

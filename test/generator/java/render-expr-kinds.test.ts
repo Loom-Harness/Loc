@@ -548,7 +548,7 @@ describe("java renderJavaType", () => {
   });
 
   it("renders ids, carriers, and entities", () => {
-    expect(renderJavaType({ kind: "id", targetName: "Order", valueType: "guid" })).toBe("OrderId");
+    expect(renderJavaType({ kind: "id", targetName: "Order" })).toBe("OrderId");
     expect(
       renderJavaType({
         kind: "genericInstance",

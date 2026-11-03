@@ -904,7 +904,7 @@ ${gatedReadAction(
       {:error, :not_found} ->
         ProblemDetails.not_found_response(conn, "${aggPascal}", id)
     end`,
-  byIdRouteFind(repo, agg.idValueType),
+  byIdRouteFind(repo),
 )}
 ${findActions}
 ${create}${opActions}

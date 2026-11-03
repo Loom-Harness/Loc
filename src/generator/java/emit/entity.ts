@@ -11,7 +11,6 @@ import type {
   EnrichedEntityPartIR,
   ExprIR,
   FieldIR,
-  IdValueType,
   StmtIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
@@ -146,7 +145,6 @@ export interface JavaSuperTypeInfo {
   readonly fieldNames: ReadonlySet<string>;
   readonly derivedNames?: ReadonlySet<string>;
   readonly sharesIdentity?: boolean;
-  readonly idValueType?: IdValueType;
   /** Package the base class lives in — imported when it differs from the
    *  concrete's package (byLayer puts each aggregate in its own
    *  per-plural package; base fields are `protected` for exactly this). */
@@ -288,7 +286,6 @@ export function renderJavaEntity(
   const isAgg = (e: typeof entity): e is EnrichedAggregateIR => "operations" in e;
   const emitTrace = !!options.emitTrace;
   const superType = options.superType;
-  const _idValueType = isAgg(entity) ? entity.idValueType : "guid";
   const idClass = superType?.sharesIdentity ? `${superType.name}Id` : `${entity.name}Id`;
   const operations = isAgg(entity) ? entity.operations : [];
   const createInputFieldList = isAgg(entity) ? createInputFields(entity) : [];

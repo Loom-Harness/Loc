@@ -19,7 +19,7 @@
 // ---------------------------------------------------------------------------
 
 /** A language tag — one finalizer per tag. */
-export type ImportLang = "py" | "java";
+export type ImportLang = "py" | "java" | "cs";
 
 /** A typed handle on an importable symbol. */
 export interface ImportSymbol {
@@ -37,8 +37,10 @@ export interface ImportSymbol {
   readonly onDemand?: true;
 }
 
-const OPEN = "";
-const CLOSE = "";
+/** The marker delimiters — exported so a language finalizer can recognise
+ *  its own private-use-area tokens (the C# `using` slot line). */
+export const OPEN = "";
+export const CLOSE = "";
 const SEP = "|";
 
 /** Every marker in a text. Module / name / alias never contain `|` or the
@@ -105,6 +107,9 @@ function decode(tag: string, module: string, name: string, alias: string): Impor
 export function resolveMarkers(
   text: string,
   isLocal: (sym: ImportSymbol) => boolean = () => false,
+  /** The language's spelling, when it differs from {@link spelling} (a C#
+   *  namespace-only reference spells as nothing). */
+  spell: (sym: ImportSymbol) => string = spelling,
 ): { text: string; used: ImportSymbol[] } {
   const seen = new Map<string, ImportSymbol>();
   const out = text.replace(
@@ -114,7 +119,7 @@ export function resolveMarkers(
       if (sym.name !== undefined && isLocal(sym)) return sym.name;
       const key = symbolKey(sym);
       if (!seen.has(key)) seen.set(key, sym);
-      return spelling(sym);
+      return spell(sym);
     },
   );
   if (out.includes(OPEN) || out.includes(CLOSE)) {

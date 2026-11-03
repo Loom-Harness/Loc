@@ -117,10 +117,7 @@ export function emitGetByIdQueryAndHandler(
   // by-id read.  Evaluated BEFORE the load (403 for an existing and a missing
   // id alike — no existence oracle), with the same carrier + `detail` label as
   // the find's own handler (`buildFindHandlerBody`).
-  const byIdFind = byIdRouteFind(
-    ctx.repositories.find((r) => r.aggregateName === agg.name),
-    agg.idValueType,
-  );
+  const byIdFind = byIdRouteFind(ctx.repositories.find((r) => r.aggregateName === agg.name));
   const gate = byIdFind?.requires;
   const gateUsesUser = byIdFind ? findGateUsesCurrentUser(byIdFind) : false;
   const gateUsings = new Set<string>();

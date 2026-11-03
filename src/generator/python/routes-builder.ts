@@ -408,14 +408,8 @@ export const UUID_PATTERN = UUID_WIRE_PATTERN;
  *  the paramTypeDiffs parity dimension, which compares `type` + `format`
  *  only — both unchanged.
  *
- *  PRECONDITION: every user of this constant must have a `guid` id.  True by
- *  construction for an aggregate (`lowerAggregate` sets `idValueType` to
- *  `"guid"` unconditionally); the one caller that CAN see a non-guid key —
- *  the workflow-instance byId route — already branches on
- *  `workflowCorrIdValueType` and takes `id: str` / `id: int` instead.  The
- *  `format: uuid` this replaces carried the same precondition, so the pattern
- *  adds no new coupling — but if non-guid aggregate ids ever land, this needs
- *  the workflow side's branch, not just a different annotation. */
+ *  Every identity — an aggregate's id, a workflow's correlation id — is a
+ *  guid, so every `{id}` path param uses this one annotation. */
 export const ID_PARAM = `id: ${H.Annotated}[str, ${H.Path}(pattern=r"${UUID_PATTERN}", json_schema_extra={"format": "uuid"})]`;
 
 /** The domain error names this routes file actually references. */

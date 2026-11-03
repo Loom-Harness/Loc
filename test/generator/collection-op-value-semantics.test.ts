@@ -146,9 +146,9 @@ describe("C2 — .NET firstOrNull lifts value-type elements to null", () => {
     expect(renderCsExpr(firstOrNull(DATETIME))).toContain("(DateTime?)__e");
     expect(renderCsExpr(firstOrNull(MONEY))).toContain("(decimal?)__e");
     expect(renderCsExpr(firstOrNull({ kind: "enum", name: "Status" }))).toContain("(Status?)__e");
-    expect(
-      renderCsExpr(firstOrNull({ kind: "id", targetName: "Order", valueType: "guid" })),
-    ).toContain("(OrderId?)__e");
+    expect(renderCsExpr(firstOrNull({ kind: "id", targetName: "Order" }))).toContain(
+      "(OrderId?)__e",
+    );
   });
 
   it("leaves reference-type elements on the plain call", () => {
