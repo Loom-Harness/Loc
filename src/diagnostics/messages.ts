@@ -2128,6 +2128,9 @@ export const DIAGNOSTIC_MESSAGES = {
     `context '${p.name}': ${p.kind} '${p.hName}' has a parameter named 'id', which is ` +
     `reserved — a bare 'id' in a handler body resolves to the current entity's implicit id, ` +
     `not the parameter. Rename it (e.g. 'orderId').`,
+  "loom.envelope-removed":
+    "`T envelope` is removed: it meant exactly `T` (a single value), so the carrier added nothing. " +
+    "Write `T` instead — the quick fix drops the `envelope`.",
   "loom.option-deprecated":
     "`T option` is deprecated: it means `T?`, the one way to say a value may be missing. " +
     "Write `T?` instead — the quick fix rewrites it.",

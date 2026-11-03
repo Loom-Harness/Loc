@@ -526,6 +526,8 @@ export class Elaborator {
   resolveAtom(t: TypeRef | TypeAtom, scope: Scope | undefined): Ty {
     let inner = this.resolveBase(t, scope);
     for (const ctor of t.ctors ?? []) {
+      // `envelope` is refused (`loom.envelope-removed`): it types as its argument.
+      if (ctor === "envelope") continue;
       inner =
         ctor === "option" ? Ty.union([inner, Ty.none]) : { kind: "generic", ctor, arg: inner };
     }
