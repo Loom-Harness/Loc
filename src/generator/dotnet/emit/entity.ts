@@ -33,6 +33,7 @@ import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { ruleText } from "../../_i18n/rule-text.js";
+import { csRuleParams } from "../wire-policy-cs.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import { csMemberScope, csParamIdent, csProjectType, typeMemberNames } from "../bcl-collision.js";
@@ -794,8 +795,9 @@ export function renderEntity(
     // unnamed one keeps the text-only throw with the generic text.
     const code = domainFloorCode(inv.message);
     const text = JSON.stringify(ruleText(inv));
+    const params = code ? csRuleParams(inv, (e) => renderCsExpr(e, renderCtx)) : undefined;
     const thrown = code
-      ? `throw new DomainException(${text}, DomainErrorKind.Invariant, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
+      ? `throw new DomainException(${text}, DomainErrorKind.Invariant, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}${params ? `, ${params}` : ""})`
       : `throw new DomainException(${text}, DomainErrorKind.Invariant)`;
     if (!emitTrace) {
       const check = inv.guard

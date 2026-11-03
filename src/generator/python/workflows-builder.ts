@@ -49,6 +49,7 @@ import {
   workflowFnSnake,
 } from "../../util/naming.js";
 import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
+import { pyRuleParams } from "./wire-policy-py.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { spellMarkers } from "../_imports/symbol.js";
 import { numericEncode } from "../_numeric/target.js";
@@ -1020,6 +1021,16 @@ export function instanceFieldValue(rowVar: string, f: WireField): string {
 // renders every nested (per-iteration / per-branch) save, so a loop- or
 // branch-scoped persist takes the aggregate's lifecycle stamp exactly like an
 // exit save does.
+/** A named workflow precondition also hands up the values it read (the wire
+ *  `params`); empty for an unnamed one. */
+function precondParams(
+  st: { expr: ExprIR; message?: unknown },
+  rctx: PyRenderContext,
+): string {
+  const params = st.message ? pyRuleParams({ expr: st.expr }, (e) => renderPyExpr(e, rctx)) : undefined;
+  return params ? `, ${params}` : "";
+}
+
 export function pyWorkflowStmtTarget(
   rctx: PyRenderContext,
   ctx: EnrichedBoundedContextIR | undefined,
@@ -1035,7 +1046,7 @@ export function pyWorkflowStmtTarget(
     indentUnit: "    ",
     precondition: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,
-      `${i}    raise ${PY.DomainError}(${workflowPreconditionThrowArgs(st, JSON.stringify("precondition"))})`,
+      `${i}    raise ${PY.DomainError}(${workflowPreconditionThrowArgs(st, JSON.stringify("precondition"))}${precondParams(st, rctx)})`,
     ],
     requires: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,

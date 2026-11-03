@@ -1547,7 +1547,7 @@ export function buildRoutesFile(
   );
   lines.push(`      recordDomainFault("forbidden");`);
   // `err.detail`, not `err.message` (ruling D4, #20): the log line above keeps
-  // the gate's source text; the body echoes it only under the dev-stub verifier.
+  // the gate's source text; the body carries the constant `Forbidden`.
   lines.push(
     `      return problem(${forbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail, ${JSON.stringify(wireCode("forbidden"))});`,
   );

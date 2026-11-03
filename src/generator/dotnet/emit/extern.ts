@@ -50,14 +50,14 @@ export function renderExternHookImpl(agg: AggregateIR, ns: string): string | und
   const hooks = externOps
     .map((op) => {
       const retType = op.returnType ? renderCsType(op.returnType) : "void";
-      const msg = `extern operation '${op.name}' on ${agg.name} is not implemented — fill in this partial (Domain/${plural(agg.name)}/${agg.name}.Extern.cs)`;
+      const msg = `extern operation '${op.name}' on ${agg.name} is not implemented — write its body in Domain/${plural(agg.name)}/${agg.name}.Extern.cs`;
       return (
         `    /// <summary>Hand-written domain hook for \`${op.name}\` — runs after the\n` +
         `    /// framework asserts the operation's preconditions and BEFORE it re-asserts\n` +
         `    /// invariants and saves.  A MEMBER of ${agg.name}, so it may mutate private\n` +
         `    /// state and add domain events (\`_domainEvents.Add(...)\`) directly.</summary>\n` +
         `    private partial ${retType} ${upperFirst(op.name)}Core(${hookParams(op)})\n` +
-        `        => throw new NotImplementedException(${JSON.stringify(msg)});`
+        `        => throw new ExternNotImplementedException(${JSON.stringify(msg)});`
       );
     })
     .join("\n\n");

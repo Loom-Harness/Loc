@@ -104,18 +104,14 @@ describe("node/Hono — no catalog: the 422 answers the code, the client localiz
   });
 });
 
-describe(".NET — Localization/LoomMessages.cs + exception-filter resolution", () => {
-  it("emits the catalog keyed by the wire codes", async () => {
-    const catalog = bySuffix(await filesFor("dotnet"), "Localization/LoomMessages.cs")!;
-    expect(catalog).toBeDefined();
-    for (const code of ALL_CODES) expect(catalog).toContain(`["${code}"]`);
-    expect(catalog).toContain(`["${NAME_CODE}"] = "Name length"`);
-    expect(catalog).toContain("RequestContext.Current?.Locale");
-  });
-
-  it("resolves errors[].message through the catalog in the 422 arm", async () => {
-    const filter = bySuffix(await filesFor("dotnet"), "Api/DomainExceptionFilter.cs")!;
-    expect(filter).toContain("LoomMessages.Localize(e.ErrorCode, e.ErrorMessage)");
+describe(".NET — no catalog: the 422 answers the code, the client localizes", () => {
+  it("ships no message catalog and no locale lookup", async () => {
+    const files = await filesFor("dotnet");
+    expect(bySuffix(files, "Localization/LoomMessages.cs")).toBeUndefined();
+    const filter = bySuffix(files, "Api/DomainExceptionFilter.cs")!;
+    expect(filter).not.toContain("LoomMessages");
+    // Every rule names its catalog code, an unnamed one included.
+    expect(filter).toContain('err["code"] = e.ErrorCode');
   });
 
   it("routes a messaged PRECONDITION onto the carrier with its text + code", async () => {
@@ -150,18 +146,18 @@ describe("java/Spring — messages.properties ResourceBundle + MessageSource res
   });
 });
 
-describe("python/FastAPI — app/i18n.py + validation-handler resolution", () => {
-  it("emits the catalog keyed by the wire codes", async () => {
-    const catalog = bySuffix(await filesFor("python"), "app/i18n.py")!;
-    expect(catalog).toBeDefined();
-    expect(catalog).toContain(`"${NAME_CODE}": "Name length"`);
-    expect(catalog).toContain("from app.obs.log import locale");
+describe("python/FastAPI — no catalog: the 422 answers the code, the client localizes", () => {
+  it("ships no message catalog and no locale lookup", async () => {
+    const files = await filesFor("python");
+    expect(bySuffix(files, "app/i18n.py")).toBeUndefined();
+    const problem = bySuffix(files, "app/http/problem.py")!;
+    expect(problem).not.toContain("localize_message");
+    expect(problem).toContain('"code": _wire_code(e),');
   });
 
-  it("resolves errors[].message through the catalog in the 422 handler", async () => {
-    const problem = bySuffix(await filesFor("python"), "app/http/problem.py")!;
-    expect(problem).toContain("from app.i18n import localize_message");
-    expect(problem).toContain('entry["message"] = localize_message(code, entry["message"])');
+  it("each named rule's pydantic error type is its identity key", async () => {
+    const all = [...(await filesFor("python")).values()].join("\n");
+    for (const code of ALL_CODES) expect(all).toContain(`"${code}"`);
   });
 });
 
@@ -199,15 +195,8 @@ describe("cross-backend parity", () => {
   it("the catalog backends ship the SAME code set — one collector, N renderings", async () => {
     const codesIn = (content: string): string[] =>
       [...new Set(content.match(/Cat\.Product\.rule\.[A-Za-z0-9]+/g) ?? [])].sort();
-    const [dotnet, java, python, elixir] = await Promise.all([
-      filesFor("dotnet"),
-      filesFor("java"),
-      filesFor("python"),
-      filesFor("elixir"),
-    ]);
-    expect(codesIn(bySuffix(dotnet, "Localization/LoomMessages.cs")!)).toEqual(ALL_CODES);
+    const [java, elixir] = await Promise.all([filesFor("java"), filesFor("elixir")]);
     expect(codesIn(bySuffix(java, "src/main/resources/messages.properties")!)).toEqual(ALL_CODES);
-    expect(codesIn(bySuffix(python, "app/i18n.py")!)).toEqual(ALL_CODES);
     expect(
       codesIn(bySuffix(elixir, "priv/gettext/en/LC_MESSAGES/default.po")!).filter((c) =>
         ALL_CODES.includes(c),
@@ -237,22 +226,7 @@ describe("cross-backend parity", () => {
     // `Locale.forLanguageTag` + ResourceBundle's own parent-bundle walk, elixir to
     // gettext's), so for those the assertion is that the FIRST-TAG extraction
     // happens before the handoff.
-    const [dotnet, java, python, elixir] = await Promise.all([
-      filesFor("dotnet"),
-      filesFor("java"),
-      filesFor("python"),
-      filesFor("elixir"),
-    ]);
-    // .NET / python own the whole walk, including the primary-subtag step.
-    const catalogs = [
-      bySuffix(dotnet, "Localization/LoomMessages.cs")!,
-      bySuffix(python, "app/i18n.py")!,
-    ];
-    for (const c of catalogs) {
-      expect(c).toMatch(/[Ss]plit\((["'])[,,]\1\)/); // first listed language
-      expect(c).toMatch(/[Ss]plit\((["'])[;;]\1\)/); // drop the ;q= weight
-      expect(c.toLowerCase()).toContain("primary"); // the subtag fallback
-    }
+    const [java, elixir] = await Promise.all([filesFor("java"), filesFor("elixir")]);
     // java / elixir extract the first tag, then hand the rest to their ecosystem.
     const advice = bySuffix(java, "ApiExceptionAdvice.java")!;
     expect(advice).toContain('RequestContext.locale().split(",")[0].split(";")[0].trim()');
@@ -274,10 +248,6 @@ describe("cross-backend parity", () => {
         undefined,
       );
     }
-    // …and the resolution sites keep their pre-catalog form.
-    expect(bySuffix(await filesFor("python", NO_MESSAGES), "app/http/problem.py")).not.toContain(
-      "localize_message",
-    );
     expect(bySuffix(await filesFor("java", NO_MESSAGES), "ApiExceptionAdvice.java")).toContain(
       'entry.put("message", "NotNull".equals(err.getCode()) ? lastKey((String) entry.get("pointer")) + " is required" : err.getDefaultMessage());',
     );
@@ -290,7 +260,6 @@ describe("a locales/en override", () => {
     for (const [platform, suffix] of [
       // node has no catalog: the override is the English its refine answers.
       ["node", "http/product.routes.ts"],
-      ["python", "app/i18n.py"],
       ["java", "src/main/resources/messages.properties"],
     ] as const) {
       const files = await generateSystemFiles(src(platform), { sourceOverrides: overrides });

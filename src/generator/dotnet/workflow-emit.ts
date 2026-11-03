@@ -98,7 +98,7 @@ import { csReadOwnParams } from "./local-names.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "./render-expr.js";
 import { collectCsStmtUsings, renderCsStatements } from "./render-stmt.js";
-import { csNotFoundException, wireStatusResolver } from "./wire-policy-cs.js";
+import { csNotFoundException, csRuleParams, wireStatusResolver } from "./wire-policy-cs.js";
 import {
   esCorrIdClass,
   esEventDbSet,
@@ -1901,8 +1901,10 @@ export function csWorkflowStmtTarget(
     indentUnit: "    ",
     precondition: (st, indent) => {
       const expr = renderArg(st.expr);
+      // A named precondition also hands up the values it read (the wire `params`).
+      const params = st.message ? csRuleParams({ expr: st.expr }, renderArg) : undefined;
       return [
-        `${indent}if (!(${expr})) throw new DomainException(${workflowPreconditionThrowArgs(st, "DomainErrorKind.Precondition")});`,
+        `${indent}if (!(${expr})) throw new DomainException(${workflowPreconditionThrowArgs(st, "DomainErrorKind.Precondition")}${params ? `, ${params}` : ""});`,
       ];
     },
     requires: (st, indent) => {

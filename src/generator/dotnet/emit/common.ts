@@ -23,6 +23,9 @@ export function renderCommon(
     /** A messaged aggregate rule can trip at the domain floor (M-T1.11 (c)) —
      *  `DomainException` then carries the rule's wire code and pointer. */
     domainFloorCodes?: boolean;
+    /** An `extern` operation exists — its unfilled hook raises
+     *  `ExternNotImplementedException`, answered 501. */
+    extern?: boolean;
   } = {},
 ): string {
   // M-T1.11 (c): a MESSAGED invariant / field check / precondition throws its
@@ -56,11 +59,15 @@ public enum DomainErrorKind
     /// with /warnaserror — the same trap WireFormatException.FieldPointer
     /// sidesteps below.
     public string? RulePointer { get; }
-    public DomainException(string message, DomainErrorKind? kind = null, string? ruleCode = null, string? rulePointer = null) : base(message)
+    /// <summary>The values the rule read — the wire <c>params</c> a client
+    /// fills the rule's message placeholders from.  Null when it read none.</summary>
+    public IReadOnlyDictionary<string, object?>? RuleParams { get; }
+    public DomainException(string message, DomainErrorKind? kind = null, string? ruleCode = null, string? rulePointer = null, IReadOnlyDictionary<string, object?>? ruleParams = null) : base(message)
     {
         Kind = kind;
         RuleCode = ruleCode;
         RulePointer = rulePointer;
+        RuleParams = ruleParams;
     }
 }
 `
@@ -84,17 +91,19 @@ public enum DomainErrorKind
     ? `/// <summary>A value object's invariant refused a value (M-T5.1).
 /// DomainExceptionFilter answers the domain-floor status with one RFC 7807
 /// <c>errors[]</c> entry: the whole-request pointer <c>""</c> (the value was
-/// computed by a body, so it names no request member), the rule's message
-/// and, for a messaged rule, its content-hash code.</summary>
+/// computed by a body, so it names no request member), the rule's message,
+/// its catalog code and the values the rule read as params.</summary>
 public sealed class ValueObjectInvariantException : Exception
 {
     public string ValueObject { get; }
     public string? RuleCode { get; }
-    public ValueObjectInvariantException(string valueObject, string message, string? ruleCode = null)
+    public IReadOnlyDictionary<string, object?>? RuleParams { get; }
+    public ValueObjectInvariantException(string valueObject, string message, string? ruleCode = null, IReadOnlyDictionary<string, object?>? ruleParams = null)
         : base(message)
     {
         ValueObject = valueObject;
         RuleCode = ruleCode;
+        RuleParams = ruleParams;
     }
 }
 
@@ -137,6 +146,20 @@ public sealed class ConcurrencyConflictException : Exception
 
 `
     : "";
+  // An unfilled `extern` operation hook (`Domain/<Plural>/<Agg>.Extern.cs`):
+  // its own exception so the filter answers 501 for exactly that, leaving any
+  // other `NotImplementedException` a user hook or a stub raises a 500.
+  const externNotImplemented = opts.extern
+    ? `/// <summary>An <c>extern</c> operation's hook was never filled in.
+/// DomainExceptionFilter maps this to HTTP 501; the message names the file to
+/// write.</summary>
+public sealed class ExternNotImplementedException : NotImplementedException
+{
+    public ExternNotImplementedException(string message) : base(message) { }
+}
+
+`
+    : "";
   return `// Auto-generated.
 using System;
 using System.Collections.Generic;
@@ -149,7 +172,7 @@ using ${ns}.Domain.Events;
 namespace ${ns}.Domain.Common;
 
 ${domainException}
-${concurrencyException}${valueObjectInvariant}/// <summary>State-gate failure — an operation's 'when' predicate (the
+${concurrencyException}${valueObjectInvariant}${externNotImplemented}/// <summary>State-gate failure — an operation's 'when' predicate (the
 /// canCommand gate) evaluated false against the loaded aggregate.
 /// DomainExceptionFilter maps this to HTTP 409.</summary>
 public sealed class DisallowedException : Exception
@@ -190,8 +213,17 @@ public sealed class WireFormatException : Exception
     /// Named FieldPointer, not Pointer: CA1720 ("identifier contains type
     /// name") is an ERROR under /warnaserror and rejects the shorter name.</summary>
     public string FieldPointer { get; }
-    public WireFormatException(string fieldPointer, string message)
-        : base(message) => FieldPointer = fieldPointer;
+    /// <summary>The catalog code of the refusal (<c>field.money-grammar</c>, …)
+    /// and the values its message names.</summary>
+    public string Code { get; }
+    public IReadOnlyDictionary<string, object?>? Params { get; }
+    public WireFormatException(string fieldPointer, string message, string code, IReadOnlyDictionary<string, object?>? @params = null)
+        : base(message)
+    {
+        FieldPointer = fieldPointer;
+        Code = code;
+        Params = @params;
+    }
 
     /// <summary>node's money grammar, character for character:
     /// <c>${csMoneyGrammar()}</c> — ASCII digits only, no exponent, no

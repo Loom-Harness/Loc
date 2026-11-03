@@ -108,9 +108,9 @@ export function buildPyExternHookModule(agg: AggregateIR): string | null {
     const ret = op.returnType ? spellMarkers(renderPyType(op.returnType)) : "None";
     return lines(
       `def ${pythonIdent(op.name)}(${params}) -> ${ret}:`,
-      "    raise NotImplementedError(",
-      `        "extern operation \`${op.name}\` on ${agg.name} is not implemented — "`,
-      `        "fill in ${externHookModulePath(agg.name)}"`,
+      "    raise ExternNotImplementedError(",
+      `        "extern operation '${op.name}' on ${agg.name} is not implemented — "`,
+      `        "write its body in ${externHookModulePath(agg.name)}"`,
       "    )",
     );
   });
@@ -130,6 +130,8 @@ export function buildPyExternHookModule(agg: AggregateIR): string | null {
     "from __future__ import annotations",
     "",
     "from typing import TYPE_CHECKING",
+    "",
+    "from app.domain.errors import ExternNotImplementedError",
     "",
     "if TYPE_CHECKING:",
     usesUser ? "    from app.auth.user import User" : null,

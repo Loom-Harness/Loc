@@ -951,7 +951,7 @@ export function buildExplicitRoutesFile(
   );
   body.push(
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
-    // the body carries `err.detail` (echoed only under the dev-stub verifier).
+    // the body carries `err.detail` (the constant `Forbidden`, never the gate source).
     `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${exForbiddenStatus}`)} return problem(${exForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", structuralMap))}, err.detail, ${JSON.stringify(wireCode("forbidden"))}); }`,
   );
   body.push(

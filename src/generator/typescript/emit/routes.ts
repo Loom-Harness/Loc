@@ -451,7 +451,7 @@ export function renderHttpIndex(
     "    if (err instanceof ForbiddenError) {",
     `      ${renderHonoBaseLogCall("forbidden", `message: err.message, status: ${rootForbiddenStatus}`)}`,
     '      recordDomainFault("forbidden");',
-    // `err.detail` (ruling D4, #20): echoed only under the dev-stub verifier.
+    // `err.detail` (ruling D4): the constant `Forbidden`, never the gate source.
     `      return problem(${rootForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail, ${JSON.stringify(wireCode("forbidden"))});`,
     "    }",
     "    if (err instanceof DisallowedError) {",

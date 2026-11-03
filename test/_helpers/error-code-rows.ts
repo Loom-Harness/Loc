@@ -28,8 +28,8 @@ export interface ErrorCodeRow {
 
 export const ERROR_CODE_ROWS: readonly ErrorCodeRow[] = [
   { platform: "node", wireLegs: ["node", "mikroorm"], status: "done" },
-  { platform: "dotnet", wireLegs: ["dotnet", "dapper"], status: { pending: "#4473 fan-out" } },
-  { platform: "python", wireLegs: ["python"], status: { pending: "#4473 fan-out" } },
+  { platform: "dotnet", wireLegs: ["dotnet", "dapper"], status: "done" },
+  { platform: "python", wireLegs: ["python"], status: "done" },
   { platform: "java", wireLegs: ["java"], status: { pending: "#4473 fan-out" } },
   { platform: "elixir", wireLegs: ["elixir"], status: { pending: "#4473 fan-out" } },
 ];

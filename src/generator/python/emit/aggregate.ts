@@ -37,6 +37,7 @@ import { pythonIdent, snake } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { ruleText } from "../../_i18n/rule-text.js";
+import { pyRuleParams } from "../wire-policy-py.js";
 import { PY_IMPORTS, pyFrom, pyRef } from "../../_imports/python.js";
 import { ref } from "../../_imports/symbol.js";
 import { constructionSeededFields } from "../../construction-default.js";
@@ -590,8 +591,9 @@ function renderEntity(
     // unnamed one keeps the text-only raise with the generic text.
     const code = domainFloorCode(inv.message);
     const text = JSON.stringify(ruleText(inv));
+    const params = code ? pyRuleParams(inv, renderPyExpr) : undefined;
     const msg = code
-      ? `${text}, "invariant", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}`
+      ? `${text}, "invariant", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}${params ? `, ${params}` : ""}`
       : `${text}, "invariant"`;
     // Under --trace, evaluate into a temp, emit `invariant_evaluated`
     // (op label = the threaded `__op`), then check — matching Hono/.NET.

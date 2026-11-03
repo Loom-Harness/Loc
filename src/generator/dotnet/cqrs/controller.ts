@@ -1,5 +1,5 @@
 import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
-import { errorVariantResponse } from "../../../ir/enrich/wire-policy.js";
+import { errorVariantCode, errorVariantResponse } from "../../../ir/enrich/wire-policy.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import { unionInstanceName } from "../../../ir/stdlib/unions.js";
 import type {
@@ -50,6 +50,8 @@ export interface ReturnUnionArm {
    *  accessor: "v.Resource" }]`.  They ride the problem body as 7807 extension
    *  members (RS-19); dropping them shipped a 404 with no payload. */
   errorFields: { json: string; accessor: string }[];
+  /** ERROR arm: the wire `code` — `<Ctx>.<Error>.message`. */
+  code: string;
 }
 
 /** Controller-side translation spec for an exception-less operation return. */
@@ -184,6 +186,7 @@ function buildReturnUnionSpec(
         m.shape === "record"
           ? m.fields.map((f) => ({ json: f.name, accessor: `v.${upperFirst(f.name)}` }))
           : [],
+      code: errorVariantCode(ctx.name, m.tag),
     };
   });
   return {
@@ -343,6 +346,7 @@ export function emitController(
                 // error payload declares it — matching the cross-backend absent
                 // body (Hono / Python / Java / Phoenix / vanilla all emit it).
                 resource: spec.absent.hasResource ? agg.name : undefined,
+                code: errorVariantCode(ctx.name, spec.absent.tag),
               } as const)
           : undefined;
         return {

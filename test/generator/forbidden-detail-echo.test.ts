@@ -63,13 +63,21 @@ async function all(platform: string, oidc: boolean): Promise<string> {
  *  keeps the gate text in both. */
 const ARMS: Record<string, { real: string[]; dev: string[]; log: string }> = {
   node: {
-    real: ['this.detail = "Forbidden";', 'return problem(403, "Forbidden", err.detail);'],
-    dev: ["this.detail = message;", 'return problem(403, "Forbidden", err.detail);'],
+    real: [
+      'this.detail = "Forbidden";',
+      'return problem(403, "Forbidden", err.detail, "problem.forbidden");',
+    ],
+    // The gate is DSL source: no backend echoes it under the dev stub either
+    // (#4473, D4 amended).
+    dev: [
+      'this.detail = "Forbidden";',
+      'return problem(403, "Forbidden", err.detail, "problem.forbidden");',
+    ],
     log: 'event: "forbidden", aggregate: "Ticket", message: err.message, status: 403',
   },
   dotnet: {
-    real: ['Problem(context, 403, "Forbidden", "Forbidden", trace_id);'],
-    dev: ['Problem(context, 403, "Forbidden", fe.Message, trace_id);'],
+    real: ['Problem(context, 403, "Forbidden", "Forbidden", trace_id, "problem.forbidden");'],
+    dev: ['Problem(context, 403, "Forbidden", "Forbidden", trace_id, "problem.forbidden");'],
     log: '"forbidden", fe.Message, 403',
   },
   java: {
@@ -78,8 +86,8 @@ const ARMS: Record<string, { real: string[]; dev: string[]; log: string }> = {
     log: '"message", e.getMessage(), "status", 403',
   },
   python: {
-    real: ['return problem(request, 403, "Forbidden", "Forbidden")'],
-    dev: ['return problem(request, 403, "Forbidden", str(err))'],
+    real: ['return problem(request, 403, "Forbidden", "Forbidden", code="problem.forbidden")'],
+    dev: ['return problem(request, 403, "Forbidden", "Forbidden", code="problem.forbidden")'],
     log: 'log("warn", "forbidden", message=str(err), status=403)',
   },
   elixir: {

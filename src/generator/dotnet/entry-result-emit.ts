@@ -29,6 +29,7 @@ import { lines } from "../../util/code-builder.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
 import { type UnionMember, unionMembers } from "../_payload/union-wire.js";
 import { dtoParam, projectEntityArgs, projectToResponse, wireType } from "./dto-mapping.js";
+import { csErrorVariantExt } from "./wire-policy-cs.js";
 
 /** The namespace the entry-result unions live in. */
 export const entryResultNs = (ns: string): string => `${ns}.Application.EntryResults`;
@@ -220,6 +221,13 @@ export function entryControllerAnswer(
       ...fields.map(
         (f) =>
           `${indent}        problem.Extensions[${JSON.stringify(f.name)}] = __e.${upperFirst(f.name)};`,
+      ),
+      ...csErrorVariantExt(
+        ctx,
+        tag,
+        "problem",
+        fields.map((f) => ({ json: f.name, accessor: `__e.${upperFirst(f.name)}` })),
+        `${indent}        `,
       ),
       `${indent}        return new ObjectResult(problem) { StatusCode = ${r.status}, ContentTypes = { "application/problem+json" } };`,
       `${indent}    }`,

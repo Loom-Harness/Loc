@@ -1,8 +1,12 @@
 import {
+  fieldCode,
   fieldFixedMessage,
   fieldSentenceSuffix,
+  INTEGER_RANGE_PARAMS,
   type WireRejectionClass,
+  wireCode,
   wireFixedDetail,
+  wireSentence,
   wireStatus,
   wireTitle,
 } from "../../ir/enrich/wire-policy.js";
@@ -28,7 +32,7 @@ import {
 import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { contextStaticSubpathRoutes, deriveContextOperations } from "../../ir/util/api-surface.js";
 import { durableEventTypes, realtimeEventTypes } from "../../ir/util/channels.js";
-import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../ir/util/denial-detail.js";
+import { CONSTANT_FORBIDDEN_DETAIL } from "../../ir/util/denial-detail.js";
 import { entryResult } from "../../ir/util/entry-result.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
@@ -75,7 +79,6 @@ import { brokerChannelBindings } from "../_channels/bindings.js";
 import { DEBIAN_CERTS_BLOCK, NODE_CERTS_BLOCK, NPM_INSTALL_BLOCK } from "../_docker/node-stage.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
-import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
 import { PY_IMPORTS, pyModule, pyRef } from "../_imports/python.js";
 import { ref, spellMarkers } from "../_imports/symbol.js";
 import {
@@ -111,7 +114,6 @@ import { renderPyEvents } from "./emit/events.js";
 import { renderPyWireModels } from "./emit/http-models.js";
 import { renderPyIds } from "./emit/ids.js";
 import { renderPyContextIntegrationTest } from "./emit/integration-tests.js";
-import { PY_MESSAGES_MODULE_PATH, renderPyMessagesModule } from "./emit/messages.js";
 import { renderPythonMetricsFile } from "./emit/metrics.js";
 import { emitPythonMigrations, MIGRATE_PY } from "./emit/migrations.js";
 import { wireNumericHelpers } from "./emit/numeric.js";
@@ -619,7 +621,12 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   const hasConcurrency = aggregatesNeedConcurrency(merged.aggregates);
   out.set(
     "app/domain/errors.py",
-    errorsPy(hasConcurrency, hasValueObjectInvariants(merged), hasDomainFloorMessages(merged)),
+    errorsPy(
+      hasConcurrency,
+      hasValueObjectInvariants(merged),
+      hasDomainFloorMessages(merged),
+      hasExternOperation(merged),
+    ),
   );
   out.set("app/domain/value_objects.py", renderPyEnumsAndValueObjects(merged));
   out.set("app/domain/events.py", renderPyEvents(merged));
@@ -730,14 +737,8 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     out.set("app/scheduling.py", renderPyTimerScheduler(ownedTimers, eventByName, hasDispatch));
   }
 
-  // Validation-message catalog (M-T1.11): the wire `code` a messaged rule
-  // attaches resolves SERVER-side against this project's catalog.  No messaged
-  // rule ⇒ no module and a byte-identical problem handler.
-  const validationMessages = collectWireValidationMessages(args.contexts);
-  if (validationMessages.length > 0) {
-    out.set(PY_MESSAGES_MODULE_PATH, renderPyMessagesModule(validationMessages));
-  }
-
+  // The server never translates a response: every refusal carries the catalog
+  // `code` a client localizes it by, so there is no backend message catalog.
   out.set("app/http/__init__.py", "");
   out.set(
     "app/http/problem.py",
@@ -757,15 +758,14 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       // carries the map folded across every api's `httpStatus`. The global
       // exception handlers have no per-context tag, so they read it here.
       (args.sys as EnrichedSystemIR).structuralErrorStatuses,
-      validationMessages.length > 0,
       // M-T5.1: the value-object-invariant handler rides on a hosted value
       // object declaring an invariant; a project without one is byte-identical.
       hasValueObjectInvariants(merged),
       // M-T1.11 (c): the domain-floor code answer rides on a messaged
       // aggregate rule the same way.
       hasDomainFloorMessages(merged),
-      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
-      echoesDenialDetail(args.deployable, args.sys),
+      // An unfilled `extern` operation hook answers 501.
+      hasExternOperation(merged),
     ),
   );
   out.set("app/http/wire_models.py", renderPyWireModels(merged));
@@ -1258,6 +1258,7 @@ function staticSubpathGuardLines(statics: Record<string, string[]>): string[] {
     `            ${JSON.stringify(wireTitle("method-not-allowed"))},`,
     '            f"method {request.method} is not supported for {request.url.path}",',
     '            headers={"Allow": ", ".join(methods)},',
+    `            code=${JSON.stringify(wireCode("method-not-allowed"))},`,
     "        )",
     "    return await call_next(request)",
     "",
@@ -1933,6 +1934,11 @@ function collectOpUnions(
   return out;
 }
 
+/** True when some aggregate declares an `extern` operation. */
+function hasExternOperation(ctx: { aggregates: readonly EnrichedAggregateIR[] }): boolean {
+  return ctx.aggregates.some((a) => a.operations.some((o) => o.extern));
+}
+
 // RFC 7807 problem responder + exception handlers — DomainError → 422
 // (RS-15, owner decision 2026-07-29: a domain-floor rejection is a well-formed
 // request refused on SEMANTIC grounds, which is what RFC 9110 reserves 422
@@ -1953,23 +1959,18 @@ function renderProblemPy(
    *  their hardcoded 409s resolve through this map (`httpStatus <Conflict>
    *  <Code>` override, defaulting to 409 → byte-identical). */
   structuralErrorStatuses?: Record<string, number>,
-  /** True when this project ships `app/i18n.py` — the 422 handler then resolves
-   *  each messaged rule's wire `code` against the catalog for the request
-   *  locale.  False ⇒ byte-identical to pre-catalog output (M-T1.11). */
-  localizeMessages = false,
   /** True when a hosted value object declares an invariant — the module then
    *  carries the `ValueObjectInvariantError` handler (M-T5.1). */
   valueObjectInvariants = false,
   domainFloorCodes = false,
-  /** Ruling D4 (#20): true only under the dev-stub verifier
-   *  (`echoesDenialDetail`) — the 403 body then echoes the failed gate.
-   *  Otherwise it is the constant `Forbidden`; the gate stays in the
-   *  `forbidden` log line either way. */
-  echoForbiddenDetail = false,
+  /** True when an `extern` operation exists — the module then carries the 501
+   *  handler for its unfilled hook. */
+  hasExtern = false,
 ): string {
-  const forbiddenDetail = echoForbiddenDetail
-    ? "str(err)"
-    : JSON.stringify(CONSTANT_FORBIDDEN_DETAIL);
+  // The 403 body is the constant `Forbidden` under every verifier: the failed
+  // gate is DSL source, which stays in the `forbidden` log line only.
+  const forbiddenDetail = JSON.stringify(CONSTANT_FORBIDDEN_DETAIL);
+  const code = (cls: WireRejectionClass): string => JSON.stringify(wireCode(cls));
   // Structural-conflict statuses resolved through the `httpStatus` mapper: the
   // 23505 unique-violation handler → UniquenessConflict, the ConcurrencyError
   // handler → ConcurrencyConflict, the DisallowedError (`when`-gate) handler →
@@ -2044,7 +2045,8 @@ function renderProblemPy(
             log("warn", "domain_error", message=str(err), status=${domainStatus})
             record_domain_fault("domain_error")
             return problem(
-                request, ${wireStatus("dangling-reference", structuralErrorStatuses)}, ${title("dangling-reference")}, ${JSON.stringify(wireFixedDetail("dangling-reference"))}
+                request, ${wireStatus("dangling-reference", structuralErrorStatuses)}, ${title("dangling-reference")}, ${JSON.stringify(wireFixedDetail("dangling-reference"))},
+                code=${code("dangling-reference")},
             )
 `
     : "";
@@ -2053,7 +2055,8 @@ function renderProblemPy(
             log("warn", "disallowed", message=str(err), status=${uniquenessStatus})
             record_domain_fault("disallowed")
             return problem(
-                request, ${uniquenessStatus}, ${title("unique-conflict")}, ${JSON.stringify(wireFixedDetail("unique-conflict"))}
+                request, ${uniquenessStatus}, ${title("unique-conflict")}, ${JSON.stringify(wireFixedDetail("unique-conflict"))},
+                code=${code("unique-conflict")},
             )
 `
     : "";
@@ -2069,7 +2072,7 @@ function renderProblemPy(
         sqlstate = getattr(getattr(err, "orig", None), "sqlstate", None)
 ${danglingRefArm}${uniqueArm}        log("warn", "disallowed", message=str(err), status=${uniquenessStatus})
         record_domain_fault("disallowed")
-        return problem(request, ${uniquenessStatus}, ${title("unique-conflict")}, "The request conflicts with the current state.")
+        return problem(request, ${uniquenessStatus}, ${title("unique-conflict")}, "The request conflicts with the current state.", code=${code("unique-conflict")})
 
 `
     : "";
@@ -2090,58 +2093,76 @@ ${danglingRefArm}${uniqueArm}        log("warn", "disallowed", message=str(err),
         # ("<Aggregate> <id> was modified by another request") — that is the detail.
         log("warn", "conflict", message=str(err), status=${concurrencyStatus})
         record_domain_fault("conflict")
-        return problem(request, ${concurrencyStatus}, ${title("version-conflict")}, str(err))
+        return problem(request, ${concurrencyStatus}, ${title("version-conflict")}, str(err), code=${code("version-conflict")})
 
 `
     : "";
-  // The catalog lookup (M-T1.11) — imported only when this project has an
-  // authored validation message, so a message-less app's imports are unchanged.
-  const i18nImport = localizeMessages ? "\nfrom app.i18n import localize_message" : "";
-  // Resolve the code against the catalog for the request locale, falling back to
-  // Pydantic's message (the authored text `PydanticCustomError` carries).
-  const localizeLine = localizeMessages
-    ? '\n                entry["message"] = localize_message(code, entry["message"])'
-    : "";
-  // M-T5.1 — a value object refused INSIDE a domain body: the domain-floor
-  // status plus one RFC 7807 errors[] entry.  Pointer "" (the whole request —
-  // the body computed the value, so it names no request member), the rule's
-  // message, and for a messaged rule its content-hash code resolved through the
-  // same catalog the wire rung uses.  Starlette dispatches on the exception's
-  // MRO, so this subclass handler wins over `_domain`.
+  // A value object refused INSIDE a domain body, and a NAMED invariant / check /
+  // precondition tripped at the domain floor: the domain-floor status plus one
+  // RFC 7807 errors[] entry.  One helper both handlers call, so the two
+  // refusals cannot drift into different bodies.  The entry's `code` is the
+  // rule's (its identity key, or the generic key of an unnamed one) and is also
+  // the body's, since the body's `detail` is the rule's text; `params` are the
+  // values the rule read.  Pointer "" is the whole request (the body computed
+  // the value, so it names no request member).  Starlette dispatches on the
+  // exception's MRO, so the VO subclass handler wins over \`_domain\`.
   const voImport = valueObjectInvariants ? "    ValueObjectInvariantError,\n" : "";
-  const voLocalize = localizeMessages
-    ? '\n            entry["message"] = localize_message(err.code, str(err))'
-    : "";
-  // M-T1.11 (c) — the SAME errors[]-entry answer for a MESSAGED invariant /
-  // check / precondition tripped at the domain floor: one helper both handlers
-  // call, so the two refusals cannot drift into different bodies.
-  const domainFloorEntryFn = domainFloorCodes
-    ? `    def _domain_floor_with_entry(request: Request, err: DomainError, pointer: str) -> JSONResponse:
+  const domainFloorEntryFn =
+    domainFloorCodes || valueObjectInvariants
+      ? `    def _domain_floor_with_entry(request: Request, err: DomainError, pointer: str) -> JSONResponse:
         log("warn", "domain_error", message=str(err), status=${domainStatus})
         record_domain_fault("domain_error")
-        entry: dict[str, str] = {"pointer": pointer, "message": str(err)}
-        if err.code is not None:
-            entry["code"] = err.code${voLocalize}
-        return problem(request, ${domainStatus}, ${title("domain-floor")}, str(err), [entry])
+        code = cast(str | None, getattr(err, "code", None)) or ${code("domain-floor")}
+        params = cast(dict[str, object] | None, getattr(err, "params", None))
+        entry: dict[str, Any] = {"pointer": pointer, "message": str(err), "code": code}
+        if params:
+            entry["params"] = params
+        return problem(request, ${domainStatus}, ${title("domain-floor")}, str(err), [entry], code=code, params=params)
 
 `
-    : "";
+      : "";
   const voHandler = valueObjectInvariants
-    ? domainFloorCodes
-      ? `    @app.exception_handler(ValueObjectInvariantError)
+    ? `    @app.exception_handler(ValueObjectInvariantError)
     async def _value_object_invariant(request: Request, err: ValueObjectInvariantError) -> JSONResponse:
         return _domain_floor_with_entry(request, err, "")
 
 `
-      : `    @app.exception_handler(ValueObjectInvariantError)
-    async def _value_object_invariant(request: Request, err: ValueObjectInvariantError) -> JSONResponse:
-        log("warn", "domain_error", message=str(err), status=${domainStatus})
-        record_domain_fault("domain_error")
-        entry: dict[str, str] = {"pointer": "", "message": str(err)}
-        if err.code is not None:
-            entry["code"] = err.code${voLocalize}
-        return problem(request, ${domainStatus}, ${title("domain-floor")}, str(err), [entry])
+    : "";
+  // An unfilled \`extern\` operation hook: 501 naming the file to write.
+  const externImport = hasExtern ? "    ExternNotImplementedError,\n" : "";
+  const externHandler = hasExtern
+    ? `    @app.exception_handler(ExternNotImplementedError)
+    async def _not_implemented(request: Request, err: ExternNotImplementedError) -> JSONResponse:
+        log("error", "internal_error", error=str(err), status=${wireStatus("not-implemented")})
+        return problem(request, ${wireStatus("not-implemented")}, ${title("not-implemented")}, str(err), code=${code("not-implemented")})
 
+`
+    : "";
+  // A versioned aggregate's mutating route reads its expected version through
+  // this parser (RFC 9110 13.1.1): \`*\`, a strong tag, a weak tag or a bare
+  // integer; anything else is a client error.
+  const ifMatchParser = hasVersioned
+    ? `
+
+_IF_MATCH = re.compile(r'^(?:W/)?(?:"(\\d+)"|(\\d+))$')
+
+
+def parse_if_match(request: Request) -> int | None:
+    """The client's expected version from \`If-Match\`, or None (absent or \`*\`:
+    no precondition, so the just-loaded version stands).  Anything that is not
+    an entity-tag over a version is a malformed request."""
+    header = request.headers.get("if-match")
+    if header is None:
+        return None
+    raw = header.strip()
+    if raw == "*":
+        return None
+    match = _IF_MATCH.match(raw)
+    if match is None:
+        raise StarletteHTTPException(
+            ${wireStatus("malformed-if-match")}, f"${wireSentence("malformed-if-match").prefix}{header}"
+        )
+    return int(match.group(1) or match.group(2))
 `
     : "";
   return `"""RFC 7807 problem responses + exception handlers.  Auto-generated."""
@@ -2151,6 +2172,7 @@ from http import HTTPStatus
 from typing import Any, cast
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
@@ -2163,10 +2185,10 @@ from app.domain.errors import (
     AggregateNotFoundError,
 ${versionedImport}    DisallowedError,
     DomainError,
-    ForbiddenError,
+${externImport}    ForbiddenError,
 ${voImport})
-from app.obs.log import log
-from app.obs.metrics import record_domain_fault${i18nImport}
+from app.obs.log import correlation_id, log, new_id
+from app.obs.metrics import record_domain_fault
 
 
 class ProblemDetails(BaseModel):
@@ -2178,7 +2200,11 @@ class ProblemDetails(BaseModel):
     status: int | None = None
     detail: str | None = None
     instance: str | None = None
-    errors: list[dict[str, str]] | None = None
+    # The catalog key a client localizes the refusal by, and the values its
+    # message names; \`title\` / \`detail\` stay English for API callers and logs.
+    code: str | None = None
+    params: dict[str, Any] | None = None
+    errors: list[dict[str, Any]] | None = None
 
 
 # Exception-less op-return unions (path → tagged-union component name, and
@@ -2252,8 +2278,11 @@ def problem(
     status: int,
     title: str,
     detail: str,
-    errors: list[dict[str, str]] | None = None,
+    errors: list[dict[str, Any]] | None = None,
     headers: dict[str, str] | None = None,
+    *,
+    code: str,
+    params: dict[str, object] | None = None,
 ) -> JSONResponse:
     body: dict[str, object] = {
         "type": "about:blank",
@@ -2261,9 +2290,12 @@ def problem(
         "status": status,
         "detail": detail,
         "instance": request.url.path,
+        "code": code,
     }
+    if params:
+        body["params"] = jsonable_encoder(params)
     if errors is not None:
-        body["errors"] = errors
+        body["errors"] = jsonable_encoder(errors)
     return JSONResponse(
         body,
         status_code=status,
@@ -2328,6 +2360,7 @@ class JsonBodyMiddleware:
                 ${wireStatus("unsupported-media-type")},
                 ${title("unsupported-media-type")},
                 UNSUPPORTED_MEDIA_TYPE,
+                code=${code("unsupported-media-type")},
             )
             await response(scope, receive, send)
             return
@@ -2377,12 +2410,69 @@ def _wire_message(e: dict[str, object]) -> str:
     return str(e.get("msg", ""))
 
 
+# pydantic error types that mean the JSON value has the wrong type or shape.
+_TYPE_MISMATCH_SUFFIXES = ("_type", "_parsing")
+_TYPE_MISMATCH_TYPES = frozenset(
+    {"enum", "literal_error", "union_tag_invalid", "union_tag_not_found", "extra_forbidden", "int_from_float"}
+)
+
+
+def _wire_code(e: dict[str, object]) -> str:
+    """The errors[] code of one validation error — the catalog key a client
+    localizes it by.  A Loom check names its own (\`field.*\` / a rule's identity
+    key / \`problem.domain-floor\` as the pydantic error TYPE); otherwise the
+    field reason is read off what pydantic found.  A native bound or pattern is
+    an unnamed rule."""
+    kind = str(e.get("type", ""))
+    if kind == "missing":
+        return ${JSON.stringify(fieldCode("missing"))}
+    if kind.startswith(("field.", "problem.")) or ".rule." in kind:
+        return kind
+    ctx = e.get("ctx")
+    if (
+        kind == "string_pattern_mismatch"
+        and isinstance(ctx, dict)
+        and ctx.get("pattern") == _UUID_PATTERN
+    ):
+        return ${JSON.stringify(fieldCode("malformed-id"))}
+    if kind.endswith(_TYPE_MISMATCH_SUFFIXES) or kind in _TYPE_MISMATCH_TYPES:
+        return ${JSON.stringify(fieldCode("type-mismatch"))}
+    return ${JSON.stringify(fieldCode("rule"))}
+
+
+def _wire_params(e: dict[str, object]) -> dict[str, object] | None:
+    """The errors[] params of one validation error: the values its message
+    names, which a Loom check hands over as the pydantic context \`loomParams\`."""
+    ctx = e.get("ctx")
+    if isinstance(ctx, dict):
+        params = ctx.get("loomParams")
+        if isinstance(params, dict) and params:
+            return cast(dict[str, object], params)
+    return None
+${ifMatchParser}
+
+# The wire code of a fault the framework raised, by its status.
+_FRAMEWORK_CODES: dict[int, str] = {
+${(["no-route", "method-not-allowed", "unsupported-media-type", "unauthenticated", "forbidden", "field-invalid"] as const).map((cls) => `    ${wireStatus(cls)}: ${JSON.stringify(wireCode(cls))},`).join("\n")}
+}
+
+
+def _framework_code(status: int, detail: str) -> str:
+    """The one 400 a header raises is told apart from a malformed body by its
+    sentence."""
+    if status == ${wireStatus("malformed-body")}:
+        if detail.startswith(${JSON.stringify(wireSentence("malformed-if-match").prefix)}):
+            return ${JSON.stringify(wireCode("malformed-if-match"))}
+        return ${JSON.stringify(wireCode("malformed-body"))}
+    return _FRAMEWORK_CODES.get(status, ${JSON.stringify(wireCode("internal"))})
+
+
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ForbiddenError)
     async def _forbidden(request: Request, err: ForbiddenError) -> JSONResponse:
         log("warn", "forbidden", message=str(err), status=${forbiddenStatus})
         record_domain_fault("forbidden")
-        return problem(request, ${forbiddenStatus}, ${title("forbidden")}, ${forbiddenDetail})
+        return problem(request, ${forbiddenStatus}, ${title("forbidden")}, ${forbiddenDetail}, code=${code("forbidden")})
 
     # The 7807 title on the when-gate rung is the ERROR NAME
     # (errorTitle humanises Disallowed), not the 409 reason phrase.  The
@@ -2392,7 +2482,7 @@ def install_error_handlers(app: FastAPI) -> None:
     async def _disallowed(request: Request, err: DisallowedError) -> JSONResponse:
         log("warn", "disallowed", message=str(err), status=${disallowedStatus})
         record_domain_fault("disallowed")
-        return problem(request, ${disallowedStatus}, ${title("state-gate")}, str(err))
+        return problem(request, ${disallowedStatus}, ${title("state-gate")}, str(err), code=${code("state-gate")})
 
 ${domainFloorEntryFn}    @app.exception_handler(DomainError)
     async def _domain(request: Request, err: DomainError) -> JSONResponse:${
@@ -2404,13 +2494,13 @@ ${domainFloorEntryFn}    @app.exception_handler(DomainError)
     }
         log("warn", "domain_error", message=str(err), status=${domainStatus})
         record_domain_fault("domain_error")
-        return problem(request, ${domainStatus}, ${title("domain-floor")}, str(err))
+        return problem(request, ${domainStatus}, ${title("domain-floor")}, str(err), code=${code("domain-floor")})
 
-${voHandler}${integrityHandler}${versionedHandler}    @app.exception_handler(AggregateNotFoundError)
+${voHandler}${externHandler}${integrityHandler}${versionedHandler}    @app.exception_handler(AggregateNotFoundError)
     async def _not_found(request: Request, err: AggregateNotFoundError) -> JSONResponse:
         log("warn", "not_found", message=str(err), status=${notFoundStatus})
         record_domain_fault("not_found")
-        return problem(request, ${notFoundStatus}, ${title("not-found")}, str(err))
+        return problem(request, ${notFoundStatus}, ${title("not-found")}, str(err), code=${code("not-found")})
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, err: RequestValidationError) -> JSONResponse:
@@ -2421,10 +2511,10 @@ ${voHandler}${integrityHandler}${versionedHandler}    @app.exception_handler(Agg
         # answering 422 with a nonsense \`/1\` byte-offset pointer.
         if any(str(e.get("type", "")) == "json_invalid" for e in err.errors()):
             log("warn", "client_error", error=MALFORMED_BODY, status=${wireStatus("malformed-body")})
-            return problem(request, ${wireStatus("malformed-body")}, ${title("malformed-body")}, MALFORMED_BODY)
-        errors = []
+            return problem(request, ${wireStatus("malformed-body")}, ${title("malformed-body")}, MALFORMED_BODY, code=${code("malformed-body")})
+        errors: list[dict[str, Any]] = []
         for e in err.errors():
-            entry: dict[str, str] = {
+            entry: dict[str, Any] = {
                 "pointer": _pointer(tuple(e["loc"])),
                 # An absent required field reads "<field> is required" on every
                 # backend (RS-39); the field is the last key of the pointer.
@@ -2433,13 +2523,11 @@ ${voHandler}${integrityHandler}${versionedHandler}    @app.exception_handler(Agg
                     if e.get("type") == "missing"
                     else _wire_message(e)
                 ),
+                "code": _wire_code(e),
             }
-            # A named rule raises PydanticCustomError with its identity key
-            # ("<Ctx>.<Owner>.rule.<name>") as the type — the wire code. An
-            # unnamed rule's default Pydantic type is omitted.
-            code = str(e.get("type", ""))
-            if ".rule." in code:
-                entry["code"] = code${localizeLine}
+            params = _wire_params(e)
+            if params:
+                entry["params"] = params
             errors.append(entry)
         # The WIRE-VALIDATION rung's title/detail, byte-identical to the
         # other four backends.  Deliberately NOT the status reason phrase: the
@@ -2448,7 +2536,7 @@ ${voHandler}${integrityHandler}${versionedHandler}    @app.exception_handler(Agg
         # BODY from a rejected DOMAIN operation.  "Validation failed" plus the
         # \`errors[]\` pointer array is what distinguishes them, and python was
         # the one backend collapsing the two.
-        return problem(request, ${wireStatus("field-invalid")}, ${title("field-invalid")}, ${JSON.stringify(wireFixedDetail("field-invalid"))}, errors)
+        return problem(request, ${wireStatus("field-invalid")}, ${title("field-invalid")}, ${JSON.stringify(wireFixedDetail("field-invalid"))}, errors, code=${code("field-invalid")})
 
     @app.exception_handler(StarletteHTTPException)
     async def _http(request: Request, err: StarletteHTTPException) -> JSONResponse:
@@ -2486,6 +2574,7 @@ ${voHandler}${integrityHandler}${versionedHandler}    @app.exception_handler(Agg
             title,
             detail,
             headers=dict(err.headers) if err.headers else None,
+            code=_framework_code(err.status_code, detail),
         )
 
     @app.exception_handler(Exception)
@@ -2501,7 +2590,16 @@ ${voHandler}${integrityHandler}${versionedHandler}    @app.exception_handler(Agg
         # Nothing about the fault may reach the wire, so the string
         # carries no information and there is no cost to matching.
         log("error", "internal_error", error=str(err), status=${wireStatus("internal")})
-        return problem(request, ${wireStatus("internal")}, ${title("internal")}, ${JSON.stringify(wireFixedDetail("internal"))})
+        # The id the fault was logged under: what a user quotes to support.
+        request_id = correlation_id() or request.headers.get("x-request-id") or new_id()
+        return problem(
+            request,
+            ${wireStatus("internal")},
+            ${title("internal")},
+            ${JSON.stringify(wireFixedDetail("internal"))},
+            code=${code("internal")},
+            params={"requestId": request_id},
+        )
 `;
 }
 

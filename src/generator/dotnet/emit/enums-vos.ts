@@ -1,7 +1,8 @@
 import type { EnumIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
-import { ruleText } from "../../_i18n/rule-text.js";
+import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
+import { csRuleParams } from "../wire-policy-cs.js";
 import { csMemberScope, csParamIdent, typeMemberNames } from "../bcl-collision.js";
 import {
   collectCsExprUsings,
@@ -89,9 +90,11 @@ export function renderValueObject(vo: ValueObjectIR, ns: string): string {
       ? `if ((${renderCsExpr(inv.guard, renderCtx)}) && !(${renderCsExpr(inv.expr, renderCtx)}))`
       : `if (!(${renderCsExpr(inv.expr, renderCtx)}))`;
     const text = ruleText(inv);
-    // Its own exception, answered with an errors[] entry; a named rule carries
-    // the wire rung's identity-key code.
-    const code = inv.message ? `, ${JSON.stringify(inv.message.key)}` : "";
+    // Its own exception, answered with an errors[] entry; it carries the same
+    // `code` the wire rung does (a named rule's identity key, else the generic
+    // key of an unnamed one) and a named rule's read values.
+    const params = inv.message ? csRuleParams(inv, (e) => renderCsExpr(e, renderCtx)) : undefined;
+    const code = `, ${JSON.stringify(ruleCode(inv))}${params ? `, ${params}` : ""}`;
     return `        ${check} throw new ValueObjectInvariantException(${JSON.stringify(vo.name)}, ${JSON.stringify(text)}${code});`;
   });
   const efCtorAssignments = vo.fields.map((f) => `        ${upperFirst(f.name)} = default!;`);

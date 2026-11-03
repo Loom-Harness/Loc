@@ -132,6 +132,8 @@ export function entryErrorPyLines(
   return entryErrorTags(er).flatMap((tag) => [
     `${indent}if ${v}["type"] == ${JSON.stringify(tag)}:`,
     ...pyErrorVariantReturn({
+      ctx,
+      fieldValue: (f) => `${v}[${JSON.stringify(f)}]`,
       tag,
       overrides: ctx.errorStatusOverrides,
       jsonResponseRef,

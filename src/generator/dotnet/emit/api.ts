@@ -1,4 +1,10 @@
-import { wireSentenceFor, wireStatus } from "../../../ir/enrich/wire-policy.js";
+import {
+  fieldCode,
+  INTEGER_RANGE_PARAMS,
+  wireSentenceFor,
+  wireStatus,
+} from "../../../ir/enrich/wire-policy.js";
+import { UUID_WIRE_MESSAGE } from "../../../util/uuid-wire.js";
 import { emitsRestCreate } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import { type ApiOperationIR, relativeOpPath } from "../../../ir/util/api-surface.js";
@@ -22,6 +28,9 @@ import { PG_FOREIGN_KEY_VIOLATION, PG_UNIQUE_VIOLATION } from "../../_persistenc
 import type { ReturnUnionSpec } from "../cqrs/controller.js";
 import { csLocalNamer } from "../local-names.js";
 import {
+  csCode,
+  csCodeInit,
+  csErrorVariantExt,
   csFieldInvalidProblem,
   csFieldInvalidResult,
   csFixedDetail,
@@ -35,6 +44,9 @@ import {
   wireStatusResolver,
 } from "../wire-policy-cs.js";
 import { dotnetFindAbsenceThrow } from "./common.js";
+
+/** The C# dictionary type a problem body's `params` / errors[] entries use. */
+const CS_OBJ_DICT = "System.Collections.Generic.Dictionary<string, object?>";
 
 /** Controller action method name = PascalCase of the shared operationId,
  *  so Program.cs's `CustomOperationIds` (lower-first of the action name)
@@ -185,6 +197,8 @@ export interface ControllerShape {
           status: number;
           title: string;
           typeUri: string;
+          /** The wire `code` — `<Ctx>.<Error>.message`. */
+          code: string;
           /** Aggregate name for the `resource` extension member, or `undefined`
            *  when the error payload doesn't declare a `resource` field. */
           resource?: string;
@@ -256,6 +270,7 @@ function absentReturnLines(
       `            var ${problem} = new ProblemDetails { Status = ${ua.status}, Title = ${JSON.stringify(
         ua.title,
       )}, Type = ${JSON.stringify(ua.typeUri)}, Detail = ${detail}, Instance = HttpContext.Request.Path };`,
+      `            ${problem}.Extensions["code"] = ${JSON.stringify(ua.code)};`,
       `            return new ObjectResult(${problem}) { StatusCode = ${ua.status}, ContentTypes = { "application/problem+json" } };`,
       "        }",
     ];
@@ -269,6 +284,8 @@ function absentReturnLines(
       ua.title,
     )}, Type = ${JSON.stringify(ua.typeUri)}, Detail = ${detail}, Instance = HttpContext.Request.Path };`,
     `            ${problem}.Extensions["resource"] = ${JSON.stringify(ua.resource)};`,
+    `            ${problem}.Extensions["code"] = ${JSON.stringify(ua.code)};`,
+    `            ${problem}.Extensions["params"] = new System.Collections.Generic.Dictionary<string, object?> { ["resource"] = ${JSON.stringify(ua.resource)} };`,
     `            return new ObjectResult(${problem}) { StatusCode = ${ua.status}, ContentTypes = { "application/problem+json" } };`,
     "        }",
   ];
@@ -293,7 +310,7 @@ export function renderController(
   // so the HTTP status matches the remapped value the OpenAPI declaration
   // advertises (the `Conflict()` helper is hardwired to 409).
   const referencedInUseStatus = wireStatus("referenced-in-use", shape.structuralStatuses);
-  const fkProblem = `new ProblemDetails { Title = ${csTitle("referenced-in-use", shape.structuralStatuses)}, Status = ${referencedInUseStatus}, Detail = ${csLit(wireSentenceFor("referenced-in-use", agg.name))} }`;
+  const fkProblem = `new ProblemDetails { Title = ${csTitle("referenced-in-use", shape.structuralStatuses)}, Status = ${referencedInUseStatus}, Detail = ${csLit(wireSentenceFor("referenced-in-use", agg.name))}, ${csCodeInit("referenced-in-use")} }`;
   const fkConflictReturn =
     referencedInUseStatus === wireStatus("referenced-in-use")
       ? `            return Conflict(${fkProblem});`
@@ -650,6 +667,12 @@ export function renderOperationActionBlock(
                 (f) =>
                   `                problem.Extensions[${JSON.stringify(f.json)}] = ${f.accessor};`,
               ),
+              `                problem.Extensions["code"] = ${JSON.stringify(a.code)};`,
+              ...(a.errorFields.length > 0
+                ? [
+                    `                problem.Extensions["params"] = new System.Collections.Generic.Dictionary<string, object?> { ${a.errorFields.map((f) => `[${JSON.stringify(f.json)}] = ${f.accessor}`).join(", ")} };`,
+                  ]
+                : []),
               `                return new ObjectResult(problem) { StatusCode = ${a.status}, ContentTypes = { "application/problem+json" } };`,
               `            }`,
             ];
@@ -798,15 +821,16 @@ public sealed class MalformedPathIdFilter : IResourceFilter
         if (text is null || Guid.TryParse(text, out _)) return;
 
         ${csFieldInvalidProblem("context.HttpContext.Request.Path", "        ", "problem")}
-        // MVC's own ModelBindingMessageProvider wording, so this answer is
-        // byte-identical to the one the Guid binder gives for the same defect on
-        // a route that carries no body.
+        // The shared malformed-id sentence and code, the same answer the Guid
+        // binder gives (ValidationProblem) for the same defect on a route that
+        // carries no body.
         problem.Extensions["errors"] = new[]
         {
             new Dictionary<string, object>
             {
                 ["pointer"] = "/id",
-                ["message"] = $"The value '{text}' is not valid.",
+                ["message"] = ${csLit(UUID_WIRE_MESSAGE)},
+                ["code"] = ${csLit(fieldCode("malformed-id"))},
             },
         };
         context.Result = ${csFieldInvalidResult("problem", "        ")};
@@ -834,10 +858,6 @@ export function renderExceptionFilter(
      *  ConcurrencyConflict) through the mapper. Undefined ⇒ 409 everywhere
      *  (byte-identical default). */
     structuralStatuses?: Record<string, number>;
-    /** True when this project ships `Localization/LoomMessages.cs` — the 422 arm
-     *  then resolves each messaged rule's wire `code` against the catalog for the
-     *  request locale.  False ⇒ byte-identical to pre-catalog output (M-T1.11). */
-    localizeMessages?: boolean;
     /** True when a hosted value object declares an invariant — the filter then
      *  carries the `ValueObjectInvariantException` arm (M-T5.1). */
     valueObjectInvariants?: boolean;
@@ -845,18 +865,15 @@ export function renderExceptionFilter(
      *  filter then answers a `DomainException` carrying a `RuleCode` with the
      *  same errors[] entry (M-T1.11 (c)). */
     domainFloorCodes?: boolean;
-    /** Ruling D4 (#20): true only under the dev-stub verifier
-     *  (`echoesDenialDetail`) — the 403 body then echoes the failed gate.
-     *  Otherwise it is the constant `Forbidden`; the gate stays in the
-     *  `forbidden` log line either way. */
-    echoForbiddenDetail?: boolean;
+    /** True when an `extern` operation exists — the filter then answers its
+     *  unfilled hook with a 501. */
+    hasExtern?: boolean;
   },
 ): string {
   const usesValidators = !!options?.usesValidators;
-  const localizeMessages = !!options?.localizeMessages;
-  const forbiddenDetail = options?.echoForbiddenDetail
-    ? "fe.Message"
-    : JSON.stringify(CONSTANT_FORBIDDEN_DETAIL);
+  // The 403 body is the constant `Forbidden` under every verifier: the failed
+  // gate is DSL source, which stays in the `forbidden` log line only.
+  const forbiddenDetail = JSON.stringify(CONSTANT_FORBIDDEN_DETAIL);
   // Resolved structural-conflict statuses baked as literals into the arms
   // below — 409 by default, or the api's `httpStatus <Conflict> -> <Code>`
   // override.  Both the log-event `status` field and the ProblemDetails status
@@ -903,9 +920,6 @@ export function renderExceptionFilter(
     pointer: string,
     problemVar: string,
   ): string => {
-    const message = localizeMessages
-      ? `global::${ns}.Localization.LoomMessages.Localize(${code}, ${v}.Message)`
-      : `${v}.Message`;
     return `
         if (${match})
         {
@@ -923,9 +937,23 @@ export function renderExceptionFilter(
                 Detail = ${v}.Message,
                 Instance = context.HttpContext.Request.Path,
             };
-            ${problemVar}.Extensions["errors"] = ${code} != null
-                ? new object[] { new { pointer = ${pointer}, message = ${message}, code = ${code} } }
-                : new object[] { new { pointer = ${pointer}, message = ${v}.Message } };
+            // The rule's catalog code (its identity key, or the generic key of
+            // an unnamed one) names both the body and its one errors[] entry;
+            // the values the rule read ride as params.
+            var ${problemVar}Code = ${code} ?? ${csCode("domain-floor")};
+            ${problemVar}.Extensions["code"] = ${problemVar}Code;
+            var ${problemVar}Entry = new ${CS_OBJ_DICT}
+            {
+                ["pointer"] = ${pointer},
+                ["message"] = ${v}.Message,
+                ["code"] = ${problemVar}Code,
+            };
+            if (${v}.RuleParams is { Count: > 0 })
+            {
+                ${problemVar}.Extensions["params"] = ${v}.RuleParams;
+                ${problemVar}Entry["params"] = ${v}.RuleParams;
+            }
+            ${problemVar}.Extensions["errors"] = new object[] { ${problemVar}Entry };
             context.Result = new ObjectResult(${problemVar})
             {
                 StatusCode = ${domainStatus},
@@ -1000,7 +1028,7 @@ export function renderExceptionFilter(
               { name: "status", valueExpr: `${domainStatus}` },
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("domain_error");
-            context.Result = Problem(context, ${wireStatus("dangling-reference", overrides)}, ${csTitle("dangling-reference", overrides)}, ${csFixedDetail("dangling-reference")}, trace_id);
+            context.Result = Problem(context, ${wireStatus("dangling-reference", overrides)}, ${csTitle("dangling-reference", overrides)}, ${csFixedDetail("dangling-reference")}, trace_id, ${csCode("dangling-reference")});
             context.ExceptionHandled = true;
             return;
         }`
@@ -1020,7 +1048,7 @@ export function renderExceptionFilter(
               { name: "status", valueExpr: `${uniquenessStatus}` },
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("disallowed");
-            context.Result = Problem(context, ${uniquenessStatus}, ${csTitle("unique-conflict", overrides)}, ${csFixedDetail("unique-conflict")}, trace_id);
+            context.Result = Problem(context, ${uniquenessStatus}, ${csTitle("unique-conflict", overrides)}, ${csFixedDetail("unique-conflict")}, trace_id, ${csCode("unique-conflict")});
             context.ExceptionHandled = true;
             return;
         }`
@@ -1074,7 +1102,21 @@ export function renderExceptionFilter(
               { name: "status", valueExpr: `${concurrencyStatus}` },
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("conflict");
-            context.Result = Problem(context, ${concurrencyStatus}, ${csTitle("version-conflict", overrides)}, __conflictDetail, trace_id);
+            context.Result = Problem(context, ${concurrencyStatus}, ${csTitle("version-conflict", overrides)}, __conflictDetail, trace_id, ${csCode("version-conflict")});
+            context.ExceptionHandled = true;
+            return;
+        }`
+    : "";
+  // An unfilled `extern` operation hook: 501 naming the file to write.
+  const externNotImplementedArm = options?.hasExtern
+    ? `
+        if (context.Exception is ExternNotImplementedException xn)
+        {
+            ${renderDotnetLogCall("internalError", [
+              { name: "error", valueExpr: "xn.Message" },
+              { name: "status", valueExpr: `${wireStatus("not-implemented")}` },
+            ])}
+            context.Result = Problem(context, ${wireStatus("not-implemented")}, ${csTitle("not-implemented")}, xn.Message, trace_id, ${csCode("not-implemented")});
             context.ExceptionHandled = true;
             return;
         }`
@@ -1130,17 +1172,21 @@ public sealed class DomainExceptionFilter : IExceptionFilter
                     var err = new Dictionary<string, object>
                     {
                         ["pointer"] = ValidationProblem.PointerOf(e.PropertyName),
-                        ["message"] = ${
-                          localizeMessages
-                            ? `global::${ns}.Localization.LoomMessages.Localize(e.ErrorCode, e.ErrorMessage)`
-                            : "e.ErrorMessage"
-                        },
+                        ["message"] = e.ErrorMessage,
                     };
-                    // A named rule's WithErrorCode("<Ctx>.<Owner>.rule.<name>")
-                    // surfaces as its identity-key wire code; an unnamed rule's
-                    // default FluentValidation ErrorCode is omitted.
-                    if (e.ErrorCode != null && e.ErrorCode.Contains(".rule.", StringComparison.Ordinal))
-                        err["code"] = e.ErrorCode;
+                    // Every rule names its catalog code with WithErrorCode (a
+                    // named rule's identity key, else the generic key of an
+                    // unnamed one); a native FluentValidation validator carries
+                    // its own type name, which is an unnamed rule.
+                    err["code"] = e.ErrorCode != null
+                        && (e.ErrorCode.StartsWith("field.", StringComparison.Ordinal)
+                            || e.ErrorCode.StartsWith("problem.", StringComparison.Ordinal)
+                            || e.ErrorCode.Contains(".rule.", StringComparison.Ordinal))
+                        ? e.ErrorCode
+                        : ${csLit(fieldCode("rule"))};
+                    // A named rule hands the values it read over as CustomState.
+                    if (e.CustomState is IDictionary<string, object?> ruleParams && ruleParams.Count > 0)
+                        err["params"] = ruleParams;
                     return err;
                 })
                 .ToArray();
@@ -1168,10 +1214,14 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             // Anonymous type rather than Dictionary<,>: this arm is emitted
             // unconditionally, and System.Collections.Generic is only imported
             // when the project has validators.
-            wireProblem.Extensions["errors"] = new[]
+            var wireEntry = new ${CS_OBJ_DICT}
             {
-                new { pointer = wfe.FieldPointer, message = wfe.Message },
+                ["pointer"] = wfe.FieldPointer,
+                ["message"] = wfe.Message,
+                ["code"] = wfe.Code,
             };
+            if (wfe.Params is { Count: > 0 }) wireEntry["params"] = wfe.Params;
+            wireProblem.Extensions["errors"] = new[] { wireEntry };
             ${renderDotnetLogCall("domainError", [
               { name: "message", valueExpr: csTitle("field-invalid") },
               { name: "status", valueExpr: `${wireStatus("field-invalid")}` },
@@ -1189,7 +1239,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
               { name: "status", valueExpr: `${forbiddenStatus}` },
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("forbidden");
-            context.Result = Problem(context, ${forbiddenStatus}, ${csTitle("forbidden", overrides)}, ${forbiddenDetail}, trace_id);
+            context.Result = Problem(context, ${forbiddenStatus}, ${csTitle("forbidden", overrides)}, ${forbiddenDetail}, trace_id, ${csCode("forbidden")});
             context.ExceptionHandled = true;
             return;
         }
@@ -1200,7 +1250,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
               { name: "status", valueExpr: `${disallowedStatus}` },
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("disallowed");
-            context.Result = Problem(context, ${disallowedStatus}, ${csTitle("state-gate", overrides)}, dx.Message, trace_id);
+            context.Result = Problem(context, ${disallowedStatus}, ${csTitle("state-gate", overrides)}, dx.Message, trace_id, ${csCode("state-gate")});
             context.ExceptionHandled = true;
             return;
         }${danglingRefArm}${uniqueConflictArm}${concurrencyConflictArm}${valueObjectInvariantArm}${domainFloorCodeArm}
@@ -1214,7 +1264,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
               { name: "status", valueExpr: `${domainStatus}` },
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("domain_error");
-            context.Result = Problem(context, ${domainStatus}, ${csTitle("domain-floor", overrides)}, de.Message, trace_id);
+            context.Result = Problem(context, ${domainStatus}, ${csTitle("domain-floor", overrides)}, de.Message, trace_id, ${csCode("domain-floor")});
             context.ExceptionHandled = true;
             return;
         }
@@ -1222,7 +1272,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         {
             ${renderDotnetLogCall("notFound", [{ name: "status", valueExpr: `${notFoundStatus}` }])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("not_found");
-            context.Result = Problem(context, ${notFoundStatus}, ${csTitle("not-found", overrides)}, nf.Message, trace_id);
+            context.Result = Problem(context, ${notFoundStatus}, ${csTitle("not-found", overrides)}, nf.Message, trace_id, ${csCode("not-found")});
             context.ExceptionHandled = true;
             return;
         }
@@ -1244,10 +1294,10 @@ public sealed class DomainExceptionFilter : IExceptionFilter
               { name: "op", valueExpr: "xh.OpName" },
               { name: "error", valueExpr: "xh.Message" },
             ])}
-            context.Result = Problem(context, ${wireStatus("internal")}, ${csTitle("internal")}, ${csFixedDetail("internal")}, trace_id);
+            context.Result = Problem(context, ${wireStatus("internal")}, ${csTitle("internal")}, ${csFixedDetail("internal")}, trace_id, ${csCode("internal")}, new ${CS_OBJ_DICT} { ["requestId"] = trace_id });
             context.ExceptionHandled = true;
             return;
-        }
+        }${externNotImplementedArm}
         // Generic 500.  Log the full exception server-side via the
         // catalog's internal_error event; return a sanitized payload
         // to the client.  Matching the Hono fallback envelope.
@@ -1255,24 +1305,27 @@ public sealed class DomainExceptionFilter : IExceptionFilter
           { name: "error", valueExpr: "context.Exception.Message" },
           { name: "status", valueExpr: `${wireStatus("internal")}` },
         ])}
-        context.Result = Problem(context, ${wireStatus("internal")}, ${csTitle("internal")}, ${csFixedDetail("internal")}, trace_id);
+        context.Result = Problem(context, ${wireStatus("internal")}, ${csTitle("internal")}, ${csFixedDetail("internal")}, trace_id, ${csCode("internal")}, new ${CS_OBJ_DICT} { ["requestId"] = trace_id });
         context.ExceptionHandled = true;
     }
 
     // RFC 7807 problem responder — application/problem+json body +
     // x-request-id header (trace correlation moves off the body so it's
     // byte-identical to Hono / Phoenix).  Shared by every non-validation arm.
-    private static ObjectResult Problem(ExceptionContext context, int status, string title, string detail, string traceId)
+    private static ObjectResult Problem(ExceptionContext context, int status, string title, string detail, string traceId, string code, object? @params = null)
     {
         context.HttpContext.Response.Headers["x-request-id"] = traceId;
-        return new ObjectResult(new ProblemDetails
+        var body = new ProblemDetails
         {
             Type = "about:blank",
             Title = title,
             Status = status,
             Detail = detail,
             Instance = context.HttpContext.Request.Path,
-        })
+            Extensions = { ["code"] = code },
+        };
+        if (@params is not null) body.Extensions["params"] = @params;
+        return new ObjectResult(body)
         {
             StatusCode = status,
             ContentTypes = { "application/problem+json" },
@@ -1314,6 +1367,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             Status = ${notFoundStatus},
             Detail = detail,
             Instance = http.Request.Path,
+            Extensions = { ["code"] = ${csCode("not-found")} },
         }, statusCode: ${notFoundStatus}, contentType: "application/problem+json");
     }
 }
@@ -1386,6 +1440,18 @@ using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace ${ns}.Api;
 
+/// <summary>The catalog <c>code</c> of a refusal the FRAMEWORK answered by status
+/// — a path no route serves, a verb it does not, a media type it cannot read,
+/// an unreadable body.  Domain refusals name their own.</summary>
+public static class ProblemCodes
+{
+    public static string ForStatus(int status) => status switch
+    {
+${(["no-route", "method-not-allowed", "unsupported-media-type", "unauthenticated", "forbidden", "field-invalid", "malformed-body"] as const).map((cls) => `        ${wireStatus(cls)} => ${csCode(cls)},`).join("\n")}
+        _ => ${csCode("internal")},
+    };
+}
+
 public static class ValidationProblem
 {
     /// <summary>
@@ -1398,6 +1464,13 @@ public static class ValidationProblem
     /// <summary>"&lt;field&gt; is required" — the field is the LAST key of the pointer.</summary>
     private static string MissingFieldMessage(string pointer) =>
         pointer[(pointer.LastIndexOf('/') + 1)..] + MissingSuffix;
+
+    /// <summary>True when <paramref name="key"/> names an action parameter bound as
+    /// a Guid (a route or query id).</summary>
+    private static bool IsGuidParameter(ActionContext context, string key) =>
+        context.ActionDescriptor.Parameters.Any(p =>
+            string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase)
+            && (p.ParameterType == typeof(Guid) || p.ParameterType == typeof(Guid?)));
 
     /// <summary>[Required]'s own sentence — "The X field is required." —
     /// recognised so it carries the shared wording instead.</summary>
@@ -1484,11 +1557,13 @@ public static class ValidationProblem
                         {
                             ["pointer"] = "/" + name,
                             ["message"] = MissingFieldMessage(name),
+                            ["code"] = ${csLit(fieldCode("missing"))},
                         })
                         : new[] { new Dictionary<string, object>
                         {
                             ["pointer"] = "",
                             ["message"] = error.ErrorMessage,
+                            ["code"] = ${csLit(fieldCode("missing"))},
                         } };
                 })
                 .ToArray();
@@ -1516,6 +1591,8 @@ public static class ValidationProblem
                 {
                     ["pointer"] = PointerOf(key.TrimStart('$').TrimStart('.')),
                     ["message"] = global::${ns}.Serialization.Int32RangeJsonConverter.Message,
+                    ["code"] = ${csLit(fieldCode("integer-range"))},
+                    ["params"] = new Dictionary<string, object> { ["min"] = ${INTEGER_RANGE_PARAMS.min}, ["max"] = ${INTEGER_RANGE_PARAMS.max} },
                 })
                 .ToArray();
             return ${csFieldInvalidResult("rangeProblem", "            ")};
@@ -1533,6 +1610,8 @@ public static class ValidationProblem
             error.Exception?.Message ?? error.ErrorMessage;
         static bool IsTypeMismatch(ModelError error) =>
             MismatchText(error).StartsWith("The JSON value could not be converted", StringComparison.Ordinal);
+        static bool IsGuidMismatch(ModelError error) =>
+            IsTypeMismatch(error) && MismatchText(error).Contains("System.Guid", StringComparison.Ordinal);
         var mismatched = context.ModelState
             .Where(entry => entry.Value is not null && entry.Value.Errors.Any(IsTypeMismatch))
             .ToArray();
@@ -1540,10 +1619,17 @@ public static class ValidationProblem
         {
             ${csFieldInvalidProblem("context.HttpContext.Request.Path", "            ", "mismatchProblem")}
             mismatchProblem.Extensions["errors"] = mismatched
-                .Select(entry => new Dictionary<string, object>
+                .Select(entry =>
                 {
-                    ["pointer"] = PointerOf(entry.Key.TrimStart('$').TrimStart('.')),
-                    ["message"] = ${csLit(csTypeMismatchMessage())},
+                    // A uuid field fed something that is not a uuid is a
+                    // malformed id, not a wrong JSON type.
+                    var malformedId = entry.Value!.Errors.Any(IsGuidMismatch);
+                    return new Dictionary<string, object>
+                    {
+                        ["pointer"] = PointerOf(entry.Key.TrimStart('$').TrimStart('.')),
+                        ["message"] = malformedId ? ${csLit(UUID_WIRE_MESSAGE)} : ${csLit(csTypeMismatchMessage())},
+                        ["code"] = malformedId ? ${csLit(fieldCode("malformed-id"))} : ${csLit(fieldCode("type-mismatch"))},
+                    };
                 })
                 .ToArray();
             return ${csFieldInvalidResult("mismatchProblem", "            ")};
@@ -1560,6 +1646,7 @@ public static class ValidationProblem
                 Status = ${wireStatus("malformed-body")},
                 Detail = ${csFixedDetail("malformed-body")},
                 Instance = context.HttpContext.Request.Path,
+                ${csCodeInit("malformed-body")},
             })
             {
                 StatusCode = ${wireStatus("malformed-body")},
@@ -1570,10 +1657,22 @@ public static class ValidationProblem
         problem.Extensions["errors"] = context.ModelState
             .SelectMany(entry => entry.Value is null
                 ? Array.Empty<Dictionary<string, object>>()
-                : entry.Value.Errors.Select(error => new Dictionary<string, object>
+                : entry.Value.Errors.Select(error =>
                 {
-                    ["pointer"] = PointerOf(entry.Key),
-                    ["message"] = IsRequiredMessage(error.ErrorMessage) ? MissingFieldMessage(PointerOf(entry.Key)) : error.ErrorMessage,
+                    // The Guid binder's own sentence for a route / query uuid it
+                    // cannot parse becomes the shared malformed-id answer; any
+                    // other DataAnnotations bound is an unnamed rule.
+                    var required = IsRequiredMessage(error.ErrorMessage);
+                    var malformedId = !required && IsGuidParameter(context, entry.Key)
+                        && error.ErrorMessage.StartsWith("The value '", StringComparison.Ordinal);
+                    return new Dictionary<string, object>
+                    {
+                        ["pointer"] = PointerOf(entry.Key),
+                        ["message"] = required ? MissingFieldMessage(PointerOf(entry.Key))
+                            : malformedId ? ${csLit(UUID_WIRE_MESSAGE)} : error.ErrorMessage,
+                        ["code"] = required ? ${csLit(fieldCode("missing"))}
+                            : malformedId ? ${csLit(fieldCode("malformed-id"))} : ${csLit(fieldCode("rule"))},
+                    };
                 }))
             .ToArray();
         return ${csFieldInvalidResult("problem", "        ")};
@@ -1669,6 +1768,15 @@ public sealed class ProblemDetailsResponsesFilter : IOperationFilter
         problem.Properties ??= new Dictionary<string, IOpenApiSchema>();
         if (problem.Properties.ContainsKey("errors")) return;
 
+        // The catalog key a client localizes the refusal by, and the values its
+        // message names — RFC 7807 extension members on the body and on each
+        // errors[] entry.
+        problem.Properties["code"] = new OpenApiSchema { Type = JsonSchemaType.String | JsonSchemaType.Null };
+        problem.Properties["params"] = new OpenApiSchema
+        {
+            Type = JsonSchemaType.Object | JsonSchemaType.Null,
+            AdditionalProperties = new OpenApiSchema(),
+        };
         problem.Properties["errors"] = new OpenApiSchema
         {
             Type = JsonSchemaType.Array | JsonSchemaType.Null,
@@ -1680,6 +1788,12 @@ public sealed class ProblemDetailsResponsesFilter : IOperationFilter
                 {
                     ["pointer"] = new OpenApiSchema { Type = JsonSchemaType.String },
                     ["message"] = new OpenApiSchema { Type = JsonSchemaType.String },
+                    ["code"] = new OpenApiSchema { Type = JsonSchemaType.String | JsonSchemaType.Null },
+                    ["params"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object | JsonSchemaType.Null,
+                        AdditionalProperties = new OpenApiSchema(),
+                    },
                 },
             },
         };

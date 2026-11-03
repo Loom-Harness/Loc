@@ -4,19 +4,70 @@
 // .NET site (EF and Dapper alike) renders the same refusal the same way.
 
 import {
+  errorVariantCode,
   errorVariantResponse,
   FIND_ABSENT_DETAIL,
   fieldFixedMessage,
   fieldSentenceSuffix,
   fieldValuePrefix,
   type WireRejectionClass,
+  wireCode,
   wireFixedDetail,
   wireSentence,
   wireStatus,
   wireTitle,
 } from "../../ir/enrich/wire-policy.js";
+import type { ExprIR } from "../../ir/types/loom-ir.js";
+import { ruleParamRefs } from "../../ir/util/rule-params.js";
 
 type Overrides = Readonly<Record<string, number>>;
+
+/** The wire `code` of a rejection class, as a C# string literal. */
+export function csCode(cls: WireRejectionClass): string {
+  return csLit(wireCode(cls));
+}
+
+/** The C# dictionary literal carrying the VALUES of the identifiers `rule`
+ *  reads (`ruleParamRefs`) — a named rule's wire `params` — or undefined when
+ *  it reads none.  `render` spells one reference at the throw site. */
+export function csRuleParams(
+  rule: { expr: ExprIR; guard?: ExprIR },
+  render: (e: ExprIR) => string,
+): string | undefined {
+  const refs = ruleParamRefs(rule);
+  if (refs.length === 0) return undefined;
+  return `new System.Collections.Generic.Dictionary<string, object?> { ${refs
+    .map(({ name, ref }) => `[${csLit(name)}] = ${render(ref)}`)
+    .join(", ")} }`;
+}
+
+/** The `Extensions = { ["code"] = … }` initializer member of a problem body
+ *  for a rejection class — the catalog key a client localizes it by. */
+export function csCodeInit(cls: WireRejectionClass): string {
+  return `Extensions = { ["code"] = ${csCode(cls)} }`;
+}
+
+/** Statements giving the ProblemDetails local `problemVar` a DECLARED error
+ *  variant's `code` (`<Ctx>.<Error>.message`) and its record fields as
+ *  `params` (left out for a record with none).  `fields` pairs each wire key
+ *  with the C# accessor of its value. */
+export function csErrorVariantExt(
+  ctx: { readonly name: string },
+  tag: string,
+  problemVar: string,
+  fields: readonly { readonly json: string; readonly accessor: string }[],
+  indent: string,
+): string[] {
+  const out = [`${indent}${problemVar}.Extensions["code"] = ${csLit(errorVariantCode(ctx.name, tag))};`];
+  if (fields.length > 0) {
+    out.push(
+      `${indent}${problemVar}.Extensions["params"] = new System.Collections.Generic.Dictionary<string, object?> { ${fields
+        .map((f) => `[${csLit(f.json)}] = ${f.accessor}`)
+        .join(", ")} };`,
+    );
+  }
+  return out;
+}
 
 /** A C# string literal.  JSON string escapes are valid C# escapes for the
  *  printable text the fact carries. */
@@ -99,6 +150,7 @@ export function csFieldInvalidProblem(
     `    Status = ${wireStatus("field-invalid")},`,
     `    Detail = ${csFixedDetail("field-invalid")},`,
     `    Instance = ${instanceExpr},`,
+    `    ${csCodeInit("field-invalid")},`,
     `};`,
   ]
     .map((l, i) => (i === 0 ? l : `${indent}${l}`))

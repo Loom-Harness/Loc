@@ -18,7 +18,9 @@ import {
 } from "../../ir/validate/invariant-classify.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import { csCodePointLength } from "../_expr/code-point.js";
-import { ruleText } from "../_i18n/rule-text.js";
+import { fieldCode } from "../../ir/enrich/wire-policy.js";
+import { ruleCode, ruleText } from "../_i18n/rule-text.js";
+import { csRuleParams } from "./wire-policy-cs.js";
 import { singleFieldMessage } from "../zod-refine.js";
 import { collectCsExprUsings } from "./render-expr.js";
 import { isNullableWireDefault } from "./wire-default.js";
@@ -183,13 +185,15 @@ function buildFluentRules(
     const path = pickErrorPath(inv);
     const message = csStringLiteral(ruleText(inv));
     const nameClause = path ? `\n            .WithName("${upperFirst(path)}")` : "";
-    // A named rule also carries its identity key as the wire `code`
-    // (`errors[].code`) via FluentValidation's `.WithErrorCode`; the exception
-    // filter surfaces `ErrorCode` when it contains `.rule.`.  An unnamed rule
-    // adds no error code.
-    const codeClause = inv.message
-      ? `\n            .WithErrorCode(${csStringLiteral(inv.message.key)})`
-      : "";
+    // Every rule carries its catalog key as the wire `code` (`errors[].code`)
+    // via FluentValidation's `.WithErrorCode`: a named rule's identity key, else
+    // the generic key of an unnamed one.  A named rule also hands the values it
+    // read over as `CustomState` (the wire `params`).
+    const stateParams = inv.message
+      ? csRuleParams(inv, (e) => renderFluentPredicate(e))
+      : undefined;
+    const stateClause = stateParams ? `\n            .WithState(x => ${stateParams})` : "";
+    const codeClause = `\n            .WithErrorCode(${csStringLiteral(ruleCode(inv))})${stateClause}`;
     ruleLines.push(
       `        RuleFor(x => x).Must(x => ${guarded})${nameClause}\n            .WithMessage(${message})${codeClause};`,
     );
@@ -469,7 +473,7 @@ function lengthMust(check: string): string {
  *  rule on every backend (D-MESSAGELESS-RULE-WIRE-MESSAGE).  The sentence holds
  *  no `{…}`, so FluentValidation's placeholder formatter leaves it verbatim. */
 function chainSingleFieldFluent(p: SingleFieldPattern, field: string): string {
-  return `${chainSingleFieldCheck(p)}\n            .WithMessage(${csStringLiteral(singleFieldMessage(field, p))})`;
+  return `${chainSingleFieldCheck(p)}\n            .WithMessage(${csStringLiteral(singleFieldMessage(field, p))})\n            .WithErrorCode(${csStringLiteral(fieldCode("rule"))})`;
 }
 
 function chainSingleFieldCheck(p: SingleFieldPattern): string {

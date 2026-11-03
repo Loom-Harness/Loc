@@ -121,7 +121,7 @@ import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../../ir/util/api-resource-binding.js";
 import { contextHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { durableEventTypes, realtimeEventTypes } from "../../../ir/util/channels.js";
-import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../../ir/util/denial-detail.js";
+import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import {
   foreignValueTypeSeeds,
@@ -316,19 +316,11 @@ function errorsTs(
   emitNotImplemented: boolean,
   emitValueObjectInvariant = false,
   emitDomainFloorCodes = false,
-  /** Ruling D4 (#20): true only under the dev-stub verifier — see
-   *  `src/ir/util/denial-detail.ts`. */
-  echoForbiddenDetail = false,
 ): string {
   // `message` names the failed gate and feeds the `forbidden` log line every
-  // onError arm writes; `detail` is what the 403 BODY says.  Under a real
-  // verifier the body must not tell the caller which predicate it failed.
-  const forbiddenDetailInit = echoForbiddenDetail
-    ? "message"
-    : JSON.stringify(CONSTANT_FORBIDDEN_DETAIL);
-  const forbiddenDetailDoc = echoForbiddenDetail
-    ? "the same text: this deployable runs the dev-stub verifier, where naming the gate is the useful answer"
-    : "the constant `Forbidden`: this deployable does not run the dev-stub verifier, so the predicate stays in the server log";
+  // onError arm writes; `detail` is what the 403 BODY says.  The gate is DSL
+  // source, so the body never carries it, under any verifier.
+  const forbiddenDetailInit = JSON.stringify(CONSTANT_FORBIDDEN_DETAIL);
   return `// Auto-generated.
 ${domainErrorTs(emitDomainFloorCodes)}${emitValueObjectInvariant ? valueObjectInvariantErrorTs(emitDomainFloorCodes) : ""}export class AggregateNotFoundError extends Error {
   constructor(message: string) { super(message); this.name = "AggregateNotFoundError"; }
@@ -339,7 +331,8 @@ ${domainErrorTs(emitDomainFloorCodes)}${emitValueObjectInvariant ? valueObjectIn
  *  HTTP 403 (Forbidden).
  *
  *  \`message\` names the failed gate and goes to the \`forbidden\` log line;
- *  \`detail\` is the 403 body's \`detail\` — ${forbiddenDetailDoc}. */
+ *  \`detail\` is the 403 body's \`detail\` — the constant \`Forbidden\`: the
+ *  predicate is DSL source and stays in the server log. */
 export class ForbiddenError extends Error {
   readonly detail: string;
   constructor(message: string) { super(message); this.name = "ForbiddenError"; this.detail = ${forbiddenDetailInit}; }
@@ -1014,8 +1007,6 @@ export function generateTypeScriptForContexts(
       emitNotImplemented,
       emitVoInvariant,
       emitDomainFloorCodes,
-      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
-      echoesDenialDetail(system?.deployable, system?.sys),
     ),
   );
   // The server never translates a response: every refusal carries the

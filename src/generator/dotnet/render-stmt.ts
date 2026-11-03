@@ -10,6 +10,7 @@ import { walkStmtExprsDeep } from "../../ir/util/walk.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { ruleText } from "../_i18n/rule-text.js";
+import { csRuleParams } from "./wire-policy-cs.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { csProjectType } from "./bcl-collision.js";
@@ -284,8 +285,9 @@ function precondition(
   // A NAMED precondition in an aggregate operation carries its wire code and
   // pointer THROUGH the throw.
   const code = traceCtx.domainFloorCodes ? domainFloorCode(message) : undefined;
+  const params = code ? csRuleParams({ expr }, (e) => renderCsExpr(e, ctx)) : undefined;
   const thrown = code
-    ? `throw new DomainException(${JSON.stringify(detail)}, DomainErrorKind.Precondition, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
+    ? `throw new DomainException(${JSON.stringify(detail)}, DomainErrorKind.Precondition, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))}${params ? `, ${params}` : ""})`
     : `throw new DomainException(${JSON.stringify(detail)}, DomainErrorKind.Precondition)`;
   if (!traceCtx.emitTrace) {
     return `${INDENT}if (!(${renderCsExpr(expr, ctx)})) ${thrown};`;

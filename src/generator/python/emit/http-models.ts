@@ -1,4 +1,9 @@
-import { fieldFixedMessage, fieldValuePrefix } from "../../../ir/enrich/wire-policy.js";
+import {
+  fieldCode,
+  fieldFixedMessage,
+  fieldValuePrefix,
+  INTEGER_RANGE_PARAMS,
+} from "../../../ir/enrich/wire-policy.js";
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
@@ -110,7 +115,7 @@ const PY_MONEY_STR_DEF = [
   "        # The context form, not an f-string: the message is a TEMPLATE, and a",
   "        # value containing braces would otherwise be re-interpreted as one.",
   `        raise ${PYDANTIC_CUSTOM_ERROR}(`,
-  `            "money_format", ${JSON.stringify(`${fieldValuePrefix("money-grammar")}: {value}`)}, {"value": ${PY.json}.dumps(value)}`,
+  `            ${JSON.stringify(fieldCode("money-grammar"))}, ${JSON.stringify(`${fieldValuePrefix("money-grammar")}: {value}`)}, {"value": ${PY.json}.dumps(value), "loomParams": {"value": value}}`,
   "        )",
   "    # RANGE, not format: the grammar above already passed, and what is left is",
   "    # a magnitude question the COLUMN answers.  Without this a 40-digit price",
@@ -120,7 +125,7 @@ const PY_MONEY_STR_DEF = [
   "    # computed, so a value too large to hold is never constructed.",
   `    if len(value.lstrip("-").split(".")[0].lstrip("0") or "0") > ${pyMoneyIntegerDigits()}:`,
   `        raise ${PYDANTIC_CUSTOM_ERROR}(`,
-  `            "money_range", ${JSON.stringify(`${fieldValuePrefix("money-range")}: {value}`)}, {"value": ${PY.json}.dumps(value)}`,
+  `            ${JSON.stringify(fieldCode("money-range"))}, ${JSON.stringify(`${fieldValuePrefix("money-range")}: {value}`)}, {"value": ${PY.json}.dumps(value), "loomParams": {"value": value}}`,
   "        )",
   "    return value",
   "",
@@ -208,7 +213,7 @@ export const PY_INT32 = "Int32";
 const PY_INT32_CHECK_DEF = [
   "def _int32(value: int) -> int:",
   `    if not ${pyIntegerRange("int").min} <= value <= ${pyIntegerRange("int").max}:`,
-  `        raise ${PYDANTIC_CUSTOM_ERROR}("int_range", ${JSON.stringify(fieldFixedMessage("integer-range"))})`,
+  `        raise ${PYDANTIC_CUSTOM_ERROR}(${JSON.stringify(fieldCode("integer-range"))}, ${JSON.stringify(fieldFixedMessage("integer-range"))}, {"loomParams": ${JSON.stringify(INTEGER_RANGE_PARAMS)}})`,
   "    return value",
   "",
   "",

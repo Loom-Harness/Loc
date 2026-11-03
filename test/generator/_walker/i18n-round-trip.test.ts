@@ -780,11 +780,9 @@ describe("i18n round trip — frontends (M-T9.39)", () => {
 /** The five backends' runtime catalogs and the chokepoint that raises codes.
  *  `catalog` locates the runtime catalog file by suffix. */
 const BACKENDS = [
-  // node ships no catalog: it answers each rule's code and the client
-  // localizes (#4473).  The other four leave with the fan-out.
-  { platform: "dotnet", catalog: "Localization/LoomMessages.cs" },
+  // node, .NET and python ship no catalog: they answer each rule's code and the
+  // client localizes (#4473).  The other two leave with the fan-out.
   { platform: "java", catalog: "src/main/resources/messages.properties" },
-  { platform: "python", catalog: "app/i18n.py" },
   { platform: "elixir", catalog: "priv/gettext/en/LC_MESSAGES/default.po" },
 ] as const;
 
