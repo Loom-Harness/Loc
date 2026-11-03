@@ -59,13 +59,13 @@ export function angularRuleCodes(
   invariants: readonly InvariantIR[],
   available: ReadonlySet<string>,
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const codeByField = new Map<string, string>();
   const ctx = { available };
   for (const inv of invariants) {
     const taken = takeSingleFieldChain(inv, ctx);
-    if (taken && !out.has(taken.field)) out.set(taken.field, clientRuleCode(inv));
+    if (taken && !codeByField.has(taken.field)) codeByField.set(taken.field, clientRuleCode(inv));
   }
-  return out;
+  return codeByField;
 }
 
 /** One `len-*` bound as an inline `ValidatorFn` that counts CODE POINTS.

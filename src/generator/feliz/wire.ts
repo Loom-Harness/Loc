@@ -3766,7 +3766,7 @@ function fieldErrorBody(fld: FelizFormField, rules: readonly FelizFieldRule[] = 
   const chain = rungs
     .map(
       ([cond, code, msg], i) =>
-        `${i === 0 ? "if" : "elif"} ${cond} then Some (${JSON.stringify(code)}, ${JSON.stringify(msg)})`,
+        `${i === 0 ? "if" : "elif"} ${cond} then Some (${fsString(code)}, ${fsString(msg)})`,
     )
     .join(" ");
   return `    ${chain} else None`;

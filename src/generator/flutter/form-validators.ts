@@ -3,6 +3,7 @@ import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js
 import { clientRuleCode } from "../_frontend/error-codes.js";
 import { namedRuleText } from "../_i18n/rule-text.js";
 import { singleFieldMessage, takeSingleFieldChain } from "../zod-refine.js";
+import { dartStringLit } from "./i18n.js";
 
 // ---------------------------------------------------------------------------
 // Flutter form-validator derivation — the Dart twin of
@@ -154,5 +155,7 @@ export function ruleGuards(
 /** A validator's message as a Dart expression: the catalog lookup in an i18n
  *  app, else the English literal. */
 export function validatorMessage(translate: boolean, code: string, english: string): string {
-  return translate ? `t('${dartStr(code)}', '${dartStr(english)}')` : `'${dartStr(english)}'`;
+  return translate
+    ? `t(${dartStringLit(code)}, ${dartStringLit(english)})`
+    : dartStringLit(english);
 }

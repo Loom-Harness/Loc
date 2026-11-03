@@ -462,9 +462,8 @@ const REVIEWED_SAFE: readonly Waiver[] = [
 const BYPASS_BASELINE: Readonly<Record<string, number>> = {
   "src/generator/feliz/feliz-target.ts": 4,
   "src/generator/feliz/pack.ts": 1,
-  "src/generator/feliz/wire.ts": 1,
   "src/generator/flutter/auth-gate.ts": 1,
-  "src/generator/flutter/form-validators.ts": 2,
+  "src/generator/flutter/form-validators.ts": 1,
   "src/generator/flutter/forms-emit.ts": 2,
   "src/generator/flutter/realtime.ts": 1,
 };
