@@ -3,7 +3,6 @@ import type {
   AggregateIR,
   BoundedContextIR,
   DerivedIR,
-  ExprIR,
   PageIR,
   ParamIR,
   StateFieldIR,
