@@ -46,8 +46,7 @@
 // verbatim.
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet, generateSystemFiles } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Shop {
@@ -77,8 +76,7 @@ system Shop {
 `;
 
 async function orderConfig(): Promise<string> {
-  const model = await parseValid(SRC);
-  const cfg = generateDotnet(model).get(
+  const cfg = (await generateBackendFiles(SRC, "dotnet")).get(
     "Infrastructure/Persistence/Configurations/OrderConfiguration.cs",
   );
   expect(cfg, "OrderConfiguration.cs not emitted").toBeDefined();
@@ -113,7 +111,7 @@ describe("dotnet — a value object on a containment part names its columns", ()
     // The two halves have to agree, and asserting the emitted DDL here is what
     // makes this a CONTRACT rather than two independent guesses about casing.
     // Migrations are derived in phase ⑨ (`buildMigrations`), so this half needs
-    // the SYSTEM pipeline — `generateDotnet` alone emits no DDL to compare against.
+    // the full system output, which carries the migration files.
     const files = await generateSystemFiles(SYSTEM);
     const migration = [...files].find(([p]) => p.includes("Migrations/"))?.[1];
     expect(migration, "no migration emitted").toBeDefined();

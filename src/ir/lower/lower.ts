@@ -129,7 +129,6 @@ import type {
   ExprIR,
   FieldIR,
   I18nIR,
-  IdValueType,
   LayoutIR,
   LoadPlanIR,
   LoadSegmentIR,
@@ -1732,7 +1731,6 @@ function lowerAggregate(
   env: Env,
   contextLevelCaps: ContextLevelCapabilities = EMPTY_CONTEXT_CAPABILITIES,
 ): AggregateIR {
-  const idValueType = "guid" as IdValueType;
   const inner = inAggregate(env, agg);
   const props = valueProperties(agg.members);
   const containments = lowerContainments(agg.members);
@@ -1781,7 +1779,6 @@ function lowerAggregate(
   const capabilities = collectCapabilities(agg);
   return {
     name: agg.name,
-    idValueType,
     fields: props.map((p) => lowerField(p, inner)),
     contains: containments,
     derived,

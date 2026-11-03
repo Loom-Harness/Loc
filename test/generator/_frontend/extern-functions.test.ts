@@ -65,7 +65,7 @@ describe("buildExternFunctionSignature — the type table", () => {
   });
 
   it("maps `X id` and an enum to string, and wraps arrays / optionals", () => {
-    expect(roundTrip({ kind: "id", targetName: "Order", valueType: "guid" })).toBe("string");
+    expect(roundTrip({ kind: "id", targetName: "Order" })).toBe("string");
     expect(roundTrip({ kind: "enum", name: "Status" })).toBe("string");
     expect(roundTrip(arr(prim("int")))).toBe("number[]");
     expect(roundTrip(opt(prim("string")))).toBe("string | undefined");

@@ -97,12 +97,6 @@ const WAIVERS: { file: string; line: string; reason: string }[] = [
     reason: "the test-only reset route's token gate, not a domain route",
   },
   {
-    file: "src/generator/python/index.ts",
-    line: `"The request conflicts with the current state."`,
-    reason:
-      "the IntegrityError fallthrough for a SQLSTATE the fact does not model (not-null, check); no rejection class names it",
-  },
-  {
     file: "src/generator/python/api-client.ts",
     line: "res.status_code == 404",
     reason:

@@ -38,6 +38,7 @@ import {
   csProjectType,
   csSystemRoot,
 } from "./bcl-collision.js";
+import { CS } from "./cs-symbols.js";
 import { joinDbSetName, joinFkPropName } from "./emit/join-entities.js";
 import { csStateHolderOf } from "./emit/state-holder.js";
 import { csFindMethodName } from "./find-method-name.js";
@@ -89,7 +90,7 @@ export interface CsRenderContext {
    *  each variant's tag + field order so a tagged `return` constructs the right
    *  `<name>_<Tag>(...)` variant record positionally.  Unset outside a
    *  union-returning operation body. */
-  returnUnion?: { name: string; members: UnionMember[] };
+  returnUnion?: { name: string; members: UnionMember[]; selfArgs?: string };
   /** TPC abstract-base derived bodies (aggregate-inheritance.md, `ownTable`):
    *  the base owns no typed `Id` property (each concrete carries its own
    *  strongly-typed id), so an `id` read in a base derived member (e.g. the
@@ -165,16 +166,14 @@ export const AMBIENT_CURRENT_USER = "RequestContext.Current!.CurrentUser!";
 
 const DEFAULT: CsRenderContext = { thisName: "this" };
 
-/** Namespaces a rendered domain expression reaches into beyond the SDK's
- *  `<ImplicitUsings>` set.  Today the sole trigger is the
- *  `string.matches(...)` → `Regex.IsMatch` lowering, which needs
- *  `System.Text.RegularExpressions`.  This is the pure mirror of the
- *  trigger in `renderMethodCall`: file emitters call it over the same
- *  expressions they render to build their `using` header, instead of
- *  threading a mutable Set through every render call.  Walking the whole
- *  tree is safe — the renderer always renders the whole tree, so a
- *  `matches` shape anywhere is rendered (and thus needs the namespace)
- *  exactly when this finds it. */
+/** Project namespaces a rendered domain expression reaches into: a
+ *  domain-service call's `<ns>.Domain.Services`.  The call leaf has no root
+ *  namespace to write a `ref` with, so file emitters call this over the same
+ *  expressions they render to build their `using` header.  Walking the whole
+ *  tree is safe — the renderer always renders the whole tree, so a call
+ *  anywhere is rendered (and thus needs the namespace) exactly when this
+ *  finds it.  BCL namespaces are not collected: their leaves write `ref`
+ *  (`CS.Regex`), and the unit's finalizer derives the line. */
 export function collectCsExprUsings(
   e: ExprIR,
   into: Set<string>,
@@ -201,16 +200,6 @@ export function collectCsExprUsings(
  *  sub-expression twice. */
 export function addCsExprUsing(x: ExprIR, into: Set<string>, ns: string): void {
   switch (x.kind) {
-    case "method-call":
-      if (
-        x.member === "matches" &&
-        x.receiverType.kind === "primitive" &&
-        x.receiverType.name === "string" &&
-        x.args.length === 1
-      ) {
-        into.add("System.Text.RegularExpressions");
-      }
-      break;
     case "call":
       // A domain-service member call (`Pricing.Quote(...)`) reaches into
       // the generated `Domain.Services` namespace — the call leaf renders
@@ -238,6 +227,9 @@ export function addCsExprUsing(x: ExprIR, into: Set<string>, ns: string): void {
     case "literal":
     case "match":
     case "member":
+    // `string.matches(...)` writes `Regex` through `ref` (`CS.Regex`), so its
+    // using is derived from the rendered text.
+    case "method-call":
     case "new":
     case "object":
     case "paren":
@@ -632,9 +624,9 @@ function renderCsTemporalBinary(
 }
 
 /** When `idSide` is the aggregate's own key (`this.id`, id-typed) and
- *  `scalarSide` is a raw scalar of the id's value type — or a `string`
- *  against a guid id — return the scalar's rendered text lifted into the
- *  strongly-typed `<Agg>Id`; else null (no rewrite). */
+ *  `scalarSide` is a raw `guid` scalar — or a `string`, parsed — return the
+ *  scalar's rendered text lifted into the strongly-typed `<Agg>Id`; else null
+ *  (no rewrite). */
 function liftScalarToSelfId(
   idSide: ExprIR,
   scalarSide: ExprIR,
@@ -645,8 +637,8 @@ function liftScalarToSelfId(
   if (!idType) return null;
   const scalarType = staticScalarTypeOf(scalarSide);
   if (!scalarType) return null;
-  if (scalarType === idType.valueType) return `new ${idType.targetName}Id(${renderedScalar})`;
-  if (idType.valueType === "guid" && scalarType === "string")
+  if (scalarType === "guid") return `new ${idType.targetName}Id(${renderedScalar})`;
+  if (scalarType === "string")
     return `new ${idType.targetName}Id(${csBcl("Guid", scope)}.Parse(${renderedScalar}))`;
   return null;
 }
@@ -1154,7 +1146,10 @@ function renderMethodCall(
     e.receiverType.name === "string" &&
     args.length === 1
   ) {
-    return `${csBcl("Regex", ctx.memberScope)}.IsMatch(${recv}, ${args[0]})`;
+    // Written through `ref` when bare, so the unit's `using` is derived from
+    // this call; the `global::` spelling needs none.
+    const regex = csBcl("Regex", ctx.memberScope);
+    return `${regex === "Regex" ? CS.Regex : regex}.IsMatch(${recv}, ${args[0]})`;
   }
   if (e.receiverType.kind === "primitive") {
     const key = intrinsicKey(e.receiverType.name, e.member);
@@ -1526,34 +1521,17 @@ export function renderCsType(t: TypeIR): string {
   return renderTypeWith(t, CS_TYPE_TARGET);
 }
 
-export function csValueTypeForId(idValueType: string): string {
-  switch (idValueType) {
-    case "int":
-      return "int";
-    case "long":
-      return "long";
-    case "string":
-      return "string";
-    default:
-      return "Guid";
-  }
+/** The CLR type a strong id wraps — every identity is a guid. */
+export function csValueTypeForId(): string {
+  return "Guid";
 }
 
+/** A fresh id value: UUIDv7 (time-ordered) — native on net9+; better index
+ *  locality than the random v4. */
 export function csNewIdValue(
-  idValueType: string,
   /** The emitting class's member scope — `global::System.Guid` when a member
    *  named `Guid` shadows the type there (bcl-collision.ts). */
   scope?: CsMemberScope,
 ): string {
-  switch (idValueType) {
-    case "int":
-    case "long":
-      return "0";
-    case "string":
-      // UUIDv7 (time-ordered) — native on net9+; better index locality than
-      // the random v4 without giving up the portable guid wire shape.
-      return `${csBcl("Guid", scope)}.CreateVersion7().ToString()`;
-    default:
-      return `${csBcl("Guid", scope)}.CreateVersion7()`;
-  }
+  return `${csBcl("Guid", scope)}.CreateVersion7()`;
 }

@@ -37,7 +37,6 @@ import type {
   FieldIR,
   FindIR,
   GenericCtorName,
-  IdValueType,
   LoadPlanIR,
   LoomInterface,
   LoomModel,
@@ -495,7 +494,7 @@ function applyRegistrySelfScope(m: EnrichedSubdomainIR, sys: SystemIR): Enriched
         if ((agg.contextFilterOrigins ?? []).includes(TENANCY_SELF_SCOPE_ORIGIN)) return agg;
         // Incompatible claim type: derive nothing — IR validation rejects
         // the model (`loom.tenancy-claim-type-mismatch`).
-        if (tenancyClaimBinding(agg.idValueType, claimType) === "mismatch") return agg;
+        if (tenancyClaimBinding(claimType) === "mismatch") return agg;
         const filters = agg.contextFilters ?? [];
         const origins =
           agg.contextFilterOrigins ?? filters.map((): string | undefined => undefined);
@@ -839,17 +838,6 @@ export function enrichContext(
     const inherited = baseFields.filter((f) => !ownNames.has(f.name));
     return inherited.length > 0 ? [...inherited, ...a.fields] : a.fields;
   };
-  // The id value-type is a hierarchy-wide fact: the TPH table (and the TPC
-  // polymorphic reader) key on the ROOT base's id type, so a concrete that
-  // didn't redeclare `ids` inherits the root's — otherwise a base declaring
-  // `ids int` yields an INTEGER table column but a concrete whose wire/Id
-  // defaults to `guid` (mismatch → every insert/read on the concrete breaks).
-  const rootIdValueTypeFor = (a: AggregateIR, seen: Set<string>): IdValueType => {
-    if (!a.extendsAggregate || seen.has(a.name)) return a.idValueType;
-    seen.add(a.name);
-    const base = byName.get(a.extendsAggregate);
-    return base ? rootIdValueTypeFor(base, seen) : a.idValueType;
-  };
   // A concrete's writes are bound by every `unique (…)` key an ancestor
   // declares, so the keys land on the concrete too.  Root-most keys first.
   //   * TPC (`ownTable`): the concrete is a standalone table — without the copy
@@ -876,9 +864,7 @@ export function enrichContext(
   const withInheritance = inheritBaseCapabilities(ctx.aggregates).map((a) => {
     if (!a.extendsAggregate) return a;
     const merged = mergedFieldsFor(a, new Set<string>());
-    const idValueType = rootIdValueTypeFor(a, new Set<string>());
     const fieldsChanged = merged !== a.fields;
-    const idChanged = idValueType !== a.idValueType;
     const own = a.uniqueKeys ?? [];
     const ownKeys = new Set(own.map((uk) => uk.columns.join(",")));
     const inherited =
@@ -887,11 +873,10 @@ export function enrichContext(
             (uk) => !ownKeys.has(uk.columns.join(",")),
           )
         : [];
-    if (!fieldsChanged && !idChanged && inherited.length === 0) return a;
+    if (!fieldsChanged && inherited.length === 0) return a;
     return {
       ...a,
       fields: merged,
-      idValueType,
       ...(inherited.length > 0 ? { uniqueKeys: [...inherited, ...own] } : {}),
     };
   });
@@ -1822,8 +1807,7 @@ function synthesizeInspect(agg: AggregateIR, voLookup: Map<string, ValueObjectIR
       return concat(concat(lit("'"), access), lit("'"));
     }
     if (t.kind === "primitive" || t.kind === "id" || t.kind === "enum") {
-      const fromPrimitive =
-        t.kind === "primitive" ? t.name : t.kind === "id" ? t.valueType : undefined;
+      const fromPrimitive = t.kind === "primitive" ? t.name : t.kind === "id" ? "guid" : undefined;
       return { kind: "convert", target: "string", from: fromPrimitive, value: access };
     }
     return null;
@@ -1963,7 +1947,7 @@ function synthesizeInspect(agg: AggregateIR, voLookup: Map<string, ValueObjectIR
   pushField("id", {
     kind: "convert",
     target: "string",
-    from: agg.idValueType,
+    from: "guid",
     value: { kind: "id" },
   });
 
@@ -2050,7 +2034,6 @@ function associationsForAggregate(agg: AggregateIR): AssociationIR[] {
       fieldName: f.name,
       ownerAgg: agg.name,
       targetAgg: target.targetName,
-      valueType: target.valueType,
       joinTable: `${snake(agg.name)}_${snake(f.name)}`,
       ownerFk,
       targetFk,

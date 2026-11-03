@@ -19,7 +19,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { CRUD_RESERVED_NAMES } from "../../../src/generator/elixir/vanilla/context-emit.js";
-import { operationVersionCheck, readsIfMatch } from "../../../src/ir/enrich/version-check.js";
+import {
+  destroyVersionCheck,
+  operationVersionCheck,
+  readsIfMatch,
+} from "../../../src/ir/enrich/version-check.js";
 import { elixirOpAction, snake } from "../../../src/util/naming.js";
 import { buildLoomModel, enrichedContexts } from "../../_helpers/ir.js";
 import { corpusSourceFor, generateCorpusCase } from "../../fixtures/corpus/harness.js";
@@ -115,9 +119,24 @@ describe("elixir checksVersion census — emitted controllers and saves", () => 
         );
         if (!controller) continue;
         let reading = 0;
+        // The canonical DELETE reads `If-Match` exactly where the fact says so
+        // and answers a stale tag 409 before the delete runs.
+        const destroyBlock = actionBlock(controller[1], "delete");
+        if (destroyBlock) {
+          const wantsDestroy = readsIfMatch(destroyVersionCheck(agg));
+          expect(destroyBlock.includes(CALL), `${agg.name}.destroy reads the If-Match`).toBe(
+            wantsDestroy,
+          );
+          expect(
+            destroyBlock.includes("{:error, :conflict} ->") &&
+              destroyBlock.includes("expected_version in [nil, record.version]"),
+            `${agg.name}.destroy refuses a stale tag`,
+          ).toBe(wantsDestroy);
+          if (wantsDestroy) reading++;
+        }
         for (const op of agg.operations) {
           // A reserved CRUD name other than `update` is the CRUD route's, not a
-          // named-operation route (the destroy contract is pending, #4341).
+          // named-operation route (the canonical destroy is judged separately).
           if (op.name !== "update" && CRUD_RESERVED_NAMES.has(op.name)) continue;
           const action = op.name === "update" ? "update" : elixirOpAction(op.name);
           const block = actionBlock(controller[1], action);

@@ -41,7 +41,7 @@ const INT: TypeIR = { kind: "primitive", name: "int" };
 const VO: TypeIR = { kind: "valueobject", name: "Address" };
 const IDARR: TypeIR = {
   kind: "array",
-  element: { kind: "id", targetName: "Tag", valueType: "guid" },
+  element: { kind: "id", targetName: "Tag" },
 };
 
 const thisExpr: ExprIR = { kind: "this" };
@@ -560,7 +560,7 @@ describe("queryable-subset parity — validator admits ⊆ Drizzle lowers", () =
           kind: "ref",
           name: "t",
           refKind: "param",
-          type: { kind: "id", targetName: "Tag", valueType: "guid" },
+          type: { kind: "id", targetName: "Tag" },
         },
       ],
       receiverType: IDARR,

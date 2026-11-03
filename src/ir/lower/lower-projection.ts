@@ -222,6 +222,8 @@ function lowerProjectionQuery(p: Projection, env: Env): ProjectionQueryIR {
   // validator rejects (the projection twin of the find gate).
   if (p.gate) query.requires = lowerExpr(p.gate, env);
   if (sourceName) query.source = sourceName;
+  const sourceHome = sourceRef?.$container;
+  if (sourceHome && isBoundedContext(sourceHome)) query.sourceContext = sourceHome.name;
   if (p.sourceAlias) query.sourceAlias = p.sourceAlias;
   if (p.filter) {
     query.filter = lowerExpr(p.filter, scope);

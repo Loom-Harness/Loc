@@ -354,6 +354,9 @@ export function emitDapperWorkflowInfra(
   eventLogContextNames: readonly string[],
   durable: boolean,
   out: Map<string, string>,
+  /** A routed handler answers an expected failure, so it needs the unit of
+   *  work the ports file provides even with no workflow or projection. */
+  entryResults = false,
 ): void {
   for (const ctxName of eventLogContextNames) {
     out.set(
@@ -374,7 +377,7 @@ export function emitDapperWorkflowInfra(
       renderProjectionRowEntity(proj, ns),
     );
   }
-  if (workflows.length > 0 || projections.length > 0) {
+  if (workflows.length > 0 || projections.length > 0 || entryResults) {
     out.set(
       "Infrastructure/Persistence/DapperPersistencePorts.cs",
       renderDapperPersistencePorts(ns, workflows, projections, durable, eventLogContextNames),

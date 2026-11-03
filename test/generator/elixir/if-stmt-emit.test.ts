@@ -197,7 +197,7 @@ describe("phoenix generator — the `if` sub-shapes that stay refused", () => {
 system Grading {
   subdomain Learning {
     context Tracker {
-      event Graded { taskId: string }
+      event Graded { taskId: Task id }
       aggregate Task with crudish {
         title: string
         score: int
