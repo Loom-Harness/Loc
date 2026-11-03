@@ -33,6 +33,7 @@ import {
   walkWorkflowStmtsDeep,
   workflowEmits,
 } from "../../ir/util/walk.js";
+import { type WriteScopeContext, writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,
@@ -797,6 +798,7 @@ function workflowRoute(
       ctx,
       collectLiveLetNames(wf.statements, wf.savesAtExit),
       saveLines,
+      writeScopeContext(wf.statements, ctx),
     ),
     "        ",
   );
@@ -1025,6 +1027,10 @@ export function pyWorkflowStmtTarget(
   ctx: EnrichedBoundedContextIR | undefined,
   usedLets: ReadonlySet<string> | undefined,
   saveLines: PySaveLines,
+  /** The body's write-scope requirement — present on a command body (a
+   *  workflow's command route, an explicit command handler); a reactor
+   *  passes none. */
+  writeScope?: WriteScopeContext,
 ): WorkflowStmtTarget {
   /** The awaited criterion retrieval run capped at one row — the
    *  single-result read behind `Repo.find(<Criterion>)` in a `let` and an
@@ -1271,5 +1277,19 @@ export function pyWorkflowStmtTarget(
     notFound: (st, i) => [
       `${i}raise ${PY.AggregateNotFoundError}(${JSON.stringify(notFoundStmtDetail(st))})`,
     ],
+    // A held row is re-loaded through `get_by_id_for_write` — the load every
+    // mutation route uses — before the statement mutates or deletes it; a row
+    // outside the caller's write scope raises the same not-found (→ 404), and
+    // the request's transaction rolls back on the error answer.
+    ...(writeScope
+      ? {
+          writeScope: {
+            cx: writeScope,
+            guard: (g, i) => [
+              `${i}await ${pythonIdent(g.repoName)}.get_by_id_for_write(${snake(g.name)}.id)`,
+            ],
+          },
+        }
+      : {}),
   };
 }
