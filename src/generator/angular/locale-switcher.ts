@@ -80,7 +80,7 @@ import { locale } from "./locale";
       <select
         class="loom-locale-switcher"
         data-testid="locale-switcher"
-        [attr.aria-label]="active()?.name"
+        [attr.aria-label]="active().name"
         (change)="onChange($event)"
       >
         @for (l of locales; track l.tag) {
