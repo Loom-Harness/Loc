@@ -86,7 +86,6 @@ const PINNED_HONO: Readonly<Record<string, number>> = {
   "test/generator/hono/projection-groupby-datekey.test.ts": 1,
   "test/generator/hono/projection-groupby.test.ts": 1,
   "test/generator/hono/projection-routes.test.ts": 1,
-  "test/generator/hono/when-route.test.ts": 2,
   "test/generator/typescript/avg-desugar.test.ts": 2,
   "test/generator/typescript/context-filter-emit.test.ts": 4,
   "test/generator/typescript/criterion-emit.test.ts": 1,
@@ -152,7 +151,6 @@ const PINNED_DOTNET: Readonly<Record<string, number>> = {
   "test/generator/dotnet/retrieval-emit.test.ts": 2,
   "test/generator/dotnet/single-containment.test.ts": 1,
   "test/generator/dotnet/validation-error-extension.test.ts": 6,
-  "test/generator/dotnet/when-emit.test.ts": 1,
   "test/generator/typescript/outbox-emission.test.ts": 2,
   "test/ir/collection-op-lambda-element-type.test.ts": 1,
 };

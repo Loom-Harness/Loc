@@ -304,6 +304,60 @@ export async function generateSystemFilesFromProject(
   return generateSystemsFromLoom(loom, options).files;
 }
 
+/**
+ * Emit ONE backend's project for a fixture written as bare `context { … }`
+ * blocks — the replacement for the legacy single-context `generateHono` /
+ * `generateDotnet` wrappers, through the orchestrator the CLI runs.
+ *
+ * The legacy wrappers emitted from the model's LOOSE contexts, so a fixture
+ * could stay a context and nothing else.  The product never emits that way:
+ * `ddd generate system` needs a `system` that hosts each context on a backend
+ * deployable bound to a datasource.  This wraps the contexts in the smallest
+ * such system — one subdomain, one api, one postgres `state` resource per
+ * context (plus an `eventLog` one when the fixture declares an event-sourced
+ * aggregate), one deployable — and asserts phases ①/④/⑤/⑥/⑦ on the result,
+ * exactly as `generateSystemFiles` does.
+ *
+ * The returned map is the deployable's project with the `<deployable>/` prefix
+ * stripped, so a key reads the same as the legacy project-relative path.
+ */
+export async function generateBackendFiles(
+  contexts: string,
+  platform: "node" | "dotnet",
+  options: GenerateSystemOptions = {},
+): Promise<Map<string, string>> {
+  const names = [...contexts.matchAll(/\bcontext\s+([A-Z]\w*)\s*\{/g)].map((m) => m[1]!);
+  if (names.length === 0) {
+    throw new Error("generateBackendFiles: the fixture declares no `context Name { … }` block");
+  }
+  const eventLog = /persistedAs:\s*eventLog/.test(contexts);
+  const resources = names.flatMap((c) => [
+    `  resource ${c}State { for: ${c}, kind: state, use: pg }`,
+    ...(eventLog ? [`  resource ${c}Log { for: ${c}, kind: eventLog, use: pg }`] : []),
+  ]);
+  const dataSources = names.flatMap((c) => [`${c}State`, ...(eventLog ? [`${c}Log`] : [])]);
+  const source = [
+    "system Fixture {",
+    "  subdomain Fixture {",
+    contexts,
+    "  }",
+    "  api FixtureApi from Fixture",
+    "  storage pg { type: postgres }",
+    ...resources,
+    "  deployable app {",
+    `    platform: ${platform}`,
+    `    contexts: [${names.join(", ")}]`,
+    `    dataSources: [${dataSources.join(", ")}]`,
+    "    serves: FixtureApi",
+    "  }",
+    "}",
+  ].join("\n");
+  const files = await generateSystemFiles(source, options);
+  const out = new Map<string, string>();
+  for (const [k, v] of files) if (k.startsWith("app/")) out.set(k.slice(4), v);
+  return out;
+}
+
 /** Re-exported — full multi-deployable system emission orchestrator. */
 export { generateSystems };
 
