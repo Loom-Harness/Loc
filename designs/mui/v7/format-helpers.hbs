@@ -1,5 +1,6 @@
 // Auto-generated.  Do not edit by hand.
-{{{chromeImport "../i18n"}}}import { Typography, Tooltip, Stack } from "@mui/material";
+{{{chromeImport "../i18n"}}}{{#if i18nEnabled}}import { getLocale } from "../i18n";
+{{/if}}import { Typography, Tooltip, Stack } from "@mui/material";
 import type { ReactNode } from "react";
 
 export function EmptyValue() {
@@ -27,7 +28,7 @@ export function DateTimeValue({ iso }: { iso: string | null | undefined }) {
   try {
     const d = new Date(s);
     if (!Number.isNaN(d.getTime())) {
-      pretty = d.toLocaleString(undefined, {
+      pretty = d.toLocaleString({{#if i18nEnabled}}getLocale(){{else}}undefined{{/if}}, {
         year: "numeric",
         month: "short",
         day: "2-digit",
@@ -56,7 +57,7 @@ export function NumberValue({ value, decimals = 0 }: { value: number | string | 
   if (isEmpty(value)) return <EmptyValue />;
   const n = typeof value === "number" ? value : Number(value);
   if (Number.isNaN(n)) return <Typography component="span">{String(value)}</Typography>;
-  const fmt = new Intl.NumberFormat(undefined, {
+  const fmt = new Intl.NumberFormat({{#if i18nEnabled}}getLocale(){{else}}undefined{{/if}}, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: Math.max(decimals, 2),
   });

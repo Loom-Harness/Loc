@@ -1,0 +1,33 @@
+// LocaleSwitcher {} — the language picker, placeable anywhere in a page body.
+//
+// Takes no arguments: which locales exist is a fact about the SYSTEM (the
+// translator tree plus the source language), not about the call site, and the
+// app shell already mounts the same control in its header when two or more
+// locales ship.  The primitive exists so a layout without the default header (a
+// `layout: none` page, a custom header slot) can still offer the choice.
+//
+// React renders the generated `LocaleSwitcher` component
+// (`react/locale-switcher.ts`, emitted to `src/lib/locale-switcher.tsx` whenever
+// the ui is i18n-enabled), which lists each shipped locale under its own name.
+// The other JSX frontends have no runtime binding yet; they render an inert
+// placeholder comment rather than a broken reference, so a page that uses the
+// primitive still compiles on every target.
+
+import type { ExprIR } from "../../../ir/types/loom-ir.js";
+import { addImport } from "../render-primitive.js";
+import type { WalkContext } from "../walker-core.js";
+
+export function emitLocaleSwitcher(
+  _call: ExprIR & { kind: "call" },
+  ctx: WalkContext,
+  depth: number,
+): string {
+  void depth;
+  if (ctx.target.framework !== "react") {
+    return ctx.target.renderComment(
+      `LocaleSwitcher: not yet supported on ${ctx.target.framework}`,
+    );
+  }
+  addImport(ctx, "../lib/locale-switcher", "LocaleSwitcher");
+  return "<LocaleSwitcher />";
+}
