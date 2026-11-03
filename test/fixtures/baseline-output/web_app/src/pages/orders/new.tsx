@@ -45,7 +45,7 @@ export default function OrderNew() {
               control={control}
               name="status"
               render={({ field, fieldState }) => (
-                <Select label={ t("Orders.Order.field.status", "Status") } data-testid="orders-new-input-status" data={ (["Draft","Confirmed","Shipped","Cancelled"]).map((v) => ({ value: v, label: (((v: string): string => ({ "Draft": t("Orders.OrderStatus.value.Draft", "Draft"), "Confirmed": t("Orders.OrderStatus.value.Confirmed", "Confirmed"), "Shipped": t("Orders.OrderStatus.value.Shipped", "Shipped"), "Cancelled": t("Orders.OrderStatus.value.Cancelled", "Cancelled") } as Record<string, string>)[v] ?? v))(v) })) } allowDeselect={false} value={field.value as string} onChange={(v) => field.onChange(v)} error={fieldState.error?.message} />
+                <Select label={ t("Orders.Order.field.status", "Status") } data-testid="orders-new-input-status" data={ (["Draft","Confirmed","Shipped","Cancelled"]).map((v) => ({ value: v, label: (((v: string | null | undefined): string => v == null ? "" : ({ "Draft": t("Orders.OrderStatus.value.Draft", "Draft"), "Confirmed": t("Orders.OrderStatus.value.Confirmed", "Confirmed"), "Shipped": t("Orders.OrderStatus.value.Shipped", "Shipped"), "Cancelled": t("Orders.OrderStatus.value.Cancelled", "Cancelled") } as Record<string, string>)[v] ?? v))(v) })) } allowDeselect={false} value={field.value as string} onChange={(v) => field.onChange(v)} error={fieldState.error?.message} />
               )}
             />
     

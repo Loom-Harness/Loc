@@ -148,7 +148,7 @@ function UpdateForm({ mut, onClose }: { mut: ReturnType<typeof useUpdateOrder>; 
           control={control}
           name="status"
           render={({ field, fieldState }) => (
-            <Select label={ t("Orders.Order.field.status", "Status") } data-testid="orders-op-update-input-status" data={ (["Draft","Confirmed","Shipped","Cancelled"]).map((v) => ({ value: v, label: (((v: string): string => ({ "Draft": t("Orders.OrderStatus.value.Draft", "Draft"), "Confirmed": t("Orders.OrderStatus.value.Confirmed", "Confirmed"), "Shipped": t("Orders.OrderStatus.value.Shipped", "Shipped"), "Cancelled": t("Orders.OrderStatus.value.Cancelled", "Cancelled") } as Record<string, string>)[v] ?? v))(v) })) } allowDeselect={false} value={field.value as string} onChange={(v) => field.onChange(v)} error={fieldState.error?.message} />
+            <Select label={ t("Orders.Order.field.status", "Status") } data-testid="orders-op-update-input-status" data={ (["Draft","Confirmed","Shipped","Cancelled"]).map((v) => ({ value: v, label: (((v: string | null | undefined): string => v == null ? "" : ({ "Draft": t("Orders.OrderStatus.value.Draft", "Draft"), "Confirmed": t("Orders.OrderStatus.value.Confirmed", "Confirmed"), "Shipped": t("Orders.OrderStatus.value.Shipped", "Shipped"), "Cancelled": t("Orders.OrderStatus.value.Cancelled", "Cancelled") } as Record<string, string>)[v] ?? v))(v) })) } allowDeselect={false} value={field.value as string} onChange={(v) => field.onChange(v)} error={fieldState.error?.message} />
           )}
         />
 
@@ -196,7 +196,7 @@ export default function OrderDetail() {
             <Card withBorder padding="md">
               <Stack gap="md">
                 <KeyValueRow label={t("Orders.Order.field.customerId", "Customer Id")} data-testid="orders-detail-customerId"><Text>{orderById.data.customerId}</Text></KeyValueRow>
-                <KeyValueRow label={t("Orders.Order.field.status", "Status")} data-testid="orders-detail-status"><Badge tt="none">{ ((v: string): string => ({ "Draft": t("Orders.OrderStatus.value.Draft", "Draft"), "Confirmed": t("Orders.OrderStatus.value.Confirmed", "Confirmed"), "Shipped": t("Orders.OrderStatus.value.Shipped", "Shipped"), "Cancelled": t("Orders.OrderStatus.value.Cancelled", "Cancelled") } as Record<string, string>)[v] ?? v)(orderById.data.status) }</Badge></KeyValueRow>
+                <KeyValueRow label={t("Orders.Order.field.status", "Status")} data-testid="orders-detail-status"><Badge tt="none">{ ((v: string | null | undefined): string => v == null ? "" : ({ "Draft": t("Orders.OrderStatus.value.Draft", "Draft"), "Confirmed": t("Orders.OrderStatus.value.Confirmed", "Confirmed"), "Shipped": t("Orders.OrderStatus.value.Shipped", "Shipped"), "Cancelled": t("Orders.OrderStatus.value.Cancelled", "Cancelled") } as Record<string, string>)[v] ?? v)(orderById.data.status) }</Badge></KeyValueRow>
                 <KeyValueRow label={t("Orders.Order.field.placedAt", "Placed At")} data-testid="orders-detail-placedAt"><DateTimeValue iso={ orderById.data.placedAt } /></KeyValueRow>
               </Stack>
             </Card>

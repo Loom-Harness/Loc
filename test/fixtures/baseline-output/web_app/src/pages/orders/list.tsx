@@ -52,7 +52,7 @@ export default function OrderList() {
                   <Table.Tr key={ row.id } data-testid={ ("orders-row-" + row.id) }>
                     <Table.Td><RouterLink to={`/orders/${ row.id }`}><IdValue id={ row.id } /></RouterLink></Table.Td>
                     <Table.Td><Text>{row.customerId}</Text></Table.Td>
-                    <Table.Td><Badge tt="none">{ ((v: string): string => ({ "Draft": t("Orders.OrderStatus.value.Draft", "Draft"), "Confirmed": t("Orders.OrderStatus.value.Confirmed", "Confirmed"), "Shipped": t("Orders.OrderStatus.value.Shipped", "Shipped"), "Cancelled": t("Orders.OrderStatus.value.Cancelled", "Cancelled") } as Record<string, string>)[v] ?? v)(row.status) }</Badge></Table.Td>
+                    <Table.Td><Badge tt="none">{ ((v: string | null | undefined): string => v == null ? "" : ({ "Draft": t("Orders.OrderStatus.value.Draft", "Draft"), "Confirmed": t("Orders.OrderStatus.value.Confirmed", "Confirmed"), "Shipped": t("Orders.OrderStatus.value.Shipped", "Shipped"), "Cancelled": t("Orders.OrderStatus.value.Cancelled", "Cancelled") } as Record<string, string>)[v] ?? v)(row.status) }</Badge></Table.Td>
                     <Table.Td><DateTimeValue iso={ row.placedAt } /></Table.Td>
                   </Table.Tr>
                 )) }

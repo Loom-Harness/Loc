@@ -46,15 +46,16 @@ export function implicitModelTextOn(ctx: WalkContext): boolean {
   return ctx.i18nPrefix !== undefined && ctx.target.modelTextImplicitSites === true;
 }
 
-/** `((v: string): string => ({ "Draft": t(…), … } as Record<string, string>)[v] ?? v)`
- *  — the label of an enum value, by its wire value.  `keys` parallels
- *  `values`. */
+/** `((v: string | null | undefined): string => v == null ? "" : ({ "Draft": t(…), … } as Record<string, string>)[v] ?? v)`
+ *  — the label of an enum value, by its wire value.  The parameter admits
+ *  `null`/`undefined` because an optional enum field reaches the badge unset,
+ *  and renders as the empty string there.  `keys` parallels `values`. */
 function enumLabelFn(ctx: WalkContext, values: readonly string[], keys: readonly string[]): string {
   const entries = values.map((v, i) => {
     const text = modelTextDefault({ ctx: undefined, type: "", facet: "value", member: v });
     return `${JSON.stringify(v)}: ${localizedModelText(ctx, keys[i]!, text)}`;
   });
-  return `((v: string): string => ({ ${entries.join(", ")} } as Record<string, string>)[v] ?? v)`;
+  return `((v: string | null | undefined): string => v == null ? "" : ({ ${entries.join(", ")} } as Record<string, string>)[v] ?? v)`;
 }
 
 /** The `(value → label)` entries of an enum, each label the translation call of
