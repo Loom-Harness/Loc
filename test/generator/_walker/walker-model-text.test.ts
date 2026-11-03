@@ -8,6 +8,7 @@
 // identity keys through a value → label lookup.
 
 import { describe, expect, it } from "vitest";
+import { isModelTextKey } from "../../../src/util/model-text-key.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
 const SYSTEM = (pages: string) => `
@@ -97,3 +98,82 @@ describe("label(…) / plural(…) on React", () => {
     expect(catalog["Cat.Status.value.InReview"]).toBe("In Review");
   });
 });
+
+// ---------------------------------------------------------------------------
+// The implicit sites on the Vue, Svelte and Angular packs — every pack of every
+// framework reads the identity keys (form labels, enum options, submit and op
+// buttons, badges), and every identity key its catalogs carry is read back by
+// the app source (a key no emitter reads is a dead key the translator pays for).
+// ---------------------------------------------------------------------------
+
+const DETAIL_PAGE = `
+    page Detail(id: Product id) {
+      route: "/p/:id"
+      body: Stack {
+        Heading { plural(Product) },
+        OperationForm { of: Product, op: update }
+      }
+    }`;
+
+const FRAMEWORK_PACKS: ReadonlyArray<{ platform: string; designs: readonly string[] }> = [
+  { platform: "vue", designs: ["vuetify", "shadcnVue"] },
+  { platform: "svelte", designs: ["flowbite", "shadcnSvelte"] },
+  { platform: "angular", designs: ["angularMaterial", "primeng", "spartanNg"] },
+];
+
+function systemOn(platform: string, design: string): string {
+  return SYSTEM(TWO_PAGES + DETAIL_PAGE).replace(
+    "platform: react design: mantine",
+    `platform: ${platform} design: ${design}`,
+  );
+}
+
+/** The app's own source: everything but the catalogs, which would make a key
+ *  "render" merely by being listed. */
+function appSource(files: Map<string, string>): string {
+  return [...files]
+    .filter(([p]) => !p.startsWith(".loom/") && !p.includes("/locales/"))
+    .map(([, c]) => c)
+    .join("\n");
+}
+
+for (const { platform, designs } of FRAMEWORK_PACKS) {
+  for (const design of designs) {
+    describe(`implicit model text on ${platform} / ${design}`, () => {
+      it("keys form labels, enum options and the submit button by identity", async () => {
+        const src = appSource(await generateSystemFiles(systemOn(platform, design)));
+        expect(src).toContain('"Cat.Product.field.name", "Name"');
+        expect(src).toContain('"Cat.Product.field.status", "Status"');
+        expect(src).toContain('"InReview": t("Cat.Status.value.InReview", "In Review")');
+        expect(src).toContain('"Cat.Product.op.create", "Create"');
+      });
+
+      it("keys an operation form's submit button by the op's identity", async () => {
+        const src = appSource(await generateSystemFiles(systemOn(platform, design)));
+        expect(src).toContain('"Cat.Product.op.update", "Update"');
+      });
+
+      it("labels an EnumBadge by the value's identity key", async () => {
+        const src = appSource(await generateSystemFiles(systemOn(platform, design)));
+        expect(src).toMatch(/"Draft":\s*t\("Cat\.Status\.value\.Draft", "Draft"\)/);
+      });
+
+      it("reads back every identity key its catalogs carry", async () => {
+        const files = await generateSystemFiles(systemOn(platform, design));
+        const src = appSource(files);
+        const catalogs = [...files].filter(
+          ([p]) => p.endsWith(".loom/messages.en.json") || p.endsWith("/locales/en.json"),
+        );
+        expect(catalogs.length).toBeGreaterThanOrEqual(2);
+        for (const [path, content] of catalogs) {
+          const keys = Object.keys(JSON.parse(content) as Record<string, string>).filter(
+            isModelTextKey,
+          );
+          expect(keys.length, path).toBeGreaterThan(0);
+          const dead = keys.filter((k) => !src.includes(`"${k}"`));
+          expect(dead, `${path}: identity keys no emitter reads`).toEqual([]);
+        }
+      });
+    });
+  }
+}

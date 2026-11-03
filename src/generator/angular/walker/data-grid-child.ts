@@ -32,7 +32,7 @@
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
 import { FORMAT_CALL_HELPERS } from "../../_frontend/format-helpers.js";
-import { CHROME_T_CALL } from "../../_walker/i18n-emit.js";
+import { callsTranslationRuntime, PAGE_I18N_IMPORT } from "../../_walker/i18n-emit.js";
 import { mergedImports } from "../../_walker/shared/imports.js";
 import type { DataGridChild, DataGridColumn, DataGridSpec } from "../../_walker/target.js";
 import type { WalkContext } from "../../_walker/walker-core.js";
@@ -114,7 +114,9 @@ function renderComponent(spec: DataGridSpec, className: string, selector: string
   // on the PAGE, so anything an `EnumBadge` / `Money` cell needed resolved to
   // nothing in this file.  Merged per source — the chrome and the cells often
   // name the same module, and Angular would see a duplicate import.
-  const allImports = mergedImports([...spec.packImports, ...spec.cellImports]);
+  const allImports = mergedImports([...spec.packImports, ...spec.cellImports]).filter(
+    (i) => i.from !== PAGE_I18N_IMPORT,
+  );
   const packModules = allImports.flatMap((i) => i.named).sort();
   const packImportLines = allImports.map(
     (i) => `import { ${i.named.join(", ")} } from "${i.from}";`,
@@ -141,7 +143,8 @@ function renderComponent(spec: DataGridSpec, className: string, selector: string
   // — the same reason `String`/`Math`/the format helpers are re-exposed above,
   // and the same lift `app.component.ts` does for the shell's own chrome.
   // Gated on the RENDERED body so a pack that bakes in no chrome gets neither.
-  const usesI18n = body.includes(CHROME_T_CALL);
+  const usesI18n =
+    callsTranslationRuntime(body) || columns.some((c) => c.headerValue?.startsWith("t("));
   // The runtime lives at `src/lib/i18n.ts`, two hops up from
   // `src/app/components/` — the same lift the format import above makes.
   const i18nImportLine = usesI18n ? [`import { t } from "../../lib/i18n";`] : [];

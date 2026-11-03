@@ -153,7 +153,7 @@ const STRING: TypeIR = { kind: "primitive", name: "string" };
  *  when the input is a declared field of `owner` and the implicit model-text
  *  sites are on, else the humanized name.  An input that names no model fact
  *  (`owner` undefined) keeps its English. */
-export function fieldLabelText(
+function fieldLabelText(
   ctx: WalkContext,
   bc: BoundedContextIR,
   owner: string | undefined,

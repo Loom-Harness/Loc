@@ -37,7 +37,7 @@
 // 8.21 + Svelte 5.56: `svelte-check` 0 errors / 0 warnings, `vite build` green.
 
 import { lines } from "../../../util/code-builder.js";
-import { CHROME_T_CALL } from "../../_walker/i18n-emit.js";
+import { callsTranslationRuntime, PAGE_I18N_IMPORT } from "../../_walker/i18n-emit.js";
 import { mergedImports } from "../../_walker/shared/imports.js";
 import type { DataGridChild, DataGridColumn, DataGridSpec } from "../../_walker/target.js";
 import type { WalkContext } from "../../_walker/walker-core.js";
@@ -116,9 +116,9 @@ function renderComponent(spec: DataGridSpec): string {
   // that is where the walk parks them.  On Svelte that is a runtime
   // `ReferenceError`, not a build failure.  Merged per source so one
   // `flowbite-svelte` line carries both the chrome's and the cells' names.
-  const packImportLines = mergedImports([...spec.packImports, ...spec.cellImports]).map(
-    (i) => `  import { ${i.named.join(", ")} } from "${i.from}";`,
-  );
+  const packImportLines = mergedImports([...spec.packImports, ...spec.cellImports])
+    .filter((i) => i.from !== PAGE_I18N_IMPORT)
+    .map((i) => `  import { ${i.named.join(", ")} } from "${i.from}";`);
 
   // Pack-chrome i18n (M-T1.11).  The pack's grid markup carries the pager's
   // `{t("chrome.previous", …)}` labels under i18n, and this `.svelte` file is
@@ -128,7 +128,10 @@ function renderComponent(spec: DataGridSpec): string {
   // the depth-agnostic specifier the walker's `../i18n` seam import rewrites to
   // (`svelteImportPath`); the runtime lives at `src/lib/i18n.ts`.  Gated on the
   // RENDERED body so a pack that bakes in no chrome gets no import.
-  const i18nImportLine = body.includes(CHROME_T_CALL) ? [`  import { t } from "$lib/i18n";`] : [];
+  const i18nImportLine =
+    callsTranslationRuntime(body) || columns.some((c) => c.headerValue?.startsWith("t("))
+      ? [`  import { t } from "$lib/i18n";`]
+      : [];
 
   const props = selection
     ? lines(

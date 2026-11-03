@@ -75,7 +75,7 @@ function packSentencesForUi(sys: EnrichedSystemIR, ui: UiIR): string[] {
  *  labels, enum options, submit buttons) by identity — the targets that set
  *  `WalkerTarget.modelTextImplicitSites`.  HEEx packs (and the pack-less Feliz
  *  and Flutter frontends) keep their humanized English. */
-const IMPLICIT_MODEL_TEXT_FORMATS: ReadonlySet<string> = new Set([
+export const IMPLICIT_MODEL_TEXT_FORMATS: ReadonlySet<string> = new Set([
   "tsx",
   "vue",
   "svelte",
