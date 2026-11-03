@@ -63,7 +63,10 @@ const cellsPerRow = () => grid().locator("tbody tr:first-child td").count();
 /** A sort button carries no label of its own — the column header text names it
  *  (a direction glyph may follow), so whole-sentence i18n never splices a header
  *  into a phrase. */
-const sortBy = (label) => grid().locator("thead").getByRole("button", { name: new RegExp(`^${label}`) });
+const sortBy = (label) =>
+  grid()
+    .locator("thead")
+    .getByRole("button", { name: new RegExp(`^${label}`) });
 const eq = (got, want, what) => {
   if (JSON.stringify(got) !== JSON.stringify(want))
     throw new Error(`${what}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
