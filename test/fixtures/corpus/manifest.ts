@@ -192,6 +192,13 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "state-gate", title: "`when` canCommand state gate + GET can-query companion", doc: "criterion", backends: ALL },
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
   {
+    id: "op-persist-field-invariant",
+    title: "a named operation assigning a field a single-field invariant guards (`invariant qty >= 0` under `setQty(-1)`) is refused with 422 and leaves the row unchanged",
+    doc: "language",
+    backends: ALL,
+    note: "Elixir's operation persist (`change(%{}) |> force_change`) re-ran only the residual cross-field rules, so a single-field invariant — native `validate_number` in `base_changeset` only — was bypassed and `setQty(-1)` committed.",
+  },
+  {
     id: "union-match-arms",
     title: "a `return match` whose arms build different union variants, tagged per arm",
     doc: "payloads",
