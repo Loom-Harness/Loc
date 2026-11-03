@@ -544,9 +544,10 @@ export function renderVuePage(input: VuePageShellInput): string {
         // this template hardcoded.  `title` is the TEXT spelling (shadcnVue's
         // `<DialogTitle>`), `titleExpr` the bound-attribute expression
         // (vuetify's `:title`) — D-I18N-ATTR's two spellings of one name.
-        title: state.modalTitle || humanize(state.op.name),
-        titleExpr: state.modalTitleExpr ?? JSON.stringify(humanize(state.op.name)),
-        submitLabel: humanize(state.op.name),
+        title: state.modalTitle || state.opLabel?.markup || humanize(state.op.name),
+        titleExpr:
+          state.modalTitleExpr ?? state.opLabel?.expr ?? JSON.stringify(humanize(state.op.name)),
+        submitLabel: state.opLabel?.markup ?? humanize(state.op.name),
         // The close icon's accessible name (shadcnVue's DialogContent) — never
         // equal to the submit label (`opDialogChrome`).
         closeLabelExpr:
@@ -1392,9 +1393,9 @@ export function renderVueComponentFile(
         // Same two title spellings as the page-level call site above — this is
         // the COMPONENT path (`component X { … }` bodies), and a template var
         // only one caller passes throws on the strict-Handlebars packs.
-        title: st.modalTitle || humanize(st.op.name),
-        titleExpr: st.modalTitleExpr ?? JSON.stringify(humanize(st.op.name)),
-        submitLabel: humanize(st.op.name),
+        title: st.modalTitle || st.opLabel?.markup || humanize(st.op.name),
+        titleExpr: st.modalTitleExpr ?? st.opLabel?.expr ?? JSON.stringify(humanize(st.op.name)),
+        submitLabel: st.opLabel?.markup ?? humanize(st.op.name),
         // The close icon's accessible name (shadcnVue's DialogContent) — never
         // equal to the submit label (`opDialogChrome`).
         closeLabelExpr:

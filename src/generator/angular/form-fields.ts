@@ -5,11 +5,15 @@ import type {
   FieldIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
+import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
+import { modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
 import { humanize, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { renderDefaultSeed } from "../_frontend/default-seed.js";
 import { unwrapOpt } from "../_frontend/form-helpers.js";
+import { localizedModelText } from "../_walker/i18n-emit.js";
+import { enumLabelEntries, implicitModelTextOn } from "../_walker/model-text-sites.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 
 // ---------------------------------------------------------------------------
@@ -140,6 +144,46 @@ export function formStyle(ctx: WalkContext): AngularFormStyle {
   if (name === "primeng") return "primeng";
   if (name === "angularMaterial") return "material";
   return "plain";
+}
+
+const STRING: TypeIR = { kind: "primitive", name: "string" };
+
+/** A form input's label as Angular template TEXT: the interpolated
+ *  identity-keyed translation (`{{ t("Shop.Order.field.status", "Status") }}`)
+ *  when the input is a declared field of `owner` and the implicit model-text
+ *  sites are on, else the humanized name.  An input that names no model fact
+ *  (`owner` undefined) keeps its English. */
+export function fieldLabelText(
+  ctx: WalkContext,
+  bc: BoundedContextIR,
+  owner: string | undefined,
+  name: string,
+): string {
+  if (owner === undefined || !implicitModelTextOn(ctx)) return humanize(name);
+  const { key, defaultText } = modelTextEntry({
+    ctx: modelTextContextOf(owner, bc, ctx.bcByAggregate.values()),
+    type: owner,
+    facet: "field",
+    member: name,
+  });
+  return ctx.target.renderInterpolation(localizedModelText(ctx, key, defaultText), STRING);
+}
+
+/** The translation-call expression of each of an enum's values (by wire value),
+ *  or `undefined` while the implicit sites are off (the options keep the raw
+ *  wire values). */
+function enumOptionLabels(
+  ctx: WalkContext,
+  bc: BoundedContextIR,
+  enumName: string,
+  values: readonly string[],
+): Map<string, string> | undefined {
+  if (!implicitModelTextOn(ctx)) return undefined;
+  const owner = modelTextContextOf(enumName, bc, ctx.bcByAggregate.values());
+  const keys = values.map((v) =>
+    modelTextKey({ ctx: owner, type: enumName, facet: "value", member: v }),
+  );
+  return new Map(enumLabelEntries(ctx, values, keys).map((e) => [e.value, e.label]));
 }
 
 /** Render one form submit/cancel/action button, Material- or plain-styled per
@@ -434,8 +478,12 @@ export function fieldInput(
   testidBase: string = `${ns}-input-${name}`,
   formVar?: string,
   a11y?: AngularFieldAria,
+  /** The model type the input is declared on (an aggregate, value object or
+   *  workflow) — keys its label by identity; absent for an input naming no
+   *  model fact. */
+  owner?: string,
 ): string {
-  const label = humanize(name);
+  const label = fieldLabelText(ctx, bc, owner, name);
   // Attributes every branch puts on the CONTROL element itself (never on a
   // wrapper): the test id, plus — when this field carries a client-side
   // constraint — the two ARIA bindings that announce its error state.  Folded
@@ -491,21 +539,29 @@ export function fieldInput(
   }
   if (inner.kind === "enum") {
     const en = enumPool(bc).find((e) => e.name === inner.name);
+    const values = en?.values ?? [];
+    // Each option's text: the identity-keyed translation of the value, else the
+    // raw wire value.
+    const optionLabels = enumOptionLabels(ctx, bc, inner.name, values);
+    const optionText = (v: string): string =>
+      optionLabels ? ctx.target.renderInterpolation(optionLabels.get(v)!, STRING) : v;
     if (style === "material") {
       addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
       addNg(ctx, "@angular/material/select", "MatSelectModule");
-      const opts = (en?.values ?? [])
-        .map((v) => `<mat-option value=${JSON.stringify(v)}>${v}</mat-option>`)
+      const opts = values
+        .map((v) => `<mat-option value=${JSON.stringify(v)}>${optionText(v)}</mat-option>`)
         .join("");
       return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><mat-select formControlName=${cn}${testid}>${opts}</mat-select></mat-form-field>`;
     }
     if (style === "primeng") {
       addNg(ctx, "primeng/select", "SelectModule");
-      const opts = JSON.stringify((en?.values ?? []).map((v) => ({ label: v, value: v })));
+      const opts = optionLabels
+        ? `[${values.map((v) => `{ "label": ${optionLabels.get(v)}, "value": ${JSON.stringify(v)} }`).join(", ")}]`
+        : JSON.stringify(values.map((v) => ({ label: v, value: v })));
       return `<label class="loom-field"><span class="loom-label">${label}</span><p-select [options]='${opts}' optionLabel="label" optionValue="value" styleClass="loom-input" formControlName=${cn}${testid}></p-select></label>`;
     }
-    const opts = (en?.values ?? [])
-      .map((v) => `<option value=${JSON.stringify(v)}>${v}</option>`)
+    const opts = values
+      .map((v) => `<option value=${JSON.stringify(v)}>${optionText(v)}</option>`)
       .join("");
     return `<label class="loom-field"><span class="loom-label">${label}</span><select class="loom-input" formControlName=${cn}${testid}>${opts}</select></label>`;
   }
@@ -681,9 +737,13 @@ export function fieldArrayInput(
   bc: BoundedContextIR,
   ns: string,
   ctx: WalkContext,
+  /** The value object each row holds — owns its sub-field labels. */
+  voName?: string,
 ): string {
   const rowNs = `${ns}-${spec.fieldName}-row`;
-  const rowInputs = voFields.map((f) => fieldInput(f.name, f.type, bc, rowNs, ctx)).join("");
+  const rowInputs = voFields
+    .map((f) => fieldInput(f.name, f.type, bc, rowNs, ctx, undefined, undefined, undefined, voName))
+    .join("");
   const remove = formButton(ctx, {
     type: "button",
     emphasis: "warn",
@@ -768,10 +828,24 @@ export function fieldGroupInput(
   bc: BoundedContextIR,
   ns: string,
   ctx: WalkContext,
+  /** The value object the group holds — owns its sub-field labels. */
+  voName?: string,
 ): string {
   const containerTid = `${ns}-input-${spec.fieldName}`;
   const subInputs = voFields
-    .map((f) => fieldInput(f.name, f.type, bc, ns, ctx, `${containerTid}-${f.name}`))
+    .map((f) =>
+      fieldInput(
+        f.name,
+        f.type,
+        bc,
+        ns,
+        ctx,
+        `${containerTid}-${f.name}`,
+        undefined,
+        undefined,
+        voName,
+      ),
+    )
     .join("");
   return `<div class="loom-fieldset" formGroupName=${JSON.stringify(spec.fieldName)} data-testid="${containerTid}"><span class="loom-label">${label}</span>${subInputs}</div>`;
 }
@@ -793,6 +867,9 @@ export function partitionAngularFields(
    *  `angularValidatorMap`): their message slot falls back to the client
    *  sentence when no server message is set. */
   errorFields?: ReadonlySet<string>,
+  /** The model type each input's label is keyed under (by input name); an
+   *  input it maps to `undefined` keeps its humanized English. */
+  labelOwnerOf: (name: string) => string | undefined = () => undefined,
 ): {
   flatControls: AngularFormControlSpec[];
   flatMarkup: string[];
@@ -820,7 +897,17 @@ export function partitionAngularFields(
     const elementName = el.kind === "valueobject" ? el.name : f.name;
     const spec = fieldArraySpec(f.name, voFields, elementName);
     fieldArrays.push(spec);
-    arrayMarkup.push(fieldArrayInput(spec, voFields, humanize(f.name), bc, ns, ctx));
+    arrayMarkup.push(
+      fieldArrayInput(
+        spec,
+        voFields,
+        fieldLabelText(ctx, bc, labelOwnerOf(f.name), f.name),
+        bc,
+        ns,
+        ctx,
+        elementName,
+      ),
+    );
   }
   const fieldGroups: AngularFieldGroupSpec[] = [];
   const groupMarkup: string[] = [];
@@ -829,7 +916,18 @@ export function partitionAngularFields(
     const voFields = voScalarFields(f.type, bc)!;
     const spec = fieldGroupSpec(f.name, voFields);
     fieldGroups.push(spec);
-    groupMarkup.push(fieldGroupInput(spec, voFields, humanize(f.name), bc, ns, ctx));
+    const groupType = unwrapOpt(f.type);
+    groupMarkup.push(
+      fieldGroupInput(
+        spec,
+        voFields,
+        fieldLabelText(ctx, bc, labelOwnerOf(f.name), f.name),
+        bc,
+        ns,
+        ctx,
+        groupType.kind === "valueobject" ? groupType.name : undefined,
+      ),
+    );
     groupIdFields.push(...voFields);
   }
   if (fieldArrays.length > 0 || fieldGroups.length > 0) {
@@ -888,7 +986,7 @@ export function partitionAngularFields(
             }
           : undefined;
       return withFieldError(
-        fieldInput(f.name, f.type, bc, ns, ctx, undefined, formVar, aria),
+        fieldInput(f.name, f.type, bc, ns, ctx, undefined, formVar, aria, labelOwnerOf(f.name)),
         style,
         error,
       );

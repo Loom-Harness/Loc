@@ -640,7 +640,11 @@ describe("angular generator — Table in a QueryView data branch", () => {
     expect(page).toContain("[routerLink]='\"/orders/\" + row.id'");
     expect(page).toContain("{{ shortId(row.id) }}");
     expect(page).toContain("<td><div>{{ row.customerId }}</div></td>");
-    expect(page).toContain('<span class="loom-badge">{{ row.status }}</span>');
+    // The badge shows the value's identity-keyed label, falling back to the raw
+    // value (`WalkerTarget.renderEnumLabelLookup`).
+    expect(page).toContain(
+      '<span class="loom-badge">{{ ($any({ "Draft": t("Orders.OrderStatus.value.Draft", "Draft"), "Confirmed": t("Orders.OrderStatus.value.Confirmed", "Confirmed"), "Shipped": t("Orders.OrderStatus.value.Shipped", "Shipped") })[row.status] ?? row.status) }}</span>',
+    );
     expect(page).toContain("{{ formatDateTime(row.placedAt) }}");
   });
 });

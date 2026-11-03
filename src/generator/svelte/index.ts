@@ -79,6 +79,7 @@ import {
   emitSveltePagesForUi,
 } from "./routes-emitter.js";
 import { renderSvelteStoreModule, storeModulePath } from "./store-builder.js";
+import { svelteTarget } from "./walker/svelte-target.js";
 import { allWorkflows, buildWorkflowsApiModule, hasAnyWorkflow } from "./workflow-builder.js";
 
 // ---------------------------------------------------------------------------
@@ -180,7 +181,11 @@ export function generateSvelteForContexts(
   // Pack-DECLARED chrome rides the SAME already-enabled gate (see the React
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
-  const formScope = { contexts, sentences: pack.manifest.sentenceChrome ?? [] };
+  const formScope = {
+    contexts,
+    sentences: pack.manifest.sentenceChrome ?? [],
+    implicitModelText: svelteTarget.modelTextImplicitSites === true,
+  };
   if (i18nEnabled) {
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
     // produced (scoped to this ui's keys, `TODO:` values already dropped by

@@ -1086,6 +1086,16 @@ export interface WalkerTarget {
    *  packs read the tokens. */
   modelTextImplicitSites?: true;
 
+  /** The label of an enum value as one expression, for a target whose template
+   *  language cannot spell the default typed lookup (an arrow function with a
+   *  `Record` assertion — `model-text-sites.ts`'s `enumLabelFn`): `entries`
+   *  pair each wire value with its translation-call expression, `valueExpr` is
+   *  the rendered value.  Unset ⇒ the typed lookup. */
+  renderEnumLabelLookup?(
+    entries: ReadonlyArray<{ value: string; label: string }>,
+    valueExpr: string,
+  ): string;
+
   /** Render the `style: { … }` named arg as a markup attribute
    *  fragment (leading space included; empty string for no entries).
    *  Each entry carries the source CSS key plus the rendered value
