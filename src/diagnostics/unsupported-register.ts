@@ -276,13 +276,16 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // proves every supported cell renders and every refused one is raised.
     code: "loom.target-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/target-capability-checks.ts:329",
+    site: "src/ir/validate/checks/target-capability-checks.ts:350",
     what:
       "a construct × position its target cannot render, per the capability table.  LATENT: " +
       "every refused cell today is a settled never — `DataGrid` on flutter and phoenixLiveView " +
       "(D-DATAGRID-TARGETS: it ships iff the target can run TanStack itself) — and `Chart` and " +
       "the entity-history read are supported on every shipping frontend, so the remaining " +
-      "refusals are the seam a NEW frontend gates on until it ports",
+      "refusals are the seam a NEW frontend gates on until it ports.  One LIVE gap: a " +
+      "`tenantOwned` event-sourced aggregate (`#tenant-owned-event-sourced`) is carried on " +
+      "node's Drizzle store only; dotnet / java / python / elixir and node's mikroorm refuse " +
+      "it until each event store carries the stream tenant (#3533)",
     mission: "#3592",
     verified: true,
   },

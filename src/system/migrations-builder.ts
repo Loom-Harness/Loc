@@ -9,6 +9,7 @@ import {
   projectionTableName,
   tableNameFor,
 } from "../ir/enrich/storage-names.js";
+import { eventLogCarriesTenant, STREAM_TENANT_METADATA } from "../ir/enrich/stream-tenancy.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -295,7 +296,7 @@ export function schemaFromModule(
       ctx.aggregates.some((a) => a.persistedAs === "eventLog") ||
       ctx.workflows.some((w) => w.eventSourced);
     if (hasEventStream) {
-      const t = eventLogTableForStream(snake(ctx.name), module.name);
+      const t = eventLogTableForStream(snake(ctx.name), module.name, eventLogCarriesTenant(ctx));
       if (ctxSchema !== undefined) t.schema = ctxSchema;
       tables.push(t);
     }
@@ -763,8 +764,14 @@ function documentTableForAggregate(agg: AggregateIR, ownerModule: string): Table
  *  optimistic-concurrency control).  `seq` is a context-global monotonic cursor
  *  (Marten's `mt_events` scoped to a context) that a projection replay reads in
  *  order — DB-assigned, carried inert until the rebuild reader lands.  `type`
- *  discriminates the event for the fold; `data` is the JSON payload. */
-function eventLogTableForStream(snakeCtxName: string, ownerModule: string): TableShape {
+ *  discriminates the event for the fold; `data` is the JSON payload.  A log
+ *  holding a `tenantOwned` stream also carries the stream tenant metadata
+ *  columns `tenant_id` / `data_key` (`stream-tenancy.ts`). */
+function eventLogTableForStream(
+  snakeCtxName: string,
+  ownerModule: string,
+  carriesTenant: boolean,
+): TableShape {
   const tableName = `${snakeCtxName}_events`;
   return {
     name: tableName,
@@ -777,6 +784,16 @@ function eventLogTableForStream(snakeCtxName: string, ownerModule: string): Tabl
       { name: "type", type: { kind: "text" }, nullable: false },
       { name: "data", type: { kind: "json" }, nullable: false },
       { name: "occurred_at", type: { kind: "datetime" }, nullable: false, default: "now()" },
+      // Stream tenant metadata (`stream-tenancy.ts`): nullable, because the
+      // log's other streams (a `crossTenant` aggregate, an `eventSourced`
+      // workflow) carry none.
+      ...(carriesTenant
+        ? STREAM_TENANT_METADATA.map((m) => ({
+            name: m.column,
+            type: { kind: "text" as const },
+            nullable: true,
+          }))
+        : []),
     ],
     primaryKey: ["stream_type", "stream_id", "version"],
     foreignKeys: [],

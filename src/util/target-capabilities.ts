@@ -49,6 +49,7 @@ export type TargetRefusalSlug =
   | "entity-history-read"
   | "match-await-standard-op"
   | "lifecycle-guard-event-sourced"
+  | "tenant-owned-event-sourced"
   | "resource-kind-unrealized"
   | "storage-type-unrealized"
   | "resource-knob-unrealized"
@@ -108,6 +109,9 @@ export type UiConstruct = RefusableUiConstruct | OwnedUiConstruct;
 export type BackendConstruct =
   /** A `requires` gate inside an event-sourced aggregate's `create` body. */
   | "stmt:requires@event-sourced-create"
+  /** `with tenantOwned` on a `persistedAs: eventLog` aggregate — a stream
+   *  that carries its tenant as stored-event metadata (`stream-tenancy.ts`). */
+  | "capability:tenantOwned@event-sourced"
   /** `resource r { kind: replica, … }` — a read-replica binding. */
   | "resource:replica@resource"
   /** `resource r { kind: cache, … }` — a read-through cache binding. */
@@ -168,6 +172,7 @@ export const ALL_UI_CONSTRUCTS: readonly UiConstruct[] = [...UI_CONSTRUCTS, ...O
 /** Every backend construct, in a stable order. */
 export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "stmt:requires@event-sourced-create",
+  "capability:tenantOwned@event-sourced",
   "resource:replica@resource",
   "resource:cache@resource",
   "resource:snapshot@resource",
@@ -337,11 +342,26 @@ const UNREALIZED_RESOURCES: Pick<
   "storage:inMemory@resource": refused("storage-type-unrealized"),
 };
 
+/** A tenant-scoped event stream: stamped, scoped and carried as metadata on
+ *  node; the other backends would emit an UNSCOPED stream (every tenant reads
+ *  every stream), so they refuse it until each is ported onto the
+ *  stream-tenancy fact. */
+const ES_TENANT_OWNED_REFUSED: CapabilityVerdict = refused("tenant-owned-event-sourced");
+
 /** The table for a static-bundle backend: it renders no ui framework. */
 const STATIC_HOST_BACKEND: TargetCapabilityTable = {
   backend: {
     "stmt:requires@event-sourced-create": ES_CREATE_REQUIRES_REFUSED,
+    "capability:tenantOwned@event-sourced": ES_TENANT_OWNED_REFUSED,
     ...UNREALIZED_RESOURCES,
+  },
+};
+
+/** node: the static-bundle row, with the tenant-scoped stream implemented. */
+const NODE_BACKEND: TargetCapabilityTable = {
+  backend: {
+    ...STATIC_HOST_BACKEND.backend!,
+    "capability:tenantOwned@event-sourced": SUPPORTED,
   },
 };
 
@@ -357,7 +377,7 @@ const REACT_CAPABILITIES: TargetCapabilityTable = {
  *  shares its table; a ui whose resolved FRAMEWORK is spelled `static` is not
  *  in any `frameworks` list, so its UI constructs are refused fail-closed. */
 export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTable>> = {
-  node: STATIC_HOST_BACKEND,
+  node: NODE_BACKEND,
   dotnet: STATIC_HOST_BACKEND,
   python: STATIC_HOST_BACKEND,
   java: STATIC_HOST_BACKEND,
@@ -398,7 +418,11 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
         "Chart",
       ],
     },
-    backend: { "stmt:requires@event-sourced-create": SUPPORTED, ...UNREALIZED_RESOURCES },
+    backend: {
+      "stmt:requires@event-sourced-create": SUPPORTED,
+      "capability:tenantOwned@event-sourced": ES_TENANT_OWNED_REFUSED,
+      ...UNREALIZED_RESOURCES,
+    },
   },
   react: REACT_CAPABILITIES,
   static: REACT_CAPABILITIES,

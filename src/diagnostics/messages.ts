@@ -3267,6 +3267,14 @@ export const DIAGNOSTIC_MESSAGES = {
     target: unknown;
   }) =>
     `${p.what}: a \`requires\` in an event-sourced \`create\` cannot be enforced on deployable '${p.dName}' (backend '${p.target}'). The create body renders into the domain \`_init\`, which has no principal in scope — \`currentUser\` is a free identifier there, so the guard does not compile rather than deny. Gate the caller instead: put the \`requires\` on the named \`operation\` (or \`workflow\`) that issues the create, where the request principal is bound. (Phoenix/\`elixir\` hoists the gate to its context function and binds a principal, so it enforces this one.)`,
+  // A tenant-scoped event stream on a backend whose event store does not yet
+  // carry the stream tenant: it would serve every tenant every stream.
+  "loom.target-unsupported#tenant-owned-event-sourced": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what}: deployable '${p.dName}' (backend '${p.target}') can't yet scope an event stream by tenant — its event store would neither stamp the stream's tenant nor filter stream loads and lists by it, so every tenant would read every stream. Host the aggregate on a node deployable (its default Drizzle persistence), or keep it state-sourced (drop persistedAs: eventLog).`,
   "loom.target-unsupported#resource-kind-unrealized": (p: {
     what: unknown;
     dName: unknown;
@@ -3911,9 +3919,10 @@ export const DIAGNOSTIC_MESSAGES = {
     name: unknown;
   }) =>
     `Deployable '${p.dep}' (platform ${p.family}) hosts event-sourced aggregate ` +
-    `'${p.ctxName}.${p.name}' with a lifecycle stamp — stamps mutate state fields, but an ` +
+    `'${p.ctxName}.${p.name}' with a lifecycle stamp (a \`stamp onCreate\` / \`onUpdate\` ` +
+    `assignment such as \`createdAt := now()\`) — stamps mutate state fields, but an ` +
     `event-sourced aggregate's state is folded from its event stream. ` +
-    `Record the timestamp in an event instead, or drop persistedAs: eventLog.`,
+    `Record the value in an event instead, or drop persistedAs: eventLog.`,
   "loom.stamp-reads-aggregate-unsupported": (p: {
     dep: unknown;
     family: unknown;

@@ -326,6 +326,74 @@ read DTOs by default. `dataKey` is the exception: it is dropped from
 Cross-tenant reads of another tenant's row return **404** (existence hidden),
 falling out of the filter semantics: the row simply isn't found.
 
+## Event-sourced aggregates — the tenant lives on the stream
+
+An event-sourced aggregate (`persistedAs: eventLog`) has no state row to carry
+a `tenantId` column, so `with tenantOwned` puts the tenant **on its stream**,
+as metadata of every stored event. Event payloads stay pure domain data.
+
+```ddd
+event Opened { ledger: Ledger id }
+aggregate Ledger persistedAs: eventLog with tenantOwned {
+  opened: bool
+  create open() { emit Opened { ledger: id } }
+  apply(e: Opened) { opened := true }
+}
+```
+
+- **Storage.** The context's event log (`<ctx>_events`) gains two nullable
+  metadata columns, `tenant_id` and `data_key`, through the ordinary migration
+  chain. A log holding no tenant-scoped stream is unchanged; the rows of its
+  other streams (a `crossTenant` aggregate, an `eventSourced` workflow) leave
+  them null.
+- **Stamp.** The creation command stamps the new stream from the principal —
+  the capability's own `onCreate` stamp (`tenantId := currentUser.<claim>`,
+  `dataKey := currentUser.orgPath`). Every later append copies the loaded
+  stream's tenant forward, never the caller's.
+- **Scope.** Every stream load — by id, the list, and the load an operation
+  (append) runs first — applies the tenancy restrictions of the aggregate's
+  `readScope` fact over the metadata columns: the flat floor, or the `policy`
+  `deep` / `global` subtree. A foreign tenant's `GET /api/ledgers/<id>` is a
+  404, its list never shows the stream, and it cannot append to a stream it
+  cannot load. `ignoring tenantOwned` drops the scope for that read only, as
+  on a table (and raises `loom.tenancy-filter-bypass`).
+- **Events.** A folded event's tenant is its stream's: the stored-event row
+  carries it, and so does the CloudEvents channel envelope (`tenantid` /
+  `loomorgpath`), so a reactor or a cross-deployable consumer runs in the
+  stream's tenant.
+- **Fold.** A load adopts the metadata onto the aggregate's `tenantOwned`
+  fields, so the folded instance answers exactly like a `tenantOwned` row.
+
+The fact is `streamTenancyFor` / `eventTenantMetadataFor`
+(`src/ir/enrich/stream-tenancy.ts`). On node it renders as:
+
+```ts
+// db/read-scopes.ts
+export function ledgerStreamScope(use: ScopeUse = {}): SQL | undefined {
+  return and(
+    drops(use, "tenantOwned") ? undefined : eq(schema.cEvents.tenantId, requireCurrentUser().tenantId),
+  );
+}
+
+// db/repositories/ledger-repository.ts — findById
+.where(and(eq(schema.cEvents.streamType, "Ledger"), eq(schema.cEvents.streamId, id as string), ledgerStreamScope()))
+
+// save — a new stream is stamped, an append carries the stream's tenant
+const meta = aggregate._streamVersion === 0
+  ? stampInsertLedger({ tenantId: aggregate.tenantId, dataKey: aggregate.dataKey })
+  : { tenantId: aggregate.tenantId, dataKey: aggregate.dataKey };
+```
+
+`loom.stamp-on-event-sourced-invalid` still refuses a genuine lifecycle stamp
+(`stamp onCreate { openedAt := now() }`) on an event-sourced aggregate; the
+tenancy capability's stamp is not one.
+
+**Backend coverage.** node (its default Drizzle persistence) carries the stream
+tenant. On `dotnet`, `java`, `python`, `elixir` and node's
+`persistence: mikroorm`, a `tenantOwned` event-sourced aggregate is refused
+with `loom.target-unsupported` (`#tenant-owned-event-sourced`) rather than
+emitted as an unscoped stream.
+
 ## Reactors and timers — the system principal's tenant
 
 An event reactor runs as the **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)), and filters and

@@ -15,6 +15,7 @@
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { platformFamily } from "../../../language/validators/data/platform-rules.js";
 import {
   BACKEND_CONSTRUCTS,
   type BackendConstruct,
@@ -25,6 +26,7 @@ import {
   UI_CONSTRUCTS,
   uiCapability,
 } from "../../../util/target-capabilities.js";
+import { isTenantScopedStream } from "../../enrich/stream-tenancy.js";
 import type {
   BoundedContextIR,
   DeployableIR,
@@ -168,6 +170,12 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
     }
     return out;
   },
+  "capability:tenantOwned@event-sourced": (ctx) =>
+    ctx.aggregates.filter(isTenantScopedStream).map((agg) => ({
+      what: `event-sourced aggregate '${agg.name}' with tenantOwned`,
+      source: `${ctx.name}/aggregate ${agg.name}`,
+      origin: agg.origin,
+    })),
   "resource:replica@resource": (ctx, sys) =>
     resourceUses(ctx, sys, (ds) =>
       ds.kind === "replica" ? `kind: replica, storage '${ds.storageName}'` : undefined,
@@ -274,6 +282,17 @@ function refuse(
         use,
       );
       return;
+    case "tenant-owned-event-sourced":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#tenant-owned-event-sourced", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
+        use,
+      );
+      return;
     case "resource-kind-unrealized":
       refused(
         diags,
@@ -365,6 +384,24 @@ export function validateTargetCapabilities(
             seen.add(key);
           }
           refuse(diags, v.slug, use, d, d.platform);
+        }
+      }
+    }
+    // The node row describes its default Drizzle adapter.  The MikroORM event
+    // store does not carry a stream's tenant yet, so a tenant-scoped stream is
+    // refused on that adapter alone.
+    if (platformFamily(d.platform) === "node" && d.persistence === "mikroorm") {
+      for (const ctxName of d.contextNames) {
+        const ctx = ctxByName.get(ctxName);
+        if (!ctx) continue;
+        for (const use of BACKEND_DETECTORS["capability:tenantOwned@event-sourced"](ctx, sys)) {
+          refuse(
+            diags,
+            "tenant-owned-event-sourced",
+            use,
+            d,
+            `${d.platform} (persistence: mikroorm)`,
+          );
         }
       }
     }

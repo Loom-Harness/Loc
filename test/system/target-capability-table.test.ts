@@ -303,6 +303,31 @@ system W {
   deployable d { platform: ${platform}, contexts: [Main], dataSources: [st, es], serves: MainApi, port: 3000, auth: required }
 }
 `,
+  // An event-sourced aggregate whose stream carries its tenant.
+  "capability:tenantOwned@event-sourced": (platform) => `
+system W {
+  user { id: string  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Main {
+      event Opened { ledger: Ledger id }
+      aggregate Ledger persistedAs: eventLog with tenantOwned {
+        opened: bool
+        create open() { emit Opened { ledger: id } }
+        apply(e: Opened) { opened := true }
+      }
+      aggregate Org with crudish { name: string }
+      repository Ledgers for Ledger { }
+      repository Orgs for Org { }
+    }
+  }
+  api MainApi from Core { }
+  storage pg { type: postgres }
+  resource st { for: Main, kind: state, use: pg }
+  resource es { for: Main, kind: eventLog, use: pg }
+  deployable d { platform: ${platform}, contexts: [Main], dataSources: [st, es], serves: MainApi, port: 3000, auth: required }
+}
+`,
   "resource:replica@resource": (platform) =>
     resourceWitness(
       platform,

@@ -1,3 +1,4 @@
+import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -235,13 +236,15 @@ export function renderSchema(
   // migrations (`<owner>_events`).  Aggregate binding fixes the schema first
   // (an owning context with both an ES aggregate and an ES workflow shares one
   // log), else the workflow schema resolver.
-  const eventLogs = new Map<string, { schema?: string; prefix?: string }>();
+  const eventLogs = new Map<string, { schema?: string; prefix?: string; tenant?: boolean }>();
   for (const agg of ctx.aggregates) {
     if (agg.persistedAs !== "eventLog") continue;
     const owner = opts.resolveStreamContext?.(agg.name) ?? ctx.name;
     if (!eventLogs.has(owner)) {
       eventLogs.set(owner, { schema: schemaFor(agg), prefix: prefixFor(agg) });
     }
+    // A tenant-scoped stream puts the tenant metadata columns on its log.
+    if (isTenantScopedStream(agg)) eventLogs.get(owner)!.tenant = true;
   }
   for (const wf of ctx.workflows) {
     if (!wf.eventSourced) continue;
@@ -605,7 +608,7 @@ function emitWorkflowStateTable(wf: WorkflowIR, ctx: BoundedContextIR, schema?: 
  *  the MVP — `(stream_id, version)` ordering is all fold-from-zero needs. */
 function emitEventLogTable(
   name: string,
-  options: { schema?: string; prefix?: string } = {},
+  options: { schema?: string; prefix?: string; tenant?: boolean } = {},
 ): string {
   const baseTable = `${snake(name)}_events`;
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
@@ -624,6 +627,13 @@ function emitEventLogTable(
     `  type: text("type").notNull(),`,
     `  data: jsonb("data").notNull(),`,
     `  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),`,
+    // Stream tenant metadata (`stream-tenancy.ts`) — present when a
+    // `tenantOwned` stream shares this log; null on every other stream's rows.
+    // Property names match the aggregate's `tenantOwned` fields, so the
+    // tenancy read restriction lowers over this table unchanged.
+    ...(options.tenant
+      ? STREAM_TENANT_METADATA.map((m) => `  ${m.field}: text("${m.column}"),`)
+      : []),
     `}, (table) => ({`,
     `  ${constName}Pk: primaryKey({ columns: [table.streamType, table.streamId, table.version] }),`,
     `}));`,
