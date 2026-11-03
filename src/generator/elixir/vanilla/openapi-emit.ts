@@ -615,7 +615,7 @@ function renderApiSpec(
   const pathEntries: string[] = [];
 
   // Workflow paths: POST /workflows/<slug>
-  for (const { wf } of allWorkflows) {
+  for (const { wf, ctx } of allWorkflows) {
     const slug = snake(wf.name);
     const reqMod = `${schemasModule}.${reqNameFor({ kind: "workflow", workflow: wf.name })}`;
     // `create(…): T` answers 200 with the value (`respond_result`), typed by
@@ -645,7 +645,7 @@ function renderApiSpec(
               workflowIsGuarded(wf),
               undefined,
               {
-                readsAggregate: workflowCanAnswerNotFound(wf),
+                readsAggregate: workflowCanAnswerNotFound(wf, ctx),
               },
             )}
           }

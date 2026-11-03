@@ -68,6 +68,7 @@ import {
 } from "../../ir/util/paged-run.js";
 import { routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
@@ -487,7 +488,15 @@ function renderHandlerClass(
   );
   const bodyLines = renderWorkflowStmtChunks(
     h.statements,
-    javaWorkflowStmtTarget(ctx, renderCtx, undefined, collectUnionFindLets(h.statements)),
+    javaWorkflowStmtTarget(
+      ctx,
+      renderCtx,
+      undefined,
+      collectUnionFindLets(h.statements),
+      undefined,
+      undefined,
+      writeScopeContext(h.statements, ctx),
+    ),
     "        ",
   ).flat();
   const saveLines = h.savesAtExit.map(
