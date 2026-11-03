@@ -26,6 +26,6 @@ public sealed class UpdateProductRequestValidator : AbstractValidator<UpdateProd
 {
     public UpdateProductRequestValidator()
     {
-        RuleFor(x => x.Price).SetValidator(new MoneyRequestValidator());
+        RuleFor(x => x.Price!).SetValidator(new MoneyRequestValidator()).When(x => x.Price is not null);
     }
 }
