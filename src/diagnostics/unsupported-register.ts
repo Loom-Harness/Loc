@@ -264,7 +264,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // proves every supported cell renders and every refused one is raised.
     code: "loom.target-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/target-capability-checks.ts:329",
+    site: "src/ir/validate/checks/target-capability-checks.ts:350",
     what:
       "a construct × position its target cannot render, per the capability table.  LATENT: " +
       "every refused cell today is a settled never — `DataGrid` on flutter and phoenixLiveView " +
