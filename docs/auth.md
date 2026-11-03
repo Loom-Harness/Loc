@@ -50,7 +50,9 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   reactors are not client-reachable, so they are excluded);
 - **every read of an aggregate** — the list read `GET /api/<plural>`, the
   single-record read `GET /api/<plural>/{id}`, each repository `find`'s route,
-  and the audit history read — gated by ONE line in the context's `policy`
+  the audit history read, and every routed `queryHandler` / `commandHandler`
+  whose body reads the aggregate through its repository (`get` / `find` /
+  `getBy` / `findBy` / `all`) — gated by ONE line in the context's `policy`
   block (see [Read gates](#read-gates)):
 
   ```ddd
@@ -1033,7 +1035,18 @@ policy {
 The gate covers **every read** of the aggregate: the list `GET /<plural>`, the
 by-id `GET /<plural>/{id}`, each declared find's route, the audit history read
 (`GET /<plural>/{id}/history`), and the scaffolded List page (client-side, so
-its nav entry hides for a refused principal).  An exposure-level gate — a
+its nav entry hides for a refused principal).  It also covers a hand-written
+routed `queryHandler` / `commandHandler` whose body reads the aggregate through
+its repository (`get` / `find` / `getBy` / `findBy` / `all`, at any nesting
+depth): enrichment prepends the gate to the handler body as a leading
+`requires` — one per distinct gated aggregate the body reads, in first-read
+order, rendered as the same `Forbidden: read Order requires …` 403 on all five
+backends, ahead of the first repository call.  Because the gate is
+`currentUser`-only it never depends on a handler parameter, so it is hoisted
+unconditionally; a leading `requires` that already spells the same predicate is
+not repeated, and `scaffoldGet` relies on this instead of splicing the gate
+itself.  An `extern` handler is bodyless and keeps its own impl.  An
+exposure-level gate — a
 `scaffoldPaged(requires:)`, a route / handler `requires` — still ANDs on top.
 
 It emits an in-handler **403** at the top of each of those routes, evaluated

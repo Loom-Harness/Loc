@@ -24,6 +24,7 @@ import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../pag
 import { synthProjectionFinds } from "../projection-finds.js";
 import { isRefCollection } from "../repository-associations-builder.js";
 import {
+  aggregateRetrievals,
   deserializeField,
   docTypeAlias,
   entityFromDocFn,
@@ -43,7 +44,7 @@ import {
 import { mikroSaveTxLines } from "./mikroorm-config.js";
 import { rowClassOf } from "./mikroorm-entities.js";
 import { AMBIENT_PRINCIPAL, mikroGetByIdLines, whereToMikroFilter } from "./mikroorm-filter.js";
-import { valueCollFieldsOf } from "./mikroorm-relational.js";
+import { mikroRetrievalMethod, valueCollFieldsOf } from "./mikroorm-relational.js";
 import { mikroFilterOption } from "./mikroorm-schema-filters.js";
 import { maskUserImport, tsParamType, usesRawFragment } from "./mikroorm-shared.js";
 
@@ -282,6 +283,18 @@ export function renderMikroEmbeddedRepository(
     );
   });
 
+  // Criterion reads (`Repo.all(C(…))` / `Repo.find(C(…))`) call
+  // `run<Retrieval>` whatever the saving shape.  The root scalars are real
+  // columns, so the relational query applies; only the hydrate is per row.
+  const runMethods = aggregateRetrievals(agg, ctx).map((r) =>
+    mikroRetrievalMethod(agg, r, row, [
+      `    return rows.map((row) => {`,
+      ...embeddedHydrateLocals(agg, "row", "      ", ctx),
+      `      return ${hydrateRootExpr(agg, "row", ctx)};`,
+      `    });`,
+    ]),
+  );
+
   const deleteMethod = canonicalDestroy(agg)
     ? lines(
         `  async delete(id: ${idVar}): Promise<void> {`,
@@ -343,6 +356,7 @@ export function renderMikroEmbeddedRepository(
     deleteMethod ? "" : null,
     deleteMethod || null,
     ...findMethods.flatMap((m) => ["", m]),
+    ...runMethods.flatMap((m) => ["", m]),
     "",
     toWireMethod(agg, ctx),
     // Response-boundary read masking (`mask unless`) — the SAME sibling

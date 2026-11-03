@@ -5234,9 +5234,55 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.workflow-mutation-unsaved": (p: { owner: unknown; call: unknown; name: unknown }) =>
     `${p.owner}: '${p.call}' mutates '${p.name}', but no save covers '${p.name}', so the ` +
     `change would never be written. A body saves an aggregate it created, or loaded from a ` +
-    `repository, and then mutated through a bare call statement; binding the result of a ` +
-    `mutating call ('let r = ${p.call}(…)') is not saved yet. Write the call as its own ` +
-    `statement, and load '${p.name}' with a repository read if it is not one.`,
+    `repository, and then mutated through a call statement ('${p.call}(…)') or a 'let' bound ` +
+    `to the call itself ('let r = ${p.call}(…)'); a call nested inside a larger expression ` +
+    `is not saved. Write the call as its own statement or 'let', and load '${p.name}' with a ` +
+    `repository read if it is not one.`,
+  // `let r = a.withdraw(x)` whose result can be an `error` variant: the change
+  // to `a` commits only where `r` is not the error, i.e. in the non-error arms
+  // of a statement `match` over `r` (D-FAILURE-MODEL).
+  "loom.workflow-mutation-result-unmatched": (p: {
+    owner: unknown;
+    name: unknown;
+    call: unknown;
+    errors: unknown;
+  }) =>
+    `${p.owner}: 'let ${p.name} = ${p.call}(…)' binds a result that can be the error ` +
+    `${p.errors}, and the call's change must not be saved when it is, so the body has to ` +
+    `look at '${p.name}' before anything is saved. Match it: 'match ${p.name} { … }' saves ` +
+    `the change at the end of each arm that is not an error and drops it in an error arm.`,
+  // `let r = a.withdraw(x)` / `let r = Transfer.run(…)` in a body the Phoenix
+  // backend emits — the bound form of a mutating call is not rendered there.
+  "loom.elixir-bound-mutating-call-unsupported": (p: {
+    where: unknown;
+    name: unknown;
+    call: unknown;
+    deployable: unknown;
+  }) =>
+    `${p.where} binds the result of the mutating call '${p.call}(…)' to '${p.name}', which ` +
+    `the elixir deployable '${p.deployable}' cannot render yet: a Phoenix context operation ` +
+    `persists inside its own function, and the bound form is not wired through it. Host the ` +
+    `context on a node, dotnet, java or python deployable.`,
+  "loom.workflow-mutation-result-unmatched#mixed-else": (p: {
+    owner: unknown;
+    name: unknown;
+    call: unknown;
+    successes: unknown;
+    errors: unknown;
+  }) =>
+    `${p.owner}: the 'else' arm of 'match ${p.name}' covers the success ${p.successes} and the ` +
+    `error ${p.errors} of '${p.call}', so it cannot tell whether to save the call's change. ` +
+    `Give the success variants, or the error variants, arms of their own.`,
+  "loom.workflow-mutation-result-unmatched#also-mutated": (p: {
+    owner: unknown;
+    name: unknown;
+    call: unknown;
+    target: unknown;
+  }) =>
+    `${p.owner}: '${p.call}' changes '${p.target}' only when its result '${p.name}' is not an ` +
+    `error, but this body also creates or changes '${p.target}' elsewhere, which would save ` +
+    `the error path's change too. Make the matched call the only change to '${p.target}' in ` +
+    `this body.`,
   "loom.workflow-mutation-unsaved#unbound": (p: {
     owner: unknown;
     call: unknown;

@@ -66,7 +66,7 @@ describe("flutter a11y — derived Semantics emission", () => {
 
   it("Loader carries a 'Loading' status label + liveRegion", async () => {
     const dart = await pageDart(`Loader {}`);
-    expect(dart).toContain("Semantics(label: 'Loading', liveRegion: true");
+    expect(dart).toContain("Semantics(label: t('chrome.loading', 'Loading'), liveRegion: true");
     expect(dart).toContain("CircularProgressIndicator()");
   });
 

@@ -35,6 +35,7 @@ import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { exLogInstantType } from "./codec-spelling-ex.js";
 import { workflowDenialTerm } from "./denial.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
 
@@ -113,7 +114,7 @@ ${prefixLine}  @primary_key false
     field :version, :integer, primary_key: true
     field :type, :string
     field :data, :map
-    field :occurred_at, :utc_datetime_usec
+    field :occurred_at, ${exLogInstantType()}
     field :seq, :integer
   end
 end

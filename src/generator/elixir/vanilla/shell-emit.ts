@@ -53,6 +53,7 @@ import {
   exStatus,
   exTitle,
 } from "../wire-policy-ex.js";
+import { exFrameworkTimestampType } from "./codec-spelling-ex.js";
 import { renderLoomDatetimeModule } from "./datetime-type-emit.js";
 import { renderGuardErrorModule } from "./denial.js";
 import { renderRepoReadScope } from "./read-scope-emit.js";
@@ -1621,7 +1622,7 @@ function renderVanillaConfig(
 
 config :${appName},
   ecto_repos: [${appModule}.Repo],
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: ${exFrameworkTimestampType()}]
 ${swooshConfig}
 
 config :${appName}, ${appModule}Web.Endpoint,

@@ -5856,9 +5856,18 @@ types, money grammar and bounds, `.isoformat()`). .NET (EF Core and Dapper)
 spells it in `src/generator/dotnet/codec-spelling.ts` and `numeric-codec.ts`,
 guarded by `test/generator/dotnet/codec-census.test.ts` (Postgres column types,
 money bound and grammar, the `yyyy-MM-dd` / `fff` formats, the `ToString("o")`
-envelope time). The other two backends move onto the fact one at a time. Until
-each does, it boots `corpus/provenance-money` as a tracked expected failure
-(`BEHAVIOURAL_XFAIL`, #4402).
+envelope time). java/Spring spells it in `src/generator/java/codec-spelling.ts`
+and `numeric-codec.ts`, guarded by `test/generator/java/codec-census.test.ts`
+(the `?::jsonb` casts, money scale, bound and grammar, the int range, the
+`truncatedTo(MILLIS)` instant, `LocalDate` text, the `Instant.now().toString()`
+envelope time); a lineage value goes through the emitted `ProvWire` helper.
+elixir (plain Phoenix / Ecto) spells it in
+`src/generator/elixir/vanilla/codec-spelling-ex.ts`, `numeric-codec.ts` and
+`datetime-type-emit.ts` (the `Loom.Datetime` Ecto type, whose `wire/1` is the
+instant's spelling), guarded by `test/generator/elixir/codec-census.test.ts`
+(Ecto schema and migration types, the money bound, scale and grammar, the int
+range, `to_iso8601` / `DateTime.truncate`, the Ecto datetime types). Every
+backend is on the fact.
 
 java/Spring renders the fact through `src/generator/java/wire-policy-java.ts`
 (`test/generator/java/wire-policy-census.test.ts` is its census, with the
@@ -5920,13 +5929,58 @@ call statement dropped it, and a workflow answered 204.
 **Consequences.** `loom.unhandled-result` refuses a dropped `or E`
 (`src/language/validators/unhandled-result.ts`). A workflow / handler body
 handles a bound result with the statement `match` (#3367; D-FOR-IN-DOMAIN's
-amendment) or by reading it; binding the result of a MUTATING aggregate
-operation there is still refused (`loom.workflow-mutation-unsaved`).
+amendment) or by reading it.
 Every backend's operation route or handler checks the error variant before it
 stamps, saves, audits or publishes (Java also marks the transaction
 rollback-only, since its loaded aggregate is a managed entity); the
 `operation-returns` corpus golden pins the unchanged read-back on every
 behavioural leg.
+
+A workflow / handler body that binds a MUTATING call whose result has an
+`error` variant (`let r = a.withdraw(x)`, or `let r = Transfer.run(…)` over a
+`mutating` domain service) holds a tentative change, so the same rule applies
+inside the body: the body must `match r`
+(`loom.workflow-mutation-result-unmatched`), each non-error arm saves the
+mutated aggregate at its end and publishes what it drained, and an error arm
+saves nothing for it — its change and its events are dropped. On EF Core and
+JPA, which flush a loaded entity whether or not it was saved, the error arm
+detaches it through the repository's `Discard` / `discard`; node and python
+write only on a save. An `else` arm that covers both a success and an error
+variant is refused, and so is any other change to the same aggregate in that
+body. A bound mutating call whose result has no `error` variant is saved at the
+body's exit, exactly like the call statement. Phoenix refuses the bound form
+(`loom.elixir-bound-mutating-call-unsupported`).
+
+```ddd
+workflow Pay {
+  create(id: Account id, amt: int) {
+    let a = Accounts.get(id)
+    let r = a.withdraw(amt)          // withdraw(amt): int or Insufficient
+    match r {
+      int left => { }                // a is saved here
+      Insufficient e => { notFound } // a's change is dropped
+    }
+  }
+}
+```
+
+```ts
+// node — d/http/workflows.ts
+const a = await accounts.getById(id);
+const r = a.withdraw(amt);
+switch (r.type) {
+  case "int": {
+    const left = r.value;
+    await accounts.save(a);
+    break;
+  }
+  case "Insufficient": {
+    const e = r;
+    throw new AggregateNotFoundError("Resource not found");
+    break;
+  }
+}
+```
 
 ## D-ABSENCE-MODEL — "may be missing" has one type, `T?`; presence is the generated update's rule, not a type
 

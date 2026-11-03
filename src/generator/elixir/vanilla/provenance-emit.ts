@@ -31,6 +31,12 @@ import { snake } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { collectLeaves, type ProvLeaf } from "../../_stmt/leaves.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import {
+  exFrameworkNow,
+  exFrameworkTimestampType,
+  exLineageValue,
+  exProvWireModule,
+} from "./codec-spelling-ex.js";
 
 /** The provenanced fields declared on an aggregate (root fields only —
  *  named-operation write sites, which target root columns, are captured). */
@@ -67,6 +73,7 @@ export function emitVanillaProvenance(
 /** `<App>.Provenance` + the nested `Json` type + `Record` schema. */
 function renderProvenanceModule(appModule: string): string {
   return `# Auto-generated.
+${exProvWireModule(appModule)}
 defmodule ${appModule}.Provenance.Json do
   @moduledoc """
   Pass-through Ecto type: any JSON-encodable term (scalar, list or map) ↔ a
@@ -100,7 +107,7 @@ defmodule ${appModule}.Provenance.Record do
     field :field, :string
     field :inputs, ${appModule}.Provenance.Json
     field :computed_value, ${appModule}.Provenance.Json
-    field :at, :utc_datetime
+    field :at, ${exFrameworkTimestampType()}
     field :correlation_id, :string
     field :scope_id, :string
     field :actor_id, :string
@@ -148,7 +155,7 @@ defmodule ${appModule}.Provenance do
   """
   @spec flush(module()) :: :ok
   def flush(repo) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = ${exFrameworkNow()}
 
     rows =
       Enum.map(drain(), fn lin ->
@@ -373,6 +380,8 @@ export function renderUpdateProvenanceCapture(agg: AggregateIR, contextModule: s
       paramRenames[name] = `record.${snake(name)}`;
     }
   }
+  const appModule = contextModule.split(".")[0]!;
+  const fieldTypes = new Map(agg.fields.map((f) => [f.name, f.type]));
   const rc: RenderCtx = {
     thisName: "record",
     contextModule,
@@ -385,8 +394,12 @@ export function renderUpdateProvenanceCapture(agg: AggregateIR, contextModule: s
     const linVar = `loom_lineage_${index}`;
     lineageVars.push(linVar);
     const inputs = collectVanillaLeaves(stmt.value, rc)
-      .map((l) => `%{path: ${JSON.stringify(l.path)}, value: ${l.value}}`)
+      .map(
+        (l) =>
+          `%{path: ${JSON.stringify(l.path)}, value: ${exLineageValue(l.value, l.type, appModule)}}`,
+      )
       .join(", ");
+    const computed = exLineageValue(`record.${snake(field)}`, fieldTypes.get(field), appModule);
     const target = `%{type: ${JSON.stringify(stmt.prov.target.type)}, field: ${JSON.stringify(stmt.prov.target.field)}}`;
     body.push(
       `    ${inputsVar} = [${inputs}]`,
@@ -394,7 +407,7 @@ export function renderUpdateProvenanceCapture(agg: AggregateIR, contextModule: s
       // verbatim, and every other backend's `ProvLineage` spells them
       // `snapshotId` / `computedValue`.  Only the OUTER key
       // (`<field>_provenance`) is the documented snake_case exception.
-      `    ${linVar} = %{snapshotId: ${JSON.stringify(stmt.prov.snapshotId)}, target: ${target}, inputs: ${inputsVar}, computedValue: record.${snake(field)}}`,
+      `    ${linVar} = %{snapshotId: ${JSON.stringify(stmt.prov.snapshotId)}, target: ${target}, inputs: ${inputsVar}, computedValue: ${computed}}`,
       `    changeset = Ecto.Changeset.put_change(changeset, :${provColumn(field)}, ${linVar})`,
       "",
     );

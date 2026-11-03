@@ -37,6 +37,7 @@ import {
   renderVanillaAuditHistoryModule,
   vanillaHistoryModulePath,
 } from "./audit-history-emit.js";
+import { exFrameworkNow, exFrameworkTimestampType } from "./codec-spelling-ex.js";
 import { renderControllerSerialize } from "./controller-serialize.js";
 
 /** True iff any aggregate in the given contexts carries an audited command
@@ -131,7 +132,7 @@ defmodule ${appModule}.Audit.Record do
     field :actor, ${appModule}.Audit.Json
     field :before, ${appModule}.Audit.Json
     field :after, ${appModule}.Audit.Json
-    field :at, :utc_datetime
+    field :at, ${exFrameworkTimestampType()}
     field :status, :string
     field :correlation_id, :string
     field :scope_id, :string
@@ -182,7 +183,7 @@ defmodule ${appModule}.Audit do
         %{
           audit_id: UUIDv7.generate(),
           actor: actor(),
-          at: DateTime.utc_now() |> DateTime.truncate(:second),
+          at: ${exFrameworkNow()},
           status: "ok",
           correlation_id: RequestContext.correlation_id(),
           scope_id: RequestContext.scope_id(),

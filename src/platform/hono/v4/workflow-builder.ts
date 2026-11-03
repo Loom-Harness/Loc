@@ -2575,7 +2575,9 @@ export function honoWorkflowStmtTarget(
           `Forbidden: ${g.source}`,
         )});`;
       });
-      const callLine = `${indent}${st.target}.${lowerFirst(st.op)}(${callArgs});`;
+      // `let r = a.op(…)` binds the call's value; the bare statement discards it.
+      const bind = st.result ? `const ${escapeTsIdent(st.result.name)} = ` : "";
+      const callLine = `${indent}${bind}${st.target}.${lowerFirst(st.op)}(${callArgs});`;
       // Audited op invoked inline → stage an audit_records row bracketing the
       // call with before/after wire snapshots, mirroring the per-operation
       // route.  Only on the command-route path (audit context present) and when
@@ -2769,9 +2771,13 @@ export function honoWorkflowStmtTarget(
     // Bare `Transfer.run(src, dst, amount)` domain-service call
     // (domain-services.md rev. 4, the `mutating` tier).  `renderArg` produces
     // the backend call (read-port-aware; `(await …)` for a reading service);
-    // emit as a statement.  The mutated aggregate args persist via the
-    // workflow's exit-saves (`savesAtExit`), emitted after the body.
-    domainServiceCall: (st, indent) => [`${indent}${renderArg(st.call)};`],
+    // emit as a statement (`const r = …` when bound).  The mutated aggregate
+    // args persist via the workflow's exit-saves (`savesAtExit`), emitted after
+    // the body — or, for a guarded result, at the end of the `match` arms
+    // that are not errors.
+    domainServiceCall: (st, indent) => [
+      `${indent}${st.result ? `const ${escapeTsIdent(st.result.name)} = ` : ""}${renderArg(st.call)};`,
+    ],
     // The by-id read's own absence error, so the router's
     // `AggregateNotFoundError` arm answers the identical ProblemDetails.
     notFound: (st, indent) => [

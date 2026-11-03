@@ -20,6 +20,7 @@ import { spellMarkers } from "../../_imports/symbol.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../../_workflow/stmt-target.js";
+import { javaJsonSqlType } from "../codec-spelling.js";
 import { javaLocals, localOf } from "../java-ident.js";
 import {
   API_CLIENT_CLASS,
@@ -393,9 +394,14 @@ export function renderJavaDispatcher(
    *  bookkeeping cost. */
   opFragments?: OpFragment[],
 ): { name: string; content: string; handlers: { method: string; event: string }[] } | null {
-  // A reactor body that matches over a domain-service result names the
-  // union's carrier records, which live beside the services.
-  const unionPkgOf = domainServiceUnionPkgOf(ctx, `${dctx.basePkg}.domain.services`);
+  // A reactor body that matches over a domain-service or operation result
+  // names the union's carrier records, which live beside the services or the
+  // aggregate.
+  const unionPkgOf = domainServiceUnionPkgOf(
+    ctx,
+    `${dctx.basePkg}.domain.services`,
+    dctx.entityPkgOf,
+  );
   // Re-derive over the (possibly merged) context WITH projections — the
   // enricher-stored `ctx.eventSubscriptions` omits projection folds (it derives
   // without them), so a projection-only context would otherwise get no
@@ -1027,7 +1033,7 @@ function renderEsHandler(
       `        for (var __e : __events) {`,
       `            __v++;`,
       `            jdbc.update(`,
-      `                "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::jsonb)",`,
+      `                "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::${javaJsonSqlType()})",`,
       `                "${streamType}", __sid, __v, __e.getClass().getSimpleName(), ${cls}._toData(__e));`,
       `        }`,
       `        for (var __e : __events) events.publishEvent(__e);`,
@@ -1135,7 +1141,7 @@ function esMergedBranchLines(
       `        for (var __e : __events) {`,
       `            __v++;`,
       `            jdbc.update(`,
-      `                "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::jsonb)",`,
+      `                "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::${javaJsonSqlType()})",`,
       `                "${streamType}", __sid, __v, __e.getClass().getSimpleName(), ${cls}._toData(__e));`,
       `        }`,
       `        for (var __e : __events) events.publishEvent(__e);`,

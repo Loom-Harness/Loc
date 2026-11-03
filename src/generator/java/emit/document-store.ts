@@ -1,15 +1,16 @@
+import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import type { EnrichedAggregateIR, ExprIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { tableNameFor } from "../../../util/storage-names.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { bypassDrops, type FilterBypass } from "../capability-filter.js";
+import { javaJsonSqlType } from "../codec-spelling.js";
 import { javaLocals, localOf } from "../java-ident.js";
 import { renderJavaExpr, renderJavaType } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
@@ -251,7 +252,7 @@ export function renderJavaDocumentRepositoryImpl(
     `            throw new IllegalStateException("document serialization failed", e);`,
     `        }`,
     `        var __written = jdbc.query(`,
-    `            "insert into ${table} (id, data, version) values (?, ?::jsonb, 1) "`,
+    `            "insert into ${table} (id, data, version) values (?, ?::${javaJsonSqlType()}, 1) "`,
     `                + "on conflict (id) do update set "`,
     `                + "data = jsonb_set(excluded.data, '{version}', to_jsonb(${bare}.version + 1)), "`,
     `                + "version = ${bare}.version + 1 "`,
@@ -330,12 +331,12 @@ export function renderJavaDocumentRepositoryImpl(
     ``,
     `    @Override`,
     `    public ${javaRef(ctx.entityPkg, agg.name)} save(${agg.name} aggregate) {`,
-    ...(aggregateIsVersioned(agg)
+    ...(rowVersionGuarded(agg)
       ? versionedSaveLines
       : [
           `        try {`,
           `            jdbc.update(`,
-          `                "insert into ${table} (id, data, version) values (?, ?::jsonb, 1) "`,
+          `                "insert into ${table} (id, data, version) values (?, ?::${javaJsonSqlType()}, 1) "`,
           `                    + "on conflict (id) do update set data = excluded.data, version = ${bare}.version + 1",`,
           `                aggregate.id().value(), JSON.writeValueAsString(aggregate));`,
           `        } catch (tools.jackson.core.JacksonException e) {`,

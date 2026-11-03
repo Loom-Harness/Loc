@@ -66,7 +66,7 @@ describe("java generator — versioned optimistic-concurrency", () => {
     // The NEGATIVE is the whole point: `@Version` would hand the counter back to
     // Hibernate's dirty check and re-open RS-20's three divergences.
     expect(entity).not.toContain("@Version");
-    expect(entity).toContain('@Column(name = "version")');
+    expect(entity).toContain('@Column(name = "version", updatable = false)');
     expect(entity).toContain("int version;");
     // …and the persist site needs a way to write the counter back onto the live
     // instance (the response DTO is projected off it), across packages —
@@ -253,7 +253,9 @@ describe("java generator — versioned optimistic-concurrency", () => {
           : "@MappedSuperclass",
       );
       expect(base).not.toContain("@Version");
-      expect(base).toMatch(/@Column\(name = "version"\)\s*\n\s*protected int version;/);
+      expect(base).toMatch(
+        /@Column\(name = "version", updatable = false\)\s*\n\s*protected int version;/,
+      );
       expect(base).toContain("public void _applyVersion(int next) {");
       expect(base).toContain("this.version = next;");
       // The concrete redeclares neither the field nor the mutator.

@@ -144,16 +144,9 @@ const PROJECTION_VO_ROW: readonly Backend[] = ["node", "java", "vanilla"];
 /** The backends that write a provenanced value into its lineage in the
  *  `Codec` fact's lineage encoding — the wire form: money's RS-12 string
  *  (owner ruling on #3527), a decimal's RS-24 number and a datetime's RS-38
- *  instant (owner rulings on #3593).  node, python and dotnet (EF and Dapper)
- *  are on the fact.  The other two generate the case cleanly, and each boots
- *  it as a tracked expected failure (`BEHAVIOURAL_XFAIL`,
- *  test/behavioral/registers.mjs):
- *  - **java**: the lineage's `object` slot serializes a JSON number
- *    (`3000.3`).
- *  - **elixir** (`vanilla`): Jason encodes the `Decimal` unscaled (`"3000.3"`).
- *  Each backend joins this row in the change that moves it onto the fact and
- *  deletes its expected-failure entry. */
-const MONEY_LINEAGE_WIRE: readonly Backend[] = ["node", "python", "dotnet"];
+ *  instant (owner rulings on #3593).  node, python, dotnet (EF and Dapper) and
+ *  java and elixir (`vanilla`) are on the fact — every backend. */
+const MONEY_LINEAGE_WIRE: readonly Backend[] = ["node", "python", "dotnet", "java", "vanilla"];
 
 // M-T6.96: .NET EF cannot re-host a part's nested OWNED instances under a new
 // owner (they are deleted with the old one), so the rebuild shape is held off
@@ -198,6 +191,13 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "core-domain", title: "enum/VO/event/containment/derived/invariant/operation/find", doc: "language", backends: ALL },
   { id: "state-gate", title: "`when` canCommand state gate + GET can-query companion", doc: "criterion", backends: ALL },
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
+  {
+    id: "match-op-result",
+    title: "`let r = a.op()` over an `or Error` result, matched in a workflow body",
+    doc: "workflow",
+    backends: ["node", "dotnet", "java", "python"],
+    note: "elixir refuses the let-bound mutating call (`loom.elixir-bound-mutating-call-unsupported`, a registered gap): a Phoenix context operation persists inside its own function and every with-chain site matches its `{:ok, _}` away.  `TryPay`'s error arm saves a `Note`, so the error path COMMITS — the shape that needs the EF Core / JPA error arm to detach the account; the unchanged read-back after it is the behavioural witness.",
+  },
   {
     id: "scaffold-get",
     title:
@@ -768,7 +768,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "a provenanced field's lineage — `inputs[].value` and `computedValue` carry money as the RS-12 wire string, a decimal as the RS-24 number and a datetime as the RS-38 instant",
     doc: "provenance",
     backends: MONEY_LINEAGE_WIRE,
-    note: "The `Codec` fact (`src/ir/enrich/codec.ts`) rules every scalar's lineage encoding to be its wire encoding (owner rulings on #3527 and #3593).  node, python and .NET write it through their wire encoders; the other two legs boot it as tracked expected failures (`BEHAVIOURAL_XFAIL`, #4402) until each is moved onto the fact — java sends money as a JSON number, elixir as an unscaled Decimal string.  The money assertions come first, so those legs fail on them before the decimal and datetime writes",
+    note: "The `Codec` fact (`src/ir/enrich/codec.ts`) rules every scalar's lineage encoding to be its wire encoding (owner rulings on #3527 and #3593).  Every backend — node, python, .NET, java and elixir — writes it through its wire encoders.  The money assertions come first, then the decimal and datetime writes",
   },
   {
     id: "audited",

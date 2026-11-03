@@ -4,6 +4,7 @@ import type {
   BoundedContext,
   CommandHandler,
   Expression,
+  LetStmt,
   LoadPath,
   OnDecl,
   QueryHandler,
@@ -26,6 +27,7 @@ import {
   isNameRef,
   isNotFoundStmt,
   isOnDecl,
+  isOperation,
   isPostfixChain,
   isPreconditionStmt,
   isProperty,
@@ -60,7 +62,11 @@ import type {
   WorkflowIR,
   WorkflowStmtIR,
 } from "../types/loom-ir.js";
-import { aggregateOpResolver, type SaveResolver } from "../util/domain-service-tier.js";
+import {
+  aggregateOpResolver,
+  mutatedParamNames,
+  type SaveResolver,
+} from "../util/domain-service-tier.js";
 import { lowerCallableParams } from "./callable-params.js";
 import { resolveBypass } from "./lower-capabilities.js";
 import {
@@ -489,6 +495,8 @@ function localOf(
   return { name: source.name, aggName: t.inner.name };
 }
 
+type SaveEntry = { name: string; aggName: string; repoName: string };
+
 interface LoweredWorkflowStmt {
   /** `null` for a statement phase ④ refuses and the IR has no form for (an
    *  explicit `Repo.save(x)`): it contributes nothing to the body. */
@@ -756,6 +764,14 @@ function lowerWorkflowStatementInner(
     const lowerBranch = (body: readonly Statement[], branchEnv: Env) =>
       lowerWorkflowStatements(body, branchEnv, aggsByName, reposByName, repoForAgg, saveResolver)
         .statements;
+    // A subject bound to an error-carrying mutating call's result: the call's
+    // mutations commit only where the result is not an error, so each such arm
+    // saves them at its end and an error arm saves nothing for them.
+    const guard = subject.kind === "ref" ? env.locals.get(subject.name)?.resultGuard : undefined;
+    const withGuardSaves = (saves: SaveEntry[]): SaveEntry[] => [
+      ...saves,
+      ...(guard?.saves ?? []).filter((g) => !saves.some((sv) => sv.name === g.name)),
+    ];
     const arms = stmt.varArms.map((arm) => {
       const varType = lowerAtom(arm.varType, env);
       const armEnv = !arm.binding
@@ -770,12 +786,15 @@ function lowerWorkflowStatementInner(
               repoName: repoForAgg.get(varType.name) ?? plural(varType.name),
             }
           : undefined;
+      const isError = isErrorVariantTag(variantTag(varType), env);
+      const savesInArm = computeSaves(body, repoForAgg, binder, saveResolver);
       return {
         varType,
         ...(arm.binding ? { binding: arm.binding } : {}),
-        isError: isErrorVariantTag(variantTag(varType), env),
+        isError,
         body,
-        savesInArm: computeSaves(body, repoForAgg, binder, saveResolver),
+        savesInArm: isError ? savesInArm : withGuardSaves(savesInArm),
+        ...(isError && guard && guard.saves.length > 0 ? { discardsInArm: guard.saves } : {}),
       };
     });
     // On a `T?` subject over an aggregate the `else` runs on a miss of that
@@ -790,6 +809,25 @@ function lowerWorkflowStatementInner(
           s.kind === "not-found" && missed ? { ...s, subject: missed } : s,
         )
       : undefined;
+    const savesInElse = computeSaves(elseBody ?? [], repoForAgg, undefined, saveResolver);
+    // The `else` of a guarded match commits only when every variant it covers
+    // is a success; one that covers an error saves nothing for the call (an
+    // `else` covering both is refused by `loom.workflow-mutation-result-unmatched`).
+    const armTags = new Set(arms.map((a) => variantTag(a.varType)));
+    const elseCovers =
+      subjectType?.kind === "union"
+        ? subjectType.variants.map(variantTag).filter((tag) => !armTags.has(tag))
+        : [];
+    const elseCommitsGuard =
+      guard !== undefined &&
+      elseBody !== undefined &&
+      elseCovers.length > 0 &&
+      elseCovers.every((tag) => !guard.errorVariants.includes(tag));
+    const elseDropsGuard =
+      guard !== undefined &&
+      guard.saves.length > 0 &&
+      elseBody !== undefined &&
+      elseCovers.some((tag) => guard.errorVariants.includes(tag));
     return {
       stmt: {
         kind: "variant-match",
@@ -798,7 +836,8 @@ function lowerWorkflowStatementInner(
         ...(absenceSubject ? { subjectShape: "absence" as const } : {}),
         arms,
         ...(elseBody ? { elseBody } : {}),
-        savesInElse: computeSaves(elseBody ?? [], repoForAgg, undefined, saveResolver),
+        savesInElse: elseCommitsGuard ? withGuardSaves(savesInElse) : savesInElse,
+        ...(elseDropsGuard ? { discardsInElse: guard.saves } : {}),
       },
       envAfter: env,
     };
@@ -990,6 +1029,13 @@ function lowerWorkflowStatementInner(
         binding: { name: stmt.name, aggName, repoName: repo.name },
       };
     }
+    // A mutating call bound with `let`: `let r = a.withdraw(x)` (an operation
+    // of the aggregate a local holds) or `let r = Transfer.run(…)` (a
+    // `mutating` domain-service operation).  Lowered to the call statement it
+    // is, carrying the binding, so it mutates — and saves — exactly what the
+    // bare statement does.
+    const boundCall = lowerBoundMutatingCall(stmt, env, aggsByName, repoForAgg, saveResolver);
+    if (boundCall) return boundCall;
     // expr-let: scalar / generic expression.  A declared type is the binding's
     // type, and the value lowers against it (literal promotion).
     const t = stmt.type ? lowerType(stmt.type, env) : inferExprType(stmt.expr, env);
@@ -1218,6 +1264,87 @@ function lowerWorkflowStatementInner(
       expr: { kind: "ref", name: "unknown", refKind: "unknown" },
     },
     envAfter: env,
+  };
+}
+
+/** `let r = a.op(args)` over an operation of the aggregate local `a` holds →
+ *  an `op-call` with a `result`; `let r = Svc.op(args)` over a `mutating`
+ *  domain-service operation → a `domain-service-call` with a `result`.
+ *  Anything else is not a bound mutating call (undefined).
+ *
+ *  When the result type is a union with `error` variants the binding carries a
+ *  `resultGuard`: the aggregates the call mutates, which a later statement
+ *  `match` over the binding saves in its non-error arms (and which
+ *  `computeSaves` leaves out of every exit save). */
+function lowerBoundMutatingCall(
+  stmt: LetStmt,
+  env: Env,
+  aggsByName: Map<string, Aggregate>,
+  repoForAgg: Map<string, string>,
+  saveResolver: SaveResolver | undefined,
+): LoweredWorkflowStmt | undefined {
+  const expr = stmt.expr;
+  if (!expr || !isPostfixChain(expr) || expr.suffixes.length !== 1) return undefined;
+  const suffix = expr.suffixes[0]!;
+  if (!isMemberSuffix(suffix) || !suffix.call || !isNameRef(expr.head)) return undefined;
+  const head = expr.head.name;
+  const opName = suffix.member;
+  const saveOf = (name: string, aggName: string) => ({
+    name,
+    aggName,
+    repoName: repoForAgg.get(aggName) ?? plural(aggName),
+  });
+  const resultOf = (mutated: { name: string; aggName: string; repoName: string }[]) => {
+    const type = stmt.type ? lowerType(stmt.type, env) : inferExprType(expr, env);
+    const errorVariants =
+      type.kind === "union"
+        ? type.variants.map(variantTag).filter((tag) => isErrorVariantTag(tag, env))
+        : [];
+    const resultGuard = errorVariants.length > 0 ? { saves: mutated, errorVariants } : undefined;
+    return {
+      result: { name: stmt.name, type, errorVariants },
+      envAfter: withLocal(env, stmt.name, "let", type, resultGuard ? { resultGuard } : {}),
+    };
+  };
+  if (env.locals.has(head)) {
+    const aggName = aggNameForLocal(env, head);
+    const agg = aggName ? aggsByName.get(aggName) : undefined;
+    if (!aggName || !agg?.members.some((m) => isOperation(m) && m.name === opName)) {
+      return undefined;
+    }
+    const lowered = lowerExpr(expr, env);
+    if (lowered.kind !== "method-call") return undefined;
+    const { result, envAfter } = resultOf([saveOf(head, aggName)]);
+    return {
+      stmt: { kind: "op-call", target: head, aggName, op: opName, args: lowered.args, result },
+      envAfter,
+    };
+  }
+  const svc = findDomainServiceByName(env, head);
+  const svcOp = svc ? saveResolver?.resolveServiceOp(svc.name, opName) : undefined;
+  if (!svc || !svcOp || !saveResolver) return undefined;
+  const mutatedParams = mutatedParamNames(svcOp, saveResolver.resolveAggOp);
+  if (mutatedParams.size === 0) return undefined;
+  const call = lowerExpr(expr, env);
+  if (call.kind !== "call" || call.callKind !== "domain-service") return undefined;
+  const callArgs = call.args;
+  const mutated: { name: string; aggName: string; repoName: string }[] = [];
+  svcOp.params.forEach((p, i) => {
+    const arg = callArgs[i];
+    if (mutatedParams.has(p.name) && p.type.kind === "entity" && arg?.kind === "ref") {
+      mutated.push(saveOf(arg.name, p.type.name));
+    }
+  });
+  const { result, envAfter } = resultOf(mutated);
+  return {
+    stmt: {
+      kind: "domain-service-call",
+      service: svc.name,
+      op: opName,
+      call,
+      result,
+    },
+    envAfter,
   };
 }
 
