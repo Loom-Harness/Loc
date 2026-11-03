@@ -575,6 +575,7 @@ export class Elaborator {
       if (isEntityPart(decl)) return Ty.record({ of: "part", ref: decl });
       if (isEventDecl(decl)) return Ty.record({ of: "event", ref: decl });
       if (isPayloadDecl(decl)) return Ty.record({ of: "payload", ref: decl });
+      if (isWorkflow(decl)) return Ty.record({ of: "workflow", ref: decl });
       return Ty.unknown("unresolved-type");
     }
     return Ty.unknown("unresolved-type");

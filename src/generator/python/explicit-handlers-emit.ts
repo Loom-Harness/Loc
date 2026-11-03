@@ -52,6 +52,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { handlerUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
+import { entryResult } from "../../ir/util/entry-result.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
 import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
 import {
@@ -78,6 +79,11 @@ import { hasMarkers } from "../_imports/symbol.js";
 import { nestedSaves, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { paramPyType, requestPyType } from "./emit/http-models.js";
 import { withFieldConstraint } from "./emit/wire-constraints.js";
+import {
+  entryErrorPyLines,
+  entryErrorStatusesPy,
+  entryResultPyLines,
+} from "./entry-result-emit.js";
 import { type PyRenderContext, renderPyExpr, renderPyType } from "./render-expr.js";
 import { aggHasFieldMask } from "./repository-builder.js";
 import { resourceImportLines } from "./resource-clients.js";
@@ -417,7 +423,8 @@ function renderHandlerModule(
   // a COLLECTION return maps each element). When projecting, the annotation becomes
   // `dict[str, object]` (or `list[dict[str, object]]`), NOT the aggregate class
   // (which would need a domain import the module never made).
-  const normRet = normalizeHandlerReturn(h.returnType, ctx);
+  const er = entryResult(h, ctx);
+  const normRet = er ? undefined : normalizeHandlerReturn(h.returnType, ctx);
   let projectRepoHandle: string | undefined;
   let projectIsCollection = false;
   // A `mask unless` aggregate redacts its response fields fail-closed
@@ -445,13 +452,23 @@ function renderHandlerModule(
       }
     }
   }
-  const ret = projectRepoHandle
-    ? projectIsCollection
-      ? "list[dict[str, object]]"
-      : "dict[str, object]"
-    : normRet
-      ? renderPyType(normRet)
-      : "None";
+  // An expected-failure result's aggregate arms project through their repo.
+  if (er) {
+    for (const arm of er.arms) {
+      if (arm.kind === "aggregate" && ![...repos.values()].includes(arm.name)) {
+        repos.set(plural(arm.name), arm.name);
+      }
+    }
+  }
+  const ret = er
+    ? "dict[str, object]"
+    : projectRepoHandle
+      ? projectIsCollection
+        ? "list[dict[str, object]]"
+        : "dict[str, object]"
+      : normRet
+        ? renderPyType(normRet)
+        : "None";
   const repoLines = [...repos].map(
     ([repo, agg]) => `    ${snake(repo)} = ${repoClassRef(agg)}(session, ${dispatcherExpr})`,
   );
@@ -460,7 +477,9 @@ function renderHandlerModule(
   // returnValue's let refs into it (the shared collector only scans statements).
   const usedLets = collectLiveLetNames(h.statements, h.savesAtExit);
   walkExpr(h.returnValue, (n) => {
-    if (n.kind === "ref" && n.refKind === "let") usedLets.add(n.name);
+    if (n.kind === "ref" && (n.refKind === "let" || n.refKind === "match-binding")) {
+      usedLets.add(n.name);
+    }
   });
   const renderSave = pySaveRenderer(h.statements, ctx.aggregates);
   const stmtLines = renderWorkflowStmtChunks(
@@ -476,9 +495,25 @@ function renderHandlerModule(
         : `${projectRepoHandle}.${projectWire}(${renderPyExpr(h.returnValue, rctx)})`
       : renderPyExpr(h.returnValue, rctx)
     : null;
-  const returnLine = returnExpr ? `    return ${returnExpr}` : null;
+  const returnLines =
+    er && h.returnType?.kind === "union"
+      ? [
+          ...entryResultPyLines(
+            er,
+            h.returnType,
+            (e) => renderPyExpr(e, rctx),
+            ctx,
+            "    ",
+            "handler_result",
+            (agg) => snake([...repos].find(([, a]) => a === agg)?.[0] ?? plural(agg)),
+          ),
+          "    return handler_result",
+        ]
+      : returnExpr
+        ? [`    return ${returnExpr}`]
+        : [];
 
-  const bodyLines = [...repoLines, ...stmtLines, ...saveLines, ...(returnLine ? [returnLine] : [])];
+  const bodyLines = [...repoLines, ...stmtLines, ...saveLines, ...returnLines];
   const body = bodyLines.length > 0 ? bodyLines.join("\n") : "    pass";
 
   const def = `async def ${fnName}(${params}) -> ${ret}:\n${body}\n`;
@@ -614,12 +649,16 @@ function routedResponsesKwarg(
   model: string | undefined,
   hasBody: boolean,
   ctx: EnrichedBoundedContextIR,
+  /** The statuses an expected-failure result's error arms answer. */
+  extra: readonly number[] = [],
 ): string {
-  const statuses = [
+  const base = [
     wireStatus("malformed-body"),
     wireStatus("not-found", ctx.structuralErrorStatuses),
     ...(hasBody ? [wireStatus("unsupported-media-type")] : []),
   ];
+  const added = extra.filter((st) => !base.includes(st));
+  const statuses = added.length > 0 ? [...base, ...added].sort((a, b) => a - b) : base;
   const entries = [
     ...(model ? [`200: {"model": ${model}, "description": "OK"}`] : []),
     ...statuses.map((st) => pyProblemResponseEntry(st, H.ProblemDetails)),
@@ -660,6 +699,9 @@ export function emitPyExplicitRouteRouter(
     }
 
     const usesUser = handlerUsesUser(h, ctx);
+    // An expected-failure result answers its error arms here, at their mapped
+    // status (the 4xx rolls the request's transaction back).
+    const er = h.extern ? undefined : entryResult(h, ctx);
     // Split params: those bound by a `{token}` in the route path stay URL path
     // params (wire type + call-site coercion); every other param rides in ONE
     // `body: <Handler>Body` request model. A bare Pydantic-model param would be
@@ -696,7 +738,7 @@ export function emitPyExplicitRouteRouter(
       ...pathParams.map((p) => pyAliasedParam(p.name, paramPyType(p.type, ctx), "Path")),
       ...queryParams.map((p) => pyQueryParam(p.name, paramPyType(p.type, ctx))),
       ...(bodyModelName ? [`body: ${bodyModelName}`] : []),
-      ...(usesUser ? [PY_REQUEST_PARAM] : []),
+      ...(usesUser || er ? [PY_REQUEST_PARAM] : []),
       "session: SessionDep",
     ].join(", ");
     // Call args stay in flat declared order: path params coerce from the route
@@ -722,11 +764,23 @@ export function emitPyExplicitRouteRouter(
     const routeName = `${snake(h.name)}_route`;
 
     const responses = routedResponsesKwarg(
-      hasReturn && !h.extern ? routedResponseModel(h, ctx) : undefined,
+      hasReturn && !h.extern && !er ? routedResponseModel(h, ctx) : undefined,
       bodyParams.length > 0,
       ctx,
+      er ? entryErrorStatusesPy(er, ctx) : [],
     );
-    if (hasReturn) {
+    if (er) {
+      routeBlocks.push(
+        lines(
+          `@router.${method}("${path}", operation_id="${opId}"${responses})`,
+          `async def ${routeName}(${sig}) -> ${ANY}:`,
+          usesUser ? PY_USER_BIND : null,
+          `    result = await ${handlerFnRef(h.name)}(${callArgs})`,
+          ...entryErrorPyLines(er, ctx, "result", H.JSONResponse, "    "),
+          `    return result`,
+        ),
+      );
+    } else if (hasReturn) {
       routeBlocks.push(
         lines(
           `@router.${method}("${path}", operation_id="${opId}"${responses})`,

@@ -82,9 +82,7 @@ describe("table rename — step ordering against the renamed relation", () => {
     expect(steps.some((s) => s.op === "dropCheck" && s.table === "staffs")).toBe(true);
 
     const sql = steps.map(renderPgStep);
-    const rename = sql.findIndex(
-      (l) => l === 'ALTER TABLE "people"."employees" RENAME TO "staffs";',
-    );
+    const rename = sql.indexOf('ALTER TABLE "people"."employees" RENAME TO "staffs";');
     const dropCheck = sql.findIndex((l) =>
       l.startsWith(
         'ALTER TABLE "people"."staffs" DROP CONSTRAINT IF EXISTS "employees_grade_enum"',

@@ -114,8 +114,16 @@ const WAIVERS: Record<string, { count: number; why: string }> = {
     why: "the C# DbSet property of the tenant registry",
   },
   "src/generator/python/explicit-handlers-emit.ts": {
+    count: 3,
+    why: "the repository name a Python handler keys its repo handles by (and the handle an expected-failure aggregate arm projects through)",
+  },
+  "src/generator/python/workflows-builder.ts": {
     count: 1,
-    why: "the repository name a Python handler keys its repo handles by",
+    why: "the repository handle an expected-failure aggregate arm projects through (`accounts`)",
+  },
+  "src/platform/hono/v4/explicit-handlers-builder.ts": {
+    count: 1,
+    why: "the repository name an expected-failure handler builds its repo handle from (`new AccountRepository` bound to `accounts`)",
   },
   "src/generator/_packs/loader.ts": {
     count: 1,

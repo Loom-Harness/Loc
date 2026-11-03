@@ -92,6 +92,10 @@ const NO_DOWNSTREAM_READER: readonly string[] = [
   "readsDefaultDenied", // see `defaultDenied` above — consumed via read-gates.ts
   "resourceInterfaces",
   "retain",
+  // An expected-failure result's per-value variant tags: read only through
+  // `src/ir/util/entry-result.ts` (`entryResult`), which every backend's
+  // workflow / handler emitter renders the answered value from.
+  "returnTags",
   "rootEnums",
   "rootPayloads",
   "rootValueObjects",

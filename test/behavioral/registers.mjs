@@ -271,6 +271,24 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
+    // `withdraw` returns early from an `if` branch, which a Phoenix operation
+    // body cannot express, so generation stops at phase ⑦.
+    "op-return-this": {
+      issue: "#3316",
+      expect: "error",
+      match: "loom\\.elixir-if-stmt-unsupported",
+      reason:
+        "an operation that returns early from an `if` branch: an Elixir body has no early return",
+    },
+    // An expected-failure entry point (`T or E`) is refused on Phoenix, so
+    // generation stops at phase ⑦ (unsupported register).
+    "workflow-expected-failure": {
+      issue: "#4571",
+      expect: "error",
+      match: "loom\\.elixir-entry-result-unsupported",
+      reason:
+        "a workflow `create` / handler answering `T or E`: the Phoenix routes have no tagged result and no rollback seam that undoes the whole command on the error",
+    },
     // A mutating call bound with `let` is refused on Phoenix, so generation
     // stops at phase ⑦ (unsupported register).
     "match-op-result": {

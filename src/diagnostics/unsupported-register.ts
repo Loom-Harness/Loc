@@ -108,6 +108,21 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: false,
   },
   {
+    code: "loom.elixir-entry-result-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/call-result-checks.ts:239",
+    what:
+      "A routed workflow `create`, `commandHandler` or `queryHandler` an elixir deployable " +
+      "emits whose result is an expected failure (`T or E`), and a `create` answering its own " +
+      "workflow (`return this`).  The other four backends run the entry point in one " +
+      "transaction, roll it back whole on an error answer (saves, saga row, the error arm's " +
+      "writes, no events) and answer the error at its mapped status; the Phoenix with-chain " +
+      "routes have no tagged result to branch on and no `Repo.rollback` seam around the saga " +
+      "row and the body, and the bound mutating call most such bodies match is refused " +
+      "already (`loom.elixir-bound-mutating-call-unsupported`)",
+    mission: "#4571",
+  },
+  {
     code: "loom.ui-multi-backend-unsupported",
     kind: "gap",
     site: "src/ir/validate/checks/ui-backend-binding-checks.ts:48",
@@ -147,14 +162,16 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-return-type-unsupported",
     kind: "scope",
-    site: "src/language/validators/structural.ts:438",
+    site: "src/language/validators/structural.ts:496",
     what:
-      "a workflow `create(…): T` whose `T` is an aggregate / payload / value object / " +
-      "decimal / money / datetime.  The v1 result (B-03) ships `X id` / `string` / `int` / " +
-      "`long` / `bool` on all five backends; the rest need the per-backend response " +
-      "projection the `commandHandler` route already has.  (The `eventSourced` refusal is a " +
-      "permanent rule with its own code, `loom.workflow-return-event-sourced`.)",
-    mission: "#3916",
+      "a routed entry point's result that is (or has a success variant that is) a value " +
+      "object / decimal / money / date / datetime, and a workflow `create`'s plain (non-union) " +
+      "aggregate or payload result.  Shipped: `X id` / `string` / `int` / `long` / `bool`, the " +
+      "create's own workflow (`return this`, its instance state), and `T or E` unions whose " +
+      "success variants are those or payloads or aggregates (answered as `<Agg>Response`).  " +
+      "(The `eventSourced` refusal is a permanent rule with its own code, " +
+      "`loom.workflow-return-event-sourced`.)",
+    mission: "#4572",
     verified: false,
   },
   {
@@ -777,7 +794,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1665",
+    site: "src/ir/validate/checks/workflow-checks.ts:1694",
     what: "workflow load of an array result — a `let` binds one row",
     mission: "#3376",
     verified: true,
