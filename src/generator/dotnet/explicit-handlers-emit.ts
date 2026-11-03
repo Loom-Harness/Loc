@@ -67,6 +67,7 @@ import {
 } from "../../ir/util/paged-run.js";
 import { routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import { bodyWriteScopeGuards, writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { rewrite } from "../../util/emission-sink.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
@@ -304,6 +305,12 @@ function renderHandlerClass(
   // An expected-failure result (`T or E`): one transaction, rolled back on an
   // error answer.
   const er = entryResult(h, ctx);
+  // A body that re-checks a held row's write scope runs in one transaction,
+  // so a row outside the scope fails the whole command and rolls back the
+  // rows it already changed.
+  const writeScope = writeScopeContext(h.statements, ctx);
+  const rechecks = bodyWriteScopeGuards(h.statements, writeScope).length > 0;
+  const needsUow = er !== undefined || rechecks;
   const iface =
     kind === "Command"
       ? `ICommandHandler<${recName}, ${ret}>`
@@ -333,19 +340,19 @@ function renderHandlerClass(
       (svc) => `    private readonly ${upperFirst(svc)} _${lowerFirst(svc)};`,
     ),
     ...(usesUser ? ["    private readonly ICurrentUserAccessor _currentUser;"] : []),
-    ...(er ? [`    private readonly global::${ns}.Domain.Common.IUnitOfWork _uow;`] : []),
+    ...(needsUow ? [`    private readonly global::${ns}.Domain.Common.IUnitOfWork _uow;`] : []),
   ];
   const ctorParams = [
     ...[...repos].map(([repo, a]) => `I${a}Repository ${repoField(repo).slice(1)}`),
     ...calledServices.reading.map((svc) => `${upperFirst(svc)} ${lowerFirst(svc)}`),
     ...(usesUser ? ["ICurrentUserAccessor currentUser"] : []),
-    ...(er ? [`global::${ns}.Domain.Common.IUnitOfWork uow`] : []),
+    ...(needsUow ? [`global::${ns}.Domain.Common.IUnitOfWork uow`] : []),
   ].join(", ");
   const ctorAssigns = [
     ...[...repos].map(([repo]) => `${repoField(repo)} = ${repoField(repo).slice(1)}`),
     ...calledServices.reading.map((svc) => `_${lowerFirst(svc)} = ${lowerFirst(svc)}`),
     ...(usesUser ? ["_currentUser = currentUser"] : []),
-    ...(er ? ["_uow = uow"] : []),
+    ...(needsUow ? ["_uow = uow"] : []),
   ].join("; ");
   const ctor =
     fields.length === 0
@@ -369,7 +376,7 @@ function renderHandlerClass(
   // dereferences its load (op-call target / return projection).
   const stmtLines = renderWorkflowStmtChunks(
     h.statements,
-    csWorkflowStmtTarget(ctx, renderArg, true, false),
+    csWorkflowStmtTarget(ctx, renderArg, true, false, writeScope),
     INDENT,
   ).flat();
   const saveLines = h.savesAtExit.map(
@@ -420,7 +427,25 @@ function renderHandlerClass(
           "        await __deferral.FlushAsync(cancellationToken);",
           "        return handlerResult;",
         ].join("\n")
-      : [...userLines, ...stmtLines, ...saveLines, returnLine].join("\n");
+      : rechecks
+        ? [
+            ...userLines,
+            "        using var __deferral = DomainEventDeferral.Begin();",
+            "        await using var tx = await _uow.BeginTransactionAsync(cancellationToken);",
+            "        try",
+            "        {",
+            ...[...stmtLines, ...saveLines].map((l) => `    ${l}`),
+            "            await tx.CommitAsync(cancellationToken);",
+            "        }",
+            "        catch",
+            "        {",
+            "            await tx.RollbackAsync(cancellationToken);",
+            "            throw;",
+            "        }",
+            "        await __deferral.FlushAsync(cancellationToken);",
+            returnLine,
+          ].join("\n")
+        : [...userLines, ...stmtLines, ...saveLines, returnLine].join("\n");
 
   // The `Handle` signature (`ValueTask<Order>`) needs the return aggregate's
   // domain namespace too — usually the same as the loaded one, but not always.

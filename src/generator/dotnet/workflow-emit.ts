@@ -47,6 +47,11 @@ import {
   walkWorkflowStmtsDeep,
 } from "../../ir/util/walk.js";
 import {
+  bodyWriteScopeGuards,
+  type WriteScopeContext,
+  writeScopeContext,
+} from "../../ir/util/write-scope-guards.js";
+import {
   commandCreateEntryResult,
   commandCreateResult,
   emitsCommandRoute,
@@ -1395,7 +1400,14 @@ function renderHandler(
   // An expected-failure result (`T or E`) runs in one transaction whether or
   // not the workflow is `transactional`; an error answer rolls it back.
   const er = commandCreateEntryResult(wf, ctx);
-  const inTx = wf.transactional || er !== undefined;
+  // A body that re-checks a held row's write scope runs in one transaction
+  // too, so a row outside the scope fails the whole command and rolls back
+  // the rows it already changed.
+  const writeScope = writeScopeContext(wf.statements, ctx);
+  const inTx =
+    wf.transactional ||
+    er !== undefined ||
+    bodyWriteScopeGuards(wf.statements, writeScope).length > 0;
   // F58 — a state-bearing workflow's COMMAND handler must load-or-allocate the
   // same saga row `renderEventReactorHandler` does and render the body against
   // it.  Without this the body's own-state writes rendered `this.<Field>` on a
@@ -1605,7 +1617,7 @@ function renderHandler(
   // that owns the recorder + this file's final content (source-map).
   const stmtChunks = renderWorkflowStmtChunks(
     wf.statements,
-    csWorkflowStmtTarget(ctx, renderArg, dereffedLoads, auditsOps),
+    csWorkflowStmtTarget(ctx, renderArg, dereffedLoads, auditsOps, writeScope),
     INDENT,
   );
   stmtLines.push(...stmtChunks.flat());
@@ -1857,6 +1869,10 @@ export function csWorkflowStmtTarget(
    *  an AuditRecord via the handler's injected `_audit`; the reactor path
    *  leaves it false (no audit writer injected there). */
   audit = false,
+  /** The body's write-scope requirement — present on a command body (a
+   *  workflow's command handler, an explicit command handler); a reactor
+   *  passes none. */
+  writeScope?: WriteScopeContext,
 ): WorkflowStmtTarget {
   // Unique suffix per in-body audit capture so multiple audited op-calls don't
   // collide on the before/after temp-var names.
@@ -2308,6 +2324,20 @@ export function csWorkflowStmtTarget(
     notFound: (st, indent) => [
       `${indent}throw new AggregateNotFoundException(${JSON.stringify(notFoundStmtDetail(st))});`,
     ],
+    // A held row is re-loaded through `GetByIdForWriteAsync` — the load every
+    // mutation command handler uses — before the statement mutates or deletes
+    // it; a row outside the caller's write scope throws the same not-found
+    // (→ 404).
+    ...(writeScope
+      ? {
+          writeScope: {
+            cx: writeScope,
+            guard: (g, indent) => [
+              `${indent}_ = await _${lowerFirst(g.repoName)}.GetByIdForWriteAsync(${g.name}.Id, cancellationToken) ?? throw ${csNotFoundException(null, `${g.aggName} {${g.name}.Id}`)};`,
+            ],
+          },
+        }
+      : {}),
   };
 }
 
