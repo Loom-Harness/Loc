@@ -17,6 +17,8 @@
 //   3. the React pages and shell call `t()` with those keys at the implicit
 //      sites (form labels, submit buttons, the sidebar).
 //
+// The same census runs over the Vue, Svelte and Angular packs (bottom of file).
+//
 // Mutation-proven: reverting one scaffold site to an English literal (the List
 // heading, `otherNameOf(aggName)` → `stringLit("Tasks")`) fails check 1.
 
@@ -89,5 +91,44 @@ describe("crud starter — one catalog key per model fact", () => {
     expect(create).toContain('{t("Projects.Task.op.create", "Create")}</Button>');
     const shell = fileAt(files, "src/App.tsx");
     expect(shell).toContain('label={t("Projects.Task.name.other", "Tasks")}');
+  });
+});
+
+// The same census over every Vue, Svelte and Angular pack: the crud starter on
+// that pack carries one catalog key per model fact, ships the identity keys in
+// the app's own catalog, and reads them at the implicit sites.
+describe.each([
+  "vuetify",
+  "shadcnVue",
+  "flowbite",
+  "shadcnSvelte",
+  "angularMaterial",
+  "primeng",
+  "spartanNg",
+] as const)("crud starter on %s — identity keys at the implicit sites", (design) => {
+  let files: Map<string, string>;
+  let identity: [string, string][];
+  beforeAll(async () => {
+    files = await generateSystemFiles(
+      renderStarter({ name: "x", template: "crud", platform: "node", design, invocation: "ddd" }),
+    );
+    identity = Object.entries(jsonAt(files, ".loom/messages.en.json")).filter(([k]) =>
+      isModelTextKey(k),
+    );
+  });
+
+  it("ships the identity keys in the app's catalog", () => {
+    const app = jsonAt(files, "/locales/en.json");
+    expect(identity.length).toBeGreaterThan(0);
+    for (const [k, v] of identity) expect(app[k], k).toBe(v);
+  });
+
+  it("calls t() with identity keys for form labels and the create button", () => {
+    const source = [...files]
+      .filter(([p]) => !p.startsWith(".loom/") && !p.includes("/locales/"))
+      .map(([, c]) => c)
+      .join("\n");
+    expect(source).toContain('t("Projects.Task.field.title", "Title")');
+    expect(source).toContain('t("Projects.Task.op.create", "Create")');
   });
 });

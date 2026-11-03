@@ -202,7 +202,11 @@ export function generateVueForContexts(
   // Pack-DECLARED chrome rides the SAME already-enabled gate (see the React
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
-  const formScope = { contexts, sentences: pack.manifest.sentenceChrome ?? [] };
+  const formScope = {
+    contexts,
+    sentences: pack.manifest.sentenceChrome ?? [],
+    implicitModelText: vueTarget.modelTextImplicitSites === true,
+  };
   if (i18nEnabled) {
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
     // produced (scoped to this ui's keys, `TODO:` values already dropped by

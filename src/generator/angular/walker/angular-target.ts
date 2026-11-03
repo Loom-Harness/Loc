@@ -57,6 +57,18 @@ import { renderAngularDataGridChild } from "./data-grid-child.js";
  *  by the cross-target conformance test and the shared markup walker. */
 export const angularTarget: WalkerTarget = {
   framework: "angular",
+  // The Angular form fields (`angular/form-fields.ts`) and the shared `EnumBadge`
+  // read the identity-keyed form label / enum option / submit text
+  // (`_walker/model-text-sites.ts`).
+  modelTextImplicitSites: true,
+
+  /** An Angular template has no arrow functions or type assertions, so an enum
+   *  value's label is an object-literal lookup.  `$any` types the literal as
+   *  indexable by the (string) value under `strictTemplates`. */
+  renderEnumLabelLookup(entries, valueExpr): string {
+    const literal = entries.map((e) => `${JSON.stringify(e.value)}: ${e.label}`).join(", ");
+    return `($any({ ${literal} })[${valueExpr}] ?? ${valueExpr})`;
+  },
 
   // The chart component takes a FLAT point list, so the `x:`/`y:` accessors are
   // applied here rather than passed along as key names — the same split every

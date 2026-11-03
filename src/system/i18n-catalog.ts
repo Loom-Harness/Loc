@@ -71,9 +71,19 @@ function packSentencesForUi(sys: EnrichedSystemIR, ui: UiIR): string[] {
   return [...out].sort();
 }
 
+/** The pack formats whose frontends key their implicit model-text sites (form
+ *  labels, enum options, submit buttons) by identity — the targets that set
+ *  `WalkerTarget.modelTextImplicitSites`.  HEEx packs (and the pack-less Feliz
+ *  and Flutter frontends) keep their humanized English. */
+export const IMPLICIT_MODEL_TEXT_FORMATS: ReadonlySet<string> = new Set([
+  "tsx",
+  "vue",
+  "svelte",
+  "angular",
+]);
+
 /** Whether a UI is rendered by a frontend that keys its implicit model-text
- *  sites (form labels, enum options, submit buttons) by identity — today the
- *  React (`tsx`) packs; see `WalkerTarget.modelTextImplicitSites`. */
+ *  sites by identity; see {@link IMPLICIT_MODEL_TEXT_FORMATS}. */
 function rendersImplicitModelText(sys: EnrichedSystemIR, ui: UiIR): boolean {
   return sys.deployables.some(
     (dep) =>
@@ -81,7 +91,7 @@ function rendersImplicitModelText(sys: EnrichedSystemIR, ui: UiIR): boolean {
       (dep.uiName === ui.name || (dep.hostedUiNames ?? []).includes(ui.name)) &&
       dep.platform !== "feliz" &&
       dep.platform !== "flutter" &&
-      packFormatForBuiltin(dep.design) === "tsx",
+      IMPLICIT_MODEL_TEXT_FORMATS.has(packFormatForBuiltin(dep.design) ?? "tsx"),
   );
 }
 

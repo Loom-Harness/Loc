@@ -42,7 +42,7 @@ import type { WalkContext } from "./walker-core.js";
 const STRING: TypeIR = { kind: "primitive", name: "string" };
 
 /** True when the implicit sites render through the translation runtime. */
-function implicitModelTextOn(ctx: WalkContext): boolean {
+export function implicitModelTextOn(ctx: WalkContext): boolean {
   return ctx.i18nPrefix !== undefined && ctx.target.modelTextImplicitSites === true;
 }
 
@@ -55,6 +55,39 @@ function enumLabelFn(ctx: WalkContext, values: readonly string[], keys: readonly
     return `${JSON.stringify(v)}: ${localizedModelText(ctx, keys[i]!, text)}`;
   });
   return `((v: string): string => ({ ${entries.join(", ")} } as Record<string, string>)[v] ?? v)`;
+}
+
+/** The `(value → label)` entries of an enum, each label the translation call of
+ *  the value's identity key.  `keys` parallels `values`. */
+export function enumLabelEntries(
+  ctx: WalkContext,
+  values: readonly string[],
+  keys: readonly string[],
+): Array<{ value: string; label: string }> {
+  return values.map((v, i) => ({
+    value: v,
+    label: localizedModelText(
+      ctx,
+      keys[i]!,
+      modelTextDefault({ ctx: undefined, type: "", facet: "value", member: v }),
+    ),
+  }));
+}
+
+/** The label of `valueExpr`'s enum value as one expression: the typed
+ *  `enumLabelFn` applied to it, or — for a target whose template language has
+ *  no arrow functions or type assertions (`WalkerTarget.renderEnumLabelLookup`)
+ *  — that target's own lookup. */
+function enumLabelLookup(
+  ctx: WalkContext,
+  values: readonly string[],
+  keys: readonly string[],
+  valueExpr: string,
+): string {
+  if (ctx.target.renderEnumLabelLookup) {
+    return ctx.target.renderEnumLabelLookup(enumLabelEntries(ctx, values, keys), valueExpr);
+  }
+  return `${enumLabelFn(ctx, values, keys)}(${valueExpr})`;
 }
 
 /** The pack-template tokens of one form field's identity-keyed text:
@@ -115,7 +148,7 @@ export function enumBadgeValueExpr(
     const keys = en.values.map((v) =>
       modelTextKey({ ctx: owner, type: en.name, facet: "value", member: v }),
     );
-    return `${enumLabelFn(ctx, en.values, keys)}(${valueExpr})`;
+    return enumLabelLookup(ctx, en.values, keys, valueExpr);
   }
   return valueExpr;
 }

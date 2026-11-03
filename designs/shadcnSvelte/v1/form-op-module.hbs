@@ -23,7 +23,7 @@
             {{/each}}{{else}}<p class="text-sm text-muted-foreground">{{{chrome "noParameters"}}}</p>
             {{/if}}<div class="mt-4 flex justify-end gap-2">
               <button type="button" class="loom-btn loom-btn-outline" onclick={() => { {{opCamel}}ModalOpen = false; }}>{{{cancelLabel}}}</button>
-              <button type="submit" class="loom-btn loom-btn-primary" disabled={ {{opCamel}}.isPending } data-testid="{{slug}}-op-{{opName}}-submit">{{humanOp}}</button>
+              <button type="submit" class="loom-btn loom-btn-primary" disabled={ {{opCamel}}.isPending } data-testid="{{slug}}-op-{{opName}}-submit">{{{humanOp}}}</button>
             </div>
           </div>
         </form>

@@ -1,2 +1,2 @@
-<v-switch label="{{label}}" data-testid="{{testId}}" v-model="form.values.{{path}}" :error-messages='form.errors["{{path}}"]' />
+<v-switch {{#if labelExpr}}:label='{{{labelExpr}}}'{{else}}label="{{label}}"{{/if}} data-testid="{{testId}}" v-model="form.values.{{path}}" :error-messages='form.errors["{{path}}"]' />
 
