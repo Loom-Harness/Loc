@@ -12,6 +12,7 @@ import {
   styleSupportedLayouts,
 } from "../../src/platform/adapter-metadata.js";
 import { FLUTTER_UNRENDERED_PRIMITIVES } from "../../src/util/flutter-deferred-primitives.js";
+import { expectReach } from "../_helpers/census-reach.js";
 import { COVERED_ELSEWHERE, UNCOVERED } from "./diagnostic-firing-census.data.js";
 
 // ---------------------------------------------------------------------------
@@ -4344,7 +4345,7 @@ describe("diagnostic firing census", () => {
     // a rule rename would empty it and make every `covers-every-frontend` pin
     // pass without checking anything.
     it("the frontend roster is scraped from the grammar and complete", () => {
-      expect(FRONTEND_FRAMEWORKS.length).toBeGreaterThanOrEqual(7);
+      expectReach("frontend frameworks", FRONTEND_FRAMEWORKS.length, 7);
       expect(FRONTEND_FRAMEWORKS).toContain("react");
       expect(FRONTEND_FRAMEWORKS).toContain("phoenixLiveView");
     });
@@ -4545,7 +4546,7 @@ describe("diagnostic firing census", () => {
 
 describe("the generic code `loom.unknown` reaches no user", () => {
   it("scans the real fixture population (guard against a vacuous pass)", () => {
-    expect(Object.keys(FIRING_FIXTURES).length).toBeGreaterThan(50);
+    expectReach("firing fixtures", Object.keys(FIRING_FIXTURES).length, 297);
   });
 
   for (const [code, source] of Object.entries(FIRING_FIXTURES)) {
