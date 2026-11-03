@@ -8,8 +8,7 @@
 // (`audit-history-guarded`); this suite keeps what it cannot see.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 /** Audited, with a masked field, a lifecycle stamp and a `versioned` counter —
  *  one of each thing the diff boundary has to suppress — plus a gated list read
@@ -46,8 +45,7 @@ const MASKED = `system S {
 }`;
 
 async function emit(src: string): Promise<Map<string, string>> {
-  const { model } = await parseString(src);
-  return generateSystems(model).files;
+  return generateSystemFiles(src);
 }
 
 const fileEndingWith = (files: Map<string, string>, suffix: string): string => {
