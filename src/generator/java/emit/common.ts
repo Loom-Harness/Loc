@@ -120,7 +120,7 @@ export function renderDomainException(basePkg: string, domainFloorCodes = false)
     );
   }
   // M-T1.11 (c): a MESSAGED invariant / field check / precondition throws its
-  // wire `msg.<hash>` code and RFC 6901 pointer along with the text, so
+  // wire `<Ctx>.<Owner>.rule.<name>` code and RFC 6901 pointer along with the text, so
   // `ApiExceptionAdvice.onDomain` answers the same errors[] entry the wire rung
   // carries.  Emitted only when a messaged aggregate rule exists.
   return lines(

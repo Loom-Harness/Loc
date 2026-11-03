@@ -129,7 +129,7 @@ export function renderVanillaProblemDetailsModule(
   const localizeFn = localizeMessages
     ? `
 
-  # Resolve a messaged rule's stable wire code against this project's
+  # Resolve a named rule's stable wire code against this project's
   # gettext catalog for the request locale, falling back to the authored text.
   defp localize(nil, message), do: message
 
@@ -401,7 +401,7 @@ ${strictIngressFns}
   // M-T6.20 — the wire-validation rung for a denial that never builds an
   // `Ecto.Changeset`.  On the other four backends an operation `precondition`
   // over the op's own params is lifted into the SAME wire validator the
-  // invariants use, so its denial carries a pointer + the `msg.<hash>` code;
+  // invariants use, so its denial carries a pointer + the `<Ctx>.<Owner>.rule.<name>` code;
   // elixir lowers preconditions to the `ensure/2` chain, so the term arrives here
   // already shaped as the `errors[]` entry the golden expects.
   const wireErrorsFn = hasWireDenials

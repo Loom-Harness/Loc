@@ -285,7 +285,7 @@ export function renderGettextBackend(appName: string, appModule: string): string
 export function renderGettextCatalog(
   ui: UiIR | undefined,
   kind: "pot" | "po",
-  /** Backend validation messages (M-T1.11) — `msg.<hash>` → authored English,
+  /** Backend validation messages (M-T1.11) — `<Ctx>.<Owner>.rule.<name>` → authored English,
    *  from `collectWireValidationMessages`. Merged into the SAME `.po` tree as the
    *  ui strings: a Loom key is globally unique and always the `msgctxt`, so one
    *  domain carries both halves and `mix gettext.merge` sees one catalog. An

@@ -87,7 +87,7 @@ export function renderOperationValidator(
   for (const s of op.statements) {
     if (s.kind === "precondition") {
       // `message` rides along: a messaged precondition must reach the
-      // `.Must(...).WithMessage(text).WithErrorCode(msg.<hash>)` carrier, exactly
+      // `.Must(...).WithMessage(text).WithErrorCode(<Ctx>.<Owner>.rule.<name>)` carrier, exactly
       // as it does on Hono (`preconditionsAsInvariants`) and Java. Dropping it
       // here silently downgraded an authored precondition message to the
       // "Invariant violated: <src>" default — and cost it its wire `code`, so a

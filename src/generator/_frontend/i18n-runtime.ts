@@ -84,7 +84,7 @@ export type TranslationCatalogs = ReadonlyMap<string, Record<string, string>>;
  *
  *  Each is SCOPED to this UI's own keys, exactly as `en.json` is: the
  *  translator tree is one catalog for the whole SYSTEM (every ui, plus the
- *  backends' `msg.<hash>` validation messages), and shipping all of it into
+ *  backends' `<Ctx>.<Owner>.rule.<name>` validation messages), and shipping all of it into
  *  every frontend bundle would put another deployable's strings in this app.
  *  Intersecting also means a key the source no longer emits cannot survive in
  *  a translated catalog while `en.json` has already dropped it.

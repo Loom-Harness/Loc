@@ -619,10 +619,10 @@ ${cuBind}${showBody}
       {:error, {:disallowed, detail}} ->
         ${denialResponse("disallowed", "detail", opDenialOverrides)}`
         : "";
-      // M-T6.20 — a messaged `precondition` over the op's OWN request params is
+      // M-T6.20 — a named `precondition` over the op's OWN request params is
       // lifted into the request validator on the other four backends, so its
       // denial must answer the WIRE-VALIDATION 422 (`errors[]` with pointer +
-      // `msg.<hash>` code), not the domain floor.  Emitted only when the op has
+      // `<Ctx>.<Owner>.rule.<name>` code), not the domain floor.  Emitted only when the op has
       // such a guard, so no unreachable clause reaches
       // `mix compile --warnings-as-errors`.
       const wireArm = opHasWireDenial(op)

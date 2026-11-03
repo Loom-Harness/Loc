@@ -331,7 +331,7 @@ export function deniesAtWire(s: GuardStmt, available: ReadonlySet<string> | unde
   return ruleStage({ expr: s.expr, source: s.source, message: s.message }, available) === "schema";
 }
 
-/** `{:validation_failed, [%{pointer: "/amount", message: "…", code: "msg.…"}]}`
+/** `{:validation_failed, [%{pointer: "/amount", message: "…", code: "Ctx.Owner.rule.name"}]}`
  *  — the reason term a wire-translatable precondition short-circuits to.  One
  *  entry, because one precondition denies at a time (the `with` chain
  *  short-circuits); the list shape matches the `errors[]` extension the
