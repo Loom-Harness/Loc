@@ -179,26 +179,31 @@ function slice(text: string, start: string, end: string): string {
 }
 
 /** `guard` appears, and appears before `mutation`. */
-function guardsBefore(text: string, guard: string, mutation: string): void {
+function guardsBefore(text: string, guard: string, mutation: string): boolean {
   const g = text.indexOf(guard);
   const m = text.indexOf(mutation);
   expect(g, `missing guard ${guard}`).toBeGreaterThanOrEqual(0);
   expect(m, `missing mutation ${mutation}`).toBeGreaterThan(g);
+  return m > g && g >= 0;
 }
 
 describe("node (Hono)", () => {
   it("re-checks before a mutating service call and before a removal", async () => {
     const text = await fileEnding("node", "http/workflows.ts");
-    guardsBefore(
-      slice(text, '"/bump_ledgers"', '"/purge_ledgers"'),
-      "await ledgers.getById(l.id);",
-      "Bump.run(",
-    );
-    guardsBefore(
-      slice(text, '"/purge_ledgers"', "app.onError"),
-      "await ledgers.getById(l.id);",
-      "await ledgers.delete(",
-    );
+    expect(
+      guardsBefore(
+        slice(text, '"/bump_ledgers"', '"/purge_ledgers"'),
+        "await ledgers.getById(l.id);",
+        "Bump.run(",
+      ),
+    ).toBe(true);
+    expect(
+      guardsBefore(
+        slice(text, '"/purge_ledgers"', "app.onError"),
+        "await ledgers.getById(l.id);",
+        "await ledgers.delete(",
+      ),
+    ).toBe(true);
   });
   it("re-loads the loop row through getById, inside a transaction", async () => {
     const wf = slice(
@@ -262,11 +267,13 @@ describe("python", () => {
     ).not.toContain("for_write");
   });
   it("a command handler re-checks", async () => {
-    guardsBefore(
-      await fileEnding("python", "application/touch_one.py"),
-      "await ledgers.get_by_id_for_write(l.id)",
-      "l.touch()",
-    );
+    expect(
+      guardsBefore(
+        await fileEnding("python", "application/touch_one.py"),
+        "await ledgers.get_by_id_for_write(l.id)",
+        "l.touch()",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -282,11 +289,13 @@ describe("java", () => {
     expect(slice(wf, "void openLedger(", "void renameTags(")).not.toContain("getById");
   });
   it("a command handler re-checks", async () => {
-    guardsBefore(
-      await fileEnding("java", "application/workflows/TouchOneHandler.java"),
-      "ledgersRepository.getById(l.id());",
-      "l.touch();",
-    );
+    expect(
+      guardsBefore(
+        await fileEnding("java", "application/workflows/TouchOneHandler.java"),
+        "ledgersRepository.getById(l.id());",
+        "l.touch();",
+      ),
+    ).toBe(true);
   });
 });
 
