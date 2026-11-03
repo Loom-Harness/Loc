@@ -22,12 +22,12 @@ import { singleFieldShape } from "../../ir/validate/invariant-classify.js";
 import { sourceText } from "../_walker/source-text.js";
 
 /** Generic key of an unnamed rule that points at a single field. */
-export const FIELD_RULE_KEY = "field.rule";
+const FIELD_RULE_KEY = "field.rule";
 /** Generic key of any other unnamed rule. */
-export const DOMAIN_FLOOR_RULE_KEY = "problem.domain-floor";
+const DOMAIN_FLOOR_RULE_KEY = "problem.domain-floor";
 
 /** The English of the two generic keys. */
-export const GENERIC_RULE_TEXT: Readonly<Record<string, string>> = {
+const GENERIC_RULE_TEXT: Readonly<Record<string, string>> = {
   [FIELD_RULE_KEY]: "Invalid value",
   [DOMAIN_FLOOR_RULE_KEY]: "Business rule violated",
 };
@@ -38,7 +38,7 @@ export function namedRuleText(message: MessageIR): string {
 }
 
 /** The generic key an UNNAMED rule answers with. */
-export function genericRuleKey(rule: { expr: ExprIR; guard?: ExprIR; source: string }): string {
+function genericRuleKey(rule: { expr: ExprIR; guard?: ExprIR; source: string }): string {
   return singleFieldShape({ expr: rule.expr, guard: rule.guard, source: rule.source })
     ? FIELD_RULE_KEY
     : DOMAIN_FLOOR_RULE_KEY;

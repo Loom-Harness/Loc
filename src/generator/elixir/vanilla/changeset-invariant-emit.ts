@@ -214,7 +214,7 @@ export function renderInvariantValidatorFn(
     // else "" — the wire rung keeps pointing at the error's field and never
     // reads it.  An unnamed rule adds no metadata.
     const codeOpt = inv.message
-      ? `, loom_code: ${JSON.stringify(inv.message.key)}, loom_pointer: ${JSON.stringify(domainFloorPointer(inv))}`
+      ? `, loom_code: ${elixirString(inv.message.key)}, loom_pointer: ${JSON.stringify(domainFloorPointer(inv))}`
       : "";
     // The message goes through the shared escaping funnel: a raw `#{` in a
     // translator's text would interpolate when the changeset runs.

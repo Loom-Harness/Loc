@@ -84,6 +84,29 @@ describe("validation-message catalog — what it collects", () => {
     });
   });
 
+  it("carries the identifiers each rule reads — its candidate message placeholders", async () => {
+    const messages = collectWireValidationMessages(
+      await contextsOf(`
+        aggregate Product {
+          qty: int
+          cap: int
+          invariant underCap: qty <= cap when cap > 0
+          create(q: int, c: int) { qty := q  cap := c }
+          operation take(n: int) {
+            precondition enough: n <= qty && [1, 2].all(x => x > 0)
+            qty := qty - n
+          }
+        }
+        repository Products for Product { }
+      `),
+    );
+    expect(Object.fromEntries(messages.map((m) => [m.code, m.params]))).toEqual({
+      "Cat.Product.rule.underCap": ["cap", "qty"],
+      // A lambda binding is not a placeholder; the param and the field are.
+      "Cat.Product.rule.enough": ["n", "qty"],
+    });
+  });
+
   it("keys by the rule's identity, so a reword keeps the key", async () => {
     const catalog = await catalogOf(`
       aggregate Product {

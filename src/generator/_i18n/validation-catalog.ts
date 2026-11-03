@@ -40,6 +40,7 @@ import type {
   OperationIR,
   ValueObjectIR,
 } from "../../ir/types/loom-ir.js";
+import { ruleParams } from "../../ir/util/rule-params.js";
 import { workflowPreconditionMessages } from "./domain-floor.js";
 import { namedRuleText } from "./rule-text.js";
 
@@ -50,6 +51,14 @@ export interface ValidationMessage {
   readonly code: string;
   /** The source-language text, the fallback a missing translation resolves to. */
   readonly text: string;
+  /** The identifiers the rule reads (`ruleParams`) — the placeholders its
+   *  message may use, whose values the wire `params` carries. */
+  readonly params: readonly string[];
+}
+
+interface Entry {
+  readonly text: string;
+  readonly params: readonly string[];
 }
 
 /** Lift an operation's `precondition` statements to invariants — the same
@@ -65,19 +74,19 @@ function preconditionsAsInvariants(op: OperationIR): InvariantIR[] {
 /** Record every named rule in `invariants` into `into`.  No wire
  *  classification: every one of them can surface at the domain floor, which
  *  carries its code. */
-function take(invariants: readonly InvariantIR[], into: Map<string, string>): void {
+function take(invariants: readonly InvariantIR[], into: Map<string, Entry>): void {
   for (const inv of invariants) {
     if (!inv.message) continue;
-    into.set(inv.message.key, namedRuleText(inv.message));
+    into.set(inv.message.key, { text: namedRuleText(inv.message), params: ruleParams(inv) });
   }
 }
 
-function takeAggregate(agg: AggregateIR, into: Map<string, string>): void {
+function takeAggregate(agg: AggregateIR, into: Map<string, Entry>): void {
   take(agg.invariants, into);
   for (const op of agg.operations) take(preconditionsAsInvariants(op), into);
 }
 
-function takeValueObject(vo: ValueObjectIR, into: Map<string, string>): void {
+function takeValueObject(vo: ValueObjectIR, into: Map<string, Entry>): void {
   take(vo.invariants, into);
 }
 
@@ -88,15 +97,16 @@ function takeValueObject(vo: ValueObjectIR, into: Map<string, string>): void {
 export function collectWireValidationMessages(
   contexts: readonly BoundedContextIR[],
 ): ValidationMessage[] {
-  const byCode = new Map<string, string>();
+  const byCode = new Map<string, Entry>();
   for (const ctx of contexts) {
     for (const agg of ctx.aggregates) takeAggregate(agg, byCode);
     for (const vo of ctx.valueObjects) takeValueObject(vo, byCode);
     // A named workflow / handler precondition throws the same coded
     // domain-floor error.
-    for (const m of workflowPreconditionMessages(ctx)) byCode.set(m.key, namedRuleText(m));
+    for (const p of workflowPreconditionMessages(ctx))
+      byCode.set(p.message.key, { text: namedRuleText(p.message), params: ruleParams(p) });
   }
-  return [...byCode.keys()].sort().map((code) => ({ code, text: byCode.get(code)! }));
+  return [...byCode.keys()].sort().map((code) => ({ code, ...byCode.get(code)! }));
 }
 
 /** True when `contexts` carry any named rule — the single

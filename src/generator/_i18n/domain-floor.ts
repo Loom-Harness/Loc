@@ -29,6 +29,7 @@
 
 import type {
   BoundedContextIR,
+  ExprIR,
   InvariantIR,
   MessageIR,
   StmtIR,
@@ -66,7 +67,9 @@ export type DomainFloorHost = Pick<BoundedContextIR, "aggregates"> &
  *  `queryHandler` — at any depth (banking eval B-02).  A tripped one throws the
  *  same domain-floor error an operation precondition does, so it carries the
  *  same identity-key code and needs the same catalog entry. */
-export function workflowPreconditionMessages(ctx: DomainFloorHost): MessageIR[] {
+export function workflowPreconditionMessages(
+  ctx: DomainFloorHost,
+): { expr: ExprIR; message: MessageIR }[] {
   const bodies: (readonly WorkflowStmtIR[])[] = [];
   for (const w of ctx.workflows ?? []) {
     for (const c of w.creates) bodies.push(c.statements);
@@ -74,11 +77,12 @@ export function workflowPreconditionMessages(ctx: DomainFloorHost): MessageIR[] 
   }
   for (const h of ctx.commandHandlers ?? []) bodies.push(h.statements);
   for (const h of ctx.queryHandlers ?? []) bodies.push(h.statements);
-  const out: MessageIR[] = [];
+  const out: { expr: ExprIR; message: MessageIR }[] = [];
   for (const body of bodies) {
     for (const top of body) {
       walkWorkflowStmtsDeep(top, (n) => {
-        if (n.kind === "precondition" && n.message !== undefined) out.push(n.message);
+        if (n.kind === "precondition" && n.message !== undefined)
+          out.push({ expr: n.expr, message: n.message });
       });
     }
   }

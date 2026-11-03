@@ -1,6 +1,6 @@
 // Types for the plain-JS `codemod-rule-names.mjs` (#4450's codemod).  The
 // script is `.mjs` so it runs as a bare `node scripts/…` with no build step;
-// `test/scripts/codemod-rule-names.test.ts` drives its pure core.  Mirrors the
+// `test/system/codemod-rule-names.test.ts` drives its pure core.  Mirrors the
 // module's real exports.
 
 export const RULE_NAME_MAX_WORDS: number;

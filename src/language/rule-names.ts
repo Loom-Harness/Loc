@@ -57,18 +57,13 @@ const isOwner = (n: AstNode): n is RuleOwner =>
   isDomainService(n);
 
 /** True when `n` declares a rule. */
-export function isRuleNode(n: AstNode): n is RuleNode {
+function isRuleNode(n: AstNode): n is RuleNode {
   return isInvariant(n) || isPreconditionStmt(n) || (isProperty(n) && n.check !== undefined);
 }
 
 /** The name the rule DECLARES (`name:` / `check name:`), if any. */
 export function declaredRuleName(n: RuleNode): string | undefined {
   return isProperty(n) ? n.checkName : n.name;
-}
-
-/** The removed `message "…"` text the rule still carries, if any. */
-export function legacyRuleMessage(n: RuleNode): string | undefined {
-  return n.message;
 }
 
 /** The declaration whose rule namespace `n` lives in. */
@@ -91,14 +86,10 @@ export function rulesOf(owner: RuleOwner): RuleNode[] {
   return out;
 }
 
-const cache = new WeakMap<RuleOwner, Map<RuleNode, string>>();
-
 /** The effective name of every named rule in `owner`: its declared name, or —
  *  for an unnamed rule carrying `message "…"` — the derived one.  A rule with
  *  neither is absent. */
-export function ruleNamesOf(owner: RuleOwner): ReadonlyMap<RuleNode, string> {
-  const hit = cache.get(owner);
-  if (hit) return hit;
+function ruleNamesOf(owner: RuleOwner): ReadonlyMap<RuleNode, string> {
   const rules = rulesOf(owner);
   const taken = new Set<string>();
   for (const r of rules) {
@@ -108,12 +99,11 @@ export function ruleNamesOf(owner: RuleOwner): ReadonlyMap<RuleNode, string> {
   const names = new Map<RuleNode, string>();
   for (const r of rules) {
     const declared = declaredRuleName(r);
-    const legacy = legacyRuleMessage(r);
+    const legacy = r.message;
     if (declared !== undefined) names.set(r, declared);
     else if (legacy !== undefined && legacy.trim() !== "")
       names.set(r, dedupeRuleName(deriveRuleName(legacy), taken));
   }
-  cache.set(owner, names);
   return names;
 }
 
