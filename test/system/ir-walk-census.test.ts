@@ -994,11 +994,6 @@ const WAIVERS: Record<string, Waiver> = {
       "#4579: an unlisted init kind (e.g. a negative literal as `unary`) silently mounts at the type's zero",
     reviewUntil: IF_RUN_GAP_REVIEW,
   },
-  "src/generator/dotnet/workflow-emit.ts#rec": {
-    deferred:
-      "#4575: the param rewrite skips list / convert / match / … children, leaving an undeclared identifier in the C#",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
   "src/generator/python/workflows-builder.ts#hasAssign": {
     deferred: "#4576: skips `variant-match` bodies, so the scratch `self` is not seeded",
     reviewUntil: IF_RUN_GAP_REVIEW,
