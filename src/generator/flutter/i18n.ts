@@ -37,7 +37,7 @@
 // app is byte-identical to pre-i18n.
 // ---------------------------------------------------------------------------
 
-import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
+import { type BoundedContextIR, DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { buildUiCatalog } from "../_frontend/i18n-runtime.js";
 
@@ -62,10 +62,16 @@ export function flutterI18nEnabled(ui: UiIR): boolean {
 }
 
 /** `lib/i18n.dart` — the catalog + `t(key, default, [values])` lookup/format. */
-export function renderFlutterI18nModule(ui: UiIR, source: string = DEFAULT_SOURCE_LOCALE): string {
+export function renderFlutterI18nModule(
+  ui: UiIR,
+  source: string = DEFAULT_SOURCE_LOCALE,
+  /** The contexts the ui's forms render over, so the implicit model-text keys
+   *  (form labels, enum options, submit buttons) join the runtime catalog. */
+  contexts: readonly BoundedContextIR[] = [],
+): string {
   const sourceIdent =
     source === DEFAULT_SOURCE_LOCALE ? "_en" : `_src_${source.replace(/[^A-Za-z0-9_]/g, "_")}`;
-  const catalog = buildUiCatalog(ui);
+  const catalog = buildUiCatalog(ui, {}, { contexts, sentences: [], implicitModelText: true });
   // `buildUiCatalog` returns key-sorted entries, so the emitted map is stable
   // across runs (a reordered page must not churn the file).
   const entries = Object.entries(catalog).map(

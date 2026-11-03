@@ -193,7 +193,7 @@ system Unused {
     context Inv {
       aggregate Gadget {
         name: string
-        function label(q: int): string = name
+        function caption(q: int): string = name
       }
     }
   }
@@ -208,7 +208,7 @@ system Unused {
 `;
     const files = await generateSystemFiles(unused);
     const ctx = [...files].find(([p]) => p.endsWith("/inv.ex"))?.[1] ?? "";
-    expect(ctx).toMatch(/def label\(%Api\.Inv\.Gadget\{\} = record, _q\) do/);
+    expect(ctx).toMatch(/def caption\(%Api\.Inv\.Gadget\{\} = record, _q\) do/);
   });
 
   it("does not emit any function defs for an aggregate without `function` members", async () => {

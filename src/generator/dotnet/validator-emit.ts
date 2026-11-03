@@ -563,6 +563,7 @@ function renderFluentPredicate(e: ExprIR): string {
     case "match":
     case "list":
     case "action-ref":
+    case "modelText":
     case "authz-filter":
       // `classifyForWire` excludes these — reaching the renderer is a
       // bug upstream.  Emit a syntactically-valid placeholder so a

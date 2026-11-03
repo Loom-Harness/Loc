@@ -166,7 +166,7 @@ describe("validator fault isolation — the fuzz gate never lets a throw escape"
   });
 
   it("keeps a context's other diagnostics when a `derived` initializer failed to parse", async () => {
-    // A `derived` whose NAME is a soft keyword (`page`) fails the `ID` token,
+    // A `derived` whose NAME is not an identifier (`42`) fails the name token,
     // and parse recovery completes the rule with `expr` undefined.  Streaming
     // that undefined node threw inside `checkDerived`, which aborted the whole
     // enclosing `context` family — so the author saw one parse error plus a
@@ -175,7 +175,7 @@ describe("validator fault isolation — the fuzz gate never lets a throw escape"
       context Shop {
         aggregate Order {
           qty: int
-          derived page: int[] = [1, 2]
+          derived 42: int[] = [1, 2]
           label: string = 42
         }
       }
@@ -233,16 +233,16 @@ describe("validator fault isolation — the fuzz gate never lets a throw escape"
       context Shop {
         aggregate Order {
           qty: int
-          derived page: int[] = [1, 2]
+          derived 42: int[] = [1, 2]
           label: string = 42
         }
       }
     `);
     expect(errors, errors.join("\n")).toHaveLength(1);
     // Three wordings, one question: is the single error a SYNTAX error?
-    // `page` in a `derived` name position is a keyword-in-a-name-position
-    // mismatch, which reports through `loom.parse-error#reserved-name` since
-    // #2864 — still phase ①, which is what this test is about.
+    // `42` in a `derived` name position is a token mismatch (a keyword there
+    // reports through `loom.parse-error#reserved-name` instead) —
+    // either way still phase ①, which is what this test is about.
     expect(errors[0]).toMatch(/Expecting|Unexpected|is a Loom keyword/);
   });
 });

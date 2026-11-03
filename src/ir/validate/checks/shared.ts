@@ -163,6 +163,7 @@ export function firstUnknownColumnRef(
     case "call":
     case "convert":
     case "i18nFormat":
+    case "modelText":
     case "lambda":
     case "list":
     case "match":
@@ -720,6 +721,10 @@ export function firstNonQueryableNode(e: ExprIR): string | null {
       // A named-action reference is a UI-handler-arg form — never queryable
       // (it only appears in a page/component body, not a find `where`).
       return "action reference";
+    case "modelText":
+      // `label(…)` / `plural(…)` — translated display text, UI-only
+      // (`loom.model-text-outside-ui`); never a column or a bindable value.
+      return "model text";
     case "authz-filter":
       // The authorization/tenancy filter sentinels (M-T9.9) — both the `deny`
       // carve-out and the `scope` subtree predicate.  Every backend renders

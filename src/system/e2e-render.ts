@@ -647,6 +647,9 @@ function renderE2EExpr(e: ExprIR, ctx: RenderCtx): string {
       const amt = renderE2EExpr(e.amount, ctx);
       return `((${amt}) * ${DURATION_UNIT_MS[e.unit]})`;
     }
+    case "modelText":
+      // `label(…)` / `plural(…)` — the English default text.
+      return JSON.stringify(e.defaultText);
     case "i18nFormat":
       // Transparent i18n wrapper (M-T1.11) — render the wrapped operand.
       return renderE2EExpr(e.inner, ctx);

@@ -93,6 +93,11 @@ describe("locales/<locale>/<ns>.json layout", () => {
       "_chrome.json",
     ]);
     const { file } = await headingKey();
+    // A fresh locale is empty: untranslated keys are absent, not placeholders.
+    expect(readJson(path.join(dir, "de", "WebApp.json"))).toEqual({});
+    writeJson(path.join(dir, "de", "WebApp.json"), { [file]: "Willkommen" });
+    writeJson(path.join(dir, "de", "_chrome.json"), { "chrome.notFound": "Nicht gefunden" });
+    await runI18nSync(ddd, { dir });
     // No ui prefix inside the ui's own file; the chrome keeps its full key.
     expect(Object.keys(readJson(path.join(dir, "de", "WebApp.json")))).toContain(file);
     expect(Object.keys(readJson(path.join(dir, "de", "_chrome.json")))).toContain(
@@ -109,7 +114,12 @@ describe("locales/<locale>/<ns>.json layout", () => {
     await runI18nInit(ddd, "de", { dir });
     const { runtime, file } = await headingKey();
     const webApp = path.join(dir, "de", "WebApp.json");
-    writeJson(webApp, { ...readJson(webApp), [file]: "Willkommen" });
+    // A legacy in-band placeholder next to a real translation must not ship.
+    writeJson(webApp, {
+      ...readJson(webApp),
+      [file]: "Willkommen",
+      "page.Welcome.other.aaaaaa": `${TODO_PREFIX}Other`,
+    });
 
     const translations = loadTranslations(ddd, { dir });
     expect([...translations.keys()]).toEqual(["de"]);
@@ -234,11 +244,20 @@ describe("source-language overrides", () => {
     writeJson(path.join(dir, "en", "WebApp.json"), { [file]: "Hello there" });
     await runI18nSync(ddd, { dir });
 
-    const value = readJson(webApp)[file];
-    expect(hasConflictMarkers(value)).toBe(true);
-    expect(value).toContain("Willkommen");
-    expect(value).toContain("Welcome");
-    expect(value).toContain("Hello there");
+    // The translation stays a clean value; the flag is out of band.
+    expect(readJson(webApp)[file]).toBe("Willkommen");
+    expect(hasConflictMarkers(readJson(webApp)[file])).toBe(false);
+    const flags = JSON.parse(
+      fs.readFileSync(path.join(dir, ".loom", "review", "de", "WebApp.json"), "utf8"),
+    );
+    expect(flags[file]).toEqual({
+      translation: "Willkommen",
+      previousSource: "Welcome",
+      source: "Hello there",
+    });
+    expect(exits).toEqual([]);
+    // ... and the CI gate reports it until a human approves.
+    await runI18nCheck(ddd, { dir, strict: true });
     expect(exits).toEqual([1]);
     // The source directory is never merged: it still holds only the override.
     expect(readJson(path.join(dir, "en", "WebApp.json"))).toEqual({ [file]: "Hello there" });

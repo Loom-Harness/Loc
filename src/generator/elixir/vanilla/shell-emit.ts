@@ -11,7 +11,11 @@
 // Hono, .NET, Java, and Python backends.
 // ---------------------------------------------------------------------------
 
-import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../../ir/types/loom-ir.js";
+import {
+  type BoundedContextIR,
+  DEFAULT_SOURCE_LOCALE,
+  type UiIR,
+} from "../../../ir/types/loom-ir.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import {
@@ -117,6 +121,9 @@ export function emitVanillaShellFiles(
   /** The system's source language: the `.po` tree's locale, gettext's default
    *  locale, the CLDR backend's locale and the layouts' `<html lang>`. */
   sourceLocale: string = DEFAULT_SOURCE_LOCALE,
+  /** Every context of the system — keys the identity-keyed model text in the
+   *  `.po` catalog. */
+  modelTextContexts: readonly BoundedContextIR[] = [],
 ): void {
   const hasLiveView = liveRoutes.length > 0 || hasSidebar;
   // Either source of translatable strings turns the runtime on.
@@ -278,11 +285,25 @@ export function emitVanillaShellFiles(
     const packChrome = pack ? packChromeCatalog(pack.manifest) : {};
     out.set(
       `priv/gettext/${GETTEXT_DOMAIN}.pot`,
-      renderGettextCatalog(i18nUi, "pot", validationMessages, packChrome, sourceLocale),
+      renderGettextCatalog(
+        i18nUi,
+        "pot",
+        validationMessages,
+        packChrome,
+        sourceLocale,
+        modelTextContexts,
+      ),
     );
     out.set(
       `priv/gettext/${sourceLocale}/LC_MESSAGES/${GETTEXT_DOMAIN}.po`,
-      renderGettextCatalog(i18nUi, "po", validationMessages, packChrome, sourceLocale),
+      renderGettextCatalog(
+        i18nUi,
+        "po",
+        validationMessages,
+        packChrome,
+        sourceLocale,
+        modelTextContexts,
+      ),
     );
     // ICU formatting runs OVER gettext's result, so it ships only alongside
     // it — and only for a ui with an interpolated message.

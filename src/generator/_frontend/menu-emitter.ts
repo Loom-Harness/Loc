@@ -39,7 +39,11 @@
 
 import type { PageIR, UiIR } from "../../ir/types/loom-ir.js";
 import { areaQualifiedName, classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
-import { menuLinkPage, menuMetaString as readMenuMetaString } from "../../ir/util/page-menu.js";
+import {
+  menuLinkPage,
+  menuMetaIdentityKey,
+  menuMetaString as readMenuMetaString,
+} from "../../ir/util/page-menu.js";
 import { snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { menuKeyPrefix, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
@@ -246,7 +250,11 @@ export function deriveSidebarFromUi(
           to: p.route ?? "",
           label,
           ...(metaLabel !== undefined
-            ? { labelKey: messageKey(pageKeyPrefix(ui, p), "menu.label", metaLabel) }
+            ? {
+                labelKey:
+                  menuMetaIdentityKey(p, "label") ??
+                  messageKey(pageKeyPrefix(ui, p), "menu.label", metaLabel),
+              }
             : {}),
           testId: tIdAndActive.testId,
           activeArgs: tIdAndActive.activeArgs,
@@ -286,7 +294,12 @@ function adoptPageMenuMeta(defaults: readonly NavSectionVM[], ui: UiIR): NavSect
       const metaSection = page && readMenuMetaString(page, "section");
       const keyed: NavEntryVM =
         page && metaLabel !== undefined && entry.label === metaLabel && !entry.labelKey
-          ? { ...entry, labelKey: messageKey(pageKeyPrefix(ui, page), "menu.label", metaLabel) }
+          ? {
+              ...entry,
+              labelKey:
+                menuMetaIdentityKey(page, "label") ??
+                messageKey(pageKeyPrefix(ui, page), "menu.label", metaLabel),
+            }
           : entry;
       let target = out[i]!;
       if (metaSection && metaSection !== section.label) {
@@ -341,7 +354,8 @@ function navEntryForLink(
     overrideLabel !== undefined
       ? messageKey(menuKeyPrefix(ui), "link", overrideLabel)
       : metaLabel !== undefined
-        ? messageKey(pageKeyPrefix(ui, page), "menu.label", metaLabel)
+        ? (menuMetaIdentityKey(page, "label") ??
+          messageKey(pageKeyPrefix(ui, page), "menu.label", metaLabel))
         : undefined;
   // Identify well-known page kinds via `classifyPage` so testid
   // and active-route semantics match main's hardcoded conventions.

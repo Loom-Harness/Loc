@@ -195,9 +195,10 @@ export function generateFlutterForContexts(
   // Form widgets — one self-contained `StatefulWidget` per CreateForm /
   // OperationForm / DestroyForm a page hosts (POST/DELETE over package:http),
   // plus one per WorkflowForm(runs:) (POST the workflow params to /workflows/<wf>).
+  const uiI18n = ui ? flutterI18nEnabled(ui) : false;
   const forms = [
-    ...collectFlutterForms(ui, aggregatesByName, bcByAggregate),
-    ...collectFlutterWorkflowForms(ui, workflowsByName, bcByWorkflow, aggregatesByName),
+    ...collectFlutterForms(ui, aggregatesByName, bcByAggregate, uiI18n),
+    ...collectFlutterWorkflowForms(ui, workflowsByName, bcByWorkflow, aggregatesByName, uiI18n),
   ];
 
   // Wire-model classes for every aggregate/VO/event reachable through this
@@ -251,9 +252,9 @@ export function generateFlutterForContexts(
   // walker seam) and the app ships `lib/i18n.dart` — the Dart-language sibling
   // of the JS frontends' `src/i18n.ts` shim.  Empty catalog → no file, the walks
   // pass no prefix, and every literal renders raw.
-  const i18nEnabled = ui ? flutterI18nEnabled(ui) : false;
+  const i18nEnabled = uiI18n;
   if (ui && i18nEnabled) {
-    out.set("lib/i18n.dart", renderFlutterI18nModule(ui, sourceLocaleOf(sys)));
+    out.set("lib/i18n.dart", renderFlutterI18nModule(ui, sourceLocaleOf(sys), contexts));
   }
   if (forms.length > 0) {
     out.set("lib/forms.dart", renderFormsFile(forms, credentialed));

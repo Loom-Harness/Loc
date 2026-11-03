@@ -36,7 +36,7 @@ function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}}{{#if gated}},
           </DialogContent>
           <DialogActions>
             <Button type="button" onClick={() => setOpen(false)}>{{{cancelLabel}}}</Button>
-            <Button type="submit" variant="contained" disabled={mut.isPending} data-testid="{{slug}}-op-{{opName}}-submit">{{humanOp}}</Button>
+            <Button type="submit" variant="contained" disabled={mut.isPending} data-testid="{{slug}}-op-{{opName}}-submit">{{{humanOp}}}</Button>
           </DialogActions>
         </form>
       </Dialog>

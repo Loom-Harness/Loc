@@ -7,15 +7,25 @@
 //   ddd i18n init    <file> <locale>        scaffold locales/<locale>/<ns>.json + lock
 //   ddd i18n sync    <file> [--locale l]    three-way merge every locale; bump lock
 //   ddd i18n status  <file>                 what sync would do; non-zero if pending
-//   ddd i18n check   <file> [--strict]      CI gate: TODO / conflicts / missing keys
+//   ddd i18n check   <file> [--strict]      CI gate: ICU/placeholders/plurals, untranslated, review
+//   ddd i18n approve <file> [keys…]         clear needs-review flags
 //   ddd i18n prune   <file>                 drop keys the source no longer emits
+//   ddd i18n export  <file> --locale l      XLIFF / PO for a translation tool
+//   ddd i18n import  <file> <exchange>      take a translated XLIFF / PO back
 //
 // File layout (i18n.md §"File layout"), one file per namespace:
 //
-//   <dir>/.loom/source.lock/<ns>.json  BASE — source snapshot at last sync
-//   <dir>/<locale>/<ns>.json           OURS — the translator's files (human-owned)
-//   <dir>/<source>/<ns>.json           OVERRIDES of the source language's own text
-//   <out>/.loom/messages.<source>.json THEIRS — freshly extracted source catalog
+//   <dir>/.loom/source.lock/<ns>.json      BASE — source snapshot at last sync
+//   <dir>/<locale>/<ns>.json               OURS — the translator's files (human-owned)
+//   <dir>/<source>/<ns>.json               OVERRIDES of the source language's own text
+//   <dir>/.loom/review/<locale>/<ns>.json  needs-review state (out of band)
+//   <dir>/.loom/stale/<locale>/<ns>.json   translations of source-deleted keys (--keep-stale)
+//   <out>/.loom/messages.<source>.json     THEIRS — freshly extracted source catalog
+//
+// A locale file holds finished translations only: an UNTRANSLATED key is absent
+// (never a `TODO:` value), and "the source moved under this translation" is a
+// review entry in the sidecar (never a conflict block inside the value), so a
+// translation tool reads every value in the file as a real translation.
 //
 // `<ns>` is `_chrome`, `_system`, a bounded-context name or a ui name; the key
 // <-> file mapping is `src/i18n/namespace.ts`, the fs half is `./tree.ts`.  The
@@ -27,36 +37,34 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { describeIssue, type IcuIssue, validateTranslation } from "../../i18n/icu.js";
 import {
   type Catalog,
-  hasConflictMarkers,
-  isTodo,
   type MergeReport,
   mergeCatalog,
+  type ReviewEntry,
   reportHasPending,
-  TODO_PREFIX,
 } from "../../i18n/merge.js";
 import { joinCatalog, runtimeKeyOf, splitCatalog } from "../../i18n/namespace.js";
+import { PSEUDO_LOCALE, pseudoCatalog } from "../../i18n/pseudo.js";
 import { extractProject } from "./extract.js";
+import { type LocaleEntry, type LocaleFilter, openReviewKeys, openTree, relPath } from "./open.js";
 import {
   assertConsistentLayout,
   type DirOption,
   LOCK_DIR_REL,
   LOCK_FLAT_REL,
   localesDir,
-  readTree,
   removeFlatFiles,
+  type Tree,
   writeJson,
+  writeLocaleDir,
   writeNamespaceDir,
 } from "./tree.js";
 
+export { runI18nExport, runI18nImport } from "./exchange.js";
+export type { LocaleFilter } from "./open.js";
 export { I18nLayoutError, loadSourceOverrides, loadTranslations, localesDir } from "./tree.js";
-
-interface LocaleFilter {
-  locale?: string;
-}
-
-const relPath = (p: string): string => path.relative(process.cwd(), p) || p;
 
 /** `ddd i18n extract <file> [-o out]` — write the fresh source catalog.
  *
@@ -75,7 +83,13 @@ export async function runI18nExtract(
   console.log(`Extracted ${Object.keys(catalog).length} message(s) → ${relPath(target)}`);
 }
 
-/** `ddd i18n init <file> <locale>` — scaffold a locale's files + the lock. */
+const NO_STATE = { review: new Map<string, Record<string, ReviewEntry>>(), stale: new Map() };
+
+/** `ddd i18n init <file> <locale>` — scaffold a locale's files + the lock.
+ *
+ *  A new locale starts EMPTY: every namespace gets a `{}` file and every key is
+ *  untranslated by absence.  The pseudo-locale `en-XA` is the exception — it is
+ *  generated from the source, so it starts full. */
 export async function runI18nInit(file: string, locale: string, options: DirOption): Promise<void> {
   const { catalog, names, source } = await extractProject(file, options);
   const dir = localesDir(file, options);
@@ -93,15 +107,14 @@ export async function runI18nInit(file: string, locale: string, options: DirOpti
   if (fs.existsSync(localeDir) || fs.existsSync(path.join(dir, `${locale}.json`))) {
     console.error(`Locale already exists: ${relPath(localeDir)} (leaving it untouched)`);
   } else {
-    const seeded = new Map<string, Catalog>();
-    for (const [ns, file] of splitCatalog(catalog, names)) {
-      const todo: Catalog = {};
-      for (const key of Object.keys(file)) todo[key] = `${TODO_PREFIX}${file[key]}`;
-      seeded.set(ns, todo);
-    }
-    writeNamespaceDir(localeDir, seeded);
+    const split = splitCatalog(catalog, names);
+    const pseudo = locale === PSEUDO_LOCALE;
+    const files = pseudo ? splitCatalog(pseudoCatalog(catalog), names) : new Map<string, Catalog>();
+    writeLocaleDir(dir, locale, files, split.keys(), NO_STATE);
     console.log(
-      `Created ${relPath(localeDir)}/ — ${Object.keys(catalog).length} key(s) to translate in ${seeded.size} file(s)`,
+      pseudo
+        ? `Created ${relPath(localeDir)}/ — pseudo-locale, ${Object.keys(catalog).length} key(s) generated from the source (\`sync\` keeps it current)`
+        : `Created ${relPath(localeDir)}/ — ${Object.keys(catalog).length} key(s) to translate in ${split.size} file(s)`,
     );
   }
 
@@ -116,10 +129,11 @@ export async function runI18nInit(file: string, locale: string, options: DirOpti
 
 function summarize(locale: string, report: MergeReport): string {
   const parts = [`+${report.added.length} new`, `${report.kept.length} kept`];
+  if (report.untranslated.length) parts.push(`${report.untranslated.length} untranslated`);
   if (report.updated.length) parts.push(`${report.updated.length} placeholder rename`);
   if (report.carried.length) parts.push(`${report.carried.length} carried`);
   if (report.dropped.length) parts.push(`-${report.dropped.length} dropped`);
-  if (report.conflicted.length) parts.push(`${report.conflicted.length} CONFLICT`);
+  if (report.conflicted.length) parts.push(`${report.conflicted.length} needs review`);
   return `  ${locale}: ${parts.join(", ")}`;
 }
 
@@ -128,9 +142,9 @@ function summarize(locale: string, report: MergeReport): string {
  *  A carry is NOT silent even though the written value is a clean translation:
  *  a string reviewed against one pack's UI can read differently in another's,
  *  so the reviewer is told which keys moved and where from.  The signal lives
- *  here and in the locale file's diff rather than inside the value — marking
- *  the value would either lie about a human translation (`TODO: `) or ship a
- *  marker the generated `t()` runtime would render to an end user. */
+ *  here and in the locale file's diff rather than inside the value — a marker
+ *  inside the value would ship to end users through the generated `t()`
+ *  runtime. */
 function reportCarried(report: MergeReport): void {
   for (const { key, from } of report.carried) {
     console.log(`      carried: ${key}`);
@@ -141,27 +155,45 @@ function reportCarried(report: MergeReport): void {
 /** Merge one locale namespace by namespace, reporting in runtime keys. */
 function mergeLocale(
   base: ReadonlyMap<string, Catalog>,
-  ours: ReadonlyMap<string, Catalog>,
+  entry: LocaleEntry,
   theirs: ReadonlyMap<string, Catalog>,
   options: { keepStale?: boolean },
-): { merged: Map<string, Catalog>; report: MergeReport } {
+): {
+  merged: Map<string, Catalog>;
+  review: Map<string, Record<string, ReviewEntry>>;
+  stale: Map<string, Catalog>;
+  report: MergeReport;
+} {
   const merged = new Map<string, Catalog>();
+  const review = new Map<string, Record<string, ReviewEntry>>();
+  const stale = new Map<string, Catalog>();
   const report: MergeReport = {
     added: [],
+    untranslated: [],
     kept: [],
     dropped: [],
     conflicted: [],
     updated: [],
     carried: [],
   };
-  const namespaces = new Set([...base.keys(), ...ours.keys(), ...theirs.keys()]);
+  const namespaces = new Set([...base.keys(), ...entry.files.keys(), ...theirs.keys()]);
   for (const ns of [...namespaces].sort()) {
-    const result = mergeCatalog(base.get(ns) ?? {}, ours.get(ns) ?? {}, theirs.get(ns) ?? {}, {
-      keepStale: options.keepStale,
-    });
+    const result = mergeCatalog(
+      base.get(ns) ?? {},
+      entry.files.get(ns) ?? {},
+      theirs.get(ns) ?? {},
+      {
+        keepStale: options.keepStale,
+        review: entry.review.get(ns),
+      },
+    );
     if (Object.keys(result.merged).length > 0) merged.set(ns, result.merged);
+    if (Object.keys(result.review).length > 0) review.set(ns, result.review);
+    const parked = { ...entry.stale.get(ns), ...result.stale };
+    if (Object.keys(parked).length > 0) stale.set(ns, parked);
     const key = (k: string) => runtimeKeyOf(k, ns);
     report.added.push(...result.report.added.map(key));
+    report.untranslated.push(...result.report.untranslated.map(key));
     report.kept.push(...result.report.kept.map(key));
     report.dropped.push(...result.report.dropped.map(key));
     report.conflicted.push(...result.report.conflicted.map(key));
@@ -170,23 +202,7 @@ function mergeLocale(
       ...result.report.carried.map((c) => ({ key: key(c.key), from: key(c.from) })),
     );
   }
-  return { merged, report };
-}
-
-/** The translator-tree command prologue: extract, then read the tree. */
-async function openTree(file: string, options: DirOption & LocaleFilter) {
-  const extraction = await extractProject(file, options);
-  const dir = localesDir(file, options);
-  const theirs = splitCatalog(extraction.catalog, extraction.names);
-  const tree = readTree({
-    dir,
-    source: extraction.source,
-    names: extraction.names,
-    uiNames: extraction.uiNames,
-    current: extraction.catalog,
-    locale: options.locale,
-  });
-  return { ...extraction, dir, theirs, tree };
+  return { merged, review, stale, report };
 }
 
 function reportMigration(): void {
@@ -195,12 +211,27 @@ function reportMigration(): void {
   );
 }
 
+function reportLegacy(tree: Tree): void {
+  for (const l of tree.locales) {
+    if (l.legacy > 0) {
+      console.log(
+        `  ${l.locale}: ${l.legacy} in-band marker(s) (TODO: / conflict block / _stale.) move to the out-of-band state`,
+      );
+    }
+  }
+}
+
+/** The pseudo-locale is regenerated from the source on every sync. */
+function pseudoFiles(source: Catalog, names: ReadonlySet<string>): Map<string, Catalog> {
+  return splitCatalog(pseudoCatalog(source), names);
+}
+
 /** `ddd i18n sync <file>` — three-way merge every locale, then bump the lock. */
 export async function runI18nSync(
   file: string,
   options: DirOption & LocaleFilter & { keepStale?: boolean },
 ): Promise<void> {
-  const { dir, theirs, tree, source } = await openTree(file, options);
+  const { dir, theirs, tree, source, catalog, names } = await openTree(file, options);
 
   if (tree.locales.length === 0) {
     console.error(
@@ -210,15 +241,21 @@ export async function runI18nSync(
   }
 
   if (tree.migrationPending) reportMigration();
+  reportLegacy(tree);
 
-  let conflicts = 0;
-  for (const { locale, files, fromFlat } of tree.locales) {
-    const { merged, report } = mergeLocale(tree.base, files, theirs, {
+  for (const entry of tree.locales) {
+    const { locale, fromFlat } = entry;
+    if (locale === PSEUDO_LOCALE) {
+      writeLocaleDir(dir, locale, pseudoFiles(catalog, names), theirs.keys(), NO_STATE);
+      if (fromFlat) fs.rmSync(path.join(dir, `${locale}.json`));
+      console.log(`  ${locale}: pseudo-locale regenerated (${Object.keys(catalog).length} key(s))`);
+      continue;
+    }
+    const { merged, review, stale, report } = mergeLocale(tree.base, entry, theirs, {
       keepStale: options.keepStale,
     });
-    writeNamespaceDir(path.join(dir, locale), merged);
+    writeLocaleDir(dir, locale, merged, theirs.keys(), { review, stale });
     if (fromFlat) fs.rmSync(path.join(dir, `${locale}.json`));
-    conflicts += report.conflicted.length;
     console.log(summarize(locale, report));
     reportCarried(report);
   }
@@ -232,10 +269,6 @@ export async function runI18nSync(
   writeNamespaceDir(path.join(dir, LOCK_DIR_REL), theirs);
   removeFlatFiles(dir, { ...tree, locales: [] }, source);
   console.log(`Updated lock → ${relPath(path.join(dir, LOCK_DIR_REL))}/`);
-  if (conflicts > 0) {
-    console.error(`\n${conflicts} conflict(s) written — resolve the <<<<<<< markers, then commit.`);
-    process.exit(1);
-  }
 }
 
 /** `ddd i18n status <file>` — dry-run of sync; non-zero if anything is pending. */
@@ -243,7 +276,7 @@ export async function runI18nStatus(
   file: string,
   options: DirOption & LocaleFilter,
 ): Promise<void> {
-  const { theirs, tree } = await openTree(file, options);
+  const { theirs, tree, catalog, names } = await openTree(file, options);
 
   if (tree.locales.length === 0) {
     console.log("No locale files — nothing to sync.");
@@ -255,9 +288,21 @@ export async function runI18nStatus(
     reportMigration();
     pending = true;
   }
-  for (const { locale, files } of tree.locales) {
-    const { report } = mergeLocale(tree.base, files, theirs, {});
-    console.log(summarize(locale, report));
+  if (tree.legacyPending) {
+    reportLegacy(tree);
+    pending = true;
+  }
+  for (const entry of tree.locales) {
+    if (entry.locale === PSEUDO_LOCALE) {
+      const current = JSON.stringify(joinCatalog(entry.files));
+      const fresh = JSON.stringify(joinCatalog(pseudoFiles(catalog, names)));
+      const stale = current !== fresh;
+      console.log(`  ${entry.locale}: pseudo-locale ${stale ? "out of date" : "current"}`);
+      if (stale) pending = true;
+      continue;
+    }
+    const { report } = mergeLocale(tree.base, entry, theirs, {});
+    console.log(summarize(entry.locale, report));
     reportCarried(report);
     if (reportHasPending(report)) pending = true;
   }
@@ -267,9 +312,12 @@ export async function runI18nStatus(
   }
 }
 
-/** `ddd i18n check <file> [--strict]` — CI gate for untranslated / conflicted
- *  / missing keys, and for source overrides the source no longer emits.  With
- *  `--strict`, any finding is a non-zero exit. */
+/** `ddd i18n check <file> [--strict]` — CI gate.  Per locale it reports
+ *  translations with invalid ICU or a placeholder set / plural forms that do
+ *  not match the source, untranslated keys, translations flagged for review,
+ *  keys the source no longer emits and leftover in-band markers; plus source
+ *  overrides the source no longer emits.  With `--strict`, any finding is a
+ *  non-zero exit (so is a project with no locale files at all). */
 export async function runI18nCheck(
   file: string,
   options: DirOption & LocaleFilter & { strict?: boolean },
@@ -279,6 +327,12 @@ export async function runI18nCheck(
 
   if (tree.locales.length === 0 && staleOverrides.length === 0) {
     console.log("No locale files to check.");
+    // A tree with neither translations nor source overrides verifies nothing,
+    // which a CI gate must not report as success.
+    if (options.strict && tree.overrides.size === 0) {
+      console.error("\nno locale files with --strict → failing (nothing was verified).");
+      process.exit(1);
+    }
     return;
   }
 
@@ -292,28 +346,40 @@ export async function runI18nCheck(
     console.log(`  ${sourceLocale} (source): ${staleOverrides.length} stale override(s)`);
     for (const k of staleOverrides) console.log(`      stale override: ${k}`);
   }
-  for (const { locale, files } of tree.locales) {
-    const catalog = joinCatalog(files);
-    const todos = Object.entries(catalog)
-      .filter(([, v]) => isTodo(v))
-      .map(([k]) => k);
-    const conflicts = Object.entries(catalog)
-      .filter(([, v]) => hasConflictMarkers(v))
-      .map(([k]) => k);
-    const missing = Object.keys(source).filter((k) => !(k in catalog));
-    const count = todos.length + conflicts.length + missing.length;
+  for (const entry of tree.locales) {
+    const { locale } = entry;
+    const catalog = joinCatalog(entry.files);
+    const pseudo = locale === PSEUDO_LOCALE;
+    const untranslated = pseudo ? [] : Object.keys(source).filter((k) => !(k in catalog));
+    const review = openReviewKeys(entry).filter((k) => k in source);
+    const obsolete = Object.keys(catalog).filter((k) => !(k in source));
+    const invalid: { key: string; issues: IcuIssue[] }[] = [];
+    for (const key of Object.keys(catalog)) {
+      if (!(key in source)) continue;
+      const issues = validateTranslation(source[key]!, catalog[key]!, locale);
+      if (issues.length > 0) invalid.push({ key, issues });
+    }
+    const count =
+      untranslated.length + review.length + obsolete.length + invalid.length + entry.legacy;
     findings += count;
     if (count === 0) {
       console.log(`  ${locale}: ok`);
       continue;
     }
     const parts: string[] = [];
-    if (todos.length) parts.push(`${todos.length} TODO`);
-    if (conflicts.length) parts.push(`${conflicts.length} conflict`);
-    if (missing.length) parts.push(`${missing.length} missing`);
+    if (invalid.length) parts.push(`${invalid.length} invalid`);
+    if (untranslated.length) parts.push(`${untranslated.length} untranslated`);
+    if (review.length) parts.push(`${review.length} needs review`);
+    if (obsolete.length) parts.push(`${obsolete.length} obsolete`);
+    if (entry.legacy) parts.push(`${entry.legacy} legacy marker(s) (run sync)`);
     console.log(`  ${locale}: ${parts.join(", ")}`);
-    for (const k of conflicts) console.log(`      conflict: ${k}`);
-    for (const k of missing) console.log(`      missing:  ${k}`);
+    for (const { key, issues } of invalid) {
+      for (const issue of issues)
+        console.log(`      invalid:      ${key}: ${describeIssue(issue)}`);
+    }
+    for (const k of review) console.log(`      needs review: ${k}`);
+    for (const k of untranslated) console.log(`      untranslated: ${k}`);
+    for (const k of obsolete) console.log(`      obsolete:     ${k}`);
   }
   if (findings > 0 && options.strict) {
     console.error(`\n${findings} finding(s) with --strict → failing.`);
@@ -321,11 +387,49 @@ export async function runI18nCheck(
   }
 }
 
+/** `ddd i18n approve <file> [keys…]` — the translator confirms flagged
+ *  translations still read right against the new source: clears the
+ *  needs-review flag (every open flag when no key is named). */
+export async function runI18nApprove(
+  file: string,
+  keys: readonly string[],
+  options: DirOption & LocaleFilter,
+): Promise<void> {
+  const { dir, theirs, tree } = await openTree(file, options);
+  assertConsistentLayout(dir);
+  let cleared = 0;
+  for (const entry of tree.locales) {
+    const open = new Set(openReviewKeys(entry));
+    const targets = keys.length > 0 ? keys.filter((k) => open.has(k)) : [...open];
+    if (targets.length === 0) continue;
+    const drop = new Set(targets);
+    const review = new Map<string, Record<string, ReviewEntry>>();
+    for (const [ns, flags] of entry.review) {
+      const kept: Record<string, ReviewEntry> = {};
+      for (const [fileKey, flag] of Object.entries(flags)) {
+        if (!drop.has(runtimeKeyOf(fileKey, ns))) kept[fileKey] = flag;
+      }
+      if (Object.keys(kept).length > 0) review.set(ns, kept);
+    }
+    writeLocaleDir(dir, entry.locale, entry.files, theirs.keys(), { review, stale: entry.stale });
+    cleared += targets.length;
+    console.log(`  ${entry.locale}: approved ${targets.length} translation(s)`);
+  }
+  if (cleared === 0) console.log("Nothing to approve.");
+}
+
 /** `ddd i18n prune <file>` — delete keys the source no longer emits (off by
  *  default; run deliberately).  Covers the translator locales and the source
  *  language's overrides. */
 export async function runI18nPrune(file: string, options: DirOption & LocaleFilter): Promise<void> {
-  const { dir, catalog: source, names, tree, source: sourceLocale } = await openTree(file, options);
+  const {
+    dir,
+    catalog: source,
+    names,
+    theirs,
+    tree,
+    source: sourceLocale,
+  } = await openTree(file, options);
   assertConsistentLayout(dir);
 
   const prune = (files: ReadonlyMap<string, Catalog>): { kept: Catalog; stale: number } => {
@@ -335,13 +439,23 @@ export async function runI18nPrune(file: string, options: DirOption & LocaleFilt
     return { kept, stale: Object.keys(all).length - Object.keys(kept).length };
   };
 
-  for (const { locale, files, fromFlat } of tree.locales) {
+  for (const entry of tree.locales) {
+    const { locale, files, fromFlat } = entry;
     const { kept, stale } = prune(files);
-    if (stale === 0 && !fromFlat) {
+    if (stale === 0 && !fromFlat && entry.legacy === 0) {
       console.log(`  ${locale}: nothing to prune`);
       continue;
     }
-    writeNamespaceDir(path.join(dir, locale), splitCatalog(kept, names));
+    const keptFiles = splitCatalog(kept, names);
+    const review = new Map<string, Record<string, ReviewEntry>>();
+    for (const [ns, flags] of entry.review) {
+      const live: Record<string, ReviewEntry> = {};
+      for (const [fk, flag] of Object.entries(flags)) {
+        if (runtimeKeyOf(fk, ns) in source) live[fk] = flag;
+      }
+      if (Object.keys(live).length > 0) review.set(ns, live);
+    }
+    writeLocaleDir(dir, locale, keptFiles, theirs.keys(), { review, stale: entry.stale });
     if (fromFlat) fs.rmSync(path.join(dir, `${locale}.json`));
     console.log(`  ${locale}: pruned ${stale} stale key(s)`);
   }

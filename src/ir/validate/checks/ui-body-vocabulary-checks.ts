@@ -617,6 +617,7 @@ function receiverTrust(e: ExprIR, scope: ReadonlyMap<string, Trust>): Trust {
     case "list":
     case "convert":
     case "i18nFormat":
+    case "modelText":
     case "duration":
       return "ast";
     case "binary":

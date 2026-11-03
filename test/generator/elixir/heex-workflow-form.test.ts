@@ -91,10 +91,13 @@ async function emitted(): Promise<{ live: string; sweep: string; tsx: string }> 
 describe("HEEx `WorkflowForm` — the real field set (F61)", () => {
   it("emits one typed `<.input>` per workflow param, not a `_placeholder`", async () => {
     const { live } = await emitted();
-    expect(live).toContain(`<.input field={@form[:ref]} type="text" label="Ref"`);
-    expect(live).toContain(`<.input field={@form[:qty]} type="number" label="Qty"`);
+    // Labels are model facts: identity-keyed gettext (`<Ctx>.<Workflow>.field.<f>`).
+    const label = (f: string, english: string) =>
+      `label={pgettext("Ordering.PlaceOrder.field.${f}", "${english}")}`;
+    expect(live).toContain(`<.input field={@form[:ref]} type="text" ${label("ref", "Ref")}`);
+    expect(live).toContain(`<.input field={@form[:qty]} type="number" ${label("qty", "Qty")}`);
     expect(live).toContain(`<.input field={@form[:unit_total]} type="number"`);
-    expect(live).toContain(`<.input field={@form[:rush]} type="checkbox" label="Rush"`);
+    expect(live).toContain(`<.input field={@form[:rush]} type="checkbox" ${label("rush", "Rush")}`);
     // The defect.
     expect(live).not.toContain("_placeholder");
   });

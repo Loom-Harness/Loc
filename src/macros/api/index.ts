@@ -114,6 +114,7 @@ export {
   lambda,
   listLit,
   matchExpr,
+  modelTextExpr,
   nameRefExpr,
   nowExpr,
   page,

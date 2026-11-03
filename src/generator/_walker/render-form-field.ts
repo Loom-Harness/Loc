@@ -19,19 +19,27 @@ export function renderFormField(
   pack: LoadedPack,
   chrome: FormFieldChrome = {},
 ): string {
+  const tokens = chrome.fieldTokens?.(vm) ?? {};
   if (vm.template === "field-input-valueobject") {
     const innerHtml = (vm.children ?? [])
       .map((child) => renderFormField(child, pack, chrome))
       .join("\n");
-    return pack.render(vm.template, { ...vm, ...chrome, innerHtml });
+    return pack.render(vm.template, { ...vm, ...chrome, ...tokens, innerHtml });
   }
   if (vm.elementName !== undefined) {
     const addItemLabel =
       chrome.addItemLabelFor?.(vm.elementName) ??
       chromeMessage(sentenceChromeName("addItem", vm.elementName));
-    return pack.render(vm.template, { ...vm, ...chrome, addItemLabel });
+    const rowFields = vm.rowFields?.map((rf) => ({ ...rf, ...(chrome.fieldTokens?.(rf) ?? {}) }));
+    return pack.render(vm.template, {
+      ...vm,
+      ...chrome,
+      ...tokens,
+      ...(rowFields ? { rowFields } : {}),
+      addItemLabel,
+    });
   }
-  return pack.render(vm.template, { ...vm, ...chrome });
+  return pack.render(vm.template, { ...vm, ...chrome, ...tokens });
 }
 
 /** Pack-chrome tokens the `field-input-*` templates share (M-T1.11).
@@ -50,4 +58,8 @@ export interface FormFieldChrome {
   /** The add-row button's text for a field-array of `element` (a value-object
    *  name): the per-element whole sentence, as a markup-text token. */
   addItemLabelFor?: (element: string) => string;
+  /** The per-field identity-keyed text tokens (`labelExpr`, `enumLabelFn`) —
+   *  `_walker/model-text-sites.ts`.  Empty for a field naming no model fact or
+   *  when the implicit sites are off, so a template's literal branch renders. */
+  fieldTokens?: (vm: FormFieldVM) => Record<string, string>;
 }

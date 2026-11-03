@@ -333,7 +333,13 @@ describe("ddd i18n — model-relative defaults", () => {
     const strings = fs
       .readdirSync(fr)
       .flatMap((f) => Object.values(JSON.parse(fs.readFileSync(path.join(fr, f), "utf8"))));
-    expect(strings).toContain("TODO: Hello");
+    // A new locale is empty (untranslated = absent); the source goes in the lock.
+    expect(strings).toEqual([]);
+    const lock = path.join(dir, "locales", ".loom", "source.lock");
+    const locked = fs
+      .readdirSync(lock)
+      .flatMap((f) => Object.values(JSON.parse(fs.readFileSync(path.join(lock, f), "utf8"))));
+    expect(locked).toContain("Hello");
     expect(fs.existsSync(path.join(elsewhere, "locales"))).toBe(false);
   });
 

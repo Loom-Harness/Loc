@@ -552,6 +552,17 @@ system S {
   deployable two { platform: node, contexts: [B], port: 3001 }
 }
 migration "m" { A.Note -> B.Note }`,
+  // `label(…)` / `plural(…)` model text (i18n identity keys): a path naming no
+  // model element, a plural of a member, a call outside every page/component
+  // body, and a call spliced into a template.
+  "loom.model-text-unresolved": uiPage(`Text { label(Item.nope) }`),
+  "loom.model-text-plural-member": uiPage(`Text { plural(Item.sku) }`),
+  "loom.model-text-outside-ui": repoOnly(`    aggregate Item with crudish {
+      sku: string
+      derived caption: string = label(Item)
+    }
+    repository Items for Item`),
+  "loom.model-text-in-template": uiPage("Text { `All {plural(Item)}` }"),
   // A construct its target's capability table refuses: `DataGrid` on Flutter
   // (no JS runtime, so no TanStack row model).
   "loom.target-unsupported": `
@@ -1221,7 +1232,7 @@ system S {
   "loom.variant-match-placement": repoOnly(`    aggregate Order with crudish {
       code: string
       note: string?
-      function label(): string {
+      function noteLabel(): string {
         match note {
           string s => { let shown = s }
           else => { let shown = code }

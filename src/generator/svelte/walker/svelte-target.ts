@@ -48,6 +48,9 @@ import { renderSvelteDataGridChild } from "./data-grid-child.js";
 
 export const svelteTarget: WalkerTarget = {
   framework: "svelte",
+  // The svelte packs read the identity-keyed form label / enum option / submit
+  // tokens (`_walker/model-text-sites.ts`).
+  modelTextImplicitSites: true,
 
   // The chart component takes a FLAT point list, so the `x:`/`y:` accessors are
   // applied here rather than passed along as key names — the same split every

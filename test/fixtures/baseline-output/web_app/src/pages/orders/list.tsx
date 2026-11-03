@@ -16,10 +16,10 @@ export default function OrderList() {
     <Stack gap="md" data-testid="orders-list">
       <Breadcrumbs>
         <Anchor component={RouterLink} to="/">{t("WebApp.page.List.anchor.n0mxf2", "Home")}</Anchor>
-        <Text>{t("WebApp.page.List.text.xf3i18", "Orders")}</Text>
+        <Text>{t("Orders.Order.name.other", "Orders")}</Text>
       </Breadcrumbs>
       <Group justify="space-between" align="center" gap="md" role="toolbar" aria-label="Actions">
-        <Title order={2}>{t("WebApp.page.List.heading.xf3i18", "Orders")}</Title>
+        <Title order={2}>{t("Orders.Order.name.other", "Orders")}</Title>
         <Button onClick={() => navigate("/orders/new")} data-testid="orders-list-create">{t("WebApp.page.List.button.i38a1x", "New order")}</Button>
       </Group>
       <>
@@ -42,9 +42,9 @@ export default function OrderList() {
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "id") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("id"); setSortDir("asc"); } }}>{t("WebApp.page.List.columnHeader.o4495s", "ID")}{sortKey === "id" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "customerId") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("customerId"); setSortDir("asc"); } }}>{t("WebApp.page.List.columnHeader.0ysfxy", "Customer Id")}{sortKey === "customerId" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "status") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("status"); setSortDir("asc"); } }}>{t("WebApp.page.List.columnHeader.03pd73", "Status")}{sortKey === "status" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "placedAt") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("placedAt"); setSortDir("asc"); } }}>{t("WebApp.page.List.columnHeader.cl05q5", "Placed At")}{sortKey === "placedAt" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
+                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "customerId") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("customerId"); setSortDir("asc"); } }}>{t("Orders.Order.field.customerId", "Customer Id")}{sortKey === "customerId" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
+                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "status") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("status"); setSortDir("asc"); } }}>{t("Orders.Order.field.status", "Status")}{sortKey === "status" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
+                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "placedAt") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("placedAt"); setSortDir("asc"); } }}>{t("Orders.Order.field.placedAt", "Placed At")}{sortKey === "placedAt" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -52,7 +52,7 @@ export default function OrderList() {
                   <Table.Tr key={ row.id } data-testid={ ("orders-row-" + row.id) }>
                     <Table.Td><RouterLink to={`/orders/${ row.id }`}><IdValue id={ row.id } /></RouterLink></Table.Td>
                     <Table.Td><Text>{row.customerId}</Text></Table.Td>
-                    <Table.Td><Badge tt="none">{ row.status }</Badge></Table.Td>
+                    <Table.Td><Badge tt="none">{ ((v: string | null | undefined): string => v == null ? "" : ({ "Draft": t("Orders.OrderStatus.value.Draft", "Draft"), "Confirmed": t("Orders.OrderStatus.value.Confirmed", "Confirmed"), "Shipped": t("Orders.OrderStatus.value.Shipped", "Shipped"), "Cancelled": t("Orders.OrderStatus.value.Cancelled", "Cancelled") } as Record<string, string>)[v] ?? v)(row.status) }</Badge></Table.Td>
                     <Table.Td><DateTimeValue iso={ row.placedAt } /></Table.Td>
                   </Table.Tr>
                 )) }

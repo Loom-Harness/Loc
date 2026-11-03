@@ -1,0 +1,71 @@
+
+// Identity-keyed model text on HEEx: scaffold label()/plural(), implicit
+// form labels, enum options/badges and op buttons all ride pgettext; the
+// generated app must compile warning-free with the Gettext backend on.
+
+system Crud {
+
+  // Authentication is not wired yet.  Adding an `auth { … }` block (with a
+  // `user { … }` claim shape) turns on deny-by-default, the language default
+  // for an `auth` block: every client-reachable command and declared read on
+  // an `auth: required` deployable must then carry a `requires <expr>` gate.
+  // README.md § "Authentication and authorization" has the block to paste,
+  // the gates it asks for, and the `enforcement: opt` escape.
+
+  subdomain Core {
+    // `scaffoldPaged` exposes the named read below as a paged queryHandler,
+    // ordered by the retrieval's `sort:` (unfold it to see the source).
+    context Projects with scaffoldPaged(of: TasksInProject) {
+      aggregate Project with crudish {
+        name: string
+        invariant name.length > 0
+        derived display: string = name
+      }
+
+      repository Projects for Project { }
+
+      enum Priority { Low, High }
+
+      aggregate Task with crudish {
+        title: string
+        done: bool
+        priority: Priority
+        notes: string?
+        project: Project id
+
+        operation retitle(newTitle: string) {
+          title := newTitle
+        }
+      }
+
+      // A list read is a criterion + retrieval pair, not a bespoke repository
+      // find (a list-returning "find byX(...)" is an error —
+      // loom.list-find-removed).
+      criterion InProject(p: Project id) of Task = project == p
+      retrieval TasksInProject(p: Project id) of Task {
+        where: InProject(p)
+        sort: [title asc]
+      }
+
+      repository Tasks for Task { }
+    }
+  }
+
+  api TasksApi with scaffoldPagedApi(of: TasksInProject) from Core { }
+
+  ui WebApp with scaffold(subdomains: [Core]) {
+  }
+
+  storage primary { type: postgres }
+  resource appState { for: Projects, kind: state, use: primary }
+
+  deployable app {
+    platform: elixir,
+    contexts: [Projects],
+    dataSources: [appState],
+    serves: TasksApi,
+    ui: WebApp,
+    port: 4000,
+    design: coreComponents
+  }
+}

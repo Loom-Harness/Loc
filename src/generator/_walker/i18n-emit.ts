@@ -97,6 +97,17 @@ function translateExpr(
   return `t(${args.join(", ")})`;
 }
 
+/** A model-identity text EXPRESSION — `label(…)` / `plural(…)`, or an implicit
+ *  site (a form label, an enum option, a submit button) keyed by
+ *  `src/util/model-text-key.ts`.  Under i18n it is the target's translation call
+ *  (`t("Projects.Task.name.other", "Tasks")`); with i18n off it is the English
+ *  default as a string literal.  Expression position: a JSX/markup caller wraps
+ *  it with `renderInterpolation` (text) or `renderAttrBinding` (attribute). */
+export function localizedModelText(ctx: WalkContext, key: string, defaultText: string): string {
+  if (ctx.i18nPrefix) return translateCall(ctx, key, defaultText);
+  return ctx.target.exprLiteral("string", sourceText(key, defaultText));
+}
+
 /** The raw text token for a user-visible slot, translating a plain literal
  *  through the generated `t()` helper when the body opted into i18n
  *  (`ctx.i18nPrefix`).  Returns either the interpolation `{t(key, "default")}`
@@ -561,6 +572,21 @@ export { registerI18nImport };
  *  renders none).  Precise on purpose: a looser `"t("` test matches
  *  `getContext(`, `format(` and friends. */
 export const CHROME_T_CALL = 't("chrome.';
+
+/** True when `rendered` (a hoisted child's markup or column defs) calls the
+ *  generated `t(…)` with ANY key — chrome, an authored string, or a
+ *  model-identity key.  The word-boundary guard keeps `format("` and
+ *  `getContext("` from matching, which is why this is a pattern rather than a
+ *  bare `t("` substring. */
+export function callsTranslationRuntime(rendered: string): boolean {
+  return /(^|[^\w$.])t\("/.test(rendered);
+}
+
+/** The import `from` specifiers a walk registers for the page's `t` — a
+ *  hoisted child file is its OWN module, so it places its own `t` import and
+ *  must not inherit the page-relative one (a duplicate declaration on Vue and
+ *  Angular, a wrong path on Svelte). */
+export const PAGE_I18N_IMPORT = "../i18n";
 
 /** A pack-chrome string in a TEXT/children position (a grid pager's
  *  "Previous"), for markup that may land in a hoisted child file.
