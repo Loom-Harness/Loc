@@ -35,6 +35,7 @@ import {
   readScopeFor,
 } from "../../../ir/enrich/read-scope.js";
 import type { EnrichedAggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
+import type { DocumentFilterTerm } from "./document-cap-filter.js";
 
 /** The `ignoring` clause of one read, as `FindIR` / a projection query carries it. */
 export type DapperBypass = { bypassAll?: boolean; bypassCaps?: string[] };
@@ -262,14 +263,18 @@ export function buildDapperScope(
   };
 }
 
-/** The predicates a `shape: document` read applies, in application order.  A
- *  document aggregate persists as one jsonb blob, so its filters evaluate in
- *  process over the rehydrated instance instead of in SQL — but they are the same
- *  restrictions of the same read-scope fact, so they come from it, not from the
- *  raw filter arrays. */
-export function documentReadPredicates(
+/** The filters a `shape: document` read applies, in application order, each
+ *  with the capability that contributed it.  A document aggregate persists as
+ *  one jsonb blob, so its filters evaluate in process over the rehydrated
+ *  instance instead of in SQL — but they are the same restrictions of the same
+ *  read-scope fact, so they come from it, not from the raw filter arrays. */
+export function documentReadTerms(
   agg: EnrichedAggregateIR,
   pool: readonly EnrichedAggregateIR[],
-): ExprIR[] {
-  return readFilterRestrictions(readScopeFor(agg, pool)).map((r) => r.predicate);
+): DocumentFilterTerm[] {
+  return readFilterRestrictions(readScopeFor(agg, pool)).map((r) =>
+    r.capability !== undefined
+      ? { predicate: r.predicate, capability: r.capability }
+      : { predicate: r.predicate },
+  );
 }
