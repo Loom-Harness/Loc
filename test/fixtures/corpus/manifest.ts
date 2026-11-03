@@ -192,6 +192,20 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "state-gate", title: "`when` canCommand state gate + GET can-query companion", doc: "criterion", backends: ALL },
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
   {
+    id: "workflow-expected-failure",
+    title: "a workflow `create` / handler answering `T or E`, rolled back whole on the error",
+    doc: "workflow",
+    backends: ["node", "dotnet", "java", "python"],
+    note: "elixir refuses the let-bound mutating call every entry point here matches (`loom.elixir-bound-mutating-call-unsupported`).",
+  },
+  {
+    id: "op-return-this",
+    title: "an operation answering its own aggregate (`return this`, and an `Agg or Error` arm)",
+    doc: "payloads",
+    backends: ["node", "dotnet", "java", "python"],
+    note: "elixir is not declared: `withdraw` returns early from an `if` branch, which a Phoenix operation body cannot express (`loom.elixir-if-stmt-unsupported`).",
+  },
+  {
     id: "match-op-result",
     title: "`let r = a.op()` over an `or Error` result, matched in a workflow body",
     doc: "workflow",

@@ -319,6 +319,9 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
       const v = renderPyExpr(s.value);
       if (!s.variantTag) return `${i}return ${v}`;
       const tag = JSON.stringify(s.variantTag);
+      // `return this` in the aggregate's own arm carries the tag alone: the
+      // aggregate is not a mapping, and the route answers its wire projection.
+      if (s.value.kind === "this") return `${i}return {"type": ${tag}}`;
       const tagged =
         s.variantShape === "none"
           ? `{"type": ${tag}}`

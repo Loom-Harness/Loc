@@ -223,6 +223,12 @@ function javaStmtTarget(ctx: JavaRenderContext, traceCtx: JavaTraceCtx): StmtTar
       const member = ctx.returnUnion.members.find((m) => m.tag === s.variantTag);
       const objFields = s.value.kind === "object" ? s.value.fields : [];
       const order = member && member.shape === "record" ? member.fields : [];
+      // `return this` in the aggregate's own arm: the record carries the
+      // aggregate's fields, read through its accessors.
+      if (s.value.kind === "this") {
+        const reads = order.map((mf) => `this.${jid(mf.name)}()`);
+        return `${INDENT}return new ${variant}(${reads.join(", ")});`;
+      }
       const args = order.map((mf) => {
         const f = objFields.find((of) => of.name === mf.name);
         return f ? renderJavaExpr(f.value, ctx) : "null";

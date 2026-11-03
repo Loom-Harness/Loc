@@ -1260,10 +1260,20 @@ export const DIAGNOSTIC_MESSAGES = {
     `body. The result is answered after every step (and the transaction) completes, so an earlier or ` +
     `nested 'return' would not stop the steps after it.`,
   "loom.workflow-return-not-last#match-arm": (p: { workflow: unknown; create: unknown }) =>
-    `Workflow '${p.workflow}': 'return' in '${p.create}' sits inside a 'match' arm.  An arm runs ` +
-    `statements; the result is answered once, after every step (and the transaction) completes. ` +
-    `Compute the result with the value form — 'let r = match x { A a => …, B b => … }' — and end ` +
+    `Workflow '${p.workflow}': 'return' in '${p.create}' sits inside a 'match' arm.  An arm may ` +
+    `end in 'return' only when the 'match' is the body's last statement, every arm ends in ` +
+    `'return' or 'notFound', and the result declares an expected failure ('T or E').  Otherwise ` +
+    `compute the result with the value form — 'let r = match x { A a => …, B b => … }' — and end ` +
     `the body with 'return r'.`,
+  "loom.workflow-return-not-last#arm-local-let": (p: {
+    workflow: unknown;
+    create: unknown;
+    name: unknown;
+  }) =>
+    `Workflow '${p.workflow}': the 'return' of a 'match' arm in '${p.create}' reads '${p.name}', ` +
+    `a 'let' declared inside the arm.  The result is answered once, after the 'match', where ` +
+    `only the arm's binding and the lets declared before the 'match' are in scope.  Compute the ` +
+    `value in the 'return' itself, or declare the 'let' before the 'match'.`,
   "loom.workflow-return-untyped": (p: { workflow: unknown; create: unknown }) =>
     `Workflow '${p.workflow}': '${p.create}' ends in 'return' but declares no result type. ` +
     `Annotate it — 'create(…): T { … return <expr> }' — so the route publishes what it answers.`,
@@ -1283,9 +1293,20 @@ export const DIAGNOSTIC_MESSAGES = {
     declared: unknown;
   }) =>
     `Workflow '${p.workflow}': '${p.create}' declares result type '${p.declared}', which a workflow ` +
-    `route cannot answer yet. Supported: an 'X id', 'string', 'int', 'long' or 'bool'. Return the ` +
-    `new aggregate's id and read it back through its own GET route, or use a 'commandHandler', ` +
-    `whose result projects through the aggregate's wire shape.`,
+    `route cannot answer yet. Supported: an 'X id', 'string', 'int', 'long' or 'bool', a payload ` +
+    `record, an aggregate (answered as its response), the workflow itself ('return this', its ` +
+    `instance state), or a union of these with at least one 'error' variant.  A value-object, ` +
+    `money, decimal or date/time result is not answered yet — return it inside a payload.`,
+  "loom.workflow-return-type-unsupported#handler": (p: { label: unknown; declared: unknown }) =>
+    `${p.label} declares result '${p.declared}', which its route cannot answer yet.  An expected-` +
+    `failure result's success variants may be an 'X id', 'string', 'int', 'long' or 'bool', a ` +
+    `payload record or an aggregate (answered as its response).  A value-object, money, decimal ` +
+    `or date/time variant is not answered yet — return it inside a payload.`,
+  "loom.workflow-return-this-uncorrelated": (p: { workflow: unknown; create: unknown }) =>
+    `Workflow '${p.workflow}': '${p.create}' answers the workflow itself ('${p.workflow}', ` +
+    `'return this'), but the workflow is not correlated — it declares no id-shaped state field, ` +
+    `so it persists no instance for the answer to read.  Declare a correlation field ` +
+    `('orderId: Order id') and assign it from a parameter, or answer another value.`,
   "loom.workflow-return-event-sourced": (p: { workflow: unknown; create: unknown }) =>
     `Workflow '${p.workflow}' is 'eventSourced', so '${p.create}' may only emit events and cannot ` +
     `declare a result. Drop the ': T' and the 'return', or read the outcome back through the ` +
@@ -1797,10 +1818,16 @@ export const DIAGNOSTIC_MESSAGES = {
     `End each branch with \`return <value>\` (an \`if\` needs an \`else\` that returns too).`,
 
   "loom.handler-return-not-last#match-arm": (p: { label: unknown }) =>
-    `${p.label}: 'return' sits inside a 'match' arm.  An arm runs statements; a handler answers ` +
-    `once, after its body has run, so a 'return' in an arm would not stop the statements after ` +
-    `the 'match'.  Compute the answer with the value form — 'let r = match x { A a => …, ` +
+    `${p.label}: 'return' sits inside a 'match' arm.  A handler answers once, after its body has ` +
+    `run, so an arm may end in 'return' only when the 'match' is the body's last statement, every ` +
+    `arm ends in 'return' or 'notFound', and the result declares an expected failure ('T or E').  ` +
+    `Otherwise compute the answer with the value form — 'let r = match x { A a => …, ` +
     `B b => … }' — and end the body with 'return r'.`,
+  "loom.handler-return-not-last#arm-local-let": (p: { label: unknown; name: unknown }) =>
+    `${p.label}: the 'return' of a 'match' arm reads '${p.name}', a 'let' declared inside the arm.  ` +
+    `The handler answers once, after the 'match', where only the arm's binding and the lets ` +
+    `declared before the 'match' are in scope.  Compute the value in the 'return' itself, or ` +
+    `declare the 'let' before the 'match'.`,
   "loom.handler-return-not-last": (p: { label: unknown }) =>
     `${p.label}: 'return' must be the last top-level statement of the body, or the whole ` +
     `then-branch of a final 'if let … { return x } else { … notFound }'. A handler answers ` +
@@ -2039,9 +2066,11 @@ export const DIAGNOSTIC_MESSAGES = {
   // src/language/validators/unions.ts
   // ----------------------------------------------------------------------
   "loom.union-position":
-    `An inline 'or' union is a transport shape — it may only appear as a repository find ` +
-    `return type or an operation return, not in this position. Name it ` +
-    `with 'payload X = A | B' to use it elsewhere.`,
+    `An inline 'or' union is a transport shape — it may appear only as an operation's or a ` +
+    `domainService operation's return type, or, with at least one 'error' variant, as the ` +
+    `result of a workflow 'create', a 'commandHandler' or a 'queryHandler' ` +
+    `('create(…): Receipt or PaymentDeclined'), where the error answers its mapped status. ` +
+    `Not in this position.`,
   "loom.union-position#payload-field":
     `An inline 'or' union cannot be a payload field: the tagged union wire is emitted only ` +
     `at the top of an operation or find return, and no backend renders one nested inside a ` +
@@ -5259,6 +5288,21 @@ export const DIAGNOSTIC_MESSAGES = {
     `the change at the end of each arm that is not an error and drops it in an error arm.`,
   // `let r = a.withdraw(x)` / `let r = Transfer.run(…)` in a body the Phoenix
   // backend emits — the bound form of a mutating call is not rendered there.
+  "loom.elixir-entry-result-unsupported": (p: { where: unknown; deployable: unknown }) =>
+    `${p.where} declares an expected-failure result ('T or E'), and the Phoenix/Elixir ` +
+    `deployable '${p.deployable}' hosts its context.  The Phoenix workflow and handler emitters ` +
+    `have no tagged result yet, nor the rollback that undoes the whole command when the answer ` +
+    `is an error.  Drop the error variant (answer the failure with 'notFound', or from an ` +
+    `operation route), or host this context on a node / dotnet / java / python backend.`,
+  "loom.elixir-entry-result-unsupported#workflow-state": (p: {
+    where: unknown;
+    deployable: unknown;
+  }) =>
+    `${p.where} answers the workflow itself ('return this'), and the Phoenix/Elixir deployable ` +
+    `'${p.deployable}' hosts its context.  The Phoenix command route has no instance-state ` +
+    `answer yet.  Answer the correlation id and read the instance through ` +
+    `'GET /workflows/<name>/instances/{id}', or host this context on a node / dotnet / java / ` +
+    `python backend.`,
   "loom.elixir-bound-mutating-call-unsupported": (p: {
     where: unknown;
     name: unknown;

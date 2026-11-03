@@ -248,6 +248,13 @@ function csStmtTarget(ctx: CsRenderContext, traceCtx: TraceCtx): StmtTarget {
         return `${INDENT}return new ${variant}(${renderCsExpr(s.value, ctx)});`;
       }
       const member = ctx.returnUnion.members.find((m) => m.tag === s.variantTag);
+      // `return this` in the aggregate's own arm carries the tag alone: the
+      // command handler replaces it with the aggregate's projection read after
+      // the save.
+      if (s.value.kind === "this") {
+        const n = member && member.shape === "record" ? member.fields.length : 0;
+        return `${INDENT}return new ${variant}(${Array.from({ length: n }, () => "default!").join(", ")});`;
+      }
       const objFields = s.value.kind === "object" ? s.value.fields : [];
       const order = member && member.shape === "record" ? member.fields : [];
       const args = order.map((mf) => {

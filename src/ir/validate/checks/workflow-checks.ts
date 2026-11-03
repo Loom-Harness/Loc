@@ -213,6 +213,26 @@ export function validateWorkflows(
         source: `${ctx.name}/${wf.name}`,
       });
     }
+    // `create(…): <Wf>` / `<Wf> or E` answers the workflow's instance state —
+    // the row the instance-read route serves, keyed by the correlation field.
+    // An uncorrelated workflow persists no such row, so there is nothing to
+    // answer.
+    if (!wf.correlationField || wf.eventSourced) {
+      for (const c of wf.creates) {
+        const t = c.returnType;
+        const names = t?.kind === "union" ? t.variants : t ? [t] : [];
+        if (!names.some((v) => v.kind === "entity" && v.name === wf.name)) continue;
+        diags.push({
+          severity: "error",
+          code: "loom.workflow-return-this-uncorrelated",
+          message: diagMessage("loom.workflow-return-this-uncorrelated", {
+            workflow: wf.name,
+            create: c.name ?? "create",
+          }),
+          source: `${ctx.name}/${wf.name}`,
+        });
+      }
+    }
     // Runs BEFORE the body check: it reports the boundary violation and returns
     // the let-bindings it poisoned, so the body check can stay quiet about the
     // downstream symptoms instead of adding a second, misleading diagnostic.
