@@ -9,7 +9,7 @@ import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 import { loadProject } from "../../src/language/project-loader.js";
-import { generateSystemsFromLoom } from "../../src/system/index.js";
+import { generateSystemFilesFromProject } from "../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
@@ -76,8 +76,7 @@ describe("playground picker examples (remaining)", () => {
   });
 
   it.each(examples)("%s generates a system", async (file) => {
-    const { loom } = await loadExample(file);
-    const { files } = generateSystemsFromLoom(loom);
+    const files = await generateSystemFilesFromProject(path.join(repoRoot, file));
     expect(files.has("docker-compose.yml")).toBe(true);
     expect(files.size).toBeGreaterThan(0);
   });

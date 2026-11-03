@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { buildLoomModel as build, parseValid as parse } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
+import { buildLoomModel as build } from "../_helpers/index.js";
 
 const SOURCE = `
   requirement US-001 { type: UserStory  title: "User can log in"  status: InProgress }
@@ -82,7 +82,7 @@ describe("traceability IR", () => {
   });
 
   it("emits .loom documentation artifacts", async () => {
-    const { files } = generateSystems(await parse(SOURCE));
+    const files = await generateSystemFiles(SOURCE);
     for (const p of [
       ".loom/traceability.md",
       ".loom/coverage.md",
@@ -115,10 +115,8 @@ describe("traceability IR", () => {
   });
 
   it("emits no traceability artifacts when none are declared", async () => {
-    const { files } = generateSystems(
-      await parse(
-        `system S { subdomain M { context C { aggregate A { name: string } repository As for A {} } } storage pg { type: postgres } resource cState { for: C, kind: state, use: pg } deployable D { platform: node  contexts: [C]  dataSources: [cState] } }`,
-      ),
+    const files = await generateSystemFiles(
+      `system S { subdomain M { context C { aggregate A { name: string } repository As for A {} } } storage pg { type: postgres } resource cState { for: C, kind: state, use: pg } deployable D { platform: node  contexts: [C]  dataSources: [cState] } }`,
     );
     expect([...files.keys()].some((k) => k.startsWith(".loom/traceability"))).toBe(false);
     expect(files.has(".loom/coverage.md")).toBe(false);

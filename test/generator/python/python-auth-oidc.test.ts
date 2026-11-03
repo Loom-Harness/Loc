@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python/FastAPI OIDC verifier + handshake (D-AUTH-OIDC).  An `auth { oidc }`
@@ -20,8 +19,11 @@ const USER = `
     email: string
   }`;
 
+// `enforcement: opt` — the fixtures pin auth wiring, not per-member gates, and
+// `crudish` members carry no `requires` (denyByDefault would refuse them).
 const OIDC = `
   auth {
+    enforcement: opt
     provider: keycloak
     oidc { issuer: env("OIDC_ISSUER"), clientId: env("OIDC_CLIENT_ID") }
     claims: { roles: "realm_access.roles", email: "email" }
@@ -53,9 +55,8 @@ function source(opts: { oidc: boolean }): string {
 }
 
 async function build(opts: { oidc: boolean }): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(source(opts));
-  if (errors.length) throw new Error(`validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  const fixture = source(opts);
+  return generateSystemFiles(fixture);
 }
 
 describe("python OIDC verifier + handshake", () => {

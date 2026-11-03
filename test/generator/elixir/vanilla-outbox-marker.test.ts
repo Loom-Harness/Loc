@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Elixir-vanilla backend — idempotent-consumer markers (M-T4.3,
@@ -53,9 +52,7 @@ const EPHEMERAL = DURABLE.replace(
   .replace("channels: [lifecycleBus] ", "");
 
 async function build(src: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(src);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(src);
 }
 
 function file(files: Map<string, string>, suffix: string): string {

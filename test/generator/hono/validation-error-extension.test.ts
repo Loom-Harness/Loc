@@ -36,23 +36,14 @@
 
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
+import { generateSystemFilesFromProject } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
 
-async function buildAcme(): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(path.join(repoRoot, "examples/acme.ddd")),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  return doc.parseResult.value as Model;
+async function buildAcme(): Promise<{ files: Map<string, string> }> {
+  return { files: await generateSystemFilesFromProject(path.join(repoRoot, "examples/acme.ddd")) };
 }
 
 function honoRootOf(files: Map<string, string>): string {
@@ -62,7 +53,7 @@ function honoRootOf(files: Map<string, string>): string {
 
 describe("Hono validation-error extension — emission", () => {
   it("emits http/problem-details.ts once per Hono deployable", async () => {
-    const { files } = generateSystems(await buildAcme());
+    const { files } = await buildAcme();
     const indexKeys = [...files.keys()].filter((k) => k.endsWith("/http/index.ts"));
     expect(indexKeys.length).toBeGreaterThan(0);
     for (const indexKey of indexKeys) {
@@ -72,7 +63,7 @@ describe("Hono validation-error extension — emission", () => {
   });
 
   it("problem-details.ts exports ProblemDetails with the 5 base RFC 7807 fields", async () => {
-    const { files } = generateSystems(await buildAcme());
+    const { files } = await buildAcme();
     const root = honoRootOf(files);
     const src = files.get(`${root}/http/problem-details.ts`)!;
     // Base ProblemDetails fields per RFC 7807.
@@ -94,7 +85,7 @@ describe("Hono validation-error extension — emission", () => {
   });
 
   it("problem-details.ts implements the validation defaultHook with RFC 6901 pointers", async () => {
-    const { files } = generateSystems(await buildAcme());
+    const { files } = await buildAcme();
     const root = honoRootOf(files);
     const src = files.get(`${root}/http/problem-details.ts`)!;
     // The hook returns 422 (RFC 7807 standard for input validation).
@@ -137,7 +128,7 @@ describe("Hono validation-error extension — emission", () => {
   });
 
   it("router files import ProblemDetails + newApp from problem-details", async () => {
-    const { files } = generateSystems(await buildAcme());
+    const { files } = await buildAcme();
     const root = honoRootOf(files);
     // Spot-check every emitted router file under http/.
     const routerFiles = [...files.keys()].filter(
@@ -159,7 +150,7 @@ describe("Hono validation-error extension — emission", () => {
   });
 
   it("router files construct OpenAPIHono via newApp() (default hook wired)", async () => {
-    const { files } = generateSystems(await buildAcme());
+    const { files } = await buildAcme();
     const root = honoRootOf(files);
     const routerFiles = [...files.keys()].filter(
       (k) =>
@@ -185,7 +176,7 @@ describe("Hono validation-error extension — emission", () => {
     // the central matrix in src/ir/util/openapi-errors.ts.  Hono's
     // create / operation / workflow routes declare 422 ProblemDetails
     // alongside 400.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
-    const { files } = generateSystems(await buildAcme());
+    const { files } = await buildAcme();
     const root = honoRootOf(files);
     const customerSrc = files.get(`${root}/http/customer.routes.ts`)!;
     const fourHundreds = customerSrc.match(

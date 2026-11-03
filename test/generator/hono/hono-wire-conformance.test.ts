@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
-import { generateSystems } from "../../../src/system/index.js";
 import { buildWireSpec } from "../../../src/system/wire-spec.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 import { parseString } from "../../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
@@ -83,8 +83,7 @@ async function buildHonoModel() {
 
 describe("cross-platform wire-spec conformance (hono vs wire-spec.json)", () => {
   it("Hono routes files exist for every aggregate served by the api", async () => {
-    const model = await buildHonoModel();
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(HONO_FIXTURE);
     expect(files.has("hono_api/http/customer.routes.ts")).toBe(true);
     expect(files.has("hono_api/http/order.routes.ts")).toBe(true);
   });
@@ -93,7 +92,7 @@ describe("cross-platform wire-spec conformance (hono vs wire-spec.json)", () => 
     const model = await buildHonoModel();
     const sys = enrichLoomModel(lowerModel(model)).systems[0]!;
     const wireSpec = buildWireSpec(sys);
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(HONO_FIXTURE);
     const httpSource = [...files.entries()]
       .filter(([k]) => /^hono_api\/http\//.test(k))
       .map(([, v]) => v)
@@ -107,7 +106,7 @@ describe("cross-platform wire-spec conformance (hono vs wire-spec.json)", () => 
     const model = await buildHonoModel();
     const sys = enrichLoomModel(lowerModel(model)).systems[0]!;
     const wireSpec = buildWireSpec(sys);
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(HONO_FIXTURE);
     const httpSource = [...files.entries()]
       .filter(([k]) => /^hono_api\/http\//.test(k))
       .map(([, v]) => v)
@@ -121,7 +120,7 @@ describe("cross-platform wire-spec conformance (hono vs wire-spec.json)", () => 
     const model = await buildHonoModel();
     const sys = enrichLoomModel(lowerModel(model)).systems[0]!;
     const wireSpec = buildWireSpec(sys);
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(HONO_FIXTURE);
     const httpSource = [...files.entries()]
       .filter(([k]) => /^hono_api\/http\//.test(k))
       .map(([, v]) => v)
@@ -135,7 +134,7 @@ describe("cross-platform wire-spec conformance (hono vs wire-spec.json)", () => 
     const model = await buildHonoModel();
     const sys = enrichLoomModel(lowerModel(model)).systems[0]!;
     const wireSpec = buildWireSpec(sys);
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(HONO_FIXTURE);
     const customerRoutes = files.get("hono_api/http/customer.routes.ts");
     expect(customerRoutes, "customer.routes.ts must be emitted").toBeDefined();
     // Locate the CustomerResponse block specifically — ends at the

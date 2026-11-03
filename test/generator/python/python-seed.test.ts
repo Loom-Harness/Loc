@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — first-boot seeding (plan S16, database-seeding.md).
@@ -23,9 +22,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python seeding", () => {
@@ -72,9 +69,7 @@ describe("python seeding", () => {
       resource bankLog { for: Bank, kind: eventLog, use: pg }
       deployable api { platform: python contexts: [Bank] dataSources: [bankLog] serves: A port: 3000 }
     }`;
-    const { model, errors } = await parseString(src);
-    if (errors.length) throw new Error(errors.join("\n"));
-    const seed = generateSystems(model).files.get("api/app/db/seed.py")!;
+    const seed = (await generateSystemFiles(src)).get("api/app/db/seed.py")!;
     expect(seed).toContain('Account.create(owner="seeded-alice")');
     expect(seed).not.toContain("balance=");
     expect(seed).toContain("await account_repo.save(");
@@ -83,9 +78,7 @@ describe("python seeding", () => {
   it("seed-less projects emit no seed module and no lifespan call", async () => {
     const source = FIXTURE.replace(/ {6}seed[\s\S]*?\n {6}\}\n/g, "");
     expect(source).not.toMatch(/^\s*seed[ \w]*\{/m);
-    const { model, errors } = await parseString(source);
-    if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(source);
     expect(files.get("api/app/db/seed.py")).toBeUndefined();
     expect(files.get("api/app/main.py")!).not.toContain("run_seeds");
   });
