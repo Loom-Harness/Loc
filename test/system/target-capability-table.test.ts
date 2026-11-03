@@ -31,6 +31,7 @@ import {
 } from "../../src/ir/validate/checks/target-capability-checks.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import {
+  ADAPTER_REFUSALS,
   ALL_UI_CONSTRUCTS,
   BACKEND_CONSTRUCTS,
   type BackendConstruct,
@@ -536,6 +537,8 @@ describe("loom.target-unsupported — the check reads the table, and every detec
       ];
       for (const v of verdicts) if (v.verdict === "refused") used.add(v.slug);
     }
+    // The adapter axis's refusals are rows too.
+    for (const r of ADAPTER_REFUSALS) used.add(r.verdict.slug);
     // The fail-closed reasons count: an unknown framework is refused with them.
     for (const slug of Object.values(UI_CONSTRUCT_REFUSAL)) used.add(slug);
     const catalog = Object.keys(DIAGNOSTIC_MESSAGES)

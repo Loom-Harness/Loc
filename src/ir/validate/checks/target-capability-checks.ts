@@ -17,6 +17,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { platformFamily } from "../../../language/validators/data/platform-rules.js";
 import {
+  ADAPTER_REFUSALS,
   BACKEND_CONSTRUCTS,
   type BackendConstruct,
   backendCapability,
@@ -387,21 +388,15 @@ export function validateTargetCapabilities(
         }
       }
     }
-    // The node row describes its default Drizzle adapter.  The MikroORM event
-    // store does not carry a stream's tenant yet, so a tenant-scoped stream is
-    // refused on that adapter alone.
-    if (platformFamily(d.platform) === "node" && d.persistence === "mikroorm") {
+    // The adapter axis: a construct the backend's default adapter realizes
+    // but this deployable's `persistence:` adapter does not yet.
+    for (const r of ADAPTER_REFUSALS) {
+      if (platformFamily(d.platform) !== r.family || d.persistence !== r.persistence) continue;
       for (const ctxName of d.contextNames) {
         const ctx = ctxByName.get(ctxName);
         if (!ctx) continue;
-        for (const use of BACKEND_DETECTORS["capability:tenantOwned@event-sourced"](ctx, sys)) {
-          refuse(
-            diags,
-            "tenant-owned-event-sourced",
-            use,
-            d,
-            `${d.platform} (persistence: mikroorm)`,
-          );
+        for (const use of BACKEND_DETECTORS[r.construct](ctx, sys)) {
+          refuse(diags, r.verdict.slug, use, d, `${d.platform} (persistence: ${r.persistence})`);
         }
       }
     }

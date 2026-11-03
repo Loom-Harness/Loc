@@ -362,6 +362,27 @@ const REACT_CAPABILITIES: TargetCapabilityTable = {
   },
 };
 
+/** A backend construct one persistence ADAPTER cannot realize yet, although the
+ *  backend's default adapter (the row in `TARGET_CAPABILITIES`) does — the
+ *  adapter axis of the same table.  `loom.target-unsupported` reads these per
+ *  deployable, matched on its platform family and `persistence:` knob. */
+export interface AdapterRefusal {
+  family: "node" | "dotnet" | "elixir" | "python" | "java";
+  persistence: string;
+  construct: BackendConstruct;
+  verdict: CapabilityVerdict & { verdict: "refused" };
+}
+
+export const ADAPTER_REFUSALS: readonly AdapterRefusal[] = [
+  // The MikroORM event store does not carry a stream's tenant yet (#4686).
+  {
+    family: "node",
+    persistence: "mikroorm",
+    construct: "capability:tenantOwned@event-sourced",
+    verdict: { verdict: "refused", slug: "tenant-owned-event-sourced" },
+  },
+];
+
 /** Every target's table.  The `static` PLATFORM is React's UI-only alias and
  *  shares its table; a ui whose resolved FRAMEWORK is spelled `static` is not
  *  in any `frameworks` list, so its UI constructs are refused fail-closed. */
