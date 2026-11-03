@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// Custom validation messages — the `message "..."` clause on
+// Custom validation messages — a rule name (and its `locales/en` text) on
 // invariant / check / precondition (M-T1.11 foundation slice, Hono/React
 // vertical).  A named rule renders through the wire refine carrier (with
 // the rule text + a stable `loomCode`) and the domain floor; an unnamed

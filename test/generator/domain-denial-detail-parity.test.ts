@@ -89,7 +89,7 @@ system Denials {
  *  about the message. */
 const PRECONDITION_DETAIL = "Invalid value";
 const FORBIDDEN_DETAIL = "Forbidden: currentUser.level > 2";
-/** …and when the author writes `message "…"`, THAT is the detail — the derived
+/** …and when the rule is named, its text is the detail — the derived
  *  form must not appear for that statement.  Elixir used to drop the clause
  *  here; its typed-denial path now shares one `denialMessage` rule with the
  *  other four.
@@ -231,7 +231,7 @@ describe("RS-15 — the raise path carries the rule text too (M-T6.20 path 2)", 
 });
 
 // ---------------------------------------------------------------------------
-// The ORCHESTRATION path — a `precondition … message "…"` inside a workflow
+// The ORCHESTRATION path — a named `precondition` inside a workflow
 // `create` body and a `commandHandler` body (banking eval B-02).
 //
 // The workflow lowering dropped the clause (the IR slot existed, the lowerer

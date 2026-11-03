@@ -4,7 +4,7 @@
 //
 // The fixture is the corpus `create-contract.ddd`, whose create carries
 //
-//     precondition patient.length >= 2 message "A patient name needs two characters"
+//     precondition patientNameLength: patient.length >= 2
 //     emit AppointmentRequested { appointment: id, patient: patient, minutes: minutes }
 //
 // The runtime proof is `test/behavioral/create-contract.mjs` (a booted Hono
@@ -14,11 +14,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
+import { readWithOverrides } from "../_helpers/source-overrides.js";
 
-const FIXTURE = readFileSync(
-  join(__dirname, "..", "fixtures", "corpus", "create-contract.ddd"),
-  "utf8",
-);
+const CORPUS_FILE = join(__dirname, "..", "fixtures", "corpus", "create-contract.ddd");
+// Stamped with its translator tree, so the generate helper applies `locales/en`.
+const FIXTURE = readWithOverrides(CORPUS_FILE, readFileSync(CORPUS_FILE, "utf8"));
 const on = (p: string) => generateSystemFiles(FIXTURE.replace("__PLATFORM__", p));
 
 function file(files: Map<string, string>, suffix: string): string {

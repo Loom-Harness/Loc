@@ -1,7 +1,7 @@
 // Auto-generated.
 /** Which rung of the domain floor refused a call: a `precondition` of the
  *  operation, or an `invariant` of the aggregate / part / value object.  It is
- *  carried apart from the message, which an authored `message "..."` replaces. */
+ *  carried apart from the message, which a rule's own text replaces. */
 export type DomainErrorKind = "precondition" | "invariant";
 
 export class DomainError extends Error {
@@ -17,7 +17,7 @@ export class DomainError extends Error {
 /** A value object's invariant refused a value (M-T5.1).  A DomainError, so
  *  every catch still classifies it; the routers answer it with the domain-floor
  *  status PLUS one RFC 7807 errors[] entry carrying the rule's message and, for
- *  a messaged rule, its content-hash code. */
+ *  a named rule, its identity-key code. */
 export class ValueObjectInvariantError extends DomainError {
   readonly valueObject: string;
   readonly code: string | undefined;

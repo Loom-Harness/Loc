@@ -10,7 +10,7 @@ using CatalogApi.Domain.Events;
 namespace CatalogApi.Domain.Common;
 
 /// <summary>Which rung of the domain floor refused a call — carried apart
-/// from the message, which an authored <c>message "..."</c> replaces.</summary>
+/// from the message, which a rule's own text replaces.</summary>
 public enum DomainErrorKind
 {
     Precondition,
@@ -32,7 +32,7 @@ public sealed class DomainException : Exception
 /// DomainExceptionFilter answers the domain-floor status with one RFC 7807
 /// <c>errors[]</c> entry: the whole-request pointer <c>""</c> (the value was
 /// computed by a body, so it names no request member), the rule's message
-/// and, for a messaged rule, its content-hash code.</summary>
+/// and, for a named rule, its identity-key code.</summary>
 public sealed class ValueObjectInvariantException : Exception
 {
     public string ValueObject { get; }

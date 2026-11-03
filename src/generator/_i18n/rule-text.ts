@@ -19,7 +19,7 @@
 
 import type { ExprIR, InvariantIR, MessageIR } from "../../ir/types/loom-ir.js";
 import { singleFieldShape } from "../../ir/validate/invariant-classify.js";
-import { sourceText } from "../_walker/source-text.js";
+import { sourceText } from "./source-text.js";
 
 /** Generic key of an unnamed rule that points at a single field. */
 const FIELD_RULE_KEY = "field.rule";

@@ -644,7 +644,7 @@
       "provenance": [
         "ledger rows `F2-W-03` and `nested-errors-pointer-shape`",
         "elixir arm fixed in the W1b elixir packet (`collect_changeset_errors/2` + the `loom_path` opt on `validate_vo/3`), pinned by test/generator/elixir/nested-error-pointers.test.ts",
-        "elixir RUNTIME-PROVEN: a booted Phoenix app answers a `{\"sku\":{\"code\":\"ab\"}}` create with `422 {\"errors\":[{\"pointer\":\"/sku/code\",\"message\":\"SKU code needs at least 3 characters\"}]}`; with `validate_vo/3` reverted the same request answers `{\"pointer\":\"/sku\",\"message\":\"is invalid\"}` — inner field, authored text and wire code all gone",
+        "elixir RUNTIME-PROVEN: a booted Phoenix app answers a `{\"sku\":{\"code\":\"ab\"}}` create with `422 {\"errors\":[{\"pointer\":\"/sku/code\",\"message\":\"SKU code needs at least 3 characters\"}]}`; with `validate_vo/3` reverted the same request answers `{\"pointer\":\"/sku\",\"message\":\"is invalid\"}` — inner field, rule text and wire code all gone",
         "java arm closed under M-T9.25 / F1 nested-errors-pointer-shape: `pointerOf` in src/generator/java/emit/api.ts, wired at every `errors[]` call site, pinned by test/generator/java/errors-pointer-rfc6901.test.ts (`lineTotals[0].unitPrice` → `/lineTotals/0/unitPrice`, consecutive indexers, both RFC 6901 escapes, and the raw-concatenation form asserted GONE)",
         "node `pointerOf(issue.path)` (src/platform/hono/v4/emit.ts, shared emitter), .NET `ValidationProblem.PointerOf` (src/generator/dotnet/emit/api.ts), python `_pointer(tuple(e[\"loc\"]))` (src/generator/python/index.ts) were correct from the start"
       ],

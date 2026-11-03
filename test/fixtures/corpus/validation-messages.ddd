@@ -1,6 +1,6 @@
-// Authored validation messages + the backend message CATALOG (M-T1.11).
+// Named-rule validation messages + the backend message CATALOG (M-T1.11).
 //
-// Exercises every rule kind that can carry a `message "…"` clause — an
+// Exercises every rule kind that can be named — an
 // aggregate `invariant`, an inline field `check`, an operation `precondition`,
 // and a value-object `invariant` — so each backend's wire-validator carrier AND
 // its generated catalog (a `const` map on node/.NET/python, a

@@ -59,7 +59,7 @@ ${branches}
 /** Map a recognised single-field invariant pattern to the idiomatic Ecto
  *  changeset validator pipe line (4-space-indented, ready for a `|>` pipe). */
 export function ectoValidator(field: string, p: SingleFieldPattern, message?: string): string {
-  // An author `message "..."` rides along as Ecto's own `message:` option, so a
+  // A named rule's text rides along as Ecto's own `message:` option, so a
   // named single-field rule keeps its native `validate_*` enforcement AND
   // surfaces the rule text (VOs have no residual carrier to route to). A
   // unnamed rule is byte-identical.

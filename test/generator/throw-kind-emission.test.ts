@@ -204,9 +204,7 @@ describe("toThrow(<kind>) — the emitted unit assertion pins the rung on all fi
       // The rule text stays the MESSAGE (the HTTP `detail` reads it); the
       // rung rides right after it.
       expect(domain).toContain(`"Finish work first", ${pins.precondition}`);
-      expect(domain).toContain(
-        `"a completed work order needs at least one task", ${pins.invariant}`,
-      );
+      expect(domain).toContain(`"Work needs task", ${pins.invariant}`);
     });
   }
 

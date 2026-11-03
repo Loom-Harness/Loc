@@ -221,7 +221,7 @@ export class ValueObjectInvariantError extends DomainError {
  *  derived sentence. */
 const DOMAIN_ERROR_KIND_TS = `/** Which rung of the domain floor refused a call: a \`precondition\` of the
  *  operation, or an \`invariant\` of the aggregate / part / value object.  It is
- *  carried apart from the message, which an authored \`message "..."\` replaces. */
+ *  carried apart from the message, which a rule's own text replaces. */
 export type DomainErrorKind = "precondition" | "invariant";
 
 `;

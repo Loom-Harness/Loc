@@ -30,7 +30,7 @@ class ValueObjectInvariantError(DomainError):
         self.value_object = value_object${hasDomainFloorCodes ? "" : "\n        self.code = code"}`
     : "";
   // Every DomainError carries the refusing rung as \`kind\`, apart from the
-  // message an authored \`message "..."\` replaces.  With M-T1.11 (c) a NAMED
+  // message a rule's own text replaces.  With M-T1.11 (c) a NAMED
   // invariant / field check / precondition also raises its wire \`<Ctx>.<Owner>.rule.<name>\`
   // code and RFC 6901 pointer, so the DomainError handler answers the same
   // errors[] entry the wire rung carries.
@@ -72,7 +72,7 @@ class ConcurrencyError(Exception):
 from typing import Literal
 
 # Which rung of the domain floor refused a call — carried apart from the
-# message, which an authored \`message "..."\` replaces.
+# message, which a rule's own text replaces.
 DomainErrorKind = Literal["precondition", "invariant"]
 
 

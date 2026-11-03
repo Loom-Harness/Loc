@@ -222,8 +222,8 @@ defmodule ${guardErrorModule(appModule)} do
 
   \`:kind\` is the ROUTING KEY the controller rescue reads to pick the HTTP
   status (\`:forbidden\` -> 403, \`:precondition\` -> 422).  It used to read the
-  message PREFIX instead, which made the message unusable as a message: an
-  author's \`message "..."\` missed the prefix and reraised into a 500.  With
+  message PREFIX instead, which made the message unusable as a message: a
+  rule's own text missed the prefix and reraised into a 500.  With
   the classification out of band, \`:message\` is free text and carries exactly
   what the other four backends put in their \`DomainException\` / \`DomainError\`.
 

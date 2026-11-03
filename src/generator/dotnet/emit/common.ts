@@ -32,7 +32,7 @@ export function renderCommon(
   // Every DomainException carries the refusing rung as `Kind`, apart from the
   // message a rule's own text replaces.
   const domainErrorKind = `/// <summary>Which rung of the domain floor refused a call — carried apart
-/// from the message, which an authored <c>message "..."</c> replaces.</summary>
+/// from the message, which a rule's own text replaces.</summary>
 public enum DomainErrorKind
 {
     Precondition,
