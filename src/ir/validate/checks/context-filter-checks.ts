@@ -15,6 +15,7 @@ import type {
   WorkflowStmtIR,
 } from "../../types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../types/loom-ir.js";
+import { projectionSourceContext } from "../../util/projection-source.js";
 import { TENANCY_SELF_SCOPE_ORIGIN, TENANT_OWNED_CAPABILITY } from "../../util/tenant-stance.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
@@ -138,6 +139,9 @@ interface BypassRead {
   bypassAll?: boolean;
   bypassCaps?: string[];
   aggName: string;
+  /** The context `aggName` is declared in, when it is not the one hosting the
+   *  read — a query-time projection may read another context's aggregate. */
+  aggContext?: BoundedContextIR;
   site: string;
 }
 
@@ -172,7 +176,10 @@ function collectBypassRepoRuns(
  *  aggregate: the repository methods widened reads synthesise, query-time
  *  projections, and inline repo-runs in workflow and handler bodies. */
 
-function bypassReadsInContext(ctx: BoundedContextIR): BypassRead[] {
+function bypassReadsInContext(
+  ctx: BoundedContextIR,
+  contexts: readonly BoundedContextIR[],
+): BypassRead[] {
   const out: BypassRead[] = [];
   for (const repo of ctx.repositories) {
     for (const f of repo.finds) {
@@ -201,10 +208,12 @@ function bypassReadsInContext(ctx: BoundedContextIR): BypassRead[] {
     const q = p.query;
     if (!q?.source) continue;
     if (q.bypassAll || (q.bypassCaps?.length ?? 0) > 0) {
+      const home = projectionSourceContext(p, ctx, contexts);
       out.push({
         bypassAll: q.bypassAll,
         bypassCaps: q.bypassCaps,
         aggName: q.source,
+        ...(home && home !== ctx ? { aggContext: home } : {}),
         site: `query-time projection '${p.name}'`,
       });
     }
@@ -218,9 +227,19 @@ function capitalizeSite(s: string): string {
   return s.length === 0 ? s : `${s[0]!.toUpperCase()}${s.slice(1)}`;
 }
 
+/** The aggregate a bypassing read targets, in its declaring context. */
+function bypassTarget(
+  read: BypassRead,
+  host: BoundedContextIR,
+): { agg: AggregateIR | undefined; ctxName: string } {
+  const home = read.aggContext ?? host;
+  return { agg: home.aggregates.find((a) => a.name === read.aggName), ctxName: home.name };
+}
+
 export function validateFilterBypassSupport(sys: SystemIR, diags: LoomDiagnostic[]): void {
   const ctxByName = new Map<string, BoundedContextIR>();
   for (const m of sys.subdomains) for (const c of m.contexts) ctxByName.set(c.name, c);
+  const contexts = [...ctxByName.values()];
 
   for (const dep of sys.deployables) {
     // Only backend deployables serve reads; a frontend (react/static/vue/…)
@@ -229,10 +248,8 @@ export function validateFilterBypassSupport(sys: SystemIR, diags: LoomDiagnostic
     for (const ctxName of dep.contextNames) {
       const ctx = ctxByName.get(ctxName);
       if (!ctx) continue;
-      const aggByName = new Map<string, AggregateIR>();
-      for (const a of ctx.aggregates) aggByName.set(a.name, a);
-      for (const read of bypassReadsInContext(ctx)) {
-        const agg = aggByName.get(read.aggName);
+      for (const read of bypassReadsInContext(ctx, contexts)) {
+        const { agg, ctxName: aggCtxName } = bypassTarget(read, ctx);
         const caps = new Set(agg?.capabilities ?? []);
         const filterOrigins = new Set(
           (agg?.contextFilterOrigins ?? []).filter((o): o is string => o != null),
@@ -246,7 +263,7 @@ export function validateFilterBypassSupport(sys: SystemIR, diags: LoomDiagnostic
               code: "loom.filter-bypass-unknown-capability",
               message: diagMessage("loom.filter-bypass-unknown-capability", {
                 site: capitalizeSite(read.site),
-                ctxName,
+                ctxName: aggCtxName,
                 aggName: read.aggName,
                 cap,
               }),
@@ -261,7 +278,7 @@ export function validateFilterBypassSupport(sys: SystemIR, diags: LoomDiagnostic
               code: "loom.filter-bypass-no-filter",
               message: diagMessage("loom.filter-bypass-no-filter", {
                 site: capitalizeSite(read.site),
-                ctxName,
+                ctxName: aggCtxName,
                 aggName: read.aggName,
                 cap,
               }),
@@ -339,19 +356,19 @@ function droppedTenancyFilters(read: BypassRead, agg: AggregateIR | undefined): 
 export function validateTenancyFilterBypass(sys: SystemIR, diags: LoomDiagnostic[]): void {
   if (!sys.tenancy) return;
   const claim = sys.tenancy.claimField;
+  const contexts = sys.subdomains.flatMap((m) => m.contexts);
   for (const mod of sys.subdomains) {
     for (const ctx of mod.contexts) {
-      const aggByName = new Map<string, AggregateIR>();
-      for (const a of ctx.aggregates) aggByName.set(a.name, a);
-      for (const read of bypassReadsInContext(ctx)) {
-        const dropped = droppedTenancyFilters(read, aggByName.get(read.aggName));
+      for (const read of bypassReadsInContext(ctx, contexts)) {
+        const { agg, ctxName: aggCtxName } = bypassTarget(read, ctx);
+        const dropped = droppedTenancyFilters(read, agg);
         if (dropped.length === 0) continue;
         diags.push({
           severity: "warning",
           code: "loom.tenancy-filter-bypass",
           message: diagMessage("loom.tenancy-filter-bypass", {
             site: capitalizeSite(read.site),
-            ctxName: ctx.name,
+            ctxName: aggCtxName,
             aggName: read.aggName,
             dropped: dropped.join(" and "),
             clause: read.bypassAll ? "*" : TENANT_OWNED_CAPABILITY,
