@@ -26,6 +26,11 @@
 // `context-emit.ts` / `api-emit.ts`).
 // ---------------------------------------------------------------------------
 
+import {
+  isTenantScopedStream,
+  type StreamTenancy,
+  streamTenancyFor,
+} from "../../../ir/enrich/stream-tenancy.js";
 import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import {
   envelopeReturn,
@@ -83,6 +88,12 @@ import {
   renderStrictParamsPlug,
   requiredWireParams,
 } from "./problem-details-emit.js";
+import {
+  ectoStreamReadScope,
+  renderSchemaReadScope,
+  skipFiltersOption,
+} from "./read-scope-emit.js";
+import { stampPairsOf } from "./stamp-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
 
 /** Truth-kind predicate — an aggregate whose persistence is its event log. */
@@ -214,7 +225,7 @@ export function emitVanillaEventSourcedFiles(
     out.set(`${base}/${aggSnake}.ex`, renderStructModule(appModule, ctxModule, agg, pureCore(agg)));
     out.set(
       `${base}/${aggSnake}_event_log.ex`,
-      renderEventLogSchema(appModule, ctxModule, agg, ctxSnake, ctxSchema),
+      renderEventLogSchema(appModule, ctxModule, agg, ctxSnake, ctx.aggregates, ctxSchema),
     );
     out.set(`${base}/${aggSnake}_fold.ex`, renderFoldModule(appModule, ctxModule, agg));
     out.set(
@@ -227,6 +238,7 @@ export function emitVanillaEventSourcedFiles(
         customFindsOfAgg(ctx, agg),
         hasDispatcher,
         channels,
+        streamTenancyFor(agg, ctx.aggregates),
       ),
     );
   }
@@ -282,9 +294,20 @@ function renderEventLogSchema(
   ctxModule: string,
   agg: AggregateIR,
   ctxSnake: string,
+  pool: readonly AggregateIR[],
   ctxSchema?: string,
 ): string {
   const moduleName = `${appModule}.${ctxModule}.${upperFirst(agg.name)}EventLog`;
+  // A tenant-scoped stream (`stream-tenancy.ts`) maps the log's tenant metadata
+  // columns and hosts its tenancy scope here, so `Repo.prepare_query/3` scopes
+  // every read of the stream.
+  const tenancy = streamTenancyFor(agg, pool);
+  const tenantFields = (tenancy?.metadata ?? [])
+    .map((m) => `\n    field :${m.column}, :string`)
+    .join("");
+  const scopeBlock = tenancy
+    ? renderSchemaReadScope(ectoStreamReadScope(agg, pool, `${appModule}.${ctxModule}`))
+    : "";
   const table = `${ctxSnake}_events`;
   // `@schema_prefix` targets the migration's `prefix:` schema; without it Ecto
   // queries `public.<ctx>_events` while the table was created under `<ctx>`.
@@ -302,9 +325,9 @@ ${prefixLine}  @primary_key false
     field :type, :string
     field :data, :map
     field :occurred_at, ${exLogInstantType()}
-    field :seq, :integer
+    field :seq, :integer${tenantFields}
   end
-end
+${scopeBlock}end
 `;
 }
 
@@ -365,6 +388,7 @@ function renderEsRepository(
   finds: FindIR[],
   hasDispatcher: boolean,
   channels: ElixirChannelsCfg | undefined,
+  tenancy: StreamTenancy | undefined,
 ): string {
   const aggPascal = upperFirst(agg.name);
   const aggModule = `${appModule}.${ctxModule}.${aggPascal}`;
@@ -409,7 +433,7 @@ function renderEsRepository(
     })
     .join("\n");
 
-  const findFns = finds.map((f) => renderEsFind(f, agg, aggModule));
+  const findFns = finds.map((f) => renderEsFind(f, agg, aggModule, tenancy !== undefined));
   const findBlock = findFns.length > 0 ? `\n\n${findFns.join("\n\n")}` : "";
   // Short aliases used throughout the body — declaring an alias and then
   // referencing the fully-qualified name is an *unused alias*, which fails
@@ -422,6 +446,103 @@ function renderEsRepository(
   // events must never fold into this stream.
   const streamType = JSON.stringify(agg.name);
 
+  const txn = (indent: string, insertExtra: string, dispatch: string): string =>
+    [
+      `Repo.transaction(fn ->`,
+      `  events`,
+      `  |> Enum.with_index(prior + 1)`,
+      `  |> Enum.each(fn {ev, version} ->`,
+      `    Repo.insert_all(${logShort}, [`,
+      `      %{`,
+      `        stream_type: ${streamType},`,
+      `        stream_id: id,`,
+      `        version: version,`,
+      `        type: event_type(ev),`,
+      `        data: event_to_data(ev),`,
+      `        occurred_at: DateTime.utc_now()${insertExtra}`,
+      `      }`,
+      `    ])${dispatch}`,
+      `  end)`,
+      `end)`,
+      `|> case do`,
+      `  {:ok, _} -> :ok`,
+      `  {:error, reason} -> {:error, reason}`,
+      `end`,
+    ]
+      .join("\n")
+      .split("\n")
+      .map((l) => (l === "" ? l : `${indent}${l}`))
+      .join("\n");
+  // A new stream is stamped from the principal; an append to an existing one
+  // carries the loaded stream's tenant forward (never the caller's).  The
+  // events' origin is their STREAM's tenant, so the dispatch runs in that
+  // tenant's event-origin frame when the raising principal's differs.
+  const appendBody = tenancy
+    ? `    with {:ok, tenant} <- stream_tenant(prior, stream) do
+${txn(
+  "      ",
+  tenancy.metadata.map((m) => `,\n        ${m.column}: tenant.${m.column}`).join(""),
+  dispatchCall ? `\n\n    in_stream_origin(tenant, fn -> ${dispatchCall} end)` : "",
+).replace(/^/, "")}
+    end
+`
+    : `    ${txn("", "", dispatchLine).split("\n").join("\n    ")}\n`;
+  const webModule = `${appModule}Web`;
+  const tenancyHelpers = tenancy
+    ? `
+
+  defp adopt_stream_tenant(agg, %{${tenancy.metadata.map((m) => `${m.column}: ${m.column}`).join(", ")}}),
+    do: %{agg | ${tenancy.metadata.map((m) => `${m.column}: ${m.column}`).join(", ")}}
+
+  # A new stream (expected version 0) is stamped from the principal — the
+  # capability's \`onCreate\` stamp; a principal without the tenant claim is
+  # refused, as a \`tenantOwned\` table's insert refuses it.  An existing
+  # stream's tenant is carried forward from the loaded handle.
+  defp stream_tenant(0, _stream) do
+    current_user = Process.get(:loom_current_user)
+${
+  tenancy.stamp.length > 0
+    ? stampPairsOf(agg, tenancy.stamp, contextModule, "id")
+        .map(([f, v]) => `    ${f} = ${v}`)
+        .join("\n")
+    : ""
+}
+
+    if ${
+      tenancy.metadata
+        .filter((m) => m.required)
+        .map((m) => `${m.column} in [nil, ""]`)
+        .join(" or ") || "false"
+    },
+      do: {:error, :forbidden},
+      else: {:ok, %{${tenancy.metadata.map((m) => `${m.column}: ${m.column}`).join(", ")}}}
+  end
+
+  defp stream_tenant(_prior, %{${tenancy.metadata.map((m) => `${m.column}: ${m.column}`).join(", ")}}),
+    do: {:ok, %{${tenancy.metadata.map((m) => `${m.column}: ${m.column}`).join(", ")}}}${
+      dispatchCall
+        ? `
+
+  defp in_stream_origin(tenant, fun) do
+    origin = ${webModule}.Auth.current_event_origin()
+
+    if origin != nil and origin["tenant"] == tenant.tenant_id do
+      fun.()
+    else
+      ${webModule}.Auth.with_event_origin(
+        %{
+          "tenant" => tenant.tenant_id,
+          "orgPath" => tenant.data_key,
+          "causedBy" => origin && origin["causedBy"]
+        },
+        fun
+      )
+    end
+  end`
+        : ""
+    }`
+    : "";
+
   return `# Auto-generated.
 defmodule ${repoMod} do
   @moduledoc false
@@ -431,18 +552,18 @@ defmodule ${repoMod} do
   alias ${logMod}
   alias ${foldMod}
 
-  @spec list() :: {:ok, [${aggPascal}.t()]} | {:error, term()}
-  def list do
+  @spec list(${tenancy ? "keyword()" : ""}) :: {:ok, [${aggPascal}.t()]} | {:error, term()}
+  def list${tenancy ? "(opts \\\\ [])" : ""} do
     aggregates =
       Repo.all(
         from(r in ${logShort},
           where: r.stream_type == ^${streamType},
           order_by: [asc: r.stream_id, asc: r.version]
-        )
+        )${tenancy ? ",\n        opts" : ""}
       )
       |> Enum.group_by(& &1.stream_id)
       |> Enum.map(fn {sid, rows} ->
-        ${foldShort}.from_events(sid, Enum.map(rows, &row_to_event/1))
+        ${tenancy ? `sid\n        |> ${foldShort}.from_events(Enum.map(rows, &row_to_event/1))\n        |> adopt_stream_tenant(hd(rows))` : `${foldShort}.from_events(sid, Enum.map(rows, &row_to_event/1))`}
       end)
 
     {:ok, aggregates}
@@ -460,7 +581,7 @@ defmodule ${repoMod} do
 
     case rows do
       [] -> {:error, :not_found}
-      _ -> {:ok, ${foldShort}.from_events(id, Enum.map(rows, &row_to_event/1))}
+      ${tenancy ? `_ ->\n        {:ok,\n         id\n         |> ${foldShort}.from_events(Enum.map(rows, &row_to_event/1))\n         |> adopt_stream_tenant(hd(rows))}` : `_ -> {:ok, ${foldShort}.from_events(id, Enum.map(rows, &row_to_event/1))}`}
     end
   end
 
@@ -470,31 +591,11 @@ defmodule ${repoMod} do
   append has moved past re-inserts a version that exists and loses on the
   (stream_type, stream_id, version) key: \`{:error, :conflict}\`, the RS-40 409.
   """
-  @spec append(binary(), non_neg_integer(), [struct()]) :: :ok | {:error, term()}
-  def append(_id, _expected_version, []), do: :ok
+  @spec append(binary(), non_neg_integer(), [struct()]${tenancy ? ", map() | nil" : ""}) :: :ok | {:error, term()}
+  def append(_id, _expected_version, []${tenancy ? ", _stream" : ""}), do: :ok
 
-  def append(id, prior, events) when is_binary(id) and is_integer(prior) and is_list(events) do
-    Repo.transaction(fn ->
-      events
-      |> Enum.with_index(prior + 1)
-      |> Enum.each(fn {ev, version} ->
-        Repo.insert_all(${logShort}, [
-          %{
-            stream_type: ${streamType},
-            stream_id: id,
-            version: version,
-            type: event_type(ev),
-            data: event_to_data(ev),
-            occurred_at: DateTime.utc_now()
-          }
-        ])${dispatchLine}
-      end)
-    end)
-    |> case do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  rescue
+  def append(id, prior, events${tenancy ? ", stream" : ""}) when is_binary(id) and is_integer(prior) and is_list(events) do
+${appendBody}  rescue
     e in Postgrex.Error ->
       # The (stream_id, version) PK rejected a duplicate append: the handle was
       # folded before another append landed (unique_violation, SQLSTATE 23505).  That IS the event
@@ -504,7 +605,7 @@ defmodule ${repoMod} do
         %Postgrex.Error{postgres: %{code: :unique_violation}} -> {:error, :conflict}
         _ -> reraise(e, __STACKTRACE__)
       end
-  end${findBlock}
+  end${findBlock}${tenancyHelpers}
 
 ${typeClauses}
 
@@ -526,7 +627,20 @@ end
  *  with a `paged` find emitted a call to a function neither this module nor the
  *  context defdelegate defined — a `--warnings-as-errors` build failure, not a
  *  silent degradation. */
-function renderEsFind(f: FindIR, agg: AggregateIR, aggModule: string): string {
+function renderEsFind(
+  f: FindIR,
+  agg: AggregateIR,
+  aggModule: string,
+  streamScoped: boolean,
+): string {
+  // A find whose \`ignoring\` clause drops the stream's tenancy loads unscoped.
+  // The request actor rides the read's \`current_user:\` option (a nil actor falls
+  // back to the ambient principal), as a principal-filtered state read does.
+  const listOpts = streamScoped
+    ? ["current_user: current_user", skipFiltersOption(f)].filter(Boolean).join(", ")
+    : "";
+  const listCall = `list(${listOpts})`;
+  const actorParam = streamScoped ? ["current_user \\\\ nil"] : [];
   const fnName = snake(f.name);
   const argNames = f.params.map((p) => elixirLocal(p.name));
   const single = isSingleReturn(f.returnType);
@@ -555,9 +669,10 @@ function renderEsFind(f: FindIR, agg: AggregateIR, aggModule: string): string {
       `page_size \\\\ ${PAGED_DEFAULT_PAGE_SIZE}`,
       `sort \\\\ "id"`,
       `dir \\\\ "asc"`,
+      ...actorParam,
     ].join(", ");
     return `  def ${fnName}(${argList}) do
-    {:ok, all} = list()
+    {:ok, all} = ${listCall}
     matched = ${filterAll}
 
     total = length(matched)
@@ -589,8 +704,8 @@ ${sortArms}${sortArms ? "\n" : ""}            _ -> a.id
       ? `{:ok, Enum.find(all, fn a -> ${pred} end)}`
       : "{:ok, List.first(all)}"
     : `{:ok, ${filterAll}}`;
-  return `  def ${fnName}(${argNames.join(", ")}) do
-    {:ok, all} = list()
+  return `  def ${fnName}(${[...argNames, ...actorParam].join(", ")}) do
+    {:ok, all} = ${listCall}
     ${reduce}
   end`;
 }
@@ -674,7 +789,10 @@ export function renderEsContextBlock(
             `dir \\\\ "asc"`,
           ]
         : [];
-      const args = [...f.params.map((p) => elixirLocal(p.name)), ...pageArgs].join(", ");
+      const actorArg = isTenantScopedStream(agg) ? ["current_user \\\\ nil"] : [];
+      const args = [...f.params.map((p) => elixirLocal(p.name)), ...pageArgs, ...actorArg].join(
+        ", ",
+      );
       return `  defdelegate ${elixirFindFacadeFn(f.name, agg.name)}(${args}), to: ${repoMod}, as: :${findSnake}`;
     });
 
@@ -1033,7 +1151,11 @@ function renderCommandRunner(c: CommandCtx): string {
     for (const inv of invariants) clauses.push(`:ok <- ensure(${inv.predicate}, ${inv.term})`);
     newState = "folded";
   }
-  clauses.push(`:ok <- ${c.repoMod}.append(${idExpr}, ${expectedVersion}, events)`);
+  clauses.push(
+    `:ok <- ${c.repoMod}.append(${idExpr}, ${expectedVersion}, events${
+      isTenantScopedStream(c.agg) ? `, ${c.kind === "create" ? "nil" : "state"}` : ""
+    })`,
+  );
 
   // `attrs` is only read when the command has params (via `Map.get(attrs, …)`);
   // a param-less command (e.g. `create open()` / `operation close()`) leaves it

@@ -388,11 +388,13 @@ const meta = aggregate._streamVersion === 0
 (`stamp onCreate { openedAt := now() }`) on an event-sourced aggregate; the
 tenancy capability's stamp is not one.
 
-**Backend coverage.** node (its default Drizzle persistence) carries the stream
-tenant. On `dotnet`, `java`, `python`, `elixir` and node's
-`persistence: mikroorm`, a `tenantOwned` event-sourced aggregate is refused
-with `loom.target-unsupported` (`#tenant-owned-event-sourced`) rather than
-emitted as an unscoped stream.
+**Backend coverage.** Every backend carries the stream tenant: node (its default
+Drizzle persistence), `dotnet` (EF and Dapper), `java`, `python` (through the
+repository's `_stream_scope`) and `elixir` (the scope lives on the aggregate's
+event-log schema, where `Repo.prepare_query/3` applies it).  node's
+`persistence: mikroorm` event store does not carry it yet, so there a
+`tenantOwned` event-sourced aggregate is refused with `loom.target-unsupported`
+(`#tenant-owned-event-sourced`) rather than emitted as an unscoped stream.
 
 ## Reactors and timers — the system principal's tenant
 

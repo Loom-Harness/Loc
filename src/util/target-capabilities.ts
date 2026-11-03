@@ -342,34 +342,15 @@ const UNREALIZED_RESOURCES: Pick<
   "storage:inMemory@resource": refused("storage-type-unrealized"),
 };
 
-/** A tenant-scoped event stream: stamped, scoped and carried as metadata on
- *  node; the other backends would emit an UNSCOPED stream (every tenant reads
- *  every stream), so they refuse it until each is ported onto the
- *  stream-tenancy fact. */
-const ES_TENANT_OWNED_REFUSED: CapabilityVerdict = refused("tenant-owned-event-sourced");
-
-/** The table for a static-bundle backend: it renders no ui framework. */
+/** The table for a static-bundle backend: it renders no ui framework.  A
+ *  tenant-scoped event stream is stamped, scoped and carried as event metadata
+ *  on every backend (the node MikroORM event store is refused separately in
+ *  `validateTargetCapabilities`). */
 const STATIC_HOST_BACKEND: TargetCapabilityTable = {
   backend: {
     "stmt:requires@event-sourced-create": ES_CREATE_REQUIRES_REFUSED,
-    "capability:tenantOwned@event-sourced": ES_TENANT_OWNED_REFUSED,
+    "capability:tenantOwned@event-sourced": SUPPORTED,
     ...UNREALIZED_RESOURCES,
-  },
-};
-
-/** node: the static-bundle row, with the tenant-scoped stream implemented. */
-const NODE_BACKEND: TargetCapabilityTable = {
-  backend: {
-    ...STATIC_HOST_BACKEND.backend!,
-    "capability:tenantOwned@event-sourced": SUPPORTED,
-  },
-};
-
-/** dotnet / java: the static-bundle row, with the tenant-scoped stream implemented. */
-const JVM_DOTNET_BACKEND: TargetCapabilityTable = {
-  backend: {
-    ...STATIC_HOST_BACKEND.backend!,
-    "capability:tenantOwned@event-sourced": SUPPORTED,
   },
 };
 
@@ -385,10 +366,10 @@ const REACT_CAPABILITIES: TargetCapabilityTable = {
  *  shares its table; a ui whose resolved FRAMEWORK is spelled `static` is not
  *  in any `frameworks` list, so its UI constructs are refused fail-closed. */
 export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTable>> = {
-  node: NODE_BACKEND,
-  dotnet: JVM_DOTNET_BACKEND,
+  node: STATIC_HOST_BACKEND,
+  dotnet: STATIC_HOST_BACKEND,
   python: STATIC_HOST_BACKEND,
-  java: JVM_DOTNET_BACKEND,
+  java: STATIC_HOST_BACKEND,
   elixir: {
     ui: {
       frameworks: ["phoenixLiveView"],
@@ -428,7 +409,7 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
     },
     backend: {
       "stmt:requires@event-sourced-create": SUPPORTED,
-      "capability:tenantOwned@event-sourced": ES_TENANT_OWNED_REFUSED,
+      "capability:tenantOwned@event-sourced": SUPPORTED,
       ...UNREALIZED_RESOURCES,
     },
   },

@@ -1,3 +1,4 @@
+import { streamTenancyFor } from "../../ir/enrich/stream-tenancy.js";
 import { wireFieldsForAggregate } from "../../ir/enrich/wire-projection.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
@@ -13,10 +14,12 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
+import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
 import { pyCalendarDateWire } from "./codec-spelling.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
+import { lowerRestrictionToSqlAlchemy } from "./find-predicate.js";
 import { PY_NUMERIC, pyEventSourcedDecimalDecode } from "./numeric-codec.js";
 import { contextEventRowClassName } from "./py-columns.js";
 import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
@@ -35,6 +38,10 @@ import {
   writeGuardInApp,
 } from "./repository-builder.js";
 import { pyConflictRaise, pyNotFoundRaise } from "./wire-policy-py.js";
+
+const sa = (name: string): string => pyRef("sqlalchemy", name);
+const COLLECTION = pyRef("collections.abc", "Collection");
+const authUser = (name: string): string => pyRef("app.auth.user", name);
 
 /** `from app.domain.events import <Event>` — an event dataclass. */
 const eventRef = (name: string): string => pyRef("app.domain.events", name);
@@ -67,6 +74,16 @@ export function buildPyEventSourcedRepositoryFile(
     .map((ap) => ctx.events.find((ev) => ev.name === ap.event))
     .filter((ev): ev is EventIR => ev != null);
 
+  // Stream tenancy (`stream-tenancy.ts`): a `tenantOwned` stream carries its
+  // tenant as stored-event metadata.  Every load applies the read-scope fact's
+  // tenancy restrictions over the log's metadata columns (`_stream_scope`),
+  // and adopts the stream's tenant onto the folded instance.
+  const tenancy = streamTenancyFor(agg, ctx.aggregates);
+  const scoped = (tenancy?.restrictions.length ?? 0) > 0;
+  const adopt = (r: string): string =>
+    `inst._adopt_stream_tenant(${(tenancy?.metadata ?? []).map((m) => `${r}.${m.column}`).join(", ")})`;
+  const loadAll = (bypass?: IgnoringClause): string => `self._load_all(${ignoringSet(bypass)})`;
+
   const allFilter = allFindOf(repo)?.filter;
   const allCond = allFilter ? renderPyExpr(allFilter, { thisName: "a" }) : null;
   const allUsesPrincipal = exprUsesCurrentUser(allFilter);
@@ -81,13 +98,19 @@ export function buildPyEventSourcedRepositoryFile(
     "        rows = (",
     "            await self._session.execute(",
     `                ${R.select}(${row})
-                .where(${row}.stream_type == "${agg.name}", ${row}.stream_id == id)
+                .where(${row}.stream_type == "${agg.name}", ${row}.stream_id == id${scoped ? ", *_stream_scope()" : ""})
                 .order_by(${row}.version)`,
     "            )",
     "        ).scalars().all()",
     "        if not rows:",
     "            return None",
-    `        return ${agg.name}._from_events(id, [self._row_to_event(row) for row in rows])`,
+    ...(tenancy
+      ? [
+          `        inst = ${agg.name}._from_events(id, [self._row_to_event(row) for row in rows])`,
+          `        ${adopt("rows[0]")}`,
+          "        return inst",
+        ]
+      : [`        return ${agg.name}._from_events(id, [self._row_to_event(row) for row in rows])`]),
     "",
     `    async def get_by_id(self, id: ${pyIdType(agg.name)}) -> ${aggRef(agg)}:`,
     "        found = await self.find_by_id(id)",
@@ -113,23 +136,57 @@ export function buildPyEventSourcedRepositoryFile(
           `        return [a for a in await self._all_unfiltered() if ${allCond}]`,
           "",
         ]),
-    `    async def ${allCond == null ? "all" : "_all_unfiltered"}(self) -> list[${aggRef(agg)}]:`,
-    "        rows = (",
-    "            await self._session.execute(",
-    `                ${R.select}(${row})
+    ...(tenancy
+      ? [
+          `    async def ${allCond == null ? "all" : "_all_unfiltered"}(self) -> list[${aggRef(agg)}]:`,
+          `        return await ${loadAll(allFindOf(repo))}`,
+          "",
+          // The one stream scan: scoped by the tenancy restrictions (minus
+          // what the read's `ignoring` drops), each folded stream adopting the
+          // tenant its stored events carry.
+          `    async def _load_all(self, ignoring: ${COLLECTION}[str] = frozenset()) -> list[${aggRef(agg)}]:`,
+          "        rows = (",
+          "            await self._session.execute(",
+          `                ${R.select}(${row})
+                .where(${row}.stream_type == "${agg.name}"${scoped ? ", *_stream_scope(ignoring)" : ""})
+                .order_by(${row}.stream_id, ${row}.version)`,
+          "            )",
+          "        ).scalars().all()",
+          `        by_stream: dict[str, list[${R.DomainEvent}]] = {}`,
+          `        first_row: dict[str, ${row}] = {}`,
+          "        for row_ in rows:",
+          "            by_stream.setdefault(str(row_.stream_id), []).append(self._row_to_event(row_))",
+          "            first_row.setdefault(str(row_.stream_id), row_)",
+          `        out: list[${aggRef(agg)}] = []`,
+          "        for sid, evs in by_stream.items():",
+          `            inst = ${agg.name}._from_events(${pyIdType(agg.name)}(sid), evs)`,
+          `            ${adopt("first_row[sid]")}`,
+          "            out.append(inst)",
+          "        return out",
+        ]
+      : [
+          `    async def ${allCond == null ? "all" : "_all_unfiltered"}(self) -> list[${aggRef(agg)}]:`,
+          "        rows = (",
+          "            await self._session.execute(",
+          `                ${R.select}(${row})
                 .where(${row}.stream_type == "${agg.name}")
                 .order_by(${row}.stream_id, ${row}.version)`,
-    "            )",
-    "        ).scalars().all()",
-    `        by_stream: dict[str, list[${R.DomainEvent}]] = {}`,
-    "        for row_ in rows:",
-    "            by_stream.setdefault(str(row_.stream_id), []).append(self._row_to_event(row_))",
-    "        return [",
-    `            ${agg.name}._from_events(${pyIdType(agg.name)}(sid), evs) for sid, evs in by_stream.items()`,
-    "        ]",
+          "            )",
+          "        ).scalars().all()",
+          `        by_stream: dict[str, list[${R.DomainEvent}]] = {}`,
+          "        for row_ in rows:",
+          "            by_stream.setdefault(str(row_.stream_id), []).append(self._row_to_event(row_))",
+          "        return [",
+          `            ${agg.name}._from_events(${pyIdType(agg.name)}(sid), evs) for sid, evs in by_stream.items()`,
+          "        ]",
+        ]),
     ...emittableFinds(repo).flatMap((f) => [
       "",
-      inMemoryFind(agg, f, allCond == null ? "self.all()" : "self._all_unfiltered()"),
+      inMemoryFind(
+        agg,
+        f,
+        tenancy ? loadAll(f) : allCond == null ? "self.all()" : "self._all_unfiltered()",
+      ),
     ]),
     "",
     // `expected_version` (pairwise F8): the routes emit
@@ -155,6 +212,16 @@ export function buildPyEventSourcedRepositoryFile(
     // handle loaded before another append commit a decision taken on its
     // stale fold.
     "            version = aggregate._stream_version",
+    // A new stream is stamped with the principal's tenant (the capability's
+    // `onCreate` stamp, which refuses a principal with no tenant claim);
+    // every later append carries the loaded stream's tenant forward — never
+    // the caller's.
+    ...(tenancy
+      ? [
+          "            if version == 0:",
+          `                aggregate._stamp_on_create(${R.require_current_user}())`,
+        ]
+      : []),
     ...(aggregateIsVersioned(agg)
       ? [
           "            if expected_version is not None and version != expected_version:",
@@ -177,17 +244,26 @@ export function buildPyEventSourcedRepositoryFile(
     "                            type=type(ev).type,",
     "                            data=self._event_to_data(ev),",
     `                            occurred_at=${PY.datetime}.now(${PY.UTC}),`,
+    ...(tenancy?.metadata ?? []).map(
+      (m) => `                            ${m.column}=aggregate.${m.column},`,
+    ),
     "                        )",
     "                    )",
     `                except ${R.IntegrityError} as err:`,
     '                    if getattr(getattr(err, "orig", None), "sqlstate", None) == "23505":',
     `                        ${pyConflictRaise(R.ConcurrencyError, agg.name, "aggregate.id")} from err`,
     "                    raise",
-    "                await self._events.dispatch(ev)",
+    ...(tenancy
+      ? [
+          "                with self._origin_frame(aggregate):",
+          "                    await self._events.dispatch(ev)",
+        ]
+      : ["                await self._events.dispatch(ev)"]),
     "            aggregate._stream_version = version",
     "        await self._session.flush()",
     `        ${PY.log}("debug", "repository_save", aggregate=${JSON.stringify(agg.name)}, id=str(aggregate.id))`,
     "",
+    ...(tenancy ? [originFrameMethod(agg), ""] : []),
     rowToEvent(agg, events, row, ctx),
     "",
     eventToData(events, ctx),
@@ -207,8 +283,79 @@ export function buildPyEventSourcedRepositoryFile(
     PY_IMPORTS,
     "",
     "",
+    ...(scoped ? [streamScopeFn(agg, ctx, row), "", ""] : []),
     body,
     "",
+  );
+}
+
+/** The `ignoring` clause of a read, as the frozenset its stream load takes —
+ *  "" when it drops nothing (the load's default applies every restriction). */
+interface IgnoringClause {
+  bypassAll?: boolean;
+  bypassCaps?: readonly string[];
+}
+function ignoringSet(bypass: IgnoringClause | undefined): string {
+  if (bypass?.bypassAll) return 'frozenset({"*"})';
+  const caps = [...new Set(bypass?.bypassCaps ?? [])];
+  return caps.length === 0 ? "" : `frozenset({${caps.map((c) => JSON.stringify(c)).join(", ")}})`;
+}
+
+/** `_stream_scope(ignoring)` — the tenancy restrictions of the aggregate's
+ *  read-scope fact lowered over the event-log row's tenant metadata columns
+ *  (the columns carry the `tenantOwned` field names, so the predicate is the
+ *  one a `tenantOwned` table applies).  A read with no principal sees no
+ *  stream, exactly like the read-scope hook of a relational aggregate. */
+function streamScopeFn(
+  agg: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+  row: string,
+): string {
+  const restrictions = streamTenancyFor(agg, ctx.aggregates)?.restrictions ?? [];
+  const crit = `${sa("ColumnElement")}[bool]`;
+  return lines(
+    `def _stream_scope(ignoring: ${COLLECTION}[str] = frozenset()) -> list[${crit}]:`,
+    `    """${agg.name}'s stream scope: its tenancy restrictions over the stream's tenant metadata."""`,
+    `    user = ${authUser("current_user")}()`,
+    `    out: list[${crit}] = []`,
+    ...restrictions.flatMap((r) => {
+      const lowered =
+        lowerRestrictionToSqlAlchemy(r.predicate!, agg, ctx, row, "user") ??
+        // Dropping this would ship an unscoped stream — a hard stop, not a fallback.
+        refuseOutOfVocabulary("sqlalchemy-filter", `stream tenancy of '${agg.name}'`);
+      const guard =
+        r.bypassable && r.capability !== undefined
+          ? `    if "*" not in ignoring and ${JSON.stringify(r.capability)} not in ignoring:`
+          : undefined;
+      const indent = guard ? "        " : "    ";
+      return [
+        ...(guard ? [guard] : []),
+        `${indent}out.append(${sa("false")}() if user is None else ${lowered.expr})`,
+      ];
+    }),
+    "    return out",
+  );
+}
+
+/** `_origin_frame(aggregate)` — the events' origin is their STREAM's tenant
+ *  (`eventTenantMetadataFor`): the outbox capture and the CloudEvents envelope
+ *  (`tenantid` / `loomorgpath`) read the ambient origin, so when the raising
+ *  principal's tenant is not the stream's (a `policy`-widened subtree append)
+ *  the dispatch runs in the stream tenant's frame.  The common case — same
+ *  tenant — keeps the request's own. */
+function originFrameMethod(agg: EnrichedAggregateIR): string {
+  return lines(
+    `    def _origin_frame(self, aggregate: ${aggRef(agg)}) -> ${pyRef("contextlib", "AbstractContextManager")}[None]:`,
+    `        origin = ${authUser("current_event_origin")}()`,
+    '        if origin is not None and origin.get("tenant") == aggregate.tenant_id:',
+    `            return ${pyRef("contextlib", "nullcontext")}()`,
+    `        return ${authUser("event_origin_frame")}(`,
+    "            {",
+    '                "tenant": aggregate.tenant_id,',
+    '                "orgPath": aggregate.data_key,',
+    '                "causedBy": None if origin is None else origin.get("causedBy"),',
+    "            }",
+    "        )",
   );
 }
 
