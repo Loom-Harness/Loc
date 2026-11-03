@@ -85,7 +85,7 @@ function block(src: string, start: string, end: string): string {
   return src.slice(at, stop === -1 ? undefined : stop);
 }
 
-describe("node — a widened list read runs its own retrieval (#4404)", () => {
+describe("node — a widened list read runs its own retrieval", () => {
   it("the handler's `all(C) ignoring softDeletable` drops the conjunct; the plain read keeps it", async () => {
     const files = await gen(SOFT, "node");
     const repo = file(files, "db/repositories/order-repository.ts");
@@ -119,7 +119,23 @@ describe("node — a widened list read runs its own retrieval (#4404)", () => {
     expect(block(repo, "async runFindAllByBig(", "\n  }\n")).not.toContain("filters:");
   });
 
-  it("`let x = find(C) ignoring …` in a workflow / handler calls the widened method (#4397)", async () => {
+  it("MikroORM on an embedded root switches the filter off on the widened retrieval only", async () => {
+    const embedded = SOFT.replace(
+      "aggregate Order with softDeletable { code: string  total: int",
+      "aggregate Order shape: embedded with softDeletable { code: string  total: int\n      contains lines: Line[]\n      entity Line { sku: string }",
+    );
+    expect(embedded).not.toBe(SOFT);
+    const repo = file(
+      await gen(embedded, "node { persistence: mikroorm }"),
+      "db/repositories/order-repository.ts",
+    );
+    expect(block(repo, "async runFindAllByBigIgnoringSoftDeletable(", "\n  }\n")).toContain(
+      'filters: { "softDeletable": false }',
+    );
+    expect(block(repo, "async runFindAllByBig(", "\n  }\n")).not.toContain("filters:");
+  });
+
+  it("`let x = find(C) ignoring …` in a workflow / handler calls the widened method", async () => {
     const files = await gen(SOFT, "node");
     expect(file(files, "http/workflows.ts")).toContain(
       "const j = await orders.findFirstByCodeIgnoringSoftDeletable(c);",
@@ -130,7 +146,7 @@ describe("node — a widened list read runs its own retrieval (#4404)", () => {
   });
 });
 
-describe("python — the widened retrieval carries its own stance (#4404, #4536)", () => {
+describe("python — the widened retrieval carries its own stance", () => {
   it("the handler-only `ignoring` reaches the read scope; the shared retrieval keeps every filter", async () => {
     const files = await gen(SOFT, "python");
     const repo = file(files, "app/db/repositories/order_repository.py");
@@ -150,7 +166,7 @@ describe("python — the widened retrieval carries its own stance (#4404, #4536)
   });
 });
 
-describe("java — the widened retrieval disables its filters, handlers included (#4536)", () => {
+describe("java — the widened retrieval disables its filters, handlers included", () => {
   it("a handler-only `ignoring` promotes and disables the filter on its own retrieval", async () => {
     const files = await gen(SOFT, "java");
     const impl = file(files, "features/orders/OrderRepositoryImpl.java");
@@ -173,7 +189,7 @@ const HANDLER_ONLY = SOFT.replace(/ {4}queryHandler PageAny[\s\S]*?\n {4}\} \}\n
   .replace('    route GET "/orders/page-any" -> C.PageAny\n', "")
   .replace('    route POST "/orders/close" -> C.CloseIt\n', "");
 
-describe("java — a handler-only `ignoring` promotes the capability (#4536)", () => {
+describe("java — a handler-only `ignoring` promotes the capability", () => {
   it("the capability becomes a bypassable @Filter the widened retrieval disables", async () => {
     expect(HANDLER_ONLY).not.toContain("CloseIt");
     const files = await gen(HANDLER_ONLY, "java");
@@ -203,7 +219,7 @@ describe(".NET — the widened reads call their own methods", () => {
   });
 });
 
-describe("elixir — the widened reads, relational and paged (#4404)", () => {
+describe("elixir — the widened reads, relational and paged", () => {
   it("the paged handler over `all(C) ignoring *` skips every filter", async () => {
     const files = await gen(SOFT, "elixir");
     const repo = file(files, "lib/api/c/order_repository.ex");
@@ -212,7 +228,7 @@ describe("elixir — the widened reads, relational and paged (#4404)", () => {
     expect(block(repo, "def list(", "\n  end\n")).not.toContain("skip_filters");
   });
 
-  it("`let` / `if let` over the widened single-row reads call their own delegates (#4397)", async () => {
+  it("`let` / `if let` over the widened single-row reads call their own delegates", async () => {
     const files = await gen(SOFT, "elixir");
     const close = file(files, "lib/api/c/handlers/close_it.ex");
     expect(close).toContain("Context.find_first_by_code_ignoring_soft_deletable_order(c)");
@@ -221,6 +237,25 @@ describe("elixir — the widened reads, relational and paged (#4404)", () => {
     expect(file(files, "lib/api/c/workflows/sweep.ex")).toContain(
       "Context.find_first_by_code_ignoring_soft_deletable_order(c)",
     );
+  });
+
+  it("an event-started workflow's widened by-id `let` calls its own delegate", async () => {
+    const evented = SOFT.replace(
+      "    workflow Sweep {",
+      `    event Placed { order: Order id }
+    workflow Watch { order: Order id
+      create(e: Placed) by e.order {
+        let m = Orders.find(e.order) ignoring *
+        if let k = m { k.close() }
+      }
+    }
+    workflow Sweep {`,
+    );
+    expect(evented).not.toBe(SOFT);
+    const files = await gen(evented, "elixir");
+    const start = file(files, "workflows/watch/start_placed.ex");
+    expect(start).toContain("Api.C.find_by_id_ignoring_all_order(event.order)");
+    expect(start).not.toContain("get_order(");
   });
 });
 
@@ -275,7 +310,7 @@ system T {
   deployable api { platform: node  contexts: [C]  serves: CApi  dataSources: [cState]  port: 3000  auth: required }
 }`;
 
-describe("Dapper — `all(C) ignoring *` binds no tenant claim it does not read (#4416)", () => {
+describe("Dapper — `all(C) ignoring *` binds no tenant claim it does not read", () => {
   it("the widened retrieval binds no principal; the shared one still does", async () => {
     const repo = file(
       await gen(TENANT, "dotnet { persistence: dapper }"),
@@ -291,7 +326,7 @@ describe("Dapper — `all(C) ignoring *` binds no tenant claim it does not read 
   });
 });
 
-describe("python — a widened currentUser criterion read reads the ambient principal (#4410)", () => {
+describe("python — a widened currentUser criterion read reads the ambient principal", () => {
   it("the method takes no `current_user` its body-side callers cannot pass", async () => {
     const files = await gen(TENANT, "python");
     const repo = file(files, "app/db/repositories/order_repository.py");
@@ -304,7 +339,7 @@ describe("python — a widened currentUser criterion read reads the ambient prin
   });
 });
 
-describe("elixir — a workflow forwards the actor to a read that scopes by it (#4432)", () => {
+describe("elixir — a workflow forwards the actor to a read that scopes by it", () => {
   it("the workflow binds current_user and the single-row criterion read passes it", async () => {
     const files = await gen(TENANT, "elixir");
     const wf = file(files, "lib/api/c/workflows/w.ex");
@@ -336,7 +371,7 @@ system Shop {
   deployable api { platform: node contexts: [Ordering] serves: ShopApi dataSources: [st] port: 8080 }
 }`;
 
-describe("context integration test — `Agg.find(id) ignoring …` reads through the widened method (#4343)", () => {
+describe("context integration test — `Agg.find(id) ignoring …` reads through the widened method", () => {
   const cases: [string, string, string][] = [
     [
       "node",
