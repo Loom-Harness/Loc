@@ -1,5 +1,5 @@
 import type { DesignPackInspector } from "../../util/design-pack-defects.js";
-import type { EnrichedLoomModel } from "../types/loom-ir.js";
+import type { BoundedContextIR, EnrichedLoomModel, SystemIR } from "../types/loom-ir.js";
 import { allContexts } from "../types/loom-ir.js";
 import { validateAggregateConstructible } from "./checks/aggregate-constructible-checks.js";
 import {
@@ -38,7 +38,7 @@ import {
 import { validateOptionalBindings } from "./checks/optional-binding-checks.js";
 import { validatePagedParamNames } from "./checks/paged-param-checks.js";
 import {
-  mikroOrmOnlyContexts,
+  partCollectionsStored,
   validatePersistedCollectionPositions,
 } from "./checks/persisted-collection-checks.js";
 import { validateProjections } from "./checks/projection-checks.js";
@@ -344,7 +344,11 @@ export function validateLoomModel(
   // Which backend (needsDb) platforms host each context — drives the TPH
   // storage gate (sharedTable is implemented for Hono only, v1).
   const backendPlatformsByContext = backendPlatformsHostingEachContext(loom);
-  const mikroOnly = mikroOrmOnlyContexts(loom);
+  const partStored = partCollectionsStored(loom);
+  const systemOfContext = new Map<BoundedContextIR, SystemIR>();
+  for (const sys of loom.systems) {
+    for (const m of sys.subdomains) for (const c of m.contexts) systemOfContext.set(c, sys);
+  }
   // Per-context checks apply uniformly whether the context is
   // bundled in a system's modules or sits at the top level.
   for (const c of allContexts(loom)) {
@@ -409,7 +413,7 @@ export function validateLoomModel(
     validateNamedLifecycleDropped(c, diags);
     validateUnmappedErrorStatuses(c, diags);
     validateReservedStructuralErrorNames(c, diags);
-    validatePersistedCollectionPositions(c, diags, mikroOnly.has(c.name));
+    validatePersistedCollectionPositions(c, diags, partStored.get(c.name), systemOfContext.get(c));
     validateInheritanceStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateEventSourcedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateProvenancedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());

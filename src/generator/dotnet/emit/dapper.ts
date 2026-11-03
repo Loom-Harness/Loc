@@ -77,9 +77,10 @@ import {
   buildDapperScope,
   csSqlInterpolated,
   csSqlLiteral,
-  documentReadPredicates,
+  documentReadTerms,
 } from "./dapper-scope.js";
 import { DAPPER_BEGIN_TX, DAPPER_COMMIT_TX, dapperOpenConn } from "./dapper-session.js";
+import { documentFindCapFilter } from "./document-cap-filter.js";
 import { csClaimStampsFor } from "./entity.js";
 import {
   inMemoryFilter,
@@ -2012,7 +2013,13 @@ export function renderDapperRepository(
               `        return ${L("__roots")};`,
             ]
           : [`        return await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), ${own.ct});`]
-        : [`        return ${L("rows")}.Select(Map).ToList();`]),
+        : hasAssoc
+          ? [
+              `        var ${L("__roots")} = ${L("rows")}.Select(Map).ToList();`,
+              `        await LoadRefsAsync(${L("conn")}, ${L("__roots")}, ${own.ct});`,
+              `        return ${L("__roots")};`,
+            ]
+          : [`        return ${L("rows")}.Select(Map).ToList();`]),
       `    }`,
     );
   });
@@ -2271,7 +2278,8 @@ export function renderDapperDocumentRepository(
   // renders the constant `false` — inlined that makes the next statement
   // unreachable (CS0162 → an error under /warnaserror), while `=> false;` as a
   // method body is clean.
-  const docFilters = documentReadPredicates(agg, pool);
+  const docFilterTerms = documentReadTerms(agg, pool);
+  const docFilters = docFilterTerms.map((t) => t.predicate);
   const capPredicate =
     docFilters.length > 0
       ? docFilters
@@ -2385,7 +2393,9 @@ export function renderDapperDocumentRepository(
       // The capability filter narrows the visible set BEFORE the find's own
       // predicate runs, so a find never returns a capability-hidden (foreign
       // tenant, soft-deleted) document.
-      `var __all = __rows.Select(__d => ${deser})${capFilter};`,
+      // A widened read (`ignoring …`) keeps only the filters its clause does
+      // not name — the same selection the EF document path makes.
+      `var __all = __rows.Select(__d => ${deser})${documentFindCapFilter(agg, docFilterTerms, f)};`,
     ];
     // `find … paged` over a document carrier (ledger row F2-CB-C1): the SAME
     // in-memory page the EF document path emits — the interface, controller and
