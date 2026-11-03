@@ -331,7 +331,14 @@ export function passType(node: AstNode, env?: Env): TypeIR {
  *  per aggregate it lands on). */
 function passSynth(node: AstNode, env: Env | undefined): Ty | undefined {
   const typing = typingFor(node);
-  return (env?.aggregate && typing.synthAtFor(node, env.aggregate)) || typing.synthAt(node);
+  const t = (env?.aggregate && typing.synthAtFor(node, env.aggregate)) || typing.synthAt(node);
+  // A chain built during lowering from another chain's leading suffixes (a
+  // hoisted read, `hoist-reads.ts`) was never typed itself; its type is the
+  // receiver type after its last suffix, which the pass did record.
+  if (!t && isPostfixChain(node) && node.suffixes.length > 0) {
+    return typing.synthAt(node.suffixes[node.suffixes.length - 1]!);
+  }
+  return t;
 }
 
 /** An assignment / call target's receiver chain as the pass typed it:
@@ -405,6 +412,20 @@ function lowerCoalesceChain(chain: BinaryChain, env: Env): ExprIR {
  *  suffix together form a magic pattern: `permissions.<name>` (rewrites
  *  to a string literal) and `Aggregate.create(...)` (factory call). */
 function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
+  // A repository read hoisted ahead of its workflow / handler statement
+  // (`hoist-reads.ts`): the read is the local that holds its value, and the
+  // suffixes after the read apply to it.
+  const hoisted = env.hoistedReads?.get(chain);
+  if (hoisted) {
+    let recv = resolveNameRef(hoisted, env, chain);
+    let recvType = env.locals.get(hoisted)?.type ?? STRING_T;
+    for (const s of chain.suffixes.slice(1)) {
+      const out = applySuffixToRecv(recv, recvType, s, env);
+      recv = out.recv;
+      recvType = out.recvType;
+    }
+    return recv;
+  }
   // Probe: a repository READ in a `reading` domain-service body
   // (domain-services.md rev. 4) — `Accounts.byHolder(h)` /
   // `Accounts.find/all(...)`.  Fires only when `env.serviceRepos` is

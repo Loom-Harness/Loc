@@ -5437,11 +5437,12 @@ export const DIAGNOSTIC_MESSAGES = {
     call: unknown;
     binding: unknown;
   }) =>
-    `${p.where} reaches repository '${p.repoName}' INLINE, inside an expression. A workflow ` +
-    `wires up a repository only for a read bound to its own 'let' statement, so an inline read ` +
-    `is dropped from codegen: no repository is ever instantiated, and every backend renders ` +
-    `'${p.repoName}' as a bare name nothing binds. Bind the read first, then reference the ` +
-    `binding: 'let ${p.binding} = ${p.call}'.`,
+    `${p.where} reads repository '${p.repoName}' where the read runs only on some paths — ` +
+    `inside a lambda, on the right of '&&' / '||' / '??', in a '?:' branch or in a 'match' arm. ` +
+    `A read inside an expression runs as a 'let' ahead of its statement, and moving this one ` +
+    `there would run it where the source does not (a 'get' throws on a miss), so it is left ` +
+    `unbound and every backend renders '${p.repoName}' as a bare name nothing binds. Bind the ` +
+    `read before the statement and reference the binding: 'let ${p.binding} = ${p.call}'.`,
   "loom.workflow-emit-unknown-event": (p: { name: unknown; eventName: unknown }) =>
     `workflow '${p.name}': emit refers to unknown event '${p.eventName}'.`,
   "loom.workflow-emit-missing-field": (p: { name: unknown; evName: unknown; f: unknown }) =>
