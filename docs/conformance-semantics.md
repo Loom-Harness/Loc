@@ -1839,8 +1839,10 @@ nothing and the test passes vacuously.
   instant (`CanonicalInstant`); java spells all three through
   `javaInstantWire`; elixir spells the envelope `time` and a `datetime` in
   `data` through `Loom.Datetime.wire/1`, and its realtime frame is not yet
-  audited (#3394). None of the envelope is goldened. Elixir's framework columns (`inserted_at`, the audit/provenance
-  `at`) stay `:utc_datetime` — second precision, canonically spelled. A deployed
+  audited (#3394). None of the envelope is goldened. Elixir's audit and provenance `at` is the same millisecond
+  `Loom.Datetime` instant (its column is a `datetime`, so `timestamptz`); only
+  Ecto's own `inserted_at` / `updated_at`, which never reach a wire, stay
+  `:utc_datetime`. A deployed
   elixir database created before this rule keeps its `timestamp(0)` columns until
   an operator alters them — see [`migrations.md`](migrations.md).
 - **Conforms.** node, dotnet, java, python, elixir.

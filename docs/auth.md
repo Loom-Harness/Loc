@@ -871,7 +871,16 @@ A row outside the caller's write scope — `deny write`, or the own-org floor un
 in one transaction, so the rows it already changed roll back. Rows are never
 filtered out silently. A row the body itself created is exempt (it is not stored
 yet). The requirement is derived from the body's `mutate` / `delete` effects
-(`src/ir/util/write-scope-guards.ts`); event reactors are not re-checked.
+(`src/ir/util/write-scope-guards.ts`).
+
+**Event reactors are not re-checked.** A reactor runs as the
+[system principal](#the-system-principal--currentuserissystem), not as the user
+whose command raised the event, so a held-row mutation in a reactor body skips
+this re-check. That command already passed the caller's write scope, and a
+reaction may legitimately update rows outside that caller's write scope — a
+parent org's rollup, a counter another org owns. A reaction that must stay inside
+the originating user's scope says so with an explicit gate on `causedBy` or the
+event's own fields.
 
 ```ddd
 workflow touchLedgers {
