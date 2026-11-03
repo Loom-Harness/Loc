@@ -67,6 +67,7 @@ import { renderZustandStoreModule } from "./store-builder.js";
 import { defaultNavSections } from "./templating/preparers/app-shell.js";
 import { renderAppShell, renderMain, renderShellFile, renderTheme } from "./templating/render.js";
 import { REACT_LIB_TOAST, REACT_LIB_TOAST_PATH, uiUsesToastEffect } from "./toast-runtime.js";
+import { tsxTarget } from "./walker/tsx-target.js";
 
 // ---------------------------------------------------------------------------
 // React + React Query + Zod + Mantine generator.
@@ -238,7 +239,11 @@ export function generateReactForContexts(
   // runtime it doesn't need and its output stays byte-identical.
   pack.setChromeI18n(i18nEnabled);
   const packChrome = packChromeCatalog(pack.manifest);
-  const formScope = { contexts, sentences: pack.manifest.sentenceChrome ?? [] };
+  const formScope = {
+    contexts,
+    sentences: pack.manifest.sentenceChrome ?? [],
+    implicitModelText: tsxTarget.modelTextImplicitSites === true,
+  };
   const emitCtx = {
     sys,
     deployable,

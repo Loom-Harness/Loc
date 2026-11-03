@@ -38,6 +38,7 @@ import type {
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { humanize } from "../../util/naming.js";
 import type { MessageEntry } from "./i18n-extract.js";
+import { implicitModelTextEntries } from "./model-text-sites.js";
 import { gridHasFilterableColumn, gridHasSelection } from "./primitives/data-grid-shape.js";
 import { sourceText } from "./source-text.js";
 
@@ -226,6 +227,13 @@ function arrayElementValueObjects(t: TypeIR | undefined, out: Set<string>): void
 export interface FormSentenceScope {
   readonly contexts: readonly BoundedContextIR[];
   readonly sentences: readonly string[];
+  /** The rendering target keys its IMPLICIT model-text sites by identity
+   *  (`WalkerTarget.modelTextImplicitSites`), so their keys belong in the
+   *  catalog; unset ⇒ those sites render English and carry no key. */
+  readonly implicitModelText?: boolean;
+  /** The rendering target's create form also shows OPTIONAL inputs (HEEx has
+   *  no update flow to defer them to), so their labels are catalogued too. */
+  readonly optionalCreateInputs?: boolean;
 }
 
 /** The `X[]`-of-value-object field types a form over `params` repeats. */
@@ -475,6 +483,16 @@ export function chromeMergedWhenEnabled(
   if (ui) {
     for (const name of sentenceChromeNamesForUi(ui, scope)) {
       out[chromeKey(name)] = chromeMessage(name);
+    }
+    // The implicit model-text sites (form labels, enum options, submit
+    // buttons) — identity-keyed, and like the form chrome above never the
+    // reason a UI turns translatable.
+    if (scope?.implicitModelText) {
+      for (const { key, message } of implicitModelTextEntries(ui, scope.contexts, {
+        optionalCreateInputs: scope.optionalCreateInputs === true,
+      })) {
+        out[key] = message;
+      }
     }
   }
   return out;

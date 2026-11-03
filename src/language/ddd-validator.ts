@@ -70,6 +70,7 @@ import {
   checkMatcherArity,
   checkMatchesCalls,
   checkMigrations,
+  checkModelText,
   checkNullableReceivers,
   checkOrgContextSurface,
   checkOrgPathReferences,
@@ -262,6 +263,9 @@ export class DddValidator {
     // warning: the template→ICU runtime makes interpolation first-class, so
     // there is always a translatable spelling to move to.
     guard("user-visible-concat", model, () => checkUserVisibleConcat(model, accept));
+    // i18n: `label(…)` / `plural(…)` resolve to a model element, sit only in a
+    // page / component body, and never inside a template or `+` chain.
+    guard("model-text", model, () => checkModelText(model, accept, this.services));
     // Accessibility: an `Image`/`Avatar` rendering an image needs a text
     // alternative (`alt:` or `decorative: true`).  Alt text is human content
     // Loom can't derive — a missing alt fails WCAG 1.1.1 (accessibility.md).

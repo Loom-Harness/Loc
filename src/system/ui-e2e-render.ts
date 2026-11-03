@@ -512,6 +512,9 @@ function renderUIExpr(e: ExprIR, ctx: RenderCtx): string {
       const amt = renderUIExpr(e.amount, ctx);
       return `((${amt}) * ${DURATION_UNIT_MS[e.unit]})`;
     }
+    case "modelText":
+      // `label(…)` / `plural(…)` — the English default text.
+      return JSON.stringify(e.defaultText);
     case "i18nFormat":
       // Transparent i18n wrapper (M-T1.11) — render the wrapped operand.
       return renderUIExpr(e.inner, ctx);

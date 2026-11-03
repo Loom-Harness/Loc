@@ -1056,6 +1056,7 @@ function collectColumnRefs(e: ExprIR, out: Set<string>): void {
     case "convert":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "id":
     case "lambda":
     case "list":

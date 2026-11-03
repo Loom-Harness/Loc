@@ -1161,6 +1161,16 @@
     "paramName",
     "stateField"
   ],
+  "label": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "layout": [
     "fieldName",
     "fieldNameAfterField",
@@ -1583,6 +1593,16 @@
     "stateField"
   ],
   "platform": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "plural": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",

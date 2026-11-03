@@ -234,11 +234,17 @@ function dispatchWrappers(
   page: PageIR,
   used: ReadonlySet<string>,
   asyncEffectActions: ReadonlyMap<string, FelizAsyncEffect> = new Map(),
+  i18n = false,
 ): string[] {
   const stateNames = new Set(page.state.map((s) => s.name));
   // Args are rendered in the VIEW's scope — a state read resolves to
   // `model.<Field>`; the route `id` is a bound local of the detail-page view fn.
-  const argCtx: FsExprCtx = { stateNames, locals: new Set(["id"]), routeId: "id" };
+  const argCtx: FsExprCtx = {
+    stateNames,
+    locals: new Set(["id"]),
+    routeId: "id",
+    ...(i18n ? { i18n: true } : {}),
+  };
   return page.actions
     .filter((a) => used.has(a.name))
     .map((a) => {
@@ -526,7 +532,7 @@ function renderPageView(
     if (result.usesDataGrid) used.usesDataGrid = true;
   }
   const wrappers = [
-    ...dispatchWrappers(page, result.usedActions ?? new Set(), asyncEffectActions),
+    ...dispatchWrappers(page, result.usedActions ?? new Set(), asyncEffectActions, i18nEnabled),
     ...storeWrappers(page, ui, result.usedStores ?? new Map()),
     // `derived` lets LAST in the preamble — the same order a component's
     // declaration uses (action dispatchers, then the derived `let`s).  Neither
@@ -1543,6 +1549,7 @@ function renderAppFs(
     pageGate,
     storePersistInitOverrides(persistedStores),
     componentInits.paramValues,
+    i18nEnabled,
   );
   const msg = renderMsg(
     msgActions,
@@ -1580,6 +1587,7 @@ function renderAppFs(
     // The route table a `navigate(<Page>)` STATEMENT in an action body resolves
     // against — its MVU arm lives in `update-emit.ts`, outside every page view.
     new Map(pages.filter((p) => p.route).map((p) => [p.name, p.route!])),
+    i18nEnabled,
   );
   const wire = hasWire
     ? renderWireTypes(
@@ -1811,7 +1819,7 @@ function renderAppFs(
     // else: F# is order-sensitive and every page view below calls into it, while
     // the module itself references nothing.
     i18nEnabled ? "" : false,
-    i18nEnabled ? renderFelizI18nModule(ui, sourceLocale) : false,
+    i18nEnabled ? renderFelizI18nModule(ui, sourceLocale, contexts) : false,
     usesPageTitle ? "" : false,
     usesPageTitle ? SET_DOCUMENT_TITLE_DECL : false,
     // Auth session gate — SessionState (gates the Model) + the Auth probe module.

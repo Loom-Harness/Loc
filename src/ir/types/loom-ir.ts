@@ -817,6 +817,12 @@ export type TestStmtIR =
 export interface EnumIR {
   name: string;
   values: string[];
+  /** Declared at the root of a file, outside every bounded context (the shared
+   *  kernel).  Enrichment folds such an enum into every context's `enums`, so
+   *  where it was DECLARED is an input fact this flag keeps: its model-text
+   *  keys file under `_system` (`src/util/model-text-key.ts`), not under
+   *  whichever context happens to render it. */
+  systemLevel?: true;
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; lets an IR-phase
    * diagnostic about this node print `path:line:col`. */
@@ -826,6 +832,8 @@ export interface EnumIR {
 export interface ValueObjectIR {
   name: string;
   fields: FieldIR[];
+  /** Declared outside every bounded context — see {@link EnumIR.systemLevel}. */
+  systemLevel?: true;
   derived: DerivedIR[];
   invariants: InvariantIR[];
   functions: FunctionIR[];
@@ -4304,6 +4312,24 @@ export type ExprIR =
       inner: ExprIR;
       /** Raw ICU suffix incl. the leading comma, e.g. `", number, ::currency/USD"`. */
       format: string;
+      origin?: OriginRef;
+    }
+  /**
+   * The translated text a user sees for a model element — the lowered
+   * `label(Task)` / `plural(Task)` / `label(Task.title)` / `label(Status.Draft)`
+   * intrinsic (i18n identity keys).  `key` is the context-qualified identity key
+   * (`Projects.Task.name.other`) and `defaultText` its English default
+   * (`"Tasks"`), both built by `src/util/model-text-key.ts`.
+   *
+   * UI-only: the validator (`loom.model-text-outside-ui`) keeps it out of every
+   * domain-logic position, so the backend `ExprTarget`s never see one.  A
+   * frontend renders it as a call into its translation runtime
+   * (`t(key, defaultText)`), or as the bare default when the UI has no runtime.
+   */
+  | {
+      kind: "modelText";
+      key: string;
+      defaultText: string;
       origin?: OriginRef;
     }
   /**

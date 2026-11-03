@@ -24,7 +24,7 @@
 // app is byte-identical to pre-i18n (no module, no npm dependency).
 // ---------------------------------------------------------------------------
 
-import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
+import { type BoundedContextIR, DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { buildUiCatalog } from "../_frontend/i18n-runtime.js";
 import { fsString } from "./fs-expr.js";
@@ -43,13 +43,19 @@ export function felizI18nEnabled(ui: UiIR): boolean {
 /** The `I18n` F# module spliced into `App.fs` — catalog + lookup + ICU format.
  *  Placed near the top of the file (it references nothing else, and F# is
  *  order-sensitive: every page view below calls into it). */
-export function renderFelizI18nModule(ui: UiIR, source: string = DEFAULT_SOURCE_LOCALE): string {
+export function renderFelizI18nModule(
+  ui: UiIR,
+  source: string = DEFAULT_SOURCE_LOCALE,
+  /** The contexts the ui's forms render over, so the implicit model-text keys
+   *  (form labels, enum options, submit buttons) join the runtime catalog. */
+  contexts: readonly BoundedContextIR[] = [],
+): string {
   // The source catalog's F# binding: `en` for the default source (unchanged
   // output), a prefixed identifier otherwise so a tag like `in` or `pt-BR`
   // never collides with an F# keyword or an illegal character.
   const sourceIdent =
     source === DEFAULT_SOURCE_LOCALE ? "en" : `src_${source.replace(/[^A-Za-z0-9_]/g, "_")}`;
-  const catalog = buildUiCatalog(ui);
+  const catalog = buildUiCatalog(ui, {}, { contexts, sentences: [], implicitModelText: true });
   // `buildUiCatalog` already returns key-sorted entries, so the emitted map is
   // stable across runs (a reordered page must not churn App.fs).
   // F# is offside-sensitive: the list literal must be indented PAST its

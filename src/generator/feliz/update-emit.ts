@@ -322,7 +322,10 @@ export function renderInit(
    *  component is deferred (the cell seeds its type's zero) —
    *  `component-state-init.ts`.  Empty on every other app (byte-identical). */
   componentParamValues: ReadonlyMap<StateFieldIR, ReadonlyMap<string, string> | null> = new Map(),
+  /** The ui ships the `I18n` module (model text renders through it). */
+  i18n = false,
 ): string {
+  const i18nFlag: Pick<FsExprCtx, "i18n"> = i18n ? { i18n: true } : {};
   const hasPageCmd = routed && reads.some((r) => r.single);
   const inits = [
     ...(authUi ? ["      Session = Checking"] : []),
@@ -344,6 +347,7 @@ export function renderInit(
         locals: new Set(),
         ...(routed ? { routeId: ROUTE_ID_FROM_URL } : {}),
         ...(paramValues ? { paramValues } : {}),
+        ...i18nFlag,
       };
       const modelField = upperFirst(f.name);
       // A persisted store field hydrates from its backing store; the declared
@@ -737,12 +741,17 @@ export function renderUpdate(
   /** Page name -> declared `route:` — what a `navigate(<Page>)` statement in an
    *  action body resolves against.  Empty on a non-routed ui. */
   pageRoutes: ReadonlyMap<string, string> = new Map(),
+  /** The ui ships the `I18n` module (model text renders through it). */
+  i18n = false,
 ): string {
   const stateNames = new Set(state.map((s) => s.name));
   // An update arm runs outside every page view fn, so a body that reads the
   // route `id` resolves it off the already-parsed `CurrentPage`.  Spread into
   // every arm ctx below (a non-routed ui has no `Page` type at all).
-  const armRouteId = routed ? { routeId: ROUTE_ID_FROM_MODEL } : {};
+  const armRouteId = {
+    ...(routed ? { routeId: ROUTE_ID_FROM_MODEL } : {}),
+    ...(i18n ? { i18n: true } : {}),
+  };
   // One `| Set<Field> v -> …` arm per two-way-bound controlled input.
   // A control of a server-paged read turns its setter into a refetch; every
   // other bound input keeps the plain `Cmd.none` assignment.

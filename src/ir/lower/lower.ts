@@ -99,6 +99,7 @@ import {
   isWorkflow,
   type TestBlock,
 } from "../../language/generated/ast.js";
+import { buildModelTextIndex } from "../../language/model-text.js";
 import { stdFunctions } from "../../language/stdlib.js";
 import { descriptorFor } from "../../platform/metadata.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
@@ -183,6 +184,7 @@ import {
   criterionRefOf,
   lowerExpr,
   setAmbientEnumIndex,
+  setModelTextIndex,
   setTopLevelFnIndex,
 } from "./lower-expr.js";
 import {
@@ -272,6 +274,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
     }
   }
   setAmbientEnumIndex(ambientEnumIndex);
+  setModelTextIndex(buildModelTextIndex(models));
   // Project-global index of TOP-LEVEL (ambient) helper `function`s —
   // declared at file root or inside a `system { }`, visible
   // workspace-wide.  Expression-form functions INLINE at every call site
@@ -464,8 +467,9 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
       // Folded when composing; otherwise a validation error — still lower
       // its contexts loose so the IR names them.
       if (!compose) for (const c of m.contexts) looseContexts.push(lowerContext(c));
-    } else if (isValueObject(m)) rootValueObjects.push(lowerValueObject(m, rootEnv));
-    else if (isEnumDecl(m)) rootEnums.push(lowerEnum(m));
+    } else if (isValueObject(m))
+      rootValueObjects.push({ ...lowerValueObject(m, rootEnv), systemLevel: true });
+    else if (isEnumDecl(m)) rootEnums.push({ ...lowerEnum(m), systemLevel: true });
     else if (isPayloadDecl(m)) rootPayloads.push(lowerPayload(m, rootEnv));
     else if (isComponent(m)) components.push(lowerComponent(m));
     else if (isRequirement(m)) requirements.push(lowerRequirement(m));

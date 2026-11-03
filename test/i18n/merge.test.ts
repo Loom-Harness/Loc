@@ -9,20 +9,21 @@ import {
   isTodo,
   type MergeReport,
   mergeCatalog,
+  normalizeLegacy,
   reportHasPending,
   TODO_PREFIX,
 } from "../../src/i18n/merge.js";
 
 describe("mergeCatalog — the four cases", () => {
-  it("new key → TODO placeholder in the locale, reported as added", () => {
+  it("new key → stays ABSENT (untranslated), reported as added", () => {
     const { merged, report } = mergeCatalog(
       {}, // BASE
       {}, // OURS (fr)
       { "page.P.heading.a1b2c3": "Shipments" }, // THEIRS
     );
-    expect(merged["page.P.heading.a1b2c3"]).toBe(`${TODO_PREFIX}Shipments`);
-    expect(isTodo(merged["page.P.heading.a1b2c3"])).toBe(true);
+    expect(merged).toEqual({});
     expect(report.added).toEqual(["page.P.heading.a1b2c3"]);
+    expect(report.untranslated).toEqual(["page.P.heading.a1b2c3"]);
     expect(report.kept).toEqual([]);
   });
 
@@ -36,14 +37,24 @@ describe("mergeCatalog — the four cases", () => {
     expect(report.dropped).toEqual(["page.P.heading.old111"]);
   });
 
-  it("deleted key with --keepStale → parked under _stale.<key>", () => {
-    const { merged, report } = mergeCatalog(
+  it("an already-known untranslated key is not 'added' again (a settled tree is quiet)", () => {
+    const k = "page.P.heading.a1b2c3";
+    const { merged, report } = mergeCatalog({ [k]: "Shipments" }, {}, { [k]: "Shipments" });
+    expect(merged).toEqual({});
+    expect(report.added).toEqual([]);
+    expect(report.untranslated).toEqual([k]);
+    expect(reportHasPending(report)).toBe(false);
+  });
+
+  it("deleted key with --keepStale → parked in the stale sidecar, not in the file", () => {
+    const { merged, stale, report } = mergeCatalog(
       { "page.P.heading.old111": "Orders" },
       { "page.P.heading.old111": "Commandes" },
       {},
       { keepStale: true },
     );
-    expect(merged).toEqual({ "_stale.page.P.heading.old111": "Commandes" });
+    expect(merged).toEqual({});
+    expect(stale).toEqual({ "page.P.heading.old111": "Commandes" });
     expect(report.dropped).toEqual(["page.P.heading.old111"]);
   });
 
@@ -58,7 +69,7 @@ describe("mergeCatalog — the four cases", () => {
     expect(report.added).toEqual([]);
   });
 
-  it("source changed (hashed keys) → clean delete-old + add-new TODO", () => {
+  it("source changed (hashed keys) → clean delete-old + new key left untranslated", () => {
     // Rephrasing re-hashes the key: old key vanishes from THEIRS, new key
     // appears.  No same-key conflict; the translator gets a fresh TODO.
     const { merged, report } = mergeCatalog(
@@ -66,22 +77,25 @@ describe("mergeCatalog — the four cases", () => {
       { "page.P.heading.old": "Commandes" }, // OURS (translated the old wording)
       { "page.P.heading.new": "Order management" }, // THEIRS (rephrased)
     );
-    expect(merged).toEqual({ "page.P.heading.new": `${TODO_PREFIX}Order management` });
+    expect(merged).toEqual({});
     expect(report.added).toEqual(["page.P.heading.new"]);
     expect(report.dropped).toEqual(["page.P.heading.old"]);
   });
 
-  it("source changed on a STABLE key over a translation → conflict markers", () => {
-    const { merged, report } = mergeCatalog(
+  it("source changed on a STABLE key over a translation → kept and flagged out of band", () => {
+    const { merged, review, report } = mergeCatalog(
       { "text.Sales.orderNotFound": "Order not found" }, // BASE
       { "text.Sales.orderNotFound": "Commande introuvable" }, // OURS
       { "text.Sales.orderNotFound": "We couldn't find that order" }, // THEIRS
     );
-    const value = merged["text.Sales.orderNotFound"];
-    expect(hasConflictMarkers(value)).toBe(true);
-    expect(value).toContain("Commande introuvable");
-    expect(value).toContain("Order not found");
-    expect(value).toContain("We couldn't find that order");
+    // The value stays a clean translation; the state lives in the sidecar.
+    expect(merged["text.Sales.orderNotFound"]).toBe("Commande introuvable");
+    expect(hasConflictMarkers(merged["text.Sales.orderNotFound"])).toBe(false);
+    expect(review["text.Sales.orderNotFound"]).toEqual({
+      translation: "Commande introuvable",
+      previousSource: "Order not found",
+      source: "We couldn't find that order",
+    });
     expect(report.conflicted).toEqual(["text.Sales.orderNotFound"]);
   });
 });
@@ -119,13 +133,13 @@ describe("mergeCatalog — placeholder renames", () => {
     expect(merged[K]).toBe("{a} / {b, number}");
   });
 
-  it("a real wording change next to a rename still conflicts", () => {
+  it("a real wording change next to a rename still needs review", () => {
     const { merged, report } = mergeCatalog(
       { [K]: "Order {id}" },
       { [K]: "Commande {id}" },
       { [K]: "Purchase {number}" },
     );
-    expect(hasConflictMarkers(merged[K])).toBe(true);
+    expect(merged[K]).toBe("Commande {id}");
     expect(report.conflicted).toEqual([K]);
     expect(report.updated).toEqual([]);
   });
@@ -142,13 +156,14 @@ describe("mergeCatalog — placeholder renames", () => {
 
 describe("merge helpers", () => {
   it("output is key-sorted for a clean diff", () => {
-    const { merged } = mergeCatalog({}, {}, { "b.k": "B", "a.k": "A" });
+    const { merged } = mergeCatalog({}, { "b.k": "b", "a.k": "a" }, { "b.k": "B", "a.k": "A" });
     expect(Object.keys(merged)).toEqual(["a.k", "b.k"]);
   });
 
   it("reportHasPending is true for added / dropped / conflicted, false when only kept", () => {
     const report = (over: Partial<MergeReport>): MergeReport => ({
       added: [],
+      untranslated: [],
       kept: [],
       dropped: [],
       conflicted: [],
@@ -161,6 +176,7 @@ describe("merge helpers", () => {
     expect(reportHasPending(report({ conflicted: ["x"] }))).toBe(true);
     expect(reportHasPending(report({ updated: ["x"] }))).toBe(true);
     expect(reportHasPending(report({ kept: ["x"] }))).toBe(false);
+    expect(reportHasPending(report({ untranslated: ["x"] }))).toBe(false);
     // A carry always coexists with the dropped donor it came from, so it needs
     // no arm of its own here - but a carry-only report is still not "nothing
     // to do", and the dropped key it implies is what says so.
@@ -169,7 +185,7 @@ describe("merge helpers", () => {
     );
   });
 
-  it("conflictMarker embeds all three sides in diff3 order", () => {
+  it("conflictMarker (legacy) embeds all three sides in diff3 order", () => {
     const m = conflictMarker("ours", "base", "theirs");
     expect(m).toBe("<<<<<<< OURS\nours\n||||||| BASE\nbase\n=======\ntheirs\n>>>>>>> THEIRS");
   });
@@ -219,7 +235,7 @@ describe("mergeCatalog - case 5, design-pack family swap", () => {
       // differs.  This is the case the hash exists to catch.
       { "pack.mui.removeItem.zz0000": "Delete item" },
     );
-    expect(merged["pack.mui.removeItem.zz0000"]).toBe(`${TODO_PREFIX}Delete item`);
+    expect("pack.mui.removeItem.zz0000" in merged).toBe(false);
     expect(report.carried).toEqual([]);
     expect(report.added).toEqual(["pack.mui.removeItem.zz0000"]);
   });
@@ -232,7 +248,7 @@ describe("mergeCatalog - case 5, design-pack family swap", () => {
       { "pack.shadcn.closeDialog.aa1111": "Schliessen" },
       { "pack.daisyui.closeFlash.aa1111": "Close" },
     );
-    expect(merged["pack.daisyui.closeFlash.aa1111"]).toBe(`${TODO_PREFIX}Close`);
+    expect("pack.daisyui.closeFlash.aa1111" in merged).toBe(false);
     expect(report.carried).toEqual([]);
   });
 
@@ -249,7 +265,7 @@ describe("mergeCatalog - case 5, design-pack family swap", () => {
       { [MUI_REMOVE]: "Remove" },
     );
     // Whose wording wins?  Unanswerable, so nobody's - back to case 1.
-    expect(merged[MUI_REMOVE]).toBe(`${TODO_PREFIX}Remove`);
+    expect(MUI_REMOVE in merged).toBe(false);
     expect(report.carried).toEqual([]);
   });
 
@@ -262,29 +278,29 @@ describe("mergeCatalog - case 5, design-pack family swap", () => {
         [`pack.vuetify.removeItem.${H_REMOVE}`]: "Remove",
       },
     );
-    expect(merged[MUI_REMOVE]).toBe(`${TODO_PREFIX}Remove`);
-    expect(merged[`pack.vuetify.removeItem.${H_REMOVE}`]).toBe(`${TODO_PREFIX}Remove`);
+    expect(MUI_REMOVE in merged).toBe(false);
+    expect(`pack.vuetify.removeItem.${H_REMOVE}` in merged).toBe(false);
     expect(report.carried).toEqual([]);
   });
 
-  it("does NOT carry an untranslated (TODO) donor value", () => {
+  it("does NOT carry an untranslated donor (absent from OURS)", () => {
     const { merged, report } = mergeCatalog(
       { [SHADCN_REMOVE]: "Remove" },
-      { [SHADCN_REMOVE]: `${TODO_PREFIX}Remove` },
+      {},
       { [MUI_REMOVE]: "Remove" },
     );
-    expect(merged[MUI_REMOVE]).toBe(`${TODO_PREFIX}Remove`);
+    expect(MUI_REMOVE in merged).toBe(false);
     expect(report.carried).toEqual([]);
     expect(report.added).toEqual([MUI_REMOVE]);
   });
 
-  it("does NOT carry a donor that still holds unresolved conflict markers", () => {
+  it("does NOT carry a legacy conflict-marker donor value", () => {
     const { merged, report } = mergeCatalog(
       { [SHADCN_REMOVE]: "Remove" },
       { [SHADCN_REMOVE]: conflictMarker("Entfernen", "Remove", "Remove item") },
       { [MUI_REMOVE]: "Remove" },
     );
-    expect(hasConflictMarkers(merged[MUI_REMOVE])).toBe(false);
+    expect(MUI_REMOVE in merged).toBe(false);
     expect(report.carried).toEqual([]);
   });
 
@@ -296,7 +312,7 @@ describe("mergeCatalog - case 5, design-pack family swap", () => {
       { [SHADCN_REMOVE]: "Entfernen" },
       { [MUI_REMOVE]: "Remove" },
     );
-    expect(merged[MUI_REMOVE]).toBe(`${TODO_PREFIX}Remove`);
+    expect(MUI_REMOVE in merged).toBe(false);
     expect(report.carried).toEqual([]);
   });
 
@@ -306,7 +322,7 @@ describe("mergeCatalog - case 5, design-pack family swap", () => {
       { [SHADCN_REMOVE]: "Entfernen" },
       { [MUI_REMOVE]: "Discard" }, // same hash, different message => a collision
     );
-    expect(merged[MUI_REMOVE]).toBe(`${TODO_PREFIX}Discard`);
+    expect(MUI_REMOVE in merged).toBe(false);
     expect(report.carried).toEqual([]);
   });
 
@@ -319,7 +335,7 @@ describe("mergeCatalog - case 5, design-pack family swap", () => {
       { "page.OrderList.heading.h1": "Commandes" },
       { "page.Shipments.heading.h1": "Orders" },
     );
-    expect(merged["page.Shipments.heading.h1"]).toBe(`${TODO_PREFIX}Orders`);
+    expect("page.Shipments.heading.h1" in merged).toBe(false);
     expect(report.carried).toEqual([]);
   });
 
@@ -334,8 +350,8 @@ describe("mergeCatalog - case 5, design-pack family swap", () => {
     expect(report.kept).toEqual([MUI_REMOVE]);
   });
 
-  it("does not ALSO park a carried donor under _stale with --keepStale", () => {
-    const { merged, report } = mergeCatalog(
+  it("does not ALSO park a carried donor in the stale sidecar with --keepStale", () => {
+    const { merged, stale, report } = mergeCatalog(
       { [SHADCN_REMOVE]: "Remove" },
       { [SHADCN_REMOVE]: "Entfernen" },
       { [MUI_REMOVE]: "Remove" },
@@ -343,20 +359,20 @@ describe("mergeCatalog - case 5, design-pack family swap", () => {
     );
     expect(merged[MUI_REMOVE]).toBe("Entfernen");
     // The translation moved; a second editable copy would just drift.
-    expect(merged[`_stale.${SHADCN_REMOVE}`]).toBeUndefined();
+    expect(stale[SHADCN_REMOVE]).toBeUndefined();
     expect(report.dropped).toEqual([SHADCN_REMOVE]);
   });
 
-  it("parks a genuinely stale pack key under _stale as before", () => {
+  it("parks a genuinely stale pack key in the stale sidecar", () => {
     // A role the new pack does not declare at all has no target to carry to -
     // the ordinary case-2 drop still applies.
-    const { merged, report } = mergeCatalog(
+    const { stale, report } = mergeCatalog(
       { [`pack.shadcn.closeDialog.${H_ADD}`]: "Close" },
       { [`pack.shadcn.closeDialog.${H_ADD}`]: "Schliessen" },
       { [MUI_REMOVE]: "Remove" },
       { keepStale: true },
     );
-    expect(merged[`_stale.pack.shadcn.closeDialog.${H_ADD}`]).toBe("Schliessen");
+    expect(stale[`pack.shadcn.closeDialog.${H_ADD}`]).toBe("Schliessen");
     expect(report.carried).toEqual([]);
   });
 
@@ -372,5 +388,106 @@ describe("mergeCatalog - case 5, design-pack family swap", () => {
     expect(merged[muiAdd]).toBe("{item} hinzufuegen");
     expect(report.carried.map((c) => c.key).sort()).toEqual([muiAdd, MUI_REMOVE].sort());
     expect(report.added).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Out-of-band state: review flags, re-key hints, legacy migration.
+// ---------------------------------------------------------------------------
+
+describe("mergeCatalog - needs-review lifecycle", () => {
+  const K = "text.Sales.orderNotFound";
+  const flagged = {
+    [K]: { translation: "Commande introuvable", previousSource: "Order not found", source: "Gone" },
+  };
+
+  it("keeps an open flag while the value is untouched, refreshing the source", () => {
+    const { review } = mergeCatalog(
+      { [K]: "Gone" },
+      { [K]: "Commande introuvable" },
+      { [K]: "Gone" },
+      { review: flagged },
+    );
+    expect(review[K]).toEqual(flagged[K]);
+  });
+
+  it("clears the flag by itself once the translator edits the value", () => {
+    const { merged, review } = mergeCatalog(
+      { [K]: "Gone" },
+      { [K]: "Commande introuvable (corrigee)" },
+      { [K]: "Gone" },
+      { review: flagged },
+    );
+    expect(merged[K]).toBe("Commande introuvable (corrigee)");
+    expect(review).toEqual({});
+  });
+});
+
+describe("mergeCatalog - re-key hints", () => {
+  const OLD = "WebApp.page.Home.heading.aaaaaa";
+  const NEW = "WebApp.page.Home.heading.bbbbbb";
+
+  it("an untranslated key replacing a reworded one carries the previous source and translation", () => {
+    const { merged, review, report } = mergeCatalog(
+      { [OLD]: "Orders" },
+      { [OLD]: "Commandes" },
+      { [NEW]: "Order management" },
+    );
+    expect(merged).toEqual({});
+    expect(review[NEW]).toEqual({
+      previousSource: "Orders",
+      previousTranslation: "Commandes",
+      source: "Order management",
+    });
+    expect(report.dropped).toEqual([OLD]);
+  });
+
+  it("hints nothing when the pairing is ambiguous", () => {
+    const NEW2 = "WebApp.page.Home.heading.cccccc";
+    const { review } = mergeCatalog(
+      { [OLD]: "Orders" },
+      { [OLD]: "Commandes" },
+      { [NEW]: "Order management", [NEW2]: "Order admin" },
+    );
+    expect(review).toEqual({});
+  });
+
+  it("keeps an existing hint until the key is translated", () => {
+    const hint = { previousSource: "Orders", source: "Order management" };
+    const kept = mergeCatalog(
+      { [NEW]: "Order management" },
+      {},
+      { [NEW]: "Order management" },
+      { review: { [NEW]: hint } },
+    );
+    expect(kept.review[NEW]).toEqual(hint);
+    const done = mergeCatalog(
+      { [NEW]: "Order management" },
+      { [NEW]: "Gestion" },
+      { [NEW]: "Order management" },
+      { review: { [NEW]: hint } },
+    );
+    expect(done.review).toEqual({});
+  });
+});
+
+describe("normalizeLegacy - in-band markers move out of band", () => {
+  it("TODO values vanish, conflict blocks become value + flag, _stale keys move to stale", () => {
+    const lifted = normalizeLegacy({
+      "a.todo": `${TODO_PREFIX}Hello`,
+      "a.done": "Bonjour",
+      "a.conflict": conflictMarker("Salut", "Hi", "Hello"),
+      "_stale.a.gone": "Au revoir",
+    });
+    expect(lifted.ours).toEqual({ "a.done": "Bonjour", "a.conflict": "Salut" });
+    expect(lifted.review).toEqual({
+      "a.conflict": { translation: "Salut", previousSource: "Hi", source: "Hello" },
+    });
+    expect(lifted.stale).toEqual({ "a.gone": "Au revoir" });
+    expect(lifted.changed).toBe(3);
+  });
+
+  it("a file already in the new scheme is a no-op", () => {
+    expect(normalizeLegacy({ "a.done": "Bonjour" }).changed).toBe(0);
   });
 });

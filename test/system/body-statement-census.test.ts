@@ -189,9 +189,9 @@ function fulfilHost(q: string, pos: Position | undefined, body: string): string 
           note := "started"${at("workflow-starter")}
         }
         on(s: Noted) by s.order {
-          note := label(s.order)${at("workflow-reactor")}
+          note := describe(s.order)${at("workflow-reactor")}
         }
-        function label(o: Order id): string {${at("workflow-function")}
+        function describe(o: Order id): string {${at("workflow-function")}
           return "x"
         }
       }`;

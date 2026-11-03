@@ -1077,6 +1077,27 @@ export interface WalkerTarget {
    *  something already correct for the host language. */
   emptyChild?: string;
 
+  /** True when this target's pack templates consume the identity-keyed tokens
+   *  of the IMPLICIT model-text sites — a form field's label (`labelExpr`), an
+   *  enum select's option labels (`enumLabelFn`), a submit button
+   *  (`submitLabel` / `humanOp` as markup), an `EnumBadge`'s value label
+   *  (`src/generator/_walker/model-text-sites.ts`).  Unset ⇒ those sites keep
+   *  their humanized English, byte-identical.  A target flips it on once its
+   *  packs read the tokens. */
+  modelTextImplicitSites?: true;
+
+  /** The label of an enum value as one expression, for a target whose language
+   *  cannot spell the default typed lookup (a JS arrow function with a `Record`
+   *  assertion — `model-text-sites.ts`'s `enumLabelFn`): an Angular template,
+   *  or a non-JavaScript target (F#, Dart).  `entries` pair each wire value
+   *  with its translation-call expression; `valueExpr` is the rendered value.
+   *  Returns an expression of the target language yielding the label (the raw
+   *  value when no entry matches).  Unset ⇒ the typed lookup. */
+  renderEnumLabelLookup?(
+    entries: ReadonlyArray<{ value: string; label: string }>,
+    valueExpr: string,
+  ): string;
+
   /** Render the `style: { … }` named arg as a markup attribute
    *  fragment (leading space included; empty string for no entries).
    *  Each entry carries the source CSS key plus the rendered value

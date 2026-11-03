@@ -333,10 +333,13 @@ three-way merge core in `src/i18n/merge.ts` (CLI in `src/cli/i18n/`).
 | Command | What it does |
 |---|---|
 | `ddd i18n extract <file> [-o out]` | write the fresh source catalog to `<out>/.loom/messages.<source>.json` (front of the pipeline only, no codegen) |
-| `ddd i18n init <file> <locale>` | scaffold `locales/<locale>/<ns>.json` (every key as `TODO:`) and the source lock if absent; the source language gets no scaffold |
-| `ddd i18n sync <file> [--locale l] [--keep-stale]` | three-way merge every locale (one file at a time), then advance the lock; migrates a flat `locales/<locale>.json` tree to the split layout; `--keep-stale` keeps source-deleted keys as `_stale.<key>` |
-| `ddd i18n status <file>` | what `sync` would do, including a pending layout migration; exits non-zero if anything is pending |
-| `ddd i18n check <file> [--strict]` | report `TODO:` values, unresolved conflict markers, missing keys and source overrides the source no longer emits; `--strict` exits non-zero on any finding (the CI gate) |
+| `ddd i18n init <file> <locale>` | scaffold an empty `locales/<locale>/<ns>.json` set (untranslated = absent) and the source lock if absent; the source language gets no scaffold; `en-XA` is generated (see Pseudo-locale) |
+| `ddd i18n sync <file> [--locale l] [--keep-stale]` | three-way merge every locale (one file at a time), then advance the lock; migrates a flat `locales/<locale>.json` tree to the split layout and lifts legacy `TODO:` / conflict-block / `_stale.*` values out of band; `--keep-stale` parks source-deleted translations in `locales/.loom/stale/` |
+| `ddd i18n status <file>` | what `sync` would do, including a pending layout or legacy-marker migration; exits non-zero if anything is pending |
+| `ddd i18n check <file> [--strict]` | per locale: invalid ICU, placeholder-set or plural-form mismatches against the source, untranslated keys, translations needing review, keys the source no longer emits, leftover legacy markers; plus source overrides the source no longer emits. `--strict` exits non-zero on any finding, or when there are no locale files at all (the CI gate) |
+| `ddd i18n approve <file> [keys…] [--locale l]` | clear the needs-review flag on translations that still read right after a source change (every open flag when no key is given) |
+| `ddd i18n export <file> --locale l [--format xliff\|po] [-o out]` | write one locale as XLIFF 1.2 (default) or gettext PO for a translation tool; default path `locales/.loom/exchange/<locale>.xlf\|.po` |
+| `ddd i18n import <file> <exchange> [--locale l] [--format xliff\|po]` | read a translated XLIFF / PO back into the locale files; units with invalid ICU, placeholders or plural forms are rejected and reported (exit 1), the rest are written |
 | `ddd i18n prune <file>` | delete keys (and source overrides) the source no longer emits (deliberate, never automatic) |
 
 The translator tree defaults to `locales/` next to the `.ddd` file (`--dir`
@@ -365,6 +368,52 @@ like any other namespace file. They change the default every `t()` carries, the
 generated source catalog and the extraction, so editing one makes `sync` flag
 every translation of that string.
 
+**Untranslated and needs-review are out of band.** A locale file holds finished
+translations only, so a translation tool (Crowdin, Lokalise, Weblate, Phrase)
+reads every value in it as a real translation.
+
+- *Untranslated* is **absence**: `init` and `sync` write no placeholder for a new
+  source string. `check` lists the gaps; `status` stays quiet about a gap the
+  lock already knows.
+- *Needs review* (the source changed under an existing translation) keeps the
+  translation as the value and records the flag in
+  `locales/.loom/review/<locale>/<ns>.json` as `{ translation, previousSource,
+  source }`. The flag clears when the value is edited, or with `ddd i18n approve`.
+  A reworded string re-keys (its hash changes); where the old and new key differ
+  only in the trailing hash and the pairing is 1:1, the new, untranslated key gets
+  a hint entry (`previousSource`, `previousTranslation`) so the translator sees
+  what it replaced.
+- *Stale* translations (`--keep-stale`) live in `locales/.loom/stale/<locale>/<ns>.json`.
+
+A tree written by an older Loom (`TODO: …` values, diff3 conflict blocks inside
+values, `_stale.<key>` entries) migrates through `ddd i18n sync`: `TODO:` values
+become absent keys, a conflict block becomes its OURS text plus a review flag,
+`_stale.*` entries move to the stale sidecar. `status` and `check` report the
+pending migration until `sync` has run; it is idempotent.
+
+**What `check` validates.** Each translation must parse as ICU MessageFormat
+(`{name}`, `{n, number}`, `plural` / `selectordinal` / `select`, apostrophe
+quoting) and reference exactly the placeholder names its source does (order is
+free). Every `plural` / `selectordinal` must supply each CLDR form the locale
+uses and none it lacks (Polish: `one few many other`; Japanese: `other`);
+`=N` selectors are always allowed. The rules are in `src/i18n/icu.ts`.
+
+**Exchange files.** `export` lists every source key of the locale: XLIFF
+`<trans-unit id="<runtime key>">` (PO: `msgctxt`) with the source, the current
+translation, its state (`new` / `translated` / `needs-review`, as
+`state="needs-review-translation"` / `#, fuzzy`), context notes (key family, page
+or component, slot, namespace, key, source length) and, when known, the previous
+source and previous translation. `import` matches by key, skips untranslated
+units, ignores keys the source no longer emits, validates like `check`, and sets
+or clears the review flag from the unit's state.
+
+**Pseudo-locale `en-XA`.** `ddd i18n init <file> en-XA` generates a full locale
+from the source: accented letters, ~30% padding and `[ … ]` brackets, with ICU
+placeholders and plural branches intact (`Welcome` → `[Ŵéļçöɱé ~~~]`). `sync`
+regenerates it (it is never merged), `status` reports it out of date, and it
+ships like any locale. Run a UI in `en-XA`: text that is still plain ASCII is
+a string that bypassed `t()`.
+
 **Why `sync` is a separate, deliberate step.** Codegen stays idempotent on the
 source tree and never writes under `locales/`; reconciling translations is a
 commit-worthy intent (like a migration), and conflicts need a human. The lock
@@ -372,9 +421,10 @@ advances only after every locale has reconciled: rewriting it on every codegen
 would make BASE equal THEIRS, and the merge would have nothing to act on.
 
 **What ships.** `generate system` emits each locale it finds into every frontend
-with a translation runtime, but drops values the translator has not finished
-(`TODO:` values, unresolved conflict markers, `_stale.*` shadows), so `t(key,
-default)` falls back to the source-language default per key. A locale created by
+with a translation runtime. Untranslated keys are simply absent, and any legacy
+in-band `TODO:` / conflict-marker / `_stale.*` value still on disk is dropped, so
+`t(key, default)` falls back to the source-language default per key. A
+translation flagged needs-review still ships. A locale created by
 `init` is registered even while its catalog is still empty.
 
 ## Watch mode

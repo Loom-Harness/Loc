@@ -186,6 +186,7 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/feliz/index.ts#enumsFromContexts": ALL_CONTEXTS,
   "src/generator/_frontend/projections-module.ts#buildProjectionsApiModule": ALL_CONTEXTS,
   "src/generator/dotnet/bcl-collision.ts#declaredTypeNames": ALL_CONTEXTS,
+  "src/generator/_walker/model-text-sites.ts#implicitModelTextEntries": ALL_CONTEXTS,
 };
 
 describe("enum-pool census — no name resolution of an enum through a context's own `.enums`", () => {

@@ -46,6 +46,7 @@ import {
   localizedChromeIcuText,
   localizedChromeText,
   localizedChromeValue,
+  localizedModelText,
   localizedPositionalTranslation,
 } from "../i18n-emit.js";
 import {
@@ -316,7 +317,13 @@ function resolveColumn(
   const headerArg = positionals[0];
   const accessorArg = positionals[1];
   const headerIsLiteral = headerArg?.kind === "literal" && headerArg.lit === "string";
-  const headerStr = headerIsLiteral ? headerArg.value : `Column ${index + 1}`;
+  // A `label(Task.title)` header is model text — see `emitColumn` in table.ts.
+  const headerText = headerArg?.kind === "modelText" ? headerArg : undefined;
+  const headerStr = headerIsLiteral
+    ? headerArg.value
+    : headerText
+      ? headerText.defaultText
+      : `Column ${index + 1}`;
   // The header is a user-visible slot (`columnHeader`, M-T1.11).  A grid header
   // is a VALUE in a column definition, not markup — every target spells it
   // `header: "Job Name"` inside a TanStack-shaped object — so the translated
@@ -324,7 +331,9 @@ function resolveColumn(
   // (byte-identical).  A dynamic header has no source string to translate.
   const headerValue = headerIsLiteral
     ? localizedPositionalTranslation(call, ctx, "columnHeader")
-    : undefined;
+    : headerText && ctx.i18nPrefix
+      ? localizedModelText(ctx, headerText.key, headerText.defaultText)
+      : undefined;
 
   // Read through the shared shape leaf, which the i18n extractor also consults
   // — `chrome.filter` must be in the catalog exactly when a filter input is

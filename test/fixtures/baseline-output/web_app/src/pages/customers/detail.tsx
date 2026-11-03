@@ -12,7 +12,7 @@ import { Controller, useForm } from "react-hook-form";
 import { useCustomerById } from "../../api/customer";
 function openUpdateModal(mut: ReturnType<typeof useUpdateCustomer>): void {
   modals.open({
-    title: t("WebApp.page.Detail.modalTitle.uk4kus", "Update"),
+    title: t("Customers.Customer.op.update", "Update"),
     closeButtonProps: { "aria-label": t("chrome.close", "Close") },
     children: <UpdateForm mut={mut} onClose={() => modals.closeAll()} />,
   });
@@ -42,21 +42,21 @@ function UpdateForm({ mut, onClose }: { mut: ReturnType<typeof useUpdateCustomer
       })}
     >
       <Stack>
-        <TextInput label="Username" {...register("username")} data-testid="customers-op-update-input-username" error={errors.username?.message} />
+        <TextInput label={ t("Customers.Customer.field.username", "Username") } {...register("username")} data-testid="customers-op-update-input-username" error={errors.username?.message} />
 
-        <TextInput label="Email" {...register("email")} data-testid="customers-op-update-input-email" error={errors.email?.message} />
+        <TextInput label={ t("Customers.Customer.field.email", "Email") } {...register("email")} data-testid="customers-op-update-input-email" error={errors.email?.message} />
 
         <Controller
           control={control}
           name="age"
           render={({ field, fieldState }) => (
-            <NumberInput label="Age" data-testid="customers-op-update-input-age" allowDecimal={false} value={field.value as number | "" | undefined} onChange={(v) => field.onChange(typeof v === "number" ? v : Number(v) || 0)} error={fieldState.error?.message} />
+            <NumberInput label={ t("Customers.Customer.field.age", "Age") } data-testid="customers-op-update-input-age" allowDecimal={false} value={field.value as number | "" | undefined} onChange={(v) => field.onChange(typeof v === "number" ? v : Number(v) || 0)} error={fieldState.error?.message} />
           )}
         />
 
         <Group justify="flex-end" gap="xs" mt="md">
           <Button variant="default" onClick={onClose}>{t("chrome.cancel", "Cancel")}</Button>
-          <Button type="submit" loading={mut.isPending} data-testid="customers-op-update-submit">Update</Button>
+          <Button type="submit" loading={mut.isPending} data-testid="customers-op-update-submit">{t("Customers.Customer.op.update", "Update")}</Button>
         </Group>
       </Stack>
     </form>
@@ -71,7 +71,7 @@ export default function CustomerDetail() {
     <Stack gap="md" data-testid="customers-detail">
       <Breadcrumbs>
         <Anchor component={RouterLink} to="/">{t("WebApp.page.Detail.anchor.n0mxf2", "Home")}</Anchor>
-        <Anchor component={RouterLink} to="/customers">{t("WebApp.page.Detail.anchor.vweyym", "Customers")}</Anchor>
+        <Anchor component={RouterLink} to="/customers">{t("Customers.Customer.name.other", "Customers")}</Anchor>
         <Text>{t("WebApp.page.Detail.text.ei31dg", "Detail")}</Text>
       </Breadcrumbs>
       <Title order={2}>{t("WebApp.page.Detail.heading.hw9b7u", "Customer detail")}</Title>
@@ -93,14 +93,14 @@ export default function CustomerDetail() {
           <Stack gap="md">
             <Card withBorder padding="md">
               <Stack gap="md">
-                <KeyValueRow label={t("WebApp.page.Detail.keyValue.7s11ax", "Username")} data-testid="customers-detail-username"><Text>{customerById.data.username}</Text></KeyValueRow>
-                <KeyValueRow label={t("WebApp.page.Detail.keyValue.inbfc7", "Email")} data-testid="customers-detail-email"><Text>{customerById.data.email}</Text></KeyValueRow>
-                <KeyValueRow label={t("WebApp.page.Detail.keyValue.3mcq4c", "Age")} data-testid="customers-detail-age"><Text>{customerById.data.age}</Text></KeyValueRow>
-                <KeyValueRow label={t("WebApp.page.Detail.keyValue.oz7oad", "Display")} data-testid="customers-detail-display"><Text>{customerById.data.display}</Text></KeyValueRow>
+                <KeyValueRow label={t("Customers.Customer.field.username", "Username")} data-testid="customers-detail-username"><Text>{customerById.data.username}</Text></KeyValueRow>
+                <KeyValueRow label={t("Customers.Customer.field.email", "Email")} data-testid="customers-detail-email"><Text>{customerById.data.email}</Text></KeyValueRow>
+                <KeyValueRow label={t("Customers.Customer.field.age", "Age")} data-testid="customers-detail-age"><Text>{customerById.data.age}</Text></KeyValueRow>
+                <KeyValueRow label={t("Customers.Customer.field.display", "Display")} data-testid="customers-detail-display"><Text>{customerById.data.display}</Text></KeyValueRow>
               </Stack>
             </Card>
             <Group gap="xs">
-              <Button variant="filled" onClick={() => openUpdateModal(update)} data-testid="customers-op-update">{t("WebApp.page.Detail.button.uk4kus", "Update")}</Button>
+              <Button variant="filled" onClick={() => openUpdateModal(update)} data-testid="customers-op-update">{t("Customers.Customer.op.update", "Update")}</Button>
     
             </Group>
           </Stack>

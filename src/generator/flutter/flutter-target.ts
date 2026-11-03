@@ -1156,6 +1156,16 @@ export const flutterTarget: WalkerTarget = {
     }
     return `t(${args.join(", ")})`;
   },
+  // Implicit model-text sites (form labels, enum options, submit buttons, the
+  // `EnumBadge` value) are keyed by identity through `renderTranslate`.
+  modelTextImplicitSites: true,
+  // An `EnumBadge`'s value → label lookup: a map literal over the wire value,
+  // the raw value when no entry matches.  The immediately-applied function takes
+  // a NULLABLE `Object?` so a nullable and a non-null subject both analyze clean.
+  renderEnumLabelLookup: (entries, subject) =>
+    `((Object? v) => <String, String>{${entries
+      .map((e) => `${dartStringLit(e.value)}: ${e.label}`)
+      .join(", ")}}[v?.toString()] ?? v?.toString() ?? '')(${subject})`,
   // A conditional child → a ternary over two widgets (a single child expression,
   // valid anywhere a widget is expected).
   renderConditionalChild: (cond, thenS, elseS, _depth) => `(${cond} ? ${thenS} : ${elseS})`,

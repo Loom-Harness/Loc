@@ -285,6 +285,7 @@ function leavesResolveToColumns(e: ExprIR, columns: ReadonlySet<string>): boolea
     case "convert":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "id":
     case "lambda":
     case "list":
@@ -332,6 +333,7 @@ function paramLeafNames(e: ExprIR, out: string[] = []): string[] {
     case "convert":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "id":
     case "lambda":
     case "list":

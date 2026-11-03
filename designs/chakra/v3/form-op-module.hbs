@@ -42,7 +42,7 @@ function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}}{{#if gated}},
                 </Dialog.Body>
                 <Dialog.Footer>
                   <Button type="button" variant="ghost" onClick={onClose}>{{{cancelLabel}}}</Button>
-                  <Button type="submit" colorPalette="brand" loading={mut.isPending} data-testid="{{slug}}-op-{{opName}}-submit">{{humanOp}}</Button>
+                  <Button type="submit" colorPalette="brand" loading={mut.isPending} data-testid="{{slug}}-op-{{opName}}-submit">{{{humanOp}}}</Button>
                 </Dialog.Footer>
               </form>
             </Dialog.Content>
