@@ -53,6 +53,11 @@ describe("transactional outbox emission (retention: log)", () => {
       "and(isNull(schema.loomOutbox.dispatchedAt), isNull(schema.loomOutbox.deadAt))",
     );
     expect(wf).toContain('event: "event_dead_lettered"');
+    // A poll failure is logged and retried next tick, never an unhandled
+    // rejection from the interval callback.
+    expect(wf).toMatch(
+      /\n    \} catch \(err\) \{\n      baseLogger\.warn\(\{ event: "outbox_relay_error"[^\n]*\n    \} finally \{\n      draining = false;/,
+    );
   });
 
   it("createApp defaults to the outbox-wrapped dispatcher; index starts/stops the relay", async () => {
