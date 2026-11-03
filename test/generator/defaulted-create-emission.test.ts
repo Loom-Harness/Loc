@@ -236,3 +236,32 @@ describe("bool create default reaches the wire (B14)", () => {
     );
   });
 });
+
+const MONEY_FIXTURE = `
+system Shop {
+  subdomain D {
+    context Carts {
+      aggregate Cart with crudish {
+        label: string
+        total: money = 0.00
+      }
+      repository CartRepo for Cart { }
+    }
+  }
+  api CartApi from D
+  storage primarySql { type: postgres }
+  resource cartState { for: Carts, kind: state, use: primarySql }
+  deployable dotnetApi { platform: dotnet contexts: [Carts] dataSources: [cartState] serves: CartApi port: 8080 }
+}
+`;
+
+describe("money create default on the .NET request record", () => {
+  it("is a nullable wire string coalesced to the decimal default, never `string = 0.00m`", async () => {
+    const files = await generateSystemFiles(MONEY_FIXTURE);
+    const dto = findFile(files, /Carts\/Requests\/CartRequests\.cs$/)!;
+    expect(dto).toMatch(/string\? Total = null/);
+    expect(dto).not.toMatch(/Total = 0\.00m/);
+    const ctrl = findFile(files, /Api\/CartsController\.cs$/)!;
+    expect(ctrl).toMatch(/request\.Total is null \? 0\.00m :/);
+  });
+});
