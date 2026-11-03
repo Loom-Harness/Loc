@@ -47,7 +47,10 @@ export function deriveRuleName(text) {
   const all = text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
   const kept = all.filter((w) => !FILLER.has(w));
   const words = (kept.length > 0 ? kept : all).slice(0, RULE_NAME_MAX_WORDS);
-  if (words.length === 0 || !/^[a-z]/.test(words[0])) words.unshift("rule");
+  if (words.length === 0 || !/^[a-z]/.test(words[0])) {
+    words.unshift("rule");
+    words.length = Math.min(words.length, RULE_NAME_MAX_WORDS);
+  }
   if (words.length === 1) words.push("rule");
   return words.map((w, i) => (i === 0 ? w : w[0].toUpperCase() + w.slice(1))).join("");
 }

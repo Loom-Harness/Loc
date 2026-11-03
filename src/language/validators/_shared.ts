@@ -391,7 +391,7 @@ export function pagePropDisplayName(typeName: string): string {
  *  the real problem.)  `STRING` strips its delimiters, so `message ""` reaches
  *  here as `""`.  Shared by `types.ts` (invariant / property check) and
  *  `statements.ts` (precondition). */
-export function checkBlankMessage(
+function checkBlankMessage(
   node: AstNode,
   message: string | undefined,
   accept: import("langium").ValidationAcceptor,

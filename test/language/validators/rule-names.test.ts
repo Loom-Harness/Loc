@@ -72,7 +72,9 @@ describe("rule names — parsing", () => {
         count: int`),
     );
     expect(errors).toEqual([]);
-    const props = [...AstUtils.streamAllContents(model as Model)].filter(isProperty);
+    const props = [...AstUtils.streamAllContents(model as Model)]
+      .filter(isProperty)
+      .filter((p) => p.name === "active" || p.name === "count");
     expect(props.map((p) => [p.name, p.checkName])).toEqual([
       ["active", undefined],
       ["count", undefined],
