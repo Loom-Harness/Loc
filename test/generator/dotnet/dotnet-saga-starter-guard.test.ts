@@ -7,8 +7,7 @@
 // create + on on DIFFERENT events stays two independent handlers (byte-identical).
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const UNPAIRED = `system S { subdomain O { context O {
   aggregate Order { status: string  operation place() { status := "P"  emit OrderPlaced { order: id } } }
@@ -28,9 +27,7 @@ const UNPAIRED = `system S { subdomain O { context O {
   deployable api { platform: dotnet contexts: [O] serves: A dataSources: [oState] port: 8080 } }`;
 
 async function gen(src: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(src);
-  if (errors.length) throw new Error(errors.join("\n"));
-  return generateSystems(model).files;
+  return generateSystemFiles(src);
 }
 
 const file = (files: Map<string, string>, suffix: string): string =>

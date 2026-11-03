@@ -22,7 +22,7 @@ import {
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { pythonIdent } from "../../util/naming.js";
 import { unionMembers } from "../_payload/union-wire.js";
-import { PY } from "./py-symbols.js";
+import { PY, pyIdType } from "./py-symbols.js";
 import { renderPyType } from "./render-expr.js";
 import { pyScalarReturnToWire } from "./routes-builder.js";
 import { pyErrorVariantReturn } from "./wire-policy-py.js";
@@ -35,15 +35,26 @@ function leafDict(
   repoOf: (agg: string) => string,
   selfField: (f: WireField) => string,
   selfShape: readonly WireField[],
+  subject?: string,
 ): string {
   const tag = JSON.stringify(leaf.arm.tag);
+  // A `match`-arm binding (`Order v => { return v }`) is the operation's own
+  // union dict, not a domain object: its fields are read by key, off the
+  // subject itself — rebinding one name to a dict here and to a scalar in a
+  // sibling arm is a type error under mypy --strict.
+  const bound = isBoundRef(leaf.value);
+  const boundDict = subject ?? render(leaf.value);
   switch (leaf.arm.kind) {
     case "value":
       return `{"type": ${tag}, "value": ${pyScalarReturnToWire(render(leaf.value), leaf.arm.type)}}`;
-    case "aggregate":
+    case "aggregate": {
       // Read back after the body's saves: the saved row carries the version
       // the save advanced to.
-      return `{"type": ${tag}, **${repoOf(leaf.arm.name)}.to_wire(await ${repoOf(leaf.arm.name)}.get_by_id(${render(leaf.value)}.id))}`;
+      const id = bound
+        ? `${PY.cast}(${pyIdType(leaf.arm.name)}, ${boundDict}["id"])`
+        : `${render(leaf.value)}.id`;
+      return `{"type": ${tag}, **${repoOf(leaf.arm.name)}.to_wire(await ${repoOf(leaf.arm.name)}.get_by_id(${id}))}`;
+    }
     case "workflow":
       return `{"type": ${tag}, ${selfShape.map((f) => `"${f.name}": ${selfField(f)}`).join(", ")}}`;
     case "payload":
@@ -51,14 +62,20 @@ function leafDict(
       const member = unionMembers(t.variants, ctx).find((m) => m.tag === leaf.arm.tag);
       const fields = member?.shape === "record" ? member.fields : [];
       const obj = leaf.value.kind === "object" ? leaf.value.fields : [];
-      const parts = fields.flatMap((f) => {
-        const v = obj.find((o) => o.name === f.name);
-        return v ? [`"${f.name}": ${pyScalarReturnToWire(render(v.value), f.type)}`] : [];
-      });
+      const parts = bound
+        ? fields.map(
+            (f) => `"${f.name}": ${pyScalarReturnToWire(`${boundDict}["${f.name}"]`, f.type)}`,
+          )
+        : fields.flatMap((f) => {
+            const v = obj.find((o) => o.name === f.name);
+            return v ? [`"${f.name}": ${pyScalarReturnToWire(render(v.value), f.type)}`] : [];
+          });
       return `{"type": ${tag}${parts.length > 0 ? `, ${parts.join(", ")}` : ""}}`;
     }
   }
 }
+
+const isBoundRef = (e: ExprIR): boolean => e.kind === "ref" && e.refKind === "match-binding";
 
 const reads = (e: ExprIR, name: string): boolean => {
   let hit = false;
@@ -82,8 +99,8 @@ export function entryResultPyLines(
   selfField: (f: WireField) => string = () => "None",
   selfShape: readonly WireField[] = [],
 ): string[] {
-  const assign = (leaf: EntryResultLeaf, pad: string) =>
-    `${pad}${target} = ${leafDict(leaf, render, t, ctx, repoOf, selfField, selfShape)}`;
+  const assign = (leaf: EntryResultLeaf, pad: string, subject?: string) =>
+    `${pad}${target} = ${leafDict(leaf, render, t, ctx, repoOf, selfField, selfShape, subject)}`;
   const out = [`${indent}${target}: dict[str, object] = {}`];
   const m = er.match;
   if (!m?.subject) return [...out, ...er.leaves.map((l) => assign(l, indent))];
@@ -105,15 +122,18 @@ export function entryResultPyLines(
       out.push(`${indent}else:`, assign(leaf, `${indent}    `));
       continue;
     }
-    const value = isScalarVariant(arm.varType)
+    const scalar = isScalarVariant(arm.varType);
+    const value = scalar
       ? `${PY.cast}(${renderPyType(arm.varType)}, ${subject}["value"])`
       : subject;
+    // A dict arm answering its binding reads the subject directly.
+    const direct = !scalar && isBoundRef(leaf.value);
     out.push(
       `${indent}${first ? "if" : "elif"} ${subject}["type"] == ${JSON.stringify(variantTag(arm.varType))}:`,
-      ...(arm.binding && reads(leaf.value, arm.binding)
+      ...(arm.binding && reads(leaf.value, arm.binding) && !direct
         ? [`${indent}    ${pythonIdent(arm.binding)} = ${value}`]
         : []),
-      assign(leaf, `${indent}    `),
+      assign(leaf, `${indent}    `, direct ? subject : undefined),
     );
     first = false;
   }

@@ -125,7 +125,7 @@ describe("RS-43 — a message-less rule answers node's sentence on every backend
     const routes = find(await generateSystemFiles(fixture("python")), "http/customer_routes.py");
     expect(routes).not.toContain('raise ValueError("Invariant violated');
     expect(routes).toMatch(
-      /type=PydanticCustomError\("invariant", "Business rule violated"\),\s+loc=\("handle",\),/,
+      /type=PydanticCustomError\("problem\.domain-floor", "Business rule violated"\),\s+loc=\("handle",\),/,
     );
   });
 });

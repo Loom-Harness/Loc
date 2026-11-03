@@ -351,7 +351,9 @@ describe("the body-position effect vocabulary", () => {
       ).toStrictEqual(["loom.query-handler-saves"]);
     }
     expect(
-      await codes(`queryHandler look(itemId: Item id): Item { return Items.get(itemId) }`),
+      await codes(
+        `queryHandler look(itemId: Item id): Item { let i = Items.get(itemId)  return i }`,
+      ),
     ).toStrictEqual([]);
   });
 });

@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — extern operations (extern (b) Phase 2, docs/extern.md).
@@ -29,9 +28,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python extern operations", () => {
@@ -120,9 +117,7 @@ describe("python extern operations", () => {
       "",
     );
     expect(source).not.toMatch(/operation \w+\([^)]*\) extern/);
-    const { model, errors } = await parseString(source);
-    if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(source);
     expect(files.get("api/app/domain/extern/order_extern.py")).toBeUndefined();
     const domain = files.get("api/app/domain/order.py")!;
     expect(domain).not.toContain(".setter");

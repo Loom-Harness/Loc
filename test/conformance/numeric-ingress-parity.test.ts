@@ -160,7 +160,7 @@ const BAD_MONEY_STRING: Record<Platform, Seam[]> = {
     {
       why: "typed WireFormatException with a JSON pointer",
       shape:
-        /throw new global::Api1\.Domain\.Common\.WireFormatException\("\/price", \$"Invalid decimal: \\"\{request\.Price\}\\""\)/,
+        /new global::Api1\.Domain\.Common\.WireFormatException\("\/price", \$"Invalid decimal: \\"\{request\.Price\}\\"", "field\.money-grammar", new System\.Collections\.Generic\.Dictionary<string, object\?> \{ \["value"\] = request\.Price \}\)/,
       file: /Controller\.cs$/,
     },
     // A nested value object's money is a separate emission path and was the
@@ -180,7 +180,7 @@ const BAD_MONEY_STRING: Record<Platform, Seam[]> = {
       why: "WireFormatException arm in the exception filter",
       shape: /context\.Exception is WireFormatException wfe/,
     },
-    { why: "pointer reaches the body", shape: /pointer = wfe\.FieldPointer/ },
+    { why: "pointer reaches the body", shape: /\["pointer"\] = wfe\.FieldPointer/ },
   ],
   java: [
     {
@@ -208,7 +208,7 @@ const BAD_MONEY_STRING: Record<Platform, Seam[]> = {
     },
     {
       why: "typed pydantic error, not a raise",
-      shape: /"money_format", "Invalid decimal: \{value\}"/,
+      shape: /"field\.money-grammar", "Invalid decimal: \{value\}"/,
     },
     {
       why: "MoneyStr annotation",
@@ -407,7 +407,7 @@ const MONEY_OUT_OF_RANGE: Record<Platform, Seam[]> = {
   ],
   python: [
     { why: "integer-digit bound in _money_str", shape: /\) > 15:/ },
-    { why: "its own PydanticCustomError code", shape: /"money_range", "Money out of range/ },
+    { why: "its own PydanticCustomError code", shape: /"field\.money-range", "Money out of range/ },
   ],
   elixir: [
     // Elixir has TWO wire paths into a money column and they share no code:
@@ -480,7 +480,7 @@ const INT32_OVERFLOW: Record<Platform, Seam[]> = {
   python: [
     {
       why: "Int32's bound raises the range sentence",
-      shape: /raise PydanticCustomError\("int_range", "Integer out of range"\)/,
+      shape: /raise PydanticCustomError\("field\.integer-range", "Integer out of range"/,
     },
     {
       why: "Int32 carries the check",

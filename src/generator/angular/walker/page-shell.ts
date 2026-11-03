@@ -3,7 +3,6 @@ import type {
   AggregateIR,
   BoundedContextIR,
   DerivedIR,
-  ExprIR,
   PageIR,
   ParamIR,
   StateFieldIR,
@@ -131,9 +130,9 @@ export interface AngularPageShellInput {
   /** Page-level `derived name: T = expr` bindings — hoisted as
    *  `readonly <name> = computed(() => <expr>)` class fields. */
   derived?: readonly DerivedIR[];
-  /** Active design pack — required to build the `WalkContext` the derived
-   *  expressions emit through. */
-  pack?: LoadedPack;
+  /** Active design pack — builds the `WalkContext` the derived expressions
+   *  and state initializers emit through. */
+  pack: LoadedPack;
   /** True when the hosting frontend deployable has `auth: ui` (a verified
    *  session is available client-side).  Enables the page-level `requires`
    *  guard below — without it, a `requires` predicate stays purely a
@@ -253,14 +252,17 @@ function arrayElementTs(t: TypeIR): string | undefined {
   return "string";
 }
 
-/** Render a `state {}` field's `signal(...)` initial value.  Uses the field's
- *  declared `= <init>` when it's a literal (string / number / bool / null) or a
- *  list of literals; otherwise falls back to the type's zero value.  (Init
- *  expressions evaluate before any signal exists, so they can't reference
- *  state/params — literals cover the realistic surface.) */
-function renderStateInit(field: StateFieldIR): string {
-  const lit = field.init !== undefined ? renderInitLiteral(field.init) : undefined;
-  return coerceMoneyStateInit(field.type, lit ?? angularTarget.defaultInitFor(field.type));
+/** Render a `state {}` field's `signal(...)` initial value: the field's
+ *  declared `= <init>` through the real expression emitter (as the React and
+ *  Svelte shells do), with an empty context — an initializer evaluates before
+ *  any signal exists, so it cannot reference state or params.  The type's zero
+ *  value only when there is no initializer. */
+function renderStateInit(field: StateFieldIR, pack: LoadedPack): string {
+  const init =
+    field.init !== undefined
+      ? emitExpr(field.init, derivedCtx(pack, new Set(), new Set(), new Set()))
+      : angularTarget.defaultInitFor(field.type);
+  return coerceMoneyStateInit(field.type, init);
 }
 
 /** A `File`-typed `state {}` field (optional-unwrapped).  Its signal is typed
@@ -270,34 +272,6 @@ function renderStateInit(field: StateFieldIR): string {
 function isFileStateField(field: StateFieldIR): boolean {
   const t = unwrapOpt(field.type);
   return t.kind === "primitive" && t.name === "File";
-}
-
-function renderInitLiteral(e: ExprIR): string | undefined {
-  if (e.kind === "literal") {
-    if (e.lit === "string") return JSON.stringify(e.value);
-    if (e.lit === "null") return "null";
-    // `money` is a decimal.js `Decimal`, not a number — `signal(12.50)` would
-    // infer `WritableSignal<number>` and every `.toDecimalPlaces(…)` read off
-    // it would fail `ng build`.  Mirrors `jsExprLeaves.exprLiteral`; Angular
-    // needs its own arm because state inits render through this literal
-    // reader rather than through the shared leaf table.
-    if (e.lit === "money") return `new Decimal(${JSON.stringify(e.value)})`;
-    // int / decimal / bool already carry their JS-literal text.
-    return e.value;
-  }
-  // An ENUM VALUE (`s: Status = Status.draft`) lowers to a `ref` with
-  // `refKind: "enum-value"`, which is exactly the shape `walker-core` renders
-  // as a bare string literal (an enum is a string union on the wire).  Without
-  // this arm it fell through to `undefined` and the field silently mounted at
-  // the type ZERO — a value that is not in the enum at all.  React and Svelte
-  // never had the bug: their page shells render the init through the real
-  // expression emitter, not through a literal-only reader.
-  if (e.kind === "ref" && e.refKind === "enum-value") return JSON.stringify(e.name);
-  if (e.kind === "list") {
-    const els = e.elements.map(renderInitLiteral);
-    return els.every((x): x is string => x !== undefined) ? `[${els.join(", ")}]` : undefined;
-  }
-  return undefined;
 }
 
 /** Register named imports on the walk result's `imports` map (drained into
@@ -549,10 +523,10 @@ export function renderAngularPage(input: AngularPageShellInput): string {
         // gap the React/Svelte shells had before #2294 and Vue's before the
         // DataGrid Vue port.
         members.push(
-          `  readonly ${f.name} = signal<${arrayElementTs(f.type)}[]>(${renderStateInit(f)});`,
+          `  readonly ${f.name} = signal<${arrayElementTs(f.type)}[]>(${renderStateInit(f, input.pack)});`,
         );
       } else {
-        members.push(`  readonly ${f.name} = signal(${renderStateInit(f)});`);
+        members.push(`  readonly ${f.name} = signal(${renderStateInit(f, input.pack)});`);
       }
     }
   }

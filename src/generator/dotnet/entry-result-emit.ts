@@ -93,16 +93,28 @@ function leafCtor(
   ctx: EnrichedBoundedContextIR,
   ns: string,
   selfVar: string,
+  repoOf: ((aggName: string) => string | undefined) | undefined,
 ): string {
   const name = entryUnionName(t);
   const rec = `global::${entryResultNs(ns)}.${name}_${leaf.arm.tag}`;
   const rendered = render(leaf.value);
   const member = unionMembers(t.variants, ctx).find((m) => m.tag === leaf.arm.tag);
+  // A `match`-arm binding (`Order v => { return v }`) is the operation's own
+  // union record, built inside the domain method: its id is the raw `Guid`
+  // and its fields are wire-shaped.  The aggregate is re-read by that id; a
+  // payload / error record is read through its properties.
+  const bound = leaf.value.kind === "ref" && leaf.value.refKind === "match-binding";
   switch (leaf.arm.kind) {
     case "value":
       return `new ${rec}(${projectToResponse(rendered, leaf.arm.type, ctx)})`;
     case "aggregate": {
       const agg = ctx.aggregates.find((a) => a.name === leaf.arm.tag) as EnrichedAggregateIR;
+      const repo = bound ? repoOf?.(agg.name) : undefined;
+      if (repo) {
+        // One read, bound once: `is var` always matches.
+        const read = `(await ${repo}.GetByIdAsync(new global::${ns}.Domain.Ids.${agg.name}Id(${rendered}.Id), cancellationToken))!`;
+        return `(${read} is var __saved ? new ${rec}(${projectEntityArgs("__saved", agg, ctx, { unionVariant: true })}) : default!)`;
+      }
       return `new ${rec}(${projectEntityArgs(rendered, agg, ctx, { unionVariant: true })})`;
     }
     case "workflow": {
@@ -112,6 +124,9 @@ function leafCtor(
     case "payload":
     case "error": {
       const fields = member?.shape === "record" ? member.fields : [];
+      if (bound) {
+        return `new ${rec}(${fields.map((f) => `${rendered}.${upperFirst(f.name)}`).join(", ")})`;
+      }
       const obj = leaf.value.kind === "object" ? leaf.value.fields : [];
       return `new ${rec}(${fields
         .map((f) => {
@@ -135,9 +150,12 @@ export function entryResultCsLines(
   indent: string,
   target: string,
   selfVar = "state",
+  /** The injected repository field for an aggregate, so a bound aggregate arm
+   *  is re-read after the body's saves. */
+  repoOf?: (aggName: string) => string | undefined,
 ): string[] {
   const assign = (leaf: EntryResultLeaf, pad: string) =>
-    `${pad}${target} = ${leafCtor(leaf, render, t, ctx, ns, selfVar)};`;
+    `${pad}${target} = ${leafCtor(leaf, render, t, ctx, ns, selfVar, repoOf)};`;
   const m = er.match;
   if (!m?.subject) return er.leaves.map((l) => assign(l, indent));
   const subject = render(m.subject);

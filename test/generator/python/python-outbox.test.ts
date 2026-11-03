@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — durable-channel outbox tier (F3,
@@ -26,9 +25,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python durable-channel outbox", () => {
@@ -146,9 +143,7 @@ describe("python durable-channel outbox", () => {
     storage pg { type: postgres }
     resource st { for: C, kind: state, use: pg }
     deployable api { platform: python contexts: [C] dataSources: [st] serves: A port: 8000 } }`;
-    const { model, errors } = await parseString(src);
-    if (errors.length) throw new Error(errors.join("\n"));
-    const dispatch = generateSystems(model).files.get("api/app/dispatch.py")!;
+    const dispatch = (await generateSystemFiles(src)).get("api/app/dispatch.py")!;
     expect(dispatch).toContain("return Dispatched(");
     expect(dispatch).toMatch(/^from app\.domain\.events import .*\bDispatched\b/m);
   });

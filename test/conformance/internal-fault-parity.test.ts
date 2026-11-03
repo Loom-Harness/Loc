@@ -71,7 +71,7 @@ const SANITIZED_ARM: Record<string, RegExp> = {
   node: /problem\(500, "Internal Server Error", "internal", "problem\.internal", \{ requestId: trace_id \}\)/,
   dotnet: /Problem\(context, 500, "Internal Server Error", "internal"/,
   java: /problem\(500, "Internal Server Error", "internal"/,
-  python: /problem\(request, 500, "Internal Server Error", "internal"\)/,
+  python: /problem\(\s*request,\s*500,\s*"Internal Server Error",\s*"internal",/,
   elixir: /problem_response\(conn, 500, "Internal Server Error", "internal"\)/,
 };
 
@@ -305,7 +305,7 @@ const FLOOR: Record<(typeof PLATFORMS)[number], FileAssertion[]> = {
     {
       why: "the sanitized 500 it sends",
       file: /app\/http\/problem\.py$/,
-      shape: /problem\(request, 500, "Internal Server Error", "internal"\)/,
+      shape: /problem\(\s*request,\s*500,\s*"Internal Server Error",\s*"internal",/,
     },
     {
       why: "the handlers installed onto the app",

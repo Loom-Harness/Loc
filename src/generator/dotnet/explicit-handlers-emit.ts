@@ -411,7 +411,20 @@ function renderHandlerClass(
           ...[
             ...stmtLines,
             ...saveLines,
-            ...entryResultCsLines(er, retType, renderArg, ctx, ns, INDENT, "handlerResult"),
+            ...entryResultCsLines(
+              er,
+              retType,
+              renderArg,
+              ctx,
+              ns,
+              INDENT,
+              "handlerResult",
+              "state",
+              (agg) => {
+                const repo = [...repos].find(([, a]) => a === agg)?.[0];
+                return repo ? repoField(repo) : undefined;
+              },
+            ),
           ].map((l) => `    ${l}`),
           `            if (${entryErrorTestCs(er, retType, ns, "handlerResult")}) await tx.RollbackAsync(cancellationToken);`,
           "            else await tx.CommitAsync(cancellationToken);",

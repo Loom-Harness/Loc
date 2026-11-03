@@ -92,7 +92,7 @@ describe(".NET wire ingress — a malformed money/datetime is 422, not 500", () 
         "CultureInfo.InvariantCulture, out var __wp_request_Price)",
     );
     expect(ctrl).toContain(
-      `: throw new global::D.Domain.Common.WireFormatException("/price", $"Invalid decimal: \\"{request.Price}\\"", "field.money-grammar", new System.Collections.Generic.Dictionary<string, object?> { ["value"] = request.Price })`,
+      `new global::D.Domain.Common.WireFormatException("/price", $"Invalid decimal: \\"{request.Price}\\"", "field.money-grammar", new System.Collections.Generic.Dictionary<string, object?> { ["value"] = request.Price })`,
     );
   });
 

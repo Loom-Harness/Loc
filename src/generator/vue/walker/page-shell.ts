@@ -52,14 +52,50 @@ import {
 import { idTargetHookVar } from "../../react/form-helpers.js";
 import { vueTarget } from "./vue-target.js";
 
-/** A `state {}` field's `ref(...)` initial value: the declared `= <init>` when
- *  it's a simple literal (string / number / bool / null / list of literals),
- *  else the type's zero value.  Init expressions evaluate before any ref
- *  exists, so they can't reference state/params — literals cover the surface
- *  (mirrors the Angular/Svelte page-shells honouring `field.init`). */
-function renderVueStateInit(field: StateFieldIR): string {
-  const lit = field.init !== undefined ? renderInitLiteral(field.init) : undefined;
-  return coerceMoneyStateInit(field.type, lit ?? vueTarget.defaultInitFor(field.type));
+/** A `state {}` field's `ref(...)` initial value: the declared `= <init>`
+ *  through the real expression emitter (as the React and Svelte shells do),
+ *  with an empty context — an initializer evaluates before any ref exists, so
+ *  it cannot reference state or params.  The type's zero value only when there
+ *  is no initializer. */
+function renderVueStateInit(field: StateFieldIR, pack: LoadedPack): string {
+  const init = field.init !== undefined ? emitExpr(field.init, initCtx(pack)) : undefined;
+  return coerceMoneyStateInit(field.type, init ?? vueTarget.defaultInitFor(field.type));
+}
+
+/** An empty `WalkContext` for a state initializer: no params, state, derived
+ *  or components are in scope. */
+function initCtx(pack: LoadedPack): WalkContext {
+  return {
+    target: vueTarget,
+    imports: new Map(),
+    pack,
+    paramNames: new Set(),
+    usedParams: new Set(),
+    usesNavigate: false,
+    stateNames: new Set(),
+    derivedNames: new Set(),
+    authUi: false,
+    usesState: false,
+    usesCurrentUser: false,
+    usesRouterLink: false,
+    usesRouteId: false,
+    userComponents: new Map(),
+    usedUserComponents: new Set(),
+    usesChildren: false,
+    apiParamNames: new Map(),
+    usedApiHooks: new Map(),
+    lambdaParams: new Map(),
+    shellLocals: new Set(),
+    aggregatesByName: new Map(),
+    bcByAggregate: new Map(),
+    workflowsByName: new Map(),
+    bcByWorkflow: new Map(),
+    formOfs: [],
+    actionMutations: [],
+    collectedTestids: new Set(),
+    usesCodeBlock: false,
+    usesFileUpload: false,
+  };
 }
 
 /** A page-state field's TS type, for the cases `ref()` can't infer.  Only the
@@ -82,34 +118,6 @@ function vueStateTypeAsTs(t: TypeIR): string {
     default:
       return "string";
   }
-}
-
-function renderInitLiteral(e: ExprIR): string | undefined {
-  if (e.kind === "literal") {
-    if (e.lit === "string") return JSON.stringify(e.value);
-    if (e.lit === "null") return "null";
-    // `money` is a decimal.js `Decimal`, not a number — a bare `ref(12.50)`
-    // types the ref as `Ref<number>`, so every `.toDecimalPlaces(…)` read off
-    // it fails `vue-tsc`.  Mirrors `jsExprLeaves.exprLiteral`; Vue needs its
-    // own arm because state inits render through this literal reader rather
-    // than through the shared leaf table (same as Angular's).
-    if (e.lit === "money") return `new Decimal(${JSON.stringify(e.value)})`;
-    // int / decimal / bool already carry their JS-literal text.
-    return e.value;
-  }
-  // An ENUM VALUE (`s: Status = Status.draft`) lowers to a `ref` with
-  // `refKind: "enum-value"`, which is exactly the shape `walker-core` renders
-  // as a bare string literal (an enum is a string union on the wire).  Without
-  // this arm it fell through to `undefined` and the field silently mounted at
-  // the type ZERO — a value that is not in the enum at all.  React and Svelte
-  // never had the bug: their page shells render the init through the real
-  // expression emitter, not through a literal-only reader.
-  if (e.kind === "ref" && e.refKind === "enum-value") return JSON.stringify(e.name);
-  if (e.kind === "list") {
-    const els = e.elements.map(renderInitLiteral);
-    return els.every((x): x is string => x !== undefined) ? `[${els.join(", ")}]` : undefined;
-  }
-  return undefined;
 }
 
 // A `this.<param>` op-default seeds `defaultValuesTs` as `record.<field>` (the
@@ -402,10 +410,10 @@ export function renderVuePage(input: VuePageShellInput): string {
         // error — an array field must carry its element type explicitly.  Same
         // gap the React/Svelte shells had before #2294 (`useState<any>`).
         stateLines.push(
-          `const ${f.name} = ref<${vueStateTypeAsTs(base)}>(${renderVueStateInit(f)});`,
+          `const ${f.name} = ref<${vueStateTypeAsTs(base)}>(${renderVueStateInit(f, input.pack)});`,
         );
       } else {
-        stateLines.push(`const ${f.name} = ref(${renderVueStateInit(f)});`);
+        stateLines.push(`const ${f.name} = ref(${renderVueStateInit(f, input.pack)});`);
       }
       // The shared input primitives' VM carries the React-style
       // `set<Pascal>` setter name (`@update:model-value` callbacks in
@@ -1244,7 +1252,7 @@ export function renderVueComponentFile(
   const stateLines: string[] = [];
   if (result.usesState || derivedResult.usesState || actionResult.usesState) {
     for (const f of state) {
-      stateLines.push(`const ${f.name} = ref(${renderVueStateInit(f)});`);
+      stateLines.push(`const ${f.name} = ref(${renderVueStateInit(f, pack)});`);
       const pascal = upperFirst(f.name);
       stateLines.push(
         `const set${pascal} = (v: typeof ${f.name}.value) => { ${f.name}.value = v; };`,

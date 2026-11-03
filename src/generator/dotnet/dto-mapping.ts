@@ -431,23 +431,28 @@ function wireParseGuard(
   mapParsed?: (outVar: string) => string,
 ): string {
   const outVar = `__wp_${expr.replace(/[^A-Za-z0-9]/g, "_")}`;
-  const refuse = (message: string, reason: "money-grammar" | "money-range" | "rule"): string =>
-    `throw new global::${site.ns}.Domain.Common.WireFormatException(` +
+  const make = (message: string, reason: "money-grammar" | "money-range" | "rule"): string =>
+    `new global::${site.ns}.Domain.Common.WireFormatException(` +
     `${JSON.stringify(site.pointer)}, ${message}, ${JSON.stringify(fieldCode(reason))}` +
     (reason === "rule"
       ? ")"
       : `, new System.Collections.Generic.Dictionary<string, object?> { ["value"] = ${expr} })`);
+  const refuse = (message: string, reason: "money-grammar" | "money-range" | "rule"): string =>
+    `throw ${make(message, reason)}`;
   // Interpolated so the message quotes the value the caller actually sent.
   // `{{` / `}}` are not needed: the only interpolation hole is the raw value.
   const parsed = mapParsed ? mapParsed(outVar) : outVar;
+  const grammarMessage = `$"Invalid ${label}: \\"{${expr}}\\""`;
   const ok = postParse
     ? `(${postParse.predicate(outVar)}\n                    ? ${parsed}\n                    : ` +
       `${refuse(`$"${postParse.message}: \\"{${expr}}\\""`, "money-range")})`
     : parsed;
-  return (
-    `${tryParse(outVar)}\n                ? ${ok}\n                : ` +
-    refuse(`$"Invalid ${label}: \\"{${expr}}\\""`, formatReason)
-  );
+  // A money value that passed the grammar but still would not parse overflowed
+  // `decimal` itself: that is the RANGE refusal, not a format one.
+  const otherwise = postParse
+    ? `throw (global::${site.ns}.Domain.Common.WireFormatException.IsMoneyGrammar(${expr})\n                    ? ${make(`$"${postParse.message}: \\"{${expr}}\\""`, "money-range")}\n                    : ${make(grammarMessage, formatReason)})`
+    : refuse(grammarMessage, formatReason);
+  return `${tryParse(outVar)}\n                ? ${ok}\n                : ${otherwise}`;
 }
 
 /** Map a wire-shaped expression to a domain-typed argument for a command. */

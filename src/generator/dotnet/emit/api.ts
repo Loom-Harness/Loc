@@ -24,7 +24,11 @@ import { plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { csNsRef, csUsing } from "../../_imports/dotnet.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
-import { PG_FOREIGN_KEY_VIOLATION, PG_UNIQUE_VIOLATION } from "../../_persistence/pg-sqlstate.js";
+import {
+  PG_FOREIGN_KEY_VIOLATION,
+  PG_REFERENCED_IN_USE_SQLSTATES,
+  PG_UNIQUE_VIOLATION,
+} from "../../_persistence/pg-sqlstate.js";
 import type { ReturnUnionSpec } from "../cqrs/controller.js";
 import { sortedCsUsings } from "../cs-symbols.js";
 import { csLocalNamer } from "../local-names.js";
@@ -314,7 +318,7 @@ export function renderController(
   // so the HTTP status matches the remapped value the OpenAPI declaration
   // advertises (the `Conflict()` helper is hardwired to 409).
   const referencedInUseStatus = wireStatus("referenced-in-use", shape.structuralStatuses);
-  const fkProblem = `new ProblemDetails { Title = ${csTitle("referenced-in-use", shape.structuralStatuses)}, Status = ${referencedInUseStatus}, Detail = ${csLit(wireSentenceFor("referenced-in-use", agg.name))}, ${csCodeInit("referenced-in-use")} }`;
+  const fkProblem = `new ProblemDetails { Title = ${csTitle("referenced-in-use", shape.structuralStatuses)}, Status = ${referencedInUseStatus}, Detail = ${csLit(wireSentenceFor("referenced-in-use", agg.name))}, Type = "about:blank", Instance = HttpContext.Request.Path, ${csCodeInit("referenced-in-use")} }`;
   const fkConflictReturn =
     referencedInUseStatus === wireStatus("referenced-in-use")
       ? `            return Conflict(${fkProblem});`
@@ -554,10 +558,22 @@ export function renderController(
             // EF wraps a Postgres foreign_key_violation in DbUpdateException
             // when the row is still referenced (cross-aggregate `X id` FK is
             // ON DELETE RESTRICT) → 409 Conflict.  Caught locally so the
-            // shared DomainExceptionFilter stays untouched.  Dapper v1 emits no
-            // FK constraints, so it skips the catch (and the EF reference).
+            // shared DomainExceptionFilter stays untouched.  Dapper catches the bare
+            // Npgsql error instead (no EF reference).
             ...(shape.usingDapper
-              ? [`        await _mediator.Send(new Destroy${agg.name}Command(new ${idClass}(id)));`]
+              ? [
+                  // The Dapper adapter throws the bare Npgsql error: a
+                  // still-referenced delete is the declared 409, not the
+                  // app-global dangling-reference 422.
+                  "        try",
+                  "        {",
+                  `            await _mediator.Send(new Destroy${agg.name}Command(new ${idClass}(id)));`,
+                  "        }",
+                  `        catch (Npgsql.PostgresException pg) when (${PG_REFERENCED_IN_USE_SQLSTATES.map((c) => `pg.SqlState == ${JSON.stringify(c)}`).join(" || ")})`,
+                  "        {",
+                  fkConflictReturn,
+                  "        }",
+                ]
               : [
                   "        try",
                   "        {",
@@ -1469,6 +1485,32 @@ public static class ValidationProblem
     private static string MissingFieldMessage(string pointer) =>
         pointer[(pointer.LastIndexOf('/') + 1)..] + MissingSuffix;
 
+    /// <summary>True when the JSON path <paramref name="key"/> (<c>$.category</c>,
+    /// <c>$.lines[0].product</c>) addresses a Guid-typed member of the body.  System.Text.Json
+    /// reports a bad value for a record's constructor parameter against the
+    /// REQUEST type, naming no Guid, so the member's type is read off the model.</summary>
+    private static bool IsGuidAtPath(ActionContext context, string key)
+    {
+        var body = context.ActionDescriptor.Parameters.FirstOrDefault(p =>
+            p.BindingInfo?.BindingSource == Microsoft.AspNetCore.Mvc.ModelBinding.BindingSource.Body);
+        if (body is null) return false;
+        var type = body.ParameterType;
+        foreach (var segment in key.TrimStart('$').TrimStart('.').Split('.', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var bracket = segment.IndexOf('[');
+            var name = bracket >= 0 ? segment[..bracket] : segment;
+            var property = type.GetProperty(name,
+                System.Reflection.BindingFlags.IgnoreCase | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            if (property is null) return false;
+            type = property.PropertyType;
+            if (bracket >= 0 || (type != typeof(string) && typeof(System.Collections.IEnumerable).IsAssignableFrom(type)))
+            {
+                type = type.IsArray ? type.GetElementType()! : type.IsGenericType ? type.GetGenericArguments()[0] : type;
+            }
+        }
+        return (Nullable.GetUnderlyingType(type) ?? type) == typeof(Guid);
+    }
+
     /// <summary>True when <paramref name="key"/> names an action parameter bound as
     /// a Guid (a route or query id).</summary>
     private static bool IsGuidParameter(ActionContext context, string key) =>
@@ -1630,7 +1672,7 @@ public static class ValidationProblem
                 {
                     // A uuid field fed something that is not a uuid is a
                     // malformed id, not a wrong JSON type.
-                    var malformedId = entry.Value!.Errors.Any(IsMalformedId);
+                    var malformedId = entry.Value!.Errors.Any(IsMalformedId) || IsGuidAtPath(context, entry.Key);
                     return new Dictionary<string, object>
                     {
                         ["pointer"] = PointerOf(entry.Key.TrimStart('$').TrimStart('.')),

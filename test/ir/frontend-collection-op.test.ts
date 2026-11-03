@@ -636,3 +636,50 @@ system Demo {
     ).toContain(CODE);
   });
 });
+
+// `loom.paged-envelope-unknown-member` — the paged ENVELOPE binding is untyped
+// in the IR, so the phase-④ member typer that refuses `rows.bogusOp(…)` on a
+// typed row set cannot see a member read off it, and every walker printed the
+// read verbatim (`customerAll.data.bogusOp(…)` on React).
+describe("loom.paged-envelope-unknown-member", () => {
+  const ENV = "loom.paged-envelope-unknown-member";
+  const pagedPage = (stat: string) => `
+      page X {
+        route: "/x"
+        body: QueryView { of: C.Customer.all, paged: true, data: rows => Stat("n", ${stat}) }
+      }`;
+
+  it("refuses a method the envelope does not have", async () => {
+    expect(await codes(pagedPage("rows.bogusOp(r => r.tier)"))).toContain(ENV);
+  });
+
+  it("refuses a field the envelope does not have", async () => {
+    expect(await codes(pagedPage("rows.frob"))).toContain(ENV);
+  });
+
+  it("refuses a page field CALLED like a method", async () => {
+    expect(await codes(pagedPage("rows.total()"))).toContain(ENV);
+  });
+
+  it("leaves a catalogue op to the collection-op message — one mistake, one code", async () => {
+    const got = await codes(pagedPage("rows.count"));
+    expect(got).toContain(CODE);
+    expect(got).not.toContain(ENV);
+  });
+
+  it("NON-VACUITY: the rows and every page field read clean", async () => {
+    for (const read of [
+      "rows.items.count",
+      "rows.total",
+      "rows.page",
+      "rows.pageSize",
+      "rows.totalPages",
+    ]) {
+      expect(await codes(pagedPage(read)), read).not.toContain(ENV);
+    }
+  });
+
+  it("NON-VACUITY: an un-paged binding is not judged as an envelope", async () => {
+    expect(await codes(queryViewPage("rows.count"))).not.toContain(ENV);
+  });
+});

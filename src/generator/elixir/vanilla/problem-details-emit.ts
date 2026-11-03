@@ -86,6 +86,13 @@ export function renderVanillaProblemDetailsModule(
   /** True when some controller checks request values against the fact's ingress
    *  JSON types (`renderStrictParamsPlug`) — gates `type_mismatches/2`. */
   hasStrictIngress = false,
+  /** Some operation persist asserts a message-less invariant
+   *  (`assert_op_invariants/1`), tagging the violation `loom_invariant`.  It
+   *  answers the DOMAIN-FLOOR rung the other four backends' operation throw
+   *  answers — this status + title, `Invariant violated: <rule>` as `detail`,
+   *  no `errors[]` — not the request changeset's "Validation failed".
+   *  `undefined` ⇒ byte-identical. */
+  opInvariants?: { status: number; title: string },
 ): string {
   const conflict409 = exRejectionAt("version-conflict", concurrencyStatus);
   const unique409 = exRejectionAt("unique-conflict", uniquenessStatus);
@@ -268,12 +275,32 @@ export function renderVanillaProblemDetailsModule(
   // the DOMAIN-FLOOR rung the other four backends' constructor throw answers:
   // the domain-floor title/status, the message as `detail`, and ONE `errors[]`
   // entry whose pointer is `""` (the whole request; it names no member of it).
-  const body422 = bodyValueObjects
+  const baseBody422 = bodyValueObjects
     ? `    case body_value_object_error(changeset) do
       nil -> send_validation_problem(conn, collect_changeset_errors(changeset, []))
       {detail, entry} -> send_body_value_object_problem(conn, detail, entry)
     end`
     : `    send_validation_problem(conn, collect_changeset_errors(changeset, []))`;
+  const body422 = opInvariants
+    ? `    case op_invariant_violation(changeset) do
+      nil ->
+${baseBody422.replace(/^/gm, "    ")}
+
+      detail ->
+        problem_response(conn, ${opInvariants.status}, ${elixirString(opInvariants.title)}, detail)
+    end`
+    : baseBody422;
+  const opInvariantFn = opInvariants
+    ? `
+
+  # An invariant an operation persist re-asserted (\`assert_op_invariants/1\`)
+  # is the operation's domain throw, not a request-field failure.
+  defp op_invariant_violation(%Ecto.Changeset{errors: errors}) do
+    Enum.find_value(errors, fn {_field, {msg, opts}} ->
+      if Keyword.get(opts, :loom_invariant), do: msg
+    end)
+  end`
+    : "";
   const logBodyVo = renderPhoenixLogCall("domainError", [
     { name: "message", valueExpr: "detail" },
     { name: "status", valueExpr: `${bodyValueObjects?.status ?? invalid422.status}` },
@@ -508,7 +535,7 @@ defmodule ${appModule}Web.ProblemDetails do
   Send a 422 ProblemDetails response carrying the §3.2 \`errors[]\`
   extension built from an \`Ecto.Changeset\` errors map.${conflictDoc}
   """
-${responseFns}${sendValidationProblemFn}${bodyValueObjectFns}${wireErrorsFn}
+${responseFns}${opInvariantFn}${sendValidationProblemFn}${bodyValueObjectFns}${wireErrorsFn}
 
   @doc """
   Send the 422 a MALFORMED path \`{id}\` earns.

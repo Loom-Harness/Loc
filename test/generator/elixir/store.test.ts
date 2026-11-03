@@ -1,15 +1,8 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 import { parseString } from "../../_helpers/parse.js";
 
 // ---------------------------------------------------------------------------
@@ -27,34 +20,15 @@ import { parseString } from "../../_helpers/parse.js";
 //     a `update(socket, :cart, …)` for a page action calling a store action.
 //
 // These tests generate the full system to a file map (the same
-// `generateSystems(model)` helper the rest of the elixir generator suite uses)
+// `generateSystemFiles` helper the rest of the generator suite uses)
 // and assert on the emitted `.ex` content — the lowest altitude that catches a
 // malformed Elixir / unaliased struct / wrong-arity `update` / leaked flat
 // assign.
 // ---------------------------------------------------------------------------
 
-/** Parse + validate `source` to a Langium `Model` (validation enabled, throws
- *  on errors) — the mirror of phoenix-live-view-pipeline.test.ts::buildFixture. */
-async function buildFixture(source: string): Promise<Model> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-store-"));
-  const file = path.join(dir, "store.ddd");
-  fs.writeFileSync(file, source);
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(URI.file(file));
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  if (errors.length > 0) {
-    throw new Error(
-      `Validation errors in fixture:\n${errors.map((e) => `  ${e.message}`).join("\n")}`,
-    );
-  }
-  return doc.parseResult.value as Model;
-}
-
 /** Generate `source` to a file map. */
 async function gen(source: string): Promise<Map<string, string>> {
-  const model = await buildFixture(source);
-  return generateSystems(model).files;
+  return generateSystemFiles(source);
 }
 
 /** IR-validation diagnostic codes for a parsed-clean `source` (validation here

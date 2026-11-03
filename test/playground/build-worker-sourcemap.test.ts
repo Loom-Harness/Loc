@@ -3,8 +3,7 @@ import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/index.js";
+import { generateSystemFiles, generateSystemFilesWithSourceText } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Playground DevTools `.ddd` debugging — headless gate (see
@@ -38,23 +37,19 @@ const ACME_DDD = path.resolve(__dirname, "../../web/src/examples/acme.ddd");
 describe("generateSystems sourcemap sidecars (playground fixture)", () => {
   it("emits .ts.map sidecars chaining to .ddd, with the sourceMappingURL comment, when sourcemap is on", async () => {
     const source = readFileSync(ACME_DDD, "utf-8");
-    const { model, doc, errors } = await parseString(source, { validate: true });
-    expect(errors).toEqual([]);
-    // Keyed by `doc.uri.path` — parseHelper mints an incrementing synthetic
-    // URI (`/1.ddd`, `/2.ddd`, …) per test file run, so never hardcode it;
-    // read it back off the doc the same way build.worker.ts's `parse()` and
-    // the CLI's `parseFile` do.
-    const sourceTexts = new Map([[doc.uri.path, source]]);
+    // `sourceTexts` is keyed by the parsed document's path — parseHelper mints
+    // an incrementing synthetic URI (`/1.ddd`, `/2.ddd`, …) per test file run,
+    // so the helper reads it back off the doc the same way build.worker.ts's
+    // `parse()` and the CLI's `parseFile` do.
 
     // `inlineSources: true` is part of the derivation the worker performs —
     // the playground's VFS has no filesystem for a devtools pane to read the
     // `.ddd` from, so the sidecars must carry the text.  (The CLI's default
     // omits it: `sources` names the file's absolute path on disk.)
-    const withFlag = generateSystems(model, {
+    const { files: withFlag } = await generateSystemFilesWithSourceText(source, {
       sourcemap: true,
-      sourceTexts,
       inlineSources: true,
-    }).files;
+    });
 
     const mapEntries = [...withFlag.entries()].filter(
       ([path]) => path.endsWith(".ts.map") && path.includes("/domain/"),
@@ -81,10 +76,7 @@ describe("generateSystems sourcemap sidecars (playground fixture)", () => {
 
   it("emits NO .ts.map / .loom/sourcemap.json when sourcemap is off (default)", async () => {
     const source = readFileSync(ACME_DDD, "utf-8");
-    const { model, errors } = await parseString(source, { validate: true });
-    expect(errors).toEqual([]);
-
-    const withoutFlag = generateSystems(model).files;
+    const withoutFlag = await generateSystemFiles(source);
 
     expect([...withoutFlag.keys()].some((p) => p.endsWith(".ts.map"))).toBe(false);
     expect(withoutFlag.has(".loom/sourcemap.json")).toBe(false);

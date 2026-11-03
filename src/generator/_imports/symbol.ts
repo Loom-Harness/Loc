@@ -30,6 +30,11 @@ export interface ImportSymbol {
   readonly name?: string;
   /** The local binding (`from m import N as alias` / `import m as alias`). */
   readonly alias?: string;
+  /** Java only: the reference is satisfied by an on-demand import
+   *  (`import <module>.*;`) rather than a single-type import.  `name` is the
+   *  simple name the text spells; it never enters the simple-name collision
+   *  check, because wildcard imports shadow nothing explicit. */
+  readonly onDemand?: true;
 }
 
 /** The marker delimiters — exported so a language finalizer can recognise
@@ -40,7 +45,7 @@ const SEP = "|";
 
 /** Every marker in a text. Module / name / alias never contain `|` or the
  *  private-use delimiters, so the token grammar is unambiguous. */
-const MARKER_RE = /([a-z]+)\|([^|]*)\|([^|]*)\|([^|]*)/g;
+const MARKER_RE = /([a-z]+\*?)\|([^|]*)\|([^|]*)\|([^|]*)/g;
 
 const IDENT_PATH = /^[A-Za-z_][\w]*(\.[A-Za-z_][\w]*)*$/;
 const IDENT = /^[A-Za-z_][\w]*$/;
@@ -53,6 +58,9 @@ function check(sym: ImportSymbol): ImportSymbol {
   if (sym.alias !== undefined && !IDENT.test(sym.alias)) {
     throw new Error(`import symbol: bad alias '${sym.alias}' (for ${sym.module})`);
   }
+  if (sym.onDemand && (sym.lang !== "java" || sym.name === undefined)) {
+    throw new Error(`import symbol: on-demand is a java import of a named type (${sym.module})`);
+  }
   return sym;
 }
 
@@ -60,7 +68,7 @@ function check(sym: ImportSymbol): ImportSymbol {
  *  finalizer turns into the spelling AND an import line. */
 export function ref(sym: ImportSymbol): string {
   check(sym);
-  return `${OPEN}${sym.lang}${SEP}${sym.module}${SEP}${sym.name ?? ""}${SEP}${sym.alias ?? ""}${CLOSE}`;
+  return `${OPEN}${sym.lang}${sym.onDemand ? "*" : ""}${SEP}${sym.module}${SEP}${sym.name ?? ""}${SEP}${sym.alias ?? ""}${CLOSE}`;
 }
 
 /** The spelling a reference to `sym` resolves to. */
@@ -78,12 +86,14 @@ export function binding(sym: ImportSymbol): string {
 
 /** A stable identity for de-duplication. */
 export function symbolKey(sym: ImportSymbol): string {
-  return `${sym.lang}${SEP}${sym.module}${SEP}${sym.name ?? ""}${SEP}${sym.alias ?? ""}`;
+  return `${sym.lang}${sym.onDemand ? "*" : ""}${SEP}${sym.module}${SEP}${sym.name ?? ""}${SEP}${sym.alias ?? ""}`;
 }
 
-function decode(lang: string, module: string, name: string, alias: string): ImportSymbol {
+function decode(tag: string, module: string, name: string, alias: string): ImportSymbol {
+  const onDemand = tag.endsWith("*");
   return {
-    lang: lang as ImportLang,
+    lang: (onDemand ? tag.slice(0, -1) : tag) as ImportLang,
+    ...(onDemand ? { onDemand: true as const } : {}),
     module,
     ...(name !== "" ? { name } : {}),
     ...(alias !== "" ? { alias } : {}),

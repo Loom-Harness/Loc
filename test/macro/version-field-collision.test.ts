@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseString } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
@@ -58,9 +58,7 @@ describe("user-declared `version` vs auto-versioning", () => {
   });
 
   it("still accepts `version: int` and emits the concurrency column unchanged", async () => {
-    const { model, errors } = await parseString(system("int"));
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(system("int"));
     const sql = [...files].find(([p]) => p.endsWith("_ops_initial.sql"))?.[1];
     expect(sql).toContain(`"version" INTEGER NOT NULL DEFAULT 1`);
     const repo = files.get("svc/db/repositories/release-repository.ts");
@@ -70,10 +68,8 @@ describe("user-declared `version` vs auto-versioning", () => {
   });
 
   it("leaves an aggregate with no `version` field on the normal splice path", async () => {
-    const { model, errors } = await parseString(system("int").replace("version: int", ""));
-    expect(errors).toEqual([]);
-    const sql = [...generateSystems(model).files].find(([p]) =>
-      p.endsWith("_ops_initial.sql"),
+    const sql = [...(await generateSystemFiles(system("int").replace("version: int", "")))].find(
+      ([p]) => p.endsWith("_ops_initial.sql"),
     )?.[1];
     expect(sql).toContain(`"version" INTEGER NOT NULL DEFAULT 1`);
   });

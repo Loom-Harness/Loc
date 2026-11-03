@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // Regression (RS-6): a create field with an explicit declared default must
 // carry that default in the Pydantic create request model — not the type's
@@ -28,9 +27,7 @@ system S {
 
 describe("python create request model — declared field default", () => {
   it("uses the declared bool default, not the zero value", async () => {
-    const { model, errors } = await parseString(SRC);
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SRC);
     const routes = files.get("api/app/http/customer_routes.py") ?? "";
     expect(routes, "customer_routes.py should be emitted").not.toBe("");
     // Scope to the Create request class body (up to its Response sibling) so
@@ -47,7 +44,7 @@ describe("python create request model — declared field default", () => {
   });
 
   it("defaults an omitted non-nullable collection to [] (node's `.default([])`), leaves T[]? None and the Update model required", async () => {
-    const { model, errors } = await parseString(`
+    const files = await generateSystemFiles(`
 system S {
   subdomain Sales {
     context Sales {
@@ -69,8 +66,7 @@ system S {
   resource s { for: Sales, kind: state, use: pg }
   deployable api { platform: python  contexts: [Sales]  dataSources: [s]  serves: SalesApi  port: 8000 }
 }`);
-    expect(errors).toEqual([]);
-    const routes = generateSystems(model).files.get("api/app/http/attr_routes.py") ?? "";
+    const routes = files.get("api/app/http/attr_routes.py") ?? "";
     const start = routes.indexOf("class CreateAttrRequest");
     const block = routes.slice(start, routes.indexOf("class CreateAttrResponse", start));
     expect(block).toContain("    options: list[WireStr] = []");

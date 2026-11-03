@@ -2,12 +2,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
+import { generateSystemFilesFromProject } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // verify that the e2e renderer dispatches to `phoenixLiveView`
@@ -25,7 +21,7 @@ const FIXTURE_SOURCE = `system PhoenixShop {
 
   subdomain Store {
     context Store with scaffoldGet(of: ByName) {
-      aggregate Item {
+      aggregate Item with crudish {
         name: string
         derived display: string = name
         price: decimal
@@ -69,36 +65,23 @@ const FIXTURE_SOURCE = `system PhoenixShop {
 }
 `;
 
-async function buildFixture(): Promise<Model> {
+async function buildFixture(): Promise<Map<string, string>> {
   // Write to a temp dir so the Langium document URI is stable.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-phx-e2e-"));
   const file = path.join(dir, "phoenix-shop.ddd");
   fs.writeFileSync(file, FIXTURE_SOURCE);
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(URI.file(file));
-  await services.shared.workspace.DocumentBuilder.build([doc], {
-    validation: true,
-  });
-  const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  if (errors.length > 0) {
-    throw new Error(
-      `Validation errors in fixture:\n` + errors.map((e) => `  ${e.message}`).join("\n"),
-    );
-  }
-  return doc.parseResult.value as Model;
+  return generateSystemFilesFromProject(file);
 }
 
 describe("e2e dispatch to phoenixLiveView", () => {
   it("emits e2e/<system>.e2e.test.ts for a phoenix deployable", async () => {
-    const model = await buildFixture();
-    const { files } = generateSystems(model);
+    const files = await buildFixture();
     // The e2e spec must be generated.
     expect(files.has("e2e/PhoenixShop.e2e.test.ts")).toBe(true);
   });
 
   it("includes the phoenix deployable in the ENDPOINTS table", async () => {
-    const model = await buildFixture();
-    const { files } = generateSystems(model);
+    const files = await buildFixture();
     const e2e = files.get("e2e/PhoenixShop.e2e.test.ts")!;
     // ENDPOINTS entry uses the service slug derived from the deployable name.
     expect(e2e).toMatch(/shop_backend: process\.env\.E2E_SHOP_BACKEND_BASE/);
@@ -106,8 +89,7 @@ describe("e2e dispatch to phoenixLiveView", () => {
   });
 
   it("prefixes aggregate CRUD calls with /api for phoenix", async () => {
-    const model = await buildFixture();
-    const { files } = generateSystems(model);
+    const files = await buildFixture();
     const e2e = files.get("e2e/PhoenixShop.e2e.test.ts")!;
     // POST /api/items  — create
     expect(e2e).toMatch(/__post\(`\$\{base\}\/api\/items`/);
@@ -116,16 +98,14 @@ describe("e2e dispatch to phoenixLiveView", () => {
   });
 
   it("prefixes aggregate operation calls with /api for phoenix", async () => {
-    const model = await buildFixture();
-    const { files } = generateSystems(model);
+    const files = await buildFixture();
     const e2e = files.get("e2e/PhoenixShop.e2e.test.ts")!;
     // POST /api/items/{id}/archive
     expect(e2e).toMatch(/__post\(`\$\{base\}\/api\/items\/\$\{it\.id\}\/archive`/);
   });
 
   it("prefixes a routed single-row read (scaffoldGet) with /api for phoenix", async () => {
-    const model = await buildFixture();
-    const { files } = generateSystems(model);
+    const files = await buildFixture();
     const e2e = files.get("e2e/PhoenixShop.e2e.test.ts")!;
     // GET /api/items/by_name?name=...
     expect(e2e).toContain('__route("GET", __qs(`${base}/api/items/by_name`, { name: "Gadget" }))');
@@ -134,15 +114,7 @@ describe("e2e dispatch to phoenixLiveView", () => {
   it("adds the /api prefix to hono/dotnet deployables too", async () => {
     // The existing acme.ddd system has dotnet and hono deployables.
     // Every backend now mounts its domain routes under the shared /api base.
-    const services = createDddServices(NodeFileSystem);
-    const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-      URI.file(path.join(repoRoot, "examples/acme.ddd")),
-    );
-    await services.shared.workspace.DocumentBuilder.build([doc], {
-      validation: true,
-    });
-    const model = doc.parseResult.value as Model;
-    const { files } = generateSystems(model);
+    const files = await generateSystemFilesFromProject(path.join(repoRoot, "examples/acme.ddd"));
     const e2e = files.get("e2e/Acme.e2e.test.ts")!;
     // These must hit /api/products (every backend mounts under /api now).
     expect(e2e).toMatch(/__post\(`\$\{base\}\/api\/products`/);
