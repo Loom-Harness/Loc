@@ -1,3 +1,4 @@
+import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -33,7 +34,13 @@ import { retrievalRepositoryWhere, retrievalWhereInRepository } from "../spec-em
 import { csSentence } from "../wire-policy-cs.js";
 import { bypassableFilterNames, hasNonBypassableFilter, queryFilterNames } from "./efcore.js";
 import { csClaimStampsFor } from "./entity.js";
-import { eventDbSetName, eventRecordClass } from "./event-store.js";
+import {
+  eventDbSetName,
+  eventRecordClass,
+  streamOriginFrameLines,
+  streamScopePredicate,
+  streamScopeWhere,
+} from "./event-store.js";
 import { joinDbSetName, joinEntityName, joinFkPropName } from "./join-entities.js";
 import { handleSaveOverloadLines, saveInterfaceLines, saveParamsCs } from "./version-check-cs.js";
 
@@ -1270,7 +1277,12 @@ export function renderEventSourcedRepositoryImpl(
     projectionClause: string;
   }>,
   contextName: string,
-  options?: { extraUsings?: readonly string[]; idClass?: string },
+  options?: {
+    extraUsings?: readonly string[];
+    idClass?: string;
+    /** The context's aggregates — the pool the stream-tenancy fact resolves in. */
+    pool?: AggPool;
+  },
 ): string {
   // A type named `Task` reached through this file's `using <ns>.Domain.<Plural>;`
   // is CS0104-ambiguous with the implicit `System.Threading.Tasks.Task`. The
@@ -1287,6 +1299,12 @@ export function renderEventSourcedRepositoryImpl(
     (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
   );
   const idClass = options?.idClass ?? `${agg.name}Id`;
+  // Stream tenancy (stream-tenancy.ts): the tenant is metadata of the stored
+  // events, adopted onto the folded instance; every read applies the fact's
+  // tenancy restrictions in-app over it.
+  const pool = options?.pool ?? [];
+  const tenancy = streamTenancyFor(agg, pool);
+  const defaultScope = streamScopePredicate(agg, pool);
   // Union-returning finds (P4c) reach the Domain repository as their optional
   // twin (single-row select returning `Agg?`); the Application query handler
   // owns the union mapping, so the Domain layer never names the Response-side
@@ -1356,7 +1374,9 @@ export function renderEventSourcedRepositoryImpl(
 
   const findMethodLines = finds.flatMap((f) => {
     const body = findBodies.find((b) => b.name === f.name);
-    const filter = inMemoryFilter(body?.filterClause ?? "");
+    // The unscoped fold, narrowed by the tenancy restrictions this find does
+    // not `ignoring`.
+    const filter = inMemoryFilter(body?.filterClause ?? "") + streamScopeWhere(agg, pool, f);
     const { ct } = csReadOwnParams(f.params.map((p) => p.name));
     const projection = (body?.projectionClause ?? `.ToListAsync(${ct})`)
       .replace(`.ToListAsync(${ct})`, ".ToList()")
@@ -1436,8 +1456,21 @@ export function renderEventSourcedRepositoryImpl(
         { name: "found", valueExpr: "__rows.Count > 0" },
       ])}`,
       "        if (__rows.Count == 0) return null;",
-      `        return ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`,
+      ...(tenancy
+        ? [
+            // A foreign tenant's stream reads as absent (404): no existence leak.
+            // The command (append) load rides this too.
+            `        var __inst = ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`,
+            `        __inst._AdoptStreamTenant(${tenancy.metadata.map((m) => `__rows[0].${upperFirst(m.field)}`).join(", ")});`,
+            ...(defaultScope
+              ? [`        return _TenantVisible(__inst) ? __inst : null;`]
+              : [`        return __inst;`]),
+          ]
+        : [`        return ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`]),
       "    }",
+      ...(defaultScope
+        ? ["", `    private static bool _TenantVisible(${agg.name} x) => ${defaultScope};`]
+        : []),
       ...writeScopeMethod,
       "",
       `    public async Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${idClass}> ids, CancellationToken cancellationToken = default)`,
@@ -1463,6 +1496,9 @@ export function renderEventSourcedRepositoryImpl(
       // re-read lets a handle loaded before another append keep a decision
       // taken on its stale fold.
       "            var __version = aggregate._StreamVersion;",
+      // A NEW stream is stamped from the principal (the capability's `onCreate`
+      // stamp); every later append carries the loaded stream's tenant forward.
+      ...(tenancy ? ["            if (__version == 0) aggregate._StampOnCreate();"] : []),
       `            var __appended = new List<${recordCls}>();`,
       "            foreach (var __ev in __pending)",
       "            {",
@@ -1475,6 +1511,11 @@ export function renderEventSourcedRepositoryImpl(
       "                    Type = __ev.GetType().Name,",
       "                    Data = System.Text.Json.JsonSerializer.Serialize((object)__ev, __json),",
       "                    OccurredAt = DateTime.UtcNow,",
+      ...(tenancy
+        ? tenancy.metadata.map(
+            (m) => `                    ${upperFirst(m.field)} = aggregate.${upperFirst(m.field)},`,
+          )
+        : []),
       "                };",
       `                _db.${dbSet}.Add(__rec);`,
       "                __appended.Add(__rec);",
@@ -1507,6 +1548,7 @@ export function renderEventSourcedRepositoryImpl(
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "id", valueExpr: "aggregate.Id.Value" },
       ])}`,
+      ...(tenancy ? streamOriginFrameLines(ns, "        ") : []),
       "        foreach (var ev in __pending)",
       "        {",
       `            ${renderDotnetLogCall("eventDispatched", [
@@ -1532,7 +1574,20 @@ export function renderEventSourcedRepositoryImpl(
       "            }",
       "            __list.Add(RowToEvent(__r));",
       "        }",
-      `        return __byStream.Select(__kv => ${agg.name}._FromEvents(new ${idClass}(${parseId}), __kv.Value)).ToList();`,
+      ...(tenancy
+        ? [
+            // Each stream adopts its first row's tenant metadata.
+            "        var __first = __rows.GroupBy(__r => __r.StreamId).ToDictionary(__g => __g.Key, __g => __g.First());",
+            "        return __byStream.Select(__kv =>",
+            "        {",
+            `            var __inst = ${agg.name}._FromEvents(new ${idClass}(${parseId}), __kv.Value);`,
+            `            __inst._AdoptStreamTenant(${tenancy.metadata.map((m) => `__first[__kv.Key].${upperFirst(m.field)}`).join(", ")});`,
+            "            return __inst;",
+            "        }).ToList();",
+          ]
+        : [
+            `        return __byStream.Select(__kv => ${agg.name}._FromEvents(new ${idClass}(${parseId}), __kv.Value)).ToList();`,
+          ]),
       "    }",
       "",
       `    private static IDomainEvent RowToEvent(${recordCls} __r)`,

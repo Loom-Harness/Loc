@@ -365,6 +365,14 @@ const NODE_BACKEND: TargetCapabilityTable = {
   },
 };
 
+/** dotnet / java: the static-bundle row, with the tenant-scoped stream implemented. */
+const JVM_DOTNET_BACKEND: TargetCapabilityTable = {
+  backend: {
+    ...STATIC_HOST_BACKEND.backend!,
+    "capability:tenantOwned@event-sourced": SUPPORTED,
+  },
+};
+
 const REACT_CAPABILITIES: TargetCapabilityTable = {
   ui: {
     frameworks: ["react"],
@@ -378,9 +386,9 @@ const REACT_CAPABILITIES: TargetCapabilityTable = {
  *  in any `frameworks` list, so its UI constructs are refused fail-closed. */
 export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTable>> = {
   node: NODE_BACKEND,
-  dotnet: STATIC_HOST_BACKEND,
+  dotnet: JVM_DOTNET_BACKEND,
   python: STATIC_HOST_BACKEND,
-  java: STATIC_HOST_BACKEND,
+  java: JVM_DOTNET_BACKEND,
   elixir: {
     ui: {
       frameworks: ["phoenixLiveView"],

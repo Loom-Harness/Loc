@@ -1,3 +1,4 @@
+import { isTenantScopedStream } from "../../../ir/enrich/stream-tenancy.js";
 import {
   destroyVersionCheck,
   operationVersionCheck,
@@ -782,8 +783,13 @@ export function renderJavaService(
       ? [...unionReturnNames].sort().map((u) => `import ${ctx.entityPkg}.${u};`)
       : []),
     ctx.domainRepoPkg !== ctx.pkg ? `import ${ctx.domainRepoPkg}.${agg.name}Repository;` : null,
-    needsUserAccessor || historyMasks ? `import ${ctx.basePkg}.auth.CurrentUserAccessor;` : null,
-    needsUserAccessor || historyMasks ? `import ${ctx.basePkg}.auth.User;` : null,
+    needsUserAccessor || historyMasks || isTenantScopedStream(agg)
+      ? `import ${ctx.basePkg}.auth.CurrentUserAccessor;`
+      : null,
+    needsUserAccessor || historyMasks || isTenantScopedStream(agg)
+      ? `import ${ctx.basePkg}.auth.User;`
+      : null,
+    isTenantScopedStream(agg) ? `import ${ctx.basePkg}.auth.EventOrigin;` : null,
     anyAudited ? `import ${ctx.basePkg}.config.RequestContext;` : null,
     // Entity history — the shared wire records + read-time helpers
     // (`api-common`, so one copy serves every audited aggregate).
@@ -846,7 +852,27 @@ export function renderJavaService(
     ...destroyLines,
     ...voMappers,
     ...auditActorLines,
-    `    private void publishEvents(${agg.name} aggregate) {`,
+    ...(isTenantScopedStream(agg)
+      ? [
+          // The events' origin is their STREAM's tenant: the outbox capture and
+          // the channel envelope (`tenantid` / `loomorgpath`) read the ambient
+          // principal, so when the raising principal's tenant is not the
+          // stream's (a `policy`-widened subtree append) the publish runs in the
+          // stream tenant's event-origin frame.  Same tenant: the request's own.
+          `    private void publishEvents(${agg.name} aggregate) {`,
+          `        var __origin = User.currentEventOrigin();`,
+          `        if (java.util.Objects.equals(__origin == null ? null : __origin.tenant(), aggregate.tenantId())) {`,
+          `            publishAll(aggregate);`,
+          `        } else {`,
+          `            CurrentUserAccessor.runAsEventOrigin(`,
+          `                new EventOrigin(aggregate.tenantId(), aggregate.dataKey(), __origin == null ? null : __origin.causedBy()),`,
+          `                () -> publishAll(aggregate));`,
+          `        }`,
+          `    }`,
+          ``,
+          `    private void publishAll(${agg.name} aggregate) {`,
+        ]
+      : [`    private void publishEvents(${agg.name} aggregate) {`]),
     `        for (var event : aggregate.pullEvents()) {`,
     // The domain-event narrative line fires at the dispatch seam regardless of
     // whether the event has in-process subscribers — when it does, the in-VM
