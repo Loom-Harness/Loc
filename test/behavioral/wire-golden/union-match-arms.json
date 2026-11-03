@@ -17,7 +17,7 @@
       "path": "/api/tickets/{id}/resolve",
       "status": 200,
       "body": {
-        "notes": "seal",
+        "notes": "pump",
         "type": "Repaired"
       }
     },
@@ -39,7 +39,7 @@
       "body": {
         "detail": "Rejected",
         "instance": "/api/tickets/{id}/decide",
-        "reason": "no part",
+        "reason": "pump",
         "status": 422,
         "title": "Rejected",
         "type": "/errors/rejected"
@@ -58,53 +58,62 @@
     {
       "seq": 5,
       "method": "POST",
+      "path": "/api/tickets",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 422,
       "body": {
         "detail": "Rejected",
         "instance": "/api/tickets/{id}/close",
-        "reason": "no part",
+        "reason": "valve",
         "status": 422,
         "title": "Rejected",
         "type": "/errors/rejected"
       }
     },
     {
-      "seq": 6,
+      "seq": 7,
       "method": "GET",
       "path": "/api/tickets/{id}",
       "status": 200,
       "body": {
         "closed": false,
         "id": "<volatile:key>",
-        "title": "pump",
-        "version": 4
-      }
-    },
-    {
-      "seq": 7,
-      "method": "POST",
-      "path": "/api/tickets/{id}/close",
-      "status": 200,
-      "body": {
-        "part": "valve",
-        "type": "Replaced"
+        "title": "valve",
+        "version": 1
       }
     },
     {
       "seq": 8,
+      "method": "POST",
+      "path": "/api/tickets/{id}/close",
+      "status": 200,
+      "body": {
+        "part": "seat",
+        "type": "Replaced"
+      }
+    },
+    {
+      "seq": 9,
       "method": "GET",
       "path": "/api/tickets/{id}",
       "status": 200,
       "body": {
         "closed": true,
         "id": "<volatile:key>",
-        "title": "pump",
-        "version": 5
+        "title": "valve",
+        "version": 2
       }
     },
     {
-      "seq": 9,
+      "seq": 10,
       "method": "PATCH",
       "path": "/api/tickets",
       "status": 405,
@@ -117,7 +126,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 11,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -130,7 +139,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 12,
       "method": "POST",
       "path": "/api/tickets",
       "status": 400,

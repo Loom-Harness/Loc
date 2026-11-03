@@ -2,10 +2,13 @@
 // variants.  Each arm answers its own wire tag, and an `error` variant is the
 // error path only when its own arm runs — including when it is the FIRST arm,
 // the shape where the whole match used to be tagged with that variant.
+//
+// The arms branch on a `string` parameter.  Every operation reads `title`
+// (`this`), since a Phoenix returning operation that never reads its record
+// fails `mix compile --warnings-as-errors` on the unused binding.
 system UnionMatchArms {
   subdomain Repairs {
     context Desk {
-      enum Kind { Repair, Replace, Reject }
       payload Repaired { notes: string }
       payload Replaced { part: string }
       error Rejected { reason: string }
@@ -14,26 +17,26 @@ system UnionMatchArms {
         title: string
         closed: bool
         // Two success variants.
-        operation resolve(kind: Kind, notes: string): Repaired or Replaced {
+        operation resolve(kind: string, notes: string): Repaired or Replaced {
           return match {
-            kind == Kind.Repair => Repaired { notes: notes },
+            kind == "repair" => Repaired { notes: title },
             else => Replaced { part: notes }
           }
         }
         // The FIRST arm is the error variant; the `else` succeeds.
-        operation decide(kind: Kind, notes: string): Repaired or Rejected {
+        operation decide(kind: string, notes: string): Repaired or Rejected {
           return match {
-            kind == Kind.Reject => Rejected { reason: notes },
+            kind == "reject" => Rejected { reason: title },
             else => Repaired { notes: notes }
           }
         }
         // Mutates, then answers per arm: the error arm leaves no trace
         // (D-FAILURE-MODEL), a success arm commits the write.
-        operation close(kind: Kind, notes: string): Repaired or Replaced or Rejected {
+        operation close(kind: string, notes: string): Repaired or Replaced or Rejected {
           closed := true
           return match {
-            kind == Kind.Reject => Rejected { reason: notes },
-            kind == Kind.Repair => Repaired { notes: notes },
+            kind == "reject" => Rejected { reason: title },
+            kind == "repair" => Repaired { notes: notes },
             else => Replaced { part: notes }
           }
         }
@@ -58,25 +61,31 @@ system UnionMatchArms {
     let t = api.tickets.create({ title: "pump", closed: false })
 
     // Success arms of two different variants.
-    let repaired = api.tickets.resolve(t, { kind: "Repair", notes: "seal" })
+    let repaired = api.tickets.resolve(t, { kind: "repair", notes: "seal" })
     expect(repaired.type).toBe("Repaired")
-    expect(repaired.notes).toBe("seal")
-    let replaced = api.tickets.resolve(t, { kind: "Replace", notes: "impeller" })
+    expect(repaired.notes).toBe("pump")
+    let replaced = api.tickets.resolve(t, { kind: "replace", notes: "impeller" })
     expect(replaced.type).toBe("Replaced")
     expect(replaced.part).toBe("impeller")
 
     // The first arm is the error variant: it answers only when it runs.
-    expect(api.tickets.decide(t, { kind: "Reject", notes: "no part" })).toThrow(422)
-    let decided = api.tickets.decide(t, { kind: "Repair", notes: "gasket" })
+    expect(api.tickets.decide(t, { kind: "reject", notes: "no part" })).toThrow(422)
+    let decided = api.tickets.decide(t, { kind: "repair", notes: "gasket" })
     expect(decided.type).toBe("Repaired")
     expect(decided.notes).toBe("gasket")
 
-    // A mutating op: the error arm writes nothing, a success arm commits.
-    expect(api.tickets.close(t, { kind: "Reject", notes: "no part" })).toThrow(422)
-    expect(api.tickets.getById(t).closed).toBe(false)
-    let closed = api.tickets.close(t, { kind: "Replace", notes: "valve" })
+    // A mutating op: the error arm writes nothing, a success arm commits.  A
+    // fresh ticket, so the read-backs see only `close`'s own writes.
+    let u = api.tickets.create({ title: "valve", closed: false })
+    expect(api.tickets.close(u, { kind: "reject", notes: "no part" })).toThrow(422)
+    let untouched = api.tickets.getById(u)
+    expect(untouched.closed).toBe(false)
+    expect(untouched.version).toBe(1)
+    let closed = api.tickets.close(u, { kind: "replace", notes: "seat" })
     expect(closed.type).toBe("Replaced")
-    expect(closed.part).toBe("valve")
-    expect(api.tickets.getById(t).closed).toBe(true)
+    expect(closed.part).toBe("seat")
+    let committed = api.tickets.getById(u)
+    expect(committed.closed).toBe(true)
+    expect(committed.version).toBe(2)
   }
 }

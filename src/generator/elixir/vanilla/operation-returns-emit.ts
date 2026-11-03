@@ -71,7 +71,12 @@ import { renderElixirMatchStmt } from "./match-stmt-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { collectVanillaLeaves, provColumn, provenancedFieldsOf } from "./provenance-emit.js";
 import { isRefCollFieldName, refCollPutAssocValue } from "./ref-collection-emit.js";
-import { renderElixirUnionReturn, returnAlwaysFails, returnCanFail } from "./union-return-emit.js";
+import {
+  decideArmBeforePersist,
+  renderElixirUnionReturn,
+  returnAlwaysFails,
+  returnCanFail,
+} from "./union-return-emit.js";
 import { valueRowFieldsOf } from "./value-collection-schema-emit.js";
 import {
   EXPECTED_VERSION_BIND,
@@ -1183,30 +1188,17 @@ export function renderReturningOpFunction(
       `    end`,
     ];
   }
-  // A trailing `return match { … }` with an error arm decides its arm over the
-  // in-memory record FIRST: an error arm answers its tuple and writes nothing
-  // (an error leaves no trace, D-FAILURE-MODEL), and only a success arm reaches
-  // the persist tail, which re-renders the return over the saved struct.
+  // A trailing `return match { … }` that can answer an error arm decides its
+  // arm before the write, so the error arm persists nothing.
   if (
     persists &&
     trailingReturn?.armVariants &&
     returnCanFail(trailingReturn, (tag) => isErrorTag(tag, ctx))
   ) {
-    tailLines = [
-      `    loom_arm_result =`,
-      `${renderReturningStmt(trailingReturn, ctx, renderCtx, lastIdx)
-        .split("\n")
-        .map((l) => (l.trim() === "" ? "" : `  ${l}`))
-        .join("\n")}`,
-      ``,
-      `    case loom_arm_result do`,
-      `      {:error, _, _} = failure ->`,
-      `        failure`,
-      ``,
-      `      {:ok, _} ->`,
-      ...tailLines.flatMap((l) => l.split("\n")).map((l) => (l.trim() === "" ? "" : `    ${l}`)),
-      `    end`,
-    ];
+    tailLines = decideArmBeforePersist(
+      renderReturningStmt(trailingReturn, ctx, renderCtx, lastIdx),
+      tailLines,
+    );
   }
   // A guarded op wraps its body + persist in a leading `with ensure(...)` chain
   // (guards short-circuit to `{:error, atom}` before any write); a guard-free op

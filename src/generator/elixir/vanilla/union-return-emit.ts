@@ -61,6 +61,27 @@ export function renderElixirUnionReturn(s: ReturnStmt, opts: ElixirUnionReturnOp
   });
 }
 
+/** A persisting op's tail behind a per-arm `return` that can fail: the arm is
+ *  decided over the in-memory record FIRST, an error arm answers its tuple and
+ *  writes nothing (an error leaves no trace, D-FAILURE-MODEL), and only a
+ *  success arm reaches `tail` — the persist, which re-renders the return over
+ *  the saved record.  `armReturn` and `tail` are at the 4-column body indent. */
+export function decideArmBeforePersist(armReturn: string, tail: readonly string[]): string[] {
+  const shift = (text: string): string => indentBlock(text, "  ");
+  return [
+    "    loom_arm_result =",
+    shift(armReturn),
+    "",
+    "    case loom_arm_result do",
+    "      {:error, _, _} = failure ->",
+    "        failure",
+    "",
+    "      {:ok, _} ->",
+    ...tail.flatMap((l) => l.split("\n")).map((l) => (l.trim() === "" ? "" : `    ${l}`)),
+    "    end",
+  ];
+}
+
 /** True when `s` can answer an `error` variant: a whole-value error return,
  *  or a per-arm return with an error arm.  `isError` classifies a tag. */
 export function returnCanFail(s: ReturnStmt, isError: (tag: string) => boolean): boolean {

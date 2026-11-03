@@ -22,9 +22,9 @@ const FIXTURE = readFileSync("test/fixtures/corpus/union-match-arms.ddd", "utf8"
 const SERVICE = FIXTURE.replace(
   "      aggregate Ticket with crudish {",
   `      domainService Triage {
-        operation triage(kind: Kind, notes: string): Repaired or Rejected {
+        operation triage(kind: string, notes: string): Repaired or Rejected {
           return match {
-            kind == Kind.Reject => Rejected { reason: notes },
+            kind == "reject" => Rejected { reason: notes },
             else => Repaired { notes: notes }
           }
         }
@@ -38,7 +38,7 @@ const SERVICE = FIXTURE.replace(
 const VARIANT = FIXTURE.replace(
   "      aggregate Ticket with crudish {",
   `      aggregate Ticket with crudish {
-        operation swap(kind: Kind, notes: string): Repaired or Replaced {
+        operation swap(kind: string, notes: string): Repaired or Replaced {
           let r = resolve(kind, notes)
           return match r {
             Repaired x => Replaced { part: x.notes },
@@ -108,7 +108,7 @@ describe("return match — every backend answers the arm's own variant", () => {
   it("node: a tagged `return` per arm", async () => {
     const ticket = find(await files("node"), "domain/ticket.ts");
     const close = body(ticket, "public close(");
-    expect(close).toContain('return { type: "Rejected", ...(({ reason: notes })) };');
+    expect(close).toContain('return { type: "Rejected", ...(({ reason: this._title })) };');
     expect(close).toContain('return { type: "Repaired", ...(({ notes: notes })) };');
     expect(close).toContain('return { type: "Replaced", ...(({ part: notes })) };');
     expect(close).not.toMatch(/type: "Rejected", \.\.\.\(\(kind/);
@@ -117,14 +117,14 @@ describe("return match — every backend answers the arm's own variant", () => {
   it("python: a tagged dict per arm", async () => {
     const ticket = find(await files("python"), "app/domain/ticket.py");
     const decide = body(ticket, "def decide(");
-    expect(decide).toContain('return {"type": "Rejected", **{"reason": notes}}');
+    expect(decide).toContain('return {"type": "Rejected", **{"reason": self._title}}');
     expect(decide).toContain('return {"type": "Repaired", **{"notes": notes}}');
   });
 
   it("java: each arm constructs its own variant record from its own fields", async () => {
     const ticket = find(await files("java"), "/Ticket.java");
     const resolve = body(ticket, "public RepairedOrReplaced resolve(");
-    expect(resolve).toContain("return new RepairedOrReplaced_Repaired(notes);");
+    expect(resolve).toContain("return new RepairedOrReplaced_Repaired(this.title);");
     expect(resolve).toContain("return new RepairedOrReplaced_Replaced(notes);");
     expect(resolve).not.toContain("(null)");
   });
@@ -132,7 +132,7 @@ describe("return match — every backend answers the arm's own variant", () => {
   it(".NET: each arm constructs its own variant record from its own fields", async () => {
     const ticket = find(await files("dotnet"), "/Ticket.cs");
     const decide = body(ticket, "public RepairedOrRejected Decide(");
-    expect(decide).toContain("return new RepairedOrRejected_Rejected(notes);");
+    expect(decide).toContain("return new RepairedOrRejected_Rejected(this.Title);");
     expect(decide).toContain("return new RepairedOrRejected_Repaired(notes);");
     expect(decide).not.toContain("(default)");
   });
@@ -143,8 +143,8 @@ describe("return match — every backend answers the arm's own variant", () => {
     expect(decide).toContain(
       [
         "    cond do",
-        "      kind == :Reject ->",
-        '        {:error, "Rejected", %{reason: notes}}',
+        '      kind == "reject" ->',
+        '        {:error, "Rejected", %{reason: record.title}}',
         "      true ->",
         '        {:ok, Map.put(%{notes: notes}, :type, "Repaired")}',
         "    end",
@@ -152,7 +152,7 @@ describe("return match — every backend answers the arm's own variant", () => {
     );
     expect(decide).not.toContain('{:error, "Rejected", %{value: cond');
     const resolve = body(ctx, "def resolve_ticket(%");
-    expect(resolve).toContain('{:ok, Map.put(%{notes: notes}, :type, "Repaired")}');
+    expect(resolve).toContain('{:ok, Map.put(%{notes: record.title}, :type, "Repaired")}');
     expect(resolve).toContain('{:ok, Map.put(%{part: notes}, :type, "Replaced")}');
   });
 
