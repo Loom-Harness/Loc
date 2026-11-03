@@ -39,6 +39,7 @@ import {
   fieldGroupControlDecl,
   fileUploadMethodLines,
 } from "../form-fields.js";
+import { ANGULAR_LOCALE_SWITCHER_CLASS } from "../locale-switcher.js";
 import { ANGULAR_REF_LABEL_CLASS } from "../ref-label-runtime.js";
 import { storeClassName, storeFileSlug } from "../store-builder.js";
 import { angularTarget } from "./angular-target.js";
@@ -738,6 +739,11 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   if (result.tsx.includes("<loom-chart")) {
     imports.push(`import { LoomChart } from "../components/loom-chart.component";`);
     componentImports.add("LoomChart");
+  }
+  // The language picker — same marker discipline (`angular/locale-switcher.ts`).
+  if (result.tsx.includes("<loom-locale-switcher")) {
+    imports.push(`import { ${ANGULAR_LOCALE_SWITCHER_CLASS} } from "../../lib/locale-switcher";`);
+    componentImports.add(ANGULAR_LOCALE_SWITCHER_CLASS);
   }
 
   // Extern frontend functions the walked body / action bodies call — import

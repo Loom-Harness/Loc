@@ -45,6 +45,8 @@ import {
   renderTranslatedCatalogs,
   type TranslationCatalogs,
 } from "../_frontend/i18n-runtime.js";
+import { localeDir } from "../_frontend/locale-meta.js";
+import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
 import { deriveSidebarFromUi, type NavSectionVM } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { ANGULAR_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
@@ -69,6 +71,12 @@ import {
   renderAngularExternComponentProps,
   renderAngularExternComponentShim,
 } from "./extern-components.js";
+import {
+  ANGULAR_LOCALE_SIGNAL_PATH,
+  ANGULAR_LOCALE_SWITCHER_PATH,
+  renderAngularLocaleSignal,
+  renderAngularLocaleSwitcher,
+} from "./locale-switcher.js";
 import { buildAngularProjectionsModule, hasReadableProjections } from "./projections-module.js";
 import {
   buildAngularRealtimeHandlers,
@@ -264,13 +272,22 @@ export function generateAngularForContexts(
   // `../../lib/i18n` in page-shell, and `t` is re-exposed as a component member
   // (Angular templates resolve interpolations against the instance).  A
   // string-less ui emits neither the runtime nor a prefix → byte-identical.
-  const i18nEnabled = ui ? collectUiMessages(ui).length > 0 : false;
+  const i18nEnabled = ui
+    ? collectUiMessages(ui).length > 0 || uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? [])
+    : false;
+  // Two or more locales ship (the source plus a translated catalog): the shell
+  // carries the `LocaleSwitcher` and reads the `locale` signal.  Set where the
+  // translated catalogs are emitted, below.
+  let localeSwitchable = false;
   // Pack-DECLARED chrome rides the SAME already-enabled gate (see the React
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
   // The format helpers carry pack chrome (a bool cell's Yes / No), so they
   // render only once the pack's chrome binding knows the i18n state.
-  out.set("src/lib/format.ts", pack.render("format-helpers", { moneySource: MONEY_TEXT_SOURCE }));
+  out.set(
+    "src/lib/format.ts",
+    pack.render("format-helpers", { moneySource: MONEY_TEXT_SOURCE, i18nEnabled }),
+  );
   if (i18nEnabled && ui) {
     // The Angular forms are hand-built (`form-fields.ts`), so no pack sentence
     // chrome (`addItem`, `operationSucceeded`) is rendered — only the
@@ -300,6 +317,10 @@ export function generateAngularForContexts(
       out.set(`src/lib/locales/${locale}.json`, content);
     }
     out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()], sourceLocaleOf(sys)));
+    // The Angular binding of that store (`locale` signal, `LocaleSwitcher`).
+    out.set(ANGULAR_LOCALE_SIGNAL_PATH, renderAngularLocaleSignal());
+    out.set(ANGULAR_LOCALE_SWITCHER_PATH, renderAngularLocaleSwitcher());
+    localeSwitchable = [...translated.keys()].some((l) => l !== sourceLocaleOf(sys));
   }
 
   // Extern frontend functions (extern-function-hook-escape-hatch.md §3): the
@@ -659,6 +680,10 @@ export function generateAngularForContexts(
     );
   }
   if (i18nEnabled) appClassMembers.push("  protected readonly t = t;");
+  // The shell's template reads this signal (`[attr.data-locale]`), so a locale
+  // switch from anywhere schedules a change-detection pass that re-evaluates
+  // every `t()` beneath it (`angular/locale-switcher.ts`).
+  if (localeSwitchable) appClassMembers.push("  protected readonly locale = locale;");
   // The IN-SHELL heading key (`chrome.somethingWentWrong`, no full stop), not
   // React's `rootErrorTitle`: this banner renders inside the app shell, where
   // that key already lives.  `rootErrorTitle` belongs to a STANDALONE root
@@ -682,6 +707,7 @@ export function generateAngularForContexts(
       shellUsesSession,
       hasRealtimeHandlers,
       i18nEnabled,
+      localeSwitchable,
       skipToContentText,
       primaryNavAria,
       // The fallback the root ErrorHandler's signal drives.  Built here rather
@@ -723,6 +749,9 @@ export function generateAngularForContexts(
     pack.render("index-html", {
       title: humanize(sys.name),
       lang: sourceLocaleOf(sys),
+      // `dir` only under i18n: the runtime keeps it in step on a switch, and an
+      // app with no locale model keeps its markup byte-identical.
+      ...(i18nEnabled ? { dir: localeDir(sourceLocaleOf(sys)) } : {}),
       baseHref,
       description: undefined,
       ogImage: undefined,
@@ -731,7 +760,16 @@ export function generateAngularForContexts(
       usesFileUpload: false,
     }),
   );
-  out.set("src/api/client.ts", pack.render("api-client", { hasDelete, hasAuthUi: authUi }));
+  out.set(
+    "src/api/client.ts",
+    pack.render("api-client", {
+      hasDelete,
+      hasAuthUi: authUi,
+      i18nEnabled,
+      // `src/api/client.ts` reaches the runtime at `src/lib/i18n.ts`.
+      i18nImportPath: "../lib/i18n",
+    }),
+  );
   out.set("src/api/config.ts", pack.render("api-config", { apiBaseUrl }));
 
   // Per-aggregate API modules — the idiomatic-Angular `@Injectable` service +

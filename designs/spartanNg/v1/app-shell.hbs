@@ -10,6 +10,8 @@ import { LoomErrorHandler } from "./error-handler";
 {{/if}}{{#if shellUsesSession}}import { SessionService } from "./auth/session.service";
 {{/if}}{{#if hasRealtimeHandlers}}import { RealtimeHandlersComponent } from "./realtime-handlers.component";
 {{/if}}{{#if i18nEnabled}}import { t } from "../lib/i18n";
+{{/if}}{{#if localeSwitchable}}import { locale } from "../lib/locale";
+import { LocaleSwitcher } from "../lib/locale-switcher";
 {{/if}}
 @Component({
   selector: "app-root",
@@ -19,6 +21,7 @@ import { LoomErrorHandler } from "./error-handler";
 {{#if hasNav}}    RouterLinkActive,
 {{/if}}{{#if authUi}}    AuthGateComponent,
 {{/if}}{{#if hasRealtimeHandlers}}    RealtimeHandlersComponent,
+{{/if}}{{#if localeSwitchable}}    LocaleSwitcher,
 {{/if}}  ],
   template: `
 {{{errorBanner}}}    <a href="#main-content" class="loom-skip-link">{{{skipToContentText}}}</a>
@@ -31,11 +34,12 @@ import { LoomErrorHandler } from "./error-handler";
 {{#each entries}}{{#if requiresJs}}          @if ({{{requiresJs}}}) { <a routerLink="{{to}}" routerLinkActive="loom-active" class="loom-nav-link" data-testid="{{testId}}">{{{labelText}}}</a> }
 {{else}}          <a routerLink="{{to}}" routerLinkActive="loom-active" class="loom-nav-link" data-testid="{{testId}}">{{{labelText}}}</a>
 {{/if}}{{/each}}{{/each}}        </nav>
-{{#if authUi}}        @if (session.snapshot().kind === "authed") {
+{{#if localeSwitchable}}        <loom-locale-switcher class="loom-locale" />
+{{/if}}{{#if authUi}}        @if (session.snapshot().kind === "authed") {
           <button type="button" class="loom-nav-link loom-sign-out" data-testid="sign-out" (click)="session.signOut()">{{{chrome "signOut"}}}</button>
         }
 {{/if}}      </aside>
-      <main class="loom-main" id="main-content">
+      <main class="loom-main" id="main-content"{{#if localeSwitchable}} [attr.data-locale]="locale()"{{/if}}>
 {{#if authUi}}        <app-auth-gate>
           <router-outlet />
         </app-auth-gate>
@@ -75,7 +79,8 @@ import { LoomErrorHandler } from "./error-handler";
       font-weight: 500;
     }
     .loom-nav-link:hover { background: hsl(var(--accent)); }
-{{#if authUi}}    .loom-sign-out { margin-top: auto; width: 100%; text-align: left; background: none; border: 1px solid hsl(var(--border)); font: inherit; font-size: 0.875rem; font-weight: 500; cursor: pointer; }
+{{#if localeSwitchable}}    .loom-locale { margin-top: auto; padding: 0.5rem 0.75rem; }
+{{/if}}{{#if authUi}}    .loom-sign-out { {{#unless localeSwitchable}}margin-top: auto; {{/unless}} width: 100%; text-align: left; background: none; border: 1px solid hsl(var(--border)); font: inherit; font-size: 0.875rem; font-weight: 500; cursor: pointer; }
 {{/if}}    .loom-active { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
     .loom-main { flex: 1; padding: 1rem; min-width: 0; }
     @media (min-width: 1024px) { .loom-main { padding: 1.5rem; } }

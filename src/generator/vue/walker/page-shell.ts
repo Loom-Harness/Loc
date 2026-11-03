@@ -767,6 +767,12 @@ export function renderVuePage(input: VuePageShellInput): string {
       `import LoomRefLabel from "${adjustDepth("../components/LoomRefLabel.vue", input)}";`,
     );
   }
+  // The language picker — same marker discipline (`vue/locale-switcher.ts`).
+  if (result.tsx.includes("<LocaleSwitcher")) {
+    script.push(
+      `import LocaleSwitcher from "${adjustDepth("../components/LocaleSwitcher.vue", input)}";`,
+    );
+  }
   for (const line of storeWiring.imports) script.push(line);
   script.push("");
   if (needsRoute) {
@@ -1491,6 +1497,9 @@ export function renderVueComponentFile(
   // A component is a sibling of the reference-label SFC in `src/components/`.
   if (result.tsx.includes("<LoomRefLabel")) {
     script.push(`import LoomRefLabel from "./LoomRefLabel.vue";`);
+  }
+  if (result.tsx.includes("<LocaleSwitcher")) {
+    script.push(`import LocaleSwitcher from "./LocaleSwitcher.vue";`);
   }
   if (usesFormToast) {
     script.push(`import { pushToast } from "../lib/toast";`);

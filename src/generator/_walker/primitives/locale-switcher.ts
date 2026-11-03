@@ -6,12 +6,11 @@
 // locales ship.  The primitive exists so a layout without the default header (a
 // `layout: none` page, a custom header slot) can still offer the choice.
 //
-// React renders the generated `LocaleSwitcher` component
-// (`react/locale-switcher.ts`, emitted to `src/lib/locale-switcher.tsx` whenever
-// the ui is i18n-enabled), which lists each shipped locale under its own name.
-// The other JSX frontends have no runtime binding yet; they render an inert
-// placeholder comment rather than a broken reference, so a page that uses the
-// primitive still compiles on every target.
+// React, Vue, Svelte and Angular render their generated `LocaleSwitcher`
+// component (emitted whenever the ui is i18n-enabled), which lists each shipped
+// locale under its own name.  The frontends without a runtime binding yet render
+// an inert placeholder comment rather than a broken reference, so a page that
+// uses the primitive still compiles on every target.
 
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
 import { addImport } from "../render-primitive.js";
@@ -23,9 +22,21 @@ export function emitLocaleSwitcher(
   depth: number,
 ): string {
   void depth;
-  if (ctx.target.framework !== "react") {
-    return ctx.target.renderComment(`LocaleSwitcher: not yet supported on ${ctx.target.framework}`);
+  switch (ctx.target.framework) {
+    case "react":
+      addImport(ctx, "../lib/locale-switcher", "LocaleSwitcher");
+      return "<LocaleSwitcher />";
+    // Vue/Svelte components and Angular standalone components are not named
+    // exports the walker's import map can express; the page shell imports them
+    // off this marker tag (the `LoomChart` discipline).
+    case "vue":
+    case "svelte":
+      return "<LocaleSwitcher />";
+    case "angular":
+      return "<loom-locale-switcher />";
+    default:
+      return ctx.target.renderComment(
+        `LocaleSwitcher: not yet supported on ${ctx.target.framework}`,
+      );
   }
-  addImport(ctx, "../lib/locale-switcher", "LocaleSwitcher");
-  return "<LocaleSwitcher />";
 }
