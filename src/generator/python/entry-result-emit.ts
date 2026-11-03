@@ -64,8 +64,7 @@ function leafDict(
       const obj = leaf.value.kind === "object" ? leaf.value.fields : [];
       const parts = bound
         ? fields.map(
-            (f) =>
-              `"${f.name}": ${pyScalarReturnToWire(`${boundDict}["${f.name}"]`, f.type)}`,
+            (f) => `"${f.name}": ${pyScalarReturnToWire(`${boundDict}["${f.name}"]`, f.type)}`,
           )
         : fields.flatMap((f) => {
             const v = obj.find((o) => o.name === f.name);
@@ -124,7 +123,9 @@ export function entryResultPyLines(
       continue;
     }
     const scalar = isScalarVariant(arm.varType);
-    const value = scalar ? `${PY.cast}(${renderPyType(arm.varType)}, ${subject}["value"])` : subject;
+    const value = scalar
+      ? `${PY.cast}(${renderPyType(arm.varType)}, ${subject}["value"])`
+      : subject;
     // A dict arm answering its binding reads the subject directly.
     const direct = !scalar && isBoundRef(leaf.value);
     out.push(
