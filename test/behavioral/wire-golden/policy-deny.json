@@ -350,18 +350,12 @@
       "seq": 29,
       "method": "POST",
       "path": "/api/ledgers/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "label is required",
-            "pointer": "/label"
-          }
-        ],
+        "detail": "Ledger {id} not found",
         "instance": "/api/ledgers/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     },

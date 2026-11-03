@@ -6054,6 +6054,15 @@ of an `option` find, in a workflow, handler or domain-service body, binds the
 reads go through `?.`, `??` or an `if let x = R.find(…) { … } else { … }`
 branch.
 
+The merge-patch update is RS-47. "The generated update" is recognised by shape —
+an `update` operation whose body only assigns each parameter to the
+same-named field (`mergePatchFields`, `src/ir/util/merge-patch.ts`) — so a
+`crudish` update keeps the contract after `unfold`. `null` on a required field
+is the missing-field 422 (`"<field> is required"`). A wire rule is judged in
+the request schema only when the patch carries every member it reads, and by
+the domain floor over the merged state otherwise. A caller no longer has to
+send a `mask unless` field it cannot read (#3600).
+
 ## D-CREATE-CALL-STYLE — an aggregate's `create` is called like a method; the record form is retired
 
 **Status:** PINNED (owner ruling on #3301, 2026-10-26; #4309).

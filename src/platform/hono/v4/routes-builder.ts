@@ -121,6 +121,7 @@ import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-li
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { isMergePatchUpdate, ruleMembers } from "../../../ir/util/merge-patch.js";
 import {
   callerGates,
   lifecycleGates,
@@ -154,7 +155,7 @@ import type {
 } from "../../../ir/validate/invariant-classify.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
-import { escapeTargetMember } from "../../../util/target-identifiers.js";
+import { escapeTargetFieldMember, escapeTargetMember } from "../../../util/target-identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Hono routes file with OpenAPI annotations.
@@ -829,11 +830,19 @@ export function buildRoutesFile(
     // shared minter owner-qualifies both halves when — and only when — they
     // genuinely collide (F-026).
     const reqName = reqNameFor({ kind: "operation", aggregate: agg.name, operation: op.name });
+    const mergePatch = isMergePatchUpdate(op);
     lines.push(
       ...emitWireSchema(
         `const ${reqName}`,
         reqName,
-        op.params.map((p) => ({ name: p.name, base: zodFor(p.type) })),
+        // A merge-patch update (RS-47) takes every key as optional; `null`
+        // stays legal only where the type is `T?`, whose `zodFor` is already
+        // `.nullish()`.
+        op.params.map((p) => ({
+          name: p.name,
+          base: zodFor(p.type),
+          optional: mergePatch && p.type.kind !== "optional",
+        })),
         // Field-level invariants (SYS-1): the update/mutating-op request DTO
         // gets the SAME wire constraints as create, not just the op's own
         // preconditions.  The `available = op.params` set below drops any
@@ -843,6 +852,7 @@ export function buildRoutesFile(
         [...agg.invariants, ...preconditionsAsInvariants(op)],
         new Set(op.params.map((p) => p.name)),
         "exact",
+        mergePatch,
       ),
     );
   }
@@ -2141,7 +2151,17 @@ function emitOperationRoute(
       `    const currentUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
     );
   }
-  const baseCallArgs = op.params.map((p) => wireToDomainExpr(`body.${p.name}`, p.type, ctx));
+  // A merge-patch update (RS-47) passes the stored value for every key the
+  // body leaves out, so the operation runs on the merged state.
+  const mergePatch = isMergePatchUpdate(op);
+  const baseCallArgs = op.params.map((p) => {
+    const value = wireToDomainExpr(`body.${p.name}`, p.type, ctx);
+    // The stored value is read through the field's getter, whose spelling
+    // escapes a name the class reserves (`constructor` → `constructor_`).
+    return mergePatch
+      ? `(body.${p.name} === undefined ? aggregate.${escapeTargetFieldMember("ts", p.name)} : ${value})`
+      : value;
+  });
   const callArgs = (usesUser ? [...baseCallArgs, "currentUser"] : baseCallArgs).join(", ");
 
   // The mutation block — extern dispatch or the direct method call —
@@ -2807,9 +2827,11 @@ export function zodFor(t: TypeIR, context: "create-body" | "body" | "query" = "b
     // `isRequiredCreateInput` and have already dropped it, which shows up as
     // `required-only-honoApi=[<field>]` in the 5-way parity diff.
     //
-    // Scoped to `create-body` for the same reason the bool arm below is: an
-    // operation body (`update` included) is full-replacement, so an absent
+    // Scoped to `create-body` for the same reason the bool arm below is: a
+    // command body requires every non-nullable parameter, so an absent
     // collection there is a missing required field, not an empty one (RS-26).
+    // The merge-patch `update` makes the key optional instead, and an absent
+    // one keeps the stored value (RS-47).
     return context === "create-body" ? `${arr}.default([])` : arr;
   }
   switch (info.refKind) {
@@ -3063,6 +3085,10 @@ export function emitWireSchema(
   // body scan); a caller without that stays "server-only" and leaves the rule
   // to the domain's exact check.
   decimal: RefineDecimalMode = "server-only",
+  // A merge-patch body (RS-47): each rule is judged only when the body carries
+  // every member it reads — `ruleMembers` — and the domain floor judges the
+  // merged state otherwise.
+  mergePatch = false,
 ): string[] {
   const ctx: ClassifyContext = { available };
   const chainByField = new Map<string, SingleFieldPattern[]>();
@@ -3078,7 +3104,9 @@ export function emitWireSchema(
     }
   }
   const refines = remaining
-    .map((inv) => refineClauseFor(inv, ctx, decimal))
+    .map((inv) =>
+      refineClauseFor(inv, ctx, decimal, mergePatch ? ruleMembers(inv, available) : undefined),
+    )
     .filter((s): s is string => s !== null);
 
   const out: string[] = [];

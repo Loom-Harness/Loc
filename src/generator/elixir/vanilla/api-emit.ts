@@ -35,6 +35,7 @@ import {
   servedOperations,
 } from "../../../ir/util/api-surface.js";
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import { isMergePatchUpdate, mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { createBodyStatements, lifecycleGates } from "../../../ir/util/op-gates.js";
 import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
@@ -979,7 +980,7 @@ defmodule ${appModule}Web.${aggPascal}Controller do
 ${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
-${renderRequiredParamsPlug(new Map([...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), requiredWireParams(op.params)])))}${renderStrictParamsPlug(new Map([["create", strictIngressFields(createInputFields(agg))], ...[...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), strictIngressFields(op.params)] as const)]))}
+${renderRequiredParamsPlug(new Map([...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), isMergePatchUpdate(op) ? [] : requiredWireParams(op.params)])))}${renderPatchNullPlug(agg.operations.find((o) => o.name === "update"))}${renderStrictParamsPlug(new Map([["create", strictIngressFields(createInputFields(agg))], ...[...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), strictIngressFields(op.params)] as const)]))}
 ${indexAction}
 
 ${showAction}${historyAction}
@@ -1013,5 +1014,30 @@ ${((): string => {
   return `${serialize}${nested}${refIdsHelper}`;
 })()}${historyMapper}
 end
+`;
+}
+
+/** The merge-patch update's null refusal (RS-47): any key may be left out, but
+ *  `null` removes a field, which a REQUIRED one refuses with the 422 a missing
+ *  required key earns — checked before the action loads anything, like
+ *  `require_command_params`.  Empty unless `update` is a merge patch with a
+ *  required member. */
+function renderPatchNullPlug(op: OperationIR | undefined): string {
+  const required = (op ? (mergePatchFields(op) ?? []) : []).filter((f) => !f.nullable);
+  if (required.length === 0) return "";
+  return `
+  @patch_required ~w(${required.map((f) => f.name).join(" ")})
+  plug :refuse_null_patch_params when action in [:update]
+
+  # The update body is a merge patch: a key may be left out (the stored value
+  # stays), but \`null\` removes a field, and a required one cannot go.
+  defp refuse_null_patch_params(conn, _opts) do
+    carried = Enum.filter(@patch_required, &Map.has_key?(conn.params, &1))
+
+    case ProblemDetails.missing_params(conn.params, carried) do
+      [] -> conn
+      missing -> halt(ProblemDetails.missing_params_response(conn, missing))
+    end
+  end
 `;
 }

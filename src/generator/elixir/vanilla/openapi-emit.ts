@@ -45,6 +45,7 @@ import { AUDIT_ENTRY_TYPE, auditEntryWireShape } from "../../../ir/util/audit-hi
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { foreignValueTypeSeeds, foreignValueTypes } from "../../../ir/util/foreign-event-types.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
+import { isMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import { errorStatuses, type OpErrorKind, PROBLEM_JSON } from "../../../ir/util/openapi-errors.js";
 import {
   camelId,
@@ -1822,11 +1823,13 @@ function renderOperationRequestSchema(
   // `zodFor` (nullable → `.nullish()` → optional in OpenAPI); hardcoding
   // `false` here made Phoenix mark those params required and tripped the
   // parity gate's required-set dimension (UpdateProjectRequest drift).
+  // A merge-patch update (RS-47) requires no key.
+  const patch = isMergePatchUpdate(op);
   const fields: Array<{ name: string; type: TypeIR; optional: boolean }> = op.params.map(
     (p: ParamIR) => ({
       name: p.name,
       type: p.type,
-      optional: wireTypeInfo(p.type, "request").isNullable,
+      optional: patch || wireTypeInfo(p.type, "request").isNullable,
     }),
   );
   return renderSchemaModule(

@@ -339,18 +339,12 @@
       "seq": 24,
       "method": "POST",
       "path": "/api/shippers/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "ship is required",
-            "pointer": "/ship"
-          }
-        ],
+        "detail": "Shipper {id} not found",
         "instance": "/api/shippers/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

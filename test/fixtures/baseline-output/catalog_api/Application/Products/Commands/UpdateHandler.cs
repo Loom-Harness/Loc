@@ -22,7 +22,7 @@ public sealed class UpdateHandler : ICommandHandler<UpdateCommand, Unit>
     {
         var aggregate = await _repo.GetByIdAsync(command.Id, cancellationToken)
             ?? throw new AggregateNotFoundException($"Product {command.Id} not found");
-        aggregate.Update(command.Sku, command.Price);
+        aggregate.Update((command.PatchedKeys.Contains("sku") ? command.Sku : aggregate.Sku), (command.PatchedKeys.Contains("price") ? command.Price : aggregate.Price));
         await _repo.SaveAsync(aggregate, RequestContext.Current?.ExpectedVersion, cancellationToken);
         return Unit.Value;
     }

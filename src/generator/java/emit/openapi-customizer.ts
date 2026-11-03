@@ -31,6 +31,7 @@ import {
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { entryResult } from "../../../ir/util/entry-result.js";
 import { normalizeHandlerReturn } from "../../../ir/util/handler-contracts.js";
+import { isMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import { errorStatuses, PROBLEM_JSON, PROBLEM_SCHEMA } from "../../../ir/util/openapi-errors.js";
 import { routedParamSource } from "../../../ir/util/routed-handler.js";
 import {
@@ -340,7 +341,8 @@ export function buildJavaOpenApiContract(
           emptyRequests.push({ path: pathOf(opEntry), schema: reqName });
           setRequired(reqName, []);
         } else {
-          setRequired(reqName, requiredParams(op.params));
+          // A merge-patch update (RS-47) requires no key.
+          setRequired(reqName, isMergePatchUpdate(op) ? [] : requiredParams(op.params));
         }
       }
 
