@@ -126,6 +126,84 @@ export function opModelText(
   return { markup: ctx.target.renderInterpolation(expr, STRING), expr };
 }
 
+/** The identity-keyed text of ONE form input, resolved off the model rather
+ *  than a pack view-model — for the frontends whose forms are emitted from a
+ *  spec, not rendered through pack templates (Feliz, Flutter).  Mirrors
+ *  `prepareFormFieldVM`'s keying: a declared field of `owner` is
+ *  `<Ctx>.<Owner>.field.<leaf>`, a flattened value-object leaf keys under the
+ *  value object, and an enum select's options key under the enum. */
+export interface FormInputModelText {
+  readonly key: string;
+  readonly defaultText: string;
+  /** For an enum input: each value with its identity key and English default. */
+  readonly enumOptions?: ReadonlyArray<{
+    readonly value: string;
+    readonly key: string;
+    readonly defaultText: string;
+  }>;
+}
+
+function unwrapInputType(t: TypeIR): TypeIR {
+  let cur = t;
+  while (cur.kind === "optional") cur = cur.inner;
+  if (cur.kind === "array") {
+    cur = cur.element;
+    while (cur.kind === "optional") cur = cur.inner;
+  }
+  return cur;
+}
+
+/** Resolve the model text of the input `leaf`, reached from `inputs` by
+ *  walking the value-object keys in `path` (outermost first).  `ownerOf` names
+ *  the model type a TOP-LEVEL input is declared on (`undefined` ⇒ the input
+ *  names no model fact and keeps its English).  `undefined` when the input
+ *  cannot be resolved against `bc`. */
+export function formInputModelText(
+  inputs: readonly { name: string; type: TypeIR }[],
+  path: readonly string[],
+  leaf: string,
+  ownerOf: (name: string) => string | undefined,
+  bc: BoundedContextIR | undefined,
+  contexts: Iterable<BoundedContextIR>,
+): FormInputModelText | undefined {
+  if (!bc) return undefined;
+  const all = [...contexts];
+  let fields: readonly { name: string; type: TypeIR }[] = inputs;
+  let owner: string | undefined;
+  let nested = false;
+  for (const key of path) {
+    const f = fields.find((x) => x.name === key);
+    const t = f ? unwrapInputType(f.type) : undefined;
+    const vo = t?.kind === "valueobject" ? findValueObjectInScope(bc, t.name) : undefined;
+    if (!vo) return undefined;
+    fields = vo.fields;
+    owner = vo.name;
+    nested = true;
+  }
+  const field = fields.find((x) => x.name === leaf);
+  if (!field) return undefined;
+  if (!nested) owner = ownerOf(leaf);
+  if (owner === undefined) return undefined;
+  const { key, defaultText } = modelTextEntry({
+    ctx: modelTextContextOf(owner, bc, all),
+    type: owner,
+    facet: "field",
+    member: leaf,
+  });
+  const t = unwrapInputType(field.type);
+  const en = t.kind === "enum" ? enumPool(bc).find((e) => e.name === t.name) : undefined;
+  if (!en) return { key, defaultText };
+  const enumCtx = modelTextContextOf(en.name, bc, all);
+  return {
+    key,
+    defaultText,
+    enumOptions: en.values.map((v) => {
+      const e = modelTextEntry({ ctx: enumCtx, type: en.name, facet: "value", member: v });
+      return { value: v, key: e.key, defaultText: e.defaultText };
+    }),
+  };
+}
+
 /** The type a form input's label is keyed under: the aggregate when it
  *  declares a field of that name (an operation parameter mirroring a field),
  *  else none — an input that names no model fact keeps its English. */

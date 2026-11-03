@@ -79,7 +79,12 @@ describe("flutter optional display primitives", () => {
 
     // Pre-fix: `Text(row.kind.toString())` — renders the word "null".
     expect(page).not.toMatch(/Text\(row\.kind\.toString\(\)\)/);
-    expect(page).toContain("((Object? v) => v == null ? '' : v.toString())(row.kind)");
+    // Under i18n the badge value goes through the identity-keyed label lookup
+    // first; the null guard wraps the lookup's (non-null) result.
+    expect(page).toContain(
+      "((Object? v) => v == null ? '' : v.toString())(((Object? v) => <String, String>{",
+    );
+    expect(page).toContain("}[v?.toString()] ?? v?.toString() ?? '')(row.kind))");
 
     // The intl import still rides the `usesIntl` content sniff — the formatter
     // names moved inside the closure, they did not disappear.

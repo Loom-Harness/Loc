@@ -1086,11 +1086,13 @@ export interface WalkerTarget {
    *  packs read the tokens. */
   modelTextImplicitSites?: true;
 
-  /** The label of an enum value as one expression, for a target whose template
-   *  language cannot spell the default typed lookup (an arrow function with a
-   *  `Record` assertion — `model-text-sites.ts`'s `enumLabelFn`): `entries`
-   *  pair each wire value with its translation-call expression, `valueExpr` is
-   *  the rendered value.  Unset ⇒ the typed lookup. */
+  /** The label of an enum value as one expression, for a target whose language
+   *  cannot spell the default typed lookup (a JS arrow function with a `Record`
+   *  assertion — `model-text-sites.ts`'s `enumLabelFn`): an Angular template,
+   *  or a non-JavaScript target (F#, Dart).  `entries` pair each wire value
+   *  with its translation-call expression; `valueExpr` is the rendered value.
+   *  Returns an expression of the target language yielding the label (the raw
+   *  value when no entry matches).  Unset ⇒ the typed lookup. */
   renderEnumLabelLookup?(
     entries: ReadonlyArray<{ value: string; label: string }>,
     valueExpr: string,

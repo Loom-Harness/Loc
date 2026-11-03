@@ -15,6 +15,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { angularTarget } from "../../src/generator/angular/walker/angular-target.js";
+import { felizTarget } from "../../src/generator/feliz/feliz-target.js";
+import { flutterTarget } from "../../src/generator/flutter/flutter-target.js";
 import { tsxTarget } from "../../src/generator/react/walker/tsx-target.js";
 import { svelteTarget } from "../../src/generator/svelte/walker/svelte-target.js";
 import { vueTarget } from "../../src/generator/vue/walker/vue-target.js";
@@ -35,7 +37,6 @@ const PINNED: readonly string[] = [
   "src/generator/elixir/heex-primitives.ts heex",
   "src/generator/elixir/heex-walker-core.ts heex",
   "src/generator/elixir/heex-walker-core.ts heex",
-  "src/generator/feliz/fs-expr.ts feliz",
 ];
 
 describe("model-text fan-out census", () => {
@@ -51,12 +52,14 @@ describe("model-text fan-out census", () => {
 });
 
 describe("implicit model-text gate", () => {
-  it("lists in the catalog exactly the pack formats whose target sets the flag", () => {
+  it("lists in the catalog exactly the frontend formats whose target sets the flag", () => {
     const flagged: Record<string, boolean> = {
       tsx: tsxTarget.modelTextImplicitSites === true,
       vue: vueTarget.modelTextImplicitSites === true,
       svelte: svelteTarget.modelTextImplicitSites === true,
       angular: angularTarget.modelTextImplicitSites === true,
+      feliz: felizTarget.modelTextImplicitSites === true,
+      flutter: flutterTarget.modelTextImplicitSites === true,
     };
     const listed = Object.fromEntries(
       Object.keys(flagged).map((f) => [f, IMPLICIT_MODEL_TEXT_FORMATS.has(f)]),

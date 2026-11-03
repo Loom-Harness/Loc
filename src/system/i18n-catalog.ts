@@ -71,28 +71,37 @@ function packSentencesForUi(sys: EnrichedSystemIR, ui: UiIR): string[] {
   return [...out].sort();
 }
 
-/** The pack formats whose frontends key their implicit model-text sites (form
- *  labels, enum options, submit buttons) by identity — the targets that set
- *  `WalkerTarget.modelTextImplicitSites`.  HEEx packs (and the pack-less Feliz
- *  and Flutter frontends) keep their humanized English. */
+/** The frontend formats that key their implicit model-text sites (form
+ *  labels, enum options, submit buttons) by identity — the formats whose walker
+ *  target sets `WalkerTarget.modelTextImplicitSites`.  A pack-rendered UI is
+ *  named by its design pack's format; the pack-less Feliz and Flutter
+ *  frontends by their platform. */
 export const IMPLICIT_MODEL_TEXT_FORMATS: ReadonlySet<string> = new Set([
   "tsx",
   "vue",
   "svelte",
   "angular",
+  "feliz",
+  "flutter",
 ]);
+
+/** The frontend format a deployable renders its UI in: the platform for the
+ *  pack-less Feliz and Flutter frontends, else its design pack's format (a
+ *  pack that names none is React), else none. */
+function deployableUiFormat(dep: EnrichedSystemIR["deployables"][number]): string | undefined {
+  if (dep.platform === "feliz" || dep.platform === "flutter") return dep.platform;
+  if (dep.design === undefined) return undefined;
+  return packFormatForBuiltin(dep.design) ?? "tsx";
+}
 
 /** Whether a UI is rendered by a frontend that keys its implicit model-text
  *  sites by identity; see {@link IMPLICIT_MODEL_TEXT_FORMATS}. */
 function rendersImplicitModelText(sys: EnrichedSystemIR, ui: UiIR): boolean {
-  return sys.deployables.some(
-    (dep) =>
-      dep.design !== undefined &&
-      (dep.uiName === ui.name || (dep.hostedUiNames ?? []).includes(ui.name)) &&
-      dep.platform !== "feliz" &&
-      dep.platform !== "flutter" &&
-      IMPLICIT_MODEL_TEXT_FORMATS.has(packFormatForBuiltin(dep.design) ?? "tsx"),
-  );
+  return sys.deployables.some((dep) => {
+    if (dep.uiName !== ui.name && !(dep.hostedUiNames ?? []).includes(ui.name)) return false;
+    const format = deployableUiFormat(dep);
+    return format !== undefined && IMPLICIT_MODEL_TEXT_FORMATS.has(format);
+  });
 }
 
 /** Build the flat, key-sorted `{ key: message }` catalog for a system. */
