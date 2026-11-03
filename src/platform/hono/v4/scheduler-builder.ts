@@ -22,7 +22,9 @@
 // reactor fires with no new machinery.  Emitted ONLY when the deployable owns at
 // least one timerSource; a timer-free deployable is byte-identical to before.
 
+import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { tsTodayCalendarDate } from "../../../generator/typescript/codec-spelling.js";
+import { T } from "../../../generator/typescript/ts-symbols.js";
 import type { EventIR, FieldIR, TimerSourceIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 
@@ -33,7 +35,7 @@ import { lines } from "../../../util/code-builder.js";
  *  type-safe zero. */
 function tickFieldValue(field: FieldIR): string {
   const t = field.type;
-  if (t.kind === "id") return `Ids.new${t.targetName}Id()`;
+  if (t.kind === "id") return `${T.Ids}.new${t.targetName}Id()`;
   if (t.kind === "primitive") {
     switch (t.name) {
       case "datetime":
@@ -81,17 +83,6 @@ function partitionByCadence(timers: readonly TimerSourceIR[]): {
     (ts.cadence.kind === "cron" ? cron : interval).push(ts);
   }
   return { cron, interval };
-}
-
-/** Does any field of any owned timer's event reference an id type?  Gates the
- *  `import * as Ids` (kept out of a timer whose ticks carry no id). */
-function anyTickUsesId(
-  timers: readonly TimerSourceIR[],
-  eventByName: Map<string, EventIR>,
-): boolean {
-  return timers.some((ts) =>
-    (eventByName.get(ts.event)?.fields ?? []).some((f) => f.type.kind === "id"),
-  );
 }
 
 /** Whether any owned timer uses a real cron expression.  Gates the durable
@@ -244,7 +235,7 @@ function cronBlock(
         `    // boundary is > 60s old (outside pg-boss's own send window, so no`,
         `    // double-fire) and later than the last recorded run, replay it once.`,
         `    {`,
-        `      const prev = CronExpressionParser.parse(${cronLit}, { currentDate: new Date() }).prev().toDate();`,
+        `      const prev = ${T.CronExpressionParser}.parse(${cronLit}, { currentDate: new Date() }).prev().toDate();`,
         `      const ageSec = (Date.now() - prev.getTime()) / 1000;`,
         ...store.readWatermark("      "),
         `      if (!last) {`,
@@ -261,7 +252,7 @@ function cronBlock(
 
   return [
     "  // ── cron timers: pg-boss (durable, retried, single-fire across replicas) ──",
-    "  const boss = new PgBoss({ connectionString: process.env.DATABASE_URL });",
+    `  const boss = new ${T.PgBoss}({ connectionString: process.env.DATABASE_URL });`,
     '  boss.on("error", (err) =>',
     '    baseLogger.error({ event: "timer_emit_failed", timer: "(pg-boss)",',
     "      error: err instanceof Error ? err.message : String(err) }),",
@@ -351,21 +342,20 @@ export function renderTimerScheduler(
   usingMikro = false,
 ): string {
   const { cron, interval } = partitionByCadence(timers);
-  const usesIds = anyTickUsesId(timers, eventByName);
   const store = usingMikro ? MIKRO_TIMER_STORE : DRIZZLE_TIMER_STORE;
 
   return lines(
     "// Auto-generated — durable timer scheduler (scheduling.md).",
     "// cron: → pg-boss (durable, retried, single-fire); every: → in-process.",
     "// Emitted only when this deployable owns timerSources.",
-    cron.length > 0 ? `import { PgBoss } from "pg-boss";` : false,
-    cron.length > 0 ? `import { CronExpressionParser } from "cron-parser";` : false,
+    tsImportSlot("pg-boss"),
+    tsImportSlot("cron-parser"),
     // The persistence-adapter store's own imports.  Ordered as the drizzle path
     // emitted them (sql, NodePgDatabase, … then `schema` after the domain
     // imports) so the default output is byte-identical; the mikro store has a
     // single import and no `schema` module to reference.
     ...store.imports.filter((i) => !i.includes("./db/schema")),
-    usesIds ? `import * as Ids from "./domain/ids";` : false,
+    tsImportSlot("~/domain/ids"),
     `import type * as Events from "./domain/events";`,
     `import type { DomainEventDispatcher } from "./domain/events";`,
     ...store.imports.filter((i) => i.includes("./db/schema")),
