@@ -10,8 +10,7 @@
 // byte-identical (no scheduling.py, no procrastinate, no lifespan wiring).
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const WITH_TIMERS = `
 system Reaping {
@@ -50,9 +49,7 @@ system Plain {
 `;
 
 async function filesFor(src: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(src);
-  expect(errors).toEqual([]);
-  return generateSystems(model).files;
+  return generateSystemFiles(src);
 }
 
 const getter =
