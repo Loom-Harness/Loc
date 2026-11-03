@@ -979,11 +979,6 @@ const WAIVERS: Record<string, Waiver> = {
       "#4664: an unlisted init kind (ternary / convert / duration) silently becomes the type's zero",
     reviewUntil: IF_RUN_GAP_REVIEW,
   },
-  "src/generator/dotnet/workflow-emit.ts#rec": {
-    deferred:
-      "#4575: the param rewrite skips list / convert / match / … children, leaving an undeclared identifier in the C#",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
   "src/system/ui-e2e-render.ts#walk": {
     deferred:
       "#4578: hand-recurses a fixed kind set, missing ui.<workflow> refs under lambda / list / match / nested statements",
