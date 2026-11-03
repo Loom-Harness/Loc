@@ -26,6 +26,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 const ROOT = join(__dirname, "..", "..");
 const SCANNED = ["src/language", "src/ir/lower"];
@@ -108,7 +109,7 @@ describe("M-T5.47 — one typing pass: no second type-inference path", () => {
 
   it("the scan reaches the real code", () => {
     // Vacuum guard: a scan that matched nothing would pass everything below.
-    expect(found.size).toBeGreaterThanOrEqual(5);
+    expectReach("typing delegators found", found.size, 5);
     expect([...found.keys()]).toContain("src/ir/lower/lower-expr.ts:inferExprType");
   });
 
@@ -155,7 +156,7 @@ describe("one type vocabulary, one set of type relations", () => {
   const relationsFile = join(ROOT, "src/language/typing/relations.ts");
 
   it("the scan reaches the real code", () => {
-    expect(files.length).toBeGreaterThan(50);
+    expectReach("scanned files", files.length, 106);
     const rel = readFileSync(relationsFile, "utf8");
     for (const r of RELATIONS) expect(rel).toMatch(new RegExp(`^export function ${r}\\(`, "m"));
   });

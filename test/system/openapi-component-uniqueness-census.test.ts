@@ -45,6 +45,7 @@
 // class substantially; it does not close it for all five.
 
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 import { dddSourceOf, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import {
@@ -147,10 +148,8 @@ describe("no generated OpenAPI document mints one component name twice (F-026, t
     // reports "no offenders" and reads as a pass — `experience_gathered.md`
     // §59/§63's shape, a check that never reaches the thing it names. These are
     // floors, not equalities, so the corpus can grow freely.
-    expect(generated, "the corpus stopped generating — this census is vacuous").toBeGreaterThan(
-      200,
-    );
-    expect(nodeReached, "no Hono deployable published a request component").toBeGreaterThan(100);
+    expectReach("generated corpus models", generated, 457);
+    expectReach("Hono request components", nodeReached, 253);
 
     expect(
       render(node),
@@ -162,7 +161,7 @@ describe("no generated OpenAPI document mints one component name twice (F-026, t
   it("java: every Spring Boot deployable publishes each request component once", async () => {
     const { java, javaReached } = await sweepCorpus();
 
-    expect(javaReached, "no java deployable emitted a request record").toBeGreaterThan(10);
+    expectReach("java request records", javaReached, 27);
 
     expect(
       render(java),
