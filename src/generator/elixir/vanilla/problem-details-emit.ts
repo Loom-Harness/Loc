@@ -15,6 +15,8 @@ import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import { elixirString } from "../../../util/naming.js";
 import { renderPhoenixDomainFault, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import {
+  exCode,
+  exFieldCode,
   exFieldMessage,
   exFixedDetail,
   exIngressGuardClauses,
@@ -54,11 +56,6 @@ export function renderVanillaProblemDetailsModule(
   forbiddenStatus = 403,
   disallowedStatus = 409,
   referencedInUseStatus = 409,
-  /** True when this project ships a `priv/gettext` catalog carrying its authored
-   *  validation messages (M-T1.11) — a changeset error's `loom_code` then
-   *  resolves through gettext for the request locale.  False ⇒ byte-identical to
-   *  pre-catalog output. */
-  localizeMessages = false,
   /** True when some aggregate operation carries a WIRE-RUNG denial — a messaged
    *  `precondition` over the op's own request params, which the other four
    *  backends lift into the request validator (M-T6.20) — or a command
@@ -78,11 +75,6 @@ export function renderVanillaProblemDetailsModule(
    *  object uses (the caller then passes `bodyValueObjects` too).  False ⇒
    *  byte-identical. */
   domainFloorCodes = false,
-  /** Ruling D4 (#20): true only under the dev-stub verifier
-   *  (`echoesDenialDetail`) — a 403 body then echoes the failed gate.  False
-   *  (the default) ⇒ the forbidden rung's body `detail` is the constant
-   *  `Forbidden`, while the `forbidden` log line above it keeps the gate. */
-  echoForbiddenDetail = false,
   /** True when some controller checks request values against the fact's ingress
    *  JSON types (`renderStrictParamsPlug`) — gates `type_mismatches/2`. */
   hasStrictIngress = false,
@@ -97,12 +89,11 @@ export function renderVanillaProblemDetailsModule(
   // below logs the full `detail` BEFORE the body is built — so the redaction
   // is one rebinding between the two, keyed on the same resolved forbidden
   // status the classifier keys on.
-  const forbiddenBodyRedaction = echoForbiddenDetail
-    ? ""
-    : `
-    # Ruling D4: the gate's source text stays in the log line above; a caller
-    # under a real verifier is told only that it was forbidden.
-    detail = if status == ${forbiddenStatus}, do: ${JSON.stringify(CONSTANT_FORBIDDEN_DETAIL)}, else: detail
+  // The server never echoes a gate's `.ddd` source: the `requires` predicate
+  // stays in the log line above, and the body carries the constant detail plus
+  // the `problem.forbidden` code a client localizes by — under every verifier.
+  const forbiddenBodyRedaction = `
+    detail = if code == ${exCode("forbidden")}, do: ${JSON.stringify(CONSTANT_FORBIDDEN_DETAIL)}, else: detail
 `;
   // Optimistic-concurrency 409 (`versioned` capability, D-VERSIONED).  A stale
   // write raises `Ecto.StaleEntryError`, which the repository rescues into
@@ -111,52 +102,6 @@ export function renderVanillaProblemDetailsModule(
   // `unique (...)` 409 uses via `problem_response/4`) so a dashboard can tell a
   // concurrency conflict from a business-rule refusal.  Gated on `hasVersioned`
   // so a version-free app is byte-identical (strict additivity).
-  // Server-side message localization (M-T1.11).  Phoenix is one of the two
-  // backends whose ECOSYSTEM already owns this, so nothing is hand-rolled: the
-  // catalog is the same real `priv/gettext` tree the HEEx frontend translates
-  // through, and the resolution is gettext's.
-  //
-  // `pgettext` reconciles the two key models exactly as it does on the frontend
-  // half (see `elixir/i18n.ts`): the Loom content-hash code is the msgctxt and
-  // the authored English the msgid.  gettext's own "an empty translation renders
-  // the msgid" rule IS the fallback, so an untranslated locale returns the
-  // authored text with no branch here.
-  //
-  // The RUNTIME `Gettext.pgettext/4` rather than the same-named MACRO: the
-  // msgctxt arrives as a changeset-error metadata value, and the macros require
-  // compile-time literals (they are what `mix gettext.extract` reads — the `.pot`
-  // this project ships is generated instead).
-  const localizeFn = localizeMessages
-    ? `
-
-  # Resolve a named rule's stable wire code against this project's
-  # gettext catalog for the request locale, falling back to the authored text.
-  defp localize(nil, message), do: message
-
-  defp localize(code, message) do
-    Gettext.with_locale(gettext_locale(), fn ->
-      Gettext.pgettext(${appModule}Web.Gettext, code, message)
-    end)
-  end
-
-  # The ambient request locale carries the Accept-Language header VERBATIM
-  # (it is the request-stable input, not a catalog-shaped one), so
-  # the normalisation to a lookup tag lives here: the first listed language,
-  # without its \`;q=\` weight.  An unknown tag is not an error for gettext —
-  # it has no translations, so the msgid (the authored English) is returned.
-  defp gettext_locale do
-    tag =
-      ${appModule}.RequestContext.locale()
-      |> String.split(",")
-      |> List.first("")
-      |> String.split(";")
-      |> List.first("")
-      |> String.trim()
-      |> String.downcase()
-
-    if tag == "", do: "en", else: tag
-  end`
-    : "";
   const conflictFn = hasVersioned
     ? `
 
@@ -197,7 +142,8 @@ export function renderVanillaProblemDetailsModule(
         title: ${exLit(conflict409.title)},
         status: ${concurrencyStatus},
         detail: detail,
-        instance: conn.request_path
+        instance: conn.request_path,
+        code: ${exCode("version-conflict")}
       })
 
     trace_id = conn |> get_resp_header("x-request-id") |> List.first("")
@@ -305,15 +251,20 @@ export function renderVanillaProblemDetailsModule(
     ${logBodyVo}
     ${renderPhoenixDomainFault("domain_error")}
 
+    # The body's own \`code\` (and \`params\`) is the rule's: its \`detail\` is the
+    # rule's text.
     body =
-      Jason.encode!(%{
+      %{
         type: "about:blank",
         title: ${elixirString(bodyValueObjects.title)},
         status: ${bodyValueObjects.status},
         detail: detail,
         instance: conn.request_path,
+        code: entry.code,
         errors: [entry]
-      })
+      }
+      |> put_params(entry)
+      |> Jason.encode!()
 
     trace_id = conn |> get_resp_header("x-request-id") |> List.first("")
 
@@ -348,7 +299,7 @@ export function renderVanillaProblemDetailsModule(
         {:ok, value} <- [Map.fetch(params, key)],
         not is_nil(value),
         not json_type_ok?(json, value),
-        do: %{pointer: "/" <> key, message: "Expected " <> json}
+        do: %{pointer: "/" <> key, message: "Expected " <> json, code: ${exFieldCode("type-mismatch")}}
   end
 
   @doc "Send the 422 for the keys \`type_mismatches/2\` found."
@@ -370,7 +321,7 @@ ${exIngressGuardClauses()}`
   answer, never the 500 a nil reaching the operation body would raise.
   """
   def missing_params(params, required) when is_map(params) do
-    for key <- required, is_nil(Map.get(params, key)), do: %{pointer: "/" <> key, message: key <> ${exLit(` ${exMissingSuffix()}`)}}
+    for key <- required, is_nil(Map.get(params, key)), do: %{pointer: "/" <> key, message: key <> ${exLit(` ${exMissingSuffix()}`)}, code: ${exFieldCode("missing")}}
   end
 
   @doc "Send the 422 for the keys \`missing_params/2\` found absent."
@@ -388,6 +339,7 @@ ${strictIngressFns}
         status: ${invalid422.status},
         detail: ${exFixedDetail("field-invalid")},
         instance: conn.request_path,
+        code: ${exCode("field-invalid")},
         errors: pointer_errors
       })
 
@@ -412,23 +364,18 @@ ${strictIngressFns}
   wire-validation rung for a denial that never builds an \`Ecto.Changeset\`
   (a \`precondition\` over the operation's own request params,
   which the other four backends lift into the \`<Op>Request\` validator).  Each
-  entry is \`%{pointer:, message:, code:}\` (no code for a message-less rule); the code resolves through the same
-  catalog the changeset path uses, so both rungs localise identically.
+  entry is \`%{pointer:, message:, code:}\` plus \`params:\` for a named rule; the
+  \`code\` is the catalog key a client localizes by, as on the changeset path.
   """
   def validation_errors_response(conn, errors) when is_list(errors) do
     send_validation_problem(conn, Enum.map(errors, &render_wire_error/1))
   end
 
-  defp render_wire_error(%{pointer: pointer, message: message, code: code}) do
-    %{pointer: pointer, message: ${localizeMessages ? "localize(code, message)" : "message"}, code: code}
-  end
-
-  # A message-LESS rule's entry has no code: its sentence is the one node's
-  # validator sends, and a code is the i18n key of AUTHORED text only.
-  # A STRUCTURAL error (a workflow request missing a param) carries no code —
-  # the same shape zod's structural issues take on node.
-  defp render_wire_error(%{pointer: pointer, message: message}) do
-    %{pointer: pointer, message: message}
+  # Every entry carries its catalog \`code\` — a named rule's identity key, or a
+  # generic \`field.<reason>\` key — and, for a named rule, the \`params\` it read.
+  defp render_wire_error(%{pointer: pointer, message: message} = entry) do
+    %{pointer: pointer, message: message, code: Map.get(entry, :code, ${exFieldCode("rule")})}
+    |> put_params(entry)
   end`
     : "";
   // A `unique (...)` breach surfaces as a changeset `constraint: :unique` error
@@ -451,7 +398,8 @@ ${strictIngressFns}
         conn,
         ${uniquenessStatus},
         ${exLit(unique409.title)},
-        ${exFixedDetail("unique-conflict")}
+        ${exFixedDetail("unique-conflict")},
+        ${exCode("unique-conflict")}
       )
     else
       validation_failed_response(conn, changeset)
@@ -526,33 +474,58 @@ ${responseFns}${sendValidationProblemFn}${bodyValueObjectFns}${wireErrorsFn}
   the same 422 the other four backends already answer.
   """
   def invalid_path_id_response(conn, param) do
-    send_validation_problem(conn, [%{pointer: pointer_of([param]), message: ${exFieldMessage("malformed-id")}}])
+    send_validation_problem(conn, [%{pointer: pointer_of([param]), message: ${exFieldMessage("malformed-id")}, code: ${exFieldCode("malformed-id")}}])
   end
 
   @doc """
   Send a 404 ProblemDetails response for a missing record.
   """
   def not_found_response(conn, kind, id) do
-    problem_response(conn, ${notFoundStatus}, ${exLit(notFound404.title)}, ${exSentence("not-found", "#{kind} #{id}")})
+    problem_response(conn, ${notFoundStatus}, ${exLit(notFound404.title)}, ${exSentence("not-found", "#{kind} #{id}")}, ${exCode("not-found")})
   end
 
   @doc """
-  Send a base ProblemDetails response (no \`errors[]\` extension).
+  Send a base ProblemDetails response (no \`errors[]\` extension) for a fault the
+  framework raised: its \`code\` is read off the status.
+  """
+  def problem_response(conn, status, title, detail) do
+    problem_response(conn, status, title, detail, framework_code(status))
+  end
+
+  @doc false
+  def framework_code(404), do: ${exCode("no-route")}
+  def framework_code(405), do: ${exCode("method-not-allowed")}
+  def framework_code(415), do: ${exCode("unsupported-media-type")}
+  def framework_code(400), do: ${exCode("malformed-body")}
+  def framework_code(401), do: ${exCode("unauthenticated")}
+  def framework_code(403), do: ${exCode("forbidden")}
+  def framework_code(422), do: ${exCode("field-invalid")}
+  def framework_code(_status), do: ${exCode("internal")}
+
+  # A body's \`params\` member, present only when it names values.
+  defp put_params(body, %{params: params}) when is_map(params) and map_size(params) > 0,
+    do: Map.put(body, :params, params)
+
+  defp put_params(body, _source), do: body
+
+  @doc """
+  Send a ProblemDetails response (no \`errors[]\` extension) answering with the
+  catalog \`code\` of its rejection class.  A 500 also carries the request id as
+  \`params\`, since the fault itself is never echoed.
   """${
     domainFloorCodes
       ? `
-  # M-T1.11 (c) — a MESSAGED precondition denied at the domain floor carries its
-  # detail as a map with the rule's code and pointer: the same domain-floor
-  # answer, plus the errors[] entry the other four backends' coded throw gets.
-  def problem_response(conn, _status, _title, %{detail: detail, code: code, pointer: pointer}) do
-    send_body_value_object_problem(conn, detail, %{pointer: pointer, message: ${
-      localizeMessages ? "localize(code, detail)" : "detail"
-    }, code: code})
+  # M-T1.11 (c) — a NAMED precondition denied at the domain floor carries its
+  # detail as a map with the rule's code, pointer and the values it read: the
+  # same domain-floor answer, plus the errors[] entry the wire rung carries.
+  def problem_response(conn, _status, _title, %{detail: detail, code: code, pointer: pointer} = rule, _class_code) do
+    entry = put_params(%{pointer: pointer, message: detail, code: code}, rule)
+    send_body_value_object_problem(conn, detail, entry)
   end
 `
       : ""
   }
-  def problem_response(conn, status, title, detail) do
+  def problem_response(conn, status, title, detail, code) do
     # Classify the fault onto the cross-backend catalog event by status, so
     # every fault response (incl. not_found_response/3, which delegates here)
     # surfaces a structured log line matching Hono/.NET/Python. Emitted with
@@ -575,16 +548,19 @@ ${classifyArms}
         ${renderPhoenixDomainFault("domain_error")}
     end
 ${forbiddenBodyRedaction}
+    trace_id = conn |> get_resp_header("x-request-id") |> List.first("")
+
     body =
-      Jason.encode!(%{
+      %{
         type: "about:blank",
         title: title,
         status: status,
         detail: detail,
-        instance: conn.request_path
-      })
-
-    trace_id = conn |> get_resp_header("x-request-id") |> List.first("")
+        instance: conn.request_path,
+        code: code
+      }
+      |> put_params(%{params: if(code == ${exCode("internal")}, do: %{requestId: trace_id}, else: %{})})
+      |> Jason.encode!()
 
     conn
     |> put_resp_content_type("application/problem+json")
@@ -661,20 +637,27 @@ ${forbiddenBodyRedaction}
         String.replace(acc, "%{#{key}}", error_opt_to_string(value))
       end)
 
-    base = %{pointer: pointer_of(segments), message: ${
-      localizeMessages ? "localize(Keyword.get(opts, :loom_code), interpolated)" : "interpolated"
-    }}
-
-    # A messaged rule carries a "loom_code" metadata key (the stable
-    # content-hash wire code / i18n key) on the changeset error; a message-less
-    # rule has none, so the code field is omitted (byte-identical body).
-    case Keyword.get(opts, :loom_code) do
-      nil -> base
-      code -> Map.put(base, :code, code)
-    end
+    # Every entry carries the catalog \`code\` a client localizes it by: a named
+    # rule's identity key (\`loom_code\`), a rule's generic key (\`loom_rule_code\`),
+    # a Loom field check's reason (\`loom_code\`, with \`loom_params\`), else the
+    # reason Ecto's own validation names.  \`message\` stays English.
+    %{pointer: pointer_of(segments), message: interpolated, code: error_code(opts)}
+    |> put_params(%{params: Keyword.get(opts, :loom_params)})
   end
 
-  defp render_changeset_error(_error, _prefix), do: nil${localizeFn}
+  defp render_changeset_error(_error, _prefix), do: nil
+
+  defp error_code(opts) do
+    Keyword.get(opts, :loom_code) || Keyword.get(opts, :loom_rule_code) ||
+      case {Keyword.get(opts, :validation), Keyword.get(opts, :constraint)} do
+        {:required, _} -> ${exFieldCode("missing")}
+        {:cast, _} -> ${exFieldCode("type-mismatch")}
+        # A reference naming a row that is not there (the FK constraint the
+        # changeset tied to the column).
+        {_, :foreign} -> ${exCode("dangling-reference")}
+        _ -> ${exFieldCode("rule")}
+      end
+  end
 
   # Interpolate an Ecto error opt value into the message.  Enum.reduce above
   # evaluates this for EVERY opt (even ones whose placeholder isn't in the

@@ -133,7 +133,7 @@ describe("elixir/vanilla — messaged precondition answers the wire-validation 4
     const ctx = file(await generateSystemFiles(SRC), "/api/cat.ex");
     // Message-less: node's synthesized sentence, no code (RS-43).
     expect(ctx).toContain(
-      'ensure(amount >= 1, {:validation_failed, [%{pointer: "/amount", message: "Amount must be at least 1"}]})',
+      'ensure(amount >= 1, {:validation_failed, [%{pointer: "/amount", message: "Amount must be at least 1", code: "field.rule"}]})',
     );
     expect(ctx).not.toContain("Precondition failed: amount >= 1");
     // Messaged but reads `this.status` — no request body carries it, so it is
@@ -141,7 +141,7 @@ describe("elixir/vanilla — messaged precondition answers the wire-validation 4
     // which, since M-T1.11 (c), carries the rule's code and pointer in a map
     // detail so the 422 gains its errors[] entry.
     expect(ctx).toMatch(
-      /ensure\(record\.status != "closed", \{:precondition_failed, %\{detail: "Product is already closed", code: "Cat\.Product\.rule\.[A-Za-z0-9]+", pointer: ""\}\}\)/,
+      /ensure\(record\.status != "closed", \{:precondition_failed, %\{detail: "Product is already closed", code: "Cat\.Product\.rule\.[A-Za-z0-9]+", pointer: ""(?:, params: %\{[^}]*\})?\}\}\)/,
     );
   });
 

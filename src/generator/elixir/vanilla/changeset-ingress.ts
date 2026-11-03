@@ -31,7 +31,7 @@
 
 import type { FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
-import { exLit, exValuePrefix } from "../wire-policy-ex.js";
+import { exFieldCode, exLit, exValuePrefix } from "../wire-policy-ex.js";
 import { exMoneyGrammarRegex } from "./codec-spelling-ex.js";
 
 /** One decimal leaf the ingress guard checks: its snake-cased path from the
@@ -124,7 +124,7 @@ export function renderDecimalIngressHelpers(): string {
             else: cs.errors
 
         %{cs | errors: errors}
-        |> add_error(field, ${exLit(`${exValuePrefix("money-grammar")}: `)} <> Jason.encode!(value), loom_path: rest)
+        |> add_error(field, ${exLit(`${exValuePrefix("money-grammar")}: `)} <> Jason.encode!(value), loom_path: rest, loom_code: ${exFieldCode("money-grammar")}, loom_params: %{value: value})
       else
         _ -> cs
       end

@@ -143,52 +143,13 @@ describe("python/FastAPI — app/i18n.py + validation-handler resolution", () =>
   });
 });
 
-describe("elixir/Phoenix — priv/gettext catalog + changeset-error resolution", () => {
-  it("emits the authored messages into the gettext catalog, keyed as msgctxt", async () => {
-    const files = await filesFor("elixir");
-    const po = bySuffix(files, "priv/gettext/en/LC_MESSAGES/default.po")!;
-    expect(po).toBeDefined();
-    // pgettext reconciles the two key models: the Loom code is the CONTEXT and
-    // the authored English the msgid — identical to the HEEx frontend half.
-    expect(po).toContain(`msgctxt "${NAME_CODE}"`);
-    expect(po).toContain('msgid "Name length"');
-    // A `.pot` template ships beside it so `mix gettext.merge` works normally.
-    expect(bySuffix(files, "priv/gettext/default.pot")).toContain(`msgctxt "${SKU_CODE}"`);
-  });
-
-  it("emits the Gettext backend + hex dep for an API-only deployable (no ui)", async () => {
-    // The gettext runtime used to be gated on the mounted ui having strings, so
-    // a JSON-API deployable with an authored message had no catalog to resolve.
-    const files = await filesFor("elixir");
-    expect(bySuffix(files, "_web/gettext.ex")).toBeDefined();
-    expect(bySuffix(files, "mix.exs")).toContain("{:gettext,");
-  });
-
-  it("resolves the changeset error's loom_code through gettext", async () => {
-    const problem = bySuffix(await filesFor("elixir"), "_web/problem_details.ex")!;
-    expect(problem).toContain("localize(Keyword.get(opts, :loom_code), interpolated)");
-    // The RUNTIME pgettext/4, not the macro — the msgctxt is a runtime value.
-    expect(problem).toContain("Gettext.pgettext(ApiWeb.Gettext, code, message)");
-    expect(problem).toContain("Api.RequestContext.locale()");
-  });
-});
-
 describe("cross-backend parity", () => {
   it("the catalog backends ship the SAME code set — one collector, N renderings", async () => {
     const codesIn = (content: string): string[] =>
       [...new Set(content.match(/Cat\.Product\.rule\.[A-Za-z0-9]+/g) ?? [])].sort();
-    const [dotnet, python, elixir] = await Promise.all([
-      filesFor("dotnet"),
-      filesFor("python"),
-      filesFor("elixir"),
-    ]);
+    const [dotnet, python] = await Promise.all([filesFor("dotnet"), filesFor("python")]);
     expect(codesIn(bySuffix(dotnet, "Localization/LoomMessages.cs")!)).toEqual(ALL_CODES);
     expect(codesIn(bySuffix(python, "app/i18n.py")!)).toEqual(ALL_CODES);
-    expect(
-      codesIn(bySuffix(elixir, "priv/gettext/en/LC_MESSAGES/default.po")!).filter((c) =>
-        ALL_CODES.includes(c),
-      ),
-    ).toEqual(ALL_CODES);
   });
 
   it("the catalog keys equal the keys in the system's .loom/messages.en.json", async () => {
@@ -209,13 +170,8 @@ describe("cross-backend parity", () => {
     // so each rendering must normalise it the same way or a `fr-CA,fr;q=0.9`
     // request would resolve differently per backend.  The contract: take the first
     // listed language, drop its `;q=` weight, then fall back to the primary
-    // subtag.  elixir delegates it to gettext, so for it the assertion is that
-    // the FIRST-TAG extraction happens before the handoff.
-    const [dotnet, python, elixir] = await Promise.all([
-      filesFor("dotnet"),
-      filesFor("python"),
-      filesFor("elixir"),
-    ]);
+    // subtag.
+    const [dotnet, python] = await Promise.all([filesFor("dotnet"), filesFor("python")]);
     // .NET / python own the whole walk, including the primary-subtag step.
     const catalogs = [
       bySuffix(dotnet, "Localization/LoomMessages.cs")!,
@@ -226,9 +182,6 @@ describe("cross-backend parity", () => {
       expect(c).toMatch(/[Ss]plit\((["'])[;;]\1\)/); // drop the ;q= weight
       expect(c.toLowerCase()).toContain("primary"); // the subtag fallback
     }
-    const problem = bySuffix(elixir, "_web/problem_details.ex")!;
-    expect(problem).toContain('String.split(",")');
-    expect(problem).toContain('String.split(";")');
   });
 
   it("a system with no authored message emits no catalog and no lookup", async () => {
@@ -236,7 +189,6 @@ describe("cross-backend parity", () => {
       ["node", "http/messages.ts"],
       ["dotnet", "Localization/LoomMessages.cs"],
       ["python", "app/i18n.py"],
-      ["elixir", "priv/gettext/en/LC_MESSAGES/default.po"],
     ] as const) {
       const files = await filesFor(platform, NO_MESSAGES);
       expect(bySuffix(files, suffix), `${platform} emitted a catalog with no messages`).toBe(

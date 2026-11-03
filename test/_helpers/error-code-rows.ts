@@ -31,7 +31,7 @@ export const ERROR_CODE_ROWS: readonly ErrorCodeRow[] = [
   { platform: "dotnet", wireLegs: ["dotnet", "dapper"], status: { pending: "#4473 fan-out" } },
   { platform: "python", wireLegs: ["python"], status: { pending: "#4473 fan-out" } },
   { platform: "java", wireLegs: ["java"], status: "done" },
-  { platform: "elixir", wireLegs: ["elixir"], status: { pending: "#4473 fan-out" } },
+  { platform: "elixir", wireLegs: ["elixir"], status: "done" },
 ];
 
 /** The wire legs whose backend still answers without `code` / `params`. */

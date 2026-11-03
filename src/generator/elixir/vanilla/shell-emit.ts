@@ -52,6 +52,7 @@ import {
 import { renderLayouts } from "../shell/web.js";
 import { renderTelemetry } from "../telemetry-emit.js";
 import {
+  exCode,
   exFixedDetail,
   exInternalFallback,
   exSentence,
@@ -60,7 +61,11 @@ import {
 } from "../wire-policy-ex.js";
 import { exFrameworkTimestampType } from "./codec-spelling-ex.js";
 import { renderLoomDatetimeModule } from "./datetime-type-emit.js";
-import { renderGuardErrorModule } from "./denial.js";
+import {
+  renderGuardErrorModule,
+  renderMalformedIfMatchErrorModule,
+  renderNotImplementedErrorModule,
+} from "./denial.js";
 import { renderRepoReadScope } from "./read-scope-emit.js";
 import { renderObanConfig } from "./scheduler-emit.js";
 import { renderLoomValueObjectModule } from "./value-object-type-emit.js";
@@ -128,7 +133,7 @@ export function emitVanillaShellFiles(
 ): void {
   const hasLiveView = liveRoutes.length > 0 || hasSidebar;
   // Either source of translatable strings turns the runtime on.
-  const i18nEnabled = i18nUi !== undefined || validationMessages.length > 0;
+  const i18nEnabled = i18nUi !== undefined;
   // The SECOND-tier i18n gate (D-I18N-HEEX-ICU): an ICU engine ships only for a
   // ui that actually INTERPOLATES, so a translatable-but-literal-only app pays
   // for no ICU dep.
@@ -208,7 +213,12 @@ export function emitVanillaShellFiles(
   // pure-core op) raises — `<App>.GuardError`, with the rung in its `:kind`
   // field so the controller rescue routes on a FIELD rather than on the
   // message prefix.  Domain layer, not `<App>Web.*`: `function-emit` /
-  // `domain-service-emit` render into `lib/<app>/`.
+  out.set(`lib/${appName}/guard_error.ex`, renderGuardErrorModule(appModule));
+  out.set(`lib/${appName}/not_implemented_error.ex`, renderNotImplementedErrorModule(appModule));
+  out.set(
+    `lib/${appName}/malformed_if_match_error.ex`,
+    renderMalformedIfMatchErrorModule(appModule),
+  );
   out.set(`lib/${appName}/guard_error.ex`, renderGuardErrorModule(appModule));
   // The declared-`datetime` column type — a UTC instant at MILLISECOND
   // precision (RS-38).  Every datetime field of every schema is typed as it.
@@ -1114,7 +1124,8 @@ defmodule ${appModule}Web.BodyParser do
         title: Plug.Conn.Status.reason_phrase(status),
         status: status,
         detail: detail,
-        instance: conn.request_path
+        instance: conn.request_path,
+        code: ${appModule}Web.ProblemDetails.framework_code(status)
       })
 
     conn
@@ -1223,17 +1234,30 @@ defmodule ${appModule}Web.FaultHandler do
     # Re-raise so the framework tears the connection down instead of us
     # crashing on \`Plug.Conn.AlreadySentError\` and losing the original fault.
     if conn.state in [:unset, :set, :set_chunked, :set_file] do
-      respond(conn, status)
+      respond(conn, status, reason)
     else
       :erlang.raise(kind, reason, stack)
     end
+  end
+
+  # An \`extern\` operation whose hand-written body was never filled in: the
+  # stub's own message names the file to fill in, and it is the one fault whose
+  # text is meant for the caller.
+  defp respond(conn, ${exStatus("not-implemented")}, %${appModule}.NotImplementedError{message: message}) do
+    ProblemDetails.problem_response(conn, ${exStatus("not-implemented")}, ${exTitle("not-implemented")}, message, ${exCode("not-implemented")})
+  end
+
+  # An \`If-Match\` header that names no version is a client error with its own
+  # sentence, not the generic unparseable-body one.
+  defp respond(conn, ${exStatus("malformed-if-match")}, %${appModule}.MalformedIfMatchError{message: message}) do
+    ProblemDetails.problem_response(conn, ${exStatus("malformed-if-match")}, ${exTitle("malformed-if-match")}, message, ${exCode("malformed-if-match")})
   end
 
   # An error the server did not model is a SERVER fault, and its
   # message names modules, SQL text, hosts and connection strings.  The wire
   # gets the one sanitized literal all five backends send; the log line above
   # got the truth.
-  defp respond(conn, status) when status >= 500 do
+  defp respond(conn, status, _reason) when status >= 500 do
     ${exInternalFallback()}
   end
 
@@ -1241,11 +1265,13 @@ defmodule ${appModule}Web.FaultHandler do
   # (\`Ecto.NoResultsError\` -> 404, \`Phoenix.ActionClauseError\` -> 400).  Honour
   # the status; the reason phrase is the detail, sanitized by construction the
   # same way \`BodyParser\` sanitizes the parser faults.
-  defp respond(conn, status) do
+  defp respond(conn, status, _reason) do
     phrase = Plug.Conn.Status.reason_phrase(status)
     ProblemDetails.problem_response(conn, status, phrase, phrase)
   end
 
+  defp status_for(:error, %${appModule}.NotImplementedError{}), do: ${exStatus("not-implemented")}
+  defp status_for(:error, %${appModule}.MalformedIfMatchError{}), do: ${exStatus("malformed-if-match")}
   defp status_for(:error, %{__exception__: true} = e), do: Plug.Exception.status(e)
   defp status_for(_kind, _reason), do: 500
 end
@@ -1312,7 +1338,8 @@ defmodule ${appModule}Web.NotFoundController do
         title: title,
         status: status,
         detail: detail,
-        instance: conn.request_path
+        instance: conn.request_path,
+        code: ${appModule}Web.ProblemDetails.framework_code(status)
       })
 
     conn

@@ -32,16 +32,18 @@
 // structural-conflict rungs use, so a remap moves the runtime arm and
 // the OpenAPI declaration together and no rung is silently un-overridable.
 
-import { notFoundStmtDetail, ruleStage } from "../../../ir/enrich/wire-policy.js";
-import type { StmtIR, WorkflowStmtIR } from "../../../ir/types/loom-ir.js";
+import { notFoundStmtDetail, ruleStage, wireSentence } from "../../../ir/enrich/wire-policy.js";
+import type { ExprIR, StmtIR, WorkflowStmtIR } from "../../../ir/types/loom-ir.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { ruleParamRefs } from "../../../ir/util/rule-params.js";
 import { pickErrorPath, singleFieldShape } from "../../../ir/validate/invariant-classify.js";
 import { elixirString } from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
-import { ruleText } from "../../_i18n/rule-text.js";
+import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import {
   type DenialRung,
+  exFieldCode,
   exInternalFallback,
   exLit,
   exMissingSuffix,
@@ -125,12 +127,28 @@ export function internalFallbackResponse(): string {
   return exInternalFallback();
 }
 
-/** The human message a denial carries — identical to the string the other four
- *  backends put in their thrown `ForbiddenError` / `DomainError`, so the
- *  ProblemDetails `detail` is byte-identical cross-backend. */
+/** The message a denial carries — a precondition's rule text, which is the
+ *  ProblemDetails `detail`; a `requires` gate's `Forbidden: <source>`, which is
+ *  the SERVER LOG's account of which gate refused.  The `.ddd` source never
+ *  reaches a response: `ProblemDetails.problem_response/5` answers a
+ *  `problem.forbidden` rejection with the constant detail and its code, after
+ *  logging this message. */
 export function denialMessage(s: GuardStmt): string {
   if (s.kind === "requires") return `Forbidden: ${s.source}`;
   return ruleText(s);
+}
+
+/** An Elixir map literal carrying the VALUES of the identifiers `rule` reads
+ *  (`ruleParamRefs`) — a named rule's wire `params` — or undefined when it
+ *  reads none.  `render` spells one reference where the rule trips. */
+export function exRuleParams(
+  rule: { expr: ExprIR; guard?: ExprIR },
+  render: ((e: ExprIR) => string) | undefined,
+): string | undefined {
+  if (render === undefined) return undefined;
+  const refs = ruleParamRefs(rule);
+  if (refs.length === 0) return undefined;
+  return `%{${refs.map(({ name, ref }) => `${elixirString(name)} => ${render(ref)}`).join(", ")}}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,12 +256,51 @@ end
 `;
 }
 
+/** The `lib/<app>/not_implemented_error.ex` source — the exception an unfilled
+ *  `extern` operation stub raises.  The fault handler answers it `501
+ *  problem.not-implemented` with its own message (the file to fill in), where
+ *  any other unmodelled raise is the sanitized 500. */
+export function renderNotImplementedErrorModule(appModule: string): string {
+  return `# Auto-generated.
+defmodule ${appModule}.NotImplementedError do
+  @moduledoc """
+  An \`extern\` operation whose hand-written body was never filled in.
+  """
+  defexception [:message]
+end
+`;
+}
+
+/** The `lib/<app>/malformed_if_match_error.ex` source — the exception a
+ *  controller raises for an `If-Match` header that names no version.  The fault
+ *  handler answers it `400 problem.malformed-if-match` with the sentence the
+ *  wire-policy fact owns. */
+export function renderMalformedIfMatchErrorModule(appModule: string): string {
+  return `# Auto-generated.
+defmodule ${appModule}.MalformedIfMatchError do
+  @moduledoc """
+  An \`If-Match\` request header that is not \`*\` or a version tag.
+  """
+  defexception [:message]
+
+  @impl true
+  def exception(header) when is_binary(header),
+    do: %__MODULE__{message: ${elixirString(wireSentence("malformed-if-match").prefix)} <> header}
+end
+`;
+}
+
 /** The Elixir reason TERM a failed guard short-circuits to:
  *  `{:forbidden, "Forbidden: …"}` / `{:precondition_failed, "Precondition
  *  failed: …"}`.  Rendered into `ensure(<cond>, <term>)` and into the inline
  *  `if …, do: :ok, else: {:error, <term>}` workflow form alike. */
-export function denialTerm(s: GuardStmt, wireAvailable?: ReadonlySet<string>): string {
-  if (deniesAtWire(s, wireAvailable)) return wireValidationTerm(s);
+export function denialTerm(
+  s: GuardStmt,
+  wireAvailable?: ReadonlySet<string>,
+  /** Spells one identifier a named rule reads — its VALUE rides the wire `params`. */
+  renderRef?: (e: ExprIR) => string,
+): string {
+  if (deniesAtWire(s, wireAvailable)) return wireValidationTerm(s, renderRef);
   // A NAMED precondition in an aggregate OPERATION (the only
   // call site that passes `wireAvailable`) that the wire cannot see answers the
   // domain floor WITH its `errors[]` entry: the detail travels as a map carrying
@@ -251,7 +308,7 @@ export function denialTerm(s: GuardStmt, wireAvailable?: ReadonlySet<string>): s
   // answers that map through the same domain-floor entry sender the body-built
   // value object uses.  Every other denial keeps the plain string detail.
   if (wireAvailable !== undefined && s.kind === "precondition" && s.message) {
-    return codedPreconditionTerm(s, s.message.key);
+    return codedPreconditionTerm(s, s.message.key, renderRef);
   }
   const tag = s.kind === "requires" ? ":forbidden" : ":precondition_failed";
   return `{${tag}, ${elixirString(denialMessage(s))}}`;
@@ -278,15 +335,21 @@ export function notFoundStmtClause(st: { detail?: string; subject?: string }): s
  *  (banking eval B-02).  The workflow controller hands the detail to
  *  `ProblemDetails.problem_response/4`, whose map arm the domain-floor gate
  *  (`hasDomainFloorMessages`, which sees workflow preconditions) switches on. */
-export function workflowDenialTerm(s: GuardStmt): string {
-  if (s.kind === "precondition" && s.message) return codedPreconditionTerm(s, s.message.key);
+export function workflowDenialTerm(s: GuardStmt, renderRef?: (e: ExprIR) => string): string {
+  if (s.kind === "precondition" && s.message)
+    return codedPreconditionTerm(s, s.message.key, renderRef);
   return denialTerm(s);
 }
 
-function codedPreconditionTerm(s: GuardStmt, code: string): string {
+function codedPreconditionTerm(
+  s: GuardStmt,
+  code: string,
+  renderRef?: (e: ExprIR) => string,
+): string {
+  const params = s.kind === "precondition" ? exRuleParams(s, renderRef) : undefined;
   return `{:precondition_failed, %{detail: ${elixirString(denialMessage(s))}, code: ${JSON.stringify(
     code,
-  )}, pointer: ${JSON.stringify(domainFloorPointer(s))}}}`;
+  )}, pointer: ${JSON.stringify(domainFloorPointer(s))}${params ? `, params: ${params}` : ""}}}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -337,7 +400,7 @@ export function deniesAtWire(s: GuardStmt, available: ReadonlySet<string> | unde
  *  short-circuits); the list shape matches the `errors[]` extension the
  *  changeset path already produces so the controller can render both through
  *  one responder. */
-export function wireValidationTerm(s: GuardStmt): string {
+export function wireValidationTerm(s: GuardStmt, renderRef?: (e: ExprIR) => string): string {
   const path = pickErrorPath({ expr: s.expr, source: s.source });
   const pointer = path === null ? "" : `/${rfc6901(path)}`;
   const authored = s.kind === "precondition" ? s.message : undefined;
@@ -352,7 +415,8 @@ export function wireValidationTerm(s: GuardStmt): string {
     // The author's `message "…"` goes through the shared escaping funnel — a
     // raw `#{` here would interpolate into the 422 body at request time.
     `message: ${elixirString(text)}`,
-    ...(authored ? [`code: ${JSON.stringify(authored.key)}`] : []),
+    `code: ${JSON.stringify(ruleCode({ expr: s.expr, source: s.source, message: authored }))}`,
+    ...(authored && exRuleParams(s, renderRef) ? [`params: ${exRuleParams(s, renderRef)}`] : []),
   ].join(", ");
   return `{:validation_failed, [%{${entry}}]}`;
 }
@@ -412,7 +476,7 @@ export function wireValidationResponse(problemModule = "ProblemDetails"): string
  *  `code` (a structural error, like zod's), and go through the same
  *  `validation_errors_response/2` sender the wire-rung precondition uses. */
 function missingParamsResponse(problemModule = "ProblemDetails"): string {
-  return `${problemModule}.validation_errors_response(conn, Enum.map(missing, &%{pointer: "/" <> &1, message: &1 <> ${exLit(` ${exMissingSuffix()}`)}}))`;
+  return `${problemModule}.validation_errors_response(conn, Enum.map(missing, &%{pointer: "/" <> &1, message: &1 <> ${exLit(` ${exMissingSuffix()}`)}, code: ${exFieldCode("missing")}}))`;
 }
 
 /** The two ProblemDetails clauses a controller needs to answer a typed denial,

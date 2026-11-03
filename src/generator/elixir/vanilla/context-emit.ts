@@ -48,7 +48,7 @@ import { renderReadingServiceContextFns } from "../domain-service-emit.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { exFieldMessage, exLit, exValuePrefix } from "../wire-policy-ex.js";
+import { exFieldCode, exFieldMessage, exLit, exValuePrefix } from "../wire-policy-ex.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
 import {
   aggregateUsesPrincipalContextFilter,
@@ -153,7 +153,7 @@ function lifecycleEnsureClauses(
   return lifecycleGates(action).map((g) => {
     const pred = renderExpr(g.expr, rc);
     const guarded = stmtUsesCurrentUser(g) ? `not is_nil(current_user) and (${pred})` : `(${pred})`;
-    return `:ok <- ensure(${guarded}, ${denialTerm(g)})`;
+    return `:ok <- ensure(${guarded}, ${denialTerm(g, undefined, (e) => renderExpr(e, rc))})`;
   });
 }
 
@@ -322,10 +322,10 @@ function renderNumericParamHelpers(
   // param but no `money` must not carry the decimal helper.  (The generated
   // Phoenix build caught exactly that — `function __loom_decimal_param/3 is
   // unused` — which no string-level test would have.)
-  const err = `  defp __loom_param_error(record, field, value, message) do
+  const err = `  defp __loom_param_error(record, field, value, message, code, params) do
     record
     |> Ecto.Changeset.change(%{})
-    |> Ecto.Changeset.add_error(field, message <> ": " <> Jason.encode!(value))
+    |> Ecto.Changeset.add_error(field, message <> ": " <> Jason.encode!(value), loom_code: code, loom_params: params)
   end
 `;
   const dec = `
@@ -341,15 +341,15 @@ function renderNumericParamHelpers(
       if __loom_money_in_range?(Decimal.new(value)) do
         {:ok, Decimal.new(value)}
       else
-        {:error, __loom_param_error(record, field, value, ${exLit(exValuePrefix("money-range"))})}
+        {:error, __loom_param_error(record, field, value, ${exLit(exValuePrefix("money-range"))}, ${exFieldCode("money-range")}, %{value: value})}
       end
     else
-      {:error, __loom_param_error(record, field, value, ${exLit(exValuePrefix("money-grammar"))})}
+      {:error, __loom_param_error(record, field, value, ${exLit(exValuePrefix("money-grammar"))}, ${exFieldCode("money-grammar")}, %{value: value})}
     end
   end
 
   defp __loom_decimal_param(record, field, value),
-    do: {:error, __loom_param_error(record, field, value, ${exLit(exValuePrefix("money-grammar"))})}
+    do: {:error, __loom_param_error(record, field, value, ${exLit(exValuePrefix("money-grammar"))}, ${exFieldCode("money-grammar")}, %{value: value})}
 
   # RANGE, not format: the grammar already passed, and what is left is a
   # magnitude question the COLUMN answers.  Without this a 40-digit price is a
@@ -366,7 +366,7 @@ function renderNumericParamHelpers(
   defp __loom_int_param(_record, _field, value) when is_integer(value), do: {:ok, value}
 
   defp __loom_int_param(record, field, value),
-    do: {:error, __loom_param_error(record, field, value, "Invalid integer")}
+    do: {:error, __loom_param_error(record, field, value, "Invalid integer", ${exFieldCode("type-mismatch")}, nil)}
 `;
   // RANGE, not format — the int32 twin of `__loom_money_in_range?` above, and
   // the same failure it prevents: an `int` param is an int4 COLUMN, so a value
@@ -383,10 +383,10 @@ function renderNumericParamHelpers(
        do: {:ok, value}
 
   defp __loom_int32_param(record, field, value) when is_integer(value),
-    do: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, ${exFieldMessage("integer-range")})}
+    do: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, ${exFieldMessage("integer-range")}, loom_code: ${exFieldCode("integer-range")}, loom_params: %{min: ${exInt32Range().min}, max: ${exInt32Range().max}})}
 
   defp __loom_int32_param(record, field, value),
-    do: {:error, __loom_param_error(record, field, value, "Invalid integer")}
+    do: {:error, __loom_param_error(record, field, value, "Invalid integer", ${exFieldCode("type-mismatch")}, nil)}
 `;
   // `Date.from_iso8601/1` is strict ISO `YYYY-MM-DD`: a datetime-shaped value
   // is refused rather than having its time-of-day dropped.
@@ -397,12 +397,12 @@ function renderNumericParamHelpers(
   defp __loom_date_param(record, field, value) when is_binary(value) do
     case Date.from_iso8601(value) do
       {:ok, d} -> {:ok, d}
-      _ -> {:error, __loom_param_error(record, field, value, "Invalid date")}
+      _ -> {:error, __loom_param_error(record, field, value, "Invalid date", ${exFieldCode("type-mismatch")}, nil)}
     end
   end
 
   defp __loom_date_param(record, field, value),
-    do: {:error, __loom_param_error(record, field, value, "Invalid date")}
+    do: {:error, __loom_param_error(record, field, value, "Invalid date", ${exFieldCode("type-mismatch")}, nil)}
 `;
   // A uuid `X id` param: the same check the find-param and path-id edges make
   // (36 characters that cast), refused with the fact's `malformed-id` message.
@@ -412,7 +412,7 @@ function renderNumericParamHelpers(
   defp __loom_id_param(record, field, value) do
     if is_binary(value) and byte_size(value) == 36 and match?({:ok, _}, Ecto.UUID.cast(value)),
       do: {:ok, value},
-      else: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, ${exFieldMessage("malformed-id")})}
+      else: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, ${exFieldMessage("malformed-id")}, loom_code: ${exFieldCode("malformed-id")})}
   end
 `;
   // A value-object param is cast against its declared fields; each member error
@@ -440,7 +440,7 @@ function renderNumericParamHelpers(
   end
 
   defp __loom_vo_param(record, field, value, _types, _required),
-    do: {:error, __loom_param_error(record, field, value, "Invalid value")}
+    do: {:error, __loom_param_error(record, field, value, "Invalid value", ${exFieldCode("type-mismatch")}, nil)}
 `;
   // `__loom_id_param` builds its own changeset, so an id-only context must not
   // carry the shared error helper (`--warnings-as-errors` rejects it unused).

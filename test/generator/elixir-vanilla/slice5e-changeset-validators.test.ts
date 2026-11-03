@@ -86,7 +86,7 @@ system P {
     // No INVARIANT-derived validator: nothing on `title`, no `validate_change`,
     // no `validate_format`.
     expect(cs).not.toContain("validate_format");
-    expect(cs).not.toContain("validate_change");
+    expect(cs).not.toContain("validate_change(:title");
     expect(cs).not.toContain("validate_number(:title");
     // The one `validate_number` that IS here is type-derived, not
     // invariant-derived: the default-on `version` token is an `int`, so it is a
@@ -95,10 +95,10 @@ system P {
     // client-supplied version past 2147483647 reaches the column and the
     // DATABASE answers 500 for what is a client fault.  Asserted exactly, so
     // an invariant leaking in here would still fail this test.
-    const VERSION_BOUND =
-      "|> validate_number(:version, greater_than_or_equal_to: -2147483648, " +
-      'less_than_or_equal_to: 2147483647, message: "Integer out of range")';
-    const numberLines = cs.split("\n").filter((l) => l.includes("validate_number"));
+    // …carried by a `validate_change` closure rather than `validate_number`, so
+    // the error can name its catalog code and bounds (`field.integer-range`).
+    const VERSION_BOUND = "|> validate_change(:version, &__loom_int32_range/2)";
+    const numberLines = cs.split("\n").filter((l) => l.includes("__loom_int32_range/2"));
     // Once per changeset that casts the column — this aggregate emits the base
     // one and the versioned update one, and both take client attrs.
     expect(numberLines.map((l) => l.trim())).toEqual([VERSION_BOUND, VERSION_BOUND]);

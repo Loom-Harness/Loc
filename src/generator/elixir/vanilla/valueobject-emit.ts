@@ -2,12 +2,7 @@ import type { BoundedContextIR, ValueObjectIR } from "../../../ir/types/loom-ir.
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { isStringField } from "./changeset-ingress.js";
-import {
-  messageCodeTagging,
-  voConstraintLines,
-  voEctoType,
-  voHasConstraints,
-} from "./changeset-validators.js";
+import { taggedConstraintLines, voEctoType, voHasConstraints } from "./changeset-validators.js";
 
 // ---------------------------------------------------------------------------
 // Validating value-object constructor (Ecto/Phoenix)
@@ -63,8 +58,8 @@ function renderValueObjectModule(
   const typeEntries = vo.fields
     .map((f) => `${snake(f.name)}: ${voEctoType(f.type, enums)}`)
     .join(", ");
-  const tagging = messageCodeTagging(vo);
-  const validators = [...voConstraintLines(vo), ...(tagging.pipe ? [tagging.pipe] : [])].join("\n");
+  const tagging = taggedConstraintLines(vo);
+  const validators = tagging.lines.join("\n");
   const tagDefs = tagging.defs ? `\n${tagging.defs}` : "";
   // A string leaf keeps a blank value so the value object's own rule answers
   // it with its authored message (`changeset-ingress.ts`) — Ecto's default

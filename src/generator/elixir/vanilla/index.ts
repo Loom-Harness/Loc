@@ -22,7 +22,6 @@ import {
 import { apiResourceBindings } from "../../../ir/util/api-resource-binding.js";
 import { contextHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
-import { echoesDenialDetail } from "../../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import type { PageNameCtx } from "../../../ir/util/page-kind.js";
 import {
@@ -202,7 +201,6 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       denialStatus("forbidden", ladderStatuses),
       denialStatus("disallowed", ladderStatuses),
       exStatus("referenced-in-use", structuralStatuses),
-      validationMessages.length > 0,
       hasWireDenials,
       // M-T5.1 — an op body builds a constructor-carrying value object; its
       // refusal answers the domain-floor rung (status + title resolved like
@@ -217,8 +215,6 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
         : undefined,
       // M-T1.11 (c) — a messaged rule can trip at the domain floor.
       contexts.some(hasDomainFloorMessages),
-      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
-      echoesDenialDetail(deployable, sys),
       hasStrictIngress,
     );
   out.set(`lib/${appName}_web/problem_details.ex`, renderProblemDetails(false));

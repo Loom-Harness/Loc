@@ -132,7 +132,8 @@ end
         const opSnake = snake(op.name);
         return `  @impl true
   def ${opSnake}(%${aggModule}{} = _record, _params) do
-    raise "extern operation \`${op.name}\` on ${aggPascal} is not implemented — " <>
+    raise ${appModule}.NotImplementedError,
+          "extern operation \`${op.name}\` on ${aggPascal} is not implemented — " <>
             "fill in lib/${appSnake}/${ctxSnake}/${aggSnake}_extern_impl.ex"
   end`;
       })

@@ -968,10 +968,14 @@ function renderCommandRunner(c: CommandCtx): string {
   for (const s of c.op.statements) {
     switch (s.kind) {
       case "precondition":
-        clauses.push(`:ok <- ensure(${renderExpr(s.expr, exprCtx)}, ${denialTerm(s)})`);
+        clauses.push(
+          `:ok <- ensure(${renderExpr(s.expr, exprCtx)}, ${denialTerm(s, undefined, (e) => renderExpr(e, exprCtx))})`,
+        );
         break;
       case "requires":
-        clauses.push(`:ok <- ensure(${renderExpr(s.expr, exprCtx)}, ${denialTerm(s)})`);
+        clauses.push(
+          `:ok <- ensure(${renderExpr(s.expr, exprCtx)}, ${denialTerm(s, undefined, (e) => renderExpr(e, exprCtx))})`,
+        );
         break;
       case "let":
         lets.push(`    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, exprCtx)}`);

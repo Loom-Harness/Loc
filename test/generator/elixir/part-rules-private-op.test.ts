@@ -73,7 +73,9 @@ describe("elixir vanilla — part rules, guarded invariants, private-op calls (M
       const fn = fnBody(cs, "validate_invariants");
       expect(fn).toContain("if data.tax_rate > 0 do");
       expect(fn).toContain("length(String.to_charlist(data.note)) > 0");
-      expect(fn).toContain('add_error(changeset, :note, "Business rule violated")');
+      expect(fn).toContain(
+        'add_error(changeset, :note, "Business rule violated", loom_rule_code: "problem.domain-floor")',
+      );
     });
 
     it("the MESSAGED guarded rule keeps its `loom_code` wire key", async () => {

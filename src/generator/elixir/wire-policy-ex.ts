@@ -5,7 +5,9 @@
 // the same way.
 
 import {
+  errorVariantCode,
   errorVariantResponse,
+  fieldCode,
   fieldFixedMessage,
   fieldSentenceSuffix,
   fieldValuePrefix,
@@ -14,6 +16,7 @@ import {
   ingressFor,
   reasonPhrase,
   type WireRejectionClass,
+  wireCode,
   wireFixedDetail,
   wireRejection,
   wireSentence,
@@ -90,16 +93,32 @@ export const RUNG_CLASS: Readonly<Record<DenialRung, WireRejectionClass>> = {
   notFound: "not-found",
 };
 
-/** `ProblemDetails.problem_response(conn, <status>, <title>, <detail>)` for a
- *  class — the status and title come from the fact; `detailExpr` is an Elixir
- *  expression (a bound variable, or an already-quoted literal). */
+/** `ProblemDetails.problem_response(conn, <status>, <title>, <detail>, <code>)`
+ *  for a class — the status and title come from the fact, the `code` is the
+ *  class's catalog key (`wireCode`); `detailExpr` is an Elixir expression (a
+ *  bound variable, or an already-quoted literal). */
 export function exProblemResponse(
   cls: WireRejectionClass,
   detailExpr: string,
   overrides?: StatusOverrides,
   problemModule = "ProblemDetails",
 ): string {
-  return `${problemModule}.problem_response(conn, ${exStatus(cls, overrides)}, ${exTitle(cls, overrides)}, ${detailExpr})`;
+  return `${problemModule}.problem_response(conn, ${exStatus(cls, overrides)}, ${exTitle(cls, overrides)}, ${detailExpr}, ${exCode(cls)})`;
+}
+
+/** The wire `code` of a rejection class, as an Elixir string literal. */
+export function exCode(cls: WireRejectionClass): string {
+  return exLit(wireCode(cls));
+}
+
+/** The wire `code` of a field reason, as an Elixir string literal. */
+export function exFieldCode(reason: Parameters<typeof fieldCode>[0]): string {
+  return exLit(fieldCode(reason));
+}
+
+/** The wire `code` of a declared error variant, as an Elixir string literal. */
+export function exErrorVariantCode(ctx: string | undefined, name: string): string {
+  return exLit(errorVariantCode(ctx, name));
 }
 
 /** The sanitized catch-all for a fault no rung modelled: the 500 with its fixed

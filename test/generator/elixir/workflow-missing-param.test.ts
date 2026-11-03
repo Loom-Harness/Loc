@@ -111,18 +111,18 @@ describe("a workflow request missing a referenced param", () => {
     // entry per missing param, its RFC 6901 pointer naming WHICH one — the
     // whole point of returning the list rather than a bare atom.
     expect(ctl).toContain(
-      'ProblemDetails.validation_errors_response(conn, Enum.map(missing, &%{pointer: "/" <> &1, message: &1 <> " is required"}))',
+      'ProblemDetails.validation_errors_response(conn, Enum.map(missing, &%{pointer: "/" <> &1, message: &1 <> " is required", code: "field.missing"}))',
     );
   });
 
-  it("emits the `errors[]` sender the 422 arm calls, with a codeless entry clause", async () => {
+  it("emits the `errors[]` sender the 422 arm calls, every entry carrying a code", async () => {
     const pd = await elixirFile(sys(WITH_PARAMS), "/problem_details.ex");
     expect(pd).toContain("def validation_errors_response(conn, errors) when is_list(errors) do");
-    expect(pd).toContain("defp render_wire_error(%{pointer: pointer, message: message}) do");
-    // The coded clause must come FIRST — a map pattern matches a superset.
-    expect(pd.indexOf("message: message, code: code})")).toBeLessThan(
-      pd.indexOf("defp render_wire_error(%{pointer: pointer, message: message}) do"),
+    // One clause: a structural entry with no code falls back to `field.rule`.
+    expect(pd).toContain(
+      "defp render_wire_error(%{pointer: pointer, message: message} = entry) do",
     );
+    expect(pd).toContain('code: Map.get(entry, :code, "field.rule")');
   });
 
   it("the 422 arm sits ahead of the sanitized catch-all", () => {

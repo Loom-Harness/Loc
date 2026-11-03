@@ -39,7 +39,7 @@ import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { namedRuleText } from "../../_i18n/rule-text.js";
 import { serverSeededFields } from "../../construction-default.js";
 import { renderExpr as renderElixirExpr } from "../render-expr.js";
-import { exFieldMessage, exLit, exValuePrefix } from "../wire-policy-ex.js";
+import { exFieldCode, exFieldMessage, exLit, exValuePrefix } from "../wire-policy-ex.js";
 import {
   decimalIngressPaths,
   isStringField,
@@ -354,7 +354,11 @@ function renderChangeset(
   defp __loom_money_range(field, %Decimal{} = value) do
     if Decimal.lt?(Decimal.abs(value), Decimal.new(${exMoneyMaxExclusive()})),
       do: [],
-      else: [{field, ${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(Decimal.to_string(value))}]
+      else: [
+        {field,
+         {${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(Decimal.to_string(value)),
+          [loom_code: ${exFieldCode("money-range")}, loom_params: %{value: Decimal.to_string(value)}]}}
+      ]
   end
 
   defp __loom_money_range(_field, _value), do: []`
@@ -375,11 +379,26 @@ function renderChangeset(
       return t.kind === "primitive" && t.name === "int";
     })
     .map((f) => snake(f.name));
+  // A \`validate_change\` closure rather than \`validate_number\`: its error carries
+  // the \`loom_code\` / \`loom_params\` the 422 body reports (\`field.integer-range\`
+  // with the int32 bounds), which Ecto's own validator cannot attach.
   const int32RangeLines = int32Columns.map(
-    (f) =>
-      `    |> validate_number(:${f}, greater_than_or_equal_to: ${exInt32Range().min}, ` +
-      `less_than_or_equal_to: ${exInt32Range().max}, message: ${exFieldMessage("integer-range")})`,
+    (f) => `    |> validate_change(:${f}, &__loom_int32_range/2)`,
   );
+  const int32RangeHelper =
+    int32Columns.length > 0
+      ? `
+
+  defp __loom_int32_range(field, value)
+       when is_integer(value) and (value < ${exInt32Range().min} or value > ${exInt32Range().max}),
+       do: [
+         {field,
+          {${exFieldMessage("integer-range")},
+           [validation: :number, loom_code: ${exFieldCode("integer-range")}, loom_params: %{min: ${exInt32Range().min}, max: ${exInt32Range().max}}]}}
+       ]
+
+  defp __loom_int32_range(_field, _value), do: []`
+      : "";
   const validatorBlock =
     validatorLines.length > 0 || moneyRangeLines.length > 0 || int32RangeLines.length > 0
       ? `\n${[...validatorLines, ...moneyRangeLines, ...int32RangeLines].join("\n")}`
@@ -939,7 +958,7 @@ defmodule ${changesetMod} do
     ${voKeyNormalizeLine}${valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : ""}struct
     |> ${castLines("@all_fields", "@string_fields")}${createIngressLine}${defaultBlock}
     |> ${requireLines("@required_fields", "@required_strings")}${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}
-  end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voShapeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
+  end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${int32RangeHelper}${voShapeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
 
 ${actionHelpers}
 end

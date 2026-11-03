@@ -18,6 +18,7 @@
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../diagnostics/messages.js";
+import { wireCode } from "../../ir/enrich/wire-policy.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -36,7 +37,7 @@ import {
   exprUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
 import { canonicalCreate, canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
-import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../ir/util/denial-detail.js";
+import { CONSTANT_FORBIDDEN_DETAIL } from "../../ir/util/denial-detail.js";
 import { hostStatefulComponents } from "../../ir/util/heex-component-host-state.js";
 import { lifecycleGates, lifecycleGatesUseCurrentUser } from "../../ir/util/op-gates.js";
 import {
@@ -57,6 +58,7 @@ import {
   PLAYWRIGHT_CONFIG_TS_PHOENIX,
 } from "../_frontend/e2e-harness.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
+import { wireErrorMessage } from "../_i18n/wire-error-text.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { componentKeyPrefix, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { opUsesCurrentUser } from "./domain/predicates.js";
@@ -425,7 +427,6 @@ export function emitLiveViewPages(args: {
       partContextModule,
       componentInfo,
       authEnabled,
-      echoForbiddenDetail: echoesDenialDetail(deployable, sys),
       i18nEnabled,
       refLabelAggs,
       refLabelBatchAggs,
@@ -579,10 +580,6 @@ interface RenderArgs {
   refLabelBatchAggs: ReadonlySet<string>;
   /** Aggregates whose rows a label load may read references off. */
   refLabelSourceAggs: ReadonlySet<string>;
-  /** Ruling D4 (#20): true only under the dev-stub verifier — a denied
-   *  create's flash then names the failed gate; otherwise it says `Forbidden`,
-   *  the same text the HTTP 403 body carries. */
-  echoForbiddenDetail: boolean;
 }
 
 interface ComponentActionInfo {
@@ -853,7 +850,6 @@ function renderLiveView(a: RenderArgs): {
     partContextModule,
     componentInfo,
     authEnabled,
-    echoForbiddenDetail,
   } = a;
   const webModule = `${appModule}Web`;
 
@@ -984,7 +980,7 @@ function renderLiveView(a: RenderArgs): {
       contextModuleByAggName,
       createSuccessRoute,
       aggregatesByName,
-      echoForbiddenDetail,
+      a.i18nEnabled === true,
     ) +
     renderOperationEventClauses(
       walked.formBindings,
@@ -2063,8 +2059,10 @@ function renderCreateEventClauses(
    *  (`/customers/new` → `/customers`), navigated to on success. */
   listRoute: string | null,
   aggregatesByName: ReadonlyMap<string, AggregateIR>,
-  /** Ruling D4 (#20) — see `echoesDenialDetail`. */
-  echoForbiddenDetail = false,
+  /** True when the app translates: a denial's flash is then the catalog text of
+   *  `problem.forbidden`, resolved by gettext in this process.  Otherwise it is
+   *  the constant detail the HTTP 403 body carries — never the failed gate. */
+  i18nEnabled = false,
 ): string {
   const creates = formBindings.filter((fb) => fb.kind === "aggregate");
   if (creates.length === 0) return "";
@@ -2114,8 +2112,12 @@ ${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}
           gated
             ? `
 
-      {:error, {:forbidden, ${echoForbiddenDetail ? "detail" : "_detail"}}} ->
-        {:noreply, put_flash(socket, :error, ${echoForbiddenDetail ? "detail" : JSON.stringify(CONSTANT_FORBIDDEN_DETAIL)})}`
+      {:error, {:forbidden, _detail}} ->
+        {:noreply, put_flash(socket, :error, ${
+          i18nEnabled
+            ? pgettextCall(wireCode("forbidden"), wireErrorMessage(wireCode("forbidden")))
+            : JSON.stringify(CONSTANT_FORBIDDEN_DETAIL)
+        })}`
             : ""
         }
     end

@@ -78,7 +78,13 @@ const BACKEND_FACTS: Readonly<
     ],
     catalog: /MessageSource|messages\.properties/,
   },
-  elixir: { schema: [], catalog: /Gettext\.with_locale/ },
+  elixir: {
+    schema: [
+      /code: %OpenApiSpex\.Schema\{type: :string\}/,
+      /params: %OpenApiSpex\.Schema\{type: :object, additionalProperties: true/,
+    ],
+    catalog: /Gettext\.with_locale/,
+  },
 };
 
 /** Every `problem.*` / `field.*` code a client can be answered with. */
