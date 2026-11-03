@@ -62,6 +62,11 @@ interface Pin {
 
 // key = "<file>:<identifier>"
 const PINNED: Record<string, Pin> = {
+  "test/_helpers/source-overrides.ts:bySource": {
+    discipline: "build-once-cache",
+    reason:
+      "Content-addressed: keyed by the exact source text a loader returned, valued by the translator tree beside the file it was read from — a pure function of that file, so a later write for the same key stores the same value and no file's entry can change another's.",
+  },
   "src/language/storage-config-key.ts:clauses": {
     discipline: "build-once-cache",
     reason:
