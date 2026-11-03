@@ -19,18 +19,45 @@
 //   - `AuditableInterceptor.cs` still emitted when any aggregate
 //     has stamping rules.  Body is the registry-driven switch.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateDotnet } from "../../_helpers/generate.js";
+import { generateBackendFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
-async function modelFrom(source: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const helper = parseHelper<Model>(services.Ddd);
-  const doc = await helper(source, { validation: true });
-  return doc.parseResult.value;
+/** The .NET project for a bare-context fixture, hosted on one deployable. */
+function dotnetFiles(source: string): Promise<Map<string, string>> {
+  return generateBackendFiles(source, "dotnet");
+}
+
+/**
+ * `dotnetFiles` for a fixture whose stamps read `currentUser` (`auditable`'s
+ * `createdBy := currentUser`): the hosting deployable must carry
+ * `auth: required` and the system a `user { }` block, or phase ⑦ rejects it
+ * (`loom.stamp-principal-without-auth`) — there is no principal to stamp from.
+ * Keys come back with the `app/` prefix stripped.
+ */
+async function dotnetFilesWithAuth(context: string): Promise<Map<string, string>> {
+  const name = /\bcontext\s+([A-Z]\w*)/.exec(context)?.[1];
+  if (!name) throw new Error("fixture declares no context");
+  const files = await generateSystemFiles(`
+    system Fixture {
+      user { id: guid  role: string }
+      subdomain Fixture {
+        ${context}
+      }
+      api FixtureApi from Fixture
+      storage pg { type: postgres }
+      resource st { for: ${name}, kind: state, use: pg }
+      deployable app {
+        platform: dotnet
+        contexts: [${name}]
+        dataSources: [st]
+        serves: FixtureApi
+        auth: required
+      }
+    }
+  `);
+  const out = new Map<string, string>();
+  for (const [k, v] of files) if (k.startsWith("app/")) out.set(k.slice(4), v);
+  return out;
 }
 
 // `auditable` references Id<User> and currentUser, so the source
@@ -46,14 +73,14 @@ const aggregateOnly = (extras: string) => `
   }
 `;
 
-// Trio-form: capability behavior at context, state at aggregate.
-// The aggregate-only macros (`with softDeletable` / `with auditable`)
-// now contribute only state; behavior comes from a context-level
-// macro (`with softDelete` / `with audit`).
-const trioed = (ctxMacro: string, aggMacro: string) => `
-  context Sales with ${ctxMacro} {
+// Capability state and behaviour both ride the aggregate: the prelude
+// capabilities (`softDeletable` / `auditable`) contribute the state + the
+// filter / stamps, and the stdlib `softDelete` ops macro is aggregate-level
+// too.  There is no context-level `audit` / `softDelete` macro.
+const withCaps = (aggMacros: string) => `
+  context Sales {
     aggregate User { name: string }
-    aggregate Order with ${aggMacro} {
+    aggregate Order with ${aggMacros} {
       subject: string
     }
     repository Orders for Order { }
@@ -63,8 +90,7 @@ const trioed = (ctxMacro: string, aggMacro: string) => `
 
 describe(".NET generator: no capability artefacts emitted", () => {
   it("no Domain/Common/I*.cs marker interfaces", async () => {
-    const model = await modelFrom(trioed("audit, softDelete", "auditable, softDeletable"));
-    const files = generateDotnet(model);
+    const files = await dotnetFilesWithAuth(withCaps("auditable, softDeletable, softDelete"));
     const markers = [...files.keys()].filter(
       (k) => k.startsWith("Domain/Common/I") && k.endsWith(".cs"),
     );
@@ -72,8 +98,7 @@ describe(".NET generator: no capability artefacts emitted", () => {
   });
 
   it("no <Capability>Filters.cs helper", async () => {
-    const model = await modelFrom(trioed("softDelete", "softDeletable"));
-    const files = generateDotnet(model);
+    const files = await dotnetFiles(withCaps("softDeletable, softDelete"));
     const helpers = [...files.keys()].filter(
       (k) => k.startsWith("Infrastructure/Persistence/") && k.endsWith("Filters.cs"),
     );
@@ -81,16 +106,14 @@ describe(".NET generator: no capability artefacts emitted", () => {
   });
 
   it("entity class declaration has no `: I<Cap>` clause", async () => {
-    const model = await modelFrom(trioed("audit, softDelete", "auditable, softDeletable"));
-    const files = generateDotnet(model);
+    const files = await dotnetFilesWithAuth(withCaps("auditable, softDeletable, softDelete"));
     const orderCs = files.get("Domain/Orders/Order.cs")!;
     expect(orderCs).toMatch(/public sealed class Order\n/);
     expect(orderCs).not.toMatch(/: I/);
   });
 
   it("OnModelCreating has no `foreach (var entityType ...)` loop", async () => {
-    const model = await modelFrom(trioed("softDelete", "softDeletable"));
-    const files = generateDotnet(model);
+    const files = await dotnetFiles(withCaps("softDeletable, softDelete"));
     const ctx = files.get("Infrastructure/Persistence/AppDbContext.cs")!;
     expect(ctx).not.toMatch(/foreach \(var entityType/);
   });
@@ -98,8 +121,7 @@ describe(".NET generator: no capability artefacts emitted", () => {
 
 describe(".NET generator: HasQueryFilter installs per-EntityConfiguration", () => {
   it("emits one `builder.HasQueryFilter(...)` per propagated filter on the matching config", async () => {
-    const model = await modelFrom(trioed("softDelete", "softDeletable"));
-    const files = generateDotnet(model);
+    const files = await dotnetFiles(withCaps("softDeletable, softDelete"));
     const cfg = files.get("Infrastructure/Persistence/Configurations/OrderConfiguration.cs")!;
     expect(cfg).toMatch(/builder\.HasQueryFilter\("IsDeletedFilter", x => !x\.IsDeleted\)/);
   });
@@ -109,7 +131,7 @@ describe(".NET generator: HasQueryFilter installs per-EntityConfiguration", () =
     // emitting `DeletedAt = Now();` — uncompilable C#.  The `softDelete` ops
     // macro is aggregate-level (pairs with the built-in `softDeletable`
     // capability for the state + filter).
-    const model = await modelFrom(`
+    const files = await dotnetFiles(`
       context Sales {
         aggregate Order with softDeletable, softDelete {
           subject: string
@@ -117,7 +139,6 @@ describe(".NET generator: HasQueryFilter installs per-EntityConfiguration", () =
         repository Orders for Order { }
       }
     `);
-    const files = generateDotnet(model);
     const order = files.get("Domain/Orders/Order.cs")!;
     expect(order).toMatch(/DeletedAt = DateTime\.UtcNow;/);
     expect(order).not.toMatch(/DeletedAt = Now\(\)/);
@@ -131,7 +152,7 @@ describe(".NET generator: HasQueryFilter installs per-EntityConfiguration", () =
     // provider does not support this type") — it needs the converter.  The
     // struct-nullable form guards on HasValue (no `?.` — expression trees
     // reject it, CS8072).
-    const model = await modelFrom(`
+    const files = await dotnetFiles(`
       context Sales {
         aggregate User { name: string }
         aggregate Order {
@@ -142,7 +163,6 @@ describe(".NET generator: HasQueryFilter installs per-EntityConfiguration", () =
         repository Users for User { }
       }
     `);
-    const files = generateDotnet(model);
     const cfg = files.get("Infrastructure/Persistence/Configurations/OrderConfiguration.cs")!;
     expect(cfg).toContain(
       'builder.Property(x => x.Owner).HasConversion(v => v.HasValue ? v.Value.Value : (Guid?)null, v => v.HasValue ? (UserId?)new UserId(v.Value) : (UserId?)null).HasColumnName("owner");',
@@ -152,14 +172,13 @@ describe(".NET generator: HasQueryFilter installs per-EntityConfiguration", () =
   });
 
   it("does NOT install HasQueryFilter for non-softDeletable aggregates", async () => {
-    const model = await modelFrom(aggregateOnly(""));
-    const files = generateDotnet(model);
+    const files = await dotnetFiles(aggregateOnly(""));
     const cfg = files.get("Infrastructure/Persistence/Configurations/OrderConfiguration.cs")!;
     expect(cfg).not.toMatch(/HasQueryFilter/);
   });
 
   it("hand-written `filter` declaration installs the same way as macro-emitted", async () => {
-    const model = await modelFrom(`
+    const files = await dotnetFiles(`
       context Sales {
         aggregate Order {
           subject: string
@@ -169,7 +188,6 @@ describe(".NET generator: HasQueryFilter installs per-EntityConfiguration", () =
         repository Orders for Order { }
       }
     `);
-    const files = generateDotnet(model);
     const cfg = files.get("Infrastructure/Persistence/Configurations/OrderConfiguration.cs")!;
     expect(cfg).toMatch(/builder\.HasQueryFilter\("ArchivedFilter", x => !x\.Archived\)/);
   });
@@ -178,7 +196,7 @@ describe(".NET generator: HasQueryFilter installs per-EntityConfiguration", () =
     // Pre-EF-10 a second HasQueryFilter overwrote the first; named filters
     // make both apply.  The `softDeletable` capability filter + a hand-written
     // tenancy `filter` on the same aggregate ⇒ two distinct named calls.
-    const model = await modelFrom(`
+    const files = await dotnetFiles(`
       context Sales {
         aggregate Order with softDeletable {
           subject: string
@@ -188,7 +206,6 @@ describe(".NET generator: HasQueryFilter installs per-EntityConfiguration", () =
         repository Orders for Order { }
       }
     `);
-    const files = generateDotnet(model);
     const cfg = files.get("Infrastructure/Persistence/Configurations/OrderConfiguration.cs")!;
     expect(cfg).toMatch(/builder\.HasQueryFilter\("IsDeletedFilter", x => !x\.IsDeleted\)/);
     expect(cfg).toMatch(/builder\.HasQueryFilter\("TenantIdFilter", x => x\.TenantId == "acme"\)/);
@@ -199,16 +216,14 @@ describe(".NET generator: HasQueryFilter installs per-EntityConfiguration", () =
 
 describe(".NET generator: registry-driven SaveChangesInterceptor", () => {
   it("emits AuditableInterceptor.cs when any aggregate has contextStamps", async () => {
-    const model = await modelFrom(trioed("audit", "auditable"));
-    const files = generateDotnet(model);
+    const files = await dotnetFilesWithAuth(withCaps("auditable"));
     const src = files.get("Infrastructure/Persistence/AuditableInterceptor.cs")!;
     expect(src).toMatch(/switch \(entry\.Entity\)/);
     expect(src).toMatch(/case Order /);
   });
 
   it("interceptor body assigns the macro-supplied fields via the EF lambda accessor", async () => {
-    const model = await modelFrom(trioed("audit", "auditable"));
-    const files = generateDotnet(model);
+    const files = await dotnetFilesWithAuth(withCaps("auditable"));
     const src = files.get("Infrastructure/Persistence/AuditableInterceptor.cs")!;
     // Compile-checked lambda write (capability-stamp-dedup) — keeps the stamped
     // property `private set` while the write stays bound to a real property.
@@ -220,8 +235,7 @@ describe(".NET generator: registry-driven SaveChangesInterceptor", () => {
     // Regression: the audit macro built `now()` as a generic call, which
     // lowered to `Now()` — uncompilable C#.  It must build a NowExpr so the
     // .NET renderer emits the clock builtin.
-    const model = await modelFrom(trioed("audit", "auditable"));
-    const files = generateDotnet(model);
+    const files = await dotnetFilesWithAuth(withCaps("auditable"));
     const src = files.get("Infrastructure/Persistence/AuditableInterceptor.cs")!;
     expect(src).toMatch(
       /ctx\.Entry\(e\)\.Property\(x => x\.CreatedAt\)\.CurrentValue = DateTime\.UtcNow;/,
@@ -233,22 +247,21 @@ describe(".NET generator: registry-driven SaveChangesInterceptor", () => {
   });
 
   it("Program.cs registers the interceptor when stamping is used", async () => {
-    const model = await modelFrom(trioed("audit", "auditable"));
-    const files = generateDotnet(model);
+    const files = await dotnetFilesWithAuth(withCaps("auditable"));
     const program = files.get("Program.cs")!;
-    expect(program).toMatch(/AddScoped<Sales\.Infrastructure\.Persistence\.AuditableInterceptor>/);
+    // The root namespace is the deployable's (`app` → `App`), not the context's.
+    expect(program).toMatch(/AddScoped<App\.Infrastructure\.Persistence\.AuditableInterceptor>/);
   });
 
   it("softDeletable alone does NOT trigger interceptor emission", async () => {
-    const model = await modelFrom(trioed("softDelete", "softDeletable"));
-    const files = generateDotnet(model);
+    const files = await dotnetFiles(withCaps("softDeletable, softDelete"));
     expect([...files.keys()]).not.toContain("Infrastructure/Persistence/AuditableInterceptor.cs");
   });
 });
 
 describe(".NET generator: context-level propagation reaches per-config emission", () => {
   it("unqualified context-level filter propagates to every aggregate", async () => {
-    const model = await modelFrom(`
+    const files = await dotnetFiles(`
       context Sales {
         filter !this.isDeleted
         aggregate Order {
@@ -263,7 +276,6 @@ describe(".NET generator: context-level propagation reaches per-config emission"
         repository Customers for Customer { }
       }
     `);
-    const files = generateDotnet(model);
     expect(files.get("Infrastructure/Persistence/Configurations/OrderConfiguration.cs")!).toMatch(
       /builder\.HasQueryFilter\("IsDeletedFilter", x => !x\.IsDeleted\)/,
     );

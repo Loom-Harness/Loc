@@ -305,20 +305,9 @@ export function jsonPropertyForType(
           // A5: expression-only primitive — never a wire / schema type.
           throw new Error("internal: 'duration' is expression-only and never reaches the wire");
       }
-    // biome-ignore lint/suspicious/noFallthroughSwitchClause: inner switch on the id valueType union is exhaustive (every arm returns)
     case "id":
-      // Id wire shape mirrors the underlying value-type: guid → uuid
-      // string, int/long → integer, plain string → string with no
-      // format.  Matches what each backend emits at the JSON boundary.
-      switch (t.valueType) {
-        case "guid":
-          return { type: "string", format: "uuid" };
-        case "int":
-        case "long":
-          return { type: "integer" };
-        case "string":
-          return { type: "string" };
-      }
+      // Every identity is a guid — a uuid-format string at the JSON boundary.
+      return { type: "string", format: "uuid" };
     case "enum": {
       // The CONSTRAINT, not just the carrier type.  This artifact's stated job
       // (docs/loom-artifacts.md) is diff-based contract-change detection, and

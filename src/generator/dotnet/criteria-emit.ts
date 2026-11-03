@@ -19,7 +19,9 @@ import { walkExprDeep } from "../../ir/util/walk.js";
 import { firstNonQueryableNode } from "../../ir/validate/validate.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
+import { csUsing } from "../_imports/dotnet.js";
 import { BCL_COLLIDING_TYPE_NAMES } from "./bcl-collision.js";
+import { CS } from "./cs-symbols.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "./render-expr.js";
 
 /** The `IsSatisfiedBy` parameter name — matches the abstract base
@@ -129,8 +131,9 @@ function renderCriterion(c: CriterionIR, candidate: string, ns: string): string 
   // `ToExpression()` is meant for EF `IQueryable`/`Where`, so a body that
   // can't translate to SQL gets the evaluate face only.
   const queryable = hasQueryFace(c.body);
-  // Namespaces beyond the SDK implicit-usings set the body reaches into
-  // (e.g. `matches` → `System.Text.RegularExpressions`).
+  // Project namespaces the body reaches into (a domain-service call); the
+  // BCL ones (`Regex`, `Expression`) are written through `ref` and land in
+  // their slots below.
   const usings = new Set<string>([
     `${ns}.Domain.Common`,
     `${ns}.Domain.${plural(candidate)}`,
@@ -140,10 +143,11 @@ function renderCriterion(c: CriterionIR, candidate: string, ns: string): string 
     "System.Linq",
   ]);
   collectCsExprUsings(c.body, usings, ns);
-  if (queryable) usings.add("System.Linq.Expressions");
   return lines(
     "// Auto-generated.",
     ...[...usings].map((u) => `using ${u};`),
+    csUsing("System.Text.RegularExpressions"),
+    csUsing("System.Linq.Expressions"),
     // The candidate aggregate's name may be a BCL type this file's usings also
     // bring into scope (`criterion … of Task` → CS0104 against
     // `System.Threading.Tasks.Task`, which is what the shipped dotnet starter
@@ -172,7 +176,7 @@ function renderCriterion(c: CriterionIR, candidate: string, ns: string): string 
     // later slice). Selectability decides: only queryable criteria carry it.
     queryable ? "" : null,
     queryable
-      ? `    public Expression<Func<${candidate}, bool>> ToExpression() => ${CANDIDATE} => ${body};`
+      ? `    public ${CS.Expression}<Func<${candidate}, bool>> ToExpression() => ${CANDIDATE} => ${body};`
       : null,
     "}",
   );

@@ -1,4 +1,4 @@
-import type { ExprIR, IdValueType, TypeIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 
 // ---------------------------------------------------------------------------
 // The ONE rule deciding whether a literal written in a `test` body needs
@@ -27,7 +27,7 @@ import type { ExprIR, IdValueType, TypeIR } from "../../ir/types/loom-ir.js";
 
 /** What coercion a literal in a typed position needs, if any. */
 export type LiteralCoercion =
-  | { kind: "id"; targetName: string; valueType: IdValueType }
+  | { kind: "id"; targetName: string }
   | { kind: "datetime" }
   | { kind: "date" }
   | { kind: "none" };
@@ -37,8 +37,7 @@ export type LiteralCoercion =
  *  Only a raw STRING literal is ever coerced.  Everything else already renders
  *  at the target type and wrapping it would BREAK the emission: `now` renders
  *  as `Instant.now()` / `DateTime.UtcNow` / `datetime.now(UTC)`, a `ref` to a
- *  let-binding or parameter is already branded, and an `int`-valued id renders
- *  as a number.  That guard is the rule's load-bearing half — it is why this
+ *  let-binding or parameter is already branded.  That guard is the rule's load-bearing half — it is why this
  *  is a decision function and not a type lookup. */
 export function decideLiteralCoercion(type: TypeIR | undefined, value: ExprIR): LiteralCoercion {
   if (value.kind !== "literal" || value.lit !== "string") return { kind: "none" };
@@ -49,9 +48,7 @@ export function decideLiteralCoercion(type: TypeIR | undefined, value: ExprIR): 
   // matched on the bare `kind` before, so an optional `X id` silently passed
   // the literal through and the generated project failed with TS2322.
   const t = type?.kind === "optional" ? type.inner : type;
-  if (t?.kind === "id") {
-    return { kind: "id", targetName: t.targetName, valueType: t.valueType };
-  }
+  if (t?.kind === "id") return { kind: "id", targetName: t.targetName };
   if (t?.kind === "primitive" && t.name === "datetime") return { kind: "datetime" };
   if (t?.kind === "primitive" && t.name === "date") return { kind: "date" };
   return { kind: "none" };
@@ -62,7 +59,7 @@ export function decideLiteralCoercion(type: TypeIR | undefined, value: ExprIR): 
  *  backend's business); each leaf wraps it in the target-language constructor. */
 export interface TestLiteralTarget {
   /** `"…"` in an `<Agg> id` position → the backend's brand / id constructor. */
-  id(rendered: string, targetName: string, valueType: IdValueType): string;
+  id(rendered: string, targetName: string): string;
   /** `"…"` (ISO-8601) in a `datetime` position → the backend's date type. */
   datetime(rendered: string): string;
   /** `"…"` (ISO `YYYY-MM-DD`) in a `date` position → the backend's calendar-date type. */
@@ -78,7 +75,7 @@ export function coerceTestLiteral(
   target: TestLiteralTarget,
 ): string {
   const c = decideLiteralCoercion(type, value);
-  if (c.kind === "id") return target.id(rendered, c.targetName, c.valueType);
+  if (c.kind === "id") return target.id(rendered, c.targetName);
   if (c.kind === "datetime") return target.datetime(rendered);
   if (c.kind === "date") return target.date(rendered);
   return rendered;

@@ -9,8 +9,7 @@
 // PURE-tier service stays byte-identical (no port, no `async`, no `await`).
 
 import { describe, expect, it } from "vitest";
-import { generateHono } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const READING_SRC = `
   context Banking {
@@ -42,8 +41,7 @@ const READING_SRC = `
 
 describe("typescript generator — domainService reading tier", () => {
   it("declares a read-port parameter and renders the read against it", async () => {
-    const model = await parseValid(READING_SRC);
-    const files = generateHono(model);
+    const files = await generateBackendFiles(READING_SRC, "node");
     const services = files.get("domain/services.ts")!;
     expect(services).toBeDefined();
     // Reading op: read-port param ahead of the user param, `async`, `Promise<…>`.
@@ -63,8 +61,7 @@ describe("typescript generator — domainService reading tier", () => {
   });
 
   it("keeps the PURE-tier operation byte-identical (no port, no async, no await)", async () => {
-    const model = await parseValid(READING_SRC);
-    const services = generateHono(model).get("domain/services.ts")!;
+    const services = (await generateBackendFiles(READING_SRC, "node")).get("domain/services.ts")!;
     // FeeQuote takes no read-port, is a plain `function`, returns the
     // value directly — the pure-tier shell unchanged by the reading slice.
     expect(services).toContain("export const FeeQuote = {");
@@ -76,8 +73,7 @@ describe("typescript generator — domainService reading tier", () => {
   });
 
   it("wires the read-port handle at the workflow call site", async () => {
-    const model = await parseValid(READING_SRC);
-    const wf = generateHono(model).get("http/workflows.ts")!;
+    const wf = (await generateBackendFiles(READING_SRC, "node")).get("http/workflows.ts")!;
     expect(wf).toBeDefined();
     // The workflow constructs the read-port repo even though its own body never
     // reads it directly, and supplies it ahead of the user args, await-wrapped.
@@ -111,8 +107,7 @@ describe("typescript generator — pure domainService stays byte-identical", () 
   `;
 
   it("emits no read-port import and no async for a pure-only context", async () => {
-    const model = await parseValid(PURE_SRC);
-    const services = generateHono(model).get("domain/services.ts")!;
+    const services = (await generateBackendFiles(PURE_SRC, "node")).get("domain/services.ts")!;
     expect(services).toContain("function pricing_quote(cart: Cart, customer: Customer): Decimal {");
     expect(services).not.toContain("Repository");
     expect(services).not.toContain("async");

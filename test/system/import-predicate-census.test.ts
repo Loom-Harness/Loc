@@ -71,7 +71,7 @@ const COLLECTOR_LITERAL: Partial<Record<Backend, RegExp>> = {
 const CEILING: Record<Backend, number> = {
   python: 0,
   typescript: 229,
-  dotnet: 40,
+  dotnet: 0,
   java: 2,
   elixir: 0,
 };

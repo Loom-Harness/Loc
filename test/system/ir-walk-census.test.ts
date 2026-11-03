@@ -974,11 +974,6 @@ const WAIVERS: Record<string, Waiver> = {
       "runs only on a predicate `firstNonQueryablePredicate` already admitted, so it walks just the boolean spine (binary / paren / unary); every compound kind that could hide a comparison has been refused by the exhaustive `firstNonQueryableNode` first",
   },
   // Debt: each is a real gap, owned by the issue in its reason.
-  "src/ir/types/loom-ir.ts#exprUsesMoney": {
-    deferred:
-      "#4580: hand-recurses a fixed kind set, missing money under list / convert / variant-match arms / lambda blocks",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
   "src/generator/_frontend/store-field-init.ts#renderStoreInitLiteral": {
     deferred:
       "#4579: an unlisted init kind (ternary / convert / duration) silently becomes the type's zero",

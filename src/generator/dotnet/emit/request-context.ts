@@ -1,4 +1,6 @@
 import { upperFirst } from "../../../util/naming.js";
+import { csUsing } from "../../_imports/dotnet.js";
+import { CS } from "../cs-symbols.js";
 
 // The ambient execution context for a single request/flow — the one
 // AsyncLocal carrier every governance slice reads from (correlation id,
@@ -34,7 +36,6 @@ export function renderRequestContext(
 ): string {
   const { hasAuth, hasLogger, actorIdProp } = opts;
   const hasVersioned = !!opts.hasVersioned;
-  const loggingUsing = hasLogger ? "using Microsoft.Extensions.Logging;\n" : "";
   const authUsing = hasAuth ? `using ${ns}.Auth;\n` : "";
   // The principal is request-stable, so a child frame inherits it from its
   // parent (the accessor still resolves `currentUser` once dispatch opens a
@@ -73,7 +74,7 @@ export function renderRequestContext(
     /// duration of each Mediator dispatch by ExecutionContextBehavior so
     /// trace-injected domain calls resolve a logger without constructor
     /// injection; null outside any dispatch.</summary>
-    public ILogger? Logger { get; set; }
+    public ${CS.ILogger}? Logger { get; set; }
 `
     : "";
   // The principal serialized for audit's `actor` column.  Auth-conditional
@@ -128,7 +129,8 @@ ${actorEntries}
   return `// Auto-generated.
 using System;
 using System.Threading;
-${loggingUsing}${authUsing}
+${csUsing("Microsoft.Extensions.Logging")}
+${authUsing}
 namespace ${ns}.Domain.Common;
 
 /// <summary>

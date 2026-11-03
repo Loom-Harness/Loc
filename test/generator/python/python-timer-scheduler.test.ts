@@ -175,6 +175,40 @@ system IntervalOnly {
     expect(get("d/pyproject.toml")).not.toContain("psycopg[binary]");
   });
 
+  it("a cron-only project imports only what the durable path uses", async () => {
+    const get = getter(
+      await filesFor(`
+system CronOnly {
+  subdomain Ops {
+    context Orders {
+      aggregate Sweep { runId: string }
+      event SweepTick { sweep: Sweep id, at: datetime }
+      event SweepRan  { sweep: Sweep id, at: datetime }
+      channel Ticks { carries: SweepTick }
+      workflow SweepRun eventSourced {
+        sweep: Sweep id
+        firedAt: datetime
+        create(t: SweepTick) by t.sweep { emit SweepRan { sweep: t.sweep, at: t.at } }
+        apply(r: SweepRan) { firedAt := r.at }
+      }
+    }
+  }
+  storage pg { type: postgres }
+  resource opsState { for: Orders, kind: state, use: pg }
+  api A from Ops
+  deployable d { platform: python, contexts: [Orders], dataSources: [opsState], serves: A, port: 8000 }
+  timerSource sweep { for: SweepTick, cron: "*/5 * * * *" }
+}
+`),
+    );
+    const scheduler = get("d/app/scheduling.py");
+    // `Callable` / `DomainEvent` annotate the interval-loop helpers only; a
+    // cron-only module has no such helper, so importing them is ruff F401.
+    expect(scheduler).not.toContain("Callable");
+    expect(scheduler).not.toContain("DomainEvent");
+    expect(scheduler).toContain("from app.domain.events import SweepTick");
+  });
+
   it("is byte-identical for a timer-free deployable (no scheduling artifacts)", async () => {
     const files = await filesFor(NO_TIMERS);
     const get = getter(files);

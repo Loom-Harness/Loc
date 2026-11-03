@@ -6,14 +6,7 @@
 // so it is derived on demand (the `classifyPage` pattern in
 // `page-kind.ts`), never stamped onto AggregateIR.
 
-import type {
-  AggregateIR,
-  AuthzFilterKind,
-  ExprIR,
-  IdValueType,
-  SystemIR,
-  TypeIR,
-} from "../types/loom-ir.js";
+import type { AggregateIR, AuthzFilterKind, ExprIR, SystemIR, TypeIR } from "../types/loom-ir.js";
 
 /** The prelude capability that marks an aggregate as tenant-scoped
  *  (`with tenantOwned` — see `src/macros/prelude.ts`). */
@@ -56,26 +49,21 @@ export const TENANCY_SELF_SCOPE_ORIGIN = "tenancy";
 /** How the tenancy claim binds against the registry's id in the derived
  *  self-scope comparison (`this.id == currentUser.<claim>`):
  *
- *   - `"same"`   — claim type equals the id's value type (a guid id +
- *                  `tenantId: guid`, `ids string` + `tenantId: string`, …);
- *                  every backend compares directly.
- *   - `"guid-from-string"` — a guid id + a `string` claim (the common JWT
- *                  shape).  Each backend PARSES the claim to the id's value
- *                  type at the accessor site, yielding its null for a claim
+ *   - `"same"`   — a `guid` claim, the registry id's own scalar (every
+ *                  identity is a guid); every backend compares directly.
+ *   - `"guid-from-string"` — a `string` claim (the common JWT shape).  Each
+ *                  backend PARSES the claim to a guid at the accessor site, yielding its null for a claim
  *                  that doesn't parse, so a malformed one reads empty rather
  *                  than 500-ing — see {@link guidFromStringSelfScope}.
- *   - `"mismatch"` — anything else (e.g. a guid id + `tenantId: int`).
+ *   - `"mismatch"` — anything else (e.g. `tenantId: int`).
  *                  Enrichment derives NO filter and IR validation rejects it
  *                  (`loom.tenancy-claim-type-mismatch`). */
 export type TenancyClaimBinding = "same" | "guid-from-string" | "mismatch";
 
-export function tenancyClaimBinding(
-  idValueType: IdValueType,
-  claimType: TypeIR | undefined,
-): TenancyClaimBinding {
+export function tenancyClaimBinding(claimType: TypeIR | undefined): TenancyClaimBinding {
   if (claimType?.kind !== "primitive") return "mismatch";
-  if (claimType.name === idValueType) return "same";
-  if (idValueType === "guid" && claimType.name === "string") return "guid-from-string";
+  if (claimType.name === "guid") return "same";
+  if (claimType.name === "string") return "guid-from-string";
   return "mismatch";
 }
 
@@ -89,15 +77,11 @@ export function tenancyClaimBinding(
  *  comparison is bound per backend at the accessor site (see
  *  {@link tenancyClaimBinding}). */
 export function buildRegistrySelfScopeFilter(
-  registry: Pick<AggregateIR, "name" | "idValueType">,
+  registry: Pick<AggregateIR, "name">,
   claimField: string,
   claimType: TypeIR,
 ): ExprIR {
-  const idType: TypeIR = {
-    kind: "id",
-    targetName: registry.name,
-    valueType: registry.idValueType,
-  };
+  const idType: TypeIR = { kind: "id", targetName: registry.name };
   // Mirrors `USER_SHAPE_NAME` in `src/ir/lower/lower-types.ts` (the
   // synthetic principal entity every lowered `currentUser` ref carries).
   const userShape: TypeIR = { kind: "entity", name: "__User__" };
@@ -166,9 +150,7 @@ export function guidFromStringTenancyClaim(
   if (!registry) return undefined;
   const declared = sys.user?.fields.find((f) => f.name === claimField)?.type;
   const claimType = declared?.kind === "optional" ? declared.inner : declared;
-  return tenancyClaimBinding(registry.idValueType, claimType) === "guid-from-string"
-    ? claimField
-    : undefined;
+  return tenancyClaimBinding(claimType) === "guid-from-string" ? claimField : undefined;
 }
 
 function findAggregate(sys: Pick<SystemIR, "subdomains">, name: string): AggregateIR | undefined {
@@ -191,15 +173,14 @@ export function guidClaimAccessorName(claimField: string): string {
   return `${claimField}AsUuid`;
 }
 
-/** `this.id` typed as the aggregate's own `guid`-valued id. */
+/** `this.id` typed as the aggregate's own (guid-valued) id. */
 function isGuidSelfId(x: ExprIR): boolean {
   if (x.kind === "paren") return isGuidSelfId(x.inner);
   return (
     x.kind === "member" &&
     x.receiver.kind === "this" &&
     x.member === "id" &&
-    x.memberType.kind === "id" &&
-    x.memberType.valueType === "guid"
+    x.memberType.kind === "id"
   );
 }
 
