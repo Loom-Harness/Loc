@@ -45,12 +45,18 @@ const testRoot = path.join(repoRoot, "test");
 const GATED = new Set(["generateSystems", "generateSystemsFromLoom"]);
 
 /**
- * Files still importing the orchestrator directly, as of M-T9.35.
+ * Files still importing the orchestrator directly.
  *
  * This list is a BACKLOG, not an allowance.  Every entry is a fixture whose
  * pipeline-phase coverage is whatever its own `parseValid` / manual
  * diagnostics-check happens to do — `parseValid` covers ① + ④, a bare
  * `parseString` covers neither, and nothing here covers ⑦.
+ *
+ * The one remaining entry: `corpus-mutation` validates each mutant once, on
+ * node, and emits on every backend from that parse.  Emitting through the
+ * helper re-validates per backend, which is correct (a backend-scoped rule
+ * refuses some mutants) but nearly doubles the suite's runtime — a trade-off
+ * open in #4672.
  *
  * `test/_helpers/generate.ts` is the one legitimate importer — it IS the
  * gated wrapper — and is exempted below rather than pinned.
