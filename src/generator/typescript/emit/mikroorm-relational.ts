@@ -76,9 +76,14 @@ import { maskUserImport, tsParamType, usesRawFragment } from "./mikroorm-shared.
 // ---------------------------------------------------------------------------
 
 /** Bulk-load lines: each association → a `<field>ByOwner` map keyed by owner
- *  id, read from the pivot table for the `rootIds` in scope. */
+ *  id, read from the pivot table for the owner ids in scope (`ids`). */
 
-function assocMapLoadLines(agg: EnrichedAggregateIR, emVar: string, indent: string): string[] {
+function assocMapLoadLines(
+  agg: EnrichedAggregateIR,
+  emVar: string,
+  indent: string,
+  ids = "rootIds",
+): string[] {
   return (agg.associations ?? []).flatMap((a) => {
     const jc = joinRowClassOf(a);
     const oc = joinColumnName(a.ownerFk);
@@ -86,7 +91,7 @@ function assocMapLoadLines(agg: EnrichedAggregateIR, emVar: string, indent: stri
     const rows = `${a.fieldName}JoinRows`;
     const map = `${a.fieldName}ByOwner`;
     return [
-      `${indent}const ${rows} = rootIds.length === 0 ? [] : await ${emVar}.find(${jc}, { ${oc}: { $in: rootIds } }, { orderBy: { ${oc}: "asc", ${tc}: "asc" } });`,
+      `${indent}const ${rows} = ${ids}.length === 0 ? [] : await ${emVar}.find(${jc}, { ${oc}: { $in: ${ids} } }, { orderBy: { ${oc}: "asc", ${tc}: "asc" } });`,
       `${indent}const ${map} = new Map<string, Ids.${a.targetAgg}Id[]>();`,
       `${indent}for (const jr of ${rows}) {`,
       `${indent}  const list = ${map}.get(jr.${oc}) ?? [];`,
@@ -174,20 +179,24 @@ function assocHydrateBind(
   targetVar: string,
   keyword: "const" | "return",
   indent: string,
+  /** The loaded root rows local and the owner-ids local this declares —
+   *  renamed by a read whose params take the plain names. */
+  names: { rows: string; rootIds: string } = { rows: "rows", rootIds: "rootIds" },
 ): string[] {
+  const { rows, rootIds } = names;
   const hy = hydrateRootExpr(agg, "row", ctx);
   const head = keyword === "return" ? "return" : `const ${targetVar} =`;
   const hasValueColls = valueCollFieldsOf(agg).length > 0;
   const hasChildren =
     (agg.associations ?? []).length > 0 || (agg.contains ?? []).length > 0 || hasValueColls;
   if (!hasChildren) {
-    return [`${indent}${head} rows.map((row) => ${hy});`];
+    return [`${indent}${head} ${rows}.map((row) => ${hy});`];
   }
   return [
-    `${indent}const rootIds = rows.map((r) => r.id);`,
-    ...assocMapLoadLines(agg, emVar, indent),
-    ...containMapLoadLines(agg, ctx, emVar, indent),
-    `${indent}${head} rows.map((row) => {`,
+    `${indent}const ${rootIds} = ${rows}.map((r) => r.id);`,
+    ...assocMapLoadLines(agg, emVar, indent, rootIds),
+    ...containMapLoadLines(agg, ctx, emVar, indent, rootIds),
+    `${indent}${head} ${rows}.map((row) => {`,
     ...assocRowDeclLines(agg, "row", `${indent}  `),
     ...containRowDeclLines(agg, "row", `${indent}  `),
     ...valueCollRowDeclLines(agg, ctx, "row", `${indent}  `),
@@ -373,6 +382,7 @@ function containMapLoadLines(
   ctx: EnrichedBoundedContextIR,
   emVar: string,
   indent: string,
+  ids = "rootIds",
 ): string[] {
   return (agg.contains ?? []).flatMap((c) => {
     const part = partForContainment(agg, c);
@@ -385,7 +395,7 @@ function containMapLoadLines(
     // containments) recursively build the child `<nc>ByParent` maps BEFORE the
     // grouping hydrate references them.  Empty for a leaf part → byte-identical
     // single-level output.
-    const rowsDecl = `${indent}const ${rows} = rootIds.length === 0 ? [] : await ${emVar}.find(${prow}, { parentId: { $in: rootIds } }, { orderBy: { parentId: "asc", id: "asc" } });`;
+    const rowsDecl = `${indent}const ${rows} = ${ids}.length === 0 ? [] : await ${emVar}.find(${prow}, { parentId: { $in: ${ids} } }, { orderBy: { parentId: "asc", id: "asc" } });`;
     const nested = nestedContainMikroLoads(part, rows, emVar, indent, agg, ctx);
     const mapDecl = `${indent}const ${map} = new Map<string, ${elemT}>();`;
     if (c.collection) {
@@ -532,7 +542,7 @@ export function mikroRetrievalMethod(
   agg: EnrichedAggregateIR,
   r: RetrievalIR,
   row: string,
-  hydrateTail: readonly string[],
+  hydrateTail: (names: { em: string; rows: string; rootIds: string }) => readonly string[],
   /** The `filters:` option switching off what a widened read's own
    *  retrieval (`… ignoring …`) bypasses; empty for the shared retrieval,
    *  which keeps every schema filter. */
@@ -540,7 +550,13 @@ export function mikroRetrievalMethod(
 ): string {
   const methodName = `run${upperFirst(r.name)}`;
   const baseParams = r.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
-  const params = [...baseParams, "page?: { offset?: number; limit?: number }"].join(", ");
+  // The method's own names — its call-site `page` and every local the body
+  // declares — step aside for a same-named retrieval param.
+  const L = pagedLocalNames(
+    ["page", "em", "rows", "rootIds"] as const,
+    findParamBindings(r.params),
+  );
+  const params = [...baseParams, `${L.page}?: { offset?: number; limit?: number }`].join(", ");
   let filter: string;
   try {
     filter = whereToMikroFilter(r.where, AMBIENT_PRINCIPAL, agg.associations);
@@ -559,10 +575,10 @@ export function mikroRetrievalMethod(
       : "";
   return lines(
     `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
-    `    const em = this.em.fork({ keepTransactionContext: true });`,
-    `    const rows = await em.find(${row}, ${filter}, { limit: page?.limit, offset: page?.offset${orderBy}${ignoring ? `, ${ignoring}` : ""} });`,
-    `    requestLog().debug({ event: "find_executed", aggregate: "${agg.name}", find: "${r.name}", rows: rows.length });`,
-    ...hydrateTail,
+    `    const ${L.em} = this.em.fork({ keepTransactionContext: true });`,
+    `    const ${L.rows} = await ${L.em}.find(${row}, ${filter}, { limit: ${L.page}?.limit, offset: ${L.page}?.offset${orderBy}${ignoring ? `, ${ignoring}` : ""} });`,
+    `    requestLog().debug({ event: "find_executed", aggregate: "${agg.name}", find: "${r.name}", rows: ${L.rows}.length });`,
+    ...hydrateTail(L),
     `  }`,
   );
 }
@@ -765,7 +781,17 @@ export function renderMikroRepository(
         .join(", ");
       // The paged-only locals step aside for a same-named find param.
       const L = pagedLocalNames(
-        ["sortable", "sortField", "orderBy", "total", "totalPages", "items"] as const,
+        [
+          "em",
+          "sortable",
+          "sortField",
+          "orderBy",
+          "total",
+          "totalPages",
+          "rows",
+          "rootIds",
+          "items",
+        ] as const,
         findParamBindings(f.params),
       );
       // An unwhitelisted `sort` (the route's `""` default) takes the read's
@@ -775,26 +801,27 @@ export function renderMikroRepository(
         .join(", ");
       return lines(
         `  async ${name}(${pagedParams}): Promise<{ items: ${agg.name}[]; page: number; pageSize: number; total: number; totalPages: number }> {`,
-        `    const em = this.em.fork({ keepTransactionContext: true });`,
+        `    const ${L.em} = this.em.fork({ keepTransactionContext: true });`,
         `    const ${L.sortable} = new Set<string>([${sortable}]);`,
         `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : ${declaredOrder ? "null" : '"id"'};`,
         `    const ${L.orderBy}: Record<string, "asc" | "desc"> = ${declaredOrder ? `${L.sortField} === null ? { ${declaredOrder} } : ` : ""}{ [${L.sortField}]: dir === "desc" ? "desc" : "asc" };`,
-        `    const ${L.total} = await em.count(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
+        `    const ${L.total} = await ${L.em}.count(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
         `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
-        `    const rows = await em.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`}${ignoring ? `, ${ignoring}` : ""} });`,
-        dbg(f.name, "rows.length"),
-        ...assocHydrateBind(agg, ctx, "em", L.items, "const", "    "),
+        `    const ${L.rows} = await ${L.em}.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`}${ignoring ? `, ${ignoring}` : ""} });`,
+        dbg(f.name, `${L.rows}.length`),
+        ...assocHydrateBind(agg, ctx, L.em, L.items, "const", "    ", L),
         `    return ${pagedEnvelopeLiteral(L)};`,
         `  }`,
       );
     }
     if (isList) {
+      const L = pagedLocalNames(["em", "rows", "rootIds"] as const, findParamBindings(f.params));
       return lines(
         `  async ${name}(${params}): Promise<${agg.name}[]> {`,
-        `    const em = this.em.fork({ keepTransactionContext: true });`,
-        `    const rows = await em.find(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
-        dbg(f.name, "rows.length"),
-        ...assocHydrateBind(agg, ctx, "em", "", "return", "    "),
+        `    const ${L.em} = this.em.fork({ keepTransactionContext: true });`,
+        `    const ${L.rows} = await ${L.em}.find(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
+        dbg(f.name, `${L.rows}.length`),
+        ...assocHydrateBind(agg, ctx, L.em, "", "return", "    ", L),
         `  }`,
       );
     }
@@ -847,7 +874,7 @@ export function renderMikroRepository(
         agg,
         r,
         row,
-        assocHydrateBind(agg, ctx, "em", "", "return", "    "),
+        (n) => assocHydrateBind(agg, ctx, n.em, "", "return", "    ", n),
         mikroFilterOption(agg, pool, { bypassAll: r.bypassAll, bypassCaps: r.bypassCaps }),
       ),
     );

@@ -291,8 +291,8 @@ export function renderMikroEmbeddedRepository(
       agg,
       r,
       row,
-      [
-        `    return rows.map((row) => {`,
+      ({ rows }) => [
+        `    return ${rows}.map((row) => {`,
         ...embeddedHydrateLocals(agg, "row", "      ", ctx),
         `      return ${hydrateRootExpr(agg, "row", ctx)};`,
         `    });`,
