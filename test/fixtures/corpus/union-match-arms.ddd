@@ -1,0 +1,82 @@
+// A union-returning operation whose `return match { … }` arms build DIFFERENT
+// variants.  Each arm answers its own wire tag, and an `error` variant is the
+// error path only when its own arm runs — including when it is the FIRST arm,
+// the shape where the whole match used to be tagged with that variant.
+system UnionMatchArms {
+  subdomain Repairs {
+    context Desk {
+      enum Kind { Repair, Replace, Reject }
+      payload Repaired { notes: string }
+      payload Replaced { part: string }
+      error Rejected { reason: string }
+
+      aggregate Ticket with crudish {
+        title: string
+        closed: bool
+        // Two success variants.
+        operation resolve(kind: Kind, notes: string): Repaired or Replaced {
+          return match {
+            kind == Kind.Repair => Repaired { notes: notes },
+            else => Replaced { part: notes }
+          }
+        }
+        // The FIRST arm is the error variant; the `else` succeeds.
+        operation decide(kind: Kind, notes: string): Repaired or Rejected {
+          return match {
+            kind == Kind.Reject => Rejected { reason: notes },
+            else => Repaired { notes: notes }
+          }
+        }
+        // Mutates, then answers per arm: the error arm leaves no trace
+        // (D-FAILURE-MODEL), a success arm commits the write.
+        operation close(kind: Kind, notes: string): Repaired or Replaced or Rejected {
+          closed := true
+          return match {
+            kind == Kind.Reject => Rejected { reason: notes },
+            kind == Kind.Repair => Repaired { notes: notes },
+            else => Replaced { part: notes }
+          }
+        }
+      }
+      repository Tickets for Ticket { }
+    }
+  }
+  api DeskApi from Repairs {
+    httpStatus Rejected -> 422
+  }
+  storage primary { type: postgres }
+  resource deskState { for: Desk, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Desk]
+    dataSources: [deskState]
+    serves: DeskApi
+    port: 4000
+  }
+
+  test e2e "a return match answers each arm's own variant" against d {
+    let t = api.tickets.create({ title: "pump", closed: false })
+
+    // Success arms of two different variants.
+    let repaired = api.tickets.resolve(t, { kind: "Repair", notes: "seal" })
+    expect(repaired.type).toBe("Repaired")
+    expect(repaired.notes).toBe("seal")
+    let replaced = api.tickets.resolve(t, { kind: "Replace", notes: "impeller" })
+    expect(replaced.type).toBe("Replaced")
+    expect(replaced.part).toBe("impeller")
+
+    // The first arm is the error variant: it answers only when it runs.
+    expect(api.tickets.decide(t, { kind: "Reject", notes: "no part" })).toThrow(422)
+    let decided = api.tickets.decide(t, { kind: "Repair", notes: "gasket" })
+    expect(decided.type).toBe("Repaired")
+    expect(decided.notes).toBe("gasket")
+
+    // A mutating op: the error arm writes nothing, a success arm commits.
+    expect(api.tickets.close(t, { kind: "Reject", notes: "no part" })).toThrow(422)
+    expect(api.tickets.getById(t).closed).toBe(false)
+    let closed = api.tickets.close(t, { kind: "Replace", notes: "valve" })
+    expect(closed.type).toBe("Replaced")
+    expect(closed.part).toBe("valve")
+    expect(api.tickets.getById(t).closed).toBe(true)
+  }
+}
