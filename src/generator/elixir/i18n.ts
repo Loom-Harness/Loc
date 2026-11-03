@@ -44,10 +44,15 @@
 // it.
 // ---------------------------------------------------------------------------
 
-import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
+import { type BoundedContextIR, DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { buildUiCatalog } from "../_frontend/i18n-runtime.js";
-import { APP_SHELL_CHROME, chromeKey, chromeMessage } from "../_walker/i18n-chrome.js";
+import {
+  APP_SHELL_CHROME,
+  chromeKey,
+  chromeMessage,
+  type FormSentenceScope,
+} from "../_walker/i18n-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
 import { sourceText } from "../_walker/source-text.js";
 
@@ -294,8 +299,18 @@ export function renderGettextCatalog(
   packChrome: Record<string, string> = {},
   /** The source language: the `.po` header's `Language`. */
   sourceLocale: string = DEFAULT_SOURCE_LOCALE,
+  /** The system's contexts, which key the implicit model-text sites (form
+   *  labels, enum options, submit buttons) the HEEx walker translates; without
+   *  them those keys are rendered but never reach the `.po`. */
+  modelTextContexts: readonly BoundedContextIR[] = [],
 ): string {
-  const catalog: Record<string, string> = ui ? { ...buildUiCatalog(ui, packChrome) } : {};
+  const scope: FormSentenceScope = {
+    contexts: modelTextContexts,
+    sentences: [],
+    implicitModelText: true,
+    optionalCreateInputs: true,
+  };
+  const catalog: Record<string, string> = ui ? { ...buildUiCatalog(ui, packChrome, scope) } : {};
   for (const m of validationMessages) catalog[m.code] = m.text;
   const header =
     kind === "pot"

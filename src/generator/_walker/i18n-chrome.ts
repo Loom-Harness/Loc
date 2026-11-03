@@ -231,6 +231,9 @@ export interface FormSentenceScope {
    *  (`WalkerTarget.modelTextImplicitSites`), so their keys belong in the
    *  catalog; unset ⇒ those sites render English and carry no key. */
   readonly implicitModelText?: boolean;
+  /** The rendering target's create form also shows OPTIONAL inputs (HEEx has
+   *  no update flow to defer them to), so their labels are catalogued too. */
+  readonly optionalCreateInputs?: boolean;
 }
 
 /** The `X[]`-of-value-object field types a form over `params` repeats. */
@@ -485,7 +488,9 @@ export function chromeMergedWhenEnabled(
     // buttons) — identity-keyed, and like the form chrome above never the
     // reason a UI turns translatable.
     if (scope?.implicitModelText) {
-      for (const { key, message } of implicitModelTextEntries(ui, scope.contexts)) {
+      for (const { key, message } of implicitModelTextEntries(ui, scope.contexts, {
+        optionalCreateInputs: scope.optionalCreateInputs === true,
+      })) {
         out[key] = message;
       }
     }

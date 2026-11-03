@@ -73,9 +73,10 @@ function packSentencesForUi(sys: EnrichedSystemIR, ui: UiIR): string[] {
 
 /** The frontend formats that key their implicit model-text sites (form
  *  labels, enum options, submit buttons) by identity — the formats whose walker
- *  target sets `WalkerTarget.modelTextImplicitSites`.  A pack-rendered UI is
- *  named by its design pack's format; the pack-less Feliz and Flutter
- *  frontends by their platform. */
+ *  target sets `WalkerTarget.modelTextImplicitSites`, plus the HEEx packs
+ *  (`src/generator/elixir/heex-model-text.ts`).  A pack-rendered UI is named by
+ *  its design pack's format; the pack-less Feliz and Flutter frontends by their
+ *  platform. */
 export const IMPLICIT_MODEL_TEXT_FORMATS: ReadonlySet<string> = new Set([
   "tsx",
   "vue",
@@ -83,6 +84,7 @@ export const IMPLICIT_MODEL_TEXT_FORMATS: ReadonlySet<string> = new Set([
   "angular",
   "feliz",
   "flutter",
+  "heex",
 ]);
 
 /** The frontend format a deployable renders its UI in: the platform for the
@@ -94,14 +96,16 @@ function deployableUiFormat(dep: EnrichedSystemIR["deployables"][number]): strin
   return packFormatForBuiltin(dep.design) ?? "tsx";
 }
 
-/** Whether a UI is rendered by a frontend that keys its implicit model-text
- *  sites by identity; see {@link IMPLICIT_MODEL_TEXT_FORMATS}. */
-function rendersImplicitModelText(sys: EnrichedSystemIR, ui: UiIR): boolean {
-  return sys.deployables.some((dep) => {
-    if (dep.uiName !== ui.name && !(dep.hostedUiNames ?? []).includes(ui.name)) return false;
+/** The formats, among {@link IMPLICIT_MODEL_TEXT_FORMATS}, of the frontends
+ *  that render `ui` — empty when none keys its implicit model text. */
+function implicitModelTextFormats(sys: EnrichedSystemIR, ui: UiIR): Set<string> {
+  const out = new Set<string>();
+  for (const dep of sys.deployables) {
+    if (dep.uiName !== ui.name && !(dep.hostedUiNames ?? []).includes(ui.name)) continue;
     const format = deployableUiFormat(dep);
-    return format !== undefined && IMPLICIT_MODEL_TEXT_FORMATS.has(format);
-  });
+    if (format !== undefined && IMPLICIT_MODEL_TEXT_FORMATS.has(format)) out.add(format);
+  }
+  return out;
 }
 
 /** Build the flat, key-sorted `{ key: message }` catalog for a system. */
@@ -124,10 +128,14 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
     // Per-aggregate / per-operation / per-item-type whole sentences.
     const contexts = sys.subdomains.flatMap((sub) => sub.contexts);
     for (const ui of sys.uis) {
+      const formats = implicitModelTextFormats(sys, ui);
       const scope = {
         contexts,
         sentences: packSentencesForUi(sys, ui),
-        implicitModelText: rendersImplicitModelText(sys, ui),
+        implicitModelText: formats.size > 0,
+        // The HEEx create form renders optional inputs too (it has no update
+        // flow to defer them to), so their labels are catalogued.
+        optionalCreateInputs: formats.has("heex"),
       };
       for (const [key, message] of Object.entries(chromeMergedWhenEnabled(ui, scope)))
         byKey.set(key, message);

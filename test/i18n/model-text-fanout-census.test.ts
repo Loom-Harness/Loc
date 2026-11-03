@@ -33,11 +33,9 @@ function filesUnder(dir: string): string[] {
   });
 }
 
-const PINNED: readonly string[] = [
-  "src/generator/elixir/heex-primitives.ts heex",
-  "src/generator/elixir/heex-walker-core.ts heex",
-  "src/generator/elixir/heex-walker-core.ts heex",
-];
+// Every target routes model text through its translation runtime; a new
+// English-default stand-in must add its row here (and a reason).
+const PINNED: readonly string[] = [];
 
 describe("model-text fan-out census", () => {
   it("pins every English-default stand-in for model text", () => {
@@ -60,6 +58,9 @@ describe("implicit model-text gate", () => {
       angular: angularTarget.modelTextImplicitSites === true,
       feliz: felizTarget.modelTextImplicitSites === true,
       flutter: flutterTarget.modelTextImplicitSites === true,
+      // HEEx runs its own walker, not `walkBody`: its implicit sites key
+      // through `heex-model-text.ts` whenever the UI is i18n-enabled.
+      heex: true,
     };
     const listed = Object.fromEntries(
       Object.keys(flagged).map((f) => [f, IMPLICIT_MODEL_TEXT_FORMATS.has(f)]),
