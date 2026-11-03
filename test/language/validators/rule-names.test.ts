@@ -141,7 +141,7 @@ describe("loom.rule-message-removed", () => {
 describe("loom.rule-message-removed — suggested name for a blank message", () => {
   const hint = async (body: string): Promise<string> => {
     const { diagnostics } = await parseString(wrap(body));
-    return diagnostics.find((d) => d.code === "loom.rule-message-removed")!.message;
+    return String(diagnostics.find((d) => d.code === "loom.rule-message-removed")!.message);
   };
 
   it("derives an invariant's name from the first field it reads", async () => {

@@ -209,7 +209,7 @@ describe("builder lossless edits — fields", () => {
       retypeField(SRC, "aggregate", "Order", fieldIndex("total"), prim("money")),
     ];
     for (const out of edits) {
-      expect(out).toContain('invariant totalNonNegative: total >= 0');
+      expect(out).toContain("invariant totalNonNegative: total >= 0");
     }
   });
 

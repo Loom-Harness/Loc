@@ -376,7 +376,16 @@ export function pagePropDisplayName(typeName: string): string {
 }
 
 /** Words that open an expression without naming a field the rule reads. */
-const NOT_A_FIELD = new Set(["true", "false", "null", "this", "not", "currentUser", "now", "today"]);
+const NOT_A_FIELD = new Set([
+  "true",
+  "false",
+  "null",
+  "this",
+  "not",
+  "currentUser",
+  "now",
+  "today",
+]);
 
 /** Name for a rule whose `message` carries no words (`message ""`): there is no
  *  text to derive from, so it comes from what the rule reads — the first field
@@ -412,7 +421,12 @@ function suggestedRuleName(node: RuleNode, message: string): string {
     if (d !== undefined) taken.add(d);
   }
   for (const [i, r] of rules.entries()) {
-    if (declaredRuleName(r) !== undefined || r.message === undefined || (r.message.trim() === "" && r !== node)) continue;
+    if (
+      declaredRuleName(r) !== undefined ||
+      r.message === undefined ||
+      (r.message.trim() === "" && r !== node)
+    )
+      continue;
     const name = dedupeRuleName(ruleNameFrom(r, r.message, i), taken);
     if (r === node) return name;
   }

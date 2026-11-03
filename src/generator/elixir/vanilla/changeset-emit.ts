@@ -149,7 +149,9 @@ export function fieldInvariantValidatorLines(
         ? []
         : (singleFieldConstraints(inv) ?? [])
             .filter((c) => castFields.has(snake(c.field)))
-            .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message && namedRuleText(inv.message))),
+            .map((c) =>
+              ectoValidator(snake(c.field), c.pattern, inv.message && namedRuleText(inv.message)),
+            ),
   );
 }
 

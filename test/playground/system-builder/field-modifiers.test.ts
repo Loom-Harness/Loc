@@ -239,7 +239,9 @@ describe("field modifiers — check", () => {
   it("refuses a name another rule of the owner already declares", () => {
     // `qtyPositive` is the qty check, `totalNonNegative` the invariant.
     for (const taken of ["qtyPositive", "totalNonNegative"]) {
-      expect(setFieldCheck(SRC, "aggregate", "Order", fieldIndex("note"), "true", taken)).toBeNull();
+      expect(
+        setFieldCheck(SRC, "aggregate", "Order", fieldIndex("note"), "true", taken),
+      ).toBeNull();
     }
     // Re-saving a rule under its own name is not a clash.
     expect(
@@ -270,10 +272,8 @@ describe("field modifiers — mask unless", () => {
     expectHunk(
       SRC,
       out,
-      ['      qty: int check qtyPositive: qty > 0'],
-      [
-        '      qty: int check qtyPositive: qty > 0 mask unless currentUser.isAdmin',
-      ],
+      ["      qty: int check qtyPositive: qty > 0"],
+      ["      qty: int check qtyPositive: qty > 0 mask unless currentUser.isAdmin"],
     );
   });
 
@@ -424,9 +424,7 @@ describe("field modifiers — composition", () => {
       SRC,
       src,
       ["      note: string"],
-      [
-        '      note: string = "n/a" check noteRequired: note != "" mask unless currentUser.isAdmin',
-      ],
+      ['      note: string = "n/a" check noteRequired: note != "" mask unless currentUser.isAdmin'],
     );
     expect(modsOf(src as string, "note")).toEqual({
       default: '"n/a"',
@@ -476,7 +474,7 @@ describe("field modifiers — composition", () => {
       setFieldSensitivity(SRC, "aggregate", "Order", fieldIndex("note"), ["pii"]),
     ];
     for (const out of edits) {
-      expect(out).toContain('invariant totalNonNegative: total >= 0');
+      expect(out).toContain("invariant totalNonNegative: total >= 0");
     }
   });
 });
