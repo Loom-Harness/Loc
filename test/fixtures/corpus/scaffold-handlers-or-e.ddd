@@ -74,5 +74,17 @@ system ScaffoldHandlersOrE {
     expect(closed.code).toBe("closed")
     expect(closed.paid).toBe(2)
     expect(api.orders.getById(o).code).toBe("closed")
+
+    // The operations' own routes answer the same failure at the same status.
+    let other = api.orders.create({ code: "B-2", paid: 0 })
+    expect(api.orders.close(other, {})).toThrow(409)
+    expect(api.orders.settle(other, {}).value).toBe(1)
+    expect(api.orders.close(other, {}).code).toBe("closed")
+
+    // The remaining generated routes.
+    api.orders.update(other, { code: "B-3" })
+    expect(api.orders.getById(other).code).toBe("B-3")
+    expect(api.orders.all().items.length).toBe(2)
+    api.orders.destroy(other)
   }
 }
