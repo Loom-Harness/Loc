@@ -10,12 +10,12 @@ import { walkStmtsDeep } from "../../ir/util/walk.js";
 import { escapeJavaIdent } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { ruleText } from "../_i18n/rule-text.js";
-import { javaRuleParamsTail } from "./wire-policy-java.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { javaLineageValue } from "./codec-spelling.js";
 import { jid } from "./java-ident.js";
 import { type JavaRenderContext, renderJavaExpr, withLambdaScope } from "./render-expr.js";
+import { javaRuleParamsTail } from "./wire-policy-java.js";
 
 // ---------------------------------------------------------------------------
 // Statement LEAF TABLE for the Java / Spring backend.  The 11-kind `StmtIR`

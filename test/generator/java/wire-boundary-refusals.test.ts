@@ -117,7 +117,7 @@ describe("java — F19: a malformed wire string is refused, not parsed into a 50
   it("the advice answers 422 with the field's own pointer", async () => {
     const advice = await file("api/ApiExceptionAdvice.java");
     expect(advice).toContain("@ExceptionHandler(WireFormatException.class)");
-    expect(advice).toContain('entry(e.getPointer(), e.getMessage(), e.getCode(), e.getParams())');
+    expect(advice).toContain("entry(e.getPointer(), e.getMessage(), e.getCode(), e.getParams())");
     // Ahead of the catch-all, or the catch-all's 500 answers first.
     const arm = advice.indexOf("@ExceptionHandler(WireFormatException.class)");
     const catchAll = advice.indexOf("@ExceptionHandler(Exception.class)");

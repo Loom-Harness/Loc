@@ -32,7 +32,6 @@ import { tableNameFor } from "../../../util/storage-names.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { ruleText } from "../../_i18n/rule-text.js";
-import { javaRuleParamsTail } from "../wire-policy-java.js";
 import { javaRef } from "../../_imports/java.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
@@ -57,6 +56,7 @@ import {
   statementSubRegions,
 } from "../render-stmt.js";
 import { hbIdent } from "../sql-ident.js";
+import { javaRuleParamsTail } from "../wire-policy-java.js";
 import {
   jpaClassAnnotations,
   jpaContainmentAnnotations,

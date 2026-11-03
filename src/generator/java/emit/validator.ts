@@ -32,8 +32,8 @@ import { javaRef } from "../../_imports/java.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import { javaLocals, jid, localOf } from "../java-ident.js";
 import { J } from "../java-symbols.js";
-import { javaRuleParamArgs } from "../wire-policy-java.js";
 import { collectJavaRegexLiterals, renderJavaExpr } from "../render-expr.js";
+import { javaRuleParamArgs } from "../wire-policy-java.js";
 import { collectWireToDomainImports, wireComponentNullable, wireToDomain } from "./wire.js";
 
 // ---------------------------------------------------------------------------
@@ -619,13 +619,7 @@ function mentionsNullLiteral(expr: ExprIR): boolean {
  *  .WithErrorCode(...)`.  `field` is the property path (no leading slash; the
  *  advice re-prefixes `/`), `code` the wire code (or the message-less sentinel),
  *  `message` the resolved default text. */
-function reject(
-  field: string,
-  code: string,
-  message: string,
-  cond: string,
-  args?: string,
-): string {
+function reject(field: string, code: string, message: string, cond: string, args?: string): string {
   // `rejectValue` names the JAVA property — `AbstractBindingResult` reads the
   // field's actual value off the bound record to build the error, so a wire
   // spelling that has no such accessor throws `NotReadablePropertyException`.

@@ -47,8 +47,7 @@ const FIXTURES = [
 /** Codes no fixture above reaches on a backend that otherwise carries them
  *  all.  Ratchets: a listed code that IS emitted fails, so a new fixture that
  *  reaches one deletes it here. */
-const NOT_REACHED: Readonly<Record<string, string>> = {
-};
+const NOT_REACHED: Readonly<Record<string, string>> = {};
 
 /** A declared error variant's code (`operation-returns` declares `NotFound`
  *  in context `Orders`), so the harness also pins the `<Ctx>.<Error>.message`

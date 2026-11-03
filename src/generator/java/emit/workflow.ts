@@ -38,7 +38,6 @@ import { type WriteScopeContext, writeScopeContext } from "../../../ir/util/writ
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
 import { workflowPreconditionThrowArgs } from "../../_i18n/domain-floor.js";
-import { javaRuleParamsTail } from "../wire-policy-java.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
@@ -66,6 +65,7 @@ import {
   withLambdaScope,
 } from "../render-expr.js";
 import { renderJavaStatements } from "../render-stmt.js";
+import { javaRuleParamsTail } from "../wire-policy-java.js";
 import { voRecord } from "./dto.js";
 import { EMPTY_COMMAND_BODY_PARAM } from "./empty-body-filter.js";
 import type { OpFragment } from "./entity.js";

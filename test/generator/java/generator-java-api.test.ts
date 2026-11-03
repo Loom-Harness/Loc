@@ -276,10 +276,8 @@ describe("java generator — wire validators + advice (S5)", () => {
     expect(advice).toContain("@ExceptionHandler(MethodArgumentNotValidException.class)");
     // The pointer is built by `pointerOf` since the RFC-6901 fix — a nested
     // path is `/lineTotals/0/unitPrice`, not `/lineTotals[0].unitPrice`.
-    expect(advice).toContain('var pointer = pointerOf(err.getField());');
-    expect(advice).toContain(
-      'var code = fieldErrorCode(err);',
-    );
+    expect(advice).toContain("var pointer = pointerOf(err.getField());");
+    expect(advice).toContain("var code = fieldErrorCode(err);");
   });
 
   it("mirrors create wire constraints onto the crudish update validator (SYS-1)", async () => {
@@ -322,9 +320,15 @@ system Demo {
       'problem.setProperty("errors", e.getBindingResult().getFieldErrors().stream()',
     );
     // No dev-stub verifier in this model: the 403 body is the constant (ruling D4, #20).
-    expect(advice).toContain('problem(403, "Forbidden", "Forbidden", "problem.forbidden", request), 403');
-    expect(advice).toContain('problem(422, "Unprocessable Entity", e.getMessage(), "problem.domain-floor", request), 422');
-    expect(advice).toContain('problem(404, "Not Found", e.getMessage(), "problem.not-found", request), 404');
+    expect(advice).toContain(
+      'problem(403, "Forbidden", "Forbidden", "problem.forbidden", request), 403',
+    );
+    expect(advice).toContain(
+      'problem(422, "Unprocessable Entity", e.getMessage(), "problem.domain-floor", request), 422',
+    );
+    expect(advice).toContain(
+      'problem(404, "Not Found", e.getMessage(), "problem.not-found", request), 404',
+    );
   });
 
   it("advice logs the fault tier through CatalogLog with each fault's real status", async () => {

@@ -7,7 +7,6 @@
 import type { EnumIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
-import { javaRuleParamsTail } from "../wire-policy-java.js";
 import { JAVA_IMPORTS, javaRef } from "../../_imports/java.js";
 import { isMangled, jid } from "../java-ident.js";
 import {
@@ -17,6 +16,7 @@ import {
   renderJavaType,
 } from "../render-expr.js";
 import { renderJavaStatements } from "../render-stmt.js";
+import { javaRuleParamsTail } from "../wire-policy-java.js";
 
 const JSON_PROPERTY = javaRef("com.fasterxml.jackson.annotation", "JsonProperty");
 
