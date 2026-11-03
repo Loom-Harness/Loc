@@ -361,6 +361,13 @@ export const svelteTarget: WalkerTarget = {
     return defaultInitForJs(type);
   },
 
+  /** `LocaleSwitcher {}` → the generated `LocaleSwitcher` component.  A
+   *  single-file component is a default export the walker's import map cannot
+   *  express, so the page shell imports it off this marker tag. */
+  renderLocaleSwitcher() {
+    return "<LocaleSwitcher />";
+  },
+
   // --- Markup seams ---------------------------------------------------------
 
   /** HTML comment — Svelte templates have no expression-comment

@@ -82,6 +82,7 @@ export const WALKER_PRIMITIVE_NAMED_ARGS: Record<string, readonly string[]> = {
   FileUpload: ["bind", "error"],
   // --- Display -----------------------------------------------------------
   Loader: ["size"],
+  LocaleSwitcher: [],
   Anchor: ["to"],
   Image: ["src", "alt", "decorative"],
   Avatar: ["src", "alt", "decorative"],

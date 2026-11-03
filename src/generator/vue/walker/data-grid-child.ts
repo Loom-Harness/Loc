@@ -145,7 +145,7 @@ function renderSfc(spec: DataGridSpec): string {
   // the page shell's (pages nest, `src/components/` does not).
   const i18nImportLine =
     callsTranslationRuntime(body) || columns.some((c) => c.headerValue?.startsWith("t("))
-      ? [`import { t } from "../i18n";`]
+      ? [`import { t } from "../lib/locale";`]
       : [];
 
   // Format helpers, on the same terms the page shell imports them: a Vue pack

@@ -3,6 +3,7 @@
 import { onErrorCaptured, ref } from "vue";
 import { useRoute } from "vue-router";
 {{#if i18nEnabled}}import { t } from "{{i18nImportPath}}";
+{{/if}}{{#if localeSwitchable}}import LocaleSwitcher from "{{srcPrefix}}components/LocaleSwitcher.vue";
 {{/if}}{{#if navUsesSession}}import { useSession } from "./auth/useSession";
 {{/if}}{{#if authUi}}import { signOut } from "{{sessionImportPath}}";
 {{/if}}{{#if hasRealtimeHandlers}}import RealtimeHandlers from "./components/RealtimeHandlers.vue";
@@ -40,7 +41,8 @@ function isActive(path: string, opts?: { exact?: boolean }): boolean {
       <v-app-bar-title>
         <router-link to="/" style="color: inherit; text-decoration: none">{{systemNameHuman}}</router-link>
       </v-app-bar-title>
-{{#if authUi}}      <template #append>
+{{#if localeSwitchable}}      <LocaleSwitcher class="mx-2" />
+{{/if}}{{#if authUi}}      <template #append>
         <v-btn variant="text" data-testid="sign-out" @click="signOut">{{{chrome "signOut"}}}</v-btn>
       </template>
 {{/if}}    </v-app-bar>

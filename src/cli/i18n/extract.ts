@@ -20,6 +20,7 @@ import { NodeFileSystem } from "langium/node";
 import { withSourceOverrides } from "../../generator/_i18n/source-text.js";
 import type { Catalog } from "../../i18n/merge.js";
 import { namespaceNamesOf } from "../../i18n/namespace.js";
+import type { DeclaredRenames } from "../../i18n/renames.js";
 import { enrichLoomModel } from "../../ir/enrich/enrichments.js";
 import { lowerProject } from "../../ir/lower/lower.js";
 import { sourceLocaleOf } from "../../ir/types/loom-ir.js";
@@ -40,6 +41,8 @@ export interface ProjectCatalog {
   uiNames: Set<string>;
   /** The declared source language (`i18n { source }`), `en` by default. */
   source: string;
+  /** The renames and moves the project's `migration` blocks declare. */
+  renames: DeclaredRenames;
 }
 
 /** Parse + lower + enrich the project rooted at `entryFile`, then merge every
@@ -77,7 +80,21 @@ export async function extractProject(
   });
   const catalog: Catalog = {};
   for (const key of Object.keys(merged).sort()) catalog[key] = merged[key]!;
-  return { catalog, names, uiNames, source };
+  const renames: DeclaredRenames = {
+    columns: loom.renameIntents.map((r) => ({
+      context: r.context,
+      aggregate: r.aggregate,
+      from: r.from,
+      to: r.to,
+    })),
+    tables: loom.tableRenameIntents.map((t) => ({
+      from: t.from,
+      to: t.to,
+      fromContext: t.fromContext,
+      toContext: t.toContext,
+    })),
+  };
+  return { catalog, names, uiNames, source, renames };
 }
 
 /** The flat source catalog alone (see {@link extractProject}). */

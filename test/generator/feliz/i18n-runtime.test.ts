@@ -81,7 +81,12 @@ describe("Feliz i18n runtime", () => {
     const src = SYS(`Heading { "Storefront" }`);
     const fs = await appFs(src);
     expect(fs).toContain('import "IntlMessageFormat" "intl-messageformat"');
-    expect(fs).toContain('[<Fable.Core.Emit("new $0($1, $2).format($3)")>]');
+    // One parsed formatter per (locale, message), built through the same engine.
+    expect(fs).toContain('[<Fable.Core.Emit("new $0($1, $2)")>]');
+    expect(fs).toContain('[<Fable.Core.Emit("$0.format($1)")>]');
+    expect(fs).toContain(
+      "let private formatters = System.Collections.Generic.Dictionary<string, obj>()",
+    );
     // …and the package.json carries the dependency, at the JS frontends' pin.
     expect(await packageJson(src)).toContain('"intl-messageformat": "10.7.18"');
   });

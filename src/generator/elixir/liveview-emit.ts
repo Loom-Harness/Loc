@@ -57,6 +57,7 @@ import {
   E2E_TSCONFIG_JSON,
   PLAYWRIGHT_CONFIG_TS_PHOENIX,
 } from "../_frontend/e2e-harness.js";
+import type { LocaleEntry } from "../_frontend/locale-meta.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { wireErrorMessage } from "../_i18n/wire-error-text.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -157,8 +158,11 @@ export function emitLiveViewPages(args: {
    *  `kind:"macro"` ref pointing at its `with scaffold(...)` call site, so
    *  this is the macro leg of the source-map milestone. */
   sourcemap?: SourceMapRecorder;
+  /** Locales the app ships (source first) with their endonyms, for
+   *  `LocaleSwitcher`.  Undefined means single-locale. */
+  locales?: readonly LocaleEntry[];
 }): { files: Map<string, string>; routes: LiveRoute[] } {
-  const { contexts, deployable, sys, appName, appModule, sourcemap } = args;
+  const { contexts, deployable, sys, appName, appModule, sourcemap, locales } = args;
   const out = emissionSink("generator/elixir/liveview-emit");
   const routes: LiveRoute[] = [];
 
@@ -368,6 +372,8 @@ export function emitLiveViewPages(args: {
       contextByAggName,
       i18nEnabled ? componentKeyPrefix(ui, c) : undefined,
       c.name,
+      undefined,
+      locales,
     );
     componentInfo.set(c.name, {
       actionBindings: w.actionBindings,
@@ -431,6 +437,7 @@ export function emitLiveViewPages(args: {
       refLabelAggs,
       refLabelBatchAggs,
       refLabelSourceAggs,
+      locales,
     });
     anyChart ||= usesChart;
     anyTableHelpers ||= usesTableHelpers;
@@ -500,6 +507,7 @@ export function emitLiveViewPages(args: {
         contextModuleByAggName,
         authEnabled,
         i18nEnabled,
+        locales,
       }),
     );
   }
@@ -527,6 +535,8 @@ interface RenderArgs {
    *  page walk then keys every literal text slot to the shared catalog and
    *  emits `pgettext(<key>, <English>)`.  False ⇒ no prefix, byte-identical. */
   i18nEnabled?: boolean;
+  /** See `emitLiveViewPages`' `locales`. */
+  locales?: readonly LocaleEntry[];
   page: PageIR;
   liveModule: string;
   appName: string;
@@ -876,6 +886,7 @@ function renderLiveView(a: RenderArgs): {
     a.i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
     undefined,
     a.refLabelBatchAggs,
+    a.locales,
   );
   const heex = walked.heex;
   // `__loom_ref_labels/1` — re-loads every `@<x>_labels` map the page's
@@ -2367,6 +2378,8 @@ function renderUiComponents(args: {
   authEnabled: boolean;
   /** True when the ui has extractable user-visible strings (M-T1.11). */
   i18nEnabled?: boolean;
+  /** See `emitLiveViewPages`' `locales`. */
+  locales?: readonly LocaleEntry[];
 }): string {
   const {
     ui,
@@ -2409,6 +2422,8 @@ function renderUiComponents(args: {
         args.bcByAggregate,
         args.i18nEnabled ? componentKeyPrefix(ui, c) : undefined,
         c.name,
+        undefined,
+        args.locales,
       );
       // Lifted state arrives as an attr of the same namespaced name the host
       // assigns under, so an intermediate component forwards it verbatim.  It

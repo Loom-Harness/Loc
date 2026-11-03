@@ -1,7 +1,7 @@
 // Auto-generated.
 import { API_BASE_URL } from "./config";
 import { getLogger } from "../logger";
-
+import { getLocale } from "../i18n";
 const log = getLogger("api");
 
 export class ApiError extends Error {
@@ -60,6 +60,9 @@ async function rawFetch(path: string, init?: RequestInit): Promise<unknown> {
     ...init,
     headers: {
       "content-type": "application/json",
+      // The backend negotiates its own locale from this header, so it answers
+      // in the language the UI is showing.
+      "accept-language": getLocale(),
       ...(init?.headers ?? {}),
     },
   });
@@ -89,6 +92,7 @@ async function rawUpload(path: string, form: FormData): Promise<unknown> {
   const r = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
     body: form,
+    headers: { "accept-language": getLocale() },
   });
   const text = await r.text();
   const body: unknown = parseBody(text);

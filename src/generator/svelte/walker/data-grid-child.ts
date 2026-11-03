@@ -130,7 +130,7 @@ function renderComponent(spec: DataGridSpec): string {
   // RENDERED body so a pack that bakes in no chrome gets no import.
   const i18nImportLine =
     callsTranslationRuntime(body) || columns.some((c) => c.headerValue?.startsWith("t("))
-      ? [`  import { t } from "$lib/i18n";`]
+      ? [`  import { t } from "$lib/locale.svelte";`]
       : [];
 
   const props = selection

@@ -3788,6 +3788,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `(CS0119 for a method, CS1061 for a property). Rename the declaration to something other ` +
     `than '${p.member}' (an operation reads well as 'add${p.member}'), or host this context on ` +
     `a node / python / elixir / java deployable.`,
+  "loom.dotnet-name-collision#generated-member": (p: {
+    what: unknown;
+    owner: unknown;
+    name: unknown;
+    member: unknown;
+    ctxName: unknown;
+  }) =>
+    `'${p.ctxName}.${p.owner}' declares ${p.what} '${p.name}', which the dotnet backend emits ` +
+    `as the C# member '${p.member}' — a name the backend already GENERATES on that class ` +
+    `(the root's 'Inspect' / 'ToString()' / 'DomainEvents' / 'PullEvents()', a part's ` +
+    `'ParentId'). Two members of one name in one class do not compile (CS0102 / CS0111). ` +
+    `Rename the declaration, or host this context on a node / python / elixir / java deployable.`,
   "loom.context-filter-no-principal": (p: {
     name: unknown;
     platform: unknown;
@@ -4468,6 +4480,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `every frontend (\`{/* ${p.name}: not supported … */}\` on React/Vue/Svelte/Angular/Feliz/` +
     `Flutter, \`<%!-- ${p.name}: … --%>\` on Phoenix LiveView), so the element and everything ` +
     `nested inside it silently disappear from the page.  Make it a direct child of ${p.parents}.`,
+  "loom.paged-envelope-unknown-member": (p: { member: unknown; known: unknown }) =>
+    `A page body reads '.${p.member}' off a 'QueryView { paged: true }' binding.  That binding ` +
+    `is the paged ENVELOPE, not a row and not a collection, and it carries only ${p.known} — ` +
+    `every frontend would print '.${p.member}' verbatim against an object that has no such ` +
+    `member.  Read the rows through '.items' (e.g. 'rows.items.count') or one of the page fields.`,
   "loom.frontend-collection-op-unsupported": (p: { where: unknown; op: unknown }) =>
     `uses the collection op \`.${p.op}\` on a collection in a page/component ` +
     `expression.  The frontends render the ops that RESHAPE a collection — \`count\`, ` +
@@ -5116,6 +5133,39 @@ export const DIAGNOSTIC_MESSAGES = {
     `The body of 'api.${p.slug}.instance(…)' is the persisted instance shape of workflow ` +
     `'${p.workflow}': its correlation field, then its state fields. The read is 'undefined' at ` +
     `run time, so an assertion over it passes or fails for the wrong reason. Readable: ${p.known}.`,
+  "loom.e2e-unknown-response-field#projection": (p: {
+    read: unknown;
+    slug: unknown;
+    projection: unknown;
+    known: unknown;
+    suggestion?: unknown;
+  }) =>
+    `e2e: '${p.read}' reads a field the response does not carry.${didYouMean(p.suggestion)} ` +
+    `The body of 'api.${p.slug}.byKey(…)' is one row of projection '${p.projection}': its key, ` +
+    `then its state fields. The read is 'undefined' at run time, so an assertion over it passes ` +
+    `or fails for the wrong reason. Readable: ${p.known}.`,
+  "loom.e2e-unknown-query-key": (p: {
+    slug: unknown;
+    key: unknown;
+    aggregate: unknown;
+    known: unknown;
+    suggestion?: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.all({ ${p.key}: … })' sends the query key '${p.key}', which the ` +
+    `'${p.aggregate}' list route does not read.${didYouMean(p.suggestion)} The route ignores ` +
+    `it and answers the default page, so an assertion about the page the test asked for passes ` +
+    `or fails for the wrong reason. Accepted keys: ${p.known}.`,
+  "loom.e2e-projection-read-arity": (p: {
+    slug: unknown;
+    verb: unknown;
+    projection: unknown;
+    got: unknown;
+    expected: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…)' passes ${p.got} argument(s), but projection ` +
+    `'${p.projection}''s '${p.verb}' read takes ${p.expected}: 'byKey(key)' reads one row by its ` +
+    `key and 'list()' reads every row, with nothing else on the request. Pass exactly ` +
+    `${p.expected}.`,
   "loom.e2e-body-type-mismatch": (p: {
     slug: unknown;
     verb: unknown;
@@ -5451,11 +5501,21 @@ export const DIAGNOSTIC_MESSAGES = {
     call: unknown;
     binding: unknown;
   }) =>
-    `${p.where} reaches repository '${p.repoName}' INLINE, inside an expression. A workflow ` +
-    `wires up a repository only for a read bound to its own 'let' statement, so an inline read ` +
+    `${p.where} reaches repository '${p.repoName}' INLINE, inside an expression. A workflow or ` +
+    `handler wires up a repository only for a read bound to its own 'let' statement, so an inline read ` +
     `is dropped from codegen: no repository is ever instantiated, and every backend renders ` +
     `'${p.repoName}' as a bare name nothing binds. Bind the read first, then reference the ` +
     `binding: 'let ${p.binding} = ${p.call}'.`,
+  "loom.handler-unknown-name": (p: {
+    handler: unknown;
+    where: unknown;
+    name: unknown;
+    reason: unknown;
+  }) =>
+    `${p.handler}: ${p.where} references '${p.name}', which binds to nothing in a handler body — ` +
+    `it is ${p.reason}. Every backend would render '${p.name}' verbatim as a name the generated ` +
+    `handler never binds, so the project would not compile. Use a parameter, a 'let' binding, or ` +
+    `a read of this context's own repositories bound to a 'let' ('let x = <Repo>.get(…)').`,
   "loom.workflow-emit-unknown-event": (p: { name: unknown; eventName: unknown }) =>
     `workflow '${p.name}': emit refers to unknown event '${p.eventName}'.`,
   "loom.workflow-emit-missing-field": (p: { name: unknown; evName: unknown; f: unknown }) =>

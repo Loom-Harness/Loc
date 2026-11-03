@@ -219,6 +219,7 @@ function AppShellLayout() {
           </RouterLink>
         </Box>
 {{#if authUi}}        <Button variant="ghost" size="sm" color="white" ml="auto" onClick={signOut} data-testid="sign-out">{{{chrome "signOut"}}}</Button>
+{{/if}}{{#if localeSwitcherJsx}}        <Box ml={ {{#if authUi}}3{{else}}"auto"{{/if}} }>{{{localeSwitcherJsx}}}</Box>
 {{/if}}      </Flex>
 
       <Flex flex={1} minH={0}>
@@ -273,7 +274,8 @@ function {{name}}Layout() {
 }
 
 {{/each}}export default function App() {
-  return (
+{{#if useLocaleStatement}}  {{{useLocaleStatement}}}
+{{/if}}  return (
 {{#if hasRealtimeHandlers}}    <>
       <RealtimeHandlers />
 {{/if}}    <React.Suspense fallback={<RouteLoading />}>
