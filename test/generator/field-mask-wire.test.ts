@@ -88,3 +88,32 @@ describe("mask unless — node response schema", () => {
     expect(routes).not.toMatch(/salary: z\.number\(\)\.nullable\(\)/);
   });
 });
+
+describe("mask unless — the response required set agrees on every backend", () => {
+  const served = (platform: string): string =>
+    SRC.replace("  storage db", "  api A from M\n  storage db")
+      .replace("platform: node", `platform: ${platform}`)
+      .replace("port: 8080", "serves: A  port: 8080");
+  const fileEnding = (files: Map<string, string>, suffix: string): string => {
+    const hit = [...files.entries()].find(([p]) => p.endsWith(suffix));
+    expect(hit, suffix).toBeDefined();
+    return hit![1];
+  };
+
+  it("java leaves the masked field out of the response's required set", async () => {
+    const files = await generateSystemFiles(served("java"));
+    const cfg = fileEnding(files, "config/OpenApiContractCustomizer.java");
+    const row = cfg.split("\n").find((l) => l.includes('new RequiredSet("PResponse"'));
+    expect(row).toBeDefined();
+    expect(row).toContain('"name"');
+    expect(row).not.toContain('"salary"');
+  });
+
+  it("phoenix leaves the masked field out of the response's required set", async () => {
+    const files = await generateSystemFiles(served("elixir"));
+    const schema = fileEnding(files, "api/schemas/p_response.ex");
+    const req = schema.split("\n").find((l) => l.trim().startsWith("required:"));
+    expect(req).toContain(":name");
+    expect(req).not.toContain(":salary");
+  });
+});
