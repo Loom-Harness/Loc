@@ -357,6 +357,14 @@ const STATIC_HOST_BACKEND: TargetCapabilityTable = {
   },
 };
 
+/** python: the static-bundle row, with the tenant-scoped stream implemented. */
+const PYTHON_BACKEND: TargetCapabilityTable = {
+  backend: {
+    ...STATIC_HOST_BACKEND.backend!,
+    "capability:tenantOwned@event-sourced": SUPPORTED,
+  },
+};
+
 /** node: the static-bundle row, with the tenant-scoped stream implemented. */
 const NODE_BACKEND: TargetCapabilityTable = {
   backend: {
@@ -379,7 +387,7 @@ const REACT_CAPABILITIES: TargetCapabilityTable = {
 export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTable>> = {
   node: NODE_BACKEND,
   dotnet: STATIC_HOST_BACKEND,
-  python: STATIC_HOST_BACKEND,
+  python: PYTHON_BACKEND,
   java: STATIC_HOST_BACKEND,
   elixir: {
     ui: {
@@ -420,7 +428,7 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
     },
     backend: {
       "stmt:requires@event-sourced-create": SUPPORTED,
-      "capability:tenantOwned@event-sourced": ES_TENANT_OWNED_REFUSED,
+      "capability:tenantOwned@event-sourced": SUPPORTED,
       ...UNREALIZED_RESOURCES,
     },
   },

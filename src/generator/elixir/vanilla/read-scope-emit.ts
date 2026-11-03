@@ -33,6 +33,7 @@ import {
   type ReadRestriction,
   readScopeFor,
 } from "../../../ir/enrich/read-scope.js";
+import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
 import type { AggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
 import { renderEctoRestriction } from "./capability-filter.js";
@@ -83,19 +84,10 @@ export function ectoReadScope(
   contextModule: string,
 ): EctoReadScope {
   const scope = readScopeFor(agg, pool);
-  const base: string[] = [];
-  const grouped = new Map<string, string[]>();
-  const place = (r: ReadRestriction, rendered: string): void => {
-    if (!r.bypassable && !readsPrincipal(rendered)) {
-      base.push(rendered);
-      return;
-    }
-    const key = r.capability ? skipFilterKey(r.capability) : UNSKIPPABLE_FILTER_KEY;
-    grouped.set(key, [...(grouped.get(key) ?? []), rendered]);
-  };
+  const { place, addBase, finish } = scopeCollector();
   for (const r of scope.restrictions) {
     if (r.kind === "discriminator") {
-      base.push(`record.kind == ${JSON.stringify(r.discriminator)}`);
+      addBase(`record.kind == ${JSON.stringify(r.discriminator)}`);
       continue;
     }
     place(r, renderEctoRestriction(r.predicate as ExprIR, contextModule));
@@ -104,13 +96,56 @@ export function ectoReadScope(
     const pred = renderEctoRestriction(g.restriction.predicate as ExprIR, contextModule);
     place(g.restriction, `record.kind != ${JSON.stringify(g.discriminator)} or (${pred})`);
   }
+  return finish();
+}
+
+/** Sorts restrictions into `base_query/0` (non-bypassable, principal-free) and
+ *  the `prepare_query/3` clauses (one per `skip_filters:` key). */
+function scopeCollector(): {
+  place: (r: ReadRestriction, rendered: string) => void;
+  addBase: (rendered: string) => void;
+  finish: () => EctoReadScope;
+} {
+  const base: string[] = [];
+  const grouped = new Map<string, string[]>();
   return {
-    baseWhere: conjoin(base),
-    clauses: [...grouped].map(([key, preds]) => {
-      const predicate = conjoin(preds)!;
-      return { key, predicate, principal: readsPrincipal(predicate) };
+    addBase: (rendered) => {
+      base.push(rendered);
+    },
+    place: (r, rendered) => {
+      if (!r.bypassable && !readsPrincipal(rendered)) {
+        base.push(rendered);
+        return;
+      }
+      const key = r.capability ? skipFilterKey(r.capability) : UNSKIPPABLE_FILTER_KEY;
+      grouped.set(key, [...(grouped.get(key) ?? []), rendered]);
+    },
+    finish: () => ({
+      baseWhere: conjoin(base),
+      clauses: [...grouped].map(([key, preds]) => {
+        const predicate = conjoin(preds)!;
+        return { key, predicate, principal: readsPrincipal(predicate) };
+      }),
     }),
   };
+}
+
+/** The read scope of a tenant-scoped event stream (`stream-tenancy.ts`): its
+ *  tenancy restrictions, rendered over the event-log schema's tenant metadata
+ *  columns (`tenant_id` / `data_key` carry the `tenantOwned` field names, so
+ *  the predicate is the one a `tenantOwned` table applies).  Hosted on the
+ *  stream's event-log schema, where `Repo.prepare_query/3` applies it to every
+ *  read of the stream. */
+export function ectoStreamReadScope(
+  agg: AggregateIR,
+  pool: readonly AggregateIR[],
+  contextModule: string,
+): EctoReadScope {
+  const { place, finish } = scopeCollector();
+  for (const r of streamTenancyFor(agg, pool)?.restrictions ?? []) {
+    place(r, renderEctoRestriction(r.predicate as ExprIR, contextModule));
+  }
+  return finish();
 }
 
 /** The read-scope functions appended to an aggregate's schema module. */

@@ -284,7 +284,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "the entity-history read are supported on every shipping frontend, so the remaining " +
       "refusals are the seam a NEW frontend gates on until it ports.  One LIVE gap: a " +
       "`tenantOwned` event-sourced aggregate (`#tenant-owned-event-sourced`) is carried on " +
-      "node's Drizzle store only; dotnet / java / python / elixir and node's mikroorm refuse " +
+      "node's Drizzle store, python and elixir; dotnet / java and node's mikroorm refuse " +
       "it until each event store carries the stream tenant (#3533)",
     mission: "#3592",
     verified: true,
