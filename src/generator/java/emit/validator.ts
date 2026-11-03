@@ -27,11 +27,12 @@ import {
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { javaCodePointLength } from "../../_expr/code-point.js";
-import { ruleText } from "../../_i18n/rule-text.js";
+import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
 import { javaRef } from "../../_imports/java.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import { javaLocals, jid, localOf } from "../java-ident.js";
 import { J } from "../java-symbols.js";
+import { javaRuleParamArgs } from "../wire-policy-java.js";
 import { collectJavaRegexLiterals, renderJavaExpr } from "../render-expr.js";
 import { collectWireToDomainImports, wireComponentNullable, wireToDomain } from "./wire.js";
 
@@ -61,12 +62,6 @@ import { collectWireToDomainImports, wireComponentNullable, wireToDomain } from 
 // object fields keep their wire record (nested accessors work directly), which
 // is why they are never re-parsed here.
 // ---------------------------------------------------------------------------
-
-/** A named rule's error code is its identity key (`<Ctx>.<Owner>.rule.<name>`);
- *  an unnamed rule uses this sentinel so `rejectValue`'s (non-null) errorCode
- *  contract holds without surfacing a `code` in the 422 envelope — the advice
- *  emits `code` only when it contains `.rule.`. */
-const NO_WIRE_CODE = "loom.invariant";
 
 export interface JavaCommandValidator {
   /** e.g. `CreateOrderValidator` — the Spring `Validator` class. */
@@ -457,7 +452,10 @@ function buildChecks(spec: CommandSpec, regexFields: Map<string, string>): strin
   for (const inv of spec.invariants) {
     if (!classifyForWire(inv, ctx)) continue;
     const message = ruleText(inv);
-    const code = inv.message ? inv.message.key : NO_WIRE_CODE;
+    const code = ruleCode(inv);
+    const args = inv.message
+      ? javaRuleParamArgs(inv, (e) => renderJavaExpr(e, localRenderCtx(spec, regexFields)))
+      : undefined;
     const single = singleFieldShape(inv);
     if (single && spec.available.has(single.field)) {
       checks.push(
@@ -475,6 +473,7 @@ function buildChecks(spec: CommandSpec, regexFields: Map<string, string>): strin
             code,
             regexFields,
             localOf(validatorLocals(spec), single.field),
+            args,
           ),
         ),
       );
@@ -511,7 +510,7 @@ function buildChecks(spec: CommandSpec, regexFields: Map<string, string>): strin
     const predicate = inv.guard ? `!(${renderJavaExpr(inv.guard, renderOpts)}) || (${body})` : body;
     checks.push(
       ...carriedOnly(inv, [
-        reject(path, code, message, nullSkipRefs(predicate, spec, inv, regexFields)),
+        reject(path, code, message, nullSkipRefs(predicate, spec, inv, regexFields), args),
       ]),
     );
   }
@@ -620,13 +619,20 @@ function mentionsNullLiteral(expr: ExprIR): boolean {
  *  .WithErrorCode(...)`.  `field` is the property path (no leading slash; the
  *  advice re-prefixes `/`), `code` the wire code (or the message-less sentinel),
  *  `message` the resolved default text. */
-function reject(field: string, code: string, message: string, cond: string): string {
+function reject(
+  field: string,
+  code: string,
+  message: string,
+  cond: string,
+  args?: string,
+): string {
   // `rejectValue` names the JAVA property — `AbstractBindingResult` reads the
   // field's actual value off the bound record to build the error, so a wire
   // spelling that has no such accessor throws `NotReadablePropertyException`.
   // The wire spelling is restored one layer out, in the advice's `pointerOf`
   // (M-T6.36).
-  return `        if (!(${cond})) errors.rejectValue(${JSON.stringify(jid(field))}, ${JSON.stringify(code)}, ${JSON.stringify(message)});`;
+  const argv = args === undefined ? "" : `new Object[] {${args}}, `;
+  return `        if (!(${cond})) errors.rejectValue(${JSON.stringify(jid(field))}, ${JSON.stringify(code)}, ${argv}${JSON.stringify(message)});`;
 }
 
 function patternCheck(
@@ -638,6 +644,7 @@ function patternCheck(
   code: string,
   regexFields: Map<string, string>,
   local: string = jid(field),
+  args?: string,
 ): string[] {
   const moneyLike =
     type?.kind === "primitive" && (type.name === "money" || type.name === "decimal");
@@ -668,7 +675,7 @@ function patternCheck(
   // on `POST /api/orders/{id}/add_line`). `nullable` is now carried from the
   // record's own boxing decision (`wireComponentNullable`).
   const nullSkip = (cond: string): string => (nullable ? `${local} == null || ${cond}` : cond);
-  const fail = (cond: string): string => reject(field, code, message, nullSkip(cond));
+  const fail = (cond: string): string => reject(field, code, message, nullSkip(cond), args);
   switch (pattern.kind) {
     case "min":
       // Exclusive (`weight > 0.5` on a decimal/money field) → strict `>`; the

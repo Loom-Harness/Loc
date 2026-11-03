@@ -34,6 +34,7 @@ const CORPUS = join(__dirname, "../fixtures/corpus");
 const FIXTURES = [
   "validation-messages",
   "wire-ingress",
+  "error-codes",
   "state-gate",
   "operation-returns",
   "concurrency-conflict",
@@ -47,7 +48,6 @@ const FIXTURES = [
  *  all.  Ratchets: a listed code that IS emitted fails, so a new fixture that
  *  reaches one deletes it here. */
 const NOT_REACHED: Readonly<Record<string, string>> = {
-  "problem.dangling-reference": "no fixture above writes a reference to an absent row",
 };
 
 /** A declared error variant's code (`operation-returns` declares `NotFound`
@@ -71,7 +71,14 @@ const BACKEND_FACTS: Readonly<
   },
   dotnet: { schema: [], catalog: /LoomMessages|Localization\/LoomMessages\.cs/ },
   python: { schema: [], catalog: /localize_message|app\/i18n\.py/ },
-  java: { schema: [], catalog: /MessageSource|messages\.properties/ },
+  java: {
+    schema: [
+      /problem\.addProperty\("code", new StringSchema\(\)\)/,
+      /problem\.addProperty\("params", paramsSchema\(\)\)/,
+      /errorItem\.addProperty\("code", new StringSchema\(\)\)/,
+    ],
+    catalog: /MessageSource|messages\.properties/,
+  },
   elixir: { schema: [], catalog: /Gettext\.with_locale/ },
 };
 

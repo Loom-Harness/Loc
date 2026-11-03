@@ -112,7 +112,7 @@ describe("a refused paged bound answers the declared 422", () => {
     // 422 lines — so it stayed green with this arm deleted, asserting nothing
     // about the thing under test. (Caught by the mutation proof.)
     expect(armBody(file)).toContain(
-      `var problem = problem(${UNPROCESSABLE_ENTITY}, "Validation failed", "One or more fields are invalid.", request);`,
+      `var problem = problem(${UNPROCESSABLE_ENTITY}, "Validation failed", "One or more fields are invalid.", "problem.field-invalid", request);`,
     );
     expect(armBody(file)).toContain(`return respond(problem, ${UNPROCESSABLE_ENTITY});`);
   });
@@ -125,7 +125,7 @@ describe("a refused paged bound answers the declared 422", () => {
     // errors-pointer-rfc6901.test.ts pins.
     expect(file).toContain("for (var result : e.getParameterValidationResults()) {");
     expect(file).toContain("var name = result.getMethodParameter().getParameterName();");
-    expect(file).toContain('entry.put("pointer", pointerOf(name != null ? name : ""));');
+    expect(file).toContain('entries.add(entry(pointerOf(name != null ? name : ""),');
     expect(file).toContain("for (var err : result.getResolvableErrors()) {");
   });
 

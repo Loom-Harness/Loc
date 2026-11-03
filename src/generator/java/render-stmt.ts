@@ -10,6 +10,7 @@ import { walkStmtsDeep } from "../../ir/util/walk.js";
 import { escapeJavaIdent } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { ruleText } from "../_i18n/rule-text.js";
+import { javaRuleParamsTail } from "./wire-policy-java.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { javaLineageValue } from "./codec-spelling.js";
@@ -273,7 +274,7 @@ function precondition(
   const code = traceCtx.domainFloorCodes ? domainFloorCode(message) : undefined;
   const text = JSON.stringify(ruleText({ expr, source, message }));
   const thrown = code
-    ? `throw new DomainException(${text}, DomainException.Kind.PRECONDITION, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
+    ? `throw new DomainException(${text}, DomainException.Kind.PRECONDITION, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))}${message ? javaRuleParamsTail({ expr }, (e) => renderJavaExpr(e, ctx)) : ""})`
     : `throw new DomainException(${text}, DomainException.Kind.PRECONDITION)`;
   if (!traceCtx.emitTrace) {
     return `${INDENT}if (!(${renderJavaExpr(expr, ctx)})) ${thrown};`;

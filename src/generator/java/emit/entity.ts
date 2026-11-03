@@ -33,6 +33,7 @@ import { tableNameFor } from "../../../util/storage-names.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { ruleText } from "../../_i18n/rule-text.js";
+import { javaRuleParamsTail } from "../wire-policy-java.js";
 import { javaRef } from "../../_imports/java.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
@@ -899,7 +900,7 @@ export function renderJavaEntity(
     const code = domainFloorCode(inv.message);
     const text = JSON.stringify(ruleText(inv));
     const thrown = code
-      ? `throw new DomainException(${text}, DomainException.Kind.INVARIANT, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
+      ? `throw new DomainException(${text}, DomainException.Kind.INVARIANT, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}${javaRuleParamsTail(inv, (e) => renderJavaExpr(e, renderCtx))})`
       : `throw new DomainException(${text}, DomainException.Kind.INVARIANT)`;
     if (!emitTrace) {
       const check = inv.guard

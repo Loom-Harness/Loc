@@ -37,6 +37,7 @@ import {
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
 import { workflowPreconditionThrowArgs } from "../../_i18n/domain-floor.js";
+import { javaRuleParamsTail } from "../wire-policy-java.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
@@ -395,7 +396,7 @@ export function javaWorkflowStmtTarget(
     indentUnit: "    ",
     precondition: (s, indent) => {
       return [
-        `${indent}if (!(${renderJavaExpr(s.expr, renderCtx)})) throw new DomainException(${workflowPreconditionThrowArgs(s, "DomainException.Kind.PRECONDITION")});`,
+        `${indent}if (!(${renderJavaExpr(s.expr, renderCtx)})) throw new DomainException(${workflowPreconditionThrowArgs(s, "DomainException.Kind.PRECONDITION")}${s.message ? javaRuleParamsTail(s, (e) => renderJavaExpr(e, renderCtx)) : ""});`,
       ];
     },
     requires: (s, indent) => {

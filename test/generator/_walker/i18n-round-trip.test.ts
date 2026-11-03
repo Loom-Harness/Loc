@@ -783,7 +783,6 @@ const BACKENDS = [
   // node ships no catalog: it answers each rule's code and the client
   // localizes (#4473).  The other four leave with the fan-out.
   { platform: "dotnet", catalog: "Localization/LoomMessages.cs" },
-  { platform: "java", catalog: "src/main/resources/messages.properties" },
   { platform: "python", catalog: "app/i18n.py" },
   { platform: "elixir", catalog: "priv/gettext/en/LC_MESSAGES/default.po" },
 ] as const;

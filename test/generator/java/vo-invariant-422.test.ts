@@ -61,7 +61,7 @@ describe("java — VO invariant → 422 at the wire", () => {
     const e = find(map, "features/items/ExtentValidator.java");
     // Cross-field / messaged rule carries the stable wire code + author message.
     expect(e).toContain(
-      'if (!(lo < hi)) errors.rejectValue("lo", "Catalog.Extent.rule.loBelowHi", "lo must be below hi");',
+      'if (!(lo < hi)) errors.rejectValue("lo", "Catalog.Extent.rule.loBelowHi", new Object[] {"hi", hi, "lo", lo}, "lo must be below hi");',
     );
     expect(e).toContain("lo must be below hi");
   });

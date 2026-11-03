@@ -63,7 +63,7 @@ export function renderJavaExternHook(
       `     *  fields are package-private) and raise events via`,
       `     *  \`${recv}._raiseEvent(...)\`; return normally and the framework saves. */`,
       `    static void ${jid(op.name)}(${params}) {`,
-      `        throw new UnsupportedOperationException(${JSON.stringify(msg)});`,
+      `        throw new NotImplementedException(${JSON.stringify(msg)});`,
       `    }`,
       ``,
     ];

@@ -263,7 +263,7 @@ describe("java generator — wire validators + advice (S5)", () => {
     expect(v).toContain(
       // `code == null ||` skips a NULL rather than dereferencing it (F23): this
       // Validator runs ALONGSIDE the record's @NotNull, not after it.
-      'if (!(code == null || ((int) code.codePoints().count()) >= 1)) errors.rejectValue("code", "loom.invariant", "Code must be at least 1 character");',
+      'if (!(code == null || ((int) code.codePoints().count()) >= 1)) errors.rejectValue("code", "field.rule", "Code must be at least 1 character");',
     );
     const ctrl = files_.get(`${ROOT}/features/orders/OrdersController.java`)!;
     expect(ctrl).toContain("@Valid @RequestBody CreateOrderRequest request");
@@ -276,9 +276,9 @@ describe("java generator — wire validators + advice (S5)", () => {
     expect(advice).toContain("@ExceptionHandler(MethodArgumentNotValidException.class)");
     // The pointer is built by `pointerOf` since the RFC-6901 fix — a nested
     // path is `/lineTotals/0/unitPrice`, not `/lineTotals[0].unitPrice`.
-    expect(advice).toContain('entry.put("pointer", pointerOf(err.getField()));');
+    expect(advice).toContain('var pointer = pointerOf(err.getField());');
     expect(advice).toContain(
-      'if (code != null && code.contains(".rule.")) entry.put("code", code);',
+      'var code = fieldErrorCode(err);',
     );
   });
 
@@ -305,7 +305,7 @@ system Demo {
 `;
     const out = await generateSystemFiles(src);
     const check =
-      'if (!(handle == null || ((int) handle.codePoints().count()) >= 1)) errors.rejectValue("handle", "loom.invariant", "Handle must be at least 1 character");';
+      'if (!(handle == null || ((int) handle.codePoints().count()) >= 1)) errors.rejectValue("handle", "field.rule", "Handle must be at least 1 character");';
     const create = [...out.entries()].find(([k]) => /CreateAccountValidator\.java$/.test(k))?.[1];
     const update = [...out.entries()].find(([k]) => /UpdateAccountValidator\.java$/.test(k))?.[1];
     expect(create).toContain(check);
@@ -316,15 +316,15 @@ system Demo {
     const advice = (await files()).get(`${ROOT}/api/ApiExceptionAdvice.java`)!;
     expect(advice).toContain("@RestControllerAdvice");
     expect(advice).toContain(
-      'problem(422, "Validation failed", "One or more fields are invalid.", request)',
+      'problem(422, "Validation failed", "One or more fields are invalid.", "problem.field-invalid", request)',
     );
     expect(advice).toContain(
       'problem.setProperty("errors", e.getBindingResult().getFieldErrors().stream()',
     );
     // No dev-stub verifier in this model: the 403 body is the constant (ruling D4, #20).
-    expect(advice).toContain('problem(403, "Forbidden", "Forbidden", request), 403');
-    expect(advice).toContain('problem(422, "Unprocessable Entity", e.getMessage(), request), 422');
-    expect(advice).toContain('problem(404, "Not Found", e.getMessage(), request), 404');
+    expect(advice).toContain('problem(403, "Forbidden", "Forbidden", "problem.forbidden", request), 403');
+    expect(advice).toContain('problem(422, "Unprocessable Entity", e.getMessage(), "problem.domain-floor", request), 422');
+    expect(advice).toContain('problem(404, "Not Found", e.getMessage(), "problem.not-found", request), 404');
   });
 
   it("advice logs the fault tier through CatalogLog with each fault's real status", async () => {
@@ -425,7 +425,7 @@ describe("java generator — single-row read absence 404 (RS-22/RS-27)", () => {
     const advice = files_.get(`${ABS_ROOT}/api/ApiExceptionAdvice.java`)!;
     expect(advice).toContain("@ExceptionHandler(AggregateNotFoundException.class)");
     expect(advice).toContain(
-      'return respond(problem(404, "Not Found", e.getMessage(), request), 404);',
+      'return respond(problem(404, "Not Found", e.getMessage(), "problem.not-found", request), 404);',
     );
     // RS-9 — `type` is present and `about:blank`, written through setProperty
     // so Spring's NON_DEFAULT suppression cannot drop it.

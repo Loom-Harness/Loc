@@ -128,28 +128,6 @@ describe(".NET — Localization/LoomMessages.cs + exception-filter resolution", 
   });
 });
 
-describe("java/Spring — messages.properties ResourceBundle + MessageSource resolution", () => {
-  it("emits the bundle keyed by the wire codes", async () => {
-    const bundle = bySuffix(await filesFor("java"), "src/main/resources/messages.properties")!;
-    expect(bundle).toBeDefined();
-    expect(bundle).toContain(`${NAME_CODE}=Name length`);
-    expect(bundle).toContain(`${SKU_CODE}=Sku required`);
-    expect(bundle).toContain(`${AMOUNT_CODE}=Amount positive`);
-  });
-
-  it("resolves each FieldError through MessageSource for the ambient locale", async () => {
-    const advice = bySuffix(await filesFor("java"), "ApiExceptionAdvice.java")!;
-    expect(advice).toContain("import org.springframework.context.MessageSource;");
-    expect(advice).toContain("ApiExceptionAdvice(HttpMetrics httpMetrics, MessageSource messages)");
-    expect(advice).toContain("Locale.forLanguageTag(RequestContext.locale()");
-    expect(advice).toContain(
-      'entry.put("message", "NotNull".equals(err.getCode()) ? lastKey((String) entry.get("pointer")) + " is required" : resolveMessage(err, locale));',
-    );
-    // A FieldError with no default message must not turn the 422 into a 500.
-    expect(advice).toContain("catch (NoSuchMessageException ex)");
-  });
-});
-
 describe("python/FastAPI — app/i18n.py + validation-handler resolution", () => {
   it("emits the catalog keyed by the wire codes", async () => {
     const catalog = bySuffix(await filesFor("python"), "app/i18n.py")!;
@@ -199,14 +177,12 @@ describe("cross-backend parity", () => {
   it("the catalog backends ship the SAME code set — one collector, N renderings", async () => {
     const codesIn = (content: string): string[] =>
       [...new Set(content.match(/Cat\.Product\.rule\.[A-Za-z0-9]+/g) ?? [])].sort();
-    const [dotnet, java, python, elixir] = await Promise.all([
+    const [dotnet, python, elixir] = await Promise.all([
       filesFor("dotnet"),
-      filesFor("java"),
       filesFor("python"),
       filesFor("elixir"),
     ]);
     expect(codesIn(bySuffix(dotnet, "Localization/LoomMessages.cs")!)).toEqual(ALL_CODES);
-    expect(codesIn(bySuffix(java, "src/main/resources/messages.properties")!)).toEqual(ALL_CODES);
     expect(codesIn(bySuffix(python, "app/i18n.py")!)).toEqual(ALL_CODES);
     expect(
       codesIn(bySuffix(elixir, "priv/gettext/en/LC_MESSAGES/default.po")!).filter((c) =>
@@ -233,13 +209,10 @@ describe("cross-backend parity", () => {
     // so each rendering must normalise it the same way or a `fr-CA,fr;q=0.9`
     // request would resolve differently per backend.  The contract: take the first
     // listed language, drop its `;q=` weight, then fall back to the primary
-    // subtag.  Two backends delegate it to their ecosystem (java to
-    // `Locale.forLanguageTag` + ResourceBundle's own parent-bundle walk, elixir to
-    // gettext's), so for those the assertion is that the FIRST-TAG extraction
-    // happens before the handoff.
-    const [dotnet, java, python, elixir] = await Promise.all([
+    // subtag.  elixir delegates it to gettext, so for it the assertion is that
+    // the FIRST-TAG extraction happens before the handoff.
+    const [dotnet, python, elixir] = await Promise.all([
       filesFor("dotnet"),
-      filesFor("java"),
       filesFor("python"),
       filesFor("elixir"),
     ]);
@@ -253,9 +226,6 @@ describe("cross-backend parity", () => {
       expect(c).toMatch(/[Ss]plit\((["'])[;;]\1\)/); // drop the ;q= weight
       expect(c.toLowerCase()).toContain("primary"); // the subtag fallback
     }
-    // java / elixir extract the first tag, then hand the rest to their ecosystem.
-    const advice = bySuffix(java, "ApiExceptionAdvice.java")!;
-    expect(advice).toContain('RequestContext.locale().split(",")[0].split(";")[0].trim()');
     const problem = bySuffix(elixir, "_web/problem_details.ex")!;
     expect(problem).toContain('String.split(",")');
     expect(problem).toContain('String.split(";")');
@@ -265,7 +235,6 @@ describe("cross-backend parity", () => {
     for (const [platform, suffix] of [
       ["node", "http/messages.ts"],
       ["dotnet", "Localization/LoomMessages.cs"],
-      ["java", "src/main/resources/messages.properties"],
       ["python", "app/i18n.py"],
       ["elixir", "priv/gettext/en/LC_MESSAGES/default.po"],
     ] as const) {
@@ -278,9 +247,6 @@ describe("cross-backend parity", () => {
     expect(bySuffix(await filesFor("python", NO_MESSAGES), "app/http/problem.py")).not.toContain(
       "localize_message",
     );
-    expect(bySuffix(await filesFor("java", NO_MESSAGES), "ApiExceptionAdvice.java")).toContain(
-      'entry.put("message", "NotNull".equals(err.getCode()) ? lastKey((String) entry.get("pointer")) + " is required" : err.getDefaultMessage());',
-    );
   });
 });
 
@@ -291,7 +257,6 @@ describe("a locales/en override", () => {
       // node has no catalog: the override is the English its refine answers.
       ["node", "http/product.routes.ts"],
       ["python", "app/i18n.py"],
-      ["java", "src/main/resources/messages.properties"],
     ] as const) {
       const files = await generateSystemFiles(src(platform), { sourceOverrides: overrides });
       expect(bySuffix(files, suffix), platform).toContain("Name must be 2-120 characters");

@@ -73,7 +73,7 @@ describe("java money ingress (M-T6.48)", () => {
     // accept/reject AND on the message text.
     expect(ex).toContain('Pattern.compile("^-?[0-9]+(\\\\.[0-9]+)?$")');
     expect(ex).toContain(
-      'throw new WireFormatException(pointer, "Invalid decimal: " + quote(value));',
+      'throw new WireFormatException(pointer, "Invalid decimal: " + quote(value), "field.money-grammar", java.util.Map.of("value", String.valueOf(value)));',
     );
   });
 
