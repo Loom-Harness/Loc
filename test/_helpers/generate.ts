@@ -294,7 +294,12 @@ export async function generateSystemFilesFromProject(
     );
   }
   const loom = enrichLoomModel(lowerProject(all.map((d) => d.parseResult.value as Model)));
-  return generateSystemFilesFromLoom(loom, options, absEntryFile);
+  // The translator tree beside the entry file — what `ddd generate system` reads.
+  return generateSystemFilesFromLoom(
+    loom,
+    { sourceOverrides: overridesBeside(absEntryFile), ...options },
+    absEntryFile,
+  );
 }
 
 /**
@@ -322,11 +327,7 @@ export async function generateSystemFilesFromLoom(
     );
   }
   const { generateSystemsFromLoom } = await import("../../src/system/index.js");
-  // The translator tree beside the entry file — what `ddd generate system` reads.
-  return generateSystemsFromLoom(loom, {
-    sourceOverrides: overridesBeside(absEntryFile),
-    ...options,
-  }).files;
+  return generateSystemsFromLoom(loom, options).files;
 }
 
 /**
