@@ -20,6 +20,7 @@
 // `text` (`.ToString()` / `Enum.Parse`).
 // ---------------------------------------------------------------------------
 
+import { readSortFor } from "../../../ir/enrich/read-scope.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -688,8 +689,9 @@ function containmentMembers(
 }
 
 // ---------------------------------------------------------------------------
-// find `where` → SQL.  Minimal subset; throws on anything unsupported so the
-// caller can emit a compile-safe `NotImplementedException` body.
+// find `where` → SQL — every shape the IR queryable gate admits.  Anything
+// else throws `QueryEmissionRefusal` (`loom.query-emission-invalid`): reaching
+// it is a validator gap, so it fails generation rather than shipping a stub.
 // ---------------------------------------------------------------------------
 
 const SQL_BINOP: Record<string, string> = {
@@ -769,7 +771,7 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
       // A5 temporal — `datetime ± days/hours/minutes(n)` is not a comparison,
       // so it has no `SQL_BINOP` row; it is Postgres interval arithmetic and
       // must be recognised BEFORE the operator lookup, which would otherwise
-      // reject the `+` and hand the caller a NotImplementedException body.
+      // refuse the `+`.
       const interval = temporalInterval(e);
       if (interval) {
         const side = whereToSql(interval.operand, sqlCtx);
@@ -857,17 +859,10 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
     case "member":
       // `this.<field>` → column.
       if (e.receiver.kind === "this") return sqlIdent(snake(e.member));
-      // `this.<vo>.<sub>` → the FLATTENED column the schema gives a value
-      // object's sub-property (`flags.active` → `flags_active`), the same
-      // spelling `columnsForType` emits and the drizzle / EF / JPA / SQLAlchemy
-      // twins target.  Without this arm every predicate touching a value
-      // object — a comparison as much as a bare boolean — fell through to the
-      // refusal below, and `renderDapperRepository` turned that into a
-      // `NotImplementedException` STUB BODY: a repository method that compiles,
-      // ships, and throws the first time the endpoint is called.  Measured in
-      // wave C2 packet 2n on `this.flags.label == "x"`, `this.flags.active` and
-      // `!this.flags.active`, which is also why the register's
-      // `DAPPER_SUBSET = FULL_SUBSET` claim was wrong.
+      // `this.<vo>.<sub>` → the value object's leaf, read out of its jsonb
+      // column (`voLeafSql`).  The gate admits a value-object leaf in every
+      // predicate position — a comparison as much as a bare boolean
+      // (`this.flags.active`, `!this.flags.active`).
       if (e.receiver.kind === "member" && e.receiver.receiver.kind === "this")
         return voLeafSql(snake(e.receiver.member), e.member, e.memberType);
       // `currentUser.<claim>` → a Dapper named parameter bound from the ambient
@@ -942,9 +937,10 @@ function stripOptional(t: TypeIR): TypeIR {
  *  and arithmetic behave as over a real column.  (It used to name the
  *  flattened `<vo>_<leaf>` column the OTHER backends store — a `column does
  *  not exist` 500 on the first call; the defect #3080 fixed for the
- *  projection aggregates.)  An enum leaf is refused: default System.Text.Json
- *  writes it as its ORDINAL, which neither an enum literal nor an enum
- *  parameter (bound by name) can be compared against. */
+ *  projection aggregates.)  An enum leaf is its member NAME as text: the value
+ *  object's enum properties carry a `JsonStringEnumConverter` (enums-vos.ts),
+ *  so it compares against an enum literal (`'A'`) and an enum parameter (bound
+ *  by name) exactly as an enum column does. */
 function voLeafSql(voColumn: string, leaf: string, leafType: TypeIR): string {
   const inner = stripOptional(leafType);
   const col = sqlIdent(voColumn);
@@ -961,6 +957,7 @@ function voLeafSql(voColumn: string, leaf: string, leafType: TypeIR): string {
       ? `(${extract})`
       : `(${extract})::${cast}`;
   }
+  if (inner.kind === "enum") return `(${col}->>'${key}')`;
   return refuseOutOfVocabulary("sql-dapper", `value-object leaf of kind '${inner.kind}' in find`);
 }
 
@@ -1796,16 +1793,11 @@ export function renderDapperRepository(
     const allFindParamsSuffix = allFindParams.length > 0 ? `, ${allFindParams.join(", ")}` : "";
     // A clause-less find still filters — by its implicit key match.
     const own = f.filter;
-    let where = "";
-    try {
-      where = own ? ` WHERE ${whereToSql(own, sqlCtx)}` : "";
-    } catch {
-      // Unsupported predicate — emit a compile-safe stub.
-      return lines(
-        `    public Task<${ret}> ${name}(${renderParams(f.params, [], usesUser)})`,
-        `        => throw new NotImplementedException("Dapper v1 does not support this find's predicate.");`,
-      );
-    }
+    // Every predicate the IR gate admits (`firstNonQueryablePredicate`) renders
+    // here; a refusal is a validator gap and surfaces as
+    // `loom.query-emission-invalid`, never as a stub method that compiles and
+    // throws on its first call.
+    const where = own ? ` WHERE ${whereToSql(own, sqlCtx)}` : "";
     // An `ignoring` clause on the find (named-filter-bypass.md §11) is STATIC
     // here — it is part of the declaration, so the bypassed capability's
     // predicate is simply never spliced into this method's SQL.
@@ -1936,8 +1928,7 @@ export function renderDapperRepository(
 
   // Retrieval bundles → `Run<Name>Async`, parameterised SQL (where + sort +
   // call-site offset/limit paging).  The `where` is the inlined predicate
-  // (criterion bodies included) rendered by `whereToSql`; anything outside the
-  // Dapper subset stubs with NotImplementedException, like the find path.
+  // (criterion bodies included) rendered by `whereToSql`.
   const retrievalMethods = retrievals.map((r) => {
     const name = upperFirst(r.name);
     // Same collision rule as the find path: the method's own locals move, the
@@ -1947,24 +1938,12 @@ export function renderDapperRepository(
       DAPPER_RETRIEVAL_LOCALS,
     );
     const own = csReadOwnParams(r.params.map((p) => p.name));
-    let whereSql: string;
-    try {
-      whereSql = whereToSql(r.where, sqlCtx);
-    } catch {
-      return lines(
-        `    public Task<IReadOnlyList<${agg.name}>> Run${name}Async(${renderRetrievalParamsWithCt(r.params)})`,
-        `        => throw new NotImplementedException("Dapper v1 does not support this retrieval's predicate.");`,
-      );
-    }
-    const orderSql =
-      r.sort.length > 0
-        ? ` ORDER BY ${r.sort
-            .map(
-              (s) =>
-                `${sqlIdent(snake(s.path[0]!.name))} ${s.direction === "desc" ? "DESC" : "ASC"}`,
-            )
-            .join(", ")}`
-        : "";
+    // As on the find path: a refusal is `loom.query-emission-invalid`, not a stub.
+    const whereSql = whereToSql(r.where, sqlCtx);
+    // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`).
+    const orderSql = ` ORDER BY ${readSortFor(r.sort)
+      .map((s) => `${sqlIdent(snake(s.path[0]!.name))} ${s.direction === "desc" ? "DESC" : "ASC"}`)
+      .join(", ")}`;
     // A retrieval's `ignoring` clause arrives at RUNTIME (the `FilterBypass
     // bypass` port param a workflow's inline `Repo.run(...) ignoring …` binds),
     // so unlike the find path the SQL cannot be decided at emit time: the

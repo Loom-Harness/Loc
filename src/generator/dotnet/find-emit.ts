@@ -1,3 +1,4 @@
+import { readSortFor } from "../../ir/enrich/read-scope.js";
 import { envelopeReturn } from "../../ir/stdlib/generics.js";
 import type {
   BoundedContextIR,
@@ -165,12 +166,15 @@ function retrievalWhereClause(
   return `.Where(${x} => ${renderCsExpr(r.where, { thisName: x, agg, efQuery: true })})`;
 }
 
-/** `.OrderBy(x => x.Col)[.ThenBy…]` for a retrieval's sort terms (empty
- *  when unsorted).  Only the first path segment is used in v1 (a direct
- *  column), matching the Hono emitter + validateRetrievals gating. */
+/** `.OrderBy(x => x.Col)[.ThenBy…]` for a retrieval's sort terms plus the
+ *  `id` tie-break, or `.OrderBy(x => x.Id)` when unsorted (`readSortFor`).
+ *  Only the first path segment is used in v1 (a direct column), matching the
+ *  Hono emitter + validateRetrievals gating. */
 function orderByClauseFor(r: RetrievalIR): string {
-  if (r.sort.length === 0) return "";
-  return r.sort
+  // The lambda parameter yields to a same-named retrieval param, as the
+  // `where` lambda does (a param `x` would otherwise be shadowed).
+  const x = csLocalNamer(r.params.map((p) => p.name))("x");
+  return readSortFor(r.sort)
     .map((s, i) => {
       const col = upperFirst(s.path[0]!.name);
       const method =
@@ -181,7 +185,7 @@ function orderByClauseFor(r: RetrievalIR): string {
           : s.direction === "desc"
             ? "ThenByDescending"
             : "ThenBy";
-      return `.${method}(x => x.${col})`;
+      return `.${method}(${x} => ${x}.${col})`;
     })
     .join("");
 }

@@ -54,17 +54,21 @@ export class ProductRepository implements ProductRepositoryPort {
   async save(aggregate: Product, expectedVersion?: number): Promise<void> {
     const pendingEvents = aggregate.pullEvents();
     let dispatchAfterCommit = pendingEvents;
+    let savedVersion = aggregate.version;
     await this.db.transaction(async (tx) => {
       const expected = expectedVersion ?? aggregate.version;
       const existingRow = await tx.select({ id: schema.products.id }).from(schema.products).where(eq(schema.products.id, aggregate.id));
       if (existingRow.length === 0) {
         await tx.insert(schema.products).values({ id: aggregate.id as string, sku: aggregate.sku, price_amount: String(aggregate.price.amount), price_currency: aggregate.price.currency, version: 1 });
+        savedVersion = 1;
       } else {
         const updated = await tx.update(schema.products).set({ id: aggregate.id as string, sku: aggregate.sku, price_amount: String(aggregate.price.amount), price_currency: aggregate.price.currency, version: expected + 1 }).where(and(eq(schema.products.id, aggregate.id), eq(schema.products.version, expected))).returning({ id: schema.products.id });
         if (updated.length === 0) throw new ConcurrencyError("Product", aggregate.id as string);
+        savedVersion = expected + 1;
       }
       dispatchAfterCommit = (await this.events.recordDurable?.(pendingEvents, tx)) ?? pendingEvents;
     });
+    aggregate._applyVersion(savedVersion);
     requestLog().debug({ event: "repository_save", aggregate: "Product", id: aggregate.id as string });
 
     for (const event of dispatchAfterCommit) {

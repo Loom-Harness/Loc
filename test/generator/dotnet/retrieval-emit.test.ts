@@ -60,7 +60,7 @@ describe(".NET generator — retrieval", () => {
     expect(spec).toBeDefined();
     expect(spec).toMatch(/public sealed class ByRegionSpec : Specification<Customer>/);
     expect(spec).toMatch(
-      /Query\.Where\(new InRegionCriterion\(rgn\)\.ToExpression\(\)\)\.OrderByDescending\(x => x\.Name\);/,
+      /Query\.Where\(new InRegionCriterion\(rgn\)\.ToExpression\(\)\)\.OrderByDescending\(x => x\.Name\)\.ThenBy\(x => x\.Id\);/,
     );
   });
 
@@ -143,7 +143,7 @@ describe(".NET generator — retrieval principal binding (DEBT-24)", () => {
     const spec = [...files.entries()].find(([k]) => k.endsWith("/MineRichSpec.cs"))?.[1];
     expect(spec).toBeDefined();
     expect(spec!).toMatch(
-      /Query\.Where\(x => x\.TenantId == RequestContext\.Current!\.CurrentUser!\.TenantId\)\.OrderByDescending\(x => x\.Balance\);/,
+      /Query\.Where\(x => x\.TenantId == RequestContext\.Current!\.CurrentUser!\.TenantId\)\.OrderByDescending\(x => x\.Balance\)\.ThenBy\(x => x\.Id\);/,
     );
     // No unbound bare `currentUser` token, and the RequestContext namespace is imported.
     expect(spec!).not.toMatch(/== currentUser\./);

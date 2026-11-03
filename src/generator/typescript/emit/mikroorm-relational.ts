@@ -7,6 +7,7 @@
 // logic change.
 // -------------------------------------------------------------------------
 
+import { readSortFor } from "../../../ir/enrich/read-scope.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -42,6 +43,12 @@ import {
   provColumnEntries,
 } from "../repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
+import {
+  applySavedVersion,
+  savedVersionDecl,
+  savedVersionOnInsert,
+  savedVersionOnUpdate,
+} from "../saved-version.js";
 import {
   aggregateIsAudited,
   insertStampEntries,
@@ -567,12 +574,12 @@ export function mikroRetrievalMethod(
       `  }`,
     );
   }
+  // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`).
   // Only the first path segment (a direct column) is used in v1 — nested /
   // collection sort paths are gated by validateRetrievals, same as drizzle.
-  const orderBy =
-    r.sort.length > 0
-      ? `, orderBy: { ${r.sort.map((s) => `${s.path[0]!.name}: "${s.direction}"`).join(", ")} }`
-      : "";
+  const orderBy = `, orderBy: { ${readSortFor(r.sort)
+    .map((s) => `${s.path[0]!.name}: "${s.direction}"`)
+    .join(", ")} }`;
   return lines(
     `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
     `    const ${L.em} = this.em.fork({ keepTransactionContext: true });`,
@@ -711,9 +718,11 @@ export function renderMikroRepository(
     `    const existing = await em.findOne(${tableRow}, { id: aggregate.id as string }, { filters: false });`,
     `    if (existing === null) {`,
     `      await em.insert(${row}, ${insertValues});`,
+    savedVersionOnInsert("      "),
     `    } else {`,
     `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, version: expected }, ${updateSet}, { filters: false });`,
     `      if (affected === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+    savedVersionOnUpdate("      "),
     `    }`,
   ];
 
@@ -943,12 +952,14 @@ export function renderMikroRepository(
       ? `  async save(aggregate: ${agg.name}, expectedVersion?: number): Promise<void> {`
       : `  async save(aggregate: ${agg.name}): Promise<void> {`,
     ...MIKRO_OUTBOX_DRAIN_LINES,
+    versioned && savedVersionDecl("    "),
     ...mikroSaveTxLines([
       ...(versioned ? versionedSaveLines : [upsertCall]),
       ...(hasAssocs ? assocSaveLines(agg, "em", "    ") : []),
       ...(hasContains ? containSaveLines(agg, ctx, "em", "    ") : []),
       MIKRO_OUTBOX_RECORD_LINE,
     ]),
+    versioned && applySavedVersion("    "),
     `    requestLog().debug({ event: "repository_save", aggregate: "${agg.name}", id: aggregate.id as string });`,
     "",
     `    for (const event of dispatchAfterCommit) {`,
