@@ -708,6 +708,17 @@ export const DIAGNOSTIC_MESSAGES = {
   // src/language/validators/duplicates.ts
   // ----------------------------------------------------------------------
   // The two APPLICATION handler kinds share one route-target namespace.
+  "loom.duplicate-repository": (p: {
+    name: unknown;
+    agg: unknown;
+    first: unknown;
+    ctxName: unknown;
+  }) =>
+    `Repository '${p.name}' is a second repository for aggregate '${p.agg}' in context ` +
+    `'${p.ctxName}'; '${p.first}' already serves it. An aggregate has one repository — every ` +
+    `repository exposes the same verb contract, so a second one is only another name for the ` +
+    `same store. Use '${p.first}' and remove '${p.name}'.`,
+
   "loom.duplicate-handler": (p: { name: unknown; ctxName: unknown; kind: unknown }) =>
     `Duplicate handler '${p.name}' in context '${p.ctxName}'; a ${p.kind} shares its name ` +
     `with another handler. A 'route -> ${p.ctxName}.${p.name}' would ` +

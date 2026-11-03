@@ -1877,6 +1877,9 @@ system P {
   // `workflow-name-collision` on a clash with an aggregate / value object /
   // enum / event / repository, and a workflow named after an aggregate trips
   // only the second.  The other three are confirmed preempted and pinned below.
+  "loom.duplicate-repository": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    repository Stuff for Thing`),
   "loom.duplicate-workflow": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing
     workflow Dup { create(n: string) { precondition n.length > 0 } }
