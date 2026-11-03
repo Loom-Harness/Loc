@@ -192,11 +192,24 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "state-gate", title: "`when` canCommand state gate + GET can-query companion", doc: "criterion", backends: ALL },
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
   {
+    id: "union-match-arms",
+    title: "a `return match` whose arms build different union variants, tagged per arm",
+    doc: "payloads",
+    backends: ALL,
+  },
+  {
     id: "workflow-expected-failure",
     title: "a workflow `create` / handler answering `T or E`, rolled back whole on the error",
     doc: "workflow",
     backends: ["node", "dotnet", "java", "python"],
     note: "elixir refuses the let-bound mutating call every entry point here matches (`loom.elixir-bound-mutating-call-unsupported`).",
+  },
+  {
+    id: "scaffold-handlers-or-e",
+    title: "`scaffoldHandlers` over an operation answering `T or E`: the handler returns the result",
+    doc: "scaffold-macros",
+    backends: ["node", "dotnet", "java", "python"],
+    note: "elixir refuses an expected-failure entry point (`loom.elixir-entry-result-unsupported`).",
   },
   {
     id: "op-return-this",

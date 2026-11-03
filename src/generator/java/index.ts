@@ -8,7 +8,6 @@ import type {
   EnrichedBoundedContextIR,
   EventIR,
   FieldIR,
-  IdValueType,
   ProjectionIR,
   RepositoryIR,
   SystemIR,
@@ -730,7 +729,7 @@ function emitProjectFromContexts(
       place(
         `${agg.name}Id.java`,
         "id",
-        renderJavaId(agg.name, agg.idValueType, basePkg),
+        renderJavaId(agg.name, basePkg),
         undefined,
         agg.origin,
         idConstruct,
@@ -739,7 +738,7 @@ function emitProjectFromContexts(
         place(
           `${part.name}Id.java`,
           "id",
-          renderJavaId(part.name, agg.idValueType, basePkg),
+          renderJavaId(part.name, basePkg),
           undefined,
           agg.origin,
           idConstruct,
@@ -759,7 +758,7 @@ function emitProjectFromContexts(
           place(
             `${assoc.targetAgg}IdJsonListConverter.java`,
             "id",
-            renderJavaIdListConverter(assoc.targetAgg, assoc.valueType, basePkg),
+            renderJavaIdListConverter(assoc.targetAgg, basePkg),
             undefined,
             agg.origin,
             idConstruct,
@@ -804,6 +803,7 @@ function emitProjectFromContexts(
         routePrefix,
         sourcemap,
         reqNameFor,
+        contexts,
       );
     }
     // Value-object / domain-service unit tests (test-placement.md) —
@@ -971,7 +971,7 @@ function emitProjectFromContexts(
         place(
           `${f.type.element.targetName}IdJsonListConverter.java`,
           "id",
-          renderJavaIdListConverter(f.type.element.targetName, f.type.element.valueType, basePkg),
+          renderJavaIdListConverter(f.type.element.targetName, basePkg),
           undefined,
           origin,
           construct,
@@ -1190,16 +1190,17 @@ function emitProjectFromContexts(
       // one thing an aggregation over it CAN name: there is no JPA entity, so
       // the query runs native.  Mirrors the document repository's own table
       // resolution (`renderJavaDocumentRepositoryImpl`).
-      documentTableOf: (aggName) => {
-        const a = ctx.aggregates.find((x) => x.name === aggName);
+      documentTableOf: (aggName, home) => {
+        const a = home.aggregates.find((x) => x.name === aggName);
         if (!a) return undefined;
-        const cfg = system?.sys ? resolveDataSourceConfig(a, ctx, system.sys) : undefined;
+        const cfg = system?.sys ? resolveDataSourceConfig(a, home, system.sys) : undefined;
         if (effectiveSavingShape(a, cfg) !== "document" || a.persistedAs === "eventLog") {
           return undefined;
         }
         const bare = tableNameFor(a.name);
         return cfg?.schema ? `${cfg.schema}.${bare}` : bare;
       },
+      contexts,
     });
     if (queryProjectionFiles) {
       const qpRowOrigin = new Map<string, ProjectionIR>(
@@ -1362,14 +1363,7 @@ function emitProjectFromContexts(
       ...userClaimIdTypeSources(system.sys.user),
     ]);
     for (const name of foreignIdNames) {
-      let idValueType = "uuid";
-      for (const sub of system.sys.subdomains) {
-        for (const c of sub.contexts) {
-          const agg = c.aggregates.find((a) => a.name === name);
-          if (agg) idValueType = agg.idValueType;
-        }
-      }
-      place(`${name}Id.java`, "id", renderJavaId(name, idValueType, basePkg));
+      place(`${name}Id.java`, "id", renderJavaId(name, basePkg));
     }
   }
 
@@ -1410,7 +1404,6 @@ function emitProjectFromContexts(
       channelBindings,
       carriedEvents,
       consumerHandlers,
-      system.sys,
       {
         durableBroker: durableBrokerEvents.size > 0,
         outboxEntityPkg: pkgFor("infra-persistence"),
@@ -1470,7 +1463,7 @@ function emitProjectFromContexts(
     // among THIS deployable's contexts (so the boot JdbcTemplate reaches it),
     // `currentUser.orgPath` reads the registry's `data_key` per request;
     // otherwise the claim-copy accessor stands.
-    let orgPathRegistry: { table: string; idValueType: IdValueType } | undefined;
+    let orgPathRegistry: { table: string } | undefined;
     const reg = hierarchyRegistry(system.sys);
     if (reg) {
       for (const ctx of contexts) {
@@ -1478,10 +1471,7 @@ function emitProjectFromContexts(
         if (regAgg) {
           const schema = resolveDataSourceConfig(regAgg, ctx, system.sys)?.schema;
           const table = tableNameFor(reg.name);
-          orgPathRegistry = {
-            table: schema ? `${schema}.${table}` : table,
-            idValueType: reg.idValueType,
-          };
+          orgPathRegistry = { table: schema ? `${schema}.${table}` : table };
           break;
         }
       }
@@ -1722,6 +1712,9 @@ function emitAggregate(
   sourcemap?: SourceMapRecorder,
   /** Deployable-wide request-component name lookup (F-026). */
   reqNameFor?: (owner: RequestComponentOwner) => string,
+  /** The deployable's hosted contexts — query-time projections declared in
+   *  any of them may read this aggregate. */
+  contexts: readonly EnrichedBoundedContextIR[] = [ctx],
 ): void {
   const eventFields = new Map(ctx.events.map((e) => [e.name, e.fields.map((f) => f.name)]));
   // The JPA mapping mirrors `schemaFromModule`: binding-resolved schema +
@@ -1743,7 +1736,7 @@ function emitAggregate(
   // for a bypassable Hibernate named @Filter on the entity; the repository impl
   // wraps a bypassing read with disableFilter/enableFilter.  Derived per
   // aggregate from the context's read-decls — never stamped (capability-filter.ts).
-  const promotedCaps = new Set(promotedCapabilities(agg, ctx));
+  const promotedCaps = new Set(promotedCapabilities(agg, ctx, contexts));
   const construct = `${ctx.name}.${agg.name}`;
   // Only collected when a recorder is actually threaded in — a no-sourcemap
   // run pays no per-statement bookkeeping cost.  Regular (non-extern) op
@@ -1762,7 +1755,7 @@ function emitAggregate(
       renderJavaAbstractBaseEntity(agg, basePkg, pkgFor("entity", agg.name), {
         tph,
         persistence: { schema, voLookup, mangledEnums },
-        restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`),
+        restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`, contexts),
       }),
       agg.name,
       agg.origin,
@@ -1774,7 +1767,7 @@ function emitAggregate(
       place(
         `${plural(agg.name)}Controller.java`,
         "controller",
-        renderJavaBaseReadController(agg, read, agg.idValueType, {
+        renderJavaBaseReadController(agg, read, {
           basePkg,
           pkg: pkgFor("controller", agg.name),
           routePrefix,
@@ -1815,7 +1808,6 @@ function emitAggregate(
         fieldNames: new Set(inheritedBase.fields.map((f) => f.name)),
         derivedNames: new Set(inheritedBase.derived.map((d) => d.name)),
         sharesIdentity: !!tphBase,
-        idValueType: tphBase?.idValueType,
         pkg: pkgFor("entity", inheritedBase.name),
       }
     : undefined;
@@ -1881,7 +1873,7 @@ function emitAggregate(
       superType,
       operationReturnUnions,
       eventFields,
-      restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`),
+      restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`, contexts),
       construct,
       opFragments,
       // Event-sourced / document aggregates have no normalised state
@@ -1927,7 +1919,9 @@ function emitAggregate(
   };
   // Views + query-time projections sourced from this aggregate both ride
   // synthesized parameterless finds (the mergeViewsAsFinds analog).
-  const viewFinds = [...queryProjectionFindsFor(agg.name, ctx)] as unknown as RepositoryIR["finds"];
+  const viewFinds = [
+    ...queryProjectionFindsFor(agg.name, ctx, contexts),
+  ] as unknown as RepositoryIR["finds"];
   const repoWithViews: RepositoryIR =
     viewFinds.length > 0
       ? repo
@@ -1946,7 +1940,7 @@ function emitAggregate(
     isReified,
     provenance: provenancedFieldsOf(agg).length > 0,
     promotedCaps,
-    bypassFilters: bypassFilterNames(agg, ctx),
+    bypassFilters: bypassFilterNames(agg, ctx, contexts),
     staticRestriction: hasStaticRestriction(agg, ctx),
     bypassByRetrieval: inlineRunBypassesByRetrieval(ctx, agg.name),
     discards: discardedAggregates(ctx).has(agg.name),

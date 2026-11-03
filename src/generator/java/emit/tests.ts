@@ -218,10 +218,7 @@ export function testBodyRenderContext(
  *  emitted `UUID` / `Instant` brings its import with it. */
 function javaTestLiteral(): TestLiteralTarget {
   return {
-    id: (rendered, targetName, valueType) => {
-      if (valueType === "guid") return `new ${targetName}Id(${J.UUID}.fromString(${rendered}))`;
-      return `new ${targetName}Id(${rendered})`;
-    },
+    id: (rendered, targetName) => `new ${targetName}Id(${J.UUID}.fromString(${rendered}))`,
     datetime: (rendered) => `${J.Instant}.parse(${rendered})`,
     date: (rendered) => `${J.LocalDate}.parse(${rendered})`,
   };

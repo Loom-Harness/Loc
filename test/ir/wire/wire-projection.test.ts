@@ -100,7 +100,7 @@ describe("wire-projection — preserves field metadata", () => {
     const wire: WireField[] = [
       {
         name: "id",
-        type: { kind: "id", targetName: "Order", valueType: "guid" },
+        type: { kind: "id", targetName: "Order" },
         optional: false,
         source: "id",
         access: "token",

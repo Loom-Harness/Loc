@@ -22,6 +22,8 @@ public sealed class DestroyCustomerHandler : ICommandHandler<DestroyCustomerComm
     {
         var aggregate = await _repo.GetByIdAsync(command.Id, cancellationToken)
             ?? throw new AggregateNotFoundException($"Customer {command.Id} not found");
+        if (RequestContext.Current?.ExpectedVersion is int __ifMatch && __ifMatch != aggregate.Version)
+            throw new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException($"Customer {aggregate.Id.Value} was modified by another request");
         await _repo.DeleteAsync(aggregate, cancellationToken);
         return Unit.Value;
     }

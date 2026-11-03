@@ -1,4 +1,5 @@
 import { plural } from "../../../util/naming.js";
+import { csUsing } from "../../_imports/dotnet.js";
 import { noNulCharUsing } from "../dto-mapping.js";
 
 // Request + response DTO records.  Both are flat record-types in the
@@ -43,11 +44,6 @@ function renderDtoFile(
     .map((r) => `${r.decl ?? `public sealed record ${r.name}(${r.params});`}\n\n`)
     .join("");
   const extra = (args.extraUsings ?? []).map((u) => `using ${u};\n`).join("");
-  // `[property: JsonRequired]` (RS-26, operation-request params) is the only
-  // System.Text.Json attribute a DTO record carries, so the using is gated on
-  // it precisely — an unconditional one would trip CS8019 (unnecessary using)
-  // under /warnaserror on every JsonRequired-free DTO file.
-  const usesJsonRequired = args.records.some((r) => /\bJsonRequired\b/.test(r.params));
   // `using …Domain.Enums` lets a DTO field carry the enum TYPE (paired
   // with a global JsonStringEnumConverter for string-on-the-wire) so
   // Swashbuckle emits a named enum schema.  The `Domain/Enums/_namespace.cs`
@@ -56,7 +52,8 @@ function renderDtoFile(
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
-${usesJsonRequired ? "using System.Text.Json.Serialization;\n" : ""}using ${args.ns}.Domain.Enums;
+${csUsing("System.Text.Json.Serialization")}
+using ${args.ns}.Domain.Enums;
 ${noNulCharUsing(args.ns, ...args.records.map((r) => r.params))}
 ${extra}
 namespace ${args.ns}.Application.${plural(args.aggName)}.${group};

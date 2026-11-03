@@ -320,9 +320,10 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
       const v = renderPyExpr(s.value);
       if (!s.variantTag) return `${i}return ${v}`;
       const tag = JSON.stringify(s.variantTag);
-      // `return this` in the aggregate's own arm carries the tag alone: the
-      // aggregate is not a mapping, and the route answers its wire projection.
-      if (s.value.kind === "this") return `${i}return {"type": ${tag}}`;
+      // `return this` in the aggregate's own arm carries the tag and the id:
+      // the aggregate is not a mapping, so its answer is the wire projection a
+      // route or handler reads back by that id.
+      if (s.value.kind === "this") return `${i}return {"type": ${tag}, "id": self.id}`;
       const tagged =
         s.variantShape === "none"
           ? `{"type": ${tag}}`

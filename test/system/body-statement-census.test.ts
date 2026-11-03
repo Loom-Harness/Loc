@@ -1,6 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { validate } from "../../src/api/index.js";
+import { expectReach } from "../_helpers/census-reach.js";
 import { generateSystemFilesUnchecked } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
@@ -389,6 +390,14 @@ const APPLIER_RENDERS: Record<Backend, readonly string[]> = {
 };
 
 describe("body-statement census — every position × backend × statement kind renders or is refused", () => {
+  it("measures its full matrix", () => {
+    expectReach(
+      "position × backend × statement cells",
+      POSITIONS.length * BACKENDS.length * STMTS.length,
+      690,
+    );
+  });
+
   it("the probe model validates clean on every backend before any statement is added", async () => {
     for (const b of BACKENDS) {
       for (const host of ["aggregate-applier", "workflow-applier", "workflow-reactor"] as const) {

@@ -100,6 +100,11 @@ function planFor(contexts: readonly BoundedContextIR[]): OpUnionFilterPlan {
     }
     for (const e of entries) {
       if (e.type.kind !== "union") continue;
+      // A scaffolded handler (`SettleOrder`) shares its operationId with the
+      // operation route it wraps (`settleOrder`) and answers the same union,
+      // so the route already planned covers it; the filter's `switch` keys on
+      // the operationId and can hold it once.
+      if (routes.some((r) => r.operationId === e.id)) continue;
       const s = opUnionResponses(e.type.variants, ctx);
       if (s.errors.length === 0) continue;
       split.add(s.unionName);

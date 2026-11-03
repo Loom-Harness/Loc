@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -79,7 +80,7 @@ describe("conflict-marker census", () => {
   // Guard against passing by vacuum: a scan that reaches nothing is green and
   // blind, which is how gates have read here before (experience_gathered §59).
   it("the scan actually reaches the tracked corpus", () => {
-    expect(files.length).toBeGreaterThan(500);
+    expectReach("tracked text files", files.length, 5924);
     expect(files).toContain("CLAUDE.md");
   });
 

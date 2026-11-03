@@ -169,7 +169,7 @@ describe("item 11 — a carried value object is rebuilt field-by-field, never ha
     expect(py).toContain('band=Band(tier=Tier(cast(str, cast("dict[str, object]"');
     expect(py).not.toContain('price=cast(str, payload["price"])');
     expect(py).toContain(
-      '"price": {"amount": str(event.price.amount), "currency": event.price.currency, "band": {',
+      '"price": {"amount": money_str(event.price.amount), "currency": event.price.currency, "band": {',
     );
     expect(py).toMatch(/from app\.domain\.value_objects import Band, Level, Price, Tier/);
   });

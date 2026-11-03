@@ -51,6 +51,10 @@ system WalkerPredicates {
         else      => Heading { "Step two", level: 2 }
       }
     }
+    page Paren {
+      route: "/paren"
+      body: (Stack { Text { "Wrapped" } })
+    }
     page Kv {
       route: "/kv"
       body: Stack {
@@ -77,6 +81,20 @@ async function sourceMatching(framework: string, re: RegExp): Promise<string> {
   for (const [p, c] of files) if (re.test(p)) out += `\n${c}`;
   return out;
 }
+
+describe("a parenthesised page body is walkable", () => {
+  // react and svelte gate on isWalkableLayoutBody; vue walks unconditionally
+  // and is the control that the body itself renders.
+  for (const framework of ["react", "svelte", "vue"]) {
+    it(`${framework}: emits the page rather than dropping it silently`, async () => {
+      const paths = await pathsFor(framework);
+      expect(
+        paths.filter((p) => /paren/i.test(p)),
+        "the parenthesised page produced NO file — the predicate declined it",
+      ).not.toEqual([]);
+    });
+  }
+});
 
 describe("F10 — a bare `match` page body is walkable", () => {
   // react and svelte are the two emitters that gate on isWalkableLayoutBody.

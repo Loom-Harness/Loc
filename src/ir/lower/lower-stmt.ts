@@ -1,10 +1,11 @@
 import { GrammarUtils } from "langium";
-import type { LValue, MatchStmt, Statement } from "../../language/generated/ast.js";
+import type { Expression, LValue, MatchStmt, Statement } from "../../language/generated/ast.js";
 import {
   isAssignOrCallStmt,
   isEmitStmt,
   isIfStmt,
   isLetStmt,
+  isMatchExpr,
   isMatchStmt,
   isPreconditionStmt,
   isRequiresStmt,
@@ -12,7 +13,7 @@ import {
 } from "../../language/generated/ast.js";
 import { findVerb } from "../resource-verbs.js";
 import { typeKey, variantTag as unionVariantTag } from "../stdlib/unions.js";
-import type { ExprIR, PathIR, StmtIR, TypeIR } from "../types/loom-ir.js";
+import type { ExprIR, PathIR, ReturnVariantIR, StmtIR, TypeIR } from "../types/loom-ir.js";
 import {
   ambientResourceKind,
   boundApiOf,
@@ -194,24 +195,20 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
   if (isReturnStmt(stmt)) {
     const value = lowerExpr(stmt.value, env);
     // In a union-returning operation, tag the return with the variant whose
-    // structural key matches the returned value's type (producer).
-    let variantTag: string | undefined;
-    let variantShape: "record" | "scalar" | "none" | undefined;
+    // structural key matches the returned value's type (producer).  A value
+    // `match` whose arms build variants is tagged PER ARM instead: the whole
+    // value has no single variant, so tagging it with one (the first arm's)
+    // mislabels every other arm on the wire.
     if (env.returnVariants) {
-      const vt = inferExprType(stmt.value, env);
-      const match = env.returnVariants.find((v) => typeKey(v) === typeKey(vt));
-      if (match) {
-        variantTag = unionVariantTag(match);
-        variantShape =
-          match.kind === "none"
-            ? "none"
-            : match.kind === "entity" || match.kind === "valueobject"
-              ? "record"
-              : "scalar";
+      const armVariants = matchArmVariants(stmt.value, value, env.returnVariants, env);
+      if (armVariants) {
+        return { stmt: { kind: "return", value, armVariants }, envAfter: env };
       }
+      const whole = returnVariantOf(inferExprType(stmt.value, env), env.returnVariants);
+      return { stmt: { kind: "return", value, ...whole }, envAfter: env };
     }
     return {
-      stmt: { kind: "return", value, variantTag, variantShape },
+      stmt: { kind: "return", value },
       envAfter: env,
     };
   }
@@ -508,4 +505,74 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
     stmt: { kind: "call", target: "function", name: "<unknown>", args: [] },
     envAfter: env,
   };
+}
+
+/** The declared union variant a returned value of type `t` produces, or none
+ *  when no variant's structural key matches. */
+function returnVariantOf(t: TypeIR, variants: readonly TypeIR[]): ReturnVariantIR | undefined {
+  const match = variants.find((v) => typeKey(v) === typeKey(t));
+  if (!match) return undefined;
+  return {
+    variantTag: unionVariantTag(match),
+    variantShape:
+      match.kind === "none"
+        ? "none"
+        : match.kind === "entity" || match.kind === "valueobject"
+          ? "record"
+          : "scalar",
+  };
+}
+
+/** The per-arm variants of a returned value `match` — index-aligned with its
+ *  arms (`arms` for the predicate form, `variantArms` for the variant form),
+ *  then its `else`.  Undefined unless the match is exhaustive (an `else`, or a
+ *  variant form naming every variant of its subject) and every arm resolves to
+ *  a declared variant: a non-exhaustive match has a fall-through with no
+ *  variant to answer, so it keeps the whole-value tagging. */
+function matchArmVariants(
+  ast: Expression,
+  value: ExprIR,
+  variants: readonly TypeIR[],
+  env: Env,
+): ReturnVariantIR[] | undefined {
+  if (!isMatchExpr(ast) || value.kind !== "match") return undefined;
+  const armTypes: TypeIR[] = [];
+  if (value.subject) {
+    const subject = value.subject;
+    const subjectVariants = value.subjectType?.kind === "union" ? value.subjectType.variants : [];
+    const named = new Set(value.variantArms.map((a) => typeKey(a.varType)));
+    const exhaustive =
+      subjectVariants.length > 0 && subjectVariants.every((v) => named.has(typeKey(v)));
+    if (!ast.elseExpr && !exhaustive) return undefined;
+    ast.varArms.forEach((arm, i) => {
+      const varType = value.variantArms[i]?.varType;
+      if (!varType) return;
+      // The arm value reads its binding narrowed to the arm's variant, exactly
+      // as `lowerExpr` bound it (an alias of the subject on an absence
+      // subject, a match-binding local otherwise).
+      const armEnv: Env = !arm.binding
+        ? env
+        : value.subjectShape === "absence" && subject.kind === "ref"
+          ? {
+              ...env,
+              refAliases: new Map([
+                ...(env.refAliases ?? []),
+                [arm.binding, { ...subject, type: varType }],
+              ]),
+            }
+          : withLocal(env, arm.binding, "match-binding", varType);
+      armTypes.push(inferExprType(arm.value, armEnv));
+    });
+  } else {
+    if (!ast.elseExpr) return undefined;
+    for (const arm of ast.arms) armTypes.push(inferExprType(arm.value, env));
+  }
+  if (ast.elseExpr) armTypes.push(inferExprType(ast.elseExpr, env));
+  const out: ReturnVariantIR[] = [];
+  for (const t of armTypes) {
+    const v = returnVariantOf(t, variants);
+    if (!v) return undefined;
+    out.push(v);
+  }
+  return out;
 }

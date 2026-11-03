@@ -2177,8 +2177,9 @@ nothing and the test passes vacuously.
   409, and the version moves by one: the loser is refused by the header check
   when the winner committed first, and by the guarded save when both loaded
   before either saved. A lost check is a 409 the client may retry; the server
-  never re-runs the command. A `create` and (until it is implemented, though
-  ruled `if-match`) the canonical `destroy` check no version;
+  never re-runs the command. The canonical `destroy` of a `versioned`
+  aggregate reads `If-Match` the same way (a stale tag is the 409, the row stays);
+  a `create` checks no version;
   a workflow or handler save is checked against the version its handle loaded
   (RS-41).
 - **Trigger.** `test/fixtures/corpus/concurrency-two-writers.ddd`: stale tags on

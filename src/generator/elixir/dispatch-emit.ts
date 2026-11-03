@@ -354,7 +354,7 @@ export const ectoIdType = exEctoIdType;
  *  - `optional` is unwrapped first — nullability is a column option, not a type
  *    (an optional `datetime` fell through to `:string`, so every reactor write
  *    of a DateTime was an `Ecto.ChangeError` — wave C3 D8).
- *  - an id is typed by its value type (`ectoIdType`), as the PK is.
+ *  - an id is the guid key type (`ectoIdType`), as the PK is.
  *  - an enum holds the member ATOM the body assigns (`claimState := Filed`
  *    renders `:Filed`), which `:string` cannot dump (wave C3 D6); the column
  *    stays text, `Ecto.Enum` stores the member name.
@@ -367,14 +367,14 @@ export const ectoIdType = exEctoIdType;
  *    `Loom.Datetime` every declared datetime column uses (RS-38). */
 function ectoStateFieldType(t: TypeIR, enums: readonly EnumIR[]): string {
   if (t.kind === "optional") return ectoStateFieldType(t.inner, enums);
-  if (t.kind === "id") return ectoIdType(t.valueType);
+  if (t.kind === "id") return ectoIdType();
   if (t.kind === "enum") {
     const values = enums.find((e) => e.name === t.name)?.values ?? [];
     if (values.length > 0) return `Ecto.Enum, values: [${values.map((v) => `:${v}`).join(", ")}]`;
     return ":string";
   }
   if (t.kind === "array" && t.element.kind === "id") {
-    return `{:array, ${exEctoIdJsonType(t.element.valueType)}}`;
+    return `{:array, ${exEctoIdJsonType()}}`;
   }
   return mapTypeToEcto(t, new Map()) ?? ":string";
 }
@@ -390,8 +390,7 @@ function renderStateSchema(
 ): string {
   const corr = wf.correlationField as string;
   const corrField = (wf.stateFields ?? []).find((f) => f.name === corr);
-  const pkType =
-    corrField && corrField.type.kind === "id" ? ectoIdType(corrField.type.valueType) : ":string";
+  const pkType = corrField && corrField.type.kind === "id" ? ectoIdType() : ":string";
   const table = workflowStateTableName(wf.name);
   const fieldLines = (wf.stateFields ?? [])
     .filter((f) => f.name !== corr)

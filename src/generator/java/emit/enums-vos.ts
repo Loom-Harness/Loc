@@ -104,6 +104,14 @@ function enumWireCodec(e: EnumIR): string[] {
  *  unaffected. */
 function enumColumnAnnotation(type: TypeIR, mangledEnums: ReadonlySet<string>): string {
   const t = type.kind === "optional" ? type.inner : type;
+  // An enum ARRAY component is one native `text[]` column; it maps exactly as
+  // the root aggregate's array arm does (`jpaFieldAnnotations`): the element is
+  // stored by name, and a reserved-word enum's codec is a scalar converter that
+  // cannot convert a list, so that crossing keeps the plain array mapping.
+  if (t.kind === "array" && t.element.kind === "enum") {
+    const byName = mangledEnums.has(t.element.name) ? "" : "@Enumerated(EnumType.STRING) ";
+    return `${byName}@JdbcTypeCode(SqlTypes.ARRAY) `;
+  }
   if (t.kind !== "enum") return "";
   return mangledEnums.has(t.name)
     ? `@Convert(converter = ${t.name}.Codec.class) `
@@ -182,6 +190,8 @@ export function renderJavaValueObject(
     `import jakarta.persistence.Embeddable;`,
     `import jakarta.persistence.EnumType;`,
     `import jakarta.persistence.Enumerated;`,
+    `import org.hibernate.annotations.JdbcTypeCode;`,
+    `import org.hibernate.type.SqlTypes;`,
     `import org.jmolecules.ddd.annotation.ValueObject;`,
     ``,
     `import ${basePkg}.domain.common.DomainException;`,

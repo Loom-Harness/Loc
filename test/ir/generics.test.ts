@@ -128,9 +128,7 @@ describe("generics — stdlib shape registry (P3a)", () => {
 describe("generics — naming (P3b)", () => {
   it("names instances <ArgName><Ctor>", () => {
     expect(genericInstanceName("paged", { kind: "primitive", name: "string" })).toBe("StringPaged");
-    expect(
-      genericInstanceName("paged", { kind: "id", targetName: "Order", valueType: "guid" }),
-    ).toBe("OrderIdPaged");
+    expect(genericInstanceName("paged", { kind: "id", targetName: "Order" })).toBe("OrderIdPaged");
     expect(genericInstanceName("envelope", { kind: "entity", name: "OrderPlaced" })).toBe(
       "OrderPlacedEnvelope",
     );

@@ -47,6 +47,7 @@ on:
       - 'src/generator/_adapters/**'
       - 'src/generator/_auth/**'
       - 'src/generator/_channels/**'
+      - 'src/generator/_docker/**'
       - 'src/generator/_expr/**'
       - 'src/generator/_imports/**'
       - 'src/generator/_i18n/**'

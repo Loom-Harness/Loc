@@ -1,11 +1,8 @@
+import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateDotnet, generateSystemFiles } from "../../_helpers/generate.js";
+import { generateBackendFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // .NET in-process event dispatch (channels.md) — the .NET mirror of the Hono
@@ -22,30 +19,14 @@ import { generateDotnet, generateSystemFiles } from "../../_helpers/generate.js"
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..", "..");
 
-async function generate(file: string): Promise<Map<string, string>> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(path.join(root, file)),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  expect(
-    errors.map((d) => d.message),
-    "fixture validation errors",
-  ).toEqual([]);
-  return generateDotnet(doc.parseResult.value as Model);
+function generate(file: string): Promise<Map<string, string>> {
+  return generateBackendFiles(readFileSync(path.join(root, file), "utf8"), "dotnet");
 }
 
-// This fixture used to ride the legacy single-context `generateDotnet` helper
-// on a BARE loose context.  Once that path asserts phase ⑦ (M-T9.49) the shape
-// is refused, and correctly: `audited` is a HOSTED capability —
-// `loom.audited-backend-unsupported` ("no audit-capable backend deployable
-// hosts this context") — and the legacy path cannot host anything, because
-// declaring a `system` re-parents every loose context into it and empties the
-// `loom.contexts` list `generateDotnet` emits from.  So the fixture grows the
-// deployable it always implied and emits through the orchestrator instead.
-// The map is re-keyed to drop the deployable directory, so every assertion
-// below reads the same path it did before.
+// `audited` is a HOSTED capability (`loom.audited-backend-unsupported` when no
+// audit-capable backend deployable hosts the context), so this fixture is
+// emitted on the deployable it implies.  The map is re-keyed to drop the
+// deployable directory, so every assertion below reads a project-relative path.
 async function generateHosted(contextSrc: string): Promise<Map<string, string>> {
   const files = await generateSystemFiles(`
     system Fulfil {
@@ -178,7 +159,7 @@ describe(".NET in-process event dispatch emission", () => {
     expect(cfg).toContain(
       "public sealed class OrderFulfillmentStateConfiguration : IEntityTypeConfiguration<OrderFulfillmentState>",
     );
-    expect(cfg).toContain('builder.ToTable("order_fulfillments");');
+    expect(cfg).toContain('builder.ToTable("order_fulfillments", "fulfillment");');
     expect(cfg).toContain("builder.HasKey(x => x.OrderId);");
     // Correlation column carries HasColumnName(snake) so EF's model column === the
     // migration DDL column (else the correlation lookup throws "column does not exist").
@@ -189,7 +170,7 @@ describe(".NET in-process event dispatch emission", () => {
 
     // DbContext wires the DbSet + ApplyConfiguration.
     const db = files.get("Infrastructure/Persistence/AppDbContext.cs") ?? "";
-    expect(db).toContain("using Fulfillment.Infrastructure.Persistence.Workflows;");
+    expect(db).toContain("using App.Infrastructure.Persistence.Workflows;");
     expect(db).toContain(
       "public DbSet<OrderFulfillmentState> OrderFulfillments => Set<OrderFulfillmentState>();",
     );
@@ -244,9 +225,13 @@ describe(".NET in-process event dispatch emission", () => {
     expect(disp).toContain("public bool IsolateReactorFailures { get; set; } = true;");
 
     // Program.cs registers the in-process dispatcher (Scoped), not the no-op.
+    // The fixture's `delivery: broadcast` channel makes the hosted deployable
+    // realtime, so the in-process dispatcher is the core the realtime
+    // decorator wraps rather than the direct `IDomainEventDispatcher`.
     const prog = files.get("Program.cs") ?? "";
+    expect(prog).toContain("builder.Services.AddScoped<InProcessDomainEventDispatcher>();");
     expect(prog).toContain(
-      "builder.Services.AddScoped<IDomainEventDispatcher, InProcessDomainEventDispatcher>();",
+      "new RealtimeDomainEventDispatcher(sp.GetRequiredService<InProcessDomainEventDispatcher>(),",
     );
     expect(prog).not.toContain("NoopDomainEventDispatcher");
   });

@@ -447,7 +447,7 @@ describe("py renderPyType", () => {
   });
 
   it("maps ids, enums, VOs, arrays, optionals", () => {
-    expect(renderPyType({ kind: "id", targetName: "Order", valueType: "guid" })).toBe("OrderId");
+    expect(renderPyType({ kind: "id", targetName: "Order" })).toBe("OrderId");
     expect(renderPyType({ kind: "enum", name: "Status" })).toBe("Status");
     expect(renderPyType({ kind: "valueobject", name: "Money" })).toBe("Money");
     expect(renderPyType({ kind: "array", element: STRING })).toBe("list[str]");

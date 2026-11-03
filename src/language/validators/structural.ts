@@ -28,12 +28,15 @@ import {
   isDestroy,
   isEmitStmt,
   isEntityPart,
+  isEnumDecl,
+  isEventDecl,
   isFunctionDecl,
   isIdType,
   isInvariant,
   isNamedType,
   isOnDecl,
   isOperation,
+  isPayloadDecl,
   isPreconditionStmt,
   isPrimitiveType,
   isProperty,
@@ -252,6 +255,44 @@ export function checkAmbiguousPartRefs(model: Model, accept: ValidationAcceptor)
       { node, property: "target", code: "loom.ambiguous-part-ref" },
     );
   }
+}
+
+// `X id` names an identity: only an aggregate (abstract bases included) or an
+// entity part declares one.  `IdType.target` shares the `NamedDecl` cross-ref
+// type with bare type positions, so a value object, enum, event, payload
+// record or workflow resolves there too — and without this check lowering
+// turned `Pt id` into a strong id of a type that has no id column, no `<Pt>Id`
+// class and no table to reference.  The scope provider still resolves such a
+// name (it prefers an identity-bearing declaration on a name collision), so
+// the error names the kind the user actually wrote rather than reporting an
+// unresolved reference.
+export function checkIdTargets(model: Model, accept: ValidationAcceptor): void {
+  for (const node of AstUtils.streamAllContents(model)) {
+    if (!isIdType(node)) continue;
+    const target = node.target?.ref;
+    // Unresolved: the linker already reports it.
+    if (!target || isAggregate(target) || isEntityPart(target)) continue;
+    const kind = idTargetKindLabel(target);
+    const hint =
+      isValueObject(target) || isEnumDecl(target)
+        ? `, or hold the value itself: '${target.name}'`
+        : "";
+    accept("error", diagMessage("loom.id-target-not-identity", { name: target.name, kind, hint }), {
+      node,
+      property: "target",
+      code: "loom.id-target-not-identity",
+    });
+  }
+}
+
+/** The article-qualified source keyword of a non-identity `NamedDecl`. */
+function idTargetKindLabel(target: AstNode): string {
+  if (isValueObject(target)) return "a value object";
+  if (isEnumDecl(target)) return "an enum";
+  if (isEventDecl(target)) return "an event";
+  if (isWorkflow(target)) return "a workflow";
+  if (isPayloadDecl(target)) return `${/^[aeiou]/.test(target.kind) ? "an" : "a"} ${target.kind}`;
+  return `a ${target.$type}`;
 }
 
 export function checkContext(ctx: BoundedContext, accept: ValidationAcceptor): void {

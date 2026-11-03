@@ -290,17 +290,14 @@ export function zodForRequest(t: TypeIR): string {
       // Mirrors the server's request-side rule (`zodFor` in the Hono
       // routes-builder): a reference is a uuid on the wire, so the FORM
       // validator says so too and the caller is told at the field instead of
-      // by a server error.  Gated on the declared id value type — an
-      // `int`/`long`/`string`-keyed aggregate is not a uuid (schemathesis F2).
+      // by a server error.
       //
       // The mirror is the POINT, so it tracks the same shared shape the
       // backends validate (`UUID_WIRE_PATTERN`) rather than restating one.  A
       // form that refused an id the server accepts would report a field error
       // for a value that is in fact valid — the client-side twin of the
       // node/python 422-vs-404 split this constant was extracted to end.
-      return info.idValueType === "guid"
-        ? `z.string().regex(${UUID_WIRE_REGEX_LITERAL})`
-        : "z.string()";
+      return `z.string().regex(${UUID_WIRE_REGEX_LITERAL})`;
     case "enum":
     case "valueObject":
       return `${info.base}Schema`;

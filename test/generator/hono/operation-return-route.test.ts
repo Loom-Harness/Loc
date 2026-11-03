@@ -5,8 +5,7 @@
 // status (404 in the spike) and a success variant to HTTP 200.
 
 import { describe, expect, it } from "vitest";
-import { generateHono } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Shop {
@@ -21,7 +20,7 @@ const SRC = `
 `;
 
 async function routes(): Promise<string> {
-  const files = generateHono(await parseValid(SRC));
+  const files = await generateBackendFiles(SRC, "node");
   return files.get("http/order.routes.ts")!;
 }
 
