@@ -36,9 +36,11 @@
 //     which lowers to the read's own widened method (`bypassRead`);
 //   - an `if let` source over a natural-key `.findBy(…)` anywhere;
 //   - an expression in a `domainService` operation over a single-row read —
-//     `.find(<Criterion>)`, `.find(id)`, `.getBy(…)` / `.findBy(…)`
-//     (`matchRepoRead`, which every service read lowers through, reads the
-//     stance off the chain for exactly these);
+//     `.find(<Criterion>)`, `.find(id)`, `.getBy(…)` / `.findBy(…)` — or a
+//     list read `.all(<Criterion | Retrieval>)` (`matchRepoRead`, which every
+//     service read lowers through, reads the stance off the chain for exactly
+//     these: the single-row reads call their own widened method, the list
+//     read runs its own widened retrieval);
 //   - in a context integration `test`, `let o = Agg.find(id) ignoring …`
 //     (`lower-test.ts` names the widened method on the read).
 //
@@ -90,7 +92,12 @@ const LET_VERBS: ReadonlySet<RepoArgShape> = new Set(["query-or-none", "key"]);
  *  workflow, reactor or handler body (`lower-workflow.ts`). */
 const BODY_ROW_VERBS: ReadonlySet<RepoArgShape> = new Set(["id", "key", "criterion"]);
 /** The repository verbs whose `ignoring` stance a domain-service read reads. */
-const SERVICE_VERBS: ReadonlySet<RepoArgShape> = new Set(["id", "key", "criterion"]);
+const SERVICE_VERBS: ReadonlySet<RepoArgShape> = new Set([
+  "id",
+  "key",
+  "criterion",
+  "query-or-none",
+]);
 
 /** Is `node` inside a body `lower-workflow.ts` lowers — a workflow `create`,
  *  an `on` reactor, or a command / query handler? */

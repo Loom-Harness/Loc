@@ -441,6 +441,7 @@ function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
           ...(read.criterionName ? { synthCriterion: { name: read.criterionName } } : {}),
           ...(read.key ? { key: read.key } : {}),
           ...(read.bypassRead ? { bypassRead: read.bypassRead } : {}),
+          ...read.listBypass,
         },
       };
       return callIR;
