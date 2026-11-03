@@ -27,9 +27,11 @@
 // -------------
 // Every `LOOM_*` env var a test reads AS A SKIP CONDITION must be set
 // somewhere a human or a workflow can reach: a `package.json` script, or a
-// `.github/workflows/*.yml`.  Zero tolerance, not a ratchet — there is no
-// allowlist to go stale, because the honest fix for a suite nobody can run is
-// to wire it or delete it.
+// `.github/workflows/*.yml`.  Zero tolerance for an unreachable var — the
+// honest fix for a suite nobody can run is to wire it or delete it.  The one
+// named exception is a gate SCRIPT no workflow invokes on purpose (an
+// on-demand local suite): it sits in ON_DEMAND_SCRIPTS with its reason, and
+// that list ratchets — a waiver whose script is wired or gone fails as stale.
 //
 // SCOPE — what is deliberately NOT a skip condition:
 //   - env vars of the GENERATED app that a test merely asserts about
