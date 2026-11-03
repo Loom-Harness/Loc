@@ -98,7 +98,7 @@ describe("Vue i18n runtime", () => {
     const files = await generateSystemFiles(withComponent);
     const banner = [...files].find(([p]) => p.endsWith("components/Banner.vue"))![1];
     expect(banner).toMatch(/\{\{ t\("Web\.component\.Banner\.[^"]*", "Shop Banner"\) \}\}/);
-    expect(banner).toContain(`import { t } from "../i18n"`);
+    expect(banner).toContain(`import { t } from "../lib/locale"`);
     const locale = [...files].find(([p]) => p.endsWith("src/locales/en.json"))?.[1];
     expect(Object.values(JSON.parse(locale!) as Record<string, string>)).toContain("Shop Banner");
   });
@@ -136,7 +136,7 @@ describe("Vue i18n runtime", () => {
     expect(app).toContain(`{{ t("chrome.skipToContent", "Skip to content") }}`);
     // The primary-navigation landmark aria binds through Vue's `:aria-label`.
     expect(app).toContain(`:aria-label='t("chrome.primaryNav", "Primary navigation")'`);
-    expect(app).toContain(`import { t } from "./i18n"`);
+    expect(app).toContain(`import { t } from "./lib/locale"`);
     const catalog = JSON.parse(
       [...files].find(([p]) => p.endsWith("src/locales/en.json"))![1],
     ) as Record<string, string>;
