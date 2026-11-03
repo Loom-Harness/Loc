@@ -1603,6 +1603,11 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.applier-impure-call": (p: { owner: unknown; event: unknown; stmtName: unknown }) =>
     `${p.owner} apply(${p.event}) calls '${p.stmtName}'. ` +
     `Applier bodies must be deterministic, replayable folds — assignments and 'let' only, no side-effecting calls.`,
+  "loom.applier-impure-call#expression": (p: { owner: unknown; event: unknown; what: unknown }) =>
+    `${p.owner} apply(${p.event}) evaluates '${p.what}'. ` +
+    `An applier is a replayable fold of the event into state: a repository read, an aggregate create ` +
+    `or a resource call gives a different result on every replay. ` +
+    `Do the read or create in the command that decides the event and carry what it needs on the event.`,
   "loom.applier-guard": (p: { owner: unknown; event: unknown; kind: unknown }) =>
     `${p.owner} apply(${p.event}) contains a '${p.kind}' statement. ` +
     `Guards belong in the command that decides the event; by the time it is applied the decision is already made.`,
