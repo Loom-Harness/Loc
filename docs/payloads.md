@@ -299,8 +299,35 @@ A or B[]               ≡  A or (B[])
 ### Position
 
 An **inline `or`** union (like a carrier) is a transport shape — it may appear
-only as an operation / domain-service-operation return
-(`loom.union-position`).  A payload field is
+only as an operation / domain-service-operation return, or — with at least
+one `error` variant — as the result of a routed command entry point: a
+workflow `create`, a `commandHandler`, a `queryHandler`
+(`loom.union-position`).  That last form is an expected failure the route
+answers like an operation's `or E` (200 tagged success, the error at its
+mapped status), and an error answer rolls the whole command back:
+
+```ddd
+payload Receipt { left: int }
+error PaymentDeclined { available: int }
+commandHandler Charge(account: Account id, amt: int): Account or PaymentDeclined {
+  let a = Accounts.get(account)
+  let r = a.withdraw(amt)
+  match r {
+    int left => { return a }
+    Insufficient e => { return PaymentDeclined { available: amt - e.needed } }
+  }
+}
+```
+
+```ts
+// node — http/bankApi-routes.ts: the aggregate arm answers its AccountResponse fields, tagged
+handlerResult = { type: "Account", ...(accounts.toWire(await accounts.getById(a.id)) as Record<string, unknown>) };
+…
+if (handlerResult.type === "PaymentDeclined") throw __rollback;
+```
+
+See [13-workflows.md, "Expected failures"](language-reference/13-workflows.md#expected-failures)
+for the five backends.  A payload field is
 refused as well: the tagged wire is emitted at the top of a return, and no
 backend renders a union nested inside a record. A **named** union is
 referenced by its name and so is unaffected.
@@ -313,7 +340,7 @@ referenced by its name and so is unaffected.
 |---|---|
 | `loom.union-duplicate-variant` | A repeated variant (`string or string`, `payload F = A \| A`) — the discriminator must be unambiguous. |
 | `loom.union-variant-not-carrier` | A `slot` variant — every variant must be a carrier type. |
-| `loom.union-position` | An inline `or` union outside a find return / operation return (a payload field included). |
+| `loom.union-position` | An inline `or` union outside an operation return, or outside a routed entry point's result (workflow `create` / `commandHandler` / `queryHandler`) with an `error` variant (a payload field included). |
 | `loom.union-find-shape-unsupported` | A union find that isn't the absence shape `Agg or <error>` / `Agg option` (exactly the aggregate + one `none`/`error{resource}` variant). |
 | `loom.union-read-undiscriminated` | A member read (`r.code`) or an operation call (`r.touch()`) straight through an `or`-union value — a union find's result or an `or`-returning operation's — outside a variant `match` arm. Discriminate it first (`match r { Order o => o.code, else => … }`); a find declared `: Order` answers 404 on a miss instead. |
 | `loom.generic-arg-not-carrier` | A non-carrier or nested carrier argument to `paged` / `envelope`. |

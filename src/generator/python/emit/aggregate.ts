@@ -908,5 +908,8 @@ function shellSeed(f: FieldIR): string {
  *  `dict[str, object]` until then. */
 function renderPyOperationReturnType(t: TypeIR): string {
   if (t.kind === "union") return "dict[str, object]";
+  // An operation returning an entity (its own aggregate, `return this`) names
+  // the class being defined: a forward reference.
+  if (t.kind === "entity") return JSON.stringify(renderPyType(t));
   return renderPyType(t);
 }

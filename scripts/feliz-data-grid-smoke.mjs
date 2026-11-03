@@ -60,7 +60,13 @@ const grid = () => page.locator('[data-testid="product-grid"]');
 const names = () => grid().locator("tbody tr td:nth-child(2)").allTextContents();
 /** How many cells each body row renders — drops when a column is hidden. */
 const cellsPerRow = () => grid().locator("tbody tr:first-child td").count();
-const sortBy = (label) => page.getByRole("button", { name: `Sort by ${label}` });
+/** A sort button carries no label of its own — the column header text names it
+ *  (a direction glyph may follow), so whole-sentence i18n never splices a header
+ *  into a phrase. */
+const sortBy = (label) =>
+  grid()
+    .locator("thead")
+    .getByRole("button", { name: new RegExp(`^${label}`) });
 const eq = (got, want, what) => {
   if (JSON.stringify(got) !== JSON.stringify(want))
     throw new Error(`${what}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
@@ -113,7 +119,9 @@ try {
   );
 
   // --- Per-column filter narrows the set ----------------------------------
-  const filter = page.getByRole("searchbox", { name: "Filter by Name" });
+  // Every filter input is named by the whole word "Filter"; the header cell it
+  // sits in (column 2, after the selection checkbox) says which column it filters.
+  const filter = grid().locator("thead th").nth(1).getByRole("searchbox", { name: "Filter" });
   await filter.fill("a");
   eq(await names(), ["alpha", "bravo", "charlie", "delta"], "filter 'a' (echo drops out)");
   await filter.fill("zzz");

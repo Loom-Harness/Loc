@@ -1962,6 +1962,15 @@ system P {
     }`),
   // `let r = o.hold()` whose result can be an error, never matched: nothing may
   // save the tentative change.
+  // `create(…): W` answers the workflow's instance state, but W has no
+  // correlation field, so no instance is persisted.
+  "loom.workflow-return-this-uncorrelated": repoOnly(`    error Declined { reason: string }
+    workflow W {
+      create(n: int): W or Declined {
+        if n > 0 { notFound }
+        return this
+      }
+    }`),
   "loom.workflow-mutation-result-unmatched": repoOnly(`    error Held { reason: string }
     aggregate Order with crudish {
       name: string
@@ -3087,6 +3096,23 @@ system P {
           string s => { precondition s.length > 0  code := s }
           else => { code := "none" }
         }
+      }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
+}`,
+
+  // A workflow `create` answering `T or E` in a context an elixir deployable
+  // hosts.
+  "loom.elixir-entry-result-unsupported": `
+system P {
+  subdomain D { context C {
+    error Declined { reason: string }
+    workflow W {
+      create(n: int): int or Declined {
+        return Declined { reason: "no" }
       }
     }
   } }
