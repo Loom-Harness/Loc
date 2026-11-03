@@ -45,7 +45,6 @@ import { requestComponentNamerFor } from "../../_openapi/request-component-names
 import {
   errorArmProblemJsonSchema,
   errorStatusJsonSchema,
-  findUnionSpec,
   type OpUnionResponses,
   opUnionResponses,
   unionMembersJsonSchema,

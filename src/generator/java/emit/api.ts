@@ -31,14 +31,13 @@ import { plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
-import { findUnionSpec } from "../../_payload/union-wire.js";
 import {
   PG_FOREIGN_KEY_VIOLATION,
   PG_RESTRICT_VIOLATION,
   PG_UNIQUE_VIOLATION,
 } from "../../_persistence/pg-sqlstate.js";
-import { javaLocals, jid, localOf, requestParam } from "../java-ident.js";
-import { renderJavaExpr, renderJavaType } from "../render-expr.js";
+import { jid } from "../java-ident.js";
+import { renderJavaExpr } from "../render-expr.js";
 import {
   javaErrorVariantLines,
   javaLit,
