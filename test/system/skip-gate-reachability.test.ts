@@ -42,6 +42,15 @@
 //     condition, i.e. compared with `!==`/`!=` (`LOOM_E2E_ALLOW_NO_DOCKER !==
 //     "1"`).  Unset means the suite RUNS, so nothing is stranded.
 // Only a var that must be SET for the suite to run is in scope.
+//
+// SECOND LINK — the script must be RUN.  A `package.json` script that sets the
+// var is only a way in if something invokes it: a workflow `run:` step that
+// calls `npm run test:x`, or a `scripts:` / `script:` matrix value that the
+// step feeds to `npm run "$script"` (tenancy-e2e.yml).  A script that sets a
+// gate var and is invoked by nothing (and whose var no workflow sets itself)
+// strands its suite exactly as an unset var does, so it fails below.  The
+// suites that are on-demand by design are named in ON_DEMAND_SCRIPTS with the
+// reason; a waiver whose script is wired (or gone) fails as stale.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import * as path from "node:path";
@@ -238,15 +247,95 @@ function workflowSetVars(text: string): Set<string> {
   return out;
 }
 
-/** Every `LOOM_*` a `package.json` script or a workflow actually SETS. */
-function settableVars(): Set<string> {
+/** `npm run [-flags] <name>` in a script body or workflow line. */
+const NPM_RUN_NAME_RE = /\bnpm run\s+(?:-\w+\s+)*([\w:.-]+)/g;
+const SCRIPT_LIST_RE = /^\s*(?:-\s+)?scripts?:\s*(.+)$/;
+
+/**
+ * The npm script names a workflow invokes: a literal `npm run <name>` on any
+ * non-comment line, plus the `test:*` names listed as a `scripts:` / `script:`
+ * value (a matrix cell the step later feeds to `npm run "$script"`).  Same
+ * line scanner as {@link workflowSetVars} — no YAML parse.
+ */
+function workflowInvokedScripts(text: string): Set<string> {
   const out = new Set<string>();
-  // `LOOM_X=1 vitest …` in a script.
-  const pkg = readFileSync(path.join(repoRoot, "package.json"), "utf8");
-  for (const m of pkg.matchAll(/\b(LOOM_[A-Z0-9_]+)\s*=/g)) out.add(m[1]);
-  for (const f of readdirSync(workflowsDir).filter((x) => x.endsWith(".yml"))) {
-    for (const v of workflowSetVars(readFileSync(path.join(workflowsDir, f), "utf8"))) out.add(v);
+  for (const raw of text.split("\n")) {
+    if (raw.trimStart().startsWith("#")) continue;
+    for (const m of raw.matchAll(NPM_RUN_NAME_RE)) out.add(m[1]);
+    const list = SCRIPT_LIST_RE.exec(raw);
+    if (list) for (const tok of list[1].split(/\s+/)) if (tok.startsWith("test:")) out.add(tok);
   }
+  return out;
+}
+
+/** `names` plus every script they run through `npm run` in their own body. */
+function scriptClosure(
+  names: Iterable<string>,
+  scripts: Readonly<Record<string, string>>,
+): Set<string> {
+  const out = new Set<string>(names);
+  const queue = [...out];
+  for (let n = queue.pop(); n !== undefined; n = queue.pop()) {
+    for (const m of (scripts[n] ?? "").matchAll(NPM_RUN_NAME_RE)) {
+      if (!out.has(m[1])) {
+        out.add(m[1]);
+        queue.push(m[1]);
+      }
+    }
+  }
+  return out;
+}
+
+const rootScripts: Record<string, string> = JSON.parse(
+  readFileSync(path.join(repoRoot, "package.json"), "utf8"),
+).scripts;
+const workflowTexts = readdirSync(workflowsDir)
+  .filter((x) => x.endsWith(".yml"))
+  .map((f) => readFileSync(path.join(workflowsDir, f), "utf8"));
+
+const invokedScripts = scriptClosure(
+  workflowTexts.flatMap((t) => [...workflowInvokedScripts(t)]),
+  rootScripts,
+);
+const workflowSet = new Set(workflowTexts.flatMap((t) => [...workflowSetVars(t)]));
+
+/** The `LOOM_*` vars a script body assigns (`LOOM_X=1 vitest run …`). */
+const varsOfScript = (body: string): string[] =>
+  [...body.matchAll(/\b(LOOM_[A-Z0-9_]+)=/g)].map((m) => m[1]);
+
+/** Scripts that set a gate var and are run by hand on purpose — not wired to CI.
+ *  Each needs a reason; a script that gets wired (or removed) fails as stale. */
+const ON_DEMAND_SCRIPTS: Readonly<Record<string, string>> = {
+  "test:pack-spacing-dom":
+    "measures URLs of apps the caller already booted (docs/testing.md: local / on-demand)",
+  "test:format-dotnet": "dotnet-format conformance of a generated tree, run locally on demand",
+  "test:fuzz-deep": "long-running deep pipeline fuzz, run locally on demand",
+};
+
+/** Scripts that set a gate var no workflow sets itself, and that no workflow
+ *  invokes.  (A var a workflow sets directly is reachable without the script.) */
+function unwiredGateScripts(
+  scripts: Readonly<Record<string, string>>,
+  invoked: ReadonlySet<string>,
+  setByWorkflow: ReadonlySet<string>,
+  gateVars: ReadonlySet<string>,
+): string[] {
+  return Object.entries(scripts)
+    .filter(
+      ([name, body]) =>
+        name.startsWith("test:") &&
+        !invoked.has(name) &&
+        varsOfScript(body).some((v) => gateVars.has(v) && !setByWorkflow.has(v)),
+    )
+    .map(([name]) => name)
+    .sort();
+}
+
+/** Every `LOOM_*` a workflow sets, or that an INVOKED (or on-demand) script sets. */
+function settableVars(): Set<string> {
+  const out = new Set<string>(workflowSet);
+  const reachable = [...invokedScripts, ...Object.keys(ON_DEMAND_SCRIPTS)];
+  for (const name of reachable) for (const v of varsOfScript(rootScripts[name] ?? "")) out.add(v);
   return out;
 }
 
@@ -322,6 +411,77 @@ describe("every skip-gating LOOM_* var is reachable", () => {
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.every((g) => g.escapeHatch)).toBe(true);
     expect(requiredGates.map((g) => g.varName)).not.toContain("LOOM_E2E_ALLOW_NO_DOCKER");
+  });
+
+  it("a workflow counts a script as invoked via npm run, a scripts: list or a script: cell", () => {
+    const invoked = workflowInvokedScripts(
+      [
+        "      matrix:",
+        "        include:",
+        "          - backend: node",
+        "            scripts: test:one test:two",
+        "          - backend: py",
+        "            script: test:three",
+        "    steps:",
+        "      - run: npm run -s test:four -- --reporter=verbose",
+        "      - run: |",
+        "          npm run test:five",
+        "      # npm run test:commented",
+        '      - run: npm run "$script"',
+      ].join("\n"),
+    );
+    expect([...invoked].sort()).toEqual([
+      "test:five",
+      "test:four",
+      "test:one",
+      "test:three",
+      "test:two",
+    ]);
+  });
+
+  it("an invoked script's own `npm run` calls are invoked too", () => {
+    const closure = scriptClosure(["a"], { a: "npm run b && echo", b: "npm run -s c", c: "x" });
+    expect([...closure].sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("a gate script that nothing invokes is reported", () => {
+    const scripts = {
+      "test:wired": "LOOM_A=1 vitest run a",
+      "test:orphan": "LOOM_B=1 vitest run b",
+      "test:direct": "LOOM_C=1 vitest run c",
+      "test:plain": "vitest run d",
+    };
+    expect(
+      unwiredGateScripts(
+        scripts,
+        new Set(["test:wired"]),
+        new Set(["LOOM_C"]),
+        new Set(["LOOM_A", "LOOM_B", "LOOM_C"]),
+      ),
+    ).toEqual(["test:orphan"]);
+  });
+
+  it("every gate script is run by a workflow, or is on demand by design", () => {
+    const gateVars = new Set(requiredGates.map((g) => g.varName));
+    const unwired = unwiredGateScripts(rootScripts, invokedScripts, workflowSet, gateVars).filter(
+      (n) => !(n in ON_DEMAND_SCRIPTS),
+    );
+    expect(
+      unwired,
+      `These package.json scripts set a skip-gate var, yet no workflow \`run:\` step ` +
+        `invokes them (directly, or through a \`scripts:\` value):\n` +
+        `${unwired.map((s) => `  ${s}`).join("\n")}\n` +
+        "Run each from a workflow, or list it in ON_DEMAND_SCRIPTS with the reason.",
+    ).toEqual([]);
+  });
+
+  it("every on-demand waiver is still needed", () => {
+    const gateVars = new Set(requiredGates.map((g) => g.varName));
+    const unwired = new Set(unwiredGateScripts(rootScripts, invokedScripts, workflowSet, gateVars));
+    const stale = Object.keys(ON_DEMAND_SCRIPTS).filter((n) => !unwired.has(n));
+    expect(stale, `stale ON_DEMAND_SCRIPTS entries (wired or gone): ${stale.join(", ")}`).toEqual(
+      [],
+    );
   });
 
   it("no suite is stranded behind a var nothing sets", () => {
