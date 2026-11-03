@@ -281,6 +281,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "Every chromeMessage/localizedChrome* call passes a hard-coded name from our own emitters, all present in CHROME_MESSAGES. (src/generator/_walker/i18n-chrome.ts:~60-91 (CHROME_MESSAGES))",
   },
+  "src/generator/_walker/i18n-chrome.ts#wireErrorMessage": {
+    invariant:
+      "Every caller passes a wireCode(cls)/fieldCode(reason) key, and WIRE_ERROR_MESSAGES is built from the closed WireRejectionClass/FieldRejectionReason records, so every such key is present.",
+  },
 
   // src/generator/_walker/i18n-emit.ts
   "src/generator/_walker/i18n-emit.ts#icuParts": {
