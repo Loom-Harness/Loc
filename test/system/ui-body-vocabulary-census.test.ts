@@ -221,7 +221,7 @@ const PROBES: readonly Probe[] = [
   {
     id: "find-list-param",
     host: { body: QV('Order.findAllByOrdersByCustomers(["a"])') },
-    expect: { feature: "find-read-composite-param" },
+    expect: { renders: true },
   },
   {
     id: "find-row-arg",
@@ -231,18 +231,9 @@ const PROBES: readonly Probe[] = [
         `rows => For { each: rows, r => ${QV("Order.findAllByOrdersByCustomer(r.customerId)", 'xs2 => Text { "y" }')} }`,
       ),
     },
-    expect: { feature: "find-read-unbound-arg" },
+    expect: { renders: true },
   },
 ];
-
-/** Features the table still lists that no source can reach any more, so no
- *  probe can be written.  Each is dead with its emitter path; the entry goes
- *  when the row does (the test below fails on a stale one). */
-const UNPROBEABLE_FEATURES: Readonly<Partial<Record<UiBodyFeature, string>>> = {
-  "find-read-non-aggregate-return":
-    "every readable find is a synthesized paged `findAllBy<Criterion>` returning the aggregate; " +
-    "a scalar-returning find was only declarable; the row goes with the Feliz find-read route code it guarded",
-};
 
 /** Why a refused feature cell must stay refused even though the emitter does
  *  not crash on it — the silent half of the table.  Keyed `<frontend> × <probe>`. */
@@ -365,8 +356,8 @@ const TARGET_OVERRIDES: Readonly<Record<string, string>> = {
   "feliz × find-scalar": "loom.ui-read-unresolved",
   "feliz × find-arity-0": "loom.ui-read-unresolved+loom.ui-find-call-arity",
   "feliz × find-arity-2": "loom.ui-read-unresolved+loom.ui-find-call-arity",
-  "feliz × find-list-param": "loom.ui-read-unresolved+loom.ui-body-feature-unsupported",
-  "feliz × find-row-arg": "loom.ui-read-unresolved+loom.ui-body-feature-unsupported",
+  "feliz × find-list-param": "loom.ui-read-unresolved",
+  "feliz × find-row-arg": "loom.ui-read-unresolved",
   "flutter × find-scalar": "loom.ui-read-unresolved",
   "flutter × find-arity-0": "loom.ui-read-unresolved+loom.ui-find-call-arity",
   "flutter × find-arity-2": "loom.ui-read-unresolved+loom.ui-find-call-arity",
@@ -476,15 +467,7 @@ describe("ui-body census — every frontend × body shape renders or is refused"
       PROBES.flatMap((p) => ("feature" in p.expect ? [p.expect.feature] : [])),
     );
     expect(
-      Object.keys(UI_BODY_FEATURE_RENDERERS).filter(
-        (f) => !probed.has(f as UiBodyFeature) && !(f in UNPROBEABLE_FEATURES),
-      ),
-    ).toEqual([]);
-  });
-
-  it("every unprobeable feature is still in the table (the waiver ratchets)", () => {
-    expect(
-      Object.keys(UNPROBEABLE_FEATURES).filter((f) => !(f in UI_BODY_FEATURE_RENDERERS)),
+      Object.keys(UI_BODY_FEATURE_RENDERERS).filter((f) => !probed.has(f as UiBodyFeature)),
     ).toEqual([]);
   });
 });

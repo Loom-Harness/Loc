@@ -9,7 +9,6 @@
 
 import type { BoundedContextIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
-import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
@@ -55,7 +54,6 @@ import {
   felizOperationForm,
   felizWorkflowForm,
   fieldErrorFn,
-  findFieldName,
   formFieldServerKey,
   formFileSelectMsg,
   formServerField,
@@ -424,23 +422,17 @@ export const felizTarget: WalkerTarget = {
     // Every read resolves to its OWN Model field, keyed by the OPERATION:
     // `all` → `All<Plural>`, `byId` → `<Agg>ById` (its `Remote<'T option>`
     // envelope), the derived entity-history read (docs/audit.md) →
-    // `<Agg>History`, and a user-declared repository find → `<Agg><Find>`.
-    //
-    // There is deliberately NO `All<Plural>` fallback: it keeps feliz out of
-    // `HISTORY_CAPABLE_FRAMEWORKS` and binds every parameterised find
-    // (`Doc.byVis(v)`) to the unfiltered list — a `model.AllDocs` no Model
-    // declares, no `Cmd` filled and no update arm stored, for a query never
-    // issued.  Instead:
-    // the read collector (`collectBodyReads`) throws on any operation that is
-    // not one of these four, so a field named here always exists.
+    // `<Agg>History`.  There is deliberately NO `All<Plural>` fallback for any
+    // other operation: the validator refuses a find read on Feliz
+    // (`loom.ui-read-unresolved#unrouted`) and the read collector
+    // (`collectBodyReads`) emits no Model field for one, so a field named here
+    // always exists.
     const field =
       detected.operation === "all"
         ? readFieldName(detected.aggregateName)
         : detected.operation === "byId"
           ? byIdFieldName(detected.aggregateName)
-          : detected.operation === AUDIT_HISTORY_FIND
-            ? historyFieldName(detected.aggregateName)
-            : findFieldName(detected.aggregateName, detected.operation);
+          : historyFieldName(detected.aggregateName);
     return { varName: field, hookName: lowerFirst(field), importFrom: "", argsRendered: [] };
   },
   renderApiCall: (call) => call.varName ?? readFieldName(call.aggregateName),
