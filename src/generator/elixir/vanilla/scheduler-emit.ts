@@ -88,18 +88,9 @@ function timerLockKey(name: string): number {
  *  type-safe zero.  Sister to the Hono `tickFieldValue`. */
 function tickFieldValue(field: FieldIR): string {
   const t = field.type;
-  if (t.kind === "id") {
-    switch (t.valueType) {
-      case "guid":
-      case "string":
-        // A fresh unique id — UUIDv7 (the same generator the Ecto schemas
-        // autogenerate their `:binary_id` / string primary keys with).
-        return "UUIDv7.generate()";
-      case "int":
-      case "long":
-        return "System.unique_integer([:positive])";
-    }
-  }
+  // A fresh unique id — UUIDv7 (the same generator the Ecto schemas
+  // autogenerate their `:binary_id` primary keys with).
+  if (t.kind === "id") return "UUIDv7.generate()";
   if (t.kind === "primitive") {
     switch (t.name) {
       case "datetime":

@@ -7,10 +7,11 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { snake } from "../../../util/naming.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaOnDemandRef, javaRef } from "../../_imports/java.js";
 import { jid } from "../java-ident.js";
 import { hbIdent } from "../sql-ident.js";
 
+const JPA = (name: string): string => javaOnDemandRef("jakarta.persistence", name);
 const JDBC_TYPE_CODE = javaRef("org.hibernate.annotations", "JdbcTypeCode");
 const SQL_TYPES = javaRef("org.hibernate.type", "SqlTypes");
 
@@ -55,14 +56,17 @@ export interface JpaOpts {
 const schemaAttr = (schema: string | undefined): string => (schema ? `, schema = "${schema}"` : "");
 
 export function jpaClassAnnotations(tableName: string, opts: JpaOpts): string[] {
-  return [`@Entity`, `@Table(name = "${hbIdent(tableName)}"${schemaAttr(opts.schema)})`];
+  return [
+    `@${JPA("Entity")}`,
+    `@${JPA("Table")}(name = "${hbIdent(tableName)}"${schemaAttr(opts.schema)})`,
+  ];
 }
 
 /** `@EmbeddedId` mapping the id record's `value` onto the `id` column. */
 export function jpaIdAnnotations(): string[] {
   return [
-    `    @EmbeddedId`,
-    `    @AttributeOverride(name = "value", column = @Column(name = "id"))`,
+    `    @${JPA("EmbeddedId")}`,
+    `    @${JPA("AttributeOverride")}(name = "value", column = @${JPA("Column")}(name = "id"))`,
   ];
 }
 
@@ -70,8 +74,8 @@ export function jpaIdAnnotations(): string[] {
  *  owns — read-only so the two mappings don't fight over writes. */
 export function jpaParentIdAnnotations(parentFkColumn: string): string[] {
   return [
-    `    @Embedded`,
-    `    @AttributeOverride(name = "value", column = @Column(name = "${parentFkColumn}", insertable = false, updatable = false))`,
+    `    @${JPA("Embedded")}`,
+    `    @${JPA("AttributeOverride")}(name = "value", column = @${JPA("Column")}(name = "${parentFkColumn}", insertable = false, updatable = false))`,
   ];
 }
 
@@ -82,8 +86,8 @@ export function jpaParentIdAnnotations(parentFkColumn: string): string[] {
  *  NOT NULL constraint would reject. */
 export function jpaContainmentAnnotations(ownerName: string): string[] {
   return [
-    `    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)`,
-    `    @JoinColumn(name = "${snake(ownerName)}_id", nullable = false)`,
+    `    @${JPA("OneToMany")}(cascade = ${JPA("CascadeType")}.ALL, orphanRemoval = true, fetch = ${JPA("FetchType")}.EAGER)`,
+    `    @${JPA("JoinColumn")}(name = "${snake(ownerName)}_id", nullable = false)`,
   ];
 }
 
@@ -92,7 +96,7 @@ export function jpaContainmentAnnotations(ownerName: string): string[] {
  *  hidden owning `_parent` relation and the root maps the inverse. */
 export function jpaSingleContainmentAnnotations(): string[] {
   return [
-    `    @OneToOne(mappedBy = "_parent", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)`,
+    `    @${JPA("OneToOne")}(mappedBy = "_parent", cascade = ${JPA("CascadeType")}.ALL, orphanRemoval = true, fetch = ${JPA("FetchType")}.EAGER)`,
   ];
 }
 
@@ -100,8 +104,8 @@ export function jpaSingleContainmentAnnotations(): string[] {
  *  the parent-FK column (the part's read-only `parentId` mirrors it). */
 export function jpaSingleContainmentParentAnnotations(parentFkColumn: string): string[] {
   return [
-    `    @OneToOne(fetch = FetchType.LAZY)`,
-    `    @JoinColumn(name = "${parentFkColumn}", nullable = false)`,
+    `    @${JPA("OneToOne")}(fetch = ${JPA("FetchType")}.LAZY)`,
+    `    @${JPA("JoinColumn")}(name = "${parentFkColumn}", nullable = false)`,
   ];
 }
 
@@ -124,7 +128,7 @@ function voOverrides(
       return voOverrides(path, column, base.name, voLookup);
     }
     return [
-      `    @AttributeOverride(name = "${idLeafPath(path, base)}", column = @Column(name = "${column}"))`,
+      `    @${JPA("AttributeOverride")}(name = "${idLeafPath(path, base)}", column = @${JPA("Column")}(name = "${column}"))`,
     ];
   });
 }
@@ -139,7 +143,7 @@ function voElementOverrides(voName: string, voLookup: JpaOpts["voLookup"]): stri
       return voOverrides(jid(vf.name), snake(vf.name), base.name, voLookup);
     }
     return [
-      `    @AttributeOverride(name = "${idLeafPath(jid(vf.name), base)}", column = @Column(name = "${hbIdent(snake(vf.name))}"))`,
+      `    @${JPA("AttributeOverride")}(name = "${idLeafPath(jid(vf.name), base)}", column = @${JPA("Column")}(name = "${hbIdent(snake(vf.name))}"))`,
     ];
   });
 }
@@ -173,7 +177,7 @@ export function jpaFieldAnnotations(
   // (possibly stale) value, undoing a concurrent writer's bump — and the
   // second writer's own bump would then match, so both writers land.
   if (f.access === "token") {
-    return [`    @Column(name = "${hbIdent(col)}", updatable = false)`];
+    return [`    @${JPA("Column")}(name = "${hbIdent(col)}", updatable = false)`];
   }
 
   // Reference collection (`Target id[]`) → the association's join table
@@ -186,9 +190,9 @@ export function jpaFieldAnnotations(
       // (emitted in domain.ids) unwraps the list to bare `value`s so the
       // FormatMapper serialises `["v1","v2"]` — the cross-backend jsonb shape.
       return [
-        `    @Convert(converter = ${t.element.targetName}IdJsonListConverter.class)`,
+        `    @${JPA("Convert")}(converter = ${t.element.targetName}IdJsonListConverter.class)`,
         `    @${JDBC_TYPE_CODE}(${SQL_TYPES}.JSON)`,
-        `    @Column(name = "${hbIdent(col)}"${f.optional ? "" : ", nullable = false"})`,
+        `    @${JPA("Column")}(name = "${hbIdent(col)}"${f.optional ? "" : ", nullable = false"})`,
       ];
     }
     // `Target id[]` is contractually a set (membership only, no order), so
@@ -206,10 +210,10 @@ export function jpaFieldAnnotations(
       );
     }
     return [
-      `    @ElementCollection(fetch = FetchType.EAGER)`,
-      `    @CollectionTable(name = "${assoc.joinTable}"${schemaAttr(opts.schema)}, joinColumns = @JoinColumn(name = "${assoc.ownerFk}"))`,
-      `    @OrderBy`,
-      `    @AttributeOverride(name = "value", column = @Column(name = "${assoc.targetFk}"))`,
+      `    @${JPA("ElementCollection")}(fetch = ${JPA("FetchType")}.EAGER)`,
+      `    @${JPA("CollectionTable")}(name = "${assoc.joinTable}"${schemaAttr(opts.schema)}, joinColumns = @${JPA("JoinColumn")}(name = "${assoc.ownerFk}"))`,
+      `    @${JPA("OrderBy")}`,
+      `    @${JPA("AttributeOverride")}(name = "value", column = @${JPA("Column")}(name = "${assoc.targetFk}"))`,
     ];
   }
 
@@ -220,9 +224,9 @@ export function jpaFieldAnnotations(
       throw new Error(`java jpa: no ValueCollectionIR for '${owner.name}.${f.name}'.`);
     }
     return [
-      `    @ElementCollection(fetch = FetchType.EAGER)`,
-      `    @CollectionTable(name = "${vc.childTable}"${schemaAttr(opts.schema)}, joinColumns = @JoinColumn(name = "${vc.parentFk}"))`,
-      `    @OrderColumn(name = "ordinal")`,
+      `    @${JPA("ElementCollection")}(fetch = ${JPA("FetchType")}.EAGER)`,
+      `    @${JPA("CollectionTable")}(name = "${vc.childTable}"${schemaAttr(opts.schema)}, joinColumns = @${JPA("JoinColumn")}(name = "${vc.parentFk}"))`,
+      `    @${JPA("OrderColumn")}(name = "ordinal")`,
       ...voElementOverrides(t.element.name, opts.voLookup),
     ];
   }
@@ -236,26 +240,26 @@ export function jpaFieldAnnotations(
   if (t.kind === "array") {
     const byName =
       t.element.kind === "enum" && !opts.mangledEnums?.has(t.element.name)
-        ? [`    @Enumerated(EnumType.STRING)`]
+        ? [`    @${JPA("Enumerated")}(${JPA("EnumType")}.STRING)`]
         : [];
     return [
       ...byName,
       `    @${JDBC_TYPE_CODE}(${SQL_TYPES}.ARRAY)`,
-      `    @Column(name = "${hbIdent(col)}")`,
+      `    @${JPA("Column")}(name = "${hbIdent(col)}")`,
     ];
   }
 
   // `X id` reference → embedded id record over one column.
   if (t.kind === "id") {
     return [
-      `    @Embedded`,
-      `    @AttributeOverride(name = "value", column = @Column(name = "${hbIdent(col)}"))`,
+      `    @${JPA("Embedded")}`,
+      `    @${JPA("AttributeOverride")}(name = "value", column = @${JPA("Column")}(name = "${hbIdent(col)}"))`,
     ];
   }
 
   // Value object → embedded record over flattened `<field>_<vf>` columns.
   if (t.kind === "valueobject") {
-    return [`    @Embedded`, ...voOverrides("", col, t.name, opts.voLookup)];
+    return [`    @${JPA("Embedded")}`, ...voOverrides("", col, t.name, opts.voLookup)];
   }
 
   if (t.kind === "enum") {
@@ -264,21 +268,27 @@ export function jpaFieldAnnotations(
     // through their generated codec instead (M-T6.36).
     if (opts.mangledEnums?.has(t.name)) {
       return [
-        `    @Convert(converter = ${t.name}.Codec.class)`,
-        `    @Column(name = "${hbIdent(col)}")`,
+        `    @${JPA("Convert")}(converter = ${t.name}.Codec.class)`,
+        `    @${JPA("Column")}(name = "${hbIdent(col)}")`,
       ];
     }
-    return [`    @Enumerated(EnumType.STRING)`, `    @Column(name = "${hbIdent(col)}")`];
+    return [
+      `    @${JPA("Enumerated")}(${JPA("EnumType")}.STRING)`,
+      `    @${JPA("Column")}(name = "${hbIdent(col)}")`,
+    ];
   }
 
   if (t.kind === "primitive" && (t.name === "json" || t.name === "File")) {
     // A `File` field's FileRef persists as jsonb, exactly like `json` (M-T1.2);
     // Hibernate maps the `FileRef` record ⇄ JSON via @JdbcTypeCode.
-    return [`    @${JDBC_TYPE_CODE}(${SQL_TYPES}.JSON)`, `    @Column(name = "${hbIdent(col)}")`];
+    return [
+      `    @${JDBC_TYPE_CODE}(${SQL_TYPES}.JSON)`,
+      `    @${JPA("Column")}(name = "${hbIdent(col)}")`,
+    ];
   }
 
   // Scalars (string / int / long / decimal / money / bool / datetime / guid).
-  return [`    @Column(name = "${hbIdent(col)}")`];
+  return [`    @${JPA("Column")}(name = "${hbIdent(col)}")`];
 }
 
 function associationFor(

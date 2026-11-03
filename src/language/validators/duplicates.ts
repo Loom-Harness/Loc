@@ -38,6 +38,13 @@
 //      Layer 3-4).  A `route -> Context.<name>` resolves the bare name against
 //      the UNION of both kinds, so a collision silently deduplicates in the
 //      resolver and a route would dispatch ambiguously.
+//   6. loom.duplicate-repository     — within a context, at most one
+//      `repository … for X` per aggregate.  A repository is body-less and its
+//      surface is the shared verb contract (D-REPOSITORY-CONTRACT), so a
+//      second one is only another name for the same store; the backends emit
+//      one repository class per aggregate and resolve operations per
+//      aggregate, so the alias would either crash an emitter or quietly share
+//      the first one's class.
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
@@ -64,6 +71,7 @@ import {
   isOperation,
   isProperty,
   isQueryHandler,
+  isRepository,
   isValueObject,
 } from "../generated/ast.js";
 
@@ -132,6 +140,26 @@ function checkHandlerNames(ctx: BoundedContext, accept: ValidationAcceptor): voi
         seen.add(m.name);
       }
     }
+  }
+}
+
+/** One repository per aggregate root within a context: the first
+ *  `repository … for X` owns X, every later one is refused. */
+function checkRepositoryTargets(ctx: BoundedContext, accept: ValidationAcceptor): void {
+  const owner = new Map<string, string>();
+  for (const m of ctx.members) {
+    if (!isRepository(m)) continue;
+    const agg = m.aggregate.ref?.name ?? m.aggregate.$refText;
+    const first = owner.get(agg);
+    if (first === undefined) {
+      owner.set(agg, m.name);
+      continue;
+    }
+    accept(
+      "error",
+      diagMessage("loom.duplicate-repository", { name: m.name, agg, first, ctxName: ctx.name }),
+      { node: m, property: "aggregate", code: "loom.duplicate-repository" },
+    );
   }
 }
 
@@ -211,6 +239,7 @@ export function checkDuplicateNames(model: Model, accept: ValidationAcceptor): v
     if (isBoundedContext(node)) {
       checkContextTypeNames(node, accept);
       checkHandlerNames(node, accept);
+      checkRepositoryTargets(node, accept);
     } else if (isAggregate(node)) checkAggregateFieldNames(node, accept);
     else if (isValueObject(node)) checkValueObjectFieldNames(node, accept);
     else if (isEventDecl(node)) checkEventFieldNames(node, accept);

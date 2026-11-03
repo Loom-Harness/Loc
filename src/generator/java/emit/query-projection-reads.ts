@@ -20,6 +20,7 @@ import {
   wholeTableAggregates,
 } from "../../../ir/util/projection-aggregate.js";
 import { aggregateArgColumn, sqlColumnName } from "../../../ir/util/projection-column.js";
+import { projectionSourceContext } from "../../../ir/util/projection-source.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
@@ -138,6 +139,9 @@ function sourceFindName(projName: string): string {
 export function queryProjectionFindsFor(
   aggName: string,
   ctx: EnrichedBoundedContextIR,
+  /** The deployable's hosted contexts: a projection declared in any of them
+   *  may read `aggName` from `ctx`, its home context. */
+  contexts: readonly EnrichedBoundedContextIR[],
 ): {
   name: string;
   params: ParamIR[];
@@ -146,8 +150,16 @@ export function queryProjectionFindsFor(
   bypassAll?: boolean;
   bypassCaps?: string[];
 }[] {
-  return (ctx.projections ?? [])
-    .filter((p) => isQueryTimeProjection(p) && p.query?.source === aggName)
+  const hosts = contexts.includes(ctx) ? contexts : [ctx, ...contexts];
+  return hosts
+    .flatMap((host) =>
+      (host.projections ?? []).filter(
+        (p) =>
+          isQueryTimeProjection(p) &&
+          p.query?.source === aggName &&
+          projectionSourceContext(p, host, contexts) === ctx,
+      ),
+    )
     .map((p) => ({
       name: sourceFindName(p.name),
       // The projection's own parameters — its inlined `where` names them, so a
@@ -186,7 +198,10 @@ export interface QueryProjectionCtx {
    *  name.  Only `id` is nameable on such a table
    *  (`columnlessProjectionSource`), and `e.id` reads the same in JPQL and in
    *  SQL, so the `where` renderer is shared. */
-  documentTableOf: (aggName: string) => string | undefined;
+  documentTableOf: (aggName: string, home: EnrichedBoundedContextIR) => string | undefined;
+  /** The deployable's hosted contexts — a projection's `from` source may be
+   *  declared in another one of them than the projection itself. */
+  contexts: readonly EnrichedBoundedContextIR[];
 }
 
 interface JoinMap {
@@ -236,6 +251,7 @@ function aggregationScope(
   ctx: EnrichedBoundedContextIR,
   enumsPkg: string,
   native: boolean,
+  hosted: readonly EnrichedBoundedContextIR[],
 ): AggregationScope {
   const principalAccessors = new Set<string>();
   // `EntityManager.createQuery` mode (§F2, Wave 2 packet 2.4): this read runs
@@ -273,7 +289,9 @@ function aggregationScope(
     binds: [...principalAccessors],
     // A native document read has no entity, so no filter to disable.
     disableCaps:
-      sourceAgg && !native ? bypassedFilterNames(bypassFilterNames(sourceAgg, ctx), bypass) : [],
+      sourceAgg && !native
+        ? bypassedFilterNames(bypassFilterNames(sourceAgg, ctx, hosted), bypass)
+        : [],
   };
 }
 
@@ -378,7 +396,10 @@ export function renderJavaQueryProjections(
 
   for (const proj of projections) {
     const source = proj.query!.source!;
-    const srcAgg = ctx.aggregates.find((a) => a.name === source);
+    // Everything about the source — its scope, its table, its repository —
+    // lives in the context it is DECLARED in, which may not be `ctx`.
+    const home = projectionSourceContext(proj, ctx, qpctx.contexts) ?? ctx;
+    const srcAgg = home.aggregates.find((a) => a.name === source);
     const findName = lowerFirst(proj.name);
     // A parameterised projection threads its parameters through all three
     // layers: the controller binds them from the query string
@@ -388,7 +409,7 @@ export function renderJavaQueryProjections(
     // its underlying value type, because Spring cannot bind a wrapper record.
     const paramDecl = (p: (typeof proj.params)[number], local: string): string =>
       p.type.kind === "id"
-        ? `${javaValueTypeForId(p.type.valueType)} ${local}`
+        ? `${javaValueTypeForId()} ${local}`
         : `${renderJavaType(p.type)} ${local}`;
     // Each layer's params are locals of a method that spells names of its own
     // — the service read: the injected repository fields it dereferences and
@@ -400,7 +421,7 @@ export function renderJavaQueryProjections(
     // (`requestParam`), and the JPQL `@Param` binding is positional.
     const svcLocals = javaLocals(
       proj.params.map((p) => p.name),
-      queryProjectionReadNames(proj, ctx),
+      queryProjectionReadNames(proj, home),
     );
     const gateUsesUser = !!proj.query!.requires && exprUsesCurrentUser(proj.query!.requires);
     const routeLocals = javaLocals(
@@ -493,20 +514,21 @@ export function renderJavaQueryProjections(
         }
         return sql(col, []);
       };
-      const docTable = qpctx.documentTableOf(source);
+      const docTable = qpctx.documentTableOf(source, home);
       const keyCols = grouped.keys.map((k) => keyCol(k.expr));
       const groupCols = grouped.groupBy.map(keyCol);
       const aggCols = grouped.aggregates.map((a) =>
-        jpqlAggregate(a.aggregate, srcAgg, ctx, docTable !== undefined),
+        jpqlAggregate(a.aggregate, srcAgg, home, docTable !== undefined),
       );
       // The projection's own `where` AND the source aggregate's capability
       // filters — the read reads the table directly, so nothing else applies
       // them (see `aggregationScope`).
       const scope = aggregationScope(
         proj,
-        ctx,
+        home,
         `${qpctx.basePkg}.domain.enums`,
         docTable !== undefined,
+        qpctx.contexts,
       );
       const jpql =
         `select ${[...keyCols, ...aggCols].join(", ")} from ${docTable ?? source} e${scope.where}` +
@@ -571,16 +593,17 @@ export function renderJavaQueryProjections(
       usesEntityManager = true;
       // A `shape: document` source has no JPA entity to name, so the
       // SAME query runs NATIVE over its `(id, data, version)` table.
-      const docTable = qpctx.documentTableOf(source);
+      const docTable = qpctx.documentTableOf(source, home);
       const cols = aggregates
-        .map((a) => jpqlAggregate(a.aggregate, srcAgg, ctx, docTable !== undefined))
+        .map((a) => jpqlAggregate(a.aggregate, srcAgg, home, docTable !== undefined))
         .join(", ");
       // Same scoping as the grouped arm — see `aggregationScope`.
       const scope = aggregationScope(
         proj,
-        ctx,
+        home,
         `${qpctx.basePkg}.domain.enums`,
         docTable !== undefined,
+        qpctx.contexts,
       );
       const jpql = `select ${cols} from ${docTable ?? source} e${scope.where}`;
       // `getSingleResult()` returns an `Object[]` only for a MULTI-column
@@ -613,7 +636,7 @@ export function renderJavaQueryProjections(
       // `where` filter in-memory, and project the `select` off each state row
       // `x`.  The validator guarantees a NON-event-sourced observable workflow,
       // NO `join`, NO `ignoring` — so this is just findAll + filter + map.
-      const wf = ctx.workflows.find((w) => w.name === source);
+      const wf = home.workflows.find((w) => w.name === source);
       if (!wf) throw new Error(`java query-projection: workflow source '${source}' not found`);
       stateRepoWfs.add(wf);
       const repo = stateRepoField(wf);
@@ -649,7 +672,7 @@ export function renderJavaQueryProjections(
       // `select` off each source row `x`.  The validator guarantees the source is
       // a materialized projection, NO `join`, NO `ignoring` — findAll + filter +
       // map, exactly like the workflow-source arm but keyed on a projection row.
-      const src = ctx.projections.find((p) => p.name === source);
+      const src = home.projections.find((p) => p.name === source);
       if (!src) throw new Error(`java query-projection: projection source '${source}' not found`);
       sourceProjs.add(src);
       const repo = projectionRepoField(src);
@@ -714,7 +737,7 @@ export function renderJavaQueryProjections(
       // trailers) instead of the per-select map, which would emit `null` for
       // every field.
       const isShorthand = (proj.query!.selects?.length ?? 0) === 0;
-      const sourceAgg = ctx.aggregates.find((x) => x.name === source);
+      const sourceAgg = srcAgg;
       const args =
         isShorthand && sourceAgg
           ? aggregateWireArgs(sourceAgg, "a")

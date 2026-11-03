@@ -109,12 +109,14 @@ import {
 } from "../../../ir/util/reachable-types.js";
 import { type RoutedParamSource, routedParamSource } from "../../../ir/util/routed-handler.js";
 import { walkExprDeep, walkWorkflowStmtExprsDeep, workflowEmits } from "../../../ir/util/walk.js";
+import { bodyWriteScopeGuards, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
 import { escapeTsIdent, lowerFirst, plural, snake } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import {
   emitWireSchema,
   QUERY_BOOL,
+  txWrapperCall,
   wireToDomainExpr,
   zodFor,
   zodForResponse,
@@ -166,18 +168,11 @@ const externImplFilePath = (name: string): string =>
 const externImplModule = (name: string): string =>
   `../application/${handlerKebab(name)}-handler-impl`;
 
-/** Path-param zod for a wire-coerced route segment.  Ids resolve by their value
- *  type (guid → uuid string, int/long → coerced integer, string → plain);
- *  scalars mirror the same numeric/textual split.  Matches the `corrVt` switch
- *  in `emitInstanceRoutes` (non-guid-id-http-params.md). */
+/** Path-param zod for a wire-coerced route segment.  An id is a guid — a
+ *  uuid string, the same `UuidString` the workflow-instance `{id}` param uses;
+ *  scalars split numeric/textual. */
 function pathParamZod(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
-  if (t.kind === "id") {
-    return t.valueType === "guid"
-      ? "UuidString"
-      : t.valueType === "int" || t.valueType === "long"
-        ? "z.coerce.number().int()"
-        : "z.string()";
-  }
+  if (t.kind === "id") return "UuidString";
   if (t.kind === "primitive") {
     switch (t.name) {
       case "int":
@@ -413,7 +408,7 @@ function emitRouteHandler(
   // the `repo.toWire(...) as z.infer<typeof <Agg>Response>` body then agrees with
   // the schema under strict tsc (the scaffolded aggregate GET route's contract).
   const typedResponseName = hasReturn && ret && !ret.isCollection ? ret.respName : undefined;
-  const out: string[] = [];
+  let out: string[] = [];
   out.push(`app.openapi(`);
   out.push(`  createRoute({`);
   out.push(`    method: "${method}",`);
@@ -583,8 +578,20 @@ function emitRouteHandler(
     out.push(`);`);
     return out;
   }
+  // A body that re-checks a held row's write scope runs in one transaction
+  // (aggregate events buffered until it commits), so a row outside the scope
+  // fails the whole command and rolls back the rows it already changed.  The
+  // body renders into `out` at the plain indent and is re-indented into the
+  // transaction callback below.
+  const writeScope = writeScopeContext(h.statements, ctx);
+  const inTx = bodyWriteScopeGuards(h.statements, writeScope).length > 0;
+  const head = out;
+  out = [];
+  const [handle, dispatcher] = inTx ? ["tx", "__deferred"] : ["db", "events"];
   for (const r of repos) {
-    out.push(`    const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(db, events);`);
+    out.push(
+      `    const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(${handle}, ${dispatcher});`,
+    );
   }
   // A handler that returns a domain aggregate projects it to its wire shape via
   // the owning repo's `toWire(...)` (the same projection the read routes
@@ -596,7 +603,7 @@ function emitRouteHandler(
     retRepoVar = repoVarByAgg.get(ret.agg);
     if (!retRepoVar) {
       retRepoVar = lowerFirst(plural(ret.agg));
-      out.push(`    const ${retRepoVar} = new ${ret.agg}Repository(db, events);`);
+      out.push(`    const ${retRepoVar} = new ${ret.agg}Repository(${handle}, ${dispatcher});`);
     }
   }
   // Load → mutate → save body, rendered through the shared Hono workflow stmt
@@ -604,7 +611,7 @@ function emitRouteHandler(
   const readPortArgs = readPortResolver(ctx);
   const chunks = renderWorkflowStmtChunks(
     h.statements,
-    honoWorkflowStmtTarget(ctx, paramExprs, "this"),
+    honoWorkflowStmtTarget(ctx, paramExprs, "this", undefined, writeScope),
     "    ",
   );
   out.push(...chunks.flat());
@@ -646,9 +653,19 @@ function emitRouteHandler(
   } else {
     out.push(`    return httpCtx.body(null, 204);`);
   }
-  out.push(`  },`);
-  out.push(`);`);
-  return out;
+  if (inTx) {
+    head.push(`    const __deferred = deferredDispatcher(events);`);
+    head.push(`    const __response = await ${txWrapperCall(usingMikro)}`);
+    for (const l of out) head.push(l === "" ? l : `  ${l}`);
+    head.push(`    });`);
+    head.push(`    await __deferred.flush();`);
+    head.push(`    return __response;`);
+  } else {
+    head.push(...out);
+  }
+  head.push(`  },`);
+  head.push(`);`);
+  return head;
 }
 
 /** The body of a handler whose result declares an expected failure (`T or

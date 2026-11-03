@@ -4,11 +4,10 @@
 // Companion to the IR-level unit tests in `test/ir/wire-projection.test.ts`.
 
 import { describe, expect, it } from "vitest";
-import { generateHono, parseValid } from "../../_helpers/index.js";
+import { generateBackendFiles } from "../../_helpers/index.js";
 
 async function gen(src: string): Promise<Map<string, string>> {
-  const model = await parseValid(src);
-  return generateHono(model);
+  return generateBackendFiles(src, "node");
 }
 
 const FIXTURE = `

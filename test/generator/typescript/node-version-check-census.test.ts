@@ -16,9 +16,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { operationVersionCheck, readsIfMatch } from "../../../src/ir/enrich/version-check.js";
+import {
+  destroyVersionCheck,
+  operationVersionCheck,
+  readsIfMatch,
+} from "../../../src/ir/enrich/version-check.js";
 import { lowerFirst } from "../../../src/util/naming.js";
-import { camelId, opOperation } from "../../../src/util/openapi-ids.js";
+import { camelId, opDestroy, opOperation } from "../../../src/util/openapi-ids.js";
 import { buildLoomModel, enrichedContexts } from "../../_helpers/ir.js";
 import { corpusSourceFor, generateCorpusCase } from "../../fixtures/corpus/harness.js";
 import { CORPUS } from "../../fixtures/corpus/manifest.js";
@@ -98,6 +102,20 @@ describe("node checksVersion census — emitted routes and saves", () => {
         )?.[1];
         if (!routes) continue;
         const blocks = routeBlocks(routes);
+        // The canonical DELETE reads `If-Match` exactly where the fact says so,
+        // and refuses a stale tag with the ConcurrencyError a stale save raises.
+        const destroyBlock = blocks.get(camelId(opDestroy(agg.name)));
+        if (destroyBlock) {
+          const wantsDestroy = readsIfMatch(destroyVersionCheck(agg));
+          expect(
+            destroyBlock.includes('c.req.header("if-match")'),
+            `${agg.name}.destroy reads If-Match`,
+          ).toBe(wantsDestroy);
+          expect(
+            /expectedVersion !== \w+\.version\) throw new ConcurrencyError\(/.test(destroyBlock),
+            `${agg.name}.destroy refuses a stale tag`,
+          ).toBe(wantsDestroy);
+        }
         for (const op of agg.operations) {
           const block = blocks.get(camelId(opOperation(agg.name, op.name)));
           if (!block) continue;

@@ -6,19 +6,16 @@
 // Create<Agg>Request shape.
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/index.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 async function gen(src: string): Promise<Map<string, string>> {
-  const model = await parseValid(src);
-  return generateDotnet(model);
+  return generateBackendFiles(src, "dotnet");
 }
 
-// Legacy single-context mode — `generateDotnet(model)` walks
-// top-level contexts directly.  System+module wrapping uses
-// `generateSystems` which is exercised elsewhere; the access-modifier
-// filter is at the dto-mapping/cqrs-emit layer so either entry point
-// is sufficient to verify the filtering.
+// The bare context is hosted on one .NET deployable by
+// `generateBackendFiles`; the access-modifier filter is at the
+// dto-mapping/cqrs-emit layer, so that minimal system is sufficient to
+// verify the filtering.
 const FIXTURE = `
 context Accounts {
   aggregate Account {

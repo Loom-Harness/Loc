@@ -44,7 +44,6 @@ import type {
   FieldIR,
   FunctionBodyIR,
   FunctionIR,
-  IdValueType,
   InvariantIR,
   OperationIR,
   OperationKind,
@@ -92,7 +91,6 @@ export function lowerEntityPart(part: EntityPart, agg: Aggregate, outer: Env): E
   return {
     name: part.name,
     parentName: agg.name,
-    parentIdValueType: "guid" as IdValueType,
     fields: props.map((p) => lowerField(p, inner)),
     contains: lowerContainments(part.members),
     derived: part.members.filter(isDerivedProp).map((d) => lowerDerived(d, inner)),
