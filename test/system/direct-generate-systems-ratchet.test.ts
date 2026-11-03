@@ -67,7 +67,6 @@ const PINNED: readonly string[] = [
   "test/generator/_packs/order-explicit-equivalence.test.ts",
   "test/generator/_walker/page-emitter-equivalence.test.ts",
   "test/generator/angular/sourcemap.test.ts",
-  "test/generator/dotnet/line-directives.test.ts",
   "test/generator/dotnet/paged-emit.test.ts",
   "test/generator/dotnet/realtime-emission.test.ts",
   "test/generator/dotnet/vo-invariant-422.test.ts",

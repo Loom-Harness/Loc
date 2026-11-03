@@ -248,6 +248,26 @@ export async function generateSystemResult(
 }
 
 /**
+ * `generateSystemFiles` with `sourceTexts` filled in the way the CLI fills it —
+ * the fixture's own text, keyed by the path of the document it was parsed
+ * into — and that path returned alongside the files.
+ *
+ * A source-mapped emission (`#line` directives, inlined sources) names that
+ * path, and only the parse knows it, so a test asserting on the directives
+ * cannot build `sourceTexts` itself without parsing outside the gated path.
+ */
+export async function generateSystemFilesWithSourceText(
+  source: string,
+  options: Omit<GenerateSystemOptions, "sourceTexts"> = {},
+): Promise<{ files: Map<string, string>; docPath: string }> {
+  const model = await assertGeneratable(source);
+  const docPath = model.$document?.uri.path;
+  if (!docPath) throw new Error("parsed fixture has no backing document — cannot key sourceTexts");
+  const sourceTexts = new Map([[docPath, source]]);
+  return { files: generateSystems(model, { ...options, sourceTexts }).files, docPath };
+}
+
+/**
  * The MULTI-FILE twin of `generateSystemFiles`: load a `.ddd` entry file from
  * disk with the import-graph project loader — the same path `ddd generate
  * system` takes — assert the same three phases, and emit.
