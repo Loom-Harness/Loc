@@ -19,6 +19,7 @@ import {
   recordGeneration,
 } from "../../src/system/migration-chain.js";
 import { extractErrors, parseString } from "./parse.js";
+import { overridesBeside, registeredOverrides } from "./source-overrides.js";
 
 export { HONO_PINS };
 
@@ -178,7 +179,15 @@ export async function generateSystemFiles(
   source: string,
   options: GenerateSystemOptions = {},
 ): Promise<Map<string, string>> {
-  return generateSystems(await assertGeneratable(source), options).files;
+  return generateSystems(await assertGeneratable(source), withOverrides(source, options)).files;
+}
+
+/** `options` carrying the source-language text of the translator tree beside the
+ *  file `source` was read from (`test/_helpers/source-overrides.ts`); an explicit
+ *  `sourceOverrides` wins. */
+function withOverrides(source: string, options: GenerateSystemOptions): GenerateSystemOptions {
+  const sourceOverrides = registeredOverrides(source);
+  return sourceOverrides && !options.sourceOverrides ? { ...options, sourceOverrides } : options;
 }
 
 /**
@@ -209,7 +218,7 @@ export async function generateSystemFilesUnchecked(
         syntaxErrors.map((e) => `  ${e.message}`).join("\n"),
     );
   }
-  return generateSystems(model).files;
+  return generateSystems(model, withOverrides(source, {})).files;
 }
 
 /**
@@ -244,7 +253,7 @@ export async function generateSystemResult(
   source: string,
   options: GenerateSystemOptions = {},
 ): Promise<SystemEmission> {
-  return generateSystems(await assertGeneratable(source), options);
+  return generateSystems(await assertGeneratable(source), withOverrides(source, options));
 }
 
 /**
@@ -301,7 +310,11 @@ export async function generateSystemFilesFromProject(
     );
   }
   const { generateSystemsFromLoom } = await import("../../src/system/index.js");
-  return generateSystemsFromLoom(loom, options).files;
+  // The translator tree beside the entry file — what `ddd generate system` reads.
+  return generateSystemsFromLoom(loom, {
+    sourceOverrides: overridesBeside(absEntryFile),
+    ...options,
+  }).files;
 }
 
 /** Re-exported — full multi-deployable system emission orchestrator. */

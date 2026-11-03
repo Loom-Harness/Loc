@@ -1,0 +1,7 @@
+{
+  "Product.rule.labelNeedsAtLeast": "Label needs at least 3 characters",
+  "Product.rule.nameRequired": "Name is required",
+  "Product.rule.quantityCannotNegative": "Quantity cannot be negative",
+  "Product.rule.restockAmountAtLeast": "Restock amount must be at least 1",
+  "Sku.rule.skuCodeNeedsAt": "SKU code needs at least 3 characters"
+}

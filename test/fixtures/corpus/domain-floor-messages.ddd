@@ -35,11 +35,11 @@ system DomainFloorMessages {
         balance: int
         ceiling: int
 
-        invariant balance >= 0 message "Balance cannot be negative"
-        invariant balance <= ceiling message "Balance cannot exceed the ceiling"
+        invariant balanceCannotNegative: balance >= 0
+        invariant balanceCannotExceedCeiling: balance <= ceiling
 
         operation withdraw(amount: int) {
-          precondition balance >= amount message "Insufficient funds"
+          precondition insufficientFunds: balance >= amount
           balance := balance - amount
         }
 

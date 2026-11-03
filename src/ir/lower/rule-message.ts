@@ -6,9 +6,7 @@
 // (`src/util/model-text-key.ts`), so a reword never orphans a translation and
 // every backend, client validator and catalog agree on one code.  The English
 // default is the sentence form of the name ("Name required"); a translator's
-// `locales/en/<Ctx>.json` entry overrides it at emission (`sourceText`).  A rule
-// still carrying the removed `message "…"` clause keeps that text as its
-// default, exactly what the codemod writes to `locales/en/`.
+// `locales/en/<Ctx>.json` entry overrides it at emission (`sourceText`).
 //
 // An UNNAMED rule lowers to no `MessageIR` at all and answers a generic
 // message (`src/generator/_i18n/rule-text.ts`).
@@ -30,9 +28,5 @@ export function lowerRuleMessage(node: RuleNode): MessageIR | undefined {
     facet: "rule",
     member: name,
   });
-  const legacy = node.message;
-  return {
-    key: entry.key,
-    text: legacy !== undefined && legacy.trim() !== "" ? legacy : entry.defaultText,
-  };
+  return { key: entry.key, text: entry.defaultText };
 }

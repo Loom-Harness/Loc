@@ -38,8 +38,8 @@ system MergePatchUpdate {
         tags: string[]
         span: Span?
         invariant title.length <= 80
-        invariant pages >= 0 message "Pages cannot be negative"
-        invariant minPages <= pages message "A memo has at least its minimum pages"
+        invariant pagesCannotNegative: pages >= 0
+        invariant memoHasAtLeast: minPages <= pages
       }
       repository Memos for Memo { }
     }

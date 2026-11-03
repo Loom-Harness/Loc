@@ -9,13 +9,16 @@
 //   2. sharedSystemCases — the tokenized broad systems under systems/*.ddd
 //      (e.g. sales), run on every backend.
 //
-// A case is `{ name, source }`; `source` has `__PLATFORM__` already swapped.
+// A case is `{ name, source, locales }`; `source` has `__PLATFORM__` already
+// swapped and `locales` is the translator tree beside the `.ddd` (the rule texts
+// of a migrated model — see case-source.mjs), or undefined.
 
 import { build } from "esbuild";
 import { mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import pg from "pg";
+import { localesBeside } from "./case-source.mjs";
 // The pure registers live in a dependency-free module so the fast suite can
 // read them without test/behavioral/node_modules (see registers.mjs).
 import { ADAPTER_ONLY_CASES, BEHAVIOURAL_SKIP, BEHAVIOURAL_XFAIL, declaresE2e, hasBehaviouralBlock, mountsFileRoutes } from "./registers.mjs";
@@ -95,7 +98,11 @@ export async function featureCases(backendKey, platformClause, workDir, leg) {
     if (f.id in skip) continue; // known runtime gap on this backend — see the bug register
     const raw = readFileSync(join(CORPUS_DIR, `${f.id}.ddd`), "utf8");
     if (!hasBehaviouralBlock(raw)) continue;
-    cases.push({ name: f.id, source: raw.replaceAll("__PLATFORM__", platformClause) });
+    cases.push({
+      name: f.id,
+      source: raw.replaceAll("__PLATFORM__", platformClause),
+      locales: localesBeside(join(CORPUS_DIR, `${f.id}.ddd`)),
+    });
   }
   return cases;
 }
@@ -924,5 +931,6 @@ export function sharedSystemCases(platformClause) {
   return notSkipped(names, platformClause).map((name) => ({
     name,
     source: readFileSync(join(SYSTEMS_DIR, `${name}.ddd`), "utf8").replaceAll("__PLATFORM__", platformClause),
+    locales: localesBeside(join(SYSTEMS_DIR, `${name}.ddd`)),
   }));
 }

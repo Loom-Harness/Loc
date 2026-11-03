@@ -13,7 +13,7 @@ system Ledger {
         // folded, the invariants checked, and only then appended.  A deposit
         // past the cap is refused at the domain floor (422) and nothing reaches
         // the stream.
-        invariant balance <= 1000 message "Balance cap exceeded"
+        invariant balanceCapExceeded: balance <= 1000
         create open(owner: string) { emit Opened { account: id, owner: owner } }
         operation deposit(amount: int) {
           precondition amount > 0

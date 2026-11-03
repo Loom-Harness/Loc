@@ -52,7 +52,7 @@ system LifecycleGuard {
         // (M-T3.16 C2, the ladder's "INVALID body" surface in
         // test/behavioral/cases.mjs).  A native, message-less refusal would
         // carry each framework's own wording and could not be goldened.
-        invariant reference.length >= 3 message "A shipment reference needs at least 3 characters"
+        invariant shipmentReferenceNeedsAt: reference.length >= 3
 
         // Principal-only guard: no `this` exists yet.
         create(reference: string) {

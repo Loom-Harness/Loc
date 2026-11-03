@@ -5,6 +5,7 @@ import { URI } from "langium";
 import { NodeFileSystem } from "langium/node";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
+import { readWithOverrides } from "./source-overrides.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -12,8 +13,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(here, "..", "..");
 
 /** Read a repo-relative file (e.g. "examples/sales.ddd") as UTF-8 text. */
-export const loadExample = (relPath: string): string =>
-  readFileSync(path.join(repoRoot, relPath), "utf8");
+export const loadExample = (relPath: string): string => {
+  const file = path.join(repoRoot, relPath);
+  return readWithOverrides(file, readFileSync(file, "utf8"));
+};
 
 /**
  * File-backed parse of a repo-relative `.ddd` file, using the full document

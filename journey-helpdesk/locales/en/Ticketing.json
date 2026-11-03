@@ -1,0 +1,7 @@
+{
+  "Customer.rule.emailContain": "email must contain @",
+  "Ticket.rule.alreadyTagged": "already tagged",
+  "Ticket.rule.assignTicketBeforeResolving": "assign the ticket before resolving",
+  "Ticket.rule.commentBodyRequired": "comment body is required",
+  "Ticket.rule.subjectRequired": "subject is required"
+}

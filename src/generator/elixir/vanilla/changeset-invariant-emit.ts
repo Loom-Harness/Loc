@@ -316,7 +316,7 @@ export function renderPatchInvariantFn(
   const clauses: string[] = [];
   for (const inv of messaged) {
     const field = snake(pickErrorPath(inv) ?? fallbackField);
-    const msg = elixirString(inv.message!.text);
+    const msg = elixirString(ruleText(inv));
     const key = `${field}\u0000${msg}`;
     if (seen.has(key)) continue;
     seen.add(key);

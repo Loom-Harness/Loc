@@ -1,0 +1,8 @@
+{
+  "Part.rule.insufficientStock": "insufficient stock",
+  "WorkOrder.rule.allWorkOrderLines": "all work-order lines must share the order currency",
+  "WorkOrder.rule.completedWorkOrderCannot": "a completed work order cannot be cancelled",
+  "WorkOrder.rule.linesCanOnlyAdded": "lines can only be added to a draft",
+  "completeWorkOrder.rule.partNoLongerExists": "part no longer exists",
+  "scheduleWorkOrder.rule.technicianNotQualifiedFor": "technician is not qualified for this asset"
+}

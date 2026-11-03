@@ -164,7 +164,7 @@ system Clinica {
         derived display: string = `Appointment {startAt, date}`
 
         invariant durationMinutes > 0
-        invariant durationMinutes <= 480 message "An appointment may not exceed 8 hours"
+        invariant appointmentMayNotExceed: durationMinutes <= 480
 
         create() { }
 
@@ -175,7 +175,7 @@ system Clinica {
         }
 
         operation checkIn() when state == Confirmed {
-          precondition now() >= startAt - minutes(30) message "too early to check in"
+          precondition tooEarlyToCheck: now() >= startAt - minutes(30)
           state := CheckedIn
         }
 

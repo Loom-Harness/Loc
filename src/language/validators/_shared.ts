@@ -22,7 +22,7 @@ import { diagMessage } from "../../diagnostics/messages.js";
 import { aggregateServesHistory } from "../../util/audit-ast.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { SYSTEM_TEXT_NS } from "../../util/model-text-key.js";
-import { deriveRuleName } from "../../util/rule-name.js";
+import { dedupeRuleName, deriveRuleName } from "../../util/rule-name.js";
 import {
   type Aggregate,
   type DerivedProp,
@@ -382,27 +382,25 @@ export function pagePropDisplayName(typeName: string): string {
   }
 }
 
-/** `loom.blank-message` — reject an empty or whitespace-only `message "..."`
- *  clause on an `invariant` / property `check` / `precondition`.  A blank
- *  message renders an empty user-facing error string, which is useless and
- *  almost always a typo (`message ""`).  (It also feeds the per-error wire
- *  `code`, which is content-hashed from the message text per D-I18N-KEY, so a
- *  blank message degenerates that key too — but the empty display string is
- *  the real problem.)  `STRING` strips its delimiters, so `message ""` reaches
- *  here as `""`.  Shared by `types.ts` (invariant / property check) and
- *  `statements.ts` (precondition). */
-function checkBlankMessage(
-  node: AstNode,
-  message: string | undefined,
-  accept: import("langium").ValidationAcceptor,
-): void {
-  if (message !== undefined && message.trim() === "") {
-    accept("error", diagMessage("loom.blank-message"), {
-      node,
-      property: "message",
-      code: "loom.blank-message",
-    });
+/** The name `scripts/codemod-rule-names.mjs` gives the unnamed rule `node`
+ *  carrying `message "…"`: the derived name, deduplicated against every declared
+ *  name in the owner and the names it hands the owner's earlier messaged rules.
+ *  Only the diagnostic's hint reads it — a message never names a rule. */
+function suggestedRuleName(node: RuleNode, message: string): string {
+  const owner = ruleOwner(node);
+  if (!owner) return deriveRuleName(message);
+  const rules = rulesOf(owner);
+  const taken = new Set<string>();
+  for (const r of rules) {
+    const d = declaredRuleName(r);
+    if (d !== undefined) taken.add(d);
   }
+  for (const r of rules) {
+    if (declaredRuleName(r) !== undefined || !r.message || r.message.trim() === "") continue;
+    const name = dedupeRuleName(deriveRuleName(r.message), taken);
+    if (r === node) return name;
+  }
+  return deriveRuleName(message);
 }
 
 /** The rule-naming checks every `invariant` / field `check` / `precondition`
@@ -410,7 +408,7 @@ function checkBlankMessage(
  *
  *   - `loom.rule-message-removed` — the removed `message "…"` clause, with the
  *     name the codemod would give the rule and the `locales/en/<Ctx>.json` line
- *     its text moves to.  A WARNING until the corpus migration lands.
+ *     its text moves to.
  *   - `loom.rule-name-duplicate` — a declared name another rule of the same
  *     owner declared first (invariants, checks and preconditions share one
  *     namespace per owner: the name is the i18n key). */
@@ -418,20 +416,18 @@ export function checkRuleNaming(
   node: RuleNode,
   accept: import("langium").ValidationAcceptor,
 ): void {
-  checkBlankMessage(node, node.message, accept);
   const message = node.message;
-  if (message !== undefined && message.trim() !== "") {
+  if (message !== undefined) {
     const owner = ruleOwner(node);
     const ctx = ruleContext(node);
-    const name = ruleNameOf(node) ?? deriveRuleName(message);
-    const ownerName = owner?.name ?? "Owner";
+    const name = suggestedRuleName(node, message);
     accept(
-      "warning",
+      "error",
       diagMessage("loom.rule-message-removed", {
         rule: isProperty(node) ? "check" : isInvariant(node) ? "invariant" : "precondition",
         name,
         file: `locales/en/${ctx ?? SYSTEM_TEXT_NS}.json`,
-        key: `${ownerName}.rule.${name}`,
+        key: `${owner?.name ?? "Owner"}.rule.${name}`,
         text: message,
       }),
       { node, property: "message", code: "loom.rule-message-removed" },

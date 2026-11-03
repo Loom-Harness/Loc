@@ -91,7 +91,6 @@ describe("codeDocsUrl — every anchor resolves", () => {
       "https://loom-harness.github.io/Loc/language-reference/04-type-system.html#x-id--cross-aggregate-references",
     );
     expect(codeDocsUrl("loom.no-such-code")).toBeUndefined();
-    expect(codeDocsUrl("loom.blank-message")).toBeUndefined();
     // The docs-root escape drops the `../` rather than emitting it — a link
     // carrying `language-reference/../` would still resolve on GitHub but not
     // on the built site, whose chapters are flattened into their own pages.

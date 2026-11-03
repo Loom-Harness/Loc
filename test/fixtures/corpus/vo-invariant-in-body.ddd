@@ -20,7 +20,7 @@ system VoInBody {
     context Orders {
       valueobject Qty {
         value: int
-        invariant value > 0 message "Quantity must be positive"
+        invariant quantityPositive: value > 0
       }
       valueobject Label {
         text: string

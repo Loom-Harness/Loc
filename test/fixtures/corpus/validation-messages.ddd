@@ -18,19 +18,19 @@ system MessagedRules {
         code: string
         // Value-object invariants reach the wire through the `<Vo>Request`
         // validator, the third `available`-set shape the catalog collects over.
-        invariant code.length >= 3 message "SKU code needs at least 3 characters"
+        invariant skuCodeNeedsAt: code.length >= 3
         invariant code.length <= 32
       }
       aggregate Product {
         // Inline field `check` with a trailing message — its key is a content
         // hash of the text (D-I18N-KEY's inline-literal rule).
-        name: string check name.length > 0 message "Name is required"
+        name: string check nameRequired: name.length > 0
         sku: Sku
         quantity: int
         reorderLevel: int
 
         // A messaged aggregate invariant over a create-input field.
-        invariant quantity >= 0 message "Quantity cannot be negative"
+        invariant quantityCannotNegative: quantity >= 0
         // Message-LESS, and single-field-shaped: must stay on the native chain.
         invariant reorderLevel >= 1
 
@@ -43,7 +43,7 @@ system MessagedRules {
 
         operation restock(amount: int) {
           // A messaged precondition — the operation-request carrier.
-          precondition amount >= 1 message "Restock amount must be at least 1"
+          precondition restockAmountAtLeast: amount >= 1
           quantity := quantity + amount
         }
 
@@ -62,7 +62,7 @@ system MessagedRules {
         // paths: the messaged rule rides the refine/`Must`/predicate carrier,
         // the message-less one rides each backend's native validator chain.
         operation rename(label: string) {
-          precondition label.length >= 3 message "Label needs at least 3 characters"
+          precondition labelNeedsAtLeast: label.length >= 3
           precondition label.length <= 16
           name := label
         }
