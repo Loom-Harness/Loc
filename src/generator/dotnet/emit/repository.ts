@@ -230,15 +230,17 @@ export function renderRepositoryImpl(
   // A find returning aggregates hydrates their reference collections (`X id[]`
   // join rows) the way `GetByIdAsync` / `FindManyByIdsAsync` do.  Without it the
   // collection stayed null on every find — the paged `all` included — and the
-  // query handler's `d.Tags.Select(…)` threw (500).  Found by M-T6.94's corpus
-  // case.  Emitted only when a find needs it, so the helper is never unused.
+  // query handler's `d.Tags.Select(…)` threw (500).  A criterion runner
+  // (`Run<Retrieval>Async`) returns aggregates too, so it hydrates the same
+  // way.  Emitted only when a read needs it, so the helper is never unused.
   const findsHydrate =
     associations.length > 0 &&
-    finds.some(
-      (f) =>
-        !!pagedReturn(f.returnType) ||
-        hydrateFindResultLine(f.returnType, agg.name, "r").length > 0,
-    );
+    ((options?.retrievals ?? []).length > 0 ||
+      finds.some(
+        (f) =>
+          !!pagedReturn(f.returnType) ||
+          hydrateFindResultLine(f.returnType, agg.name, "r").length > 0,
+      ));
   const saveDiffSyncLines = buildSaveDiffSyncLines(associations);
   // Optimistic concurrency (`versioned`): on an UPDATE (the entity is tracked,
   // not freshly added), guard the write on the loaded version — overridden by
@@ -464,6 +466,9 @@ export function renderRepositoryImpl(
       `        var ${L("__q")} = _db.${readSet}.AsQueryable();`,
       ...bypassBody(L("__q"), own.bypass),
       `        var ${L("result")} = await ${L("__q")}${applySpec}.ApplyPaging(${own.page}).ToListAsync(${own.ct});`,
+      ...(associations.length > 0
+        ? [`        await HydrateReferenceCollectionsAsync(${L("result")}, ${own.ct});`]
+        : []),
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "find", valueExpr: `"Run${upperFirst(r.name)}"` },

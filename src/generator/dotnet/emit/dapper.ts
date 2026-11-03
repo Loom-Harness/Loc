@@ -2045,7 +2045,13 @@ export function renderDapperRepository(
               `        return ${L("__roots")};`,
             ]
           : [`        return await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), ${own.ct});`]
-        : [`        return ${L("rows")}.Select(Map).ToList();`]),
+        : hasAssoc
+          ? [
+              `        var ${L("__roots")} = ${L("rows")}.Select(Map).ToList();`,
+              `        await LoadRefsAsync(${L("conn")}, ${L("__roots")}, ${own.ct});`,
+              `        return ${L("__roots")};`,
+            ]
+          : [`        return ${L("rows")}.Select(Map).ToList();`]),
       `    }`,
     );
   });
