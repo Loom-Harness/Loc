@@ -1608,6 +1608,16 @@ export const DIAGNOSTIC_MESSAGES = {
     `An applier is a replayable fold of the event into state: a repository read, an aggregate create ` +
     `or a resource call gives a different result on every replay. ` +
     `Do the read or create in the command that decides the event and carry what it needs on the event.`,
+  "loom.loop-gate-not-implied": (p: {
+    where: unknown;
+    loopVar: unknown;
+    source: unknown;
+    op: unknown;
+    gate: unknown;
+  }) =>
+    `${p.where} calls '${p.op}' on every '${p.loopVar}' in '${p.source}', but the read's predicate does not ` +
+    `include the operation's gate '${p.gate}' — every row that fails it aborts the loop with 409 Disallowed. ` +
+    `Add the gate's conjuncts to the criterion or retrieval the read runs (\`… && ${p.gate}\`).`,
   "loom.applier-guard": (p: { owner: unknown; event: unknown; kind: unknown }) =>
     `${p.owner} apply(${p.event}) contains a '${p.kind}' statement. ` +
     `Guards belong in the command that decides the event; by the time it is applied the decision is already made.`,

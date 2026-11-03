@@ -310,6 +310,21 @@ app.openapi(
 
 The mutating route evaluates the same predicate post-load before the body runs; false there throws `DisallowedError` → 409. See [`../criterion.md`](../criterion.md) for `when`'s relationship to reusable criteria.
 
+### A loop over a read that the gate does not cover
+
+A sweep that loops over a list read and calls a `when`-gated operation on each row aborts with 409 on the first row the gate refuses. When the read's predicate does not carry every `&&` conjunct of the gate, Loom suggests adding them (`loom.loop-gate-not-implied`, on the advisory `Suggestions:` channel — the check is syntactic, so the data may still satisfy the gate):
+
+```ddd
+operation close() when status == Resolved { status := Closed }   // on Ticket
+criterion Stale() of Ticket = this.age > 30
+workflow Sweep { create(n: int) {
+  let ts = Tickets.all(Stale(), page: { offset: n, limit: 100 })
+  for t in ts { t.close() }        // suggestion: 'Stale' does not include 'status == Resolved'
+} }
+```
+
+`criterion StaleResolved() of Ticket = this.age > 30 && this.status == Resolved` carries the gate and is silent. Only a loop over a `let`-bound `Repo.all(<Criterion | Retrieval>)` is checked.
+
 ## `let` & `emit`
 
 `let name = Expr` binds a local; `emit Event { field: value, … }` records a domain event (`EmitField`s are `name: value` pairs; a missing or ill-typed field is reported at the construction site, and the event must be declared in the same context). Field names re-quote and re-case per backend; emit-field order is normalized to the event's declared field order on positional-constructor backends (Java/.NET).

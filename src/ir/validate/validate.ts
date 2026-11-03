@@ -27,6 +27,7 @@ import { validateElixirMatchStatements } from "./checks/elixir-match-stmt-checks
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
+import { validateLoopGateImplication } from "./checks/loop-gate-implication-checks.js";
 import { validateMemberResolution } from "./checks/member-resolution-checks.js";
 import {
   validateMigrationAdapterSupport,
@@ -315,6 +316,11 @@ export function validateLoomModel(
     // through `update`.  Points at `immutable` (and `managed` for the create
     // half), which leave the operation free to assign it.
     validateUpdateGateSuggestions(sys, diags);
+    // Advisory `loom.loop-gate-not-implied`: a loop over a list read calls a
+    // `when`-gated operation whose gate the read's predicate does not carry.
+    for (const mod of sys.subdomains) {
+      for (const ctx of mod.contexts) validateLoopGateImplication(ctx, diags);
+    }
     // Advisory `loom.crudish-hard-delete`: a `softDeletable` aggregate whose
     // `crudish`-synthesised `destroy` is a hard DELETE (documented; the remedy
     // is `crudish(updateOnly: true)` + `softDelete`).  Same advisory channel.
