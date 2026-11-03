@@ -1013,16 +1013,6 @@ const WAIVERS: Record<string, Waiver> = {
       "#4577: skips `variant-match` bodies, so filter-bypass diagnostics are not raised there",
     reviewUntil: IF_RUN_GAP_REVIEW,
   },
-  "src/system/ui-e2e-render.ts#walk": {
-    deferred:
-      "#4578: hand-recurses a fixed kind set, missing ui.<workflow> refs under lambda / list / match / nested statements",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
-  "src/system/ui-e2e-render.ts#walkExpr": {
-    deferred:
-      "#4578: hand-recurses a fixed kind set, missing ui.<aggregate> refs under lambda / list / match / nested statements",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
 };
 
 describe("IR walk census — no hand-rolled switch/if-chain over ExprIR/StmtIR/WorkflowStmtIR", () => {
