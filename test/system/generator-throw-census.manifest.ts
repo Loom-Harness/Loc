@@ -21,7 +21,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   // src/generator/_imports/dotnet.ts
   "src/generator/_imports/dotnet.ts#csUsing": {
     invariant:
-      "Every slot namespace is an emitter-side constant (`csUsing(\"System.Linq\")`, the persistence/channel header slots); no .ddd input reaches it. (src/generator/_imports/dotnet.ts:59)",
+      'Every slot namespace is an emitter-side constant (`csUsing("System.Linq")`, the persistence/channel header slots); no .ddd input reaches it. (src/generator/_imports/dotnet.ts:59)',
   },
   "src/generator/_imports/dotnet.ts#finalizeCsUnit": {
     invariant:
