@@ -57,10 +57,12 @@ const testRoot = path.join(repoRoot, "test");
  * wrapper — and is exempted below rather than pinned.
  */
 const PINNED_DOTNET: Readonly<Record<string, number>> = {
-  // Both also pinned by `direct-generate-systems-ratchet.test.ts`; moving
-  // either drops it from both tables in the same change.
+  // The one call that stays: its subject IS the legacy single-context mode
+  // (`ddd generate dotnet` keeps the inline CQRS path when no system is in
+  // scope), so it cannot move to the orchestrator without testing something
+  // else.  Also pinned by `direct-generate-systems-ratchet.test.ts` for its
+  // other two calls.
   "test/adapters/dotnet-orchestrator-rewire.test.ts": 1,
-  "test/generator/dotnet/paged-emit.test.ts": 1,
 };
 
 /**
