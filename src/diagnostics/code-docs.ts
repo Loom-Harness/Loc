@@ -317,6 +317,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.relay-target-not-subscribed":
     "14-apis-storage-resources-channels.md#transport-compatibility",
   "loom.component-missing-body": "15-ui-pages-structure.md#component--reusable-region-tree",
+  "loom.store-init-not-constant":
+    "15-ui-pages-structure.md#store--shared-client-state-with-a-lifetime",
   "loom.action-out-of-position": "15-ui-pages-structure.md#state--derived--action",
   "loom.effect-in-lambda": "15-ui-pages-structure.md#state--derived--action",
   "loom.angular-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",

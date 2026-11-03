@@ -530,6 +530,25 @@ const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
 };
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A store field's default is evaluated when the store is created, so on the
+  // JS-family store renderer it must be a constant: a call is refused.
+  "loom.store-init-not-constant": `
+system S {
+  subdomain Catalog { context Stock {
+    aggregate Item with crudish { sku: string }
+    repository Items for Item
+  } }
+  api StockApi from Catalog
+  storage pg { type: postgres }
+  resource st { for: Stock, kind: state, use: pg }
+  deployable api { platform: node contexts: [Stock] dataSources: [st] serves: StockApi port: 8080 }
+  ui WebApp {
+    api Catalog: StockApi
+    store Prefs { state { stamp: string = now().toString() } }
+    page Browse { route: "/browse" body: Stack { Text { "x" } } }
+  }
+  deployable web { platform: static targets: api ui: WebApp { Catalog: api } port: 3001 }
+}`,
   // Migration table steps (`Old -> New`, `A.Old -> B.New`), resolved on the
   // merged IR: a context the model lacks, a target it lacks, a name two
   // contexts declare, and a move between modules on different databases.

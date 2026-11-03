@@ -400,6 +400,7 @@ The store gates:
 | Code | Rejects |
 |---|---|
 | `loom.store-lifetime-invalid` | a `persist:` value outside `memory \| local \| session \| url` |
+| `loom.store-init-not-constant` | a store field default that is not a constant (React/Vue/Svelte/Angular): it may use literals, lists, operators, `? :`, enum values and `string(…)` — it is evaluated when the store is created |
 | `loom.store-url-field-invalid` | a non-scalar field in a `persist: url` store (only string/number/bool/enum/id round-trip through the query string) |
 | `loom.store-state-inline-write` | a page/component action writing store state directly (`Cart.count := …`) — mutate through a store action |
 | `loom.store-action-view-effect` | a view-scoped effect (`navigate`, …) inside a store action — a store has no router |
