@@ -633,10 +633,14 @@ ${auditRecordCall({
     // `change_<agg>(record, params)` for validate).  Delegates to the
     // per-aggregate Changeset module's `base_changeset/2`.  A DOCUMENT
     // aggregate has no `base_changeset` (it round-trips via
-    // `document_changeset`), so the facade is skipped there.
+    // `document_changeset`); its form fields live on the embedded `Data`
+    // struct, so the facade builds the `Data` changeset the form binds.
     const changesetMod = `${facadeMod}.${aggPascal}Changeset`;
     const changeFacade = isDoc
-      ? ""
+      ? `\n
+  @doc "Blank-or-seeded Ecto changeset over the ${aggPascal} document's embedded data, for the create/update forms."
+  def change_${aggSnake}(record_or_struct \\\\ %${facadeMod}.${aggPascal}{}, attrs \\\\ %{}),
+    do: ${facadeMod}.${aggPascal}.Data.changeset(record_or_struct.data || %${facadeMod}.${aggPascal}.Data{}, attrs)`
       : `\n
   @doc "Blank-or-seeded Ecto changeset for the ${aggPascal} create/operation forms."
   def change_${aggSnake}(record_or_struct \\\\ %${facadeMod}.${aggPascal}{}, attrs \\\\ %{}),

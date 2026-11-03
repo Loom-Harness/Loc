@@ -23,6 +23,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { repoOpVerb } from "../../../util/repository-contract.js";
 import {
   type BoundedContextIR,
   type ExprIR,
@@ -115,7 +116,7 @@ export function validateTimerTenantReads(sys: SystemIR, diags: LoomDiagnostic[])
                 reactor: body.label,
                 timer,
                 agg: agg.name,
-                read: `${s.repoName}.${s.kind === "repo-run" ? `all(${s.retrievalName})` : `${s.method}(…)`}`,
+                read: `${s.repoName}.${s.kind === "repo-run" ? `all(${s.retrievalName})` : `${repoOpVerb(s.op)}(…)`}`,
               }),
               source: `${ctx.name}/${wf.name}`,
             });

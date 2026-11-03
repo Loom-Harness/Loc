@@ -428,7 +428,12 @@ export function renderVuePage(input: VuePageShellInput): string {
       .map((a) => {
         let out = a;
         for (const n of stateNames) {
-          out = out.replace(new RegExp(`\\b${n}\\b(?!\\.value)`, "g"), `${n}.value`);
+          // A name in OBJECT-KEY position (`{ status: status }`, the find
+          // hook's query bag) stays the bare key; only its value reads `.value`.
+          out = out.replace(
+            new RegExp(`(?<![{,]\\s*)\\b${n}\\b(?!\\.value)|\\b${n}\\b(?!\\.value)(?!\\s*:)`, "g"),
+            `${n}.value`,
+          );
         }
         return out;
       })

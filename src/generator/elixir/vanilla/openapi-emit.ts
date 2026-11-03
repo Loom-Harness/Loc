@@ -39,7 +39,6 @@ import {
   type ApiOperationIR,
   apiStatusContext,
   deriveAggregateOperations,
-  isAllFind,
   relativeOpPath,
 } from "../../../ir/util/api-surface.js";
 import { AUDIT_ENTRY_TYPE, auditEntryWireShape } from "../../../ir/util/audit-history.js";
@@ -964,58 +963,6 @@ ${pagingQueryParams()}
       }`,
         );
       }
-    }
-    for (const entry of derivedOps.filter((o) => o.kind === "find" && !isAllFind(o))) {
-      const find = entry.find!;
-      // A paged explicit find (`find x(): T paged`) shares the `<Agg>Paged`
-      // envelope and gains the page/pageSize/sort/dir controls, mirroring the
-      // paged auto-findAll above (and the Hono/.NET/Java/Python emitters).
-      const findPaged = pagedReturn(find.returnType);
-      const isArrayReturn = find.returnType.kind === "array";
-      const findRespMod = findPaged
-        ? `${schemasModule}.${findPaged.name}`
-        : isArrayReturn
-          ? listRespMod
-          : respMod;
-      // Filter params cross as query parameters — Hono/.NET declare them,
-      // so Phoenix must too (name + type + required), or the parity gate's
-      // query-param dimension diffs `phoenix=[]`.  Required mirrors Hono's
-      // `zodFor`: a nullable param is optional, everything else required.
-      const queryParamLines = find.params.map(
-        (p) =>
-          `            %OpenApiSpex.Parameter{name: :${p.name}, in: :query, required: ${
-            wireTypeInfo(p.type, "request").isNullable ? "false" : "true"
-          }, schema: ${openApiType(p.type, schemasModule)}}`,
-      );
-      // Paged finds append the shared page/pageSize/sort/dir controls after
-      // the declared params.
-      if (findPaged) queryParamLines.push(pagingQueryParams());
-      const queryParams = queryParamLines.join(",\n");
-      const queryParamsBlock =
-        queryParamLines.length > 0 ? `\n          parameters: [\n${queryParams}\n          ],` : "";
-      pathEntries.push(
-        `      "${specPath(entry)}" => %OpenApiSpex.PathItem{
-        get: %OpenApiSpex.Operation{
-          summary: "${find.name} on ${agg.name}",
-          operationId: "${camelId(opFind(agg.name, find.name))}",
-          tags: ["${aggSlug}"],${queryParamsBlock}
-          responses: %{
-            200 => %OpenApiSpex.Response{
-              description: "OK",
-              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${findRespMod}}}
-            }${
-              // The declared set is the DERIVED one, so it carries the 403 a
-              // gated union find answers and the resolved union-absent
-              // status.
-              statusResponseEntries(
-                withResolvedNotFound(entry.errorStatuses, notFoundStatus),
-                schemasModule,
-              )
-            }
-          }
-        }
-      }`,
-      );
     }
   }
 

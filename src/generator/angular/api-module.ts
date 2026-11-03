@@ -30,12 +30,7 @@ import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import {
-  aggregateHasProvenanced,
-  clientFinds,
-  findHookPath,
-  historyHookName,
-} from "../_frontend/api-module.js";
+import { aggregateHasProvenanced, clientFinds, historyHookName } from "../_frontend/api-module.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { provenancedEntries } from "../_payload/provenanced-wire.js";
 
@@ -532,11 +527,13 @@ export function buildAngularApiModule(
   // envelope typing is a later slice; the read path only needs the row shape.)
   const finds = paramFinds(single, repo, findRoutes);
   const findReturnTs = (f: FindIR): string =>
-    f.returnType.kind === "array"
-      ? `${responseName}[]`
-      : f.returnType.kind === "optional"
-        ? `${responseName} | null`
-        : responseName;
+    pagedReturn(f.returnType)
+      ? pagedName
+      : f.returnType.kind === "array"
+        ? `${responseName}[]`
+        : f.returnType.kind === "optional"
+          ? `${responseName} | null`
+          : responseName;
   // The find query type — the shared walker (`adjustFindHookArgs`) renders a
   // find's args into a single `{ <param>: <value>, … }` object, so the Angular
   // factory takes one `<Find><Agg>Query` object (matching that call shape) and
@@ -545,11 +542,17 @@ export function buildAngularApiModule(
   const findQueryInterfaces = finds.flatMap((f) => [
     `export interface ${findQueryType(f)} {`,
     ...f.params.map((p) => `  ${p.name}: ${wireTsType(p.type)};`),
+    // A paged find's page controls ride the same query bag the walker builds
+    // (`adjustFindHookArgs`); they default server-side, so each is optional.
+    ...(pagedReturn(f.returnType)
+      ? ["  page?: number;", "  pageSize?: number;", "  sort?: string;", "  dir?: string;"]
+      : []),
     "}",
     "",
   ]);
   const findMethods = finds.flatMap((f) => {
-    const path = findHookPath(tag, f, servedFindRoute(single, f, findRoutes));
+    const path = servedFindRoute(single, f, findRoutes)?.path;
+    if (path === undefined) return [];
     return [
       "",
       `  ${f.name}(query: ${findQueryType(f)}) {`,
@@ -661,7 +664,7 @@ export function buildAngularApiModule(
     ...(historyFind ? emitAngularAuditEntryTypes() : []),
     ...findQueryInterfaces,
     // Paged-by-default findAll envelope + query input (M-T2.6).
-    ...(allPaged
+    ...(allPaged || finds.some((f) => pagedReturn(f.returnType))
       ? [
           `export interface ${pagedName} {`,
           `  items: ${responseName}[];`,
@@ -671,6 +674,10 @@ export function buildAngularApiModule(
           "  totalPages: number;",
           "}",
           "",
+        ]
+      : []),
+    ...(allPaged
+      ? [
           "export interface AllQuery {",
           "  page?: number;",
           "  pageSize?: number;",

@@ -470,7 +470,7 @@ ui W with scaffoldAggregate(of: Nope) { }
 
 ### `ignoring` placement
 
-`ignoring <Capability>` bypasses a capability read filter (the `softDeletable` case above). It rides `PostfixExpr`, which is admissible anywhere an expression is — so it parses cleanly in positions where nothing reads it back and the filter silently stays applied. `loom.ignoring-clause-placement` refuses those: the clause has exactly three homes — a repository `find … ignoring …`, a query-time projection's `where` slot (**before** `join` / `group by` / `select`), and an inline read bound by a `let`.
+`ignoring <Capability>` bypasses a capability read filter (the `softDeletable` case above). It rides `PostfixExpr`, which is admissible anywhere an expression is — so it parses cleanly in positions where nothing reads it back and the filter silently stays applied. `loom.ignoring-clause-placement` refuses those: the clause has exactly three homes — a query-time projection's `where` slot (**before** `join` / `group by` / `select`), and an inline read bound by a `let`.
 
 ```ddd
 projection Counts { status: string  n: int

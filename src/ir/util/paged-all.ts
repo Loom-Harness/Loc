@@ -13,13 +13,9 @@
 //
 // The third one did NOT ask.  Every `field-input-id-select` template on every
 // pack hard-coded `<hook>.data?.items ?? []`, which is right for the
-// paged-by-default auto-`findAll` (M-T2.6) and WRONG the moment the author
-// declares the read explicitly:
-//
-//     repository Docs for Doc { find all(): Doc[] }
-//
-// Declaring it keeps the wire contract the signature asks
-// for (a bare `Doc[]`), so `.items` is `undefined` there.  On a typed client
+// paged-by-default auto-`findAll` (M-T2.6) and WRONG for an aggregate that
+// has no paged `all` (a `shape: document` / embedded aggregate keeps the bare
+// `Doc[]` wire), so `.items` is `undefined` there.  On a typed client
 // that is `Property 'items' does not exist on type …` plus an implicit-`any`
 // on the map callback, and the generated frontend does not build.  Where
 // inference is weaker, `(x.data?.items ?? [])` quietly evaluates to `[]` and
@@ -28,7 +24,7 @@
 // So the paged-or-not question is answered in one place.
 //
 // Lives at the IR layer for the same reason `projection-read.ts` and
-// `repo-read.ts` do: the fact is an IR fact (a declared find's return type),
+// `repo-read.ts` do: the fact is an IR fact (the auto-`all` find's return type),
 // and `generator → ir` is with the pipeline while the reverse is not.
 // ---------------------------------------------------------------------------
 
