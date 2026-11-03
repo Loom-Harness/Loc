@@ -25,9 +25,7 @@ function filesUnder(dir: string): string[] {
   });
 }
 
-const PINNED: readonly string[] = [
-  "src/generator/feliz/fs-expr.ts feliz",
-];
+const PINNED: readonly string[] = ["src/generator/feliz/fs-expr.ts feliz"];
 
 describe("model-text fan-out census", () => {
   it("pins every English-default stand-in for model text", () => {
