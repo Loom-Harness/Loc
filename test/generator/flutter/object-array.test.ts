@@ -56,7 +56,7 @@ describe("flutter array-of-value-object inputs", () => {
     );
     // Each sub-field is a labelled cell over its positional slot.
     expect(src).toContain("controller: row[0] as TextEditingController");
-    expect(src).toContain("labelText: 'Sku'");
+    expect(src).toContain("labelText: t('C.LineItem.field.sku', 'Sku')");
     expect(src).toContain("controller: row[1] as TextEditingController");
     expect(src).toContain("keyboardType: TextInputType.number");
   });

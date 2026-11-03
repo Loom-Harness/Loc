@@ -72,16 +72,15 @@ function packSentencesForUi(sys: EnrichedSystemIR, ui: UiIR): string[] {
 }
 
 /** Whether a UI is rendered by a frontend that keys its implicit model-text
- *  sites (form labels, enum options, submit buttons) by identity — today the
- *  React (`tsx`) packs; see `WalkerTarget.modelTextImplicitSites`. */
+ *  sites (form labels, enum options, submit buttons) by identity — the React
+ *  (`tsx`) packs, Feliz and Flutter; see `WalkerTarget.modelTextImplicitSites`. */
 function rendersImplicitModelText(sys: EnrichedSystemIR, ui: UiIR): boolean {
   return sys.deployables.some(
     (dep) =>
-      dep.design !== undefined &&
       (dep.uiName === ui.name || (dep.hostedUiNames ?? []).includes(ui.name)) &&
-      dep.platform !== "feliz" &&
-      dep.platform !== "flutter" &&
-      packFormatForBuiltin(dep.design) === "tsx",
+      (dep.platform === "feliz" ||
+        dep.platform === "flutter" ||
+        (dep.design !== undefined && packFormatForBuiltin(dep.design) === "tsx")),
   );
 }
 

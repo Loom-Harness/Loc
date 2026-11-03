@@ -1086,6 +1086,17 @@ export interface WalkerTarget {
    *  packs read the tokens. */
   modelTextImplicitSites?: true;
 
+  /** The value → label lookup an `EnumBadge` wraps around its value, for a
+   *  target whose language is not JavaScript (the default spelling is a JS
+   *  arrow over a record).  `entries` pair each wire value with its translated
+   *  label EXPRESSION; `subject` is the rendered value expression.  Returns an
+   *  expression of the target language yielding the label (the raw value when
+   *  no entry matches). */
+  renderEnumLabelLookup?: (
+    entries: ReadonlyArray<{ value: string; label: string }>,
+    subject: string,
+  ) => string;
+
   /** Render the `style: { … }` named arg as a markup attribute
    *  fragment (leading space included; empty string for no entries).
    *  Each entry carries the source CSS key plus the rendered value

@@ -7,6 +7,7 @@
 // `Msg` (the effect body lives in `update`, not the view).  Expression syntax
 // leaves forward to the shared F# leaf table (`FS_LEAVES`).
 
+import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type { BoundedContextIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
@@ -16,10 +17,17 @@ import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
 import {
+  localizedModelText,
   localizedNamedValue,
   localizedPageChromeValue,
   localizedPositionalTranslation,
 } from "../_walker/i18n-emit.js";
+import {
+  type FormInputModelText,
+  formInputModelText,
+  opModelText,
+  paramLabelOwner,
+} from "../_walker/model-text-sites.js";
 import { opGateFor } from "../_walker/op-gate.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
@@ -137,6 +145,67 @@ function vosFromBc(bc: BoundedContextIR | undefined): Map<string, readonly Field
   return m;
 }
 
+/** The identity-keyed text of one form input, as F# expressions: its label and,
+ *  for an enum select, each option's label (by wire value).  Absent when the
+ *  implicit model-text sites are off or the input names no model fact. */
+interface FelizInputText {
+  readonly label: string;
+  readonly options?: ReadonlyMap<string, string>;
+}
+
+/** Where a form's inputs come from, for keying their text by model identity. */
+interface FormTextSource {
+  readonly inputs: readonly { name: string; type: TypeIR }[];
+  /** The model type a top-level input is declared on. */
+  readonly ownerOf: (name: string) => string | undefined;
+  readonly bc: BoundedContextIR | undefined;
+}
+
+function felizInputText(
+  ctx: WalkContext,
+  src: FormTextSource,
+  path: readonly string[],
+  leaf: string,
+  /** Label a flattened value-object leaf by its whole path (`Address Street`),
+   *  each segment its own identity key, so two sibling value objects'
+   *  same-named leaves stay tellable apart.  False: the leaf's label alone. */
+  joinPath = false,
+): FelizInputText | undefined {
+  if (!ctx.i18nPrefix) return undefined;
+  const textOf = (p: readonly string[], l: string): FormInputModelText | undefined =>
+    formInputModelText(src.inputs, p, l, src.ownerOf, src.bc, ctx.bcByAggregate.values());
+  const text = textOf(path, leaf);
+  if (!text) return undefined;
+  const segments =
+    joinPath && path.length > 0 ? path.map((k, i) => textOf(path.slice(0, i), k)) : [];
+  const label =
+    segments.length > 0 && segments.every((s) => s !== undefined)
+      ? `(String.concat " " [ ${[...segments, text]
+          .map((s) => localizedModelText(ctx, s!.key, s!.defaultText))
+          .join("; ")} ])`
+      : localizedModelText(ctx, text.key, text.defaultText);
+  return {
+    label,
+    ...(text.enumOptions
+      ? {
+          options: new Map(
+            text.enumOptions.map((o) => [o.value, localizedModelText(ctx, o.key, o.defaultText)]),
+          ),
+        }
+      : {}),
+  };
+}
+
+/** A flat field's text: a flattened value-object leaf resolves through its
+ *  `objectKey`, a top-level field directly. */
+function fieldInputText(
+  ctx: WalkContext,
+  src: FormTextSource,
+  fld: FelizFormField,
+): FelizInputText | undefined {
+  return felizInputText(ctx, src, fld.objectKey ? [fld.objectKey] : [], fld.jsonKey, true);
+}
+
 /** The `data-testid` a form field carries so the SHARED (testid-driven) page
  *  objects can fill it: `<base>-input-<jsonKey>` for a normal field, and
  *  `<base>-input-<objectKey>-<jsonKey>` for a FLATTENED value-object sub-field
@@ -166,13 +235,26 @@ function fieldTestid(base: string, fld: FelizFormField): string {
  *  an F# keyword.)  `base` is the form's testid namespace (`orders-new` /
  *  `orders-op-addLine` / `workflow-place_order`); the input carries
  *  `<base>-input-<field>` via `prop.custom` so the shared page objects drive it. */
-function renderFormInput(formField: string, fld: FelizFormField, base: string): string {
+function renderFormInput(
+  formField: string,
+  fld: FelizFormField,
+  base: string,
+  text?: FelizInputText,
+): string {
   const value = `model.${formField}.${fld.fsName}`;
   const tidP = `prop.custom("data-testid", "${fieldTestid(base, fld)}"); `;
+  // The identity-keyed label, above its input (only when the field names a
+  // model fact and the ui is translatable; otherwise the input stands alone).
+  const labelEl = text
+    ? `Html.label [ prop.className "label-text font-semibold"; prop.text ${text.label} ]`
+    : undefined;
   if (fld.inputKind === "checkbox") {
     // A bool checkbox is always a legitimate value (checked/unchecked) — no
     // required-ness, so no touched onBlur / inline error.
-    return `Html.input [ ${tidP}prop.className "checkbox"; prop.type'.checkbox; prop.isChecked (${value} = "true"); prop.onChange (fun (v: bool) -> dispatch (${fld.setMsg} (if v then "true" else "false"))) ]`;
+    const box = `Html.input [ ${tidP}prop.className "checkbox"; prop.type'.checkbox; prop.isChecked (${value} = "true"); prop.onChange (fun (v: bool) -> dispatch (${fld.setMsg} (if v then "true" else "false"))) ]`;
+    return labelEl
+      ? `Html.div [ prop.className "form-control"; prop.children [ ${labelEl}; ${box} ] ]`
+      : box;
   }
   // Message-bearing fields (required, non-checkbox) get a touched onBlur + an
   // inline error below the input — the Elmish mirror of react-hook-form's
@@ -192,17 +274,22 @@ function renderFormInput(formField: string, fld: FelizFormField, base: string): 
     ? `; prop.ariaInvalid ((model.${formTouchedField(formField)} |> Set.contains "${fld.wireName}") && (Validation.${fieldErrorFn(formField, fld.wireName)} model.${formField} |> Option.isSome)); prop.ariaDescribedBy "${errorId}"`
     : "";
   const wrap = (input: string): string => {
-    if (!validated) return input;
+    if (!validated) {
+      return labelEl
+        ? `Html.div [ prop.className "form-control"; prop.children [ ${labelEl}; ${input} ] ]`
+        : input;
+    }
     // The touched-gated message goes through the `View.fieldError` helper (the
     // codebase's convention for repeated view logic, beside `View.remoteList`)
     // rather than an inlined match at every input.  It carries the `errorId` the
     // input's `aria-describedby` references.
     const errEl = `(View.fieldError model.${formTouchedField(formField)} "${fld.wireName}" "${errorId}" (Validation.${fieldErrorFn(formField, fld.wireName)} model.${formField}))`;
-    return `Html.div [ prop.className "form-control"; prop.children [ ${input}; ${errEl} ] ]`;
+    const parts = labelEl ? [labelEl, input, errEl] : [input, errEl];
+    return `Html.div [ prop.className "form-control"; prop.children [ ${parts.join("; ")} ] ]`;
   };
   if (fld.inputKind === "select") {
     const opts = (fld.enumValues ?? []).map(
-      (v) => `Html.option [ prop.value "${v}"; prop.text "${v}" ]`,
+      (v) => `Html.option [ prop.value "${v}"; prop.text ${text?.options?.get(v) ?? `"${v}"`} ]`,
     );
     // An optional enum can be "unset" → a leading blank option (encodes to null).
     const allOpts = fld.required ? opts : ['Html.option [ prop.value ""; prop.text "" ]', ...opts];
@@ -257,8 +344,9 @@ function withServerErrors(
   fields: readonly FelizFormField[],
   base: string,
   hasRecord: boolean,
+  textOf: (fld: FelizFormField) => FelizInputText | undefined = () => undefined,
 ): { inputs: string[]; formError: string[] } {
-  const inputs = fields.map((fld) => renderFormInput(formField, fld, base));
+  const inputs = fields.map((fld) => renderFormInput(formField, fld, base, textOf(fld)));
   if (!hasRecord) return { inputs, formError: [] };
   const errs = `model.${formServerField(formField)}`;
   return {
@@ -276,7 +364,7 @@ function withServerErrors(
  *  Bound to `row.<wireName>` (the `List.mapi` lambda binds `row` + the index `i`)
  *  and dispatching the INDEXED setter `<setMsg> (i, v)`.  One line (offside-safe
  *  inside the row's Feliz children list). */
-function renderRowInput(fld: FelizRowField): string {
+function renderRowInput(fld: FelizRowField, text?: FelizInputText): string {
   const value = `row.${fld.fsName}`;
   const set = (v: string): string => `dispatch (${fld.setMsg} (i, ${v}))`;
   if (fld.inputKind === "checkbox") {
@@ -284,7 +372,7 @@ function renderRowInput(fld: FelizRowField): string {
   }
   if (fld.inputKind === "select") {
     const opts = (fld.enumValues ?? []).map(
-      (v) => `Html.option [ prop.value "${v}"; prop.text "${v}" ]`,
+      (v) => `Html.option [ prop.value "${v}"; prop.text ${text?.options?.get(v) ?? `"${v}"`} ]`,
     );
     const allOpts = fld.required ? opts : ['Html.option [ prop.value ""; prop.text "" ]', ...opts];
     return `Html.select [ prop.className "select select-bordered"; prop.value ${value}; prop.onChange (fun (v: string) -> ${set("v")}); prop.children [ ${allOpts.join("; ")} ] ]`;
@@ -295,7 +383,7 @@ function renderRowInput(fld: FelizRowField): string {
       : fld.inputKind === "date"
         ? "prop.type'.date; "
         : "";
-  return `Html.input [ prop.className "input input-bordered"; ${typeProp}prop.placeholder "${fld.wireName}"; prop.value ${value}; prop.onChange (fun (v: string) -> ${set("v")}) ]`;
+  return `Html.input [ prop.className "input input-bordered"; ${typeProp}prop.placeholder ${text?.label ?? `"${fld.wireName}"`}; prop.value ${value}; prop.onChange (fun (v: string) -> ${set("v")}) ]`;
 }
 
 /** A dynamic-row form field (`items: LineItem[]`) → a repeatable sub-form: a
@@ -303,12 +391,20 @@ function renderRowInput(fld: FelizRowField): string {
  *  row a line of sub-field inputs + a Remove button, followed by an Add button.
  *  One line (offside-safe): `[ label; yield! (rows); addBtn ]` — F# allows an
  *  implicit yield alongside the `yield!` splice. */
-function renderFieldArray(formField: string, fa: FelizFieldArray): string {
-  const rowInputs = fa.rowFields.map(renderRowInput);
+function renderFieldArray(
+  formField: string,
+  fa: FelizFieldArray,
+  ctx: WalkContext,
+  src: FormTextSource,
+): string {
+  const rowInputs = fa.rowFields.map((rf) =>
+    renderRowInput(rf, felizInputText(ctx, src, [fa.jsonKey], rf.jsonKey)),
+  );
   const remove = `Html.button [ prop.className "btn btn-sm btn-error"; prop.onClick (fun _ -> dispatch (${fa.removeMsg} i)); prop.text "Remove" ]`;
   const row = `Html.div [ prop.className "flex gap-2 items-end"; prop.children [ ${[...rowInputs, remove].join("; ")} ] ]`;
   const rows = `model.${formField}.${fa.fieldName} |> List.mapi (fun i row -> ${row})`;
-  const label = `Html.label [ prop.className "font-semibold"; prop.text "${fa.label}" ]`;
+  const labelText = felizInputText(ctx, src, [], fa.jsonKey);
+  const label = `Html.label [ prop.className "font-semibold"; prop.text ${labelText?.label ?? `"${fa.label}"`} ]`;
   const add = `Html.button [ prop.className "btn btn-sm"; prop.onClick (fun _ -> dispatch ${fa.addMsg}); prop.text "Add ${fa.elementLabel}" ]`;
   return `Html.div [ prop.className "flex flex-col gap-2"; prop.children [ ${label}; yield! (${rows}); ${add} ] ]`;
 }
@@ -741,13 +837,21 @@ export const felizTarget: WalkerTarget = {
     // `testid:` arg (`orders-new`) when present, else the same `<plural>-new`
     // default the page-object builder computes from the aggregate.
     const base = stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-new`;
-    const { inputs, formError } = withServerErrors(form.formField, form.fields, base, true);
-    const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa));
+    const src: FormTextSource = {
+      inputs: createInputFields(agg),
+      ownerOf: () => agg.name,
+      bc: ctx.bcByAggregate.get(aggName),
+    };
+    const { inputs, formError } = withServerErrors(form.formField, form.fields, base, true, (f) =>
+      fieldInputText(ctx, src, f),
+    );
+    const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa, ctx, src));
+    const createLabel = src.bc ? opModelText(ctx, src.bc, agg.name, "create") : undefined;
     const disabled =
       form.fields.length > 0
         ? `prop.disabled (not (Validation.${form.validFn} model.${form.formField})); `
         : "";
-    const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text "Create ${upperFirst(form.aggregate)}" ]`;
+    const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text ${createLabel?.expr ?? `"Create ${upperFirst(form.aggregate)}"`} ]`;
     return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...formError, submit].join("; ")} ] ]`;
   },
 
@@ -799,13 +903,20 @@ export const felizTarget: WalkerTarget = {
     // container is `<base>-form`, the submit `<base>-submit` — the exact ids the
     // op page-object method waits for / clicks.
     const base = stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-op-${op.name}`;
+    const src: FormTextSource = {
+      inputs: op.params,
+      ownerOf: (name) => paramLabelOwner(agg, name),
+      bc: ctx.bcByAggregate.get(aggName),
+    };
     const { inputs, formError } = withServerErrors(
       form.formField,
       form.fields,
       base,
       opHasForm(form),
+      (f) => fieldInputText(ctx, src, f),
     );
-    const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa));
+    const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa, ctx, src));
+    const opLabel = src.bc ? opModelText(ctx, src.bc, agg.name, op.name) : undefined;
     // The submit guard reads `Validation.<validFn>`, only emitted when the form
     // has flat fields; an array-only form has no required-field guard.
     const disabled =
@@ -820,7 +931,7 @@ export const felizTarget: WalkerTarget = {
         ? `prop.disabled (${gate.disabledExpr} || not (Validation.${form.validFn} model.${form.formField})); prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); `
         : `prop.disabled ${gate.disabledExpr}; prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); `
       : disabled;
-    const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${gated}prop.onClick (fun _ -> dispatch (${form.submitMsg} id)); prop.text "${upperFirst(form.op)} ${upperFirst(form.aggregate)}" ]`;
+    const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${gated}prop.onClick (fun _ -> dispatch (${form.submitMsg} id)); prop.text ${opLabel?.expr ?? `"${upperFirst(form.op)} ${upperFirst(form.aggregate)}"`} ]`;
     return `Html.div [ prop.custom("data-testid", "${base}-form"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...formError, submit].join("; ")} ] ]`;
   },
 
@@ -850,13 +961,19 @@ export const felizTarget: WalkerTarget = {
     // Testid namespace: the scaffold's `testid:` arg (`workflow-place_order`) or
     // the `workflow-<snake(wf)>` default the workflow page-object builder computes.
     const base = stringNamed(call, "testid") ?? `workflow-${snake(wf.name)}`;
+    const src: FormTextSource = {
+      inputs: wf.params,
+      ownerOf: () => wf.name,
+      bc: ctx.bcByWorkflow.get(wfName),
+    };
     const { inputs, formError } = withServerErrors(
       form.formField,
       form.fields,
       base,
       wfHasForm(form),
+      (f) => fieldInputText(ctx, src, f),
     );
-    const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa));
+    const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa, ctx, src));
     const disabled =
       form.fields.length > 0
         ? `prop.disabled (not (Validation.${form.validFn} model.${form.formField})); `
@@ -904,12 +1021,17 @@ export const felizTarget: WalkerTarget = {
       triggerCall?.kind === "call"
         ? triggerCall.args.find((_, i) => !(triggerCall.argNames ?? [])[i])
         : undefined;
+    // A non-literal trigger (`Button { someState }`) is a computed label: it
+    // renders as its value, never the placeholder word `modalTriggerLabel`
+    // falls back to.
     const labelT =
       triggerText?.kind === "modelText" && ctx.i18nPrefix
         ? emitExpr(triggerText, ctx)
-        : triggerCall?.kind === "call"
-          ? localizedPositionalTranslation(triggerCall, ctx, "button")
-          : undefined;
+        : triggerText && triggerText.kind !== "literal" && triggerText.kind !== "modelText"
+          ? `string (${emitExpr(triggerText, ctx)})`
+          : triggerCall?.kind === "call"
+            ? localizedPositionalTranslation(triggerCall, ctx, "button")
+            : undefined;
     const label = modalTriggerLabel(call).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     const summaryText = labelT ? `prop.text (${labelT})` : `prop.text "${label}"`;
     // The op page-object method CLICKS the trigger (`<slug>-op-<op>`) before it
@@ -1098,6 +1220,15 @@ export const felizTarget: WalkerTarget = {
           .join("; ")} ])`
       : `(I18n.t ${fsString(key)} ${fsString(message)})`,
   renderStyleAttr: () => "",
+  // Implicit model-text sites (form labels, enum options, submit buttons, the
+  // `EnumBadge` value) are keyed by identity through `renderTranslate`.
+  modelTextImplicitSites: true,
+  // An `EnumBadge`'s value → label lookup: a `match` over the wire value, the
+  // raw value when no case applies.  `string` is identity on a string.
+  renderEnumLabelLookup: (entries, subject) =>
+    `(match string (${subject}) with ${entries
+      .map((e) => `| ${fsString(e.value)} -> ${e.label}`)
+      .join(" ")} | __v -> __v)`,
   // Raw text for markup TEXT position — F# string-body escaping (the pack
   // wraps it in `Html.text "…"` or `prop.text "…"`).
   escapeText: (text: string) => text.replace(/\\/g, "\\\\").replace(/"/g, '\\"'),

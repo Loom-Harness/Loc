@@ -29,7 +29,6 @@ const PINNED: readonly string[] = [
   "src/generator/elixir/heex-primitives.ts heex",
   "src/generator/elixir/heex-walker-core.ts heex",
   "src/generator/elixir/heex-walker-core.ts heex",
-  "src/generator/feliz/fs-expr.ts feliz",
 ];
 
 describe("model-text fan-out census", () => {
