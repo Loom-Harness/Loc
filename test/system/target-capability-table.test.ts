@@ -333,6 +333,8 @@ system W {
   storage pg { type: postgres }
   resource st { for: Main, kind: state, use: pg }
   deployable d { platform: ${platform}, contexts: [Main], dataSources: [st], serves: MainApi, port: 3000, auth: required }
+}
+`,
   // An event-sourced aggregate whose stream carries its tenant.
   "capability:tenantOwned@event-sourced": (platform) => `
 system W {
