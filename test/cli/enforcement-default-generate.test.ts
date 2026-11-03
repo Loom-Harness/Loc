@@ -93,6 +93,8 @@ describe("the enforcement default on the node leg (`ddd generate system`)", () =
       'if (!(currentUser.role === "agent")) throw new ForbiddenError(',
     );
     // …and the generated handler maps that error to a 403 problem response.
-    expect(routes(r.dir)).toContain('return problem(403, "Forbidden", err.detail);');
+    expect(routes(r.dir)).toContain(
+      'return problem(403, "Forbidden", err.detail, "problem.forbidden");',
+    );
   });
 });

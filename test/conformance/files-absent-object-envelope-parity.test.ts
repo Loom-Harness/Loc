@@ -234,7 +234,7 @@ describe("M-T6.39 — an absent /files object answers the service's one 404 enve
       // signature, which is present whether or not the arm resolves.
       resolved: [
         'baseLogger.warn({ event: "not_found", status: 410 });',
-        'return problem(410, "Gone", err.message);',
+        'return problem(410, "Gone", err.message, "problem.not-found");',
       ],
       routeFile: "http/index.ts",
     },

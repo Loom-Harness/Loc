@@ -108,6 +108,91 @@
     },
     {
       "seq": 7,
+      "method": "POST",
+      "path": "/api/categories/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/categories/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "Hand tools",
+        "version": 2
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/categories",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "Hand tools",
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/products/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/products",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "category": "<uuid>",
+            "id": "<volatile:key>",
+            "name": "Saw",
+            "price": "8.9900",
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 12,
+      "method": "DELETE",
+      "path": "/api/products/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/products",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 14,
       "method": "PATCH",
       "path": "/api/categories",
       "status": 405,
@@ -121,7 +206,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 15,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -135,7 +220,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 16,
       "method": "POST",
       "path": "/api/categories",
       "status": 400,
@@ -145,6 +230,20 @@
         "instance": "/api/categories",
         "status": 400,
         "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/categories/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Category {id} not found",
+        "instance": "/api/categories/{id}/update",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

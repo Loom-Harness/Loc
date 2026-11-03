@@ -296,8 +296,10 @@ system LadderCensus {
       ).toContain(rung);
     }
     // And the floor answers each with the same status its per-router siblings do.
-    expect(root).toContain('return problem(404, "Not Found", err.message);');
-    expect(root).toContain('return problem(409, "Disallowed", err.message);');
-    expect(root).toContain('return problem(409, "Conflict", err.message);');
+    expect(root).toContain('return problem(404, "Not Found", err.message, "problem.not-found");');
+    expect(root).toContain('return problem(409, "Disallowed", err.message, "problem.state-gate");');
+    expect(root).toContain(
+      'return problem(409, "Conflict", err.message, "problem.version-conflict");',
+    );
   });
 });

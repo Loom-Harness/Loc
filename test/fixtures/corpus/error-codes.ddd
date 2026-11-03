@@ -46,5 +46,13 @@ system ErrorCodes {
     expect(api.products.getById(saw).name).toBe("Saw")
     // field.malformed-id — a reference that is not a uuid.
     expect(api.products.create({ name: "Nail", price: money("0.10"), category: "not-a-uuid" })).toThrow(422)
+    // The rest of the route surface, so every derived operation has a caller.
+    api.categories.update(tools, { name: "Hand tools" })
+    expect(api.categories.getById(tools).name).toBe("Hand tools")
+    expect(api.categories.all().total).toBe(1)
+    api.products.update(saw, { name: "Saw", price: money("8.99"), category: tools.id })
+    expect(api.products.all().total).toBe(1)
+    api.products.destroy(saw)
+    expect(api.products.all().total).toBe(0)
   }
 }
