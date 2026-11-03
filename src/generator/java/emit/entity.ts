@@ -28,7 +28,6 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { factoryLocal, snake } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { javaOnDemandRef, javaRef } from "../../_imports/java.js";
@@ -1308,6 +1307,8 @@ export function renderJavaAbstractBaseEntity(
   options: {
     tph?: boolean;
     persistence?: {
+      /** The hierarchy's shared table (`aggregateTableName`). */
+      tableName: string;
       schema?: string;
       voLookup: ReadonlyMap<string, readonly FieldIR[]>;
       mangledEnums?: ReadonlySet<string>;
@@ -1417,7 +1418,7 @@ export function renderJavaAbstractBaseEntity(
     ...(persistence && options.tph
       ? [
           `@${JPA("Entity")}`,
-          `@${JPA("Table")}(name = "${hbIdent(tableNameFor(base.name))}"${persistence.schema ? `, schema = "${persistence.schema}"` : ""})`,
+          `@${JPA("Table")}(name = "${hbIdent(persistence.tableName)}"${persistence.schema ? `, schema = "${persistence.schema}"` : ""})`,
           `@${JPA("Inheritance")}(strategy = ${JPA("InheritanceType")}.SINGLE_TABLE)`,
           `@${JPA("DiscriminatorColumn")}(name = "kind")`,
           ...hostedRestrictions,

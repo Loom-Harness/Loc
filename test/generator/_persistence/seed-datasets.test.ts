@@ -10,11 +10,12 @@ import type { EnrichedBoundedContextIR, SeedIR } from "../../../src/ir/types/loo
 // (Hono/Drizzle, .NET/EF, FastAPI/SQLAlchemy).  It was byte-for-byte
 // triplicated before extraction and has no direct test — M-T9.17 slice 1.
 //
-// `groupByDataset`/`usedAggregates` read only `ctx.seeds`, so a partial
+// `groupByDataset`/`usedAggregates` read only `ctx.seeds` and `ctx.aggregates`
+// (each row's table), so a partial
 // context cast suffices.
 
 function ctxWith(seeds: SeedIR[]): EnrichedBoundedContextIR {
-  return { seeds } as unknown as EnrichedBoundedContextIR;
+  return { seeds, aggregates: [] } as unknown as EnrichedBoundedContextIR;
 }
 
 const row = (aggregate: string): SeedIR["rows"][number] => ({ aggregate, fields: [] });
