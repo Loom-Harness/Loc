@@ -979,11 +979,6 @@ const WAIVERS: Record<string, Waiver> = {
       "#4580: hand-recurses a fixed kind set, missing money under list / convert / variant-match arms / lambda blocks",
     reviewUntil: IF_RUN_GAP_REVIEW,
   },
-  "src/generator/_frontend/store-field-init.ts#renderStoreInitLiteral": {
-    deferred:
-      "#4579: an unlisted init kind (ternary / convert / duration) silently becomes the type's zero",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
   "src/generator/_walker/walker-core.ts#isWalkableLayoutBody": {
     deferred:
       "#4574: misses `paren` and variant-form `match` arms, so react/svelte drop the page silently",

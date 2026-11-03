@@ -2750,6 +2750,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `field '${p.name}' (${p.k}) cannot be URL-synced — ` +
     `\`persist: url\` fields must be scalar (string/number/bool/enum/id). ` +
     `Use \`persist: local\` for structural state.`,
+  "loom.store-init-not-constant": (p: { name: unknown; kind: unknown }) =>
+    `field '${p.name}': its initializer is not a constant (a \`${p.kind}\` expression).  ` +
+    `A store field is initialised once, when the store is created, so its default ` +
+    `may use only literals, lists, operators, \`? :\`, enum values and \`string(…)\` — ` +
+    `set anything else from a store action instead.`,
   "loom.store-action-view-effect": (p: { where: unknown; name: unknown; sName: unknown }) =>
     `action '${p.name}': \`${p.sName}(…)\` is a view-scoped effect — ` +
     `a store has no router/socket to ${p.sName} on.  Move it to the calling page's ` +
