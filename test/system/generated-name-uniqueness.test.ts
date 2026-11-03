@@ -64,7 +64,16 @@ function cases(): Case[] {
 /** Known collisions, each a reviewed claim with the issue that will close it.
  *  Keyed `<case label> | <scope> | <key>`. A stale entry fails the ratchet
  *  below, so a fix deletes its waiver in the same PR. */
-const KNOWN: Record<string, string> = {};
+const KNOWN: Record<string, string> = {
+  "test/fixtures/corpus/scaffold-handlers-or-e.ddd [node] | d operationIds | settleOrder":
+    "#4658: a scaffolded handler routed beside the operation route it wraps shares that route's operationId",
+  "test/fixtures/corpus/scaffold-handlers-or-e.ddd [node] | d operationIds | closeOrder":
+    "#4658: a scaffolded handler routed beside the operation route it wraps shares that route's operationId",
+  "test/fixtures/corpus/scaffold-handlers-or-e.ddd [python] | d operationIds | settleOrder":
+    "#4658: a scaffolded handler routed beside the operation route it wraps shares that route's operationId",
+  "test/fixtures/corpus/scaffold-handlers-or-e.ddd [python] | d operationIds | closeOrder":
+    "#4658: a scaffolded handler routed beside the operation route it wraps shares that route's operationId",
+};
 
 interface Sweep {
   readonly generated: number;

@@ -2,6 +2,7 @@ import { wireStatus } from "../../../ir/enrich/wire-policy.js";
 import type { BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
 import { contextStaticSubpathRoutes } from "../../../ir/util/api-surface.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
+import { answersEntryResults } from "../../../ir/util/entry-result.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
@@ -636,7 +637,9 @@ ${
   // Emitted when the deployable hosts a workflow or projection (the port users)
   // — the exact gate PersistencePorts.cs is emitted under (index.ts).
   const usesPersistencePorts =
-    (ctx.workflows?.length ?? 0) > 0 || (ctx.projections?.length ?? 0) > 0;
+    (ctx.workflows?.length ?? 0) > 0 ||
+    (ctx.projections?.length ?? 0) > 0 ||
+    answersEntryResults(ctx);
   // The Dapper path binds CLOSED port implementations (one per workflow /
   // projection / event-log context — no open-generic AppDbContext adapter),
   // computed in index.ts (it has the pre-merge context names the closed event

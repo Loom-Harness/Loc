@@ -205,6 +205,13 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "elixir refuses the let-bound mutating call every entry point here matches (`loom.elixir-bound-mutating-call-unsupported`).",
   },
   {
+    id: "scaffold-handlers-or-e",
+    title: "`scaffoldHandlers` over an operation answering `T or E`: the handler returns the result",
+    doc: "scaffold-macros",
+    backends: ["node", "dotnet", "java", "python"],
+    note: "elixir refuses an expected-failure entry point (`loom.elixir-entry-result-unsupported`).",
+  },
+  {
     id: "op-return-this",
     title: "an operation answering its own aggregate (`return this`, and an `Agg or Error` arm)",
     doc: "payloads",
