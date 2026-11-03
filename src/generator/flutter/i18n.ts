@@ -39,7 +39,13 @@
 
 import { type BoundedContextIR, DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
-import { buildUiCatalog } from "../_frontend/i18n-runtime.js";
+import {
+  buildUiCatalog,
+  renderTranslatedCatalogs,
+  type TranslationCatalogs,
+} from "../_frontend/i18n-runtime.js";
+import { baseAliases, localeEntries } from "../_frontend/locale-meta.js";
+import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
 
 /** A Dart single-quoted string literal.  Escapes the backslash, the quote and
  *  `$` (Dart interpolates `$name` / `${…}` inside a plain string), plus real
@@ -56,70 +62,217 @@ export function dartStringLit(value: string): string {
 
 /** True when this ui has any extractable user-visible string — the single gate
  *  for the whole runtime (the `lib/i18n.dart` file, the per-page import, and
- *  `ctx.i18nPrefix`).  Empty catalog → no i18n anywhere, byte-identical output. */
+ *  `ctx.i18nPrefix`).  Empty catalog → no i18n anywhere, byte-identical output.
+ *  A ui that renders a `LocaleSwitcher` ships the runtime too, so the widget the
+ *  primitive names exists. */
 export function flutterI18nEnabled(ui: UiIR): boolean {
-  return Object.keys(buildUiCatalog(ui)).length > 0;
+  return Object.keys(buildUiCatalog(ui)).length > 0 || uiUsesLocaleSwitcher(ui);
 }
 
-/** `lib/i18n.dart` — the catalog + `t(key, default, [values])` lookup/format. */
+/** True when two or more locales ship (the source plus a translated catalog):
+ *  `main()` negotiates and restores the locale, `MaterialApp` carries the
+ *  localization wiring, and every page's app bar the language picker. */
+export function flutterLocaleSwitchable(
+  ui: UiIR,
+  translations: TranslationCatalogs | undefined,
+  source: string,
+): boolean {
+  return flutterI18nEnabled(ui) && [...(translations?.keys() ?? [])].some((tag) => tag !== source);
+}
+
+/** True when rendered Dart calls the generated locale runtime — a standalone
+ *  `t(` (the lookbehind keeps `Text(` / `DefaultTextStyle.merge(` and any other
+ *  identifier ending in `t` from matching) or the `LocaleSwitcher` widget — so
+ *  the file needs `import 'i18n.dart';`. */
+export function callsI18nRuntime(dart: string): boolean {
+  return /(?<![A-Za-z0-9_$.])t\(/.test(dart) || dart.includes("LocaleSwitcher(");
+}
+
+/** A Dart identifier for a locale's catalog map.  `_en` for the default source
+ *  (unchanged output); lowerCamelCase otherwise (`_catDe`, `_catPtBr`), which
+ *  the `constant_identifier_names` lint accepts and a raw tag (`pt-BR`) cannot
+ *  be. */
+function catalogIdent(tag: string, source: string): string {
+  if (tag === source && source === DEFAULT_SOURCE_LOCALE) return "_en";
+  const camel = tag
+    .split(/[^A-Za-z0-9]+/)
+    .filter((p) => p !== "")
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+    .join("");
+  return `_cat${camel}`;
+}
+
+/** A `const Locale.fromSubtags(…)` expression for a BCP-47 tag
+ *  (`de`, `pt-BR`, `zh-Hant-TW`). */
+function dartLocaleLit(tag: string): string {
+  const [language = tag, ...rest] = tag.split("-");
+  const script = rest.find((p) => /^[A-Za-z]{4}$/.test(p));
+  const region = rest.find((p) => /^([A-Za-z]{2}|[0-9]{3})$/.test(p));
+  const parts = [
+    `languageCode: ${dartStringLit(language.toLowerCase())}`,
+    ...(script ? [`scriptCode: ${dartStringLit(script)}`] : []),
+    ...(region ? [`countryCode: ${dartStringLit(region.toUpperCase())}`] : []),
+  ];
+  return `Locale.fromSubtags(${parts.join(", ")})`;
+}
+
+/** `lib/i18n.dart` — the locale model (negotiation, the stored choice, the
+ *  reactive switch), the catalogs and the `t(key, default, [values])`
+ *  lookup/format.
+ *
+ *  The locale model is the Dart twin of the generated `src/i18n.ts` the JS
+ *  frontends ship: `matchLocale` tries each negotiation candidate as the exact
+ *  tag and then as its base language, and a base alias (`pt` -> `pt-BR`) is
+ *  registered only when exactly one regional variant ships.  Endonyms,
+ *  directions and aliases are computed at generate time, so the app needs no
+ *  runtime dependency to label or direct a locale.
+ *
+ *  The active locale is a `ValueNotifier`; `setLocale` updates it, points
+ *  `Intl.defaultLocale` at it (so every default `NumberFormat` / `DateFormat` in
+ *  the generated pages follows) and rebuilds the element tree, which is what
+ *  makes every `t()` call re-run — `t` is a plain function, so no widget
+ *  subscribes to the notifier by itself. */
 export function renderFlutterI18nModule(
   ui: UiIR,
   source: string = DEFAULT_SOURCE_LOCALE,
   /** The contexts the ui's forms render over, so the implicit model-text keys
    *  (form labels, enum options, submit buttons) join the runtime catalog. */
   contexts: readonly BoundedContextIR[] = [],
+  /** Translated catalogs from the `ddd i18n` translator tree. */
+  translations?: TranslationCatalogs,
 ): string {
-  const sourceIdent =
-    source === DEFAULT_SOURCE_LOCALE ? "_en" : `_src_${source.replace(/[^A-Za-z0-9_]/g, "_")}`;
-  const catalog = buildUiCatalog(ui, {}, { contexts, sentences: [], implicitModelText: true });
+  const scope = { contexts, sentences: [], implicitModelText: true };
+  const catalog = buildUiCatalog(ui, {}, scope);
+  // Each translated catalog is SCOPED to this ui's keys, exactly as the source
+  // catalog is, and returned as one JSON document per locale tag.
+  const translated = new Map<string, Record<string, string>>(
+    [...renderTranslatedCatalogs(ui, translations, {}, source, scope)].map(
+      ([tag, json]) => [tag, JSON.parse(json) as Record<string, string>] as const,
+    ),
+  );
+  const extra = [...translated.keys()];
+  const entries = localeEntries(source, extra);
+  const aliases = baseAliases(source, extra);
+  const switchable = extra.length > 0;
+  const sourceIdent = catalogIdent(source, source);
   // `buildUiCatalog` returns key-sorted entries, so the emitted map is stable
   // across runs (a reordered page must not churn the file).
-  const entries = Object.entries(catalog).map(
-    ([key, message]) => `  ${dartStringLit(key)}: ${dartStringLit(message)},`,
-  );
+  const catalogConst = (ident: string, map: Readonly<Record<string, string>>): string[] => [
+    `const Map<String, String> ${ident} = <String, String>{`,
+    ...Object.entries(map).map(
+      ([key, message]) => `  ${dartStringLit(key)}: ${dartStringLit(message)},`,
+    ),
+    "};",
+    "",
+  ];
   return lines(
     "// Generated translation runtime (Loom i18n).",
     "//",
-    "// Source-language lookup with a per-key fallback, plus ICU message",
-    "// formatting via `package:intl`'s `MessageFormat`.  The `t(key, default,",
-    "// values)` call sites the walker emits are stable across every frontend —",
-    "// only the spelling differs.",
+    "// Locale negotiation + the reactive locale + source-language lookup with a",
+    "// per-key fallback, plus ICU message formatting via `package:intl`'s",
+    "// `MessageFormat`.  The `t(key, default, values)` call sites the walker emits",
+    "// are stable across every frontend — only the spelling differs.",
     "//",
-    "// To add a locale: add its map below and register it in `_catalogs`.  Date",
-    "// symbols load lazily — call `initializeDateFormatting(<locale>)` from",
-    "// `main()` and `, date` holes format in that locale too (without it they fall",
-    "// back to the SDK default rather than failing).",
-    "import 'dart:ui' as ui;",
-    "",
+    "// To add a locale: add its map below and register it in `_catalogs` and",
+    "// `_tagIndex`.  Date symbols load lazily — `initLocale()` loads them for every",
+    "// shipped locale before the first frame.",
+    switchable ? "import 'dart:async';" : undefined,
+    switchable ? "import 'dart:ui' as ui;" : undefined,
+    switchable ? "" : undefined,
+    switchable ? "import 'package:flutter/foundation.dart' show kIsWeb;" : undefined,
+    "import 'package:flutter/material.dart';",
+    switchable ? "import 'package:flutter_localizations/flutter_localizations.dart';" : undefined,
+    switchable ? "import 'package:intl/date_symbol_data_local.dart';" : undefined,
     "import 'package:intl/intl.dart';",
     "import 'package:intl/message_format.dart';",
+    switchable ? "import 'package:shared_preferences/shared_preferences.dart';" : undefined,
+    "",
+    "/// The source language every missing key and unmatched negotiation falls to.",
+    `const String sourceLocale = ${dartStringLit(source)};`,
+    "",
+    "/// A locale the app ships: its tag, its own name, its direction.  Names and",
+    "/// directions are computed when the app is generated.",
+    "class LocaleInfo {",
+    "  const LocaleInfo(this.tag, this.name, this.dir, this.locale);",
+    "  final String tag;",
+    "  final String name;",
+    "  final TextDirection dir;",
+    "  final Locale locale;",
+    "}",
+    "",
+    "/// The shipped locales, source first.",
+    "const List<LocaleInfo> locales = <LocaleInfo>[",
+    ...entries.map(
+      (e) =>
+        `  LocaleInfo(${dartStringLit(e.tag)}, ${dartStringLit(e.name)}, TextDirection.${e.dir}, ${dartLocaleLit(e.tag)}),`,
+    ),
+    "];",
     "",
     "/// Source-language catalog for this ui — the same keys and messages",
     `/// \`.loom/messages.${source}.json\` carries (D-I18N-KEY content hashes).`,
-    `const Map<String, String> ${sourceIdent} = <String, String>{`,
-    ...entries,
-    "};",
-    "",
+    ...catalogConst(sourceIdent, catalog),
+    ...[...translated].flatMap(([tag, map]) => [
+      `/// Translated catalog (\`locales/${tag}.json\`); a missing key falls back per key`,
+      "/// to the source-language default the call site carries.",
+      ...catalogConst(catalogIdent(tag, source), map),
+    ]),
     "const Map<String, Map<String, String>> _catalogs = <String, Map<String, String>>{",
-    `  ${dartStringLit(source)}: ${sourceIdent},`,
+    ...entries.map((e) => `  ${dartStringLit(e.tag)}: ${catalogIdent(e.tag, source)},`),
     "};",
     "",
-    "String _activeLocale() {",
-    "  final String code = ui.PlatformDispatcher.instance.locale.languageCode;",
-    `  return _catalogs.containsKey(code) ? code : ${dartStringLit(source)};`,
+    "/// Lower-cased tag (or unique base-language alias) -> the registered tag.",
+    "const Map<String, String> _tagIndex = <String, String>{",
+    ...entries.map((e) => `  ${dartStringLit(e.tag.toLowerCase())}: ${dartStringLit(e.tag)},`),
+    ...Object.entries(aliases).map(([a, tag]) => `  ${dartStringLit(a)}: ${dartStringLit(tag)},`),
+    "};",
+    "",
+    "/// The first candidate that names a shipped locale, trying each candidate as",
+    "/// the exact tag and then as its base language; null when none does.",
+    "String? matchLocale(List<String> candidates) {",
+    "  for (final String candidate in candidates) {",
+    "    final String tag = candidate.trim().toLowerCase().replaceAll('_', '-');",
+    "    if (tag.isEmpty) continue;",
+    "    final String? exact = _tagIndex[tag];",
+    "    if (exact != null) return exact;",
+    "    final String? base = _tagIndex[tag.split('-').first];",
+    "    if (base != null) return base;",
+    "  }",
+    "  return null;",
     "}",
     "",
-    "final String locale = _activeLocale();",
-    `final Map<String, String> _messages = _catalogs[locale] ?? ${sourceIdent};`,
+    "/// The active locale — the one `t`, the default `NumberFormat` / `DateFormat`",
+    "/// and the API client's `Accept-Language` read.",
+    `final ValueNotifier<String> localeNotifier = ValueNotifier<String>(${dartStringLit(source)});`,
     "",
-    "/// Translate a message key, falling back to the source-language default,",
-    "/// then ICU-format its placeholders from [values] in the active locale.",
+    "String get locale => localeNotifier.value;",
+    "",
+    "/// The active tag as a function, for call sites that read it per request.",
+    "String activeLocale() => localeNotifier.value;",
+    "",
+    "TextDirection localeDirection(String tag) {",
+    "  for (final LocaleInfo info in locales) {",
+    "    if (info.tag == tag) return info.dir;",
+    "  }",
+    "  return TextDirection.ltr;",
+    "}",
+    "",
+    "Locale localeFor(String tag) {",
+    "  for (final LocaleInfo info in locales) {",
+    "    if (info.tag == tag) return info.locale;",
+    "  }",
+    "  return locales.first.locale;",
+    "}",
+    ...(switchable ? switchableRuntime() : singleRuntime()),
+    "",
+    "/// Translate a message key in the ACTIVE locale, falling back to the",
+    "/// source-language default, then ICU-format its placeholders from [values].",
     "String t(String key, String defaultMessage, [Map<String, Object>? values]) {",
-    "  final String message = _messages[key] ?? defaultMessage;",
+    "  final String message = _catalogs[locale]?[key] ?? defaultMessage;",
     "  if (values == null || values.isEmpty) return message;",
     "  try {",
     "    final _Icu icu = _resolveFormats(message, values);",
-    "    return MessageFormat(icu.message, locale: locale).format(icu.values);",
+    "    return MessageFormat(icu.message, locale: Intl.canonicalizedLocale(locale))",
+    "        .format(icu.values);",
     "  } catch (_) {",
     "    // A message `MessageFormat` genuinely rejects degrades rather than",
     "    // crashing a widget build: substitute the raw values and render what is",
@@ -305,4 +458,144 @@ export function renderFlutterI18nModule(
     "  return out;",
     "}",
   );
+}
+
+/** A single-language app has nothing to negotiate, store or switch between: the
+ *  locale stays the source and the widget a primitive names renders nothing. */
+function singleRuntime(): string[] {
+  return [
+    "",
+    "/// A single-language app has nothing to switch between.",
+    "class LocaleSwitcher extends StatelessWidget {",
+    "  const LocaleSwitcher({super.key});",
+    "",
+    "  @override",
+    "  Widget build(BuildContext context) => const SizedBox.shrink();",
+    "}",
+  ];
+}
+
+/** The runtime half of an app that ships two or more locales: negotiation, the
+ *  stored choice, the switch and the picker widget. */
+function switchableRuntime(): string[] {
+  return [
+    "",
+    "const String _storageKey = 'loom.locale';",
+    "",
+    "/// `MaterialApp.supportedLocales` — every shipped locale.",
+    "final List<Locale> supportedLocales = <Locale>[",
+    "  for (final LocaleInfo info in locales) info.locale,",
+    "];",
+    "",
+    "/// `MaterialApp.localizationsDelegates` — the framework's own strings",
+    "/// (date pickers, tooltips, text direction) in the active locale.",
+    "const List<LocalizationsDelegate<dynamic>> localizationsDelegates =",
+    "    <LocalizationsDelegate<dynamic>>[",
+    "  GlobalMaterialLocalizations.delegate,",
+    "  GlobalWidgetsLocalizations.delegate,",
+    "  GlobalCupertinoLocalizations.delegate,",
+    "];",
+    "",
+    "/// The locale this run starts in: the URL's `?lang=` (web only — a native app",
+    "/// has no address bar), the stored choice, the platform's locales in order,",
+    "/// then the source language.",
+    "String _negotiate(String? stored) {",
+    "  final List<String> candidates = <String>[];",
+    "  if (kIsWeb) {",
+    "    final String? lang = Uri.base.queryParameters['lang'];",
+    "    if (lang != null && lang.isNotEmpty) candidates.add(lang);",
+    "  }",
+    "  if (stored != null && stored.isNotEmpty) candidates.add(stored);",
+    "  for (final ui.Locale platform in ui.PlatformDispatcher.instance.locales) {",
+    "    candidates.add(platform.toLanguageTag());",
+    "  }",
+    "  return matchLocale(candidates) ?? sourceLocale;",
+    "}",
+    "",
+    "/// Point the notifier and `Intl.defaultLocale` at [tag], so every default",
+    "/// `NumberFormat` / `DateFormat` the generated pages build follows it.",
+    "void _apply(String tag) {",
+    "  Intl.defaultLocale = Intl.canonicalizedLocale(tag);",
+    "  localeNotifier.value = tag;",
+    "}",
+    "",
+    "/// Negotiate the starting locale and load date symbols for every shipped",
+    "/// locale.  Awaited from `main()` before the first frame.",
+    "Future<void> initLocale() async {",
+    "  String? stored;",
+    "  try {",
+    "    stored = (await SharedPreferences.getInstance()).getString(_storageKey);",
+    "  } catch (_) {",
+    "    // storage unavailable: negotiate without the stored choice",
+    "  }",
+    "  for (final LocaleInfo info in locales) {",
+    "    try {",
+    "      await initializeDateFormatting(Intl.canonicalizedLocale(info.tag));",
+    "    } catch (_) {",
+    "      // no date symbols for this locale: its dates use the SDK default",
+    "    }",
+    "  }",
+    "  _apply(_negotiate(stored));",
+    "}",
+    "",
+    "Future<void> _persist(String tag) async {",
+    "  try {",
+    "    await (await SharedPreferences.getInstance()).setString(_storageKey, tag);",
+    "  } catch (_) {",
+    "    // storage unavailable: the choice lasts for this run only",
+    "  }",
+    "}",
+    "",
+    "/// `t` is a plain function, so no widget subscribes to the locale by itself:",
+    "/// mark the whole element tree dirty and every `t()` call re-runs.",
+    "void _rebuildAll() {",
+    "  void rebuild(Element element) {",
+    "    element.markNeedsBuild();",
+    "    element.visitChildren(rebuild);",
+    "  }",
+    "",
+    "  WidgetsBinding.instance.rootElement?.visitChildren(rebuild);",
+    "}",
+    "",
+    "/// Switch the active locale: persist the choice, update `Intl.defaultLocale`,",
+    "/// notify `localeNotifier` (which re-lays `MaterialApp` out in the new",
+    "/// locale and direction) and rebuild every `t()` call.  A tag that names no",
+    "/// shipped locale is ignored.",
+    "void setLocale(String tag) {",
+    "  final String? next = matchLocale(<String>[tag]);",
+    "  if (next == null) return;",
+    "  unawaited(_persist(next));",
+    "  if (next == localeNotifier.value) return;",
+    "  _apply(next);",
+    "  _rebuildAll();",
+    "}",
+    "",
+    "/// The language picker: a dropdown of the shipped locales, each labelled with",
+    "/// the locale's OWN name.",
+    "class LocaleSwitcher extends StatelessWidget {",
+    "  const LocaleSwitcher({super.key});",
+    "",
+    "  @override",
+    "  Widget build(BuildContext context) {",
+    "    return ValueListenableBuilder<String>(",
+    "      valueListenable: localeNotifier,",
+    "      builder: (BuildContext context, String tag, Widget? _) => DropdownButton<String>(",
+    "        key: const ValueKey<String>('locale-switcher'),",
+    "        value: tag,",
+    "        underline: const SizedBox.shrink(),",
+    "        onChanged: (String? next) {",
+    "          if (next != null) setLocale(next);",
+    "        },",
+    "        items: <DropdownMenuItem<String>>[",
+    "          for (final LocaleInfo info in locales)",
+    "            DropdownMenuItem<String>(",
+    "              value: info.tag,",
+    "              child: Directionality(textDirection: info.dir, child: Text(info.name)),",
+    "            ),",
+    "        ],",
+    "      ),",
+    "    );",
+    "  }",
+    "}",
+  ];
 }

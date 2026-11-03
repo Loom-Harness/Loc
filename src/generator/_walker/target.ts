@@ -1389,6 +1389,15 @@ export interface WalkerTarget {
    *  port it, and everything else falls through to a visible comment. */
   renderTimeline?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
 
+  /** OPTIONAL — whole-primitive override for `LocaleSwitcher {}`, the language
+   *  picker.  The shared `emitLocaleSwitcher` delegates here first and uses a
+   *  non-null return verbatim.  React imports its generated component and HEEx
+   *  renders through its own walker; Feliz and Flutter return the call into
+   *  their generated locale runtime (`I18n.localeSwitcher ()` /
+   *  `const LocaleSwitcher()`), and every other target falls through to a
+   *  visible comment until its binding lands. */
+  renderLocaleSwitcher?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
+
   /** OPTIONAL — whole-primitive override for `DestroyForm(of: <Agg>)`.  The
    *  shared `emitDestroyForm` delegates here first; a non-null return is used
    *  verbatim and the shared path (which records an `actionMutations` sink +

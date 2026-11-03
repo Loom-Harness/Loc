@@ -44,16 +44,17 @@ import { humanize, upperFirst } from "../../util/naming.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { usesValueEquals } from "../_frontend/value-equals.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
+import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
 import { localizedPageTitle } from "../_walker/i18n-emit.js";
 import { pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type ApiHookUse, emitExpr, walkBody } from "../_walker/walker-core.js";
 import {
-  FLUTTER_API_CLIENT_DART,
   FLUTTER_API_CLIENT_IO_DART,
   FLUTTER_API_CLIENT_WEB_DART,
   FLUTTER_BEARER_STORE_DART,
+  flutterApiClientDart,
   flutterHttpImport,
 } from "./api-client.js";
 import { renderFlutterAuthModule, renderFlutterGate } from "./auth-gate.js";
@@ -75,7 +76,12 @@ import {
   renderFormsFile,
   renderGatesFile,
 } from "./forms-emit.js";
-import { flutterI18nEnabled, renderFlutterI18nModule } from "./i18n.js";
+import {
+  callsI18nRuntime,
+  flutterI18nEnabled,
+  flutterLocaleSwitchable,
+  renderFlutterI18nModule,
+} from "./i18n.js";
 import { collectBoundInputFields, uiUsesFileUpload } from "./inputs-emit.js";
 import { FLUTTER_NAV_MENU_WIDGET, renderFlutterNavMenu } from "./menu-emit.js";
 import { renderFlutterModalRuntime } from "./modal-runtime.js";
@@ -125,6 +131,11 @@ export interface GenerateFlutterOptions {
    *  than getting a misleading single-origin region — the recorder's own
    *  documented rule. */
   sourcemap?: SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag — see `PlatformSurface.emitProject`'s `translations`.  Each is
+   *  compiled into `lib/i18n.dart` beside the source catalog, under the SAME
+   *  gate as it.  Absent / empty is the normal case. */
+  translations?: TranslationCatalogs;
 }
 
 /** Emit the file map for one `platform: flutter` deployable, paths relative to
@@ -196,6 +207,14 @@ export function generateFlutterForContexts(
   // OperationForm / DestroyForm a page hosts (POST/DELETE over package:http),
   // plus one per WorkflowForm(runs:) (POST the workflow params to /workflows/<wf>).
   const uiI18n = ui ? flutterI18nEnabled(ui) : false;
+  // Two or more locales ship: `main()` negotiates + restores the locale,
+  // `MaterialApp` carries the localization wiring, every app bar the picker.
+  const localeSwitchable = ui
+    ? flutterLocaleSwitchable(ui, options.translations, sourceLocaleOf(sys))
+    : false;
+  // Every api call goes through the `api_client.dart` drop-in when it carries a
+  // credential (`credentialed`) OR the active locale (`Accept-Language`).
+  const apiClient = credentialed || uiI18n;
   const forms = [
     ...collectFlutterForms(ui, aggregatesByName, bcByAggregate, uiI18n),
     ...collectFlutterWorkflowForms(ui, workflowsByName, bcByWorkflow, aggregatesByName, uiI18n),
@@ -227,7 +246,7 @@ export function generateFlutterForContexts(
   // above, ahead of the models emit).  Emitted only when the ui issues reads,
   // alongside the `AppConfig` api-base helper.
   if (reads.length > 0) {
-    out.set("lib/reads.dart", renderReadProviders(reads, credentialed));
+    out.set("lib/reads.dart", renderReadProviders(reads, apiClient));
   }
 
   // Realtime SSE handlers (channels.md Part I) — gated on BOTH halves: this ui
@@ -254,14 +273,17 @@ export function generateFlutterForContexts(
   // pass no prefix, and every literal renders raw.
   const i18nEnabled = uiI18n;
   if (ui && i18nEnabled) {
-    out.set("lib/i18n.dart", renderFlutterI18nModule(ui, sourceLocaleOf(sys), contexts));
+    out.set(
+      "lib/i18n.dart",
+      renderFlutterI18nModule(ui, sourceLocaleOf(sys), contexts, options.translations),
+    );
   }
   if (forms.length > 0) {
-    out.set("lib/forms.dart", renderFormsFile(forms, credentialed));
+    out.set("lib/forms.dart", renderFormsFile(forms, apiClient));
   }
   const gates = renderGatesFile(
     contexts.flatMap((c) => c.aggregates),
-    credentialed,
+    apiClient,
   );
   if (gates) out.set("lib/gates.dart", gates);
 
@@ -326,8 +348,9 @@ export function generateFlutterForContexts(
       authUi,
       nameCtx,
       pageRoutes,
-      credentialed,
+      credentialed: apiClient,
       navMenu: navMenuSource !== "",
+      localeSwitcher: localeSwitchable,
     });
     for (const name of r.usedComponents) usedComponents.add(name);
     return { page, ...r };
@@ -347,7 +370,7 @@ export function generateFlutterForContexts(
   // redirects and the two gate views.  Emitted whenever the app is gated, since
   // `main.dart` wraps `MaterialApp` in `AuthGate` regardless of whether any page
   // additionally carries a `requires`.
-  if (authUi && sys.user) out.set("lib/auth.dart", renderFlutterAuthModule(sys.user, credentialed));
+  if (authUi && sys.user) out.set("lib/auth.dart", renderFlutterAuthModule(sys.user, apiClient));
 
   const persistedStores = flutterPersistedStores(ui);
   const storesFile = ui
@@ -389,10 +412,14 @@ export function generateFlutterForContexts(
   // native bearer), and the platform-neutral bearer store the app populates
   // from its own OIDC client.
   if (credentialed) {
-    out.set("lib/api_client.dart", FLUTTER_API_CLIENT_DART);
+    out.set("lib/api_client.dart", flutterApiClientDart({ credentialed: true, i18n: uiI18n }));
     out.set("lib/api_client_web.dart", FLUTTER_API_CLIENT_WEB_DART);
     out.set("lib/api_client_io.dart", FLUTTER_API_CLIENT_IO_DART);
     out.set("lib/loom_bearer.dart", FLUTTER_BEARER_STORE_DART);
+  } else if (uiI18n) {
+    // No credential to carry, but the active locale still rides every request
+    // (`Accept-Language`), so the same drop-in exists without its bearer halves.
+    out.set("lib/api_client.dart", flutterApiClientDart({ credentialed: false, i18n: true }));
   }
 
   // `AppConfig`/`apiUri` is shared by the read providers, the form widgets, AND
@@ -404,7 +431,7 @@ export function generateFlutterForContexts(
   const usesRefLabel =
     rendered.some((r) => r.source.includes(FLUTTER_REF_LABEL_MARKER)) ||
     (out.get("lib/components.dart") ?? "").includes(FLUTTER_REF_LABEL_MARKER);
-  if (usesRefLabel) out.set(FLUTTER_REF_LABEL_PATH, renderFlutterRefLabel(credentialed));
+  if (usesRefLabel) out.set(FLUTTER_REF_LABEL_PATH, renderFlutterRefLabel(apiClient));
   // `lib/auth.dart` is a fourth consumer — the session probe and the sign-in /
   // sign-out redirects are both built with `apiUri`.
   if (
@@ -446,6 +473,7 @@ export function generateFlutterForContexts(
       rendered.some((r) => r.source.includes(FLUTTER_TOAST_MARKER)) ||
       [...out.values()].some((c) => c.includes(FLUTTER_TOAST_MARKER)),
     i18n: i18nEnabled,
+    localeSwitch: localeSwitchable,
   };
   if (rendered.length > 0) {
     for (const r of rendered) {
@@ -473,6 +501,7 @@ export function generateFlutterForContexts(
       usesSharedPreferences(persistedStores),
       persistBoot.authGate,
       hasRealtime,
+      localeSwitchable,
     ),
   );
   out.set("analysis_options.yaml", ANALYSIS_OPTIONS);
@@ -768,6 +797,9 @@ function renderPage(
     /** True when the ui declares an explicit `menu { }` — every page's app bar
      *  then mounts it (`lib/nav_menu.dart`). */
     navMenu: boolean;
+    /** Two or more locales ship: every page's app bar carries the language
+     *  picker. */
+    localeSwitcher: boolean;
   },
 ): Omit<RenderedPage, "page"> {
   const {
@@ -781,6 +813,7 @@ function renderPage(
     pageRoutes,
     credentialed,
     navMenu,
+    localeSwitcher,
   } = workflows;
   // Identity comes from the page's EMIT NAME, never its bare `page.name`.  The
   // scaffold names aggregate pages by ROLE (`List` inside `area Products`), so
@@ -951,6 +984,7 @@ function renderPage(
           pageGate,
           credentialed,
           navMenu,
+          localeSwitcher,
         },
         bodyWidget,
         contexts,
@@ -967,6 +1001,7 @@ function renderPage(
         titleDart,
         credentialed,
         navMenu,
+        localeSwitcher,
       });
 
   return { fileBase, className, routePath, source, usedComponents };
@@ -1033,6 +1068,13 @@ interface ConsumerBindings {
   credentialed: boolean;
   /** True when the ui has an explicit `menu { }`: the app bar mounts it. */
   navMenu: boolean;
+  /** Two or more locales ship: the app bar carries the language picker. */
+  localeSwitcher: boolean;
+}
+
+/** The `AppBar(actions: …)` argument that mounts the language picker, or "". */
+function appBarLocale(localeSwitcher: boolean): string {
+  return localeSwitcher ? ", actions: const <Widget>[LocaleSwitcher()]" : "";
 }
 
 /** Bind one local per used store member, matching the body's use site
@@ -1079,7 +1121,7 @@ function storeBindings(
  *  `DefaultTextStyle.merge(` and any other identifier ending in `t` from
  *  matching; only a standalone `t(` counts. */
 function usesI18n(dart: string): boolean {
-  return /(?<![A-Za-z0-9_$.])t\(/.test(dart);
+  return callsI18nRuntime(dart);
 }
 
 function renderStatelessPage(
@@ -1106,6 +1148,8 @@ function renderStatelessPage(
     credentialed: boolean;
     /** True when the ui has an explicit `menu { }`: the app bar mounts it. */
     navMenu: boolean;
+    /** Two or more locales ship: the app bar carries the language picker. */
+    localeSwitcher: boolean;
   },
 ): string {
   const imports = ["import 'package:flutter/material.dart';"];
@@ -1138,7 +1182,7 @@ function renderStatelessPage(
   if (usesIntl(scan)) imports.push("import 'package:intl/intl.dart';");
   // The generated translation runtime — imported only when a text slot
   // in this page actually resolved to a `t(…)` call.
-  if (usesI18n(scan)) imports.push("import '../i18n.dart';");
+  if (usesI18n(scan) || opts.localeSwitcher) imports.push("import '../i18n.dart';");
   // `min`/`max`/`round` scalar intrinsics route through `math.*` (`dart-expr.ts`).
   if (usesMath(scan)) imports.push("import 'dart:math' as math;");
   const idBinding = routeArgBindings(opts.routeParams, opts.usesRouteId);
@@ -1157,7 +1201,7 @@ function renderStatelessPage(
     wrapPageTitle(
       [
         "    return Scaffold(",
-        `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${opts.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
+        `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${appBarLocale(opts.localeSwitcher)}${opts.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
         "      body: SingleChildScrollView(",
         `        child: ${indentContinuation(bodyWidget, 8)},`,
         "      ),",
@@ -1346,7 +1390,7 @@ function renderConsumerPage(
   if (usesIntl(scan)) {
     imports.push("import 'package:intl/intl.dart';");
   }
-  if (usesI18n(scan)) {
+  if (usesI18n(scan) || b.localeSwitcher) {
     imports.push("import '../i18n.dart';");
   }
   // `min`/`max`/`round` scalar intrinsics route through `math.*` — over the
@@ -1379,7 +1423,7 @@ function renderConsumerPage(
     wrapPageTitle(
       [
         "    return Scaffold(",
-        `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${b.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
+        `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${appBarLocale(b.localeSwitcher)}${b.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
         "      body: SingleChildScrollView(",
         `        child: ${guarded},`,
         "      ),",
@@ -1417,6 +1461,10 @@ interface AppBoot {
   /** The app ships `lib/i18n.dart`, so the root error view reads its title
    *  through `t()` like every other piece of chrome. */
   i18n: boolean;
+  /** Two or more locales ship: `main()` awaits `initLocale()` (negotiation + the
+   *  stored choice + date symbols), and `MaterialApp` is rebuilt per locale with
+   *  the localization wiring and a `Directionality` for the locale's direction. */
+  localeSwitch: boolean;
 }
 
 const NO_BOOT: AppBoot = {
@@ -1427,6 +1475,7 @@ const NO_BOOT: AppBoot = {
   navigatorKey: false,
   scaffoldMessengerKey: false,
   i18n: false,
+  localeSwitch: false,
 };
 
 /** Global error boundary + failure sink, the flutter arm.  Built on
@@ -1492,7 +1541,7 @@ function errorBoundarySetup(i18n: boolean): string[] {
 /** `main()` for a `persist:`-bearing app — the web-storage tier has to finish
  *  loading before the first widget builds. */
 function mainFn(boot: AppBoot): string[] {
-  if (!boot.initPrefs) {
+  if (!boot.initPrefs && !boot.localeSwitch) {
     return [
       "void main() {",
       ...errorBoundarySetup(boot.i18n),
@@ -1508,10 +1557,21 @@ function mainFn(boot: AppBoot): string[] {
     "void main() {",
     ...errorBoundarySetup(boot.i18n),
     "  runZonedGuarded(() async {",
-    "    // The stored blobs must be in memory before the first Notifier `build()`,",
-    "    // which seeds its cells synchronously (`store_persist.dart`).",
+    ...(boot.initPrefs
+      ? [
+          "    // The stored blobs must be in memory before the first Notifier `build()`,",
+          "    // which seeds its cells synchronously (`store_persist.dart`).",
+        ]
+      : []),
     "    WidgetsFlutterBinding.ensureInitialized();",
-    "    await LoomStorePersist.init();",
+    ...(boot.initPrefs ? ["    await LoomStorePersist.init();"] : []),
+    ...(boot.localeSwitch
+      ? [
+          "    // The locale (`?lang=`, the stored choice, the platform's) and its date",
+          "    // symbols must be settled before the first frame renders any `t()`.",
+          "    await initLocale();",
+        ]
+      : []),
     "    runApp(const App());",
     "  }, (Object error, StackTrace stack) {",
     "    debugPrint('Unhandled error: $error');",
@@ -1554,13 +1614,42 @@ function authGateBuilder(boot: AppBoot): string[] {
   // Innermost, so a toast resolves the `ScaffoldMessenger` the route provides
   // and an unauthenticated visitor never opens a subscription.
   if (boot.realtime) wraps.push("LoomRealtime");
-  if (wraps.length === 0) return [];
+  if (wraps.length === 0 && !boot.localeSwitch) return [];
   const open = wraps.map((w) => `${w}(child: `).join("");
   const close = ")".repeat(wraps.length);
+  const inner = `${open}child ?? const SizedBox.shrink()${close}`;
   return [
     "      builder: (context, child) =>",
-    `          ${open}child ?? const SizedBox.shrink()${close},`,
+    // The locale's reading direction wraps everything the app draws, the guard
+    // views included (they need a `Directionality` ancestor anyway).
+    boot.localeSwitch
+      ? `          Directionality(textDirection: localeDirection(localeTag), child: ${inner}),`
+      : `          ${inner},`,
   ];
+}
+
+/** The `MaterialApp` arguments that put the app in the active locale, or none
+ *  for a single-language app.  `localeTag` is the `ValueListenableBuilder`
+ *  parameter from {@link localeWrapOpen}. */
+function localeAppArgs(boot: AppBoot): string[] {
+  if (!boot.localeSwitch) return [];
+  return [
+    "      locale: localeFor(localeTag),",
+    "      supportedLocales: supportedLocales,",
+    "      localizationsDelegates: localizationsDelegates,",
+  ];
+}
+
+/** `MaterialApp` is rebuilt whenever the locale changes, so its `locale`,
+ *  localized framework strings and `Directionality` follow the switch. */
+function localeWrapOpen(boot: AppBoot): string {
+  return boot.localeSwitch
+    ? "ValueListenableBuilder<String>(valueListenable: localeNotifier, builder: (context, localeTag, child) => "
+    : "";
+}
+
+function localeWrapClose(boot: AppBoot): string {
+  return boot.localeSwitch ? ")" : "";
 }
 
 /** `main.dart` for a multi-page ui: a `MaterialApp` with named routes, the first
@@ -1595,9 +1684,10 @@ function renderMainWithRoutes(
     // ProviderScope roots the Riverpod container for every stateful page's
     // Notifier; nested in App.build (not around runApp) so `runApp(const App())`
     // stays const-clean.
-    `    return ProviderScope(child: ${appWrapOpen(boot)}MaterialApp(`,
+    `    return ProviderScope(child: ${appWrapOpen(boot)}${localeWrapOpen(boot)}MaterialApp(`,
     `      title: '${escapeDart(title)}',`,
     "      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),",
+    ...localeAppArgs(boot),
     authGateBuilder(boot),
     // The out-of-tree navigator (`lib/nav.dart`) — only for an app whose Dart
     // actually calls `navigateTo(`, so a non-navigating app is byte-identical.
@@ -1613,7 +1703,7 @@ function renderMainWithRoutes(
       (p) => `        '${p.routePath}': (context) => const ${p.className}(),`,
     ),
     "      },",
-    `    )${appWrapClose(boot)});`,
+    `    )${localeWrapClose(boot)}${appWrapClose(boot)});`,
     "  }",
     "}",
     generateRouteFn(pages),
@@ -1695,13 +1785,19 @@ function renderPubspec(
   usesPrefs: boolean,
   usesAuth: boolean,
   usesRealtime: boolean,
+  /** Two or more locales ship: `flutter_localizations` localizes the framework's
+   *  own strings and `shared_preferences` stores the chosen locale. */
+  usesLocales: boolean,
 ): string {
   // `file_picker` is only pulled when a FileUpload primitive is present, so a
   // File-free app's pubspec stays byte-identical.
   const filePicker = usesFileUpload ? "\n  file_picker: 8.3.7" : "";
   // `shared_preferences` backs `persist: local|session`; the `url` tier needs no
   // package (`Uri.base` + `SystemNavigator` are core).
-  const prefs = usesPrefs ? "\n  shared_preferences: 2.5.6" : "";
+  const prefs = usesPrefs || usesLocales ? "\n  shared_preferences: 2.5.6" : "";
+  // `flutter_localizations` carries the Material / Widgets / Cupertino strings
+  // for the shipped locales (`MaterialApp.localizationsDelegates`).
+  const localizations = usesLocales ? "\n  flutter_localizations:\n    sdk: flutter" : "";
   // `url_launcher` backs the `auth: ui` sign-in / sign-out REDIRECT — Dart's
   // core SDK cannot navigate to an external URL.  Same use-driven rule as
   // `file_picker`: an unauthenticated app's pubspec stays byte-identical.
@@ -1726,7 +1822,7 @@ dependencies:
     sdk: flutter
   http: 1.6.0
   flutter_riverpod: 2.6.1
-  intl: ^0.19.0${filePicker}${prefs}${launcher}${webPkg}
+  intl: ^0.19.0${localizations}${filePicker}${prefs}${launcher}${webPkg}
 
 dev_dependencies:
   flutter_test:
@@ -2026,12 +2122,13 @@ function renderMain(title: string, boot: AppBoot = NO_BOOT): string {
     "",
     "  @override",
     "  Widget build(BuildContext context) {",
-    `    return ProviderScope(child: ${appWrapOpen(boot)}MaterialApp(`,
+    `    return ProviderScope(child: ${appWrapOpen(boot)}${localeWrapOpen(boot)}MaterialApp(`,
     `      title: '${escapeDart(title)}',`,
     "      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),",
+    ...localeAppArgs(boot),
     authGateBuilder(boot),
     "      home: const HomePage(),",
-    `    )${appWrapClose(boot)});`,
+    `    )${localeWrapClose(boot)}${appWrapClose(boot)});`,
     "  }",
     "}",
   )}\n`;

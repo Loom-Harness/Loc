@@ -241,8 +241,12 @@ export function renderModel(
   /** UI-gate mode (D-AUTH-OIDC): a page carries `requires`, so the verified
    *  session claims are decoded + held on the Model for a gated view to test. */
   pageGate = false,
+  /** Two or more locales ship: the Model carries the active locale, so a
+   *  switch (a `LocaleChanged` message) changes it and re-renders every view. */
+  locale = false,
 ): string {
   const fields = [
+    ...(locale ? ["    Locale: string"] : []),
     ...(authUi ? ["    Session: SessionState"] : []),
     ...(pageGate ? ["    CurrentUser: CurrentUser option"] : []),
     ...(routed ? ["    CurrentPage: Page"] : []),
@@ -324,10 +328,13 @@ export function renderInit(
   componentParamValues: ReadonlyMap<StateFieldIR, ReadonlyMap<string, string> | null> = new Map(),
   /** The ui ships the `I18n` module (model text renders through it). */
   i18n = false,
+  /** Two or more locales ship: seed `Model.Locale` from the negotiated locale. */
+  locale = false,
 ): string {
   const i18nFlag: Pick<FsExprCtx, "i18n"> = i18n ? { i18n: true } : {};
   const hasPageCmd = routed && reads.some((r) => r.single);
   const inits = [
+    ...(locale ? ["      Locale = I18n.getLocale ()"] : []),
     ...(authUi ? ["      Session = Checking"] : []),
     ...(pageGate ? ["      CurrentUser = None"] : []),
     ...(routed
@@ -434,8 +441,12 @@ export function renderMsg(
    *  subscription dispatches (`store-persist.ts`).  One case for the whole app
    *  — every url store reads the same query string. */
   urlStoreMsg?: string,
+  /** Two or more locales ship: the `LocaleChanged` case the locale
+   *  subscription dispatches. */
+  locale = false,
 ): string {
   const cases = [
+    ...(locale ? ["  | LocaleChanged of string"] : []),
     ...(urlStoreMsg ? [`  | ${urlStoreMsg}`] : []),
     // Under a page gate the probe carries the decoded claims (None on 401);
     // otherwise it's a bare authenticated? boolean.
@@ -743,6 +754,8 @@ export function renderUpdate(
   pageRoutes: ReadonlyMap<string, string> = new Map(),
   /** The ui ships the `I18n` module (model text renders through it). */
   i18n = false,
+  /** Two or more locales ship: the `LocaleChanged` arm records the new locale. */
+  locale = false,
 ): string {
   const stateNames = new Set(state.map((s) => s.name));
   // An update arm runs outside every page view fn, so a body that reads the
@@ -1056,6 +1069,7 @@ export function renderUpdate(
     );
   });
   const arms = [
+    ...(locale ? ["  | LocaleChanged tag -> { model with Locale = tag }, Cmd.none"] : []),
     ...authArms,
     ...(storeUrlArm ? [storeUrlArm] : []),
     ...routeArms,

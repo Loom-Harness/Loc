@@ -9,20 +9,23 @@
 // React renders the generated `LocaleSwitcher` component
 // (`react/locale-switcher.ts`, emitted to `src/lib/locale-switcher.tsx` whenever
 // the ui is i18n-enabled), which lists each shipped locale under its own name.
-// The other JSX frontends have no runtime binding yet; they render an inert
-// placeholder comment rather than a broken reference, so a page that uses the
-// primitive still compiles on every target.
+// Feliz and Flutter render the call into their generated locale runtime through
+// the target's `renderLocaleSwitcher` seam (`I18n.localeSwitcher ()` /
+// `const LocaleSwitcher()`).  The other JSX frontends have no runtime binding
+// yet; they render an inert placeholder comment rather than a broken reference,
+// so a page that uses the primitive still compiles on every target.
 
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
 import { addImport } from "../render-primitive.js";
 import type { WalkContext } from "../walker-core.js";
 
 export function emitLocaleSwitcher(
-  _call: ExprIR & { kind: "call" },
+  call: ExprIR & { kind: "call" },
   ctx: WalkContext,
   depth: number,
 ): string {
-  void depth;
+  const override = ctx.target.renderLocaleSwitcher?.(call, ctx, depth);
+  if (override != null) return override;
   if (ctx.target.framework !== "react") {
     return ctx.target.renderComment(`LocaleSwitcher: not yet supported on ${ctx.target.framework}`);
   }
