@@ -14,7 +14,12 @@
 //      two naming modules — neither nested (`snake(plural(x))`) nor through a
 //      variable (`snake(pluralName)`, `plural(oldStem)`).
 //   2. No private re-implementation of `plural`.
-//   3. Every raw `plural(` call in the emitters (`src/generator`,
+//   3. No emitter (`src/generator`, `src/platform`) spells a table from a
+//      NAME (`tableNameFor`): it reads the table off the node it is emitting
+//      through `aggregateTableName` / `partTableName` / `projectionTableName`
+//      / …, so which declaration a table is spelled from (a TPH concrete's
+//      rows live in its root's table) is decided once, not per emitter.
+//   4. Every raw `plural(` call in the emitters (`src/generator`,
 //      `src/platform`, the migrations builder) builds something that is
 //      neither a table nor a route — a target-language identifier, a folder,
 //      a UI label.  A call matching one of the reasoned SAFE_SHAPES passes; any
@@ -150,6 +155,19 @@ describe("storage-names census", () => {
     expect(
       hits,
       "spell a table with tableNameFor / aggregateTableName and a route with routeSegmentFor (src/ir/enrich/storage-names.ts)",
+    ).toEqual([]);
+  });
+
+  it("no emitter spells a table from a name — tables come off the node", () => {
+    const hits: string[] = [];
+    for (const f of [...collectTs(join(SRC, "generator")), ...collectTs(join(SRC, "platform"))]) {
+      for (const { line, text } of codeLines(f)) {
+        if (/\btableNameFor\b/.test(text)) hits.push(`${rel(f)}:${line}: ${text.trim()}`);
+      }
+    }
+    expect(
+      hits,
+      "read the table off the node: aggregateTableName / partTableName / projectionTableName / aggregateTableNameOf (src/ir/enrich/storage-names.ts)",
     ).toEqual([]);
   });
 

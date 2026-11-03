@@ -143,11 +143,7 @@ function renderDatasetFn(
 ): string[] {
   const rowLines = entries.map((e) => {
     if (e.raw) {
-      const sql = renderSeedRowInsert(
-        e.row.aggregate,
-        e.row.fields,
-        sctx.schemaOf(e.row.aggregate),
-      );
+      const sql = renderSeedRowInsert(e.table, e.row.fields, sctx.schemaOf(e.row.aggregate));
       return `        jdbc.execute(${JSON.stringify(sql)});`;
     }
     const agg = aggByName.get(e.row.aggregate)!;

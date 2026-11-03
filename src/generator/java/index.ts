@@ -1,3 +1,8 @@
+import {
+  aggregateTableName,
+  partTableName,
+  registryTableName,
+} from "../../ir/enrich/storage-names.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
@@ -62,7 +67,6 @@ import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
-import { tableNameFor } from "../../util/storage-names.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
@@ -1184,7 +1188,7 @@ function emitProjectFromContexts(
         if (effectiveSavingShape(a, cfg) !== "document" || a.persistedAs === "eventLog") {
           return undefined;
         }
-        const bare = tableNameFor(a.name);
+        const bare = aggregateTableName(a, ctx.aggregates);
         return cfg?.schema ? `${cfg.schema}.${bare}` : bare;
       },
       contexts,
@@ -1457,7 +1461,7 @@ function emitProjectFromContexts(
         const regAgg = ctx.aggregates.find((a) => a.name === reg.name);
         if (regAgg) {
           const schema = resolveDataSourceConfig(regAgg, ctx, system.sys)?.schema;
-          const table = tableNameFor(reg.name);
+          const table = registryTableName(system.sys) as string;
           orgPathRegistry = { table: schema ? `${schema}.${table}` : table };
           break;
         }
@@ -1741,7 +1745,12 @@ function emitAggregate(
       "entity",
       renderJavaAbstractBaseEntity(agg, basePkg, pkgFor("entity", agg.name), {
         tph,
-        persistence: { schema, voLookup, mangledEnums },
+        persistence: {
+          tableName: aggregateTableName(agg, ctx.aggregates),
+          schema,
+          voLookup,
+          mangledEnums,
+        },
         restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`, contexts),
       }),
       agg.name,
@@ -1835,7 +1844,7 @@ function emitAggregate(
           isDocument || isEmbedded
             ? undefined
             : {
-                tableName: tableNameFor(part.name),
+                tableName: partTableName(part),
                 schema,
                 // `_parent` @OneToOne (single only) + the `parentId` mirror both
                 // reference the DIRECT parent, so JPA navigates the real
@@ -1874,7 +1883,7 @@ function emitAggregate(
         agg.persistedAs === "eventLog" || isDocument
           ? undefined
           : {
-              tableName: tableNameFor(agg.name),
+              tableName: aggregateTableName(agg, ctx.aggregates),
               schema,
               containmentOwnerName: ownerName,
               embedded: isEmbedded,
@@ -1958,7 +1967,14 @@ function emitAggregate(
     place(
       `${agg.name}RepositoryImpl.java`,
       "repository-impl",
-      renderJavaDocumentRepositoryImpl(agg, repoWithViews, repoCtx, idClass, schema),
+      renderJavaDocumentRepositoryImpl(
+        agg,
+        aggregateTableName(agg, ctx.aggregates),
+        repoWithViews,
+        repoCtx,
+        idClass,
+        schema,
+      ),
       agg.name,
       repoOrigin,
       construct,
