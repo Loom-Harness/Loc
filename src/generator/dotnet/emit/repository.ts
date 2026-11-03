@@ -29,6 +29,7 @@ import {
   renderCsExpr,
   renderCsType,
 } from "../render-expr.js";
+import { retrievalRepositoryWhere, retrievalWhereInRepository } from "../spec-emit.js";
 import { csSentence } from "../wire-policy-cs.js";
 import { bypassableFilterNames, hasNonBypassableFilter, queryFilterNames } from "./efcore.js";
 import { csClaimStampsFor } from "./entity.js";
@@ -433,6 +434,12 @@ export function renderRepositoryImpl(
       ["__q", "result"],
     );
     const own = csReadOwnParams(r.params.map((p) => p.name));
+    // A `where` over a join table (`this.<refColl>.contains(x)`) needs the
+    // DbContext, so it is applied here and the spec carries only the sort.
+    const repoWhere = retrievalWhereInRepository(r, agg);
+    const applySpec = repoWhere
+      ? `${retrievalRepositoryWhere(r, agg)}.WithSpecification(new ${upperFirst(r.name)}Spec())`
+      : `.WithSpecification(new ${upperFirst(r.name)}Spec(${specArgs}))`;
     return [
       `    public async Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)})`,
       "    {",
@@ -442,7 +449,7 @@ export function renderRepositoryImpl(
       // adapter-side, above.
       `        var ${L("__q")} = _db.${readSet}.AsQueryable();`,
       ...bypassBody(L("__q"), own.bypass),
-      `        var ${L("result")} = await ${L("__q")}.WithSpecification(new ${upperFirst(r.name)}Spec(${specArgs})).ApplyPaging(${own.page}).ToListAsync(${own.ct});`,
+      `        var ${L("result")} = await ${L("__q")}${applySpec}.ApplyPaging(${own.page}).ToListAsync(${own.ct});`,
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "find", valueExpr: `"Run${upperFirst(r.name)}"` },

@@ -316,6 +316,15 @@ function binary(e: Extract<ExprIR, { kind: "binary" }>, ctx: CriteriaCtx): strin
   const flip = leftPath === null;
   const v = value(valueExpr, ctx);
   const op = flip ? (FLIPPED[e.op] ?? e.op) : e.op;
+  // An OPTIONAL criterion param compared with `==` / `!=`: Loom reads `== null`
+  // as `IS NULL` (node, .NET, python, elixir and the JPQL twin all agree), but
+  // `cb.equal(col, null)` binds `= NULL`, which matches no row.  An ordering
+  // against null matches nothing on every backend, so only equality branches.
+  if ((op === "==" || op === "!=") && isOptionalParam(valueExpr)) {
+    return op === "=="
+      ? `(${v} == null ? cb.isNull(${p}) : cb.equal(${p}, ${v}))`
+      : `(${v} == null ? cb.isNotNull(${p}) : cb.notEqual(${p}, ${v}))`;
+  }
   switch (op) {
     case "==":
       return `cb.equal(${p}, ${v})`;
@@ -335,6 +344,13 @@ function binary(e: Extract<ExprIR, { kind: "binary" }>, ctx: CriteriaCtx): strin
 }
 
 const FLIPPED: Record<string, string> = { "<": ">", "<=": ">=", ">": "<", ">=": "<=" };
+
+/** A criterion parameter declared `T?`.  (A `currentUser` claim never reaches
+ *  this renderer: a principal criterion is not reified as a Specification.) */
+function isOptionalParam(e: ExprIR): boolean {
+  if (e.kind === "paren") return isOptionalParam(e.inner);
+  return e.kind === "ref" && e.refKind === "param" && e.type?.kind === "optional";
+}
 
 /** Candidate-rooted path segments of `this.a.b`, or null. */
 function pathSegments(e: ExprIR): string[] | null {

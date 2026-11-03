@@ -5,7 +5,7 @@
 
 import { nearestName } from "../../../util/edit-distance.js";
 import { intrinsicFor, intrinsicReturnType } from "../../../util/intrinsics.js";
-import type { AggregateIR, BoundedContextIR, ExprIR } from "../../types/loom-ir.js";
+import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../types/loom-ir.js";
 import { principalTerm } from "../../util/principal-term.js";
 import { durationCtorOperand, isDatetimeTypedIR } from "../../util/temporal.js";
 import { walkExprDeep } from "../../util/walk.js";
@@ -420,6 +420,23 @@ function notAPredicate(inner: ExprIR): string {
   );
 }
 
+/** A WHOLE value-object field read as a query operand (`this.ref == r`,
+ *  `this.addr == null`) — refused, or null for any other type.  A value object
+ *  has no column of its own: the relational adapters flatten it to one column
+ *  per leaf (`ref_code`), .NET EF maps it as an owned type, and Dapper / Ecto
+ *  keep it in one jsonb column, so no single comparison is right on all of
+ *  them (python and node named a `ref` column that does not exist, EF cannot
+ *  compare an owned type).  The queryable form is a leaf: `this.ref.code`. */
+function wholeValueObjectColumn(field: string, type: TypeIR): string | null {
+  const inner = type.kind === "optional" ? type.inner : type;
+  if (inner.kind !== "valueobject") return null;
+  return (
+    `whole value object 'this.${field}' (${inner.name}) — a value object is stored as its ` +
+    `fields, not as one column, so compare a field instead ('this.${field}.<field> == …', ` +
+    `with a criterion parameter of that field's type)`
+  );
+}
+
 /** Returns null if the expression is fully queryable; otherwise a
  * short label describing the first non-queryable node encountered.
  * The label is human-readable (`"collection op .where"`,
@@ -474,6 +491,10 @@ export function firstNonQueryableNode(e: ExprIR): string | null {
       // unreachable shape rather than a real one — but admitting it
       // would let an internal-error throw replace a clean diagnostic
       // if it ever became reachable.)
+      if (e.refKind === "this-prop" && e.type) {
+        const vo = wholeValueObjectColumn(e.name, e.type);
+        if (vo) return vo;
+      }
       if (
         e.refKind === "param" ||
         e.refKind === "let" ||
@@ -537,7 +558,7 @@ export function firstNonQueryableNode(e: ExprIR): string | null {
       //                                renderer threads a `currentUser`
       //                                parameter so the access becomes
       //                                a plain JS / C# value reference.
-      if (e.receiver.kind === "this") return null;
+      if (e.receiver.kind === "this") return wholeValueObjectColumn(e.member, e.memberType);
       if (
         e.receiver.kind === "member" &&
         e.receiver.receiver.kind === "this" &&

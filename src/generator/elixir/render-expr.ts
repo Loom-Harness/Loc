@@ -7,6 +7,7 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.js";
+import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
@@ -126,6 +127,12 @@ export interface RenderCtx {
    *  parameters.  Off everywhere else (op / derived / invariant bodies use
    *  plain locals + the in-memory `Decimal.*` API). */
   filterArgs?: boolean;
+  /** Inside an Ecto query filter (`filterArgs`), the Ecto schema module of the
+   *  aggregate being read.  A `this.<refColl>.contains(x)` membership then
+   *  renders as an `id in subquery(...)` over the `many_to_many` association —
+   *  the same `assoc` join the repository's find path uses — instead of the
+   *  in-memory `Enum.member?`, which is not valid inside `where:`. */
+  refCollOwnerModule?: string;
   /** Renders the aggregate-`id` expression (`{kind:"id"}`) as this bare
    *  local instead of `<thisName>.id`.  Set by the event-sourced create
    *  command runner, where the new aggregate id is a freshly generated
@@ -883,17 +890,22 @@ function renderMethodCall(recv: string, args: string[], e: MethodCallExpr, ctx: 
   // `__ref_id_list/1` helper first — the same helper the `+=`/`-=` mutation path
   // uses, and which handles the not-loaded case (`%NotLoaded{}` → `[]`).
   //
-  // NB: this only ever runs in DOMAIN-LOGIC contexts (operation bodies).  The
-  // repository FIND path intercepts a `contains` where-clause BEFORE render-expr
-  // (`containsRefCollField` → a real join query in `repository-emit.ts`), so an
-  // Ecto-query-mode `Enum.member?` is never emitted here.  Detection is
-  // structural: `contains`, receiverType array<id>, a single arg.
+  // Inside an Ecto query (`filterArgs`) with `refCollOwnerModule` set — a
+  // retrieval `where` — the membership is an `id in subquery(...)` over the
+  // association instead; the repository FIND path intercepts a whole-`where`
+  // `contains` before render-expr (`containsRefCollField` → a join query in
+  // `repository-emit.ts`).  Detection is structural: `contains`, receiverType
+  // array<id>, a single arg.
   if (
     e.member === "contains" &&
     e.receiverType.kind === "array" &&
     e.receiverType.element.kind === "id" &&
     e.args.length === 1
   ) {
+    const field = ctx.filterArgs ? refCollectionFieldName(e.receiver) : null;
+    if (field && ctx.refCollOwnerModule) {
+      return `${ctx.thisName}.id in subquery(from(owner_row in ${ctx.refCollOwnerModule}, join: member_row in assoc(owner_row, :${snake(field)}), where: member_row.id == ${args[0]}, select: owner_row.id))`;
+    }
     return `Enum.member?(__ref_id_list(${recv}), ${args[0]})`;
   }
   if (e.isCollectionOp) {

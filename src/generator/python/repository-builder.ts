@@ -52,7 +52,7 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
-import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import { mapExprChildren, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
@@ -724,9 +724,16 @@ function runMethod(
   bypass?: FilterBypass,
 ): string {
   const root = schemaRow(rowClassName(agg.name));
+  // The runner appends its own `offset` / `limit` paging keywords (callers
+  // pass them by name), so a criterion param of either name would be a
+  // duplicate argument — a SyntaxError.  The colliding param is renamed in the
+  // signature and the predicate instead; callers pass criterion args
+  // positionally, so the rename is invisible to them.
+  const renames = runnerParamRenames(retrieval.params.map((p) => p.name));
+  const where = renames.size > 0 ? renameParamRefs(retrieval.where, renames) : retrieval.where;
   const pred = requireLowered(
     `retrieval '${retrieval.name}' on '${agg.name}'`,
-    lowerToSqlAlchemy(retrieval.where, agg, ctx, principalOpts(retrieval.where)),
+    lowerToSqlAlchemy(where, agg, ctx, principalOpts(where)),
   );
   const orderBy =
     retrieval.sort.length > 0
@@ -736,7 +743,9 @@ function runMethod(
       : "";
   const params = [
     "self",
-    ...retrieval.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
+    ...retrieval.params.map(
+      (p) => `${pythonIdent(renames.get(p.name) ?? p.name)}: ${renderPyType(p.type)}`,
+    ),
     "offset: int | None = None",
     "limit: int | None = None",
   ];
@@ -754,6 +763,34 @@ function runMethod(
     findExecutedLine(agg, `run_${snake(retrieval.name)}`, "len(items)"),
     "        return items",
   );
+}
+
+/** The runner's own paging keywords, which a criterion param must not reuse. */
+const RUNNER_PAGING_PARAMS: ReadonlySet<string> = new Set(["offset", "limit"]);
+
+/** Criterion param name → the name the runner declares it under: a param that
+ *  collides with a paging keyword takes a trailing `_` (repeated until it is
+ *  free of every other param).  Empty when nothing collides. */
+function runnerParamRenames(params: readonly string[]): Map<string, string> {
+  const renames = new Map<string, string>();
+  const taken = new Set(params.map((p) => pythonIdent(p)));
+  for (const p of params) {
+    if (!RUNNER_PAGING_PARAMS.has(pythonIdent(p))) continue;
+    let name = `${p}_`;
+    while (taken.has(pythonIdent(name))) name = `${name}_`;
+    taken.add(pythonIdent(name));
+    renames.set(p, name);
+  }
+  return renames;
+}
+
+/** `e` with every reference to a renamed PARAM spelled by its new name. */
+function renameParamRefs(e: ExprIR, renames: ReadonlyMap<string, string>): ExprIR {
+  if (e.kind === "ref" && e.refKind === "param") {
+    const name = renames.get(e.name);
+    return name ? { ...e, name } : e;
+  }
+  return mapExprChildren(e, (c) => renameParamRefs(c, renames));
 }
 
 // --- hydration (row → domain) ----------------------------------------------
