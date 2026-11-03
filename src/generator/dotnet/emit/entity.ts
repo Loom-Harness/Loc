@@ -241,6 +241,17 @@ export function csClaimStampsFor(
  *  declare both (CS0102).  On a collision the helper steps aside with
  *  trailing underscores (eval item 6, ruling D2); every other entity keeps the
  *  unchanged name. */
+/** The name of a construction factory's instance local: `e`, unless one of
+ *  the factory's parameters (DSL names, before keyword escaping) already owns
+ *  it — C# refuses a local re-declaring a parameter in the same scope (CS0136),
+ *  so a create-input field named `e` takes `_e` (then `__e`, …) instead. */
+export function factoryLocal(paramNames: readonly string[]): string {
+  const taken = new Set(paramNames);
+  let name = "e";
+  while (taken.has(name)) name = `_${name}`;
+  return name;
+}
+
 function invariantHelperName(entity: EnrichedAggregateIR | EnrichedEntityPartIR): string {
   const ops = "operations" in entity ? entity.operations : [];
   const taken = new Set<string>([
@@ -745,6 +756,7 @@ export function renderEntity(
   // where each `emit` records-and-folds the creation event.  Input is the
   // create action's params (the command shape).  Replaces the state-writing
   // public factory for event-sourced aggregates.
+  const esLocal = factoryLocal((esCreate?.params ?? []).map((p) => p.name));
   const esCreateFactoryLines: string[] =
     isRoot && eventSourced && esCreate
       ? [
@@ -752,10 +764,10 @@ export function renderEntity(
             .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
             .join(", ")})`,
           "    {",
-          `        var e = new ${entity.name}();`,
-          `        e.Id = new ${idClass}(${csNewIdValue(renderCtx.memberScope)});`,
-          `        e._Init(${esCreate.params.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
-          "        return e;",
+          `        var ${esLocal} = new ${entity.name}();`,
+          `        ${esLocal}.Id = new ${idClass}(${csNewIdValue(renderCtx.memberScope)});`,
+          `        ${esLocal}._Init(${esCreate.params.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
+          `        return ${esLocal};`,
           "    }",
           "",
           `    private void _Init(${esCreate.params
@@ -911,11 +923,14 @@ export function renderEntity(
     if (omission.kind === "empty-collection") return "[]";
     return undefined; // plain optional — already nullable
   };
+  // The factory's instance local must not shadow one of its own parameters
+  // (CS0136) — a create-input field may well be named `e`.
+  const pubLocal = factoryLocal(createInputFieldList.map((f) => f.name));
   const createAssignments = createInputFieldList.map((f) => {
     const dflt = csFactoryDefault(f);
     // `??`, not a truthiness test: an explicit 0/""/false must survive.
     const arg = escapeCsharpIdent(f.name);
-    return `        e.${upperFirst(f.name)} = ${dflt === undefined ? arg : `${arg} ?? ${dflt}`};`;
+    return `        ${pubLocal}.${upperFirst(f.name)} = ${dflt === undefined ? arg : `${arg} ?? ${dflt}`};`;
   });
   // Server-seeded literal defaults (RS-11): fields outside the create-input set
   // (`token`/`managed`/`internal`) whose default is a construction-time
@@ -932,14 +947,17 @@ export function renderEntity(
         ...constructionSeededFields(
           entity.fields,
           new Set(createInputFieldList.map((f) => f.name)),
-        ).map((f) => `        e.${upperFirst(f.name)} = ${renderCsExpr(f.default, renderCtx)};`),
+        ).map(
+          (f) =>
+            `        ${pubLocal}.${upperFirst(f.name)} = ${renderCsExpr(f.default, renderCtx)};`,
+        ),
         // A server-owned field with no default (`openedAt: datetime managed`)
         // takes the shared language-defined seed — the value node and python
         // name too.  Left to the CLR default it read back as 0001-01-01, and a
         // `string` / list one went in as NULL (500).
         ...serverSeededFields(entity).map(
           ({ field, seed }) =>
-            `        e.${upperFirst(field.name)} = ${csServerInitSeed(seed, field.type)};`,
+            `        ${pubLocal}.${upperFirst(field.name)} = ${csServerInitSeed(seed, field.type)};`,
         ),
       ]
     : [];
@@ -952,7 +970,7 @@ export function renderEntity(
         .filter((f) => !createInputNames.has(f.name) && f.default === undefined)
         .flatMap((f) => {
           const v = csFactoryDefault(f);
-          return v === undefined ? [] : [`        e.${upperFirst(f.name)} = ${v};`];
+          return v === undefined ? [] : [`        ${pubLocal}.${upperFirst(f.name)} = ${v};`];
         })
     : [];
   const createBody = isAgg(entity) ? createBodyStatements(entity) : [];
@@ -980,22 +998,24 @@ export function renderEntity(
             })
             .join(", ")})`,
           "    {",
-          `        var e = new ${entity.name}();`,
-          `        e.Id = new ${idClass}(${csNewIdValue(renderCtx.memberScope)});`,
+          `        var ${pubLocal} = new ${entity.name}();`,
+          `        ${pubLocal}.Id = new ${idClass}(${csNewIdValue(renderCtx.memberScope)});`,
           ...createAssignments,
           ...createDefaultSeeds,
           ...createNarrowedSeeds,
           // Public Create factory — same "<init>" label as the hydration path.
-          emitTrace ? `        e.${assertName}("<init>");` : `        e.${assertName}();`,
+          emitTrace
+            ? `        ${pubLocal}.${assertName}("<init>");`
+            : `        ${pubLocal}.${assertName}();`,
           // The create body (`createBodyStatements`) runs against the
           // constructed instance, exactly like an operation body: params as
           // locals, unlisted fields already at their declared defaults.
           ...(createBody.length > 0
             ? [
-                `        e._CreateBody(${createParams.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
+                `        ${pubLocal}._CreateBody(${createParams.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
               ]
             : []),
-          "        return e;",
+          `        return ${pubLocal};`,
           "    }",
           ...(createBody.length > 0
             ? [
