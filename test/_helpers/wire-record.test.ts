@@ -19,6 +19,33 @@ import {
 } from "./wire-record.js";
 import { WIRE_WAIVERS } from "./wire-waivers.js";
 
+describe("the #4473 pending-backend waivers cover the error codes and nothing else", () => {
+  const div = (path: string, golden: unknown) => ({
+    seq: 1,
+    request: "POST /api/products",
+    kind: "key-set" as const,
+    path,
+    golden: golden as never,
+    actual: undefined as never,
+  });
+
+  it("waive a missing wire code / params on a pending leg, never on node", () => {
+    const missing = [
+      div("$.code", "problem.field-invalid"),
+      div("$.errors[0].code", "field.missing"),
+      div("$.errors[0].params", { qty: -1 }),
+      div("$.code", "Sales.OutOfStock.message"),
+    ];
+    expect(applyWaivers(missing, "python", "c", WIRE_WAIVERS).gating).toEqual([]);
+    expect(applyWaivers(missing, "node", "c", WIRE_WAIVERS).gating).toHaveLength(4);
+  });
+
+  it("do not cover a domain field that happens to be named `code`", () => {
+    const domain = [div("$.code", "WID"), div("$.sku.code", "ABC-1")];
+    expect(applyWaivers(domain, "python", "c", WIRE_WAIVERS).gating).toHaveLength(2);
+  });
+});
+
 const entry = (o: Partial<WireEntry> & { seq: number }): WireEntry => ({
   method: "GET",
   path: "/api/products",

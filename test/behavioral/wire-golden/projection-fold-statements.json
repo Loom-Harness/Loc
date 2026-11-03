@@ -119,6 +119,7 @@
       "path": "/api/accounts/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}",
         "status": 404,
@@ -146,6 +147,7 @@
       "path": "/api/accounts",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/accounts",
         "instance": "/api/accounts",
         "status": 405,
@@ -159,6 +161,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -172,6 +175,7 @@
       "path": "/api/accounts",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/accounts",
         "status": 400,
@@ -185,6 +189,7 @@
       "path": "/api/projections/account_board/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "AccountBoard {id} not found",
         "instance": "/api/projections/account_board/{id}",
         "status": 404,
@@ -198,6 +203,7 @@
       "path": "/api/accounts/{id}/open_it",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}/open_it",
         "status": 404,
@@ -211,6 +217,7 @@
       "path": "/api/accounts/{id}/open_it",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}/open_it",
         "status": 404,
@@ -224,6 +231,7 @@
       "path": "/api/accounts/{id}/open_it",
       "status": 415,
       "body": {
+        "code": "problem.unsupported-media-type",
         "detail": "Content-Type must be application/json",
         "instance": "/api/accounts/{id}/open_it",
         "status": 415,

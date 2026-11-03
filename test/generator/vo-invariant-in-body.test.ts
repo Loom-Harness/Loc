@@ -37,10 +37,10 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
   it("node: the constructor raises ValueObjectInvariantError and every body router answers it", async () => {
     const fs = await files("node");
     expect(find(fs, "domain/value-objects.ts")).toContain(
-      'throw new ValueObjectInvariantError("Qty", "Quantity must be positive", "Orders.Qty.rule.quantityPositive")',
+      'throw new ValueObjectInvariantError("Qty", "Quantity must be positive", "Orders.Qty.rule.quantityPositive", { "value": this.value })',
     );
     expect(find(fs, "domain/value-objects.ts")).toContain(
-      'throw new ValueObjectInvariantError("Label", "Invalid value")',
+      'throw new ValueObjectInvariantError("Label", "Invalid value", "field.rule")',
     );
     expect(find(fs, "domain/errors.ts")).toContain(
       "export class ValueObjectInvariantError extends DomainError",
@@ -48,9 +48,7 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
     const pd = find(fs, "http/problem-details.ts");
     // Renamed `domainFloorProblem` by M-T1.11 (c): ONE answer for both refusals.
     expect(pd).toContain("export function domainFloorProblem(");
-    expect(pd).toContain(
-      'const entry = { pointer: "", message: localizeMessage(err.code, err.message)',
-    );
+    expect(pd).toContain('const entry = { pointer: "", message: err.message, code');
     const answer = 'domainFloorProblem(c, err, 422, "Unprocessable Entity") ?? problem(422';
     expect(find(fs, "http/order.routes.ts")).toContain(answer);
     expect(find(fs, "http/workflows.ts")).toContain(answer);

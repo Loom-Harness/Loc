@@ -69,11 +69,11 @@ import { elixirString, humanize, snake, upperFirst } from "../../util/naming.js"
 import { USER_VISIBLE_SLOTS } from "../../util/user-visible-slots.js";
 import { type ExprCtxBase, type ExprTarget, renderExprWith } from "../_expr/target.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
+import { sourceText } from "../_i18n/source-text.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { icuFromConcat, inlineComponentKeyPrefix, messageKey } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
-import { sourceText } from "../_walker/source-text.js";
 import { modelTextExpr } from "./heex-model-text.js";
 import { heexTarget, renderHeexStoreActionCall, renderHeexStoreFieldRead } from "./heex-target.js";
 import { pgettextCall } from "./i18n.js";

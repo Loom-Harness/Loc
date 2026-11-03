@@ -3,7 +3,8 @@ import { useNavigate, Link as RouterLink } from "react-router";
 import { CreateCustomerRequest, useCreateCustomer } from "../../api/customer";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { fieldErrorText } from "../../lib/field-error";
+import { zodResolver } from "../../lib/zod-resolver";
 import { Anchor, Breadcrumbs, Button, Card, Group, NumberInput, Stack, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { Controller, useForm } from "react-hook-form";
@@ -39,9 +40,9 @@ export default function CustomerNew() {
                   }
                 })} data-testid="customers-new">
           <Stack gap="md">
-            <TextInput label={ t("Customers.Customer.field.username", "Username") } {...register("username")} data-testid="customers-new-input-username" error={errors.username?.message} />
+            <TextInput label={ t("Customers.Customer.field.username", "Username") } {...register("username")} data-testid="customers-new-input-username" error={fieldErrorText(errors.username)} />
     
-            <TextInput label={ t("Customers.Customer.field.email", "Email") } {...register("email")} data-testid="customers-new-input-email" error={errors.email?.message} />
+            <TextInput label={ t("Customers.Customer.field.email", "Email") } {...register("email")} data-testid="customers-new-input-email" error={fieldErrorText(errors.email)} />
     
             <Controller
               control={control}

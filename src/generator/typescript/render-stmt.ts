@@ -14,6 +14,7 @@ import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt
 import type { ChunkMark } from "../_trace/sourcemap.js";
 import { tsLineageValue } from "./codec-spelling.js";
 import { renderTsExpr, renderTsExprWithMarks } from "./render-expr.js";
+import { tsRuleParams } from "./wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
 // Statement LEAF TABLE for the Hono / TypeScript backend.  The `StmtIR`
@@ -359,8 +360,9 @@ function precondition(
   // pointer THROUGH the throw, so the router's domain-floor answer
   // can add the `errors[]` entry the wire rung would have carried.
   const code = traceCtx.domainFloorCodes ? domainFloorCode(message) : undefined;
+  const params = code ? tsRuleParams({ expr }, renderTsExpr) : undefined;
   const thrown = code
-    ? `throw new DomainError(${JSON.stringify(detail)}, "precondition", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
+    ? `throw new DomainError(${JSON.stringify(detail)}, "precondition", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))}${params ? `, ${params}` : ""})`
     : `throw new DomainError(${JSON.stringify(detail)}, "precondition")`;
   if (!traceCtx.emitTrace) {
     return `${INDENT}if (!(${renderTsExpr(expr)})) ${thrown};`;

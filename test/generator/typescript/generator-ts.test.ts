@@ -619,13 +619,19 @@ describe("typescript generator", () => {
       expect(routes).toMatch(
         /"content-type": "application\/problem\+json", "x-request-id": trace_id/,
       );
-      expect(routes).toMatch(/return problem\(403, "Forbidden", err\.detail\)/);
+      expect(routes).toMatch(
+        /return problem\(403, "Forbidden", err\.detail, "problem\.forbidden"\)/,
+      );
       // M-T5.1 — a value-object breach answers first when the project has one.
       expect(routes).toMatch(
-        /return (?:domainFloorProblem\(c, err, 422, "Unprocessable Entity"\) \?\? )?problem\(422, "Unprocessable Entity", err\.message\)/,
+        /return (?:domainFloorProblem\(c, err, 422, "Unprocessable Entity"\) \?\? )?problem\(422, "Unprocessable Entity", err\.message, "problem\.domain-floor"\)/,
       );
-      expect(routes).toMatch(/return problem\(404, "Not Found", err\.message\)/);
-      expect(routes).toMatch(/return problem\(500, "Internal Server Error", "internal"\)/);
+      expect(routes).toMatch(
+        /return problem\(404, "Not Found", err\.message, "problem\.not-found"\)/,
+      );
+      expect(routes).toMatch(
+        /return problem\(500, "Internal Server Error", "internal", "problem\.internal", \{ requestId: trace_id \}\)/,
+      );
     });
 
     it("routes emit catalog log events at the right levels via the bound child logger", async () => {
@@ -886,7 +892,9 @@ describe("typescript generator", () => {
       expect(routes).not.toMatch(/throw new ExternHandlerError\(/);
       // The shared onError still maps a stray ExternHandlerError (a Phase-1
       // extern commandHandler failure) to a 500 problem body.
-      expect(routes).toMatch(/return problem\(500, "Internal Server Error", "internal"\)/);
+      expect(routes).toMatch(
+        /return problem\(500, "Internal Server Error", "internal", "problem\.internal", \{ requestId: trace_id \}\)/,
+      );
     });
 
     it("does NOT register a defaultHook on OpenAPIHono (Zod's 400 stays the contract)", async () => {
@@ -1479,7 +1487,7 @@ describe("typescript generator", () => {
       );
       expect(wf).toMatch(/if \(!\(currentUser\.role === "admin"\)\) throw new ForbiddenError\(/);
       expect(wf).toMatch(
-        /if \(err instanceof ForbiddenError\) \{ .*? return problem\(403, "Forbidden", err\.detail\); \}/,
+        /if \(err instanceof ForbiddenError\) \{ .*? return problem\(403, "Forbidden", err\.detail, "problem\.forbidden"\); \}/,
       );
       // The binding is conditional: only the guarded workflow's handler
       // gets it — `touchOne` never references currentUser.
@@ -1697,7 +1705,9 @@ describe("typescript generator", () => {
       // The onError arm logs the catalog event, then returns an RFC 7807
       // problem body (403 Forbidden) via the shared `problem(...)` responder.
       expect(route).toMatch(/if \(err instanceof ForbiddenError\) \{/);
-      expect(route).toMatch(/return problem\(403, "Forbidden", err\.detail\);/);
+      expect(route).toMatch(
+        /return problem\(403, "Forbidden", err\.detail, "problem\.forbidden"\);/,
+      );
     });
   });
 
@@ -1865,7 +1875,7 @@ describe("typescript generator", () => {
       const routes = files.get("http/reservation.routes.ts")!;
       // `fromTime < toTime` is cross-field — falls through to .refine.
       expect(routes).toMatch(
-        /CreateReservationRequest = z\.object\(\{[\s\S]*?\}\)\.openapi\("CreateReservationRequest"\)\.refine\(\(data: any\) => data\.fromTime < data\.toTime, \{ path: \["fromTime"\], message: "Business rule violated" \}\)/,
+        /CreateReservationRequest = z\.object\(\{[\s\S]*?\}\)\.openapi\("CreateReservationRequest"\)\.refine\(\(data: any\) => data\.fromTime < data\.toTime, \{ path: \["fromTime"\], message: "Business rule violated", params: \{ loomCode: "problem\.domain-floor" \} \}\)/,
       );
     });
   });

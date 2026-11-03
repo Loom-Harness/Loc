@@ -545,7 +545,7 @@ export function renderEntity(
   const whenGate = (op: (typeof operations)[number]): string | null =>
     op.when
       ? `        if (!(${renderCsExpr(op.when, renderCtx)})) throw new DisallowedException(${JSON.stringify(
-          disallowedDetail(op.name, entity.name, op.whenSource),
+          disallowedDetail(op.name, entity.name),
         )});`
       : null;
   for (const op of operations) {

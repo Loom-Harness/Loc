@@ -105,7 +105,7 @@ const AUTHORED_DETAIL = "Repricing needs a positive amount";
  *  (`errorTitle` humanises `Disallowed`) on all five.  This predicate DOES
  *  carry a string literal, on purpose: all five embed the detail with the same
  *  JSON-style `\"` escaping, so the expectation is that escaped form. */
-const DISALLOWED_DETAIL = `operation 'reopen' is not allowed in the current state of Order (when status != "open").`;
+const DISALLOWED_DETAIL = `operation 'reopen' is not allowed in the current state of Order.`;
 const DISALLOWED_DETAIL_EMBEDDED = JSON.stringify(DISALLOWED_DETAIL).slice(1, -1);
 
 async function emit(platform: string): Promise<string> {
@@ -288,7 +288,7 @@ system Denials3 {
 /** The coded domain-error surface each backend emits only when the
  *  domain-floor gate is on. */
 const CODED_ERROR_SURFACE: Record<string, string> = {
-  node: "constructor(message: string, kind?: DomainErrorKind, code?: string, pointer?: string)",
+  node: "constructor(message: string, kind?: DomainErrorKind, code?: string, pointer?: string, params?: Record<string, unknown>)",
   dotnet: "public string? RuleCode { get; }",
   java: "public DomainException(String message, Kind kind, String ruleCode, String pointer)",
   python: "        code: str | None = None,",

@@ -230,11 +230,21 @@ function loadApplyServerErrors(
   }).outputText;
 
   // Eval the CJS-shaped output in a function that closes over `exports`
-  // and `module`, returning the named binding.  No real require shim
-  // needed — the source has no value-imports after the type-strip.
-  const factory = new Function("exports", "module", `${js}\nreturn exports.applyServerErrors;`);
+  // and `module`, returning the named binding.  The one value import is the
+  // app's `t` (an i18n-enabled app localizes by code); bound here to a catalog
+  // with no entries, so every message falls back to the server's English.
+  const factory = new Function(
+    "exports",
+    "module",
+    "require",
+    `${js}\nreturn exports.applyServerErrors;`,
+  );
   const mod = { exports: {} as Record<string, unknown> };
-  return factory(mod.exports, mod) as never;
+  const require = (id: string) => {
+    if (id === "../i18n") return { t: (_key: string, fallback: string) => fallback };
+    throw new Error(`unexpected import ${id}`);
+  };
+  return factory(mod.exports, mod, require) as never;
 }
 
 function readApplyServerErrorsSrc(files: Map<string, string>): string {

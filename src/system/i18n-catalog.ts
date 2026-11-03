@@ -1,9 +1,9 @@
+import { sourceText } from "../generator/_i18n/source-text.js";
 import { collectWireValidationMessages } from "../generator/_i18n/validation-catalog.js";
 import { loadPack, resolvePackDir } from "../generator/_packs/loader-fs.js";
 import { packChromeCatalog } from "../generator/_packs/pack-chrome.js";
 import { chromeMergedWhenEnabled } from "../generator/_walker/i18n-chrome.js";
 import { collectUiMessages } from "../generator/_walker/i18n-extract.js";
-import { sourceText } from "../generator/_walker/source-text.js";
 import type { EnrichedSystemIR, UiIR } from "../ir/types/loom-ir.js";
 import { packFormatForBuiltin } from "../util/builtin-formats.js";
 

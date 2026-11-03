@@ -116,7 +116,9 @@ describe("hono/drizzle generator — event-sourced concurrency rider", () => {
     const routes = fileEndingWith(await generateSystemFiles(esSystem("node")), "account.routes.ts");
     expect(routes).toContain("if (err instanceof ConcurrencyError) {");
     expect(routes).toContain('event: "conflict", aggregate: "Account"');
-    expect(routes).toContain('return problem(409, "Conflict", err.message);');
+    expect(routes).toContain(
+      'return problem(409, "Conflict", err.message, "problem.version-conflict");',
+    );
   });
 
   it("emits the ConcurrencyError class in domain/errors.ts", async () => {

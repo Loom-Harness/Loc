@@ -46,7 +46,35 @@
 // of its own with a named exit.
 // ---------------------------------------------------------------------------
 
+import { pendingErrorCodeLegs } from "./error-code-rows.js";
 import type { WireWaiver } from "./wire-record.js";
+
+/** A wire error code: `problem.<class>`, `field.<reason>`, a named rule's
+ *  `<Ctx>.<Owner>.rule.<name>` or a declared error's `<Ctx>.<Error>.message`. */
+const WIRE_ERROR_CODE = "^(problem|field)\\.[a-z-]+$|^\\w+\\.\\w+\\.(rule\\.\\w+|message)$";
+
+/** #4473 — the backends still `pending` in `error-code-rows.ts` answer every
+ *  refusal without the `code` / `params` extension members the golden (node)
+ *  carries.  Exactly those members, nothing else: flipping a row to `done`
+ *  deletes its legs from these two waivers. */
+const PENDING_ERROR_CODES: readonly WireWaiver[] =
+  pendingErrorCodeLegs().length === 0
+    ? []
+    : [
+        {
+          backends: pendingErrorCodeLegs(),
+          path: "**.code",
+          kinds: ["key-set", "value"],
+          goldenValues: WIRE_ERROR_CODE,
+          reason: "#4473 — the fan-out backends do not yet put the catalog `code` on every refusal",
+        },
+        {
+          backends: pendingErrorCodeLegs(),
+          path: "**.params",
+          kinds: ["key-set", "value"],
+          reason: "#4473 — the fan-out backends do not yet put the message `params` on a refusal",
+        },
+      ];
 
 // 2026-10-11 — #3224 armed `transactional-workflow-event-rollback` on the
 // Dapper and python legs, the first golden to record an optimistic-concurrency
@@ -55,6 +83,7 @@ import type { WireWaiver } from "./wire-record.js";
 // fixed sentence).  M-T6.91 rules the canonical sentence and deletes this.
 // `elixir` joined with M-T6.92, which turned its 500 into the same 409.
 export const WIRE_WAIVERS: readonly WireWaiver[] = [
+  ...PENDING_ERROR_CODES,
   // elixir's workflow / explicit-route dispatcher receives the bare
   // `{:error, :conflict}` (no aggregate, no row), so its 409 `detail` is the
   // generic sentence.  Status, `title` and `type` agree; every other backend

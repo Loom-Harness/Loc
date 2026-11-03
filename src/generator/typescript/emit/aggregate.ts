@@ -48,6 +48,7 @@ import {
   statementExprMarks,
   statementSubRegions,
 } from "../render-stmt.js";
+import { tsRuleParams } from "../wire-policy-ts.js";
 
 /** One operation body's exact emitted text plus its per-statement
  *  sub-regions — surfaced by `renderAggregate` (when `opFragments` is
@@ -626,7 +627,7 @@ function renderEntity(
   const whenGate = (op: (typeof e.operations)[number]): string | null =>
     op.when
       ? `    if (!(${renderTsExpr(op.when)})) throw new DisallowedError(${JSON.stringify(
-          disallowedDetail(op.name, e.name, op.whenSource),
+          disallowedDetail(op.name, e.name),
         )});`
       : null;
   for (const op of e.operations) {
@@ -758,8 +759,9 @@ function renderEntity(
     // THROUGH the throw — the domain floor then answers the same
     // `errors[]` entry the wire rung carries for the rule.
     const code = domainFloorCode(inv.message);
+    const params = code ? tsRuleParams(inv, renderTsExpr) : undefined;
     const exprSrc = code
-      ? `${text}, "invariant", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}`
+      ? `${text}, "invariant", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}${params ? `, ${params}` : ""}`
       : `${text}, "invariant"`;
     if (!emitTrace) {
       const check = inv.guard

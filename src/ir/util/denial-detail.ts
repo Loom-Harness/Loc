@@ -38,16 +38,13 @@ export function echoesDenialDetail(
 // the predicate rejects (conformance rule RS-17, pinned byte-for-byte across
 // the five backends, so the sentence is built here once).
 //
-// The detail names the failed predicate by its `.ddd` source, the way a 422
-// names its `precondition` ("Precondition failed: <src>"), so a caller can tell
-// WHICH state gate refused the operation.  Unlike the 403 it is echoed under
-// every verifier: a `when` gate is a statement about the aggregate's lifecycle
-// state, a domain rule like a precondition, not an authorization predicate.
+// The detail names the operation and the aggregate, never the predicate: a
+// `when` expression is the model's internals, not a sentence a caller can act
+// on, and echoing it leaks the `.ddd` source into every response.  The body
+// carries the stable code `problem.state-gate` (`wireCode`), which is what a
+// client localizes by.
 
-/** `operation '<op>' is not allowed in the current state of <Agg> (when <src>).`
- *  — without the parenthesis when no source text is available (an operation
- *  synthesised without a `.ddd` span). */
-export function disallowedDetail(opName: string, aggName: string, whenSource?: string): string {
-  const gate = whenSource ? ` (when ${whenSource})` : "";
-  return `operation '${opName}' is not allowed in the current state of ${aggName}${gate}.`;
+/** `operation '<op>' is not allowed in the current state of <Agg>.` */
+export function disallowedDetail(opName: string, aggName: string): string {
+  return `operation '${opName}' is not allowed in the current state of ${aggName}.`;
 }

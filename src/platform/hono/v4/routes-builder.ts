@@ -40,7 +40,10 @@ import {
   canonicalIsoExpr,
 } from "../../../generator/typescript/repository-wire-builder.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
-import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
+import {
+  tsErrorVariantExt,
+  tsNotFoundThrow,
+} from "../../../generator/typescript/wire-policy-ts.js";
 import {
   chainSingleFieldNative,
   openapiLengthMeta,
@@ -61,6 +64,7 @@ import {
   fieldFixedMessage,
   noneVariantResponse,
   reasonPhrase,
+  wireCode,
   wireFixedDetail,
   wireStatus,
   wireTitle,
@@ -1421,7 +1425,7 @@ export function buildRoutesFile(
       `        if (err && typeof err === "object" && ${referencedSqlstates}.includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)) {`,
     );
     lines.push(
-      `          return c.body(JSON.stringify({ type: "about:blank", title: ${JSON.stringify(wireTitle("referenced-in-use", ctx.structuralErrorStatuses))}, status: ${referencedInUseStatus}, detail: "${agg.name} is still referenced and cannot be deleted.", instance: c.req.path }), ${referencedInUseStatus}, { "content-type": "application/problem+json" });`,
+      `          return c.body(JSON.stringify({ type: "about:blank", title: ${JSON.stringify(wireTitle("referenced-in-use", ctx.structuralErrorStatuses))}, status: ${referencedInUseStatus}, detail: "${agg.name} is still referenced and cannot be deleted.", instance: c.req.path, code: ${JSON.stringify(wireCode("referenced-in-use"))} }), ${referencedInUseStatus}, { "content-type": "application/problem+json" });`,
     );
     lines.push(`        }`);
     lines.push(`        throw err;`);
@@ -1535,7 +1539,7 @@ export function buildRoutesFile(
   // .NET / Phoenix).  `instance` is the request path; `type` is `about:blank`
   // (no per-error type registry).  Shared shape across all error arms.
   lines.push(
-    `    const problem = (status: ${problemStatusUnion}, title: string, detail: string) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
+    `    const problem = (status: ${problemStatusUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   lines.push(`    if (err instanceof ForbiddenError) {`);
   lines.push(
@@ -1545,7 +1549,7 @@ export function buildRoutesFile(
   // `err.detail`, not `err.message` (ruling D4, #20): the log line above keeps
   // the gate's source text; the body echoes it only under the dev-stub verifier.
   lines.push(
-    `      return problem(${forbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail);`,
+    `      return problem(${forbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail, ${JSON.stringify(wireCode("forbidden"))});`,
   );
   lines.push(`    }`);
   lines.push(`    if (err instanceof DisallowedError) {`);
@@ -1554,7 +1558,7 @@ export function buildRoutesFile(
   );
   lines.push(`      recordDomainFault("disallowed");`);
   lines.push(
-    `      return problem(${disallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message);`,
+    `      return problem(${disallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message, ${JSON.stringify(wireCode("state-gate"))});`,
   );
   lines.push(`    }`);
   lines.push(`    if (err instanceof DomainError) {`);
@@ -1563,7 +1567,7 @@ export function buildRoutesFile(
   );
   lines.push(`      recordDomainFault("domain_error");`);
   lines.push(
-    `      return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), domainStatus, wireTitle("domain-floor", ctx.structuralErrorStatuses), `problem(${domainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message)`)};`,
+    `      return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), domainStatus, wireTitle("domain-floor", ctx.structuralErrorStatuses), `problem(${domainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("domain-floor"))})`)};`,
   );
   lines.push(`    }`);
   lines.push(`    if (err instanceof AggregateNotFoundError) {`);
@@ -1572,7 +1576,7 @@ export function buildRoutesFile(
   );
   lines.push(`      recordDomainFault("not_found");`);
   lines.push(
-    `      return problem(${notFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message);`,
+    `      return problem(${notFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
   );
   lines.push(`    }`);
   // PG foreign_key_violation (SQLSTATE 23503) reaching the SHARED onError is the
@@ -1598,7 +1602,7 @@ export function buildRoutesFile(
     );
     lines.push(`      recordDomainFault("domain_error");`);
     lines.push(
-      `      return problem(${domainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, ${JSON.stringify(wireFixedDetail("dangling-reference"))});`,
+      `      return problem(${domainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, ${JSON.stringify(wireFixedDetail("dangling-reference"))}, ${JSON.stringify(wireCode("dangling-reference"))});`,
     );
     lines.push(`    }`);
   }
@@ -1622,7 +1626,7 @@ export function buildRoutesFile(
     );
     lines.push(`      recordDomainFault("disallowed");`);
     lines.push(
-      `      return problem(${uniquenessStatus}, ${JSON.stringify(wireTitle("unique-conflict"))}, ${JSON.stringify(wireFixedDetail("unique-conflict"))});`,
+      `      return problem(${uniquenessStatus}, ${JSON.stringify(wireTitle("unique-conflict"))}, ${JSON.stringify(wireFixedDetail("unique-conflict"))}, ${JSON.stringify(wireCode("unique-conflict"))});`,
     );
     lines.push(`    }`);
   }
@@ -1643,7 +1647,7 @@ export function buildRoutesFile(
     );
     lines.push(`      recordDomainFault("conflict");`);
     lines.push(
-      `      return problem(${concurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message);`,
+      `      return problem(${concurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message, ${JSON.stringify(wireCode("version-conflict"))});`,
     );
     lines.push(`    }`);
   }
@@ -1659,7 +1663,7 @@ export function buildRoutesFile(
       `      ${renderHonoLogCall("internalError", `error: err.message, status: ${NOT_IMPLEMENTED_STATUS}`)}`,
     );
     lines.push(
-      `      return problem(${NOT_IMPLEMENTED_STATUS}, ${JSON.stringify(wireTitle("not-implemented"))}, err.message);`,
+      `      return problem(${NOT_IMPLEMENTED_STATUS}, ${JSON.stringify(wireTitle("not-implemented"))}, err.message, ${JSON.stringify(wireCode("not-implemented"))});`,
     );
     lines.push(`    }`);
   }
@@ -1671,7 +1675,7 @@ export function buildRoutesFile(
   // the inner message for the operator; the wire gets the same "internal" every
   // other 500 arm sends, on every backend.
   lines.push(
-    `      return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))});`,
+    `      return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}, ${JSON.stringify(wireCode("internal"))}, { requestId: trace_id });`,
   );
   lines.push(`    }`);
   // FRAMEWORK fault, not a domain one — hono raises `HTTPException` for the
@@ -1690,7 +1694,7 @@ export function buildRoutesFile(
     `    ${renderHonoLogCall("internalError", `error: err instanceof Error ? err.message : String(err), status: ${wireStatus("internal")}`)}`,
   );
   lines.push(
-    `    return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))});`,
+    `    return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}, ${JSON.stringify(wireCode("internal"))}, { requestId: trace_id });`,
   );
   lines.push(`  });`);
   lines.push("");
@@ -1840,7 +1844,7 @@ function whenGateLine(agg: AggregateIR, op: OperationIR, pad: string): string[] 
   const pred = renderTsExpr(op.when, { thisName: "aggregate" });
   return [
     `${pad}if (!(${pred})) throw new DisallowedError(${JSON.stringify(
-      disallowedDetail(op.name, agg.name, op.whenSource),
+      disallowedDetail(op.name, agg.name),
     )});`,
   ];
 }
@@ -2336,7 +2340,7 @@ function emitReturningOperationRoute(
     const status = statusFor(tag);
     out.push(`    if (result.type === ${JSON.stringify(tag)}) {`);
     out.push(
-      `      return c.json({ ...result, type: ${JSON.stringify(errorVariantResponse(tag).type)}, title: ${JSON.stringify(errorVariantResponse(tag).title)}, status: ${status}, detail: ${JSON.stringify(errorVariantResponse(tag).detail)}, instance: c.req.path }, ${status}, { "content-type": "application/problem+json" });`,
+      `      return c.json({ ...result, type: ${JSON.stringify(errorVariantResponse(tag).type)}, title: ${JSON.stringify(errorVariantResponse(tag).title)}, status: ${status}, detail: ${JSON.stringify(errorVariantResponse(tag).detail)}, instance: c.req.path, ${tsErrorVariantExt(ctx, tag, (f) => `result.${f}`)} }, ${status}, { "content-type": "application/problem+json" });`,
     );
     out.push(`    }`);
   }
@@ -2504,7 +2508,7 @@ function emitFindRoute(
         : "";
       out.push(`    if (result == null) {`);
       out.push(
-        `      return c.json({ ${resourceExt}type: ${JSON.stringify(errorVariantResponse(tag).type)}, title: ${JSON.stringify(errorVariantResponse(tag).title)}, status: ${st}, detail: ${JSON.stringify(errorVariantResponse(tag).detail)}, instance: c.req.path }, ${st}, { "content-type": "application/problem+json" });`,
+        `      return c.json({ ${resourceExt}type: ${JSON.stringify(errorVariantResponse(tag).type)}, title: ${JSON.stringify(errorVariantResponse(tag).title)}, status: ${st}, detail: ${JSON.stringify(errorVariantResponse(tag).detail)}, instance: c.req.path, ${tsErrorVariantExt(ctx, tag, () => JSON.stringify(agg.name))} }, ${st}, { "content-type": "application/problem+json" });`,
       );
       out.push(`    }`);
     }

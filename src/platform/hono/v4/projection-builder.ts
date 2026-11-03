@@ -11,7 +11,12 @@ import {
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import { isFlattenedValueObject, voLeaves } from "../../../generator/typescript/vo-flatten.js";
 import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
-import { wireFixedDetail, wireStatus, wireTitle } from "../../../ir/enrich/wire-policy.js";
+import {
+  wireCode,
+  wireFixedDetail,
+  wireStatus,
+  wireTitle,
+} from "../../../ir/enrich/wire-policy.js";
 import type {
   EnrichedBoundedContextIR,
   ProjectionIR,
@@ -675,7 +680,7 @@ function emitProjectionRoutes(
   out.push(`  app.onError((err, c) => {`);
   out.push(`    const trace_id = c.get("requestId") ?? "";`);
   out.push(
-    `    const problem = (status: ${[...new Set(anyGate ? [forbiddenStatus, notFoundStatus, wireStatus("internal")] : [notFoundStatus, wireStatus("internal")])].sort((a, b) => a - b).join(" | ")}, title: string, detail: string) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
+    `    const problem = (status: ${[...new Set(anyGate ? [forbiddenStatus, notFoundStatus, wireStatus("internal")] : [notFoundStatus, wireStatus("internal")])].sort((a, b) => a - b).join(" | ")}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   if (anyGate) {
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
@@ -684,19 +689,19 @@ function emitProjectionRoutes(
       `    if (err instanceof ForbiddenError) { ${renderHonoLogCall(
         "forbidden",
         `message: err.message, status: ${forbiddenStatus}`,
-      )} return problem(${forbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail); }`,
+      )} return problem(${forbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail, ${JSON.stringify(wireCode("forbidden"))}); }`,
     );
   }
   out.push(
     `    if (err instanceof AggregateNotFoundError) return problem(${notFoundStatus}, ${JSON.stringify(
       wireTitle("not-found", ctx.structuralErrorStatuses),
-    )}, err.message);`,
+    )}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
   );
   // Same tail as the query-projection router: an unexpected fault is logged and
   // answered as problem+json, never as hono's text/plain default.
   out.push(`    console.error(err);`);
   out.push(
-    `    return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))});`,
+    `    return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}, ${JSON.stringify(wireCode("internal"))}, { requestId: trace_id });`,
   );
   out.push(`  });`);
   out.push("");

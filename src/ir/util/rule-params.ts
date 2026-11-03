@@ -33,3 +33,20 @@ export function ruleParams(rule: { expr: ExprIR; guard?: ExprIR }): string[] {
   walkExprDeep(rule.guard, visit);
   return [...names].sort();
 }
+
+/** One reference per identifier `rule` reads (`ruleParams` order) — the
+ *  expression a backend renders to carry that identifier's VALUE on the wire
+ *  `params` when the rule trips. */
+export function ruleParamRefs(rule: {
+  expr: ExprIR;
+  guard?: ExprIR;
+}): { name: string; ref: ExprIR & { kind: "ref" } }[] {
+  const byName = new Map<string, ExprIR & { kind: "ref" }>();
+  const visit = (e: ExprIR): void => {
+    if (e.kind === "ref" && PARAM_REF_KINDS.has(e.refKind) && !byName.has(e.name))
+      byName.set(e.name, e);
+  };
+  walkExprDeep(rule.expr, visit);
+  walkExprDeep(rule.guard, visit);
+  return ruleParams(rule).map((name) => ({ name, ref: byName.get(name)! }));
+}

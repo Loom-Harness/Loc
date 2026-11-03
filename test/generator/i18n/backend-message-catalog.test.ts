@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// The BACKEND message catalog, on all five backends (M-T1.11).
+// The BACKEND message catalog, on the backends that still ship one.
+//
+// The server never translates a response (#4473): every refusal carries the
+// catalog `code` a client localizes it by.  node/Hono, the reference, ships no
+// catalog any more; the other four lose theirs with the #4473 fan-out, which
+// deletes their rows here as it flips them in
+// `test/_helpers/error-code-rows.ts`.
 //
 // A NAMED `invariant` / `check` / `precondition` puts its identity key
 // `<Ctx>.<Owner>.rule.<name>` as the `code` on the 422 `errors[]`.  Each backend
@@ -80,23 +86,21 @@ function bySuffix(files: Map<string, string>, suffix: string): string | undefine
   return key ? files.get(key) : undefined;
 }
 
-describe("node/Hono — http/messages.ts + defaultHook resolution", () => {
-  it("emits the catalog keyed by the wire codes", async () => {
-    const catalog = bySuffix(await filesFor("node"), "http/messages.ts")!;
-    expect(catalog).toBeDefined();
-    for (const code of ALL_CODES) expect(catalog).toContain(`"${code}"`);
-    expect(catalog).toContain(`"${NAME_CODE}": "Name length"`);
-    // The lookup input is the AMBIENT request locale (D-CTX-SHAPE), not a new
-    // plumbing axis.
-    expect(catalog).toContain("requestContext()?.locale");
+describe("node/Hono — no catalog: the 422 answers the code, the client localizes", () => {
+  it("ships no message catalog and no locale lookup", async () => {
+    const files = await filesFor("node");
+    expect(bySuffix(files, "http/messages.ts")).toBeUndefined();
+    const problem = bySuffix(files, "http/problem-details.ts")!;
+    expect(problem).not.toContain("localizeMessage");
+    // The entry answers the English message with its catalog code beside it.
+    expect(problem).toContain(
+      "return { pointer, message: issue.message, code: issueCode(issue), ...(params ? { params } : {}) };",
+    );
   });
 
-  it("resolves errors[].message through the catalog in the 422 hook", async () => {
-    const problem = bySuffix(await filesFor("node"), "http/problem-details.ts")!;
-    expect(problem).toContain('import { localizeMessage } from "./messages"');
-    expect(problem).toContain(
-      "message: isMissing(result.data, issue) ? missingFieldMessage(issue.path) : localizeMessage(issue.params?.loomCode, issue.message)",
-    );
+  it("each named rule's refine carries its identity key as the code", async () => {
+    const all = [...(await filesFor("node")).values()].join("\n");
+    for (const code of ALL_CODES) expect(all).toContain(`loomCode: "${code}"`);
   });
 });
 
@@ -192,17 +196,15 @@ describe("elixir/Phoenix — priv/gettext catalog + changeset-error resolution",
 });
 
 describe("cross-backend parity", () => {
-  it("all five backends ship the SAME code set — one collector, five renderings", async () => {
+  it("the catalog backends ship the SAME code set — one collector, N renderings", async () => {
     const codesIn = (content: string): string[] =>
       [...new Set(content.match(/Cat\.Product\.rule\.[A-Za-z0-9]+/g) ?? [])].sort();
-    const [node, dotnet, java, python, elixir] = await Promise.all([
-      filesFor("node"),
+    const [dotnet, java, python, elixir] = await Promise.all([
       filesFor("dotnet"),
       filesFor("java"),
       filesFor("python"),
       filesFor("elixir"),
     ]);
-    expect(codesIn(bySuffix(node, "http/messages.ts")!)).toEqual(ALL_CODES);
     expect(codesIn(bySuffix(dotnet, "Localization/LoomMessages.cs")!)).toEqual(ALL_CODES);
     expect(codesIn(bySuffix(java, "src/main/resources/messages.properties")!)).toEqual(ALL_CODES);
     expect(codesIn(bySuffix(python, "app/i18n.py")!)).toEqual(ALL_CODES);
@@ -226,7 +228,7 @@ describe("cross-backend parity", () => {
     expect(systemCatalog[NAME_CODE]).toBe("Name length");
   });
 
-  it("all five resolve the SAME locale-lookup contract off the ambient locale", async () => {
+  it("the catalog backends resolve the SAME locale-lookup contract off the ambient locale", async () => {
     // `RequestContext.locale` is the Accept-Language header VERBATIM (D-CTX-SHAPE),
     // so each rendering must normalise it the same way or a `fr-CA,fr;q=0.9`
     // request would resolve differently per backend.  The contract: take the first
@@ -235,16 +237,14 @@ describe("cross-backend parity", () => {
     // `Locale.forLanguageTag` + ResourceBundle's own parent-bundle walk, elixir to
     // gettext's), so for those the assertion is that the FIRST-TAG extraction
     // happens before the handoff.
-    const [node, dotnet, java, python, elixir] = await Promise.all([
-      filesFor("node"),
+    const [dotnet, java, python, elixir] = await Promise.all([
       filesFor("dotnet"),
       filesFor("java"),
       filesFor("python"),
       filesFor("elixir"),
     ]);
-    // node / .NET / python own the whole walk, including the primary-subtag step.
+    // .NET / python own the whole walk, including the primary-subtag step.
     const catalogs = [
-      bySuffix(node, "http/messages.ts")!,
       bySuffix(dotnet, "Localization/LoomMessages.cs")!,
       bySuffix(python, "app/i18n.py")!,
     ];
@@ -275,9 +275,6 @@ describe("cross-backend parity", () => {
       );
     }
     // …and the resolution sites keep their pre-catalog form.
-    expect(bySuffix(await filesFor("node", NO_MESSAGES), "http/problem-details.ts")).toContain(
-      "message: isMissing(result.data, issue) ? missingFieldMessage(issue.path) : issue.message,",
-    );
     expect(bySuffix(await filesFor("python", NO_MESSAGES), "app/http/problem.py")).not.toContain(
       "localize_message",
     );
@@ -291,7 +288,8 @@ describe("a locales/en override", () => {
   it("replaces a named rule's English in every backend catalog and on the wire", async () => {
     const overrides = new Map([[NAME_CODE, "Name must be 2-120 characters"]]);
     for (const [platform, suffix] of [
-      ["node", "http/messages.ts"],
+      // node has no catalog: the override is the English its refine answers.
+      ["node", "http/product.routes.ts"],
       ["python", "app/i18n.py"],
       ["java", "src/main/resources/messages.properties"],
     ] as const) {

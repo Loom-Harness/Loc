@@ -258,6 +258,6 @@ describe("M-T6.31 — an absent read raises the service's one 404 producer, all 
     expect(projections).toContain("if (err instanceof AggregateNotFoundError) return problem(404");
     // The floor still carries the domain rung for the ladder-less remainder.
     expect(index).toContain("if (err instanceof AggregateNotFoundError) {");
-    expect(index).toContain('return problem(404, "Not Found", err.message);');
+    expect(index).toContain('return problem(404, "Not Found", err.message, "problem.not-found");');
   });
 });

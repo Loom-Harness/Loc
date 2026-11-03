@@ -54,16 +54,33 @@ export type StrictFieldMap<TPayload, TFormState> = {
  * generated catch block.  Returns an outcome so the caller switches
  * inline on global / unhandled paths (pack-native toast emitted by
  * the design pack template).  Pure logic, no pack specifics.
+ *
+ * The server never translates a response: every refusal carries the catalog
+ * `code` it is localized by (and the `params` its message names), so this is
+ * the app's one server-error localizer — `t(pd.code, pd.detail, pd.params)`
+ * for the refusal, `t(e.code, e.message, e.params)` per field.  Under i18n
+ * `t` is the app's catalog lookup; without it the English `detail` /
+ * `message` the server sent is shown as-is.
  */
-export const REACT_LIB_APPLY_SERVER_ERRORS_TS = `// Auto-generated.  Do not edit by hand.
+export function reactLibApplyServerErrorsTs(i18n: boolean): string {
+  const tImport = i18n ? 'import { t } from "../i18n";\n' : "";
+  const tLocal = i18n
+    ? ""
+    : `
+/** No catalog in this app: the server's English is the text. */
+const t = (_code: string, fallback: string, _params?: Record<string, unknown>): string => fallback;
+`;
+  return `// Auto-generated.  Do not edit by hand.
 
 import type { UseFormSetError, FieldValues, Path } from "react-hook-form";
-import type { StrictFieldMap } from "./strict-field-map";
-
+${tImport}import type { StrictFieldMap } from "./strict-field-map";
+${tLocal}
 interface ProblemDetails {
   title?: string;
   detail?: string;
-  errors?: { pointer: string; message: string }[];
+  code?: string;
+  params?: Record<string, unknown>;
+  errors?: { pointer: string; message: string; code?: string; params?: Record<string, unknown> }[];
 }
 
 export interface ApplyServerErrorsArgs<TPayload, TFormState extends FieldValues> {
@@ -76,6 +93,17 @@ export type ServerErrorOutcome =
   | { kind: "applied" }
   | { kind: "global"; title: string }
   | { kind: "unhandled" };
+
+/** The localized text of a refusal: its catalog \`code\`, falling back to the
+ *  English the server sent, its placeholders filled from \`params\`.  A
+ *  message whose placeholders the params cannot fill keeps the English. */
+export function localizeProblem(code: string, fallback: string, params?: Record<string, unknown>): string {
+  try {
+    return t(code, fallback, params as Parameters<typeof t>[2]);
+  } catch {
+    return fallback;
+  }
+}
 
 export function applyServerErrors<TPayload, TFormState extends FieldValues>({
   error,
@@ -90,24 +118,99 @@ export function applyServerErrors<TPayload, TFormState extends FieldValues>({
 
   const pd = e.body;
   if (Array.isArray(pd.errors) && pd.errors.length > 0) {
-    for (const { pointer, message } of pd.errors) {
+    for (const { pointer, message, code, params } of pd.errors) {
       const flatKey = pointerToFlat(pointer);
       const target = (fieldMap as Record<string, string | undefined>)[flatKey] ?? flatKey;
-      setError(target as Path<TFormState>, { type: "server", message });
+      setError(target as Path<TFormState>, {
+        type: "server",
+        message: localizeProblem(code ?? "field.rule", message, params),
+      });
     }
     return { kind: "applied" };
   }
-  // The domain sentence lives in RFC 7807 \`detail\` ("Precondition failed: …");
-  // \`title\` is only the reason phrase ("Unprocessable Entity").  Surfacing the
-  // phrase is what made every rejected form read as a status code, so prefer
-  // \`detail\` and fall back to \`title\`.
-  const globalMessage = pd.detail || pd.title;
-  return globalMessage ? { kind: "global", title: globalMessage } : { kind: "unhandled" };
+  // The refusal's sentence lives in RFC 7807 \`detail\`; \`title\` is only the
+  // reason phrase ("Unprocessable Entity").  Surfacing the phrase is what made
+  // every rejected form read as a status code, so prefer \`detail\` and fall
+  // back to \`title\`.
+  const english = pd.detail || pd.title;
+  if (!english) return { kind: "unhandled" };
+  return { kind: "global", title: localizeProblem(pd.code ?? "problem.internal", english, pd.params) };
 }
 
 const pointerToFlat = (p: string) =>
   p.startsWith("/") ? p.slice(1).split("/").map(decodeURIComponent).join(".") : p;
 `;
+}
+
+/** `src/lib/zod-resolver.ts` — `@hookform/resolvers`' `zodResolver`, keeping
+ *  the catalog code a Loom check put on its zod issue (`params.loomCode`) on
+ *  the field error it becomes.  The stock resolver keeps only zod's own issue
+ *  code, so without this a client-side rule could only render the English
+ *  its schema was built with. */
+export const REACT_LIB_ZOD_RESOLVER_TS = `// Auto-generated.  Do not edit by hand.
+import { zodResolver as baseZodResolver } from "@hookform/resolvers/zod";
+
+interface LoomIssue {
+  path: PropertyKey[];
+  params?: { loomCode?: string };
+}
+
+/** The stock zodResolver, plus each Loom issue's catalog code on its field
+ *  error (\`loomCode\`), so the error localizes when the form RENDERS
+ *  (\`fieldErrorText\`) rather than when the schema was built. */
+export const zodResolver = ((schema: any, schemaOptions?: any, resolverOptions?: any) => {
+  const resolve = baseZodResolver(schema, schemaOptions, resolverOptions);
+  return async (values: any, context: any, options: any) => {
+    const result = await resolve(values, context, options);
+    if (Object.keys(result.errors).length === 0) return result;
+    const parsed = await schema.safeParseAsync(values);
+    for (const issue of (parsed.error?.issues ?? []) as LoomIssue[]) {
+      const code = issue.params?.loomCode;
+      if (!code) continue;
+      let node: any = result.errors;
+      for (const seg of issue.path) node = node?.[seg as string];
+      if (node && typeof node === "object" && node.loomCode === undefined) node.loomCode = code;
+    }
+    return result;
+  };
+}) as typeof baseZodResolver;
+`;
+
+/** `src/lib/field-error.ts` — the render-time field-error localizer every
+ *  React form's error slot calls (`fieldErrorText(errors.foo)`). */
+export function reactLibFieldErrorTs(i18n: boolean): string {
+  const tSource = i18n
+    ? 'import { t } from "../i18n";\n'
+    : `
+/** No catalog in this app: the English message is the text. */
+const t = (_code: string, fallback: string, _params?: Record<string, unknown>): string => fallback;
+`;
+  return `// Auto-generated.  Do not edit by hand.
+${tSource}
+/** A field error as react-hook-form holds it, plus the catalog code a Loom
+ *  check put on it (\`zod-resolver.ts\`). */
+interface LoomFieldError {
+  type?: string | number;
+  message?: string;
+  loomCode?: string;
+}
+
+/** The zod issue codes that mean the value has the wrong type or shape. */
+const TYPE_MISMATCH: ReadonlySet<string> = new Set(["invalid_type", "invalid_value", "invalid_union", "unrecognized_keys"]);
+
+/** A field error's text in the active locale, computed when the form RENDERS:
+ *  the issue's catalog code (a Loom check's own, else the field reason its zod
+ *  code names), falling back to the English message.  A server error was
+ *  localized when it was applied (\`applyServerErrors\`), so it renders as-is. */
+export function fieldErrorText(error: unknown): string | undefined {
+  const e = error as LoomFieldError | undefined;
+  if (!e?.message) return undefined;
+  if (e.type === "server") return e.message;
+  const code = e.loomCode ?? (TYPE_MISMATCH.has(String(e.type)) ? "field.type-mismatch" : "field.rule");
+  return t(code, e.message);
+}
+`;
+}
 
 // The Playwright e2e harness scaffolding (fixtures / config /
 // package.json / tsconfig) moved to

@@ -68,7 +68,7 @@ system Faults {
 /** The emitted catch-all arm per backend — status, reason phrase, and the
  *  sanitized detail, as each language spells the same three values. */
 const SANITIZED_ARM: Record<string, RegExp> = {
-  node: /problem\(500, "Internal Server Error", "internal"\)/,
+  node: /problem\(500, "Internal Server Error", "internal", "problem\.internal", \{ requestId: trace_id \}\)/,
   dotnet: /Problem\(context, 500, "Internal Server Error", "internal"/,
   java: /problem\(500, "Internal Server Error", "internal"/,
   python: /problem\(request, 500, "Internal Server Error", "internal"\)/,

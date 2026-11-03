@@ -105,8 +105,22 @@ A named rule's user-facing text is keyed by **what it is**, not by its wording: 
 
 ```ts
 // node — http/project.routes.ts (the wire rung) and domain/project.ts (the floor)
-.refine((data: any) => data.total <= 100000, { path: ["total"], message: "A project cannot exceed its budget", params: { loomCode: "Projects.Project.rule.withinBudget" } })
-if (!(this._total <= 100000)) throw new DomainError("A project cannot exceed its budget", "invariant", "Projects.Project.rule.withinBudget", "/total");
+.refine((data: any) => data.total <= 100000, { path: ["total"], message: "A project cannot exceed its budget", params: { loomCode: "Projects.Project.rule.withinBudget", loomReads: ["total"], loomPointed: true } })
+if (!(this._total <= 100000)) throw new DomainError("A project cannot exceed its budget", "invariant", "Projects.Project.rule.withinBudget", "/total", { "total": this._total });
+```
+
+The server never translates a response. Every refusal carries the RFC 7807 extension member `code` — the catalog key a client localizes it by — and `params`, the values its message's placeholders name; `title`, `detail` and `errors[].message` stay English. A named rule's code is its identity key and its params are the identifiers it reads; an unnamed rule answers `field.rule` (one field) or `problem.domain-floor`; a framework refusal answers `problem.<class>` / `field.<reason>` (`wireCode` / `fieldCode`, `src/ir/enrich/wire-policy.ts`; English in `src/generator/_walker/i18n-chrome.ts`):
+
+```json
+{ "type": "about:blank", "title": "Validation failed", "status": 422,
+  "detail": "One or more fields are invalid.", "code": "problem.field-invalid",
+  "errors": [{ "pointer": "/total", "message": "A project cannot exceed its budget",
+               "code": "Projects.Project.rule.withinBudget", "params": { "total": 250000 } }] }
+```
+
+```ts
+// React — src/lib/apply-server-errors.ts
+setError(target, { type: "server", message: localizeProblem(code ?? "field.rule", message, params) }); // t(e.code, e.message, e.params)
 ```
 
 ```python

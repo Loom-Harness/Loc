@@ -2,9 +2,10 @@ import type { BoundedContextIR, EnumIR, TypeIR, ValueObjectIR } from "../../../i
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
-import { ruleText } from "../../_i18n/rule-text.js";
+import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
+import { tsRuleParams } from "../wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
 // Enums + value objects emitted into one file.  Enums become
@@ -167,10 +168,12 @@ function renderValueObject(v: ValueObjectIR): string[] {
       ? `if ((${renderTsExpr(inv.guard)}) && !(${renderTsExpr(inv.expr)}))`
       : `if (!(${renderTsExpr(inv.expr)}))`;
     const text = ruleText(inv);
-    // A named rule carries the same identity-key `code` the wire rung does, so
-    // the errors[] entry a body-side breach answers can be localised too.
-    const code = inv.message ? `, ${JSON.stringify(inv.message.key)}` : "";
-    return `    ${check} throw new ValueObjectInvariantError(${JSON.stringify(v.name)}, ${JSON.stringify(text)}${code});`;
+    // The rule carries the same `code` the wire rung does (its identity key, or
+    // the generic key of an unnamed rule), and a named one the values it read,
+    // so the errors[] entry a body-side breach answers can be localised too.
+    const params = inv.message ? tsRuleParams(inv, renderTsExpr) : undefined;
+    const tail = `, ${JSON.stringify(ruleCode(inv))}${params ? `, ${params}` : ""}`;
+    return `    ${check} throw new ValueObjectInvariantError(${JSON.stringify(v.name)}, ${JSON.stringify(text)}${tail});`;
   });
   const derived = v.derived.map(
     (d) =>

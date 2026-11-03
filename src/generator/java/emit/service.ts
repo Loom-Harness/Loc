@@ -460,7 +460,7 @@ export function renderJavaService(
     locals: ReadonlyMap<string, string>,
   ): string | null =>
     op.when
-      ? `        if (!(${renderJavaExpr(op.when, { thisName: "aggregate", accessorProps: true, paramExpr: (n) => locals.get(n) })})) throw new ${javaRef(`${ctx.basePkg}.domain.common`, "DisallowedException")}(${JSON.stringify(disallowedDetail(op.name, agg.name, op.whenSource))});`
+      ? `        if (!(${renderJavaExpr(op.when, { thisName: "aggregate", accessorProps: true, paramExpr: (n) => locals.get(n) })})) throw new ${javaRef(`${ctx.basePkg}.domain.common`, "DisallowedException")}(${JSON.stringify(disallowedDetail(op.name, agg.name))});`
       : null;
   const anyOpUsesUser =
     !!ctx.authed &&

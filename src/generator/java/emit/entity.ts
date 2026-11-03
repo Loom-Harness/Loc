@@ -626,7 +626,7 @@ export function renderJavaEntity(
   const whenGate = (op: (typeof operations)[number]): string | null =>
     op.when
       ? `        if (!(${renderJavaExpr(op.when, opScope(op))})) throw new DisallowedException(${JSON.stringify(
-          disallowedDetail(op.name, entity.name, op.whenSource),
+          disallowedDetail(op.name, entity.name),
         )});`
       : null;
   const opLines: string[] = [];

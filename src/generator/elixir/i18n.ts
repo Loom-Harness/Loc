@@ -47,6 +47,7 @@
 import { type BoundedContextIR, DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { buildUiCatalog } from "../_frontend/i18n-runtime.js";
+import { sourceText } from "../_i18n/source-text.js";
 import {
   APP_SHELL_CHROME,
   chromeKey,
@@ -54,7 +55,6 @@ import {
   type FormSentenceScope,
 } from "../_walker/i18n-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
-import { sourceText } from "../_walker/source-text.js";
 
 /** The gettext domain every generated message lands in — the Phoenix default,
  *  so `mix gettext.extract` and every `.po` tool need no configuration. */

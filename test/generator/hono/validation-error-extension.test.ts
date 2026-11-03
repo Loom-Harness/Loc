@@ -89,7 +89,7 @@ describe("Hono validation-error extension — emission", () => {
     // cross-backend parity gate stays green).  See
     // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
     expect(src).toMatch(
-      /errors:\s*z\.array\(z\.object\(\{\s*pointer:\s*z\.string\(\),\s*message:\s*z\.string\(\),\s*code:\s*z\.string\(\)\.nullish\(\)\s*\}\)\)\.nullish\(\)/,
+      /errors:\s*z\.array\(z\.object\(\{\s*pointer:\s*z\.string\(\),\s*message:\s*z\.string\(\),\s*code:\s*z\.string\(\)\.nullish\(\),\s*params:\s*z\.record\(z\.string\(\),\s*z\.unknown\(\)\)\.nullish\(\)\s*\}\)\)\.nullish\(\)/,
     );
   });
 
@@ -125,15 +125,15 @@ describe("Hono validation-error extension — emission", () => {
     // const via `(result.error?.issues ?? []).map(...)` and shorthand-
     // splats it into the JSON.stringify body.
     expect(src).toMatch(/const errors = \(result\.error\?\.issues \?\? \[\]\)\.map/);
-    expect(src).toMatch(/pointer:\s*pointerOf\(issue\.path\)/);
+    expect(src).toMatch(/const pointer = pointerOf\(issue\.path\)/);
     // An absent required field — or a `null` the type refuses (RS-47) — reads
     // the wirePolicy sentence instead (RS-39).
     expect(src).toMatch(
-      /message:\s*isMissing\(result\.data, issue\) \? missingFieldMessage\(issue\.path\) : issue\.message/,
+      /if \(isMissing\(result\.data, issue\)\) \{\s*return \{ pointer, message: missingFieldMessage\(issue\.path\), code: "field\.missing" \};/,
     );
     // The shorthand `errors` (= the local const) is included in the
     // emitted JSON body — that's the field the frontend ACL reads.
-    expect(src).toMatch(/instance:\s*c\.req\.path,\s*errors,/);
+    expect(src).toMatch(/instance:\s*c\.req\.path,\s*code: "problem\.field-invalid",\s*errors,/);
   });
 
   it("router files import ProblemDetails + newApp from problem-details", async () => {
