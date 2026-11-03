@@ -2611,6 +2611,8 @@ system S {
   "loom.duplicate-theme-block": systemScope(
     '  theme { primary: "#3b82f6" }\n  theme { neutral: "#64748b" }',
   ),
+  "loom.i18n-source-invalid": systemScope('  i18n { source: "not a tag" }'),
+  "loom.i18n-duplicate": systemScope('  i18n { source: "en" }\n  i18n { source: "de" }'),
   "loom.audited-no-command": aggShape("audited", "      name: string"),
   "loom.duplicate-entity-part": aggShape(
     "",

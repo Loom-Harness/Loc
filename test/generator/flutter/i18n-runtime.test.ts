@@ -69,7 +69,7 @@ describe("Flutter i18n runtime", () => {
     const src = SYSTEM(`Heading { "Welcome" }`);
     const dart = await homeDart(src);
     const key = await keyFor(src, "Welcome");
-    expect(key).toMatch(/^page\.Home\.heading\./);
+    expect(key).toMatch(/^MobileApp\.page\.Home\.heading\./);
     // Dart single-quoted args; `t()` returns a String, so the interpolation seam
     // hands it to `Text(…)` directly rather than coercing through `'${…}'`.
     expect(dart).toContain(`Text(t('${key}', 'Welcome'))`);
@@ -214,7 +214,7 @@ describe("Flutter i18n runtime", () => {
     );
     const files = await generateSystemFiles(src);
     const components = fileEndingWith(files, "lib/components.dart");
-    expect(components).toMatch(/t\('component\.Banner\.text\.\w+', 'Shop banner'\)/);
+    expect(components).toMatch(/t\('MobileApp\.component\.Banner\.text\.\w+', 'Shop banner'\)/);
     // The components file sits beside the runtime under `lib/`.
     expect(components).toContain("import 'i18n.dart';");
     expect(fileEndingWith(files, "lib/i18n.dart")).toContain("'Shop banner',");
@@ -224,9 +224,9 @@ describe("Flutter i18n runtime", () => {
     const dart = await homeDart(
       SYSTEM(`Stack { Heading { "Orders" }, Text { note } }`, "state { note: string }"),
     );
-    expect(dart).toMatch(/t\('page\.Home\.heading\.\w+', 'Orders'\)/);
+    expect(dart).toMatch(/t\('MobileApp\.page\.Home\.heading\.\w+', 'Orders'\)/);
     // `note` is page state — interpolated from the projected record, never a t().
-    expect(dart).not.toContain("'page.Home.text");
+    expect(dart).not.toContain("'MobileApp.page.Home.text");
     expect(dart).toContain("state.note");
   });
 
@@ -249,10 +249,12 @@ describe("Flutter i18n runtime", () => {
     expect(dart).not.toContain("Text('Text(");
     expect(dart).not.toContain("'${Text(");
     for (const role of ["badge", "anchor", "alert", "alertTitle", "statLabel", "statValue"]) {
-      expect(dart).toContain(`t('page.Home.${role}.`);
+      expect(dart).toContain(`t('MobileApp.page.Home.${role}.`);
     }
     // The Anchor's label is the TextButton's child widget, not a quoted string.
-    expect(dart).toMatch(/TextButton\(onPressed: [^,]+, child: Text\(t\('page\.Home\.anchor\./);
+    expect(dart).toMatch(
+      /TextButton\(onPressed: [^,]+, child: Text\(t\('MobileApp\.page\.Home\.anchor\./,
+    );
   });
 
   // --- ATTRIBUTE-position slots (D-I18N-ATTR) -------------------------------

@@ -24,7 +24,7 @@
 {{/if}}{{/each}}              <Button colorPalette="red" size="sm" onClick={() => remove{{arrayPascal}}(index)}>{{{chrome "removeItem"}}}</Button>
             </HStack>
           )) }
-          <Button size="sm" onClick={() => append{{arrayPascal}}({{{defaultRowJson}}})}>{{{chrome "addItem" item=elementLabel}}}</Button>
+          <Button size="sm" onClick={() => append{{arrayPascal}}({{{defaultRowJson}}})}>{{{addItemLabel}}}</Button>
         </VStack>{{else}}<Field.Root invalid={!!( {{errorExpr}} )}>
           <Field.Label>{{label}}</Field.Label>
           <Input {...register("{{path}}")} data-testid="{{testId}}" {{{chromeAttr "placeholder" "arrayUnsupported"}}} disabled />

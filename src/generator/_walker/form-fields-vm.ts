@@ -202,7 +202,7 @@ export function prepareFormFieldVM(
           testId,
           errorExpr,
           rowFields,
-          elementLabel: humanize(el.name),
+          elementName: el.name,
           arrayPascal: leaf.charAt(0).toUpperCase() + leaf.slice(1),
           defaultRowJson,
         };

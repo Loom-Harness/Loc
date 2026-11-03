@@ -83,7 +83,7 @@ describe("feliz scaffold primitives", () => {
     );
     // Breadcrumb anchors fold a literal route into a static PATH href.
     expect(app).toMatch(
-      /Html\.a \[ prop\.className "link"; prop\.href "\/"; prop\.children \[ Html\.text \(\(I18n\.t "page\.\w+\.anchor\.\w+" "Home"\)\) \] \]/,
+      /Html\.a \[ prop\.className "link"; prop\.href "\/"; prop\.children \[ Html\.text \(\(I18n\.t "\w+\.page\.\w+\.anchor\.\w+" "Home"\)\) \] \]/,
     );
   });
 

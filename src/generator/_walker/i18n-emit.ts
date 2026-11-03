@@ -41,8 +41,11 @@ import { chromeKey, chromeMessage } from "./i18n-chrome.js";
 import { icuFromConcat, literalString, messageKey } from "./i18n-extract.js";
 import { registerI18nImport } from "./render-primitive.js";
 import { namedArgValue, positionalArgs, unwrapTextLiteral } from "./shared/args.js";
+import { sourceText } from "./source-text.js";
 import type { StringPart } from "./target.js";
 import { emitExpr, renderTextContent, type WalkContext } from "./walker-core.js";
+
+export { sourceText, withSourceOverrides } from "./source-text.js";
 
 /** `t()` always returns a `string`, so the interpolation seam is told so.  The
  *  four JSX/markup targets ignore `exprType` (interpolation auto-coerces), which
@@ -87,6 +90,7 @@ function translateExpr(
   message: string,
   values?: ReadonlyArray<{ name: string; expr: string }>,
 ): string {
+  message = sourceText(key, message);
   if (ctx.target.renderTranslate) return ctx.target.renderTranslate({ key, message, values });
   const args = [JSON.stringify(key), JSON.stringify(message)];
   if (values) args.push(`{ ${values.map((v) => `${v.name}: ${v.expr}`).join(", ")} }`);
@@ -168,6 +172,19 @@ function icuTranslateCall(
   const key = messageKey(ctx.i18nPrefix, role, icu.positional);
   const values = icu.holes.map((h) => ({ name: h.name, expr: emitExpr(h.expr, ctx) }));
   return translateCall(ctx, key, icu.display, values);
+}
+
+/** The per-page document-title EXPRESSION (`page X { title: … }`), in the
+ *  target's own language.  A literal under i18n becomes a `t()` call keyed
+ *  `<ctx.i18nPrefix>.title.<hash>` — the key `collectUiMessages` wrote.  An
+ *  interpolated title is never extracted (see there), so it renders as the raw
+ *  expression, as does any title with i18n off. */
+export function localizedPageTitle(title: ExprIR, ctx: WalkContext): string {
+  const literal = literalString(title);
+  if (literal !== undefined && ctx.i18nPrefix) {
+    return translateCall(ctx, messageKey(ctx.i18nPrefix, "title", literal), literal);
+  }
+  return emitExpr(title, ctx);
 }
 
 /** The NAMED-arg twin of {@link localizedRaw} (`Alert.title` → `alertTitle`,
@@ -412,27 +429,6 @@ function stringLiteral(ctx: WalkContext, text: string): string {
   return ctx.target.renderStringLiteral?.(text) ?? JSON.stringify(text);
 }
 
-/** A string built from literal + expression pieces in the target's own language
- *  — the `renderStringConcat` seam, a JS template literal when a target leaves
- *  it unset (which is what React, Svelte and Vue already spelled). */
-function stringConcat(ctx: WalkContext, parts: readonly StringPart[]): string {
-  return ctx.target.renderStringConcat?.(parts) ?? jsTemplateLiteral(parts);
-}
-
-/** The default `renderStringConcat`: a JS template literal.  Literal pieces are
- *  escaped for a backtick body (backslash, backtick, and the `${` that would
- *  otherwise open a hole); expression pieces are spliced verbatim. */
-function jsTemplateLiteral(parts: readonly StringPart[]): string {
-  const body = parts
-    .map((p) =>
-      "expr" in p
-        ? `\${${p.expr}}`
-        : p.text.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${"),
-    )
-    .join("");
-  return `\`${body}\``;
-}
-
 /** An ` aria-label="…"` fragment for a PACK-CHROME string a design-pack
  *  template bakes in (a spinner's `aria-label="Loading"`) — the chrome twin of
  *  {@link localizedAriaLabelAttr}.  Unlike the named-slot helper the key is the
@@ -462,20 +458,21 @@ export function localizedChromeAria(ctx: WalkContext, name: string, english: str
  *  the escaped literal otherwise (byte-identical).
  *
  *  Chrome the emitter constructs from model data — the destroy button's
- *  `Delete <Aggregate>`, its `window.confirm` prompt, an op dialog's Cancel —
+ *  `Delete task`, its `window.confirm` prompt, an op dialog's Cancel —
  *  reached NO catalog: the content-hash extraction pass only sees literals in
  *  the `.ddd` body, and the pack-chrome slice only covers `.hbs` templates.
+ *  A message that varies by aggregate, operation or item type is a whole
+ *  sentence per subject (`sentenceChromeName`), never a frame with a word hole.
  *
- *  `values` carries the ICU holes (`{entity}`), whose values are DSL
- *  identifiers: they stay as authored while the sentence around them
- *  translates.  Unlike the hoisted-child helpers below this DOES register the
- *  `t` import — the markup lands in the page itself.
+ *  `values` carries ICU data holes whose values are generate-time constants.
+ *  Unlike the hoisted-child helpers below this DOES register the `t` import —
+ *  the markup lands in the page itself.
  *
  *  For a holed sentence whose values are RUNTIME expressions rather than
- *  generate-time identifiers — a pager's "Page {page} of {pages}", a column
- *  control's "Sort by {column}" — see {@link localizedChromeIcuText} and its
- *  siblings.  `fillHoles` below cannot serve those: substituting a live
- *  expression into the sentence would emit it as literal TEXT. */
+ *  generate-time constants — a pager's "Page {page} of {pages}" — see
+ *  {@link localizedChromeIcuText} and its siblings.  `fillHoles` below cannot
+ *  serve those: substituting a live expression into the sentence would emit it
+ *  as literal TEXT. */
 export function localizedPageChromeText(
   ctx: WalkContext,
   name: string,
@@ -658,47 +655,12 @@ export function localizedChromeIcuValue(
   return translateExpr(ctx, chromeKey(name), chromeMessage(name), values);
 }
 
-/** An ICU-holed chrome string as an ` aria-label` ATTRIBUTE fragment — a grid's
- *  per-column "Sort by {column}" / "Filter by {column}".
- *
- *  Returns the complete fragment with NO leading space, like
- *  {@link localizedChromeAttr}: these sit on their own indented line in the pack
- *  templates, so the token stands exactly where the static attribute stood.
- *
- *   - i18n on → the target's bound attribute over the `t()` call
- *     (`[attr.aria-label]` on Angular via `ariaAttrPrefix`);
- *   - off → the same bound attribute over the message re-assembled by
- *     `renderStringConcat`, which is a JS template literal by default — exactly
- *     what React/Svelte/Vue spelled by hand, and what Angular's override spells
- *     as `'Sort by ' + <expr>`.
- *
- *  Unlike the counter, the off-path here needed a SEAM rather than a caller
- *  fallback: the message lands in fifteen `.hbs` templates whose token is built
- *  once, in target-neutral code, so there is no per-dialect caller to ask.
- *
- *  Registers no import — this markup lands in the hoisted child, like the rest
- *  of the grid's chrome. */
-export function localizedChromeIcuAria(
-  ctx: WalkContext,
-  name: string,
-  values: ReadonlyArray<{ name: string; expr: string }>,
-): string {
-  return ctx.target
-    .renderAttrBinding(ariaLabelAttrName(ctx), localizedChromeIcuExpr(ctx, name, values))
-    .trimStart();
-}
-
-/** The HOLE-FREE sibling of {@link localizedChromeIcuAria}: a plain chrome
- *  string as an ` aria-label` attribute, for markup that lands in a hoisted
- *  CHILD file (a grid's row-selection checkboxes).
+/** A plain chrome string as an ` aria-label` attribute, for markup that lands
+ *  in a hoisted CHILD file (a grid's row-selection checkboxes, its filter
+ *  input).
  *
  *  Not {@link localizedChromeAria}, which is the PAGE-side helper — it registers
- *  the `t` import and returns a leading-space fragment.  Not
- *  {@link localizedChromeIcuAria} with an empty `values` either: that would route
- *  through `renderStringConcat` and spell the i18n-off form as a one-piece
- *  template literal (`` `Select row` ``) where the pre-i18n markup had a plain
- *  quoted attribute.  A message with no holes is not a concatenation, so it
- *  takes the ordinary attribute path and stays byte-identical. */
+ *  the `t` import and returns a leading-space fragment. */
 export function localizedChromeAriaAttr(ctx: WalkContext, name: string): string {
   return localizedChromeAttr(ctx, ariaLabelAttrName(ctx), name);
 }
@@ -709,40 +671,9 @@ function ariaLabelAttrName(ctx: WalkContext): string {
   return `${ctx.target.ariaAttrPrefix ?? ""}aria-label`;
 }
 
-/** An ICU-holed chrome string as a target-native EXPRESSION, always defined —
- *  for a procedural pack that builds props (Feliz's `prop.ariaLabel (…)`,
- *  Flutter's `Semantics(label: …)`), and the expression half of
- *  {@link localizedChromeIcuAria}.
- *
- *  The sibling of {@link localizedChromeIcuValue}, and the two differ only in
- *  what happens with i18n OFF — which is the whole question for a holed message,
- *  since it has to be re-spelled as a concatenation:
- *
- *   - THIS one re-spells it, through the `renderStringConcat` seam.  Right when
- *     the caller's existing raw form IS a concatenation, which the seam then
- *     reproduces byte for byte.
- *   - `localizedChromeIcuValue` returns `undefined` and lets the caller keep its
- *     own sentence.  Right when the raw form is something a concat seam cannot
- *     spell — Feliz's pager `sprintf "Page %d of %d"`, Flutter's `'Page $p of
- *     $n'` interpolation.
- *
- *  Hole expressions must already be STRINGS: the seam concatenates, it does not
- *  coerce, because a coercion the source never had would break byte-identity.
- *
- *  Registers no import — see the section note above. */
-export function localizedChromeIcuExpr(
-  ctx: WalkContext,
-  name: string,
-  values: ReadonlyArray<{ name: string; expr: string }>,
-): string {
-  const english = chromeMessage(name);
-  if (ctx.i18nPrefix) return translateExpr(ctx, chromeKey(name), english, values);
-  return stringConcat(ctx, icuParts(english, values));
-}
-
 /** Cut an ICU message into its alternating literal / hole pieces — the one place
- *  the catalog's `{name}` grammar is read, shared by the two i18n-off paths (the
- *  markup splice below and the `renderStringConcat` assembly above).
+ *  the catalog's `{name}` grammar is read, used by the i18n-off
+ *  markup splice below.
  *
  *  Throws on a hole with no supplied value rather than passing the `{name}`
  *  through — a literal `{page}` in JSX children is a syntax error at best and a

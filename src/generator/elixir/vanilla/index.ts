@@ -10,7 +10,11 @@
 // ---------------------------------------------------------------------------
 
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
-import { type ChannelIR, workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
+import {
+  type ChannelIR,
+  sourceLocaleOf,
+  workflowEmitsCommandRoute,
+} from "../../../ir/types/loom-ir.js";
 import {
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
@@ -880,6 +884,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // the `priv/repo/seeds.exs` manual entry the shell emits alongside).
     seedModules,
     deployable.port,
+    sourceLocaleOf(sys),
   );
 
   // Deployment + boot machinery — the Elixir release, Dockerfile, and Ecto

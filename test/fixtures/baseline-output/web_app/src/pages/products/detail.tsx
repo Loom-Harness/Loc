@@ -12,7 +12,7 @@ import { Controller, useForm } from "react-hook-form";
 import { useProductById } from "../../api/product";
 function openUpdateModal(mut: ReturnType<typeof useUpdateProduct>): void {
   modals.open({
-    title: t("page.Detail.modalTitle.uk4kus", "Update"),
+    title: t("WebApp.page.Detail.modalTitle.uk4kus", "Update"),
     closeButtonProps: { "aria-label": t("chrome.close", "Close") },
     children: <UpdateForm mut={mut} onClose={() => modals.closeAll()} />,
   });
@@ -29,7 +29,7 @@ function UpdateForm({ mut, onClose }: { mut: ReturnType<typeof useUpdateProduct>
       onSubmit={handleSubmit(async (vals) => {
         try {
           await mut.mutateAsync(vals);
-          notifications.show({ color: "green", message: t("pack.mantine.operationSucceeded.tpnozz", "{operation} succeeded", { operation: "Update" }) });
+          notifications.show({ color: "green", message: t("chrome.operationSucceeded.update", "Update succeeded") });
           onClose();
         } catch (e) {
           const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
@@ -75,11 +75,11 @@ export default function ProductDetail() {
   return (
     <Stack gap="md" data-testid="products-detail">
       <Breadcrumbs>
-        <Anchor component={RouterLink} to="/">{t("page.Detail.anchor.n0mxf2", "Home")}</Anchor>
-        <Anchor component={RouterLink} to="/products">{t("page.Detail.anchor.kdfstp", "Products")}</Anchor>
-        <Text>{t("page.Detail.text.ei31dg", "Detail")}</Text>
+        <Anchor component={RouterLink} to="/">{t("WebApp.page.Detail.anchor.n0mxf2", "Home")}</Anchor>
+        <Anchor component={RouterLink} to="/products">{t("WebApp.page.Detail.anchor.kdfstp", "Products")}</Anchor>
+        <Text>{t("WebApp.page.Detail.text.ei31dg", "Detail")}</Text>
       </Breadcrumbs>
-      <Title order={2}>{t("page.Detail.heading.8ba34l", "Product detail")}</Title>
+      <Title order={2}>{t("WebApp.page.Detail.heading.8ba34l", "Product detail")}</Title>
       <>
         { productById.isLoading && (
           <Stack gap="xs" aria-hidden="true">
@@ -89,23 +89,23 @@ export default function ProductDetail() {
     </Stack>
         ) }
         { productById.isError && (
-          <Alert color="red" variant="light">{t("page.Detail.alert.5gt0mm", "Couldn't load product")}</Alert>
+          <Alert color="red" variant="light">{t("WebApp.page.Detail.alert.5gt0mm", "Couldn't load product")}</Alert>
         ) }
         { !productById.isLoading && !productById.isError && !productById.data && (
-          <Alert color="yellow" variant="light">{t("page.Detail.alert.1s47jw", "No product matches that id.")}</Alert>
+          <Alert color="yellow" variant="light">{t("WebApp.page.Detail.alert.1s47jw", "No product matches that id.")}</Alert>
         ) }
         { productById.data && (
           <Stack gap="md">
             <Card withBorder padding="md">
               <Stack gap="md">
-                <KeyValueRow label={t("page.Detail.keyValue.gkg0ca", "Sku")} data-testid="products-detail-sku"><Text>{productById.data.sku}</Text></KeyValueRow>
-                <KeyValueRow label={t("page.Detail.keyValue.6rtmhu", "Price Amount")}><Text>{productById.data.price.amount}</Text></KeyValueRow>
-                <KeyValueRow label={t("page.Detail.keyValue.vd0zdh", "Price Currency")}><Text>{productById.data.price.currency}</Text></KeyValueRow>
-                <KeyValueRow label={t("page.Detail.keyValue.oz7oad", "Display")} data-testid="products-detail-display"><Text>{productById.data.display}</Text></KeyValueRow>
+                <KeyValueRow label={t("WebApp.page.Detail.keyValue.gkg0ca", "Sku")} data-testid="products-detail-sku"><Text>{productById.data.sku}</Text></KeyValueRow>
+                <KeyValueRow label={t("WebApp.page.Detail.keyValue.6rtmhu", "Price Amount")}><Text>{productById.data.price.amount}</Text></KeyValueRow>
+                <KeyValueRow label={t("WebApp.page.Detail.keyValue.vd0zdh", "Price Currency")}><Text>{productById.data.price.currency}</Text></KeyValueRow>
+                <KeyValueRow label={t("WebApp.page.Detail.keyValue.oz7oad", "Display")} data-testid="products-detail-display"><Text>{productById.data.display}</Text></KeyValueRow>
               </Stack>
             </Card>
             <Group gap="xs">
-              <Button variant="filled" onClick={() => openUpdateModal(update)} data-testid="products-op-update">{t("page.Detail.button.uk4kus", "Update")}</Button>
+              <Button variant="filled" onClick={() => openUpdateModal(update)} data-testid="products-op-update">{t("WebApp.page.Detail.button.uk4kus", "Update")}</Button>
     
             </Group>
           </Stack>

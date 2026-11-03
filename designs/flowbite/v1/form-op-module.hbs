@@ -7,7 +7,7 @@
         <form onsubmit={(e) => { e.preventDefault(); form.submit(async (vals) => {
           try {
             await {{opCamel}}.mutateAsync(vals);
-            toast.success({{{chromeValue "operationSucceeded" operation=humanOp}}});
+            toast.success({{{successMessage}}});
             {{opCamel}}ModalOpen = false;
           } catch (err) {
             const outcome = form.applyServerErrors(err);

@@ -6,6 +6,7 @@
 
 import type { FormFieldVM } from "../_frontend/view-models.js";
 import type { LoadedPack } from "../_packs/loader.js";
+import { chromeMessage, sentenceChromeName } from "./i18n-chrome.js";
 
 /** Render one form-field input through its per-pack
  *  `field-input-*` template.  Used by the walker's `CreateForm(of:)` /
@@ -24,6 +25,12 @@ export function renderFormField(
       .join("\n");
     return pack.render(vm.template, { ...vm, ...chrome, innerHtml });
   }
+  if (vm.elementName !== undefined) {
+    const addItemLabel =
+      chrome.addItemLabelFor?.(vm.elementName) ??
+      chromeMessage(sentenceChromeName("addItem", vm.elementName));
+    return pack.render(vm.template, { ...vm, ...chrome, addItemLabel });
+  }
   return pack.render(vm.template, { ...vm, ...chrome });
 }
 
@@ -40,4 +47,7 @@ export function renderFormField(
 export interface FormFieldChrome {
   /** `placeholder="Select…"`, or its bound `t(…)` form under i18n. */
   selectPlaceholderAttr?: string;
+  /** The add-row button's text for a field-array of `element` (a value-object
+   *  name): the per-element whole sentence, as a markup-text token. */
+  addItemLabelFor?: (element: string) => string;
 }

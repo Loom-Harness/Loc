@@ -71,10 +71,10 @@ import { type ExprCtxBase, type ExprTarget, renderExprWith } from "../_expr/targ
 import { tryRenderGate } from "../_frontend/gate-expr.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
 import { giveUpText } from "../_walker/give-up.js";
-import { icuFromConcat, messageKey } from "../_walker/i18n-extract.js";
+import { icuFromConcat, inlineComponentKeyPrefix, messageKey } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
 import { heexTarget, renderHeexStoreActionCall, renderHeexStoreFieldRead } from "./heex-target.js";
-import { elixirI18nString } from "./i18n.js";
+import { pgettextCall } from "./i18n.js";
 import {
   ELIXIR_CTX_FREE_LEAVES,
   ELIXIR_INTRINSIC_RENDERERS,
@@ -1116,7 +1116,7 @@ function renderInlinedComponent(
     stateFields: new Map(comp.state.map((f) => [snake(f.name), f] as const)),
     stateOwner: comp.name,
     instanceTypes,
-    i18nPrefix: ctx.i18nPrefix ? `component.${comp.name}` : undefined,
+    i18nPrefix: ctx.i18nPrefix ? inlineComponentKeyPrefix(ctx.i18nPrefix, comp.name) : undefined,
     inlineParams: params,
     inlineSlot: () => children.map((c) => renderChild(c, ctx)).join(""),
     varRemapping: undefined,
@@ -2151,12 +2151,12 @@ function heexTranslateCall(
   if (!ctx.i18nPrefix || !role) return undefined;
   if (arg.kind === "literal" && arg.lit === "string") {
     const key = messageKey(ctx.i18nPrefix, role, arg.value);
-    return `pgettext(${elixirI18nString(key)}, ${elixirI18nString(arg.value)})`;
+    return pgettextCall(key, arg.value);
   }
   const icu = icuFromConcat(arg);
   if (!icu) return undefined;
   const key = messageKey(ctx.i18nPrefix, role, icu.positional);
-  const message = `pgettext(${elixirI18nString(key)}, ${elixirI18nString(icu.display)})`;
+  const message = pgettextCall(key, icu.display);
   // The bindings are a keyword list — the Elixir spelling of the JS runtime's
   // `{ code: code }` values object.  Values are the PEELED raw expressions
   // (a Decimal, a Date), not their stringified form, so the formatter can

@@ -32,6 +32,7 @@ import { pageEmitPath } from "../../_frontend/page-identity.js";
 import { usesToastEffect } from "../../_frontend/toast-effect.js";
 import type { ImportSpec, LoadedPack } from "../../_packs/loader.js";
 import { chromeMessage, opDialogChrome } from "../../_walker/i18n-chrome.js";
+import { localizedPageTitle } from "../../_walker/i18n-emit.js";
 import { storeHookName, storeMemberLocal } from "../../_walker/js-target-helpers.js";
 import { addImportToMap, I18N_MODULE, needsPackChromeT } from "../../_walker/render-primitive.js";
 import type { ApiHookUse } from "../../_walker/walker-core.js";
@@ -41,6 +42,7 @@ import {
   emitStmt,
   extendLambdaParams,
   type FormOfState,
+  type ImportMap,
   type OperationFormState,
   renderActionMutationArg,
   type WalkContext,
@@ -198,6 +200,9 @@ export interface VuePageShellInput {
    *  did not, so a `navigate(<Page>)` in an action body resolved the fallback
    *  `/<snake(page)>` rather than the destination's declared `route:`. */
   pageRoutes?: ReadonlyMap<string, string>;
+  /** i18n key prefix (`page.<Name>`) — set only when the UI has extractable
+   *  strings; the page `title:` keys against it. */
+  i18nPrefix?: string;
 }
 
 export function renderVuePage(input: VuePageShellInput): string {
@@ -285,9 +290,18 @@ export function renderVuePage(input: VuePageShellInput): string {
     result.usedStores,
     input.stores ?? [],
     new Set([...stateNames, ...page.params.map((p) => p.name), ...page.derived.map((d) => d.name)]),
+    page.title
+      ? { expr: page.title, imports: result.imports, i18nPrefix: input.i18nPrefix }
+      : undefined,
   );
   const derivedLines = derivedResult.lines;
   if (derivedLines.length > 0) vueImports.add("computed");
+  // The per-page document title: `watchEffect` re-runs when the title's state
+  // / param reads change, mirroring React's `useEffect` and Svelte's `$effect`.
+  const titleEffectLine = page.title
+    ? `watchEffect(() => { document.title = ${TITLE_LOCAL}.value; });`
+    : undefined;
+  if (titleEffectLine) vueImports.add("watchEffect");
 
   // Named-action handlers → `<script setup>` arrow consts (Proposal A
   // Stage 1).  Built before stateLines so a handler that mutates state
@@ -779,6 +793,7 @@ export function renderVuePage(input: VuePageShellInput): string {
   if (result.hoistedHandlers) script.push(...result.hoistedHandlers);
   script.push(...opFormLines);
   script.push(...derivedLines);
+  if (titleEffectLine) script.push(titleEffectLine);
   script.push(...actionLines);
   // Trim trailing blanks.
   while (script.length > 0 && script[script.length - 1] === "") script.pop();
@@ -1563,6 +1578,9 @@ ${indent(result.tsx, "  ")}${dialogs}
  *  state refs are `ref`s — `repointToScript` rewrites them to `.value`
  *  (and a component rewrites param refs to `props.<name>`), matching the
  *  api-hook hoists. */
+/** The `computed` local the page `title:` rides on; `document.title` follows it. */
+const TITLE_LOCAL = "__loomPageTitle";
+
 function buildDerivedLines(
   derived: readonly DerivedIR[],
   pack: LoadedPack,
@@ -1574,15 +1592,26 @@ function buildDerivedLines(
    *  together they name the `computed` local each store FIELD read binds to. */
   stores: readonly StoreIR[] = [],
   reserved: ReadonlySet<string> = new Set(),
+  /** The page `title:` — emitted LAST as a `computed` named {@link TITLE_LOCAL}
+   *  (so it re-points state/derived reads exactly like a derived does), through
+   *  `localizedPageTitle` against the page's import map + i18n prefix. */
+  pageTitle?: { expr: ExprIR; imports: ImportMap; i18nPrefix: string | undefined },
 ): { lines: string[]; usesState: boolean } {
   const lines: string[] = [];
   const seenDerived = new Set<string>();
   const allDerived = new Set(derived.map((d) => d.name));
   let usesState = false;
-  for (const d of derived) {
+  const entries: Array<{ name: string; expr: ExprIR; title: boolean }> = derived.map((d) => ({
+    name: d.name,
+    expr: d.expr,
+    title: false,
+  }));
+  if (pageTitle) entries.push({ name: TITLE_LOCAL, expr: pageTitle.expr, title: true });
+  for (const d of entries) {
     const dctx: WalkContext = {
       target: vueTarget,
-      imports: new Map(),
+      imports: d.title && pageTitle ? pageTitle.imports : new Map(),
+      i18nPrefix: d.title ? pageTitle?.i18nPrefix : undefined,
       pack,
       paramNames,
       usedParams: new Set(),
@@ -1618,7 +1647,9 @@ function buildDerivedLines(
       // expression records into the shell's store wiring (Stage 5).
       usedStores,
     };
-    let exprStr = repointToScript(emitExpr(d.expr, dctx));
+    let exprStr = repointToScript(
+      d.title ? localizedPageTitle(d.expr, dctx) : emitExpr(d.expr, dctx),
+    );
     if (dctx.usesState) usesState = true;
     // Earlier-derived reads land as bare `name` (walker reads a derived
     // like a state field), but each hoisted derived is a `ComputedRef`, so

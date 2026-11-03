@@ -157,16 +157,6 @@ export interface SortableHeaderSpec {
   sortKey: StateRef;
   /** Page-state field holding the active direction (`"asc"` / `"desc"`). */
   sortDir: StateRef;
-  /** The header's accessible NAME as a target-native expression, or `undefined`
-   *  with i18n off — the same `undefined`-means-keep-your-own-sentence
-   *  contract {@link PagerChrome.pageOfValue} uses.
-   *
-   *  Only FLUTTER reads it: a Dart widget has no implicit accessible name, so it
-   *  wraps the header in `Semantics(label: 'Sort by <header>')`, where the four
-   *  JSX targets and Feliz render a real `<button>` whose CONTENT names it.  The
-   *  hole is the header TEXT, which is static here — known at emit time, unlike
-   *  the grid's, which is read off the TanStack column at runtime. */
-  sortByLabel?: string;
 }
 
 /** What a target needs to sort a `Table`'s rows client-side (the
@@ -318,7 +308,7 @@ export interface PagerSpec {
  *  FUNCTION of its two holes rather than a finished string, because only the
  *  target knows how to spell the page read (`page` vs `page()` vs `model.Page`)
  *  and, on Feliz, binds the page count to a local first. */
-/** One piece of a {@link WalkerTarget.renderStringConcat} assembly: either raw
+/** One piece of an ICU message cut at its holes: either raw
  *  source-language TEXT (unescaped — the target escapes it for its own string
  *  body) or an already-rendered EXPRESSION whose value is spliced in. */
 export type StringPart = { readonly text: string } | { readonly expr: string };
@@ -471,15 +461,6 @@ export interface DataGridSpec {
    *  props instead of markup (Feliz's `prop.ariaLabel`). */
   selectAllRowsAriaValue: string;
   selectRowAriaValue: string;
-  /** The sortable header button's accessible name — a complete
-   *  `aria-label` attribute fragment, no leading space, already resolved
-   *  against this walk's i18n decision (`localizedChromeIcuAria`).
-   *
-   *  On DataGrid the sort button is emitted by the TARGET, not the pack, on
-   *  every frontend except React — so unlike the pager labels this one cannot
-   *  ride the pack render context alone.  React's packs read the matching
-   *  `{{{sortByAria}}}` token instead; both come from one `chrome.sortBy`. */
-  sortByAria: string;
   /** Render the active design pack's grid body (`primitive-data-grid`).
    *
    *  A callback rather than a rendered string because the extra template
@@ -1004,27 +985,6 @@ export interface WalkerTarget {
    *  `localizedAriaLabelAttr` fragment instead), so an omitted seam — the
    *  JSON-quoted default — keeps them byte-identical. */
   renderStringLiteral?(text: string): string;
-
-  /** OPTIONAL — a string built from alternating LITERAL and EXPRESSION pieces,
-   *  in the target's own expression language.
-   *
-   *  The third of the trio.  `renderStringLiteral` spells a constant,
-   *  `renderInterpolation` splices an expression into markup TEXT position — but
-   *  a holed message in an ATTRIBUTE (`aria-label="Sort by <column>"`) is
-   *  neither: it is one string EXPRESSION assembled from both.  Without a seam
-   *  for it, the i18n-off form of such a message could only be spelled by
-   *  whichever pack template happened to contain it, which leaves those labels
-   *  untranslatable.
-   *
-   *  The default is a JS template literal (`` `a${e}b` ``), so the three targets
-   *  that spell these labels that way — React, Svelte, Vue — need not implement
-   *  it.  Angular overrides because
-   *  its template grammar has no template literals; Feliz and Flutter override
-   *  because their markup is not JS at all.
-   *
-   *  Literal pieces arrive UNESCAPED — a target escapes them for its own string
-   *  body, exactly as `renderStringLiteral` does. */
-  renderStringConcat?(parts: ReadonlyArray<StringPart>): string;
 
   /** OPTIONAL — the SPELLING of a call into the generated translation runtime
    *  The four JS frontends share one `t(key, default, values?)`

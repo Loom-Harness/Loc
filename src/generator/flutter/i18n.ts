@@ -37,7 +37,7 @@
 // app is byte-identical to pre-i18n.
 // ---------------------------------------------------------------------------
 
-import type { UiIR } from "../../ir/types/loom-ir.js";
+import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { buildUiCatalog } from "../_frontend/i18n-runtime.js";
 
@@ -62,7 +62,9 @@ export function flutterI18nEnabled(ui: UiIR): boolean {
 }
 
 /** `lib/i18n.dart` — the catalog + `t(key, default, [values])` lookup/format. */
-export function renderFlutterI18nModule(ui: UiIR): string {
+export function renderFlutterI18nModule(ui: UiIR, source: string = DEFAULT_SOURCE_LOCALE): string {
+  const sourceIdent =
+    source === DEFAULT_SOURCE_LOCALE ? "_en" : `_src_${source.replace(/[^A-Za-z0-9_]/g, "_")}`;
   const catalog = buildUiCatalog(ui);
   // `buildUiCatalog` returns key-sorted entries, so the emitted map is stable
   // across runs (a reordered page must not churn the file).
@@ -87,22 +89,22 @@ export function renderFlutterI18nModule(ui: UiIR): string {
     "import 'package:intl/message_format.dart';",
     "",
     "/// Source-language catalog for this ui — the same keys and messages",
-    "/// `.loom/messages.en.json` carries (D-I18N-KEY content hashes).",
-    "const Map<String, String> _en = <String, String>{",
+    `/// \`.loom/messages.${source}.json\` carries (D-I18N-KEY content hashes).`,
+    `const Map<String, String> ${sourceIdent} = <String, String>{`,
     ...entries,
     "};",
     "",
     "const Map<String, Map<String, String>> _catalogs = <String, Map<String, String>>{",
-    "  'en': _en,",
+    `  ${dartStringLit(source)}: ${sourceIdent},`,
     "};",
     "",
     "String _activeLocale() {",
     "  final String code = ui.PlatformDispatcher.instance.locale.languageCode;",
-    "  return _catalogs.containsKey(code) ? code : 'en';",
+    `  return _catalogs.containsKey(code) ? code : ${dartStringLit(source)};`,
     "}",
     "",
     "final String locale = _activeLocale();",
-    "final Map<String, String> _messages = _catalogs[locale] ?? _en;",
+    `final Map<String, String> _messages = _catalogs[locale] ?? ${sourceIdent};`,
     "",
     "/// Translate a message key, falling back to the source-language default,",
     "/// then ICU-format its placeholders from [values] in the active locale.",

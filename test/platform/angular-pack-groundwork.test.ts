@@ -99,7 +99,8 @@ describe("angular pack format groundwork", () => {
     // CLI injects bundles), not the Vite worlds' manual main script.
     // `index-html` now takes a `baseHref` (default "/"; the generator threads
     // "/app/" for a sub-path-mounted embed — see angular base-href support).
-    const indexHtml = pack.render("index-html", { title: "t", baseHref: "/" });
+    const indexHtml = pack.render("index-html", { title: "t", lang: "en", baseHref: "/" });
+    expect(indexHtml).toContain('<html lang="en">');
     expect(indexHtml).toContain("<app-root></app-root>");
     expect(indexHtml).toContain('<base href="/" />');
     expect(indexHtml).not.toContain("main.tsx");

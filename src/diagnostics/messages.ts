@@ -394,6 +394,12 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.duplicate-theme-block#system-scope": (p: { name: unknown }) =>
     `system '${p.name}' declares more than one 'theme { ... }' block; keep just the first.`,
 
+  "loom.i18n-source-invalid": (p: { source: unknown }) =>
+    `'${p.source}' is not a valid BCP-47 language tag for 'i18n { source: … }'. ` +
+    'Use a tag such as "en", "de" or "pt-BR".',
+  "loom.i18n-duplicate": (p: { name: unknown }) =>
+    `system '${p.name}' declares more than one 'i18n { ... }' block; keep just the first.`,
+
   // ----------------------------------------------------------------------
   // src/language/validators/criterion.ts
   // ----------------------------------------------------------------------

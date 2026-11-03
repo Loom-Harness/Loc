@@ -70,7 +70,7 @@ function renderComponent(spec: DataGridSpec): string {
   // produces markup.  Consistent with `Table` on Svelte, whose sortable header
   // is likewise walker-emitted (`svelteTarget.renderSortableHeader`).
   const body = spec.renderBody({
-    headerBody: headerBody(selection, spec.sortByAria, spec.selectAllRowsAria),
+    headerBody: headerBody(selection, spec.selectAllRowsAria),
     cellBody: cellBody(columns, selection, spec.selectRowAria),
   });
 
@@ -308,7 +308,7 @@ function columnDefs(columns: readonly DataGridColumn[], selection: boolean): str
 
 /** The full header-cell content: the select-all checkbox (when selection is
  *  on), a sortable header button, or the plain header. */
-function headerBody(selection: boolean, sortByAria: string, selectAllRowsAria: string): string {
+function headerBody(selection: boolean, selectAllRowsAria: string): string {
   const style =
     "background: none; border: none; padding: 0; font: inherit; cursor: pointer; user-select: none;";
   const label = `{String(h.column.columnDef.header ?? h.id)}`;
@@ -329,7 +329,6 @@ function headerBody(selection: boolean, sortByAria: string, selectAllRowsAria: s
     `  <button`,
     `    type="button"`,
     `    style="${style}"`,
-    `    ${sortByAria}`,
     `    onclick={() => h.column.toggleSorting()}`,
     `  >`,
     `    ${label}${indicator}`,
