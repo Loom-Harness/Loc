@@ -22,6 +22,7 @@ import {
   renderExprWithMarks,
 } from "../_expr/target.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
+import { T, TT } from "./ts-symbols.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the TypeScript backend.
@@ -582,7 +583,7 @@ function renderNew(
   // part keeps the ambient parent id (byte-identical).
   const parentRef = ctx.thisName === "this" ? "this._id" : `${ctx.thisName}.id`;
   const inits = [
-    `id: Ids.new${e.partName}Id()`,
+    `id: ${T.Ids}.new${e.partName}Id()`,
     ...(e.nested ? [] : [`parentId: ${parentRef}`]),
     ...fields.map((f) => `${f.name}: ${f.value}`),
   ];
@@ -938,7 +939,7 @@ const TS_TYPE_TARGET: TypeTarget = {
         return "{ url: string; key: string; contentType: string; size: number }";
     }
   },
-  id: (targetName) => `Ids.${targetName}Id`,
+  id: (targetName) => `${TT.Ids}.${targetName}Id`,
   array: (element) => `${element}[]`,
   optional: (inner) => `${inner} | null`,
   genericInstance(t, recur) {

@@ -9,6 +9,7 @@
 import type { EnrichedAggregateIR, RepositoryIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { aggHasFieldMask } from "../repository-wire-builder.js";
+import { TT } from "../ts-symbols.js";
 
 /**
  * The `User` type-only import a `mask unless` aggregate's repository needs.
@@ -52,7 +53,7 @@ export const maskUserImport = (agg: EnrichedAggregateIR, repo?: RepositoryIR): s
 
 export function tsParamType(t: TypeIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
-  if (inner.kind === "id") return `Ids.${inner.targetName}Id`;
+  if (inner.kind === "id") return `${TT.Ids}.${inner.targetName}Id`;
   if (inner.kind === "enum") return inner.name;
   if (inner.kind === "primitive") {
     switch (inner.name) {

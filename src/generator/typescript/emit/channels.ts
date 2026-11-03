@@ -111,7 +111,6 @@ export function renderChannelsModule(
   const voImports = new Set<string>();
   const voValueImports = new Set<string>();
   const enumImports = new Set<string>();
-  let decoderUsesIds = false;
   let decoderUsesDecimal = false;
   const visitType = (t: TypeIR): void => {
     if (t.kind === "valueobject" || t.kind === "entity") {
@@ -122,7 +121,6 @@ export function renderChannelsModule(
       } else if (!fields) voImports.add(t.name);
     }
     if (t.kind === "enum") enumImports.add(t.name);
-    if (t.kind === "id") decoderUsesIds = true;
     if (t.kind === "primitive" && t.name === "money") decoderUsesDecimal = true;
     if (t.kind === "array") visitType(t.element);
     if (t.kind === "optional") visitType(t.inner);
@@ -148,7 +146,7 @@ export function renderChannelsModule(
       tsImportSlot("ioredis"),
       tsImportSlot("kafkajs"),
       `import type { ${eventImports.join(", ")} } from "../domain/events";`,
-      decoderUsesIds ? 'import type * as Ids from "../domain/ids";' : null,
+      tsImportSlot("~/domain/ids"),
       domainValueImports.length > 0
         ? `import { ${[...domainValueImports, ...domainTypeImports.map((n) => `type ${n}`)].join(", ")} } from "../domain/value-objects";`
         : domainTypeImports.length > 0

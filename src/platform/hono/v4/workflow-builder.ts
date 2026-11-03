@@ -2,6 +2,7 @@ import {
   hasDomainFloorAnswer,
   workflowPreconditionThrowArgs,
 } from "../../../generator/_i18n/domain-floor.js";
+import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { numericKindOf } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
@@ -614,7 +615,6 @@ export function buildWorkflowsFile(
     "ConcurrencyError",
   ].filter(hasRef);
   const usesEvents = /\bEvents\.\w/.test(bodyStr);
-  const usesIds = /\bIds\.\w/.test(bodyStr);
   const usesSchema = /\bschema\.\w/.test(bodyStr) || /\bNodePgDatabase\b/.test(bodyStr);
   const usesDb = /\bNodePgDatabase\b/.test(bodyStr);
   const usesDispatcher = /\bDomainEventDispatcher\b/.test(bodyStr);
@@ -668,7 +668,7 @@ export function buildWorkflowsFile(
   // money-carrying param stays byte-identical.
   if (/(?<!\.)\bmoneySchema\b/.test(bodyStr))
     imports.push(`import { moneySchema } from "../lib/schemas";`);
-  if (usesIds) imports.push(`import * as Ids from "../domain/ids";`);
+  imports.push(tsImportSlot("~/domain/ids"));
   if (errorClasses.length > 0) {
     imports.push(`import { ${errorClasses.join(", ")} } from "../domain/errors";`);
   }

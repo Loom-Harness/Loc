@@ -33,6 +33,7 @@ import {
 } from "../repository-document-builder.js";
 import { repoPortImportLine, repoPortName } from "../repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
+import { TT } from "../ts-symbols.js";
 import { aggregateIsAudited, stampImportLine, stampInsertCall } from "./audit-stamp.js";
 import { mikroSaveTxLines } from "./mikroorm-config.js";
 import { rowClassOf } from "./mikroorm-entities.js";
@@ -57,7 +58,7 @@ export function renderMikroDocumentRepository(
   ctx: EnrichedBoundedContextIR,
 ): string {
   const row = rowClassOf(agg.name);
-  const idVar = `Ids.${agg.name}Id`;
+  const idVar = `${TT.Ids}.${agg.name}Id`;
   const versioned = rowVersionGuarded(agg);
   const emitsDelete = !!canonicalDestroy(agg);
   // Root rehydrate — a versioned root takes the authoritative `version` COLUMN

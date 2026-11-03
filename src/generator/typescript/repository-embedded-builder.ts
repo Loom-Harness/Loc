@@ -45,6 +45,7 @@ import { collectEnums, collectValueObjects } from "./repository-imports-builder.
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { projectFieldEntries } from "./repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "./repository-wire-builder.js";
+import { T, TT } from "./ts-symbols.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
@@ -76,7 +77,7 @@ function hydrateLocals(agg: EnrichedAggregateIR, rowVar: string, indent: string)
     if (isRefCollection(f.type) && f.type.kind === "array" && f.type.element.kind === "id") {
       const target = f.type.element.targetName;
       out.push(
-        `${indent}const ${f.name} = ((${rowVar}.${f.name} ?? []) as string[]).map((s) => Ids.${target}Id(s));`,
+        `${indent}const ${f.name} = ((${rowVar}.${f.name} ?? []) as string[]).map((s) => ${T.Ids}.${target}Id(s));`,
       );
     }
   }
@@ -107,7 +108,7 @@ export function buildEmbeddedRepositoryFile(
   _emitTrace = false,
 ): string {
   const tableName = lowerFirst(plural(agg.name));
-  const idVar = `Ids.${agg.name}Id`;
+  const idVar = `${TT.Ids}.${agg.name}Id`;
   // `toWireMasked(root, currentUser: User | null)` NAMES `User` — the mask is
   // a second reason this file needs the import, as on the relational builder.
   const repoUsesUser = (repo?.finds ?? []).some(findUsesCurrentUser) || aggHasFieldMask(agg);
@@ -459,7 +460,7 @@ function embeddedFindMethod(
 }
 
 function tsFindParamType(t: TypeIR): string {
-  if (t.kind === "id") return `Ids.${t.targetName}Id`;
+  if (t.kind === "id") return `${TT.Ids}.${t.targetName}Id`;
   if (t.kind === "enum") return t.name;
   if (t.kind === "primitive") {
     switch (t.name) {
