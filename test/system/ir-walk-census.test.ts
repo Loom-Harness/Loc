@@ -984,11 +984,6 @@ const WAIVERS: Record<string, Waiver> = {
       "#4579: an unlisted init kind (ternary / convert / duration) silently becomes the type's zero",
     reviewUntil: IF_RUN_GAP_REVIEW,
   },
-  "src/generator/_walker/walker-core.ts#isWalkableLayoutBody": {
-    deferred:
-      "#4574: misses `paren` and variant-form `match` arms, so react/svelte drop the page silently",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
   "src/generator/angular/walker/page-shell.ts#renderInitLiteral": {
     deferred:
       "#4579: an unlisted init kind (e.g. a negative literal as `unary`) silently mounts at the type's zero",
