@@ -257,23 +257,22 @@ export function validateWorkflows(
 }
 
 // ---------------------------------------------------------------------------
-// UNBOUND NAMES IN A HANDLER BODY — `loom.workflow-inline-repository-call` and
-// `loom.handler-unknown-name`.
+// UNBOUND NAMES IN A HANDLER BODY — `loom.handler-unknown-name`.
 //
 // A `commandHandler` / `queryHandler` body lowers through the same workflow
-// statement lowering as a workflow `create` / `on` body, so it has the same two
-// holes the workflow gates above close: a repository reached INLINE inside an
-// expression (`job.assign(Assets.get(job.assetId).requiredSkill)`) and a name
-// that binds to nothing (`job.assign(Bogus.thing)`).  Both stay a `ref` with
-// `refKind: "unknown"`, no backend instantiates a repository for it, and every
-// expression renderer prints the name verbatim — an unbound identifier in the
-// generated handler.  The handler's answered value (`returnValue`) is an
-// expression root too, and is walked with the statements.
+// statement lowering as a workflow `create` / `on` body, so a name that binds
+// to nothing (`job.assign(Bogus.thing)`) stays a `ref` with `refKind:
+// "unknown"` and every expression renderer prints it verbatim — an unbound
+// identifier in the generated handler.  The handler's answered value
+// (`returnValue`) is an expression root too, and is walked with the statements.
 //
-// One diagnostic per name per handler.  A repository of THIS context gets the
-// inline-call message (its fix is "bind it to a `let`"); any other name that is
-// no declaration model-wide — or is a projection, or a repository of ANOTHER
-// context, neither of which a handler can load — gets the unknown-name one.
+// A repository of THIS context reached inside an expression is not this
+// check's: lowering hoists it into a `let` ahead of its statement, and the one
+// it cannot hoist (a read that runs only on some paths) is refused by the
+// UNHOISTABLE REPOSITORY READS gate below.  Any other name that is no
+// declaration model-wide — or is a projection, or a repository of ANOTHER
+// context, neither of which a handler can load — gets one unknown-name
+// diagnostic per name per handler.
 // ---------------------------------------------------------------------------
 
 function validateHandlerUnboundNames(
@@ -290,27 +289,12 @@ function validateHandlerUnboundNames(
   ];
   for (const { h, label } of handlers) {
     if (h.extern) continue;
-    const inline = new Map<string, string | undefined>();
     const unknown = new Map<string, string>();
     const visitIn =
       (where: string) =>
       (e: ExprIR): void => {
-        // `walkExprDeep` visits a `method-call` before its receiver, so the
-        // method is recorded ahead of the bare `ref` below.
-        if (
-          e.kind === "method-call" &&
-          e.receiver.kind === "ref" &&
-          e.receiver.refKind === "unknown" &&
-          repoAgg.has(e.receiver.name)
-        ) {
-          if (!inline.has(e.receiver.name)) inline.set(e.receiver.name, e.member);
-          return;
-        }
         if (e.kind !== "ref" || e.refKind !== "unknown") return;
-        if (repoAgg.has(e.name)) {
-          if (!inline.has(e.name)) inline.set(e.name, undefined);
-          return;
-        }
+        if (repoAgg.has(e.name)) return;
         const foreign = foreignRepos.has(e.name);
         if (!foreign && !projectionNames.has(e.name) && declaredNames.has(e.name)) return;
         if (!unknown.has(e.name)) unknown.set(e.name, where);
@@ -323,19 +307,6 @@ function validateHandlerUnboundNames(
       });
     }
     if (h.returnValue) walkExprDeep(h.returnValue, visitIn("return"));
-    for (const [repoName, method] of inline) {
-      diags.push({
-        severity: "error",
-        code: "loom.workflow-inline-repository-call",
-        message: diagMessage("loom.workflow-inline-repository-call", {
-          where: label,
-          repoName,
-          call: `${repoName}.${method ?? repoOpVerb("load")}(…)`,
-          binding: lowerFirst(repoAgg.get(repoName) as string),
-        }),
-        source: `${ctx.name}/${h.name}`,
-      });
-    }
     for (const [name, where] of unknown) {
       diags.push({
         severity: "error",
