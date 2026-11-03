@@ -71,6 +71,7 @@ import { exStatus } from "../wire-policy-ex.js";
 import { emitVanillaApiControllers } from "./api-emit.js";
 import { emitVanillaAudit } from "./audit-emit.js";
 import { emitVanillaChangesets } from "./changeset-emit.js";
+import { opAssertedInvariants } from "./changeset-invariant-emit.js";
 import { aggregateBodyValueObjectFields } from "./changeset-validators.js";
 import { emitVanillaContextModule } from "./context-emit.js";
 import { denialOverrides, denialStatus, denialTitle, opHasWireDenial } from "./denial.js";
@@ -220,6 +221,14 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
       echoesDenialDetail(deployable, sys),
       hasStrictIngress,
+      // An operation persist re-asserts a message-less invariant as the
+      // operation's domain error — the domain-floor status + title.
+      contexts.some((c) => c.aggregates.some((a) => opAssertedInvariants(a).length > 0))
+        ? {
+            status: denialStatus("precondition", ladderStatuses),
+            title: denialTitle("precondition", ladderStatuses),
+          }
+        : undefined,
     );
   out.set(`lib/${appName}_web/problem_details.ex`, renderProblemDetails(false));
 

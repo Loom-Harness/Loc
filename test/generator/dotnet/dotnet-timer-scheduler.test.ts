@@ -10,8 +10,7 @@
 // byte-identical.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const WITH_TIMERS = `
 system Reaping {
@@ -56,9 +55,7 @@ const get =
 
 describe("timerSource → .NET durable TimerScheduler", () => {
   it("runs cron: on a Hangfire job and every: on an in-process BackgroundService", async () => {
-    const { model, errors } = await parseString(WITH_TIMERS);
-    expect(errors).toEqual([]);
-    const g = get(generateSystems(model).files);
+    const g = get(await generateSystemFiles(WITH_TIMERS));
 
     const scheduler = g("Infrastructure/Scheduling/TimerScheduler.cs");
     expect(scheduler).not.toBe("");
@@ -86,8 +83,7 @@ describe("timerSource → .NET durable TimerScheduler", () => {
   });
 
   it("wires Hangfire in Program.cs (storage + recurring job) and swaps Cronos for Hangfire deps", async () => {
-    const { model } = await parseString(WITH_TIMERS);
-    const g = get(generateSystems(model).files);
+    const g = get(await generateSystemFiles(WITH_TIMERS));
 
     const program = g("d/Program.cs");
     expect(program).toContain("builder.Services.AddHangfire(cfg => cfg");
@@ -116,8 +112,7 @@ describe("timerSource → .NET durable TimerScheduler", () => {
   });
 
   it("is byte-identical for a timer-free deployable (no scheduler artifacts)", async () => {
-    const { model } = await parseString(NO_TIMERS);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(NO_TIMERS);
     const keys = [...files.keys()];
     expect(keys.some((k) => k.endsWith("Infrastructure/Scheduling/TimerScheduler.cs"))).toBe(false);
 

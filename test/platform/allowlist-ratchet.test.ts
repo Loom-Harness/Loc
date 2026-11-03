@@ -401,7 +401,9 @@ const REGISTERED: Ratchet[] = [
     // form of a `let`-bound optional read); its booted block is #4335.
     // 18 → 17: `envelope` — the carrier's BY-DESIGN row named the single-row
     // `T envelope` find, which no longer exists, so its corpus case went too.
-    max: 17,
+    // 17 → 18: `factory-param-local-collision`, a compile-tier row (a .NET
+    // factory local re-declaring a create param, CS0136).
+    max: 18,
   },
 ];
 

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Context integration test emission on the Python/FastAPI backend
@@ -30,9 +29,7 @@ system Shop {
 }`;
 
 async function gen(src: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(src);
-  expect(errors, "parse/validate errors").toEqual([]);
-  return generateSystems(model).files;
+  return generateSystemFiles(src);
 }
 
 const find = (files: Map<string, string>, suffix: string): string | undefined =>

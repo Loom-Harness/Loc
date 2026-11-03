@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — shape: embedded (F2b).  The root stays a normal
@@ -23,9 +22,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python shape: embedded", () => {
@@ -86,7 +83,7 @@ describe("python shape: embedded", () => {
   // until the embedded repository emits criterion reads (real SQL over the root
   // columns); then drop `.fails`.
   it.fails("a criterion read runs as real SQL over the root columns (embedded repository emits none)", async () => {
-    const { model, errors } = await parseString(
+    const files = await generateSystemFiles(
       FIXTURE.replace(
         /(criterion OrdersByCustomer\(name: string\) of Order = this\.customer == name)/,
         `$1
@@ -99,8 +96,6 @@ describe("python shape: embedded", () => {
       }`,
       ),
     );
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
     expect(files.get("api/app/application/get_by_customer.py")).toContain(
       "await orders.run_find_all_by_orders_by_customer(name, limit=1)",
     );

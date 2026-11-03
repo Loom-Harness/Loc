@@ -2052,6 +2052,20 @@ system P {
         precondition t.name == "" || t.name == Others.get(t.otherId).label
       }
     }`),
+  // A name that binds to nothing inside a `commandHandler` body — the handler
+  // twin of `loom.workflow-unknown-name`.
+  "loom.handler-unknown-name":
+    repoOnly(`    aggregate Thing with crudish { name: string  operation rename(n: string) { name := n } }
+    repository Things for Thing
+    commandHandler RenameThing(tid: Thing id) {
+      let t = Things.get(tid)
+      t.rename(Nowhere.label)
+    }`),
+  // A member off an explicitly-paged `QueryView` binding that the paged
+  // envelope does not carry.
+  "loom.paged-envelope-unknown-member": uiPage(
+    `QueryView { of: Catalog.Item.all, paged: true, data: rows => Text { rows.frob } }`,
+  ),
   // The code whose "covered by message in validation.test.ts" claim outlived
   // the file it cited (M-T9.33's own opening finding).  It fires: an `emit`
   // supplying a field the event does not declare.
@@ -3044,6 +3058,39 @@ system S {
   deployable d { platform: node, contexts: [C], dataSources: [st], port: 4103 }
   test e2e "t" against d {
     let w = api.widgets.create({ code: "W-1", qty: "not-a-number" })
+  }
+}`,
+
+  "loom.e2e-unknown-query-key": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4104 }
+  test e2e "t" against d {
+    let ws = api.widgets.all({ pgae: 2 })
+  }
+}`,
+
+  "loom.e2e-projection-read-arity": `
+system S {
+  subdomain D { context C {
+    event Placed { orderId: Widget id  qty: int }
+    aggregate Widget with crudish { code: string }
+    projection Board keyed by orderId {
+      orderId: Widget id
+      total: int
+      on(e: Placed) { total := total + e.qty }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4104 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1" })
+    let bs = api.board.list(w)
   }
 }`,
 

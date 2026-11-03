@@ -10,8 +10,7 @@
 // timer-free deployable is byte-identical (no scheduler artifacts at all).
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const WITH_TIMERS = `
 system Reaping {
@@ -92,9 +91,7 @@ const get =
     [...files.entries()].find(([k]) => k.endsWith(suffix))?.[1] ?? "";
 
 async function filesFor(src: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(src);
-  expect(errors).toEqual([]);
-  return generateSystems(model).files;
+  return generateSystemFiles(src);
 }
 
 describe("timerSource → Phoenix/Ecto scheduler", () => {

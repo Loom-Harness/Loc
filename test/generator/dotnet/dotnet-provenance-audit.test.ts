@@ -6,31 +6,8 @@
 // the same transaction.  This drives the whole `generateSystems` pipeline and
 // asserts the emitted C# constructs.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
-import { generateEvolvedSystemFiles } from "../../_helpers/generate.js";
-
-async function build(source: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const helper = parseHelper(services.Ddd);
-  const doc = await helper(source, { validation: true });
-  const lexErrs = doc.parseResult?.lexerErrors ?? [];
-  const parseErrs = doc.parseResult?.parserErrors ?? [];
-  const diagErrs = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  if (lexErrs.length || parseErrs.length || diagErrs.length) {
-    const lex = lexErrs.map((e) => `LEX ${e.message}`).join("\n");
-    const parse = parseErrs.map((e) => `PARSE ${e.message}`).join("\n");
-    const diag = diagErrs
-      .map((e) => `DIAG ${e.range.start.line + 1}:${e.range.start.character + 1} ${e.message}`)
-      .join("\n");
-    throw new Error(`parse errors:\n${[lex, parse, diag].filter(Boolean).join("\n")}`);
-  }
-  return doc.parseResult?.value as Model;
-}
+import { generateEvolvedSystemFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 const SOURCE = `
 system Shop {
@@ -60,8 +37,7 @@ system Shop {
 `;
 
 async function files(): Promise<Map<string, string>> {
-  const model = await build(SOURCE);
-  return generateSystems(model).files;
+  return generateSystemFiles(SOURCE);
 }
 
 /**
@@ -394,8 +370,7 @@ system Shop {
 
 describe("dotnet workflow audit", () => {
   async function wfHandler(source = WF_SOURCE): Promise<string> {
-    const model = await build(source);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(source);
     const key = [...files.keys()].find((k) => /Application\/Workflows\/.*Handler\.cs$/.test(k))!;
     return files.get(key)!;
   }

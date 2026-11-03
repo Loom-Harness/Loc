@@ -16,8 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
 
 // now()-only stamps (no principal) — no auth needed.
@@ -141,9 +140,7 @@ const MIXED_SRC = `system MixedStamp {
 `;
 
 async function build(src: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(src);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(src);
 }
 
 function find(files: Map<string, string>, re: RegExp): string {

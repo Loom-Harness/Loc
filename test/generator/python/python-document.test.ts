@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — shape: document (F2a).  A document aggregate persists
@@ -20,9 +19,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python shape: document", () => {
@@ -66,7 +63,7 @@ describe("python shape: document", () => {
   // until the document repository emits criterion reads (in-memory over the
   // rehydrated documents); then drop `.fails`.
   it.fails("a criterion read's repository method exists (document repository emits none)", async () => {
-    const { model, errors } = await parseString(
+    const files = await generateSystemFiles(
       FIXTURE.replace(
         /(criterion ArticlesPopular\(min: int\) of Article = this\.viewCount >= min)/,
         `$1
@@ -79,8 +76,6 @@ describe("python shape: document", () => {
       }`,
       ),
     );
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
     expect(files.get("api/app/application/get_popular.py")).toContain(
       "await articles.run_find_all_by_articles_popular(min, limit=1)",
     );
@@ -122,9 +117,7 @@ describe("python document — optional single containment is null-safe", () => {
   `;
 
   it("None-guards the optional containment in _to_doc and _from_doc", async () => {
-    const { model, errors } = await parseString(SRC);
-    if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SRC);
     const repo = files.get("api/app/db/repositories/cart_repository.py")!;
     expect(repo, "cart_repository.py generated").toBeDefined();
     // Serialize: None-guarded, not a bare `_coupon_to_doc(a.coupon)` (which the

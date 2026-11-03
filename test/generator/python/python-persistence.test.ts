@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — SQLAlchemy persistence + repositories (plan S6).
@@ -20,9 +19,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python schema emission", () => {
@@ -209,9 +206,7 @@ describe("python nested part containment", () => {
     "utf8",
   );
   async function buildNested() {
-    const { model, errors } = await parseString(NESTED);
-    if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-    return generateSystems(model).files;
+    return generateSystemFiles(NESTED);
   }
 
   it("FKs a nested part to its direct parent, not the root", async () => {

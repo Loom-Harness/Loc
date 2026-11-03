@@ -16,8 +16,7 @@
 import { describe, expect, it, vi } from "vitest";
 import * as byLayerModule from "../../src/generator/dotnet/adapters/by-layer-layout.js";
 import * as cqrsStyleModule from "../../src/generator/dotnet/adapters/cqrs-style.js";
-import { generateSystems } from "../../src/system/index.js";
-import { generateDotnet } from "../_helpers/generate.js";
+import { generateDotnet, generateSystemFiles } from "../_helpers/generate.js";
 import { parseValid } from "../_helpers/parse.js";
 
 const SYSTEM_SRC = `
@@ -60,7 +59,7 @@ describe("F5d — dotnet orchestrator rewire (system mode)", () => {
   it("dispatches CQRS through cqrsStyleAdapter.emitForAggregate when system mode is active", async () => {
     const spy = vi.spyOn(cqrsStyleModule.cqrsStyleAdapter, "emitForAggregate");
     try {
-      const files = (await generateSystems(await parseValid(SYSTEM_SRC))).files;
+      const files = await generateSystemFiles(SYSTEM_SRC);
       // The adapter was invoked at least once per dotnet aggregate.
       expect(spy).toHaveBeenCalled();
       const call = spy.mock.calls[0]!;
@@ -78,7 +77,7 @@ describe("F5d — dotnet orchestrator rewire (system mode)", () => {
   it("dispatches through both the style and layout adapter (path comes from byLayer.pathFor)", async () => {
     const layoutSpy = vi.spyOn(byLayerModule.byLayerLayoutAdapter, "pathFor");
     try {
-      await generateSystems(await parseValid(SYSTEM_SRC));
+      await generateSystemFiles(SYSTEM_SRC);
       // The path adapter was called at least once for each CQRS-emitted
       // file — every produced artifact's path comes from `pathFor`.
       expect(layoutSpy.mock.calls.length).toBeGreaterThan(0);
