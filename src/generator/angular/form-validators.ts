@@ -2,6 +2,7 @@ import type { InvariantIR } from "../../ir/types/loom-ir.js";
 import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { tsCodePointLength } from "../_expr/code-point.js";
 import { asRegexLiteral } from "../_expr/regex-literal.js";
+import { clientRuleCode } from "../_frontend/error-codes.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import { takeSingleFieldChain } from "../zod-refine.js";
 import { type AngularFormControlSpec, addNg } from "./form-fields.js";
@@ -45,6 +46,24 @@ export function angularValidatorMap(
   for (const [field, patterns] of patternsByField) {
     const calls = patterns.flatMap(validatorsForPattern);
     if (calls.length > 0) out.set(field, calls);
+  }
+  return out;
+}
+
+/** The catalog code of the rule behind each constrained field (the first one
+ *  per field): a named rule's identity key, an unnamed single-field rule's
+ *  `field.rule`.  Same admission gate as {@link angularValidatorMap}, so the two
+ *  maps have the same keys.  The field's inline message renders through
+ *  `t(code, english)` when the form RENDERS. */
+export function angularRuleCodes(
+  invariants: readonly InvariantIR[],
+  available: ReadonlySet<string>,
+): Map<string, string> {
+  const out = new Map<string, string>();
+  const ctx = { available };
+  for (const inv of invariants) {
+    const taken = takeSingleFieldChain(inv, ctx);
+    if (taken && !out.has(taken.field)) out.set(taken.field, clientRuleCode(inv));
   }
   return out;
 }

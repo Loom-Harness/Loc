@@ -1,6 +1,7 @@
 // Static (non-templated) sources the Svelte generator emits verbatim.
 // Sibling of src/generator/react/emit-templates.ts.
 
+import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
 import { MONEY_SCHEMA_TS } from "../_frontend/money-schema.js";
 
 /** `src/lib/forms.svelte.ts` — the hand-rolled runes + zod form
@@ -11,9 +12,19 @@ import { MONEY_SCHEMA_TS } from "../_frontend/money-schema.js";
  *  keyed by dotted path), `form.submit(onValid)` (zod parse → error
  *  map fill → submit), `form.applyServerErrors(e)` (RFC 7807
  *  ProblemDetails 422 → per-field errors). */
-export const SVELTE_LIB_FORMS = `// Auto-generated.  Do not edit by hand.
+const SVELTE_LIB_FORMS_TEMPLATE = `// Auto-generated.  Do not edit by hand.
 import type { z } from "zod";
 import { ApiError } from "./api/client";
+/*{{T_BINDING}}*/
+/*{{HELPERS}}*/
+/** A form error with the catalog identity it localizes by.  The map a page
+ *  reads (\`errors\`) is built from these when it is READ, so the text is
+ *  localized at render time, not when the schema or the server answered. */
+interface FormError {
+  code: string;
+  message: string;
+  params?: Record<string, unknown>;
+}
 
 /** The wire shape of an uploaded file — the \`File\` request field's schema
  *  (\`_frontend/zod-schemas.ts\`) is this object, \`.nullable()\`. */
@@ -112,7 +123,7 @@ export function createForm<S extends z.ZodType>(
   defaults: Partial<FormValues<z.infer<S>>>,
 ): LoomForm<z.infer<S>> {
   let values = $state(cloneDefaults(defaults) as FormValues<z.infer<S>>);
-  let errors = $state<Record<string, string>>({});
+  let errorEntries = $state<Record<string, FormError>>({});
   let submitting = $state(false);
 
   return {
@@ -123,27 +134,33 @@ export function createForm<S extends z.ZodType>(
       values = v;
     },
     get errors() {
-      return errors;
+      const out: Record<string, string> = {};
+      for (const [path, e] of Object.entries(errorEntries)) out[path] = localizeProblem(e.code, e.message, e.params);
+      return out;
     },
     get submitting() {
       return submitting;
     },
     reset() {
       values = cloneDefaults(defaults) as FormValues<z.infer<S>>;
-      errors = {};
+      errorEntries = {};
     },
     async submit(onValid: (vals: z.infer<S>) => Promise<void> | void) {
       const parsed = schema.safeParse(values);
       if (!parsed.success) {
-        const next: Record<string, string> = {};
-        for (const issue of parsed.error.issues) {
+        const next: Record<string, FormError> = {};
+        for (const issue of parsed.error.issues as { path: PropertyKey[]; message: string; code?: string; params?: Record<string, unknown> }[]) {
           const path = issue.path.join(".");
-          if (next[path] === undefined) next[path] = issue.message;
+          next[path] ??= {
+            code: issueCatalogCode(issue as { code?: string; params?: { loomCode?: string } }),
+            message: issue.message,
+            params: issue.params,
+          };
         }
-        errors = next;
+        errorEntries = next;
         return;
       }
-      errors = {};
+      errorEntries = {};
       submitting = true;
       try {
         await onValid(parsed.data);
@@ -154,28 +171,39 @@ export function createForm<S extends z.ZodType>(
     applyServerErrors(e: unknown) {
       const body = e instanceof ApiError ? e.body : e;
       if (body && typeof body === "object") {
-        const rec = body as { errors?: unknown; title?: string; detail?: string };
+        const rec = body as {
+          errors?: unknown;
+          title?: string;
+          detail?: string;
+          code?: string;
+          params?: Record<string, unknown>;
+        };
         // A 422's \`errors\` is an ARRAY of \`{ pointer, code, message }\`: an entry
         // whose JSON pointer names a field lands on that field's dot-path
         // (\`/price/amount\` → \`price.amount\`); a pointer-less entry (a
         // whole-object rule) is the form-level message.
         if (Array.isArray(rec.errors)) {
-          const next: Record<string, string> = { ...errors };
+          const next: Record<string, FormError> = { ...errorEntries };
           let any = false;
           let formLevel: string | undefined;
           for (const entry of rec.errors as unknown[]) {
             if (!entry || typeof entry !== "object") continue;
-            const { pointer, message } = entry as { pointer?: unknown; message?: unknown };
+            const { pointer, message, code, params } = entry as {
+              pointer?: unknown;
+              message?: unknown;
+              code?: unknown;
+              params?: Record<string, unknown>;
+            };
             if (typeof message !== "string" || message.length === 0) continue;
             const path = typeof pointer === "string" ? pointerToPath(pointer) : "";
             if (path) {
-              next[path] = message;
+              next[path] = { code: typeof code === "string" ? code : "field.rule", message, params };
               any = true;
             } else {
-              formLevel ??= message;
+              formLevel ??= localizeProblem(typeof code === "string" ? code : "problem.internal", message, params);
             }
           }
-          if (any) errors = next;
+          if (any) errorEntries = next;
           if (formLevel !== undefined) return { kind: "global" as const, title: formLevel };
           if (any) return { kind: "fields" as const };
         }
@@ -188,7 +216,10 @@ export function createForm<S extends z.ZodType>(
               ? rec.title
               : undefined;
         if (globalMessage !== undefined) {
-          return { kind: "global" as const, title: globalMessage };
+          return {
+            kind: "global" as const,
+            title: localizeProblem(rec.code ?? "problem.internal", globalMessage, rec.params),
+          };
         }
       }
       return { kind: "unhandled" as const };
@@ -250,6 +281,15 @@ export function modalTrap(node: HTMLElement, onClose: () => void) {
   };
 }
 `;
+
+export function svelteLibForms(i18n: boolean): string {
+  return SVELTE_LIB_FORMS_TEMPLATE.replace("/*{{T_BINDING}}*/", () =>
+    errorCodeTBinding(i18n, "./i18n"),
+  ).replace("/*{{HELPERS}}*/", () => ERROR_CODE_HELPERS_TS);
+}
+
+/** The forms runtime of an app without a catalog. */
+export const SVELTE_LIB_FORMS = svelteLibForms(false);
 
 /** `src/lib/toast.svelte.ts` — minimal runes toast store + helpers.
  *  The root layout renders the matching container.  Keeps the

@@ -1,5 +1,6 @@
 import type { InvariantIR } from "../../ir/types/loom-ir.js";
 import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
+import { clientRuleCode } from "../_frontend/error-codes.js";
 import { namedRuleText } from "../_i18n/rule-text.js";
 import { singleFieldMessage, takeSingleFieldChain } from "../zod-refine.js";
 
@@ -45,6 +46,10 @@ export interface FlutterFieldRule {
   violated: string;
   /** The sentence shown when it is. */
   message: string;
+  /** The catalog code the sentence renders under (a named rule's identity key,
+   *  an unnamed single-field rule's `field.rule`); an i18n app shows
+   *  `t(code, message)`. */
+  code: string;
 }
 
 /** Dart string-literal escaping for a validator message (single-quoted). */
@@ -74,15 +79,16 @@ function rulesForPattern(
   field: string,
   pattern: SingleFieldPattern,
   authored: string | undefined,
+  code: string,
 ): FlutterFieldRule[] {
   const message = authored ?? singleFieldMessage(field, pattern);
-  const num = (violated: string): FlutterFieldRule => ({ on: "number", violated, message });
+  const num = (violated: string): FlutterFieldRule => ({ on: "number", violated, message, code });
   // Code POINTS, not UTF-16 code units — `s.length` in Dart counts units, and
   // the `minLength`/`maxLength` this same constraint publishes into the
   // emitted JSON Schema are code points (`_expr/code-point.ts`).  Angular made
   // exactly this correction for the same reason; `s.runes.length` is Dart's
   // code-point count.
-  const len = (violated: string): FlutterFieldRule => ({ on: "text", violated, message });
+  const len = (violated: string): FlutterFieldRule => ({ on: "text", violated, message, code });
   switch (pattern.kind) {
     case "min":
       return [num(pattern.exclusive ? `n <= ${pattern.n}` : `n < ${pattern.n}`)];
@@ -120,6 +126,7 @@ export function flutterValidatorMap(
       taken.field,
       taken.pattern,
       inv.message && namedRuleText(inv.message),
+      clientRuleCode(inv),
     );
     const list = out.get(taken.field) ?? [];
     list.push(...rules);
@@ -135,8 +142,17 @@ export function flutterValidatorMap(
 export function ruleGuards(
   rules: readonly FlutterFieldRule[],
   kinds: readonly ("text" | "number")[],
+  /** True in an i18n app: the message is `t('<code>', '<english>')`, evaluated
+   *  each time the validator runs, not a literal. */
+  translate = false,
 ): string[] {
   return rules
     .filter((r) => kinds.includes(r.on))
-    .map((r) => `if (${r.violated}) { return '${dartStr(r.message)}'; }`);
+    .map((r) => `if (${r.violated}) { return ${validatorMessage(translate, r.code, r.message)}; }`);
+}
+
+/** A validator's message as a Dart expression: the catalog lookup in an i18n
+ *  app, else the English literal. */
+export function validatorMessage(translate: boolean, code: string, english: string): string {
+  return translate ? `t('${dartStr(code)}', '${dartStr(english)}')` : `'${dartStr(english)}'`;
 }

@@ -3196,17 +3196,38 @@ export function formFieldServerKey(fld: FelizFormField): string {
  *  entry, or the problem's `detail`/`title` when there is no `errors[]`, is the
  *  form-level message.  The F# twin of the React projects'
  *  `apply-server-errors.ts`. */
-export function renderServerErrorsModule(): string {
+export function renderServerErrorsModule(i18n = false): string {
   return lines(
+    '/// One refusal message: the catalog `Code` the server sent ("" when there is',
+    "/// none), its English `Message`, and the `Params` its placeholders name.",
+    "type ServerIssue = { Code: string; Message: string; Params: (string * obj) list }",
+    "",
+    "module ServerIssue =",
+    "  /// A message with no catalog code: shown as written.",
+    '  let plain (message: string) : ServerIssue = { Code = ""; Message = message; Params = [] }',
+    "",
+    "  /// The message in the active locale, computed when the view RENDERS: the",
+    "  /// code over the English the server sent, a message whose placeholders the",
+    "  /// params cannot fill keeping the English.",
+    "  let text (issue: ServerIssue) : string =",
+    ...(i18n
+      ? [
+          '    if issue.Code = "" then issue.Message',
+          "    else",
+          "      try I18n.tf issue.Code issue.Message issue.Params",
+          "      with _ -> issue.Message",
+        ]
+      : ["    issue.Message"]),
+    "",
     "/// A rejected submit, decoded from the backend's RFC 7807 ProblemDetails:",
     "/// field messages keyed by the dot-path of the JSON pointer naming the field,",
     "/// and the form-level message.",
-    "type ServerErrors = { Fields: Map<string, string>; Form: string option }",
+    "type ServerErrors = { Fields: Map<string, ServerIssue>; Form: ServerIssue option }",
     "",
     "module ServerErrors =",
     "  let empty : ServerErrors = { Fields = Map.empty; Form = None }",
     "",
-    "  let formLevel (message: string) : ServerErrors = { Fields = Map.empty; Form = Some message }",
+    "  let formLevel (message: string) : ServerErrors = { Fields = Map.empty; Form = Some (ServerIssue.plain message) }",
     "",
     '  /// A JSON pointer (RFC 6901) as a dot-path; "" for the whole document.',
     "  let pointerToPath (pointer: string) : string =",
@@ -3215,14 +3236,27 @@ export function renderServerErrorsModule(): string {
     "    else",
     "      pointer",
     "",
-    "  let private entry : Decoder<string * string> =",
-    '    Decode.object (fun get -> (get.Optional.Field "pointer" Decode.string |> Option.defaultValue ""), get.Required.Field "message" Decode.string)',
+    "  let private paramsDecoder : Decoder<(string * obj) list> =",
+    "    Decode.keyValuePairs Decode.value |> Decode.map (List.map (fun (k, v) -> k, box v))",
     "",
-    "  let private problemMessage : Decoder<string option> =",
+    "  let private entry : Decoder<string * ServerIssue> =",
     "    Decode.object (fun get ->",
-    '      match get.Optional.Field "detail" Decode.string with',
-    '      | Some d when d <> "" -> Some d',
-    '      | _ -> get.Optional.Field "title" Decode.string)',
+    '      (get.Optional.Field "pointer" Decode.string |> Option.defaultValue ""),',
+    '      { Code = (get.Optional.Field "code" Decode.string |> Option.defaultValue "")',
+    '        Message = get.Required.Field "message" Decode.string',
+    '        Params = (get.Optional.Field "params" paramsDecoder |> Option.defaultValue []) })',
+    "",
+    "  let private problemIssue : Decoder<ServerIssue option> =",
+    "    Decode.object (fun get ->",
+    "      let english =",
+    '        match get.Optional.Field "detail" Decode.string with',
+    '        | Some d when d <> "" -> Some d',
+    '        | _ -> get.Optional.Field "title" Decode.string',
+    "      english",
+    "      |> Option.map (fun message ->",
+    '        { Code = (get.Optional.Field "code" Decode.string |> Option.defaultValue "problem.internal")',
+    "          Message = message",
+    '          Params = (get.Optional.Field "params" paramsDecoder |> Option.defaultValue []) }))',
     "",
     "  /// Decode a non-2xx response body.",
     "  let ofResponse (status: int) (body: string) : ServerErrors =",
@@ -3232,8 +3266,8 @@ export function renderServerErrorsModule(): string {
     '      let unplaced = entries |> List.tryFind (fun (p, _) -> pointerToPath p = "") |> Option.map snd',
     "      { Fields = Map.ofList placed; Form = unplaced }",
     "    | _ ->",
-    "      match Decode.fromString problemMessage body with",
-    '      | Ok (Some message) when message <> "" -> formLevel message',
+    "      match Decode.fromString problemIssue body with",
+    '      | Ok (Some issue) when issue.Message <> "" -> { Fields = Map.empty; Form = Some issue }',
     '      | _ -> formLevel (sprintf "HTTP %d" status)',
   );
 }
@@ -3650,7 +3684,7 @@ export function renderValidation(forms: FormRecord[]): string {
       const body = allTerms.length > 0 ? allTerms.join(" && ") : "true";
       const errorFns = validated.flatMap((fld) => [
         "",
-        `  let ${fieldErrorFn(f.formType, fld.wireName)} (form: ${f.formType}) : string option =`,
+        `  let ${fieldErrorFn(f.formType, fld.wireName)} (form: ${f.formType}) : (string * string) option =`,
         fieldErrorBody(fld, fld.rules ?? []),
       ]);
       return [
@@ -3700,31 +3734,40 @@ function fieldErrorBody(fld: FelizFormField, rules: readonly FelizFieldRule[] = 
   // empty" or "this is not a number".  (Each rule's own predicate is
   // blank-/unparseable-tolerant for the same reason, so the order is belt and
   // braces rather than the only guard.)
-  const rungs: [string, string][] = [
+  // Each rung is `(condition, catalog code, English)`: the view renders the
+  // message through `I18n.t code english` when it renders.
+  const rungs: [string, string, string][] = [
     // An OPTIONAL field has no "Required" rung — blank is a legitimate
     // omission — but an optional NUMERIC's text still has to parse.
-    ...(fld.required ? ([[empty, "Required"]] as [string, string][]) : []),
+    ...(fld.required ? ([[empty, "field.missing", "Required"]] as [string, string, string][]) : []),
     ...(parses
-      ? ([[`not (${parses})`, NUMERIC_MESSAGE[fld.numeric as "integral" | "fractional"]]] as [
-          string,
-          string,
-        ][])
+      ? ([
+          [
+            `not (${parses})`,
+            "field.type-mismatch",
+            NUMERIC_MESSAGE[fld.numeric as "integral" | "fractional"],
+          ],
+        ] as [string, string, string][])
       : []),
-    ...rules.map((r) => [r.violated, r.message] as [string, string]),
+    ...rules.map((r) => [r.violated, r.code, r.message] as [string, string, string]),
   ];
   // Only reachable with an empty `rungs` for a field that is in the validated
   // set for no reason at all — keep the historical spelling rather than emit
   // `None` with no test.
-  if (rungs.length === 0) return `    if ${empty} then Some "Required" else None`;
+  if (rungs.length === 0)
+    return `    if ${empty} then Some ("field.missing", "Required") else None`;
   // RULE-FREE forms stay BYTE-IDENTICAL to the pre-M-T1.16 emission, so this
   // feature is provably additive: an optional numeric's historical spelling is
   // the positive `if <parses> then None else <bad>`, which the generic
   // negated chain below would otherwise re-spell.
   if (rules.length === 0 && !fld.required && parses) {
-    return `    if ${parses} then None else Some "${NUMERIC_MESSAGE[fld.numeric as "integral" | "fractional"]}"`;
+    return `    if ${parses} then None else Some ("field.type-mismatch", "${NUMERIC_MESSAGE[fld.numeric as "integral" | "fractional"]}")`;
   }
   const chain = rungs
-    .map(([cond, msg], i) => `${i === 0 ? "if" : "elif"} ${cond} then Some "${msg}"`)
+    .map(
+      ([cond, code, msg], i) =>
+        `${i === 0 ? "if" : "elif"} ${cond} then Some (${JSON.stringify(code)}, ${JSON.stringify(msg)})`,
+    )
     .join(" ");
   return `    ${chain} else None`;
 }
@@ -3764,6 +3807,9 @@ export function renderViewModule(
   /** True when the page has a submitting form: its rejected submit's
    *  `ServerErrors` render through `serverError` / `serverFormError`. */
   hasServerErrors = false,
+  /** True when the app has the `I18n` module: a field's client message is then
+   *  translated by its catalog code as it renders. */
+  i18n = false,
 ): string {
   // Which matcher a read needs is a question about its RESULT SHAPE, and
   // `listShaped` is the one field that answers it — `single` cannot, because it
@@ -3777,11 +3823,11 @@ export function renderViewModule(
   // (the codebase's convention for repeated view logic) instead of inlined at
   // every input.  Shows the message only for a touched field, else nothing.
   const fieldError = [
-    "  let fieldError (touched: Set<string>) (name: string) (fieldId: string) (err: string option) : ReactElement =",
+    "  let fieldError (touched: Set<string>) (name: string) (fieldId: string) (err: (string * string) option) : ReactElement =",
     "    match (Set.contains name touched, err) with",
     // The error carries the id the input's `aria-describedby` references, so a
     // screen reader announces the message with the field (a11y).
-    '    | true, Some e -> Html.p [ prop.id fieldId; prop.className "text-error text-sm mt-1"; prop.text e ]',
+    `    | true, Some (code, e) -> Html.p [ prop.id fieldId; prop.className "text-error text-sm mt-1"; prop.text (${i18n ? "I18n.t code e" : "e"}) ]`,
     "    | _ -> Html.none",
   ];
   // A rejected submit's messages (`ServerErrors`): one at the field its JSON
@@ -3790,7 +3836,7 @@ export function renderViewModule(
   const serverError = [
     "  let serverError (errs: ServerErrors) (path: string) (testid: string) : ReactElement =",
     "    match Map.tryFind path errs.Fields with",
-    '    | Some m -> Html.p [ prop.custom("data-testid", testid); prop.role "alert"; prop.className "text-error text-sm mt-1"; prop.text m ]',
+    '    | Some m -> Html.p [ prop.custom("data-testid", testid); prop.role "alert"; prop.className "text-error text-sm mt-1"; prop.text (ServerIssue.text m) ]',
     "    | None -> Html.none",
     "",
     // The form-level slot also takes a field message whose pointer names no
@@ -3798,7 +3844,7 @@ export function renderViewModule(
     "  let serverFormError (errs: ServerErrors) (rendered: string list) (testid: string) : ReactElement =",
     "    let stray = errs.Fields |> Map.toList |> List.tryFind (fun (k, _) -> not (List.contains k rendered)) |> Option.map snd",
     "    match (match errs.Form with Some m -> Some m | None -> stray) with",
-    '    | Some m -> Html.div [ prop.custom("data-testid", testid); prop.role "alert"; prop.className "alert alert-error"; prop.text m ]',
+    '    | Some m -> Html.div [ prop.custom("data-testid", testid); prop.role "alert"; prop.className "alert alert-error"; prop.text (ServerIssue.text m) ]',
     "    | None -> Html.none",
   ];
   const idOptions = [

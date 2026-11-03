@@ -386,6 +386,15 @@ function serverErrorText(formVar: string, name: string, clientText: string | und
   return `@if (${server}; as serverError) { {{ serverError }} } @else { ${clientText} }`;
 }
 
+/** A client constraint's sentence as template text.  Under i18n it is the
+ *  rule's catalog entry (`{{ t("<code>", "Sku is invalid") }}`), evaluated when
+ *  the form renders so a locale change re-renders it; without i18n it is the
+ *  English as written. */
+function clientRuleText(ctx: WalkContext, code: string | undefined, english: string): string {
+  if (!ctx.i18nPrefix || code === undefined) return english;
+  return ctx.target.renderInterpolation(localizedModelText(ctx, code, english), STRING);
+}
+
 /** The ARIA bindings for one flat field of `formVar`'s group. */
 export function fieldAriaFor(formVar: string, ns: string, name: string): AngularFieldAria {
   const when = fieldErrorWhen(formVar, name);
@@ -863,10 +872,11 @@ export function partitionAngularFields(
   ns: string,
   ctx: WalkContext,
   formVar?: string,
-  /** Flat field names carrying a client-side constraint (from
-   *  `angularValidatorMap`): their message slot falls back to the client
-   *  sentence when no server message is set. */
-  errorFields?: ReadonlySet<string>,
+  /** Flat field names carrying a client-side constraint, each with the catalog
+   *  code of its rule (from `angularRuleCodes`): their message slot falls back
+   *  to the client sentence when no server message is set, localized by that
+   *  code when the form renders. */
+  errorFields?: ReadonlyMap<string, string>,
   /** The model type each input's label is keyed under (by input name); an
    *  input it maps to `undefined` keeps its humanized English. */
   labelOwnerOf: (name: string) => string | undefined = () => undefined,
@@ -981,7 +991,9 @@ export function partitionAngularFields(
               text: serverErrorText(
                 formVar,
                 f.name,
-                constrained ? `${humanize(f.name)} is invalid` : undefined,
+                constrained
+                  ? clientRuleText(ctx, errorFields?.get(f.name), `${humanize(f.name)} is invalid`)
+                  : undefined,
               ),
             }
           : undefined;

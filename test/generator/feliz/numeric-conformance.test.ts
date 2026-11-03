@@ -309,14 +309,14 @@ system Shop {
   it("gives a required numeric the Required→parse error ladder", async () => {
     const fs = await appOf(FORM_SYS);
     expect(fs).toContain(
-      '    if System.String.IsNullOrWhiteSpace form.price then Some "Required" elif not (isNumberText form.price) then Some "Must be a number" else None',
+      '    if System.String.IsNullOrWhiteSpace form.price then Some ("field.missing", "Required") elif not (isNumberText form.price) then Some ("field.type-mismatch", "Must be a number") else None',
     );
   });
 
   it("gives an optional numeric a parse-only error fn — blank stays a legitimate omission", async () => {
     const fs = await appOf(FORM_SYS);
     expect(fs).toContain(
-      '    if isWholeText form.rank then None else Some "Must be a whole number"',
+      '    if isWholeText form.rank then None else Some ("field.type-mismatch", "Must be a whole number")',
     );
     // No Required rung, and no non-empty term anywhere for the optional cell.
     expect(fs).not.toContain("IsNullOrWhiteSpace form.rank");

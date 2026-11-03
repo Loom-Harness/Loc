@@ -28,6 +28,7 @@ import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_GATE_VUE, AUTH_SESSION_TS, AUTH_USE_SESSION_VUE } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
+import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
 import {
   buildExternFunctionShim,
   buildExternFunctionSignature,
@@ -566,7 +567,13 @@ export function generateVueForContexts(
   out.set("src/lib/table-sort.ts", buildTableSortHelper());
   // The vee-validate form runtime (vue/ shared source) — the
   // generated pages' field inputs and v-form handlers bind to it.
-  out.set("src/lib/form.ts", renderShell(pack, "loom-form", {}));
+  out.set(
+    "src/lib/form.ts",
+    renderShell(pack, "loom-form", {
+      tBinding: errorCodeTBinding(i18nEnabled, "../i18n"),
+      helpers: ERROR_CODE_HELPERS_TS,
+    }),
+  );
 
   // Realtime SSE client + live-event handlers (channels.md Part I).
   // Mirrors the react/svelte wiring: when the targeted backend exposes

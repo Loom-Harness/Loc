@@ -1875,7 +1875,7 @@ function renderAppFs(
     // A rejected submit's decoded ProblemDetails — the error every create /
     // operation / workflow Api fn fails with, so it precedes `Api`.
     hasFormSubmits && "",
-    hasFormSubmits && renderServerErrorsModule(),
+    hasFormSubmits && renderServerErrorsModule(i18nEnabled),
     // Api module — reads (fetch + decode), mutations (verb request), creates (POST).
     hasHttp && "",
     hasHttp && api,
@@ -1883,7 +1883,7 @@ function renderAppFs(
     // (validated forms), so a form-only page still gets the helper.
     (hasReads || hasFieldErrors || usesChart || hasForms) && "",
     (hasReads || hasFieldErrors || usesChart || hasForms) &&
-      renderViewModule(reads, hasIdSelect, hasFieldErrors, usesChart, hasForms),
+      renderViewModule(reads, hasIdSelect, hasFieldErrors, usesChart, hasForms, i18nEnabled),
     // Routing table (multi-page only) — Page union + parseUrl, ahead of Model.
     routed && "",
     routed && renderRouting(pages, nameCtx, usesRouteIdFn(update, init)),
