@@ -317,7 +317,7 @@ function renderAuthPlug(
         status: 403,
         detail: "the requested organization context is outside the caller's organization scope",
         instance: conn.request_path,
-        code: ${JSON.stringify(wireCode("forbidden"))}
+        code: ${elixirString(wireCode("forbidden"))}
       })
 
     conn
@@ -540,7 +540,7 @@ ${indentElixir(authedTail, 4)}
         status: 400,
         detail: ${JSON.stringify(MALFORMED_DEV_CLAIMS_DETAIL)},
         instance: conn.request_path,
-        code: ${JSON.stringify(wireCode("malformed-body"))}
+        code: ${elixirString(wireCode("malformed-body"))}
       })
 
     conn
@@ -629,7 +629,7 @@ ${extractTokenDef}
         status: 401,
         detail: "no valid credentials for #{conn.method} #{conn.request_path}",
         instance: conn.request_path,
-        code: ${JSON.stringify(wireCode("unauthenticated"))}
+        code: ${elixirString(wireCode("unauthenticated"))}
       })
 
     conn

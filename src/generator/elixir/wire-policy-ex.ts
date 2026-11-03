@@ -5,7 +5,6 @@
 // the same way.
 
 import {
-  errorVariantCode,
   errorVariantResponse,
   fieldCode,
   fieldFixedMessage,
@@ -114,11 +113,6 @@ export function exCode(cls: WireRejectionClass): string {
 /** The wire `code` of a field reason, as an Elixir string literal. */
 export function exFieldCode(reason: Parameters<typeof fieldCode>[0]): string {
   return exLit(fieldCode(reason));
-}
-
-/** The wire `code` of a declared error variant, as an Elixir string literal. */
-export function exErrorVariantCode(ctx: string | undefined, name: string): string {
-  return exLit(errorVariantCode(ctx, name));
 }
 
 /** The sanitized catch-all for a fault no rung modelled: the 500 with its fixed

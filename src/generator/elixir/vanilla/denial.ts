@@ -415,7 +415,7 @@ export function wireValidationTerm(s: GuardStmt, renderRef?: (e: ExprIR) => stri
     // The author's `message "…"` goes through the shared escaping funnel — a
     // raw `#{` here would interpolate into the 422 body at request time.
     `message: ${elixirString(text)}`,
-    `code: ${JSON.stringify(ruleCode({ expr: s.expr, source: s.source, message: authored }))}`,
+    `code: ${elixirString(ruleCode({ expr: s.expr, source: s.source, message: authored }))}`,
     ...(authored && exRuleParams(s, renderRef) ? [`params: ${exRuleParams(s, renderRef)}`] : []),
   ].join(", ");
   return `{:validation_failed, [%{${entry}}]}`;

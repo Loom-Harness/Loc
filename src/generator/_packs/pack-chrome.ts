@@ -394,7 +394,7 @@ export function chromeHelpers(
     chromeImport(specifier: unknown) {
       return new Handlebars.SafeString(i18n ? spelling.importLine(String(specifier)) : "");
     },
-    /** A HEEx pack's `translate_error/1` — the function that turns a
+    /** A HEEx pack's `translate_error/1` (a HEEx-only template call) — the function that turns a
      *  `{message, opts}` form-field error into text.  Off i18n it interpolates
      *  `%{key}` placeholders into Ecto's own English.  On, a server-originated
      *  error is localized IN PROCESS through gettext by the same catalog `code`
@@ -403,11 +403,6 @@ export function chromeHelpers(
      *  (`loom_params`) filled into `{name}` holes.  The argument is the pack's
      *  web module, whose `Gettext` backend resolves the code. */
     translateError(webModule: unknown) {
-      if (format !== "heex") {
-        throw new Error(
-          `pack-chrome: {{translateError}} is a HEEx-pack helper; pack ${family} has format ${format}.`,
-        );
-      }
       return new Handlebars.SafeString(
         i18n ? localizedTranslateError(String(webModule)) : PLAIN_TRANSLATE_ERROR,
       );

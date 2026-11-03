@@ -112,7 +112,7 @@ export function ectoValidator(field: string, p: SingleFieldPattern, message?: st
 
 /** The single-field constraint validator lines for a value object's invariants
  *  (only those whose pattern targets one of the VO's own fields). */
-export function voConstraintLines(vo: ValueObjectIR): string[] {
+function voConstraintLines(vo: ValueObjectIR): string[] {
   return constraintLinesFor(vo);
 }
 
@@ -179,7 +179,7 @@ export function taggedConstraintLines(owner: {
         const reads = ruleParams(inv)
           .map((name) => `{${JSON.stringify(name)}, :${snake(name)}}`)
           .join(", ");
-        return `    |> __loom_tagged(${JSON.stringify(inv.message.key)}, [${reads}], fn changeset ->
+        return `    |> __loom_tagged(${elixirString(inv.message.key)}, [${reads}], fn changeset ->
       changeset
 ${line.replace(/^/gm, "  ")}
     end)`;
