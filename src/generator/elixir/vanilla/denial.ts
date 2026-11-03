@@ -559,8 +559,8 @@ export function respondErrorTail(
  *  SHARED across every command of an aggregate and so has no `op` in scope, but
  *  it never needs one: the PRODUCER has `op`, and the consumer just binds the
  *  detail. */
-export function disallowedTerm(aggName: string, op: { name: string; whenSource?: string }): string {
-  return `{:disallowed, ${elixirString(disallowedDetail(op.name, aggName, op.whenSource))}}`;
+export function disallowedTerm(aggName: string, op: { name: string }): string {
+  return `{:disallowed, ${elixirString(disallowedDetail(op.name, aggName))}}`;
 }
 
 /** The state-gate consumer half — `ProblemDetails.problem_response(conn,

@@ -462,7 +462,7 @@ function renderPureOp(
   const whenGate = op.when
     ? [
         `    if not (${renderExpr(op.when, rc)}), do: raise(${guardErrorModule(appModule)}, kind: :disallowed, message: ${elixirString(
-          disallowedDetail(op.name, agg.name, op.whenSource),
+          disallowedDetail(op.name, agg.name),
         )})`,
       ]
     : [];

@@ -1,4 +1,5 @@
 import type { BinOp, ExprIR, InvariantIR } from "../ir/types/loom-ir.js";
+import { ruleParams } from "../ir/util/rule-params.js";
 import {
   type ClassifyContext,
   classifyForWire,
@@ -12,7 +13,7 @@ import { escapeTsIdent, humanize } from "../util/naming.js";
 import { tsCodePointLength as codePointLength } from "./_expr/code-point.js";
 import { JS_INTRINSIC_RENDERERS } from "./_expr/js-intrinsics.js";
 import { asRegexLiteral } from "./_expr/regex-literal.js";
-import { ruleText } from "./_i18n/rule-text.js";
+import { ruleCode, ruleText } from "./_i18n/rule-text.js";
 
 // ---------------------------------------------------------------------------
 // Zod-refine renderer for wire-boundary validators (frontend forms +
@@ -431,14 +432,23 @@ export function refineClauseFor(
     presence && presence.length > 0
       ? `${presence.map((m) => `data.${m} === undefined`).join(" || ")} || (${ruled})`
       : ruled;
-  // A named rule answers its text and carries its identity key as `loomCode`
-  // in the zod issue `params`, so the route's `defaultHook` can surface it on
-  // `errors[].code` (a runtime-body extension — not part of the OpenAPI
-  // component schema, so cross-backend OpenAPI parity is unaffected).  An
+  // The rule answers its text and carries its catalog code as `loomCode` in
+  // the zod issue `params` — a named rule's identity key, an unnamed rule's
+  // generic key — so the route's `defaultHook` surfaces it on
+  // `errors[].code` and a form localizes the issue by it at render time.  A
+  // named rule also names the request members it reads (`loomReads`), whose
+  // values ride the wire as `errors[].params`; `loomPointed` says the issue
+  // path ends at the rule's field rather than at the object it judged.  An
   // unnamed rule answers the generic text — never its source expression.
   const message = JSON.stringify(ruleText(inv));
-  const code = inv.message ? `, params: { loomCode: ${JSON.stringify(inv.message.key)} }` : "";
   const path = pickErrorPath(inv);
+  const reads = inv.message ? ruleParams(inv) : [];
+  const loom = [
+    `loomCode: ${JSON.stringify(ruleCode(inv))}`,
+    ...(reads.length > 0 ? [`loomReads: ${JSON.stringify(reads)}`] : []),
+    ...(reads.length > 0 && path ? ["loomPointed: true"] : []),
+  ];
+  const code = `, params: { ${loom.join(", ")} }`;
   const opts = path
     ? `{ path: [${JSON.stringify(path)}], message: ${message}${code} }`
     : `{ message: ${message}${code} }`;

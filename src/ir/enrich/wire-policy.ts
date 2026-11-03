@@ -41,6 +41,7 @@ import {
 } from "../../util/error-defaults.js";
 import { INTEGER_RANGE_MESSAGE } from "../../util/numeric-range.js";
 import { FIND_ABSENT_DETAIL } from "../../util/repository-contract.js";
+import { modelTextKey } from "../../util/model-text-key.js";
 import { UUID_WIRE_MESSAGE } from "../../util/uuid-wire.js";
 import type { InvariantIR } from "../types/loom-ir.js";
 import type { WirePrimitive } from "../types/wire-types.js";
@@ -116,7 +117,8 @@ export type WireRejectionClass =
   | "dangling-reference"
   | "referenced-in-use"
   | "not-implemented"
-  | "internal";
+  | "internal"
+  | "unauthenticated";
 
 /** Where a refusal's status comes from: a fixed framework tier, or a stdlib
  *  error name an api's `httpStatus <Error> -> <Code>` override may retarget. */
@@ -284,6 +286,15 @@ const TABLE: Readonly<Record<WireRejectionClass, WireRejectionRow>> = {
     errors: "none",
     stage: "fault",
   },
+  // A request with no valid credentials (RFC 9110 §15.5.2): answered by the
+  // authentication middleware, after routing and before any `requires` gate.
+  unauthenticated: {
+    status: { fixed: 401 },
+    title: { fixed: "Unauthorized" },
+    detail: { kind: "sentence", prefix: "no valid credentials for ", suffix: "" },
+    errors: "none",
+    stage: "authorize",
+  },
 };
 
 /** The statuses a backend's framework-fault responder titles itself — the
@@ -393,6 +404,68 @@ export function wireSentence(cls: WireRejectionClass): { prefix: string; suffix:
 export function wireSentenceFor(cls: WireRejectionClass, subject: string): string {
   const { prefix, suffix } = wireSentence(cls);
   return suffix === "" ? `${prefix}${subject}` : `${prefix}${subject} ${suffix}`;
+}
+
+// ---------------------------------------------------------------------------
+// Codes — what a client localizes a refusal by
+// ---------------------------------------------------------------------------
+//
+// Every problem body carries an RFC 7807 extension member `code`, and every
+// `errors[]` entry one too.  The code IS the catalog key of the message a
+// client shows (`t(code, detail, params)`), so no client keeps a mapping
+// table.  `title`, `detail` and `errors[].message` stay English, for API
+// callers and logs.  The English of every `problem.*` / `field.*` key is
+// registered once, in `src/generator/_walker/i18n-chrome.ts`.
+//
+//   a rejection class         problem.<class>
+//   a field reason            field.<reason>
+//   a named rule              <Ctx>.<Owner>.rule.<name>   (its `MessageIR.key`)
+//   an unnamed rule           field.rule / problem.domain-floor
+//   a declared error variant  <Ctx>.<Error>.message
+//
+// The extension member `params` carries the values a message's placeholders
+// name, and is present only where the class or reason names any.
+
+/** The wire `code` of a rejection class: `problem.<class>`. */
+export function wireCode(cls: WireRejectionClass): string {
+  return `problem.${cls}`;
+}
+
+/** The `params` a rejection class's body carries, by name.  Each is a
+ *  placeholder its catalog text may use. */
+const WIRE_PARAMS: Readonly<Partial<Record<WireRejectionClass, readonly string[]>>> = {
+  // The id the server logged the fault under — what a user quotes to support.
+  // The fault itself is never echoed.
+  internal: ["requestId"],
+};
+
+/** The param names a rejection class carries (empty for most). */
+export function wireParams(cls: WireRejectionClass): readonly string[] {
+  return WIRE_PARAMS[cls] ?? [];
+}
+
+/** The wire `code` of a field reason, on its `errors[]` entry: `field.<reason>`. */
+export function fieldCode(reason: FieldRejectionReason): string {
+  return `field.${reason}`;
+}
+
+/** The `params` a field reason's `errors[]` entry carries, by name. */
+const FIELD_PARAMS: Readonly<Partial<Record<FieldRejectionReason, readonly string[]>>> = {
+  "integer-range": ["min", "max"],
+  "money-grammar": ["value"],
+  "money-range": ["value"],
+};
+
+/** The param names a field reason carries (empty for most). */
+export function fieldParams(reason: FieldRejectionReason): readonly string[] {
+  return FIELD_PARAMS[reason] ?? [];
+}
+
+/** The wire `code` of a DECLARED error variant (`or OutOfStock`): its
+ *  message's identity key `<Ctx>.<Error>.message`.  Its `params` are the error
+ *  record's own fields. */
+export function errorVariantCode(ctx: string | undefined, name: string): string {
+  return modelTextKey({ ctx, type: name, facet: "message" });
 }
 
 // ---------------------------------------------------------------------------

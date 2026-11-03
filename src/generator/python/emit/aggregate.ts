@@ -447,7 +447,7 @@ function renderEntity(
       ? [
           `        if ${renderPyNegatedGuard(op.when)}:`,
           `            raise ${PY.DisallowedError}(${JSON.stringify(
-            disallowedDetail(op.name, e.name, op.whenSource),
+            disallowedDetail(op.name, e.name),
           )})`,
         ]
       : [];
