@@ -1,7 +1,7 @@
 // Property-modifier editing for the visual builder's field inspector.
 //
 // The `Property` rule fixes ONE order for the clauses that carry expression
-// content — `TypeRef (flags)* ('=' default)? ('check' … ('message' …)?)?
+// content — `TypeRef (flags)* ('=' default)? ('check' (name ':')? …)?
 // ('mask' 'unless' …)?` — and the flag group MUST precede the default (an
 // access keyword doubles as an identifier, so `x: int = 1 secret` is a parse
 // error).  Each mutator therefore splices at the anchor its own clause must
@@ -29,7 +29,7 @@ import { contextMembersOf, nodeName } from "../../_helpers/ast.js";
 import { parseRaw as parse } from "../../_helpers/index.js";
 
 // Every field shape the mutators have to cope with: bare, defaulted, fully
-// decorated (flags + mask), check-with-message, and one carrying a same-line
+// decorated (flags + mask), named-check, and one carrying a same-line
 // trailing comment.  Comments sit between them so a stray splice shows up as a
 // moved line in the hunk.
 const SRC = `system Shop {
@@ -44,11 +44,11 @@ const SRC = `system Shop {
       total: decimal = 0
       ssn: string sensitive(pii) secret mask unless currentUser.isAdmin
       status: string   // draft | placed | shipped
-      qty: int check qty > 0 message "quantity must be positive"
+      qty: int check qtyPositive: qty > 0
       note: string
 
       // never let an order go negative
-      invariant total >= 0 message "total must not be negative"
+      invariant totalNonNegative: total >= 0
     }
 
     // placed on the wire
@@ -179,17 +179,17 @@ describe("field modifiers — check", () => {
     );
   });
 
-  it("replaces the predicate and keeps the existing message by default", () => {
+  it("replaces the predicate and keeps the existing name by default", () => {
     const out = setFieldCheck(SRC, "aggregate", "Order", fieldIndex("qty"), "qty > 1");
     expectHunk(
       SRC,
       out,
-      ['      qty: int check qty > 0 message "quantity must be positive"'],
-      ['      qty: int check qty > 1 message "quantity must be positive"'],
+      ["      qty: int check qtyPositive: qty > 0"],
+      ["      qty: int check qtyPositive: qty > 1"],
     );
   });
 
-  it("sets a message on a check that had none", () => {
+  it("names a check that was unnamed", () => {
     const added = setFieldCheck(
       SRC,
       "aggregate",
@@ -203,49 +203,53 @@ describe("field modifiers — check", () => {
       "Order",
       fieldIndex("note"),
       'note != ""',
-      "note is required",
+      "noteRequired",
     );
     expectHunk(
       added,
       out,
       ['      note: string check note != ""'],
-      ['      note: string check note != "" message "note is required"'],
+      ['      note: string check noteRequired: note != ""'],
     );
-    expect(modsOf(out as string, "note").checkMessage).toBe("note is required");
+    expect(modsOf(out as string, "note").checkName).toBe("noteRequired");
   });
 
-  it("drops only the message when it is cleared", () => {
+  it("drops only the name when it is cleared", () => {
     const out = setFieldCheck(SRC, "aggregate", "Order", fieldIndex("qty"), "qty > 0", null);
     expectHunk(
       SRC,
       out,
-      ['      qty: int check qty > 0 message "quantity must be positive"'],
+      ["      qty: int check qtyPositive: qty > 0"],
       ["      qty: int check qty > 0"],
     );
   });
 
-  it("removes the check together with its message", () => {
+  it("removes the check together with its name", () => {
     const out = setFieldCheck(SRC, "aggregate", "Order", fieldIndex("qty"), null);
-    expectHunk(
-      SRC,
-      out,
-      ['      qty: int check qty > 0 message "quantity must be positive"'],
-      ["      qty: int"],
-    );
-    expect(modsOf(out as string, "qty")).toMatchObject({ check: null, checkMessage: null });
+    expectHunk(SRC, out, ["      qty: int check qtyPositive: qty > 0"], ["      qty: int"]);
+    expect(modsOf(out as string, "qty")).toMatchObject({ check: null, checkName: null });
   });
 
-  it("re-quotes the message rather than trusting the caller's text", () => {
-    const out = setFieldCheck(
-      SRC,
-      "aggregate",
-      "Order",
-      fieldIndex("note"),
-      "true",
-      'a "quoted" word',
-    );
-    expect(out).toContain('message "a \\"quoted\\" word"');
-    expect(modsOf(out as string, "note").checkMessage).toBe('a "quoted" word');
+  it("refuses a name that is not an identifier", () => {
+    for (const bad of ["not an id", "1abc", 'a"b', "a-b"]) {
+      expect(setFieldCheck(SRC, "aggregate", "Order", fieldIndex("note"), "true", bad)).toBeNull();
+    }
+  });
+
+  it("refuses a name another rule of the owner already declares", () => {
+    // `qtyPositive` is the qty check, `totalNonNegative` the invariant.
+    for (const taken of ["qtyPositive", "totalNonNegative"]) {
+      expect(setFieldCheck(SRC, "aggregate", "Order", fieldIndex("note"), "true", taken)).toBeNull();
+    }
+    // Re-saving a rule under its own name is not a clash.
+    expect(
+      setFieldCheck(SRC, "aggregate", "Order", fieldIndex("qty"), "qty > 2", "qtyPositive"),
+    ).not.toBeNull();
+  });
+
+  it("never writes a `message` clause", () => {
+    const out = setFieldCheck(SRC, "aggregate", "Order", fieldIndex("note"), "true", "noteOk");
+    expect(out).not.toContain("message");
   });
 });
 
@@ -261,14 +265,14 @@ describe("field modifiers — mask unless", () => {
     expectCommentsIntact(out);
   });
 
-  it("lands after an existing check + message", () => {
+  it("lands after an existing named check", () => {
     const out = setFieldMask(SRC, "aggregate", "Order", fieldIndex("qty"), "currentUser.isAdmin");
     expectHunk(
       SRC,
       out,
-      ['      qty: int check qty > 0 message "quantity must be positive"'],
+      ['      qty: int check qtyPositive: qty > 0'],
       [
-        '      qty: int check qty > 0 message "quantity must be positive" mask unless currentUser.isAdmin',
+        '      qty: int check qtyPositive: qty > 0 mask unless currentUser.isAdmin',
       ],
     );
   });
@@ -414,20 +418,20 @@ describe("field modifiers — composition", () => {
       "Order",
       fieldIndex("note"),
       'note != ""',
-      "required",
+      "noteRequired",
     );
     expectHunk(
       SRC,
       src,
       ["      note: string"],
       [
-        '      note: string = "n/a" check note != "" message "required" mask unless currentUser.isAdmin',
+        '      note: string = "n/a" check noteRequired: note != "" mask unless currentUser.isAdmin',
       ],
     );
     expect(modsOf(src as string, "note")).toEqual({
       default: '"n/a"',
       check: 'note != ""',
-      checkMessage: "required",
+      checkName: "noteRequired",
       maskUnless: "currentUser.isAdmin",
       access: null,
       provenanced: false,
@@ -463,7 +467,7 @@ describe("field modifiers — composition", () => {
     expectCommentsIntact(src);
   });
 
-  it("the invariant's `message` survives every modifier edit", () => {
+  it("the named invariant survives every modifier edit", () => {
     const edits = [
       setFieldDefault(SRC, "aggregate", "Order", fieldIndex("note"), "1"),
       setFieldCheck(SRC, "aggregate", "Order", fieldIndex("note"), "true"),
@@ -472,7 +476,7 @@ describe("field modifiers — composition", () => {
       setFieldSensitivity(SRC, "aggregate", "Order", fieldIndex("note"), ["pii"]),
     ];
     for (const out of edits) {
-      expect(out).toContain('invariant total >= 0 message "total must not be negative"');
+      expect(out).toContain('invariant totalNonNegative: total >= 0');
     }
   });
 });
@@ -520,9 +524,9 @@ describe("field modifiers — guards", () => {
     expect(setFieldDefault(SRC, "aggregate", "Order", i, "= = =")).toBeNull();
     expect(setFieldCheck(SRC, "aggregate", "Order", i, "((")).toBeNull();
     expect(setFieldMask(SRC, "aggregate", "Order", i, "currentUser.")).toBeNull();
-    // A default that would swallow the field ABOVE its insertion point is still
-    // caught by the same guard — nothing here bypasses the re-parse.
-    expect(setFieldDefault(SRC, "aggregate", "Order", i, '"unterminated')).toBeNull();
+    // A default that runs into the next declaration is caught by the same
+    // guard — nothing here bypasses the re-parse.
+    expect(setFieldDefault(SRC, "aggregate", "Order", i, "1 +")).toBeNull();
   });
 
   it("rejects multi-line clause text — these splices stay on the field's line", () => {
@@ -558,7 +562,7 @@ describe("field modifiers — read-back", () => {
     expect(mods[fieldIndex("customerId")]).toEqual({
       default: null,
       check: null,
-      checkMessage: null,
+      checkName: null,
       maskUnless: null,
       access: null,
       provenanced: false,
@@ -572,7 +576,7 @@ describe("field modifiers — read-back", () => {
     });
     expect(mods[fieldIndex("qty")]).toMatchObject({
       check: "qty > 0",
-      checkMessage: "quantity must be positive",
+      checkName: "qtyPositive",
     });
   });
 
