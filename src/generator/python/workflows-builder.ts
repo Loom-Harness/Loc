@@ -407,7 +407,7 @@ export function pyReadPortResolver(
     const svc = ctx.domainServices.find((s) => s.name === service);
     const operation = svc?.operations.find((o) => o.name === op);
     if (!operation) return [];
-    return readPortsForOperation(operation).map((p) => snake(p.repo));
+    return readPortsForOperation(operation).map((p) => pythonIdent(p.repo));
   };
 }
 
@@ -767,7 +767,7 @@ function workflowRoute(
   const repos = mergeReadPortRepos(reposFor(wf), wf, ctx);
   for (const r of repos) {
     out.push(
-      `        ${snake(r.repoName)} = ${repoClassRef(r.aggName)}(session, ${dispatcherExpr})`,
+      `        ${pythonIdent(r.repoName)} = ${repoClassRef(r.aggName)}(session, ${dispatcherExpr})`,
     );
   }
   const hasEmit = workflowEmits(wf.statements).length > 0;
@@ -1030,7 +1030,7 @@ export function pyWorkflowStmtTarget(
    *  single-result read behind `Repo.find(<Criterion>)` in a `let` and an
    *  `if let`. */
   const runFirstRow = (repoName: string, retrievalName: string, args: readonly ExprIR[]): string =>
-    `await ${snake(repoName)}.run_${snake(retrievalName)}(${[...args.map((a) => renderPyExpr(a, rctx)), "limit=1"].join(", ")})`;
+    `await ${pythonIdent(repoName)}.run_${snake(retrievalName)}(${[...args.map((a) => renderPyExpr(a, rctx)), "limit=1"].join(", ")})`;
   return {
     indentUnit: "    ",
     precondition: (st, i) => [
@@ -1064,7 +1064,7 @@ export function pyWorkflowStmtTarget(
         return [`${i}${hits} = ${run}`, `${i}${v} = ${hits}[0] if ${hits} else None`];
       }
       const args = st.args.map((a) => renderPyExpr(a, rctx)).join(", ");
-      const call = `await ${snake(st.repoName)}.${snake(st.method)}(${args})`;
+      const call = `await ${pythonIdent(st.repoName)}.${snake(st.method)}(${args})`;
       // A load nothing reads, mutates or saves is an existence check: keep the
       // awaited call (a missing id still raises → 404) but drop the dead
       // binding, or ruff rejects the unused local (F841).  `usedLets` here is
@@ -1078,7 +1078,7 @@ export function pyWorkflowStmtTarget(
         ...(st.page?.offset ? [`offset=${renderPyExpr(st.page.offset, rctx)}`] : []),
         ...(st.page?.limit ? [`limit=${renderPyExpr(st.page.limit, rctx)}`] : []),
       ].join(", ");
-      const call = `await ${snake(st.repoName)}.run_${snake(st.retrievalName)}(${args})`;
+      const call = `await ${pythonIdent(st.repoName)}.run_${snake(st.retrievalName)}(${args})`;
       // A `run` retrieval is a read (no exit-save), so a binding never read is
       // dead — keep the (still-awaited) call but drop the assignment, or ruff
       // rejects the unused local (F841).  Mirrors the `exprLet` arm.
@@ -1145,8 +1145,8 @@ export function pyWorkflowStmtTarget(
     repoDelete: (st, i) => {
       // `<Repo>.delete(o)` → `await <repo>.delete(<entity>.id)`.  The generated
       // repository's `delete(id)` takes the aggregate's id token, so append
-      // `.id`.  Repo var mirrors the repo-let arm (`snake(repoName)`).
-      return [`${i}await ${snake(st.repoName)}.delete(${renderPyExpr(st.entity, rctx)}.id)`];
+      // `.id`.  Repo var mirrors the repo-let arm (`pythonIdent(repoName)`).
+      return [`${i}await ${pythonIdent(st.repoName)}.delete(${renderPyExpr(st.entity, rctx)}.id)`];
     },
     forEach: (st, i, body) => {
       const saves = st.savesPerIteration.flatMap((s) => saveLines(s, `${i}    `));
@@ -1170,7 +1170,7 @@ export function pyWorkflowStmtTarget(
       // answer the row or `None`, so they bind directly; a `bound` source
       // narrows an optional binding already in scope.
       const byName = (method: string): string[] => [
-        `${i}${v} = await ${snake(st.repoName)}.${snake(method)}(${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")})`,
+        `${i}${v} = await ${pythonIdent(st.repoName)}.${snake(method)}(${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")})`,
       ];
       const lookup =
         st.op === "bound"
