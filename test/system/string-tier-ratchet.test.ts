@@ -79,7 +79,11 @@ const CEILINGS: Record<string, number> = {
   // widened find(C)/findById read omits exactly the capability predicate it names —
   // an absence in the emitted SQL no compile gate sees; the key-lookup fixture
   // compiles the same reads on all five backends.
-  "(cross-target)": 3300,
+  // 3300 → 3500: the repository-leftovers train pins, per backend, that a routed
+  // `T?` miss answers 404, that every accepted `ignoring` position omits the
+  // predicate it names, and each criterion predicate's emitted shape — emission
+  // details (a missing guard, a dropped bypass) that compile cleanly when wrong.
+  "(cross-target)": 3500,
   _expr: 200,
   _frontend: 400,
   _i18n: 200,
