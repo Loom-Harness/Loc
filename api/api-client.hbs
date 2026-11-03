@@ -1,7 +1,7 @@
 // Auto-generated.
 import { API_BASE_URL } from "./config";
 import { getLogger } from "../logger";
-{{#if i18nEnabled}}import { getLocale } from "../i18n";
+{{#if i18nEnabled}}import { getLocale } from "{{#if i18nImportPath}}{{i18nImportPath}}{{else}}../i18n{{/if}}";
 {{/if}}
 const log = getLogger("api");
 

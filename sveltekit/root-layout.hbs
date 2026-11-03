@@ -5,6 +5,7 @@
 {{#if hasRealtimeHandlers}}  import RealtimeHandlers from "$lib/components/RealtimeHandlers.svelte";
 {{/if}}{{#if authUi}}  import AuthGate from "$lib/auth/AuthGate.svelte";
 {{/if}}{{#if i18nEnabled}}  import { t } from "$lib/i18n";
+{{/if}}{{#if localeSwitchable}}  import { locale } from "$lib/locale";
 {{/if}}{{#if usesCodeBlock}}  // Vendored syntax highlighter for the `CodeBlock` primitive
   // (highlight.js, bundled - no CDN, works air-gapped).  Self-arms on import.
   import "$lib/highlight";
@@ -27,11 +28,21 @@
   <svelte:boundary onerror={(e) => console.error("Uncaught render error:", e)}>
 {{#if authUi}}    <AuthGate>
 {{#if hasRealtimeHandlers}}      <RealtimeHandlers />
-{{/if}}      {@render children()}
-    </AuthGate>
+{{/if}}{{#if localeSwitchable}}      <!-- Keyed on the locale: a switch remounts the routed tree, so every
+           `t()` call and formatter beneath it runs again. -->
+      {#key $locale}
+        {@render children()}
+      {/key}
+{{else}}      {@render children()}
+{{/if}}    </AuthGate>
 {{else}}{{#if hasRealtimeHandlers}}    <RealtimeHandlers />
-{{/if}}    {@render children()}
-{{/if}}    {#snippet failed(error)}
+{{/if}}{{#if localeSwitchable}}    <!-- Keyed on the locale: a switch remounts the routed tree, so every
+         `t()` call and formatter beneath it runs again. -->
+    {#key $locale}
+      {@render children()}
+    {/key}
+{{else}}    {@render children()}
+{{/if}}{{/if}}    {#snippet failed(error)}
       <div role="alert" data-testid="app-error" style="padding:16px;font-family:system-ui,sans-serif">
         <h2 style="white-space:pre-wrap;color:#b91c1c">{{{errorTitleText}}}</h2>
         <pre style="white-space:pre-wrap;color:#b91c1c">{error instanceof Error ? error.message : String(error)}</pre>

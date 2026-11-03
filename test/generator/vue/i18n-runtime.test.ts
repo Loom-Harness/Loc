@@ -121,9 +121,8 @@ describe("Vue i18n runtime", () => {
     );
     const i18n = [...files].find(([p]) => p.endsWith("src/i18n.ts"))![1];
     expect(i18n).toContain('import { IntlMessageFormat } from "intl-messageformat"');
-    expect(i18n).toContain(
-      "new IntlMessageFormat(message, locale).format(formatValues(message, values))",
-    );
+    expect(i18n).toContain("formatterFor(current, message).format(formatValues(message, values))");
+    expect(i18n).toContain("new IntlMessageFormat(message, locale)");
     const pkg = [...files].find(([p]) => p.endsWith("web/package.json"))![1];
     expect(pkg).toContain("intl-messageformat");
   });

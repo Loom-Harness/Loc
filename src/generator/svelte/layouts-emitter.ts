@@ -27,6 +27,7 @@ import { snake } from "../../util/naming.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { renderSvelteImportLines } from "./walker/import-lines.js";
+import { localeSwitcherImport } from "./walker/page-shell.js";
 import { svelteTarget } from "./walker/svelte-target.js";
 
 /** Route-group directory for a named layout — `LandingFrame` →
@@ -112,7 +113,9 @@ export function emitSvelteNamedLayouts(ctx: SvelteLayoutContext): Map<string, st
       for (const n of s.usedUserComponents) usedComponents.add(n);
     }
 
-    const packImports = renderSvelteImportLines(importMap);
+    const packImports = `${renderSvelteImportLines(importMap)}${localeSwitcherImport(
+      [...rendered.values()].join("\n"),
+    )}`;
     const componentImports = [...usedComponents]
       .sort()
       .map((n) => `  import ${n} from "$lib/components/${n}.svelte";\n`)

@@ -53,9 +53,11 @@ export function emitTimeline(
       return reactTimeline(entries, testid, ctx.i18nPrefix ? "getLocale()" : "");
     }
     case "vue":
-      return vueTimeline(entries, testid);
+      if (ctx.i18nPrefix) addImport(ctx, I18N_MODULE, "getLocale");
+      return vueTimeline(entries, testid, ctx.i18nPrefix ? "getLocale()" : "");
     case "svelte":
-      return svelteTimeline(entries, testid);
+      if (ctx.i18nPrefix) addImport(ctx, I18N_MODULE, "getLocale");
+      return svelteTimeline(entries, testid, ctx.i18nPrefix ? "getLocale()" : "");
     case "angular":
       return angularTimeline(entries, testid);
     default:
@@ -108,12 +110,12 @@ function reactTimeline(entries: string, testid: string, locale: string): string 
 }
 
 /** Vue — `v-for` over the same guarded list. */
-function vueTimeline(entries: string, testid: string): string {
+function vueTimeline(entries: string, testid: string, locale: string): string {
   return [
     `<ol class="loom-timeline"${testid}>`,
     `  <li v-for="__e in ${entries}" :key="__e.auditId" class="loom-timeline-entry">`,
     `    <span class="loom-timeline-action">{{ __e.action }}</span>`,
-    `    <time :datetime="__e.at">{{ new Date(__e.at).toLocaleString() }}</time>`,
+    `    <time :datetime="__e.at">{{ new Date(__e.at).toLocaleString(${locale}) }}</time>`,
     `    <span v-if="__e.actor != null" class="loom-timeline-actor">{{ String(__e.actor) }}</span>`,
     `    <dl v-if="__e.changes.length > 0" class="loom-timeline-changes">`,
     `      <div v-for="__c in __e.changes" :key="__c.field">`,
@@ -127,13 +129,13 @@ function vueTimeline(entries: string, testid: string): string {
 }
 
 /** Svelte — `{#each}` / `{#if}`. */
-function svelteTimeline(entries: string, testid: string): string {
+function svelteTimeline(entries: string, testid: string, locale: string): string {
   return [
     `<ol class="loom-timeline"${testid}>`,
     `  {#each ${entries} as __e (__e.auditId)}`,
     `    <li class="loom-timeline-entry">`,
     `      <span class="loom-timeline-action">{__e.action}</span>`,
-    `      <time datetime={__e.at}>{new Date(__e.at).toLocaleString()}</time>`,
+    `      <time datetime={__e.at}>{new Date(__e.at).toLocaleString(${locale})}</time>`,
     `      {#if __e.actor != null}<span class="loom-timeline-actor">{String(__e.actor)}</span>{/if}`,
     `      {#if __e.changes.length > 0}`,
     `        <dl class="loom-timeline-changes">`,
