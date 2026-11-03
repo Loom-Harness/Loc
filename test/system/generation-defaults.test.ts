@@ -28,6 +28,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { renderDockerfile as renderDotnetDockerfile } from "../../src/generator/dotnet/emit/program.js";
 import { renderDockerfile as renderElixirDockerfile } from "../../src/generator/elixir/shell/project.js";
+import { DOCKERFILE as FELIZ_DOCKERFILE } from "../../src/generator/feliz/index.js";
 import { renderDockerfile as renderJavaDockerfile } from "../../src/generator/java/emit/program.js";
 import { DOCKERFILE_TS as HONO_DOCKERFILE } from "../../src/platform/hono/v4/emit.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
@@ -264,6 +265,15 @@ function allDockerfiles(): Array<{ name: string; text: string }> {
 function instructions(text: string): string[] {
   return text.split("\n").filter((l) => l.trim() !== "" && !l.trimStart().startsWith("#"));
 }
+
+describe("G7b — the Feliz host Dockerfile installs quietly with registry retries", () => {
+  it("its npm install carries the shared flag set", () => {
+    const installs = instructions(FELIZ_DOCKERFILE).filter((l) => /\bnpm install\b/.test(l));
+    expect(installs.map((l) => l.trim())).toEqual([
+      "RUN npm install --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000",
+    ]);
+  });
+});
 
 describe("G7b — no emitted Dockerfile runs `npm ci`", () => {
   it.each(allDockerfiles())("$name", ({ name, text }) => {

@@ -19,6 +19,7 @@ import {
   TENANT_OWNED_DATA_KEY_FIELD,
   TENANT_OWNED_TENANT_ID_FIELD,
 } from "../../ir/util/tenant-stance.js";
+import type { WriteScopeContext } from "../../ir/util/write-scope-guards.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import {
@@ -90,6 +91,11 @@ export interface RenderCtx {
   repoRunActor?: boolean;
   /** Module prefix for the current bounded context, e.g. `"MyApp.Sales"`. */
   contextModule: string;
+  /** Set by a COMMAND body (a workflow's `run`, an explicit handler): the
+   *  body's write-scope requirement (`ir/util/write-scope-guards.ts`), so each
+   *  op-call / delete / mutating service call re-loads the rows it writes
+   *  through `get_<agg>_for_write` first.  Unset on a reactor. */
+  writeScope?: WriteScopeContext;
   /** Set by the workflow `run/1` and explicit-handler bodies: a `getById` load
    *  tags its miss `{:not_found, "<Agg> <id> not found"}` (and a natural-key
    *  `getBy` its miss `{:not_found, "not_found"}`) so the dispatcher answers

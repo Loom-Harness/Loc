@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
-import { generateHono, parseString, parseValid, toLoomModel } from "../../_helpers/index.js";
+import { generateBackendFiles, parseString, toLoomModel } from "../../_helpers/index.js";
 
 // Reference collections (`field: Target id[]`) persist as many-to-many
 // join tables (zero new grammar — any aggregate field whose type is a
@@ -27,32 +27,33 @@ const SRC = `
 
 describe("reference-collection join tables (TS/Hono)", () => {
   it("emits a join table per T id[] field with a composite PK (set semantics, no ordinal), off the owner row", async () => {
-    const model = await parseValid(SRC);
-    const schema = generateHono(model).get("db/schema.ts")!;
-    expect(schema).toMatch(/pgTable\("trainer_party"/);
-    expect(schema).toMatch(/pgTable\("trainer_caught"/);
+    const schema = (await generateBackendFiles(SRC, "node")).get("db/schema.ts")!;
+    expect(schema).toMatch(/rosterSchema\.table\("trainer_party"/);
+    expect(schema).toMatch(/rosterSchema\.table\("trainer_caught"/);
     expect(schema).toMatch(/primaryKey\(\{ columns: \[table\.trainerId, table\.pokemonId\] \}\)/);
     // `Id<T>[]` is contractually a set (membership only, no order): the
     // composite PK is the whole row, so the join table carries NO ordinal
     // column.  Deterministic read-back order is a read-time projection
     // (ORDER BY the target FK id), not stored state.
     const partyTable = schema.slice(
-      schema.indexOf('pgTable("trainer_party"'),
-      schema.indexOf('pgTable("trainer_caught"'),
+      schema.indexOf('rosterSchema.table("trainer_party"'),
+      schema.indexOf('rosterSchema.table("trainer_caught"'),
     );
     expect(partyTable).not.toMatch(/ordinal/);
+    // (Tables live in the context's Postgres schema, `rosterSchema.table(…)`.)
     // The owner table must NOT carry the reference-collection columns.
     const trainersTable = schema.slice(
-      schema.indexOf('pgTable("trainers"'),
-      schema.indexOf('pgTable("trainer_party"'),
+      schema.indexOf('rosterSchema.table("trainers"'),
+      schema.indexOf('rosterSchema.table("trainer_party"'),
     );
     expect(trainersTable).not.toMatch(/party/);
     expect(trainersTable).not.toMatch(/caught/);
   });
 
   it("hydrates from the join table ordered by the target FK id and diff-syncs rows on save", async () => {
-    const model = await parseValid(SRC);
-    const repo = generateHono(model).get("db/repositories/trainer-repository.ts")!;
+    const repo = (await generateBackendFiles(SRC, "node")).get(
+      "db/repositories/trainer-repository.ts",
+    )!;
     // load: select target ids for the owner, ordered by the target FK id
     // (deterministic, content-addressed), branded back
     expect(repo).toMatch(
@@ -69,8 +70,9 @@ describe("reference-collection join tables (TS/Hono)", () => {
   });
 
   it("lowers this.<refColl>.contains(param) to a join-table subquery", async () => {
-    const model = await parseValid(SRC);
-    const repo = generateHono(model).get("db/repositories/trainer-repository.ts")!;
+    const repo = (await generateBackendFiles(SRC, "node")).get(
+      "db/repositories/trainer-repository.ts",
+    )!;
     expect(repo).toMatch(
       /inArray\(schema\.trainers\.id, this\.db\.select\(\{ id: schema\.trainerParty\.trainerId \}\)/,
     );

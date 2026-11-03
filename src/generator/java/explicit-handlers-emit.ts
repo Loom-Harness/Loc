@@ -68,6 +68,7 @@ import {
 } from "../../ir/util/paged-run.js";
 import { routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
@@ -487,7 +488,15 @@ function renderHandlerClass(
   );
   const bodyLines = renderWorkflowStmtChunks(
     h.statements,
-    javaWorkflowStmtTarget(ctx, renderCtx, undefined, collectUnionFindLets(h.statements)),
+    javaWorkflowStmtTarget(
+      ctx,
+      renderCtx,
+      undefined,
+      collectUnionFindLets(h.statements),
+      undefined,
+      undefined,
+      writeScopeContext(h.statements, ctx),
+    ),
     "        ",
   ).flat();
   const saveLines = h.savesAtExit.map(
@@ -734,7 +743,7 @@ function wireActionParam(
   const t = p.type;
   const annot = local !== p.name ? `@PathVariable("${p.name}")` : "@PathVariable";
   if (t.kind === "id") {
-    const wire = javaIdValueType(t.valueType);
+    const wire = javaIdValueType();
     return {
       actionParam: `${annot} ${wire} ${local}`,
       callArg: `new ${t.targetName}Id(${local})`,
@@ -754,7 +763,7 @@ function wireQueryParam(
   const t = p.type;
   const annot = local !== p.name ? `@RequestParam("${p.name}")` : "@RequestParam";
   if (t.kind === "id") {
-    const wire = javaIdValueType(t.valueType);
+    const wire = javaIdValueType();
     return {
       actionParam: `${annot} ${wire} ${local}`,
       callArg: `new ${t.targetName}Id(${local})`,

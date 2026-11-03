@@ -93,6 +93,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.token-nullable": "04-type-system.md#options--t",
   "loom.nullable-receiver": "04-type-system.md#options--t",
   "loom.bare-aggregate-in-type": "04-type-system.md#x-id--cross-aggregate-references",
+  "loom.id-target-not-identity": "04-type-system.md#x-id--cross-aggregate-references",
   "loom.money-literal-malformed": "05-expressions.md#money-literals-vs-moneyx-conversion",
   "loom.interp-format-dropped-in-domain": "05-expressions.md#string-interpolation",
   // --- src/language/validators/match.ts (M-T9.56 drain) --------------------
@@ -170,6 +171,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.repo-sort-placement": "10-repositories-and-queries.md#sorting-an-all-over-a-criterion",
   "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
   "loom.repo-unknown-read": "10-repositories-and-queries.md#repository--the-read-contract",
+  "loom.duplicate-repository": "10-repositories-and-queries.md#repository--the-read-contract",
   "loom.repo-key-not-unique": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
   "loom.repo-key-incomplete": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
   "loom.paged-query-handler-shape":
@@ -250,6 +252,10 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "10-repositories-and-queries.md#the-source-has-to-have-columns",
   "loom.projection-document-source-capability-filtered":
     "10-repositories-and-queries.md#the-source-has-to-have-columns",
+  "loom.projection-cross-context-source-unsupported":
+    "10-repositories-and-queries.md#a-source-in-another-context",
+  "loom.tenancy-folded-projection-unscoped":
+    "10-repositories-and-queries.md#folded--keyed-by--one-event",
   "loom.ignoring-clause-placement":
     "10-repositories-and-queries.md#ignoring--capability-filter-bypass",
   "loom.tenancy-filter-bypass":

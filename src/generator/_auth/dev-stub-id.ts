@@ -38,16 +38,14 @@
 //
 // The CONSTRUCTION SYNTAX is irreducibly per-language, so it lives here as a
 // per-language arm rather than a per-backend copy; the SEED VALUE (the zero
-// identity, widened per `IdValueType`) is decided once for all five.
+// guid identity) is decided once for all five.
 //
 // Each backend still owns its own IMPORT of the id class — `Ids` on node,
 // `using <ns>.Domain.Ids` on dotnet, `<basePkg>.domain.ids.*` on java — behind
 // the same `claimsReferenceIds` gate `./claim-types.ts` already defines.
 
-import type { IdValueType } from "../../ir/types/loom-ir.js";
-
-/** The zero identity a dev-stub principal carries for a guid- or string-valued
- *  strong id.  The same literal every backend already wrote by hand. */
+/** The zero identity a dev-stub principal carries for a (guid-valued) strong
+ *  id.  The same literal every backend already wrote by hand. */
 export const DEV_STUB_ID_GUID = "00000000-0000-0000-0000-000000000000";
 
 /** The emitted language an id construction is being rendered into. */
@@ -58,65 +56,30 @@ export type DevStubIdLang = "ts" | "csharp" | "python" | "java" | "elixir";
  *
  *  Unqualified on purpose — the caller adds the id class's import, which is the
  *  same gate (`claimsReferenceIds`) the claim's TYPE already goes through. */
-export function devStubIdExpr(
-  t: { targetName: string; valueType: IdValueType },
-  lang: DevStubIdLang,
-): string {
+export function devStubIdExpr(t: { targetName: string }, lang: DevStubIdLang): string {
   const cls = `${t.targetName}Id`;
-  const numeric = t.valueType === "int" || t.valueType === "long";
   switch (lang) {
-    // node brands every id as `string & { __brand }` regardless of the id's
-    // value type (`typescript/emit/ids.ts`), so the seed is always a string
+    // node brands every id as `string & { __brand }`, so the seed is a string
     // and always goes through the `Ids.<T>Id(...)` factory.
     case "ts":
-      return `Ids.${cls}(${numeric ? '"0"' : JSON.stringify(DEV_STUB_ID_GUID)})`;
+      return `Ids.${cls}(${JSON.stringify(DEV_STUB_ID_GUID)})`;
     // python's ids are `NewType("<T>Id", str)` — same story, same factory.
     case "python":
-      return `${cls}(${numeric ? '"0"' : `"${DEV_STUB_ID_GUID}"`})`;
+      return `${cls}("${DEV_STUB_ID_GUID}")`;
     // Phoenix's principal is a plain map with no id struct to construct; the
-    // claim rides as the bare scalar it is serialized as.
+    // claim rides as the bare guid string it is serialized as.
     case "elixir":
-      return numeric ? "0" : `"${DEV_STUB_ID_GUID}"`;
+      return `"${DEV_STUB_ID_GUID}"`;
     case "csharp":
-      return `new ${cls}(${csharpSeed(t.valueType)})`;
+      return `new ${cls}(System.Guid.Empty)`;
     // `java.util.UUID` is spelled out rather than imported: the stub's import
     // set is derived from the claim TYPES, and this seed is the only place a
     // UUID appears for an id whose own class already hides it.
     case "java":
-      return `new ${cls}(${javaSeed(t.valueType)})`;
+      return `new ${cls}(new java.util.UUID(0L, 0L))`;
     default: {
       const never: never = lang;
       throw new Error(`unhandled dev-stub id language: ${String(never)}`);
     }
-  }
-}
-
-/** The C# zero for each `IdValueType`, matching `csValueTypeForId`'s mapping
- *  (`guid → Guid`, `int → int`, `long → long`, `string → string`). */
-function csharpSeed(valueType: IdValueType): string {
-  switch (valueType) {
-    case "int":
-      return "0";
-    case "long":
-      return "0L";
-    case "string":
-      return `"${DEV_STUB_ID_GUID}"`;
-    default:
-      return "System.Guid.Empty";
-  }
-}
-
-/** The Java zero for each `IdValueType`, matching `javaValueTypeForId`
- *  (`guid → UUID`, `int → int`, `long → long`, `string → String`). */
-function javaSeed(valueType: IdValueType): string {
-  switch (valueType) {
-    case "int":
-      return "0";
-    case "long":
-      return "0L";
-    case "string":
-      return `"${DEV_STUB_ID_GUID}"`;
-    default:
-      return "new java.util.UUID(0L, 0L)";
   }
 }
