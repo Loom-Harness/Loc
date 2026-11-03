@@ -1957,6 +1957,8 @@ function emitAggregate(
     staticRestriction: hasStaticRestriction(agg, ctx),
     bypassByRetrieval: inlineRunBypassesByRetrieval(ctx, agg.name),
     discards: discardedAggregates(ctx).has(agg.name),
+    schema,
+    pool: ctx.aggregates,
   };
   const repoOrigin = repo?.origin ?? agg.origin;
   place(

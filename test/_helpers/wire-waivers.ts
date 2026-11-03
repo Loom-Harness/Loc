@@ -68,28 +68,6 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
     reason:
       "#3838 — the elixir workflow dispatcher's conflict 409 names no aggregate/id (its {:error, :conflict} term carries neither); the other four serve `<Aggregate> <id> was modified by another request`",
   },
-  // 2026-10-25 — #3595's #3954 fixture: java's `softDelete` does not bump
-  // `version`, visible through the `ignoring softDeletable` read-back (RS-20).
-  ...(["GET /api/cars/by_plate_all?*", "GET /api/drivers/by_name_all?*"] as const).map(
-    (request): WireWaiver => ({
-      backends: ["java"],
-      cases: ["inheritance-read-restrictions"],
-      request,
-      path: "$.version",
-      kinds: ["value"],
-      reason: "#4035 — RS-20: a soft delete leaves java's version counter where the create put it",
-    }),
-  ),
-  // The same java gap on `find-bypass`: the soft-deleted row read back through
-  // `ignoring *` carries the version the update left.
-  {
-    backends: ["java"],
-    cases: ["find-bypass"],
-    request: "GET /api/orders/unfiltered?*",
-    path: "$.version",
-    kinds: ["value"],
-    reason: "#4035 — RS-20: a soft delete leaves java's version counter where the update put it",
-  },
   // 2026-10-25 — #3595 booted `projection-valueobject-row` on elixir for the
   // first time: the read model round-trips, but a nested value object's keys
   // reach the wire in their column spelling (`at_time`), not camelCase (RS-1).
