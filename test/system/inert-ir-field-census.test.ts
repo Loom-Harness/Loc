@@ -84,6 +84,10 @@ const NO_DOWNSTREAM_READER: readonly string[] = [
   // stamped/synthesised `requires` gate, which every route emitter renders.
   "defaultDenied",
   "execTestsByCodeElement",
+  // A scoped fold's principal claim: read only through `foldTenancyFor`
+  // (`src/ir/enrich/fold-tenancy.ts`), which every backend's projection emitter
+  // and the migrations builder call.
+  "foldTenantClaim",
   "impliedBy",
   "keyPrefix",
   "loadPlan",

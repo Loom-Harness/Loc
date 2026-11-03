@@ -49,6 +49,7 @@ export type TargetRefusalSlug =
   | "entity-history-read"
   | "match-await-standard-op"
   | "lifecycle-guard-event-sourced"
+  | "tenant-owned-event-sourced"
   | "resource-kind-unrealized"
   | "storage-type-unrealized"
   | "resource-knob-unrealized"
@@ -114,6 +115,9 @@ export type BackendConstruct =
    *  body re-checks the row's write scope before the write and rolls back on
    *  a miss (`ir/util/write-scope-guards.ts`). */
   | "effect:mutate-held-row@command-body"
+  /** `with tenantOwned` on a `persistedAs: eventLog` aggregate — a stream
+   *  that carries its tenant as stored-event metadata (`stream-tenancy.ts`). */
+  | "capability:tenantOwned@event-sourced"
   /** `resource r { kind: replica, … }` — a read-replica binding. */
   | "resource:replica@resource"
   /** `resource r { kind: cache, … }` — a read-through cache binding. */
@@ -175,6 +179,7 @@ export const ALL_UI_CONSTRUCTS: readonly UiConstruct[] = [...UI_CONSTRUCTS, ...O
 export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "stmt:requires@event-sourced-create",
   "effect:mutate-held-row@command-body",
+  "capability:tenantOwned@event-sourced",
   "resource:replica@resource",
   "resource:cache@resource",
   "resource:snapshot@resource",
@@ -344,11 +349,15 @@ const UNREALIZED_RESOURCES: Pick<
   "storage:inMemory@resource": refused("storage-type-unrealized"),
 };
 
-/** The table for a static-bundle backend: it renders no ui framework. */
+/** The table for a static-bundle backend: it renders no ui framework.  A
+ *  tenant-scoped event stream is stamped, scoped and carried as event metadata
+ *  on every backend (the node MikroORM event store is refused separately in
+ *  `validateTargetCapabilities`). */
 const STATIC_HOST_BACKEND: TargetCapabilityTable = {
   backend: {
     "stmt:requires@event-sourced-create": ES_CREATE_REQUIRES_REFUSED,
     "effect:mutate-held-row@command-body": SUPPORTED,
+    "capability:tenantOwned@event-sourced": SUPPORTED,
     ...UNREALIZED_RESOURCES,
   },
 };
@@ -360,6 +369,27 @@ const REACT_CAPABILITIES: TargetCapabilityTable = {
     scopes: ["props:typescript", "forms:shared-local-scope"],
   },
 };
+
+/** A backend construct one persistence ADAPTER cannot realize yet, although the
+ *  backend's default adapter (the row in `TARGET_CAPABILITIES`) does — the
+ *  adapter axis of the same table.  `loom.target-unsupported` reads these per
+ *  deployable, matched on its platform family and `persistence:` knob. */
+export interface AdapterRefusal {
+  family: "node" | "dotnet" | "elixir" | "python" | "java";
+  persistence: string;
+  construct: BackendConstruct;
+  verdict: CapabilityVerdict & { verdict: "refused" };
+}
+
+export const ADAPTER_REFUSALS: readonly AdapterRefusal[] = [
+  // The MikroORM event store does not carry a stream's tenant yet (#4686).
+  {
+    family: "node",
+    persistence: "mikroorm",
+    construct: "capability:tenantOwned@event-sourced",
+    verdict: { verdict: "refused", slug: "tenant-owned-event-sourced" },
+  },
+];
 
 /** Every target's table.  The `static` PLATFORM is React's UI-only alias and
  *  shares its table; a ui whose resolved FRAMEWORK is spelled `static` is not
@@ -409,6 +439,7 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
     backend: {
       "stmt:requires@event-sourced-create": SUPPORTED,
       "effect:mutate-held-row@command-body": SUPPORTED,
+      "capability:tenantOwned@event-sourced": SUPPORTED,
       ...UNREALIZED_RESOURCES,
     },
   },

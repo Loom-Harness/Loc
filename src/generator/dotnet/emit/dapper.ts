@@ -1,3 +1,6 @@
+import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
+import type { AggPool } from "../../../ir/util/inheritance.js";
+import { streamOriginFrameLines, streamScopePredicate, streamScopeWhere } from "./event-store.js";
 // ---------------------------------------------------------------------------
 // dapper — minimal-real persistence emitters for the .NET backend
 // (D-REALIZATION-AXES).  An ALTERNATE persistence implementation
@@ -2551,6 +2554,8 @@ export function renderDapperEventSourcedRepository(
   ctxName: string,
   /** As `renderDapperDocumentRepository`'s. */
   extraUsings: readonly string[] = [],
+  /** The context's aggregates — the pool the stream-tenancy fact resolves in. */
+  pool: AggPool = [],
 ): string {
   // BCL type-name collision (#3024) — the dapper adapter is a SECOND repository
   // emitter beside the EF one, with its own using block and its own non-generic
@@ -2563,6 +2568,13 @@ export function renderDapperEventSourcedRepository(
   const domainAliases = collidingNamesOfAggregate(agg).map(
     (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
   );
+  // Stream tenancy (stream-tenancy.ts): the tenant is metadata of the stored
+  // events, adopted onto the folded instance; reads apply the fact's tenancy
+  // restrictions in-app over it.
+  const tenancy = streamTenancyFor(agg, pool);
+  const defaultScope = streamScopePredicate(agg, pool);
+  const metaCols = (tenancy?.metadata ?? []).map((m) => m.column);
+  const metaSel = metaCols.map((c) => `, ${c}`).join("");
   // The single per-context event log (event-log-architecture.md): every load /
   // append / fold scopes to `stream_type = @st` (this aggregate's name) so a
   // sibling stream sharing the `<ctx>_events` table is never folded in.
@@ -2620,7 +2632,7 @@ export function renderDapperEventSourcedRepository(
     const f = domainFindShape(raw, agg.name);
     const body = findBodies.find((b) => b.name === f.name);
     // In-memory over the folded streams: a criterion's query face compiles to a `Func`.
-    const filter = inMemoryFilter(body?.filterClause ?? "");
+    const filter = inMemoryFilter(body?.filterClause ?? "") + streamScopeWhere(agg, pool, f);
     // ES finds load every stream in-memory, so strip the async EF terminal
     // (the projection clause passes the method's own token, `ct`).
     const { ct } = csReadOwnParams(f.params.map((p) => p.name));
@@ -2689,16 +2701,29 @@ export function renderDapperEventSourcedRepository(
       "        public string stream_id { get; set; } = default!;",
       "        public string type { get; set; } = default!;",
       "        public string data { get; set; } = default!;",
+      ...metaCols.map((c) => `        public string? ${c} { get; set; }`),
       "    }",
       "",
       `    public async Task<${agg.name}?> GetByIdAsync(${agg.name}Id id, CancellationToken cancellationToken = default)`,
       "    {",
       "        var __sid = id.Value.ToString();",
       `        ${dapperOpenConn(ns)}`,
-      `        var __rows = (await conn.QueryAsync<EvRow>(new CommandDefinition("SELECT stream_id, type, data FROM ${table} WHERE stream_type = @st AND stream_id = @sid ORDER BY version", new { st = "${streamType}", sid = __sid }, cancellationToken: cancellationToken))).ToList();`,
+      `        var __rows = (await conn.QueryAsync<EvRow>(new CommandDefinition("SELECT stream_id, type, data${metaSel} FROM ${table} WHERE stream_type = @st AND stream_id = @sid ORDER BY version", new { st = "${streamType}", sid = __sid }, cancellationToken: cancellationToken))).ToList();`,
       "        if (__rows.Count == 0) return null;",
-      `        return ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`,
+      ...(tenancy
+        ? [
+            // A foreign tenant's stream reads as absent (404): no existence leak.
+            `        var __inst = ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`,
+            `        __inst._AdoptStreamTenant(${metaCols.map((c) => `__rows[0].${c}`).join(", ")});`,
+            ...(defaultScope
+              ? [`        return _TenantVisible(__inst) ? __inst : null;`]
+              : [`        return __inst;`]),
+          ]
+        : [`        return ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`]),
       "    }",
+      ...(defaultScope
+        ? ["", `    private static bool _TenantVisible(${agg.name} x) => ${defaultScope};`]
+        : []),
       ...writeScopeMethod,
       "",
       `    public async Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${agg.name}Id> ids, CancellationToken cancellationToken = default)`,
@@ -2734,13 +2759,16 @@ export function renderDapperEventSourcedRepository(
       // (SQLSTATE 23505) — the RS-40 409, the same exception the guarded
       // relational / document upserts raise.
       "            var __version = aggregate._StreamVersion;",
+      // A NEW stream is stamped from the principal; later appends carry the
+      // loaded stream's tenant forward.
+      ...(tenancy ? ["            if (__version == 0) aggregate._StampOnCreate();"] : []),
       "            foreach (var __ev in __pending)",
       "            {",
       "                __version++;",
       "                var __data = System.Text.Json.JsonSerializer.Serialize((object)__ev, __json);",
       "                try",
       "                {",
-      `                    await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at) VALUES (@st, @sid, @version, @type, CAST(@data AS jsonb), now())", new { st = "${streamType}", sid = __sid, version = __version, type = __ev.GetType().Name, data = __data }, ${audit.txArg}cancellationToken: cancellationToken));`,
+      `                    await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at${metaSel}) VALUES (@st, @sid, @version, @type, CAST(@data AS jsonb), now()${metaCols.map((c) => `, @${c}`).join("")})", new { st = "${streamType}", sid = __sid, version = __version, type = __ev.GetType().Name, data = __data${(tenancy?.metadata ?? []).map((m) => `, ${m.column} = aggregate.${upperFirst(m.field)}`).join("")} }, ${audit.txArg}cancellationToken: cancellationToken));`,
       "                }",
       '                catch (Npgsql.PostgresException __ex) when (__ex.SqlState == "23505")',
       "                {",
@@ -2751,16 +2779,28 @@ export function renderDapperEventSourcedRepository(
       "        }",
       ...audit.flush,
       audit.commit,
+      ...(tenancy ? streamOriginFrameLines(ns, "        ") : []),
       "        foreach (var ev in __pending) await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
       "    }",
       "",
       `    private async Task<List<${agg.name}>> _LoadAllAsync(CancellationToken cancellationToken)`,
       "    {",
       `        ${dapperOpenConn(ns)}`,
-      `        var __rows = (await conn.QueryAsync<EvRow>(new CommandDefinition("SELECT stream_id, type, data FROM ${table} WHERE stream_type = @st ORDER BY stream_id, version", new { st = "${streamType}" }, cancellationToken: cancellationToken))).ToList();`,
+      `        var __rows = (await conn.QueryAsync<EvRow>(new CommandDefinition("SELECT stream_id, type, data${metaSel} FROM ${table} WHERE stream_type = @st ORDER BY stream_id, version", new { st = "${streamType}" }, cancellationToken: cancellationToken))).ToList();`,
       `        return __rows`,
       "            .GroupBy(__r => __r.stream_id)",
-      `            .Select(__g => ${agg.name}._FromEvents(new ${agg.name}Id(${parseId}), __g.Select(RowToEvent).ToList()))`,
+      ...(tenancy
+        ? [
+            "            .Select(__g =>",
+            "            {",
+            `                var __inst = ${agg.name}._FromEvents(new ${agg.name}Id(${parseId}), __g.Select(RowToEvent).ToList());`,
+            `                __inst._AdoptStreamTenant(${metaCols.map((c) => `__g.First().${c}`).join(", ")});`,
+            "                return __inst;",
+            "            })",
+          ]
+        : [
+            `            .Select(__g => ${agg.name}._FromEvents(new ${agg.name}Id(${parseId}), __g.Select(RowToEvent).ToList()))`,
+          ]),
       "            .ToList();",
       "    }",
       "",

@@ -25,7 +25,7 @@ import {
   PG_REFERENCED_IN_USE_SQLSTATES,
   PG_UNIQUE_VIOLATION,
 } from "../../../generator/_persistence/pg-sqlstate.js";
-import { tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
+import { FILE_REF_ZOD, tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
 import {
   historyMapperArgs,
   historyMapperName,
@@ -2813,7 +2813,7 @@ const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
   date: BODY_DATE,
   guid: "z.string()",
   json: "z.unknown()",
-  File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
+  File: FILE_REF_ZOD,
 };
 
 export const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
@@ -2827,7 +2827,7 @@ export const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
   date: BODY_DATE,
   guid: "z.string()",
   json: "z.unknown()",
-  File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
+  File: FILE_REF_ZOD,
 };
 
 const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
@@ -2841,7 +2841,7 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
   date: "z.string()",
   guid: "z.string()",
   json: "z.unknown()",
-  File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
+  File: FILE_REF_ZOD,
 };
 
 export function zodFor(t: TypeIR, context: "create-body" | "body" | "query" = "body"): string {

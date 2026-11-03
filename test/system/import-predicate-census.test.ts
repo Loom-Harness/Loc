@@ -70,7 +70,12 @@ const COLLECTOR_LITERAL: Partial<Record<Backend, RegExp>> = {
 /** Live count per backend — lower it in the PR that removes sites. */
 const CEILING: Record<Backend, number> = {
   python: 0,
-  typescript: 229,
+  // 229 → 233: the tenant-scoped event stream (#3533) and fold (#4594) add four
+  // conditional TS imports (node:async_hooks for the origin frame, the
+  // read-scope helper, drizzle `and`, the auth-middleware accessors).  TS has
+  // no derived-import finalizer yet (`ImportLang` is py | java | cs — M-T9.85,
+  // #4075), so these cannot ride `ref(sym)` today; #4075 drains them with the rest.
+  typescript: 233,
   dotnet: 0,
   java: 0,
   elixir: 0,

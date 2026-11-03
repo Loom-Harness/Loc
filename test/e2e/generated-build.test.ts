@@ -489,6 +489,32 @@ describe.skipIf(!ENABLED)(
       }
     }, 300_000);
 
+    // A `tenantOwned` event-sourced aggregate (`stream-tenancy.ts`): the event
+    // log's tenant metadata columns, the `<agg>StreamScope` helpers (flat floor
+    // and `allow deep` subtree), the stamped append and the stream-origin
+    // dispatch all have to type-check against the drizzle schema.
+    it("system tenantOwned event-sourced stream — generated project type-checks", () => {
+      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-es-tenant-"));
+      try {
+        execSync(
+          `node ${cli} generate system test/e2e/fixtures/ts-build/es-tenant-owned.ddd -o ${outDir}`,
+          { stdio: "inherit", cwd: repoRoot },
+        );
+        const proj = path.join(outDir, "api");
+        expect(fs.readFileSync(path.join(proj, "db", "read-scopes.ts"), "utf8")).toContain(
+          "ledgerStreamScope",
+        );
+        installGeneratedProject(proj, { timeout: 180_000 });
+        execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
+      } finally {
+        try {
+          fs.rmSync(outDir, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 300_000);
+
     // DEBT-24: a PRINCIPAL-referencing `criterion` reified into the
     // find/retrieval query-face.  The reified `<name>Criterion` fn is
     // module-scoped, so `currentUser.<field>` must bind through the ambient

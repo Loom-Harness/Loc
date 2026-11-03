@@ -19,6 +19,7 @@ import {
   readOrderFor,
   readScopeFor,
 } from "../../ir/enrich/read-scope.js";
+import { streamTenancyFor } from "../../ir/enrich/stream-tenancy.js";
 import type {
   BoundedContextIR,
   CriterionIR,
@@ -817,6 +818,73 @@ export function drizzleScopeConjuncts(
       ...cap(g.restriction.capability),
     })),
   };
+}
+
+// ---------------------------------------------------------------------------
+// The stream scope of a tenant-scoped event stream (`stream-tenancy.ts`).
+//
+// A `tenantOwned` event-sourced aggregate has no table of its own: its stream
+// is the `stream_type = '<Agg>'` subset of the context's event log, and its
+// tenant is metadata on every stored event.  Its tenancy restrictions lower
+// over the log's metadata columns — they carry the aggregate's `tenantOwned`
+// field names, so the predicate is the one a `tenantOwned` table applies — into
+// a second generated helper, `<agg>StreamScope(...)`, beside the read scopes.
+// ---------------------------------------------------------------------------
+
+/** The generated stream-scope helper's name: `<agg>StreamScope`. */
+export function drizzleStreamScopeFnName(agg: { name: string }): string {
+  return `${lowerFirst(agg.name)}StreamScope`;
+}
+
+/** The drizzle table constant of `ctx`'s event log. */
+function drizzleEventLogTable(ctx: { name: string }): string {
+  return `${lowerFirst(ctx.name)}Events`;
+}
+
+/** True when `agg` has a stream-scope helper: a tenant-scoped stream with at
+ *  least one tenancy restriction. */
+export function aggregateHasStreamScope(agg: EnrichedAggregateIR, ctx: BoundedContextIR): boolean {
+  return (streamTenancyFor(agg, ctx.aggregates)?.restrictions.length ?? 0) > 0;
+}
+
+/** The call of `agg`'s stream-scope helper for one read, or `"undefined"` when
+ *  the read's `ignoring` drops every restriction (or there is none). */
+export function drizzleStreamScopeCall(
+  agg: EnrichedAggregateIR,
+  ctx: BoundedContextIR,
+  ignoring?: FilterBypass,
+): string {
+  if (!aggregateHasStreamScope(agg, ctx)) return "undefined";
+  const kept = streamTenancyFor(agg, ctx.aggregates, { ignoring })?.restrictions ?? [];
+  if (kept.length === 0) return "undefined";
+  const fn = drizzleStreamScopeFnName(agg);
+  return ignoring && (ignoring.bypassAll || (ignoring.bypassCaps?.length ?? 0) > 0)
+    ? `${fn}({ ignoring: ${ignoring.bypassAll ? '"*"' : JSON.stringify([...new Set(ignoring.bypassCaps)])} })`
+    : `${fn}()`;
+}
+
+/** The import of `agg`'s stream-scope helper into its repository, derived from
+ *  the rendered body (`bodyScan`: string contents blanked). */
+export function streamScopeImportLine(agg: { name: string }, bodyScan: string): string | false {
+  const fn = drizzleStreamScopeFnName(agg);
+  const line = `import { ${fn} } from "${READ_SCOPES_MODULE}";`;
+  return new RegExp(`\\b${fn}\\(`).test(bodyScan) ? line : false;
+}
+
+/** The lowered conjuncts of `agg`'s stream scope, bypass not applied. */
+export function drizzleStreamScopeConjuncts(
+  agg: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+): DrizzleScopeConjunct[] {
+  const table = drizzleEventLogTable(ctx);
+  return (streamTenancyFor(agg, ctx.aggregates)?.restrictions ?? []).map((r) => ({
+    expr: (
+      lowerToDrizzle(r.predicate!, table, ctx, { principalAccessor: "requireCurrentUser()" }) ??
+      // Dropping this would ship an unscoped stream — a hard stop, not a fallback.
+      refuseOutOfVocabulary("drizzle-predicate", `stream tenancy of '${agg.name}'`)
+    ).expr,
+    ...(r.capability !== undefined ? { capability: r.capability } : {}),
+  }));
 }
 
 /** The one drizzle spelling of a TPH discriminator scope: `kind = '<value>'`

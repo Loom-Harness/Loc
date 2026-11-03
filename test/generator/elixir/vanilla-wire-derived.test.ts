@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 // ---------------------------------------------------------------------------
 // Derived-property wire projection on the vanilla (plain Ecto/Phoenix) backend
@@ -57,7 +58,7 @@ describe("vanilla wireShape-driven serialize — derived projection", () => {
     // Concatenation derived → Elixir `<>` over the two struct columns.
     expect(ctrl).toContain('"fullName" => record.first_name <> " " <> record.last_name');
     // Arithmetic derived → native operator over the column.
-    expect(ctrl).toContain('"doubleScore" => record.score * 2');
+    expect(uncheckedInt(ctrl)).toContain('"doubleScore" => record.score * 2');
   });
 
   it("PROJECTS a derived-of-derived by inlining it (M-T6.56 / audit F60)", async () => {
@@ -68,7 +69,7 @@ describe("vanilla wireShape-driven serialize — derived projection", () => {
     // been doing all along (an Elixir struct carries no computed field, so
     // `record.<name>` would raise `KeyError` — #1765).
     const ctrl = ctrlOf(await generateSystemFiles(SOURCE));
-    expect(ctrl).toContain('"quadScore" => (record.score * 2) * 2');
+    expect(uncheckedInt(ctrl)).toContain('"quadScore" => (record.score * 2) * 2');
     // Still never a struct read of the derived name itself — the inline goes
     // all the way down to stored columns.
     expect(ctrl).not.toContain("record.double_score");

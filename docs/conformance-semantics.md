@@ -2291,3 +2291,38 @@ nothing and the test passes vacuously.
   `test/behavioral/wire-golden/merge-patch-update.json`, diffed by every
   wire-gated leg; the per-backend emission is pinned by
   `test/generator/merge-patch-update.test.ts`.
+
+### RS-48 · Integer arithmetic in domain code that leaves its declared range is a 422 "Value out of range", never a wrap and never a 500
+- **Guarantee.** An integer `+`, `-`, `*` or unary `-` evaluated in domain code
+  (an aggregate operation, a workflow, a handler, a domain service) whose result
+  is outside the operand type's range — int32 for `int`, int64 for `long` —
+  answers the domain floor: **422** `application/problem+json`, `title`
+  `Unprocessable Entity`, `detail` `Value out of range`, no `errors[]`
+  (wirePolicy rejection class `arithmetic-overflow`; the status follows
+  `httpStatus DomainError`). The write is refused and the row keeps its stored
+  value. A result is never wrapped and never reaches the database.
+  Constant expressions (`2 + 3`), `money`/`decimal` arithmetic and integer
+  division (which widens to `decimal`) are not covered.
+- **Trigger.** `stock + n` where `stock` is `2147483647` and `n` is `1`;
+  `a * b` over two `long`s; `-n` where `n` is `-2147483648`.
+- **Observable.** `POST …/restock {"n": 1}` → `422`, `detail: "Value out of
+  range"`; a following `GET` reads the old `stock`.
+- **The split when ruled (#3585).** node, python and elixir computed the
+  out-of-range value and failed at the database CHECK (a 500); java and .NET
+  wrapped silently (`2147483647 + 1` stored as `-2147483648`).
+- **Per-backend shape.** One predicate (`checkedBinaryKind` / `checkedUnaryKind`,
+  `src/generator/_expr/checked-int.ts`) selects the checked nodes for all five.
+  node wraps the result in an inline range guard throwing `DomainError`;
+  python in `check_int(value, lo, hi)` raising `DomainError`; elixir in a `case`
+  raising `<App>.GuardError, kind: :precondition`; java renders
+  `Math.addExact` / `subtractExact` / `multiplyExact` / `negateExact`, mapped
+  from `ArithmeticException("integer overflow" | "long overflow")` by
+  `ApiExceptionAdvice`; .NET renders `checked(...)`, mapped from
+  `OverflowException` by `DomainExceptionFilter`. EF-query and Ecto-query
+  filter renderings are unchecked (the database evaluates them).
+- **Not part of the guarantee (named).** `long` keeps its ruled node ceiling
+  (`D-LONG-AVG-DEFAULTS`): node refuses a `long` result past 2^53−1, the other
+  four past int64. The refusal carries no `errors[]` pointer.
+- **Conforms.** node, dotnet, java, python, elixir.
+- **Provenance.** #3585 (owner ruling 2026-11-03). Tier: **static** —
+  `test/generator/_expr/checked-int.test.ts`.

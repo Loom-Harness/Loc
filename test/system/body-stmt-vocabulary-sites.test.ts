@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { validate } from "../../src/api/index.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { uncheckedInt } from "../_helpers/unchecked-int.js";
 
 // ---------------------------------------------------------------------------
 // The seven generator-throw-census sites of the event-sourced / workflow body
@@ -138,7 +139,7 @@ system WF {
   it("python workflow-eventsourced-emit#renderApplierStmt: `let` and `if` in a workflow applier render", async () => {
     const files = await generateSystemFiles(sweep("python", FOLD));
     const py = fileMatching(files, /app\/dispatch\.py$/);
-    expect(py).toContain(
+    expect(uncheckedInt(py)).toContain(
       [
         "    a = r.at",
         "    state.fired_at = a",
@@ -153,7 +154,7 @@ system WF {
   it("hono workflow-eventsourced-builder#renderApplierStmt: `let` and `if` in a workflow applier render", async () => {
     const files = await generateSystemFiles(sweep("node", FOLD));
     const ts = fileMatching(files, /http\/workflows\.ts$/);
-    expect(ts).toContain(
+    expect(uncheckedInt(ts)).toContain(
       [
         "      const a = r.at;",
         "      state.firedAt = a;",

@@ -1,5 +1,6 @@
 import { unionMembers } from "../../../generator/_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../../generator/_trace/sourcemap.js";
+import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
 import {
   createInputFields,
   createOmissionValue,
@@ -104,6 +105,10 @@ interface EntityShape {
   /** True when the aggregate is `persistedAs: eventLog` — gates the
    *  fold/rehydrate emission and flips `emit` to push-and-apply. */
   eventSourced?: boolean;
+  /** True when the event-sourced stream carries tenant metadata
+   *  (`stream-tenancy.ts`) — the repository adopts it onto the folded
+   *  instance's `tenantOwned` fields. */
+  streamTenant?: boolean;
   /** Explicit `create` lifecycle actions (root only).  On an event-sourced
    *  aggregate the (single) create's emit-only body drives an event-sourced
    *  `create(...)` factory — construct an empty shell, run the body so it
@@ -282,6 +287,7 @@ function rootShape(a: AggregateIR): EntityShape {
     operations: a.operations,
     appliers: a.appliers,
     eventSourced: a.persistedAs === "eventLog",
+    streamTenant: isTenantScopedStream(a),
     creates: a.creates,
   };
 }
@@ -1033,6 +1039,21 @@ function renderEntity(
           "  /** @internal Stream version this instance was folded to; the expected version of its next append. */",
           "  _streamVersion = 0;",
           "",
+          // The stream's tenant is metadata of its stored events, not folded
+          // state: the repository adopts it onto the `tenantOwned` fields
+          // after the fold (and after stamping a new stream), so the instance
+          // answers like a `tenantOwned` row.
+          ...(e.streamTenant
+            ? [
+                "  /** @internal Adopt the stream's tenant metadata (stored-event metadata, never an event payload). */",
+                `  _adoptStreamTenant(meta: { ${STREAM_TENANT_METADATA.map((m) => `${m.field}: string | null`).join("; ")} }): void {`,
+                ...STREAM_TENANT_METADATA.map(
+                  (m) => `    this._${m.field} = meta.${m.field}${m.required ? " as string" : ""};`,
+                ),
+                "  }",
+                "",
+              ]
+            : []),
         ]
       : [];
 

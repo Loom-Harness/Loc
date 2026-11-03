@@ -84,7 +84,12 @@ const CEILINGS: Record<string, number> = {
   // `T?` miss answers 404, that every accepted `ignoring` position omits the
   // predicate it names, and each criterion predicate's emitted shape — emission
   // details (a missing guard, a dropped bypass) that compile cleanly when wrong.
-  "(cross-target)": 3500,
+  // 3500 → 3700: the #3593 wave-2 train pins, on all five backends, that a
+  // tenant-scoped event stream and a tenant-scoped fold carry the tenant
+  // predicate on every read (an absence no compile gate sees), that integer
+  // arithmetic is wrapped in the RS-48 overflow guard, and that response
+  // records carry inherited / provenanced fields.
+  "(cross-target)": 3700,
   _expr: 200,
   _frontend: 400,
   _i18n: 200,
@@ -98,7 +103,12 @@ const CEILINGS: Record<string, number> = {
   _workflow: 200,
   angular: 1000,
   dotnet: 2400, // the EF identity-parity pins assert the emitted C# (tracker fork, 409 path) per leg
-  elixir: 3400, // the Ecto delta-migration pins assert the emitted create/rename/key-move per step; runtime proof is migration-evolution-elixir
+  // the Ecto delta-migration pins assert the emitted create/rename/key-move per
+  // step (runtime proof is migration-evolution-elixir).  3400 → 3600: elixir's
+  // event-log schema scope, fold-row tenant scope, RS-48 overflow guard and
+  // union-money arm pins (#3533, #4594, #3585, #3544) — per-site predicates in
+  // emitted Ecto/Elixir that compile cleanly when absent.
+  elixir: 3600,
   "elixir-vanilla": 500,
   feliz: 1500,
   flutter: 1200,
@@ -106,7 +116,10 @@ const CEILINGS: Record<string, number> = {
   hono: 500,
   i18n: 200,
   imports: 200,
-  java: 1900,
+  // 1900 → 2100: java's stream-tenant / fold-tenant scoping and its
+  // `Math.*Exact` overflow guards (#3533, #4594, #3585) — per-site predicates in
+  // emitted JPQL / service code that compile cleanly when missing.
+  java: 2100,
   python: 1800,
   react: 1600,
   svelte: 600,

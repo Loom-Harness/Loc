@@ -40,6 +40,7 @@ import {
 } from "../../../util/naming.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
+import { unionMoneyArms } from "../../_payload/union-wire.js";
 import { type SourceMapSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
 import {
   type ElixirChannelsCfg,
@@ -1659,7 +1660,28 @@ export function renderReturningOpControllerAction(
   const okClause = scalarMoneyReturn
     ? `  def ${resultFn}(conn, {:ok, success}), do: json(conn, ${numericEncode(ELIXIR_NUMERIC, "money", "dto-map", "success")})`
     : `  def ${resultFn}(conn, {:ok, success}), do: json(conn, success)`;
+  // A `money` field of a payload SUCCESS variant rides as the fixed-scale
+  // string (RS-12) — the tagged map holds a `%Decimal{}` at domain precision,
+  // which Jason would encode at its own scale.  The arm list is the shared
+  // `unionMoneyArms` node / python read; keys are the snake atoms of the map.
+  const moneyArmClauses =
+    op.returnType?.kind === "union"
+      ? unionMoneyArms(op.returnType.variants, ctx).map((arm) => {
+          const pipe = arm.keys
+            .map(({ key, optional }) => {
+              const atom = `:${escapeElixirIdent(snake(key))}`;
+              const round = numericEncode(ELIXIR_NUMERIC, "money", "dto-map", "&1");
+              return optional
+                ? `Map.update(${atom}, nil, &(&1 && ${round}))`
+                : `Map.update!(${atom}, &(${round}))`;
+            })
+            .join(" |> ");
+          return `  def ${resultFn}(conn, {:ok, %{type: ${JSON.stringify(arm.tag)}} = success}),
+    do: json(conn, success |> ${pipe})`;
+        })
+      : [];
   const resultClauses = [
+    ...moneyArmClauses,
     okClause,
     ...errorVariantsOf(op, ctx).map(
       (v) => `  def ${resultFn}(conn, {:error, ${JSON.stringify(v.tag)}, data}),
