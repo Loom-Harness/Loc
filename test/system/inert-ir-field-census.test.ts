@@ -109,6 +109,10 @@ const NO_DOWNSTREAM_READER: readonly string[] = [
   "sessions",
   "sourceAlias",
   "sourceModule",
+  // A projection source's declaring context: read only through
+  // `src/ir/util/projection-source.ts` (`projectionSourceContext`), which the
+  // java / elixir / .NET projection emitters call to find the source's scope.
+  "sourceContext",
   // A root-declared enum / value object: read only through
   // `src/ir/util/model-text-owner.ts` (`modelTextContextOf`), which the
   // frontends' implicit model-text sites key their `_system` identity text by.

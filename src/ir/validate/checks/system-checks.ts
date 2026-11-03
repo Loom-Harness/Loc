@@ -34,6 +34,7 @@ export {
 } from "./principal-guard-checks.js";
 export {
   validateColumnlessProjectionSources,
+  validateCrossContextRepositoryProjections,
   validateDocumentAggregationFilters,
   validatePagedQueryHandlerShape,
 } from "./projection-backend-checks.js";

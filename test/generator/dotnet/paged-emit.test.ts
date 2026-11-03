@@ -8,8 +8,7 @@
 // the emitted C# shape.
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet, generateSystemFiles } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Orders {
@@ -24,7 +23,7 @@ const SRC = `
 `;
 
 async function files(): Promise<Map<string, string>> {
-  return generateDotnet(await parseValid(SRC));
+  return generateBackendFiles(SRC, "dotnet");
 }
 
 describe(".NET generator — paged reads (P3b)", () => {

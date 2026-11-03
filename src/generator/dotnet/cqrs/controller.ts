@@ -32,7 +32,7 @@ import { CS_PAGED_QUERY_PARAMS } from "../emit/common.js";
 import { renderController } from "../emit.js";
 import { AMBIENT_CURRENT_USER, renderCsExpr } from "../render-expr.js";
 import { requestVoValidatorName } from "../validator-emit.js";
-import { isNullableWireDefault, omitsToEmptyCollection } from "../wire-default.js";
+import { hasNullableWireDefault, omitsToEmptyCollection } from "../wire-default.js";
 
 /** One arm of a return-typed operation's controller translation. */
 export interface ReturnUnionArm {
@@ -295,7 +295,7 @@ export function emitController(
         // compile-time constant), so both coalesce here.  `renderCsExpr` yields
         // the DOMAIN value in each case — `DateTime.UtcNow` / the ambient claim
         // / `new Money(0m, "USD")` — which is exactly the command's param type.
-        if (isNullableWireDefault(f.default)) {
+        if (f.default !== undefined && hasNullableWireDefault(f)) {
           // The nullable request field coalesces to the per-request default.
           // `renderCsExpr` yields the DOMAIN value (`DateTime.UtcNow`, the
           // ambient claim) matching the command's param type; in the `: <parse>`

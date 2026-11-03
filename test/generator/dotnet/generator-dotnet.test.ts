@@ -1,28 +1,36 @@
+import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { URI } from "langium";
 import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
-import { generateDotnet, generateSystemFiles } from "../../_helpers/generate.js";
+import { generateBackendFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
 
-async function buildModel(file: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(path.join(repoRoot, file)),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  return doc.parseResult.value as Model;
+const SALES = readFileSync(path.join(repoRoot, "examples/sales.ddd"), "utf8");
+
+/**
+ * The .NET project for `examples/sales.ddd` (bare `context Sales`), hosted on
+ * one deployable `app` — so the project is `App.csproj` and the root namespace
+ * `App`.  Memoised per trace flag: every test reads the same emission.
+ */
+const salesCache = new Map<boolean, Promise<Map<string, string>>>();
+function salesFiles(options: { emitTrace?: boolean } = {}): Promise<Map<string, string>> {
+  const key = !!options.emitTrace;
+  let hit = salesCache.get(key);
+  if (!hit) {
+    hit = generateBackendFiles(SALES, "dotnet", { emitTrace: key });
+    salesCache.set(key, hit);
+  }
+  return hit;
 }
 
 describe(".NET generator", () => {
   it("emits the expected file set for sales.ddd", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
+    const files = await salesFiles();
     const keys = [...files.keys()];
     expect(keys).toContain("Domain/Ids/OrderId.cs");
     expect(keys).toContain("Domain/Orders/Order.cs");
@@ -39,12 +47,11 @@ describe(".NET generator", () => {
     expect(keys).toContain("Application/Orders/Queries/GetOrderByIdQuery.cs");
     expect(keys).toContain("Api/OrdersController.cs");
     expect(keys).toContain("Program.cs");
-    expect(keys).toContain("Sales.csproj");
+    expect(keys).toContain("App.csproj");
   });
 
   it("adds per-file `using` directives only where the namespace is actually used", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
+    const files = await salesFiles();
     // DomainExceptionFilter uses Activity.Current; needs System.Diagnostics.
     const filter = files.get("Api/DomainExceptionFilter.cs")!;
     expect(filter).toMatch(/^using System\.Diagnostics;/m);
@@ -62,8 +69,7 @@ describe(".NET generator", () => {
   });
 
   it("emits catalog-driven Prometheus metrics + /metrics wiring (M-T7.1)", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
+    const files = await salesFiles();
     const metrics = files.get("Observability/HttpMetrics.cs")!;
     expect(metrics).toBeDefined();
     // Catalog names/labels from the neutral src/generator/_obs/metrics.ts.
@@ -77,7 +83,7 @@ describe(".NET generator", () => {
     const program = files.get("Program.cs")!;
     expect(program).toContain("app.MapMetrics();");
     expect(program).toMatch(/^using Prometheus;/m);
-    expect(files.get("Sales.csproj")!).toContain('Include="prometheus-net.AspNetCore"');
+    expect(files.get("App.csproj")!).toContain('Include="prometheus-net.AspNetCore"');
     // Recorded at the request_end seam in the request-logging middleware.
     const mw = files.get("Middleware/RequestLoggingMiddleware.cs")!;
     expect(mw).toContain("Observability.HttpMetrics.Record(");
@@ -85,8 +91,7 @@ describe(".NET generator", () => {
   });
 
   it("renders Order with idiomatic C#", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
+    const files = await salesFiles();
     const order = files.get("Domain/Orders/Order.cs")!;
     expect(order).toMatch(/public sealed class Order/);
     expect(order).toMatch(/public OrderId Id { get; private set; }/);
@@ -97,36 +102,33 @@ describe(".NET generator", () => {
   });
 
   it("emits xUnit test class + test project when `test` blocks are declared", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
-    const tests = files.get("Tests/Sales.Tests/Orders/OrderTests.cs")!;
+    const files = await salesFiles();
+    const tests = files.get("Tests/App.Tests/Orders/OrderTests.cs")!;
     expect(tests).toMatch(/using Xunit;/);
     expect(tests).toMatch(/\[Fact\(DisplayName = "money literal builds"\)\]/);
     // sales.ddd's only `toThrow()` is a Money literal: a value object's
     // invariant throws `ValueObjectInvariantException`, and xUnit's
     // `Assert.Throws<T>` matches the exact type.
     expect(tests).toMatch(/Assert\.Throws<ValueObjectInvariantException>/);
-    const testCsproj = files.get("Tests/Sales.Tests/Sales.Tests.csproj")!;
+    const testCsproj = files.get("Tests/App.Tests/App.Tests.csproj")!;
     expect(testCsproj).toMatch(/Microsoft\.NET\.Test\.Sdk/);
     expect(testCsproj).toMatch(/<PackageReference Include="xunit"/);
-    expect(testCsproj).toMatch(/<ProjectReference Include="\.\.\/\.\.\/Sales\.csproj" \/>/);
+    expect(testCsproj).toMatch(/<ProjectReference Include="\.\.\/\.\.\/App\.csproj" \/>/);
   });
 
   it("emits Dockerfile + .dockerignore", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
+    const files = await salesFiles();
     const dockerfile = files.get("Dockerfile")!;
     expect(dockerfile).toMatch(/FROM mcr\.microsoft\.com\/dotnet\/sdk:10\.0 AS build/);
     expect(dockerfile).toMatch(/FROM mcr\.microsoft\.com\/dotnet\/aspnet:10\.0 AS runtime/);
-    expect(dockerfile).toMatch(/ENTRYPOINT \["dotnet", "Sales\.dll"\]/);
+    expect(dockerfile).toMatch(/ENTRYPOINT \["dotnet", "App\.dll"\]/);
     const dockerignore = files.get(".dockerignore")!;
     expect(dockerignore).toMatch(/\*\*\/bin/);
   });
 
   it("wires Swashbuckle so the spec is exposed at the aligned /openapi.json", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
-    const csproj = files.get("Sales.csproj")!;
+    const files = await salesFiles();
+    const csproj = files.get("App.csproj")!;
     expect(csproj).toMatch(/<PackageReference Include="Swashbuckle\.AspNetCore"/);
     const program = files.get("Program.cs")!;
     expect(program).toMatch(/AddSwaggerGen/);
@@ -137,8 +139,7 @@ describe(".NET generator", () => {
   });
 
   it("enables CORS + camelCase JSON in Program.cs", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
+    const files = await salesFiles();
     const program = files.get("Program.cs")!;
     expect(program).toMatch(/AddCors/);
     expect(program).toMatch(/UseCors\(\)/);
@@ -147,8 +148,7 @@ describe(".NET generator", () => {
 
   describe("container basics", () => {
     it("Program.cs fails fast on missing connection string", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
+      const files = await salesFiles();
       const program = files.get("Program.cs")!;
       // Connection-string assertion runs BEFORE AddDbContext so a
       // missing value throws at builder time, not on the first
@@ -162,8 +162,7 @@ describe(".NET generator", () => {
     });
 
     it("Program.cs maps GET /ready that pings the DB and returns 503 on miss", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
+      const files = await salesFiles();
       const program = files.get("Program.cs")!;
       expect(program).toMatch(/app\.MapGet\("\/ready"/);
       // Ping uses CanConnectAsync (cheap, no schema lookup).
@@ -178,8 +177,7 @@ describe(".NET generator", () => {
       // identity — server_starting / server_listening / server_shutdown
       // / server_drained land on the structured stream with the same
       // event names Hono and Phoenix emit.
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
+      const files = await salesFiles();
       const program = files.get("Program.cs")!;
       expect(program).toMatch(/IHostApplicationLifetime/);
       expect(program).toMatch(/ApplicationStarted\.Register/);
@@ -202,8 +200,7 @@ describe(".NET generator", () => {
 
   describe("request observability", () => {
     it("Program.cs configures structured JSON logging + HTTP request logging", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
+      const files = await salesFiles();
       const program = files.get("Program.cs")!;
       // JSON formatter for every log line.
       expect(program).toMatch(/AddJsonConsole/);
@@ -234,8 +231,7 @@ describe(".NET generator", () => {
     // structurally different — both can run, the catalog stream is the
     // one cross-backend tooling pivots on).
     it("emits Middleware/RequestLoggingMiddleware.cs with catalog-identity start/end events", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
+      const files = await salesFiles();
       const mw = files.get("Middleware/RequestLoggingMiddleware.cs");
       expect(mw, "RequestLoggingMiddleware.cs is emitted").toBeDefined();
       // Namespaced under <ns>.Middleware (parallel to <ns>.Auth).
@@ -256,8 +252,7 @@ describe(".NET generator", () => {
     });
 
     it("Program.cs registers RequestLoggingMiddleware before MapControllers + UseHttpLogging", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
+      const files = await salesFiles();
       const program = files.get("Program.cs")!;
       // Stopwatch must cover the full pipeline — mount BEFORE routing.
       expect(program).toMatch(/app\.UseMiddleware<\w+\.Middleware\.RequestLoggingMiddleware>\(\);/);
@@ -270,8 +265,7 @@ describe(".NET generator", () => {
     });
 
     it("DomainExceptionFilter threads the trace id onto the RFC 7807 response", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
+      const files = await salesFiles();
       const filter = files.get("Api/DomainExceptionFilter.cs")!;
       // trace_id pulled off the ambient Activity (set by ASP.NET on
       // every request).  Empty string when no Activity is active.
@@ -299,8 +293,7 @@ describe(".NET generator", () => {
       // status (validation 422, domain 422 — RS-15, forbidden 403, disallowed 409,
       // not_found 404) — matching Hono/Python so a `jq select(.event==…)`
       // query is the same shape cross-backend.
-      const model = await buildModel("examples/sales.ddd");
-      const filter = generateDotnet(model).get("Api/DomainExceptionFilter.cs")!;
+      const filter = (await salesFiles()).get("Api/DomainExceptionFilter.cs")!;
       expect(filter).toContain(
         '_log.LogWarning("{Event} message={Message} status={Status}", "forbidden", fe.Message, 403);',
       );
@@ -348,8 +341,7 @@ describe(".NET generator", () => {
     // `customerId` is an `X id` column — the migration creates its FK covering
     // index.  `status` is only find-filtered: no migration indexes it
     // (D-INDEX-SUGGEST), so the EF model must not either.
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
+    const files = await salesFiles();
     const cfg = files.get("Infrastructure/Persistence/Configurations/OrderConfiguration.cs")!;
     expect(cfg).toMatch(/builder\.HasIndex\(x => x\.CustomerId\)/);
     expect(cfg).not.toMatch(/builder\.HasIndex\(x => x\.Status\)/);
@@ -361,10 +353,7 @@ describe(".NET generator", () => {
     // an injected application-layer `I<Op><Agg>Handler`.  The hook reaches the
     // aggregate's own private state natively — no setter widening (finding S10
     // fixed by construction).
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
+    const files = await generateBackendFiles(
       `
       context Sales {
         enum OrderStatus { Draft, Confirmed }
@@ -379,9 +368,8 @@ describe(".NET generator", () => {
         repository Orders for Order { }
       }
     `,
-      { validation: true },
+      "dotnet",
     );
-    const files = generateDotnet(doc.parseResult.value as Model);
 
     // 1. NONE of the deleted injected apparatus is emitted for the aggregate op.
     expect(files.has("Application/Orders/Handlers/IConfirmOrderHandler.cs")).toBe(false);
@@ -431,14 +419,13 @@ describe(".NET generator", () => {
     const program = files.get("Program.cs")!;
     expect(program).not.toMatch(/builder\.Services\.Scan\(s => s/);
     expect(program).not.toMatch(/Missing \[ExternHandler\] for/);
-    const csproj = files.get("Sales.csproj")!;
+    const csproj = files.get("App.csproj")!;
     expect(csproj).not.toMatch(/<PackageReference Include="Scrutor"/);
   });
 
   describe("extern handler exception envelope", () => {
     it("Domain.Common declares ExternHandlerException with op + agg fields", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
+      const files = await salesFiles();
       const common = files.get("Domain/Common/DomainException.cs")!;
       expect(common).toMatch(/public sealed class ExternHandlerException : Exception/);
       expect(common).toMatch(/public string OpName \{ get; \}/);
@@ -450,8 +437,7 @@ describe(".NET generator", () => {
     });
 
     it("DomainExceptionFilter maps ExternHandlerException to a SANITIZED 500", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
+      const files = await salesFiles();
       const filter = files.get("Api/DomainExceptionFilter.cs")!;
       // ExternHandlerException arm exists and lands on a 500 ProblemDetails.
       expect(filter).toMatch(/context\.Exception is ExternHandlerException xh/);
@@ -489,8 +475,7 @@ describe(".NET generator", () => {
       // per dispatch, and trace lines render through DomainLog.LogTrace at
       // the catalog's domain seams (value_computed after every scalar
       // assign; precondition_evaluated as a bound-temp wrap).
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model, { emitTrace: true });
+      const files = await salesFiles({ emitTrace: true });
 
       // 1. DomainLog is now a shim over the RequestContext logger slice
       // (no AsyncLocal of its own).
@@ -569,8 +554,7 @@ describe(".NET generator", () => {
       // always-on request log rides their root-frame `scope_id`, matching the
       // cross-backend observability envelope.  The carrier is just bare — no
       // CurrentUser / Logger slice (those are the auth / --trace layers).
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model); // no emitTrace
+      const files = await salesFiles(); // no emitTrace
       expect(files.has("Domain/Common/DomainLog.cs")).toBe(false);
       expect(files.has("Application/Common/ExecutionContextBehavior.cs")).toBe(false);
       expect(files.has("Application/Common/DomainLogBehavior.cs")).toBe(false);
@@ -599,8 +583,7 @@ describe(".NET generator", () => {
       // under ASP.NET's default JsonNamingPolicy.CamelCase — so the
       // SAME `wire_in` event from Hono and .NET joins seamlessly on
       // the wire-shape key set.
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model, { emitTrace: true });
+      const files = await salesFiles({ emitTrace: true });
       const controller = files.get("Api/OrdersController.cs")!;
       // sales.ddd's Order has `addLine(productId: Id<Product>, qty:
       // int, price: Money)` — three lowerCamel param names.
@@ -626,8 +609,7 @@ describe(".NET generator", () => {
     });
 
     it("--trace off: controllers stay free of wire_in lines", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model); // no emitTrace
+      const files = await salesFiles(); // no emitTrace
       const controller = files.get("Api/OrdersController.cs")!;
       expect(controller).not.toMatch(/wire_in/);
       expect(controller).not.toMatch(/System\.Array\.Empty<string>/);
@@ -641,8 +623,7 @@ describe(".NET generator", () => {
       // hydration → "<init>", each public op → its own name), and
       // each invariant body becomes a bound-temp + LogTrace +
       // conditional throw triple.
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model, { emitTrace: true });
+      const files = await salesFiles({ emitTrace: true });
       const order = files.get("Domain/Orders/Order.cs")!;
 
       // Signature carries the __op param with the "<init>" default so the
@@ -672,8 +653,7 @@ describe(".NET generator", () => {
     });
 
     it("--trace off: AssertInvariants stays parameterless + emits the original if-throw shape", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model); // no emitTrace
+      const files = await salesFiles(); // no emitTrace
       const order = files.get("Domain/Orders/Order.cs")!;
       // No __op, no temp binding, no LogTrace.
       expect(order).toMatch(/void AssertInvariants\(\)/);
@@ -693,8 +673,7 @@ describe(".NET generator", () => {
       // repository_save fires AFTER tx_commit (inside the try) so the
       // existing post-save debug line only emits when the underlying
       // commit actually succeeded.
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model, { emitTrace: true });
+      const files = await salesFiles({ emitTrace: true });
       const repo = files.get("Infrastructure/Repositories/OrderRepository.cs")!;
       expect(repo).toMatch(
         /_log\.LogTrace\("\{Event\} aggregate=\{Aggregate\} id=\{Id\}", "tx_begin", "Order", aggregate\.Id\.Value\);/,
@@ -712,8 +691,7 @@ describe(".NET generator", () => {
     });
 
     it("--trace off: SaveAsync stays at the original one-liner SaveChangesAsync shape", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model); // no emitTrace
+      const files = await salesFiles(); // no emitTrace
       const repo = files.get("Infrastructure/Repositories/OrderRepository.cs")!;
       expect(repo).not.toMatch(/tx_begin/);
       expect(repo).not.toMatch(/tx_commit/);
@@ -733,8 +711,7 @@ describe(".NET generator", () => {
       // (info) per drained event, and each find method emits find_executed
       // (debug) with rows count.  Same event identities the Hono Phase 4
       // wiring emits — a single dashboard query joins both backends.
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
+      const files = await salesFiles();
       const repo = files.get("Infrastructure/Repositories/OrderRepository.cs")!;
       expect(repo).toMatch(/using Microsoft\.Extensions\.Logging;/);
       expect(repo).toMatch(/private readonly ILogger<OrderRepository> _log;/);
@@ -770,8 +747,7 @@ describe(".NET generator", () => {
       // `operation_invoked` before dispatching its command.  Same event
       // identity the Hono backend emits; structured fields use Pascal
       // placeholders so Serilog / ASP.NET sinks pick them up.
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
+      const files = await salesFiles();
       const controller = files.get("Api/OrdersController.cs")!;
       expect(controller).toMatch(/using Microsoft\.Extensions\.Logging;/);
       expect(controller).toMatch(/private readonly ILogger<OrdersController> _log;/);
@@ -802,8 +778,7 @@ describe(".NET generator", () => {
       // backend was contradicting its own spec, and diverging from the four
       // siblings that answer 422 + `errors[]`, for any request missing a
       // required field.  So the override IS the contract now.
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
+      const files = await salesFiles();
       const program = files.get("Program.cs")!;
       expect(program).toMatch(
         /InvalidModelStateResponseFactory = .*ValidationProblem\.FromModelState/,
@@ -832,10 +807,7 @@ describe(".NET generator", () => {
   });
 
   it("emits a Mediator handler + controller for non-transactional workflow", async () => {
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
+    const files = await generateBackendFiles(
       `
       context Sales {
         enum OrderStatus { Draft, Confirmed }
@@ -871,9 +843,8 @@ describe(".NET generator", () => {
     }
       }
     `,
-      { validation: true },
+      "dotnet",
     );
-    const files = generateDotnet(doc.parseResult.value as Model);
 
     // Request DTO uses wire types (Guid for X id, string for datetime).
     // Required-ness targets the ctor PARAMETER (bare `[Required]`), not the
@@ -928,9 +899,9 @@ describe(".NET generator", () => {
     // Non-transactional: no BeginTransactionAsync.
     expect(handler).not.toMatch(/BeginTransactionAsync/);
 
-    // Controller exposes POST /workflows/place_order.
+    // Controller exposes POST /api/workflows/place_order — the served api mounts at /api.
     const ctrl = files.get("Api/SalesWorkflowsController.cs")!;
-    expect(ctrl).toMatch(/\[Route\("workflows"\)\]/);
+    expect(ctrl).toMatch(/\[Route\("api\/workflows"\)\]/);
     expect(ctrl).toMatch(/\[HttpPost\("place_order"\)\]/);
     // Action method name = PascalCase of the shared operationId
     // `placeOrderWorkflow` (Request/Command DTO names keep `PlaceOrder…`).
@@ -946,10 +917,7 @@ describe(".NET generator", () => {
     // names only a subset must still supply every other create input, or
     // the call fails with CS7036. Each omitted field gets its omission
     // value: an optional → null, a `= default` → the default literal.
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
+    const files = await generateBackendFiles(
       `
       context Support {
         aggregate Ticket {
@@ -965,9 +933,8 @@ describe(".NET generator", () => {
     }
       }
     `,
-      { validation: true },
+      "dotnet",
     );
-    const files = generateDotnet(doc.parseResult.value as Model);
     const handler = files.get("Application/Workflows/OpenTicketHandler.cs")!;
     // Provided field first, then the omitted optional (null) and the
     // omitted defaulted field (its literal) — all named, so order-free.
@@ -980,10 +947,7 @@ describe(".NET generator", () => {
     // extern (b) Phase 2: an extern op is an ordinary aggregate method (it runs
     // preconditions, calls its `<Op>Core` hook, re-asserts invariants), so a
     // workflow op-call is `order.Confirm()` — no injected handler, no dispatch.
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
+    const files = await generateBackendFiles(
       `
       context Sales {
         enum OrderStatus { Draft, Confirmed }
@@ -1002,9 +966,8 @@ describe(".NET generator", () => {
     }
       }
     `,
-      { validation: true },
+      "dotnet",
     );
-    const files = generateDotnet(doc.parseResult.value as Model);
     const handler = files.get("Application/Workflows/PlaceAndConfirmHandler.cs")!;
 
     // Direct method call — no injected `IConfirmOrderHandler`, no dispatch dance.
@@ -1021,10 +984,7 @@ describe(".NET generator", () => {
     // extern (b) Phase 2: the extern op flows through the regular command path,
     // so the handler calls `aggregate.AddLine(command.ProductId, ...)` with the
     // DOMAIN-typed command params — no wire `<Op><Agg>Request`, no HandleAsync.
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
+    const files = await generateBackendFiles(
       `
       context Sales {
         valueobject Money {
@@ -1044,9 +1004,8 @@ describe(".NET generator", () => {
         repository Orders for Order { }
       }
     `,
-      { validation: true },
+      "dotnet",
     );
-    const files = generateDotnet(doc.parseResult.value as Model);
     const handler = files.get("Application/Orders/Commands/AddLineHandler.cs")!;
     expect(handler).toMatch(
       /aggregate\.AddLine\(command\.ProductId, command\.Qty, command\.Price\);/,
@@ -1065,10 +1024,7 @@ describe(".NET generator", () => {
   });
 
   it("workflow op-call to a parameterized extern calls the aggregate method with cmd-param args", async () => {
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
+    const files = await generateBackendFiles(
       `
       context Sales {
         aggregate Order {
@@ -1089,9 +1045,8 @@ describe(".NET generator", () => {
     }
       }
     `,
-      { validation: true },
+      "dotnet",
     );
-    const files = generateDotnet(doc.parseResult.value as Model);
     const handler = files.get("Application/Workflows/ChargeOrderHandler.cs")!;
     expect(handler).toMatch(/order\.Deduct\(command\.Amount\);/);
     expect(handler).not.toMatch(/HandleAsync/);
@@ -1099,10 +1054,7 @@ describe(".NET generator", () => {
   });
 
   it("emits explicit IsolationLevel for transactional(level) workflows", async () => {
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
+    const files = await generateBackendFiles(
       `
       context T {
         aggregate Customer {
@@ -1147,9 +1099,8 @@ describe(".NET generator", () => {
     }
       }
     `,
-      { validation: true },
+      "dotnet",
     );
-    const files = generateDotnet(doc.parseResult.value as Model);
     expect(files.get("Application/Workflows/SerHandler.cs")!).toMatch(
       /BeginTransactionAsync\(IsolationLevel\.Serializable, cancellationToken\)/,
     );
@@ -1169,8 +1120,7 @@ describe(".NET generator", () => {
   });
 
   it("emits a ListResponseWrapperFilter mapping <Agg>Response → <Agg>ListResponse (#705)", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
+    const files = await salesFiles();
     const filter = files.get("Api/ListResponseWrapperFilter.cs")!;
     expect(filter).toMatch(/class ListResponseWrapperFilter : IDocumentFilter/);
     // Every aggregate gets an element→wrapper pair so the inline list
@@ -1182,8 +1132,7 @@ describe(".NET generator", () => {
   });
 
   it("emits a RequiredFromCtorParamFilter that marks request-DTO ctor [Required] params required (#779)", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
+    const files = await salesFiles();
     // Request DTOs carry parameter-targeted [Required], which Swashbuckle's
     // DataAnnotations reader ignores; this schema filter restores
     // request-body required-ness from the ctor params (cross-backend parity).
@@ -1204,8 +1153,7 @@ describe(".NET generator", () => {
     // asserted by value on the booted .NET leg (`corpus/extern-handlers`,
     // `corpus/domain-floor-messages`); a corpus 404 comes from the controller's
     // own not-found result, so the exception arm is pinned here.
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
+    const files = await salesFiles();
     const filter = files.get("Api/DomainExceptionFilter.cs")!;
     expect(filter).toMatch(/Problem\(context, 404, "Not Found", nf\.Message, trace_id\)/);
   });
@@ -1578,8 +1526,7 @@ describe(".NET generator", () => {
   // -------------------------------------------------------------------
   describe("FluentValidation pipeline", () => {
     it("mirrors create wire constraints onto the update/op-path validator (SYS-1)", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
+      const files = await salesFiles();
       // M-T6.8/SYS-1: Customer's crudish `update` command validator now carries
       // the SAME field constraint as CreateCustomerCommandValidator —
       // `invariant email.length > 0` → the same code-point length `.Must` — so an invalid update
@@ -1592,16 +1539,14 @@ describe(".NET generator", () => {
     });
 
     it("does NOT emit a validator file when no rules apply", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
+      const files = await salesFiles();
       // Order.confirm() has only server-only preconditions
       // (`isMutable()` + `lines.count > 0`) — no validator file.
       expect(files.has("Application/Orders/Commands/ConfirmCommandValidator.cs")).toBe(false);
     });
 
     it("does NOT emit a validator for invariants referencing aggregate state", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
+      const files = await salesFiles();
       // Order has only the cross-aggregate-state invariant
       // `lines.count > 0 when status == Confirmed` — non-
       // translatable.  Product (in sales.ddd) has no invariants
@@ -1610,10 +1555,7 @@ describe(".NET generator", () => {
     });
 
     it("skips the FluentValidation gate entirely when no aggregate has wire-translatable invariants", async () => {
-      const { parseHelper } = await import("langium/test");
-      const services = createDddServices(NodeFileSystem);
-      const helper = parseHelper(services.Ddd);
-      const doc = await helper(
+      const files = await generateBackendFiles(
         `
           context Plain {
             aggregate Note {
@@ -1624,9 +1566,8 @@ describe(".NET generator", () => {
             repository Notes for Note { }
           }
         `,
-        { validation: true },
+        "dotnet",
       );
-      const files = generateDotnet(doc.parseResult.value as Model);
       // No validator files.
       expect([...files.keys()].some((k) => k.endsWith("CommandValidator.cs"))).toBe(false);
       // No ValidationBehavior either.
@@ -1643,10 +1584,7 @@ describe(".NET generator", () => {
     });
 
     it("absorbs `string.matches(literal)` as `RuleFor(x => x.F).Matches(...)`", async () => {
-      const { parseHelper } = await import("langium/test");
-      const services = createDddServices(NodeFileSystem);
-      const helper = parseHelper(services.Ddd);
-      const doc = await helper(
+      const files = await generateBackendFiles(
         `
           context Auth {
             aggregate User {
@@ -1658,18 +1596,14 @@ describe(".NET generator", () => {
             repository Users for User { }
           }
         `,
-        { validation: true },
+        "dotnet",
       );
-      const files = generateDotnet(doc.parseResult.value as Model);
       const v = files.get("Application/Users/Commands/CreateUserCommandValidator.cs")!;
       expect(v).toMatch(/RuleFor\(x => x\.Email\)\.Matches\("\^\[\^@\]\+@\.\+\$"\)/);
     });
 
     it("renders `matches` in domain code as `Regex.IsMatch`", async () => {
-      const { parseHelper } = await import("langium/test");
-      const services = createDddServices(NodeFileSystem);
-      const helper = parseHelper(services.Ddd);
-      const doc = await helper(
+      const files = await generateBackendFiles(
         `
           context Auth {
             aggregate User {
@@ -1680,19 +1614,15 @@ describe(".NET generator", () => {
             repository Users for User { }
           }
         `,
-        { validation: true },
+        "dotnet",
       );
-      const files = generateDotnet(doc.parseResult.value as Model);
       const userClass = files.get("Domain/Users/User.cs")!;
       // The same predicate appears in AssertInvariants (the floor).
       expect(userClass).toMatch(/Regex\.IsMatch\(this\.Email, "\^\[\^@\]\+@\.\+\$"\)/);
     });
 
     it("`private invariant` is skipped from FluentValidation but stays in domain", async () => {
-      const { parseHelper } = await import("langium/test");
-      const services = createDddServices(NodeFileSystem);
-      const helper = parseHelper(services.Ddd);
-      const doc = await helper(
+      const files = await generateBackendFiles(
         `
           context Acct {
             aggregate User {
@@ -1703,9 +1633,8 @@ describe(".NET generator", () => {
             repository Users for User { }
           }
         `,
-        { validation: true },
+        "dotnet",
       );
-      const files = generateDotnet(doc.parseResult.value as Model);
       // No validator file for CreateUserCommand — the only rule is
       // server-only and the single-field gate filters it out.
       expect(files.has("Application/Users/Commands/CreateUserCommandValidator.cs")).toBe(false);
@@ -1715,10 +1644,7 @@ describe(".NET generator", () => {
     });
 
     it("emits cross-field invariants as `RuleFor(x => x).Must(...)` with `.WithName`", async () => {
-      const { parseHelper } = await import("langium/test");
-      const services = createDddServices(NodeFileSystem);
-      const helper = parseHelper(services.Ddd);
-      const doc = await helper(
+      const files = await generateBackendFiles(
         `
           context Shop {
             aggregate Reservation {
@@ -1730,9 +1656,8 @@ describe(".NET generator", () => {
             repository Reservations for Reservation { }
           }
         `,
-        { validation: true },
+        "dotnet",
       );
-      const files = generateDotnet(doc.parseResult.value as Model);
       const v = files.get(
         "Application/Reservations/Commands/CreateReservationCommandValidator.cs",
       )!;

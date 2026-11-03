@@ -428,34 +428,53 @@ export function isWalkableLayoutBody(
   userComponents: ReadonlyMap<string, readonly ParamIR[]> = new Map(),
 ): boolean {
   if (!body) return false;
-  if (body.kind === "call") {
-    if (STDLIB_LAYOUT_COMPONENTS.has(body.name)) return true;
-    // Calls to user-defined components are walker-
-    // eligible too (resolved via the supplied map).
-    return userComponents.has(body.name);
+  const walkable = (e: ExprIR | undefined): boolean => isWalkableLayoutBody(e, userComponents);
+  // Only RESULT positions are followed — the value a page body evaluates to —
+  // never call arguments, or any body containing a nested call would count.
+  switch (body.kind) {
+    case "call":
+      // A stdlib layout primitive, or a user-defined component (resolved via
+      // the supplied map).
+      return STDLIB_LAYOUT_COMPONENTS.has(body.name) || userComponents.has(body.name);
+    case "paren":
+      return walkable(body.inner);
+    case "ternary":
+      // `body: loading ? Empty("…") : Stack(…)` — walkable when either branch is.
+      return walkable(body.then) || walkable(body.otherwise);
+    case "match":
+      // The documented wizard pattern (page-metamodel.md §7/§12): walkable when
+      // any arm is, in either the predicate form (`arms`) or the variant form
+      // (`variantArms`).  react and svelte gate on this predicate, so a `false`
+      // here drops the page with no file and no diagnostic.
+      return (
+        body.arms.some((a) => walkable(a.value)) ||
+        (body.variantArms ?? []).some((a) => walkable(a.value)) ||
+        walkable(body.otherwise)
+      );
+    case "action-ref":
+    case "authz-filter":
+    case "binary":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "member":
+    case "method-call":
+    case "modelText":
+    case "new":
+    case "object":
+    case "ref":
+    case "this":
+    case "unary":
+      return false;
+    default: {
+      const _exhaustive: never = body;
+      return _exhaustive;
+    }
   }
-  // Top-level conditional bodies dispatch through the
-  // walker as long as either branch is walkable.  Powers patterns
-  // like `body: loading ? Empty("…") : Stack(…)`.
-  if (body.kind === "ternary") {
-    return (
-      isWalkableLayoutBody(body.then, userComponents) ||
-      isWalkableLayoutBody(body.otherwise, userComponents)
-    );
-  }
-  // A bare `match` body is the documented wizard pattern
-  // (page-metamodel.md §7/§12) and the walker has full `match` arms —
-  // only THIS predicate did not admit it, so react and svelte (the two
-  // emitters that gate on it) dropped the page with no file and no
-  // diagnostic, while vue and angular — which walk unconditionally —
-  // rendered it.  Same rule as `ternary`: walkable when any arm is.
-  if (body.kind === "match") {
-    return (
-      body.arms.some((a) => isWalkableLayoutBody(a.value, userComponents)) ||
-      isWalkableLayoutBody(body.otherwise, userComponents)
-    );
-  }
-  return false;
 }
 
 export function walkBody(

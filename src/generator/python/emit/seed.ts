@@ -8,6 +8,7 @@ import { lines } from "../../../util/code-builder.js";
 import { pythonIdent, snake } from "../../../util/naming.js";
 import { pyRef } from "../../_imports/python.js";
 import {
+  asMoneySeedLiteral,
   type Entry,
   groupByDataset,
   type SeederAggregate,
@@ -176,7 +177,7 @@ function renderInput(row: SeedRowIR, agg: SeederAggregate): string {
 }
 
 function renderField(value: ExprIR, type: TypeIR | undefined): string {
-  return coerceSeedValue(type, renderPyExpr(value));
+  return coerceSeedValue(type, renderPyExpr(asMoneySeedLiteral(value, type)));
 }
 
 /** A seed row's `datetime` field is written as a string literal (`"2024-…Z"`),
