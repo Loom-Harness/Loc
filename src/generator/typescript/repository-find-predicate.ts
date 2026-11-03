@@ -837,7 +837,7 @@ export function drizzleStreamScopeFnName(agg: { name: string }): string {
 }
 
 /** The drizzle table constant of `ctx`'s event log. */
-export function drizzleEventLogTable(ctx: { name: string }): string {
+function drizzleEventLogTable(ctx: { name: string }): string {
   return `${lowerFirst(ctx.name)}Events`;
 }
 
