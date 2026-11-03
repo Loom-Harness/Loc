@@ -17,7 +17,7 @@ import { lines } from "../../../util/code-builder.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { TEST_RESET_PATH } from "../../../util/test-reset.js";
-import { claimPathFor, claimsReferenceIds } from "../../_auth/claim-types.js";
+import { claimEnumNames, claimPathFor, claimsReferenceIds } from "../../_auth/claim-types.js";
 import {
   DEV_CLAIMS_HEADER,
   devClaimFields,
@@ -93,6 +93,9 @@ export function renderAuthFiles(
   // project fails with `cannot find symbol` (D6/P2).  The wildcard matches
   // every other java emitter that names an id (`emit/dto.ts`, `emit/api.ts`, …).
   if (claimsReferenceIds(fields)) imports.add(`${basePkg}.domain.ids.*`);
+  // An enum-typed claim (`tier: Tier`) likewise names a type emitted into
+  // `<basePkg>.domain.enums`, not this package.
+  if (claimEnumNames(fields).length > 0) imports.add(`${basePkg}.domain.enums.*`);
   const components = fields.map((f) => `${renderJavaType(f.type)} ${f.name}`).join(", ");
   // Derived `currentUser.orgPath` — the caller's tenant materialized path
   // (multi-tenancy).  An extra record accessor (not a component), so
