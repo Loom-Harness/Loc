@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const SRC = `
   system S {
@@ -46,14 +47,16 @@ describe(".NET: C#-keyword parameter names on non-aggregate callables", () => {
   it("a domain-service operation declares `@event` / `@base` and reads them back", async () => {
     const svc = await file("Domain/Services/Pricing.cs");
     expect(svc).toMatch(/public static int Quote\(int @event, int @base\)/);
-    expect(svc).toMatch(/return @event \+ @base;/);
+    expect(uncheckedInt(svc)).toMatch(/return @event \+ @base;/);
   });
 
   it("a workflow function declares `@event` / `@base` and reads them back", async () => {
     const all = [...cached!.entries()].filter(([, c]) => /\bScore\(/.test(c));
     const fn = all.map(([, c]) => c).find((c) => /public static int Score\(/.test(c));
     expect(fn, "workflow function Score not emitted").toBeDefined();
-    expect(fn!).toMatch(/public static int Score\(int @event, int @base\) => @event \+ @base;/);
+    expect(uncheckedInt(fn!)).toMatch(
+      /public static int Score\(int @event, int @base\) => @event \+ @base;/,
+    );
   });
 
   it("an extern operation's scaffolded hook matches the defining partial (`int @base`)", async () => {

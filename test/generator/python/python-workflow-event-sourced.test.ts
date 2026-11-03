@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystems } from "../../../src/system/index.js";
 import { parseString } from "../../_helpers/index.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const SRC = `system S { subdomain O { context O {
   aggregate Order { status: string  operation place() { status := "P"  emit OrderPlaced { order: id } } }
@@ -45,7 +46,7 @@ describe("python event-sourced workflows", () => {
     expect(d).toContain(
       "def _apply_tally_payment_registered(state: TallyState, pr: PaymentRegistered) -> None:",
     );
-    expect(d).toContain("state.total = state.total + pr.amount");
+    expect(uncheckedInt(d)).toContain("state.total = state.total + pr.amount");
     expect(d).toContain("def _apply_tally(state: TallyState, ev: DomainEvent) -> None:");
     expect(d).toContain("def _fold_tally(key: str, events: list[DomainEvent]) -> TallyState:");
     // Fold-from-zero seeds the correlation key + typed zeros for required fields.

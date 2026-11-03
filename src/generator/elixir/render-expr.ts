@@ -1,3 +1,4 @@
+import { INTEGER_OVERFLOW_DETAIL } from "../../ir/enrich/wire-policy.js";
 import type {
   BinOp,
   DerivedIR,
@@ -32,6 +33,12 @@ import {
 } from "../../util/naming.js";
 import type { RepoOp } from "../../util/repository-contract.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
+import {
+  checkedBinaryKind,
+  checkedUnaryKind,
+  DECLARED_INT_RANGE,
+  type IntegralKind,
+} from "../_expr/checked-int.js";
 import { elixirCodePointLength, elixirCodePointSubstring } from "../_expr/code-point.js";
 import { renderPrincipalTest } from "../_expr/principal-term.js";
 import { exSubtreeLikePattern } from "../_expr/subtree-like.js";
@@ -51,6 +58,7 @@ import {
 } from "../_expr/target.js";
 import { elixirFindFacadeFn } from "./find-facade-name.js";
 import { exPgInstantType } from "./vanilla/codec-spelling-ex.js";
+import { appModuleOf, guardErrorModule } from "./vanilla/denial.js";
 import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-object-type-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -272,8 +280,9 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // Bare object literals appear in e2e contexts; not expected in domain
   // expression bodies.
   object: (fields) => `%{${fields.map((f) => `${snake(f.name)}: ${f.value}`).join(", ")}}`,
-  unary: (op, operand, e) => renderUnary(op, operand, e),
-  binary: (l, r, e) => renderBinary(l, r, e),
+  unary: (op, operand, e, ctx) =>
+    exCheckedInt(renderUnary(op, operand, e), checkedUnaryKind(e), ctx),
+  binary: (l, r, e, ctx) => exCheckedInt(renderBinary(l, r, e), checkedBinaryKind(e), ctx),
   // Lower to the keyword `if cond, do: …, else: …` form — SELF-PARENTHESIZED,
   // like the Python leaf and for the same reason.  Elixir's keyword-list `if`
   // swallows everything after it up to the enclosing terminator, so a bare one
@@ -1433,6 +1442,17 @@ function renderNew(fields: { name: string; value: string }[], e: NewExpr, ctx: R
 // ---------------------------------------------------------------------------
 // Unary
 // ---------------------------------------------------------------------------
+
+/** Range-check an integer `+ - *` result (RS-48).  Elixir integers are
+ *  unbounded, so the declared int32 / int64 bound is enforced here; the refusal
+ *  is the typed `<App>.GuardError` of the precondition rung, which every
+ *  controller already answers with the domain floor's 422. */
+function exCheckedInt(expr: string, kind: IntegralKind | null, ctx: RenderCtx): string {
+  if (kind === null || !ctx.contextModule) return expr;
+  const { min, max } = DECLARED_INT_RANGE[kind];
+  const guard = guardErrorModule(appModuleOf(ctx.contextModule));
+  return `(case ${expr} do v when v >= ${min} and v <= ${max} -> v; _ -> raise(${guard}, kind: :precondition, message: ${elixirString(INTEGER_OVERFLOW_DETAIL)}) end)`;
+}
 
 function renderUnary(op: "-" | "!", operand: string, e: UnaryExpr, inFilter = false): string {
   if (op === "!") return `not ${operand}`;

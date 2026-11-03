@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { renderTsExpr, renderTsType } from "../../../src/generator/typescript/render-expr.js";
 import type { ExprIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
 import type { ExprOf } from "../../_helpers/ir-builders.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const STRING: TypeIR = { kind: "primitive", name: "string" };
 const INT: TypeIR = { kind: "primitive", name: "int" };
@@ -481,9 +482,11 @@ describe("ts renderTsExpr — unary `-` on money (A11)", () => {
     ).toBe("this._total.neg()");
   });
 
-  it("keeps `-int` on the native operator (int/decimal are plain `number` here)", () => {
+  it("keeps `-int` on the native operator under the RS-48 range guard", () => {
     expect(
-      renderTsExpr({ kind: "unary", op: "-", operand: { ...thisProp("qty"), type: INT } }),
+      uncheckedInt(
+        renderTsExpr({ kind: "unary", op: "-", operand: { ...thisProp("qty"), type: INT } }),
+      ),
     ).toBe("-this._qty");
   });
 

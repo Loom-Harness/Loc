@@ -21,6 +21,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const SRC = `
 system KwSys {
@@ -217,10 +218,10 @@ describe("phoenix generator — Elixir reserved words on the remaining local-bin
     const files = await generateSystemFiles(SRC);
     const shift = bySuffix(files, "lib/api/hostile/handlers/do_shift.ex");
     expect(shift).toContain(`%{"end" => end_, "after" => after_} = params`);
-    expect(shift).toContain("{:ok, end_ + after_}");
+    expect(uncheckedInt(shift)).toContain("{:ok, end_ + after_}");
     const span = bySuffix(files, "lib/api/hostile/handlers/span.ex");
     expect(span).toContain(`%{"end" => end_, "after" => after_} = params`);
-    expect(span).toContain("with try_ <- (end_ - after_) do");
+    expect(uncheckedInt(span)).toContain("with try_ <- (end_ - after_) do");
   });
 
   it("event-sourced workflow: the applier binds the event param it reads", async () => {

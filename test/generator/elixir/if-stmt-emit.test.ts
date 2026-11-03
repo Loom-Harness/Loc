@@ -22,6 +22,7 @@ import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 import { parseString } from "../../_helpers/parse.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 async function diagnose(src: string): Promise<{ code?: string; message: string }[]> {
   const { model, errors } = await parseString(src);
@@ -84,7 +85,7 @@ describe("phoenix generator — the `if` statement (M-T6.59)", () => {
   it("renders a value-producing `if` that REBINDS the threaded record", async () => {
     const files = await generateSystemFiles(sys(GRADE));
     const ctx = bySuffix(files, "lib/api/tracker.ex");
-    expect(ctx).toContain("record = if record.score + bonus > 10 do");
+    expect(uncheckedInt(ctx)).toContain("record = if record.score + bonus > 10 do");
     // Each arm ends in the threaded variable, so the untaken branch is a no-op
     // rebind rather than `nil`.
     expect(ctx).toContain(`record = %{record | tier: "gold"}`);

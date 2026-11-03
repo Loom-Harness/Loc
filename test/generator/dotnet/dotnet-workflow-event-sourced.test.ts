@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystems } from "../../../src/system/index.js";
 import { parseString } from "../../_helpers/index.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const SRC = `system S { subdomain O { context O {
   aggregate Order { status: string  operation place() { status := "P"  emit OrderPlaced { order: id } } }
@@ -41,7 +42,7 @@ describe("dotnet event-sourced workflows", () => {
     expect(state).toContain("public sealed class TallyState");
     // The applier folds against `this` (the fold-target instance), like an aggregate.
     expect(state).toContain("private void _ApplyPaymentRegistered(PaymentRegistered pr)");
-    expect(state).toContain("Total = this.Total + pr.Amount;");
+    expect(uncheckedInt(state)).toContain("Total = this.Total + pr.Amount;");
     expect(state).toContain("private void _Apply(IDomainEvent ev)");
     expect(state).toContain(
       "public static TallyState _FromEvents(OrderId __key, IReadOnlyList<IDomainEvent> events)",
