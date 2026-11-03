@@ -278,7 +278,7 @@ describe("java generator — wire validators + advice (S5)", () => {
     // path is `/lineTotals/0/unitPrice`, not `/lineTotals[0].unitPrice`.
     expect(advice).toContain('entry.put("pointer", pointerOf(err.getField()));');
     expect(advice).toContain(
-      'if (code != null && code.startsWith("msg.")) entry.put("code", code);',
+      'if (code != null && code.contains(".rule.")) entry.put("code", code);',
     );
   });
 

@@ -44,9 +44,11 @@ describe("java — messaged rule → wire validator + domain floor text", () => 
     const { validator } = await gen();
     // messaged rule → rejectValue(field, "msg.<hash>", <text>) carrying the i18n key
     expect(validator).toContain(
-      'errors.rejectValue("name", "msg.j985f2", "Name must be 2-120 characters")',
+      'errors.rejectValue("name", "Cat.Product.rule.name2120Characters", "Name must be 2-120 characters")',
     );
-    expect(validator).toContain('errors.rejectValue("sku", "msg.u3w71r", "SKU is required")');
+    expect(validator).toContain(
+      'errors.rejectValue("sku", "Cat.Product.rule.skuRequired", "SKU is required")',
+    );
   });
 
   it("keeps a message-LESS single-field rule with the sentinel code (no wire code)", async () => {

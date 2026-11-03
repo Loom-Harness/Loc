@@ -73,14 +73,14 @@ describe("elixir vanilla — part rules, guarded invariants, private-op calls (M
       const fn = fnBody(cs, "validate_invariants");
       expect(fn).toContain("if data.tax_rate > 0 do");
       expect(fn).toContain("length(String.to_charlist(data.note)) > 0");
-      expect(fn).toContain('add_error(changeset, :note, "Invariant violated: note.length > 0")');
+      expect(fn).toContain('add_error(changeset, :note, "Business rule violated")');
     });
 
     it("the MESSAGED guarded rule keeps its `loom_code` wire key", async () => {
       const cs = (await files()).get("d/lib/d/billing/invoice_changeset.ex")!;
       const fn = fnBody(cs, "validate_invariants");
       expect(fn).toContain('"tax rate must stay under 100"');
-      expect(fn).toMatch(/loom_code: "msg\.[a-z0-9]+"/);
+      expect(fn).toMatch(/loom_code: "Billing\.Invoice\.rule\.[A-Za-z0-9]+"/);
     });
 
     it("an UNGUARDED single-field rule still takes its native line, not the residual carrier", async () => {

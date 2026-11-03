@@ -59,7 +59,7 @@ describe("vanilla — T2.c returning-op body statements", () => {
     // (`:validation_failed`, node's refine default — RS-43); `requires` denies
     // 403 (`:forbidden`).  The guards run BEFORE the mutation/persist.
     expect(ctx).toContain(
-      'with :ok <- ensure(delta != 0, {:validation_failed, [%{pointer: "/delta", message: "Invariant violated: delta != 0"}]})',
+      'with :ok <- ensure(delta != 0, {:validation_failed, [%{pointer: "/delta", message: "Business rule violated"}]})',
     );
     expect(ctx).toContain(":ok <- ensure(record.quantity + delta >= 0, {:forbidden, ");
     // The old raise form is gone — an expected denial is no longer a 500.

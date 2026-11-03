@@ -151,7 +151,7 @@ describe("phoenix reactor loop body: guard, emit and saga-state read", () => {
     // so it must become a clause carrying the SAME tagged denial term.
     const loop = src.slice(src.indexOf("Enum.reduce_while"));
     expect(loop).toContain(
-      ':ok <- (if state.fanned >= 0, do: :ok, else: {:error, {:precondition_failed, "Precondition failed: fanned >= 0"}})',
+      ':ok <- (if state.fanned >= 0, do: :ok, else: {:error, {:precondition_failed, "Invalid value"}})',
     );
     expect(loop).not.toContain("throw(");
   });

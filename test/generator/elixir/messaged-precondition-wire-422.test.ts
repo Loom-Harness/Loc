@@ -135,13 +135,13 @@ describe("elixir/vanilla — messaged precondition answers the wire-validation 4
     expect(ctx).toContain(
       'ensure(amount >= 1, {:validation_failed, [%{pointer: "/amount", message: "Amount must be at least 1"}]})',
     );
-    expect(ctx).not.toContain('"Precondition failed: amount >= 1"');
+    expect(ctx).not.toContain("Precondition failed: amount >= 1");
     // Messaged but reads `this.status` — no request body carries it, so it is
     // not wire-translatable on ANY backend and keeps the domain-floor rung —
     // which, since M-T1.11 (c), carries the rule's code and pointer in a map
     // detail so the 422 gains its errors[] entry.
     expect(ctx).toMatch(
-      /ensure\(record\.status != "closed", \{:precondition_failed, %\{detail: "Product is already closed", code: "msg\.[a-z0-9]+", pointer: ""\}\}\)/,
+      /ensure\(record\.status != "closed", \{:precondition_failed, %\{detail: "Product is already closed", code: "Cat\.Product\.rule\.[A-Za-z0-9]+", pointer: ""\}\}\)/,
     );
   });
 

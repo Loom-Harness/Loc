@@ -37,10 +37,10 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
   it("node: the constructor raises ValueObjectInvariantError and every body router answers it", async () => {
     const fs = await files("node");
     expect(find(fs, "domain/value-objects.ts")).toContain(
-      'throw new ValueObjectInvariantError("Qty", "Quantity must be positive", "msg.bqyhlx")',
+      'throw new ValueObjectInvariantError("Qty", "Quantity must be positive", "Orders.Qty.rule.quantityPositive")',
     );
     expect(find(fs, "domain/value-objects.ts")).toContain(
-      'throw new ValueObjectInvariantError("Label", "Invariant violated: text.length > 0")',
+      'throw new ValueObjectInvariantError("Label", "Invalid value")',
     );
     expect(find(fs, "domain/errors.ts")).toContain(
       "export class ValueObjectInvariantError extends DomainError",
@@ -59,7 +59,7 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
   it(".NET: its own exception, answered ahead of the DomainException arm", async () => {
     const fs = await files("dotnet");
     expect(find(fs, "Domain/ValueObjects/Qty.cs")).toContain(
-      'throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "msg.bqyhlx")',
+      'throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "Orders.Qty.rule.quantityPositive")',
     );
     expect(find(fs, "Domain/Common/DomainException.cs")).toContain(
       "public sealed class ValueObjectInvariantException : Exception",
@@ -75,7 +75,7 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
   it("java: a DomainException subclass with its own (more specific) advice handler", async () => {
     const fs = await files("java");
     expect(find(fs, "domain/valueobjects/Qty.java")).toContain(
-      'throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "msg.bqyhlx")',
+      'throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "Orders.Qty.rule.quantityPositive")',
     );
     expect(find(fs, "ValueObjectInvariantException.java")).toContain(
       "public class ValueObjectInvariantException extends DomainException",
@@ -90,7 +90,7 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
   it("python: a DomainError subclass with its own handler", async () => {
     const fs = await files("python");
     expect(find(fs, "app/domain/value_objects.py")).toContain(
-      'raise ValueObjectInvariantError("Qty", "Quantity must be positive", "msg.bqyhlx")',
+      'raise ValueObjectInvariantError("Qty", "Quantity must be positive", "Orders.Qty.rule.quantityPositive")',
     );
     expect(find(fs, "app/domain/errors.py")).toContain(
       "class ValueObjectInvariantError(DomainError):",
@@ -112,7 +112,9 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
     const cs = find(fs, "lib/d/orders/order_changeset.ex");
     expect(cs).toContain("def validate_body_value_objects(changeset) do");
     expect(cs).toContain("|> __validate_body_vo(:qty, &D.Orders.Qty.new/1)");
-    expect(cs).toContain('@loom_body_vo_codes %{"Quantity must be positive" => "msg.bqyhlx"}');
+    expect(cs).toContain(
+      '@loom_body_vo_codes %{"Quantity must be positive" => "Orders.Qty.rule.quantityPositive"}',
+    );
     const pd = find(fs, "problem_details.ex");
     expect(pd).toContain("case body_value_object_error(changeset) do");
     expect(pd).toContain('title: "Unprocessable Entity"');

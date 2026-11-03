@@ -71,9 +71,7 @@ describe("S9 · Hono value objects carry value semantics", () => {
     // M-T5.1 — `ValueObjectInvariantError extends DomainError`, answered with the
     // domain-floor status plus one errors[] entry.
     expect(vos).toContain('import { ValueObjectInvariantError } from "./errors"');
-    expect(vos).toContain(
-      'throw new ValueObjectInvariantError("Listing", "Invariant violated: title.length > 0")',
-    );
+    expect(vos).toContain('throw new ValueObjectInvariantError("Listing", "Invalid value")');
     expect(files.get("d/domain/errors.ts")).toContain(
       "export class ValueObjectInvariantError extends DomainError",
     );

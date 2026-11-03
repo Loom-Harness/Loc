@@ -310,7 +310,7 @@ describe("emitObjectWithRefines", () => {
     expect(tail).toContain(".refine((data: any) => data.qty <= data.note");
     // The path is the first field ref — RHF surfaces the error next to it.
     expect(tail).toContain('path: ["qty"]');
-    expect(tail).toContain('message: "Invariant violated: qty <= note"');
+    expect(tail).toContain('message: "Business rule violated"');
     // No field line was touched.
     expect(out).toContain("  qty: z.number().int(),");
   });

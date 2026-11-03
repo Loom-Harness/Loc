@@ -117,10 +117,10 @@ describe("python — a message-less single-field rule answers node's message (#1
       // A message-less precondition rides the op request's own table.
       '("count", "greater_than_equal"): "Count must be at least 1",',
       // A conjunction node does NOT chain natively rides its zod refine, whose
-      // message is the derived default — python sends that, not a per-conjunct
+      // message is the generic rule text — python sends that, not a per-conjunct
       // sentence node never sends.
-      '("contact", "string_pattern_mismatch"): "Invariant violated: contact.matches(\\"^[a-z]+$\\") && contact.length <= 12",',
-      '("contact", "string_too_long"): "Invariant violated: contact.matches(\\"^[a-z]+$\\") && contact.length <= 12",',
+      '("contact", "string_pattern_mismatch"): "Business rule violated",',
+      '("contact", "string_too_long"): "Business rule violated",',
     ]) {
       expect(routes).toContain(entry);
     }

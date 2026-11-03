@@ -1740,7 +1740,7 @@ describe(".NET generator", () => {
       expect(v).toMatch(/RuleFor\(x => x\)\.Must\(x => x\.FromTime < x\.ToTime\)/);
       // Field-path attribution.
       expect(v).toMatch(/\.WithName\("FromTime"\)/);
-      expect(v).toMatch(/\.WithMessage\("Invariant violated:[^"]+"\)/);
+      expect(v).toMatch(/\.WithMessage\("Business rule violated"\)/);
     });
   });
 
