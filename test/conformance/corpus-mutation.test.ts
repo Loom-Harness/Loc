@@ -92,7 +92,8 @@ async function validateOnce(
   };
 }
 
-/** Emit an already-validated mutated source on one backend, in-memory. */
+/** Emit a mutated source on one backend, in-memory, through the gated helper —
+ *  every phase re-checked on that backend, so it throws on a refusal. */
 async function emitOn(source: string, backend: Backend): Promise<Map<string, string>> {
   const specialised = source.replaceAll("__PLATFORM__", PLATFORM_CLAUSE[backend]);
   return generateSystemFiles(specialised);
@@ -127,12 +128,18 @@ describe("corpus mutation — reject with a loom.* code, or emit on every declar
         }
 
         // Arm 2 — accepted, so it must emit on every backend the feature
-        // declares.  This is where an accepted-but-broken model surfaces.  A
-        // backend-scoped refusal is still arm 1 for that backend — honest
-        // only when a `loom.*` rule owns it.
+        // declares.  This is where an accepted-but-broken model surfaces.  The
+        // helper re-runs every phase on the backend-specialised source, so a
+        // backend-scoped refusal throws here; it is still arm 1 for that
+        // backend — honest only when a `loom.*` rule owns it.  `validateOnce`
+        // runs only on that rare path, to read the codes off the refusal.
         for (const backend of feature.backends) {
-          const onBackend = await validateOnce(mutated, PLATFORM_CLAUSE[backend]);
-          if (!onBackend.ok) {
+          let files: Map<string, string>;
+          try {
+            files = await emitOn(mutated, backend);
+          } catch (emitError) {
+            const onBackend = await validateOnce(mutated, PLATFORM_CLAUSE[backend]);
+            if (onBackend.ok) throw emitError;
             expect(
               onBackend.codes,
               `${feature.id} x ${mutation.id} was rejected on ${BACKEND_LABEL[backend]}, but ` +
@@ -140,7 +147,6 @@ describe("corpus mutation — reject with a loom.* code, or emit on every declar
             ).not.toHaveLength(0);
             continue;
           }
-          const files = await emitOn(mutated, backend);
           expect(
             files.size,
             `${feature.id} x ${mutation.id} accepted but emitted no files on ` +
