@@ -5,31 +5,8 @@
 // This drives the whole `generateSystems` pipeline and asserts the emitted
 // Java constructs.  Mirror of test/generator/dotnet/dotnet-provenance-audit.test.ts.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
-import { generateEvolvedSystemFiles } from "../../_helpers/generate.js";
-
-async function build(source: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const helper = parseHelper(services.Ddd);
-  const doc = await helper(source, { validation: true });
-  const lexErrs = doc.parseResult?.lexerErrors ?? [];
-  const parseErrs = doc.parseResult?.parserErrors ?? [];
-  const diagErrs = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  if (lexErrs.length || parseErrs.length || diagErrs.length) {
-    const lex = lexErrs.map((e) => `LEX ${e.message}`).join("\n");
-    const parse = parseErrs.map((e) => `PARSE ${e.message}`).join("\n");
-    const diag = diagErrs
-      .map((e) => `DIAG ${e.range.start.line + 1}:${e.range.start.character + 1} ${e.message}`)
-      .join("\n");
-    throw new Error(`parse errors:\n${[lex, parse, diag].filter(Boolean).join("\n")}`);
-  }
-  return doc.parseResult?.value as Model;
-}
+import { generateEvolvedSystemFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 const SOURCE = `
 system Shop {
@@ -61,8 +38,7 @@ system Shop {
 let cache: Map<string, string> | undefined;
 async function files(): Promise<Map<string, string>> {
   if (cache) return cache;
-  const model = await build(SOURCE);
-  cache = generateSystems(model).files;
+  cache = await generateSystemFiles(SOURCE);
   return cache;
 }
 
@@ -146,8 +122,7 @@ describe("java provenance — no-op without a provenanced field", () => {
   const PLAIN = SOURCE.replace("total: int provenanced", "total: int");
 
   it("keeps the SDK + flush + migration absent", async () => {
-    const model = await build(PLAIN);
-    const f = generateSystems(model).files;
+    const f = await generateSystemFiles(PLAIN);
     expect([...f.keys()].some((k) => k.endsWith("/domain/common/ProvLineage.java"))).toBe(false);
     const ddl = [...f.entries()].filter(([k]) => /db\/migration\/V[^/]+\.sql$/.test(k));
     expect(ddl.length).toBeGreaterThan(0);

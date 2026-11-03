@@ -427,6 +427,26 @@ function csMemberPositions(agg: AggregateIR): [string, string, string, string | 
   return out;
 }
 
+/** Members the dotnet emitter GENERATES on every aggregate root class
+ *  (`emit/entity.ts`): the `Inspect` debug-string property and the
+ *  `ToString()` override that returns it, the `DomainEvents` read-only list
+ *  and the `PullEvents()` drain.  A `.ddd` member whose C# name equals one of
+ *  them is a second declaration of the same name in one class body — CS0102
+ *  (or CS0111 for a same-signature method) — whatever its kind or type, so no
+ *  Color-Color exemption applies.  `Id`, `Version` and `Create` are not here:
+ *  `id` / `create` are keywords, and a declared `version` IS the generated
+ *  concurrency property. */
+const CS_GENERATED_ROOT_MEMBERS: ReadonlySet<string> = new Set([
+  "Inspect",
+  "ToString",
+  "DomainEvents",
+  "PullEvents",
+]);
+
+/** Members the dotnet emitter generates on every entity PART class: the
+ *  `ParentId` back-reference to the owning aggregate. */
+const CS_GENERATED_PART_MEMBERS: ReadonlySet<string> = new Set(["ParentId"]);
+
 export function validateDotnetNameCollisions(sys: SystemIR, diags: LoomDiagnostic[]): void {
   const ctxByName = new Map<string, BoundedContextIR>();
   for (const m of sys.subdomains) for (const c of m.contexts) ctxByName.set(c.name, c);
@@ -442,6 +462,30 @@ export function validateDotnetNameCollisions(sys: SystemIR, diags: LoomDiagnosti
         const types = csVisibleTypeNames(ctx, agg);
         for (const [what, owner, name, exemptType] of csMemberPositions(agg)) {
           const member = upperFirst(name);
+          const generated =
+            owner === agg.name ? CS_GENERATED_ROOT_MEMBERS : CS_GENERATED_PART_MEMBERS;
+          // A `derived inspect` IS the generated `Inspect` — the declared
+          // override enrichment keeps in place of the synthesized one — so it
+          // is the one member that may carry that name.
+          const isInspectOverride = what === "derived field" && name === "inspect";
+          if (generated.has(member) && !isInspectOverride) {
+            const key = `${ctxName}/${owner}/${what}/${name}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            diags.push({
+              severity: "error",
+              message: diagMessage("loom.dotnet-name-collision#generated-member", {
+                what,
+                owner,
+                name,
+                member,
+                ctxName,
+              }),
+              source: `${sys.name}/${ctxName}/${owner}`,
+              code: "loom.dotnet-name-collision",
+            });
+            continue;
+          }
           if (!types.has(member)) continue;
           // "Color Color": a property whose own C# type IS the shadowed type
           // still resolves both ways, so it is not a collision.

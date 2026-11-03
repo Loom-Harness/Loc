@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseValid } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // M18 phase 8 slice 1 — Node debug wiring (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md).
@@ -65,8 +64,7 @@ const HONO2_SLUG = "hono_api2";
 
 describe("Node debug wiring (--sourcemap only)", () => {
   it("flag-off: emits no debug script, no allowImportingTsExtensions, no launch.json, extensionless imports", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SOURCE);
 
     expect(files.has(".vscode/launch.json")).toBe(false);
 
@@ -86,8 +84,7 @@ describe("Node debug wiring (--sourcemap only)", () => {
   });
 
   it("flag-on: node deployable's package.json carries the debug script", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
 
     const pkg = JSON.parse(files.get(`${HONO_SLUG}/package.json`)!) as {
       scripts: Record<string, string>;
@@ -99,8 +96,7 @@ describe("Node debug wiring (--sourcemap only)", () => {
   });
 
   it("flag-on: tsconfig.json carries allowImportingTsExtensions", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
 
     const tsconfig = JSON.parse(files.get(`${HONO_SLUG}/tsconfig.json`)!) as {
       compilerOptions: Record<string, unknown>;
@@ -111,8 +107,7 @@ describe("Node debug wiring (--sourcemap only)", () => {
   });
 
   it("flag-on: relative imports across the node deployable carry their real extension", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
 
     const orderTs = files.get(`${HONO_SLUG}/domain/order.ts`)!;
     // `Ids` is a value import (runtime-used); `Money` stays `import type` (an
@@ -129,8 +124,7 @@ describe("Node debug wiring (--sourcemap only)", () => {
   });
 
   it("flag-on: .vscode/launch.json carries one byte-identical node config per node deployable (alongside M26's dotnet config)", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
 
     const raw = files.get(".vscode/launch.json");
     expect(raw).toBeDefined();
@@ -187,8 +181,7 @@ system PythonOnlyDemo {
   deployable pyApi { platform: python contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8000 }
 }
 `;
-    const model = await parseValid(PYTHON_ONLY);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(PYTHON_ONLY, { sourcemap: true });
     expect(files.has(".vscode/launch.json")).toBe(false);
   });
 });

@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
 import { annotateTrace, LineIndex } from "../../src/trace/annotate.js";
 import type { SourceMap, WireRegion } from "../../src/trace/resolve.js";
-import { parseValid } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Round trip for `ddd trace` over a REAL `.loom/sourcemap.json` — reuses the
@@ -113,8 +112,7 @@ describe("ddd trace over a generated system's .loom/sourcemap.json", () => {
     ext,
     frame,
   }) => {
-    const model = await parseValid(SOURCE);
-    const { files } = generateSystems(model, { sourcemap: true });
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as SourceMap;
 
@@ -131,8 +129,7 @@ describe("ddd trace over a generated system's .loom/sourcemap.json", () => {
   });
 
   it("java: an FQN-carrying frame into a source-kind region resolves the same way (path derived from the FQN, not the log's own path)", async () => {
-    const model = await parseValid(SOURCE);
-    const { files } = generateSystems(model, { sourcemap: true });
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as SourceMap;
 
@@ -159,8 +156,7 @@ describe("ddd trace over a generated system's .loom/sourcemap.json", () => {
   });
 
   it("elixir: a frame into a macro-kind (scaffolded ui) region is marked [macro scaffold]", async () => {
-    const model = await parseValid(SOURCE);
-    const { files } = generateSystems(model, { sourcemap: true });
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as SourceMap;
 
@@ -183,8 +179,7 @@ describe("ddd trace over a generated system's .loom/sourcemap.json", () => {
   });
 
   it("an unmatched frame (unknown file) passes through unchanged", async () => {
-    const model = await parseValid(SOURCE);
-    const { files } = generateSystems(model, { sourcemap: true });
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as SourceMap;
 

@@ -11,7 +11,7 @@ import * as byLayerModule from "../../src/platform/hono/v4/adapters/by-layer-lay
 import * as layeredStyleModule from "../../src/platform/hono/v4/adapters/layered-style.js";
 import { generateTypeScript } from "../../src/platform/hono/v4/emit.js";
 import { BACKEND_PINS } from "../../src/platform/hono/v5/pins.js";
-import { generateSystems } from "../../src/system/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseValid } from "../_helpers/parse.js";
 
 const SYSTEM_SRC = `
@@ -53,7 +53,7 @@ describe("F6d — hono orchestrator rewire (system mode)", () => {
   it("dispatches the routes file through layeredStyleAdapter.emitForAggregate", async () => {
     const spy = vi.spyOn(layeredStyleModule.layeredStyleAdapter, "emitForAggregate");
     try {
-      const files = (await generateSystems(await parseValid(SYSTEM_SRC))).files;
+      const files = await generateSystemFiles(SYSTEM_SRC);
       expect(spy).toHaveBeenCalled();
       const call = spy.mock.calls[0]!;
       const agg = call[0]!;
@@ -69,7 +69,7 @@ describe("F6d — hono orchestrator rewire (system mode)", () => {
   it("routes the dispatched artifact through byLayerLayoutAdapter.pathFor with the http-routes category", async () => {
     const layoutSpy = vi.spyOn(byLayerModule.byLayerLayoutAdapter, "pathFor");
     try {
-      await generateSystems(await parseValid(SYSTEM_SRC));
+      await generateSystemFiles(SYSTEM_SRC);
       expect(layoutSpy.mock.calls.length).toBeGreaterThan(0);
       const httpRoutesCalls = layoutSpy.mock.calls.filter(
         (c) => (c[0] as { category?: string }).category === "http-routes",

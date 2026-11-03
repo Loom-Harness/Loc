@@ -6,8 +6,7 @@
 // facade rule every other backend already does.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const EVENT_TRIGGERED = `
 system S { subdomain O { context O {
@@ -37,9 +36,7 @@ system S { subdomain O { context O {
 `;
 
 async function gen(src: string): Promise<string[]> {
-  const { model, errors } = await parseString(src);
-  if (errors.length) throw new Error(errors.join("\n"));
-  return [...generateSystems(model).files.keys()];
+  return [...(await generateSystemFiles(src)).keys()];
 }
 
 describe("java workflow command-surface rule", () => {
@@ -51,9 +48,10 @@ describe("java workflow command-surface rule", () => {
     ).toEqual([]);
     expect(keys.some((k) => k.endsWith("OrderFulfillmentRequest.java"))).toBe(false);
     // The saga-state table is still derived by the (platform-neutral) migration.
-    const { model } = await parseString(EVENT_TRIGGERED);
     const sql =
-      [...generateSystems(model).files.entries()].find(([k]) => k.endsWith(".sql"))?.[1] ?? "";
+      [...(await generateSystemFiles(EVENT_TRIGGERED)).entries()].find(([k]) =>
+        k.endsWith(".sql"),
+      )?.[1] ?? "";
     expect(sql).toContain("order_fulfillments");
   });
 
@@ -65,9 +63,7 @@ describe("java workflow command-surface rule", () => {
   });
 
   it("runs the command-workflow method in a per-dispatch child frame", async () => {
-    const { model, errors } = await parseString(COMMAND);
-    if (errors.length) throw new Error(errors.join("\n"));
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(COMMAND);
     const svc = [...files.entries()].find(([k]) => k.endsWith("OWorkflows.java"))![1];
     // The workflow body runs in a child execution frame (parent_id <- the
     // request's root scope) so its audit/provenance rows are distinguishable

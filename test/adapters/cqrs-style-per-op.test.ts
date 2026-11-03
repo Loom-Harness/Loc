@@ -11,8 +11,7 @@ import type { EmitCtx, EmittedArtifact } from "../../src/generator/_adapters/ind
 import type { DotnetArtifact } from "../../src/generator/dotnet/adapters/by-layer-layout.js";
 import * as cqrsStyleModule from "../../src/generator/dotnet/adapters/cqrs-style.js";
 import type { EnrichedAggregateIR, OperationIR } from "../../src/ir/types/loom-ir.js";
-import { generateSystems } from "../../src/system/index.js";
-import { parseValid } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const SYSTEM_SRC = `
 system Sys {
@@ -55,7 +54,7 @@ async function captureAggregateEmit(): Promise<{
 }> {
   const spy = vi.spyOn(cqrsStyleModule.cqrsStyleAdapter, "emitForAggregate");
   try {
-    await generateSystems(await parseValid(SYSTEM_SRC));
+    await generateSystemFiles(SYSTEM_SRC);
     expect(spy).toHaveBeenCalled();
     const call = spy.mock.calls[0]!;
     const artifacts = spy.mock.results[0]!.value as readonly EmittedArtifact[];

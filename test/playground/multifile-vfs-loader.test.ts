@@ -6,6 +6,7 @@ import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 import { loadProjectFromVfs } from "../../web/src/build/project-loader.js";
 import { MemoryVfs } from "../../web/src/vfs/memory-vfs.js";
+import { generateSystemFilesFromLoom } from "../_helpers/generate.js";
 
 function makeVfs(files: Record<string, string>): MemoryVfs {
   const vfs = new MemoryVfs();
@@ -202,8 +203,7 @@ describe("playground project loader (VFS-backed)", () => {
 
     const merged = mergeLoomModels(all.map((d) => lowerModel(d.parseResult?.value as Model)));
     const loom = enrichLoomModel(merged);
-    const { generateSystemsFromLoom } = await import("../../src/system/index.js");
-    const files = generateSystemsFromLoom(loom).files;
+    const files = await generateSystemFilesFromLoom(loom);
 
     // Money emitted into the deployable's value-objects bundle.
     const vos = files.get("api/domain/value-objects.ts") ?? "";

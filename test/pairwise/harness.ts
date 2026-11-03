@@ -22,7 +22,7 @@
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
-import { generateSystems } from "../../src/system/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseString } from "../_helpers/parse.js";
 import type { PairwiseCase } from "./axes.js";
 import { composeSourceFor } from "./compose.js";
@@ -111,8 +111,12 @@ export async function runPipeline(c: PairwiseCase, platform: string): Promise<Pi
     };
   }
 
+  // Emit through the gated helper: it re-parses and re-asserts the phases
+  // checked above (a fixture they passed cannot fail them) and adds the IR
+  // verifier, whose throw is a crash — the IR the backends consume broke its
+  // own contract.
   try {
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(source);
     return { verdict: "ok", codes: [], detail: "", files };
   } catch (e) {
     return { verdict: "crashed", codes: [], detail: `codegen threw: ${describe(e)}` };

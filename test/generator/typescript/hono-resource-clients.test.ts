@@ -2,8 +2,7 @@
 // objectStore / queue / api resources a deployable wires.  No call-sites.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
 system Sys {
@@ -31,7 +30,7 @@ system Sys {
 
 describe("hono resource-client emission", () => {
   it("emits one client module per sourceType with the resource's config", async () => {
-    const { files } = generateSystems(await parseValid(SRC));
+    const files = await generateSystemFiles(SRC);
     const s3 = files.get("api/resources/s3.ts")!;
     expect(s3).toMatch(/S3Client/);
     expect(s3).toMatch(/from "@aws-sdk\/client-s3";/);
@@ -49,7 +48,7 @@ describe("hono resource-client emission", () => {
   });
 
   it("adds the client deps to package.json and side-effect-imports the modules at boot", async () => {
-    const { files } = generateSystems(await parseValid(SRC));
+    const files = await generateSystemFiles(SRC);
     const pkg = files.get("api/package.json")!;
     expect(pkg).toMatch(/"@aws-sdk\/client-s3"/);
     expect(pkg).toMatch(/"amqplib"/);
@@ -69,7 +68,7 @@ system Sys {
   deployable api { platform: node, contexts: [Sales], dataSources: [salesState], port: 3000 }
 }
 `;
-    const { files } = generateSystems(await parseValid(postgresOnly));
+    const files = await generateSystemFiles(postgresOnly);
     expect([...files.keys()].some((k) => k.startsWith("api/resources/"))).toBe(false);
     expect(files.get("api/package.json")!).not.toMatch(/aws-sdk|amqplib/);
     expect(files.get("api/index.ts")!).not.toMatch(/\.\/resources\//);
