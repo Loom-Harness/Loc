@@ -108,6 +108,12 @@ export type UiConstruct = RefusableUiConstruct | OwnedUiConstruct;
 export type BackendConstruct =
   /** A `requires` gate inside an event-sourced aggregate's `create` body. */
   | "stmt:requires@event-sourced-create"
+  /** A workflow command or command handler that mutates or deletes a row it
+   *  holds (from `Repo.all(…)`, a find, a loop) of an aggregate whose write
+   *  scope is narrowed (`deny write`, the `allow deep` own-org floor): the
+   *  body re-checks the row's write scope before the write and rolls back on
+   *  a miss (`ir/util/write-scope-guards.ts`). */
+  | "effect:mutate-held-row@command-body"
   /** `resource r { kind: replica, … }` — a read-replica binding. */
   | "resource:replica@resource"
   /** `resource r { kind: cache, … }` — a read-through cache binding. */
@@ -168,6 +174,7 @@ export const ALL_UI_CONSTRUCTS: readonly UiConstruct[] = [...UI_CONSTRUCTS, ...O
 /** Every backend construct, in a stable order. */
 export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "stmt:requires@event-sourced-create",
+  "effect:mutate-held-row@command-body",
   "resource:replica@resource",
   "resource:cache@resource",
   "resource:snapshot@resource",
@@ -341,6 +348,7 @@ const UNREALIZED_RESOURCES: Pick<
 const STATIC_HOST_BACKEND: TargetCapabilityTable = {
   backend: {
     "stmt:requires@event-sourced-create": ES_CREATE_REQUIRES_REFUSED,
+    "effect:mutate-held-row@command-body": SUPPORTED,
     ...UNREALIZED_RESOURCES,
   },
 };
@@ -398,7 +406,11 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
         "Chart",
       ],
     },
-    backend: { "stmt:requires@event-sourced-create": SUPPORTED, ...UNREALIZED_RESOURCES },
+    backend: {
+      "stmt:requires@event-sourced-create": SUPPORTED,
+      "effect:mutate-held-row@command-body": SUPPORTED,
+      ...UNREALIZED_RESOURCES,
+    },
   },
   react: REACT_CAPABILITIES,
   static: REACT_CAPABILITIES,

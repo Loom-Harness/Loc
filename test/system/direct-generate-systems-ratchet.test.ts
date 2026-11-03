@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 // ---------------------------------------------------------------------------
 // Direct-caller ratchet (minted by M-T9.35, now done; the drain of `PINNED`
@@ -339,7 +340,7 @@ describe("direct `generateSystems` importers under test/ (M-T9.35)", () => {
   it("scans the whole test tree (guard against a vacuous pass)", () => {
     // If the walker silently stopped finding files, every assertion below
     // would pass on an empty set.
-    expect(scanned).toBeGreaterThan(1_000);
+    expectReach("test files", scanned, 2472);
   });
 
   it("no NEW direct importer", () => {

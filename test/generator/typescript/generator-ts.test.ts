@@ -1747,9 +1747,10 @@ describe("typescript generator", () => {
       // `qty > 0` → recognised as min(1) on the int field.
       expect(orderRoutes).toMatch(
         // The published `format: int32` sits between the base type and the
-        // declared bound: `qty > 0` is tighter than the int4 range, so the range
-        // itself is dropped and only the format remains (F11).
-        /AddLineOrderRequest = z\.object\(\{[\s\S]*qty: z\.number\(\)\.int\(\)\.openapi\(\{ format: "int32" \}\)\.min\(1, \{ message: "Qty must be at least 1" \}\)/,
+        // declared bound: `qty > 0` is tighter than the int4 FLOOR, so only the
+        // floor is dropped; the int4 ceiling stays (a one-sided bound must not
+        // lose the other side, F11).
+        /AddLineOrderRequest = z\.object\(\{[\s\S]*qty: z\.number\(\)\.int\(\)\.max\(2147483647, "Integer out of range"\)\.openapi\(\{ format: "int32" \}\)\.min\(1, \{ message: "Qty must be at least 1" \}\)/,
       );
     });
 

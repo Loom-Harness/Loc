@@ -126,7 +126,7 @@ function fieldSpec(
       return en ? `{:enum, [${en.values.map((v) => `:${v}`).join(", ")}]}` : ":string";
     }
     case "id":
-      return exEctoIdType(t.valueType);
+      return exEctoIdType();
     case "primitive":
       // The scalars a stored value object re-casts on load; the rest (a
       // `date`, a `json` / `File` member) keep the term they were loaded as.

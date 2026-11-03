@@ -495,7 +495,7 @@ export function buildJavaOpenApiContract(
         errors: err([
           ...new Set([
             ...errorStatuses("workflow", workflowIsGuarded(wf), resolveStatus, {
-              readsAggregate: workflowCanAnswerNotFound(wf),
+              readsAggregate: workflowCanAnswerNotFound(wf, ctx),
             }),
             ...(wfSplit?.errorStatuses.map((e) => e.status) ?? []),
           ]),

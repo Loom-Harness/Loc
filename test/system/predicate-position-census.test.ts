@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validate } from "../../src/api/index.js";
+import { expectReach } from "../_helpers/census-reach.js";
 import { criterionRead } from "../_helpers/criterion-read.js";
 import { generateSystemFilesUnchecked } from "../_helpers/generate.js";
 
@@ -237,6 +238,14 @@ const cellKey = (position: Position, adapter: Adapter, shape: string): string =>
 const KNOWN_GAPS: Record<string, string> = {};
 
 describe("predicate-position census — every position × adapter × shape renders or is refused", () => {
+  it("measures its full matrix", () => {
+    expectReach(
+      "position × adapter × shape cells",
+      POSITIONS.length * Object.keys(ADAPTERS).length * SHAPES.length,
+      364,
+    );
+  });
+
   const measured = new Map<string, Outcome>();
 
   for (const position of POSITIONS) {

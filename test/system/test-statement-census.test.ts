@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validate } from "../../src/api/index.js";
+import { expectReach } from "../_helpers/census-reach.js";
 import { generateSystemFilesUnchecked } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
@@ -127,6 +128,14 @@ const ADMITTED: Record<Tier, readonly string[]> = {
 };
 
 describe("test-statement census — every tier × backend × statement kind renders or is refused", () => {
+  it("measures its full matrix", () => {
+    expectReach(
+      "tier × backend × statement cells",
+      TIERS.length * BACKENDS.length * STMTS.length,
+      100,
+    );
+  });
+
   for (const tier of TIERS) {
     for (const backend of BACKENDS) {
       it(`${tier} × ${backend}`, async () => {

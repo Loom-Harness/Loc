@@ -1,4 +1,5 @@
 import { lines } from "../../../util/code-builder.js";
+import { csRef, csUsing } from "../../_imports/dotnet.js";
 import { csJsonSqlType } from "../codec-spelling.js";
 
 // ---------------------------------------------------------------------------
@@ -116,7 +117,7 @@ export function renderAuditWriterInterface(ns: string, usingDapper = false): str
     lines(
       "// Auto-generated.",
       `using ${ns}.Infrastructure.Persistence;`,
-      usingDapper ? "using System.Collections.Generic;" : null,
+      csUsing("System.Collections.Generic"),
       "",
       `namespace ${ns}.Application.Common;`,
       "",
@@ -136,7 +137,9 @@ export function renderAuditWriterInterface(ns: string, usingDapper = false): str
       usingDapper
         ? "    /// inside its open transaction, so audit rows commit with the state change.</summary>"
         : null,
-      usingDapper ? "    IReadOnlyList<AuditRecord> Drain();" : null,
+      usingDapper
+        ? `    ${csRef("System.Collections.Generic", "IReadOnlyList")}<AuditRecord> Drain();`
+        : null,
       "}",
     ) + "\n"
   );

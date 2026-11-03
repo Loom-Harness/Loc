@@ -12,6 +12,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 import { REPO_ROOT } from "../_helpers/ddd-corpus.js";
 
 const ROOTS = ["src/generator", "src/platform", "src/system"];
@@ -79,7 +80,7 @@ describe("every generator output map is a write-once EmissionSink", () => {
   it("the census reaches the orchestrators it names (non-vacuity)", () => {
     // If the regex stopped matching, both cases above would pass vacuously.
     // The waived lookup tables are real plain maps it must still see.
-    expect(hits.size).toBeGreaterThanOrEqual(Object.keys(NOT_FILE_MAPS).length);
+    expectReach("plain output maps", hits.size, Object.keys(NOT_FILE_MAPS).length);
     const sink = readFileSync(join(REPO_ROOT, "src/generator/react/index.ts"), "utf8");
     expect(sink).toMatch(/const out = emissionSink\(/);
   });

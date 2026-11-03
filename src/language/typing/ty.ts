@@ -13,7 +13,6 @@
 
 import type {
   GenericCtorName,
-  IdValueType,
   PrimitiveName,
   SensitivityTags,
   TypeIR,
@@ -175,7 +174,7 @@ export function toTypeIR(t: Ty): TypeIR {
     case "primitive":
       return { kind: "primitive", name: t.name, ...s };
     case "id":
-      return { kind: "id", targetName: t.name, valueType: "guid" as IdValueType, ...s };
+      return { kind: "id", targetName: t.name, ...s };
     case "enum":
       return { kind: "enum", name: t.name, ...s };
     case "valueobject":

@@ -34,6 +34,7 @@ import {
   commandCreateEntryResult,
   commandCreateResult,
 } from "../../../ir/util/workflow-command-route.js";
+import { type WriteScopeContext, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
 import { workflowPreconditionThrowArgs } from "../../_i18n/domain-floor.js";
@@ -381,6 +382,10 @@ export function javaWorkflowStmtTarget(
    *  Omitted ⇒ the saves render bare, byte-identical (the reactor dispatcher
    *  re-publishes on its own). */
   publisher?: string,
+  /** The body's write-scope requirement — present on a command body (a
+   *  workflow's command method, an explicit command handler); a reactor
+   *  passes none. */
+  writeScope?: WriteScopeContext,
 ): WorkflowStmtTarget {
   // The Java local a body binding (`let` / repo / factory / for-each / if-let
   // name) is declared under: the keyword-escaped `.ddd` spelling (`jid` —
@@ -694,6 +699,20 @@ export function javaWorkflowStmtTarget(
     notFound: (s, indent) => [
       `${indent}throw new AggregateNotFoundException(${JSON.stringify(notFoundStmtDetail(s))});`,
     ],
+    // A held row is re-loaded through `getById` — the write-scope load every
+    // mutation route uses — before the statement mutates or deletes it; a row
+    // outside the caller's write scope throws the same not-found (→ 404), and
+    // the `@Transactional` service rolls back.
+    ...(writeScope
+      ? {
+          writeScope: {
+            cx: writeScope,
+            guard: (g, indent) => [
+              `${indent}${repoField(g.aggName)}.getById(${bound(g.name)}.id());`,
+            ],
+          },
+        }
+      : {}),
   };
 }
 
@@ -1258,6 +1277,7 @@ export function renderJavaWorkflows(
         collectUnionFindLets(wf.statements),
         corrParam ? wf.correlationField : undefined,
         publishes ? WORKFLOW_PUBLISHER : undefined,
+        writeScopeContext(wf.statements, ctx),
       ),
       "            ",
     );
@@ -1743,7 +1763,7 @@ export function renderJavaWorkflows(
  *  id's raw `value` type, else the scalar itself.  Only the kinds phase ④
  *  admits (`loom.workflow-return-type-unsupported`) reach here. */
 function workflowResultWireJava(t: TypeIR): string {
-  return t.kind === "id" ? javaValueTypeForId(t.valueType) : renderJavaType(t);
+  return t.kind === "id" ? javaValueTypeForId() : renderJavaType(t);
 }
 
 /** `workflowResultWireJava` as it is spelled in a compilation unit: a `UUID`

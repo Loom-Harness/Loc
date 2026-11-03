@@ -34,6 +34,7 @@ import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, normalize, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 import { parseRawResult, parseString } from "../_helpers/parse.js";
 
 const REPO = resolve(import.meta.dirname, "..", "..");
@@ -282,7 +283,7 @@ describe("`.ddd` source census — every tracked file, not a hand-kept list", ()
   it("finds the whole population (the census must not silently shrink)", () => {
     // Guards the scanner itself: a broken `git ls-files` or glob would make
     // every assertion below pass vacuously.
-    expect(files.length).toBeGreaterThan(300);
+    expectReach("tracked .ddd files", files.length, 577);
     expect(files).toContain("test/fixtures/corpus/core-domain.ddd");
     expect(files).toContain("examples/acme.ddd");
   });

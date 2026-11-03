@@ -48,7 +48,7 @@ export function renderJavaEventSourcedRepositoryImpl(
   // read/append filters + stamps `stream_type` to fold only its own events.
   const table = esEventLogTable(contextName, schema);
   const streamType = agg.name;
-  const idJava = javaValueTypeForId(agg.idValueType);
+  const idJava = javaValueTypeForId();
   const parseId =
     idJava === "UUID"
       ? `${J.UUID}.fromString(sid)`
