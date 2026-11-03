@@ -9,7 +9,10 @@
 //                 (`AssociationIR`); a projection / workflow state field →
 //                 one jsonb id-array column.
 //   - `<VO>[]`  — an aggregate's or entity part's OWN field → an id-less
-//                 child table (`ValueCollectionIR`).
+//                 child table (`ValueCollectionIR`).  Only the aggregate
+//                 root's is read and written by every backend; a part's is
+//                 persisted only where the hosts store it (see
+//                 #part-value-collection).
 //
 // Everywhere else the schema has no column for them and every backend
 // diverged: drizzle dropped the column, JPA crashed looking for an
@@ -28,6 +31,16 @@
 //                            MikroORM is the exception: it owns its schema and
 //                            folds a part's collections into jsonb columns, so
 //                            a context hosted ONLY on mikroorm keeps it.
+//   #part-value-collection   `<VO>[]` on an entity part — the migration
+//                            creates the part's child table, but only JPA
+//                            reads and writes it; drizzle, EF, SQLAlchemy and
+//                            Ecto map a column on the part row that does not
+//                            exist, or drop the values on save.  Dapper and
+//                            MikroORM each store the list as a jsonb column
+//                            their own schema declares.  So a context hosted
+//                            ONLY on one of jpa / dapper / mikroorm keeps it;
+//                            a context no database-backed host serves
+//                            persists nothing and is not refused.
 //   #state-value-collection  `<VO>[]` on a projection / workflow state row —
 //                            no child table is created for a state row.
 //   #nested-in-value-object  a value object reached from persisted state that
@@ -43,6 +56,7 @@
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { platformFamily } from "../../../language/validators/data/platform-rules.js";
 import { descriptorFor } from "../../../platform/metadata.js";
 import type {
   BoundedContextIR,
@@ -111,7 +125,7 @@ function checkField(
   ownerName: string,
   f: FieldIR,
   diags: LoomDiagnostic[],
-  partRefsStored: boolean,
+  stored: PartCollectionsStored,
   inDocument = false,
 ): void {
   const field = f.name;
@@ -147,7 +161,7 @@ function checkField(
           field,
         }),
       );
-    } else if (owner === "part" && !partRefsStored) {
+    } else if (owner === "part" && !stored.references) {
       push(diagMessage("loom.collection-field-unpersisted#part-reference", { ownerName, field }));
     }
     return;
@@ -162,6 +176,14 @@ function checkField(
           field,
         }),
       );
+    } else if (owner === "part" && !stored.values) {
+      push(
+        diagMessage("loom.collection-field-unpersisted#part-value-collection", {
+          ownerName,
+          field,
+          hosts: stored.hosts.join(", "),
+        }),
+      );
     } else if (inner.kind === "array" && inner.element.kind === "valueobject") {
       nested(inner.element.name);
     }
@@ -170,23 +192,49 @@ function checkField(
   if (inner.kind === "valueobject") nested(inner.name);
 }
 
-/** Context names whose every database-backed host is `persistence:
- *  mikroorm` — the one adapter that stores an entity part's `X id[]`. */
-export function mikroOrmOnlyContexts(loom: EnrichedLoomModel): Set<string> {
+/** Which collections on an entity part a context's hosts actually store. */
+export interface PartCollectionsStored {
+  /** `X id[]` on a part (only MikroORM stores it). */
+  references: boolean;
+  /** `<VO>[]` on a part (JPA's child table, Dapper's / MikroORM's jsonb column). */
+  values: boolean;
+  /** The database-backed hosts' adapters, for the message. */
+  hosts: string[];
+}
+
+const NOTHING_HOSTED: PartCollectionsStored = { references: false, values: true, hosts: [] };
+
+/** The persistence adapter a database-backed deployable runs: its
+ *  `persistence:` choice, else its platform family's one adapter. */
+function adapterOf(d: { platform: string; persistence?: string }): string {
+  if (d.persistence) return d.persistence;
+  return platformFamily(d.platform) ?? d.platform;
+}
+
+/** Per context name, which part collections its database-backed hosts store.
+ *  A context absent from the map has no such host. */
+export function partCollectionsStored(loom: EnrichedLoomModel): Map<string, PartCollectionsStored> {
   const adapters = new Map<string, Set<string>>();
   for (const sys of loom.systems) {
     for (const d of sys.deployables) {
       if (!descriptorFor(d.platform).needsDb) continue;
       for (const cn of d.contextNames) {
         const set = adapters.get(cn) ?? new Set<string>();
-        set.add(d.persistence ?? d.platform);
+        set.add(adapterOf(d));
         adapters.set(cn, set);
       }
     }
   }
-  return new Set(
-    [...adapters].filter(([, s]) => s.size === 1 && s.has("mikroorm")).map(([cn]) => cn),
-  );
+  const out = new Map<string, PartCollectionsStored>();
+  for (const [cn, set] of adapters) {
+    const only = (a: string): boolean => set.size === 1 && set.has(a);
+    out.set(cn, {
+      references: only("mikroorm"),
+      values: only("jpa") || only("dapper") || only("mikroorm"),
+      hosts: [...set].sort(),
+    });
+  }
+  return out;
 }
 
 /** Is `agg` stored as one jsonb document blob?  Its own state shape, not an
@@ -203,29 +251,25 @@ function storedAsDocument(
 export function validatePersistedCollectionPositions(
   ctx: BoundedContextIR,
   diags: LoomDiagnostic[],
-  partRefsStored = false,
+  stored: PartCollectionsStored = NOTHING_HOSTED,
   sys?: SystemIR,
 ): void {
   for (const agg of ctx.aggregates) {
     const doc = storedAsDocument(agg as EnrichedAggregateIR, ctx, sys);
-    for (const f of agg.fields)
-      checkField(ctx, "aggregate", agg.name, f, diags, partRefsStored, doc);
+    for (const f of agg.fields) checkField(ctx, "aggregate", agg.name, f, diags, stored, doc);
     for (const part of agg.parts) {
-      for (const f of part.fields)
-        checkField(ctx, "part", part.name, f, diags, partRefsStored, doc);
+      for (const f of part.fields) checkField(ctx, "part", part.name, f, diags, stored, doc);
     }
   }
   for (const proj of ctx.projections) {
     // A query-time projection (`from … select …`) keeps no table.
     if (proj.query) continue;
-    for (const f of proj.stateFields)
-      checkField(ctx, "projection", proj.name, f, diags, partRefsStored);
+    for (const f of proj.stateFields) checkField(ctx, "projection", proj.name, f, diags, stored);
   }
   for (const wf of ctx.workflows) {
     // Only a correlation-bearing, state-row workflow keeps a table; an
     // eventSourced one folds its state from its stream.
     if (wf.eventSourced || !wf.correlationField) continue;
-    for (const f of wf.stateFields ?? [])
-      checkField(ctx, "workflow", wf.name, f, diags, partRefsStored);
+    for (const f of wf.stateFields ?? []) checkField(ctx, "workflow", wf.name, f, diags, stored);
   }
 }

@@ -125,17 +125,69 @@ system S {
     expect(codes).toContain("loom.collection-field-unpersisted");
   });
 
-  it("keeps the supported positions silent (root `X id[]`, root and part `<VO>[]`)", async () => {
+  it("keeps the supported positions silent (root `X id[]`, root `<VO>[]`)", async () => {
     const codes = await errorCodes(
       sys(`aggregate Order with crudish {
         code: string
         tags: Tag id[]
         labels: Label[]
         contains lines: Line[]
-        entity Line { qty: int  notes: Label[] }
+        entity Line { qty: int }
       }`),
     );
     expect(codes).not.toContain("loom.collection-field-unpersisted");
+  });
+
+  // A part's `<VO>[]`: the migration creates its child table, but only JPA
+  // reads and writes it; Dapper and MikroORM store it as a jsonb column their
+  // own schema declares.  Every other host would lose it, so the position is refused
+  // unless every database-backed host of the context stores it.
+  describe("a value-object collection on an entity part", () => {
+    const partSys = (platforms: string[]): string => `
+system S {
+  subdomain Sd { context C {
+    valueobject Label { text: string }
+    aggregate Order with crudish {
+      code: string
+      contains lines: Line[]
+      entity Line { qty: int  notes: Label[] }
+    }
+  } }
+  api A from Sd
+  ${STORAGE}
+  ${platforms
+    .map(
+      (p, i) =>
+        `deployable d${i} { platform: ${p}, contexts: [C], dataSources: [st], serves: A, port: ${4000 + i} }`,
+    )
+    .join("\n  ")}
+}`;
+
+    for (const platform of ["node", "dotnet", "python", "elixir"]) {
+      it(`is refused on ${platform}`, async () => {
+        expect(await errorCodes(partSys([platform]))).toContain(
+          "loom.collection-field-unpersisted",
+        );
+      });
+    }
+
+    for (const platform of [
+      "java",
+      "dotnet { persistence: dapper }",
+      "node { persistence: mikroorm }",
+    ]) {
+      it(`is stored, so accepted, on ${platform}`, async () => {
+        expect(await errorCodes(partSys([platform]))).not.toContain(
+          "loom.collection-field-unpersisted",
+        );
+      });
+    }
+
+    it("is refused when java shares the context with a host that would lose it", async () => {
+      expect(await errorCodes(partSys(["java", "node"]))).toContain(
+        "loom.collection-field-unpersisted",
+      );
+    });
   });
 });
 
