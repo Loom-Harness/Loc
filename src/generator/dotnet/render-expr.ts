@@ -90,7 +90,7 @@ export interface CsRenderContext {
    *  each variant's tag + field order so a tagged `return` constructs the right
    *  `<name>_<Tag>(...)` variant record positionally.  Unset outside a
    *  union-returning operation body. */
-  returnUnion?: { name: string; members: UnionMember[] };
+  returnUnion?: { name: string; members: UnionMember[]; selfArgs?: string };
   /** TPC abstract-base derived bodies (aggregate-inheritance.md, `ownTable`):
    *  the base owns no typed `Id` property (each concrete carries its own
    *  strongly-typed id), so an `id` read in a base derived member (e.g. the

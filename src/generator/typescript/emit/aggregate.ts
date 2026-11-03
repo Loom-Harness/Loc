@@ -716,12 +716,22 @@ function renderEntity(
     // per-chunk list lets us surface per-statement sub-regions to the caller
     // that owns the recorder + this file's final content (source-map;
     // Hono-only for now — see `OpFragment`).
+    // The aggregate's own union arm (`Order or NotFound`'s `Order`), whose wire
+    // fields a `return this` builds — the same member the return type above
+    // declares.
+    const selfArm =
+      op.returnType?.kind === "union"
+        ? unionMembers(op.returnType.variants, ctx).find(
+            (m) => m.tag === e.name && m.shape === "record",
+          )
+        : undefined;
     const chunks = renderTsStatementChunks(opBody, emitProvenance, {
       emitTrace,
       aggregate: e.name,
       op: op.name,
       eventSourced: e.eventSourced,
       domainFloorCodes: true,
+      ...(selfArm?.shape === "record" ? { selfWireFields: selfArm.fields.map((f) => f.name) } : {}),
     });
     const body = chunks.join("\n");
     if (opFragments && chunks.length > 0) {
