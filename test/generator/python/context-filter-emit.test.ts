@@ -9,8 +9,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const REPO = "api/app/db/repositories/customer_repository.py";
 const SCOPE = "api/app/db/read_scope.py";
@@ -40,9 +39,7 @@ system Shop {
 `;
 
 async function build(source: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(source);
-  if (errors.length) throw new Error(`source has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(source);
 }
 
 describe("python generator — capability filter (read-scope hook)", () => {

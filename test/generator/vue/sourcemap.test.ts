@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OriginRef } from "../../../src/ir/types/origin.js";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Vue frontend recording bracket (M8, source-map-debug-kickoff.md).  Mirrors
@@ -35,8 +34,7 @@ const SOURCE = `
 
 describe("vue generator — sourcemap recording", () => {
   it("records the scaffolded list page under the deployable slug with a macro origin", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<string, { construct?: string; origin: OriginRef }[]>;
@@ -55,8 +53,7 @@ describe("vue generator — sourcemap recording", () => {
   // components carry a `source` origin, unlike the scaffolded pages' macro
   // origin; this frontend's own component recording site has no other gate.
   it("records a user-declared component file with a source origin and ui-scoped construct", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const map = JSON.parse(files.get(".loom/sourcemap.json")!) as {
       files: Record<string, { construct?: string; origin: OriginRef }[]>;
     };
@@ -71,8 +68,7 @@ describe("vue generator — sourcemap recording", () => {
   });
 
   it("off by default — no sourcemap artifact, page content unaffected", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SOURCE);
     expect(files.has(".loom/sourcemap.json")).toBe(false);
     expect(files.has("web/src/pages/widgets/list.vue")).toBe(true);
   });

@@ -8,8 +8,7 @@
 // negative assertions deliberately do not match).
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseValid } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 import { uncheckedInt } from "../_helpers/unchecked-int.js";
 
 const src = (platform: string, select = "orderId = t.orderId, total = t.total") => `
@@ -37,7 +36,7 @@ const src = (platform: string, select = "orderId = t.orderId, total = t.total") 
 `;
 
 async function allFiles(platform: string, select?: string): Promise<string> {
-  const files = (await generateSystems(await parseValid(src(platform, select)))).files;
+  const files = await generateSystemFiles(src(platform, select));
   return [...files.values()].join("\n \n");
 }
 

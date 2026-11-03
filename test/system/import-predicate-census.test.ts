@@ -77,7 +77,7 @@ const CEILING: Record<Backend, number> = {
   // #4075), so these cannot ride `ref(sym)` today; #4075 drains them with the rest.
   typescript: 233,
   dotnet: 0,
-  java: 2,
+  java: 0,
   elixir: 0,
 };
 

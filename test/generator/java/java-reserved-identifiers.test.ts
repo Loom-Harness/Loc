@@ -29,23 +29,8 @@
 //   - `@AttributeOverride(name = …)` is a Java PROPERTY PATH, not an identifier,
 //     and must stay bare or the mapping stops resolving.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
-
-async function build(source: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await parseHelper<Model>(services.Ddd)(source, { validation: true });
-  const errs = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  expect(
-    errs.map((d) => d.message),
-    "source validation errors",
-  ).toEqual([]);
-  return doc.parseResult.value;
-}
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // `order` / `group` / `limit` / `column` are Postgres reserved words; `total`
 // is the control.  The `X id` reference (`column: Person id`) is there to
@@ -90,7 +75,7 @@ const ENTITY = "d/src/main/java/com/loom/d/features/tickets/Ticket.java";
 
 describe("the Java backend quotes reserved-word columns", () => {
   it("backtick-quotes them in the JPA mapping annotations, and only there", async () => {
-    const src = generateSystems(await build(SOURCE)).files.get(ENTITY)!;
+    const src = (await generateSystemFiles(SOURCE)).get(ENTITY)!;
 
     // Scalars — the plain `@Column` arm.
     expect(src).toContain('@Column(name = "`order`")');
@@ -123,7 +108,7 @@ describe("the Java backend quotes reserved-word columns", () => {
   });
 
   it("uses POSTGRES quoting — not backticks — in the raw-SQL @SQLRestriction", async () => {
-    const src = generateSystems(await build(SOURCE)).files.get(ENTITY)!;
+    const src = (await generateSystemFiles(SOURCE)).get(ENTITY)!;
     // A capability `filter` becomes a static WHERE fragment Hibernate appends
     // to every SELECT verbatim — raw SQL, so the column takes POSTGRES quotes.
     // A backtick here would reach the server as a literal backtick and every

@@ -31,6 +31,7 @@ import type {
   IfLetStmt,
   LetStmt,
   LValue,
+  MatchStmt,
   MemberSuffix,
   NamedDecl,
   NamedType,
@@ -54,6 +55,7 @@ import type {
   Route,
   SelfType,
   Statement,
+  TypeAtom,
   TypeRef,
   UnaryExpr,
 } from "../../language/generated/ast.js";
@@ -80,6 +82,7 @@ import {
   mkImplementsDecl,
   mkLetStmt,
   mkLValue,
+  mkMatchStmt,
   mkMemberSuffix,
   mkNamedType,
   mkNameRef,
@@ -102,8 +105,10 @@ import {
   mkSelfType,
   mkStampDecl,
   mkThisRef,
+  mkTypeAtom,
   mkTypeRef,
   mkUnaryExpr,
+  mkVariantStmtArm,
 } from "./_mk.js";
 import type { OriginToken } from "./define.js";
 import {
@@ -604,6 +609,63 @@ export function ifLetStmt(
   return stmt;
 }
 
+/** One variant of a type as a `TypeAtom` — the shape a union alternative and a
+ * statement-`match` arm's tag take.  Built from a factory-made `TypeRef` (whose
+ * base re-links like any other) by moving its base into the atom. */
+export function typeAtom(t: TypeRef): TypeAtom {
+  const atom: TypeAtom = tag(
+    mkTypeAtom({
+      $type: "TypeAtom",
+      base: t.base,
+      ctors: [...t.ctors],
+      array: t.array,
+      optional: t.optional,
+    }),
+    currentOrigin(),
+  );
+  setContainer(t.base, atom, "base");
+  return atom;
+}
+
+/** A statement `match <subject> { <Variant> <binding> => { body } … }` (grammar
+ * `MatchStmt`): one arm per variant, each binding the narrowed subject. */
+export function matchStmt(
+  subject: Expression,
+  arms: readonly { variant: TypeRef; binding?: string; body: Statement[] }[],
+  elseBody: Statement[] = [],
+): MatchStmt {
+  const origin = currentOrigin();
+  const varArms = arms.map((a) => {
+    const varType = typeAtom(a.variant);
+    const arm = tag(
+      mkVariantStmtArm({
+        $type: "VariantStmtArm",
+        varType,
+        body: a.body,
+        ...(a.binding !== undefined ? { binding: a.binding } : {}),
+      }),
+      origin,
+    );
+    setContainer(varType, arm, "varType");
+    a.body.forEach((st, i) => {
+      setContainer(st, arm, "body", i);
+    });
+    return arm;
+  });
+  const stmt: MatchStmt = tag(
+    mkMatchStmt({ $type: "MatchStmt", subject, varArms, elseBody }),
+    origin,
+  );
+  setContainer(subject, stmt, "subject");
+  varArms.forEach((a, i) => {
+    setContainer(a, stmt, "varArms", i);
+  });
+  elseBody.forEach((st, i) => {
+    setContainer(st, stmt, "elseBody", i);
+  });
+  return stmt;
+}
+
 /** `notFound` / `notFound "<detail>"` (grammar `NotFoundStmt`) — ends a
  * workflow / handler body with the standard 404, its `detail` when given. */
 export function notFoundStmt(detail?: string): NotFoundStmt {
@@ -806,6 +868,20 @@ export function query(name: string, fields: Property[]): PayloadDecl & ContextMe
  * through the `primType` / `idRef` / `namedType` factories to keep its resolved
  * type after splicing. */
 export function cloneTypeRef(t: TypeRef): TypeRef {
+  const head = cloneTypeHead(t);
+  // A union result (`int or NotFound`) carries its tail as `TypeAtom`
+  // alternatives; each is rebuilt the same way.
+  t.alternatives.forEach((alt, i) => {
+    const atom = typeAtom(cloneTypeHead(alt));
+    head.alternatives.push(atom);
+    setContainer(atom, head, "alternatives", i);
+  });
+  return head;
+}
+
+/** One `TypeRef` / `TypeAtom` head rebuilt through the factories, without its
+ * union tail — a single variant of a union result. */
+export function cloneTypeHead(t: TypeRef | TypeAtom): TypeRef {
   const opts = { array: !!t.array, optional: !!t.optional };
   const b = t.base;
   if (b.$type === "PrimitiveType") {

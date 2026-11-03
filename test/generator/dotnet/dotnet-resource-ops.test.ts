@@ -1,8 +1,7 @@
 // Phase 4c — .NET emits resource client classes + awaited call sites.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
 system Sys {
@@ -30,8 +29,7 @@ system Sys {
 }`;
 
 async function gen() {
-  const { model } = await parseString(SRC, { validate: false });
-  return generateSystems(model).files;
+  return generateSystemFiles(SRC);
 }
 
 describe(".NET resource client emission", () => {
@@ -79,8 +77,7 @@ system Sys {
   resource salesState { for: Sales, kind: state, use: pg }
   deployable api { platform: dotnet, contexts: [Sales], dataSources: [salesState], port: 5000 }
 }`;
-    const { model } = await parseString(plain, { validate: false });
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(plain);
     expect([...files.keys()].some((k) => k.includes("/Resources/"))).toBe(false);
     expect(files.get("api/Api.csproj")!).not.toMatch(/AWSSDK|RabbitMQ/);
   });
