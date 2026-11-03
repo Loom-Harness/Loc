@@ -39,7 +39,7 @@ export interface DeclaredRenames {
   tables: readonly { from: string; to: string; fromContext?: string; toContext?: string }[];
 }
 
-export const NO_DECLARED_RENAMES: DeclaredRenames = { columns: [], tables: [] };
+const NO_DECLARED_RENAMES: DeclaredRenames = { columns: [], tables: [] };
 
 /** One key that changed identity. */
 export interface KeyMove {
