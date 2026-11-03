@@ -37,6 +37,11 @@ import {
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../util/walk.js";
+import {
+  bodyWriteScopeGuards,
+  type WriteScopeHost,
+  writeScopeContext,
+} from "../util/write-scope-guards.js";
 import type { OriginRef } from "./origin.js";
 
 export type PrimitiveName =
@@ -4540,11 +4545,15 @@ export function workflowIsGuarded(wf: WorkflowIR): boolean {
  *
  *  3. A `notFound` statement — the body answering the rung explicitly (the
  *     `else` of an `if let` over a criterion read).
+ *  4. A write-scope re-check (`ir/util/write-scope-guards.ts`): a body that
+ *     mutates or deletes a row it holds, in `host`'s context where that
+ *     aggregate's write scope is narrowed, re-loads it through the write-scope
+ *     load, which answers 404 for a row outside the caller's scope.
  *
  *  Everything else that reads is absence-shaped and cannot throw: `repo-run` /
  *  `findAll` return arrays, `if-let` exists precisely to handle the empty case,
  *  and a criterion `find` read renders as `[0] ?? null`. */
-export function workflowCanAnswerNotFound(wf: WorkflowIR): boolean {
+export function workflowCanAnswerNotFound(wf: WorkflowIR, host?: WriteScopeHost): boolean {
   /** A repository read throws on an absent row when it is a must-exist read
    *  (`getById` / `getBy`).  An unknown method is not evidence that it
    *  throws — it is a phase-⑦ error (`loom.workflow-unknown-repository-method`). */
@@ -4568,6 +4577,11 @@ export function workflowCanAnswerNotFound(wf: WorkflowIR): boolean {
       if (!read) return;
       if (readThrows(read.op)) canNotFound = true;
     });
+  }
+  // Producer 4 — the write-scope re-check.
+  if (!canNotFound && host) {
+    canNotFound =
+      bodyWriteScopeGuards(wf.statements, writeScopeContext(wf.statements, host)).length > 0;
   }
   return canNotFound;
 }

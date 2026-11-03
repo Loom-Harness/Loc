@@ -112,6 +112,11 @@ import {
   emitsCommandRoute,
 } from "../../../ir/util/workflow-command-route.js";
 import {
+  bodyWriteScopeGuards,
+  type WriteScopeContext,
+  writeScopeContext,
+} from "../../../ir/util/write-scope-guards.js";
+import {
   LOOM_OUTBOX_ORIGIN_KEY,
   OUTBOX_PURGE_INTERVAL_SECONDS,
   OUTBOX_RETENTION_DEFAULT_DAYS,
@@ -999,7 +1004,7 @@ function emitWorkflowRoute(
   // Conditional because a workflow that touches no repository genuinely cannot
   // send it; `workflowCanAnswerNotFound` is the shared predicate the other four
   // backends thread into `errorStatuses("workflow", …, { readsAggregate })`.
-  if (workflowCanAnswerNotFound(wf)) {
+  if (workflowCanAnswerNotFound(wf, ctx)) {
     const wfRouteNotFoundStatus = wireStatus("not-found", ctx.structuralErrorStatuses);
     out.push(
       `      ${wfRouteNotFoundStatus}: { description: ${JSON.stringify(
@@ -1124,6 +1129,11 @@ function emitWorkflowRoute(
   // constructs `new <Agg>Repository(...)` for them so the service is handed a
   // live handle even when the workflow body never reads that repo itself.
   const reposNeeded = mergeReadPortRepos(collectReposForWorkflow(wf), wf, ctx);
+  // A body that re-checks a held row's write scope runs in one transaction,
+  // so a row outside the scope fails the whole command and rolls back the
+  // rows it already changed.
+  const writeScope = writeScopeContext(wf.statements, ctx);
+  const rechecksWriteScope = bodyWriteScopeGuards(wf.statements, writeScope).length > 0;
   const hasEmit = workflowEmits(wf.statements).length > 0;
   if (hasEmit) {
     out.push(`    const workflowEvents: Events.DomainEvent[] = [];`);
@@ -1235,7 +1245,7 @@ function emitWorkflowRoute(
   // An expected-failure result runs in one transaction whether or not the
   // workflow is `transactional`: an error answer rolls everything back.
   if (er) out.push(`${bi}const __rollback = new Error("expected failure");`);
-  if (wf.transactional || er) {
+  if (wf.transactional || er || rechecksWriteScope) {
     // The adapter's transaction seam (shared with the audited / provenanced
     // routes): drizzle `db.transaction`, mikroorm `db.transactional` — an
     // EntityManager has no `transaction` (TS2551).  The isolation option is
@@ -1266,7 +1276,7 @@ function emitWorkflowRoute(
     out.push(...stateLoad("tx", `${bi}  `));
     const stmtChunks = renderWorkflowStmtChunks(
       wf.statements,
-      honoWorkflowStmtTarget(ctx, paramExprs, wfThis, { dbHandle: "tx", repoVarByAgg }),
+      honoWorkflowStmtTarget(ctx, paramExprs, wfThis, { dbHandle: "tx", repoVarByAgg }, writeScope),
       `${bi}  `,
     );
     out.push(...stmtChunks.flat());
@@ -1299,7 +1309,7 @@ function emitWorkflowRoute(
     out.push(...stateLoad("db", bi));
     const stmtChunks = renderWorkflowStmtChunks(
       wf.statements,
-      honoWorkflowStmtTarget(ctx, paramExprs, wfThis, { dbHandle: "db", repoVarByAgg }),
+      honoWorkflowStmtTarget(ctx, paramExprs, wfThis, { dbHandle: "db", repoVarByAgg }, writeScope),
       bi,
     );
     out.push(...stmtChunks.flat());
@@ -2724,6 +2734,10 @@ export function honoWorkflowStmtTarget(
   /** Present only on the command-route path: enables staging an audit_records
    *  row for an inline `audited` op-call (the reactor path passes none). */
   audit?: { dbHandle: string; repoVarByAgg: Map<string, string> },
+  /** The body's write-scope requirement — present on a command body (a
+   *  workflow's command route, a command handler) in a context with a
+   *  narrowed write scope; a reactor passes none. */
+  writeScope?: WriteScopeContext,
 ): WorkflowStmtTarget {
   // Read-port wiring (domain-services.md rev. 4): a `reading`-tier
   // domain-service call is supplied its repository handle(s) ahead of the user
@@ -3009,6 +3023,19 @@ export function honoWorkflowStmtTarget(
     notFound: (st, indent) => [
       `${indent}throw new AggregateNotFoundError(${JSON.stringify(notFoundStmtDetail(st))});`,
     ],
+    // A held row is re-loaded through `getById` — the write-scope load every
+    // op route uses — before the statement mutates or deletes it; a row
+    // outside the caller's write scope throws the same not-found (→ 404).
+    ...(writeScope
+      ? {
+          writeScope: {
+            cx: writeScope,
+            guard: (g, indent) => [
+              `${indent}await ${lowerFirst(g.repoName)}.getById(${escapeTsIdent(g.name)}.id);`,
+            ],
+          },
+        }
+      : {}),
   };
 }
 

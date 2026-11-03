@@ -484,6 +484,65 @@ export async function assertHierarchyIsolation(base: string, pg: Postgres): Prom
   // Nor does a DESCENDANT (org_a.b.c) — different tenant → outside the floor.
   expect(await labels("accounts", orgABC)).not.toContain("legacy");
   expect(await getStatus("accounts", orgABC, legacyId)).toBe(404);
+
+  await assertWriteScopeRecheck(base, pg, tree, createRow);
+}
+
+/** Every aggregate mutation re-checks the caller's WRITE scope, whatever loaded
+ *  the row (`ir/util/write-scope-guards.ts`).  A workflow that mutates every row
+ *  a criterion read returns must answer the op route's 404 for a row outside
+ *  the write scope — `Account`'s own-org write floor under `allow deep`, or
+ *  `Note`'s `deny write` — and roll the whole workflow back, so not even the
+ *  caller's own row changes.  Rows are never silently skipped. */
+async function assertWriteScopeRecheck(
+  base: string,
+  pg: Postgres,
+  tree: readonly { id: string; key: string }[],
+  createRow: (plural: string, orgId: string, body: Record<string, unknown>) => Promise<string>,
+): Promise<void> {
+  const org = (key: string): string => tree.find((o) => o.key === key)!.id;
+  const post = (path: string, orgId: string): Promise<Response> =>
+    fetch(`${base}/api/${path}`, { method: "POST", headers: claims(orgId), body: "{}" });
+  const column = (table: string, col: string, id: string): string =>
+    runSql(pg, `SELECT ${col} FROM ${table} WHERE id = '${id}'`);
+  const tableWith = (col: string): string =>
+    runSql(
+      pg,
+      `SELECT format('%I.%I', table_schema, table_name) FROM information_schema.columns WHERE lower(column_name) = '${col}' AND table_schema NOT IN ('pg_catalog', 'information_schema') LIMIT 1`,
+    );
+  const acctTable = tableWith("amount");
+  const amounts = (): string =>
+    runSql(pg, `SELECT string_agg(label || '=' || amount, ',' ORDER BY label) FROM ${acctTable}`);
+
+  // --- allow deep: org_a READS its whole subtree but WRITES only its own org.
+  const accounts = Object.fromEntries(
+    runSql(pg, `SELECT string_agg(label || ':' || id, ',') FROM ${acctTable}`)
+      .split(",")
+      .map((kv) => kv.split(":") as [string, string]),
+  );
+  const before = amounts();
+  // The op route: a readable descendant row is out of the write scope → 404.
+  const direct = await post(`accounts/${accounts["org_a.b"]}/touch`, org("org_a"));
+  expect(direct.status, await direct.clone().text()).toBe(404);
+  // The workflow reads org_a, org_a.b, org_a.b.c (label order: its own row
+  // first) and touches each.  The descendant rows fail the write scope: 404,
+  // and the own row it already touched rolls back with them.
+  const wf = await post("workflows/touch_accounts", org("org_a"));
+  expect(wf.status, await wf.clone().text()).toBe(404);
+  expect(amounts(), "a failed write-scope re-check must roll the whole workflow back").toBe(before);
+  // Positive control: the leaf org_a.b.c reads (and so writes) only its own row.
+  const leaf = await post("workflows/touch_accounts", org("org_a.b.c"));
+  expect(leaf.status, await leaf.clone().text()).toBeLessThan(300);
+  expect(column(acctTable, "amount", accounts["org_a.b.c"]!)).toBe("2");
+
+  // --- deny write: every mutation 404s, even of the caller's own row.
+  const noteId = await createRow("notes", org("org_a"), { label: "org_a", hits: 0 });
+  const noteTable = tableWith("hits");
+  const directNote = await post(`notes/${noteId}/touch`, org("org_a"));
+  expect(directNote.status, await directNote.clone().text()).toBe(404);
+  const wfNote = await post("workflows/touch_notes", org("org_a"));
+  expect(wfNote.status, await wfNote.clone().text()).toBe(404);
+  expect(column(noteTable, "hits", noteId)).toBe("0");
 }
 
 // ---------------------------------------------------------------------------
