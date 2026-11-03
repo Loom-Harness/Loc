@@ -1,3 +1,4 @@
+import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
 import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
 import type {
   AggregateIR,
@@ -573,6 +574,17 @@ function renderProjectionStateModel(
     }
     // Force nullable on every non-key column.
     cols.push(...columnsForFields([f], ctx).map((c) => ({ ...c, optional: true })));
+  }
+  // A tenant-scoped fold (`fold-tenancy.ts`): the event's tenant (part of the
+  // composite key `(tenant_id, <key>)`) and its org path.
+  for (const m of foldTenancyFor(proj)?.metadata ?? []) {
+    const [c] = columnsForFields(
+      [{ name: m.field, type: { kind: "primitive", name: "string" }, optional: !m.required }],
+      ctx,
+    );
+    cols.push(
+      m.required ? { ...c!, optional: false, primaryKey: true } : { ...c!, optional: true },
+    );
   }
   return lines(
     `class ${proj.name}Row(Base):`,

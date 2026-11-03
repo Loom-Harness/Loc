@@ -1,3 +1,4 @@
+import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
 import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
 import type {
   AggregateIR,
@@ -376,11 +377,17 @@ function emitProjectionTable(proj: ProjectionIR, ctx: BoundedContextIR, schema?:
   const tableName = tableNameFor(proj.name);
   const lines: string[] = [];
   const factory = schema ? `${schemaConstName(schema)}.table` : "pgTable";
-  lines.push(`export const ${lowerFirst(plural(proj.name))} = ${factory}("${tableName}", {`);
+  const constName = lowerFirst(plural(proj.name));
+  // A tenant-scoped fold (`fold-tenancy.ts`) keys its row by
+  // `(tenantId, <key>)` and carries the tenant columns under the
+  // `tenantOwned` field names, so the floor lowers over it like a table's.
+  const tenancy = foldTenancyFor(proj);
+  lines.push(`export const ${constName} = ${factory}("${tableName}", {`);
   for (const f of proj.stateFields) {
     if (f.name === proj.correlationField) {
       const corrType = f.type.kind === "id" ? f.type.valueType : "guid";
-      lines.push(`  ${f.name}: ${drizzleIdColumn(corrType, snake(f.name))}.primaryKey(),`);
+      const pk = tenancy ? ".notNull()" : ".primaryKey()";
+      lines.push(`  ${f.name}: ${drizzleIdColumn(corrType, snake(f.name))}${pk},`);
     } else if (f.type.kind === "array" && f.type.element.kind === "id") {
       // A reference collection on a state row is one jsonb id-array column
       // (the shared migration's `JSONB NULL`) — there is no join table.
@@ -391,7 +398,19 @@ function emitProjectionTable(proj: ProjectionIR, ctx: BoundedContextIR, schema?:
       lines.push(...drizzleColumnLines({ ...f, optional: true }, ctx).map((s) => `  ${s}`));
     }
   }
-  lines.push(`});`);
+  if (!tenancy) {
+    lines.push(`});`);
+    return lines.join("\n");
+  }
+  for (const m of tenancy.metadata)
+    lines.push(`  ${m.field}: text("${m.column}")${m.required ? ".notNull()" : ""},`);
+  const keyCols = [
+    ...tenancy.metadata.filter((m) => m.required).map((m) => `table.${m.field}`),
+    `table.${proj.correlationField}`,
+  ];
+  lines.push(`}, (table) => ({`);
+  lines.push(`  ${constName}Pk: primaryKey({ columns: [${keyCols.join(", ")}] }),`);
+  lines.push(`}));`);
   return lines.join("\n");
 }
 

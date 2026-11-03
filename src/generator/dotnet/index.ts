@@ -481,6 +481,7 @@ function emitProjectFromContexts(
       contexts.some(hasValueObjectInvariants) ||
       foreignValues.valueObjects.some((v) => v.invariants.length > 0),
     domainFloorCodes: contexts.some(hasDomainFloorMessages),
+    deferralKeepsFrame: contexts.some(eventLogCarriesTenant),
   });
   emitDispatcher(ns, out, hasSubscriptions, system?.deployable.persistence !== "dapper");
   out.set("Domain/Events/IDomainEvent.cs", renderIDomainEvent(ns, hasSubscriptions));

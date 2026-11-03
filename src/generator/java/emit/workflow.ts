@@ -1,3 +1,4 @@
+import { isTenantScopedStream } from "../../../ir/enrich/stream-tenancy.js";
 import { notFoundStmtDetail } from "../../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import {
@@ -380,6 +381,9 @@ export function javaWorkflowStmtTarget(
    *  Omitted ⇒ the saves render bare, byte-identical (the reactor dispatcher
    *  re-publishes on its own). */
   publisher?: string,
+  /** The generated `auth` package — set when a save may publish a
+   *  tenant-scoped stream's events (see `javaPublishDrained`). */
+  authPkg?: string,
 ): WorkflowStmtTarget {
   // The Java local a body binding (`let` / repo / factory / for-each / if-let
   // name) is declared under: the keyword-escaped `.ddd` spelling (`jid` —
@@ -389,7 +393,16 @@ export function javaWorkflowStmtTarget(
   const bound = (name: string): string => boundLocal(renderCtx, name);
   const saveLines = (inner: string, save: { name: string; aggName: string }): string[] => [
     `${inner}${repoField(save.aggName)}.save(${bound(save.name)});`,
-    ...(publisher ? [`${inner}${publishDrainedLine(bound(save.name), publisher)}`] : []),
+    ...(publisher
+      ? [
+          `${inner}${javaPublishDrained(
+            bound(save.name),
+            publisher,
+            ctx.aggregates.find((a) => a.name === save.aggName),
+            authPkg,
+          )}`,
+        ]
+      : []),
   ];
   return {
     indentUnit: "    ",
@@ -712,6 +725,29 @@ function firstRowOf(field: string, retrievalName: string, args: readonly string[
  *  transaction (D-WRITE-TX). */
 function publishDrainedLine(binding: string, publisher: string): string {
   return `for (var __e : ${binding}.pullEvents()) ${publisher}.publishEvent(__e);`;
+}
+
+/** Publish what a just-saved aggregate drained, in the right event origin.  A
+ *  tenant-scoped event stream's events carry the STREAM's tenant
+ *  (`stream-tenancy.ts`): the outbox capture, the channel envelope and a fold
+ *  read the ambient origin, so when the raising principal's tenant is not the
+ *  stream's (a `policy`-widened subtree append) the publish runs in the stream
+ *  tenant's event-origin frame — the twin of the aggregate service's
+ *  `publishEvents`.  Every other aggregate publishes in the caller's frame.
+ *  `authPkg` is the generated `auth` package (`<base>.auth`). */
+export function javaPublishDrained(
+  binding: string,
+  publisher: string,
+  agg: Parameters<typeof isTenantScopedStream>[0] | undefined,
+  authPkg: string | undefined,
+): string {
+  if (!agg || !authPkg || !isTenantScopedStream(agg)) return publishDrainedLine(binding, publisher);
+  return (
+    `{ var __s = ${binding}; var __o = ${authPkg}.User.currentEventOrigin(); ` +
+    `Runnable __pub = () -> { for (var __e : __s.pullEvents()) ${publisher}.publishEvent(__e); }; ` +
+    `if (java.util.Objects.equals(__o == null ? null : __o.tenant(), __s.tenantId())) __pub.run(); ` +
+    `else ${authPkg}.CurrentUserAccessor.runAsEventOrigin(new ${authPkg}.EventOrigin(__s.tenantId(), __s.dataKey(), __o == null ? null : __o.causedBy()), __pub); }`
+  );
 }
 
 /** The `<Ctx>Workflows` field holding Spring's `ApplicationEventPublisher`. */
@@ -1257,6 +1293,7 @@ export function renderJavaWorkflows(
         collectUnionFindLets(wf.statements),
         corrParam ? wf.correlationField : undefined,
         publishes ? WORKFLOW_PUBLISHER : undefined,
+        authed ? `${wctx.basePkg}.auth` : undefined,
       ),
       "            ",
     );
@@ -1281,7 +1318,12 @@ export function renderJavaWorkflows(
       : [];
     const saves = wf.savesAtExit.flatMap((s) => [
       `            ${repoField(s.aggName)}.save(${boundLocal(bodyRenderCtx, s.name)});`,
-      `            ${publishDrainedLine(boundLocal(bodyRenderCtx, s.name), WORKFLOW_PUBLISHER)}`,
+      `            ${javaPublishDrained(
+        boundLocal(bodyRenderCtx, s.name),
+        WORKFLOW_PUBLISHER,
+        ctx.aggregates.find((a) => a.name === s.aggName),
+        authed ? `${wctx.basePkg}.auth` : undefined,
+      )}`,
     ]);
     const eventsDecl = wfEmits
       ? [

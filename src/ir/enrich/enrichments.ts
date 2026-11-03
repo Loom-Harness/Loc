@@ -88,6 +88,7 @@ import {
 import { type BypassRead, synthesizeBypassReadFinds } from "./bypass-read-finds.js";
 import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
+import { foldTenancyVerdict } from "./fold-tenancy.js";
 import { inheritBaseCapabilities } from "./inherited-capabilities.js";
 import { type KeyLookupRead, synthesizeKeyLookupFinds } from "./key-lookup-finds.js";
 import { applyHandlerReadGates, applyPolicyReadGates } from "./policy-read-gates.js";
@@ -277,6 +278,7 @@ function enrichSystem(
   // declaration.  See `applyRegistrySelfScope` below.
   const subdomainsScoped = subdomainsWithSiblings
     .map((m) => applyRegistrySelfScope(m, sys))
+    .map((m) => applyFoldTenancy(m, sys))
     .map((m) => applyPolicyReadLevels(m, sys))
     .map((m) => applyPolicyWriteLevels(m, sys))
     // DENY WINS: runs AFTER the allow read/write-level passes, so an
@@ -473,6 +475,24 @@ function assignMigrationsOwner(
 //
 // Idempotent: the origin marker makes a second enrichment pass a no-op.
 // ---------------------------------------------------------------------------
+
+/** Record the principal claim a tenant-scoped folded projection's rows are
+ *  scoped by (`ProjectionIR.foldTenantClaim`).  The verdict reads the producers
+ *  of the folded events across the whole system, which a backend emitting one
+ *  context cannot see — see `fold-tenancy.ts`. */
+function applyFoldTenancy(m: EnrichedSubdomainIR, sys: SystemIR): EnrichedSubdomainIR {
+  const tenancy = sys.tenancy;
+  if (!tenancy) return m;
+  return {
+    ...m,
+    contexts: m.contexts.map((c) => ({
+      ...c,
+      projections: c.projections.map((p) =>
+        foldTenancyVerdict(p, sys) === "scoped" ? { ...p, foldTenantClaim: tenancy.claimField } : p,
+      ),
+    })),
+  };
+}
 
 function applyRegistrySelfScope(m: EnrichedSubdomainIR, sys: SystemIR): EnrichedSubdomainIR {
   const tenancy = sys.tenancy;

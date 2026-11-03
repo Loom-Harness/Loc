@@ -3830,22 +3830,31 @@ export const DIAGNOSTIC_MESSAGES = {
     `'ignoring' clause. No 'auth { enforcement: }' mode restores the filter — ` +
     `'enforcement: opt' checks nothing and 'requires true' satisfies ` +
     `'enforcement: denyByDefault' while still leaking.`,
-  // A folded read model's row is written by the fold, not by a tenant's
-  // command, so it carries no tenant column and its generated read routes no
-  // tenant predicate: under `tenancy by` every tenant would read every other
-  // tenant's rows.  Refused until a fold can carry the event's tenant.
-  "loom.tenancy-folded-projection-unscoped": (p: {
+  // A tenant-scoped fold row is keyed and read by the event's tenant; a
+  // `crossTenant` producer's event carries none, so one fold cannot mix them.
+  // A query-time projection reads its `from <Projection>` source through the
+  // raw-table query path, which carries no fold read scope.
+  "loom.tenancy-projection-over-scoped-fold": (p: {
     name: unknown;
     ctxName: unknown;
-    events: unknown;
-    claim: unknown;
+    source: unknown;
   }) =>
-    `Projection '${p.ctxName}.${p.name}' folds ${p.events} into a read model under ` +
-    `'tenancy by user.${p.claim}', but a folded projection's rows carry no tenant and its ` +
-    `generated read routes apply no tenant predicate, so every tenant would read every ` +
-    `other tenant's rows. Read the source aggregate through a query-time projection ` +
-    `instead ('from <Aggregate> as a … select …', optionally 'group by'), which applies ` +
-    `the aggregate's own tenant floor on every backend.`,
+    `Projection '${p.ctxName}.${p.name}' reads the tenant-scoped folded projection '${p.source}' ` +
+    `with 'from ${p.source}', but a query-time projection reads its source's rows without the ` +
+    `fold's tenant scope, so every tenant would read every other tenant's rows. Read the folded ` +
+    `projection itself ('GET /projections/<name>' or a page QueryView over it), which applies ` +
+    `the tenant scope, or fold the aggregate values into it directly.`,
+  "loom.tenancy-folded-projection-mixed": (p: {
+    name: unknown;
+    ctxName: unknown;
+    crossTenant: unknown;
+    scoped: unknown;
+  }) =>
+    `Projection '${p.ctxName}.${p.name}' folds events of crossTenant aggregate(s) ${p.crossTenant} ` +
+    `and of tenant-scoped producer(s) ${p.scoped}. A folded projection under 'tenancy by' ` +
+    `keys and reads its rows by the event's tenant, and a crossTenant event carries no tenant, ` +
+    `so the two cannot share one read model. Split it into two projections: one over the ` +
+    `crossTenant events (exempt from tenant scoping) and one over the tenant-scoped events.`,
   "loom.projection-cross-context-source-unsupported": (p: {
     name: unknown;
     ctxName: unknown;

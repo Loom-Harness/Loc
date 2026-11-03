@@ -1,3 +1,4 @@
+import { foldFloorTerms, foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
 import type {
   EnrichedBoundedContextIR,
   ProjectionIR,
@@ -120,6 +121,8 @@ function renderProjectionsController(
   for (const proj of folded) {
     const g = proj.query?.requires;
     if (g && exprUsesCurrentUser(g)) anyGateUsesUser = true;
+    // A scoped fold's reads apply its read scope against the principal.
+    if (foldTenancyFor(proj)) anyGateUsesUser = true;
   }
   const gateLines = (proj: ProjectionIR): string[] => {
     const g = proj.query?.requires;
@@ -145,11 +148,23 @@ function renderProjectionsController(
     const shape = proj.wireShape ?? [];
     const projRow = (rowVar: string): string =>
       shape.map((f) => domainToWire(f.type, `${rowVar}.${jid(f.name)}()`)).join(", ");
+    // Every read of a scoped fold applies its read scope (`fold-tenancy.ts`):
+    // the row's tenant equals the request principal's claim.
+    const tenancy = foldTenancyFor(proj);
+    const floor = tenancy ? foldFloorTerms(tenancy) : [];
+    // `foldFloorTerms` yields the one tenant-column term of the fold's floor.
+    const scopeTenant = floor[0]
+      ? `String.valueOf(currentUserAccessor.user().${jid(floor[0].claim)}())`
+      : undefined;
+    const listCall = scopeTenant ? `${repo}.findAllByTenant(${scopeTenant})` : `${repo}.findAll()`;
+    const byKey = scopeTenant
+      ? `${repo}.findByTenantAndKey(${scopeTenant}, new ${idClass}(key))`
+      : `${repo}.findById(new ${idClass}(key))`;
     routes.push(
       `    @GetMapping("/${slug}")`,
       `    public List<${T}> list${upperFirst(proj.name)}() {`,
       ...gateLines(proj),
-      `        return ${repo}.findAll().stream()`,
+      `        return ${listCall}.stream()`,
       `            .map(x -> new ${T}(${projRow("x")}))`,
       `            .toList();`,
       `    }`,
@@ -159,7 +174,7 @@ function renderProjectionsController(
       // Gate before the lookup: a caller who fails it must not learn whether
       // the key exists.
       ...gateLines(proj),
-      `        return ${repo}.findById(new ${idClass}(key))`,
+      `        return ${byKey}`,
       `            .map(x -> ResponseEntity.ok(new ${T}(${projRow("x")})))`,
       // M-T6.31 — was `.orElse(ResponseEntity.notFound().build())`: Spring's own
       // bare 404, an EMPTY body with no content-type, which never reaches

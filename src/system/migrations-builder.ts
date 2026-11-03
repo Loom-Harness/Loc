@@ -2,6 +2,7 @@ import { diagMessage } from "../diagnostics/messages.js";
 import { qIdent } from "../generator/sql-pg.js";
 import { renderSqlScalarExpr } from "../generator/sql-pg-expr.js";
 import { idColumn, scalarCodec } from "../ir/enrich/codec.js";
+import { foldTenancyFor } from "../ir/enrich/fold-tenancy.js";
 import {
   aggregateTableName,
   associationTables,
@@ -627,11 +628,21 @@ function projectionTableShape(
       columns.push(mapped.column);
     }
   }
+  // A tenant-scoped fold (`fold-tenancy.ts`) stamps each row with the event's
+  // tenant and keys it by `(tenant_id, <key>)`: two tenants folding the same
+  // business key get two rows.  `tenant_id` leads the key so the floor read
+  // (`tenant_id = <claim>`) rides the primary-key index.
+  const tenancy = foldTenancyFor(proj);
+  if (tenancy) {
+    for (const m of tenancy.metadata)
+      columns.push({ name: m.column, type: { kind: "text" }, nullable: !m.required });
+  }
+  const tenantKey = tenancy?.metadata.filter((m) => m.required).map((m) => m.column) ?? [];
   return {
     name: tableName,
     ownerModule,
     columns,
-    primaryKey: [snake(corr)],
+    primaryKey: [...tenantKey, snake(corr)],
     foreignKeys: [],
     indexes: [],
   };

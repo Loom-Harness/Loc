@@ -3891,9 +3891,41 @@ system S {
   deployable api { platform: node contexts: [Orders, Reports] dataSources: [st] serves: Api port: 3000 }
 }`,
 
-  // A folded projection over a `tenantOwned` aggregate's events: the fold row
-  // has no tenant column and the read routes no tenant predicate.
-  "loom.tenancy-folded-projection-unscoped": `
+  // A folded projection over events of a `crossTenant` aggregate AND a
+  // `tenantOwned` one: the fold row cannot be both shared and tenant-keyed.
+  "loom.tenancy-folded-projection-mixed": `
+system S {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain D { context C {
+    event Paid { acct: Acct id, amount: int }
+    aggregate Org with crudish { name: string }
+    aggregate Acct with tenantOwned, crudish {
+      owner: string
+      operation pay(amount: int) { emit Paid { acct: id, amount: amount } }
+    }
+    aggregate Ledger crossTenant with crudish {
+      acct: Acct id
+      operation book(amount: int) { emit Paid { acct: acct, amount: amount } }
+    }
+    repository Accts for Acct { }
+    repository Ledgers for Ledger { }
+    repository Orgs for Org { }
+    projection Totals keyed by acct {
+      acct: Acct id
+      paid: int
+      on(e: Paid) { acct := e.acct  paid := e.amount }
+    }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+
+  // A query-time projection over a tenant-scoped fold: the raw-table query
+  // path carries no fold read scope.
+  "loom.tenancy-projection-over-scoped-fold": `
 system S {
   user { id: guid  tenantId: string }
   tenancy by user.tenantId of Org
@@ -3906,11 +3938,15 @@ system S {
     }
     repository Accts for Acct { }
     repository Orgs for Org { }
-    channel Ev { carries: Paid }
     projection Totals keyed by acct {
       acct: Acct id
       paid: int
       on(e: Paid) { acct := e.acct  paid := e.amount }
+    }
+    projection Big {
+      n: int
+      from Totals as t
+      select n = count()
     }
   } }
   api Api from D
