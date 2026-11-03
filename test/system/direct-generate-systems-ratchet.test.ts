@@ -56,17 +56,7 @@ const GATED = new Set(["generateSystems", "generateSystemsFromLoom"]);
  * gated wrapper — and is exempted below rather than pinned.
  */
 const PINNED: readonly string[] = [
-  "test/conformance/audit-records-consistency.test.ts",
   "test/conformance/corpus-mutation.test.ts",
-  "test/dap/breakpoints.test.ts",
-  "test/dap/session.test.ts",
-  "test/dap/set-breakpoints.test.ts",
-  "test/dap/stack-trace.test.ts",
-  "test/e2e/schema-load.test.ts",
-  "test/generator/_packs/money-emission.test.ts",
-  "test/generator/_packs/order-explicit-equivalence.test.ts",
-  "test/generator/_walker/page-emitter-equivalence.test.ts",
-  "test/generator/angular/sourcemap.test.ts",
   "test/generator/dotnet/paged-emit.test.ts",
   "test/generator/dotnet/realtime-emission.test.ts",
   "test/generator/dotnet/vo-invariant-422.test.ts",

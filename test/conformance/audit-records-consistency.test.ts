@@ -19,26 +19,14 @@
 // stays per-backend (each has its own type vocabulary and casing), only the
 // column set and the nullability are shared — because that is what broke.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../src/language/ddd-module.js";
-import type { Model } from "../../src/language/generated/ast.js";
-import { generateSystems } from "../../src/system/index.js";
 import {
   AUDIT_RECORD_COLUMNS,
   AUDIT_RECORDS_PK,
   AUDIT_RECORDS_TABLE,
 } from "../../src/util/audit-records-table.js";
 import { expectEmitted } from "../_helpers/emitted.js";
-
-async function build(source: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await parseHelper(services.Ddd)(source, { validation: true });
-  const syntax = doc.parseResult?.parserErrors ?? [];
-  if (syntax.length) throw new Error(`fixture syntax error: ${syntax[0]?.message}`);
-  return doc.parseResult?.value as Model;
-}
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** An audited aggregate on one backend + persistence adapter. */
 const sys = (platform: string): string => `
@@ -71,7 +59,7 @@ const NOT_NULL = AUDIT_RECORD_COLUMNS.filter((c) => !c.nullable);
 
 describe("audit_records agrees with the shared descriptor", () => {
   it("the emitted Postgres DDL matches column-for-column", async () => {
-    const files = generateSystems(await build(sys("node"))).files;
+    const files = await generateSystemFiles(sys("node"));
     const sql = [...files.entries()].find(([p]) => p.includes("migrations") && p.endsWith(".sql"));
     expect(sql, "no migration emitted").toBeDefined();
     const ddl = sql![1];
@@ -93,7 +81,7 @@ describe("audit_records agrees with the shared descriptor", () => {
   });
 
   it("the Hono Drizzle table matches — the copy that broke behavioral", async () => {
-    const files = generateSystems(await build(sys("node"))).files;
+    const files = await generateSystemFiles(sys("node"));
     const schema = expectEmitted(files, "d/db/schema.ts");
     const block = schema.slice(schema.indexOf("export const auditRecords"));
     const table = block.slice(0, block.indexOf("}, (t)"));
@@ -124,7 +112,7 @@ describe("audit_records agrees with the shared descriptor", () => {
   });
 
   it("the MikroORM entity matches", async () => {
-    const files = generateSystems(await build(sys("node { persistence: mikroorm }"))).files;
+    const files = await generateSystemFiles(sys("node { persistence: mikroorm }"));
     const entities = [...files.entries()].find(([, v]) => v.includes("AuditRecordRow"));
     expect(entities, "no MikroORM entity emitted").toBeDefined();
     const src = entities![1];
@@ -140,7 +128,7 @@ describe("audit_records agrees with the shared descriptor", () => {
   });
 
   it("the .NET EF entity matches (nullable reference types)", async () => {
-    const files = generateSystems(await build(sys("dotnet"))).files;
+    const files = await generateSystemFiles(sys("dotnet"));
     const poco = expectEmitted(files, "d/Infrastructure/Persistence/AuditRecord.cs");
     for (const c of AUDIT_RECORD_COLUMNS) {
       const prop = c.prop[0]!.toUpperCase() + c.prop.slice(1);
@@ -161,7 +149,7 @@ describe("audit_records agrees with the shared descriptor", () => {
     // Dapper applies the shared migration chain (M-T2.17), so its table is the
     // MigrationsIR one — read it out of the emitted migration, the way the
     // runner will execute it.
-    const files = generateSystems(await build(sys("dotnet { persistence: dapper }"))).files;
+    const files = await generateSystemFiles(sys("dotnet { persistence: dapper }"));
     const migrations = [...files.entries()]
       .filter(([p]) => p.startsWith("d/Migrations/"))
       .map(([, c]) => c.replace(/""/g, "").replace(/"/g, ""))
