@@ -1,10 +1,4 @@
-import type {
-  EventIR,
-  FieldIR,
-  SystemIR,
-  TypeIR,
-  ValueObjectIR,
-} from "../../../ir/types/loom-ir.js";
+import type { EventIR, FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { upperFirst } from "../../../util/naming.js";
 import { type BrokerBinding, kafkaStartsAtEarliest } from "../../_channels/bindings.js";
 import {
@@ -12,6 +6,7 @@ import {
   type WireDecodeLeaf,
   type WireDecodeTarget,
 } from "../../_channels/wire-codec.js";
+import { csRef, csUsing } from "../../_imports/dotnet.js";
 import { numericEncode } from "../../_numeric/target.js";
 import {
   csCalendarDateParseExact,
@@ -94,14 +89,10 @@ function toDataExpr(prop: string, t: TypeIR, vos: VoFields = new Map()): string 
 }
 
 /** C#'s `WireDecodeTarget` — the leaf half of the shared channel wire codec
- *  (`src/generator/_channels/wire-codec.ts`).  Built per emission because the
- *  `id` leaf needs the system's id-value-type lookup.
- *
- *  Behaviour is unchanged from the private `fromDataExpr` this replaces (the
- *  port is byte-identical); what moved out is the `TypeIR.kind` DISPATCH,
- *  which now lives once, is exhaustive, and `never`-checks — so a new IR type
- *  kind can no longer land silently in the `.GetString()!` arm. */
-function csWireDecode(idValueTypeOf: (target: string) => string): WireDecodeTarget {
+ *  (`src/generator/_channels/wire-codec.ts`).  The `TypeIR.kind` DISPATCH
+ *  lives once there, is exhaustive, and `never`-checks — so a new IR type kind
+ *  cannot land silently in the `.GetString()!` arm. */
+function csWireDecode(): WireDecodeTarget {
   // Everything that is not a number, a date or a parsed id reaches .NET as a
   // JSON string — including the structural kinds, which is the pre-existing
   // limitation this port makes VISIBLE rather than inherited from a
@@ -125,13 +116,7 @@ function csWireDecode(idValueTypeOf: (target: string) => string): WireDecodeTarg
       File: asString,
       duration: asString,
     },
-    id: (e, targetName) => {
-      const vt = idValueTypeOf(targetName);
-      if (vt === "string") return `new ${targetName}Id(${e}.GetString()!)`;
-      if (vt === "int") return `new ${targetName}Id(${e}.GetInt32())`;
-      if (vt === "long") return `new ${targetName}Id(${e}.GetInt64())`;
-      return `new ${targetName}Id(Guid.Parse(${e}.GetString()!))`;
-    },
+    id: (e, targetName) => `new ${targetName}Id(Guid.Parse(${e}.GetString()!))`,
     enumValue: (e, name) => `Enum.Parse<${name}>(${e}.GetString()!)`,
     // An optional field may arrive as JSON `null` (the node producer spells
     // every absent optional that way) or not at all: `GetProperty` throws
@@ -177,7 +162,6 @@ export function renderDotnetChannels(
    *  gates the consumer BackgroundService (a pure producer ships
    *  publish-only). */
   hasChannelConsumers: boolean,
-  sys: SystemIR,
   /** Concrete inner dispatcher the tee wraps — the head of today's chain
    *  (Outbox where durable channels exist, InProcess where any reactor
    *  lives, else the Noop). */
@@ -222,15 +206,6 @@ export function renderDotnetChannels(
   }
   const routed = new Set([...ephemeralRouting.keys(), ...durableRouting.keys()]);
   const carried = carriedEvents.filter((e) => routed.has(e.name));
-  const idValueTypeOf = (target: string): string => {
-    for (const sub of sys.subdomains) {
-      for (const c of sub.contexts) {
-        const agg = c.aggregates.find((a) => a.name === target);
-        if (agg) return agg.idValueType;
-      }
-    }
-    return "uuid";
-  };
   const toArms = carried
     .map(
       (ev) =>
@@ -246,7 +221,7 @@ export function renderDotnetChannels(
     .map(
       (ev) =>
         `            ${JSON.stringify(ev.name)} => new ${ev.name}(${ev.fields
-          .map((f) => decodeField("data", f, csWireDecode(idValueTypeOf), vos))
+          .map((f) => decodeField("data", f, csWireDecode(), vos))
           .join(", ")}),`,
     )
     .join("\n");
@@ -296,7 +271,7 @@ export function renderDotnetChannels(
 /// <summary>Redis (Valkey) driver — pub/sub over StackExchange.Redis.</summary>
 public sealed class RedisChannelTransport : IChannelTransport
 {
-    private readonly Lazy<Task<ConnectionMultiplexer>> _connection;
+    private readonly Lazy<Task<${csRef("StackExchange.Redis", "ConnectionMultiplexer")}>> _connection;
     private readonly ILogger _log;
 
     public RedisChannelTransport(string url, ILogger log)
@@ -370,7 +345,7 @@ public sealed class RabbitChannelTransport : IChannelTransport, IDisposable
     private readonly string _url;
     private readonly ILogger _log;
     private readonly SemaphoreSlim _connect = new(1, 1);
-    private IConnection? _connection;
+    private ${csRef("RabbitMQ.Client", "IConnection")}? _connection;
     private IChannel? _channel;
 
     public RabbitChannelTransport(string url, ILogger log)
@@ -440,7 +415,7 @@ public sealed class RabbitChannelTransport : IChannelTransport, IDisposable
                 ["x-dead-letter-routing-key"] = address,
             });
         await ch.QueueBindAsync(queue, address, "");
-        var consumer = new AsyncEventingBasicConsumer(ch);
+        var consumer = new ${csRef("RabbitMQ.Client.Events", "AsyncEventingBasicConsumer")}(ch);
         consumer.ReceivedAsync += async (_, ea) =>
         {
             LoomEventEnvelope? envelope;
@@ -544,7 +519,7 @@ public sealed class KafkaChannelTransport : IChannelTransport, IDisposable
 {
     private readonly string _bootstrap;
     private readonly ILogger _log;
-    private readonly Lazy<IProducer<string, string>> _producer;
+    private readonly Lazy<${csRef("Confluent.Kafka", "IProducer")}<string, string>> _producer;
     private readonly List<Task> _loops = new();
     private readonly CancellationTokenSource _stopping = new();
     private readonly string? _saslUser;
@@ -590,7 +565,7 @@ public sealed class KafkaChannelTransport : IChannelTransport, IDisposable
         {
             await admin.CreateTopicsAsync(new[]
             {
-                new TopicSpecification { Name = topic, NumPartitions = 3, ReplicationFactor = 1 },
+                new ${csRef("Confluent.Kafka.Admin", "TopicSpecification")} { Name = topic, NumPartitions = 3, ReplicationFactor = 1 },
             });
         }
         catch (CreateTopicsException ex) when (ex.Results.TrueForAll(
@@ -873,7 +848,12 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-${hasKafka ? "using Confluent.Kafka;\nusing Confluent.Kafka.Admin;\n" : ""}${hasRabbit ? "using RabbitMQ.Client;\nusing RabbitMQ.Client.Events;\n" : ""}${hasRedis ? "using StackExchange.Redis;\n" : ""}using ${ns}.Domain.Common;
+${csUsing("Confluent.Kafka")}
+${csUsing("Confluent.Kafka.Admin")}
+${csUsing("RabbitMQ.Client")}
+${csUsing("RabbitMQ.Client.Events")}
+${csUsing("StackExchange.Redis")}
+using ${ns}.Domain.Common;
 using ${ns}.Domain.Enums;
 using ${ns}.Domain.Events;
 using ${ns}.Domain.Ids;

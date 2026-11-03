@@ -48,10 +48,10 @@ export function paramGuardClause(
       .join(", ");
     return `{:ok, ${elixirLocal(wireName)}} <- __loom_vo_param(record, ${field}, ${access}, %{${types}}, [${required}])`;
   }
-  // A uuid `X id` param arrives as a string; a non-uuid is a `malformed-id`
+  // An `X id` param (a uuid) arrives as a string; a non-uuid is a `malformed-id`
   // field refusal (422 at `/<param>`), never an id the body would carry on to
   // the column.
-  if (t?.kind === "id" && t.valueType === "guid") {
+  if (t?.kind === "id") {
     return `{:ok, ${elixirLocal(wireName)}} <- __loom_id_param(record, ${field}, ${access})`;
   }
   if (t?.kind !== "primitive") return null;

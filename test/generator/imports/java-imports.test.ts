@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { finalizeJavaUnit, JAVA_IMPORTS, javaRef } from "../../../src/generator/_imports/java.js";
-import { hasMarkers } from "../../../src/generator/_imports/symbol.js";
+import {
+  finalizeJavaUnit,
+  JAVA_IMPORTS,
+  javaOnDemandRef,
+  javaRef,
+} from "../../../src/generator/_imports/java.js";
+import { hasMarkers, ref } from "../../../src/generator/_imports/symbol.js";
 import { generateCorpusCase } from "../../fixtures/corpus/harness.js";
 
 // M-T9.86 — imports derived from use, Java finalizer (google-java-format
@@ -116,5 +121,81 @@ describe("the java backend finalizes every unit it emits", () => {
       .filter(([path, c]) => hasMarkers(c) || finalizeJavaUnit(c, { path }) !== c)
       .map(([p]) => p);
     expect(off).toEqual([]);
+  });
+});
+
+describe("finalizeJavaUnit — on-demand references", () => {
+  const head = ["package com.loom.d.x;", "", JAVA_IMPORTS, ""];
+  const JPA = (n: string) => javaOnDemandRef("jakarta.persistence", n);
+
+  it("derives `import pkg.*;` from the surviving markers and spells the bare name", () => {
+    const out = finalizeJavaUnit(
+      unit(...head, `@${JPA("Entity")} @${JPA("Table")} class A {}`, ""),
+    );
+    expect(out).toBe(
+      unit(
+        "package com.loom.d.x;",
+        "",
+        "import jakarta.persistence.*;",
+        "",
+        "@Entity @Table class A {}",
+        "",
+      ),
+    );
+  });
+
+  it("adds no wildcard when no on-demand marker survives", () => {
+    const out = finalizeJavaUnit(unit(...head, `${javaRef("java.util", "List")} xs;`, ""));
+    expect(out).not.toContain("*");
+  });
+
+  it("dedupes against a hand-written wildcard", () => {
+    const out = finalizeJavaUnit(
+      unit(
+        "package com.loom.d.x;",
+        "",
+        "import jakarta.persistence.*;",
+        JAVA_IMPORTS,
+        "",
+        `@${JPA("Entity")} class A {}`,
+        "",
+      ),
+    );
+    expect(out.match(/import jakarta\.persistence\.\*;/g)).toHaveLength(1);
+  });
+
+  it("suppresses a same-package single-type reference in either order", () => {
+    const single = javaRef("jakarta.persistence", "Id");
+    for (const body of [`${single} ${JPA("Entity")}`, `${JPA("Entity")} ${single}`]) {
+      const out = finalizeJavaUnit(unit(...head, body, ""));
+      expect(out).toContain("import jakarta.persistence.*;");
+      expect(out).not.toContain("jakarta.persistence.Id;");
+    }
+  });
+
+  it("does not collide with a same-simple-name single-type import elsewhere", () => {
+    const out = finalizeJavaUnit(
+      unit(...head, `${javaRef("org.jmolecules.ddd.annotation", "Entity")} ${JPA("Entity")}`, ""),
+    );
+    expect(out).toContain("import jakarta.persistence.*;");
+    expect(out).toContain("import org.jmolecules.ddd.annotation.Entity;");
+  });
+
+  it("an own-package on-demand reference needs no line", () => {
+    const out = finalizeJavaUnit(
+      unit(
+        "package com.loom.d.x;",
+        "",
+        JAVA_IMPORTS,
+        "",
+        `${javaOnDemandRef("com.loom.d.x", "B")} b;`,
+        "",
+      ),
+    );
+    expect(out).not.toContain("import");
+  });
+
+  it("rejects on-demand for a non-java symbol", () => {
+    expect(() => ref({ lang: "py", module: "m", name: "N", onDemand: true })).toThrow(/on-demand/);
   });
 });

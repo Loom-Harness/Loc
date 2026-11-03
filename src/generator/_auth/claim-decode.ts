@@ -56,7 +56,7 @@ export function claimShapes(
 
 function formatOf(t: TypeIR): ClaimFormat | null {
   if (t.kind === "primitive" && t.name === "guid") return "uuid";
-  if (t.kind === "id" && t.valueType === "guid") return "uuid";
+  if (t.kind === "id") return "uuid";
   return null;
 }
 

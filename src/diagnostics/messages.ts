@@ -1269,6 +1269,9 @@ export const DIAGNOSTIC_MESSAGES = {
     `${p.where} constructs '${p.name} { … }', an entity part of aggregate '${p.ownerName}'. ` +
     `An entity part is built only inside the aggregate that owns it — outside it there is nothing to hold it: ` +
     `call an operation on '${p.ownerName}' that adds the part, passing its fields as plain parameters.`,
+  "loom.id-target-not-identity": (p: { name: unknown; kind: unknown; hint: unknown }) =>
+    `'${p.name} id' names ${p.kind} '${p.name}', which has no identity — only aggregates and entity parts carry an id. ` +
+    `Reference an aggregate or an entity part instead${p.hint}.`,
   "loom.ambiguous-part-ref": (p: { name: unknown; list: unknown; names: unknown }) =>
     `Ambiguous entity-part reference '${p.name} id' — '${p.name}' is declared in ${p.list}. ` +
     `Entity parts are aggregate-local; reference the owning aggregate's root instead (e.g. '${p.names} id'), ` +
@@ -4825,14 +4828,12 @@ export const DIAGNOSTIC_MESSAGES = {
     claimField: unknown;
     claimType: unknown;
     registryName: unknown;
-    idValueType: unknown;
-    idValueType2: unknown;
   }) =>
     `system '${p.name}': tenancy claim 'user.${p.claimField}' is typed ` +
-    `'${p.claimType}' but registry '${p.registryName}' has a ${p.idValueType} id. ` +
+    `'${p.claimType}' but registry '${p.registryName}' has a guid id. ` +
     `The derived registry self-scope filter compares ${p.registryName}.id to the claim, so ` +
-    `declare the claim as '${p.claimField}: ${p.idValueType}'` +
-    `${p.idValueType2}.`,
+    `declare the claim as '${p.claimField}: guid'` +
+    ` (or '${p.claimField}: string', bound as a guid at the accessor site).`,
   "loom.tenant-owned-claim-type": (p: { name: unknown; claimField: unknown; claimType: unknown }) =>
     `system '${p.name}': tenancy claim 'user.${p.claimField}' is typed ` +
     `'${p.claimType}' but 'tenantOwned' provides 'tenantId: string' — the ` +

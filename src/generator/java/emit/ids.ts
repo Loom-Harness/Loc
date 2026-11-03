@@ -8,14 +8,13 @@
 import { lines } from "../../../util/code-builder.js";
 import { javaRef } from "../../_imports/java.js";
 import { J } from "../java-symbols.js";
-import { javaNewIdValue, javaValueTypeForId } from "../render-expr.js";
+import { javaNewIdValue } from "../render-expr.js";
 
 const GENERATORS = javaRef("com.fasterxml.uuid", "Generators");
 
-export function renderJavaId(name: string, idValueType: string, basePkg: string): string {
-  const plainValueType = javaValueTypeForId(idValueType);
-  const valueType = plainValueType === "UUID" ? J.UUID : plainValueType;
-  const newExpr = javaNewIdValue(idValueType).replace(/^Generators\./, `${GENERATORS}.`);
+export function renderJavaId(name: string, basePkg: string): string {
+  const valueType = J.UUID;
+  const newExpr = javaNewIdValue().replace(/^Generators\./, `${GENERATORS}.`);
   return lines(
     `package ${basePkg}.domain.ids;`,
     ``,
@@ -37,20 +36,11 @@ export function renderJavaId(name: string, idValueType: string, basePkg: string)
   );
 }
 
-/** Parse a jsonb-string id value back into the id record's `value` type.
+/** Parse a jsonb-string id value back into the id record's `UUID` value.
  *  The converter's relational element type is `String` (see below), so
- *  every read element arrives as a String — re-typed here per id kind. */
-function parseIdValueExpr(idValueType: string, varName: string): string {
-  switch (idValueType) {
-    case "int":
-      return `Integer.parseInt(${varName})`;
-    case "long":
-      return `Long.parseLong(${varName})`;
-    case "string":
-      return varName;
-    default:
-      return `${J.UUID}.fromString(${varName})`;
-  }
+ *  every read element arrives as a String. */
+function parseIdValueExpr(varName: string): string {
+  return `${J.UUID}.fromString(${varName})`;
 }
 
 /** `shape: embedded` reference-collection converter (`X id[]` → jsonb
@@ -69,11 +59,7 @@ function parseIdValueExpr(idValueType: string, varName: string): string {
  *  re-types each string on the way back in.  `@Convert` +
  *  `@JdbcTypeCode(JSON)` compose: the converter defines domain↔relational
  *  (`List<String>`), the jdbc-type-code binds it through jsonb. */
-export function renderJavaIdListConverter(
-  targetAgg: string,
-  idValueType: string,
-  basePkg: string,
-): string {
+export function renderJavaIdListConverter(targetAgg: string, basePkg: string): string {
   const idClass = `${targetAgg}Id`;
   return lines(
     `package ${basePkg}.domain.ids;`,
@@ -99,7 +85,7 @@ export function renderJavaIdListConverter(
     `    public List<${idClass}> convertToEntityAttribute(List<String> dbData) {`,
     `        List<${idClass}> out = new ArrayList<>();`,
     `        if (dbData != null) {`,
-    `            for (String __v : dbData) out.add(new ${idClass}(${parseIdValueExpr(idValueType, "__v")}));`,
+    `            for (String __v : dbData) out.add(new ${idClass}(${parseIdValueExpr("__v")}));`,
     `        }`,
     `        return out;`,
     `    }`,

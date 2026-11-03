@@ -162,7 +162,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-return-type-unsupported",
     kind: "scope",
-    site: "src/language/validators/structural.ts:496",
+    site: "src/language/validators/structural.ts:533",
     what:
       "a routed entry point's result that is (or has a success variant that is) a value " +
       "object / decimal / money / date / datetime, and a workflow `create`'s plain (non-union) " +
@@ -276,7 +276,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // proves every supported cell renders and every refused one is raised.
     code: "loom.target-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/target-capability-checks.ts:329",
+    site: "src/ir/validate/checks/target-capability-checks.ts:350",
     what:
       "a construct × position its target cannot render, per the capability table.  LATENT: " +
       "every refused cell today is a settled never — `DataGrid` on flutter and phoenixLiveView " +

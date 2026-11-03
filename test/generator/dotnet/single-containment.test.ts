@@ -9,8 +9,7 @@
 // dependent's NULL id.
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Shop {
@@ -28,8 +27,7 @@ const SRC = `
 
 describe("dotnet generator — single (non-collection) containment", () => {
   it("fully configures the owned entity's own table, key, FK and id conversion", async () => {
-    const model = await parseValid(SRC);
-    const cfg = generateDotnet(model).get(
+    const cfg = (await generateBackendFiles(SRC, "dotnet")).get(
       "Infrastructure/Persistence/Configurations/OrderConfiguration.cs",
     )!;
 
@@ -39,7 +37,7 @@ describe("dotnet generator — single (non-collection) containment", () => {
     expect(cfg).not.toContain("builder.OwnsOne<Shipment>(x => x.Shipment);");
     // Its own table (the migration's `shipments`), the owner FK column, the
     // strongly-typed key + its conversion — everything the bare OwnsOne dropped.
-    expect(cfg).toContain('o.ToTable("shipments");');
+    expect(cfg).toContain('o.ToTable("shipments", "shop");');
     expect(cfg).toContain('o.WithOwner().HasForeignKey("ParentId");');
     expect(cfg).toContain('o.Property("ParentId").HasColumnName("order_id");');
     expect(cfg).toContain("o.HasKey(x => x.Id);");

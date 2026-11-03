@@ -5,25 +5,48 @@
 // produced TypeScript that failed `tsc --noEmit` on the generated project.
 
 import { describe, expect, it } from "vitest";
-import { generateHono, generateSystemFiles, parseValid } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/index.js";
 
+/**
+ * Emit the Hono project for a fixture of one `context { … }` block, optionally
+ * preceded by ROOT-level declarations (the ambient shared kernel — value
+ * objects / enums declared outside any context, which is what these
+ * regressions are about).  A root declaration cannot live inside a `system`'s
+ * subdomain, so the fixture is split at its first `context`: the prelude stays
+ * at file root, the context is hosted by the smallest generatable system — one
+ * subdomain, a postgres `state` resource, one node deployable `api`.
+ */
 async function gen(src: string): Promise<Map<string, string>> {
-  const model = await parseValid(src);
-  return generateHono(model);
+  const at = src.search(/\bcontext\s+[A-Z]\w*\s*\{/);
+  const prelude = src.slice(0, at);
+  const context = src.slice(at);
+  const name = /\bcontext\s+([A-Z]\w*)/.exec(context)![1]!;
+  return genHosted(`
+    ${prelude}
+    system Sys {
+      subdomain D {
+        ${context}
+      }
+      api A from D
+      storage primary { type: postgres }
+      resource st { for: ${name}, kind: state, use: primary }
+      deployable api {
+        platform: node
+        contexts: [${name}]
+        dataSources: [st]
+        serves: A
+        port: 3000
+      }
+    }
+  `);
 }
 
 /**
- * `gen` for the two TPH fixtures below.
- *
- * TPH is a HOSTED capability — `validateInheritanceStorage` reports
- * `loom.tph-backend-unsupported` ("no TPH-capable backend deployable hosts this
- * context") for a hierarchy no backend deployable hosts — and the legacy
- * `generateHono` path cannot host one: declaring a `system` re-parents every
- * loose context into it, emptying the `loom.contexts` list that path emits
- * from.  So these two fixtures carry the deployable they always implied and go
- * through the orchestrator, which the phase-⑦ assertion on `generateHono`
- * (M-T9.48) forced into the open.  The map is re-keyed to drop the deployable
- * directory, so the assertions read the same paths as the rest of the file.
+ * Generate a fixture that spells its whole `system` — the two TPH fixtures
+ * below (TPH is a HOSTED capability: `loom.tph-backend-unsupported` fires for a
+ * hierarchy no backend deployable hosts), and `gen` once it has wrapped its
+ * context.  The map is re-keyed to drop the `api/` deployable directory, so the
+ * assertions read project-relative paths.
  */
 async function genHosted(src: string): Promise<Map<string, string>> {
   const files = await generateSystemFiles(src);

@@ -169,7 +169,7 @@ defmodule ${row} do
 ${prefixLine}
   schema ${JSON.stringify(rc.assoc.joinTable)} do
     field :${rc.assoc.ownerFk}, :binary_id, primary_key: true
-    field :id, ${ectoIdType(rc.assoc.valueType)}, primary_key: true, source: :${rc.assoc.targetFk}
+    field :id, ${ectoIdType()}, primary_key: true, source: :${rc.assoc.targetFk}
     timestamps()
   end
 
