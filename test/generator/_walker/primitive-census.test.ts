@@ -252,12 +252,7 @@ const REFUSED: Readonly<Record<string, { cells: readonly string[]; code: string 
 /** `<cell>|<primitive>` → why the cell renders but degrades.  Shrink-only.
  *  Empty: every gap the first run measured (2026-09-28) is fixed.  A new row is
  *  a defect handed off with a repro, and goes in the change that fixes it. */
-const GAPS: Readonly<Record<string, string>> = {
-  "feliz|LocaleSwitcher":
-    "React is the reference binding of the runtime locale model; this target still renders the placeholder comment until its fan-out slice lands (#4451)",
-  "flutter|LocaleSwitcher":
-    "React is the reference binding of the runtime locale model; this target still renders the placeholder comment until its fan-out slice lands (#4451)",
-};
+const GAPS: Readonly<Record<string, string>> = {};
 
 // --- harness -----------------------------------------------------------------
 
