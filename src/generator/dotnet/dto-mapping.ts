@@ -5,7 +5,6 @@ import type {
   EnrichedBoundedContextIR,
   EnrichedEntityPartIR,
   FieldIR,
-  IdValueType,
   PayloadIR,
   TypeIR,
   ValueObjectIR,
@@ -33,6 +32,7 @@ import {
   csInstantWire,
   csMoneyMaxExclusive,
 } from "./codec-spelling.js";
+import { CS } from "./cs-symbols.js";
 import { csProvSibling, PROVENANCED_CS_RECORD } from "./emit/provenance.js";
 import { CS_NUMERIC } from "./numeric-codec.js";
 import { renderCsExpr } from "./render-expr.js";
@@ -171,10 +171,8 @@ export function wireType(
           : CS_WIRE_PRIMITIVE[info.primitive!];
       break;
     case "id":
-      // Pre-existing divergence: every id crosses the .NET wire as
-      // `Guid`, regardless of `idValueType`.  Hono mirrors this; the
-      // OpenAPI emitter honours the typed value for path params.
-      s = csIdValueClrType("guid");
+      // Every id crosses the .NET wire as its guid value.
+      s = csIdValueClrType();
       break;
     case "enum":
       // Enum crosses the wire as the enum TYPE (not `string`): paired with
@@ -324,7 +322,9 @@ export function dtoParam(
   // `[Required]` already answers 422, and adding JsonRequired would move them
   // to the 400 arm.
   const jsonRequired =
-    dir === "request" && (slot === "operation" || wireValueType) ? "[property: JsonRequired] " : "";
+    dir === "request" && (slot === "operation" || wireValueType)
+      ? `[property: ${CS.JsonRequired}] `
+      : "";
   // Request → parameter target (bare `[Required]`) so ASP.NET record
   // validation doesn't throw at model-binding time; response → property
   // target (`[property: Required]`).  See the doc comment above.
@@ -480,9 +480,8 @@ export function wireToCommandArgument(
       if (info.primitive === "datetime") {
         // Wire is a string; coerce to UTC DateTime regardless of whether
         // the caller sent a Z-suffixed value or a naive datetime-local
-        // string.  CultureInfo + DateTimeStyles live in
-        // System.Globalization, outside the SDK's implicit-usings set
-        // (declared via collectWireUsings on the emitter side).
+        // string.  CultureInfo + DateTimeStyles are written through `ref`, so
+        // the file derives its `using System.Globalization;`.
         //
         // TryParse, not Parse: a malformed value is the CALLER's error, so it
         // becomes a typed 422 (see `wireParseGuard`), not an uncaught
@@ -492,8 +491,8 @@ export function wireToCommandArgument(
           site,
           "datetime",
           (out) =>
-            `DateTime.TryParse(${expr}, CultureInfo.InvariantCulture, ` +
-            `DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var ${out})`,
+            `DateTime.TryParse(${expr}, ${CS.CultureInfo}.InvariantCulture, ` +
+            `${CS.DateTimeStyles}.AssumeUniversal | ${CS.DateTimeStyles}.AdjustToUniversal, out var ${out})`,
           "rule",
           undefined,
           // Sub-millisecond input is TRUNCATED at ingress (RS-38), so the
@@ -535,8 +534,8 @@ export function wireToCommandArgument(
           "decimal",
           (out) =>
             `global::${site.ns}.Domain.Common.WireFormatException.IsMoneyGrammar(${expr}) && ` +
-            `decimal.TryParse(${expr}, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, ` +
-            `CultureInfo.InvariantCulture, out var ${out})`,
+            `decimal.TryParse(${expr}, ${CS.NumberStyles}.AllowLeadingSign | ${CS.NumberStyles}.AllowDecimalPoint, ` +
+            `${CS.CultureInfo}.InvariantCulture, out var ${out})`,
           "money-grammar",
           {
             predicate: (out) => `System.Math.Abs(${out}) < ${csMoneyMaxExclusive()}m`,
@@ -588,44 +587,6 @@ export function wireToCommandArgument(
     case "provenanced":
       throw new Error(PROVENANCED_REQUEST_ERROR);
   }
-}
-
-/** Namespaces the wire→command conversion of `t` reaches into beyond the
- *  SDK's implicit usings — `System.Globalization` for the datetime/money
- *  parse helpers `wireToCommandArgument` emits.  Pure mirror of that
- *  function's recursion (nullable / collection peel, value-object field
- *  recursion); emitters call it over the same types they convert to build
- *  their `using` header. */
-export function collectWireUsings(
-  t: TypeIR,
-  ctx: EnrichedBoundedContextIR,
-  into: Set<string> = new Set(),
-): Set<string> {
-  const info = wireTypeInfo(t, "request");
-  if (info.isNullable) return collectWireUsings(peelNullable(t), ctx, into);
-  if (info.isCollection) return collectWireUsings(peelCollection(t), ctx, into);
-  if (info.refKind === "primitive") {
-    if (info.primitive === "datetime" || info.primitive === "date" || info.primitive === "money") {
-      // `CultureInfo` + `DateTimeStyles` + `NumberStyles` all live here.  The
-      // `WireFormatException` the guard throws is fully qualified at the call
-      // site, so it needs no using of its own — `Domain.Common` is only
-      // conditionally imported by the controller.
-      into.add("System.Globalization");
-    }
-    return into;
-  }
-  if (info.refKind === "valueObject") {
-    const vo = findValueObjectInScope(ctx, info.base);
-    if (vo) for (const f of vo.fields) collectWireUsings(f.type, ctx, into);
-  }
-  // A payload param materializes field by field too (see the `entity` arm of
-  // `wireToCommandArgument`), so a `money` / `datetime` field inside one
-  // reaches the same `System.Globalization` parse helpers.
-  if (info.refKind === "entity") {
-    const pl = recordPayloadOf(t, ctx);
-    if (pl) for (const f of pl.fields) collectWireUsings(f.type, ctx, into);
-  }
-  return into;
 }
 
 /** Project a domain expression to its wire-shape Response.  `names` is the
@@ -949,7 +910,7 @@ export function responseParamsFromPayload(
 ): string {
   const parts: string[] = [];
   // The DTO leads with `Guid Id` even though the record omits it.
-  parts.push(dtoParam(csIdValueClrType(agg.idValueType), "Id"));
+  parts.push(dtoParam(csIdValueClrType(), "Id"));
   // A declared record names DOMAIN types (`total: int`), so a field the
   // aggregate declares `provenanced` is wrapped in the wire carrier here — the
   // same wrap `wireTypeForField` applies on the wireShape path, so the record's
@@ -1001,11 +962,10 @@ function responseRecordParams(
   // record path is `responseParamsFromPayload`; this is the part / no-record
   // fallback, which recomputes via `wireFieldsFor`.)
   const fields = forApiRead(wireFieldsFor(ent));
-  const idValueType = isPart(ent) ? ent.parentIdValueType : ent.idValueType;
   const parts: string[] = [];
   for (const wf of fields) {
     if (wf.source === "id") {
-      parts.push(dtoParam(csIdValueClrType(idValueType), "Id"));
+      parts.push(dtoParam(csIdValueClrType(), "Id"));
     } else {
       // A containment's wire type is a bare `entity` (its optionality rides the
       // WireField `optional` flag, not the type), so an OPTIONAL single
@@ -1056,10 +1016,6 @@ export function projectionNamesDomainCommon(agg: EnrichedAggregateIR): boolean {
   );
 }
 
-function isPart(ent: EnrichedAggregateIR | EnrichedEntityPartIR): ent is EnrichedEntityPartIR {
-  return "parentName" in ent;
-}
-
 function containmentPartName(t: TypeIR): string | undefined {
   const inner = peelCollection(t);
   return inner.kind === "entity" ? inner.name : undefined;
@@ -1098,15 +1054,7 @@ export function valueObjectsUsedBy(
   return pool.filter((v) => valueObjects.has(v.name));
 }
 
-export function csIdValueClrType(idValueType: IdValueType): string {
-  switch (idValueType) {
-    case "int":
-      return "int";
-    case "long":
-      return "long";
-    case "string":
-      return "string";
-    default:
-      return "Guid";
-  }
+/** The CLR type an id crosses the wire / a DTO as — every identity is a guid. */
+export function csIdValueClrType(): string {
+  return "Guid";
 }

@@ -13,7 +13,6 @@ import type {
   ExprIR,
   FieldAccess,
   FieldIR,
-  IdValueType,
   TypeIR,
   ValueObjectIR,
   WireField,
@@ -452,8 +451,8 @@ export function updatePreconditions<T extends WithAccess>(items: readonly T[]): 
 // filters above (`forApiRead(wireFieldsFor(ent))`) to project a boundary shape.
 // ---------------------------------------------------------------------------
 
-function idTypeFor(targetName: string, valueType: IdValueType = "guid"): TypeIR {
-  return { kind: "id", targetName, valueType };
+function idTypeFor(targetName: string): TypeIR {
+  return { kind: "id", targetName };
 }
 
 function containmentTypeFor(partName: string, collection: boolean): TypeIR {
@@ -488,7 +487,7 @@ export function wireFieldsForAggregate(agg: AggregateIR): WireField[] {
   const out: WireField[] = [
     {
       name: "id",
-      type: idTypeFor(agg.name, agg.idValueType),
+      type: idTypeFor(agg.name),
       optional: false,
       source: "id",
       access: "token",
@@ -546,7 +545,7 @@ export function wireFieldsForPart(part: EntityPartIR): WireField[] {
   const out: WireField[] = [
     {
       name: "id",
-      type: idTypeFor(part.name, part.parentIdValueType),
+      type: idTypeFor(part.name),
       optional: false,
       source: "id",
       access: "token",
@@ -610,12 +609,12 @@ export function wireFieldsForValueObject(vo: ValueObjectIR): WireField[] {
 }
 
 /** Recompute the canonical wire shape for an aggregate / part / value object,
- *  dispatching on the node's structural discriminator (aggregates carry
- *  `idValueType`, parts `parentIdValueType`, value objects neither).  A drop-in
+ *  dispatching on the node's structural discriminator (parts carry
+ *  `parentName`, aggregates `operations`, value objects neither).  A drop-in
  *  for the retired `wireShapeFor` stamp reader: byte-identical output because it
  *  runs the SAME walk the enrichment pass ran, over the same enriched fields. */
 export function wireFieldsFor(ent: AggregateIR | EntityPartIR | ValueObjectIR): WireField[] {
-  if ("idValueType" in ent) return wireFieldsForAggregate(ent);
-  if ("parentIdValueType" in ent) return wireFieldsForPart(ent);
+  if ("parentName" in ent) return wireFieldsForPart(ent);
+  if ("operations" in ent) return wireFieldsForAggregate(ent);
   return wireFieldsForValueObject(ent);
 }

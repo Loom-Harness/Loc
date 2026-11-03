@@ -18,6 +18,7 @@ import {
   type UnionMemberField,
   unionMemberObjects,
   unionMembers,
+  unionMoneyArms,
 } from "../../../generator/_payload/union-wire.js";
 import {
   PG_FOREIGN_KEY_VIOLATION,
@@ -54,6 +55,7 @@ import {
 } from "../../../generator/zod-refine.js";
 import {
   aggregateCanConflict,
+  destroyVersionCheck,
   operationVersionCheck,
   readsIfMatch,
   type VersionCheck,
@@ -1336,6 +1338,9 @@ export function buildRoutesFile(
     lines.push(`    async (c) => {`);
     lines.push(`      const { id } = c.req.valid("param");`);
     const destroyGates = lifecycleGates(canonicalDestroy(agg));
+    // A `versioned` row's DELETE reads `If-Match` like a named operation
+    // (`destroyVersionCheck`): a stale tag is refused before the delete.
+    const destroyIfMatch = readsIfMatch(destroyVersionCheck(agg));
     if (destroyGates.length > 0) {
       // GUARDED destroy — the row loads FIRST (a destroy guard may read `this`,
       // and the route loads anyway for the 404 probe), then the gate, then the
@@ -1350,7 +1355,7 @@ export function buildRoutesFile(
       // receiver to name.
       const readsRow = lifecycleGatesReadRow(canonicalDestroy(agg));
       lines.push(
-        readsRow
+        readsRow || destroyIfMatch
           ? `      const __loaded = await repo.getById(Ids.${agg.name}Id(id));`
           : `      await repo.getById(Ids.${agg.name}Id(id));`,
       );
@@ -1360,11 +1365,17 @@ export function buildRoutesFile(
       lines.push(
         ...lifecycleGateLines(canonicalDestroy(agg), "      ", readsRow ? "__loaded" : undefined),
       );
+      if (destroyIfMatch) lines.push(...destroyIfMatchLines(agg, "__loaded", "      "));
     } else if (!auditDestroy) {
       // Non-audited: the not-found probe stays OUTSIDE the FK-violation
       // try, byte-identical to the pre-audit baseline.  getById throws
       // AggregateNotFoundError (→ 404) when absent.
-      lines.push(`      await repo.getById(Ids.${agg.name}Id(id));`);
+      lines.push(
+        destroyIfMatch
+          ? `      const __loaded = await repo.getById(Ids.${agg.name}Id(id));`
+          : `      await repo.getById(Ids.${agg.name}Id(id));`,
+      );
+      if (destroyIfMatch) lines.push(...destroyIfMatchLines(agg, "__loaded", "      "));
     }
     lines.push(`      try {`);
     if (auditDestroy) {
@@ -1381,6 +1392,8 @@ export function buildRoutesFile(
       lines.push(`          const repoTx = new ${agg.name}Repository(tx, __deferred);`);
       // getById throws AggregateNotFoundError (→ 404) when absent.
       lines.push(`          const loaded = await repoTx.getById(Ids.${agg.name}Id(id));`);
+      if (destroyIfMatch && destroyGates.length === 0)
+        lines.push(...destroyIfMatchLines(agg, "loaded", "          "));
       lines.push(`          const before = repoTx.toWire(loaded);`);
       lines.push(`          await ${historyInsertCall(usingMikro, "auditRecords")}`);
       lines.push(`            auditId: randomUUID(),`);
@@ -1897,11 +1910,22 @@ function emitCanOpRoute(
  *  guarded UPDATE on NaN matches no row and answers a spurious 409.  A `handle`
  *  or `none` path binds nothing: the repository's save checks the handle's own
  *  version, or nothing. */
-function expectedVersionLines(check: VersionCheck, pad: string): string[] {
+function expectedVersionLines(check: VersionCheck, pad: string, loadedVar = "aggregate"): string[] {
   if (!readsIfMatch(check)) return [];
   return [
     `${pad}const ifMatch = c.req.header("if-match");`,
-    `${pad}const expectedVersion = parseIfMatch(ifMatch, aggregate.version);`,
+    `${pad}const expectedVersion = parseIfMatch(ifMatch, ${loadedVar}.version);`,
+  ];
+}
+
+/** The precondition of a `versioned` row's canonical DELETE: the client's
+ *  `If-Match` tag (the loaded version when absent) must equal the version of the
+ *  row just loaded as `loadedVar`, else the same `ConcurrencyError` a stale save
+ *  raises (409). */
+function destroyIfMatchLines(agg: AggregateIR, loadedVar: string, pad: string): string[] {
+  return [
+    ...expectedVersionLines(destroyVersionCheck(agg), pad, loadedVar),
+    `${pad}if (expectedVersion !== ${loadedVar}.version) throw new ConcurrencyError("${agg.name}", id);`,
   ];
 }
 
@@ -2360,6 +2384,18 @@ function emitReturningOperationRoute(
     : audit || prov
       ? "result"
       : hostReturnProjection(agg, op, "result", "repo", "aggregate");
+  // A `money` field of a payload success variant rides as the fixed-scale
+  // string (RS-12) — the tagged dict holds the decimal.js value.
+  for (const arm of u ? unionMoneyArms(u.variants, ctx) : []) {
+    const enc = arm.keys.map(({ key, optional }) => {
+      const access = `result.${key}`;
+      const wire = numericEncode(TS_NUMERIC, "money", "dto-map", access);
+      return `${key}: ${optional ? `${access} == null ? null : ${wire}` : wire}`;
+    });
+    out.push(`    if (result.type === ${JSON.stringify(arm.tag)}) {`);
+    out.push(`      return c.json({ ...result, ${enc.join(", ")} }, 200);`);
+    out.push(`    }`);
+  }
   // The projected aggregate is typed `unknown` by `toWire`; it IS the declared
   // 200 body.
   const answersHost = hostReturnProjection(agg, op, "result", "repo", "aggregate") !== "result";
@@ -2754,7 +2790,9 @@ const PLAIN_STRING_BASE = "z.string()";
  *  equal to …" on 3). */
 const INT32_BOUND = tsIntegerRange("int");
 const LONG_BOUND = tsIntegerRange("long");
-const INT32_RANGE = `.min(${INT32_BOUND.min}, ${JSON.stringify(fieldFixedMessage("integer-range"))}).max(${INT32_BOUND.max}, ${JSON.stringify(fieldFixedMessage("integer-range"))})`;
+const INT32_MIN_CALL = `.min(${INT32_BOUND.min}, ${JSON.stringify(fieldFixedMessage("integer-range"))})`;
+const INT32_MAX_CALL = `.max(${INT32_BOUND.max}, ${JSON.stringify(fieldFixedMessage("integer-range"))})`;
+const INT32_RANGE = `${INT32_MIN_CALL}${INT32_MAX_CALL}`;
 /** `long`'s enforced-but-unpublished safe-integer bound — see the block comment
  *  above.  A `.refine` is invisible to the OpenAPI emitter, so the published
  *  shape stays the plain integer every other backend publishes while this
@@ -2900,11 +2938,7 @@ export function zodFor(t: TypeIR, context: "create-body" | "body" | "query" = "b
       // `context` is deliberately ignored: the same rule holds for a body
       // field and for a `?owner=` query parameter (F3 is F2 through the query
       // string), and both funnel through this one arm.
-      //
-      // Gated on the declared id VALUE type — an `int`/`long`/`string`-keyed
-      // aggregate is not a uuid, and the pre-existing wire treatment (every id
-      // as a string) stays untouched for those.
-      return info.idValueType === "guid" ? "UuidString" : "z.string()";
+      return "UuidString";
     case "enum":
     case "valueObject":
       return `${info.base}Schema`;
@@ -3121,14 +3155,17 @@ export function emitWireSchema(
     const patterns = chainByField.get(f.name);
     if (patterns) {
       // A DECLARED numeric bound is authoritative and lies inside int32, so the
-      // structural int4 range would only stack a wider, redundant pair in front
-      // of it — `.min(-2147483648).max(2147483647).min(1).max(5)` — and leave
-      // the published `minimum`/`maximum` depending on which of two `.min`
-      // calls the OpenAPI emitter reads last. Drop the range and keep the
-      // format: the invariant states the bound, the format states the column.
-      if (patterns.some((p) => p.kind === "min" || p.kind === "max" || p.kind === "between")) {
-        schema = schema.replace(INT32_RANGE, "");
-      }
+      // structural int4 bound on THAT side would only stack a wider, redundant
+      // one in front of it — `.min(-2147483648).min(1)` — and leave the
+      // published `minimum` depending on which of two `.min` calls the OpenAPI
+      // emitter reads last. Drop the side the invariant states and keep the
+      // other: `precondition n > 0` bounds only the low side, so the int32
+      // ceiling must stay or `2147483648` reaches the driver as a 500.
+      const declaresMin = patterns.some((p) => p.kind === "min" || p.kind === "between");
+      const declaresMax = patterns.some((p) => p.kind === "max" || p.kind === "between");
+      if (declaresMin && declaresMax) schema = schema.replace(INT32_RANGE, "");
+      else if (declaresMin) schema = schema.replace(INT32_MIN_CALL, "");
+      else if (declaresMax) schema = schema.replace(INT32_MAX_CALL, "");
       for (const p of orderSingleFieldPatterns(patterns))
         schema = chainSingleFieldNative(schema, p, f.name);
       // A `len-*` bound is CHECKED as a code-point refine, which zod cannot

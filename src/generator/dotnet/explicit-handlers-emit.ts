@@ -67,13 +67,14 @@ import {
 } from "../../ir/util/paged-run.js";
 import { routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import { bodyWriteScopeGuards, writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { rewrite } from "../../util/emission-sink.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
+import { sortedCsUsings } from "./cs-symbols.js";
 import {
-  collectWireUsings,
   csIdValueClrType,
   projectEntityExpr,
   projectToResponse,
@@ -304,6 +305,12 @@ function renderHandlerClass(
   // An expected-failure result (`T or E`): one transaction, rolled back on an
   // error answer.
   const er = entryResult(h, ctx);
+  // A body that re-checks a held row's write scope runs in one transaction,
+  // so a row outside the scope fails the whole command and rolls back the
+  // rows it already changed.
+  const writeScope = writeScopeContext(h.statements, ctx);
+  const rechecks = bodyWriteScopeGuards(h.statements, writeScope).length > 0;
+  const needsUow = er !== undefined || rechecks;
   const iface =
     kind === "Command"
       ? `ICommandHandler<${recName}, ${ret}>`
@@ -333,19 +340,19 @@ function renderHandlerClass(
       (svc) => `    private readonly ${upperFirst(svc)} _${lowerFirst(svc)};`,
     ),
     ...(usesUser ? ["    private readonly ICurrentUserAccessor _currentUser;"] : []),
-    ...(er ? [`    private readonly global::${ns}.Domain.Common.IUnitOfWork _uow;`] : []),
+    ...(needsUow ? [`    private readonly global::${ns}.Domain.Common.IUnitOfWork _uow;`] : []),
   ];
   const ctorParams = [
     ...[...repos].map(([repo, a]) => `I${a}Repository ${repoField(repo).slice(1)}`),
     ...calledServices.reading.map((svc) => `${upperFirst(svc)} ${lowerFirst(svc)}`),
     ...(usesUser ? ["ICurrentUserAccessor currentUser"] : []),
-    ...(er ? [`global::${ns}.Domain.Common.IUnitOfWork uow`] : []),
+    ...(needsUow ? [`global::${ns}.Domain.Common.IUnitOfWork uow`] : []),
   ].join(", ");
   const ctorAssigns = [
     ...[...repos].map(([repo]) => `${repoField(repo)} = ${repoField(repo).slice(1)}`),
     ...calledServices.reading.map((svc) => `_${lowerFirst(svc)} = ${lowerFirst(svc)}`),
     ...(usesUser ? ["_currentUser = currentUser"] : []),
-    ...(er ? ["_uow = uow"] : []),
+    ...(needsUow ? ["_uow = uow"] : []),
   ].join("; ");
   const ctor =
     fields.length === 0
@@ -369,7 +376,7 @@ function renderHandlerClass(
   // dereferences its load (op-call target / return projection).
   const stmtLines = renderWorkflowStmtChunks(
     h.statements,
-    csWorkflowStmtTarget(ctx, renderArg, true, false),
+    csWorkflowStmtTarget(ctx, renderArg, true, false, writeScope),
     INDENT,
   ).flat();
   const saveLines = h.savesAtExit.map(
@@ -420,7 +427,25 @@ function renderHandlerClass(
           "        await __deferral.FlushAsync(cancellationToken);",
           "        return handlerResult;",
         ].join("\n")
-      : [...userLines, ...stmtLines, ...saveLines, returnLine].join("\n");
+      : rechecks
+        ? [
+            ...userLines,
+            "        using var __deferral = DomainEventDeferral.Begin();",
+            "        await using var tx = await _uow.BeginTransactionAsync(cancellationToken);",
+            "        try",
+            "        {",
+            ...[...stmtLines, ...saveLines].map((l) => `    ${l}`),
+            "            await tx.CommitAsync(cancellationToken);",
+            "        }",
+            "        catch",
+            "        {",
+            "            await tx.RollbackAsync(cancellationToken);",
+            "            throw;",
+            "        }",
+            "        await __deferral.FlushAsync(cancellationToken);",
+            returnLine,
+          ].join("\n")
+        : [...userLines, ...stmtLines, ...saveLines, returnLine].join("\n");
 
   // The `Handle` signature (`ValueTask<Order>`) needs the return aggregate's
   // domain namespace too — usually the same as the loaded one, but not always.
@@ -855,7 +880,7 @@ function pathActionParam(p: ParamIR): { actionParam: string; commandArg: string 
     // that used to live here mapped `int` to `long`, so an `int`-keyed
     // aggregate bound a `long` route token and handed it to a ctor taking
     // `int` — CS1503 (G2667-D4).  Latent only because ids are guid by default.
-    const wire = csIdValueClrType(t.valueType);
+    const wire = csIdValueClrType();
     return {
       actionParam: `${wire} ${n}`,
       commandArg: `new ${t.targetName}Id(${n})`,
@@ -875,7 +900,7 @@ export function queryActionParam(
     /** The routed-handler context: a `money` param then binds as the wire
      *  STRING and parses through the RS-42 grammar guard, so `"12,50"` answers
      *  the shared 422 instead of reading as 1250 through `decimal` binding. */
-    wire?: { ns: string; ctx: EnrichedBoundedContextIR; usings: Set<string> };
+    wire?: { ns: string; ctx: EnrichedBoundedContextIR };
   } = {},
 ): { actionParam: string; commandArg: string } {
   const t: TypeIR = p.type;
@@ -890,15 +915,13 @@ export function queryActionParam(
       : "";
   if (t.kind === "id") {
     // Same shared derivation as `pathActionParam` — see the note there.
-    const wire = csIdValueClrType(t.valueType);
+    const wire = csIdValueClrType();
     return {
       actionParam: `[FromQuery] ${bind}${wire} ${n}`,
       commandArg: `new ${t.targetName}Id(${n})`,
     };
   }
   if (opts.wire && wireTypeInfo(t, "request").primitive === "money") {
-    // The guarded parse names `NumberStyles` / `CultureInfo`.
-    collectWireUsings(t, opts.wire.ctx, opts.wire.usings);
     return {
       actionParam: `[FromQuery] ${bind}${wireType(t, opts.wire.ctx, "request")} ${n}`,
       commandArg: wireToCommandArgument(n, t, opts.wire.ctx, {
@@ -957,9 +980,7 @@ export function emitExplicitRouteController(
       const bind = new Map(
         h.params.map((p) => [
           p.name,
-          pathNames.has(p.name)
-            ? pathActionParam(p)
-            : queryActionParam(p, { wire: { ns, ctx, usings: nsUsings } }),
+          pathNames.has(p.name) ? pathActionParam(p) : queryActionParam(p, { wire: { ns, ctx } }),
         ]),
       );
       const actionParams = [
@@ -1007,7 +1028,7 @@ export function emitExplicitRouteController(
         p.name,
         source(p) === "path"
           ? pathActionParam(p)
-          : queryActionParam(p, { bindRequired: true, wire: { ns, ctx, usings: nsUsings } }),
+          : queryActionParam(p, { bindRequired: true, wire: { ns, ctx } }),
       ]),
     );
 
@@ -1132,7 +1153,7 @@ export function emitExplicitRouteController(
   // exactly when something in the file needs it.
   if (DOMAIN_COMMON_TYPE_REF.test(`${actions.join("\n")}\n${bodyRecords.join("\n")}`))
     nsUsings.add(`${ns}.Domain.Common`);
-  const usings = [...nsUsings].sort().map((u) => `using ${u};`);
+  const usings = sortedCsUsings(nsUsings);
   const className = `${apiName}RoutesController`;
   const bodyBlock = bodyRecords.length > 0 ? `${bodyRecords.join("\n")}\n\n` : "";
   out.set(

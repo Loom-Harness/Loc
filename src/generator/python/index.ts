@@ -2066,13 +2066,11 @@ function renderProblemPy(
         # A DB constraint tripped.  Discriminate by Postgres SQLSTATE so a
         # dangling cross-aggregate reference (23503 foreign_key_violation) is not
         # conflated with a \`unique (...)\` breach (23505 unique_violation), which
-        # is a conflict with state that DOES exist.  Anything else is a conflict
-        # too, so it shares the 409.  asyncpg exposes \`.sqlstate\` on the driver
-        # error SQLAlchemy wraps in \`.orig\`.
+        # is a conflict with state that DOES exist.  Any other SQLSTATE is not a
+        # client conflict: it takes the sanitized 500 catch-all.  asyncpg exposes
+        # \`.sqlstate\` on the driver error SQLAlchemy wraps in \`.orig\`.
         sqlstate = getattr(getattr(err, "orig", None), "sqlstate", None)
-${danglingRefArm}${uniqueArm}        log("warn", "disallowed", message=str(err), status=${uniquenessStatus})
-        record_domain_fault("disallowed")
-        return problem(request, ${uniquenessStatus}, ${title("unique-conflict")}, "The request conflicts with the current state.", code=${code("unique-conflict")})
+${danglingRefArm}${uniqueArm}        return await _internal(request, err)
 
 `
     : "";

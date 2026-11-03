@@ -107,7 +107,7 @@ function ectoFieldType(
     case "primitive":
       return exEctoScalarType(t.name);
     case "id":
-      return exEctoIdType(t.valueType);
+      return exEctoIdType();
     case "enum": {
       const en = enumsByName.get(t.name);
       if (!en) return ":string";

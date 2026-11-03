@@ -6,8 +6,7 @@
 // `GET /{id}/can_<op>` companion returns `{ allowed }` for UI enablement.
 
 import { describe, expect, it } from "vitest";
-import { generateHono } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Orders {
@@ -23,7 +22,7 @@ const SRC = `
 `;
 
 async function routes(): Promise<string> {
-  return generateHono(await parseValid(SRC)).get("http/order.routes.ts")!;
+  return (await generateBackendFiles(SRC, "node")).get("http/order.routes.ts")!;
 }
 
 describe("hono routes — when canCommand gate", () => {
@@ -54,8 +53,8 @@ describe("hono routes — when canCommand gate", () => {
   });
 
   it("an ungated operation emits no gate, can-route, or 409", async () => {
-    const files = generateHono(
-      await parseValid(`
+    const files = await generateBackendFiles(
+      `
         context Orders {
           aggregate Plain {
             note: string
@@ -63,7 +62,8 @@ describe("hono routes — when canCommand gate", () => {
           }
           repository Plains for Plain { }
         }
-      `),
+      `,
+      "node",
     );
     const r = files.get("http/plain.routes.ts")!;
     expect(r).not.toContain("DisallowedError(");

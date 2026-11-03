@@ -4,7 +4,6 @@ import {
   wireSentenceFor,
   wireStatus,
 } from "../../../ir/enrich/wire-policy.js";
-import { UUID_WIRE_MESSAGE } from "../../../util/uuid-wire.js";
 import { emitsRestCreate } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import { type ApiOperationIR, relativeOpPath } from "../../../ir/util/api-surface.js";
@@ -23,9 +22,11 @@ import {
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
+import { csNsRef, csUsing } from "../../_imports/dotnet.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { PG_FOREIGN_KEY_VIOLATION, PG_UNIQUE_VIOLATION } from "../../_persistence/pg-sqlstate.js";
 import type { ReturnUnionSpec } from "../cqrs/controller.js";
+import { sortedCsUsings } from "../cs-symbols.js";
 import { csLocalNamer } from "../local-names.js";
 import {
   csCode,
@@ -35,6 +36,7 @@ import {
   csFieldInvalidResult,
   csFixedDetail,
   csLit,
+  csMalformedIdMessage,
   csMissingSuffixLit,
   csNotFoundException,
   csProducesProblem,
@@ -47,6 +49,9 @@ import { dotnetFindAbsenceThrow } from "./common.js";
 
 /** The C# dictionary type a problem body's `params` / errors[] entries use. */
 const CS_OBJ_DICT = "System.Collections.Generic.Dictionary<string, object?>";
+
+/** FluentValidation's `ValidateAndThrow` extension. */
+const FLUENT = csNsRef("FluentValidation");
 
 /** Controller action method name = PascalCase of the shared operationId,
  *  so Program.cs's `CustomOperationIds` (lower-first of the action name)
@@ -400,7 +405,7 @@ export function renderController(
     ];
   });
 
-  const extraUsingsLines = (shape.extraUsings ?? []).map((n) => `using ${n};`);
+  const extraUsingsLines = sortedCsUsings(shape.extraUsings ?? []);
   // The `Commands` namespace exists only when at least one command file is
   // emitted for the aggregate (cqrs-emit gates them on exactly these three
   // facts): a REST create, a canonical destroy, or an operation.  A read-only
@@ -418,11 +423,9 @@ export function renderController(
       "using Mediator;",
       "using Microsoft.AspNetCore.Mvc;",
       "using Microsoft.Extensions.Logging;",
-      // FluentValidation's `ValidateAndThrow` extension — only when some action
-      // runs a VO-request validator (VO-invariant → 422), else CS8019 unused.
-      shape.createRequestValidator || shape.publicOps.some((o) => o.requestValidator)
-        ? "using FluentValidation;"
-        : null,
+      // FluentValidation's `ValidateAndThrow` extension — rendered iff some
+      // action runs a VO-request validator (VO-invariant → 422).
+      csUsing("FluentValidation"),
       hasCommands ? `using ${ns}.Application.${plural(agg.name)}.Commands;` : null,
       // `Application.Common` holds the shared `AuditEntry` shape the history
       // action returns — imported only when that action is emitted, so a
@@ -465,7 +468,9 @@ export function renderController(
             // constructing the throwing domain VOs below, so a malformed VO
             // field is a FluentValidation 422 (errors[]) not a domain 400.
             ...(shape.createRequestValidator
-              ? [`        new ${shape.createRequestValidator}().ValidateAndThrow(request);`]
+              ? [
+                  `        new ${shape.createRequestValidator}()${FLUENT}.ValidateAndThrow(request);`,
+                ]
               : []),
             `        var cmd = new Create${agg.name}Command(`,
             ...createBody,
@@ -729,7 +734,7 @@ export function renderOperationActionBlock(
     // VO-invariant → 422: validate the wire request before constructing the
     // throwing domain VOs, so a malformed VO field is a 422 not a 400.
     ...(op.requestValidator
-      ? [`        new ${op.requestValidator}().ValidateAndThrow(request);`]
+      ? [`        new ${op.requestValidator}()${FLUENT}.ValidateAndThrow(request);`]
       : []),
     ...wireInLine,
     // Business-narrative line — what the controller was asked to do,
@@ -829,7 +834,7 @@ public sealed class MalformedPathIdFilter : IResourceFilter
             new Dictionary<string, object>
             {
                 ["pointer"] = "/id",
-                ["message"] = ${csLit(UUID_WIRE_MESSAGE)},
+                ["message"] = ${csLit(csMalformedIdMessage())},
                 ["code"] = ${csLit(fieldCode("malformed-id"))},
             },
         };
@@ -1610,8 +1615,11 @@ public static class ValidationProblem
             error.Exception?.Message ?? error.ErrorMessage;
         static bool IsTypeMismatch(ModelError error) =>
             MismatchText(error).StartsWith("The JSON value could not be converted", StringComparison.Ordinal);
-        static bool IsGuidMismatch(ModelError error) =>
-            IsTypeMismatch(error) && MismatchText(error).Contains("System.Guid", StringComparison.Ordinal);
+        // An id (a Guid on the wire) that is not a uuid is the same field
+        // refusal with the fact's malformed-id sentence: System.Text.Json
+        // names the target type in its text.
+        static bool IsMalformedId(ModelError error) =>
+            MismatchText(error).Contains("System.Guid", StringComparison.Ordinal);
         var mismatched = context.ModelState
             .Where(entry => entry.Value is not null && entry.Value.Errors.Any(IsTypeMismatch))
             .ToArray();
@@ -1623,11 +1631,11 @@ public static class ValidationProblem
                 {
                     // A uuid field fed something that is not a uuid is a
                     // malformed id, not a wrong JSON type.
-                    var malformedId = entry.Value!.Errors.Any(IsGuidMismatch);
+                    var malformedId = entry.Value!.Errors.Any(IsMalformedId);
                     return new Dictionary<string, object>
                     {
                         ["pointer"] = PointerOf(entry.Key.TrimStart('$').TrimStart('.')),
-                        ["message"] = malformedId ? ${csLit(UUID_WIRE_MESSAGE)} : ${csLit(csTypeMismatchMessage())},
+                        ["message"] = malformedId ? ${csLit(csMalformedIdMessage())} : ${csLit(csTypeMismatchMessage())},
                         ["code"] = malformedId ? ${csLit(fieldCode("malformed-id"))} : ${csLit(fieldCode("type-mismatch"))},
                     };
                 })
@@ -1669,7 +1677,7 @@ public static class ValidationProblem
                     {
                         ["pointer"] = PointerOf(entry.Key),
                         ["message"] = required ? MissingFieldMessage(PointerOf(entry.Key))
-                            : malformedId ? ${csLit(UUID_WIRE_MESSAGE)} : error.ErrorMessage,
+                            : malformedId ? ${csLit(csMalformedIdMessage())} : error.ErrorMessage,
                         ["code"] = required ? ${csLit(fieldCode("missing"))}
                             : malformedId ? ${csLit(fieldCode("malformed-id"))} : ${csLit(fieldCode("rule"))},
                     };

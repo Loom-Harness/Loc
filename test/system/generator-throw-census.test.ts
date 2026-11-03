@@ -6,6 +6,7 @@ import {
   DIAGNOSTIC_MESSAGES,
   type DiagnosticMessageKey,
 } from "../../src/diagnostics/messages.js";
+import { expectReach } from "../_helpers/census-reach.js";
 import { CLASSIFICATIONS, type ThrowClassification } from "./generator-throw-census.manifest.js";
 import { computeThrowSites, repoRoot, type ThrowSite } from "./generator-throw-sites.js";
 
@@ -114,7 +115,7 @@ describe("generator throw census — every codegen crash site names what keeps v
 
   it("finds a substantial surface, not an empty one", () => {
     // A detector that silently stopped matching would pass every other test.
-    expect(sites.length).toBeGreaterThan(200);
+    expectReach("generator throw sites", sites.length, 281);
   });
 
   it("every throw site carries a claim", () => {

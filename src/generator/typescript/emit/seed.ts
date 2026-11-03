@@ -29,6 +29,7 @@ import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
 import {
+  asMoneySeedLiteral,
   type Entry,
   groupByDataset,
   seederAggregates,
@@ -199,7 +200,7 @@ function renderField(value: ExprIR, type: TypeIR | undefined): string {
   ) {
     return `new Date(${renderTsExpr(value)})`;
   }
-  return renderTsExpr(value);
+  return renderTsExpr(asMoneySeedLiteral(value, type));
 }
 
 function repoVar(agg: string): string {

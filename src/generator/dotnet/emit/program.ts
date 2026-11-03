@@ -17,9 +17,11 @@ import {
   NODE_CERTS_BLOCK,
   NPM_INSTALL_BLOCK,
 } from "../../_docker/node-stage.js";
+import { csNsRef, csUsing } from "../../_imports/dotnet.js";
 import { BOOT_DB_RETRY } from "../../_obs/boot-db-retry.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { OTEL_ENDPOINT_ENV, OTEL_SERVICE_NAME_ENV } from "../../_obs/tracing.js";
+import { CS } from "../cs-symbols.js";
 import type { SchemaIdOverride } from "../schema-ids.js";
 import { csFixedDetail, csSentence } from "../wire-policy-cs.js";
 import { emitsBaseReader } from "./base-reader.js";
@@ -456,7 +458,7 @@ app.MapGet("/files/{key}", async (string key, HttpContext http, ILogger<${ns}.Ap
   const hangfireJobDiRegistrations = options?.hangfireJobDiRegistrations ?? [];
   const hangfireRecurringRegistrations = options?.hangfireRecurringRegistrations ?? [];
   const hangfireDiBlock = hangfireCronTimers
-    ? `\n// Durable cron timers (scheduling.md) — Hangfire + Hangfire.PostgreSql.\n// The storage schema is created automatically on first use.\nbuilder.Services.AddHangfire(cfg => cfg\n    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)\n    .UseSimpleAssemblyNameTypeSerializer()\n    .UseRecommendedSerializerSettings()\n    .UsePostgreSqlStorage(o => o.UseNpgsqlConnection(builder.Configuration.GetConnectionString("Default"))));\nbuilder.Services.AddHangfireServer();\n${hangfireJobDiRegistrations.join("\n")}`
+    ? `\n// Durable cron timers (scheduling.md) — Hangfire + Hangfire.PostgreSql.\n// The storage schema is created automatically on first use.\nbuilder.Services${csNsRef("Hangfire")}.AddHangfire(cfg => cfg\n    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)\n    .UseSimpleAssemblyNameTypeSerializer()\n    .UseRecommendedSerializerSettings()\n    ${csNsRef("Hangfire.PostgreSql")}.UsePostgreSqlStorage(o => o.UseNpgsqlConnection(builder.Configuration.GetConnectionString("Default"))));\nbuilder.Services.AddHangfireServer();\n${hangfireJobDiRegistrations.join("\n")}`
     : "";
   const hangfireRecurringBlock = hangfireCronTimers
     ? `\n// Register the durable cron timerSources as Hangfire recurring jobs (standard\n// 5-field cron).  Uses the service-based IRecurringJobManager (the static\n// RecurringJob API needs JobStorage.Current, unset on the DI path).  AddOrUpdate\n// is idempotent per stable id — re-registers on boot.\nusing (var hangfireScope = app.Services.CreateScope())\n{\n    var recurring = hangfireScope.ServiceProvider.GetRequiredService<IRecurringJobManager>();\n${hangfireRecurringRegistrations.join("\n")}\n}\n`
@@ -473,7 +475,7 @@ app.MapGet("/files/{key}", async (string key, HttpContext http, ILogger<${ns}.Ap
 // NpgsqlDataSource resolves off it too).
 using (var seedScope = app.Services.CreateScope())
 {
-    var seedDb = seedScope.ServiceProvider.GetRequiredService<NpgsqlDataSource>();
+    var seedDb = seedScope.ServiceProvider.GetRequiredService<${CS.NpgsqlDataSource}>();
     await ${ns}.Infrastructure.Persistence.Seed.RunSeeds(seedDb, seedScope.ServiceProvider);
 }
 `
@@ -826,7 +828,12 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
-${usingDapper ? "using Npgsql;\n" : "using Microsoft.EntityFrameworkCore;\n"}${usesValidators ? "using FluentValidation;\n" : ""}${hangfireCronTimers ? "using Hangfire;\nusing Hangfire.PostgreSql;\n" : ""}using ${ns}.Api;
+${csUsing("Npgsql")}
+${csUsing("Microsoft.EntityFrameworkCore")}
+${csUsing("FluentValidation")}
+${csUsing("Hangfire")}
+${csUsing("Hangfire.PostgreSql")}
+using ${ns}.Api;
 using ${ns}.Domain.Common;
 using ${ns}.Infrastructure.Persistence;
 using ${ns}.Infrastructure.Events;${options?.hasChannels ? `\nusing ${ns}.Infrastructure.Channels;` : ""}${authUsing}
@@ -930,11 +937,11 @@ ${renderDapperConnectionSetup(options?.dapperSearchPath ?? []).join("\n")}`
       ? `builder.Services.AddScoped<${ns}.Infrastructure.Persistence.AuditableInterceptor>();
 builder.Services.AddDbContext<AppDbContext>((sp, opts) =>
 {
-    opts.UseNpgsql(builder.Configuration.GetConnectionString("Default"));
+    opts${CS.EfCore}.UseNpgsql(builder.Configuration.GetConnectionString("Default"));
     opts.AddInterceptors(sp.GetRequiredService<${ns}.Infrastructure.Persistence.AuditableInterceptor>());
 });`
       : `builder.Services.AddDbContext<AppDbContext>(opts =>
-    opts.UseNpgsql(builder.Configuration.GetConnectionString("Default")));`
+    opts${CS.EfCore}.UseNpgsql(builder.Configuration.GetConnectionString("Default")));`
 }
 
 // Mediator (martinothamar/Mediator) — source-generated, free to use.
@@ -948,7 +955,7 @@ ${
 // FluentValidation.ValidationException, which DomainExceptionFilter
 // converts to a 400 with a structured \`failures\` array.  The
 // existing domain-layer AssertInvariants() stays as the floor.
-builder.Services.AddValidatorsFromAssembly(typeof(Program).Assembly);
+builder.Services${csNsRef("FluentValidation")}.AddValidatorsFromAssembly(typeof(Program).Assembly);
 builder.Services.AddScoped(
     typeof(Mediator.IPipelineBehavior<,>),
     typeof(${ns}.Application.Common.ValidationBehavior<,>));
@@ -1160,7 +1167,7 @@ ${renderDotnetBootDbWait()}
 await LoomWaitForDbAsync(
     async () =>
     {
-        await using var probe = await app.Services.GetRequiredService<NpgsqlDataSource>().OpenConnectionAsync();
+        await using var probe = await app.Services.GetRequiredService<${CS.NpgsqlDataSource}>().OpenConnectionAsync();
     },
     app.Services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Migrations"));
 
@@ -1169,7 +1176,7 @@ await LoomWaitForDbAsync(
 // public.__loom_migrations; a database the pre-migration DbSchema bootstrap
 // provisioned is baselined on its first boot here (see DbSchema.cs).
 await ${ns}.Infrastructure.Persistence.DbSchema.EnsureAsync(
-    app.Services.GetRequiredService<NpgsqlDataSource>(),
+    app.Services.GetRequiredService<${CS.NpgsqlDataSource}>(),
     app.Services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Migrations"));
 `
     : hasMigrations
@@ -1275,7 +1282,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 // reason in the probe log instead of having to exec into the pod.
 ${
   usingDapper
-    ? `app.MapGet("/ready", async (NpgsqlDataSource db, CancellationToken cancellationToken) =>
+    ? `app.MapGet("/ready", async (${CS.NpgsqlDataSource} db, CancellationToken cancellationToken) =>
 {
     try
     {

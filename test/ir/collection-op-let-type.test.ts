@@ -21,9 +21,8 @@
 import { describe, expect, it } from "vitest";
 import type { AggregateIR, StmtIR } from "../../src/ir/types/loom-ir.js";
 import { allAggregates } from "../../src/ir/types/loom-ir.js";
-import { generateHono } from "../_helpers/generate.js";
+import { generateBackendFiles } from "../_helpers/generate.js";
 import { buildLoomModel } from "../_helpers/index.js";
-import { parseValid } from "../_helpers/parse.js";
 
 const SRC = `
   context Shop {
@@ -77,8 +76,7 @@ describe("collection-op result types survive a `let` binding", () => {
   });
 
   it("renders money arithmetic / array ops on the let-bound values (Hono)", async () => {
-    const model = await parseValid(SRC);
-    const order = generateHono(model).get("domain/order.ts")!;
+    const order = (await generateBackendFiles(SRC, "node")).get("domain/order.ts")!;
     expect(order).toBeDefined();
     // F2-EXPR-1: `base * factor` on a Decimal must be `.times(...)`, not `*`.
     expect(order).toContain("this._discount = base.times(this._factor);");

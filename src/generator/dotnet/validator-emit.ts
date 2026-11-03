@@ -22,6 +22,7 @@ import { fieldCode } from "../../ir/enrich/wire-policy.js";
 import { ruleCode, ruleText } from "../_i18n/rule-text.js";
 import { csRuleParams } from "./wire-policy-cs.js";
 import { singleFieldMessage } from "../zod-refine.js";
+import { CS, sortedCsUsings } from "./cs-symbols.js";
 import { collectCsExprUsings } from "./render-expr.js";
 import { isNullableWireDefault } from "./wire-default.js";
 
@@ -216,10 +217,7 @@ function renderValidatorFile(args: {
     return { content: null, nonEmpty: false };
   }
 
-  const extraUsings = [...usings]
-    .sort()
-    .map((n) => `using ${n};`)
-    .join("\n");
+  const extraUsings = sortedCsUsings(usings).join("\n");
   const content = `// Auto-generated.
 using FluentValidation;${extraUsings ? "\n" + extraUsings : ""}
 using ${ns}.Domain.Ids;
@@ -442,10 +440,7 @@ export function renderRequestValidators(
   }
 
   if (classes.length === 0) return null;
-  const extraUsings = [...fileUsings]
-    .sort()
-    .map((n) => `using ${n};`)
-    .join("\n");
+  const extraUsings = sortedCsUsings(fileUsings).join("\n");
   return `// Auto-generated.
 using FluentValidation;${extraUsings ? "\n" + extraUsings : ""}
 
@@ -632,16 +627,15 @@ function renderMethodCall(e: Extract<ExprIR, { kind: "method-call" }>): string {
   const args = e.args.map((a) => renderFluentPredicate(a));
   // `string.matches(literal)` — when it falls through to a
   // `.Must(x => ...)` predicate (e.g. inside a cross-field rule),
-  // render as the same Regex.IsMatch call the domain layer uses.  The
-  // System.Text.RegularExpressions using is declared via
-  // collectCsExprUsings on the emitter side.
+  // render as the same Regex.IsMatch call the domain layer uses, through
+  // `ref` so the file derives its using.
   if (
     e.member === "matches" &&
     e.receiverType.kind === "primitive" &&
     e.receiverType.name === "string" &&
     args.length === 1
   ) {
-    return `Regex.IsMatch(${recv}, ${args[0]})`;
+    return `${CS.Regex}.IsMatch(${recv}, ${args[0]})`;
   }
   if (e.isCollectionOp) {
     switch (e.member) {

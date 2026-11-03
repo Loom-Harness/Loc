@@ -238,3 +238,36 @@ describe("validator: duplicate names — positives", () => {
     ).toBe(false);
   });
 });
+
+// A repository is body-less and its surface is the shared verb contract, so
+// two repositories for one aggregate are one store under two names — the
+// backends emit one repository class per aggregate.
+describe("validator: one repository per aggregate (loom.duplicate-repository)", () => {
+  it("refuses a second repository for the same aggregate, naming the first", async () => {
+    const { errors } = await parse(`
+      system S { subdomain M { context C {
+        aggregate Order with crudish { code: string }
+        repository Orders for Order
+        repository As for Order
+      } } }
+    `);
+    const hits = errors.filter((e) => /second repository for aggregate 'Order'/.test(e));
+    expect(hits, errors.join("\n")).toHaveLength(1);
+    expect(hits[0]).toMatch(/Repository 'As'.*'Orders' already serves it/);
+  });
+
+  it("accepts one repository per aggregate", async () => {
+    const { errors } = await parse(`
+      system S { subdomain M { context C {
+        aggregate Order with crudish { code: string }
+        aggregate Item with crudish { sku: string }
+        repository Orders for Order
+        repository Items for Item
+      } } }
+    `);
+    expect(
+      errors.filter((e) => /second repository/.test(e)),
+      errors.join("\n"),
+    ).toEqual([]);
+  });
+});

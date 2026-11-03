@@ -27,6 +27,7 @@ import type { EnrichedBoundedContextIR, SeedRowIR, TypeIR } from "../../../ir/ty
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../../util/naming.js";
+import { csUsing } from "../../_imports/dotnet.js";
 import {
   type Entry,
   groupByDataset,
@@ -36,6 +37,7 @@ import {
 } from "../../_persistence/seed-datasets.js";
 import { renderSeedRowInsert } from "../../sql-pg.js";
 import { csCalendarDateParseExact } from "../codec-spelling.js";
+import { CS, CS_PERSISTENCE_USINGS } from "../cs-symbols.js";
 import { renderCsExpr } from "../render-expr.js";
 
 export function emitDotnetSeeds(
@@ -219,16 +221,15 @@ function renderSeedFile(
   const usings = lines(
     "using System;",
     "using System.Collections.Generic;",
-    // The datetime seed-literal coercion (renderSeedValue) reaches into
-    // CultureInfo/DateTimeStyles — outside the emitted file's other usings.
-    body.includes("CultureInfo.") && "using System.Globalization;",
+    // Rendered iff the seed body spells `CultureInfo` / `DateTimeStyles`
+    // through `ref`.
+    csUsing("System.Globalization"),
     "using System.Linq;",
     "using System.Threading;",
     "using System.Threading.Tasks;",
     // Dapper frames the marker/raw plumbing on Npgsql + Dapper; EF on the
     // AppDbContext's `Database.ExecuteSqlRawAsync`.
-    dapper ? "using Dapper;" : "using Microsoft.EntityFrameworkCore;",
-    dapper && "using Npgsql;",
+    CS_PERSISTENCE_USINGS,
     "using Microsoft.Extensions.DependencyInjection;",
     usesVo && `using ${ns}.Domain.ValueObjects;`,
     usesEnum && `using ${ns}.Domain.Enums;`,
@@ -236,16 +237,16 @@ function renderSeedFile(
     ...aggs.map((a) => `using ${ns}.Domain.${plural(a)};`),
   );
 
-  const dbType = dapper ? "NpgsqlDataSource" : "AppDbContext";
+  const dbType = dapper ? CS.NpgsqlDataSource : "AppDbContext";
   const markerCreate = dapper
     ? [
         "        await using (var conn = await db.OpenConnectionAsync(cancellationToken))",
-        "            await conn.ExecuteAsync(new CommandDefinition(",
+        `            await conn${CS.Dapper}.ExecuteAsync(new CommandDefinition(`,
         '                "CREATE TABLE IF NOT EXISTS \\"__loom_seed\\" (\\"dataset\\" text PRIMARY KEY, \\"applied_at\\" timestamptz NOT NULL DEFAULT now())",',
         "                cancellationToken: cancellationToken));",
       ]
     : [
-        "        await db.Database.ExecuteSqlRawAsync(",
+        `        await db.Database${CS.EfCore}.ExecuteSqlRawAsync(`,
         '            "CREATE TABLE IF NOT EXISTS \\"__loom_seed\\" (\\"dataset\\" text PRIMARY KEY, \\"applied_at\\" timestamptz NOT NULL DEFAULT now())",',
         "            cancellationToken);",
       ];
@@ -254,7 +255,7 @@ function renderSeedFile(
         `    private static async Task<bool> AlreadySeeded(${dbType} db, string dataset, CancellationToken cancellationToken)`,
         "    {",
         "        await using var conn = await db.OpenConnectionAsync(cancellationToken);",
-        '        return await conn.ExecuteScalarAsync<int?>(new CommandDefinition("SELECT 1 FROM \\"__loom_seed\\" WHERE \\"dataset\\" = @dataset", new { dataset }, cancellationToken: cancellationToken)) is not null;',
+        `        return await conn${CS.Dapper}.ExecuteScalarAsync<int?>(new CommandDefinition("SELECT 1 FROM \\"__loom_seed\\" WHERE \\"dataset\\" = @dataset", new { dataset }, cancellationToken: cancellationToken)) is not null;`,
         "    }",
       ]
     : [
@@ -289,7 +290,7 @@ function renderSeedFile(
       ]
     : [
         `    private static async Task MarkSeeded(${dbType} db, string dataset, CancellationToken cancellationToken) =>`,
-        "        await db.Database.ExecuteSqlRawAsync(",
+        `        await db.Database${CS.EfCore}.ExecuteSqlRawAsync(`,
         '            "INSERT INTO \\"__loom_seed\\" (\\"dataset\\") VALUES ({0})",',
         "            new object[] { dataset }, cancellationToken);",
       ];

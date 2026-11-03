@@ -90,7 +90,8 @@ rather than decide:
 | an operation of a `persistedAs: eventLog` aggregate | `handle` (the stream version the fold reached) | the `(stream_id, version)` key (RS-41) |
 | a workflow / handler save of a row or stream the body **loaded** | `handle` | as above |
 | a `create`, or a workflow save of a row the body **created** | `none` (an insert) | the primary key |
-| the canonical `destroy` | `none` today; **ruled** `if-match` for a `versioned` row (recorded as `pending`, implemented by #4341) | the row's `version` column, once implemented |
+| the canonical `destroy` of a `versioned` aggregate | `if-match` (a stale tag is a 409 before the delete; no tag, or `*`, checks against the loaded version) | the row's `version` column |
+| the canonical `destroy` of an event-sourced aggregate | `none` | — |
 
 A write that loses its check answers 409 whether or not it carried a tag; the
 client decides whether to retry, and the server never re-runs the command on its

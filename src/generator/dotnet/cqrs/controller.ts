@@ -21,7 +21,6 @@ import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { findUnionSpec, unionMembers } from "../../_payload/union-wire.js";
 import {
-  collectWireUsings,
   csIdValueClrType,
   isWireValueType,
   wireToCommandArgument,
@@ -32,7 +31,7 @@ import { CS_PAGED_QUERY_PARAMS } from "../emit/common.js";
 import { renderController } from "../emit.js";
 import { AMBIENT_CURRENT_USER, renderCsExpr } from "../render-expr.js";
 import { requestVoValidatorName } from "../validator-emit.js";
-import { isNullableWireDefault, omitsToEmptyCollection } from "../wire-default.js";
+import { hasNullableWireDefault, omitsToEmptyCollection } from "../wire-default.js";
 
 /** One arm of a return-typed operation's controller translation. */
 export interface ReturnUnionArm {
@@ -235,13 +234,8 @@ export function emitController(
     derivedOps.filter((o) => o.kind === "gateProbe").map((o) => [o.operation, o]),
   );
   const findEntries = derivedOps.filter((o) => isAllFind(o));
-  const publicOps = opEntries.map((o) => o.operation!);
   const exposedFinds = findEntries.map((o) => o.find!);
   const usings = new Set<string>();
-  for (const f of requiredFields) collectWireUsings(f.type, ctx, usings);
-  for (const op of publicOps) for (const p of op.params) collectWireUsings(p.type, ctx, usings);
-  for (const find of exposedFinds)
-    for (const p of find.params) collectWireUsings(p.type, ctx, usings);
   // A paged find's action returns `Paged<…Response>` from the shared runtime.
   if (exposedFinds.some((f) => pagedReturn(f.returnType))) usings.add(`${ns}.Domain.Common`);
   // A server-sourced field default (`now()` / `currentUser.*`) is applied
@@ -262,7 +256,7 @@ export function emitController(
     `Api/${upperFirst(plural(agg.name))}Controller.cs`,
     renderController(agg, repo, ns, {
       idClass,
-      idClrType: csIdValueClrType(agg.idValueType),
+      idClrType: csIdValueClrType(),
       createAction: createActionOverride ?? derivedOps.some((o) => o.kind === "create"),
       destroyAction: derivedOps.some((o) => o.kind === "destroy"),
       createApiOp: derivedOps.find((o) => o.kind === "create"),
@@ -298,7 +292,7 @@ export function emitController(
         // compile-time constant), so both coalesce here.  `renderCsExpr` yields
         // the DOMAIN value in each case — `DateTime.UtcNow` / the ambient claim
         // / `new Money(0m, "USD")` — which is exactly the command's param type.
-        if (isNullableWireDefault(f.default)) {
+        if (f.default !== undefined && hasNullableWireDefault(f)) {
           // The nullable request field coalesces to the per-request default.
           // `renderCsExpr` yields the DOMAIN value (`DateTime.UtcNow`, the
           // ambient claim) matching the command's param type; in the `: <parse>`

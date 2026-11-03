@@ -57,7 +57,7 @@ function bypassFind(
   const name = bypassReadMethodName(read.source, read);
   const returnType: TypeIR = { kind: "optional", inner: entity };
   if (read.source.kind === "id") {
-    const idType: TypeIR = { kind: "id", targetName: agg.name, valueType: agg.idValueType };
+    const idType: TypeIR = { kind: "id", targetName: agg.name };
     const filter: ExprIR = {
       kind: "binary",
       op: "==",
