@@ -63,9 +63,6 @@ system Demo {
 }`;
 }
 
-const QV = (of: string, data = 'rows => Text { "x" }') =>
-  `QueryView { of: ${of}, loading: Text { "l" }, error: Text { "e" }, empty: Text { "n" }, data: ${data} }`;
-
 const NESTED =
   'match await C.Order.reserve() { Order o => { match await C.Order.reserve() { Order p => { draftName := p.customerId } else => { draftName := "b" } } } else => { draftName := "u" } }';
 
