@@ -25,9 +25,9 @@ import {
   singleFieldShape,
 } from "../../../ir/validate/invariant-classify.js";
 import { lines } from "../../../util/code-builder.js";
-import { messageCode } from "../../../util/message-code.js";
 import { upperFirst } from "../../../util/naming.js";
 import { javaCodePointLength } from "../../_expr/code-point.js";
+import { ruleText } from "../../_i18n/rule-text.js";
 import { javaRef } from "../../_imports/java.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import { javaLocals, jid, localOf } from "../java-ident.js";
@@ -62,10 +62,10 @@ import { collectWireToDomainImports, wireComponentNullable, wireToDomain } from 
 // is why they are never re-parsed here.
 // ---------------------------------------------------------------------------
 
-/** A messaged rule's error code is its content-hash i18n key (`msg.<hash>`); a
- *  message-less rule uses this sentinel so `rejectValue`'s (non-null) errorCode
+/** A named rule's error code is its identity key (`<Ctx>.<Owner>.rule.<name>`);
+ *  an unnamed rule uses this sentinel so `rejectValue`'s (non-null) errorCode
  *  contract holds without surfacing a `code` in the 422 envelope — the advice
- *  emits `code` only when it starts with `msg.`. */
+ *  emits `code` only when it contains `.rule.`. */
 const NO_WIRE_CODE = "loom.invariant";
 
 export interface JavaCommandValidator {
@@ -456,8 +456,8 @@ function buildChecks(spec: CommandSpec, regexFields: Map<string, string>): strin
   };
   for (const inv of spec.invariants) {
     if (!classifyForWire(inv, ctx)) continue;
-    const message = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
-    const code = inv.message ? messageCode(inv.message.text) : NO_WIRE_CODE;
+    const message = ruleText(inv);
+    const code = inv.message ? inv.message.key : NO_WIRE_CODE;
     const single = singleFieldShape(inv);
     if (single && spec.available.has(single.field)) {
       checks.push(

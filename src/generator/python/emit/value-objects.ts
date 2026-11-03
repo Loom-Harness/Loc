@@ -1,8 +1,8 @@
 import type { BoundedContextIR, EnumIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { messageCode } from "../../../util/message-code.js";
 import { pythonIdent, pythonWireIdent } from "../../../util/naming.js";
+import { ruleText } from "../../_i18n/rule-text.js";
 import { PY_IMPORTS } from "../../_imports/python.js";
 import { PY } from "../py-symbols.js";
 import { renderPyExpr, renderPyNegatedGuard, renderPyType } from "../render-expr.js";
@@ -59,10 +59,10 @@ function renderPyValueObject(v: ValueObjectIR): string[] {
     const cond = inv.guard
       ? `(${renderPyExpr(inv.guard, VO_CTX)}) and ${renderPyNegatedGuard(inv.expr, VO_CTX)}`
       : renderPyNegatedGuard(inv.expr, VO_CTX);
-    const text = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
-    // M-T5.1 — a DomainError subclass the handlers answer with an errors[]
-    // entry; a messaged rule carries the wire rung's content-hash code.
-    const code = inv.message ? `, ${JSON.stringify(messageCode(inv.message.text))}` : "";
+    const text = ruleText(inv);
+    // A DomainError subclass the handlers answer with an errors[] entry; a
+    // named rule carries the wire rung's identity-key code.
+    const code = inv.message ? `, ${JSON.stringify(inv.message.key)}` : "";
     return [
       `        if ${cond}:`,
       `            raise ${PY.ValueObjectInvariantError}(${JSON.stringify(v.name)}, ${JSON.stringify(text)}${code})`,

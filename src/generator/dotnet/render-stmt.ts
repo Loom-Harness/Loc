@@ -9,6 +9,7 @@ import type {
 import { walkStmtExprsDeep } from "../../ir/util/walk.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
+import { ruleText } from "../_i18n/rule-text.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { csProjectType } from "./bcl-collision.js";
@@ -278,10 +279,10 @@ function precondition(
   ctx: CsRenderContext,
   traceCtx: TraceCtx,
 ): string {
-  // Author `message "..."` becomes the domain-floor detail; else the default.
-  const detail = message ? message.text : `Precondition failed: ${source}`;
-  // A MESSAGED precondition in an aggregate operation carries its wire code and
-  // pointer THROUGH the throw (M-T1.11 (c)).
+  // The rule's text (`ruleText`) — never its source expression.
+  const detail = ruleText({ expr, source, message });
+  // A NAMED precondition in an aggregate operation carries its wire code and
+  // pointer THROUGH the throw.
   const code = traceCtx.domainFloorCodes ? domainFloorCode(message) : undefined;
   const thrown = code
     ? `throw new DomainException(${JSON.stringify(detail)}, DomainErrorKind.Precondition, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`

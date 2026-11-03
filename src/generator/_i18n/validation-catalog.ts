@@ -1,43 +1,36 @@
 // ---------------------------------------------------------------------------
-// The BACKEND validation-message catalog (M-T1.11).
+// The BACKEND validation-message catalog.
 //
-// An authored `message "…"` on an `invariant` / field `check` / `precondition`
-// already reaches the wire twice: as the default English text on
-// `errors[].message`, and as a stable content-hash `code` (`msg.<hash>`, via
-// `messageCode()`) a client can localise by.  What was missing is the other
-// half of "localise by code" — a CATALOG the SERVER can resolve the code
-// against, so a `fr` request gets French from the same backend rather than
-// forcing every client to ship its own copy of every rule's text.
+// A NAMED `invariant` / field `check` / `precondition` reaches the wire with its
+// identity key `<Ctx>.<Owner>.rule.<name>` on `errors[].code` and its
+// source-language text on `errors[].message`.  The SERVER resolves the code
+// against a catalog too, so a `fr` request gets French from the same backend
+// rather than forcing every client to ship its own copy of every rule's text.
 //
 // This module is the ONE place that decides WHICH messages a backend ships and
 // WHAT key each one has.  All five backends build their catalog from
 // `collectWireValidationMessages`, so the five catalogs are the same set of
-// entries with the same keys — the cross-backend parity the wire `code` already
-// promised (`test/generator/i18n/backend-message-catalog.test.ts` pins it), and
+// entries with the same keys — the cross-backend parity the wire `code`
+// promises (`test/generator/i18n/backend-message-catalog.test.ts` pins it), and
 // the same keys `.loom/messages.en.json` carries for translators.
 //
-// SCOPE — BOTH rungs.  A messaged rule surfaces in two places: the wire
-// validator (422 `errors[]`) and the domain floor (the `DomainError` /
-// `DomainException` a tripped rule throws inside the aggregate).  The five
-// wire-validator emitters (`zod-refine.ts`, `dotnet/validator-emit.ts`,
+// SCOPE — BOTH rungs.  A named rule surfaces in two places: the wire validator
+// (422 `errors[]`) and the domain floor (the `DomainError` / `DomainException`
+// a tripped rule throws inside the aggregate).  The five wire-validator
+// emitters (`zod-refine.ts`, `dotnet/validator-emit.ts`,
 // `java/emit/validator.ts`, `python/emit/wire-constraints.ts`,
-// `elixir/vanilla/changeset-invariant-emit.ts`) attach the code at the wire; and
-// since M-T1.11 item (c) the DOMAIN FLOOR carries the same code THROUGH the
-// thrown error on all five backends (`domain-floor.ts`), so each backend's 422
-// serializer resolves it on either rung.  The catalog therefore holds every
-// messaged rule either rung can surface, and still no entry the runtime cannot
-// resolve (the dead-catalog class `user-visible-slot-coverage.test.ts` gates on
-// the UI side):
+// `elixir/vanilla/changeset-invariant-emit.ts`) attach the code at the wire;
+// the domain floor carries the same code through the thrown error
+// (`domain-floor.ts`), so each backend's 422 serializer resolves it on either
+// rung.  The catalog therefore holds every named rule either rung can surface:
 //
-//   * every messaged aggregate `invariant` / field `check` — checked at the
-//     domain floor after every operation body, and at the wire where
-//     `classifyForWire` admits it;
-//   * every messaged operation `precondition` — at the domain floor, and at the
-//     wire when it reads only the operation's params (SYS-1);
-//   * every messaged value-object `invariant` — at the wire (`<Vo>Request`) and
-//     inside a body that builds the value (M-T5.1);
-//   * every messaged workflow / command- / query-handler `precondition` — at
-//     the domain floor (banking eval B-02).
+//   * every named aggregate `invariant` / field `check`;
+//   * every named operation `precondition`;
+//   * every named value-object `invariant`;
+//   * every named workflow / command- / query-handler `precondition`.
+//
+// The text is read through `namedRuleText`, so a `locales/en/<Ctx>.json`
+// override reaches the catalog exactly as it reaches the inline wire text.
 // ---------------------------------------------------------------------------
 
 import type {
@@ -47,14 +40,15 @@ import type {
   OperationIR,
   ValueObjectIR,
 } from "../../ir/types/loom-ir.js";
-import { messageCode } from "../../util/message-code.js";
 import { workflowPreconditionMessages } from "./domain-floor.js";
+import { namedRuleText } from "./rule-text.js";
 
 /** One catalog entry — the stable wire `code` and its source-language text. */
 export interface ValidationMessage {
-  /** `msg.<hash>` — identical to the `errors[].code` the validators attach. */
+  /** The rule's identity key — identical to the `errors[].code` the
+   *  validators attach. */
   readonly code: string;
-  /** The authored English, the fallback a missing translation resolves to. */
+  /** The source-language text, the fallback a missing translation resolves to. */
   readonly text: string;
 }
 
@@ -68,15 +62,13 @@ function preconditionsAsInvariants(op: OperationIR): InvariantIR[] {
   return out;
 }
 
-/** Record every messaged rule in `invariants` into `into`.  No wire
+/** Record every named rule in `invariants` into `into`.  No wire
  *  classification: every one of them can surface at the domain floor, which
- *  carries its code since M-T1.11 (c). */
+ *  carries its code. */
 function take(invariants: readonly InvariantIR[], into: Map<string, string>): void {
   for (const inv of invariants) {
     if (!inv.message) continue;
-    // Same text ⇒ same content hash ⇒ same entry; the repeated write collapses
-    // one message authored on several rules into a single catalog line.
-    into.set(messageCode(inv.message.text), inv.message.text);
+    into.set(inv.message.key, namedRuleText(inv.message));
   }
 }
 
@@ -89,8 +81,8 @@ function takeValueObject(vo: ValueObjectIR, into: Map<string, string>): void {
   take(vo.invariants, into);
 }
 
-/** Every authored validation message `contexts` can surface — on the wire rung
- *  or at the domain floor — keyed by its stable `messageCode()` hash and sorted
+/** Every named rule's message `contexts` can surface — on the wire rung or at
+ *  the domain floor — keyed by its identity key and sorted
  *  by key so the emitted catalog is byte-stable across runs.  (The name predates
  *  the domain-floor half; every consumer wants both rungs.) */
 export function collectWireValidationMessages(
@@ -100,14 +92,14 @@ export function collectWireValidationMessages(
   for (const ctx of contexts) {
     for (const agg of ctx.aggregates) takeAggregate(agg, byCode);
     for (const vo of ctx.valueObjects) takeValueObject(vo, byCode);
-    // A messaged workflow / handler precondition throws the same coded
-    // domain-floor error (banking eval B-02).
-    for (const m of workflowPreconditionMessages(ctx)) byCode.set(messageCode(m.text), m.text);
+    // A named workflow / handler precondition throws the same coded
+    // domain-floor error.
+    for (const m of workflowPreconditionMessages(ctx)) byCode.set(m.key, namedRuleText(m));
   }
   return [...byCode.keys()].sort().map((code) => ({ code, text: byCode.get(code)! }));
 }
 
-/** True when `contexts` carry any wire-surfaced authored message — the single
+/** True when `contexts` carry any named rule — the single
  *  gate every backend takes for its catalog + lookup emission.  False ⇒ the
  *  generated project is byte-identical to pre-catalog output. */
 export function hasWireValidationMessages(contexts: readonly BoundedContextIR[]): boolean {

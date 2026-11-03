@@ -3,8 +3,8 @@ import {
   type SingleFieldPattern,
   singleFieldConstraints,
 } from "../../../ir/validate/invariant-classify.js";
-import { messageCode } from "../../../util/message-code.js";
 import { elixirRegexBody, elixirString, snake } from "../../../util/naming.js";
+import { namedRuleText } from "../../_i18n/rule-text.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import { opBodyStmtsDeep } from "../domain/predicates.js";
 import { exEctoIdType, exEctoJsonType, exEctoScalarType } from "./codec-spelling-ex.js";
@@ -140,7 +140,9 @@ function constraintLinesFor(owner: {
   return (owner.invariants ?? []).flatMap((inv) =>
     (singleFieldConstraints(inv) ?? [])
       .filter((c) => fieldNames.has(snake(c.field)))
-      .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),
+      .map((c) =>
+        ectoValidator(snake(c.field), c.pattern, inv.message && namedRuleText(inv.message)),
+      ),
   );
 }
 
@@ -162,7 +164,7 @@ export function messageCodeTagging(owner: {
   for (const inv of owner.invariants ?? []) {
     if (!inv.message) continue;
     const routed = (singleFieldConstraints(inv) ?? []).some((c) => fieldNames.has(snake(c.field)));
-    if (routed) codes.set(inv.message.text, messageCode(inv.message.text));
+    if (routed) codes.set(namedRuleText(inv.message), inv.message.key);
   }
   if (codes.size === 0) return { pipe: "", defs: "" };
   const entries = [...codes].map(

@@ -1,8 +1,8 @@
 import type { BoundedContextIR, EnumIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { messageCode } from "../../../util/message-code.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
+import { ruleText } from "../../_i18n/rule-text.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
 
@@ -166,10 +166,10 @@ function renderValueObject(v: ValueObjectIR): string[] {
     const check = inv.guard
       ? `if ((${renderTsExpr(inv.guard)}) && !(${renderTsExpr(inv.expr)}))`
       : `if (!(${renderTsExpr(inv.expr)}))`;
-    const text = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
-    // The messaged rule carries the same content-hash `code` the wire rung does,
-    // so the errors[] entry a body-side breach answers can be localised too.
-    const code = inv.message ? `, ${JSON.stringify(messageCode(inv.message.text))}` : "";
+    const text = ruleText(inv);
+    // A named rule carries the same identity-key `code` the wire rung does, so
+    // the errors[] entry a body-side breach answers can be localised too.
+    const code = inv.message ? `, ${JSON.stringify(inv.message.key)}` : "";
     return `    ${check} throw new ValueObjectInvariantError(${JSON.stringify(v.name)}, ${JSON.stringify(text)}${code});`;
   });
   const derived = v.derived.map(

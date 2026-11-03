@@ -15,6 +15,7 @@ const PROV = {
   record: prov("record"),
 } as const;
 
+import { ruleText } from "../_i18n/rule-text.js";
 import { renderPyExpr, renderPyNegatedGuard, renderPyType } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -151,10 +152,10 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
     indexing: "per-kind",
 
     precondition: (s, ix) => {
-      // A MESSAGED precondition in an aggregate operation carries its wire code
-      // and pointer THROUGH the raise (M-T1.11 (c)).
+      // A NAMED precondition in an aggregate operation carries its wire code
+      // and pointer THROUGH the raise.
       const code = ctx.domainFloorCodes ? domainFloorCode(s.message) : undefined;
-      const text = JSON.stringify(s.message ? s.message.text : `Precondition failed: ${s.source}`);
+      const text = JSON.stringify(ruleText(s));
       const thrown = code
         ? `raise ${PY.DomainError}(${text}, "precondition", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(s))})`
         : `raise ${PY.DomainError}(${text}, "precondition")`;

@@ -1,11 +1,8 @@
 // ---------------------------------------------------------------------------
-// Stable content hash for i18n keys and validation-message codes.
+// Stable content hash for content-keyed i18n strings.
 //
-// A single hash primitive shared by the whole i18n key family — the
-// validation-message wire `code` (`src/util/message-code.ts`) and the
-// user-visible-string catalog keys (`src/generator/_walker/i18n-extract.ts`).
-// Keeping them on one function means the shape and stability story stay
-// identical everywhere: the same source text always yields the same 6-char
+// The hash primitive behind the user-visible-string catalog keys
+// (`src/generator/_walker/i18n-extract.ts`): the same source text always yields the same 6-char
 // hash, and any rephrase yields a new one (D-I18N-KEY's content-hash posture
 // for inline literals — a reword is a delete-old + add-new in the `ddd i18n
 // sync` diff, never a silent re-translation).

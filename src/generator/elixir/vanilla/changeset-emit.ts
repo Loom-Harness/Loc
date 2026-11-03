@@ -34,9 +34,9 @@ import { aggregateHasMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
-import { messageCode } from "../../../util/message-code.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { namedRuleText } from "../../_i18n/rule-text.js";
 import { serverSeededFields } from "../../construction-default.js";
 import { renderExpr as renderElixirExpr } from "../render-expr.js";
 import { exFieldMessage, exLit, exValuePrefix } from "../wire-policy-ex.js";
@@ -322,7 +322,9 @@ function renderChangeset(
       ? []
       : (singleFieldConstraints(inv) ?? [])
           .filter((c) => castFields.has(snake(c.field)))
-          .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),
+          .map((c) =>
+            ectoValidator(snake(c.field), c.pattern, inv.message && namedRuleText(inv.message)),
+          ),
   );
   // Money RANGE (M-T6.60 divergence 3) — one `validate_change` per cast money
   // COLUMN.  The create/update path never reaches `__loom_decimal_param` (the
@@ -630,7 +632,7 @@ ${keyAliasPairs.join(",\n")}
     ...new Map(
       bodyVoFields.flatMap(({ vo }) =>
         vo.invariants.flatMap((inv) =>
-          inv.message ? [[inv.message.text, messageCode(inv.message.text)] as const] : [],
+          inv.message ? [[namedRuleText(inv.message), inv.message.key] as const] : [],
         ),
       ),
     ),

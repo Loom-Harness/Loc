@@ -80,7 +80,7 @@ import { typingFor } from "../typing/shared.js";
 import { isWalkerPrimitive } from "../walker-stdlib.js";
 import {
   canPromoteLiteralTo,
-  checkBlankMessage,
+  checkRuleNaming,
   envForAggregate,
   pathString,
   warnSensitivityDrop,
@@ -227,7 +227,7 @@ export function checkStatement(
   checkConstructionArgTypes(stmt, env, accept);
   checkExprCallArgs(stmt, env, accept);
   if (isPreconditionStmt(stmt)) {
-    checkBlankMessage(stmt, stmt.message, accept);
+    checkRuleNaming(stmt, accept);
     const t = typeOf(stmt.expr, env);
     if (t.kind !== "primitive" || t.name !== "bool") {
       accept("error", diagMessage("loom.precondition-not-bool", { actual: typeToString(t) }), {

@@ -1906,10 +1906,13 @@ Property:
     // Enables synthesising a create when no explicit one is declared; for
     // now it lowers onto the FieldIR and downstream phases may consume it.
     ('=' default=Expression)?
-    // `check <expr>` is a per-field validation predicate; an optional trailing
-    // `message "..."` (nested so it only parses with a check) gives it the same
-    // author-written message the invariant clause does.
-    ('check' check=Expression ('message' message=STRING)?)?
+    // `check [name:] <expr>` is a per-field validation predicate.  The optional
+    // `name:` names the rule — its i18n identity key is
+    // `<Ctx>.<Agg>.rule.<name>`, sharing the aggregate's rule namespace with
+    // invariants and preconditions.  `message "..."` (nested so it only parses
+    // with a check) is REMOVED from the language: it stays in the grammar only so
+    // the validator can raise `loom.rule-message-removed` with a migration hint.
+    ('check' (checkName=ID ':')? check=Expression ('message' message=STRING)?)?
     // `mask unless <expr>` — the aggregate-field baseline read mask
     // (authorization.md §5).  The field is REDACTED (null on the wire) UNLESS
     // the `currentUser`-only bool predicate holds — "sensitive everywhere, shown
@@ -1942,15 +1945,16 @@ DerivedProp:
 // only runs in the domain `AssertInvariants()` floor.  Useful for
 // rules the user doesn't want disclosed via OpenAPI (sensitive
 // uniqueness checks, internal-only consistency rules).
-// A trailing `message "..."` clause attaches an author-written, user-facing
-// validation message to the rule.  When present, the rule renders through the
-// wire/refine carrier (never the native-chain optimisation) so the message
-// reaches the frontend inline error, the wire 422 `errors[]`, and the domain
-// floor; the message string doubles as the i18n key (content-hashed per
-// D-I18N-KEY).  Omitted → today's derived "Invariant violated: <src>" default,
-// byte-identical.
+// `invariant [name:] <expr>` — an optional `name:` names the rule.  A named
+// rule's user-facing text is keyed by identity (`<Ctx>.<Owner>.rule.<name>`,
+// English default `humanize(name)`, overridable in `locales/en/<Ctx>.json`);
+// an unnamed one answers a generic message.  An expression never starts with
+// `ID ':'` (record literals start with `{`, named arguments live inside call
+// parens), so the LL(*) lookahead disambiguates the name from the predicate.
+// The trailing `message "..."` clause is REMOVED from the language: it stays in
+// the grammar only so the validator can raise `loom.rule-message-removed`.
 Invariant:
-    (serverOnly?='private')? 'invariant' expr=Expression ('when' guard=Expression)? ('message' message=STRING)?;
+    (serverOnly?='private')? 'invariant' (name=ID ':')? expr=Expression ('when' guard=Expression)? ('message' message=STRING)?;
 
 // A uniqueness invariant.  `unique (a, b)` declares a natural-key / identity
 // rule — no two rows may share the listed tuple.  It is a set-level invariant
@@ -2377,7 +2381,10 @@ ForIterable infers Expression:
     NameRef ({infer PostfixChain.head=current} suffixes+=PostfixSuffix+ IgnoringClause?)?;
 
 PreconditionStmt:
-    'precondition' expr=Expression ('message' message=STRING)?;
+    // `precondition [name:] <expr>` — the optional `name:` names the rule
+    // (see `Invariant`); `message "..."` survives only for
+    // `loom.rule-message-removed`.
+    'precondition' (name=ID ':')? expr=Expression ('message' message=STRING)?;
 
 // Authorization gate.  Semantically `requires` reads as "this caller
 // is allowed to invoke this op / workflow" — a declarative

@@ -16,9 +16,9 @@ import {
   type SingleFieldPattern,
   singleFieldShape,
 } from "../../ir/validate/invariant-classify.js";
-import { messageCode } from "../../util/message-code.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import { csCodePointLength } from "../_expr/code-point.js";
+import { ruleText } from "../_i18n/rule-text.js";
 import { singleFieldMessage } from "../zod-refine.js";
 import { collectCsExprUsings } from "./render-expr.js";
 import { isNullableWireDefault } from "./wire-default.js";
@@ -181,16 +181,14 @@ function buildFluentRules(
         ? `${members.map((m) => `!${carried(m)}`).join(" || ")} || (${ruled})`
         : ruled;
     const path = pickErrorPath(inv);
-    const message = csStringLiteral(
-      inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
-    );
+    const message = csStringLiteral(ruleText(inv));
     const nameClause = path ? `\n            .WithName("${upperFirst(path)}")` : "";
-    // A messaged rule also carries a stable content-hash wire `code`
-    // (`errors[].code`, the i18n key) via FluentValidation's `.WithErrorCode`;
-    // the exception filter surfaces `ErrorCode` when it's a `msg.` code. A
-    // message-less rule adds no error code (byte-identical).
+    // A named rule also carries its identity key as the wire `code`
+    // (`errors[].code`) via FluentValidation's `.WithErrorCode`; the exception
+    // filter surfaces `ErrorCode` when it contains `.rule.`.  An unnamed rule
+    // adds no error code.
     const codeClause = inv.message
-      ? `\n            .WithErrorCode(${csStringLiteral(messageCode(inv.message.text))})`
+      ? `\n            .WithErrorCode(${csStringLiteral(inv.message.key)})`
       : "";
     ruleLines.push(
       `        RuleFor(x => x).Must(x => ${guarded})${nameClause}\n            .WithMessage(${message})${codeClause};`,

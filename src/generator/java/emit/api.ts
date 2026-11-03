@@ -878,7 +878,7 @@ export function renderApiExceptionAdvice(
       ? `                entry.put("message", "NotNull".equals(err.getCode()) ? ${javaMissingFieldMessage('(String) entry.get("pointer")')} : resolveMessage(err, locale));`
       : `                entry.put("message", "NotNull".equals(err.getCode()) ? ${javaMissingFieldMessage('(String) entry.get("pointer")')} : err.getDefaultMessage());`,
     `                var code = err.getCode();`,
-    `                if (code != null && code.startsWith("msg.")) entry.put("code", code);`,
+    `                if (code != null && code.contains(".rule.")) entry.put("code", code);`,
     `                return entry;`,
     `            })`,
     `            .collect(Collectors.toList()));`,

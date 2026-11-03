@@ -8,7 +8,9 @@ All three are emitted **in the same shape** across the five backends that run do
 
 ## `invariant` — a checked predicate
 
-`[private] invariant Expr [when Guard] [message "…"]` declares a `bool` predicate that must hold after every mutation (a non-`bool` expression is `Invariant must be of type 'bool', got '…'`; a non-`bool` guard is `Invariant guard ('when ...') must be of type 'bool', got '…'`). It is asserted in the aggregate's domain floor (`_assertInvariants` and friends), called from the factory (`Order.create(...)`) and from every operation. The violation message defaults to `Invariant violated: <source text>`; a `message "…"` clause replaces it with author text that also becomes the i18n key (`msg.<hash>`, carried as a wire error code — `loomCode` / `WithErrorCode` / `PydanticCustomError` / `loom_code:`; `src/generator/_i18n/validation-catalog.ts`).
+`[private] invariant [name:] Expr [when Guard]` declares a `bool` predicate that must hold after every mutation (a non-`bool` expression is `Invariant must be of type 'bool', got '…'`; a non-`bool` guard is `Invariant guard ('when ...') must be of type 'bool', got '…'`). It is asserted in the aggregate's domain floor (`_assertInvariants` and friends), called from the factory (`Order.create(...)`) and from every operation. What a violation answers is decided by whether the rule is **named** — see [Naming a rule](#naming-a-rule) below: a named rule answers its own text under its identity key, an unnamed one a generic message. A response never carries the rule's source expression.
+
+> **Transition note.** The examples further down this chapter still show the removed `message "…"` clause; they read the same once migrated (`scripts/codemod-rule-names.mjs`). The clause is a WARNING (`loom.rule-message-removed`) until the corpus migration lands, then an error.
 
 ```ddd
 aggregate Order {
@@ -74,6 +76,69 @@ end
 ```
 The Elixir backend keeps invariants in the schema's changeset (`base_changeset` / `update_changeset`, and the operation-persist pipe calls `validate_invariants/1` too), not in a hand-written assert method. A violated one surfaces as an invalid changeset → 422.
 ::: end
+
+### Naming a rule
+
+An `invariant`, a field `check` and a `precondition` each take an optional name, written with a colon before the predicate:
+
+```ddd
+context Projects {
+  aggregate Project {
+    name: string check nameRequired: name.length > 0
+    total: int
+    invariant total >= 0                      // unnamed — generic message
+    invariant withinBudget: total <= 100000   // key Projects.Project.rule.withinBudget
+    operation charge(amount: int) {
+      precondition positiveCharge: amount > 0
+      total := total + amount
+    }
+  }
+}
+```
+
+A named rule's user-facing text is keyed by **what it is**, not by its wording: `<Ctx>.<Owner>.rule.<name>`. The key is the wire `errors[].code` on all five backends, the client validators' code, and the catalog key — so rewording the English never orphans a translation. The English default is the name as a sentence (`withinBudget` → "Within budget"); a translator tree overrides it in `locales/en/<Ctx>.json`:
+
+```json
+// locales/en/Projects.json
+{ "Project.rule.withinBudget": "A project cannot exceed its budget" }
+```
+
+```ts
+// node — http/project.routes.ts (the wire rung) and domain/project.ts (the floor)
+.refine((data: any) => data.total <= 100000, { path: ["total"], message: "A project cannot exceed its budget", params: { loomCode: "Projects.Project.rule.withinBudget" } })
+if (!(this._total <= 100000)) throw new DomainError("A project cannot exceed its budget", "invariant", "Projects.Project.rule.withinBudget", "/total");
+```
+
+```python
+# python — app/domain/project.py
+raise DomainError("A project cannot exceed its budget", "invariant", "Projects.Project.rule.withinBudget", "/total")
+```
+
+The OWNER is the declaration whose rule namespace the name lives in: an aggregate (its invariants, its parts' invariants, every field `check` and every operation `precondition` share one namespace), a value object, a command / query handler, or a workflow. A rule declared outside every bounded context files under `_system`.
+
+An **unnamed** rule answers a generic message and carries no code: `field.rule` ("Invalid value") when the rule points at one field, otherwise `problem.domain-floor` ("Business rule violated") — both overridable in `locales/en/_chrome.json`. Its source expression (`total >= 0`) never reaches a response.
+
+The identifiers a rule reads — the fields and parameters in its predicate and guard — are the candidate `{x}` placeholders of its message (`ruleParams`, `src/ir/util/rule-params.ts`).
+
+#### `loom.rule-name-duplicate`
+
+Two rules of the same owner declare the same name. The name is the rule's i18n key, so it must be unique across the owner's invariants, field checks and preconditions. Rename one.
+
+#### `loom.rule-message-removed`
+
+The `message "…"` clause is no longer part of the language: the English wording does not belong in the domain model. The diagnostic names the rule name to use and the `locales/en/<Ctx>.json` line the text moves to:
+
+```ddd
+invariant stock < 100000 message "Stock is too large"     // before
+invariant stockTooLarge: stock < 100000                   // after
+```
+
+```json
+// locales/en/Shop.json
+{ "Product.rule.stockTooLarge": "Stock is too large" }
+```
+
+`node scripts/codemod-rule-names.mjs <path>` migrates every rule under `<path>` at once — the derived name is the message's first four non-filler words in camelCase, deduplicated per owner — and writes the `locales/en/` files. Until the corpus migration lands the clause is a **warning** and still compiles exactly as the migrated rule does (named as the codemod names it, with the clause's text as its English), so running the codemod changes no generated byte. After the migration it becomes an error and the grammar arm is removed.
 
 ### Construction is checked before the floor runs
 

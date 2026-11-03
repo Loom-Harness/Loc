@@ -1060,7 +1060,9 @@ function printProperty(node: Property): string {
   // and before `check` (ddd.langium Property rule), so the expression can't
   // greedily swallow a trailing modifier keyword.
   const def = node.default ? ` = ${printExpr(node.default)}` : "";
-  const check = node.check ? ` check ${printExpr(node.check)}` : "";
+  const check = node.check
+    ? ` check ${node.checkName ? `${node.checkName}: ` : ""}${printExpr(node.check)}`
+    : "";
   // `message "..."` re-quotes (the STRING terminal is delimiter-stripped); only
   // parses with a `check`, so it's appended after it.
   const msg = node.message ? ` message ${JSON.stringify(node.message)}` : "";
@@ -1092,7 +1094,8 @@ function printInvariant(node: Invariant): string {
   const priv = node.serverOnly ? "private " : "";
   const guard = node.guard ? ` when ${printExpr(node.guard)}` : "";
   const msg = node.message ? ` message ${JSON.stringify(node.message)}` : "";
-  return `${priv}invariant ${printExpr(node.expr)}${guard}${msg}`;
+  const name = node.name ? `${node.name}: ` : "";
+  return `${priv}invariant ${name}${printExpr(node.expr)}${guard}${msg}`;
 }
 
 function printUnique(node: import("../generated/ast.js").Unique): string {

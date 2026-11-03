@@ -1,5 +1,6 @@
 import type { InvariantIR } from "../../ir/types/loom-ir.js";
 import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
+import { namedRuleText } from "../_i18n/rule-text.js";
 import { singleFieldMessage, takeSingleFieldChain } from "../zod-refine.js";
 
 // ---------------------------------------------------------------------------
@@ -115,7 +116,11 @@ export function flutterValidatorMap(
   for (const inv of invariants) {
     const taken = takeSingleFieldChain(inv, ctx);
     if (!taken) continue;
-    const rules = rulesForPattern(taken.field, taken.pattern, inv.message?.text);
+    const rules = rulesForPattern(
+      taken.field,
+      taken.pattern,
+      inv.message && namedRuleText(inv.message),
+    );
     const list = out.get(taken.field) ?? [];
     list.push(...rules);
     out.set(taken.field, list);
