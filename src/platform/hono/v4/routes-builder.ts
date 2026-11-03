@@ -156,7 +156,7 @@ import type {
 } from "../../../ir/validate/invariant-classify.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
-import { escapeTargetMember } from "../../../util/target-identifiers.js";
+import { escapeTargetFieldMember, escapeTargetMember } from "../../../util/target-identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Hono routes file with OpenAPI annotations.
@@ -2172,7 +2172,11 @@ function emitOperationRoute(
   const mergePatch = isMergePatchUpdate(op);
   const baseCallArgs = op.params.map((p) => {
     const value = wireToDomainExpr(`body.${p.name}`, p.type, ctx);
-    return mergePatch ? `(body.${p.name} === undefined ? aggregate.${p.name} : ${value})` : value;
+    // The stored value is read through the field's getter, whose spelling
+    // escapes a name the class reserves (`constructor` → `constructor_`).
+    return mergePatch
+      ? `(body.${p.name} === undefined ? aggregate.${escapeTargetFieldMember("ts", p.name)} : ${value})`
+      : value;
   });
   const callArgs = (usesUser ? [...baseCallArgs, "currentUser"] : baseCallArgs).join(", ");
 
