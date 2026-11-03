@@ -452,7 +452,8 @@ the conforming backends, and the fix that established it.
   rejection carries the §3.2 `errors[]` per-field extension, the domain floor
   does not. The status was never the discriminator; the extension is.
 - **Known residual divergence — the `detail` wording.** node/dotnet/java/python
-  send `"Precondition failed: <the predicate source>"`; elixir's *typed-denial*
+  send the rule's text (a named rule its own, an unnamed one the generic
+  `"Invalid value"` / `"Business rule violated"` — never the predicate source); elixir's *typed-denial*
   path (`{:error, :precondition_failed}`) sends a generic
   `"A precondition failed"`, because the atom carries no message. (Elixir's
   raise/rescue path already forwards the specific message.) The status, title,
@@ -1839,8 +1840,10 @@ nothing and the test passes vacuously.
   instant (`CanonicalInstant`); java spells all three through
   `javaInstantWire`; elixir spells the envelope `time` and a `datetime` in
   `data` through `Loom.Datetime.wire/1`, and its realtime frame is not yet
-  audited (#3394). None of the envelope is goldened. Elixir's framework columns (`inserted_at`, the audit/provenance
-  `at`) stay `:utc_datetime` — second precision, canonically spelled. A deployed
+  audited (#3394). None of the envelope is goldened. Elixir's audit and provenance `at` is the same millisecond
+  `Loom.Datetime` instant (its column is a `datetime`, so `timestamptz`); only
+  Ecto's own `inserted_at` / `updated_at`, which never reach a wire, stay
+  `:utc_datetime`. A deployed
   elixir database created before this rule keeps its `timestamp(0)` columns until
   an operator alters them — see [`migrations.md`](migrations.md).
 - **Conforms.** node, dotnet, java, python, elixir.
@@ -2078,13 +2081,17 @@ nothing and the test passes vacuously.
   - a single-field shape (`amount >= 1`, `code.matches("^[A-Z]{3}$")`,
     `label.length <= 16`) → `singleFieldMessage` in `src/generator/zod-refine.ts`
     ("Amount must be at least 1", "Code is not in the expected format");
-  - any other shape (`name.trim().length > 0`, a conjunction) → node's refine
-    default `Invariant violated: <source>`, at the field `pickErrorPath` names.
+  - any other shape (`name.trim().length > 0`, a conjunction, a guarded or
+    cross-field rule) → the generic `Business rule violated`
+    (`problem.domain-floor`), at the field `pickErrorPath` names. The rule's
+    source expression never reaches the response; the text is overridable in
+    `locales/en/_chrome.json`.
 - **Trigger.** `test/fixtures/corpus/validation-messages.ddd` seq 14/15
   (`ship(amount: 0)`, `retag(code: "abc")`) and
   `test/fixtures/corpus/intrinsics.ddd`'s blank-name create.
-- **The split when raised (M-T6.86, M-T6.87, wave C3 D13).** Five sentences
-  for one rule: FluentValidation's `'Amount' must be greater than or equal to
+- **The split when raised (M-T6.86, M-T6.87, wave C3 D13; the quoted
+  `Invariant violated: …` / `Precondition failed: …` sentences are the
+  pre-generic-text defaults).** Five sentences for one rule: FluentValidation's `'Amount' must be greater than or equal to
   '1'.` on .NET and Dapper; java's generic `Invariant violated: amount >= 1` for
   a single-field shape it had already classified; elixir did not lift a
   unnamed precondition to the wire rung at all and answered the domain

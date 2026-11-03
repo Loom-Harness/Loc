@@ -822,7 +822,7 @@ The client still **reads** `status`, `create` still **seeds** it, and only
 ```ts
 // generated: api/domain/claim.ts  (node — the other four backends are the same shape)
 public approve(): void {
-  if (!(this._status === ClaimStatus.UnderReview)) throw new DomainError("Precondition failed: status == UnderReview");
+  if (!(this._status === ClaimStatus.UnderReview)) throw new DomainError("Business rule violated");
   this._status = ClaimStatus.Approved;                 // immutable ≠ unassignable
 }
 
@@ -1737,7 +1737,7 @@ the assertion nothing.
 
 ```ts
 // generated (node) — domain/workOrder.ts
-if (!(this._status === WorkStatus.InProgress)) throw new DomainError("finish the work first", "precondition", "msg.…", "");
+if (!(this._status === WorkStatus.InProgress)) throw new DomainError("Finish work first", "precondition", "Fleet.WorkOrder.rule.finishWorkFirst", "");
 // generated (node) — domain/workOrder.test.ts
 expectDomainRejection(() => { wo.complete(); }, "precondition");   // reads err.kind
 ```

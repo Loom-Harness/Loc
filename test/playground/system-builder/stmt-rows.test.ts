@@ -58,7 +58,7 @@ const SRC = `system Shop {
 
       operation confirm(n: int) {
         // domain validity
-        precondition n > 0 message "n must be positive"
+        precondition nPositive: n > 0
         requires currentUser.isAdmin
         let subtotal = n * 2
         for line in lines {
@@ -181,15 +181,15 @@ describe("statement rows — every grammar form is structured", () => {
     expect(views(SRC)[PRE]).toEqual({
       kind: "precondition",
       expr: "n > 0",
-      message: "n must be positive",
+      name: "nPositive",
     });
     expect(views(SRC)[REQ]).toEqual({ kind: "requires", expr: "currentUser.isAdmin" });
     expect(views(SRC)[LET]).toEqual({ kind: "let", name: "subtotal", value: "n * 2" });
     expect(views(SRC)[RET]).toEqual({ kind: "return", value: "status" });
   });
 
-  it("omits `message` when the precondition declares none", () => {
-    const src = SRC.replace(' message "n must be positive"', "");
+  it("omits `name` when the precondition is unnamed", () => {
+    const src = SRC.replace("nPositive: ", "");
     expect(views(src)[PRE]).toEqual({ kind: "precondition", expr: "n > 0" });
   });
 
@@ -347,27 +347,43 @@ describe("statement rows — header part mutators", () => {
     );
   });
 
-  it("sets / replaces / drops a precondition message", () => {
+  it("sets / replaces / drops a precondition rule name", () => {
     expectHunk(
       SRC,
-      editStatementPart(SRC, confirm, PRE, "message", "n is required"),
-      ['        precondition n > 0 message "n must be positive"'],
-      ['        precondition n > 0 message "n is required"'],
+      editStatementPart(SRC, confirm, PRE, "ruleName", "nRequired"),
+      ["        precondition nPositive: n > 0"],
+      ["        precondition nRequired: n > 0"],
     );
     expectHunk(
       SRC,
-      editStatementPart(SRC, confirm, PRE, "message", ""),
-      ['        precondition n > 0 message "n must be positive"'],
+      editStatementPart(SRC, confirm, PRE, "ruleName", ""),
+      ["        precondition nPositive: n > 0"],
       ["        precondition n > 0"],
     );
-    const bare = SRC.replace(' message "n must be positive"', "");
+    const bare = SRC.replace("nPositive: ", "");
     expectHunk(
       bare,
-      editStatementPart(bare, confirm, PRE, "message", "n is required"),
+      editStatementPart(bare, confirm, PRE, "ruleName", "nRequired"),
       ["        precondition n > 0"],
-      ['        precondition n > 0 message "n is required"'],
+      ["        precondition nRequired: n > 0"],
     );
-    expectCommentsIntact(editStatementPart(SRC, confirm, PRE, "message", "x"));
+    expectCommentsIntact(editStatementPart(SRC, confirm, PRE, "ruleName", "x"));
+  });
+
+  it("refuses a rule name that is not an identifier or is already taken", () => {
+    for (const bad of ["not an id", "1abc", "a-b", "total'"]) {
+      expect(editStatementPart(SRC, confirm, PRE, "ruleName", bad)).toBeNull();
+    }
+    const two = SRC.replace(
+      "requires currentUser.isAdmin",
+      "precondition nSmall: n < 100\n        requires currentUser.isAdmin",
+    );
+    expect(editStatementPart(two, confirm, PRE, "ruleName", "nSmall")).toBeNull();
+    expect(editStatementPart(two, confirm, PRE, "ruleName", "nPositive")).not.toBeNull();
+  });
+
+  it("never writes a `message` clause", () => {
+    expect(editStatementPart(SRC, confirm, PRE, "ruleName", "nRequired")).not.toContain("message");
   });
 
   it("refuses a part the statement does not have, or an unparseable value", () => {

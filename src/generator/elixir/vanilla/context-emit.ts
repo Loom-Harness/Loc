@@ -55,10 +55,7 @@ import {
   findUsesPrincipal,
   listUsesPrincipal,
 } from "./capability-filter.js";
-import {
-  aggregateHasDomainFloorCodes,
-  aggregateHasResidualInvariants,
-} from "./changeset-invariant-emit.js";
+import { opPersistInvariantPipes } from "./changeset-emit.js";
 import { aggregateBodyValueObjectFields, opAssignedFields } from "./changeset-validators.js";
 import {
   exInt32Range,
@@ -1423,6 +1420,7 @@ function renderContextRefCollHelpers(appModule: string, includeResolve: boolean)
 // silently.
 function renderExternOpFunction(
   facadeMod: string,
+  ctx: BoundedContextIR,
   agg: AggregateIR,
   aggPascal: string,
   aggSnake: string,
@@ -1468,14 +1466,9 @@ function renderExternOpFunction(
         `    ${elixirLocal(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}\n`,
     )
     .join("");
-  // Re-assert the aggregate's cross-field invariants after the hook mutates and
-  // before the write (D3c) — byte-identical when the aggregate has none.
-  const changesetMod = `${aggModule}Changeset`;
-  // M-T1.11 (c): the domain-floor twin when a named invariant is present.
-  const invFn = aggregateHasDomainFloorCodes(agg) ? "validate_domain_floor" : "validate_invariants";
-  const invPipe = aggregateHasResidualInvariants(agg)
-    ? `\n      |> ${changesetMod}.${invFn}()`
-    : "";
+  // Re-assert the aggregate's invariants after the hook mutates and before the
+  // write (D3c) — empty when the aggregate has none.
+  const invPipe = opPersistInvariantPipes(agg, ctx, `${aggModule}Changeset`, 6);
   // Persist EVERY scalar column off the returned struct, not an empty
   // `change(%{})`: `force_change`, because the changeset data already carries
   // the new value.  See `externPersistForceChanges`.
@@ -1517,7 +1510,7 @@ function renderNamedOpFunction(
   // returned struct.  Handled by its own renderer (the empty-changeset path below
   // was the silent-204 bug this fixes — proposal §1b).
   if (isExternOp(op)) {
-    return renderExternOpFunction(facadeMod, agg, aggPascal, aggSnake, op);
+    return renderExternOpFunction(facadeMod, ctx, agg, aggPascal, aggSnake, op);
   }
   const opSnake = snake(op.name);
   const aggModule = `${facadeMod}.${aggPascal}`;
@@ -1699,23 +1692,18 @@ function renderNamedOpFunction(
   const opLockPipe6 = opVersioned ? "\n      |> Ecto.Changeset.optimistic_lock(:version)" : "";
   const opLockPipe = opVersioned ? "\n    |> Ecto.Changeset.optimistic_lock(:version)" : "";
 
-  // Operation persistence re-runs the aggregate's cross-field invariants (the
-  // audit's "operation persist skips validation"): the plain `change(%{})` +
-  // `put_change` path bypasses every changeset validator, so a `handle := …`
-  // mutation could break `handle != email`.  Pipe the persisted changeset
-  // through the changeset module's `validate_invariants/1` before the write so an
-  // unmet invariant returns `{:error, changeset}` (422) instead of committing.
-  // Gated on residual invariants → byte-identical when the aggregate has none.
+  // Operation persistence re-runs the aggregate's invariants: the plain
+  // `change(%{})` + `force_change` path bypasses every changeset validator, so a
+  // `qty := n` could break `invariant qty >= 0` and a `handle := …` could break
+  // `handle != email`.  Both halves of the floor run before the write — the
+  // single-field `validate_field_invariants/1` and the residual
+  // `validate_invariants/1` (`validate_domain_floor/1` when a named rule
+  // carries a wire code, so its violation answers the domain-floor 422 with its
+  // errors[] entry) — and an unmet one returns `{:error, changeset}` (422)
+  // instead of committing.
   const changesetMod = `${aggModule}Changeset`;
-  // M-T1.11 (c): an operation persist is the DOMAIN FLOOR — with a named
-  // invariant present it runs the `validate_domain_floor/1` twin, so a named
-  // violation answers the domain-floor 422 with its errors[] entry (not the
-  // request changeset's "Validation failed").
-  const invFn = aggregateHasDomainFloorCodes(agg) ? "validate_domain_floor" : "validate_invariants";
-  const invPipe = aggregateHasResidualInvariants(agg) ? `\n    |> ${changesetMod}.${invFn}()` : "";
-  const invPipe6 = aggregateHasResidualInvariants(agg)
-    ? `\n      |> ${changesetMod}.${invFn}()`
-    : "";
+  const invPipe = opPersistInvariantPipes(agg, ctx, changesetMod, 4);
+  const invPipe6 = opPersistInvariantPipes(agg, ctx, changesetMod, 6);
   // M-T5.1 — a value object this op's body BUILT (`qty := Qty { value: n }`)
   // is persisted through `force_change`, which runs no validator; re-run its
   // constructor so a refused value answers the domain-floor 422 with an

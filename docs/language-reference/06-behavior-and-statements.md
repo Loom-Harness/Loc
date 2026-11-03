@@ -51,9 +51,9 @@ private recompute(): void {
 }
 public confirm(): void {
   if (!(this._status === Status.Draft)) throw new DisallowedError("operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft).");
-  if (!(this.isMutable())) throw new DomainError("Precondition failed: isMutable()");
+  if (!(this.isMutable())) throw new DomainError("Business rule violated");
   this.recompute();
-  if (!(this._lines.length > 0)) throw new DomainError("Precondition failed: lines.count > 0");
+  if (!(this._lines.length > 0)) throw new DomainError("Business rule violated");
   this._status = Status.Placed;
   this._events.push({ type: "OrderConfirmed", order: this._id, at: new Date() });
   this._assertInvariants();
@@ -65,9 +65,9 @@ public confirm(): void {
 public void Confirm()
 {
     if (!(this.Status == Status.Draft)) throw new DisallowedException("operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft).");
-    if (!(this.IsMutable())) throw new DomainException("Precondition failed: isMutable()");
+    if (!(this.IsMutable())) throw new DomainException("Business rule violated");
     this.Recompute();
-    if (!(this.Lines.Count > 0)) throw new DomainException("Precondition failed: lines.count > 0");
+    if (!(this.Lines.Count > 0)) throw new DomainException("Business rule violated");
     Status = Status.Placed;
     _domainEvents.Add(new OrderConfirmed(Order: this.Id, At: DateTime.UtcNow));
     AssertInvariants();
@@ -78,9 +78,9 @@ public void Confirm()
 // features/orders/Order.java
 public void confirm() {
     if (!(this.status == Status.Draft)) throw new DisallowedException("operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft).");
-    if (!(this.isMutable())) throw new DomainException("Precondition failed: isMutable()");
+    if (!(this.isMutable())) throw new DomainException("Business rule violated");
     this.recompute();
-    if (!(this.lines.size() > 0)) throw new DomainException("Precondition failed: lines.count > 0");
+    if (!(this.lines.size() > 0)) throw new DomainException("Business rule violated");
     this.status = Status.Placed;
     this._domainEvents.add(new OrderConfirmed(this.id, Instant.now()));
     this._assertInvariants();
@@ -93,10 +93,10 @@ def confirm(self) -> None:
     if not (self._status == Status.Draft):
         raise DisallowedError("operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft).")
     if not (self._is_mutable()):
-        raise DomainError("Precondition failed: isMutable()")
+        raise DomainError("Business rule violated")
     self._recompute()
     if not (len(self._lines) > 0):
-        raise DomainError("Precondition failed: lines.count > 0")
+        raise DomainError("Business rule violated")
     self._status = Status.Placed
     self._events.append(OrderConfirmed(order=self._id, at=datetime.now(UTC)))
     self._assert_invariants()
@@ -108,8 +108,8 @@ def confirm(self) -> None:
 # and the event is broadcast over Phoenix.PubSub after the save.
 def confirm_order(%ExApi.Orders.Order{} = record, params) when is_map(params) do
   with :ok <- ensure(record.status == :Draft, {:disallowed, "operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft)."}),
-       :ok <- ensure(is_mutable(record), {:precondition_failed, "Precondition failed: isMutable()"}),
-       :ok <- ensure(Enum.count(record.lines) > 0, {:precondition_failed, "Precondition failed: lines.count > 0"}) do
+       :ok <- ensure(is_mutable(record), {:precondition_failed, "Business rule violated"}),
+       :ok <- ensure(Enum.count(record.lines) > 0, {:precondition_failed, "Business rule violated"}) do
     record = __op_recompute(record)  # the private op as a module-local pure transform
     record = %{record | status: :Placed}
     changeset =
@@ -210,7 +210,7 @@ if not (body.isStaff):
 ```elixir
 # lib/ex_api/orders.ex — the context function's `with` chain
 with :ok <- ensure(is_staff, {:forbidden, "Forbidden: isStaff"}),
-     :ok <- ensure(Decimal.compare(price, Decimal.new("0.00")) == :gt, {:precondition_failed, "Precondition failed: price > money(\"0.00\")"}) do
+     :ok <- ensure(Decimal.compare(price, Decimal.new("0.00")) == :gt, {:precondition_failed, "Business rule violated"}) do
 ```
 ::: end
 
@@ -250,7 +250,7 @@ public rename(o: string | null): void {
   }
 }
 public stampOrg(): void {
-  if (!(currentUser.org !== null)) throw new DomainError("Precondition failed: currentUser.org != null", "precondition");
+  if (!(currentUser.org !== null)) throw new DomainError("Business rule violated", "precondition");
   this._name = currentUser.org.toLowerCase();
 }
 ```
@@ -781,7 +781,7 @@ context Orders {
 ```ts
 // domain/order.ts — record variant flattens beside the `type` tag on the wire
 public place(): ({ type: "Order"; id: string; /* …the Order wire shape… */ } | { type: "NotAllowed"; reason: string }) {
-  if (!(this._status === Status.Draft)) throw new DomainError("Precondition failed: status == Status.Draft");
+  if (!(this._status === Status.Draft)) throw new DomainError("Business rule violated");
   return { type: "NotAllowed", ...(({ reason: "already placed" })) };
 }
 ```
@@ -790,7 +790,7 @@ public place(): ({ type: "Order"; id: string; /* …the Order wire shape… */ }
 // Domain/Orders/Order.cs — constructs the union variant record <Union>_<Tag>(…)
 public OrderOrNotAllowed Place()
 {
-    if (!(this.Status == Status.Draft)) throw new DomainException("Precondition failed: status == Status.Draft");
+    if (!(this.Status == Status.Draft)) throw new DomainException("Business rule violated");
     return new OrderOrNotAllowed_NotAllowed("already placed");
 }
 ```
@@ -798,7 +798,7 @@ public OrderOrNotAllowed Place()
 ```java
 // features/orders/Order.java — variant record, args ordered by the variant's declared fields
 public OrderOrNotAllowed place() {
-    if (!(this.status == Status.Draft)) throw new DomainException("Precondition failed: status == Status.Draft");
+    if (!(this.status == Status.Draft)) throw new DomainException("Business rule violated");
     return new OrderOrNotAllowed_NotAllowed("already placed");
 }
 ```
@@ -807,14 +807,14 @@ public OrderOrNotAllowed place() {
 # app/domain/order.py — a dict carrying the wire keys
 def place(self) -> dict[str, object]:
     if not (self._status == Status.Draft):
-        raise DomainError("Precondition failed: status == Status.Draft")
+        raise DomainError("Business rule violated")
     return {"type": "NotAllowed", **{"reason": "already placed"}}
 ```
 == elixir
 ```elixir
 # lib/ex_api/orders.ex — the value is the last expression; an error variant is an {:error, tag, fields} tuple
 def place_order(%ExApi.Orders.Order{} = record, params) when is_map(params) do
-  with :ok <- ensure(record.status == :Draft, {:precondition_failed, "Precondition failed: status == Status.Draft"}) do
+  with :ok <- ensure(record.status == :Draft, {:precondition_failed, "Business rule violated"}) do
     {:error, "NotAllowed", %{reason: "already placed"}}
   end
 end
