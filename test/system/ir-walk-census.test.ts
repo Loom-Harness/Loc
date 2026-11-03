@@ -955,7 +955,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/typescript/repository-find-predicate.ts#isNullableValue": SHAPE_PREDICATE,
   "src/generator/typescript/repository-find-predicate.ts#renderColumnRef": SHAPE_PREDICATE,
   "src/generator/typescript/repository-find-predicate.ts#renderValue": SOUND_FALLBACK_DISPATCH,
-  "src/ir/enrich/enrichments.ts#synthesizeFindAllRetrievals": SELECTS_FROM_COMPLETE_SET,
   "src/ir/util/principal-term.ts#operand": SHAPE_PREDICATE,
   "src/ir/util/ref-collection.ts#refCollectionFieldName": SHAPE_PREDICATE,
   "src/ir/validate/checks/if-stmt-checks.ts#returnsAreTailOnly": SOUND_FALLBACK_DISPATCH,
