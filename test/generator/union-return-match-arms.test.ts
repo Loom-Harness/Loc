@@ -171,7 +171,9 @@ describe("return match — every backend answers the arm's own variant", () => {
 
   it("domain services answer each arm's own variant", async () => {
     const node = find(await files("node", SERVICE), "domain/services.ts");
-    expect(body(node, "triage(")).toContain('return { type: "Rejected", ...(({ reason: notes })) };');
+    expect(body(node, "triage(")).toContain(
+      'return { type: "Rejected", ...(({ reason: notes })) };',
+    );
     const elixir = find(await files("elixir", SERVICE), "/domain/services/triage.ex");
     expect(elixir).toContain('{:error, "Rejected", %{reason: notes}}');
     expect(elixir).toContain("{:ok, %{notes: notes}}");

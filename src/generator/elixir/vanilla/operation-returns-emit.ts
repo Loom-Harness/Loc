@@ -71,11 +71,7 @@ import { renderElixirMatchStmt } from "./match-stmt-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { collectVanillaLeaves, provColumn, provenancedFieldsOf } from "./provenance-emit.js";
 import { isRefCollFieldName, refCollPutAssocValue } from "./ref-collection-emit.js";
-import {
-  renderElixirUnionReturn,
-  returnAlwaysFails,
-  returnCanFail,
-} from "./union-return-emit.js";
+import { renderElixirUnionReturn, returnAlwaysFails, returnCanFail } from "./union-return-emit.js";
 import { valueRowFieldsOf } from "./value-collection-schema-emit.js";
 import {
   EXPECTED_VERSION_BIND,
@@ -778,7 +774,8 @@ export function renderReturningOpFunction(
   const lastStmt = op.statements[op.statements.length - 1];
   const trailingReturn = lastStmt?.kind === "return" ? lastStmt : undefined;
   const trailingIsError =
-    trailingReturn !== undefined && returnAlwaysFails(trailingReturn, (tag) => isErrorTag(tag, ctx));
+    trailingReturn !== undefined &&
+    returnAlwaysFails(trailingReturn, (tag) => isErrorTag(tag, ctx));
   // A trailing `return this` / aggregate-typed success return commits the same
   // mutated aggregate as a fall-through — normalize it onto the persist path
   // (the success wire projects off `saved`).  A trailing NON-aggregate success
