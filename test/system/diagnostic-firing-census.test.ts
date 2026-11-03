@@ -1232,7 +1232,7 @@ system S {
   "loom.variant-match-placement": repoOnly(`    aggregate Order with crudish {
       code: string
       note: string?
-      function label(): string {
+      function noteLabel(): string {
         match note {
           string s => { let shown = s }
           else => { let shown = code }

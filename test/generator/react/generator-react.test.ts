@@ -122,7 +122,7 @@ describe("react generator", () => {
     const model = await buildModel("examples/acme.ddd");
     const { files } = generateSystems(model);
     const newOrder = files.get("web_app/src/pages/orders/new.tsx")!;
-    expect(newOrder).toMatch(/<TextInput label="Placed At"[^>]*type="datetime-local"/);
+    expect(newOrder).toMatch(/<TextInput label=\{ t\("Orders\.Order\.field\.placedAt", "Placed At"\) \}[^>]*type="datetime-local"/);
     expect(newOrder).not.toMatch(/DateTimePicker/);
     expect(newOrder).not.toMatch(/@mantine\/dates/);
     const orderPo = files.get("web_app/e2e/pages/order.ts")!;
@@ -170,7 +170,7 @@ describe("react generator", () => {
     // its inputs in a styled <Fieldset variant="filled" radius="md">.
     const productNew = files.get("web_app/src/pages/products/new.tsx")!;
     expect(productNew).toMatch(
-      /<Fieldset legend="Price" variant="filled" radius="md" data-testid="products-new-input-price">/,
+      /<Fieldset legend=\{ t\("Products\.Product\.field\.price", "Price"\) \} variant="filled" radius="md" data-testid="products-new-input-price">/,
     );
     // Children render inside a <Stack gap="sm">.
     expect(productNew).toMatch(/<Stack gap="sm">/);
@@ -317,7 +317,7 @@ describe("react generator", () => {
       );
       // Per-aggregate NavLink with active prop wired through useLocation.
       expect(app).toMatch(
-        /<NavLink component=\{RouterLink\} to="\/orders" label=\{t\("WebApp\.page\.List\.menu\.label\.\w+", "Orders"\)\} active=\{isActive\("\/orders"\)\}/,
+        /<NavLink component=\{RouterLink\} to="\/orders" label=\{t\("Orders\.Order\.name\.other", "Orders"\)\} active=\{isActive\("\/orders"\)\}/,
       );
       // Index-page NavLinks use exact-match so /workflows doesn't
       // shadow /workflows/<slug>.
@@ -642,9 +642,9 @@ describe("react generator", () => {
       expect(page).toMatch(/usePlaceOrderWorkflow/);
       // String param → TextInput; X id → Select with target's display field;
       // int → NumberInput with allowDecimal={false}.
-      expect(page).toMatch(/<TextInput label="Customer Id"/);
-      expect(page).toMatch(/<Select label="Product Id"[\s\S]+?__products\.data/);
-      expect(page).toMatch(/<NumberInput label="Quantity"[\s\S]+?allowDecimal=\{false\}/);
+      expect(page).toMatch(/<TextInput label=\{ t\("Orders\.placeOrder\.field\.customerId", "Customer Id"\) \}/);
+      expect(page).toMatch(/<Select label=\{ t\("Orders\.placeOrder\.field\.productId", "Product Id"\) \}[\s\S]+?__products\.data/);
+      expect(page).toMatch(/<NumberInput label=\{ t\("Orders\.placeOrder\.field\.quantity", "Quantity"\) \}[\s\S]+?allowDecimal=\{false\}/);
       // useAllProducts pulled in for the Product id Select.
       expect(page).toMatch(/import \{ useAllProducts \} from "\.\.\/\.\.\/api\/product"/);
       // Submit button + success/error toast.
@@ -678,7 +678,7 @@ describe("react generator", () => {
         /<NavLink component=\{RouterLink\} to="\/workflows" label="All workflows"[\s\S]*?data-testid="nav-workflows"/,
       );
       expect(app).toMatch(
-        /<NavLink component=\{RouterLink\} to="\/workflows\/place_order" label=\{t\("WebApp\.page\.\w+\.menu\.label\.\w+", "Place Order"\)\}[\s\S]*?data-testid="nav-workflow-place_order"/,
+        /<NavLink component=\{RouterLink\} to="\/workflows\/place_order" label=\{t\("Orders\.placeOrder\.name\.one", "Place Order"\)\}[\s\S]*?data-testid="nav-workflow-place_order"/,
       );
     });
   });

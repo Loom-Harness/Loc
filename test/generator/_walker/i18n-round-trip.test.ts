@@ -331,6 +331,27 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
       '`DestroyForm`\'s button ("Delete Product") renders raw in the Flutter form runtime ' +
       "(`forms.dart`), which owns the widget's label",
   },
+  {
+    kind: "defect",
+    id: "model-text-fanout(heex)",
+    targets: HEEX,
+    menus: BOTH,
+    key: /^Cat\.\w+\.(field|op)\.\w+$/,
+    reason:
+      "a scaffold `label(Product.price)` column header / key-value label / op trigger renders " +
+      "its English default on HEEx (the `model-text-fanout(heex)` stand-ins) until the gettext " +
+      "path keys model text by identity (the model-text fan-out)",
+  },
+  {
+    kind: "defect",
+    id: "model-text-fanout(heex)/heading",
+    targets: HEEX,
+    menus: ["explicit"],
+    key: /^Cat\.\w+\.name\.other$/,
+    reason:
+      "a scaffold `Heading { plural(Product) }` renders its English default on HEEx; the derived " +
+      "sidebar reads the same key, so only the explicit-menu fixture leaves it dead (the model-text fan-out)",
+  },
   // --- design over-merge (_walker/i18n-chrome.ts) --------------------------
   {
     kind: "over-merge",
