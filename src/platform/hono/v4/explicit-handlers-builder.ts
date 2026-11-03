@@ -89,7 +89,11 @@ import {
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
 import { type EntryResult, entryErrorTags, entryResult } from "../../../ir/util/entry-result.js";
-import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
+import {
+  normalizeHandlerReturn,
+  requestRecordFor,
+  routedAbsenceAnswers404,
+} from "../../../ir/util/handler-contracts.js";
 import {
   pagedRunFindName,
   pagedRunGates,
@@ -106,6 +110,7 @@ import {
 import { type RoutedParamSource, routedParamSource } from "../../../ir/util/routed-handler.js";
 import { walkExprDeep, walkWorkflowStmtExprsDeep, workflowEmits } from "../../../ir/util/walk.js";
 import { escapeTsIdent, lowerFirst, plural, snake } from "../../../util/naming.js";
+import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import {
   emitWireSchema,
@@ -619,12 +624,23 @@ function emitRouteHandler(
       !!retRepoVar &&
       !!ctx.aggregates.find((a) => a.name === ret.agg && aggHasFieldMask(a));
     out.push(...maskBind(retMasked, "    "));
+    // A `T?` entity return answers its miss as the find-absence 404, never a
+    // `toWire(null)`: bind the value once, refuse null, project the binding.
+    const absentIs404 = !!ret && routedAbsenceAnswers404(h, ctx);
+    let projected = retExpr;
+    if (absentIs404) {
+      out.push(`    const __found = ${retExpr};`);
+      out.push(
+        `    if (__found == null) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
+      );
+      projected = "__found";
+    }
     const payload = ret
       ? ret.isCollection
-        ? `${retExpr}.map((__e) => ${wireRespH(retMasked, retRepoVar!, "__e")})`
+        ? `${projected}.map((__e) => ${wireRespH(retMasked, retRepoVar!, "__e")})`
         : typedResponseName
-          ? `${wireRespH(retMasked, retRepoVar!, retExpr)} as z.infer<typeof ${typedResponseName}>`
-          : `${wireRespH(retMasked, retRepoVar!, retExpr)}`
+          ? `${wireRespH(retMasked, retRepoVar!, projected)} as z.infer<typeof ${typedResponseName}>`
+          : `${wireRespH(retMasked, retRepoVar!, projected)}`
       : `${retExpr} as unknown`;
     out.push(`    return httpCtx.json(${payload}, 200);`);
   } else {

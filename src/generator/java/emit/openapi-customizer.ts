@@ -45,14 +45,13 @@ import { requestComponentNamerFor } from "../../_openapi/request-component-names
 import {
   errorArmProblemJsonSchema,
   errorStatusJsonSchema,
-  findUnionSpec,
   type OpUnionResponses,
   opUnionResponses,
   unionMembersJsonSchema,
 } from "../../_payload/union-wire.js";
 import { workflowParamPayloads } from "../../_payload/workflow-param-payloads.js";
 import { javaRequestComponentOwners } from "../request-component-owners.js";
-import { isPagedAutoAll, isPagedFind } from "./repository.js";
+import { isPagedAutoAll } from "./repository.js";
 import { returnUnionSpec } from "./unions.js";
 
 // ---------------------------------------------------------------------------
@@ -450,54 +449,6 @@ export function buildJavaOpenApiContract(
             path: pathOf(probe),
             errors: err([...probe.errorStatuses]),
           });
-        }
-      }
-
-      // Declared finds — GET /<plural>/<find_snake>.  A synthesized find
-      // (paged-run queryHandler support) is not auto-exposed, so it documents
-      // no path here — the queryHandler's own route carries the OpenAPI entry.
-      for (const entry of derivedOps.filter((o) => o.kind === "find" && !isAllFind(o))) {
-        const f = entry.find!;
-        const findPath = pathOf(entry);
-        const findErrors = err([...entry.errorStatuses]);
-        const spec = ctx ? findUnionSpec(f.returnType, agg.name, ctx) : null;
-        if (spec) {
-          // Union find: 200 is the SUCCESS variant directly (`<Agg>Response`);
-          // the union controller returns `ResponseEntity<?>` so springdoc
-          // infers nothing, hence the explicit ref.  The declared set (gated
-          // 403 + the httpStatus-resolved absent status) is the derived one.
-          routes.push({
-            method: "get",
-            path: findPath,
-            successRef: `${agg.name}Response`,
-            errors: findErrors,
-          });
-          continue;
-        }
-        if (isPagedFind(f)) {
-          // F2-W-07 — the controller returns the concrete `<Agg>Paged` record
-          // (not the raw `Paged<T>` generic springdoc would have named
-          // `Paged<Agg>Response`), so the envelope's required set must be
-          // registered here too and not only under `isPagedAutoAll`: a
-          // document / embedded / event-sourced aggregate has a NON-paged
-          // auto-findAll and can still declare a paged find.  `setRequired` is
-          // a map write, so the auto-all case re-registering it is a no-op.
-          setRequired(`${agg.name}Paged`, ["items", "page", "pageSize", "total", "totalPages"]);
-          routes.push({ method: "get", path: findPath, errors: findErrors });
-          continue;
-        }
-        if (f.returnType.kind === "array") {
-          // List find → reuse the aggregate's list wrapper, registering it (a
-          // paged auto-findAll leaves it unregistered, so the route can't rely
-          // on that).  `wrappers.set` is idempotent for the non-paged case.
-          wrappers.set(listWrapper, `${agg.name}Response`);
-          routes.push({ method: "get", path: findPath, listWrapper, errors: findErrors });
-        } else {
-          // Optional find → 404 (+403 when gated).  A GENUINELY-single find
-          // (bare `T`, not `T option`) does NOT declare the optional
-          // convention's 404 — the derivation classifies it `findSingle`,
-          // matching what the controller answers.
-          routes.push({ method: "get", path: findPath, errors: findErrors });
         }
       }
     }

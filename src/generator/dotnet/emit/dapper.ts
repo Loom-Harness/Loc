@@ -2010,10 +2010,16 @@ export function renderDapperRepository(
         // placeholder in the SQL); only the C# local holding the bag may move.
         return `        ${L("p")}.Add("${p.name}", ${val});`;
       }),
-      // Principal params (`__cu_<claim>`) — the spliced capability filter's refs
-      // plus any the retrieval's own `where` carries — bound from the ambient
-      // request principal (the retrieval method takes no `currentUser` param).
-      ...dedupPrincipalRefs([...filterPrincipalRefs, ...collectFilterPrincipalRefs([r.where])]).map(
+      // Principal params (`__cu_<claim>`) — the refs of the capability filters
+      // the retrieval keeps plus any its own `where` carries — bound from the
+      // ambient request principal (the retrieval method takes no `currentUser`
+      // param).  A widened read's own retrieval drops the filters its stance
+      // names, so it binds none of theirs: `ignoring *` must not dereference
+      // the principal an unauthenticated call does not have.
+      ...dedupPrincipalRefs([
+        ...filterPrincipalRefsFor({ bypassAll: r.bypassAll, bypassCaps: r.bypassCaps }),
+        ...collectFilterPrincipalRefs([r.where]),
+      ]).map(
         (pr) =>
           `        ${L("p")}.Add("${pr.param}", ${principalValue(pr, AMBIENT_CURRENT_USER)});`,
       ),

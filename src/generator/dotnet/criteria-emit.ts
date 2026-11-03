@@ -14,6 +14,7 @@
 // slice — so the emitted set always compiles.
 
 import type { BoundedContextIR, CriterionIR, ExprIR } from "../../ir/types/loom-ir.js";
+import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { firstNonQueryableNode } from "../../ir/validate/validate.js";
 import { lines } from "../../util/code-builder.js";
@@ -53,7 +54,30 @@ export function canEmitToExpressionFor(
   const crit = ctx.criteria.find((c) => c.name === criterionName);
   if (!crit) return false;
   if (candidateName(crit, ctx) !== aggName) return false;
-  return firstNonQueryableNode(crit.body) === null;
+  return hasQueryFace(crit.body);
+}
+
+/** Does a criterion body get the EF `ToExpression()` query face?  It must be
+ *  in the queryable subset AND read no reference collection: a
+ *  `this.<refColl>.contains(x)` membership lives in a join table EF `Ignore`s on
+ *  the owner, so the only translatable form is a subquery against the
+ *  DbContext's join set, which a Domain-layer expression cannot name.  Such a
+ *  read is filtered by the repository instead (`retrievalWhereInRepository`). */
+function hasQueryFace(body: ExprIR): boolean {
+  if (firstNonQueryableNode(body) !== null) return false;
+  let readsRefColl = false;
+  walkExprDeep(body, (e) => {
+    if (
+      e.kind === "method-call" &&
+      e.member === "contains" &&
+      e.receiverType.kind === "array" &&
+      e.receiverType.element.kind === "id" &&
+      refCollectionFieldName(e.receiver) !== null
+    ) {
+      readsRefColl = true;
+    }
+  });
+  return !readsRefColl;
 }
 
 /** The aggregate name a criterion is a `Criterion<T>` over, or `undefined`
@@ -104,7 +128,7 @@ function renderCriterion(c: CriterionIR, candidate: string, ns: string): string 
   // The *query* face is emitted only for criteria in the queryable subset —
   // `ToExpression()` is meant for EF `IQueryable`/`Where`, so a body that
   // can't translate to SQL gets the evaluate face only.
-  const queryable = firstNonQueryableNode(c.body) === null;
+  const queryable = hasQueryFace(c.body);
   // Namespaces beyond the SDK implicit-usings set the body reaches into
   // (e.g. `matches` → `System.Text.RegularExpressions`).
   const usings = new Set<string>([

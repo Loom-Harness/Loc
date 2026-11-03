@@ -19,15 +19,22 @@ import {
   isAggregate,
   isDomainService,
   isExpectStmt,
+  isLetStmt,
+  isMemberSuffix,
+  isPostfixChain,
   isTestBlock,
   isValueObject,
+  type LetStmt,
   type Model,
   type Statement,
   type TestBlock,
   type ValueObject,
 } from "../../language/generated/ast.js";
-import type { ExprIR, TestIR, TestStmtIR } from "../types/loom-ir.js";
+import { classifyRepoArg, queryNamesOf } from "../../language/repo-query-arg.js";
+import { bypassReadMethodName } from "../../util/repository-contract.js";
+import type { BypassReadIR, ExprIR, TestIR, TestStmtIR } from "../types/loom-ir.js";
 import type { OriginRef } from "../types/origin.js";
+import { resolveBypass } from "./lower-capabilities.js";
 import { lowerExpr } from "./lower-expr.js";
 import { lowerStatement } from "./lower-stmt.js";
 import { cstText, type Env } from "./lower-types.js";
@@ -89,7 +96,7 @@ export function lowerTest(block: TestBlock, env: Env): TestIR {
       statements.push(expectStmtIR(lowerExpr(s.expr, inner), cstText(s.expr), originFor(s)));
     } else {
       const r = lowerStatement(s as Statement, inner);
-      statements.push(r.stmt);
+      statements.push(isLetStmt(s) ? widenByIdRead(r.stmt, s, inner) : r.stmt);
       inner = r.envAfter;
     }
   }
@@ -98,6 +105,30 @@ export function lowerTest(block: TestBlock, env: Env): TestIR {
     statements,
     verifiesTestCase: block.verifies?.ref?.name,
     origin: originFor(block),
+  };
+}
+
+/** A context integration test's `let o = Order.find(id) ignoring …`: the read
+ *  calls its own widened method, so name it on the lowered call and carry the
+ *  source + stance enrichment derives that method from.  Any other `let`
+ *  passes through unchanged (placement refuses `ignoring` everywhere else in a
+ *  test body). */
+function widenByIdRead(stmt: TestStmtIR, s: LetStmt, env: Env): TestStmtIR {
+  const chain = s.expr;
+  if (stmt.kind !== "let" || stmt.expr.kind !== "method-call" || !isPostfixChain(chain)) {
+    return stmt;
+  }
+  const stance = resolveBypass(chain);
+  if (!stance.bypassAll && !stance.bypassCaps) return stmt;
+  const call = stmt.expr;
+  const arg = chain.suffixes.at(-1);
+  const positional = arg && isMemberSuffix(arg) ? arg.args?.find((a) => !a.name)?.value : undefined;
+  if (call.member !== "find" || classifyRepoArg(positional, queryNamesOf(env.ctx)) === "criterion")
+    return stmt;
+  const bypassRead: BypassReadIR = { source: { kind: "id" }, ...stance };
+  return {
+    ...stmt,
+    expr: { ...call, member: bypassReadMethodName(bypassRead.source, bypassRead), bypassRead },
   };
 }
 

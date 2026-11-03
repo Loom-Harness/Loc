@@ -53,7 +53,11 @@ import type {
 import { handlerUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { entryResult } from "../../ir/util/entry-result.js";
-import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
+import {
+  normalizeHandlerReturn,
+  requestRecordFor,
+  routedAbsenceAnswers404,
+} from "../../ir/util/handler-contracts.js";
 import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
 import {
   pagedRunFindName,
@@ -73,6 +77,7 @@ import {
   pythonWireNeedsAlias,
   snake,
 } from "../../util/naming.js";
+import { FIND_ABSENT_DETAIL } from "../../util/repository-contract.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { hasMarkers } from "../_imports/symbol.js";
@@ -223,7 +228,7 @@ function renderPyExternImpl(h: Handler, ctx: EnrichedBoundedContextIR): string {
 
 /** The repos a handler body references (repo loads + exit-saves), keyed by
  *  repo name → aggregate name.  The handler constructs `<Agg>Repository(...)`
- *  for each and the workflow stmt target names the handle `snake(repoName)`.
+ *  for each and the workflow stmt target names the handle `pythonIdent(repoName)`.
  *  INSERTION ORDER is load-bearing (two call sites iterate `repos` directly
  *  to emit per-repo lines/params), so this keeps the original per-kind
  *  ordering exactly — `walkWorkflowStmtsDeep`'s uniform pre-order visits a
@@ -301,7 +306,7 @@ function renderPagedRunHandlerModule(
 ): string {
   const fnName = snake(h.name);
   const run = pagedRunStmt(h, ctx);
-  const repoVar = snake(run.repoName);
+  const repoVar = pythonIdent(run.repoName);
   const dispatcherExpr = dispatcherFor(hasDispatch);
   const rctx: PyRenderContext = { thisName: "self", recordParamNames: new Set() };
   const critArgs = run.retrievalArgs.map((a) => renderPyExpr(a, rctx));
@@ -439,7 +444,7 @@ function renderHandlerModule(
       if (projAgg && aggHasFieldMask(projAgg)) projectWire = "to_wire_masked";
       for (const [repo, agg] of repos) {
         if (agg === info.base) {
-          projectRepoHandle = snake(repo);
+          projectRepoHandle = pythonIdent(repo);
           break;
         }
       }
@@ -447,7 +452,7 @@ function renderHandlerModule(
       // construct a repo purely to project it, keyed by its plural name.
       if (!projectRepoHandle) {
         const repoName = plural(info.base);
-        projectRepoHandle = snake(repoName);
+        projectRepoHandle = pythonIdent(repoName);
         repos.set(repoName, info.base);
       }
     }
@@ -470,7 +475,7 @@ function renderHandlerModule(
         ? renderPyType(normRet)
         : "None";
   const repoLines = [...repos].map(
-    ([repo, agg]) => `    ${snake(repo)} = ${repoClassRef(agg)}(session, ${dispatcherExpr})`,
+    ([repo, agg]) => `    ${pythonIdent(repo)} = ${repoClassRef(agg)}(session, ${dispatcherExpr})`,
   );
 
   // A dead `let` would trip ruff F841 — keep the used set current by folding the
@@ -488,12 +493,28 @@ function renderHandlerModule(
     "    ",
   ).flat();
   const saveLines = h.savesAtExit.flatMap((s) => renderSave(s, "    "));
-  const returnExpr = h.returnValue
+  // A `T?` entity return answers its miss as the find-absence 404: bind the
+  // value once, refuse None, project the binding (`to_wire(None)` would raise).
+  const absentIs404 = !!projectRepoHandle && routedAbsenceAnswers404(h, ctx);
+  const returnValueExpr = h.returnValue
+    ? absentIs404
+      ? "__found"
+      : renderPyExpr(h.returnValue, rctx)
+    : null;
+  const absentLines =
+    absentIs404 && h.returnValue
+      ? [
+          `    __found = ${renderPyExpr(h.returnValue, rctx)}`,
+          `    if __found is None:`,
+          `        raise ${H.AggregateNotFoundError}(${JSON.stringify(FIND_ABSENT_DETAIL)})`,
+        ]
+      : [];
+  const returnExpr = returnValueExpr
     ? projectRepoHandle
       ? projectIsCollection
-        ? `[${projectRepoHandle}.${projectWire}(__e) for __e in ${renderPyExpr(h.returnValue, rctx)}]`
-        : `${projectRepoHandle}.${projectWire}(${renderPyExpr(h.returnValue, rctx)})`
-      : renderPyExpr(h.returnValue, rctx)
+        ? `[${projectRepoHandle}.${projectWire}(__e) for __e in ${returnValueExpr}]`
+        : `${projectRepoHandle}.${projectWire}(${returnValueExpr})`
+      : returnValueExpr
     : null;
   const returnLines =
     er && h.returnType?.kind === "union"
@@ -513,7 +534,7 @@ function renderHandlerModule(
         ? [`    return ${returnExpr}`]
         : [];
 
-  const bodyLines = [...repoLines, ...stmtLines, ...saveLines, ...returnLines];
+  const bodyLines = [...repoLines, ...stmtLines, ...saveLines, ...absentLines, ...returnLines];
   const body = bodyLines.length > 0 ? bodyLines.join("\n") : "    pass";
 
   const def = `async def ${fnName}(${params}) -> ${ret}:\n${body}\n`;

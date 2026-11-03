@@ -509,7 +509,6 @@ describe("(e) audit-names — AUDIT_HISTORY_FIND has exactly one spelling", () =
       "src/ir/util/entity-history-read.ts",
       "src/generator/_frontend/api-module.ts",
       "src/generator/feliz/wire.ts",
-      "src/generator/feliz/feliz-target.ts",
       "src/ir/util/audit-history.ts",
       "src/language/validators/_shared.ts",
     ];

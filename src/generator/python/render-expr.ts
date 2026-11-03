@@ -647,7 +647,7 @@ function renderCall(args: string[], e: CallExpr, ctx: PyRenderContext): string {
       // dropping to the whole-table `find_all`; a single-result `find` takes the
       // first row.
       const read = e.repoRead!;
-      const handle = snake(read.repo);
+      const handle = pythonIdent(read.repo);
       if (read.retrievalName) {
         const call = `${handle}.run_${snake(read.retrievalName)}(${argList})`;
         return read.op === "select-one"

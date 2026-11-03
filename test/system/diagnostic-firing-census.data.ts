@@ -155,7 +155,6 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.findall-criterion-arity",
   "loom.findall-criterion-mismatch",
   "loom.findall-no-page",
-  "loom.findall-unknown-criterion",
   "loom.frontend-collection-op-unsupported",
   "loom.function-block-no-return",
   "loom.function-recursive",

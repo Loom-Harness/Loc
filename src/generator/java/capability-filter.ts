@@ -44,12 +44,7 @@ import {
   readFilterRestrictions,
   readScopeFor,
 } from "../../ir/enrich/read-scope.js";
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  ExprIR,
-  WorkflowStmtIR,
-} from "../../ir/types/loom-ir.js";
+import type { AggregateIR, BoundedContextIR, ExprIR } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isQueryTimeProjection } from "../../ir/types/loom-ir.js";
 import {
   isTphBase,
@@ -57,7 +52,7 @@ import {
   tableOwnerName,
   tphConcretesOf,
 } from "../../ir/util/inheritance.js";
-import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import { runBypassesByRetrieval } from "../_persistence/run-bypass.js";
 import {
   type FilterParam,
   renderSqlFilterCondition,
@@ -103,28 +98,10 @@ function nonPrincipalCapabilityOrigins(agg: AggregateIR): string[] {
   return out;
 }
 
-/** Collect the `ignoring`-bearing inline `Repo.findAll`/`run` reads in a
- *  workflow-statement body (descends into every nested body),
- *  pairing each bypass spec with the aggregate it targets. */
-function collectRepoRunBypasses(
-  stmts: readonly WorkflowStmtIR[],
-  out: { aggName: string; bypass: FilterBypass }[],
-): void {
-  for (const root of stmts) {
-    walkWorkflowStmtsDeep(root, (s) => {
-      if (s.kind === "repo-run" && (s.bypassAll || (s.bypassCaps?.length ?? 0) > 0)) {
-        out.push({
-          aggName: s.aggName,
-          bypass: { bypassAll: s.bypassAll, bypassCaps: s.bypassCaps },
-        });
-      }
-    });
-  }
-}
-
 /** Every `ignoring`-bearing read of `agg` in `ctx` — repository finds, views
- *  over the aggregate, and inline repo-runs in workflow bodies — as a list of
- *  bypass specs. */
+ *  over the aggregate, and the retrievals a widened inline `Repo.all(…)` read
+ *  runs (from any workflow, reactor or handler body) — as a list of bypass
+ *  specs. */
 function bypassesForAggregate(agg: AggregateIR, ctx: BoundedContextIR): FilterBypass[] {
   const bypasses: FilterBypass[] = [];
   for (const repo of ctx.repositories) {
@@ -135,14 +112,7 @@ function bypassesForAggregate(agg: AggregateIR, ctx: BoundedContextIR): FilterBy
       }
     }
   }
-  const repoRuns: { aggName: string; bypass: FilterBypass }[] = [];
-  for (const wf of ctx.workflows) {
-    for (const c of wf.creates) collectRepoRunBypasses(c.statements, repoRuns);
-    for (const on of wf.subscriptions ?? []) collectRepoRunBypasses(on.statements, repoRuns);
-  }
-  for (const r of repoRuns) {
-    if (r.aggName === agg.name) bypasses.push(r.bypass);
-  }
+  bypasses.push(...inlineRunBypassesByRetrieval(ctx, agg.name).values());
   // A query-time projection's `ignoring` bypasses its `from` source aggregate's
   // filters through the synthesised source find — so it PROMOTES the cap too.
   for (const p of ctx.projections ?? []) {
@@ -168,45 +138,17 @@ export function promotedCapabilities(agg: AggregateIR, ctx: BoundedContextIR): s
   return origins.filter((cap) => bypasses.some((b) => bypassDrops(cap, b)));
 }
 
-/** The UNION bypass spec per retrieval name, drawn from the inline
- *  `Repo.run(<Retrieval>(…)) ignoring …` call-sites in `ctx`'s workflows that
- *  hit `aggName`.  A retrieval's `run<Name>` impl method is SHARED across
- *  call-sites, so its disable set must cover EVERY site's bypass: `bypassAll` if
- *  any site bypasses all, else the union of the named caps.  Empty map when no
- *  inline read of `aggName` carries an `ignoring` clause. */
+/** The `ignoring` stance per retrieval of `aggName` — the shared
+ *  `runBypassesByRetrieval`, in the mutable shape this backend's emitters
+ *  take.  A widened read runs its own stance-named retrieval, so the shared
+ *  one's `run<Name>` keeps every filter. */
 export function inlineRunBypassesByRetrieval(
   ctx: BoundedContextIR,
   aggName: string,
 ): Map<string, FilterBypass> {
-  const runs: { aggName: string; bypass: FilterBypass; retrievalName?: string }[] = [];
-  const collect = (stmts: readonly WorkflowStmtIR[]): void => {
-    for (const root of stmts) {
-      walkWorkflowStmtsDeep(root, (s) => {
-        if (s.kind === "repo-run" && (s.bypassAll || (s.bypassCaps?.length ?? 0) > 0)) {
-          runs.push({
-            aggName: s.aggName,
-            bypass: { bypassAll: s.bypassAll, bypassCaps: s.bypassCaps },
-            retrievalName: s.retrievalName,
-          });
-        }
-      });
-    }
-  };
-  for (const wf of ctx.workflows) {
-    for (const c of wf.creates) collect(c.statements);
-    for (const on of wf.subscriptions ?? []) collect(on.statements);
-  }
-  const acc = new Map<string, { bypassAll: boolean; caps: Set<string> }>();
-  for (const r of runs) {
-    if (r.aggName !== aggName || !r.retrievalName) continue;
-    const cur = acc.get(r.retrievalName) ?? { bypassAll: false, caps: new Set<string>() };
-    if (r.bypass.bypassAll) cur.bypassAll = true;
-    for (const c of r.bypass.bypassCaps ?? []) cur.caps.add(c);
-    acc.set(r.retrievalName, cur);
-  }
   const out = new Map<string, FilterBypass>();
-  for (const [name, v] of acc) {
-    out.set(name, v.bypassAll ? { bypassAll: true } : { bypassCaps: [...v.caps] });
+  for (const [name, b] of runBypassesByRetrieval(ctx, aggName)) {
+    out.set(name, b.bypassAll ? { bypassAll: true } : { bypassCaps: [...(b.bypassCaps ?? [])] });
   }
   return out;
 }
