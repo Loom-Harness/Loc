@@ -87,9 +87,10 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.crudish-hard-delete":
     "../scaffold-macros.md#crudish-delete-under-softdeletable--loomcrudish-hard-delete",
   "loom.entity-field-optional-collection": "04-type-system.md#collections--t",
-  "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-envelope-option",
-  "loom.generic-position": "04-type-system.md#generic-carriers--paged-envelope-option",
+  "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-option",
+  "loom.generic-position": "04-type-system.md#generic-carriers--paged-option",
   "loom.option-deprecated": "04-type-system.md#option",
+  "loom.envelope-removed": "04-type-system.md#envelope-removed",
   "loom.token-nullable": "04-type-system.md#options--t",
   "loom.nullable-receiver": "04-type-system.md#options--t",
   "loom.bare-aggregate-in-type": "04-type-system.md#x-id--cross-aggregate-references",

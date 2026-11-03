@@ -41,7 +41,6 @@
 
 import { isRequiredUpdateInput } from "../../../ir/enrich/wire-projection.js";
 import {
-  envelopeReturn,
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
   pagedReturn,
@@ -743,9 +742,7 @@ function isDocSingleReturn(t: TypeIR): boolean {
   return (
     t.kind === "union" ||
     t.kind === "entity" ||
-    (t.kind === "optional" && t.inner.kind === "entity") ||
-    // `T envelope` — a single-row find (M-T6.57).
-    envelopeReturn(t) !== null
+    (t.kind === "optional" && t.inner.kind === "entity")
   );
 }
 

@@ -1,6 +1,6 @@
 # 4. The type system
 
-Every type position in the language: the eleven primitive scalars (plus the expression-only `duration`), the distinct `money` type that is precise in the column and a fixed-scale string on the wire, `X id` cross-aggregate references, collections and options, and the closed set of postfix generic carriers `paged` / `envelope` / `option`. Reach for it when you need to know what column a field becomes, why `money` serializes differently than `decimal`, or how a carrier projects onto each backend.
+Every type position in the language: the eleven primitive scalars (plus the expression-only `duration`), the distinct `money` type that is precise in the column and a fixed-scale string on the wire, `X id` cross-aggregate references, collections and options, and the postfix generic carriers `paged` / `option`. Reach for it when you need to know what column a field becomes, why `money` serializes differently than `decimal`, or how a carrier projects onto each backend.
 
 > **Grammar:** `TypeRef`, `TypeAtom`, `BaseType`, `PrimitiveType`, `IdType`, `NamedType`, `GenericCtor`, `DURATION` (the `timerSource` literal) · **Validators:** type-system checks in `src/language/type-system.ts`; `loom.bare-aggregate-in-type`, `loom.generic-position`, `loom.generic-arg-not-carrier`, `loom.union-*`, `loom.nullable-receiver`, `loom.duration-arity` / `loom.duration-arg-type`, `loom.file-field-needs-object-storage`, `loom.token-nullable`, `loom.list-find-removed` · **Docs:** [`../payloads.md`](../payloads.md), [`../conformance-semantics.md`](../conformance-semantics.md) (RS-12 / RS-24 — the numeric wire rules), [`../resources.md`](../resources.md) (`File` storage)
 
@@ -691,13 +691,12 @@ In a `ui` or `component` body a *field* read off a nullable record or value obje
 
 *'.trim()' can't be read on 'string?' — the receiver may be null and every backend emits a bare dereference. Guard it with a null-narrowing ternary.* The catalogue checks (`loom.intrinsic-unknown` / `-arity` / `-arg-type` / `-bare` / `-named-arg`) run on the unwrapped type, so a typo on a nullable receiver is caught too. Numeric widening composes through the optional (`int? → long?`), and the `null` literal is assignable to any `T?`.
 
-## Generic carriers — `paged`, `envelope`, `option`
+## Generic carriers — `paged`, `option`
 
-Three **carrier-bounded generic payloads** are built in, instantiated ML-postfix (the keyword follows its argument): `T paged`, `T envelope`, `T option`. `paged` and `envelope` may appear only in a **transport position** — a `queryHandler` return type or a payload field — never as a stored aggregate property (`loom.generic-position`: *A generic carrier ('paged') is a transport shape*). The argument must itself be a carrier (a primitive, an `X id`, an enum, a value object, or an aggregate, which projects through its `<Agg>Wire`); nesting two constructors (`Order envelope paged`) or a `slot` argument is rejected (`loom.generic-arg-not-carrier`). The pinned shapes — note that `envelope` is the odd one out: it is not a wire wrapper (see [§ `envelope`](#envelope)):
+`paged` is the one **carrier-bounded generic payload**, instantiated ML-postfix (the keyword follows its argument): `T paged`. It may appear only in a **transport position** — a `queryHandler` return type or a payload field — never as a stored aggregate property (`loom.generic-position`: *A generic carrier ('paged') is a transport shape*). The argument must itself be a carrier (a primitive, an `X id`, an enum, a value object, or an aggregate, which projects through its `<Agg>Wire`); nesting two constructors (`Order paged paged`) or a `slot` argument is rejected (`loom.generic-arg-not-carrier`). `T option` is a deprecated spelling of `T?`, and `T envelope` is removed:
 
 ```
 paged(T)    → { items: T[]; page: int; pageSize: int; total: int; totalPages: int }   # 1-based
-envelope(T) → T                                    # the bare body (see below)
 option(T)   → T?                                 # deprecated spelling (see § `option`)
 ```
 
@@ -753,11 +752,31 @@ end
 ```
 ::: end
 
-### `envelope`
+### `envelope` (removed)
 
-`T envelope` serialises as the bare `T` — it carries no wrapper.  Its one read
-position was a single-row `find` return; with `find` declarations removed
-([D-FINDDECL-REMOVED](../decisions.md)) it has none, and its removal is #4122.
+`T envelope` meant exactly `T` — it serialised as the bare `T` and carried no wrapper ([D-ENVELOPE-RATIFY](../decisions.md)) — so the keyword is refused. It still parses, so the error can name the replacement, and the quick fix drops it:
+
+```ddd
+queryHandler One(id: Order id): Order envelope { let o = Orders.get(id)  return o }   // error
+queryHandler One(id: Order id): Order { let o = Orders.get(id)  return o }            // the fix
+```
+```
+error: `T envelope` is removed: it meant exactly `T` (a single value), so the carrier added nothing. Write `T` instead — the quick fix drops the `envelope`.  [loom.envelope-removed]
+```
+
+A single-value read is spelled one of three ways, by what a miss means:
+
+| Result | On a hit | On a miss |
+|---|---|---|
+| `T` | `200` + the `T` body | `404` ProblemDetails (the load refuses it) |
+| `T?` | `200` + the `T` body | `404` ProblemDetails (the route refuses the `null`) |
+| `T or E` | `200` + the tagged `T` arm | the error's mapped status + its declared body |
+
+```ts
+// node — queryHandler One(id: Order id): Order
+const o = await orders.getById(id);     // absent → AggregateNotFoundError → 404
+return httpCtx.json(orders.toWire(o) as z.infer<typeof OrderResponse>, 200);
+```
 
 ### `option`
 

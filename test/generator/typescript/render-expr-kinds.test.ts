@@ -903,11 +903,6 @@ describe("ts renderTsType — generic carriers (P3b)", () => {
       "{ items: Order[]; page: number; pageSize: number; total: number; totalPages: number }",
     );
   });
-
-  it("renders `envelope` as { id; ts; body }", () => {
-    const t: TypeIR = { kind: "genericInstance", ctor: "envelope", arg: STRING };
-    expect(renderTsType(t)).toBe("{ id: string; ts: Date; body: string }");
-  });
 });
 
 void BOOL;

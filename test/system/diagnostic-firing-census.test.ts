@@ -2112,6 +2112,12 @@ system S {
   } }
 }`,
   // `T option` is the deprecated spelling of `T?`.
+  "loom.envelope-removed": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    queryHandler One(id: Order id): Order envelope {
+      let o = Orders.get(id)
+      return o
+    }`),
   "loom.option-deprecated": repoOnly(`    aggregate Order with crudish { code: string }
     repository Orders for Order
     criterion OrderByCode(code: string) of Order = this.code == code
