@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — aggregate inheritance (plan S13).  TPH: one shared
@@ -21,9 +20,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python TPH inheritance", () => {
@@ -133,9 +130,7 @@ function pagingImportersWithoutModule(files: Map<string, string>, root: string):
 describe("python base reader paging", () => {
   for (const inheritance of ["sharedTable", "ownTable"] as const) {
     it(`an unrouted ${inheritance} base reader imports no paging module that is not emitted`, async () => {
-      const { model, errors } = await parseString(MASKED_BASE(inheritance));
-      if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-      const files = generateSystems(model).files;
+      const files = await generateSystemFiles(MASKED_BASE(inheritance));
       const reader = files.get("d/app/db/repositories/thing_base_repository.py")!;
       expect(reader).toContain("class ThingBaseRepository:");
       expect(files.has("d/app/http/thing_base_routes.py")).toBe(false);
