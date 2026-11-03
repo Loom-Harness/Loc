@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 // ---------------------------------------------------------------------------
 // Legacy single-context `generate` ratchet (minted by M-T9.48 Hono, M-T9.49
@@ -293,8 +294,8 @@ for (const { gate, mission, pinned, parseStringAlongside, minRows } of GATES) {
     it("scans the whole test tree (guard against a vacuous pass)", () => {
       // If the walker silently stopped finding files, every assertion below
       // would pass on an empty set.
-      expect(scanned).toBeGreaterThan(1_000);
-      expect(rows.length).toBeGreaterThan(minRows);
+      expectReach("test files", scanned, 2472);
+      expectReach("pinned rows", rows.length, minRows + 1);
     });
 
     it("no NEW file on the legacy single-context path", () => {
