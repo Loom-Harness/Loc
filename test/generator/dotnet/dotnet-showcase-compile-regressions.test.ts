@@ -89,7 +89,9 @@ describe(".NET showcase compile regressions (conformance-parity breakers)", () =
     expect(seed).toContain(
       'Project.Create(name: "Alpha", description: null, active: true, parent: null, createdAt: DateTime.Parse("2024-01-01T00:00:00Z", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal))',
     );
-    expect(seed).toContain("using System.Globalization;");
+    // Every culture reference is fully qualified, so the file imports nothing
+    // for it — an unconditional `using System.Globalization;` was unused.
+    expect(seed).not.toContain("using System.Globalization;");
   });
 
   it("maps a nullable id-ref property with an EF value conversion (boot-crash otherwise)", async () => {

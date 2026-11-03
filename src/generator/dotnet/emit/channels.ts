@@ -12,6 +12,7 @@ import {
   type WireDecodeLeaf,
   type WireDecodeTarget,
 } from "../../_channels/wire-codec.js";
+import { csRef, csUsing } from "../../_imports/dotnet.js";
 import { numericEncode } from "../../_numeric/target.js";
 import {
   csCalendarDateParseExact,
@@ -296,7 +297,7 @@ export function renderDotnetChannels(
 /// <summary>Redis (Valkey) driver — pub/sub over StackExchange.Redis.</summary>
 public sealed class RedisChannelTransport : IChannelTransport
 {
-    private readonly Lazy<Task<ConnectionMultiplexer>> _connection;
+    private readonly Lazy<Task<${csRef("StackExchange.Redis", "ConnectionMultiplexer")}>> _connection;
     private readonly ILogger _log;
 
     public RedisChannelTransport(string url, ILogger log)
@@ -370,7 +371,7 @@ public sealed class RabbitChannelTransport : IChannelTransport, IDisposable
     private readonly string _url;
     private readonly ILogger _log;
     private readonly SemaphoreSlim _connect = new(1, 1);
-    private IConnection? _connection;
+    private ${csRef("RabbitMQ.Client", "IConnection")}? _connection;
     private IChannel? _channel;
 
     public RabbitChannelTransport(string url, ILogger log)
@@ -440,7 +441,7 @@ public sealed class RabbitChannelTransport : IChannelTransport, IDisposable
                 ["x-dead-letter-routing-key"] = address,
             });
         await ch.QueueBindAsync(queue, address, "");
-        var consumer = new AsyncEventingBasicConsumer(ch);
+        var consumer = new ${csRef("RabbitMQ.Client.Events", "AsyncEventingBasicConsumer")}(ch);
         consumer.ReceivedAsync += async (_, ea) =>
         {
             LoomEventEnvelope? envelope;
@@ -544,7 +545,7 @@ public sealed class KafkaChannelTransport : IChannelTransport, IDisposable
 {
     private readonly string _bootstrap;
     private readonly ILogger _log;
-    private readonly Lazy<IProducer<string, string>> _producer;
+    private readonly Lazy<${csRef("Confluent.Kafka", "IProducer")}<string, string>> _producer;
     private readonly List<Task> _loops = new();
     private readonly CancellationTokenSource _stopping = new();
     private readonly string? _saslUser;
@@ -590,7 +591,7 @@ public sealed class KafkaChannelTransport : IChannelTransport, IDisposable
         {
             await admin.CreateTopicsAsync(new[]
             {
-                new TopicSpecification { Name = topic, NumPartitions = 3, ReplicationFactor = 1 },
+                new ${csRef("Confluent.Kafka.Admin", "TopicSpecification")} { Name = topic, NumPartitions = 3, ReplicationFactor = 1 },
             });
         }
         catch (CreateTopicsException ex) when (ex.Results.TrueForAll(
@@ -873,7 +874,12 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-${hasKafka ? "using Confluent.Kafka;\nusing Confluent.Kafka.Admin;\n" : ""}${hasRabbit ? "using RabbitMQ.Client;\nusing RabbitMQ.Client.Events;\n" : ""}${hasRedis ? "using StackExchange.Redis;\n" : ""}using ${ns}.Domain.Common;
+${csUsing("Confluent.Kafka")}
+${csUsing("Confluent.Kafka.Admin")}
+${csUsing("RabbitMQ.Client")}
+${csUsing("RabbitMQ.Client.Events")}
+${csUsing("StackExchange.Redis")}
+using ${ns}.Domain.Common;
 using ${ns}.Domain.Enums;
 using ${ns}.Domain.Events;
 using ${ns}.Domain.Ids;

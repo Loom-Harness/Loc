@@ -10,13 +10,8 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../ir/types/loom-ir.js";
 import { escapeCsharpIdent, snake, upperFirst } from "../../util/naming.js";
-import {
-  collectWireUsings,
-  csIdValueClrType,
-  dtoParam,
-  projectToResponse,
-  wireType,
-} from "./dto-mapping.js";
+import { CS, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
+import { csIdValueClrType, dtoParam, projectToResponse, wireType } from "./dto-mapping.js";
 import { dotnetNotFoundThrow } from "./emit/common.js";
 import { sqlIdent } from "./emit/dapper.js";
 import { dapperProjectionColumns } from "./emit/dapper-workflow.js";
@@ -118,7 +113,7 @@ function renderProjectionFoldHandler(
       assignLines.push(line);
     }
   }
-  const extraUsings = [...usings].sort().map((n) => `using ${n};`);
+  const extraUsings = sortedCsUsings(usings);
   return (
     `// Auto-generated.
 using System.Threading;
@@ -319,7 +314,6 @@ function renderProjectionsController(
     const T = upperFirst(proj.name);
     const dbSet = projectionRowDbSet(proj);
     const shape = proj.wireShape ?? [];
-    for (const f of shape) collectWireUsings(wireFieldType(f), ctx, usings);
     const corr = shape.find((f) => f.source === "id");
     const corrName = upperFirst(proj.correlationField as string);
     const targetName = corr && corr.type.kind === "id" ? corr.type.targetName : "";
@@ -356,11 +350,11 @@ function renderProjectionsController(
       const selCols = cols.map((c) => sqlIdent(c.col)).join(", ");
       listBody =
         `        await using var conn = await _db.OpenConnectionAsync();\n` +
-        `        var rows = (await conn.QueryAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${sqlIdent(table)}"))).Select(${mapFn});\n` +
+        `        var rows = (await conn${CS.Dapper}.QueryAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${sqlIdent(table)}"))).Select(${mapFn});\n` +
         `        return Ok(rows.Select(x => new ${T}Response(${proj_("x")})));\n`;
       byIdBody =
         `        await using var conn = await _db.OpenConnectionAsync();\n` +
-        `        var __row = await conn.QuerySingleOrDefaultAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${sqlIdent(table)} WHERE ${sqlIdent(pkCol)} = @key", new { key }));\n` +
+        `        var __row = await conn${CS.Dapper}.QuerySingleOrDefaultAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${sqlIdent(table)} WHERE ${sqlIdent(pkCol)} = @key", new { key }));\n` +
         // M-T6.31 — raise the shared carrier instead of `NotFound()`, so the app's
         // one 404 producer (`DomainExceptionFilter`) renders the envelope.  See
         // `dotnetNotFoundThrow`.
@@ -369,11 +363,11 @@ function renderProjectionsController(
         `        return Ok(new ${T}Response(${proj_("x")}));\n`;
     } else {
       listBody =
-        `        var rows = await _db.${dbSet}.AsNoTracking().ToListAsync();\n` +
+        `        var rows = await _db.${dbSet}${CS.EfCore}.AsNoTracking().ToListAsync();\n` +
         `        return Ok(rows.Select(x => new ${T}Response(${proj_("x")})));\n`;
       byIdBody =
         `        var __key = new ${targetName}Id(key);\n` +
-        `        var x = await _db.${dbSet}.AsNoTracking().FirstOrDefaultAsync(r => r.${corrName} == __key);\n` +
+        `        var x = await _db.${dbSet}${CS.EfCore}.AsNoTracking().FirstOrDefaultAsync(r => r.${corrName} == __key);\n` +
         `        if (x is null) ${dotnetNotFoundThrow(ns, T, "key")}\n` +
         `        return Ok(new ${T}Response(${proj_("x")}));\n`;
     }
@@ -421,11 +415,9 @@ function renderProjectionsController(
         `    }\n`,
     );
   }
-  const extraUsings = [...usings].sort().map((n) => `using ${n};`);
-  const persistenceUsings = usingDapper
-    ? "using Dapper;\nusing Npgsql;"
-    : "using Microsoft.EntityFrameworkCore;";
-  const dbFieldType = usingDapper ? "NpgsqlDataSource" : "AppDbContext";
+  const extraUsings = sortedCsUsings(usings);
+  const persistenceUsings = CS_PERSISTENCE_USINGS;
+  const dbFieldType = usingDapper ? CS.NpgsqlDataSource : "AppDbContext";
   const ctorField = needsCurrentUser
     ? `    private readonly ${dbFieldType} _db;\n` +
       `    private readonly ICurrentUserAccessor _currentUser;\n` +

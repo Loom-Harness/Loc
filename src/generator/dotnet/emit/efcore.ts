@@ -32,8 +32,10 @@ import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { tableNameFor } from "../../../util/storage-names.js";
+import { csUsing } from "../../_imports/dotnet.js";
 import { BCL_COLLIDING_TYPE_NAMES, collidingNamesOfAggregate } from "../bcl-collision.js";
 import { csJsonSqlType } from "../codec-spelling.js";
+import { CS } from "../cs-symbols.js";
 import { projectionRowClass, projectionRowDbSet } from "../projection-state-emit.js";
 import { renderCsExpr } from "../render-expr.js";
 import {
@@ -715,7 +717,7 @@ export function renderConfiguration(
       "// Auto-generated.",
       // The embedded ref-collection value-converter uses LINQ (`Select`/
       // `SequenceEqual`/`Aggregate`) over the `List<TargetId>` ⇄ JSON mapping.
-      options.embedded && agg.associations.length > 0 ? "using System.Linq;" : null,
+      csUsing("System.Linq"),
       "using Microsoft.EntityFrameworkCore;",
       "using Microsoft.EntityFrameworkCore.Metadata.Builders;",
       `using ${ns}.Domain.${plural(agg.name)};`,
@@ -797,7 +799,7 @@ function embeddedRefCollectionLines(a: AssociationIR): string[] {
     `            .HasColumnName("${snake(a.fieldName)}")`,
     `            .HasColumnType("${csJsonSqlType()}")`,
     `            .HasConversion(`,
-    `                v => System.Text.Json.JsonSerializer.Serialize(v.Select(__e => __e.Value).ToList(), (System.Text.Json.JsonSerializerOptions?)null),`,
+    `                v => System.Text.Json.JsonSerializer.Serialize(v${CS.Linq}.Select(__e => __e.Value).ToList(), (System.Text.Json.JsonSerializerOptions?)null),`,
     `                v => System.Text.Json.JsonSerializer.Deserialize<${listOfInner}>(v, (System.Text.Json.JsonSerializerOptions?)null)!.Select(__v => new ${idClass}(__v)).ToList(),`,
     `                new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<${listOfId}>(`,
     `                    (__a, __b) => __a!.SequenceEqual(__b!),`,

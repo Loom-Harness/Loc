@@ -38,6 +38,7 @@ import {
   csProjectType,
   csSystemRoot,
 } from "./bcl-collision.js";
+import { CS } from "./cs-symbols.js";
 import { joinDbSetName, joinFkPropName } from "./emit/join-entities.js";
 import { csStateHolderOf } from "./emit/state-holder.js";
 import { csFindMethodName } from "./find-method-name.js";
@@ -165,16 +166,14 @@ export const AMBIENT_CURRENT_USER = "RequestContext.Current!.CurrentUser!";
 
 const DEFAULT: CsRenderContext = { thisName: "this" };
 
-/** Namespaces a rendered domain expression reaches into beyond the SDK's
- *  `<ImplicitUsings>` set.  Today the sole trigger is the
- *  `string.matches(...)` → `Regex.IsMatch` lowering, which needs
- *  `System.Text.RegularExpressions`.  This is the pure mirror of the
- *  trigger in `renderMethodCall`: file emitters call it over the same
- *  expressions they render to build their `using` header, instead of
- *  threading a mutable Set through every render call.  Walking the whole
- *  tree is safe — the renderer always renders the whole tree, so a
- *  `matches` shape anywhere is rendered (and thus needs the namespace)
- *  exactly when this finds it. */
+/** Project namespaces a rendered domain expression reaches into: a
+ *  domain-service call's `<ns>.Domain.Services`.  The call leaf has no root
+ *  namespace to write a `ref` with, so file emitters call this over the same
+ *  expressions they render to build their `using` header.  Walking the whole
+ *  tree is safe — the renderer always renders the whole tree, so a call
+ *  anywhere is rendered (and thus needs the namespace) exactly when this
+ *  finds it.  BCL namespaces are not collected: their leaves write `ref`
+ *  (`CS.Regex`), and the unit's finalizer derives the line. */
 export function collectCsExprUsings(
   e: ExprIR,
   into: Set<string>,
@@ -201,16 +200,6 @@ export function collectCsExprUsings(
  *  sub-expression twice. */
 export function addCsExprUsing(x: ExprIR, into: Set<string>, ns: string): void {
   switch (x.kind) {
-    case "method-call":
-      if (
-        x.member === "matches" &&
-        x.receiverType.kind === "primitive" &&
-        x.receiverType.name === "string" &&
-        x.args.length === 1
-      ) {
-        into.add("System.Text.RegularExpressions");
-      }
-      break;
     case "call":
       // A domain-service member call (`Pricing.Quote(...)`) reaches into
       // the generated `Domain.Services` namespace — the call leaf renders
@@ -238,6 +227,9 @@ export function addCsExprUsing(x: ExprIR, into: Set<string>, ns: string): void {
     case "literal":
     case "match":
     case "member":
+    // `string.matches(...)` writes `Regex` through `ref` (`CS.Regex`), so its
+    // using is derived from the rendered text.
+    case "method-call":
     case "new":
     case "object":
     case "paren":
@@ -1154,7 +1146,10 @@ function renderMethodCall(
     e.receiverType.name === "string" &&
     args.length === 1
   ) {
-    return `${csBcl("Regex", ctx.memberScope)}.IsMatch(${recv}, ${args[0]})`;
+    // Written through `ref` when bare, so the unit's `using` is derived from
+    // this call; the `global::` spelling needs none.
+    const regex = csBcl("Regex", ctx.memberScope);
+    return `${regex === "Regex" ? CS.Regex : regex}.IsMatch(${recv}, ${args[0]})`;
   }
   if (e.receiverType.kind === "primitive") {
     const key = intrinsicKey(e.receiverType.name, e.member);

@@ -35,6 +35,7 @@ import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js
 import type { UnionMember } from "../../_payload/union-wire.js";
 import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import { csMemberScope, csParamIdent, csProjectType, typeMemberNames } from "../bcl-collision.js";
+import { sortedCsUsings } from "../cs-symbols.js";
 import { collectCsExprUsings, csNewIdValue, renderCsExpr, renderCsType } from "../render-expr.js";
 import {
   collectCsStmtUsings,
@@ -1114,7 +1115,7 @@ export function renderEntity(
     );
   }
 
-  const extraUsings = [...usings].sort().map((n) => `using ${n};`);
+  const extraUsings = sortedCsUsings(usings);
   return (
     lines(
       "// Auto-generated.",
@@ -1231,7 +1232,7 @@ export function renderAbstractBaseEntity(
     (d) =>
       `    public ${renderCsType(d.type)} ${upperFirst(d.name)} => ${renderCsExpr(d.expr, renderCtx)};`,
   );
-  const extraUsings = [...usings].sort().map((n) => `using ${n};`);
+  const extraUsings = sortedCsUsings(usings);
   return (
     lines(
       "// Auto-generated.",
