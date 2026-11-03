@@ -1171,7 +1171,8 @@ export function resolveInlinedServiceClauses(
   );
   // The rows the service mutates re-check their write scope ahead of its
   // first write.
-  const guards = inlined.length > 0 ? writeScopeGuardClauses(st, renderCtx, contextModule, ctx) : [];
+  const guards =
+    inlined.length > 0 ? writeScopeGuardClauses(st, renderCtx, contextModule, ctx) : [];
   return [...guards.map((text) => ({ text })), ...inlined];
 }
 

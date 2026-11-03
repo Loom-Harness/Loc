@@ -47,16 +47,16 @@ import {
   walkWorkflowStmtsDeep,
 } from "../../ir/util/walk.js";
 import {
-  bodyWriteScopeGuards,
-  type WriteScopeContext,
-  writeScopeContext,
-} from "../../ir/util/write-scope-guards.js";
-import {
   commandCreateEntryResult,
   commandCreateResult,
   emitsCommandRoute,
 } from "../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
+import {
+  bodyWriteScopeGuards,
+  type WriteScopeContext,
+  writeScopeContext,
+} from "../../ir/util/write-scope-guards.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { escapeCsharpIdent, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";

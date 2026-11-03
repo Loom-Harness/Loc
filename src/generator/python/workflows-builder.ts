@@ -33,13 +33,13 @@ import {
   walkWorkflowStmtsDeep,
   workflowEmits,
 } from "../../ir/util/walk.js";
-import { type WriteScopeContext, writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,
   commandWorkflowsOf,
 } from "../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
+import { type WriteScopeContext, writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import {
   plural,

@@ -1277,13 +1277,7 @@ function emitWorkflowRoute(
     out.push(...stateLoad("tx", `${bi}  `));
     const stmtChunks = renderWorkflowStmtChunks(
       wf.statements,
-      honoWorkflowStmtTarget(
-        ctx,
-        paramExprs,
-        wfThis,
-        { dbHandle: "tx", repoVarByAgg },
-        writeScope,
-      ),
+      honoWorkflowStmtTarget(ctx, paramExprs, wfThis, { dbHandle: "tx", repoVarByAgg }, writeScope),
       `${bi}  `,
     );
     out.push(...stmtChunks.flat());
@@ -1316,13 +1310,7 @@ function emitWorkflowRoute(
     out.push(...stateLoad("db", bi));
     const stmtChunks = renderWorkflowStmtChunks(
       wf.statements,
-      honoWorkflowStmtTarget(
-        ctx,
-        paramExprs,
-        wfThis,
-        { dbHandle: "db", repoVarByAgg },
-        writeScope,
-      ),
+      honoWorkflowStmtTarget(ctx, paramExprs, wfThis, { dbHandle: "db", repoVarByAgg }, writeScope),
       bi,
     );
     out.push(...stmtChunks.flat());

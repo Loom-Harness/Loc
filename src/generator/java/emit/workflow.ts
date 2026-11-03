@@ -30,11 +30,11 @@ import {
   walkWorkflowStmtsDeep,
   workflowEmits,
 } from "../../../ir/util/walk.js";
-import { type WriteScopeContext, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,
 } from "../../../ir/util/workflow-command-route.js";
+import { type WriteScopeContext, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
 import { workflowPreconditionThrowArgs } from "../../_i18n/domain-floor.js";
@@ -706,7 +706,9 @@ export function javaWorkflowStmtTarget(
       ? {
           writeScope: {
             cx: writeScope,
-            guard: (g, indent) => [`${indent}${repoField(g.aggName)}.getById(${bound(g.name)}.id());`],
+            guard: (g, indent) => [
+              `${indent}${repoField(g.aggName)}.getById(${bound(g.name)}.id());`,
+            ],
           },
         }
       : {}),

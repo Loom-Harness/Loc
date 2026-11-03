@@ -529,9 +529,7 @@ async function assertWriteScopeRecheck(
   // and the own row it already touched rolls back with them.
   const wf = await post("workflows/touch_accounts", org("org_a"));
   expect(wf.status, await wf.clone().text()).toBe(404);
-  expect(amounts(), "a failed write-scope re-check must roll the whole workflow back").toBe(
-    before,
-  );
+  expect(amounts(), "a failed write-scope re-check must roll the whole workflow back").toBe(before);
   // Positive control: the leaf org_a.b.c reads (and so writes) only its own row.
   const leaf = await post("workflows/touch_accounts", org("org_a.b.c"));
   expect(leaf.status, await leaf.clone().text()).toBeLessThan(300);

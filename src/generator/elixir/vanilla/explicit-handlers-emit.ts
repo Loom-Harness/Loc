@@ -44,7 +44,6 @@ import type {
 import { handlerUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { requestRecordFor, routedAbsenceAnswers404 } from "../../../ir/util/handler-contracts.js";
-import { bodyWriteScopeGuards, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
 import {
   pagedRunFindName,
   pagedRunGates,
@@ -57,6 +56,7 @@ import {
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../../../ir/util/walk.js";
+import { bodyWriteScopeGuards, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";

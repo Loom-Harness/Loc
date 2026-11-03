@@ -7,8 +7,8 @@
 // rolls the whole command back.  A row the body created is exempt.
 
 import { describe, expect, it } from "vitest";
-import { lowerModel } from "../../src/ir/lower/lower.js";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
+import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { WorkflowStmtIR } from "../../src/ir/types/loom-ir.js";
 import { workflowCanAnswerNotFound } from "../../src/ir/types/loom-ir.js";
 import { walkWorkflowStmtsDeep } from "../../src/ir/util/walk.js";
@@ -162,7 +162,11 @@ function guardsBefore(text: string, guard: string, mutation: string): void {
 
 describe("node (Hono)", () => {
   it("re-loads the loop row through getById, inside a transaction", async () => {
-    const wf = slice(await fileEnding("node", "http/workflows.ts"), '"/touch_ledgers"', '"/open_ledger"');
+    const wf = slice(
+      await fileEnding("node", "http/workflows.ts"),
+      '"/touch_ledgers"',
+      '"/open_ledger"',
+    );
     expect(wf).toContain("await db.transaction(async (tx) => {");
     guardsBefore(wf, "await ledgers.getById(l.id);", "l.touch();");
     expect(wf).toContain("404:");
@@ -194,7 +198,11 @@ describe(".NET", () => {
     const h = await fileEnding("dotnet", "Commands/TouchOneHandler.cs");
     expect(h).toContain("_uow.BeginTransactionAsync(cancellationToken)");
     expect(h).toContain("await tx.RollbackAsync(cancellationToken);");
-    guardsBefore(h, "_ = await _ledgers.GetByIdForWriteAsync(l.Id, cancellationToken)", "l.Touch();");
+    guardsBefore(
+      h,
+      "_ = await _ledgers.GetByIdForWriteAsync(l.Id, cancellationToken)",
+      "l.Touch();",
+    );
   });
 });
 
@@ -227,7 +235,11 @@ describe("java", () => {
   it("re-loads the loop row through getById in the @Transactional service", async () => {
     const wf = await fileEnding("java", "application/workflows/BooksWorkflows.java");
     expect(wf).toContain("@Transactional");
-    guardsBefore(slice(wf, "void touchLedgers(", "void openLedger("), "ledgersRepository.getById(l.id());", "l.touch();");
+    guardsBefore(
+      slice(wf, "void touchLedgers(", "void openLedger("),
+      "ledgersRepository.getById(l.id());",
+      "l.touch();",
+    );
     expect(slice(wf, "void openLedger(", "void renameTags(")).not.toContain("getById");
   });
   it("the write-scope by-id load is a query, so a row the transaction holds is re-filtered", async () => {
@@ -250,7 +262,9 @@ describe("elixir", () => {
     expect(wf).toContain(
       "(with {:ok, _} <- Context.get_ledger_for_write(l.id, current_user), do: Context.touch_ledger(l, %{}))",
     );
-    expect(await fileEnding("elixir", "books/workflows/open_ledger.ex")).not.toContain("_for_write");
+    expect(await fileEnding("elixir", "books/workflows/open_ledger.ex")).not.toContain(
+      "_for_write",
+    );
   });
   it("a command handler re-checks inside Repo.transaction and takes the actor", async () => {
     const h = await fileEnding("elixir", "books/handlers/touch_one.ex");
