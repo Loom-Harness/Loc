@@ -1,0 +1,26 @@
+@@@ src/generator/_walker/target.ts
+  emptyChild?: string;
+
+  /** Render the `style: { … }` named arg as a markup attribute
+===
+  emptyChild?: string;
+
+  /** True when this target's pack templates consume the identity-keyed tokens
+   *  of the IMPLICIT model-text sites — a form field's label (`labelExpr`), an
+   *  enum select's option labels (`enumLabelFn`), a submit button
+   *  (`submitLabel` / `humanOp` as markup), an `EnumBadge`'s value label
+   *  (`src/generator/_walker/model-text-sites.ts`).  Unset ⇒ those sites keep
+   *  their humanized English, byte-identical.  A target flips it on once its
+   *  packs read the tokens. */
+  modelTextImplicitSites?: true;
+
+  /** Render the `style: { … }` named arg as a markup attribute
+@@@ src/generator/react/walker/tsx-target.ts
+export const tsxTarget: WalkerTarget = {
+  framework: "react",
+===
+export const tsxTarget: WalkerTarget = {
+  framework: "react",
+  // The React packs read the identity-keyed form label / enum option / submit
+  // tokens (`_walker/model-text-sites.ts`).
+  modelTextImplicitSites: true,

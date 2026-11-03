@@ -1,0 +1,18 @@
+system P { subdomain O { context W {
+  enum Status { Draft, Done }
+  aggregate Task { title: string label: string status: Status
+    operation complete() { title := label } }
+} }
+  ui Web {
+    page Home {
+      route: "/"
+      body: Stack {
+        Heading { plural(Task) },
+        Text { label(Task.title) },
+        Text { label(W.Task.complete), level: 2 },
+        Button { label(Status.Draft), label: "x" },
+        Text { label(Task) }
+      }
+    }
+  }
+}

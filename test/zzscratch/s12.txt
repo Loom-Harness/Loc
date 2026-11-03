@@ -1,0 +1,31 @@
+@@@ src/ir/types/loom-ir.ts
+export interface EnumIR {
+  name: string;
+  values: string[];
+===
+export interface EnumIR {
+  name: string;
+  values: string[];
+  /** Declared at the root of a file, outside every bounded context (the shared
+   *  kernel).  Enrichment folds such an enum into every context's `enums`, so
+   *  where it was DECLARED is an input fact this flag keeps: its model-text
+   *  keys file under `_system` (`src/util/model-text-key.ts`), not under
+   *  whichever context happens to render it. */
+  systemLevel?: true;
+@@@ src/ir/types/loom-ir.ts
+export interface ValueObjectIR {
+  name: string;
+  fields: FieldIR[];
+===
+export interface ValueObjectIR {
+  name: string;
+  fields: FieldIR[];
+  /** Declared outside every bounded context — see {@link EnumIR.systemLevel}. */
+  systemLevel?: true;
+@@@ src/ir/lower/lower.ts
+    } else if (isValueObject(m)) rootValueObjects.push(lowerValueObject(m, rootEnv));
+    else if (isEnumDecl(m)) rootEnums.push(lowerEnum(m));
+===
+    } else if (isValueObject(m))
+      rootValueObjects.push({ ...lowerValueObject(m, rootEnv), systemLevel: true });
+    else if (isEnumDecl(m)) rootEnums.push({ ...lowerEnum(m), systemLevel: true });

@@ -41,6 +41,7 @@ import {
   isMatchExpr,
   isMemberSuffix,
   isModel,
+  isModelText,
   isNameRef,
   isNowExpr,
   isNullLit,
@@ -60,6 +61,7 @@ import {
   isValueObject,
   type TemplateStr,
 } from "../../language/generated/ast.js";
+import { type ModelTextIndex, resolveModelText } from "../../language/model-text.js";
 import { moneyLiteralText } from "../../language/money-literal.js";
 import { queryNamesOf } from "../../language/repo-query-arg.js";
 import { type Ty, type TypingSession, toTypeIR } from "../../language/typing/index.js";
@@ -68,6 +70,7 @@ import { isCollectionOp } from "../../util/collection-ops.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { isIntrinsicMatcher, isThrowKind } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor } from "../../util/intrinsics.js";
+import { modelTextEntry } from "../../util/model-text-key.js";
 import {
   ORG_CONTEXT_ACCESSOR,
   ORG_CONTEXT_ORG_PATH,
@@ -159,6 +162,18 @@ let ambientEnumIndex: ReadonlyMap<string, readonly string[]> = new Map();
 
 export function setAmbientEnumIndex(index: ReadonlyMap<string, readonly string[]>): void {
   ambientEnumIndex = index;
+}
+
+// Project-global `label(…)` / `plural(…)` resolution index — every type a
+// model-text path may name, over every document of the project.  Installed by
+// `lowerProject` before any body is lowered (same posture as
+// `ambientEnumIndex`).  The validator resolves through the SAME
+// `src/language/model-text.ts`, so a path it accepted lowers to the key it
+// checked.
+let modelTextIndex: ModelTextIndex = new Map();
+
+export function setModelTextIndex(index: ModelTextIndex): void {
+  modelTextIndex = index;
 }
 
 // Project-global index of TOP-LEVEL (ambient) helper `function`s, name →
@@ -1322,6 +1337,13 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
   if (isBoolLit(expr)) return lit("bool", expr.value);
   if (isNullLit(expr)) return lit("null", "null");
   if (isNowExpr(expr)) return lit("now", "now");
+  if (isModelText(expr)) {
+    const r = resolveModelText(expr.kind ?? "label", expr.path, modelTextIndex);
+    // An unresolved path is already a `loom.model-text-*` error; lower to its
+    // spelling so the rest of the pipeline stays total.
+    if (!r.ok) return lit("string", expr.path.join("."));
+    return { kind: "modelText", ...modelTextEntry(r) };
+  }
   if (isThisRef(expr)) return { kind: "this" };
   // A binding named `id` shadows the implicit aggregate identity (see
   // `hasIdBinding`); otherwise `id` keeps its magic meaning.

@@ -1,0 +1,16 @@
+@@@ designs/mantine/v9/field-input-enum-select.hbs
+data={ {{{enumValuesJson}}} }
+===
+data={ {{#if enumLabelFn}}({{{enumValuesJson}}}).map((v) => ({ value: v, label: ({{{enumLabelFn}}})(v) })){{else}}{{{enumValuesJson}}}{{/if}} }
+@@@ designs/shadcn/v4/field-input-enum-select.hbs
+                    <SelectItem key={__v} value={__v}>{__v}</SelectItem>
+===
+                    <SelectItem key={__v} value={__v}>{{#if enumLabelFn}}{ ({{{enumLabelFn}}})(__v) }{{else}}{__v}{{/if}}</SelectItem>
+@@@ designs/mui/v7/field-input-enum-select.hbs
+<MenuItem key={v} value={v}>{v}</MenuItem>
+===
+<MenuItem key={v} value={v}>{{#if enumLabelFn}}{ ({{{enumLabelFn}}})(v) }{{else}}{v}{{/if}}</MenuItem>
+@@@ designs/chakra/v3/field-input-enum-select.hbs
+<option key={v} value={v}>{v}</option>
+===
+<option key={v} value={v}>{{#if enumLabelFn}}{ ({{{enumLabelFn}}})(v) }{{else}}{v}{{/if}}</option>

@@ -1,0 +1,54 @@
+system Demo {
+  context Sales {
+    aggregate Order {
+      subject: string
+      total: money
+      status: OrderStatus
+      operation ship(carrier: string) { }
+      create(subject: string) { }
+    }
+    enum OrderStatus { draft, shipped }
+    repository Orders for Order { }
+    workflow Fulfil {
+      create start(orderId: Order id) { }
+    }
+  }
+  ui Admin with scaffoldAggregate(of: Order), scaffoldWorkflow(of: Fulfil) {
+    page Home {
+      route: "/"
+      body: Stack(
+        Heading("Welcome", level: 2),
+        Text("Pick a section from the sidebar to start, or jump straight in below."),
+        Stack(
+          Card(Heading(plural(Order), level: 4), Anchor("Open orders →", to: "/orders")),
+          Card(Heading("Workflows", level: 4), Anchor("Open workflows →", to: "/workflows"))
+        ),
+        testid: "home"
+      )
+      menu {
+        hidden: true
+      }
+    }
+
+    page WorkflowsIndex {
+      route: "/workflows"
+      body: Stack(
+        Breadcrumbs(Anchor("Home", to: "/"), Text("Workflows")),
+        Heading("Workflows", level: 2),
+        Text("System-level orchestrations.  Pick one to run."),
+        Stack(
+          Card(
+            Heading(label(Fulfil), level: 4),
+            Anchor("Run →", to: "/workflows/fulfil", testid: "workflow-fulfil-run"),
+            testid: "workflow-card-fulfil"
+          )
+        ),
+        testid: "workflows-index"
+      )
+      menu {
+        section: "Workflows",
+        label: "Index"
+      }
+    }
+  }
+}

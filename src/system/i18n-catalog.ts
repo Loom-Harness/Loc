@@ -71,6 +71,20 @@ function packSentencesForUi(sys: EnrichedSystemIR, ui: UiIR): string[] {
   return [...out].sort();
 }
 
+/** Whether a UI is rendered by a frontend that keys its implicit model-text
+ *  sites (form labels, enum options, submit buttons) by identity — today the
+ *  React (`tsx`) packs; see `WalkerTarget.modelTextImplicitSites`. */
+function rendersImplicitModelText(sys: EnrichedSystemIR, ui: UiIR): boolean {
+  return sys.deployables.some(
+    (dep) =>
+      dep.design !== undefined &&
+      (dep.uiName === ui.name || (dep.hostedUiNames ?? []).includes(ui.name)) &&
+      dep.platform !== "feliz" &&
+      dep.platform !== "flutter" &&
+      packFormatForBuiltin(dep.design) === "tsx",
+  );
+}
+
 /** Build the flat, key-sorted `{ key: message }` catalog for a system. */
 export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, string> {
   const byKey = new Map<string, string>();
@@ -91,7 +105,11 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
     // Per-aggregate / per-operation / per-item-type whole sentences.
     const contexts = sys.subdomains.flatMap((sub) => sub.contexts);
     for (const ui of sys.uis) {
-      const scope = { contexts, sentences: packSentencesForUi(sys, ui) };
+      const scope = {
+        contexts,
+        sentences: packSentencesForUi(sys, ui),
+        implicitModelText: rendersImplicitModelText(sys, ui),
+      };
       for (const [key, message] of Object.entries(chromeMergedWhenEnabled(ui, scope)))
         byKey.set(key, message);
       for (const [key, message] of Object.entries(packChromeForUi(sys, ui)))

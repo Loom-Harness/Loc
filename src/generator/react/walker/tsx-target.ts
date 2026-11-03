@@ -57,6 +57,9 @@ import { renderReactDataGridChild } from "./data-grid-child.js";
  *  shared with `heexTarget`. */
 export const tsxTarget: WalkerTarget = {
   framework: "react",
+  // The React packs read the identity-keyed form label / enum option / submit
+  // tokens (`_walker/model-text-sites.ts`).
+  modelTextImplicitSites: true,
 
   // --- Expression-syntax leaves (JS) — shared by all JSX-family frontends --
   ...jsExprLeaves,

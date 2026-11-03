@@ -751,6 +751,27 @@ export const DIAGNOSTIC_MESSAGES = {
     'Use a backtick template interpolation — e.g. `Order {order.id}` rather than "Order " + order.id.',
 
   // ----------------------------------------------------------------------
+  // src/language/validators/model-text.ts
+  // ----------------------------------------------------------------------
+  "loom.model-text-unresolved": (p: { call: unknown; path: unknown }) =>
+    `'${p.call}(${p.path})' does not name a model element. ` +
+    "Write `[Context.]Type[.member]`, where Type is an aggregate, entity part, value object, enum, workflow or declared error, " +
+    "and member is one of its fields, operations, inputs or enum values.",
+  "loom.model-text-unresolved#ambiguous": (p: { call: unknown; path: unknown }) =>
+    `'${p.call}(${p.path})' is ambiguous: the type is declared in more than one context. ` +
+    "Qualify it with the context name, e.g. `label(Sales.Customer)`.",
+  "loom.model-text-plural-member": (p: { path: unknown }) =>
+    `'plural(${p.path})' has no plural form: only an aggregate, entity part, value object or workflow has one. ` +
+    "Use `label(…)` for a field, operation, enum value or error.",
+  "loom.model-text-outside-ui": (p: { call: unknown }) =>
+    `'${p.call}(…)' returns translated text for a user to read, so it is allowed only in a page or component body. ` +
+    "Domain code, filters and criteria work with values, not display text.",
+  "loom.model-text-in-template": (p: { call: unknown }) =>
+    `'${p.call}(…)' cannot be spliced into a template or a '+' concatenation: a placeholder carries data, never words, ` +
+    "because a translated noun cannot be dropped into a fixed sentence frame. " +
+    'Write the whole sentence as one literal instead (e.g. "Delete this task?").',
+
+  // ----------------------------------------------------------------------
   // src/language/validators/inheritance.ts
   // ----------------------------------------------------------------------
   "loom.extends-self": (p: { name: unknown }) => `Aggregate '${p.name}' cannot extend itself.`,

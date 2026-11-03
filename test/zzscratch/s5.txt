@@ -1,0 +1,33 @@
+@@@ src/generator/_walker/i18n-extract.ts
+function collectBody(body: ExprIR | undefined, prefix: string, out: MessageEntry[]): void {
+  walkExprDeep(body, (e) => {
+    if (e.kind !== "call") return;
+===
+function collectBody(body: ExprIR | undefined, prefix: string, out: MessageEntry[]): void {
+  walkExprDeep(body, (e) => {
+    // `label(…)` / `plural(…)` — keyed by model identity, with no page prefix,
+    // so every page naming the same fact shares one catalog entry.
+    if (e.kind === "modelText") {
+      out.push({ key: e.key, message: e.defaultText });
+      return;
+    }
+    if (e.kind !== "call") return;
+@@@ src/generator/_walker/i18n-extract.ts
+    const title = literalString(page.title);
+    if (title !== undefined) out.push({ key: messageKey(prefix, "title", title), message: title });
+===
+    const title = literalString(page.title);
+    if (title !== undefined) out.push({ key: messageKey(prefix, "title", title), message: title });
+    if (page.title?.kind === "modelText") {
+      out.push({ key: page.title.key, message: page.title.defaultText });
+    }
+@@@ src/generator/_walker/i18n-extract.ts
+      if (ui.menu && (entry.name === "section" || !explicitMenuReadsPageLabel(page, ui))) continue;
+      const message = literalString(entry.value);
+===
+      if (ui.menu && (entry.name === "section" || !explicitMenuReadsPageLabel(page, ui))) continue;
+      if (entry.value.kind === "modelText") {
+        out.push({ key: entry.value.key, message: entry.value.defaultText });
+        continue;
+      }
+      const message = literalString(entry.value);

@@ -20,6 +20,7 @@ import type {
   MatchArm,
   MatchExpr,
   MenuMetaEntry,
+  ModelText,
   NameRef,
   NowExpr,
   Page,
@@ -48,6 +49,7 @@ import {
   mkMatchArm,
   mkMatchExpr,
   mkMenuMetaEntry,
+  mkModelText,
   mkNameRef,
   mkNowExpr,
   mkPage,
@@ -74,6 +76,16 @@ import { _currentOrigin, _setContainer, _tag } from "./factories-internals.js";
 export function stringLit(value: string): StringLit {
   const origin = _currentOrigin();
   return _tag(mkStringLit({ $type: "StringLit", value }), origin);
+}
+
+/** The translated text of a model element — `label(Task)`, `plural(Task)`,
+ *  `label(Task.title)`, `label(Status.Draft)`.  `path` is `[Ctx.]Type[.member]`
+ *  (resolved by `src/language/model-text.ts`).  A scaffold emits these for every
+ *  model-derived word (headings, column headers, nav labels, operation
+ *  buttons), so `unfold` ejects real, identity-keyed `.ddd`. */
+export function modelTextExpr(kind: "label" | "plural", path: readonly string[]): ModelText {
+  const origin = _currentOrigin();
+  return _tag(mkModelText({ $type: "ModelText", kind, path: [...path] }), origin);
 }
 
 /** The current-timestamp builtin (`now()`).  The grammar parses `now()`

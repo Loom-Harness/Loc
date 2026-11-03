@@ -1517,7 +1517,23 @@ point).
   on every frontend, backtick templates lower to ICU messages, and
   `ddd i18n {extract,init,sync,status,check,prune}` is the translator workflow
   (`check --strict` is the CI gate).  Concatenation in a user-visible slot is now
-  an error (`loom.user-visible-concat`, §5).
+  an error (`loom.user-visible-concat`, §5).  Text that names a MODEL element
+  is keyed by the element, not by the page: `plural(Task)`, `label(Task)`,
+  `label(Task.title)`, `label(Task.complete)` and `label(Status.Draft)` emit
+  `t("Projects.Task.name.other", "Tasks")` and friends (key shape
+  `<Ctx>.<Type>.<facet>[.<member>]`, `_system` for a root-level type), so a fact
+  shown on six pages is one catalog entry.  The scaffold emits these calls for
+  every model-derived word (headings, breadcrumbs, column headers, key-value
+  labels, nav labels, operation triggers); the React forms key their field
+  labels, enum options and submit buttons the same way.  The calls are allowed
+  only in page / component bodies (`loom.model-text-outside-ui`), never inside a
+  template or `+` chain (`loom.model-text-in-template`); `plural()` takes a type,
+  not a member (`loom.model-text-plural-member`).
+
+  ```ddd
+  Heading { plural(Task) }                     // t("Projects.Task.name.other", "Tasks")
+  Column  { label(Task.title), x => x.title }  // t("Projects.Task.field.title", "Title")
+  ```
 - **URL-synced state.** **Resolved.**  `store X persist: url` syncs scalar store
   fields to the query string (`loom.store-url-field-invalid` for non-scalars);
   `persist: local` / `session` cover the storage cases (§6).

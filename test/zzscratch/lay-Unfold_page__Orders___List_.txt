@@ -1,0 +1,70 @@
+system Demo {
+  context Sales {
+    aggregate Order {
+      subject: string
+      total: money
+      status: OrderStatus
+      operation ship(carrier: string) { }
+      create(subject: string) { }
+    }
+    enum OrderStatus { draft, shipped }
+    repository Orders for Order { }
+    workflow Fulfil {
+      create start(orderId: Order id) { }
+    }
+  }
+  ui Admin with scaffold(aggregates: [Order], workflows: [Fulfil]) {
+    area Orders {
+      page List {
+        route: "/orders"
+        body: Stack(
+          Breadcrumbs(Anchor("Home", to: "/"), Text(plural(Order))),
+          Toolbar(
+            Heading(plural(Order), level: 2),
+            Button("New order", to: "/orders/new", testid: "orders-list-create")
+          ),
+          QueryView(
+            of: Order.all(pageNum, 10, sortKey, sortDir),
+            paged: true,
+            loading: Skeleton(count: 5),
+            error: Alert("Couldn't load orders"),
+            empty: Empty("No orders yet."),
+            data: rows => Paper(
+              Table(
+                Column("ID", o => IdLink(o.id, of: Order), sortable: true, field: "id"),
+                Column(label(Order.subject), o => Text(o.subject), sortable: true, field: "subject"),
+                Column(label(Order.total), o => Money(o.total), sortable: true, field: "total"),
+                Column(
+                  label(Order.status),
+                  o => EnumBadge(o.status),
+                  sortable: true,
+                  field: "status"
+                ),
+                rows: rows.items,
+                sortKey: sortKey,
+                sortDir: sortDir,
+                page: pageNum,
+                serverPaged: true,
+                totalPages: rows.totalPages,
+                striped: true,
+                highlight: true,
+                sticky: true,
+                rowTestid: r => "orders-row-" + r.id
+              )
+            )
+          ),
+          testid: "orders-list"
+        )
+        state {
+          sortKey: string = ""
+          sortDir: string = ""
+          pageNum: int = 1
+        }
+        menu {
+          section: "Aggregates",
+          label: plural(Order)
+        }
+      }
+    }
+  }
+}

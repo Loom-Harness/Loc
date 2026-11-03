@@ -1,0 +1,126 @@
+
+ RUN  v4.1.11 /home/user/Loc/.claude/worktrees/agent-ae1b5baca662c01c5
+
+ ❯ |unit| test/macro/scaffold-body-builders.test.ts (24 tests | 2 failed) 3232ms
+     × dispatches each column cell by its resolved type 55ms
+     × pairs a provenanced field's value with a ProvenanceInfo disclosure 24ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| test/macro/scaffold-body-builders.test.ts > scaffold body-builders — AST → printable source > dispatches each column cell by its resolved type
+AssertionError: expected 'Stack(\n  Breadcrumbs(Anchor("Home", …' to contain 'Column(label(Order.active), o => Text…'
+
+- Expected
++ Received
+
+- Column(label(Order.active), o => Text(o.active ? "Yes" : "No"), sortable: true, field: "active")
++ Stack(
++   Breadcrumbs(Anchor("Home", to: "/"), Text(plural(Order))),
++   Toolbar(
++     Heading(plural(Order), level: 2),
++     Button("New order", to: "/orders/new", testid: "orders-list-create")
++   ),
++   QueryView(
++     of: Order.all(pageNum, 10, sortKey, sortDir),
++     paged: true,
++     loading: Skeleton(count: 5),
++     error: Alert("Couldn't load orders"),
++     empty: Empty("No orders yet."),
++     data: rows => Paper(
++       Table(
++         Column("ID", o => IdLink(o.id, of: Order), sortable: true, field: "id"),
++         Column(label(Order.ref), o => IdLink(o.ref, of: Customer)),
++         Column(
++           label(Order.createdAt),
++           o => DateDisplay(o.createdAt),
++           sortable: true,
++           field: "createdAt"
++         ),
++         Column(
++           label(Order.active),
++           o => Text(o.active ? "Yes" : "No"),
++           sortable: true,
++           field: "active"
++         ),
++         Column(label(Order.total), o => Text(o.total), sortable: true, field: "total"),
++         Column(label(Order.status), o => EnumBadge(o.status), sortable: true, field: "status"),
++         Column(label(Order.note), o => Text(o.note), sortable: true, field: "note"),
++         Column(label(Order.blob), o => FileLink(o.blob)),
++         rows: rows.items,
++         sortKey: sortKey,
++         sortDir: sortDir,
++         page: pageNum,
++         serverPaged: true,
++         totalPages: rows.totalPages,
++         striped: true,
++         highlight: true,
++         sticky: true,
++         rowTestid: r => "orders-row-" + r.id
++       )
++     )
++   ),
++   testid: "orders-list"
++ )
+
+ ❯ test/macro/scaffold-body-builders.test.ts:140:17
+    138|       'Column(label(Order.createdAt), o => DateDisplay(o.createdAt), s…
+    139|     );
+    140|     expect(src).toContain(
+       |                 ^
+    141|       'Column(label(Order.active), o => Text(o.active ? "Yes" : "No"),…
+    142|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |unit| test/macro/scaffold-body-builders.test.ts > scaffoldDetails — aggregate read view + related cards > pairs a provenanced field's value with a ProvenanceInfo disclosure
+AssertionError: expected 'Stack(\n  Breadcrumbs(Anchor("Home", …' to contain 'KeyValueRow(label(Order.reference), T…'
+
+- Expected
++ Received
+
+- KeyValueRow(label(Order.reference), Text(data.reference)
++ Stack(
++   Breadcrumbs(Anchor("Home", to: "/"), Anchor(plural(Order), to: "/orders"), Text("Detail")),
++   Heading("Order detail", level: 2),
++   QueryView(
++     of: Order.byId(id),
++     single: true,
++     loading: Skeleton(count: 3),
++     error: Alert("Couldn't load order"),
++     empty: Alert("No order matches that id.", color: "yellow"),
++     data: data => Card(
++       Stack(
++         KeyValueRow(
++           label(Order.reference),
++           Text(data.reference),
++           testid: "orders-detail-reference"
++         ),
++         KeyValueRow(
++           label(Order.total),
++           Group(
++             Text(data.total.value),
++             ProvenanceInfo(of: data, field: "total", testid: "orders-detail-total-prov")
++           ),
++           testid: "orders-detail-total"
++         )
++       )
++     )
++   )
++ )
+
+ ❯ test/macro/scaffold-body-builders.test.ts:489:17
+    487|     );
+    488|     // A plain field gets no disclosure — exactly one ProvenanceInfo o…
+    489|     expect(src).toContain('KeyValueRow(label(Order.reference), Text(da…
+       |                 ^
+    490|     expect(src.match(/ProvenanceInfo\(/g)).toHaveLength(1);
+    491|     // Still prints to re-parseable `.ddd` source (unfold-safe).
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  2 failed | 45 passed (47)
+   Start at  01:00:14
+   Duration  29.39s (transform 29.08s, setup 0ms, import 38.74s, tests 17.08s, environment 0ms)
+

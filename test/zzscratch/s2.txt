@@ -1,0 +1,25 @@
+@@@ src/generator/_walker/walker-core.ts
+    case "call":
+      return emitComponent(expr, ctx, depth, slot);
+    case "literal":
+      // String literal in a child position becomes a markup text node.
+===
+    case "call":
+      return emitComponent(expr, ctx, depth, slot);
+    case "modelText":
+      // `label(…)` / `plural(…)` as a markup child — its translated text.
+      return ctx.target.renderInterpolation(
+        localizedModelText(ctx, expr.key, expr.defaultText),
+        { kind: "primitive", name: "string" },
+      );
+    case "literal":
+      // String literal in a child position becomes a markup text node.
+@@@ src/generator/_walker/walker-core.ts
+    case "i18nFormat":
+    case "modelText":
+    case "action-ref":
+      return giveUp(ctx.target,
+===
+    case "i18nFormat":
+    case "action-ref":
+      return giveUp(ctx.target,

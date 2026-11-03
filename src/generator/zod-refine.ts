@@ -205,6 +205,7 @@ export function refineRenderable(e: ExprIR, decimal: RefineDecimalMode = "server
     case "match":
     case "list":
     case "action-ref":
+    case "modelText":
     case "authz-filter":
       return false;
     default: {
@@ -495,6 +496,7 @@ export function renderRefineExpr(e: ExprIR): string {
     case "match":
     case "list":
     case "action-ref":
+    case "modelText":
     case "authz-filter":
       // `classifyForWire` excludes these AND `refineRenderable` re-checks, so
       // reaching the renderer means a bug upstream — fail generation loudly

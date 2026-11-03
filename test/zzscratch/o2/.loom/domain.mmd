@@ -1,0 +1,26 @@
+%% Loom domain diagram — generated from the IR, do not edit by hand.
+%% System: P
+classDiagram
+  direction LR
+  %% O / Projects
+  class Status {
+    <<enumeration>>
+    +Draft
+    +Done
+  }
+  class Task {
+    <<aggregate>>
+    +Id~Task~ id
+    +string title
+    +Status status
+    +int version
+    +string /inspect
+    +complete()
+    +update(title, status)
+  }
+  class Tasks {
+    <<repository>>
+    +all() Task paged
+  }
+  Task ..> Status : uses
+  Tasks ..> Task : manages

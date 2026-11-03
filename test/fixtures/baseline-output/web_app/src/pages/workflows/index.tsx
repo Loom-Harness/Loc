@@ -14,7 +14,7 @@ export default function WorkflowsIndex() {
       <Text>{t("WebApp.page.WorkflowsIndex.text.5d4da0", "System-level orchestrations.  Pick one to run.")}</Text>
       <Stack gap="md">
         <Card withBorder padding="md" data-testid="workflow-card-place_order">
-          <Title order={4}>{t("WebApp.page.WorkflowsIndex.heading.gb2crw", "Place Order")}</Title>
+          <Title order={4}>{t("Orders.placeOrder.name.one", "Place Order")}</Title>
           <Anchor component={RouterLink} to="/workflows/place_order" data-testid="workflow-place_order-run">{t("WebApp.page.WorkflowsIndex.anchor.5fm2dg", "Run →")}</Anchor>
         </Card>
       </Stack>

@@ -210,6 +210,12 @@ export function icuFromConcat(expr: ExprIR | undefined): IcuMessage | undefined 
  *  keyed under `<prefix>` (e.g. `page.OrderList` / `component.OrderCard`). */
 function collectBody(body: ExprIR | undefined, prefix: string, out: MessageEntry[]): void {
   walkExprDeep(body, (e) => {
+    // `label(…)` / `plural(…)` — keyed by model identity, with no page prefix,
+    // so every page naming the same fact shares one catalog entry.
+    if (e.kind === "modelText") {
+      out.push({ key: e.key, message: e.defaultText });
+      return;
+    }
     if (e.kind !== "call") return;
     // Pack-chrome: a primitive that renders design-pack-baked user-visible text
     // (a `Loader()`'s `aria-label="Loading"`, a `DataGrid()`'s pager) contributes
@@ -258,6 +264,9 @@ export function collectUiMessages(ui: UiIR): MessageEntry[] {
     // (`i18n-emit.ts`) reads the literal back under the same `title` role.
     const title = literalString(page.title);
     if (title !== undefined) out.push({ key: messageKey(prefix, "title", title), message: title });
+    if (page.title?.kind === "modelText") {
+      out.push({ key: page.title.key, message: page.title.defaultText });
+    }
     collectBody(page.body, prefix, out);
 
     // Per-page sidebar chrome — `menu { section: "…", label: "…" }` metadata.
@@ -266,6 +275,10 @@ export function collectUiMessages(ui: UiIR): MessageEntry[] {
     for (const entry of page.menuMeta?.entries ?? []) {
       if (entry.name !== "section" && entry.name !== "label") continue;
       if (ui.menu && (entry.name === "section" || !explicitMenuReadsPageLabel(page, ui))) continue;
+      if (entry.value.kind === "modelText") {
+        out.push({ key: entry.value.key, message: entry.value.defaultText });
+        continue;
+      }
       const message = literalString(entry.value);
       if (message === undefined) continue;
       out.push({ key: messageKey(prefix, `menu.${entry.name}`, message), message });

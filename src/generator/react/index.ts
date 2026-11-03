@@ -238,7 +238,11 @@ export function generateReactForContexts(
   // runtime it doesn't need and its output stays byte-identical.
   pack.setChromeI18n(i18nEnabled);
   const packChrome = packChromeCatalog(pack.manifest);
-  const formScope = { contexts, sentences: pack.manifest.sentenceChrome ?? [] };
+  const formScope = {
+    contexts,
+    sentences: pack.manifest.sentenceChrome ?? [],
+    implicitModelText: tsxTarget.modelTextImplicitSites === true,
+  };
   const emitCtx = {
     sys,
     deployable,

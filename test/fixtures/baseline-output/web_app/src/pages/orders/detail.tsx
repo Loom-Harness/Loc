@@ -14,7 +14,7 @@ import { Controller, useForm } from "react-hook-form";
 import { useOrderById } from "../../api/order";
 function openAddLineModal(mut: ReturnType<typeof useAddLineOrder>): void {
   modals.open({
-    title: t("WebApp.page.Detail.modalTitle.uhabr2", "Add Line"),
+    title: t("Orders.Order.op.addLine", "Add Line"),
     closeButtonProps: { "aria-label": t("chrome.close", "Close") },
     children: <AddLineForm mut={mut} onClose={() => modals.closeAll()} />,
   });
@@ -63,7 +63,7 @@ function AddLineForm({ mut, onClose }: { mut: ReturnType<typeof useAddLineOrder>
 
         <Group justify="flex-end" gap="xs" mt="md">
           <Button variant="default" onClick={onClose}>{t("chrome.cancel", "Cancel")}</Button>
-          <Button type="submit" loading={mut.isPending} data-testid="orders-op-addLine-submit">Add Line</Button>
+          <Button type="submit" loading={mut.isPending} data-testid="orders-op-addLine-submit">{t("Orders.Order.op.addLine", "Add Line")}</Button>
         </Group>
       </Stack>
     </form>
@@ -71,7 +71,7 @@ function AddLineForm({ mut, onClose }: { mut: ReturnType<typeof useAddLineOrder>
 }
 function openConfirmModal(mut: ReturnType<typeof useConfirmOrder>): void {
   modals.open({
-    title: t("WebApp.page.Detail.modalTitle.8tbqwf", "Confirm"),
+    title: t("Orders.Order.op.confirm", "Confirm"),
     closeButtonProps: { "aria-label": t("chrome.close", "Close") },
     children: <ConfirmForm mut={mut} onClose={() => modals.closeAll()} />,
   });
@@ -104,7 +104,7 @@ function ConfirmForm({ mut, onClose }: { mut: ReturnType<typeof useConfirmOrder>
         <Text c="dimmed">{t("pack.mantine.noParameters.usdpad", "This operation has no parameters.")}</Text>
         <Group justify="flex-end" gap="xs" mt="md">
           <Button variant="default" onClick={onClose}>{t("chrome.cancel", "Cancel")}</Button>
-          <Button type="submit" loading={mut.isPending} data-testid="orders-op-confirm-submit">Confirm</Button>
+          <Button type="submit" loading={mut.isPending} data-testid="orders-op-confirm-submit">{t("Orders.Order.op.confirm", "Confirm")}</Button>
         </Group>
       </Stack>
     </form>
@@ -112,7 +112,7 @@ function ConfirmForm({ mut, onClose }: { mut: ReturnType<typeof useConfirmOrder>
 }
 function openUpdateModal(mut: ReturnType<typeof useUpdateOrder>): void {
   modals.open({
-    title: t("WebApp.page.Detail.modalTitle.uk4kus", "Update"),
+    title: t("Orders.Order.op.update", "Update"),
     closeButtonProps: { "aria-label": t("chrome.close", "Close") },
     children: <UpdateForm mut={mut} onClose={() => modals.closeAll()} />,
   });
@@ -142,21 +142,21 @@ function UpdateForm({ mut, onClose }: { mut: ReturnType<typeof useUpdateOrder>; 
       })}
     >
       <Stack>
-        <TextInput label="Customer Id" {...register("customerId")} data-testid="orders-op-update-input-customerId" error={errors.customerId?.message} />
+        <TextInput label={ t("Orders.Order.field.customerId", "Customer Id") } {...register("customerId")} data-testid="orders-op-update-input-customerId" error={errors.customerId?.message} />
 
         <Controller
           control={control}
           name="status"
           render={({ field, fieldState }) => (
-            <Select label="Status" data-testid="orders-op-update-input-status" data={ ["Draft","Confirmed","Shipped","Cancelled"] } allowDeselect={false} value={field.value as string} onChange={(v) => field.onChange(v)} error={fieldState.error?.message} />
+            <Select label={ t("Orders.Order.field.status", "Status") } data-testid="orders-op-update-input-status" data={ (["Draft","Confirmed","Shipped","Cancelled"]).map((v) => ({ value: v, label: (((v: string): string => ({ "Draft": t("Orders.OrderStatus.value.Draft", "Draft"), "Confirmed": t("Orders.OrderStatus.value.Confirmed", "Confirmed"), "Shipped": t("Orders.OrderStatus.value.Shipped", "Shipped"), "Cancelled": t("Orders.OrderStatus.value.Cancelled", "Cancelled") } as Record<string, string>)[v] ?? v))(v) })) } allowDeselect={false} value={field.value as string} onChange={(v) => field.onChange(v)} error={fieldState.error?.message} />
           )}
         />
 
-        <TextInput label="Placed At" {...register("placedAt")} data-testid="orders-op-update-input-placedAt" type="datetime-local" error={errors.placedAt?.message} />
+        <TextInput label={ t("Orders.Order.field.placedAt", "Placed At") } {...register("placedAt")} data-testid="orders-op-update-input-placedAt" type="datetime-local" error={errors.placedAt?.message} />
 
         <Group justify="flex-end" gap="xs" mt="md">
           <Button variant="default" onClick={onClose}>{t("chrome.cancel", "Cancel")}</Button>
-          <Button type="submit" loading={mut.isPending} data-testid="orders-op-update-submit">Update</Button>
+          <Button type="submit" loading={mut.isPending} data-testid="orders-op-update-submit">{t("Orders.Order.op.update", "Update")}</Button>
         </Group>
       </Stack>
     </form>
@@ -173,7 +173,7 @@ export default function OrderDetail() {
     <Stack gap="md" data-testid="orders-detail">
       <Breadcrumbs>
         <Anchor component={RouterLink} to="/">{t("WebApp.page.Detail.anchor.n0mxf2", "Home")}</Anchor>
-        <Anchor component={RouterLink} to="/orders">{t("WebApp.page.Detail.anchor.xf3i18", "Orders")}</Anchor>
+        <Anchor component={RouterLink} to="/orders">{t("Orders.Order.name.other", "Orders")}</Anchor>
         <Text>{t("WebApp.page.Detail.text.ei31dg", "Detail")}</Text>
       </Breadcrumbs>
       <Title order={2}>{t("WebApp.page.Detail.heading.90lkpw", "Order detail")}</Title>
@@ -195,19 +195,19 @@ export default function OrderDetail() {
           <Stack gap="md">
             <Card withBorder padding="md">
               <Stack gap="md">
-                <KeyValueRow label={t("WebApp.page.Detail.keyValue.0ysfxy", "Customer Id")} data-testid="orders-detail-customerId"><Text>{orderById.data.customerId}</Text></KeyValueRow>
-                <KeyValueRow label={t("WebApp.page.Detail.keyValue.03pd73", "Status")} data-testid="orders-detail-status"><Badge tt="none">{ orderById.data.status }</Badge></KeyValueRow>
-                <KeyValueRow label={t("WebApp.page.Detail.keyValue.cl05q5", "Placed At")} data-testid="orders-detail-placedAt"><DateTimeValue iso={ orderById.data.placedAt } /></KeyValueRow>
+                <KeyValueRow label={t("Orders.Order.field.customerId", "Customer Id")} data-testid="orders-detail-customerId"><Text>{orderById.data.customerId}</Text></KeyValueRow>
+                <KeyValueRow label={t("Orders.Order.field.status", "Status")} data-testid="orders-detail-status"><Badge tt="none">{ ((v: string): string => ({ "Draft": t("Orders.OrderStatus.value.Draft", "Draft"), "Confirmed": t("Orders.OrderStatus.value.Confirmed", "Confirmed"), "Shipped": t("Orders.OrderStatus.value.Shipped", "Shipped"), "Cancelled": t("Orders.OrderStatus.value.Cancelled", "Cancelled") } as Record<string, string>)[v] ?? v)(orderById.data.status) }</Badge></KeyValueRow>
+                <KeyValueRow label={t("Orders.Order.field.placedAt", "Placed At")} data-testid="orders-detail-placedAt"><DateTimeValue iso={ orderById.data.placedAt } /></KeyValueRow>
               </Stack>
             </Card>
             <Card withBorder padding="md" data-testid="orders-detail-lines">
               <Stack gap="md">
-                <Title order={4}>{t("WebApp.page.Detail.heading.2bghr0", "Lines")}</Title>
+                <Title order={4}>{t("Orders.Order.field.lines", "Lines")}</Title>
                 <div className="loom-table-scroll" style={{ width: "100%", overflowX: "auto" }}><Table striped highlightOnHover>
                   <Table.Thead>
                     <Table.Tr>
-                      <Table.Th>{t("WebApp.page.Detail.columnHeader.fp4ch5", "Product Id")}</Table.Th>
-                      <Table.Th>{t("WebApp.page.Detail.columnHeader.c75rso", "Quantity")}</Table.Th>
+                      <Table.Th>{t("Orders.OrderLine.field.productId", "Product Id")}</Table.Th>
+                      <Table.Th>{t("Orders.OrderLine.field.quantity", "Quantity")}</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
@@ -222,11 +222,11 @@ export default function OrderDetail() {
               </Stack>
             </Card>
             <Group gap="xs">
-              <Button variant="filled" onClick={() => openAddLineModal(addLine)} data-testid="orders-op-addLine">{t("WebApp.page.Detail.button.uhabr2", "Add Line")}</Button>
+              <Button variant="filled" onClick={() => openAddLineModal(addLine)} data-testid="orders-op-addLine">{t("Orders.Order.op.addLine", "Add Line")}</Button>
     
-              <Button variant="light" onClick={() => openConfirmModal(confirm)} data-testid="orders-op-confirm">{t("WebApp.page.Detail.button.8tbqwf", "Confirm")}</Button>
+              <Button variant="light" onClick={() => openConfirmModal(confirm)} data-testid="orders-op-confirm">{t("Orders.Order.op.confirm", "Confirm")}</Button>
     
-              <Button variant="light" onClick={() => openUpdateModal(update)} data-testid="orders-op-update">{t("WebApp.page.Detail.button.uk4kus", "Update")}</Button>
+              <Button variant="light" onClick={() => openUpdateModal(update)} data-testid="orders-op-update">{t("Orders.Order.op.update", "Update")}</Button>
     
             </Group>
           </Stack>

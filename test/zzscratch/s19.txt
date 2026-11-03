@@ -1,0 +1,28 @@
+@@@ src/language/validators/model-text.ts
+    } else {
+      const key =
+        r.reason === "ambiguous"
+          ? ("loom.model-text-unresolved#ambiguous" as const)
+          : ("loom.model-text-unresolved" as const);
+      accept("error", diagMessage(key, s), { node, code: "loom.model-text-unresolved" });
+    }
+===
+    } else if (r.reason === "ambiguous") {
+      accept("error", diagMessage("loom.model-text-unresolved#ambiguous", s), {
+        node,
+        code: "loom.model-text-unresolved",
+      });
+    } else {
+      accept("error", diagMessage("loom.model-text-unresolved", s), {
+        node,
+        code: "loom.model-text-unresolved",
+      });
+    }
+@@@ src/language/ddd.langium
+DerivedProp:
+    'derived' name=PropertyName ':' type=TypeRef '=' expr=Expression;
+===
+// The name takes the soft keywords a field name does — `derived label: string`
+// must keep parsing now that `label` is the model-text intrinsic's keyword.
+DerivedProp:
+    'derived' name=PropertyName ':' type=TypeRef '=' expr=Expression;

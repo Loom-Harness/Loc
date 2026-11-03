@@ -171,8 +171,9 @@ function constructionEvaluable(
       // amount — evaluable whenever the amount is.
       return constructionEvaluable(e.amount, available, scope);
     case "action-ref":
-      // UI-handler-arg form — never appears in a construction-evaluable
-      // invariant body.
+    case "modelText":
+      // UI-only forms — never appear in a construction-evaluable invariant
+      // body.
       return false;
     case "authz-filter":
       // Authorization/tenancy query-filter sentinel (M-T9.9) — never appears in
@@ -302,6 +303,9 @@ function exprIsTranslatable(
       // A5 temporal: the wire-refine renderer (zod-refine.ts) has no
       // duration arm — temporal invariants enforce server-side only,
       // where `_assertInvariants` renders through the full ExprTarget.
+      return false;
+    case "modelText":
+      // UI-only display text — never part of an invariant.
       return false;
     case "i18nFormat":
       // Transparent i18n wrapper — translatable iff the wrapped value is.
@@ -627,6 +631,9 @@ function firstFieldRef(e: ExprIR): string | null {
     case "convert":
       // The wrapped value may itself be a field reference; walk into it.
       return firstFieldRef(e.value);
+    case "modelText":
+      // A leaf — no field reference.
+      return null;
     case "i18nFormat":
       // Transparent i18n wrapper — the field ref, if any, is inside it.
       return firstFieldRef(e.inner);

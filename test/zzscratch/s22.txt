@@ -1,0 +1,60 @@
+@@@ src/generator/_walker/i18n-chrome.ts
+export interface FormSentenceScope {
+  readonly contexts: readonly BoundedContextIR[];
+  readonly sentences: readonly string[];
+}
+===
+export interface FormSentenceScope {
+  readonly contexts: readonly BoundedContextIR[];
+  readonly sentences: readonly string[];
+  /** The rendering target keys its IMPLICIT model-text sites by identity
+   *  (`WalkerTarget.modelTextImplicitSites`), so their keys belong in the
+   *  catalog; unset ⇒ those sites render English and carry no key. */
+  readonly implicitModelText?: boolean;
+}
+@@@ src/generator/_walker/i18n-chrome.ts
+    for (const { key, message } of implicitModelTextEntries(ui, scope?.contexts ?? [])) {
+      out[key] = message;
+    }
+===
+    if (scope?.implicitModelText) {
+      for (const { key, message } of implicitModelTextEntries(ui, scope.contexts)) {
+        out[key] = message;
+      }
+    }
+@@@ src/generator/react/index.ts
+  const formScope = { contexts, sentences: pack.manifest.sentenceChrome ?? [] };
+===
+  const formScope = {
+    contexts,
+    sentences: pack.manifest.sentenceChrome ?? [],
+    implicitModelText: tsxTarget.modelTextImplicitSites === true,
+  };
+@@@ src/system/i18n-catalog.ts
+    for (const ui of sys.uis) {
+      const scope = { contexts, sentences: packSentencesForUi(sys, ui) };
+===
+    for (const ui of sys.uis) {
+      const scope = {
+        contexts,
+        sentences: packSentencesForUi(sys, ui),
+        implicitModelText: rendersImplicitModelText(sys, ui),
+      };
+@@@ src/system/i18n-catalog.ts
+/** Build the flat, key-sorted `{ key: message }` catalog for a system. */
+===
+/** Whether a UI is rendered by a frontend that keys its implicit model-text
+ *  sites (form labels, enum options, submit buttons) by identity — today the
+ *  React (`tsx`) packs; see `WalkerTarget.modelTextImplicitSites`. */
+function rendersImplicitModelText(sys: EnrichedSystemIR, ui: UiIR): boolean {
+  return sys.deployables.some(
+    (dep) =>
+      dep.design !== undefined &&
+      (dep.uiName === ui.name || (dep.hostedUiNames ?? []).includes(ui.name)) &&
+      dep.platform !== "feliz" &&
+      dep.platform !== "flutter" &&
+      packFormatForBuiltin(dep.design) === "tsx",
+  );
+}
+
+/** Build the flat, key-sorted `{ key: message }` catalog for a system. */

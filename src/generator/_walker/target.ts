@@ -1077,6 +1077,15 @@ export interface WalkerTarget {
    *  something already correct for the host language. */
   emptyChild?: string;
 
+  /** True when this target's pack templates consume the identity-keyed tokens
+   *  of the IMPLICIT model-text sites — a form field's label (`labelExpr`), an
+   *  enum select's option labels (`enumLabelFn`), a submit button
+   *  (`submitLabel` / `humanOp` as markup), an `EnumBadge`'s value label
+   *  (`src/generator/_walker/model-text-sites.ts`).  Unset ⇒ those sites keep
+   *  their humanized English, byte-identical.  A target flips it on once its
+   *  packs read the tokens. */
+  modelTextImplicitSites?: true;
+
   /** Render the `style: { … }` named arg as a markup attribute
    *  fragment (leading space included; empty string for no entries).
    *  Each entry carries the source CSS key plus the rendered value

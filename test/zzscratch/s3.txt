@@ -1,0 +1,40 @@
+@@@ src/ir/lower/lower-expr.ts
+  isPrimitiveConversion,
+  isProperty,
+===
+  isModelText,
+  isPrimitiveConversion,
+  isProperty,
+@@@ src/ir/lower/lower-expr.ts
+export function setAmbientEnumIndex(index: ReadonlyMap<string, readonly string[]>): void {
+  ambientEnumIndex = index;
+}
+===
+export function setAmbientEnumIndex(index: ReadonlyMap<string, readonly string[]>): void {
+  ambientEnumIndex = index;
+}
+
+// Project-global `label(…)` / `plural(…)` resolution index — every type a
+// model-text path may name, over every document of the project.  Installed by
+// `lowerProject` before any body is lowered (same posture as
+// `ambientEnumIndex`).  The validator resolves through the SAME
+// `src/language/model-text.ts`, so a path it accepted lowers to the key it
+// checked.
+let modelTextIndex: ModelTextIndex = new Map();
+
+export function setModelTextIndex(index: ModelTextIndex): void {
+  modelTextIndex = index;
+}
+@@@ src/ir/lower/lower-expr.ts
+  if (isNowExpr(expr)) return lit("now", "now");
+  if (isThisRef(expr)) return { kind: "this" };
+===
+  if (isNowExpr(expr)) return lit("now", "now");
+  if (isModelText(expr)) {
+    const r = resolveModelText(expr.kind ?? "label", expr.path, modelTextIndex);
+    // An unresolved path is already a `loom.model-text-*` error; lower to its
+    // spelling so the rest of the pipeline stays total.
+    if (!r.ok) return lit("string", expr.path.join("."));
+    return { kind: "modelText", ...modelTextEntry(r) };
+  }
+  if (isThisRef(expr)) return { kind: "this" };

@@ -1,0 +1,1560 @@
+// Macro-layer (AST→AST) scaffolders for page bodies.
+//
+// Each scaffolder builds a page body as Langium AST, so its output prints to
+// literal `.ddd` source and unfolds like any other macro.  `scaffoldList`
+// scaffolds a list; `scaffoldNewForm` scaffolds a new-form — the name is the
+// spec.  See `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/unfoldable-page-scaffolding.md`.
+//
+// Status: this is the ONLY scaffold body path.  The scaffold macro family
+// (`_pages.ts`) returns these full AST trees directly as page bodies — `unfold`
+// on a scaffolded page reveals real `.ddd` source.  The full family is in place:
+// `scaffoldList` (per-type columns + `rowTestid`),
+// `scaffoldNewForm`, `scaffoldDetails` (value-object sub-rows + related-entity
+// cards), `scaffoldOperations`, `scaffoldWorkflowForm`, the
+// workflow-instance list/detail, and the `scaffoldHome` /
+// `scaffoldWorkflowsIndex` dashboards.  Each builds its FINAL body here — there
+// is no sentinel layer and no later expansion pass.
+
+import { AstUtils } from "langium";
+import type {
+  Aggregate,
+  Containment,
+  DerivedProp,
+  EntityPart,
+  Expression,
+  Operation,
+  Property,
+  TypeRef,
+  ValueObject,
+  Workflow,
+} from "../../../language/generated/ast.js";
+import { aggregateServesHistory } from "../../../util/audit-ast.js";
+import { AUDIT_HISTORY_FIND } from "../../../util/audit-names.js";
+import { CAPABILITIES_TAG } from "../../../util/capability-tag.js";
+import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { PRINCIPAL_TYPE_NAME } from "../../../util/principal.js";
+import { PROVENANCE_VALUE_FIELD } from "../../../util/provenance-carrier.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
+import {
+  binaryExpr,
+  boolLit,
+  callExpr,
+  intLit,
+  lambda,
+  memberAccess,
+  modelTextExpr,
+  nameRefExpr,
+  stringLit,
+  ternaryExpr,
+} from "../../api/index.js";
+import { VERSIONED_TOKEN_FIELD } from "../../prelude.js";
+import { ROW_COUNT } from "./_dashboard-shared.js";
+
+// Model-derived WORDS — a type's name, a field's label, an operation's name —
+// are emitted as `label(…)` / `plural(…)` calls, never as English literals, so
+// each model fact has ONE identity-keyed catalog entry however many pages show
+// it (`src/util/model-text-key.ts`), and `unfold` ejects the call.  Whole
+// SENTENCES ("No tasks yet.", "Create task") stay literals: a placeholder
+// carries data, never words.
+
+/** `plural(<Type>)` — the type's plural name. */
+function pluralOf(type: string): Expression {
+  return modelTextExpr("plural", [type]);
+}
+
+/** `label(<Type>)` / `label(<Type>.<member>)`. */
+function labelOf(type: string, member?: string): Expression {
+  return modelTextExpr("label", member === undefined ? [type] : [type, member]);
+}
+/** `scaffoldNewForm` — scaffolds the create page body:
+ *  `Stack(Breadcrumbs, Heading "Create <agg>", Card(CreateForm(of:)))`. */
+export function scaffoldNewForm(aggName: string): Expression {
+  const slug = routeSegmentFor(aggName);
+  const humanAgg = humanize(aggName);
+  return callExpr("Stack", [
+    { value: breadcrumbs(() => pluralOf(aggName), slug, "New") },
+    {
+      value: callExpr("Heading", [
+        { value: stringLit(`Create ${humanAgg.toLowerCase()}`) },
+        { name: "level", value: intLit(2) },
+      ]),
+    },
+    {
+      value: callExpr("Card", [
+        {
+          value: callExpr("CreateForm", [
+            { name: "of", value: nameRefExpr(aggName) },
+            { name: "testid", value: stringLit(`${slug}-new`) },
+          ]),
+        },
+      ]),
+    },
+    { name: "testid", value: stringLit(`${slug}-new-page`) },
+  ]);
+}
+
+/** The field the built-in `softDeletable` capability adds (`src/macros/prelude.ts`)
+ *  and whose query filter (`filter !this.isDeleted`) hides a flagged row from
+ *  every read. */
+const SOFT_DELETE_FLAG = "isDeleted";
+
+/** An operation that takes the record OUT of the reads this Detail page makes —
+ *  a parameterless op whose body sets the `softDeletable` flag (`isDeleted :=
+ *  true`), i.e. the `softDelete` stdlib macro's operation and anything spelled
+ *  like it.
+ *
+ *  Derived from the body, not from the operation's NAME: the name is the user's
+ *  to choose, the assignment is what the read filter actually reacts to.
+ *  `restore` writes the same field with `false` and is therefore NOT one of
+ *  these — which is why the literal is part of the test. */
+function removesRecordFromReads(op: Operation): boolean {
+  if (op.params.length > 0) return false;
+  return op.body.some(
+    (s) =>
+      s.$type === "AssignOrCallStmt" &&
+      s.op === ":=" &&
+      s.target.head === SOFT_DELETE_FLAG &&
+      s.target.tail.length === 0 &&
+      s.value?.$type === "BoolLit" &&
+      s.value.value === "true",
+  );
+}
+
+/** `scaffoldOperations` — scaffolds the Detail page's operation surface:
+ *  `Group(Modal × N)`, one Modal per public operation, each holding an
+ *  `OperationForm(of: <Agg>, op: <opName>)` and triggered by a button (the
+ *  first operation's button is primary, the rest secondary).  No public
+ *  operations ⇒ an empty `Group()`.
+ *  public = the aggregate's non-`private` operations.
+ *
+ *  ONE operation shape breaks out of the modal: a soft delete.  Once it
+ *  succeeds the row is behind the capability's read filter, so the Detail page
+ *  it was invoked from re-reads its own record and gets a 404 — the user is left
+ *  staring at stale fields under "Couldn't load &lt;entity&gt;".  Those ops render
+ *  as an `Action` with `then: navigate("/<plural>")` instead, which is the same
+ *  shape `DestroyForm` already uses for the hard delete: do the thing, then
+ *  leave the page that no longer has anything to show. */
+export function scaffoldOperations(agg: Aggregate, instanceVar?: string): Expression {
+  const slug = routeSegmentFor(agg.name);
+  const publicOps = agg.members.filter(
+    (m): m is Operation => m.$type === "Operation" && !m.private,
+  );
+  if (publicOps.length === 0) return callExpr("Group", []);
+  // When the ops render inside the Detail QueryView's `data` lambda, `instanceVar`
+  // is the loaded record binding (`data`) — emit the INSTANCE-QUALIFIED op form
+  // (`OperationForm { data.<op> }`) so a `this.<field>` param default seeds from
+  // that record (the `seedsOpFormRecord` record-threading path).  Without it,
+  // fall back to the by-name shape (`of:/op:`, id from the route, no record).
+  const opForm = (op: Operation): Expression =>
+    instanceVar
+      ? callExpr("OperationForm", [
+          { value: memberAccess(nameRefExpr(instanceVar), op.name) },
+          { name: "testid", value: stringLit(`${slug}-op-${op.name}`) },
+        ])
+      : callExpr("OperationForm", [
+          { name: "of", value: nameRefExpr(agg.name) },
+          { name: "op", value: nameRefExpr(op.name) },
+          { name: "testid", value: stringLit(`${slug}-op-${op.name}`) },
+        ]);
+  // The leave-the-page shape.  `Action` needs an in-scope record to read the id
+  // off (`<record>.<op>`), so it only applies inside the Detail QueryView's
+  // `data` lambda; without one the op keeps its modal.
+  const removalAction = (op: Operation): Expression =>
+    callExpr("Action", [
+      { value: memberAccess(nameRefExpr(instanceVar!), op.name) },
+      {
+        name: "then",
+        value: callExpr("navigate", [{ value: stringLit(`/${slug}`) }]),
+      },
+      { name: "testid", value: stringLit(`${slug}-op-${op.name}`) },
+    ]);
+  return callExpr(
+    "Group",
+    publicOps.map((op, i) => ({
+      value:
+        instanceVar && removesRecordFromReads(op)
+          ? removalAction(op)
+          : callExpr("Modal", [
+              {
+                value: opForm(op),
+              },
+              { name: "title", value: labelOf(agg.name, op.name) },
+              {
+                name: "trigger",
+                value: callExpr("Button", [
+                  { value: labelOf(agg.name, op.name) },
+                  { name: "emphasis", value: stringLit(i === 0 ? "primary" : "secondary") },
+                  { name: "testid", value: stringLit(`${slug}-op-${op.name}`) },
+                ]),
+              },
+            ]),
+    })),
+  );
+}
+
+/** `scaffoldWorkflowForm` — scaffolds a workflow's command page body:
+ *  `Stack(Breadcrumbs, Heading, Card(WorkflowForm(runs: <Wf>)))`. */
+export function scaffoldWorkflowForm(wfName: string): Expression {
+  const wfSlug = snake(wfName);
+  return callExpr("Stack", [
+    {
+      value: callExpr("Breadcrumbs", [
+        {
+          value: callExpr("Anchor", [
+            { value: stringLit("Home") },
+            { name: "to", value: stringLit("/") },
+          ]),
+        },
+        {
+          value: callExpr("Anchor", [
+            { value: stringLit("Workflows") },
+            { name: "to", value: stringLit("/workflows") },
+          ]),
+        },
+        { value: callExpr("Text", [{ value: labelOf(wfName) }]) },
+      ]),
+    },
+    {
+      value: callExpr("Heading", [{ value: labelOf(wfName) }, { name: "level", value: intLit(2) }]),
+    },
+    {
+      value: callExpr("Card", [
+        {
+          value: callExpr("WorkflowForm", [
+            { name: "runs", value: nameRefExpr(wfName) },
+            { name: "testid", value: stringLit(`workflow-${wfSlug}`) },
+          ]),
+        },
+      ]),
+    },
+    { name: "testid", value: stringLit(`workflow-${wfSlug}-page`) },
+  ]);
+}
+
+/** `scaffoldHome` — the welcome page body: one summary `Card` per non-empty
+ *  section (aggregates / workflows).
+ *  Counts come from the scaffold macro's gathered inventory. */
+export function scaffoldHome(
+  counts: { aggregates: number; workflows: number },
+  /** KPI tiles to render above the summary cards — one entry per aggregate
+   *  whose context carries a dashboard projection (`_dashboard-shared.ts`).
+   *  Empty ⇒ the welcome page is byte-identical to before, so a system that
+   *  never opted into `scaffoldDashboard` is unchanged. */
+  kpis: readonly {
+    aggregate: string;
+    apiHandle?: string;
+    projection: string;
+    fields: string[];
+    /** Which of `fields` hold money, so their tiles render through `Money`.
+     *  Declared here rather than left to structural typing: the behaviour
+     *  depends on it, and an undeclared field would drop silently. */
+    moneyFields?: readonly string[];
+  }[] = [],
+  /** The sidebar's own entries, so the landing page is a LAUNCHER for the
+   *  links the shell actually renders (finding C4).  Before this, Home
+   *  described the model in metamodel vocabulary — "2 aggregates", "Manage
+   *  records of each kind from the sidebar" — which names nothing a user of
+   *  the app can look for and goes stale against the sidebar it describes.
+   *  Empty ⇒ the summary cards are skipped rather than described in the
+   *  abstract. */
+  nav: {
+    aggregates?: readonly { aggregate: string; label: string; route: string }[];
+    hasWorkflows?: boolean;
+  } = {},
+): Expression {
+  const cards: Array<{ value: Expression }> = [];
+  /** One launcher card: the sidebar's own label, plus the link it points at. */
+  const launcher = (label: Expression, linkText: string, route: string): { value: Expression } => ({
+    value: callExpr("Card", [
+      {
+        value: callExpr("Heading", [{ value: label }, { name: "level", value: intLit(4) }]),
+      },
+      {
+        value: callExpr("Anchor", [
+          { value: stringLit(linkText) },
+          { name: "to", value: stringLit(route) },
+        ]),
+      },
+    ]),
+  });
+  for (const agg of nav.aggregates ?? []) {
+    cards.push(launcher(pluralOf(agg.aggregate), `Open ${agg.label.toLowerCase()} →`, agg.route));
+  }
+  if (counts.workflows > 0 && (nav.hasWorkflows ?? true)) {
+    cards.push(launcher(stringLit("Workflows"), "Open workflows →", "/workflows"));
+  }
+  const children: Array<{ name?: string; value: Expression }> = [
+    {
+      value: callExpr("Heading", [
+        { value: stringLit("Welcome") },
+        { name: "level", value: intLit(2) },
+      ]),
+    },
+    {
+      value: callExpr("Text", [
+        {
+          value: stringLit(
+            cards.length > 0
+              ? "Pick a section from the sidebar to start, or jump straight in below."
+              : "Pick a section from the sidebar to start.",
+          ),
+        },
+      ]),
+    },
+    ...kpis.map((k) => ({ value: kpiRow(k) })),
+    { value: callExpr("Stack", cards) },
+  ];
+  children.push({ name: "testid", value: stringLit("home") });
+  return callExpr("Stack", children);
+}
+
+/** One aggregate's KPI row: a `QueryView` over its dashboard projection whose
+ *  `data:` lambda renders a `Stat` per field.
+ *
+ *  The read is single-record by construction (a singleton projection returns
+ *  one object), which `QueryView` derives from the query itself — the body
+ *  never spells `single:`.  A `money` field goes through `Money`, because a
+ *  money value deserialises client-side to a decimal.js `Decimal` and a bare
+ *  React child would be a type error; the walker can't know the field's type
+ *  from the projection row, so the SUFFIX is the signal: `scaffoldDashboard`
+ *  names every summed money column `<field>Sum`, and the source field's type
+ *  decides. */
+function kpiRow(k: {
+  aggregate: string;
+  apiHandle?: string;
+  projection: string;
+  fields: string[];
+  moneyFields?: readonly string[];
+}): Expression {
+  const money = new Set(k.moneyFields ?? []);
+  const row = "t";
+  const source = k.apiHandle
+    ? memberAccess(nameRefExpr(k.apiHandle), k.projection)
+    : nameRefExpr(k.projection);
+  const tiles: Array<{ name?: string; value: Expression }> = k.fields.map((f) => {
+    const read = memberAccess(nameRefExpr(row), f);
+    return {
+      value: callExpr("Stat", [
+        { value: f === ROW_COUNT ? pluralOf(k.aggregate) : stringLit(kpiLabel(f)) },
+        { value: money.has(f) ? callExpr("Money", [{ value: read }]) : read },
+      ]),
+    };
+  });
+  tiles.push({ name: "testid", value: stringLit(`${snake(k.aggregate)}-totals`) });
+  return callExpr("QueryView", [
+    { name: "of", value: source },
+    // One skeleton per tile, so the row reserves its space instead of popping
+    // in — the tiles sit above the fold on the landing page.
+    {
+      name: "loading",
+      value: callExpr("Skeleton", [{ name: "count", value: intLit(k.fields.length) }]),
+    },
+    { name: "data", value: lambda(row, callExpr("Group", tiles)) },
+  ]);
+}
+
+/** Human label for a summed KPI tile: a `<field>Sum` reads "Total <field>" (the
+ *  `rowCount` tile is the aggregate's `plural(…)` name instead). */
+function kpiLabel(field: string): string {
+  const base = field.endsWith("Sum") ? field.slice(0, -3) : field;
+  const label = humanize(base).toLowerCase();
+  // A field already named `total` would read "Total total".
+  return label.startsWith("total") ? upperFirst(label) : `Total ${label}`;
+}
+
+/** `scaffoldWorkflowsIndex` — the workflows index page body: Breadcrumbs +
+ *  Heading + one `Card` per workflow. */
+export function scaffoldWorkflowsIndex(workflows: readonly Workflow[]): Expression {
+  const cards = workflows.map((wf) => {
+    const slug = snake(wf.name);
+    return {
+      value: callExpr("Card", [
+        {
+          value: callExpr("Heading", [
+            { value: labelOf(wf.name) },
+            { name: "level", value: intLit(4) },
+          ]),
+        },
+        {
+          value: callExpr("Anchor", [
+            { value: stringLit("Run →") },
+            { name: "to", value: stringLit(`/workflows/${slug}`) },
+            { name: "testid", value: stringLit(`workflow-${slug}-run`) },
+          ]),
+        },
+        { name: "testid", value: stringLit(`workflow-card-${slug}`) },
+      ]),
+    };
+  });
+  return callExpr("Stack", [
+    { value: breadcrumbs(() => stringLit("Workflows"), "workflows") },
+    {
+      value: callExpr("Heading", [
+        { value: stringLit("Workflows") },
+        { name: "level", value: intLit(2) },
+      ]),
+    },
+    {
+      value: callExpr("Text", [
+        { value: stringLit("System-level orchestrations.  Pick one to run.") },
+      ]),
+    },
+    { value: callExpr("Stack", cards) },
+    { name: "testid", value: stringLit("workflows-index") },
+  ]);
+}
+
+/** `scaffoldInstanceList` — scaffolds an observable workflow's running-instances
+ *  list page body.  The correlation
+ *  column links to the instance detail (an `Anchor`, not an `IdLink`), the rest
+ *  dispatch by type; `rowTestid` keys on the correlation field. */
+export function scaffoldInstanceList(wf: Workflow): Expression {
+  const slug = snake(wf.name);
+  const humanWf = humanize(wf.name);
+  const lowerWf = humanWf.toLowerCase();
+  const corr = workflowCorrelation(wf);
+  const corrName = corr ? String(corr.name) : "";
+  const queryRoot = (): Expression => memberAccess(nameRefExpr(wf.name), "instances");
+
+  const cols: Array<{ name?: string; value: Expression }> = [];
+  for (const p of workflowInstanceProperties(wf)) {
+    const name = String(p.name);
+    if (corr && p.name === corr.name) {
+      cols.push({
+        value: callExpr("Column", [
+          { value: labelOf(wf.name, name) },
+          {
+            value: lambda(
+              "i",
+              callExpr("Anchor", [
+                { value: memberAccess(nameRefExpr("i"), name) },
+                {
+                  name: "to",
+                  value: binaryExpr(
+                    stringLit(`/workflows/${slug}/instances/`),
+                    "+",
+                    memberAccess(nameRefExpr("i"), name),
+                  ),
+                },
+              ]),
+            ),
+          },
+        ]),
+      });
+      continue;
+    }
+    const kind = columnKindForType(p.type);
+    if (!kind) continue; // skip value-objects / arrays
+    cols.push({
+      value: callExpr("Column", [
+        { value: labelOf(wf.name, name) },
+        { value: lambda("i", columnAccessor(name, kind, "i", !!p.provenanced)) },
+      ]),
+    });
+  }
+
+  const table = callExpr("Table", [
+    ...cols,
+    { name: "rows", value: nameRefExpr("rows") },
+    { name: "striped", value: boolLit(true) },
+    { name: "highlight", value: boolLit(true) },
+    { name: "sticky", value: boolLit(true) },
+    // ES-workflow instances carry no `id` (they're keyed by the
+    // correlation field, the stream key), so the Table's default
+    // `row.id` React key would not type-check.  Key on the correlation
+    // field — unique per instance and already the row testid — falling
+    // back to the row index if a workflow somehow lacks one.
+    {
+      name: "keyExpr",
+      value: stringLit(corrName ? `row.${corrName}` : "idx"),
+    },
+    {
+      name: "rowTestid",
+      value: lambda(
+        "r",
+        binaryExpr(
+          stringLit(`${slug}-instances-row-`),
+          "+",
+          memberAccess(nameRefExpr("r"), corrName),
+        ),
+      ),
+    },
+  ]);
+
+  return callExpr("Stack", [
+    {
+      value: callExpr("Breadcrumbs", [
+        {
+          value: callExpr("Anchor", [
+            { value: stringLit("Home") },
+            { name: "to", value: stringLit("/") },
+          ]),
+        },
+        { value: callExpr("Text", [{ value: stringLit("Workflows") }]) },
+        { value: callExpr("Text", [{ value: stringLit(`${humanWf} instances`) }]) },
+      ]),
+    },
+    {
+      value: callExpr("Heading", [
+        { value: stringLit(`${humanWf} instances`) },
+        { name: "level", value: intLit(2) },
+      ]),
+    },
+    {
+      value: callExpr("QueryView", [
+        { name: "of", value: memberAccess(queryRoot(), "all") },
+        { name: "loading", value: callExpr("Skeleton", [{ name: "count", value: intLit(5) }]) },
+        {
+          name: "error",
+          value: callExpr("Alert", [{ value: stringLit(`Couldn't load ${lowerWf} instances`) }]),
+        },
+        {
+          name: "empty",
+          value: callExpr("Empty", [{ value: stringLit(`No ${lowerWf} instances yet.`) }]),
+        },
+        { name: "data", value: lambda("rows", callExpr("Paper", [{ value: table }])) },
+      ]),
+    },
+    { name: "testid", value: stringLit(`${slug}-instances-list`) },
+  ]);
+}
+
+/** `scaffoldInstanceDetails` — scaffolds a workflow instance's detail page body:
+ *  a `QueryView` (by id) over a `Card` of `KeyValueRow`s, one per instance field
+ *  (arrays skipped, value-objects rendered as `Text`). */
+export function scaffoldInstanceDetails(wf: Workflow): Expression {
+  const slug = snake(wf.name);
+  const humanWf = humanize(wf.name);
+  const lowerWf = humanWf.toLowerCase();
+  const queryRoot = (): Expression => memberAccess(nameRefExpr(wf.name), "instances");
+
+  const rows: Array<{ name?: string; value: Expression }> = [];
+  for (const p of workflowInstanceProperties(wf)) {
+    const kind = kindForType(p.type, true); // arrays skip; value-objects → Text
+    if (!kind) continue;
+    const name = String(p.name);
+    rows.push({
+      value: callExpr("KeyValueRow", [
+        { value: labelOf(wf.name, name) },
+        { value: typedCell(() => memberAccess(nameRefExpr("data"), name), kind) },
+      ]),
+    });
+  }
+
+  return callExpr("Stack", [
+    {
+      value: callExpr("Breadcrumbs", [
+        {
+          value: callExpr("Anchor", [
+            { value: stringLit("Home") },
+            { name: "to", value: stringLit("/") },
+          ]),
+        },
+        { value: callExpr("Text", [{ value: stringLit("Workflows") }]) },
+        {
+          value: callExpr("Anchor", [
+            { value: stringLit(`${humanWf} instances`) },
+            { name: "to", value: stringLit(`/workflows/${slug}/instances`) },
+          ]),
+        },
+        { value: callExpr("Text", [{ value: stringLit("Detail") }]) },
+      ]),
+    },
+    {
+      value: callExpr("Heading", [
+        { value: stringLit(`${humanWf} instance`) },
+        { name: "level", value: intLit(2) },
+      ]),
+    },
+    {
+      value: callExpr("QueryView", [
+        {
+          name: "of",
+          value: memberAccess(queryRoot(), "byId", { call: true, args: [nameRefExpr("id")] }),
+        },
+        { name: "single", value: boolLit(true) },
+        { name: "loading", value: callExpr("Skeleton", [{ name: "count", value: intLit(3) }]) },
+        {
+          name: "error",
+          value: callExpr("Alert", [{ value: stringLit(`Couldn't load ${lowerWf} instance`) }]),
+        },
+        {
+          name: "empty",
+          value: callExpr("Alert", [
+            { value: stringLit(`No ${lowerWf} instance matches that id.`) },
+            { name: "color", value: stringLit("yellow") },
+          ]),
+        },
+        { name: "data", value: lambda("data", callExpr("Card", rows)) },
+      ]),
+    },
+  ]);
+}
+
+/** `scaffoldDetails` — scaffolds an aggregate's read-side Detail section:
+ *  `Stack(Breadcrumbs, Heading, QueryView(byId) → Card of field rows + related
+ *  cards)`.  Pairs
+ *  with `scaffoldOperations` on the Detail page; `apiHandle` is the ui's api
+ *  param when the aggregate is served over one. */
+export function scaffoldDetails(agg: Aggregate, opts: { apiHandle?: string } = {}): Expression {
+  return callExpr("Stack", scaffoldDetailsParts(agg, opts));
+}
+
+/** The Detail page's History section — a framed `Timeline` over the derived
+ *  `history(id)` read (docs/audit.md).
+ *
+ *  A page-level sibling of the record `QueryView`, not a child of its `data`
+ *  lambda: the trail is keyed by the route `id`, not by the loaded record, so
+ *  it neither needs nor should wait for the entity read.  The `QueryView`
+ *  wrapper is what gives it the same loading / error / empty arms every other
+ *  scaffolded read has — an audit trail that silently renders nothing while
+ *  in-flight reads as "this entity was never touched", which is a lie. */
+function scaffoldHistorySection(agg: Aggregate, queryRoot: () => Expression): Expression {
+  const slug = routeSegmentFor(agg.name);
+  const timeline = callExpr("Timeline", [
+    { name: "of", value: nameRefExpr("entries") },
+    { name: "testid", value: stringLit(`${slug}-detail-history-timeline`) },
+  ]);
+  return callExpr("Card", [
+    {
+      value: callExpr("Stack", [
+        {
+          value: callExpr("Heading", [
+            { value: stringLit("History") },
+            { name: "level", value: intLit(4) },
+          ]),
+        },
+        {
+          value: callExpr("QueryView", [
+            {
+              name: "of",
+              value: memberAccess(queryRoot(), AUDIT_HISTORY_FIND, {
+                call: true,
+                args: [nameRefExpr("id")],
+              }),
+            },
+            { name: "loading", value: callExpr("Skeleton", [{ name: "count", value: intLit(3) }]) },
+            {
+              name: "error",
+              value: callExpr("Alert", [{ value: stringLit("Couldn't load history") }]),
+            },
+            {
+              name: "empty",
+              value: callExpr("Alert", [
+                { value: stringLit("No history yet.") },
+                { name: "color", value: stringLit("yellow") },
+              ]),
+            },
+            { name: "data", value: lambda("entries", timeline) },
+          ]),
+        },
+      ]),
+    },
+    { name: "testid", value: stringLit(`${slug}-detail-history`) },
+  ]);
+}
+
+/** The Detail read-section's `Stack` children — `[Breadcrumbs, Heading,
+ *  QueryView]`, plus a History section for an audited aggregate.  Exposed
+ *  separately so the Detail page can *flatten* them into
+ *  its outer `Stack` alongside the operation modals (flattened into the page Stack rather than nested). */
+export function scaffoldDetailsParts(
+  agg: Aggregate,
+  opts: { apiHandle?: string; withOperations?: boolean } = {},
+): Array<{ name?: string; value: Expression }> {
+  const slug = routeSegmentFor(agg.name);
+  const humanAgg = humanize(agg.name);
+  const lowerAgg = humanAgg.toLowerCase();
+  const cellVar = "data";
+  const queryRoot = (): Expression =>
+    opts.apiHandle ? memberAccess(nameRefExpr(opts.apiHandle), agg.name) : nameRefExpr(agg.name);
+
+  const { card, related } = buildDataCardParts(agg, cellVar);
+  // Operation modals render INSIDE the `data` lambda (below the record card, only
+  // once the record loads) so their instance-qualified op forms seed a
+  // `this.<field>` param default from the in-scope loaded record (`data`).
+  const hasPublicOps = agg.members.some((m) => m.$type === "Operation" && !m.private);
+  const dataExtras: Expression[] = [...related];
+  if (opts.withOperations && hasPublicOps) dataExtras.push(scaffoldOperations(agg, cellVar));
+  const dataBody =
+    dataExtras.length === 0
+      ? card
+      : callExpr("Stack", [{ value: card }, ...dataExtras.map((r) => ({ value: r }))]);
+
+  return [
+    {
+      value: callExpr("Breadcrumbs", [
+        {
+          value: callExpr("Anchor", [
+            { value: stringLit("Home") },
+            { name: "to", value: stringLit("/") },
+          ]),
+        },
+        {
+          value: callExpr("Anchor", [
+            { value: pluralOf(agg.name) },
+            { name: "to", value: stringLit(`/${slug}`) },
+          ]),
+        },
+        { value: callExpr("Text", [{ value: stringLit("Detail") }]) },
+      ]),
+    },
+    {
+      value: callExpr("Heading", [
+        { value: stringLit(`${humanAgg} detail`) },
+        { name: "level", value: intLit(2) },
+      ]),
+    },
+    {
+      value: callExpr("QueryView", [
+        {
+          name: "of",
+          value: memberAccess(queryRoot(), "byId", { call: true, args: [nameRefExpr("id")] }),
+        },
+        { name: "single", value: boolLit(true) },
+        { name: "loading", value: callExpr("Skeleton", [{ name: "count", value: intLit(3) }]) },
+        {
+          name: "error",
+          value: callExpr("Alert", [{ value: stringLit(`Couldn't load ${lowerAgg}`) }]),
+        },
+        {
+          name: "empty",
+          value: callExpr("Alert", [
+            { value: stringLit(`No ${lowerAgg} matches that id.`) },
+            { name: "color", value: stringLit("yellow") },
+          ]),
+        },
+        { name: "data", value: lambda(cellVar, dataBody) },
+      ]),
+    },
+    // The audit trail, for an aggregate that serves one.  Gated so a
+    // non-audited aggregate's Detail page stays byte-identical — there is no
+    // `history()` on its api client to call.
+    ...(aggregateServesHistory(agg) ? [{ value: scaffoldHistorySection(agg, queryRoot) }] : []),
+  ];
+}
+
+/** The Detail page's field card + related-entity cards.  Each scalar field is a
+ *  `KeyValueRow`; value-object fields flatten into labelled leaf rows
+ *  (`valueObjectRows`); each containment becomes a `Card` — a `Table` for a
+ *  collection, a labelled `KeyValueRow` stack for a single part.  AST twin of
+ *  `buildDataCardParts`. */
+function buildDataCardParts(
+  agg: Aggregate,
+  cellVar: string,
+): { card: Expression; related: Expression[] } {
+  const slug = routeSegmentFor(agg.name);
+  const rows: Array<{ name?: string; value: Expression }> = [];
+  for (const f of userFacingProperties(agg)) {
+    if (f.type.array) continue;
+    const name = String(f.name);
+    const vo = valueObjectTarget(f.type);
+    if (vo) {
+      rows.push(
+        ...valueObjectRows(() => memberAccess(nameRefExpr(cellVar), name), humanize(name), vo),
+      );
+      continue;
+    }
+    const kind = kindForType(f.type, true)!; // non-array, VO handled above ⇒ always a cell
+    // A `provenanced` field ships as the `Provenanced<T>` wire carrier
+    // (M-T6.12), so the FIGURE is `<record>.<field>.value` — reading
+    // `<record>.<field>` would render the whole `{ value, lineage }` object.
+    // The cell's own type is still the carried one, so the typed formatting
+    // (money / datetime / …) applies to the value, as before.
+    const cellAccess = f.provenanced
+      ? () => memberAccess(memberAccess(nameRefExpr(cellVar), name), PROVENANCE_VALUE_FIELD)
+      : () => memberAccess(nameRefExpr(cellVar), name);
+    const cell = typedCell(cellAccess, kind);
+    // A `provenanced` field pairs its value with a "?" disclosure over the
+    // value's lineage: `Group(value, ProvenanceInfo)` so the figure and its
+    // "why" sit side by side.  ProvenanceInfo reads the carrier's `lineage`
+    // half off the same field — every frontend carries it now that the lineage
+    // is part of `wireShape` rather than a per-frontend opt-in append.
+    const valueCell = f.provenanced
+      ? callExpr("Group", [
+          { value: cell },
+          {
+            value: callExpr("ProvenanceInfo", [
+              { name: "of", value: nameRefExpr(cellVar) },
+              { name: "field", value: stringLit(name) },
+              { name: "testid", value: stringLit(`${slug}-detail-${name}-prov`) },
+            ]),
+          },
+        ])
+      : cell;
+    rows.push({
+      value: callExpr("KeyValueRow", [
+        { value: labelOf(agg.name, name) },
+        { value: valueCell },
+        { name: "testid", value: stringLit(`${slug}-detail-${name}`) },
+      ]),
+    });
+  }
+
+  // Derived values ride the read wire shape after the declared fields
+  // (`wireShape`: id, properties, containments, derived), so the loaded record
+  // carries them.  They render read-only, after the stored fields, typed like
+  // any other cell; a value-object / collection derived has no scalar cell
+  // and stays off the card, as a value-object property does on the list.
+  for (const d of derivedPropsOf(agg)) {
+    const kind = columnKindForType(d.type);
+    if (!kind) continue;
+    const name = String(d.name);
+    rows.push({
+      value: callExpr("KeyValueRow", [
+        { value: labelOf(agg.name, name) },
+        { value: typedCell(() => memberAccess(nameRefExpr(cellVar), name), kind) },
+        { name: "testid", value: stringLit(`${slug}-detail-${name}`) },
+      ]),
+    });
+  }
+
+  const related: Expression[] = [];
+  for (const c of agg.members.filter((m): m is Containment => m.$type === "Containment")) {
+    const part = c.partType.ref;
+    if (!part) continue;
+    related.push(relatedCard(agg.name, c, part, cellVar, slug));
+  }
+
+  return { card: callExpr("Card", [{ value: callExpr("Stack", rows) }]), related };
+}
+
+/** One related-entity `Card` for a containment — a framed `Table` over the
+ *  collection, or a labelled `KeyValueRow` stack for a single part. */
+function relatedCard(
+  aggName: string,
+  c: Containment,
+  part: EntityPart,
+  cellVar: string,
+  slug: string,
+): Expression {
+  const heading = callExpr("Heading", [
+    { value: labelOf(aggName, c.name) },
+    { name: "level", value: intLit(4) },
+  ]);
+  const testid = { name: "testid", value: stringLit(`${slug}-detail-${snake(c.name)}`) };
+  if (c.collection) {
+    const cols = columnsFromProperties(propertiesOf(part.members)).map((col) => ({
+      value: callExpr("Column", [
+        { value: labelOf(part.name, col.name) },
+        { value: lambda("row", columnAccessor(col.name, col.kind, "row", col.provenanced)) },
+      ]),
+    }));
+    const table = callExpr("Table", [
+      ...cols,
+      { name: "rows", value: memberAccess(nameRefExpr(cellVar), c.name) },
+      { name: "striped", value: boolLit(true) },
+      { name: "highlight", value: boolLit(true) },
+      { name: "keyExpr", value: stringLit("idx") },
+    ]);
+    return callExpr("Card", [
+      { value: callExpr("Stack", [{ value: heading }, { value: table }]) },
+      testid,
+    ]);
+  }
+  // Single part: one KeyValueRow per scalar field, rooted at `<cell>.<part>.<f>`.
+  const singleRows = columnsFromProperties(propertiesOf(part.members)).map((col) => ({
+    value: callExpr("KeyValueRow", [
+      { value: labelOf(part.name, col.name) },
+      {
+        value: typedCell(
+          () => memberAccess(memberAccess(nameRefExpr(cellVar), c.name), col.name),
+          col.kind,
+        ),
+      },
+    ]),
+  }));
+  return callExpr("Card", [
+    { value: callExpr("Stack", [{ value: heading }, { value: callExpr("Stack", singleRows) }]) },
+    testid,
+  ]);
+}
+
+/** Flatten a value-object field into labelled leaf rows, recursing through
+ *  nested value objects.  AST twin of `valueObjectRows`; the VO is resolved
+ *  straight off the field's type cross-reference. */
+function valueObjectRows(
+  receiver: () => Expression,
+  labelPrefix: string,
+  vo: ValueObject,
+): Array<{ name?: string; value: Expression }> {
+  const out: Array<{ name?: string; value: Expression }> = [];
+  for (const lf of propertiesOf(vo.members)) {
+    if (lf.type.array) continue;
+    const name = String(lf.name);
+    const label = `${labelPrefix} ${humanize(name)}`;
+    const nested = valueObjectTarget(lf.type);
+    if (nested) {
+      out.push(...valueObjectRows(() => memberAccess(receiver(), name), label, nested));
+      continue;
+    }
+    const kind = kindForType(lf.type, true)!;
+    out.push({
+      value: callExpr("KeyValueRow", [
+        { value: stringLit(label) },
+        { value: typedCell(() => memberAccess(receiver(), name), kind) },
+      ]),
+    });
+  }
+  return out;
+}
+
+/** The `ValueObject` a field's type points at, or `undefined` when it isn't a
+ *  value-object reference. */
+function valueObjectTarget(type: TypeRef): ValueObject | undefined {
+  if (type.array) return undefined;
+  const base = type.base;
+  if (base.$type !== "NamedType") return undefined;
+  const ref = base.target.ref;
+  return ref?.$type === "ValueObject" ? ref : undefined;
+}
+
+/** A workflow's correlation field — the single id-shaped state property — or
+ *  `undefined` when absent/ambiguous (no persisted instance, matching the
+ *  enrichment gate). */
+function workflowCorrelation(wf: Workflow): Property | undefined {
+  const idProps = propertiesOf(wf.members).filter(
+    (p) => p.type.base.$type === "IdType" && !p.type.array,
+  );
+  return idProps.length === 1 ? idProps[0] : undefined;
+}
+
+/** A workflow's persisted-instance properties in wire-shape order — the
+ *  correlation field first (the `token`), then the remaining state fields in
+ *  declaration order.  Twin of `wireFieldsForWorkflow`; no correlation ⇒ no
+ *  instance shape (empty).  Shared by the instance builders. */
+function workflowInstanceProperties(wf: Workflow): Property[] {
+  const corr = workflowCorrelation(wf);
+  if (!corr) return [];
+  return [corr, ...propertiesOf(wf.members).filter((p) => p.name !== corr.name)];
+}
+
+/** The display dispatch a list/table column renders through — the
+ *  column's type switch, resolved from the aggregate's AST at
+ *  scaffold time (see `scalarColumnsForAggregate`) so the builder stays
+ *  data-only. */
+export type ColumnKind =
+  | { tag: "id"; targetName: string }
+  | { tag: "datetime" }
+  | { tag: "bool" }
+  | { tag: "numeric" } // decimal / int / long — bare text (plain numbers client-side)
+  | { tag: "money" } // money — a decimal.js Decimal client-side, needs the Money formatter
+  | { tag: "enum" }
+  | { tag: "file" } // File (required or optional) — a `FileLink` download anchor
+  //                   (`<a href={ref.url} download>{ref.key}</a>`).  A raw `File`
+  //                   is the FileRef object, not a ReactNode; `FileLink` renders
+  //                   the anchor and null-guards optional `File?` to an em-dash.
+  | { tag: "text" }; // string / guid / json / fallback
+
+export interface ScaffoldColumn {
+  name: string;
+  kind: ColumnKind;
+  /** The property is declared `provenanced`, so its WIRE value is the
+   *  `Provenanced<T>` carrier `{ value, lineage }` (M-T6.12) — the cell reads
+   *  `<row>.<field>.value`, not `<row>.<field>` (which would render the whole
+   *  carrier object). */
+  provenanced?: boolean;
+  /** The column is on the server's `?sort=` whitelist (`sortableFields`,
+   *  src/ir/util/sortable-fields.ts), so a SERVER-paged list may mark it
+   *  `sortable:`.  See `serverSortable`. */
+  serverSortable?: boolean;
+}
+
+/** The AST-side twin of `sortableFields` (src/ir/util/sortable-fields.ts) —
+ *  the server's `?sort=` whitelist, which the macro cannot import (it reads the
+ *  enriched IR wire shape; the macro runs on the AST).  A declared property is
+ *  sortable iff it is a single orderable root column the read surface shows:
+ *  a required, non-array primitive or enum, not `provenanced` (the wire carries
+ *  a `{ value, lineage }` object), not the `token` access (`version`), not
+ *  `secret`/`internal`, and not `mask unless` (ordering would leak the hidden
+ *  value).  `test/macro/scaffold-sortable-allowlist.test.ts` pins the two lists
+ *  equal over one aggregate exercising every exclusion. */
+function serverSortable(p: Property): boolean {
+  if (p.access === "token" || p.access === "secret" || p.access === "internal") return false;
+  if (p.maskUnless || p.provenanced) return false;
+  const t = p.type;
+  if (t.array || t.optional || t.alternatives.length > 0 || t.ctors.length > 0) return false;
+  if (t.base.$type === "PrimitiveType") return true;
+  return t.base.$type === "NamedType" && t.base.target.ref?.$type === "EnumDecl";
+}
+
+/** A type-dispatched cell renderer rooted at an arbitrary receiver — the
+ *  type-dispatched cell: ids link, datetimes format, bools render
+ *  a Yes/No ternary, enums badge, everything else is plain `Text`.  `receiver`
+ *  is a thunk so each call builds fresh AST nodes. */
+function typedCell(receiver: () => Expression, kind: ColumnKind): Expression {
+  switch (kind.tag) {
+    case "id":
+      return callExpr("IdLink", [
+        { value: receiver() },
+        { name: "of", value: nameRefExpr(kind.targetName) },
+      ]);
+    case "datetime":
+      return callExpr("DateDisplay", [{ value: receiver() }]);
+    case "bool":
+      return callExpr("Text", [
+        { value: ternaryExpr(receiver(), stringLit("Yes"), stringLit("No")) },
+      ]);
+    case "enum":
+      return callExpr("EnumBadge", [{ value: receiver() }]);
+    case "money":
+      // `money` is a decimal.js Decimal client-side — the `Money` primitive's
+      // `MoneyValue` helper formats it (accepts the Decimal structurally);
+      // rendering it as a bare React child would be a tsc error + runtime crash.
+      return callExpr("Money", [{ value: receiver() }]);
+    case "file":
+      // A `File` field is the FileRef object `{ url, key, contentType, size }` —
+      // rendering it directly is a non-ReactNode tsc error.  `FileLink` renders a
+      // clickable download `<a href={ref.url} download>{ref.key}</a>`, null-guarded
+      // so an optional `File?` (null) shows an em-dash instead of a broken anchor.
+      return callExpr("FileLink", [{ value: receiver() }]);
+    default: // "numeric" | "text"
+      return callExpr("Text", [{ value: receiver() }]);
+  }
+}
+
+/** One table cell accessor `<rowVar>.<field>`, dispatched by type.  A
+ *  `provenanced` column reads through the wire carrier's `value` member. */
+function columnAccessor(
+  fieldName: string,
+  kind: ColumnKind,
+  rowVar: string,
+  provenanced = false,
+): Expression {
+  return typedCell(
+    () =>
+      provenanced
+        ? memberAccess(memberAccess(nameRefExpr(rowVar), fieldName), PROVENANCE_VALUE_FIELD)
+        : memberAccess(nameRefExpr(rowVar), fieldName),
+    kind,
+  );
+}
+
+/** Resolve an aggregate's scalar list columns from its AST — one `ScaffoldColumn`
+ *  per non-array `Property`, dispatched by the field's resolved type, skipping
+ *  value-object fields (no scalar cell).  It computes, at macro time from the
+ *  aggregate's AST, the column kinds a list page needs:
+ *  the type kinds it needs (id target, primitive name, enum-vs-VO) are all
+ *  reachable through the post-link cross-references. */
+export function scalarColumnsForAggregate(agg: Aggregate): ScaffoldColumn[] {
+  return columnsFromProperties(userFacingProperties(agg));
+}
+
+/** One `ScaffoldColumn` per displayable property — dispatched by type, skipping
+ *  value-objects/arrays.  Drives the aggregate-list columns. */
+function columnsFromProperties(props: readonly Property[]): ScaffoldColumn[] {
+  const out: ScaffoldColumn[] = [];
+  for (const p of props) {
+    const kind = columnKindForType(p.type);
+    if (kind)
+      out.push({
+        name: String(p.name),
+        kind,
+        provenanced: !!p.provenanced,
+        serverSortable: serverSortable(p),
+      });
+  }
+  return out;
+}
+
+function propertiesOf(members: readonly { $type: string }[]): Property[] {
+  return members.filter((m): m is Property => m.$type === "Property");
+}
+
+function derivedPropsOf(agg: Aggregate): DerivedProp[] {
+  return agg.members.filter((m): m is DerivedProp => m.$type === "DerivedProp");
+}
+
+/** The most columns a scaffolded LIST shows beside its label column.  The list
+ *  is a scanning surface: past a handful of columns the table scrolls sideways
+ *  and the row stops reading as one record.  The Detail page keeps every
+ *  field, so capping here hides nothing that is not one click away. */
+const MAX_LIST_COLUMNS = 6;
+
+/** The capability-stamped audit fields a list leaves out.  `updatedAt` and the
+ *  two principal ids are bookkeeping — the principal id is not even navigable
+ *  (`kindForType`) — while `createdAt` stays, because "when was this opened" is
+ *  something a list is sorted and scanned by. */
+const AUDIT_LIST_HIDDEN: ReadonlySet<string> = new Set(["updatedAt", "createdBy", "updatedBy"]);
+
+/** The column that names a row and links to its Detail page.  `derived` says
+ *  whether it is a `derived` value (not a stored column, so not on the
+ *  server's `?sort=` whitelist) or a stored property. */
+export interface ListLabel {
+  name: string;
+  derived: boolean;
+  /** The one stored field a derived label reads (`display = name` → `name`),
+   *  which orders rows the same way the label does — so the label column sorts
+   *  by it.  Absent when the label reads zero or several fields. */
+  sortField?: string;
+  /** Whether the server's `?sort=` whitelist accepts `sortField`. */
+  sortFieldServerSortable?: boolean;
+}
+
+/** What a scaffolded list renders: the label column (when the aggregate has a
+ *  natural one) and the data columns beside it. */
+export interface ListShape {
+  label?: ListLabel;
+  columns: ScaffoldColumn[];
+}
+
+/** The scaffolded list's columns, derived from the aggregate alone.
+ *
+ *  - The LABEL is the aggregate's `derived display: string` — the name the
+ *    author already gave a record for every `X id` picker and reference
+ *    label.  The label cell links to the Detail page, so a list with a label
+ *    needs no raw-id column.  No `display` ⇒ the id column stays, since it is
+ *    then the only way into a row (guessing a label from the first string
+ *    field would as readily pick a foreign key as a name).
+ *  - The stored fields `display` reads directly are already on screen inside
+ *    the label, so they do not get a column of their own.
+ *  - The `auditable` bookkeeping fields in {@link AUDIT_LIST_HIDDEN} drop.
+ *  - At most {@link MAX_LIST_COLUMNS} data columns remain, in declaration
+ *    order. */
+export function listShapeForAggregate(agg: Aggregate): ListShape {
+  const label = listLabelFor(agg);
+  const caps = (agg as { [CAPABILITIES_TAG]?: string[] })[CAPABILITIES_TAG] ?? [];
+  const audited = caps.includes("auditable");
+  const shown = new Set<string>(label ? [label.name, ...labelReads(agg, label)] : []);
+  const props = userFacingProperties(agg).filter(
+    (p) =>
+      !shown.has(String(p.name)) &&
+      !(audited && p.access === "managed" && AUDIT_LIST_HIDDEN.has(String(p.name))),
+  );
+  return { label, columns: columnsFromProperties(props).slice(0, MAX_LIST_COLUMNS) };
+}
+
+function isPlainRequiredString(type: TypeRef): boolean {
+  return (
+    !type.array &&
+    !type.optional &&
+    (type.alternatives?.length ?? 0) === 0 &&
+    (type.ctors?.length ?? 0) === 0 &&
+    type.base.$type === "PrimitiveType" &&
+    type.base.name === "string"
+  );
+}
+
+function listLabelFor(agg: Aggregate): ListLabel | undefined {
+  const display = derivedPropsOf(agg).find(
+    (d) => d.name === "display" && isPlainRequiredString(d.type),
+  );
+  if (!display) return undefined;
+  const label: ListLabel = { name: "display", derived: true };
+  const reads = [...new Set(labelReads(agg, label))];
+  const only =
+    reads.length === 1 ? propertiesOf(agg.members).find((p) => p.name === reads[0]) : undefined;
+  return only
+    ? { ...label, sortField: String(only.name), sortFieldServerSortable: serverSortable(only) }
+    : label;
+}
+
+/** The property names a derived label's expression reads by bare name
+ *  (`number + " " + subject` → `number`, `subject`).  A stored label reads
+ *  only itself. */
+function labelReads(agg: Aggregate, label: ListLabel): string[] {
+  if (!label.derived) return [];
+  const d = derivedPropsOf(agg).find((x) => x.name === label.name);
+  if (!d) return [];
+  const props = new Set(propertiesOf(agg.members).map((p) => String(p.name)));
+  const out: string[] = [];
+  for (const node of AstUtils.streamAst(d.expr)) {
+    if (node.$type === "NameRef") {
+      const n = (node as { name?: unknown }).name;
+      if (typeof n === "string" && props.has(n)) out.push(n);
+    }
+  }
+  return out;
+}
+
+/** The aggregate-root properties a scaffold LIST or DETAIL page may render.
+ *  The API-read wire shape excludes `internal`/`secret`-access fields
+ *  (`forApiRead`, src/ir/enrich/wire-projection.ts), so the client DTO never
+ *  carries them — a scaffold that displayed them would reference a column that
+ *  doesn't exist on the response type and fail `tsc`.  Capability mixins inject
+ *  exactly such fields (`tenantOwned` → `tenantId`/`dataKey` internal,
+ *  `softDeletable` → `isDeleted` internal), which is why a plain `with
+ *  scaffold` over a `tenantOwned`/`softDeletable` aggregate would otherwise
+ *  emit an uncompilable frontend.  Applied at the crudish aggregate
+ *  list/detail sites. */
+function apiVisibleProperties(members: readonly { $type: string }[]): Property[] {
+  return propertiesOf(members).filter((p) => p.access !== "internal" && p.access !== "secret");
+}
+
+/** The aggregate-root properties a scaffold LIST column / DETAIL row renders:
+ *  the API-visible ones minus the optimistic-concurrency counter.  That counter
+ *  is transport-only — read to detect a conflict, echoed back as the update's
+ *  If-Match / `version` precondition, never something a user reads or edits
+ *  (`updatePreconditions`, src/ir/enrich/wire-projection.ts) — so a "Version"
+ *  column on every list is noise.  It stays on the wire, the DTOs, and the
+ *  update forms' precondition plumbing; only the display bodies drop it. */
+function userFacingProperties(agg: Aggregate): Property[] {
+  return apiVisibleProperties(agg.members).filter((p) => !isConcurrencyToken(agg, p));
+}
+
+/** True iff `p` is the field the `versioned` capability contributes (spliced by
+ *  default onto every non-event-sourced aggregate, M-T3.4): the aggregate is
+ *  tagged `versioned` AND the property is that capability's `token`-access
+ *  `version` field.  Derived from facts already on the AST — the expander's
+ *  capability tag plus the field's declared access — rather than the name alone,
+ *  so a user's own `version` property (an editable `version: int` the expander
+ *  keeps in place of the splice, or any `version` on an event-sourced aggregate,
+ *  which is never versioned) still renders. */
+function isConcurrencyToken(agg: Aggregate, p: Property): boolean {
+  const caps = (agg as { [CAPABILITIES_TAG]?: string[] })[CAPABILITIES_TAG] ?? [];
+  return caps.includes("versioned") && p.access === "token" && p.name === VERSIONED_TOKEN_FIELD;
+}
+
+/** Dispatch a field's display `kind` from its AST type.  Arrays never have a
+ *  scalar cell (→ null).  `voAsText` decides value-objects: list/table columns
+ *  skip them (`false`, → null),
+ *  the detail rows render them as plain `Text` (`true`, the
+ *  fallback over a `data.<vo>` receiver). */
+function kindForType(type: TypeRef, voAsText: boolean): ColumnKind | null {
+  if (type.array) return null; // arrays have no scalar cell
+  const base = type.base;
+  if (base.$type === "IdType") {
+    // `User id` naming the PRINCIPAL is not a navigable reference.  An `id`
+    // cell/row renders as `IdLink(of: <Agg>)`, whose markup is a link to the
+    // aggregate's conventional `/<plural-snake>/{id}` detail route — but the
+    // principal has no `aggregate User`, so no `/users` route is ever
+    // registered and `auditable`'s `createdBy`/`updatedBy` link straight into
+    // the router's catch-all.  (Live today on a checked-in model:
+    // `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/models/claimshub-v3.ddd` emits eight `/users/${…}` links
+    // across its list and detail pages.)  Render it for what it is instead —
+    // a managed, read-only stamped identity — as plain text.
+    //
+    // An UNRESOLVED ref whose text is the principal name is the exact
+    // discriminator lowering itself uses (`lowerBase`'s PRINCIPAL_TYPE_NAME
+    // arm): a model that really declares `aggregate User` resolves `ref` and
+    // keeps the ordinary aggregate treatment, link and all.
+    //
+    // Trade-off, deliberate: `Text` prints the id verbatim where `IdLink`
+    // truncated it through the pack's `IdValue` helper.  A non-navigable
+    // truncated-id primitive would be the nicer rendering, but there is no
+    // such walker primitive today and adding one spans all six frontend
+    // targets plus every design pack — disproportionate here, and tracked
+    // separately.  A verbatim id beats a link to a route nothing serves.
+    if (!base.target.ref && base.target.$refText === PRINCIPAL_TYPE_NAME) {
+      return { tag: "text" };
+    }
+    return { tag: "id", targetName: base.target.ref?.name ?? base.target.$refText };
+  }
+  if (base.$type === "PrimitiveType") {
+    switch (base.name) {
+      case "datetime":
+        return { tag: "datetime" };
+      case "bool":
+        return { tag: "bool" };
+      case "money":
+        // `money` deserialises to a decimal.js `Decimal` INSTANCE client-side
+        // (moneySchema z.output), NOT a plain number — rendering it as a bare
+        // React child is a non-ReactNode tsc error + runtime crash.  The `Money`
+        // formatter primitive renders it (its `MoneyValue` accepts the Decimal
+        // structurally).  decimal / int / long stay plain numbers → `numeric`.
+        return { tag: "money" };
+      case "decimal":
+      case "int":
+      case "long":
+        return { tag: "numeric" };
+      case "File":
+        // Required AND optional `File?` render as a `FileLink` download anchor
+        // (see `typedCell` "file") — `FileLink` null-guards, so an optional File
+        // that is null shows an em-dash rather than a broken cell.
+        return { tag: "file" };
+      default: // string / guid / json — plain text
+        return { tag: "text" };
+    }
+  }
+  if (base.$type === "NamedType") {
+    if (base.target.ref?.$type === "EnumDecl") return { tag: "enum" };
+    return voAsText ? { tag: "text" } : null; // value-object
+  }
+  return voAsText ? { tag: "text" } : null;
+}
+
+function columnKindForType(type: TypeRef): ColumnKind | null {
+  return kindForType(type, false);
+}
+
+/** The aggregate's `policy { read X requires <expr> }` gate, if its context
+ *  declares one — the gate guarding `GET /<aggs>`, which is exactly what the
+ *  scaffolded List page reads.
+ *
+ *  Returns the AUTHOR's node; the caller must `cloneExpr` it before attaching
+ *  it anywhere (an AST node has one `$container`).  The policy block is a
+ *  sibling `ContextMember`, so it is reachable from the aggregate's AST
+ *  without lowering.
+ */
+export function listReadGateForAggregate(agg: Aggregate): Expression | undefined {
+  for (const m of agg.$container.members) {
+    if (m.$type !== "PolicyDecl") continue;
+    for (const r of m.rules) {
+      if (r.effect === "read" && r.target === agg.name && r.gate) return r.gate;
+    }
+  }
+  return undefined;
+}
+
+/** `scaffoldList` — scaffolds the list page body: breadcrumbs, a toolbar with
+ *  a "New <agg>" button, and a `QueryView` over `<api?>.<Agg>.all` rendering a
+ *  Paper-framed `Table` (ID column + one column per scalar field).  `columns`
+ *  are the scalar columns
+ *  the caller resolved off the aggregate (`scalarColumnsForAggregate`), each
+ *  carrying its display `kind`; `apiHandle` is the ui's api param when the
+ *  aggregate is served over one. */
+export function scaffoldList(
+  aggName: string,
+  columns: readonly ScaffoldColumn[],
+  opts: {
+    apiHandle?: string;
+    paged?: boolean;
+    /** The column that names each row and links to its Detail page, in place
+     *  of the raw-id column (`listShapeForAggregate`).  Absent ⇒ the id
+     *  column is the row's link. */
+    label?: ListLabel;
+  } = {},
+): Expression {
+  // Whether the aggregate's implicit `all` is the paged `Paged<T>` findAll
+  // (M-T2.6).  Mirrors the enrichment-side exclusion in
+  // `ensureFindAll` (src/ir/enrich/enrichments.ts) — a plain single-table
+  // relational aggregate pages; document/embedded/event-sourced/inheritance
+  // shapes keep the bare `T[]` and a CLIENT-paged list.  Defaults to paged so
+  // relational callers that don't classify stay server-paged.
+  const serverPagedAll = opts.paged ?? true;
+  const slug = routeSegmentFor(aggName);
+  const humanLower = humanize(plural(aggName)).toLowerCase();
+  const singular = humanize(aggName).toLowerCase();
+
+  // `<api?>.<Agg>` query root, rebuilt per use — AST nodes can't be shared
+  // across parents.
+  const queryRoot = (): Expression =>
+    opts.apiHandle ? memberAccess(nameRefExpr(opts.apiHandle), aggName) : nameRefExpr(aggName);
+
+  // One Column per field; the ID column links to the detail page, the rest
+  // dispatch their cell renderer by type (`columnAccessor`).
+  // A CLIENT-paged table (a non-paged `all`'s bare array) sorts every
+  // column in the browser (M-T1.1).  A SERVER-paged one posts the key as
+  // `?sort=`, which the backend validates against its whitelist
+  // (`sortableFields`) — so there only a whitelisted column is `sortable:`;
+  // a `version`, masked, optional or reference column would emit a header
+  // the server refuses (M-T1.36 F4).  `field:` names the row property to sort
+  // by (the accessor may wrap it — money/date cells — so it's passed
+  // explicitly); the ID column sorts by `"id"`, always whitelisted.
+  const label = opts.label;
+  // The row's link column: the natural label as an `Anchor` to the Detail
+  // route when the aggregate has one, else the raw id.  A DERIVED label is not
+  // a stored column — the server cannot `?sort=` by it and a LiveView row (an
+  // Ecto struct) has no key for it — so it sorts by `labelSortField` instead.
+  // The row property the label column sorts by: a stored label sorts by
+  // itself; a derived label by the single field it reads, and on a
+  // server-paged list only when the server's `?sort=` whitelist accepts it.
+  const labelSortField = (serverPaged: boolean): string | undefined => {
+    if (!label) return undefined;
+    if (!label.derived) return label.name;
+    if (!label.sortField) return undefined;
+    return !serverPaged || label.sortFieldServerSortable ? label.sortField : undefined;
+  };
+  const linkColumn = (serverPaged: boolean): { name?: string; value: Expression } =>
+    label
+      ? {
+          value: callExpr("Column", [
+            // Headed by the field the label reads when there is exactly one
+            // (`display = name` → "Name"): the header names what a click
+            // sorts by.  A composite label is headed by the aggregate.
+            {
+              value: label.sortField ? labelOf(aggName, label.sortField) : labelOf(aggName),
+            },
+            {
+              value: lambda(
+                "o",
+                callExpr("Anchor", [
+                  { value: memberAccess(nameRefExpr("o"), label.name) },
+                  {
+                    name: "to",
+                    value: binaryExpr(
+                      stringLit(`/${slug}/`),
+                      "+",
+                      memberAccess(nameRefExpr("o"), "id"),
+                    ),
+                  },
+                ]),
+              ),
+            },
+            ...(labelSortField(serverPaged)
+              ? [
+                  { name: "sortable", value: boolLit(true) },
+                  { name: "field", value: stringLit(labelSortField(serverPaged) as string) },
+                ]
+              : []),
+          ]),
+        }
+      : {
+          value: callExpr("Column", [
+            { value: stringLit("ID") },
+            {
+              value: lambda(
+                "o",
+                callExpr("IdLink", [
+                  { value: memberAccess(nameRefExpr("o"), "id") },
+                  { name: "of", value: nameRefExpr(aggName) },
+                ]),
+              ),
+            },
+            { name: "sortable", value: boolLit(true) },
+            { name: "field", value: stringLit("id") },
+          ]),
+        };
+  const makeCols = (serverPaged: boolean): Array<{ name?: string; value: Expression }> => [
+    linkColumn(serverPaged),
+    ...columns.map((c) => ({
+      value: callExpr("Column", [
+        { value: labelOf(aggName, c.name) },
+        { value: lambda("o", columnAccessor(c.name, c.kind, "o", c.provenanced)) },
+        ...(!serverPaged || c.serverSortable
+          ? [
+              { name: "sortable", value: boolLit(true) },
+              { name: "field", value: stringLit(c.name) },
+            ]
+          : []),
+      ]),
+    })),
+  ];
+
+  // The Table for one QueryView `data:` arm.  `serverPaged` (the `all` list,
+  // M-T2.6) reads the server's page off the `Paged<T>` envelope: rows are
+  // `rows.items`, the pager's page count is `rows.totalPages`, and the sortable
+  // headers + pager write `pageNum`/`sortKey`/`sortDir` state that the query's
+  // `of:` args feed back for a refetch (no client slice/sort).  A non-paged
+  // `all` (a bare `T[]`) stays CLIENT-paged: `rows` is the array, sliced/sorted
+  // in the browser.
+  const makeTable = (serverPaged: boolean): Expression =>
+    callExpr("Table", [
+      ...makeCols(serverPaged),
+      {
+        name: "rows",
+        value: serverPaged ? memberAccess(nameRefExpr("rows"), "items") : nameRefExpr("rows"),
+      },
+      { name: "sortKey", value: nameRefExpr("sortKey") },
+      { name: "sortDir", value: nameRefExpr("sortDir") },
+      { name: "page", value: nameRefExpr("pageNum") },
+      ...(serverPaged
+        ? [
+            { name: "serverPaged", value: boolLit(true) },
+            { name: "totalPages", value: memberAccess(nameRefExpr("rows"), "totalPages") },
+          ]
+        : [{ name: "pageSize", value: intLit(10) }]),
+      { name: "striped", value: boolLit(true) },
+      { name: "highlight", value: boolLit(true) },
+      { name: "sticky", value: boolLit(true) },
+      {
+        name: "rowTestid",
+        value: lambda(
+          "r",
+          binaryExpr(stringLit(`${slug}-row-`), "+", memberAccess(nameRefExpr("r"), "id")),
+        ),
+      },
+    ]);
+
+  // The list's QueryView.  `paged` marks the server-paged `all`
+  // query (unwrap `.data.items`; the Table reads the envelope).
+  const makeQueryView = (ofExpr: Expression, serverPaged: boolean): Expression =>
+    callExpr("QueryView", [
+      { name: "of", value: ofExpr },
+      ...(serverPaged ? [{ name: "paged", value: boolLit(true) }] : []),
+      { name: "loading", value: callExpr("Skeleton", [{ name: "count", value: intLit(5) }]) },
+      {
+        name: "error",
+        value: callExpr("Alert", [{ value: stringLit(`Couldn't load ${humanLower}`) }]),
+      },
+      { name: "empty", value: callExpr("Empty", [{ value: stringLit(`No ${humanLower} yet.`) }]) },
+      {
+        name: "data",
+        value: lambda("rows", callExpr("Paper", [{ value: makeTable(serverPaged) }])),
+      },
+    ]);
+
+  // The `all` list is server-paged: the `of:` threads the list's page/sort state
+  // (`pageNum`, fixed pageSize 10, `sortKey`, `sortDir`) as the paged findAll's
+  // query controls, so a page/sort change refetches the matching server page.
+  const allView = (): Expression =>
+    serverPagedAll
+      ? makeQueryView(
+          memberAccess(queryRoot(), "all", {
+            call: true,
+            args: [
+              nameRefExpr("pageNum"),
+              intLit(10),
+              nameRefExpr("sortKey"),
+              nameRefExpr("sortDir"),
+            ],
+          }),
+          true,
+        )
+      : // A non-paged `all` (document/embedded/eventLog/inheritance shape) is a
+        // bare `T[]` — call it with no args and CLIENT-slice/sort in the browser.
+        makeQueryView(memberAccess(queryRoot(), "all", { call: true, args: [] }), false);
+
+  return callExpr("Stack", [
+    { value: breadcrumbs(() => pluralOf(aggName), slug) },
+    {
+      value: callExpr("Toolbar", [
+        {
+          value: callExpr("Heading", [
+            { value: pluralOf(aggName) },
+            { name: "level", value: intLit(2) },
+          ]),
+        },
+        {
+          value: callExpr("Button", [
+            { value: stringLit(`New ${singular}`) },
+            { name: "to", value: stringLit(`/${slug}/new`) },
+            { name: "testid", value: stringLit(`${slug}-list-create`) },
+          ]),
+        },
+      ]),
+    },
+    { value: allView() },
+    { name: "testid", value: stringLit(`${slug}-list`) },
+  ]);
+}
+
+/** `Breadcrumbs(Anchor("Home", to:"/"), …)` — the list page ends at a plain
+ *  `Text(<plural>)`; the new/detail pages add a trailing crumb (`leaf`). */
+function breadcrumbs(section: () => Expression, slug: string, leaf?: string): Expression {
+  const crumbs: Array<{ name?: string; value: Expression }> = [
+    {
+      value: callExpr("Anchor", [
+        { value: stringLit("Home") },
+        { name: "to", value: stringLit("/") },
+      ]),
+    },
+  ];
+  if (leaf) {
+    crumbs.push({
+      value: callExpr("Anchor", [
+        { value: section() },
+        { name: "to", value: stringLit(`/${slug}`) },
+      ]),
+    });
+    crumbs.push({ value: callExpr("Text", [{ value: stringLit(leaf) }]) });
+  } else {
+    crumbs.push({ value: callExpr("Text", [{ value: section() }]) });
+  }
+  return callExpr("Breadcrumbs", crumbs);
+}
+
+// Naming helpers — `plural`/`snake` come from `util/naming` (the single source
+// of truth `classifyPage` also consumes, so a scaffolded page's `area` matches
+// the classifier's expectation for irregular plurals like `Box`→`boxes`,
+// `Day`→`days`, `APIKey`→`api_keys`).  `humanize` stays module-local (display
+// labels only, not classifier input).
+
+function humanize(s: string): string {
+  const parts = s
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/_/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" ");
+}

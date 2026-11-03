@@ -1,0 +1,64 @@
+@@@ src/ir/util/page-menu.ts
+/** A page's string-literal `menu { <key>: "…" }` entry (`section` / `label`). */
+export function menuMetaString(page: PageIR, key: string): string | undefined {
+  const entry = page.menuMeta?.entries.find((e) => e.name === key);
+  if (!entry) return undefined;
+  if (entry.value.kind !== "literal" || entry.value.lit !== "string") return undefined;
+  return entry.value.value;
+}
+===
+/** A page's `menu { <key>: … }` text entry (`section` / `label`): a string
+ *  literal, or the English default of a `label(…)` / `plural(…)` call. */
+export function menuMetaString(page: PageIR, key: string): string | undefined {
+  const entry = page.menuMeta?.entries.find((e) => e.name === key);
+  if (!entry) return undefined;
+  if (entry.value.kind === "modelText") return entry.value.defaultText;
+  if (entry.value.kind !== "literal" || entry.value.lit !== "string") return undefined;
+  return entry.value.value;
+}
+
+/** The model-identity catalog key of a page's `menu { <key>: label(…) }` entry,
+ *  or undefined when the entry is absent or a plain literal (whose key is the
+ *  page-scoped content hash instead). */
+export function menuMetaIdentityKey(page: PageIR, key: string): string | undefined {
+  const entry = page.menuMeta?.entries.find((e) => e.name === key);
+  return entry?.value.kind === "modelText" ? entry.value.key : undefined;
+}
+@@@ src/generator/_frontend/menu-emitter.ts
+import { menuLinkPage, menuMetaString as readMenuMetaString } from "../../ir/util/page-menu.js";
+===
+import {
+  menuLinkPage,
+  menuMetaIdentityKey,
+  menuMetaString as readMenuMetaString,
+} from "../../ir/util/page-menu.js";
+@@@ src/generator/_frontend/menu-emitter.ts
+          ...(metaLabel !== undefined
+            ? { labelKey: messageKey(pageKeyPrefix(ui, p), "menu.label", metaLabel) }
+            : {}),
+===
+          ...(metaLabel !== undefined
+            ? {
+                labelKey:
+                  menuMetaIdentityKey(p, "label") ??
+                  messageKey(pageKeyPrefix(ui, p), "menu.label", metaLabel),
+              }
+            : {}),
+@@@ src/generator/_frontend/menu-emitter.ts
+          ? { ...entry, labelKey: messageKey(pageKeyPrefix(ui, page), "menu.label", metaLabel) }
+===
+          ? {
+              ...entry,
+              labelKey:
+                menuMetaIdentityKey(page, "label") ??
+                messageKey(pageKeyPrefix(ui, page), "menu.label", metaLabel),
+            }
+@@@ src/generator/_frontend/menu-emitter.ts
+      : metaLabel !== undefined
+        ? messageKey(pageKeyPrefix(ui, page), "menu.label", metaLabel)
+        : undefined;
+===
+      : metaLabel !== undefined
+        ? (menuMetaIdentityKey(page, "label") ??
+          messageKey(pageKeyPrefix(ui, page), "menu.label", metaLabel))
+        : undefined;

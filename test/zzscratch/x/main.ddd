@@ -1,0 +1,68 @@
+// X — scaffolded by `ddd new` (template: crud, platform: node).
+// Edit this model, then regenerate:
+//   node /home/user/Loc/.claude/worktrees/agent-ae1b5baca662c01c5/bin/cli.js generate system main.ddd -o . && docker compose up
+
+system X {
+
+  // Authentication is not wired yet.  Adding an `auth { … }` block (with a
+  // `user { … }` claim shape) turns on deny-by-default, the language default
+  // for an `auth` block: every client-reachable command and declared read on
+  // an `auth: required` deployable must then carry a `requires <expr>` gate.
+  // README.md § "Authentication and authorization" has the block to paste,
+  // the gates it asks for, and the `enforcement: opt` escape.
+
+  subdomain Core {
+    // `scaffoldPaged` exposes the named read below as a paged queryHandler,
+    // ordered by the retrieval's `sort:` (unfold it to see the source).
+    context Projects with scaffoldPaged(of: TasksInProject) {
+      aggregate Project with crudish {
+        name: string
+        invariant name.length > 0
+        derived display: string = name
+      }
+
+      repository Projects for Project { }
+
+      aggregate Task with crudish {
+        title: string
+        done: bool
+        project: Project id
+      }
+
+      // A list read is a criterion + retrieval pair, not a bespoke repository
+      // find (a list-returning "find byX(...)" is an error —
+      // loom.list-find-removed).
+      criterion InProject(p: Project id) of Task = project == p
+      retrieval TasksInProject(p: Project id) of Task {
+        where: InProject(p)
+        sort: [title asc]
+      }
+
+      repository Tasks for Task { }
+    }
+  }
+
+  api TasksApi with scaffoldPagedApi(of: TasksInProject) from Core { }
+
+  ui WebApp with scaffold(subdomains: [Core]) {
+  }
+
+  storage primary { type: postgres }
+  resource appState { for: Projects, kind: state, use: primary }
+
+  deployable api {
+    platform: node,
+    contexts: [Projects],
+    dataSources: [appState],
+    serves: TasksApi,
+    port: 3000
+  }
+
+  deployable webApp {
+    platform: react,
+    targets: api,
+    ui: WebApp,
+    port: 3001,
+    design: mantine
+  }
+}

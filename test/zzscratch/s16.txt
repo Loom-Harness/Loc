@@ -1,0 +1,196 @@
+@@@ src/generator/_walker/walker-core.ts
+  triggerLabel: string;
+  /** The dialog's TITLE, read from the enclosing `Modal`'s `title:` — the
+===
+  triggerLabel: string;
+  /** The operation's identity-keyed label (`<Ctx>.<Agg>.op.<op>`) as a markup
+   *  token and an expression — the submit button's text and the dialog title's
+   *  fallback.  Absent when the implicit model-text sites are off
+   *  (`_walker/model-text-sites.ts`): the shell then uses the humanized name. */
+  opLabel?: { markup: string; expr: string };
+  /** The dialog's TITLE, read from the enclosing `Modal`'s `title:` — the
+@@@ src/generator/_walker/primitives/forms.ts
+  const prepared = prepareFormFields(ctx, fields, fieldsForHelpers, bc, testidNamespace);
+  addImport(
+    ctx,
+    `../api/${lowerFirst(agg.name)}`,
+    `${upperFirst(op.name)}${agg.name}Request`,
+===
+  const prepared = prepareFormFields(
+    ctx,
+    fields,
+    fieldsForHelpers,
+    bc,
+    testidNamespace,
+    undefined,
+    (name) => paramLabelOwner(agg, name),
+  );
+  const opLabel = opModelText(ctx, bc, agg.name, op.name);
+  addImport(
+    ctx,
+    `../api/${lowerFirst(agg.name)}`,
+    `${upperFirst(op.name)}${agg.name}Request`,
+@@@ src/generator/_walker/primitives/forms.ts
+    onSubmitJs: null,
+    triggerLabel: humanize(op.name),
+    triggerPrimary: true,
+    gate,
+  });
+  // An enclosing `Modal` discards this and renders its own authored trigger; a
+  // BARE by-name form keeps it, so the shell-emitted opener/component is
+  // actually reachable.
+  return renderBareOperationFormTrigger(ctx, humanize(op.name), op.name, gate);
+===
+    onSubmitJs: null,
+    triggerLabel: opLabel?.markup ?? humanize(op.name),
+    triggerPrimary: true,
+    ...(opLabel ? { opLabel } : {}),
+    gate,
+  });
+  // An enclosing `Modal` discards this and renders its own authored trigger; a
+  // BARE by-name form keeps it, so the shell-emitted opener/component is
+  // actually reachable.
+  return renderBareOperationFormTrigger(ctx, opLabel?.markup ?? humanize(op.name), op.name, gate);
+@@@ src/generator/_walker/primitives/forms.ts
+  testidNamespace: string,
+  seedRecordVar?: string,
+): PreparedForm {
+===
+  testidNamespace: string,
+  seedRecordVar?: string,
+  /** The model type each input's label is keyed under (by input name), for
+   *  its identity-keyed text; `undefined` keeps the humanized English. */
+  labelOwnerOf: (name: string) => string | undefined = () => undefined,
+): PreparedForm {
+@@@ src/generator/_walker/primitives/forms.ts
+      `${testidNamespace}-input-${f.name}`,
+      aggregatesByNameMut,
+      ctx.bcByAggregate,
+    ),
+  );
+===
+      `${testidNamespace}-input-${f.name}`,
+      aggregatesByNameMut,
+      ctx.bcByAggregate,
+      labelOwnerOf(f.name),
+    ),
+  );
+@@@ src/generator/_walker/primitives/forms.ts
+    addItemLabelFor: (element: string) =>
+      localizedPageChromeText(ctx, sentenceChromeName("addItem", element)),
+  };
+===
+    addItemLabelFor: (element: string) =>
+      localizedPageChromeText(ctx, sentenceChromeName("addItem", element)),
+    // Each field's identity-keyed label / enum option labels.
+    fieldTokens: (vm: FormFieldVM) => formFieldModelTextTokens(ctx, vm),
+  };
+@@@ src/generator/_walker/primitives/forms.ts
+  const prepared = prepareFormFields(ctx, fields, fields, bc, testidNamespace);
+===
+  const prepared = prepareFormFields(
+    ctx,
+    fields,
+    fields,
+    bc,
+    testidNamespace,
+    undefined,
+    () => agg.name,
+  );
+@@@ src/generator/_walker/primitives/forms.ts
+    submitPendingExpr: "create.isPending",
+    submitLabel: "Create",
+===
+    submitPendingExpr: "create.isPending",
+    submitLabel: opModelText(ctx, bc, agg.name, "create")?.markup ?? "Create",
+@@@ src/generator/_walker/primitives/forms.ts
+  const prepared = prepareFormFields(ctx, fields, fieldsForHelpers, bc, testidNamespace);
+  // Identifier base for the workflow's whole frontend surface, minted against
+===
+  const prepared = prepareFormFields(
+    ctx,
+    fields,
+    fieldsForHelpers,
+    bc,
+    testidNamespace,
+    undefined,
+    () => workflow.name,
+  );
+  // Identifier base for the workflow's whole frontend surface, minted against
+@@@ src/generator/_walker/primitives/forms.ts
+    testidNamespace,
+    seedRecordVar,
+  );
+  addImport(
+===
+    testidNamespace,
+    seedRecordVar,
+    (name) => paramLabelOwner(agg, name),
+  );
+  const opLabel = opModelText(ctx, bc, agg.name, op.name);
+  addImport(
+@@@ src/generator/_walker/primitives/forms.ts
+    // Defaults — the enclosing Modal overrides from its trigger.
+    triggerLabel: humanize(op.name),
+    triggerPrimary: true,
+===
+    // Defaults — the enclosing Modal overrides from its trigger.
+    triggerLabel: opLabel?.markup ?? humanize(op.name),
+    triggerPrimary: true,
+    ...(opLabel ? { opLabel } : {}),
+@@@ src/generator/_walker/primitives/forms.ts
+  return renderBareOperationFormTrigger(ctx, humanize(op.name), op.name, gate);
+}
+
+/** True when an op-param default
+===
+  return renderBareOperationFormTrigger(ctx, opLabel?.markup ?? humanize(op.name), op.name, gate);
+}
+
+/** True when an op-param default
+@@@ src/generator/_walker/render-form-field.ts
+  if (vm.template === "field-input-valueobject") {
+    const innerHtml = (vm.children ?? [])
+      .map((child) => renderFormField(child, pack, chrome))
+      .join("\n");
+    return pack.render(vm.template, { ...vm, ...chrome, innerHtml });
+  }
+  if (vm.elementName !== undefined) {
+    const addItemLabel =
+      chrome.addItemLabelFor?.(vm.elementName) ??
+      chromeMessage(sentenceChromeName("addItem", vm.elementName));
+    return pack.render(vm.template, { ...vm, ...chrome, addItemLabel });
+  }
+  return pack.render(vm.template, { ...vm, ...chrome });
+===
+  const tokens = chrome.fieldTokens?.(vm) ?? {};
+  if (vm.template === "field-input-valueobject") {
+    const innerHtml = (vm.children ?? [])
+      .map((child) => renderFormField(child, pack, chrome))
+      .join("\n");
+    return pack.render(vm.template, { ...vm, ...chrome, ...tokens, innerHtml });
+  }
+  if (vm.elementName !== undefined) {
+    const addItemLabel =
+      chrome.addItemLabelFor?.(vm.elementName) ??
+      chromeMessage(sentenceChromeName("addItem", vm.elementName));
+    const rowFields = vm.rowFields?.map((rf) => ({ ...rf, ...(chrome.fieldTokens?.(rf) ?? {}) }));
+    return pack.render(vm.template, {
+      ...vm,
+      ...chrome,
+      ...tokens,
+      ...(rowFields ? { rowFields } : {}),
+      addItemLabel,
+    });
+  }
+  return pack.render(vm.template, { ...vm, ...chrome, ...tokens });
+@@@ src/generator/_walker/render-form-field.ts
+  addItemLabelFor?: (element: string) => string;
+}
+===
+  addItemLabelFor?: (element: string) => string;
+  /** The per-field identity-keyed text tokens (`labelExpr`, `enumLabelFn`) —
+   *  `_walker/model-text-sites.ts`.  Empty for a field naming no model fact or
+   *  when the implicit sites are off, so a template's literal branch renders. */
+  fieldTokens?: (vm: FormFieldVM) => Record<string, string>;
+}

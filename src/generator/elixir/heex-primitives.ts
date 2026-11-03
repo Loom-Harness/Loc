@@ -1003,7 +1003,13 @@ export function renderTableColumn(
   const positionals = expr.args.filter((_, i) => !expr.argNames?.[i]);
   const labelArg = positionals[0];
   const isLiteralLabel = labelArg?.kind === "literal" && labelArg.lit === "string";
-  const label = isLiteralLabel ? labelArg.value : `Column ${index + 1}`;
+  // model-text-fanout(heex): a `label(…)` header shows its English default
+  // until HEEx keys it by identity.
+  const label = isLiteralLabel
+    ? labelArg.value
+    : labelArg?.kind === "modelText"
+      ? labelArg.defaultText
+      : `Column ${index + 1}`;
   // The header is a user-visible slot (`columnHeader`): a plain literal
   // rides `pgettext` through the `{…}` expression-attribute form the `<:col>`
   // slot's `label` takes.  Off i18n it is the quoted literal — byte-identical.

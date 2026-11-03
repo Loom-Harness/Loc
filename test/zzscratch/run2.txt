@@ -1,0 +1,55 @@
+
+ RUN  v4.1.11 /home/user/Loc/.claude/worktrees/agent-ae1b5baca662c01c5
+
+ ❯ |unit| test/language/parsing/reserved-field-name-widening.test.ts (170 tests | 1 failed) 588ms
+     × the lexical-structure doc lists exactly the grammar's CommonSoftKeywords 62ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| test/language/parsing/reserved-field-name-widening.test.ts > reserved-field-name widening (audit D4) > the lexical-structure doc lists exactly the grammar's CommonSoftKeywords
+AssertionError: docs/language-reference/01-lexical-structure.md no longer lists the grammar's CommonSoftKeywords — update the sentence, it is what users read before naming a field: expected [ 'abstract', 'action', …(240) ] to deeply equal [ 'abstract', 'action', …(242) ]
+
+- Expected
++ Received
+
+@@ -106,11 +106,10 @@
+    "kafka",
+    "key",
+    "keyPrefix",
+    "keyed",
+    "kind",
+-   "label",
+    "layout",
+    "link",
+    "literal",
+    "loads",
+    "local",
+@@ -148,11 +147,10 @@
+    "permissions",
+    "persistedAs",
+    "persistence",
+    "phoenixLiveView",
+    "platform",
+-   "plural",
+    "policy",
+    "port",
+    "postgres",
+    "primeng",
+    "projection",
+
+ ❯ test/language/parsing/reserved-field-name-widening.test.ts:653:7
+    651|       fromDoc,
+    652|       "docs/language-reference/01-lexical-structure.md no longer lists…
+    653|     ).toEqual(fromGrammar);
+       |       ^
+    654|   });
+    655|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 81 passed (82)
+      Tests  1 failed | 1059 passed (1060)
+   Start at  00:54:44
+   Duration  208.86s (transform 65.45s, setup 0ms, import 107.11s, tests 509.41s, environment 10ms)
+

@@ -42,20 +42,37 @@ import {
   intLit,
   lambda,
   memberAccess,
+  modelTextExpr,
   nameRefExpr,
   stringLit,
   ternaryExpr,
 } from "../../api/index.js";
 import { VERSIONED_TOKEN_FIELD } from "../../prelude.js";
 import { ROW_COUNT } from "./_dashboard-shared.js";
+
+// Model-derived WORDS — a type's name, a field's label, an operation's name —
+// are emitted as `label(…)` / `plural(…)` calls, never as English literals, so
+// each model fact has ONE identity-keyed catalog entry however many pages show
+// it (`src/util/model-text-key.ts`), and `unfold` ejects the call.  Whole
+// SENTENCES ("No tasks yet.", "Create task") stay literals: a placeholder
+// carries data, never words.
+
+/** `plural(<Type>)` — the type's plural name. */
+function pluralOf(type: string): Expression {
+  return modelTextExpr("plural", [type]);
+}
+
+/** `label(<Type>)` / `label(<Type>.<member>)`. */
+function labelOf(type: string, member?: string): Expression {
+  return modelTextExpr("label", member === undefined ? [type] : [type, member]);
+}
 /** `scaffoldNewForm` — scaffolds the create page body:
  *  `Stack(Breadcrumbs, Heading "Create <agg>", Card(CreateForm(of:)))`. */
 export function scaffoldNewForm(aggName: string): Expression {
   const slug = routeSegmentFor(aggName);
-  const humanPlural = humanize(plural(aggName));
   const humanAgg = humanize(aggName);
   return callExpr("Stack", [
-    { value: breadcrumbs(humanPlural, slug, "New") },
+    { value: breadcrumbs(() => pluralOf(aggName), slug, "New") },
     {
       value: callExpr("Heading", [
         { value: stringLit(`Create ${humanAgg.toLowerCase()}`) },
@@ -161,11 +178,11 @@ export function scaffoldOperations(agg: Aggregate, instanceVar?: string): Expres
               {
                 value: opForm(op),
               },
-              { name: "title", value: stringLit(humanize(op.name)) },
+              { name: "title", value: labelOf(agg.name, op.name) },
               {
                 name: "trigger",
                 value: callExpr("Button", [
-                  { value: stringLit(humanize(op.name)) },
+                  { value: labelOf(agg.name, op.name) },
                   { name: "emphasis", value: stringLit(i === 0 ? "primary" : "secondary") },
                   { name: "testid", value: stringLit(`${slug}-op-${op.name}`) },
                 ]),
@@ -179,7 +196,6 @@ export function scaffoldOperations(agg: Aggregate, instanceVar?: string): Expres
  *  `Stack(Breadcrumbs, Heading, Card(WorkflowForm(runs: <Wf>)))`. */
 export function scaffoldWorkflowForm(wfName: string): Expression {
   const wfSlug = snake(wfName);
-  const humanWf = humanize(wfName);
   return callExpr("Stack", [
     {
       value: callExpr("Breadcrumbs", [
@@ -195,14 +211,11 @@ export function scaffoldWorkflowForm(wfName: string): Expression {
             { name: "to", value: stringLit("/workflows") },
           ]),
         },
-        { value: callExpr("Text", [{ value: stringLit(humanWf) }]) },
+        { value: callExpr("Text", [{ value: labelOf(wfName) }]) },
       ]),
     },
     {
-      value: callExpr("Heading", [
-        { value: stringLit(humanWf) },
-        { name: "level", value: intLit(2) },
-      ]),
+      value: callExpr("Heading", [{ value: labelOf(wfName) }, { name: "level", value: intLit(2) }]),
     },
     {
       value: callExpr("Card", [
@@ -245,19 +258,16 @@ export function scaffoldHome(
    *  Empty ⇒ the summary cards are skipped rather than described in the
    *  abstract. */
   nav: {
-    aggregates?: readonly { label: string; route: string }[];
+    aggregates?: readonly { aggregate: string; label: string; route: string }[];
     hasWorkflows?: boolean;
   } = {},
 ): Expression {
   const cards: Array<{ value: Expression }> = [];
   /** One launcher card: the sidebar's own label, plus the link it points at. */
-  const launcher = (label: string, linkText: string, route: string): { value: Expression } => ({
+  const launcher = (label: Expression, linkText: string, route: string): { value: Expression } => ({
     value: callExpr("Card", [
       {
-        value: callExpr("Heading", [
-          { value: stringLit(label) },
-          { name: "level", value: intLit(4) },
-        ]),
+        value: callExpr("Heading", [{ value: label }, { name: "level", value: intLit(4) }]),
       },
       {
         value: callExpr("Anchor", [
@@ -268,10 +278,10 @@ export function scaffoldHome(
     ]),
   });
   for (const agg of nav.aggregates ?? []) {
-    cards.push(launcher(agg.label, `Open ${agg.label.toLowerCase()} →`, agg.route));
+    cards.push(launcher(pluralOf(agg.aggregate), `Open ${agg.label.toLowerCase()} →`, agg.route));
   }
   if (counts.workflows > 0 && (nav.hasWorkflows ?? true)) {
-    cards.push(launcher("Workflows", "Open workflows →", "/workflows"));
+    cards.push(launcher(stringLit("Workflows"), "Open workflows →", "/workflows"));
   }
   const children: Array<{ name?: string; value: Expression }> = [
     {
@@ -325,7 +335,7 @@ function kpiRow(k: {
     const read = memberAccess(nameRefExpr(row), f);
     return {
       value: callExpr("Stat", [
-        { value: stringLit(kpiLabel(k.aggregate, f)) },
+        { value: f === ROW_COUNT ? pluralOf(k.aggregate) : stringLit(kpiLabel(f)) },
         { value: money.has(f) ? callExpr("Money", [{ value: read }]) : read },
       ]),
     };
@@ -343,10 +353,9 @@ function kpiRow(k: {
   ]);
 }
 
-/** Human label for a KPI tile.  `rowCount` on `Order` reads "Orders"; a
- *  `<field>Sum` reads "Total <field>". */
-function kpiLabel(aggName: string, field: string): string {
-  if (field === ROW_COUNT) return humanize(plural(aggName));
+/** Human label for a summed KPI tile: a `<field>Sum` reads "Total <field>" (the
+ *  `rowCount` tile is the aggregate's `plural(…)` name instead). */
+function kpiLabel(field: string): string {
   const base = field.endsWith("Sum") ? field.slice(0, -3) : field;
   const label = humanize(base).toLowerCase();
   // A field already named `total` would read "Total total".
@@ -362,7 +371,7 @@ export function scaffoldWorkflowsIndex(workflows: readonly Workflow[]): Expressi
       value: callExpr("Card", [
         {
           value: callExpr("Heading", [
-            { value: stringLit(humanize(wf.name)) },
+            { value: labelOf(wf.name) },
             { name: "level", value: intLit(4) },
           ]),
         },
@@ -378,7 +387,7 @@ export function scaffoldWorkflowsIndex(workflows: readonly Workflow[]): Expressi
     };
   });
   return callExpr("Stack", [
-    { value: breadcrumbs("Workflows", "workflows") },
+    { value: breadcrumbs(() => stringLit("Workflows"), "workflows") },
     {
       value: callExpr("Heading", [
         { value: stringLit("Workflows") },
@@ -413,7 +422,7 @@ export function scaffoldInstanceList(wf: Workflow): Expression {
     if (corr && p.name === corr.name) {
       cols.push({
         value: callExpr("Column", [
-          { value: stringLit(humanize(name)) },
+          { value: labelOf(wf.name, name) },
           {
             value: lambda(
               "i",
@@ -438,7 +447,7 @@ export function scaffoldInstanceList(wf: Workflow): Expression {
     if (!kind) continue; // skip value-objects / arrays
     cols.push({
       value: callExpr("Column", [
-        { value: stringLit(humanize(name)) },
+        { value: labelOf(wf.name, name) },
         { value: lambda("i", columnAccessor(name, kind, "i", !!p.provenanced)) },
       ]),
     });
@@ -526,7 +535,7 @@ export function scaffoldInstanceDetails(wf: Workflow): Expression {
     const name = String(p.name);
     rows.push({
       value: callExpr("KeyValueRow", [
-        { value: stringLit(humanize(name)) },
+        { value: labelOf(wf.name, name) },
         { value: typedCell(() => memberAccess(nameRefExpr("data"), name), kind) },
       ]),
     });
@@ -654,7 +663,6 @@ export function scaffoldDetailsParts(
   opts: { apiHandle?: string; withOperations?: boolean } = {},
 ): Array<{ name?: string; value: Expression }> {
   const slug = routeSegmentFor(agg.name);
-  const humanPlural = humanize(plural(agg.name));
   const humanAgg = humanize(agg.name);
   const lowerAgg = humanAgg.toLowerCase();
   const cellVar = "data";
@@ -684,7 +692,7 @@ export function scaffoldDetailsParts(
         },
         {
           value: callExpr("Anchor", [
-            { value: stringLit(humanPlural) },
+            { value: pluralOf(agg.name) },
             { name: "to", value: stringLit(`/${slug}`) },
           ]),
         },
@@ -776,7 +784,7 @@ function buildDataCardParts(
       : cell;
     rows.push({
       value: callExpr("KeyValueRow", [
-        { value: stringLit(humanize(name)) },
+        { value: labelOf(agg.name, name) },
         { value: valueCell },
         { name: "testid", value: stringLit(`${slug}-detail-${name}`) },
       ]),
@@ -794,7 +802,7 @@ function buildDataCardParts(
     const name = String(d.name);
     rows.push({
       value: callExpr("KeyValueRow", [
-        { value: stringLit(humanize(name)) },
+        { value: labelOf(agg.name, name) },
         { value: typedCell(() => memberAccess(nameRefExpr(cellVar), name), kind) },
         { name: "testid", value: stringLit(`${slug}-detail-${name}`) },
       ]),
@@ -805,7 +813,7 @@ function buildDataCardParts(
   for (const c of agg.members.filter((m): m is Containment => m.$type === "Containment")) {
     const part = c.partType.ref;
     if (!part) continue;
-    related.push(relatedCard(c, part, cellVar, slug));
+    related.push(relatedCard(agg.name, c, part, cellVar, slug));
   }
 
   return { card: callExpr("Card", [{ value: callExpr("Stack", rows) }]), related };
@@ -813,17 +821,22 @@ function buildDataCardParts(
 
 /** One related-entity `Card` for a containment — a framed `Table` over the
  *  collection, or a labelled `KeyValueRow` stack for a single part. */
-function relatedCard(c: Containment, part: EntityPart, cellVar: string, slug: string): Expression {
-  const humanPart = humanize(c.name);
+function relatedCard(
+  aggName: string,
+  c: Containment,
+  part: EntityPart,
+  cellVar: string,
+  slug: string,
+): Expression {
   const heading = callExpr("Heading", [
-    { value: stringLit(humanPart) },
+    { value: labelOf(aggName, c.name) },
     { name: "level", value: intLit(4) },
   ]);
   const testid = { name: "testid", value: stringLit(`${slug}-detail-${snake(c.name)}`) };
   if (c.collection) {
     const cols = columnsFromProperties(propertiesOf(part.members)).map((col) => ({
       value: callExpr("Column", [
-        { value: stringLit(humanize(col.name)) },
+        { value: labelOf(part.name, col.name) },
         { value: lambda("row", columnAccessor(col.name, col.kind, "row", col.provenanced)) },
       ]),
     }));
@@ -842,7 +855,7 @@ function relatedCard(c: Containment, part: EntityPart, cellVar: string, slug: st
   // Single part: one KeyValueRow per scalar field, rooted at `<cell>.<part>.<f>`.
   const singleRows = columnsFromProperties(propertiesOf(part.members)).map((col) => ({
     value: callExpr("KeyValueRow", [
-      { value: stringLit(humanize(col.name)) },
+      { value: labelOf(part.name, col.name) },
       {
         value: typedCell(
           () => memberAccess(memberAccess(nameRefExpr(cellVar), c.name), col.name),
@@ -1310,8 +1323,7 @@ export function scaffoldList(
   // relational callers that don't classify stay server-paged.
   const serverPagedAll = opts.paged ?? true;
   const slug = routeSegmentFor(aggName);
-  const humanPlural = humanize(plural(aggName));
-  const humanLower = humanPlural.toLowerCase();
+  const humanLower = humanize(plural(aggName)).toLowerCase();
   const singular = humanize(aggName).toLowerCase();
 
   // `<api?>.<Agg>` query root, rebuilt per use — AST nodes can't be shared
@@ -1350,7 +1362,9 @@ export function scaffoldList(
             // Headed by the field the label reads when there is exactly one
             // (`display = name` → "Name"): the header names what a click
             // sorts by.  A composite label is headed by the aggregate.
-            { value: stringLit(humanize(label.sortField ?? aggName)) },
+            {
+              value: label.sortField ? labelOf(aggName, label.sortField) : labelOf(aggName),
+            },
             {
               value: lambda(
                 "o",
@@ -1395,7 +1409,7 @@ export function scaffoldList(
     linkColumn(serverPaged),
     ...columns.map((c) => ({
       value: callExpr("Column", [
-        { value: stringLit(humanize(c.name)) },
+        { value: labelOf(aggName, c.name) },
         { value: lambda("o", columnAccessor(c.name, c.kind, "o", c.provenanced)) },
         ...(!serverPaged || c.serverSortable
           ? [
@@ -1482,12 +1496,12 @@ export function scaffoldList(
         makeQueryView(memberAccess(queryRoot(), "all", { call: true, args: [] }), false);
 
   return callExpr("Stack", [
-    { value: breadcrumbs(humanPlural, slug) },
+    { value: breadcrumbs(() => pluralOf(aggName), slug) },
     {
       value: callExpr("Toolbar", [
         {
           value: callExpr("Heading", [
-            { value: stringLit(humanPlural) },
+            { value: pluralOf(aggName) },
             { name: "level", value: intLit(2) },
           ]),
         },
@@ -1507,7 +1521,7 @@ export function scaffoldList(
 
 /** `Breadcrumbs(Anchor("Home", to:"/"), …)` — the list page ends at a plain
  *  `Text(<plural>)`; the new/detail pages add a trailing crumb (`leaf`). */
-function breadcrumbs(humanPlural: string, slug: string, leaf?: string): Expression {
+function breadcrumbs(section: () => Expression, slug: string, leaf?: string): Expression {
   const crumbs: Array<{ name?: string; value: Expression }> = [
     {
       value: callExpr("Anchor", [
@@ -1519,13 +1533,13 @@ function breadcrumbs(humanPlural: string, slug: string, leaf?: string): Expressi
   if (leaf) {
     crumbs.push({
       value: callExpr("Anchor", [
-        { value: stringLit(humanPlural) },
+        { value: section() },
         { name: "to", value: stringLit(`/${slug}`) },
       ]),
     });
     crumbs.push({ value: callExpr("Text", [{ value: stringLit(leaf) }]) });
   } else {
-    crumbs.push({ value: callExpr("Text", [{ value: stringLit(humanPlural) }]) });
+    crumbs.push({ value: callExpr("Text", [{ value: section() }]) });
   }
   return callExpr("Breadcrumbs", crumbs);
 }

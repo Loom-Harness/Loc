@@ -28,6 +28,7 @@ import {
 } from "../../_frontend/form-helpers.js";
 import { frontendRequestNames } from "../../_frontend/request-names.js";
 import { serverSourcedDefaultFields } from "../../_frontend/server-default.js";
+import type { FormFieldVM } from "../../_frontend/view-models.js";
 import { prepareFormFieldVM } from "../form-fields-vm.js";
 import { GIVE_UP_SENTINEL, giveUp } from "../give-up.js";
 import { opDialogChrome, sentenceChromeName } from "../i18n-chrome.js";
@@ -41,6 +42,7 @@ import {
   localizedText,
   registerI18nImport,
 } from "../i18n-emit.js";
+import { formFieldModelTextTokens, opModelText, paramLabelOwner } from "../model-text-sites.js";
 import { opGateFor, opRequiresClientGate } from "../op-gate.js";
 import { renderFormField } from "../render-form-field.js";
 import {
@@ -375,7 +377,16 @@ function emitFormOfOperationByName(
   const testidNamespace =
     stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-op-${op.name}`;
   registerOperationFormChrome(ctx);
-  const prepared = prepareFormFields(ctx, fields, fieldsForHelpers, bc, testidNamespace);
+  const prepared = prepareFormFields(
+    ctx,
+    fields,
+    fieldsForHelpers,
+    bc,
+    testidNamespace,
+    undefined,
+    (name) => paramLabelOwner(agg, name),
+  );
+  const opLabel = opModelText(ctx, bc, agg.name, op.name);
   addImport(
     ctx,
     `../api/${lowerFirst(agg.name)}`,
@@ -408,14 +419,15 @@ function emitFormOfOperationByName(
     fieldHtmls: prepared.fieldHtmls,
     fieldArrays: prepared.fieldArrays,
     onSubmitJs: null,
-    triggerLabel: humanize(op.name),
+    triggerLabel: opLabel?.markup ?? humanize(op.name),
     triggerPrimary: true,
+    ...(opLabel ? { opLabel } : {}),
     gate,
   });
   // An enclosing `Modal` discards this and renders its own authored trigger; a
   // BARE by-name form keeps it, so the shell-emitted opener/component is
   // actually reachable.
-  return renderBareOperationFormTrigger(ctx, humanize(op.name), op.name, gate);
+  return renderBareOperationFormTrigger(ctx, opLabel?.markup ?? humanize(op.name), op.name, gate);
 }
 
 interface PreparedForm {
@@ -454,6 +466,9 @@ function prepareFormFields(
   bc: BoundedContextIR,
   testidNamespace: string,
   seedRecordVar?: string,
+  /** The model type each input's label is keyed under (by input name), for
+   *  its identity-keyed text; `undefined` keeps the humanized English. */
+  labelOwnerOf: (name: string) => string | undefined = () => undefined,
 ): PreparedForm {
   const aggregatesByNameMut = new Map(ctx.aggregatesByName);
   const idTargets = idTargetsInFields(fieldsForHelpers, bc, aggregatesByNameMut);
@@ -470,6 +485,7 @@ function prepareFormFields(
       `${testidNamespace}-input-${f.name}`,
       aggregatesByNameMut,
       ctx.bcByAggregate,
+      labelOwnerOf(f.name),
     ),
   );
   // RHF + zodResolver are universal across all React packs; the
@@ -507,6 +523,8 @@ function prepareFormFields(
     // type ("Add line"), never an "Add {item}" frame.
     addItemLabelFor: (element: string) =>
       localizedPageChromeText(ctx, sentenceChromeName("addItem", element)),
+    // Each field's identity-keyed label / enum option labels.
+    fieldTokens: (vm: FormFieldVM) => formFieldModelTextTokens(ctx, vm),
   };
   const fieldHtmls = fieldVMs.map((vm) => renderFormField(vm, ctx.pack, fieldChrome));
   for (const vm of fieldVMs) ctx.collectedTestids.add(vm.testId);
@@ -675,7 +693,15 @@ function emitFormOfAggregate(
   // The pack's `primitive-form-of` imports cover the form-shell
   // components (Stack/Button/Group on Mantine, equivalents elsewhere).
   addImportsForPrimitive(ctx, "primitive-form-of");
-  const prepared = prepareFormFields(ctx, fields, fields, bc, testidNamespace);
+  const prepared = prepareFormFields(
+    ctx,
+    fields,
+    fields,
+    bc,
+    testidNamespace,
+    undefined,
+    () => agg.name,
+  );
   addImport(
     ctx,
     `../api/${lowerFirst(agg.name)}`,
@@ -732,7 +758,7 @@ function emitFormOfAggregate(
     successMessage: `${humanize(agg.name)} created`,
     redirectStmt: `navigate(\`/${slug}/\${out.id}\`)`,
     submitPendingExpr: "create.isPending",
-    submitLabel: "Create",
+    submitLabel: opModelText(ctx, bc, agg.name, "create")?.markup ?? "Create",
   });
 }
 
@@ -776,7 +802,15 @@ function emitFormRuns(
   const fieldsForHelpers = fields.map((f) => ({ ...f, optional: false }));
   const testidNamespace = stringNamed(call, "testid") ?? `workflow-${snake(workflow.name)}`;
   addImportsForPrimitive(ctx, "primitive-form-of");
-  const prepared = prepareFormFields(ctx, fields, fieldsForHelpers, bc, testidNamespace);
+  const prepared = prepareFormFields(
+    ctx,
+    fields,
+    fieldsForHelpers,
+    bc,
+    testidNamespace,
+    undefined,
+    () => workflow.name,
+  );
   // Identifier base for the workflow's whole frontend surface, minted against
   // the SAME universe the api-module emitter resolves against (the deployable's
   // aggregates + workflows), so the import names the symbol `api/workflows.ts`
@@ -899,7 +933,9 @@ function emitFormOfOperation(
     bc,
     testidNamespace,
     seedRecordVar,
+    (name) => paramLabelOwner(agg, name),
   );
+  const opLabel = opModelText(ctx, bc, agg.name, op.name);
   addImport(
     ctx,
     `../api/${lowerFirst(agg.name)}`,
@@ -941,8 +977,9 @@ function emitFormOfOperation(
     fieldArrays: prepared.fieldArrays,
     onSubmitJs: null,
     // Defaults — the enclosing Modal overrides from its trigger.
-    triggerLabel: humanize(op.name),
+    triggerLabel: opLabel?.markup ?? humanize(op.name),
     triggerPrimary: true,
+    ...(opLabel ? { opLabel } : {}),
     // When a this-relative default was seeded, the trigger passes the in-scope
     // instance as the component's `record` prop — the RENDERED receiver
     // expression (`order`, or `<hook>.data` for a QueryView data-lambda
@@ -963,7 +1000,7 @@ function emitFormOfOperation(
   // An enclosing Modal discards this and renders its own authored trigger; a
   // BARE instance-qualified form keeps it, so the shell-emitted opener + form
   // component is reachable instead of dead module-scope code.
-  return renderBareOperationFormTrigger(ctx, humanize(op.name), op.name, gate);
+  return renderBareOperationFormTrigger(ctx, opLabel?.markup ?? humanize(op.name), op.name, gate);
 }
 
 /** Whether a param default reads `this` (so it seeds from the loaded record) —
@@ -995,6 +1032,7 @@ function defaultUsesThis(e: ExprIR | undefined): boolean {
     case "convert":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "id":
     case "lambda":
     case "list":

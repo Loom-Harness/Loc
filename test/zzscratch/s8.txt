@@ -1,0 +1,32 @@
+@@@ src/macros/stdlib/scaffold/_body-builders.ts
+    { value: breadcrumbs(aggName, slug, "New") },
+===
+    { value: breadcrumbs(() => pluralOf(aggName), slug, "New") },
+@@@ src/macros/stdlib/scaffold/_body-builders.ts
+    { value: breadcrumbs("Workflows", "workflows") },
+===
+    { value: breadcrumbs(() => stringLit("Workflows"), "workflows") },
+@@@ src/macros/stdlib/scaffold/_body-builders.ts
+    { value: breadcrumbs(aggName, slug) },
+===
+    { value: breadcrumbs(() => pluralOf(aggName), slug) },
+@@@ src/macros/stdlib/scaffold/_body-builders.ts
+function breadcrumbs(aggName: string, slug: string, leaf?: string): Expression {
+===
+function breadcrumbs(section: () => Expression, slug: string, leaf?: string): Expression {
+@@@ src/macros/stdlib/scaffold/_body-builders.ts
+        { value: pluralOf(aggName) },
+        { name: "to", value: stringLit(`/${slug}`) },
+      ]),
+    });
+    crumbs.push({ value: callExpr("Text", [{ value: stringLit(leaf) }]) });
+  } else {
+    crumbs.push({ value: callExpr("Text", [{ value: pluralOf(aggName) }]) });
+===
+        { value: section() },
+        { name: "to", value: stringLit(`/${slug}`) },
+      ]),
+    });
+    crumbs.push({ value: callExpr("Text", [{ value: stringLit(leaf) }]) });
+  } else {
+    crumbs.push({ value: callExpr("Text", [{ value: section() }]) });

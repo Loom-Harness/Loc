@@ -813,6 +813,9 @@ const HEEX_NODE_RENDERERS: {
   // never a page-body expression.  Reaching the HEEx page renderer means it
   // leaked from a filter position; throw rather than emit invalid markup.
   "authz-filter": rejectAuthzFilter,
+  // model-text-fanout(heex): `label(…)` / `plural(…)` renders its English
+  // default until the HEEx gettext path keys it by identity.
+  modelText: (e) => elixirString(e.defaultText),
 };
 
 function rejectAuthzFilter(): never {
