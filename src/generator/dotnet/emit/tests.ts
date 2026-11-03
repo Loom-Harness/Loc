@@ -29,10 +29,7 @@ import { renderCsExpr } from "../render-expr.js";
  *  (`_test/arg-coercion.ts`).  An id is a `record struct <X>Id(Guid Value)`;
  *  `datetime` parses round-trip so the `Z` offset is honoured. */
 const CS_TEST_LITERAL: TestLiteralTarget = {
-  id: (rendered, targetName, valueType) =>
-    valueType === "guid"
-      ? `new ${targetName}Id(Guid.Parse(${rendered}))`
-      : `new ${targetName}Id(${rendered})`,
+  id: (rendered, targetName) => `new ${targetName}Id(Guid.Parse(${rendered}))`,
   datetime: (rendered) =>
     `DateTime.Parse(${rendered}, null, System.Globalization.DateTimeStyles.RoundtripKind)`,
   date: (rendered) => csCalendarDateParseExact(rendered),

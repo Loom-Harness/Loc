@@ -855,7 +855,7 @@ function pathActionParam(p: ParamIR): { actionParam: string; commandArg: string 
     // that used to live here mapped `int` to `long`, so an `int`-keyed
     // aggregate bound a `long` route token and handed it to a ctor taking
     // `int` — CS1503 (G2667-D4).  Latent only because ids are guid by default.
-    const wire = csIdValueClrType(t.valueType);
+    const wire = csIdValueClrType();
     return {
       actionParam: `${wire} ${n}`,
       commandArg: `new ${t.targetName}Id(${n})`,
@@ -890,7 +890,7 @@ export function queryActionParam(
       : "";
   if (t.kind === "id") {
     // Same shared derivation as `pathActionParam` — see the note there.
-    const wire = csIdValueClrType(t.valueType);
+    const wire = csIdValueClrType();
     return {
       actionParam: `[FromQuery] ${bind}${wire} ${n}`,
       commandArg: `new ${t.targetName}Id(${n})`,

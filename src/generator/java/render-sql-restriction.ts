@@ -109,18 +109,9 @@ function selfIdOf(x: ExprIR): Extract<TypeIR, { kind: "id" }> | null {
   return null;
 }
 
-/** The boxed Java type of an id's raw value. */
-function javaIdBoxedValueType(valueType: string): string {
-  switch (valueType) {
-    case "int":
-      return "Integer";
-    case "long":
-      return "Long";
-    case "string":
-      return "String";
-    default:
-      return "java.util.UUID";
-  }
+/** The boxed Java type of an id's raw value (a guid). */
+function javaIdBoxedValueType(): string {
+  return "java.util.UUID";
 }
 
 /** The principal-aware arms of a binary comparison, or null when `e` reads no
@@ -148,10 +139,9 @@ function renderPrincipalBinary(
   const claim = claimOf(leftId ? e.right : e.left);
   if (idType && claim) {
     const claimIsString = claim.type.kind === "primitive" && claim.type.name === "string";
-    const param =
-      idType.valueType === "guid" && claimIsString
-        ? bind(p, guidClaimAccessorName(claim.member), "java.util.UUID")
-        : bind(p, claim.member, javaIdBoxedValueType(idType.valueType));
+    const param = claimIsString
+      ? bind(p, guidClaimAccessorName(claim.member), "java.util.UUID")
+      : bind(p, claim.member, javaIdBoxedValueType());
     return `id ${op} ${param}`;
   }
   // A nullable claim: `==` against a null claim reads as IS NULL, as on every

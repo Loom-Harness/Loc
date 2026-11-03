@@ -20,7 +20,7 @@ import {
   scalarCodec,
   scalarCodecOf,
 } from "../../ir/enrich/codec.js";
-import type { IdValueType, TypeIR } from "../../ir/types/loom-ir.js";
+import type { TypeIR } from "../../ir/types/loom-ir.js";
 import type { ColumnType } from "../../ir/types/migrations-ir.js";
 import { numericEncode } from "../_numeric/target.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
@@ -71,8 +71,8 @@ export function drizzleScalarColumn(name: CodecPrimitive, colName: string): stri
 /** The drizzle column for an id-shaped column (aggregate PK, `X id` reference,
  *  containment / join-table FK, workflow correlation key) — the same Postgres
  *  type the migration builder creates for it. */
-export function drizzleIdColumn(valueType: IdValueType, colName: string): string {
-  return drizzleColumn(idColumn(valueType), colName);
+export function drizzleIdColumn(colName: string): string {
+  return drizzleColumn(idColumn(), colName);
 }
 
 /** MikroORM's property type, the row's TS type, and the explicit `columnType`

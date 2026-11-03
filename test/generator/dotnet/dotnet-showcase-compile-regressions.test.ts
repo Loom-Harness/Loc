@@ -137,7 +137,7 @@ describe(".NET wireToCommandArgument — nullable value-type wires", () => {
     const ctx = { valueObjects: [] } as unknown as EnrichedBoundedContextIR;
     const out = wireToCommandArgument(
       "request.Parent",
-      { kind: "optional", inner: { kind: "id", targetName: "Project", valueType: "guid" } },
+      { kind: "optional", inner: { kind: "id", targetName: "Project" } },
       ctx,
       { ns: "D", pointer: "/parent" },
     );

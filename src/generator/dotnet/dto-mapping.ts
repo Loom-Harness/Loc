@@ -5,7 +5,6 @@ import type {
   EnrichedBoundedContextIR,
   EnrichedEntityPartIR,
   FieldIR,
-  IdValueType,
   PayloadIR,
   TypeIR,
   ValueObjectIR,
@@ -170,10 +169,8 @@ export function wireType(
           : CS_WIRE_PRIMITIVE[info.primitive!];
       break;
     case "id":
-      // Pre-existing divergence: every id crosses the .NET wire as
-      // `Guid`, regardless of `idValueType`.  Hono mirrors this; the
-      // OpenAPI emitter honours the typed value for path params.
-      s = csIdValueClrType("guid");
+      // Every id crosses the .NET wire as its guid value.
+      s = csIdValueClrType();
       break;
     case "enum":
       // Enum crosses the wire as the enum TYPE (not `string`): paired with
@@ -933,7 +930,7 @@ export function responseParamsFromPayload(
 ): string {
   const parts: string[] = [];
   // The DTO leads with `Guid Id` even though the record omits it.
-  parts.push(dtoParam(csIdValueClrType(agg.idValueType), "Id"));
+  parts.push(dtoParam(csIdValueClrType(), "Id"));
   // A declared record names DOMAIN types (`total: int`), so a field the
   // aggregate declares `provenanced` is wrapped in the wire carrier here — the
   // same wrap `wireTypeForField` applies on the wireShape path, so the record's
@@ -985,11 +982,10 @@ function responseRecordParams(
   // record path is `responseParamsFromPayload`; this is the part / no-record
   // fallback, which recomputes via `wireFieldsFor`.)
   const fields = forApiRead(wireFieldsFor(ent));
-  const idValueType = isPart(ent) ? ent.parentIdValueType : ent.idValueType;
   const parts: string[] = [];
   for (const wf of fields) {
     if (wf.source === "id") {
-      parts.push(dtoParam(csIdValueClrType(idValueType), "Id"));
+      parts.push(dtoParam(csIdValueClrType(), "Id"));
     } else {
       // A containment's wire type is a bare `entity` (its optionality rides the
       // WireField `optional` flag, not the type), so an OPTIONAL single
@@ -1040,10 +1036,6 @@ export function projectionNamesDomainCommon(agg: EnrichedAggregateIR): boolean {
   );
 }
 
-function isPart(ent: EnrichedAggregateIR | EnrichedEntityPartIR): ent is EnrichedEntityPartIR {
-  return "parentName" in ent;
-}
-
 function containmentPartName(t: TypeIR): string | undefined {
   const inner = peelCollection(t);
   return inner.kind === "entity" ? inner.name : undefined;
@@ -1082,15 +1074,7 @@ export function valueObjectsUsedBy(
   return pool.filter((v) => valueObjects.has(v.name));
 }
 
-export function csIdValueClrType(idValueType: IdValueType): string {
-  switch (idValueType) {
-    case "int":
-      return "int";
-    case "long":
-      return "long";
-    case "string":
-      return "string";
-    default:
-      return "Guid";
-  }
+/** The CLR type an id crosses the wire / a DTO as — every identity is a guid. */
+export function csIdValueClrType(): string {
+  return "Guid";
 }

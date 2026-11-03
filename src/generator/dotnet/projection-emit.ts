@@ -56,16 +56,6 @@ export function wireFieldType(f: WireField): TypeIR {
   return { kind: "optional", inner: f.type };
 }
 
-/** The correlation id's value type (drives the `{key}` route-param CLR type). */
-function projectionCorrValueType(
-  proj: ProjectionIR,
-): import("../../ir/types/loom-ir.js").IdValueType {
-  const corrField = proj.stateFields.find((f) => f.name === proj.correlationField);
-  const t =
-    corrField && corrField.type.kind === "optional" ? corrField.type.inner : corrField?.type;
-  return t && t.kind === "id" ? t.valueType : "guid";
-}
-
 // ---------------------------------------------------------------------------
 // Fold dispatch
 // ---------------------------------------------------------------------------
@@ -326,7 +316,7 @@ function renderProjectionsController(
     // The `{key}` param binds the correlation id's CLR value type (Guid / int /
     // long / string), so Swashbuckle emits the matching param schema — parity
     // with the other backends by construction.
-    const corrClr = csIdValueClrType(projectionCorrValueType(proj));
+    const corrClr = csIdValueClrType();
     const proj_ = (rowVar: string): string =>
       shape
         .map((f) => projectToResponse(`${rowVar}.${upperFirst(f.name)}`, wireFieldType(f), ctx))

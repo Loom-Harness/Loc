@@ -1742,7 +1742,7 @@ export function renderJavaWorkflows(
  *  id's raw `value` type, else the scalar itself.  Only the kinds phase ④
  *  admits (`loom.workflow-return-type-unsupported`) reach here. */
 function workflowResultWireJava(t: TypeIR): string {
-  return t.kind === "id" ? javaValueTypeForId(t.valueType) : renderJavaType(t);
+  return t.kind === "id" ? javaValueTypeForId() : renderJavaType(t);
 }
 
 /** `workflowResultWireJava` as it is spelled in a compilation unit: a `UUID`

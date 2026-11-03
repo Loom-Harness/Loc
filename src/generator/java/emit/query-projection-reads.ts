@@ -409,7 +409,7 @@ export function renderJavaQueryProjections(
     // its underlying value type, because Spring cannot bind a wrapper record.
     const paramDecl = (p: (typeof proj.params)[number], local: string): string =>
       p.type.kind === "id"
-        ? `${javaValueTypeForId(p.type.valueType)} ${local}`
+        ? `${javaValueTypeForId()} ${local}`
         : `${renderJavaType(p.type)} ${local}`;
     // Each layer's params are locals of a method that spells names of its own
     // — the service read: the injected repository fields it dereferences and

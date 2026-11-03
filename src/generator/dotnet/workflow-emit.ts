@@ -51,7 +51,6 @@ import {
   commandCreateResult,
   emitsCommandRoute,
 } from "../../ir/util/workflow-command-route.js";
-import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { escapeCsharpIdent, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
@@ -2469,7 +2468,7 @@ function workflowResultCs(
  *  id's raw value type, else the scalar itself.  Only the kinds phase ④ admits
  *  (`loom.workflow-return-type-unsupported`) reach here. */
 function workflowResultWireCs(t: import("../../ir/types/loom-ir.js").TypeIR): string {
-  return t.kind === "id" ? csIdValueClrType(t.valueType) : renderCsType(t);
+  return t.kind === "id" ? csIdValueClrType() : renderCsType(t);
 }
 
 // ---------------------------------------------------------------------------
@@ -2705,7 +2704,7 @@ function renderInstancesController(
     // long / string), so Swashbuckle emits the matching param schema — parity
     // with Hono / Java / Python / Phoenix by construction
     // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/non-guid-id-http-params.md).
-    const corrClr = csIdValueClrType(workflowCorrIdValueType(wf));
+    const corrClr = csIdValueClrType();
     if (wf.eventSourced) {
       const st = esStreamType(wf);
       const stateCls = workflowStateClass(wf);

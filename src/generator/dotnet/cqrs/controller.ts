@@ -259,7 +259,7 @@ export function emitController(
     `Api/${upperFirst(plural(agg.name))}Controller.cs`,
     renderController(agg, repo, ns, {
       idClass,
-      idClrType: csIdValueClrType(agg.idValueType),
+      idClrType: csIdValueClrType(),
       createAction: createActionOverride ?? derivedOps.some((o) => o.kind === "create"),
       destroyAction: derivedOps.some((o) => o.kind === "destroy"),
       createApiOp: derivedOps.find((o) => o.kind === "create"),
