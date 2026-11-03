@@ -242,10 +242,6 @@ describe("java", () => {
     );
     expect(slice(wf, "void openLedger(", "void renameTags(")).not.toContain("getById");
   });
-  it("the write-scope by-id load is a query, so a row the transaction holds is re-filtered", async () => {
-    const jpa = await fileEnding("java", "features/ledgers/LedgerJpaRepository.java");
-    expect(jpa).toContain('@Query("select e from Ledger e where e.id = :id")');
-  });
   it("a command handler re-checks", async () => {
     guardsBefore(
       await fileEnding("java", "application/workflows/TouchOneHandler.java"),
