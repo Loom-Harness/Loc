@@ -1,3 +1,4 @@
+import { destroyVersionCheck, readsIfMatch } from "../../ir/enrich/version-check.js";
 import { FIND_ABSENT_DETAIL, reasonPhrase, wireSentenceFor } from "../../ir/enrich/wire-policy.js";
 import {
   createInputFields,
@@ -74,7 +75,7 @@ import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/server-default.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
-import { findUnionSpec } from "../_payload/union-wire.js";
+import { findUnionSpec, unionMoneyArms } from "../_payload/union-wire.js";
 import { pyCalendarDateWire } from "./codec-spelling.js";
 import { pyCommandBodyParam } from "./command-body.js";
 import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
@@ -91,6 +92,7 @@ import { renderPyExpr, renderPyNegatedGuard } from "./render-expr.js";
 import { aggHasFieldMask, emittableFinds } from "./repository-builder.js";
 import { hasStamp, type StampEvent, stampUsesUser } from "./stamp-call.js";
 import {
+  pyConflictRaise,
   pyErrorVariantReturn,
   pyProblemResponseEntry,
   wireStatusResolver,
@@ -120,6 +122,7 @@ export const PY_HTTP = {
   make_dispatcher: pyRef("app.dispatch", "make_dispatcher"),
   NoopDomainEventDispatcher: pyRef("app.domain.events", "NoopDomainEventDispatcher"),
   AggregateNotFoundError: pyRef("app.domain.errors", "AggregateNotFoundError"),
+  ConcurrencyError: pyRef("app.domain.errors", "ConcurrencyError"),
   User: pyRef("app.auth.user", "User"),
   require_current_user: pyRef("app.auth.user", "require_current_user"),
   AuditEntryListResponse: pyRef("app.audit.history", "AuditEntryListResponse"),
@@ -1011,7 +1014,11 @@ function destroyRoute(
   // the load still runs as the 404 probe but is not bound (ruff F841).
   const destroyGateReadsRow = lifecycleGatesReadRow(canonicalDestroy(agg));
   const destroyGateUsesUser = lifecycleGatesUseCurrentUser(canonicalDestroy(agg));
-  const bindLoaded = auditDestroy || destroyGateReadsRow;
+  // A `versioned` row's DELETE reads `If-Match` like a named operation
+  // (`destroyVersionCheck`): a stale tag raises the ConcurrencyError a stale
+  // save raises (409); with no usable tag the loaded version stands.
+  const destroyIfMatch = readsIfMatch(destroyVersionCheck(agg));
+  const bindLoaded = auditDestroy || destroyGateReadsRow || destroyIfMatch;
   return lines(
     `@router.delete("${relativeOpPath(apiOp)}", status_code=204, operation_id="${camelId(opDestroy(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
     `async def destroy_${snake(agg.name)}(${ID_PARAM}, ${PY_REQUEST_PARAM}, session: SessionDep) -> ${H.Response}:`,
@@ -1021,6 +1028,14 @@ function destroyRoute(
       : `    await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
     destroyGateUsesUser ? PY_USER_BIND : null,
     ...lifecycleGate(canonicalDestroy(agg), destroyGateReadsRow ? "__loaded" : undefined),
+    ...(destroyIfMatch
+      ? [
+          // `chr(34)` is a literal double-quote (see `versionedSave`).
+          '    _if_match = request.headers.get("if-match", "").strip(chr(34))',
+          "    if _if_match.isdigit() and int(_if_match) != __loaded.version:",
+          `        ${pyConflictRaise(H.ConcurrencyError, agg.name, "id")}`,
+        ]
+      : []),
     auditDestroy ? "    __before = repo.to_wire(__loaded)" : null,
     ...destroyAuditCall,
     "    try:",
@@ -1154,6 +1169,22 @@ function versionedSave(
   };
 }
 
+/** A `money` field of a payload success variant rides as the fixed-scale
+ *  string (RS-12) — the tagged dict holds the `Decimal`. */
+function unionMoneyReturn(variants: TypeIR[], ctx: EnrichedBoundedContextIR): string[] {
+  return unionMoneyArms(variants, ctx).flatMap((arm) => {
+    const enc = arm.keys.map(({ key, optional }) => {
+      const access = `result[${JSON.stringify(key)}]`;
+      const wire = numericEncode(PY_NUMERIC, "money", "dto-map", access);
+      return `${JSON.stringify(key)}: ${optional ? `None if ${access} is None else ${wire}` : wire}`;
+    });
+    return [
+      `    if result["type"] == ${JSON.stringify(arm.tag)}:`,
+      `        return {**result, ${enc.join(", ")}}`,
+    ];
+  });
+}
+
 /** Serialize a scalar operation-return domain value to its wire form —
  *  the same per-scalar handling the repository's `to_wire` projection uses:
  *  money → its canonical decimal string (`money_str`), datetime → ISO-8601
@@ -1251,6 +1282,7 @@ function operationRoute(
       vsave.save,
       op.audited ? "    __after = repo.to_wire(found)" : null,
       ...(op.audited ? auditRecordCall(agg, op) : []),
+      ...unionMoneyReturn(op.returnType.variants, ctx),
       ...hostArmReturn(agg, op),
     );
   }

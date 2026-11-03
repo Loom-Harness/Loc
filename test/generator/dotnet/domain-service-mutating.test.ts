@@ -9,8 +9,7 @@
 // a newly-created aggregate.
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Banking {
@@ -43,7 +42,7 @@ const SRC = `
 
 describe(".NET generator — mutating-tier domainService (domain-services.md rev. 4)", () => {
   it("calls the static service and saves the mutated args inside the transaction", async () => {
-    const handler = (await generateDotnet(await parseValid(SRC))).get(
+    const handler = (await generateBackendFiles(SRC, "dotnet")).get(
       "Application/Workflows/MoveMoneyHandler.cs",
     )!;
     expect(handler).toBeDefined();

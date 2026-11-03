@@ -83,6 +83,18 @@ describe("Hono typed in-system api client", () => {
     expect(src).toContain("orders$updateOrder(id: string, code: string, status: string)");
   });
 
+  it("types a collection operation argument as an array, not unknown", async () => {
+    const files = await emit(
+      SRC.replace(
+        "code: string  status: string }\n      repository Orders",
+        "code: string  status: string  tags: string[] }\n      repository Orders",
+      ),
+    );
+    const src = files.get("shipping_svc/resources/api-clients.ts") ?? "";
+    expect(src).toContain("tags: string[]");
+    expect(src).not.toContain("tags: unknown");
+  });
+
   it("throws a status-carrying error rather than collapsing failures", async () => {
     const src = await client();
     expect(src).toContain("export class RemoteCallError extends Error");

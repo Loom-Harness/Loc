@@ -13,7 +13,11 @@
 // byte-identical to the other backends.
 // ---------------------------------------------------------------------------
 
-import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
+import {
+  destroyVersionCheck,
+  operationVersionCheck,
+  readsIfMatch,
+} from "../../../ir/enrich/version-check.js";
 import {
   createInputFields,
   emitsRestCreate as sharedEmitsRestCreate,
@@ -833,11 +837,25 @@ ${createCuBind}    case ${ctxModule}.create_${aggSnake}(params${createActor}) do
   // dead code the router never routed to (audit: dead hard-`delete`).  Gated on
   // the SAME `emitsRestDelete` predicate the router (above) and the context /
   // repository seams use.
+  // A `versioned` row's DELETE reads `If-Match` like a named operation
+  // (`destroyVersionCheck`): a stale tag is a 409 before the delete runs; an
+  // absent or unparseable one leaves the loaded version in place.
+  const versionsDestroy = readsIfMatch(destroyVersionCheck(agg));
+  const destroyVersionBind = versionsDestroy && !readOnly ? EXPECTED_VERSION_BIND : "";
+  const destroyVersionClause = versionsDestroy
+    ? `\n         :ok <- if(expected_version in [nil, record.version], do: :ok, else: {:error, :conflict}),`
+    : "";
+  const destroyConflictClause = versionsDestroy
+    ? `
+
+      {:error, :conflict} ->
+        ProblemDetails.conflict_response(conn, "${aggPascal}", id)`
+    : "";
   const deleteAction = !emitsRestDelete(agg)
     ? ""
     : auditDestroy
       ? `  def delete(conn, %{"id" => id}) do
-${cuBind}${destroyCuBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),
+${cuBind}${destroyCuBind}${destroyVersionBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),${destroyVersionClause}
          {:ok, _} <-
            ${appModule}.Repo.transaction(fn ->
 ${auditRecordCall({
@@ -864,19 +882,19 @@ ${auditRecordCall({
       send_resp(conn, 204, "")
     else
       {:error, :not_found} ->
-        ProblemDetails.not_found_response(conn, "${aggPascal}", id)
+        ProblemDetails.not_found_response(conn, "${aggPascal}", id)${destroyConflictClause}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         ProblemDetails.validation_error_response(conn, changeset)${destroyGated ? forbiddenArm("      ") : ""}
     end${fkRestrictRescue}
   end`
       : `  def delete(conn, %{"id" => id}) do
-${cuBind}${destroyCuBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),
+${cuBind}${destroyCuBind}${destroyVersionBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),${destroyVersionClause}
          {:ok, _} <- ${ctxModule}.delete_${aggSnake}(record${destroyActor}) do
       send_resp(conn, 204, "")
     else
       {:error, :not_found} ->
-        ProblemDetails.not_found_response(conn, "${aggPascal}", id)
+        ProblemDetails.not_found_response(conn, "${aggPascal}", id)${destroyConflictClause}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         ProblemDetails.validation_error_response(conn, changeset)${destroyGated ? forbiddenArm("      ") : ""}
@@ -904,7 +922,9 @@ ${cuBind}${destroyCuBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${ge
         ProblemDetails.conflict_response(conn, "${aggPascal}", id)`
     : "";
   const versionHelper =
-    versionsUpdate || memberOps.some((op) => readsIfMatch(operationVersionCheck(agg, op)))
+    versionsUpdate ||
+    (versionsDestroy && !readOnly && emitsRestDelete(agg)) ||
+    memberOps.some((op) => readsIfMatch(operationVersionCheck(agg, op)))
       ? EXPECTED_VERSION_HELPER
       : "";
 

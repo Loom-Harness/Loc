@@ -10,8 +10,7 @@
 // asserted at run time by `corpus/intrinsics` on every leg, MikroORM included.
 
 import { describe, expect, it } from "vitest";
-import { generateHono } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 describe("typescript generator — A2 string intrinsics end-to-end", () => {
   const SRC2 = `
@@ -28,8 +27,7 @@ describe("typescript generator — A2 string intrinsics end-to-end", () => {
   `;
 
   it("parses + validates cleanly and renders chained intrinsics in-memory", async () => {
-    const model = await parseValid(SRC2);
-    const domain = generateHono(model).get("domain/product.ts")!;
+    const domain = (await generateBackendFiles(SRC2, "node")).get("domain/product.ts")!;
     expect(domain).toContain("this._name.trim().toLowerCase()");
     expect(domain).toContain('[...this._name].slice(0, (0) + (1)).join("").toUpperCase()');
     expect(domain).toContain('this._name.split(",").length');
@@ -68,8 +66,7 @@ describe("typescript generator — A3 math intrinsics end-to-end", () => {
   `;
 
   it("parses + validates cleanly and renders numerics in-memory", async () => {
-    const model = await parseValid(SRC3);
-    const domain = generateHono(model).get("domain/invoice.ts")!;
+    const domain = (await generateBackendFiles(SRC3, "node")).get("domain/invoice.ts")!;
     // int → Math.*, money → decimal.js Decimal methods.
     expect(domain).toContain("Math.abs(this._qty)");
     // A `decimal` round is decimal ARITHMETIC (RS-37): half-away-from-zero on
@@ -86,8 +83,9 @@ describe("typescript generator — A3 math intrinsics end-to-end", () => {
   });
 
   it("renders numeric intrinsics as SQL on the column side of a where", async () => {
-    const model = await parseValid(SRC3);
-    const repo = generateHono(model).get("db/repositories/invoice-repository.ts")!;
+    const repo = (await generateBackendFiles(SRC3, "node")).get(
+      "db/repositories/invoice-repository.ts",
+    )!;
     expect(repo).toContain("gt(sql`round(${schema.invoices.price}, ${2})`, m)");
     // Value-side abs (param receiver) stays host JS while the column side is SQL.
     expect(repo).toContain("eq(sql`abs(${schema.invoices.qty})`, Math.abs(n))");
