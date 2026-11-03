@@ -496,7 +496,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // its own `run/1` module here and a `QueryProjectionsController` after the
     // loop (sibling of the folded ProjectionsController).
     allQueryProjections.push(
-      ...emitVanillaQueryProjectionModules(appName, appModule, ctx, out, sourcemap, sys),
+      ...emitVanillaQueryProjectionModules(appName, appModule, ctx, out, sourcemap, sys, contexts),
     );
     emitDispatch(appName, ctx, appModule, out, sys, sourcemap, channelsCfg, wiredForeignChannels);
     // First-boot seed data (database-seeding.md, M-T6.37) — one

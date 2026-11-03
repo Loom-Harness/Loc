@@ -365,7 +365,7 @@ export function renderDtoFiles(
 
   // --- create response (`{ id }`) ---------------------------------------------------
   if (emitsRestCreate(agg)) {
-    const idJava = javaIdValueType(agg.idValueType);
+    const idJava = javaIdValueType();
     const imports = new Set<string>();
     out.push({
       name: `Create${agg.name}Response.java`,

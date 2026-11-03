@@ -162,7 +162,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-return-type-unsupported",
     kind: "scope",
-    site: "src/language/validators/structural.ts:496",
+    site: "src/language/validators/structural.ts:533",
     what:
       "a routed entry point's result that is (or has a success variant that is) a value " +
       "object / decimal / money / date / datetime, and a workflow `create`'s plain (non-union) " +
@@ -197,6 +197,18 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "context-level `test` whose target context no backend deployable hosts — every backend " +
       "renders context integration tests, so only a frontend-only host warns",
     mission: "#3378",
+  },
+  {
+    code: "loom.projection-cross-context-source-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:172",
+    what:
+      "a per-row (repository-sourced) query-time projection reading an aggregate declared in " +
+      "ANOTHER context, on node / python / .NET: their repository emitters synthesise the source " +
+      "find only from projections in the aggregate's own context, so the route called a method " +
+      "never emitted.  java and elixir resolve the home context and emit it; the direct-table " +
+      "arms work everywhere.",
+    mission: "#4595",
   },
   {
     code: "loom.dapper-unsupported",

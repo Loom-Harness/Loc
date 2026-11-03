@@ -1095,7 +1095,7 @@ produces tables. The shape depends on the aggregate's saving shape, persistence
 mode, and inheritance:
 
 **Aggregate → table.** `aggregate Order` → table `orders` (`plural(snake(name))`),
-`id` PK typed from `idValueType`, one column per scalar/enum/`X id` field.
+`id` PK (a `uuid` — every identity is a guid), one column per scalar/enum/`X id` field.
 The spelling lives in one place, `tableNameFor` (`src/util/storage-names.ts`), with
 the per-node accessors (`aggregateTableName`, `partTableName`, `projectionTableName`,
 `associationTables`) in `src/ir/enrich/storage-names.ts`; every backend's ORM mapping

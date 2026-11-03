@@ -199,6 +199,12 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Elixir's operation persist (`change(%{}) |> force_change`) re-ran only the residual cross-field rules, so a single-field invariant — native `validate_number` in `base_changeset` only — was bypassed and `setQty(-1)` committed.",
   },
   {
+    id: "union-match-arms",
+    title: "a `return match` whose arms build different union variants, tagged per arm",
+    doc: "payloads",
+    backends: ALL,
+  },
+  {
     id: "workflow-expected-failure",
     title: "a workflow `create` / handler answering `T or E`, rolled back whole on the error",
     doc: "workflow",

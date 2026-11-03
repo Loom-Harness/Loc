@@ -483,8 +483,7 @@ interface SystemIR {
 
 ```ts
 interface AggregateIR {
-  name: string;
-  idValueType: "guid" | "int" | "long" | "string";
+  name: string;              // identity is always a guid — no id value-type field
   fields: FieldIR[];
   contains: ContainmentIR[];
   derived: DerivedIR[];
@@ -570,7 +569,6 @@ the IR consumers need.  Five derivations, in order:
      fieldName: string;        // "party"
      ownerAgg: string;         // "Trainer"
      targetAgg: string;        // "Pokemon"
-     valueType: IdValueType;   // matches the target's id value type
      joinTable: string;        // "trainer_party"
      ownerFk: string;          // "trainer_id"
      targetFk: string;         // "pokemon_id"

@@ -34,6 +34,8 @@ import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
+import { csRef, csUsing } from "../../_imports/dotnet.js";
+import { CS } from "../cs-symbols.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { renderCsExpr } from "../render-expr.js";
 import {
@@ -158,18 +160,6 @@ function renderStmt(
   }
 }
 
-/** Namespaces of the framework symbols the test text may spell beyond the
- *  fixed header: the `using` exists iff the symbol is written, so the two
- *  cannot drift (the EF boot reaches Npgsql through `UseNpgsql`, an extension
- *  in `Microsoft.EntityFrameworkCore`, and needs no `using Npgsql;`). */
-const NAMESPACE_OF_SYMBOL: Readonly<Record<string, string>> = { NpgsqlDataSource: "Npgsql" };
-
-function namespacesUsedBy(text: string): string[] {
-  return Object.entries(NAMESPACE_OF_SYMBOL)
-    .filter(([symbol]) => new RegExp(`\\b${symbol}\\b`).test(text))
-    .map(([, nsp]) => nsp);
-}
-
 function renderTest(
   t: TestIR,
   ctx: BoundedContextIR,
@@ -182,11 +172,11 @@ function renderTest(
   out.push(`    public async Task ${methodName}()`);
   out.push("    {");
   if (dapper) {
-    out.push("        await using var db = NpgsqlDataSource.Create(ConnString());");
+    out.push(`        await using var db = ${CS.NpgsqlDataSource}.Create(ConnString());`);
     out.push("        await DbSchema.EnsureAsync(db);");
   } else {
     out.push(
-      "        var opts = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(ConnString()).Options;",
+      `        var opts = new DbContextOptionsBuilder<AppDbContext>()${CS.EfCore}.UseNpgsql(ConnString()).Options;`,
     );
     out.push("        await using var db = new AppDbContext(opts);");
     out.push("        await db.Database.MigrateAsync();");
@@ -197,7 +187,7 @@ function renderTest(
     // audit buffer inside its own transaction, so it takes the buffer too.
     const ctorArgs = dapper
       ? `db, events${aggHasAuditedTarget(a) ? ", new AuditWriter()" : ""}`
-      : `db, events, NullLogger<${a.name}Repository>.Instance`;
+      : `db, events, ${csRef("Microsoft.Extensions.Logging.Abstractions", "NullLogger")}<${a.name}Repository>.Instance`;
     out.push(`        var ${repoVar(a.name)} = new ${a.name}Repository(${ctorArgs});`);
   }
   for (const [i, s] of t.statements.entries()) out.push(...renderStmt(s, ctx, i));
@@ -236,17 +226,18 @@ export function renderContextIntegrationTest(
   const usesEnums = enumPool(ctx).some((e) => spells(e.name));
 
   const className = `${upperFirst(ctx.name)}IntegrationTests`;
-  const lines: string[] = [];
-  lines.push("// Auto-generated.  Do not edit by hand.");
-  lines.push("using System;");
-  lines.push("using System.Threading.Tasks;");
-  if (!dapper) {
-    lines.push("using Microsoft.EntityFrameworkCore;");
-    lines.push("using Microsoft.Extensions.Logging.Abstractions;");
-  }
-  for (const nsp of namespacesUsedBy(methodBlocks.flat().join("\n"))) lines.push(`using ${nsp};`);
-  lines.push("using Xunit;");
-  lines.push("using AwesomeAssertions;");
+  // The persistence slots render iff the test bodies spell the EF boot
+  // (`UseNpgsql`, `NullLogger`) or the Dapper one (`NpgsqlDataSource`).
+  const lines: string[] = [
+    "// Auto-generated.  Do not edit by hand.",
+    "using System;",
+    "using System.Threading.Tasks;",
+    csUsing("Microsoft.EntityFrameworkCore"),
+    csUsing("Microsoft.Extensions.Logging.Abstractions"),
+    csUsing("Npgsql"),
+    "using Xunit;",
+    "using AwesomeAssertions;",
+  ];
   lines.push(`using ${ns}.Domain.Common;`);
   if (ctx.aggregates.length > 0) lines.push(`using ${ns}.Domain.Ids;`);
   if (usesValueObjects) lines.push(`using ${ns}.Domain.ValueObjects;`);

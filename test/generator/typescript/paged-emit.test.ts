@@ -8,8 +8,7 @@
 // `LOOM_TS_BUILD`; these unit tests pin the emitted shape.
 
 import { describe, expect, it } from "vitest";
-import { generateHono } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Inventory {
@@ -25,8 +24,9 @@ const SRC = `
 
 describe("typescript generator — paged reads (P3b)", () => {
   it("emits a paged repository method: count + limit/offset + wrapped return", async () => {
-    const model = await parseValid(SRC);
-    const repo = generateHono(model).get("db/repositories/warehouse-repository.ts")!;
+    const repo = (await generateBackendFiles(SRC, "node")).get(
+      "db/repositories/warehouse-repository.ts",
+    )!;
 
     // Signature gains page/pageSize + sort/dir and returns the pagination envelope.
     expect(repo).toMatch(
@@ -60,8 +60,9 @@ describe("typescript generator — paged reads (P3b)", () => {
   });
 
   it("threads the criterion into both the count and the page query", async () => {
-    const model = await parseValid(SRC);
-    const repo = generateHono(model).get("db/repositories/warehouse-repository.ts")!;
+    const repo = (await generateBackendFiles(SRC, "node")).get(
+      "db/repositories/warehouse-repository.ts",
+    )!;
     expect(repo).toContain(
       "const inRegionCriterion = (region: string) => eq(schema.warehouses.region, region);",
     );
@@ -76,8 +77,7 @@ describe("typescript generator — paged reads (P3b)", () => {
   });
 
   it("emits a named <Agg>Paged response DTO + page/pageSize query + toWire mapping", async () => {
-    const model = await parseValid(SRC);
-    const routes = generateHono(model).get("http/warehouse.routes.ts")!;
+    const routes = (await generateBackendFiles(SRC, "node")).get("http/warehouse.routes.ts")!;
 
     // Named paged DTO wrapping the response items.
     expect(routes).toContain(
