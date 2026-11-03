@@ -170,6 +170,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.repo-sort-placement": "10-repositories-and-queries.md#sorting-an-all-over-a-criterion",
   "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
   "loom.repo-unknown-read": "10-repositories-and-queries.md#repository--the-read-contract",
+  "loom.duplicate-repository": "10-repositories-and-queries.md#repository--the-read-contract",
   "loom.repo-key-not-unique": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
   "loom.repo-key-incomplete": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
   "loom.paged-query-handler-shape":
