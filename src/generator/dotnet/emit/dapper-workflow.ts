@@ -23,6 +23,7 @@
 // (everything here is gated on the dapper branch in index.ts / program.ts).
 // ---------------------------------------------------------------------------
 
+import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
 import {
   isMaterializedProjection,
   isSingletonProjection,
@@ -32,7 +33,7 @@ import {
 } from "../../../ir/types/loom-ir.js";
 import { OUTBOX_PENDING_PREDICATE, OUTBOX_PURGE_BATCH } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake } from "../../../util/naming.js";
+import { snake, upperFirst } from "../../../util/naming.js";
 import { csSqlType } from "../codec-spelling.js";
 import {
   projectionRowClass,
@@ -118,12 +119,38 @@ export function dapperProjectionColumns(proj: ProjectionIR): DapperColumn[] {
  *  — matching the nullable `<Proj>Row` POCO the fold upserts. */
 function projectionColumns(proj: ProjectionIR, accBase = "s"): DapperColumn[] {
   const corr = proj.correlationField;
-  return proj.stateFields.map((f) => {
+  const cols = proj.stateFields.map((f) => {
     if (f.name === corr) return fieldColumn(f, accBase);
     const optionalType: TypeIR =
       f.type.kind === "optional" ? f.type : { kind: "optional", inner: f.type };
     return fieldColumn({ ...f, type: optionalType }, accBase);
   });
+  // A tenant-scoped fold (`fold-tenancy.ts`): the event's tenant (part of the
+  // key) and its org path.
+  for (const m of foldTenancyFor(proj)?.metadata ?? []) {
+    const prop = upperFirst(m.field);
+    cols.push({
+      col: m.column,
+      sql: csSqlType("string"),
+      nullable: !m.required,
+      rowCs: m.required ? "string" : "string?",
+      cast: "",
+      save: `${accBase}.${prop}`,
+      stateProp: prop,
+      hydrate: `r.${m.column}`,
+    });
+  }
+  return cols;
+}
+
+/** The key columns of a projection's read-model row: `(tenant_id, <key>)` for a
+ *  tenant-scoped fold, the correlation column otherwise. */
+function dapperProjectionKeyColumns(proj: ProjectionIR): string[] {
+  const tenancy = foldTenancyFor(proj);
+  return [
+    ...(tenancy?.metadata ?? []).filter((m) => m.required).map((m) => m.column),
+    snake(proj.correlationField as string),
+  ];
 }
 
 /** A private `Row` DTO + a `Map` builder producing the closed row/POCO type
@@ -163,19 +190,20 @@ function renderRowStore(
   iface: string,
   pocoClass: string,
   table: string,
-  pkCol: string,
+  pkCols: readonly string[],
   cols: DapperColumn[],
   ns: string,
 ): string[] {
-  const nonPk = cols.filter((c) => c.col !== pkCol);
+  const nonPk = cols.filter((c) => !pkCols.includes(c.col));
+  const conflict = pkCols.map(sqlIdent).join(", ");
   const insertCols = cols.map((c) => sqlIdent(c.col)).join(", ");
   const insertVals = cols.map((c) => `@${c.col}${c.cast}`).join(", ");
   const setClause = nonPk.map((c) => `${sqlIdent(c.col)} = excluded.${sqlIdent(c.col)}`).join(", ");
   const bind = cols.map((c) => `${c.col} = ${c.save}`).join(", ");
   const upsert =
     setClause.length > 0
-      ? `INSERT INTO ${table} (${insertCols}) VALUES (${insertVals}) ON CONFLICT (${sqlIdent(pkCol)}) DO UPDATE SET ${setClause}`
-      : `INSERT INTO ${table} (${insertCols}) VALUES (${insertVals}) ON CONFLICT (${sqlIdent(pkCol)}) DO NOTHING`;
+      ? `INSERT INTO ${table} (${insertCols}) VALUES (${insertVals}) ON CONFLICT (${conflict}) DO UPDATE SET ${setClause}`
+      : `INSERT INTO ${table} (${insertCols}) VALUES (${insertVals}) ON CONFLICT (${conflict}) DO NOTHING`;
   return [
     `public sealed class ${storeClass} : ${iface}<${pocoClass}>`,
     "{",
@@ -293,7 +321,7 @@ function renderDapperPersistencePorts(
         "ISagaStateStore",
         `global::${ns}.Infrastructure.Persistence.Workflows.${poco}`,
         workflowStateTable(wf),
-        snake(wf.correlationField as string),
+        [snake(wf.correlationField as string)],
         stateColumns(wf, durable),
         ns,
       ).join("\n"),
@@ -309,7 +337,7 @@ function renderDapperPersistencePorts(
         "IReadModelStore",
         `global::${ns}.Infrastructure.Persistence.Projections.${poco}`,
         projectionRowTable(proj),
-        snake(proj.correlationField as string),
+        dapperProjectionKeyColumns(proj),
         projectionColumns(proj),
         ns,
       ).join("\n"),

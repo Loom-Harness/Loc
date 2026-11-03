@@ -1,4 +1,5 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
+import { foldFloorTerms, foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
 import { wireStatus } from "../../ir/enrich/wire-policy.js";
 import type {
   EnrichedBoundedContextIR,
@@ -104,6 +105,26 @@ function renderProjectionFoldHandler(
     }
   }
   const extraUsings = sortedCsUsings(usings);
+  // A tenant-scoped fold (`fold-tenancy.ts`) reads the event's tenant from its
+  // metadata — the dispatching frame's event origin — keys the row by it and
+  // stamps it on allocation.  An event with no tenant has no tenant's row.
+  const tenancy = foldTenancyFor(proj);
+  const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
+  const tenantProp = cols ? upperFirst(cols.tenant.field) : "";
+  const originLines = cols
+    ? `        var __origin = global::${ns}.Auth.User.CurrentEventOrigin();
+` +
+      `        var __tenant = __origin?.Tenant;
+` +
+      `        if (__tenant is null) return;
+`
+    : "";
+  const findPred = cols
+    ? `x => x.${tenantProp} == __tenant && x.${corrPascal} == __key`
+    : `x => x.${corrPascal} == __key`;
+  const seed = cols
+    ? `${corrPascal} = __key, ${tenantProp} = __tenant, ${upperFirst(cols.dataKey.field)} = __origin?.OrgPath ?? __tenant`
+    : `${corrPascal} = __key`;
   return (
     `// Auto-generated.
 using System.Threading;
@@ -130,11 +151,11 @@ public sealed class ${className} : INotificationHandler<${on.event}>
 
     public async ValueTask Handle(${on.event} notification, CancellationToken cancellationToken)
     {
-        var __key = ${keyExpr};
-        var state = await _readModel.FindAsync(x => x.${corrPascal} == __key, cancellationToken);
+${originLines}        var __key = ${keyExpr};
+        var state = await _readModel.FindAsync(${findPred}, cancellationToken);
         if (state is null)
         {
-            state = new ${rowCls} { ${corrPascal} = __key };
+            state = new ${rowCls} { ${seed} };
             _readModel.Add(state);
         }
 ${assignLines.length > 0 ? assignLines.join("\n") + "\n" : ""}        await _readModel.SaveChangesAsync(cancellationToken);
@@ -317,9 +338,30 @@ function renderProjectionsController(
         .join(", ");
     let listBody: string;
     let byIdBody: string;
+    // Every read of a scoped fold applies its read scope (`fold-tenancy.ts`):
+    // the row's tenant column equals the request principal's claim.
+    const tenancy = foldTenancyFor(proj);
+    const floor = tenancy ? foldFloorTerms(tenancy) : [];
+    if (floor.length > 0) {
+      usings.add(`${ns}.Auth`);
+      needsCurrentUser = true;
+    }
+    const scopeLocals = floor
+      .map(
+        (t, i) =>
+          `        var __scope${i} = System.Convert.ToString(_currentUser.User.${upperFirst(t.claim)}, System.Globalization.CultureInfo.InvariantCulture);\n`,
+      )
+      .join("");
+    const efScope = floor.map((t, i) => `r.${upperFirst(t.field)} == __scope${i}`);
+    const sqlScope = floor.map((t, i) => `${sqlIdent(t.column)} = @scope${i}`);
+    const sqlScopeArgs = floor.map((_, i) => `scope${i} = __scope${i}`);
     if (usingDapper) {
       const cols = dapperProjectionColumns(proj);
       const pkCol = snake(proj.correlationField as string);
+      const listWhere = sqlScope.length > 0 ? ` WHERE ${sqlScope.join(" AND ")}` : "";
+      const listArgs = sqlScopeArgs.length > 0 ? `, new { ${sqlScopeArgs.join(", ")} }` : "";
+      const keyWhere = [`${sqlIdent(pkCol)} = @key`, ...sqlScope].join(" AND ");
+      const keyArgs = ["key", ...sqlScopeArgs].join(", ");
       const table = projectionRowTable(proj);
       const pocoFqn = `global::${ns}.Infrastructure.Persistence.Projections.${projectionRowClass(proj)}`;
       const rowCls = `${T}DbRow`;
@@ -339,12 +381,14 @@ function renderProjectionsController(
       );
       const selCols = cols.map((c) => sqlIdent(c.col)).join(", ");
       listBody =
+        scopeLocals +
         `        await using var conn = await _db.OpenConnectionAsync();\n` +
-        `        var rows = (await conn${CS.Dapper}.QueryAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${sqlIdent(table)}"))).Select(${mapFn});\n` +
+        `        var rows = (await conn${CS.Dapper}.QueryAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${sqlIdent(table)}${listWhere}"${listArgs}))).Select(${mapFn});\n` +
         `        return Ok(rows.Select(x => new ${T}Response(${proj_("x")})));\n`;
       byIdBody =
+        scopeLocals +
         `        await using var conn = await _db.OpenConnectionAsync();\n` +
-        `        var __row = await conn${CS.Dapper}.QuerySingleOrDefaultAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${sqlIdent(table)} WHERE ${sqlIdent(pkCol)} = @key", new { key }));\n` +
+        `        var __row = await conn${CS.Dapper}.QuerySingleOrDefaultAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${sqlIdent(table)} WHERE ${keyWhere}", new { ${keyArgs} }));\n` +
         // M-T6.31 — raise the shared carrier instead of `NotFound()`, so the app's
         // one 404 producer (`DomainExceptionFilter`) renders the envelope.  See
         // `dotnetNotFoundThrow`.
@@ -352,12 +396,15 @@ function renderProjectionsController(
         `        var x = ${mapFn}(__row);\n` +
         `        return Ok(new ${T}Response(${proj_("x")}));\n`;
     } else {
+      const efWhere = efScope.length > 0 ? `.Where(r => ${efScope.join(" && ")})` : "";
       listBody =
-        `        var rows = await _db.${dbSet}${CS.EfCore}.AsNoTracking().ToListAsync();\n` +
+        scopeLocals +
+        `        var rows = await _db.${dbSet}${CS.EfCore}.AsNoTracking()${efWhere}.ToListAsync();\n` +
         `        return Ok(rows.Select(x => new ${T}Response(${proj_("x")})));\n`;
       byIdBody =
+        scopeLocals +
         `        var __key = new ${targetName}Id(key);\n` +
-        `        var x = await _db.${dbSet}${CS.EfCore}.AsNoTracking().FirstOrDefaultAsync(r => r.${corrName} == __key);\n` +
+        `        var x = await _db.${dbSet}${CS.EfCore}.AsNoTracking().FirstOrDefaultAsync(r => ${[`r.${corrName} == __key`, ...efScope].join(" && ")});\n` +
         `        if (x is null) ${dotnetNotFoundThrow(ns, T, "key")}\n` +
         `        return Ok(new ${T}Response(${proj_("x")}));\n`;
     }

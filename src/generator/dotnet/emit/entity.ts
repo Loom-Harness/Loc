@@ -1,5 +1,6 @@
 import type { SourceMapSubRegion } from "../../../generator/_trace/sourcemap.js";
 import { offsetToLineCol } from "../../../generator/_trace/sourcemap.js";
+import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
 import {
   createInputFields,
   createOmissionValue,
@@ -723,6 +724,21 @@ export function renderEntity(
     applierLines.push("    [System.Text.Json.Serialization.JsonIgnore]");
     applierLines.push("    public int _StreamVersion { get; set; }");
     applierLines.push("");
+    // The stream's tenant is metadata of its stored events, not folded state:
+    // the repository adopts it onto the `tenantOwned` properties after the fold
+    // so the instance answers like a `tenantOwned` row.
+    if (isRoot && isAgg(entity) && isTenantScopedStream(entity)) {
+      applierLines.push(
+        "    /// <summary>Internal: adopt the stream's tenant metadata (stored-event metadata, never an event payload).</summary>",
+        `    internal void _AdoptStreamTenant(${STREAM_TENANT_METADATA.map((m) => `string? ${m.field}`).join(", ")})`,
+        "    {",
+        ...STREAM_TENANT_METADATA.map(
+          (m) => `        ${upperFirst(m.field)} = ${m.field}${m.required ? "!" : ""};`,
+        ),
+        "    }",
+        "",
+      );
+    }
     applierLines.push(
       `    public static ${entity.name} _FromEvents(${entity.name}Id id, IReadOnlyList<IDomainEvent> events)`,
     );
@@ -1035,7 +1051,9 @@ export function renderEntity(
   // `_stamp_on_create`); the update branch must NOT re-stamp, since the whole
   // blob is rewritten from the rehydrated aggregate, which already carries them.
   const docCreateStamps =
-    isRoot && document && isAgg(entity) ? csClaimStampsFor(entity, "create") : [];
+    isRoot && (document || (isAgg(entity) && isTenantScopedStream(entity))) && isAgg(entity)
+      ? csClaimStampsFor(entity, "create")
+      : [];
   const docStampLines =
     docCreateStamps.length > 0
       ? [

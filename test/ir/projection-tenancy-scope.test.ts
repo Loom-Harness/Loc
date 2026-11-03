@@ -1,11 +1,9 @@
 // Projections under `tenancy by` — the two read shapes that served one
 // tenant's data to another.
 //
-//   * A FOLDED projection (`on(e: Ev) { … }`) writes rows no tenant command
-//     owns: the read-model table has no tenant column and every backend's
-//     `GET /projections/<p>` reads it whole.  It is refused
-//     (`loom.tenancy-folded-projection-unscoped`) until a fold can carry the
-//     event's tenant.
+//   * A FOLDED projection (`on(e: Ev) { … }`) over a `tenantOwned` producer's
+//     events is tenant-scoped (`fold-tenancy.ts`, `test/ir/fold-tenancy.test.ts`),
+//     not refused.
 //   * A QUERY-TIME projection declared in another context than its source
 //     resolves the source in its HOME context — so its `ignoring` clause
 //     validates against the aggregate that actually declares the capability.
@@ -55,18 +53,11 @@ system R {
   deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 4000 auth: required }
 }`;
 
-describe("loom.tenancy-folded-projection-unscoped", () => {
-  const CODE = "loom.tenancy-folded-projection-unscoped";
-
-  it("refuses a folded projection under `tenancy by`", async () => {
-    const hits = (await diagnose(folded(true))).filter((d) => d.code === CODE);
-    expect(hits).toHaveLength(1);
-    expect(hits[0]!.severity).toBe("error");
-    expect(hits[0]!.message).toContain("Projection 'C.Totals' folds 'Paid'");
-  });
-
-  it("is silent without `tenancy by`", async () => {
-    expect((await diagnose(folded(false))).filter((d) => d.code === CODE)).toEqual([]);
+describe("a folded projection under `tenancy by`", () => {
+  it("is admitted — its rows are tenant-scoped, not refused", async () => {
+    const diags = await diagnose(folded(true));
+    expect(diags.filter((d) => d.code?.startsWith("loom.tenancy-folded"))).toEqual([]);
+    expect(diags.filter((d) => d.severity === "error")).toEqual([]);
   });
 });
 

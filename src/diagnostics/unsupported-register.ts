@@ -282,7 +282,10 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "every refused cell today is a settled never — `DataGrid` on flutter and phoenixLiveView " +
       "(D-DATAGRID-TARGETS: it ships iff the target can run TanStack itself) — and `Chart` and " +
       "the entity-history read are supported on every shipping frontend, so the remaining " +
-      "refusals are the seam a NEW frontend gates on until it ports",
+      "refusals are the seam a NEW frontend gates on until it ports.  One LIVE gap: a " +
+      "`tenantOwned` event-sourced aggregate (`#tenant-owned-event-sourced`) is carried on " +
+      "every backend's event store except node's mikroorm, which refuses it until that " +
+      "store carries the stream tenant (#4686)",
     mission: "#3592",
     verified: true,
   },

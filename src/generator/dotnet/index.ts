@@ -1,4 +1,5 @@
 import { deriveEventSubscriptions, enrichLoomModel } from "../../ir/enrich/enrichments.js";
+import { eventLogCarriesTenant } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { lowerModel } from "../../ir/lower/lower.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
@@ -485,6 +486,7 @@ function emitProjectFromContexts(
       contexts.some(hasValueObjectInvariants) ||
       foreignValues.valueObjects.some((v) => v.invariants.length > 0),
     domainFloorCodes: contexts.some(hasDomainFloorMessages),
+    deferralKeepsFrame: contexts.some(eventLogCarriesTenant),
   });
   emitDispatcher(ns, out, hasSubscriptions, system?.deployable.persistence !== "dapper");
   out.set("Domain/Events/IDomainEvent.cs", renderIDomainEvent(ns, hasSubscriptions));
@@ -1705,6 +1707,7 @@ function emitAggregate(
             findBodies,
             ctx.name,
             [...repoImplUsings].sort(),
+            ctx.aggregates,
           )
         : isDoc
           ? renderDapperDocumentRepository(
@@ -1751,6 +1754,7 @@ function emitAggregate(
       renderEventSourcedRepositoryImpl(agg, repoWithViews, ns, findBodies, ctx.name, {
         extraUsings: [...repoImplUsings].sort(),
         idClass,
+        pool: ctx.aggregates,
       }),
       repoOrigin,
     );
@@ -2294,11 +2298,11 @@ function emitEventLogFiles(
   for (const c of esCtxs) {
     out.set(
       `Infrastructure/Persistence/Events/${upperFirst(c.name)}EventRecord.cs`,
-      renderEventRecordPoco(ns, c.name),
+      renderEventRecordPoco(ns, c.name, eventLogCarriesTenant(c)),
     );
     out.set(
       `Infrastructure/Persistence/Configurations/${upperFirst(c.name)}EventRecordConfiguration.cs`,
-      renderEventRecordConfiguration(c.name, ns, resolveSchema(c)),
+      renderEventRecordConfiguration(c.name, ns, resolveSchema(c), eventLogCarriesTenant(c)),
     );
   }
 }

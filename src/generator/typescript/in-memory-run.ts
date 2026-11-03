@@ -96,8 +96,9 @@ export function inMemoryRunMethod(
 /** One `run<Retrieval>` per context retrieval over a `persistedAs: eventLog`
  *  aggregate, on either adapter.  A stream has no state columns, so the runner
  *  filters the folded aggregates — the same `_loadAll()` fold the declared
- *  finds read (ordered by stream id).  A stream carries no capability read
- *  filter, so there is no conjunct to re-apply. */
+ *  finds read (ordered by stream id).  A tenant-scoped stream's tenancy is
+ *  already applied by that load (its default stream scope), so there is no
+ *  conjunct to re-apply. */
 export function eventLogRunMethods(
   agg: EnrichedAggregateIR,
   ctx: EnrichedBoundedContextIR,

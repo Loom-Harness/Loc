@@ -1,3 +1,5 @@
+import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
+import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -170,7 +172,10 @@ export function renderPySchema(
   // event-sourced stream gets its own `<owner>_events` model, matching the
   // repository + migrations.  Aggregate binding fixes the schema/prefix first
   // (an owner with both an ES aggregate and an ES workflow shares one log).
-  const eventLogs = new Map<string, { schema?: string; prefix?: string }>();
+  const eventLogs = new Map<
+    string,
+    { schema?: string; prefix?: string; carriesTenant?: boolean }
+  >();
   for (const agg of ctx.aggregates) {
     if (agg.persistedAs !== "eventLog") continue;
     const owner = resolveStreamContext?.(agg.name) ?? ctx.name;
@@ -178,6 +183,8 @@ export function renderPySchema(
       const ds = resolveDataSource?.(agg);
       eventLogs.set(owner, { schema: ds?.schema, prefix: ds?.tablePrefix });
     }
+    // A tenant-scoped stream's log carries the tenant metadata columns.
+    if (isTenantScopedStream(agg)) eventLogs.get(owner)!.carriesTenant = true;
   }
   for (const wf of ctx.workflows) {
     if (!wf.eventSourced) continue;
@@ -187,7 +194,7 @@ export function renderPySchema(
     }
   }
   for (const [owner, info] of eventLogs) {
-    models.push(renderEventLogModel(owner, info.schema, info.prefix));
+    models.push(renderEventLogModel(owner, info.schema, info.prefix, info.carriesTenant));
   }
   // Persisted workflow-correlation state (workflow-and-applier.md A2-S2):
   // one row per running instance, keyed by the correlation field.  The
@@ -420,7 +427,12 @@ function renderEmbeddedModel(
  *  aggregate id / workflow correlation key, `version` its gap-free per-stream
  *  position (the optimistic-concurrency control).  `seq` is the context-global
  *  monotonic cursor (`BIGSERIAL`, DB-assigned, carried inert). */
-function renderEventLogModel(ctxName: string, schema?: string, prefix?: string): string {
+function renderEventLogModel(
+  ctxName: string,
+  schema?: string,
+  prefix?: string,
+  carriesTenant = false,
+): string {
   const tableName = `${prefix ?? ""}${contextEventsTableName(ctxName)}`;
   return lines(
     `class ${contextEventRowClassName(ctxName)}(Base):`,
@@ -440,6 +452,13 @@ function renderEventLogModel(ctxName: string, schema?: string, prefix?: string):
     `    type: Mapped[str] = mapped_column(${SA.Text})`,
     `    data: Mapped[object] = mapped_column(${PG.JSONB})`,
     `    occurred_at: Mapped[${PY.datetime}] = mapped_column(${SA.DateTime}(timezone=True))`,
+    // The tenant metadata of a tenant-scoped stream (`stream-tenancy.ts`):
+    // nullable, because the log's other streams leave it unset.
+    ...(carriesTenant
+      ? STREAM_TENANT_METADATA.map(
+          (m) => `    ${m.column}: Mapped[str | None] = mapped_column(${SA.Text})`,
+        )
+      : []),
   );
 }
 
@@ -555,6 +574,17 @@ function renderProjectionStateModel(
     }
     // Force nullable on every non-key column.
     cols.push(...columnsForFields([f], ctx).map((c) => ({ ...c, optional: true })));
+  }
+  // A tenant-scoped fold (`fold-tenancy.ts`): the event's tenant (part of the
+  // composite key `(tenant_id, <key>)`) and its org path.
+  for (const m of foldTenancyFor(proj)?.metadata ?? []) {
+    const [c] = columnsForFields(
+      [{ name: m.field, type: { kind: "primitive", name: "string" }, optional: !m.required }],
+      ctx,
+    );
+    cols.push(
+      m.required ? { ...c!, optional: false, primaryKey: true } : { ...c!, optional: true },
+    );
   }
   return lines(
     `class ${proj.name}Row(Base):`,
