@@ -775,7 +775,7 @@ function emitProjectFromContexts(
       place(
         `${vo.name}.java`,
         "valueobject",
-        renderJavaValueObject(vo, basePkg),
+        renderJavaValueObject(vo, basePkg, mangledEnumNames(enumPool(ctx))),
         undefined,
         vo.origin,
         `${ctx.name}.${vo.name}`,
@@ -1377,7 +1377,15 @@ function emitProjectFromContexts(
     place(`${e.name}.java`, "enum", renderJavaEnum(e, basePkg));
   }
   for (const vo of foreignValues.valueObjects) {
-    place(`${vo.name}.java`, "valueobject", renderJavaValueObject(vo, basePkg));
+    place(
+      `${vo.name}.java`,
+      "valueobject",
+      renderJavaValueObject(
+        vo,
+        basePkg,
+        mangledEnumNames([...foreignValues.enums, ...contexts.flatMap((c) => enumPool(c))]),
+      ),
+    );
   }
   // A foreign VO's compact constructor throws the invariant exception the
   // hosted-VO gate above only emits for a HOSTED invariant.

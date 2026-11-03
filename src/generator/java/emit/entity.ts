@@ -748,15 +748,40 @@ export function renderJavaEntity(
           ``,
         ]
       : [];
+  // An event-sourced root's repository `save` APPENDS the recorded events to
+  // the stream and the service then PUBLISHES them with `pullEvents()`, so the
+  // append cannot drain the buffer: it reads the not-yet-appended tail through
+  // `_unappendedEvents()` and marks it appended, leaving every event for the
+  // publisher.  The mark makes a second `save` before the publish append
+  // nothing twice, and the publish (`pullEvents`) resets it with the buffer.
+  const esAppendLines =
+    isRoot && eventSourced
+      ? [
+          `    private transient int _appended;`,
+          ``,
+          `    /** Internal: events recorded since the last append, left in the buffer for publishing. */`,
+          `    public List<DomainEvent> _unappendedEvents() {`,
+          `        return List.copyOf(_domainEvents.subList(_appended, _domainEvents.size()));`,
+          `    }`,
+          ``,
+          `    /** Internal: every recorded event is now in the stream. */`,
+          `    public void _markAppended() {`,
+          `        _appended = _domainEvents.size();`,
+          `    }`,
+          ``,
+        ]
+      : [];
   const pullEventsLines = isRoot
     ? [
+        ...esAppendLines,
         `    public List<DomainEvent> pullEvents() {`,
         `        var copy = List.copyOf(_domainEvents);`,
         `        _domainEvents.clear();`,
+        eventSourced ? `        _appended = 0;` : null,
         `        return copy;`,
         `    }`,
         ``,
-      ]
+      ].filter((l): l is string => l !== null)
     : [];
   // Drain the per-write lineage buffer after a save (the Java mirror of the
   // Hono/.NET `DrainProv()`); the repository persists one provenance_records
