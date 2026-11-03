@@ -49,15 +49,15 @@ const IDENT_PATH = /^[A-Za-z_][\w]*(\.[A-Za-z_][\w]*)*$/;
 const IDENT = /^[A-Za-z_][\w]*$/;
 
 function check(sym: ImportSymbol): ImportSymbol {
-  if (sym.onDemand && (sym.lang !== "java" || sym.name === undefined)) {
-    throw new Error(`import symbol: on-demand is a java import of a named type (${sym.module})`);
-  }
   if (!IDENT_PATH.test(sym.module)) throw new Error(`import symbol: bad module '${sym.module}'`);
   if (sym.name !== undefined && !IDENT.test(sym.name)) {
     throw new Error(`import symbol: bad name '${sym.name}' (from ${sym.module})`);
   }
   if (sym.alias !== undefined && !IDENT.test(sym.alias)) {
     throw new Error(`import symbol: bad alias '${sym.alias}' (for ${sym.module})`);
+  }
+  if (sym.onDemand && (sym.lang !== "java" || sym.name === undefined)) {
+    throw new Error(`import symbol: on-demand is a java import of a named type (${sym.module})`);
   }
   return sym;
 }

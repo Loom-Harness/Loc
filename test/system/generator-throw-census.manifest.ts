@@ -95,6 +95,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "Import handles are constructed by emitter code from fixed module paths and names that pass through the backend's identifier escaping; a malformed handle is an emitter bug, caught at construction instead of emitting a broken import line. (src/generator/_imports/symbol.ts:52)",
   },
+  "src/generator/_imports/symbol.ts#check$4": {
+    invariant:
+      "Only javaOnDemandRef builds an on-demand handle, always java and always named; any other on-demand handle is an emitter bug, caught at construction instead of emitting a wildcard import no unit can use. (src/generator/_imports/symbol.ts:59)",
+  },
   "src/generator/_imports/symbol.ts#resolveMarkers": {
     invariant:
       "Markers are produced only by ref() with validated handles and consumed by the same module's finalizer; a malformed or surviving marker is an emitter bug (a fragment that bypassed the finalizer), never user input. (src/generator/_imports/symbol.ts:111)",
