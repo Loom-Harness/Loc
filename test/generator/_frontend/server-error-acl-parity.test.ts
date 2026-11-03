@@ -151,10 +151,17 @@ const TARGETS: readonly Target[] = [
       // mapper tests `instanceof ApiError`, so the error is built from the
       // SAME class instance the mapper's module sees.
       const mod = `${ApiErrorSrc}
-let errors: Record<string, string> = {};
+let errorEntries: Record<string, { message: string }> = {};
+// Localization is its own gate (svelte/server-error-localizer.test.ts); this
+// harness is about WHICH field a pointer lands on.
+function localizeProblem(_code: string, fallback: string): string { return fallback; }
 ${sliceBlock(src, "function pointerToPath(")}
 const form = { ${sliceBlock(src, "applyServerErrors(e: unknown) {")} };
-function run(e: unknown) { errors = {}; form.applyServerErrors(e); return errors; }
+function run(e: unknown) {
+  errorEntries = {};
+  form.applyServerErrors(e);
+  return Object.fromEntries(Object.entries(errorEntries).map(([k, v]) => [k, v.message]));
+}
 export const loaded = { ApiError, run };`;
       const { ApiError, run } = evalModule(mod, "loaded") as {
         ApiError: never;
@@ -224,8 +231,9 @@ export const loaded = { ApiError, run };`;
         'Decode.fromString (Decode.field "errors" (Decode.list entry)) body',
       );
       expect(app).toContain(
-        'get.Optional.Field "pointer" Decode.string |> Option.defaultValue ""), get.Required.Field "message" Decode.string',
+        '(get.Optional.Field "pointer" Decode.string |> Option.defaultValue ""),',
       );
+      expect(app).toContain('Message = get.Required.Field "message" Decode.string');
       expect(app, "a rejected create must land on the Model").toContain(
         "| TicketCreated (Error e) -> { model with TicketCreateFormServer = e }, Cmd.none",
       );
@@ -260,7 +268,7 @@ export const loaded = { ApiError, run };`;
         "_error = server.formLevel(_serverFields);",
       );
       expect(forms, `the "${field}" field must render its server message`).toContain(
-        `child: Text(_server!.fields['${field}']!,`,
+        `child: Text(_server!.fields['${field}']!.text,`,
       );
     },
   },
