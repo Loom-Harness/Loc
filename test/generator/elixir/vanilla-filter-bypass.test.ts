@@ -134,7 +134,10 @@ describe("vanilla ignoring filter-bypass — skip_filters on the read", () => {
   });
 
   it("the retrieval hands the caller's skip_filters to the Repo", async () => {
-    const ret = file(await gen(), "/shop/retrievals/find_all_by_big_orders.ex");
+    const ret = file(
+      await gen(),
+      "/shop/retrievals/find_all_by_big_orders_ignoring_soft_deletable.ex",
+    );
     expect(ret).toContain(
       "Repo.all(query, current_user: opts[:current_user], skip_filters: opts[:skip_filters])",
     );
@@ -143,7 +146,9 @@ describe("vanilla ignoring filter-bypass — skip_filters on the read", () => {
 
   it("inline `Repo.findAll(...) ignoring <Cap>` / `*` passes skip_filters", async () => {
     const wf = file(await gen(), "/shop/workflows/sweep.ex");
-    expect(wf).toContain("run_find_all_by_big_orders_order(skip_filters: [:soft_deletable])");
-    expect(wf).toContain("run_find_all_by_big_orders_order(skip_filters: :all)");
+    expect(wf).toContain(
+      "run_find_all_by_big_orders_ignoring_soft_deletable_order(skip_filters: [:soft_deletable])",
+    );
+    expect(wf).toContain("run_find_all_by_big_orders_ignoring_all_order(skip_filters: :all)");
   });
 });

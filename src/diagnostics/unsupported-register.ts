@@ -345,7 +345,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.ui-body-feature-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-body-vocabulary-checks.ts:364",
+    site: "src/ir/validate/checks/ui-body-vocabulary-checks.ts:303",
     what:
       "the per-target frontend body vocabulary (`UI_BODY_FEATURE_RENDERERS`): on Feliz a " +
       "block lambda or an action value inside an action, a `match await` nested in an arm / in a " +

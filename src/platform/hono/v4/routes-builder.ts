@@ -113,7 +113,6 @@ import {
   deriveAggregateOperations,
   explicitStaticSubpaths,
   findValidatesRequest,
-  isAllFind,
   relativeOpPath,
   servedOperations,
   staticSubpathMethods,
@@ -1205,19 +1204,6 @@ export function buildRoutesFile(
     }
   }
 
-  // Named find queries with STATIC paths (`find byHolder(...)` → GET
-  // /by_holder) must register BEFORE the `GET /{id}` param route: Hono
-  // matches in registration order, and `@hono/zod-openapi` validates the
-  // `/{id}` param as `UuidString`, so a static segment registered
-  // after `/{id}` is shadowed — `GET /by_holder` would match `/{id}` first
-  // and 422 on the non-UUID segment.  The auto-`all` find stays at the root
-  // (`GET /`, no conflict) and is emitted with the rest below.
-  for (const [findIR, entry] of derivedFindByIR) {
-    if (isAllFind(entry)) continue;
-    lines.push(...emitFindRoute(agg, findIR!, ctx, entry, emitTrace).map((l) => `  ${l}`));
-    lines.push("");
-  }
-
   // Entity history — `GET /{id}/history` (docs/audit.md).  Two segments, so it
   // cannot be shadowed by the `/{id}` param route below the way a static
   // one-segment find can; registered here anyway to keep the reads together.
@@ -1465,10 +1451,8 @@ export function buildRoutesFile(
   }
 
   // The auto-included `all` find (`GET /`, root path — no conflict with
-  // `/{id}`).  Named static-path finds were emitted ABOVE, before the
-  // `GET /{id}` param route, so they win Hono's registration-order match.
+  // `/{id}`).
   for (const [findIR, entry] of derivedFindByIR) {
-    if (!isAllFind(entry)) continue;
     lines.push(...emitFindRoute(agg, findIR!, ctx, entry, emitTrace).map((l) => `  ${l}`));
     lines.push("");
   }

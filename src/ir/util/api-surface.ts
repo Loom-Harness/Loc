@@ -530,23 +530,6 @@ export function deriveAggregateOperations(
     );
   }
 
-  // Static find paths register BEFORE `/{id}` — a static segment registered
-  // after the param route is shadowed by it (the comment in Hono's
-  // routes-builder documents the 422 this caused).  Order is load-bearing.
-  for (const find of repo?.finds ?? []) {
-    if (find.name === "all" || find.synthesized) continue;
-    push(
-      "find",
-      opFind(agg.name, find.name),
-      "get",
-      `${base}/${snake(find.name)}`,
-      findParams(find),
-      find.returnType,
-      findErrorStatuses(find, find.requires !== undefined, agg.name, statuses),
-      { find },
-    );
-  }
-
   // GET /api/<aggs>/{id} — gated by the author's `find byId(id: T id): T?
   // requires …` when declared (M-T3.19); the entry carries that find so a
   // route builder renders ITS gate rather than re-locating it.  Under

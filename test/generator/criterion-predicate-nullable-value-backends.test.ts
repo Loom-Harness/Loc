@@ -121,15 +121,17 @@ describe("java (JPQL) — nullable value operand", () => {
     );
   });
 
-  // KNOWN DEFECT: a criterion over an OPTIONAL param renders a JPA
-  // `Specification` whose `cb.equal(<col>, t)` has no null arm, so a null `t`
-  // binds `= NULL` and matches nothing instead of `IS NULL`.  `it.fails` keeps
-  // the expectation on record; it turns red once the emitter is null-aware, at
-  // which point drop the `.fails`.
-  it.fails("an optional param tests null in the Specification", async () => {
+  // An OPTIONAL param: `cb.equal(col, null)` binds `= NULL` and matches no
+  // row, so the Specification branches to `IS NULL` like the other backends.
+  // An ordering against an optional param stays plain (null matches nothing).
+  it("an optional param tests null in the Specification", async () => {
     const c = await criteria();
     const byTech = c.slice(c.indexOf("Specification<WorkOrder> ByTech("));
-    expect(byTech.split("\n").slice(0, 3).join("\n")).toContain("isNull");
+    expect(byTech.split("\n")[1]).toContain(
+      'return (root, query, cb) -> (t == null ? cb.isNull(root.<TechnicianId>get("technicianId")) : cb.equal(root.<TechnicianId>get("technicianId"), t));',
+    );
+    const above = c.slice(c.indexOf("Specification<WorkOrder> Above("));
+    expect(above.split("\n")[1]).toContain('cb.greaterThan(root.<Integer>get("priority"), p)');
   });
 });
 

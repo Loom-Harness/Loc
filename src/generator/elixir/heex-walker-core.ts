@@ -968,13 +968,34 @@ function renderMember(expr: Extract<ExprIR, { kind: "member" }>, ctx: WalkContex
   // the record the page holds.
   const derived = derivedOfReceiver(expr, ctx);
   if (derived) {
+    const isDoc = derived.agg.savingShape === "document";
     return `(${renderDomainExpr(derived.expr, {
-      thisName: renderExpr(expr.receiver, ctx),
+      thisName: isDoc ? `${renderExpr(expr.receiver, ctx)}.data` : renderExpr(expr.receiver, ctx),
+      ...(isDoc ? { docStruct: true } : {}),
       contextModule: ctx.contextModuleByAggName.get(derived.agg.name) ?? ctx.appModule,
       agg: derived.agg as EnrichedAggregateIR,
     })})`;
   }
+  // A `shape: document` aggregate keeps its fields on the embedded `data`
+  // struct (`record.data.code`); only `id` / `version` / the timestamps sit on
+  // the record itself.
+  if (documentFieldOfReceiver(expr, ctx)) {
+    return `${renderExpr(expr.receiver, ctx)}.data.${snake(expr.member)}`;
+  }
   return `${renderExpr(expr.receiver, ctx)}.${snake(expr.member)}`;
+}
+
+/** True when a member read names a declared FIELD of a loaded `shape: document`
+ *  aggregate (stored under the record's embedded `data`, not on the record). */
+function documentFieldOfReceiver(
+  expr: Extract<ExprIR, { kind: "member" }>,
+  ctx: WalkContext,
+): boolean {
+  let t = expr.receiverType;
+  while (t?.kind === "optional") t = t.inner;
+  if (t?.kind !== "entity") return false;
+  const agg = ctx.aggregatesByName.get(t.name);
+  return agg?.savingShape === "document" && agg.fields.some((f) => f.name === expr.member);
 }
 
 /** The aggregate `derived` a member read names, when its receiver is a loaded

@@ -146,6 +146,8 @@ function renderRetrievalModule(
     // Retrieval params bind via Ecto pin syntax (`^needle`) inside the
     // `from ... where: ...` macro.
     filterArgs: true,
+    // A reference-collection membership queries the association's join table.
+    refCollOwnerModule: aggModule,
   };
   const args = r.params.map((p) => elixirLocal(p.name));
   // The retrieval's own `where` predicate, over the target's `base_query/0`.

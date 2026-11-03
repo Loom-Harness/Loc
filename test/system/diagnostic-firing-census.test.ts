@@ -3539,8 +3539,7 @@ system P {
 
   // --- the frontend body vocabulary (ui-body-vocabulary-checks.ts) ----------
   // Each validated clean and then crashed `generate system`: the shared JS
-  // walker (`this`, a write to a non-state name), the Feliz find-read builder
-  // (arity), the Feliz MVU renderer (a block lambda in an action).
+  // walker (`this`, a write to a non-state name), the Feliz MVU renderer (a block lambda in an action).
   "loom.ui-assign-not-state": uiPages(
     "",
     `    page Home {

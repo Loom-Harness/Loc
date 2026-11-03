@@ -927,27 +927,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
   "src/generator/feliz/wire.ts#collectBodyReads": {
     guardedBy: ["loom.ui-read-unresolved", "loom.ui-api-operation-unknown"],
-    note: "A QueryView read naming anything other than all/byId/history/a declared find is refused (tried create/delete/undeclared names).",
-  },
-  // The four Feliz find-read sites: every find a page can read is a
-  // synthesized paged `findAllBy<Criterion>`, and `loom.ui-read-unresolved`
-  // (#unrouted) refuses each such read on Feliz, which has no route to reach
-  // it — so none of the four is reachable.
-  "src/generator/feliz/wire.ts#felizFindRead": {
-    guardedBy: ["loom.ui-read-unresolved"],
-    note: "Every synthesized-find read on feliz is refused by ui-read-unresolved#unrouted (ui-checks.ts: feliz hosts carry no paged-find routes).",
-  },
-  "src/generator/feliz/wire.ts#felizFindRead$2": {
-    guardedBy: ["loom.ui-read-unresolved"],
-    note: "Same guard as felizFindRead; the target-neutral loom.ui-find-call-arity also refuses the arity case first-hand.",
-  },
-  "src/generator/feliz/wire.ts#findParamQueryValue": {
-    guardedBy: ["loom.ui-read-unresolved"],
-    note: "Same guard as felizFindRead; feature find-read-composite-param (omits feliz) also refuses a list param.",
-  },
-  "src/generator/feliz/wire.ts#walk": {
-    guardedBy: ["loom.ui-read-unresolved"],
-    note: "Same guard as felizFindRead; feature find-read-unbound-arg (omits feliz) also refuses a row-bound arg.",
+    note: "A QueryView read naming anything other than all/byId/history is refused (tried create/delete/undeclared names).",
   },
 
   // src/generator/flutter/auth-gate.ts

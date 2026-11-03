@@ -518,7 +518,7 @@ export interface FsExprCtx {
   /** The F# expression naming the model a state ref resolves against — `model`
    *  by default (every `update` arm), but `__m` where the emission site has
    *  BOUND the updated/initial record and must read the NEW values off it
-   *  (`init`'s find-read `Cmd`s, a control's refetch arm).  Same reason
+   *  (`init`'s paged-read `Cmd`s, a control's refetch arm).  Same reason
    *  `pagedReadCmd` takes a `modelExpr`: reading `model.<Field>` there would
    *  issue the query with the value it just replaced. */
   modelExpr?: string;

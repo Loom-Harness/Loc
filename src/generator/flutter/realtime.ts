@@ -54,9 +54,7 @@ export function flutterHasRealtimeHandlers(ui: UiIR | undefined): boolean {
  *  aggregate, in which case there is nothing to invalidate and the handler says
  *  so in a comment instead of naming a provider that doesn't exist. */
 function refetchProvider(aggregate: string, reads: readonly FlutterRead[]): string | undefined {
-  const hit = reads.find(
-    (r) => r.aggregate === aggregate && !r.single && !r.projection && !r.params,
-  );
+  const hit = reads.find((r) => r.aggregate === aggregate && !r.single && !r.projection);
   return hit ? `${hit.varName}Provider` : undefined;
 }
 
