@@ -109,26 +109,25 @@ describe("checksVersion — route write paths", () => {
     expect(aggregateCanConflict(acct)).toBe(true);
   });
 
-  it("a create is an unchecked insert, and a destroy is unchecked on every backend", async () => {
+  it("a create is an unchecked insert on every aggregate", async () => {
     const { agg } = await context();
     for (const n of ["Doc", "Memo", "Account"]) {
       expect(createVersionCheck(agg(n))).toMatchObject({ checksVersion: "none", reason: "insert" });
-      expect(destroyVersionCheck(agg(n))).toMatchObject({
-        checksVersion: "none",
-        reason: "destroy",
-      });
     }
   });
 
-  it("a versioned row's destroy carries the ruled If-Match contract as pending; a stream's does not", async () => {
+  it("a versioned row's destroy reads If-Match like an operation; a stream's destroy is unchecked", async () => {
     const { agg } = await context();
     for (const n of ["Doc", "Memo"]) {
       expect(destroyVersionCheck(agg(n))).toMatchObject({
-        checksVersion: "none",
-        pending: { checksVersion: "if-match", guard: "row-version", issue: "#4341" },
+        checksVersion: "if-match",
+        guard: "row-version",
       });
     }
-    expect(destroyVersionCheck(agg("Account"))).not.toHaveProperty("pending");
+    expect(destroyVersionCheck(agg("Account"))).toMatchObject({
+      checksVersion: "none",
+      reason: "destroy",
+    });
   });
 
   it("enumerates every route write path with its contract", async () => {
@@ -141,7 +140,7 @@ describe("checksVersion — route write paths", () => {
       "operation:rename=if-match",
       "operation:retitle=if-match",
       "operation:update=if-match",
-      "destroy:destroy=none",
+      "destroy:destroy=if-match",
     ]);
   });
 

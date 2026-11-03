@@ -1,0 +1,74 @@
+// Query-time projections declared in ANOTHER context than their source
+// aggregate.  `Reports` reads `Orders.Order`, which is `tenantOwned` and
+// `softDeletable`: every read below must apply the source's tenant floor and
+// not-deleted filter exactly as a projection declared inside `Orders` would.
+//
+// The source's scope, table and schema module all live in its HOME context.
+// Every backend that emits a projection per context (java, elixir, .NET)
+// resolves the source there, never by name in `Reports`: that lookup finds
+// nothing, so the read runs with no scope or names a module (`D.Reports.Order`)
+// that does not exist, and `ignoring softDeletable` is refused as naming a
+// capability the aggregate lacks.
+//
+// Three direct-table reads: whole-table aggregation, grouped aggregation, and
+// the `ignoring` witness that must drop the not-deleted conjunct and keep the
+// tenant one.  A per-row (repository-sourced) cross-context read is not here:
+// node, python and .NET refuse it
+// (`loom.projection-cross-context-source-unsupported`).
+system ProjectionCrossContextScope {
+  user { id: guid  tenantId: string }
+
+  tenancy by user.tenantId of Organization
+
+  subdomain Sales {
+    context Orders {
+      aggregate Order with tenantOwned, softDeletable, crudish {
+        code: string
+        total: int
+      }
+      repository Orders for Order { }
+    }
+
+    context Reports {
+      projection Volume {
+        n: int
+        sum: int
+        from Order as o
+        select n = count(), sum = sum(o.total)
+      }
+
+      projection VolumeByCode {
+        code: string
+        n: int
+        from Order as o
+        group by o.code
+        select code = o.code, n = count()
+      }
+
+      projection AllTimeVolume {
+        n: int
+        from Order as o
+        ignoring softDeletable
+        select n = count()
+      }
+    }
+
+    context Accounts {
+      aggregate Organization with crudish { name: string }
+    }
+  }
+
+  api SalesApi from Sales
+
+  storage pg { type: postgres }
+  resource ordersState { for: Orders, kind: state, use: pg }
+  resource accountsState { for: Accounts, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Orders, Reports, Accounts]
+    dataSources: [ordersState, accountsState]
+    serves: SalesApi
+    port: 4000
+    auth: required
+  }
+}

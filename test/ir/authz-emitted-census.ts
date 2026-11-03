@@ -49,6 +49,7 @@ import {
 import { canonicalCreate, canonicalDestroy } from "../../src/ir/util/canonical-lifecycle.js";
 import { tableOwnerName } from "../../src/ir/util/inheritance.js";
 import { lifecycleGates } from "../../src/ir/util/op-gates.js";
+import { projectionSourceContext } from "../../src/ir/util/projection-source.js";
 import { walkExprDeep, walkStmtsDeep, walkWorkflowStmtsDeep } from "../../src/ir/util/walk.js";
 import { plural, snake } from "../../src/util/naming.js";
 import { inlineDapperScope } from "../_helpers/dapper-scope.js";
@@ -159,14 +160,15 @@ function filterFact(e: ExprIR, origin: string | undefined): FilterFact | undefin
 export function aggregateFacts(model: LoomModel): AggFacts[] {
   const out: AggFacts[] = [];
   for (const sys of model.systems) {
+    const contexts = sys.subdomains.flatMap((sd) => sd.contexts);
     for (const sd of sys.subdomains) {
-      for (const ctx of sd.contexts) out.push(...contextFacts(ctx));
+      for (const ctx of sd.contexts) out.push(...contextFacts(ctx, contexts));
     }
   }
   return out;
 }
 
-function contextFacts(ctx: BoundedContextIR): AggFacts[] {
+function contextFacts(ctx: BoundedContextIR, contexts: readonly BoundedContextIR[]): AggFacts[] {
   const out: AggFacts[] = [];
   for (const agg of ctx.aggregates) {
     const filters = (agg.contextFilters ?? [])
@@ -186,8 +188,13 @@ function contextFacts(ctx: BoundedContextIR): AggFacts[] {
         .filter((r) => (r.targetType as { name?: string }).name === agg.name)
         .map((r) => ({ name: r.name, bypass: NO_BYPASS, own: ownPredicate(r.where) })),
     ];
-    const projections: ReadFact[] = (ctx.projections ?? [])
-      .filter((p) => p.query?.source === agg.name)
+    // A projection in any context reads `agg` when its source's HOME is `ctx`.
+    const projections: ReadFact[] = contexts
+      .flatMap((host) =>
+        (host.projections ?? []).filter(
+          (p) => p.query?.source === agg.name && projectionSourceContext(p, host, contexts) === ctx,
+        ),
+      )
       .map((p) => ({
         name: p.name,
         bypass: {

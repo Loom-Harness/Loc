@@ -439,6 +439,32 @@ describe("java renderJavaExpr — convert / match / list / lambda / object", () 
     ).toBe("(long) 7");
   });
 
+  it("value match with `else` stays a right-folded ternary chain", () => {
+    const m: ExprIR = {
+      kind: "match",
+      arms: [{ cond: litBool("true"), value: litInt("1") }],
+      variantArms: [],
+      otherwise: litInt("2"),
+    };
+    expect(renderJavaExpr(m)).toBe("(true ? 1 : 2)");
+  });
+
+  it("value match WITHOUT `else` throws instead of yielding a typed-wrong `null`", () => {
+    const m: ExprIR = {
+      kind: "match",
+      arms: [
+        { cond: litBool("true"), value: litInt("1") },
+        { cond: litBool("false"), value: litInt("2") },
+      ],
+      variantArms: [],
+    };
+    const out = renderJavaExpr(m);
+    expect(out).toBe(
+      'switch (0) { default -> { if (true) yield 1; if (false) yield 2; throw new IllegalStateException("no match arm matched"); } }',
+    );
+    expect(out).not.toContain("null");
+  });
+
   it("renders list literals as List.of and ternary / paren / unary natively", () => {
     expect(renderJavaExpr({ kind: "list", elements: [litInt("1"), litInt("2")] })).toBe(
       "List.of(1, 2)",
