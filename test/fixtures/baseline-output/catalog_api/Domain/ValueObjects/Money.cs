@@ -12,8 +12,8 @@ public sealed record Money
     {
         Amount = amount;
         Currency = currency;
-        if (!(this.Amount >= 0m)) throw new ValueObjectInvariantException("Money", "Invariant violated: amount >= 0");
-        if (!(this.Currency.EnumerateRunes().Count() == 3)) throw new ValueObjectInvariantException("Money", "Invariant violated: currency.length == 3");
+        if (!(this.Amount >= 0m)) throw new ValueObjectInvariantException("Money", "Invalid value");
+        if (!(this.Currency.EnumerateRunes().Count() == 3)) throw new ValueObjectInvariantException("Money", "Invalid value");
     }
 
     /// <summary>Parameterless constructor reserved for EF Core / serializers.</summary>

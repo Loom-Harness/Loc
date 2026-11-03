@@ -20,8 +20,8 @@ import {
   singleFieldShape,
 } from "../../../ir/validate/invariant-classify.js";
 import { lines } from "../../../util/code-builder.js";
-import { messageCode } from "../../../util/message-code.js";
 import { pythonWireIdent, pythonWireNeedsAlias } from "../../../util/naming.js";
+import { ruleText } from "../../_i18n/rule-text.js";
 import { pyRef } from "../../_imports/python.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import { renderPyExpr, renderPyNegatedGuard } from "../render-expr.js";
@@ -152,11 +152,9 @@ function fieldKwargs(
     // recognised compound like `seats >= 1 && seats <= 500` is ONE `between`
     // with one sentence, even though Pydantic needs it as two kwargs.  A
     // conjunction node does not recognise (`email.matches(r) && email.length
-    // <= 120`) is a zod `.refine` carrying the derived default instead.
+    // <= 120`) is a zod `.refine` carrying the generic `ruleText` instead.
     const shape = singleFieldShape(inv);
-    const message = shape
-      ? singleFieldMessage(shape.field, shape.pattern)
-      : `Invariant violated: ${inv.source}`;
+    const message = shape ? singleFieldMessage(shape.field, shape.pattern) : ruleText(inv);
     for (const { field, pattern } of cons) {
       if (!available.has(field)) continue;
       byField.set(field, [...(byField.get(field) ?? []), { pattern, message }]);
@@ -299,11 +297,10 @@ export function createModelValidator(
       : renderPyNegatedGuard(inv.expr, { thisName: "self", wireField: true });
     // Every rule raises a PydanticCustomError, never a bare ValueError: a
     // ValueError's wire message is prefixed "Value error, " — on a body node
-    // answers with the rule's own sentence.  A MESSAGED rule's error `type` is
-    // its stable content-hash code (surfaced as `errors[].code`, the i18n key);
-    // a message-LESS one is `invariant`, which carries no code — the handler
-    // surfaces only `msg.` types — and node's refine default text
-    // (`Invariant violated: <src>`, D-MESSAGELESS-RULE-WIRE-MESSAGE).
+    // answers with the rule's own sentence.  A NAMED rule's error `type` is its
+    // identity key (surfaced as `errors[].code`); an unnamed one is
+    // `invariant`, which carries no code — the handler surfaces only `.rule.`
+    // types — and the generic `ruleText` (D-MESSAGELESS-RULE-WIRE-MESSAGE).
     //
     // The FIELD the error points at is the other half of that contract, and an
     // error raised from a `model_validator` carries NO `loc` — so `errors[]`
@@ -320,8 +317,8 @@ export function createModelValidator(
     // pointer/message/code), but it is what shows up in a raw pydantic error in
     // the logs.  `None` when the path isn't a field this request body carries.
     const input = path && available.has(path) ? `self.${path}` : "None";
-    const text = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
-    const errorType = inv.message ? messageCode(inv.message.text) : "invariant";
+    const text = ruleText(inv);
+    const errorType = inv.message ? inv.message.key : "invariant";
     const custom = `${PYDANTIC_CUSTOM_ERROR}(${JSON.stringify(errorType)}, ${JSON.stringify(text)})`;
     const raise = path
       ? `raise ${VALIDATION_ERROR}.from_exception_data(\n                ${JSON.stringify(cls)},\n                [\n                    ${INIT_ERROR_DETAILS}(\n                        type=${custom},\n                        loc=(${JSON.stringify(path)},),\n                        input=${input},\n                    )\n                ],\n            )`

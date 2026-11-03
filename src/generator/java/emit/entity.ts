@@ -32,6 +32,7 @@ import { snake } from "../../../util/naming.js";
 import { tableNameFor } from "../../../util/storage-names.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
+import { ruleText } from "../../_i18n/rule-text.js";
 import { javaRef } from "../../_imports/java.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
@@ -893,12 +894,10 @@ export function renderJavaEntity(
 
   // --- invariants -----------------------------------------------------------------
   const invariantLines = entity.invariants.flatMap((inv, i) => {
-    // A MESSAGED rule carries its wire code + pointer THROUGH the throw
-    // (M-T1.11 (c)); a message-less one keeps the text-only throw.
+    // A NAMED rule carries its wire code + pointer THROUGH the throw; an
+    // unnamed one keeps the text-only throw with the generic text.
     const code = domainFloorCode(inv.message);
-    const text = JSON.stringify(
-      inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
-    );
+    const text = JSON.stringify(ruleText(inv));
     const thrown = code
       ? `throw new DomainException(${text}, DomainException.Kind.INVARIANT, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
       : `throw new DomainException(${text}, DomainException.Kind.INVARIANT)`;

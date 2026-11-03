@@ -28,7 +28,6 @@
 // systems that appear in a shared behavioural system.
 
 import { describe, expect, it } from "vitest";
-import { messageCode } from "../../src/util/message-code.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** One aggregate with BOTH guard kinds on one operation, so a single emission
@@ -80,13 +79,15 @@ system Denials {
 }
 `;
 
-/** The two messages, derived from the `.ddd` predicate source by the SAME rule
- *  on every backend.  These literals are the contract — a backend that
- *  paraphrases, truncates, or genericizes one of them fails here.  The
- *  predicates deliberately contain no STRING literal: each backend escapes
- *  quotes differently inside its own emitted string literal, which would make
- *  the expectation about escaping rather than about the message. */
-const PRECONDITION_DETAIL = "Precondition failed: total > 0";
+/** The two messages, built by the SAME rule on every backend.  These literals
+ *  are the contract — a backend that paraphrases one of them fails here.  An
+ *  UNNAMED precondition answers the generic rule text (`ruleText` — "Invalid
+ *  value" for a single-field rule), never its source; the `requires` detail
+ *  still names its predicate.  The predicates deliberately contain no STRING
+ *  literal: each backend escapes quotes differently inside its own emitted
+ *  string literal, which would make the expectation about escaping rather than
+ *  about the message. */
+const PRECONDITION_DETAIL = "Invalid value";
 const FORBIDDEN_DETAIL = "Forbidden: currentUser.level > 2";
 /** …and when the author writes `message "…"`, THAT is the detail — the derived
  *  form must not appear for that statement.  Elixir used to drop the clause
@@ -114,8 +115,10 @@ async function emit(platform: string): Promise<string> {
 
 describe("RS-15 — domain-floor denials are 422 with an occurrence-specific detail", () => {
   for (const platform of ["node", "dotnet", "java", "python", "elixir"]) {
-    it(`${platform}: the precondition message names the failed predicate`, async () => {
-      expect(await emit(platform)).toContain(PRECONDITION_DETAIL);
+    it(`${platform}: the precondition message is the generic rule text, not its source`, async () => {
+      const out = await emit(platform);
+      expect(out).toContain(PRECONDITION_DETAIL);
+      expect(out).not.toContain("Precondition failed: total > 0");
     });
 
     it(`${platform}: the requires message names the failed predicate`, async () => {
@@ -235,8 +238,8 @@ describe("RS-15 — the raise path carries the authored message too (M-T6.20 pat
 // never filled it), so every backend answered the derived
 // `"Precondition failed: fromOrder != toOrder"` — leaking the predicate source
 // and losing the author's text.  The authored message must now be the detail,
-// carry the same `msg.<hash>` code an operation precondition carries through
-// its throw (M-T1.11 (c)), and get its backend catalog entry.
+// carry the same identity-key code an operation precondition carries through
+// its throw, and get its backend catalog entry.
 //
 // The fixture has NO messaged aggregate rule on purpose: the backend-wide
 // domain-floor code carriage (the coded error constructor, elixir's map arm on
@@ -295,8 +298,16 @@ const CODED_ERROR_SURFACE: Record<string, string> = {
 
 describe("B-02 — a workflow / commandHandler precondition keeps its authored message", () => {
   const cases = [
-    { text: "Cannot move to the same order", derived: "Precondition failed: fromOrder != toOrder" },
-    { text: "Echo needs some text", derived: "Precondition failed: text != " },
+    {
+      text: "Cannot move to the same order",
+      code: "Sales.move.rule.cannotMoveToSame",
+      derived: "fromOrder != toOrder",
+    },
+    {
+      text: "Echo needs some text",
+      code: "Sales.Echo.rule.echoNeedsSomeText",
+      derived: 'text != ""',
+    },
   ];
   for (const platform of ["node", "dotnet", "java", "python", "elixir"]) {
     it(`${platform}: authored detail + msg code at the throw, and a catalog entry`, async () => {
@@ -305,8 +316,10 @@ describe("B-02 — a workflow / commandHandler precondition keeps its authored m
       const catalog = [...files.entries()].find(([p]) => p.endsWith(".loom/messages.en.json"));
       expect(catalog, "no .loom/messages.en.json emitted").toBeDefined();
       for (const c of cases) {
-        const code = messageCode(c.text);
-        expect(out, "derived detail emitted despite an authored message").not.toContain(c.derived);
+        const code = c.code;
+        expect(out, "a derived source-text detail was emitted").not.toContain(
+          `Precondition failed: ${c.derived}`,
+        );
         const throwSite = out
           .split("\n")
           .filter((l) => l.includes(JSON.stringify(c.text)) && l.includes(JSON.stringify(code)));

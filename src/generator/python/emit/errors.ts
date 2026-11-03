@@ -31,7 +31,7 @@ class ValueObjectInvariantError(DomainError):
     : "";
   // Every DomainError carries the refusing rung as \`kind\`, apart from the
   // message an authored \`message "..."\` replaces.  With M-T1.11 (c) a MESSAGED
-  // invariant / field check / precondition also raises its wire \`msg.<hash>\`
+  // invariant / field check / precondition also raises its wire \`<Ctx>.<Owner>.rule.<name>\`
   // code and RFC 6901 pointer, so the DomainError handler answers the same
   // errors[] entry the wire rung carries.
   const domainErrorBody = hasDomainFloorCodes

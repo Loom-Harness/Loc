@@ -63,7 +63,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.qbn4np",
+            "code": "Docking.Berth.rule.berthPositionStartsAt",
             "message": "A berth position starts at 1",
             "pointer": "/berth/position"
           }
@@ -83,7 +83,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.qbn4np",
+            "code": "Docking.Berth.rule.berthPositionStartsAt",
             "message": "A berth position starts at 1",
             "pointer": "/berths/{id}/position"
           }

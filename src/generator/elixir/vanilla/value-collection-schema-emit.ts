@@ -8,6 +8,7 @@ import { enumPool } from "../../../ir/util/reachable-types.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { namedRuleText } from "../../_i18n/rule-text.js";
 import { ectoValidator, messageCodeTagging } from "./changeset-validators.js";
 import { exEctoIdType, exEctoScalarType } from "./codec-spelling-ex.js";
 import { NORMALIZE_KEYS_DEFP } from "./key-normalize.js";
@@ -154,7 +155,9 @@ function renderChildSchema(
   const validatorLines = (vo.invariants ?? []).flatMap((inv) =>
     (singleFieldConstraints(inv) ?? [])
       .filter((c) => voFieldNames.has(snake(c.field)))
-      .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),
+      .map((c) =>
+        ectoValidator(snake(c.field), c.pattern, inv.message && namedRuleText(inv.message)),
+      ),
   );
   const tagging = messageCodeTagging(vo);
   if (tagging.pipe) validatorLines.push(tagging.pipe);

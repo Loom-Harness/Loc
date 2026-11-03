@@ -77,7 +77,7 @@ import {
 import { typingFor } from "../typing/shared.js";
 import {
   canPromoteLiteralTo,
-  checkBlankMessage,
+  checkRuleNaming,
   envForAggregate,
   envForPart,
   isInfallibleConversion,
@@ -1013,7 +1013,7 @@ export function checkSinglePrimitiveConversion(
 
 export function checkPropertyCheck(p: Property, env: Env, accept: ValidationAcceptor): void {
   if (!p.check) return;
-  checkBlankMessage(p, p.message, accept);
+  checkRuleNaming(p, accept);
   checkRuleExprPurity(p.check, env, `check on '${p.name}'`, accept);
   const t = typeOf(p.check, env);
   if (t.kind !== "primitive" || t.name !== "bool") {
@@ -1294,7 +1294,7 @@ export function checkRuleExprPurity(
 export function checkInvariant(inv: Invariant, env: Env, accept: ValidationAcceptor): void {
   checkConstructionArgTypes(inv.expr, env, accept);
   checkExprCallArgs(inv.expr, env, accept);
-  checkBlankMessage(inv, inv.message, accept);
+  checkRuleNaming(inv, accept);
   checkRuleExprPurity(inv.expr, env, "invariant", accept);
   if (inv.guard) {
     checkConstructionArgTypes(inv.guard, env, accept);

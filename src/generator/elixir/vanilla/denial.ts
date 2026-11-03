@@ -36,9 +36,9 @@ import { notFoundStmtDetail, ruleStage } from "../../../ir/enrich/wire-policy.js
 import type { StmtIR, WorkflowStmtIR } from "../../../ir/types/loom-ir.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { pickErrorPath, singleFieldShape } from "../../../ir/validate/invariant-classify.js";
-import { messageCode } from "../../../util/message-code.js";
 import { elixirString } from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
+import { ruleText } from "../../_i18n/rule-text.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import {
   type DenialRung,
@@ -130,7 +130,7 @@ export function internalFallbackResponse(): string {
  *  ProblemDetails `detail` is byte-identical cross-backend. */
 export function denialMessage(s: GuardStmt): string {
   if (s.kind === "requires") return `Forbidden: ${s.source}`;
-  return s.message ? s.message.text : `Precondition failed: ${s.source}`;
+  return ruleText(s);
 }
 
 // ---------------------------------------------------------------------------
@@ -244,14 +244,14 @@ end
  *  `if …, do: :ok, else: {:error, <term>}` workflow form alike. */
 export function denialTerm(s: GuardStmt, wireAvailable?: ReadonlySet<string>): string {
   if (deniesAtWire(s, wireAvailable)) return wireValidationTerm(s);
-  // A MESSAGED precondition in an aggregate OPERATION (the only
+  // A NAMED precondition in an aggregate OPERATION (the only
   // call site that passes `wireAvailable`) that the wire cannot see answers the
   // domain floor WITH its `errors[]` entry: the detail travels as a map carrying
-  // the rule's `msg.<hash>` code and pointer, and `ProblemDetails.problem_response/4`
+  // the rule's identity-key code and pointer, and `ProblemDetails.problem_response/4`
   // answers that map through the same domain-floor entry sender the body-built
   // value object uses.  Every other denial keeps the plain string detail.
   if (wireAvailable !== undefined && s.kind === "precondition" && s.message) {
-    return codedPreconditionTerm(s, s.message.text);
+    return codedPreconditionTerm(s, s.message.key);
   }
   const tag = s.kind === "requires" ? ":forbidden" : ":precondition_failed";
   return `{${tag}, ${elixirString(denialMessage(s))}}`;
@@ -279,13 +279,13 @@ export function notFoundStmtClause(st: { detail?: string; subject?: string }): s
  *  `ProblemDetails.problem_response/4`, whose map arm the domain-floor gate
  *  (`hasDomainFloorMessages`, which sees workflow preconditions) switches on. */
 export function workflowDenialTerm(s: GuardStmt): string {
-  if (s.kind === "precondition" && s.message) return codedPreconditionTerm(s, s.message.text);
+  if (s.kind === "precondition" && s.message) return codedPreconditionTerm(s, s.message.key);
   return denialTerm(s);
 }
 
-function codedPreconditionTerm(s: GuardStmt, text: string): string {
+function codedPreconditionTerm(s: GuardStmt, code: string): string {
   return `{:precondition_failed, %{detail: ${elixirString(denialMessage(s))}, code: ${JSON.stringify(
-    messageCode(text),
+    code,
   )}, pointer: ${JSON.stringify(domainFloorPointer(s))}}}`;
 }
 
@@ -297,7 +297,7 @@ function codedPreconditionTerm(s: GuardStmt, text: string): string {
 // → zod `refine` / FluentValidation / pydantic / bean-validation), so a tripped
 // precondition over the operation's own params answers the WIRE-VALIDATION 422:
 // title "Validation failed", detail "One or more fields are invalid.", and an
-// `errors[]` entry carrying the RFC 6901 pointer + the `msg.<hash>` code.
+// `errors[]` entry carrying the RFC 6901 pointer + the identity-key code.
 //
 // Elixir lowers preconditions to the `ensure/2` control-flow chain instead, so
 // without this rung the same denial would answer the DOMAIN-FLOOR 422 —
@@ -312,12 +312,11 @@ function codedPreconditionTerm(s: GuardStmt, text: string): string {
 // `availability != Availability.Discontinued`) is NOT wire-translatable on any
 // backend and rightly stays on the domain floor here too.
 //
-// A MESSAGED precondition carries its authored text and content-hash `code`.
-// A message-LESS one carries the sentence node's validator chain sends for the
-// same rule (D-MESSAGELESS-RULE-WIRE-MESSAGE): `singleFieldMessage` for a
-// single-field shape ("Amount must be at least 1"), the refine default
-// `Invariant violated: <src>` for any other — and no `code`, which is the i18n
-// key of AUTHORED text only.
+// A NAMED precondition carries its text and identity-key `code`.  An unnamed
+// one carries the sentence node's validator chain sends for the same rule
+// (D-MESSAGELESS-RULE-WIRE-MESSAGE): `singleFieldMessage` for a single-field
+// shape ("Amount must be at least 1"), the generic `ruleText` for any other —
+// and no `code`.
 // ---------------------------------------------------------------------------
 
 /** True when this guard is a wire-translatable `precondition` — the one denial
@@ -332,7 +331,7 @@ export function deniesAtWire(s: GuardStmt, available: ReadonlySet<string> | unde
   return ruleStage({ expr: s.expr, source: s.source, message: s.message }, available) === "schema";
 }
 
-/** `{:validation_failed, [%{pointer: "/amount", message: "…", code: "msg.…"}]}`
+/** `{:validation_failed, [%{pointer: "/amount", message: "…", code: "Ctx.Owner.rule.name"}]}`
  *  — the reason term a wire-translatable precondition short-circuits to.  One
  *  entry, because one precondition denies at a time (the `with` chain
  *  short-circuits); the list shape matches the `errors[]` extension the
@@ -347,13 +346,13 @@ export function wireValidationTerm(s: GuardStmt): string {
     ? denialMessage(s)
     : single
       ? singleFieldMessage(single.field, single.pattern)
-      : `Invariant violated: ${s.source}`;
+      : ruleText({ expr: s.expr, source: s.source });
   const entry = [
     `pointer: ${JSON.stringify(pointer)}`,
     // The author's `message "…"` goes through the shared escaping funnel — a
     // raw `#{` here would interpolate into the 422 body at request time.
     `message: ${elixirString(text)}`,
-    ...(authored ? [`code: ${JSON.stringify(messageCode(text))}`] : []),
+    ...(authored ? [`code: ${JSON.stringify(authored.key)}`] : []),
   ].join(", ");
   return `{:validation_failed, [%{${entry}}]}`;
 }

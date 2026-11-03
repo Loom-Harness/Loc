@@ -73,10 +73,10 @@ describe(".NET domain-floor rule code — the exception's pointer member is CA17
   it("the throw sites pass the code and pointer positionally, matching the constructor", async () => {
     const entity = bySuffix(await generateSystemFiles(SRC), "Domain/Accounts/Account.cs");
     expect(entity).toMatch(
-      /throw new DomainException\("Insufficient funds", DomainErrorKind\.Precondition, "msg\.[0-9a-z]+", ""\)/,
+      /throw new DomainException\("Insufficient funds", DomainErrorKind\.Precondition, "Accounts\.Account\.rule\.[A-Za-z0-9]+", ""\)/,
     );
     expect(entity).toMatch(
-      /throw new DomainException\("Balance cannot be negative", DomainErrorKind\.Invariant, "msg\.[0-9a-z]+", "\/balance"\)/,
+      /throw new DomainException\("Balance cannot be negative", DomainErrorKind\.Invariant, "Accounts\.Account\.rule\.[A-Za-z0-9]+", "\/balance"\)/,
     );
   });
 });

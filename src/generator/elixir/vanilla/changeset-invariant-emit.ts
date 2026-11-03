@@ -38,9 +38,9 @@ import {
 import { ruleMembers } from "../../../ir/util/merge-patch.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { pickErrorPath, singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
-import { messageCode } from "../../../util/message-code.js";
 import { elixirString, snake } from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
+import { ruleText } from "../../_i18n/rule-text.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 
 /** True when a rule leans on one of the shapes `structEvaluable` admits only
@@ -205,22 +205,19 @@ export function renderInvariantValidatorFn(
   const checks = residuals.map((inv) => {
     const pred = renderExpr(inv.expr, rc);
     const field = snake(pickErrorPath(inv) ?? fallbackField);
-    // A message-less rule answers node's refine default (RS-43,
-    // D-MESSAGELESS-DEFAULT), the cross-backend sentence every wire validator
-    // sends for it.
-    const msg = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
-    // A messaged rule attaches the stable content-hash wire `code` (the i18n
-    // key) as `add_error` metadata (`loom_code:`), surfaced by the 422 handler;
-    // a message-less rule adds no metadata (byte-identical).
-    // …and the RFC 6901 pointer its DOMAIN-FLOOR entry names (M-T1.11 (c)):
-    // `/<field>` for a single-field rule, else "" — the wire rung keeps pointing
-    // at the error's field and never reads it.
+    // The cross-backend rule text (`ruleText`): a named rule's, else the
+    // generic sentence every wire validator sends — never the source.
+    const msg = ruleText(inv);
+    // A named rule attaches its identity key (the wire `code`) as `add_error`
+    // metadata (`loom_code:`), surfaced by the 422 handler, plus the RFC 6901
+    // pointer its DOMAIN-FLOOR entry names: `/<field>` for a single-field rule,
+    // else "" — the wire rung keeps pointing at the error's field and never
+    // reads it.  An unnamed rule adds no metadata.
     const codeOpt = inv.message
-      ? `, loom_code: ${JSON.stringify(messageCode(inv.message.text))}, loom_pointer: ${JSON.stringify(domainFloorPointer(inv))}`
+      ? `, loom_code: ${elixirString(inv.message.key)}, loom_pointer: ${JSON.stringify(domainFloorPointer(inv))}`
       : "";
-    // The message goes through the shared escaping funnel: a raw `#{` in the
-    // author's `message "…"` (or in the derived `Invariant violated: <source>`) would
-    // interpolate when the changeset runs, not read as text.
+    // The message goes through the shared escaping funnel: a raw `#{` in a
+    // translator's text would interpolate when the changeset runs.
     const violate = `add_error(changeset, :${field}, ${elixirString(msg)}${codeOpt})`;
     for (const c of referencedContainments(inv, collectionFields)) normalised.add(c);
     const core = inv.guard

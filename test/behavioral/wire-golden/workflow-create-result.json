@@ -84,7 +84,7 @@
       "path": "/api/workflows/transfer",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: balance >= amount",
+        "detail": "Business rule violated",
         "instance": "/api/workflows/transfer",
         "status": 422,
         "title": "Unprocessable Entity",

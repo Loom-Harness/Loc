@@ -228,7 +228,7 @@ export type DomainErrorKind = "precondition" | "invariant";
 
 /** The base `DomainError`.  It carries the refusing rung as `kind`; with the
  *  domain-floor code carriage on (M-T1.11 (c)) a messaged invariant / field
- *  check / precondition also throws its wire `msg.<hash>` code and RFC 6901
+ *  check / precondition also throws its wire `<Ctx>.<Owner>.rule.<name>` code and RFC 6901
  *  pointer along with the text. */
 function domainErrorTs(domainFloorCodes: boolean): string {
   return domainFloorCodes
@@ -236,7 +236,7 @@ function domainErrorTs(domainFloorCodes: boolean): string {
   /** The rung that refused; undefined for a DomainError thrown outside the
    *  precondition / invariant floor. */
   readonly kind: DomainErrorKind | undefined;
-  /** A messaged rule's \`msg.<hash>\` code — the same one the wire rung carries —
+  /** A named rule's \`<Ctx>.<Owner>.rule.<name>\` code — the same one the wire rung carries —
    *  and the RFC 6901 pointer its domain-floor \`errors[]\` entry names
    *  (M-T1.11 (c)).  Undefined for a message-less rule. */
   readonly code: string | undefined;
@@ -954,7 +954,7 @@ export function generateTypeScriptForContexts(
       echoesDenialDetail(system?.deployable, system?.sys),
     ),
   );
-  // Validation-message catalog (M-T1.11): a messaged rule's wire `code` resolves
+  // Validation-message catalog (M-T1.11): a named rule's wire `code` resolves
   // SERVER-side against this project's catalog, so a localised client is no
   // longer the only way to see a translated rule.  No messaged rule ⇒ no catalog
   // module and a byte-identical problem-details file.

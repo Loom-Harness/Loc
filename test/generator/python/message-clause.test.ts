@@ -50,10 +50,12 @@ describe("python — messaged rule → wire refine + domain floor text", () => {
     // `model_validator` carries no `loc` on its own, so it is raised through
     // `ValidationError.from_exception_data` (M-T1.11).
     expect(routes).toContain(
-      'type=PydanticCustomError("msg.j985f2", "Name must be 2-120 characters"),',
+      'type=PydanticCustomError("Cat.Product.rule.name2120Characters", "Name must be 2-120 characters"),',
     );
     expect(routes).toContain('loc=("name",),');
-    expect(routes).toContain('type=PydanticCustomError("msg.u3w71r", "SKU is required"),');
+    expect(routes).toContain(
+      'type=PydanticCustomError("Cat.Product.rule.skuRequired", "SKU is required"),',
+    );
     expect(routes).toContain('loc=("sku",),');
   });
 
@@ -61,6 +63,6 @@ describe("python — messaged rule → wire refine + domain floor text", () => {
     const { routes } = await gen();
     expect(routes).toContain("sku: WireStr = Field(min_length=1)");
     // the message-less rule never becomes a refine ValueError
-    expect(routes).not.toContain('raise ValueError("Invariant violated: sku.length > 0")');
+    expect(routes).not.toContain('raise ValueError("Invalid value")');
   });
 });

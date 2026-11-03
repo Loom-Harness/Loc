@@ -2434,11 +2434,11 @@ ${voHandler}${integrityHandler}${versionedHandler}    @app.exception_handler(Agg
                     else _wire_message(e)
                 ),
             }
-            # A messaged rule raises PydanticCustomError with a "msg.<hash>"
-            # type — the stable content-hash wire code (i18n key). A message-less
-            # rule's default Pydantic type is omitted (byte-identical body).
+            # A named rule raises PydanticCustomError with its identity key
+            # ("<Ctx>.<Owner>.rule.<name>") as the type — the wire code. An
+            # unnamed rule's default Pydantic type is omitted.
             code = str(e.get("type", ""))
-            if code.startswith("msg."):
+            if ".rule." in code:
                 entry["code"] = code${localizeLine}
             errors.append(entry)
         # The WIRE-VALIDATION rung's title/detail, byte-identical to the

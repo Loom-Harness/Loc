@@ -3,7 +3,7 @@
 //
 // `Localization/LoomMessages.cs`, resolved from the FluentValidation arm of the
 // domain-exception filter — the single 422 chokepoint that already reads a
-// messaged rule's `.WithErrorCode("msg.<hash>")` off each `ValidationFailure`.
+// messaged rule's `.WithErrorCode("<Ctx>.<Owner>.rule.<name>")` off each `ValidationFailure`.
 //
 // WHY A GENERATED STATIC MAP rather than `IStringLocalizer`.  ASP.NET's
 // localization stack keys off satellite `.resx` assemblies: a `.resx` is XML that

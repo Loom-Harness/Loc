@@ -29,7 +29,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "message": "Invariant violated: name.trim().length > 0",
+            "message": "Business rule violated",
             "pointer": "/name"
           }
         ],

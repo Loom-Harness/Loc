@@ -1455,7 +1455,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     trigger:
       '`validation-messages.ddd` seq 14/15 (`ship(amount: 0)` against `precondition amount >= 1`, `retag(code: "abc")` against a regex precondition) and `intrinsics.ddd`\'s blank-name create against `invariant name.trim().length > 0`',
     observable:
-      'the wire `errors[].message` is node\'s: `singleFieldMessage` for a single-field shape ("Amount must be at least 1", "Code is not in the expected format"), `Invariant violated: <source>` at the `pickErrorPath` pointer otherwise; no `errors[].code`',
+      'the wire `errors[].message` is node\'s: `singleFieldMessage` for a single-field shape ("Amount must be at least 1", "Code is not in the expected format"), the generic `ruleText` ("Business rule violated" — never the rule source) at the `pickErrorPath` pointer otherwise; no `errors[].code`',
     // D-MESSAGELESS-DEFAULT (proposed, wave C3F): extends
     // D-MESSAGELESS-RULE-WIRE-MESSAGE from python to every backend. Elixir is a
     // TARGET, not a conformer: its operation rung and its create/update

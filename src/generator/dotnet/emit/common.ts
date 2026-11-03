@@ -26,7 +26,7 @@ export function renderCommon(
   } = {},
 ): string {
   // M-T1.11 (c): a MESSAGED invariant / field check / precondition throws its
-  // `msg.<hash>` code and RFC 6901 pointer along with the text, so
+  // `<Ctx>.<Owner>.rule.<name>` code and RFC 6901 pointer along with the text, so
   // DomainExceptionFilter answers the same `errors[]` entry the wire rung
   // carries.  Byte-identical without a messaged aggregate rule.
   // Every DomainException carries the refusing rung as `Kind`, apart from the
@@ -46,7 +46,7 @@ public enum DomainErrorKind
     /// <summary>The rung that refused; null outside the precondition /
     /// invariant floor.</summary>
     public DomainErrorKind? Kind { get; }
-    /// <summary>A messaged rule's <c>msg.&lt;hash&gt;</c> code (the same one the
+    /// <summary>A named rule's <c>&lt;Ctx&gt;.&lt;Owner&gt;.rule.&lt;name&gt;</c> code (the same one the
     /// wire rung carries) and the RFC 6901 pointer its domain-floor
     /// <c>errors[]</c> entry names (M-T1.11 (c)).  Null for a message-less
     /// rule.</summary>

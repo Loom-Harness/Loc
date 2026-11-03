@@ -48,7 +48,6 @@ import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { renderableHere } from "../../../ir/util/changeset-invariant-carrier.js";
 import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
-import { messageCode } from "../../../util/message-code.js";
 import {
   elixirLocal,
   elixirOpAction,
@@ -58,6 +57,7 @@ import {
   upperFirst,
 } from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
+import { ruleText } from "../../_i18n/rule-text.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
@@ -131,10 +131,10 @@ function esHasCommands(agg: AggregateIR): boolean {
  *  short-circuits to.  The denial rides the `precondition_failed` rung, the
  *  domain floor (RS-15): 422 "Unprocessable Entity" with the rule's message as
  *  `detail`, which is what the other four backends' `DomainError` answers.  A
- *  MESSAGED rule carries its `msg.<hash>` code and pointer in a map detail, so
+ *  NAMED rule carries its identity-key code and pointer in a map detail, so
  *  ProblemDetails adds the one `errors[]` entry the other backends' coded throw
- *  gets; a message-less rule's detail is the derived `Invariant violated:
- *  <source>`, byte-identical to theirs. */
+ *  gets; an unnamed rule's detail is the generic `ruleText`, byte-identical to
+ *  theirs. */
 export interface EsInvariantCheck {
   readonly predicate: string;
   readonly term: string;
@@ -160,10 +160,10 @@ export function esInvariantChecks(agg: AggregateIR, rc: RenderCtx): EsInvariantC
   return esEnforcedInvariants(agg).map((inv) => {
     const rule = renderExpr(inv.expr, ctx);
     const predicate = inv.guard ? `not (${renderExpr(inv.guard, ctx)}) or (${rule})` : rule;
-    const message = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
+    const message = ruleText(inv);
     const term = inv.message
       ? `{:precondition_failed, %{detail: ${elixirString(message)}, code: ${elixirString(
-          messageCode(inv.message.text),
+          inv.message.key,
         )}, pointer: ${elixirString(domainFloorPointer(inv))}}}`
       : `{:precondition_failed, ${elixirString(message)}}`;
     return { predicate, term, message };

@@ -53,7 +53,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.ugukzy",
+            "code": "Tracking.Ticket.rule.estimateCannotNegative",
             "message": "Estimate cannot be negative",
             "pointer": "/estimate"
           }

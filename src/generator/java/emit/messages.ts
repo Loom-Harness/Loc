@@ -12,7 +12,7 @@
 // IS a `MessageSourceResolvable`: Spring tries the error's codes in order and
 // falls back to `getDefaultMessage()` when none resolves — which is exactly the
 // contract the wire validators already emit (`rejectValue(field, code,
-// message)`, where `code` is the `msg.<hash>` i18n key and `message` the
+// message)`, where `code` is the `<Ctx>.<Owner>.rule.<name>` i18n key and `message` the
 // authored English).  So a translated bundle wins, an untranslated one silently
 // yields the authored text, and the message-less sentinel code (`loom.invariant`)
 // resolves to nothing and keeps its default — no branching needed anywhere.
@@ -35,7 +35,7 @@ export const JAVA_MESSAGES_BUNDLE_PATH = "src/main/resources/messages.properties
  *  meaning to: a backslash, and a newline that would end the entry.
  *
  *  A leading `=` / `:` / whitespace in the VALUE is harmless (only the KEY side
- *  treats them as separators), and the keys here are `msg.<hash>` — hex-ish and
+ *  treats them as separators), and the keys here are `<Ctx>.<Owner>.rule.<name>` — identifier segments and
  *  separator-free by construction. */
 function propertiesValue(text: string): string {
   return text.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/\r/g, "\\r");

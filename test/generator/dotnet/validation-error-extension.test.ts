@@ -80,7 +80,7 @@ describe(".NET validation-error extension — DomainExceptionFilter emission", (
     // whose `.WithErrorCode("msg.<hash>")` surfaces the content-hash wire code.
     expect(filter).toMatch(/\["pointer"\] = ValidationProblem\.PointerOf\(e\.PropertyName\)/);
     expect(filter).toMatch(/\["message"\] = e\.ErrorMessage/);
-    expect(filter).toMatch(/e\.ErrorCode\.StartsWith\("msg\.", StringComparison\.Ordinal\)/);
+    expect(filter).toMatch(/e\.ErrorCode\.Contains\("\.rule\.", StringComparison\.Ordinal\)/);
     expect(filter).toMatch(/err\["code"\] = e\.ErrorCode/);
     expect(filter).toMatch(/\.ToArray\(\)/);
     // Response shape: 422 + application/problem+json + x-request-id.

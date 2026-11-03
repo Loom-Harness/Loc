@@ -94,9 +94,7 @@ system Demo {
     );
     expect(routes).toMatch(/@model_validator\(mode="after"\)/);
     expect(routes).toContain("if not (self.handle != self.email):");
-    expect(routes).toContain(
-      'PydanticCustomError("invariant", "Invariant violated: handle != email")',
-    );
+    expect(routes).toContain('PydanticCustomError("invariant", "Business rule violated")');
     expect(routes).not.toContain("raise ValueError(");
     // M-T6.8/SYS-1: the crudish `update` op's request model mirrors create's
     // wire constraints — Field(min_length=1) + the cross-field @model_validator
@@ -187,7 +185,7 @@ describe("python routes", () => {
     expect(problem).toContain('MISSING_FIELD_SUFFIX = "is required"');
     expect(problem).toContain("f\"{e['loc'][-1]} {MISSING_FIELD_SUFFIX}\"");
     // a messaged rule's PydanticCustomError "msg.<hash>" type rides as errors[].code
-    expect(problem).toContain('if code.startswith("msg."):');
+    expect(problem).toContain('if ".rule." in code:');
     expect(problem).toContain('entry["code"] = code');
   });
 });

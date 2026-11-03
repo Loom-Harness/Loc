@@ -1,7 +1,7 @@
 import type { EnumIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { messageCode } from "../../../util/message-code.js";
 import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
+import { ruleText } from "../../_i18n/rule-text.js";
 import { csMemberScope, csParamIdent, typeMemberNames } from "../bcl-collision.js";
 import {
   collectCsExprUsings,
@@ -88,10 +88,10 @@ export function renderValueObject(vo: ValueObjectIR, ns: string): string {
     const check = inv.guard
       ? `if ((${renderCsExpr(inv.guard, renderCtx)}) && !(${renderCsExpr(inv.expr, renderCtx)}))`
       : `if (!(${renderCsExpr(inv.expr, renderCtx)}))`;
-    const text = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
-    // M-T5.1 — its own exception, answered with an errors[] entry; a messaged
-    // rule carries the wire rung's content-hash code.
-    const code = inv.message ? `, ${JSON.stringify(messageCode(inv.message.text))}` : "";
+    const text = ruleText(inv);
+    // Its own exception, answered with an errors[] entry; a named rule carries
+    // the wire rung's identity-key code.
+    const code = inv.message ? `, ${JSON.stringify(inv.message.key)}` : "";
     return `        ${check} throw new ValueObjectInvariantException(${JSON.stringify(vo.name)}, ${JSON.stringify(text)}${code});`;
   });
   const efCtorAssignments = vo.fields.map((f) => `        ${upperFirst(f.name)} = default!;`);

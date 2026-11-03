@@ -868,7 +868,7 @@ export function renderApiExceptionAdvice(
     `                var entry = new java.util.LinkedHashMap<String, Object>();`,
     `                entry.put("pointer", pointerOf(err.getField()));`,
     // A FieldError IS a MessageSourceResolvable: MessageSource tries its codes
-    // (the `msg.<hash>` i18n key) and falls back to getDefaultMessage() — the
+    // (the `<Ctx>.<Owner>.rule.<name>` i18n key) and falls back to getDefaultMessage() — the
     // authored English — when the bundle has no entry for this locale.  The
     // message-less sentinel code resolves to nothing and keeps its default, so
     // no branching is needed here (M-T1.11).
@@ -878,7 +878,7 @@ export function renderApiExceptionAdvice(
       ? `                entry.put("message", "NotNull".equals(err.getCode()) ? ${javaMissingFieldMessage('(String) entry.get("pointer")')} : resolveMessage(err, locale));`
       : `                entry.put("message", "NotNull".equals(err.getCode()) ? ${javaMissingFieldMessage('(String) entry.get("pointer")')} : err.getDefaultMessage());`,
     `                var code = err.getCode();`,
-    `                if (code != null && code.startsWith("msg.")) entry.put("code", code);`,
+    `                if (code != null && code.contains(".rule.")) entry.put("code", code);`,
     `                return entry;`,
     `            })`,
     `            .collect(Collectors.toList()));`,

@@ -44,7 +44,7 @@
         "detail": "Quantity must be positive",
         "errors": [
           {
-            "code": "msg.bqyhlx",
+            "code": "Orders.Qty.rule.quantityPositive",
             "message": "Quantity must be positive",
             "pointer": ""
           }
@@ -154,7 +154,7 @@
         "detail": "Quantity must be positive",
         "errors": [
           {
-            "code": "msg.bqyhlx",
+            "code": "Orders.Qty.rule.quantityPositive",
             "message": "Quantity must be positive",
             "pointer": ""
           }

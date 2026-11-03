@@ -6,7 +6,7 @@
 
 import type { EnumIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { messageCode } from "../../../util/message-code.js";
+import { ruleText } from "../../_i18n/rule-text.js";
 import { JAVA_IMPORTS, javaRef } from "../../_imports/java.js";
 import { isMangled, jid } from "../java-ident.js";
 import {
@@ -150,10 +150,10 @@ export function renderJavaValueObject(
     const check = inv.guard
       ? `if ((${renderJavaExpr(inv.guard, ctorCtx)}) && !(${renderJavaExpr(inv.expr, ctorCtx)}))`
       : `if (!(${renderJavaExpr(inv.expr, ctorCtx)}))`;
-    const text = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
-    // M-T5.1 — a DomainException subclass the advice answers with an errors[]
-    // entry; a messaged rule carries the wire rung's content-hash code.
-    const code = inv.message ? `, ${JSON.stringify(messageCode(inv.message.text))}` : "";
+    const text = ruleText(inv);
+    // A DomainException subclass the advice answers with an errors[] entry; a
+    // named rule carries the wire rung's identity-key code.
+    const code = inv.message ? `, ${JSON.stringify(inv.message.key)}` : "";
     return `        ${check} throw new ${javaRef(`${basePkg}.domain.common`, "ValueObjectInvariantException")}(${JSON.stringify(vo.name)}, ${JSON.stringify(text)}${code});`;
   });
   const derivedLines = vo.derived.flatMap((d) => [

@@ -38,7 +38,6 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
-import { messageCode } from "../../../src/util/message-code.js";
 import { USER_VISIBLE_SLOTS } from "../../../src/util/user-visible-slots.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
@@ -782,15 +781,15 @@ const BACKENDS = [
   { platform: "elixir", catalog: "priv/gettext/en/LC_MESSAGES/default.po" },
 ] as const;
 
-/** Messaged rules on every rung the catalog serves: a field `check` and a
+/** Named rules on every rung the catalog serves: a field `check` and a
  *  cross-field `invariant` (the WIRE rung), a precondition over a PARAMETER
  *  (wire) and one over the aggregate's own STATE (the DOMAIN FLOOR — only a
- *  domain throw can see it), and a message-less invariant (no code at all). */
+ *  domain throw can see it), and an unnamed invariant (no code at all). */
 const RULES = {
-  check: "SKU is required",
-  invariant: "Name must be 2-120 characters",
-  paramPre: "Amount must be positive",
-  statePre: "Cannot restock a retired product",
+  check: "skuRequired",
+  invariant: "nameLength",
+  paramPre: "amountPositive",
+  statePre: "notRetired",
 } as const;
 
 const backendSystem = (platform: string): string => `
@@ -798,16 +797,16 @@ const backendSystem = (platform: string): string => `
     subdomain Sales {
       context Cat {
         aggregate Product {
-          sku: string check sku.length > 0 message "${RULES.check}"
+          sku: string check ${RULES.check}: sku.length > 0
           name: string
           qty: int
           retired: bool
-          invariant name.length >= 2 && name.length <= 120 message "${RULES.invariant}"
+          invariant ${RULES.invariant}: name.length >= 2 && name.length <= 120
           invariant qty >= 0
           create(name: string, sku: string, qty: int, retired: bool) { }
           operation restock(amount: int) {
-            precondition amount >= 1 message "${RULES.paramPre}"
-            precondition !retired message "${RULES.statePre}"
+            precondition ${RULES.paramPre}: amount >= 1
+            precondition ${RULES.statePre}: !retired
             qty := qty + amount
           }
         }
@@ -820,8 +819,10 @@ const backendSystem = (platform: string): string => `
     deployable api { platform: ${platform} contexts: [Cat] dataSources: [st] serves: CatApi port: 8080 }
   }`;
 
-describe("i18n round trip — backend msg.<hash> catalogs (M-T9.39)", () => {
-  const expected = Object.values(RULES).map(messageCode).sort();
+describe("i18n round trip — backend rule-key catalogs", () => {
+  const expected = Object.values(RULES)
+    .map((n) => `Cat.Product.rule.${n}`)
+    .sort();
 
   for (const b of BACKENDS) {
     it(`${b.platform}: every catalog code is raised, every messaged rule is catalogued`, async () => {
@@ -829,7 +830,7 @@ describe("i18n round trip — backend msg.<hash> catalogs (M-T9.39)", () => {
       const catalogPath = [...files.keys()].find((k) => k.endsWith(b.catalog));
       expect(catalogPath, `${b.platform}: no runtime catalog`).toBeDefined();
       const codesIn = (s: string): string[] =>
-        [...new Set(s.match(/msg\.[a-z0-9]+/g) ?? [])].sort();
+        [...new Set(s.match(/Cat\.Product\.rule\.[A-Za-z0-9]+/g) ?? [])].sort();
       const catalogCodes = codesIn(files.get(catalogPath!)!);
       // Raise sites: every OTHER source file of the backend (not the catalog, not
       // the gettext template, not generated tests).

@@ -310,7 +310,7 @@ describe("emitObjectWithRefines", () => {
     expect(tail).toContain(".refine((data: any) => data.qty <= data.note");
     // The path is the first field ref — RHF surfaces the error next to it.
     expect(tail).toContain('path: ["qty"]');
-    expect(tail).toContain('message: "Invariant violated: qty <= note"');
+    expect(tail).toContain('message: "Business rule violated"');
     // No field line was touched.
     expect(out).toContain("  qty: z.number().int(),");
   });
@@ -319,7 +319,7 @@ describe("emitObjectWithRefines", () => {
     const inv: InvariantIR = {
       expr: bin(">=", fieldRef("qty"), intLit(1)),
       source: "qty >= 1",
-      message: { text: "At least one, please" },
+      message: { key: "C.Order.rule.atLeastOne", text: "At least one, please" },
     };
     const out = emitObjectWithRefines("CreateOrderRequest", fields, [inv], available);
     expect(out).toContain("  qty: z.number().int(),"); // NOT folded

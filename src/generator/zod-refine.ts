@@ -8,11 +8,11 @@ import {
 } from "../ir/validate/invariant-classify.js";
 import { bodyTypeOf } from "../util/expr-body-type.js";
 import { intrinsicKey } from "../util/intrinsics.js";
-import { messageCode } from "../util/message-code.js";
 import { escapeTsIdent, humanize } from "../util/naming.js";
 import { tsCodePointLength as codePointLength } from "./_expr/code-point.js";
 import { JS_INTRINSIC_RENDERERS } from "./_expr/js-intrinsics.js";
 import { asRegexLiteral } from "./_expr/regex-literal.js";
+import { ruleText } from "./_i18n/rule-text.js";
 
 // ---------------------------------------------------------------------------
 // Zod-refine renderer for wire-boundary validators (frontend forms +
@@ -230,10 +230,9 @@ export function refineRenderable(e: ExprIR, decimal: RefineDecimalMode = "server
  *  `python/emit/wire-constraints.ts`), and so do .NET's FluentValidation arms,
  *  java's request validator and elixir's precondition rung
  *  (D-MESSAGELESS-DEFAULT, RS-43), as does elixir's create/update
- *  changeset (`ectoValidator`).  The message-LESS `.refine(…)`
- *  clause default (`"Invariant violated: <src>"`, in `refineClauseFor` below)
- *  is by contrast a CROSS-BACKEND string all five wire validators emit
- *  verbatim, so it is deliberately left alone here.
+ *  changeset (`ectoValidator`).  An unnamed `.refine(…)` clause answers the
+ *  generic `ruleText` instead (in `refineClauseFor` below) — a CROSS-BACKEND
+ *  string all five wire validators emit verbatim.
  *
  *  EXPORTED so the two frontends with no zod schema — Angular's `Validators.*`
  *  path and Flutter's Dart `validator:` closures — deny with the SAME sentence
@@ -432,17 +431,13 @@ export function refineClauseFor(
     presence && presence.length > 0
       ? `${presence.map((m) => `data.${m} === undefined`).join(" || ")} || (${ruled})`
       : ruled;
-  // Author `message "..."` wins over the derived "Invariant violated: <src>"
-  // default; when present it also carries a stable content-hash `loomCode` in the
-  // zod issue `params` so the route's `defaultHook` can surface it on
+  // A named rule answers its text and carries its identity key as `loomCode`
+  // in the zod issue `params`, so the route's `defaultHook` can surface it on
   // `errors[].code` (a runtime-body extension — not part of the OpenAPI
-  // component schema, so cross-backend OpenAPI parity is unaffected).
-  const message = JSON.stringify(
-    inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
-  );
-  const code = inv.message
-    ? `, params: { loomCode: ${JSON.stringify(messageCode(inv.message.text))} }`
-    : "";
+  // component schema, so cross-backend OpenAPI parity is unaffected).  An
+  // unnamed rule answers the generic text — never its source expression.
+  const message = JSON.stringify(ruleText(inv));
+  const code = inv.message ? `, params: { loomCode: ${JSON.stringify(inv.message.key)} }` : "";
   const path = pickErrorPath(inv);
   const opts = path
     ? `{ path: [${JSON.stringify(path)}], message: ${message}${code} }`

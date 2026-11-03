@@ -3,8 +3,8 @@ import {
   type SingleFieldPattern,
   singleFieldConstraints,
 } from "../../../ir/validate/invariant-classify.js";
-import { messageCode } from "../../../util/message-code.js";
 import { elixirRegexBody, elixirString, snake } from "../../../util/naming.js";
+import { namedRuleText } from "../../_i18n/rule-text.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import { opBodyStmtsDeep } from "../domain/predicates.js";
 import { exEctoIdType, exEctoJsonType, exEctoScalarType } from "./codec-spelling-ex.js";
@@ -140,7 +140,9 @@ function constraintLinesFor(owner: {
   return (owner.invariants ?? []).flatMap((inv) =>
     (singleFieldConstraints(inv) ?? [])
       .filter((c) => fieldNames.has(snake(c.field)))
-      .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),
+      .map((c) =>
+        ectoValidator(snake(c.field), c.pattern, inv.message && namedRuleText(inv.message)),
+      ),
   );
 }
 
@@ -148,9 +150,9 @@ function constraintLinesFor(owner: {
  *  `validate_*` line on a changeset that has no residual carrier (a value
  *  object's `changeset/1`, a value-collection row's `changeset/2`).  Ecto's
  *  validators take a `message:` but no metadata, so the rule's stable
- *  `msg.<hash>` never reached the error opts and the 422 body carried no
+ *  `<Ctx>.<Owner>.rule.<name>` never reached the error opts and the 422 body carried no
  *  `code` on elixir alone (wave C3, found draining `vo-id-reference`).  The
- *  returned pipe re-tags each error whose text is a messaged rule's; both
+ *  returned pipe re-tags each error whose text is a named rule's; both
  *  halves are empty — byte-identical output — when no rule carries a message.
  *  `pipe` is a 4-space `|>` line; `defs` is a module-level block. */
 export function messageCodeTagging(owner: {
@@ -162,7 +164,7 @@ export function messageCodeTagging(owner: {
   for (const inv of owner.invariants ?? []) {
     if (!inv.message) continue;
     const routed = (singleFieldConstraints(inv) ?? []).some((c) => fieldNames.has(snake(c.field)));
-    if (routed) codes.set(inv.message.text, messageCode(inv.message.text));
+    if (routed) codes.set(namedRuleText(inv.message), inv.message.key);
   }
   if (codes.size === 0) return { pipe: "", defs: "" };
   const entries = [...codes].map(
@@ -172,7 +174,7 @@ export function messageCodeTagging(owner: {
     pipe: "    |> __loom_tag_codes()",
     defs: `  @loom_codes %{${entries.join(", ")}}
 
-  # A messaged rule's stable wire code rides the error opts as \`loom_code\`
+  # A named rule's stable wire code rides the error opts as \`loom_code\`
   # (ProblemDetails renders it as the 422 \`code\`); Ecto's own validators
   # cannot carry it, so it is attached here by the rule's authored text.
   defp __loom_tag_codes(changeset) do

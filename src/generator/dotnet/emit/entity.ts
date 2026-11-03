@@ -32,6 +32,7 @@ import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
+import { ruleText } from "../../_i18n/rule-text.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import { csMemberScope, csParamIdent, csProjectType, typeMemberNames } from "../bcl-collision.js";
@@ -789,13 +790,10 @@ export function renderEntity(
   // comes from the `__op` parameter on the trace-on AssertInvariants
   // signature.
   const invariantLines = entity.invariants.flatMap((inv, i) => {
-    // Author `message "..."` becomes the domain-floor detail; else the default.
-    // A MESSAGED rule carries its wire code + pointer THROUGH the throw
-    // (M-T1.11 (c)); a message-less one keeps the text-only throw.
+    // A NAMED rule carries its wire code + pointer THROUGH the throw; an
+    // unnamed one keeps the text-only throw with the generic text.
     const code = domainFloorCode(inv.message);
-    const text = JSON.stringify(
-      inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
-    );
+    const text = JSON.stringify(ruleText(inv));
     const thrown = code
       ? `throw new DomainException(${text}, DomainErrorKind.Invariant, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
       : `throw new DomainException(${text}, DomainErrorKind.Invariant)`;

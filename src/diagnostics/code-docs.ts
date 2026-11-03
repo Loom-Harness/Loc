@@ -118,6 +118,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.property-check-not-bool":
     "07-invariants-derived-functions.md#invariant--a-checked-predicate",
   "loom.invariant-not-bool": "07-invariants-derived-functions.md#invariant--a-checked-predicate",
+  "loom.rule-name-duplicate": "07-invariants-derived-functions.md#loomrule-name-duplicate",
+  "loom.rule-message-removed": "07-invariants-derived-functions.md#loomrule-message-removed",
   "loom.invariant-guard-not-bool":
     "07-invariants-derived-functions.md#when--a-conditional-invariant",
   "loom.mask-unless-not-bool":

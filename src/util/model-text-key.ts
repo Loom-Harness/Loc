@@ -13,7 +13,7 @@
 //   field      a field / containment / input humanize(member)
 //   op         an operation / create / ...   humanize(member)
 //   value      an enum value                 humanize(member)
-//   rule       a declared rule               humanize(member)
+//   rule       a declared rule               sentence(member) — "Name required"
 //   message    a declared error's message    humanize(Type)
 //
 // The fixed facet segment keeps a member from ever colliding with another
@@ -81,9 +81,20 @@ export function modelTextDefault(ref: ModelTextRef): string {
     case "field":
     case "op":
     case "value":
-    case "rule":
       return humanize(ref.member ?? "");
+    case "rule":
+      // A rule name reads as a sentence (`nameRequired` → "Name required"),
+      // not a title: it is the whole user-facing message, not a label.
+      return sentence(ref.member ?? "");
   }
+}
+
+/** `nameRequired` → "Name required": `humanize`'s word split, with only the
+ *  first word capitalised.  An all-caps word (an acronym — `SKU`) keeps its
+ *  case. */
+function sentence(member: string): string {
+  const words = humanize(member).split(" ");
+  return words.map((w, i) => (i === 0 || w === w.toUpperCase() ? w : w.toLowerCase())).join(" ");
 }
 
 /** Key and English default together — what an emitter or the catalog needs. */

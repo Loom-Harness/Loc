@@ -60,6 +60,7 @@ import { lowerExpr, lowerExprInContext, retargetEnumValue } from "./lower-expr.j
 import { lowerStatement } from "./lower-stmt.js";
 import { cstText, type Env, inPart, lowerType, withLocal } from "./lower-types.js";
 import { originFor } from "./origin.js";
+import { lowerRuleMessage } from "./rule-message.js";
 
 // Applier lowering — `apply(e: Event) { … }` folds one event type into
 // aggregate state.  The event param binds as a `refKind: "param"` local
@@ -232,9 +233,8 @@ export function lowerInvariant(i: Invariant, outer: Env): InvariantIR {
     // layers (frontend Zod, Hono routes, FluentValidation).  The
     // domain-layer `AssertInvariants()` floor still enforces it.
     scope: i.serverOnly ? "server-only" : undefined,
-    // `message "..."` — the STRING terminal is delimiter-stripped, so `i.message`
-    // is the raw text; re-quote on emission.
-    message: i.message ? { text: i.message } : undefined,
+    // A NAMED rule's text identity (`<Ctx>.<Owner>.rule.<name>`).
+    message: lowerRuleMessage(i),
   };
 }
 
@@ -260,7 +260,7 @@ export function lowerPropertyChecks(props: Property[], outer: Env): InvariantIR[
       // Normalise whitespace so multi-line `check` clauses don't
       // carry indentation into error messages.
       source: `${p.name} check ${cstText(p.check).replace(/\s+/g, " ").trim()}`,
-      message: p.message ? { text: p.message } : undefined,
+      message: lowerRuleMessage(p),
     });
   }
   return out;

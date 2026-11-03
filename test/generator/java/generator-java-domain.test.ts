@@ -99,7 +99,7 @@ describe("java generator — domain layer (S3)", () => {
     // Compact-constructor scope: bare params, not `this.` (unassignable there).
     expect(vo).toContain(
       // M-T5.1 — a DomainException subclass the advice answers with an errors[] entry.
-      'if (!(((int) zip.codePoints().count()) > 0)) throw new ValueObjectInvariantException("Address", "Invariant violated: zip.length > 0");',
+      'if (!(((int) zip.codePoints().count()) > 0)) throw new ValueObjectInvariantException("Address", "Invalid value");',
     );
   });
 
@@ -138,7 +138,7 @@ describe("java generator — domain layer (S3)", () => {
   it("renders operation bodies: preconditions, assignment, emit in declared event order", async () => {
     const order = (await byFeatureFiles()).get(`${ROOT}/features/orders/Order.java`)!;
     expect(order).toContain(
-      'if (!(this.isMutable())) throw new DomainException("Precondition failed: isMutable()", DomainException.Kind.PRECONDITION);',
+      'if (!(this.isMutable())) throw new DomainException("Business rule violated", DomainException.Kind.PRECONDITION);',
     );
     expect(order).toContain("this.status = Status.confirmed;");
     expect(order).toContain("this._domainEvents.add(new OrderConfirmed(this.id, Instant.now()));");

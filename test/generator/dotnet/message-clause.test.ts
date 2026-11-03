@@ -50,12 +50,13 @@ describe("dotnet — messaged rule → FluentValidation .WithMessage carrier", (
 
   it("attaches a stable content-hash wire code via .WithErrorCode on a messaged rule", async () => {
     const { validator } = await gen();
-    // messageCode("Name must be 2-120 characters") / ("SKU is required")
+    // The rules' identity keys (the removed `message` clause names them as the
+    // codemod would).
     expect(validator).toContain(
-      '.WithMessage("Name must be 2-120 characters")\n            .WithErrorCode("msg.j985f2");',
+      '.WithMessage("Name must be 2-120 characters")\n            .WithErrorCode("Cat.Product.rule.name2120Characters");',
     );
     expect(validator).toContain(
-      '.WithMessage("SKU is required")\n            .WithErrorCode("msg.u3w71r");',
+      '.WithMessage("SKU is required")\n            .WithErrorCode("Cat.Product.rule.skuRequired");',
     );
     // message-less rule gets no error code.
     expect(validator).not.toContain('.WithErrorCode("msg." +');

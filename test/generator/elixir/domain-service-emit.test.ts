@@ -83,7 +83,7 @@ describe("phoenix generator — domainService (domain-services.md)", () => {
     // aggregate op body emits — `:kind` carries the rung, `:message` the detail
     // (M-T6.20).
     expect(svc).toMatch(
-      /if not \(.*\), do: raise\(Shop\.GuardError, kind: :precondition, message: "Precondition failed: cart\.subtotal > 0"\)/,
+      /if not \(.*\), do: raise\(Shop\.GuardError, kind: :precondition, message: "Business rule violated"\)/,
     );
     // The unused `customer` param is discarded so --warnings-as-errors stays clean.
     expect(svc).toContain("_ = customer");

@@ -564,6 +564,19 @@ migration "m" { A.Note -> B.Note }`,
     }
     repository Items for Item`),
   "loom.model-text-in-template": uiPage("Text { `All {plural(Item)}` }"),
+  // Named rules (#4450): two rules of one aggregate sharing a name — an
+  // invariant and a field check, which share the aggregate's rule namespace —
+  // and the removed `message "…"` clause.
+  "loom.rule-name-duplicate": repoOnly(`    aggregate Item with crudish {
+      sku: string check skuRequired: sku.length > 0
+      invariant skuRequired: sku.length < 64
+    }
+    repository Items for Item`),
+  "loom.rule-message-removed": repoOnly(`    aggregate Item with crudish {
+      sku: string
+      invariant sku.length > 0 message "SKU is required"
+    }
+    repository Items for Item`),
   // A construct its target's capability table refuses: `DataGrid` on Flutter
   // (no JS runtime, so no TanStack row model).
   "loom.target-unsupported": `

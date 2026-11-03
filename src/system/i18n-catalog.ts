@@ -143,11 +143,11 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
         byKey.set(key, message);
     }
   }
-  // BACKEND validation messages (M-T1.11) — an authored `message "…"` on an
-  // `invariant` / `check` / `precondition`, keyed by the `msg.<hash>` code the
-  // wire validators put on `errors[].code` and every backend's own catalog is
-  // keyed by.  Merged in AFTER the chrome gate deliberately: these are server-side
-  // strings, so a UI-less system with authored rule messages has a real catalog
+  // BACKEND validation messages — a NAMED `invariant` / `check` /
+  // `precondition`, keyed by its identity key `<Ctx>.<Owner>.rule.<name>`, the
+  // code the wire validators put on `errors[].code` and every backend's own
+  // catalog is keyed by.  Merged in AFTER the chrome gate deliberately: these are server-side
+  // strings, so a UI-less system with named rules has a real catalog
   // to translate without pulling in app-shell chrome no frontend renders.
   for (const sub of sys.subdomains) {
     for (const { code, text } of collectWireValidationMessages(sub.contexts)) byKey.set(code, text);

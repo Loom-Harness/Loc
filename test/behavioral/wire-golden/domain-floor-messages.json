@@ -47,7 +47,7 @@
         "detail": "Insufficient funds",
         "errors": [
           {
-            "code": "msg.p55wf6",
+            "code": "Accounts.Account.rule.insufficientFunds",
             "message": "Insufficient funds",
             "pointer": ""
           }
@@ -67,7 +67,7 @@
         "detail": "Balance cannot be negative",
         "errors": [
           {
-            "code": "msg.11ks9e",
+            "code": "Accounts.Account.rule.balanceCannotNegative",
             "message": "Balance cannot be negative",
             "pointer": "/balance"
           }
@@ -87,7 +87,7 @@
         "detail": "Balance cannot exceed the ceiling",
         "errors": [
           {
-            "code": "msg.aim2kq",
+            "code": "Accounts.Account.rule.balanceCannotExceedCeiling",
             "message": "Balance cannot exceed the ceiling",
             "pointer": ""
           }
@@ -104,7 +104,7 @@
       "path": "/api/accounts/{id}/drain",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: balance >= amount",
+        "detail": "Business rule violated",
         "instance": "/api/accounts/{id}/drain",
         "status": 422,
         "title": "Unprocessable Entity",

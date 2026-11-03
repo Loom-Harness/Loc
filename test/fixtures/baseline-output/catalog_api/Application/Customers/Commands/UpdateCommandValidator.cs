@@ -17,9 +17,9 @@ public sealed class UpdateCommandValidator : AbstractValidator<UpdateCommand>
             .WithMessage("Age must be between 18 and 150").When(x => x.PatchedKeys.Contains("age"));
         RuleFor(x => x).Must(x => !x.PatchedKeys.Contains("username") || !x.PatchedKeys.Contains("email") || (x.Username != x.Email))
             .WithName("Username")
-            .WithMessage("Invariant violated: username != email");
+            .WithMessage("Business rule violated");
         RuleFor(x => x).Must(x => !x.PatchedKeys.Contains("email") || (Regex.IsMatch(x.Email, "^[^@]+@[^@]+\\.[^@]+$") && x.Email.EnumerateRunes().Count() <= 120))
             .WithName("Email")
-            .WithMessage("Invariant violated: email check email.matches(\"^[^@]+@[^@]+\\\\.[^@]+$\") && email.length <= 120");
+            .WithMessage("Business rule violated");
     }
 }

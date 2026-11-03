@@ -21,17 +21,21 @@ import type { AstNode } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { aggregateServesHistory } from "../../util/audit-ast.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
+import { SYSTEM_TEXT_NS } from "../../util/model-text-key.js";
+import { deriveRuleName } from "../../util/rule-name.js";
 import {
   type Aggregate,
   type DerivedProp,
   type EntityPart,
   type FunctionDecl,
+  type Invariant,
   isBoundedContext,
   isContainment,
   isCriterion,
   isDecLit,
   isDerivedProp,
   isIntLit,
+  isInvariant,
   isNamedType,
   isProperty,
   isRetrieval,
@@ -39,6 +43,14 @@ import {
   type Subdomain,
   type ValueObject,
 } from "../generated/ast.js";
+import {
+  declaredRuleName,
+  type RuleNode,
+  ruleContext,
+  ruleNameOf,
+  ruleOwner,
+  rulesOf,
+} from "../rule-names.js";
 import {
   type Env,
   makeEnv,
@@ -379,7 +391,7 @@ export function pagePropDisplayName(typeName: string): string {
  *  the real problem.)  `STRING` strips its delimiters, so `message ""` reaches
  *  here as `""`.  Shared by `types.ts` (invariant / property check) and
  *  `statements.ts` (precondition). */
-export function checkBlankMessage(
+function checkBlankMessage(
   node: AstNode,
   message: string | undefined,
   accept: import("langium").ValidationAcceptor,
@@ -390,6 +402,58 @@ export function checkBlankMessage(
       property: "message",
       code: "loom.blank-message",
     });
+  }
+}
+
+/** The rule-naming checks every `invariant` / field `check` / `precondition`
+ *  runs (`src/language/rule-names.ts`):
+ *
+ *   - `loom.rule-message-removed` — the removed `message "…"` clause, with the
+ *     name the codemod would give the rule and the `locales/en/<Ctx>.json` line
+ *     its text moves to.  A WARNING until the corpus migration lands.
+ *   - `loom.rule-name-duplicate` — a declared name another rule of the same
+ *     owner declared first (invariants, checks and preconditions share one
+ *     namespace per owner: the name is the i18n key). */
+export function checkRuleNaming(
+  node: RuleNode,
+  accept: import("langium").ValidationAcceptor,
+): void {
+  checkBlankMessage(node, node.message, accept);
+  const message = node.message;
+  if (message !== undefined && message.trim() !== "") {
+    const owner = ruleOwner(node);
+    const ctx = ruleContext(node);
+    const name = ruleNameOf(node) ?? deriveRuleName(message);
+    const ownerName = owner?.name ?? "Owner";
+    accept(
+      "warning",
+      diagMessage("loom.rule-message-removed", {
+        rule: isProperty(node) ? "check" : isInvariant(node) ? "invariant" : "precondition",
+        name,
+        file: `locales/en/${ctx ?? SYSTEM_TEXT_NS}.json`,
+        key: `${ownerName}.rule.${name}`,
+        text: message,
+      }),
+      { node, property: "message", code: "loom.rule-message-removed" },
+    );
+  }
+  const declared = declaredRuleName(node);
+  const owner = ruleOwner(node);
+  if (declared === undefined || !owner) return;
+  const first = rulesOf(owner).find((r) => declaredRuleName(r) === declared);
+  if (first !== undefined && first !== node) {
+    // The name is on `checkName` for a field check, `name` otherwise.
+    const at = (
+      isProperty(node) ? { node, property: "checkName" } : { node, property: "name" }
+    ) as {
+      node: Invariant;
+      property: "name";
+    };
+    accept(
+      "error",
+      diagMessage("loom.rule-name-duplicate", { name: declared, owner: owner.name }),
+      { ...at, code: "loom.rule-name-duplicate" },
+    );
   }
 }
 

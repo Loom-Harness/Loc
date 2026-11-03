@@ -78,7 +78,7 @@ describe("elixir domain `test` → ExUnit emission", () => {
     // <op>/2 = precondition (raise) + in-memory mutation.
     expect(agg).toContain("def confirm(%__MODULE__{} = record, _params) do");
     expect(agg).toContain(
-      'raise(VanApi.GuardError, kind: :precondition, message: "Precondition failed: status == \\"open\\"")',
+      'raise(VanApi.GuardError, kind: :precondition, message: "Business rule violated")',
     );
   });
 
