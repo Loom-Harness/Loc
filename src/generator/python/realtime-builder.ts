@@ -3,7 +3,7 @@ import { realtimeEventTypes } from "../../ir/util/channels.js";
 import { type RealtimeRoomPlan, realtimeRoomPlan } from "../../ir/util/realtime-rooms.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
-import { pyCalendarDateWire, pyEnvelopeInstant } from "./codec-spelling.js";
+import { pyCalendarDateWire, pyEnvelopeInstant, pyMoneyWire } from "./codec-spelling.js";
 
 // ---------------------------------------------------------------------------
 // Realtime SSE wire — `app/realtime.py` (channels.md, Part I).  Events carried
@@ -45,7 +45,7 @@ function pyWireValue(access: string, t: TypeIR): string {
   let base = access;
   if (inner.kind === "primitive" && inner.name === "datetime") base = pyEnvelopeInstant(access);
   else if (inner.kind === "primitive" && inner.name === "date") base = pyCalendarDateWire(access);
-  else if (inner.kind === "primitive" && inner.name === "money") base = `str(${access})`;
+  else if (inner.kind === "primitive" && inner.name === "money") base = pyMoneyWire(access);
   if (opt && base !== access) return `(None if ${access} is None else ${base})`;
   return base;
 }

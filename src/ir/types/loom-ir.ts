@@ -1698,6 +1698,15 @@ export interface ProjectionQueryIR {
    *  folded-hybrid case).  A workflow / projection source is `select`-projection
    *  only (no `join`s). */
   sourceKind?: "aggregate" | "workflow" | "projection";
+  /** The bounded context `source` is declared in, as name resolution linked
+   *  it.  A projection may read a source declared in ANOTHER context of its
+   *  subdomain (`context Reports { projection V { from Order … } }` over
+   *  `Orders.Order`), so `source` alone is ambiguous to a backend that emits
+   *  per context: its capability filters, tenancy floor, table and module all
+   *  belong to the HOME context.  Resolve it through
+   *  `projectionSourceContext` (`src/ir/util/projection-source.ts`), never by
+   *  looking `source` up in the projection's own context. */
+  sourceContext?: string;
   /** The author's alias for the source candidate (`from Order as o`).  `this`
    *  / bare stays the default; the alias resolves identically (like
    *  `criterion … of T as o`). */
