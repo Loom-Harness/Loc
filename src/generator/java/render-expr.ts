@@ -375,12 +375,24 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
     }
   },
   match(arms, otherwise) {
-    // Right-folded ternary chain, same semantics as the TS / C# leaves.
-    let out = otherwise ?? "null";
-    for (const arm of [...arms].reverse()) {
-      out = `(${arm.cond} ? ${arm.value} : ${out})`;
+    // With an `else`: a right-folded ternary chain, same semantics as the TS /
+    // C# leaves.
+    if (otherwise !== undefined) {
+      let out = otherwise;
+      for (const arm of [...arms].reverse()) {
+        out = `(${arm.cond} ? ${arm.value} : ${out})`;
+      }
+      return out;
     }
-    return out;
+    // Without an `else` the match is typed by its arms, so a `null` fallback is
+    // ill-typed for a primitive result (`int x = c ? 1 : null` unboxes null).
+    // `throw` is a statement in Java, not an expression, so the chain becomes a
+    // `yield` ladder inside a selector-less switch expression that ends in a
+    // throw — which types as whatever the arms yield, as `matchVariant`'s
+    // default arm does.
+    const ladder = arms.map((a) => `if (${a.cond}) yield ${a.value};`);
+    const fail = `throw new IllegalStateException("no match arm matched");`;
+    return `switch (0) { default -> { ${[...ladder, fail].join(" ")} } }`;
   },
   // Variant-`match` (variant-match.md) — Java 21 switch expression over the
   // sealed union interface.  Each variant's domain carrier is the record

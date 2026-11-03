@@ -1809,6 +1809,11 @@ function emitOutboxRetention(): string[] {
   ];
 }
 
+/** The relay's per-tick failure log: a DB error anywhere in a drain pass is
+ *  logged and retried next interval, never an unhandled rejection. */
+const OUTBOX_RELAY_ERROR_LOG =
+  'baseLogger.warn({ event: "outbox_relay_error", error: err instanceof Error ? err.message : String(err) });';
+
 /** The drain pass's retention step: at most once per purge interval, delete
  *  the dispatched rows older than the retention window (`del` is the store's
  *  delete over `cutoff`).  A failed purge is logged and retried next interval
@@ -1821,7 +1826,7 @@ function outboxPurgeStep(del: string): string[] {
     `        try {`,
     `          await ${del};`,
     `        } catch (err) {`,
-    `          baseLogger.warn({ event: "outbox_relay_error", error: err instanceof Error ? err.message : String(err) });`,
+    `          ${OUTBOX_RELAY_ERROR_LOG}`,
     `        }`,
     `      }`,
   ];
@@ -1960,6 +1965,8 @@ function emitOutboxMachinery(
   out.push(`          }`);
   out.push(`        }`);
   out.push(`      }`);
+  out.push(`    } catch (err) {`);
+  out.push(`      ${OUTBOX_RELAY_ERROR_LOG}`);
   out.push(`    } finally {`);
   out.push(`      draining = false;`);
   out.push(`    }`);
@@ -2075,6 +2082,8 @@ function emitMikroOutboxMachinery(
     `          }`,
     `        }`,
     `      }`,
+    `    } catch (err) {`,
+    `      ${OUTBOX_RELAY_ERROR_LOG}`,
     `    } finally {`,
     `      draining = false;`,
     `    }`,

@@ -48,7 +48,7 @@ describe("python event-sourced codec — value-object event fields", () => {
   it("decodes through the VO constructor, never as an opaque string", async () => {
     const src = await repo();
     expect(src).toContain(
-      'origin=Addr(cast(str, cast(dict[str, object], data["origin"])["city"]), cast(str, cast(dict[str, object], data["origin"])["zip"]))',
+      'origin=Addr(cast(str, cast(dict[str, object], data["origin"])["city"]), (None if cast(dict[str, object], data["origin"])["zip"] is None else cast(str, cast(dict[str, object], data["origin"])["zip"])))',
     );
     expect(src).toContain('alt=(None if data["alt"] is None else Addr(');
     expect(src).toContain('for __e in cast(list[object], data["stops"])]');

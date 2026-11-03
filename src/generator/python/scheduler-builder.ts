@@ -204,10 +204,11 @@ export function renderPyTimerScheduler(
     "",
     "import asyncio",
     "import contextlib",
-    "from collections.abc import Callable",
+    // `Callable` / `DomainEvent` annotate the interval-loop helpers only.
+    ...(hasEvery ? ["from collections.abc import Callable"] : []),
     "",
     "from app.db.engine import session_factory",
-    `from app.domain.events import ${["DomainEvent", ...eventNames].join(", ")}`,
+    `from app.domain.events import ${[...(hasEvery ? ["DomainEvent"] : []), ...eventNames].join(", ")}`,
     "from app.obs.log import log",
     "",
     "",
