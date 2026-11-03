@@ -19,23 +19,8 @@
 // half; the emitted SQL was run against a real Postgres by hand and returns the
 // values the fixtures' `test e2e` blocks assert.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
-
-async function build(source: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await parseHelper<Model>(services.Ddd)(source, { validation: true });
-  const errs = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  expect(
-    errs.map((d) => d.message),
-    "source validation errors",
-  ).toEqual([]);
-  return doc.parseResult.value;
-}
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // One aggregate carrying: a filtered whole-table aggregation (every operator),
 // a grouped aggregation with a COMPUTED (`startOfDay`) key, and a plain per-row
@@ -102,7 +87,7 @@ const PER_ROW = "d/Application/Projections/OpenOrdersQpHandler.cs";
 
 describe("Dapper query-time projection handlers", () => {
   it("the WHOLE-TABLE aggregation is one raw SELECT that materialises no rows", async () => {
-    const files = generateSystems(await build(SOURCE("dapper"))).files;
+    const files = await generateSystemFiles(SOURCE("dapper"));
     const src = files.get(SINGLETON);
     expect(src, "the singleton handler is emitted under `persistence: dapper`").toBeDefined();
 
@@ -150,7 +135,7 @@ describe("Dapper query-time projection handlers", () => {
   });
 
   it("the GROUPED aggregation renders the computed key identically in SELECT, GROUP BY and ORDER BY", async () => {
-    const files = generateSystems(await build(SOURCE("dapper"))).files;
+    const files = await generateSystemFiles(SOURCE("dapper"));
     const src = files.get(GROUPED)!;
     expect(src).not.toContain("Microsoft.EntityFrameworkCore");
 
@@ -172,7 +157,7 @@ describe("Dapper query-time projection handlers", () => {
   });
 
   it("the per-row arm was already persistence-neutral — it reads the repository, gate included", async () => {
-    const files = generateSystems(await build(SOURCE("dapper"))).files;
+    const files = await generateSystemFiles(SOURCE("dapper"));
     const src = files.get(PER_ROW)!;
     // This arm never touched EF: it goes through `I<Agg>Repository`, whose
     // Dapper implementation has always emitted the synthesized find.  The
@@ -189,7 +174,7 @@ describe("Dapper query-time projection handlers", () => {
   });
 
   it("keeps the default EF-Core adapter on AppDbContext (unchanged)", async () => {
-    const files = generateSystems(await build(SOURCE("efcore"))).files;
+    const files = await generateSystemFiles(SOURCE("efcore"));
     const singleton = files.get(SINGLETON)!;
     expect(singleton).toContain("using Microsoft.EntityFrameworkCore;");
     expect(singleton).toContain("private readonly AppDbContext _db;");
@@ -235,7 +220,7 @@ describe("Dapper query-time projection handlers", () => {
 // ---------------------------------------------------------------------------
 describe("dapper aggregates land on the CLR type their wire field crosses as", () => {
   it("a `decimal`-declared aggregate casts to `double precision`, and its row DTO is `double?`", async () => {
-    const files = generateSystems(await build(SOURCE("dapper"))).files;
+    const files = await generateSystemFiles(SOURCE("dapper"));
     const src = files.get(SINGLETON)!;
     expect(src).toContain("avg(line_count)::double precision AS avg_lines");
     expect(src).toContain("public double? avg_lines { get; set; }");
@@ -249,7 +234,7 @@ describe("dapper aggregates land on the CLR type their wire field crosses as", (
   });
 
   it("money aggregates stay `numeric`/`decimal` — they ship as a fixed-scale STRING", async () => {
-    const files = generateSystems(await build(SOURCE("dapper"))).files;
+    const files = await generateSystemFiles(SOURCE("dapper"));
     const src = files.get(SINGLETON)!;
     // `revenue` is declared `money`, so it never becomes a JSON number: it is
     // formatted `F4` from a decimal (RS-12).  Casting it to float8 would lose
@@ -259,13 +244,13 @@ describe("dapper aggregates land on the CLR type their wire field crosses as", (
   });
 
   it("`count` is unchanged — an int is an int on every backend", async () => {
-    const files = generateSystems(await build(SOURCE("dapper"))).files;
+    const files = await generateSystemFiles(SOURCE("dapper"));
     expect(files.get(SINGLETON)!).toContain("count(*)::int AS orders");
     expect(files.get(SINGLETON)!).toContain("public int orders { get; set; }");
   });
 
   it("the GROUPED arm takes the same decision — one classifier, both arms", async () => {
-    const files = generateSystems(await build(SOURCE("dapper"))).files;
+    const files = await generateSystemFiles(SOURCE("dapper"));
     const grouped = files.get(GROUPED)!;
     // This fixture's grouped projection aggregates only `count` and a money
     // `sum`, so the pin here is that neither is disturbed…
@@ -310,7 +295,7 @@ const DECIMAL_COLUMN_SOURCE = SOURCE("dapper")
 
 describe("dapper fixes the decimal narrowing in SQL, and only there", () => {
   it("a `decimal`-COLUMN aggregate still casts in SQL and grows no `double.Parse`", async () => {
-    const files = generateSystems(await build(DECIMAL_COLUMN_SOURCE)).files;
+    const files = await generateSystemFiles(DECIMAL_COLUMN_SOURCE);
     const src = files.get("d/Application/Projections/PriceStatsQpHandler.cs")!;
     // Postgres' own numeric→float8 is correctly rounded, so the value reaches
     // C# already narrowed — nothing left to convert.
@@ -327,9 +312,7 @@ describe("dapper fixes the decimal narrowing in SQL, and only there", () => {
     // The false case of the classifier, on the identical `.ddd`: EF has no SQL
     // to cast in, so it narrows in C#.  Both arms end up shipping the nearest
     // double to the stored value; only the seam differs.
-    const files = generateSystems(
-      await build(DECIMAL_COLUMN_SOURCE.replace("dapper", "efcore")),
-    ).files;
+    const files = await generateSystemFiles(DECIMAL_COLUMN_SOURCE.replace("dapper", "efcore"));
     const src = files.get("d/Application/Projections/PriceStatsQpHandler.cs")!;
     expect(src).toContain(
       "double.Parse((agg?.AvgPrice ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture), " +

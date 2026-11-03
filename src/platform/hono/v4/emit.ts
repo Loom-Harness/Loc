@@ -2061,6 +2061,9 @@ function projectTsconfigJson(debugImports: boolean): string {
           // tsup handles emit (single bundled `dist/index.js`); tsc is
           // type-check only via `npm run typecheck`.
           noEmit: true,
+          // Node's type stripping (the debug run path) rejects `namespace`,
+          // `enum` and parameter properties; docs/debugging.md.
+          erasableSyntaxOnly: true,
           // `Bundler` resolution lets relative imports omit the `.js`
           // extension — esbuild (via tsup at build time, tsx at dev
           // time, vite-node at test time) resolves them.

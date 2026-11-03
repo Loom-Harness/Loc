@@ -124,13 +124,17 @@ export function emitApiClientModule(
   out.push(`/** Raised when an in-system call answers with a status the callee's`);
   out.push(` *  contract doesn't describe as a success.  Carries the status so a`);
   out.push(` *  caller can branch on it rather than string-matching a message. */`);
+  // Plain fields, not constructor parameter properties: the generated project
+  // compiles under `erasableSyntaxOnly` so it runs under Node type-stripping.
   out.push(`export class RemoteCallError extends Error {`);
-  out.push(`  constructor(`);
-  out.push(`    readonly resource: string,`);
-  out.push(`    readonly operationId: string,`);
-  out.push(`    readonly status: number,`);
-  out.push(`  ) {`);
+  out.push(`  readonly resource: string;`);
+  out.push(`  readonly operationId: string;`);
+  out.push(`  readonly status: number;`);
+  out.push(`  constructor(resource: string, operationId: string, status: number) {`);
   out.push("    super(`in-system call ${resource}.${operationId} failed with status ${status}`);");
+  out.push(`    this.resource = resource;`);
+  out.push(`    this.operationId = operationId;`);
+  out.push(`    this.status = status;`);
   out.push(`  }`);
   out.push(`}`);
   out.push(``);

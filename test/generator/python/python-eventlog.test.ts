@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — event sourcing (plan S14, appliers A2).  Verified
@@ -19,9 +18,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python event sourcing", () => {
@@ -88,7 +85,7 @@ describe("python event sourcing", () => {
   // `fails` until the event-store repository emits criterion reads (in memory
   // over the folded set); then drop `.fails`.
   it.fails("a criterion read's repository method exists (event-store repository emits none)", async () => {
-    const { model, errors } = await parseString(
+    const files = await generateSystemFiles(
       FIXTURE.replace(
         /(criterion AccountsByOwner\(owner: string\) of Account = this\.owner == owner)/,
         `$1
@@ -101,8 +98,6 @@ describe("python event sourcing", () => {
       }`,
       ),
     );
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
     expect(files.get("api/app/application/get_by_owner.py")).toContain(
       "await accounts.run_find_all_by_accounts_by_owner(owner, limit=1)",
     );

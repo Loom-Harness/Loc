@@ -4,9 +4,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { DapStackFrame } from "../../src/dap/dap-protocol.js";
 import { remapStackFrames } from "../../src/dap/stack-trace.js";
-import { generateSystems } from "../../src/system/index.js";
 import type { SourceMap } from "../../src/trace/resolve.js";
-import { parseValid } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/index.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
@@ -276,8 +275,7 @@ describe("remapStackFrames", () => {
 describe("remapStackFrames — real round trip over examples/showcase.ddd", () => {
   it("a generated domain/*.ts:line:col frame (targetCol-covered) remaps back to the requires-guard .ddd line", async () => {
     const showcaseSource = fs.readFileSync(path.join(repoRoot, "examples", "showcase.ddd"), "utf8");
-    const model = await parseValid(showcaseSource);
-    const { files } = generateSystems(model, { sourcemap: true });
+    const files = await generateSystemFiles(showcaseSource, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as SourceMap;
     const dddPath = map.sources[0]!;
