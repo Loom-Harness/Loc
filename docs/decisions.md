@@ -4231,7 +4231,8 @@ M-T3.8 stays open and commissioned.
 
 ## D-ELIXIR-IF-BRANCH — the four refused `if`-branch shapes on Phoenix are a declared limit of the linear body renderer, not a per-target gap
 
-**Status:** applied — the proposed default took effect 2026-09-24 (merged to `main` 2026-09-22 in #2970; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
+**Status:** superseded for the `if` statement by the owner ruling on #3463 item 4 (2026-10-21): model validity must not depend on the target backend.  `loom.elixir-if-stmt-unsupported` is gone.  Lowering puts every early `return` in branch-total form (`src/ir/util/if-normal-form.ts`) for all five backends, and the Phoenix operation renderers split an `if` whose branches decide a persist, guard, `emit` or provenanced write into one complete body per path (`src/generator/elixir/vanilla/op-tree.ts`); `opHasProvSite` now looks inside branches on every backend.  The rationale below still describes the statement `match` (`loom.elixir-match-stmt-unsupported`).
+Previously: applied — the proposed default took effect 2026-09-24 (merged to `main` 2026-09-22 in #2970; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 Raised by wave C2 packet 2m, which was asked to build the four sub-shapes
 `loom.elixir-if-stmt-unsupported` still refuses or re-class them.
 

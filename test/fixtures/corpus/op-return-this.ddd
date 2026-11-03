@@ -4,8 +4,8 @@
 // (`id`, `owner`, `balance`, `version`), tagged `type: "Account"` for the union
 // arm — never the domain object's own representation.
 //
-// Elixir is not declared: its operation bodies have no early `return` from an
-// `if` branch (`loom.elixir-if-stmt-unsupported`), which `withdraw` needs.
+// `withdraw` returns early from an `if` branch; lowering moves the statements
+// after it into the other branch, so every backend renders a tail `return`.
 system OpReturnThis {
   subdomain Banking {
     context Ledger {

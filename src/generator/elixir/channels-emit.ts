@@ -1,4 +1,5 @@
-import type { EventIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { EventIR, StmtIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { branchesContain } from "../../ir/util/if-normal-form.js";
 import {
   LOOM_OUTBOX_ORIGIN_KEY,
   OUTBOX_PURGE_BATCH,
@@ -98,12 +99,13 @@ export function elixirDispatchCall(
  *  events (or none, or runs without channels) answers `false` and keeps the
  *  plain post-commit fan-out. */
 export function opEmitsDurableEvent(
-  op: { statements: readonly { kind: string; eventName?: string }[] },
+  op: { statements: readonly StmtIR[] },
   channels: ElixirChannelsCfg | undefined,
 ): boolean {
   if (!channels || channels.durableEvents.size === 0) return false;
-  return op.statements.some(
-    (s) => s.kind === "emit" && !!s.eventName && channels.durableEvents.has(s.eventName),
+  const durable = channels.durableEvents;
+  return op.statements.some((s) =>
+    branchesContain(s, (n) => n.kind === "emit" && durable.has(n.eventName)),
   );
 }
 

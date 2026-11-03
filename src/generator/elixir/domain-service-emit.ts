@@ -49,7 +49,6 @@ import {
 } from "../../ir/util/domain-service-tier.js";
 import { mapExprChildren } from "../../ir/util/walk.js";
 import { elixirMatchRefusal } from "../../ir/validate/checks/elixir-match-stmt-checks.js";
-import { elixirIfRefusal } from "../../ir/validate/checks/if-stmt-checks.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../util/naming.js";
 import { type RenderCtx, renderExpr, renderTypespec } from "./render-expr.js";
 import { appModuleOf, guardRaiseLine } from "./vanilla/denial.js";
@@ -446,17 +445,6 @@ function renderOperation(
     );
   }
 
-  // M-T6.59 — the `if` sub-shapes a tail-value body cannot express are refused
-  // at phase ⑦; assert with the SAME predicate so a bypassed validator fails
-  // loudly here instead of emitting a body that drops an early exit.
-  const ifRefusal = elixirIfRefusal(op.body, "value");
-  if (ifRefusal) {
-    throw new Error(
-      `platform: elixir — an 'if' statement with a ${ifRefusal} reached the domain-service ` +
-        `emitter for operation '${op.name}'; it is refused at validation ` +
-        `(loom.elixir-if-stmt-unsupported#${ifRefusal}).`,
-    );
-  }
   const matchRefusal = elixirMatchRefusal(op.body, "value", ctx);
   if (matchRefusal) {
     throw new Error(
@@ -553,13 +541,11 @@ function renderStatement(
         renderInner: (stmts) => stmts.map((st) => renderStatement(st, ctx, rc, isUnion)),
       });
     case "if":
-      // M-T6.59 — a domain-service body is a TAIL-VALUE body (nothing is
-      // appended after `bodyLines`), so the `if` renders as a plain
-      // value-producing Elixir `if` and needs no threaded variable: a tail `if`
-      // whose branches `return` IS the function's result.  The sub-shapes that
-      // cannot render (a non-tail `return`, a nested guard) are refused up
-      // front by `loom.elixir-if-stmt-unsupported` — re-asserted once per body
-      // by the caller, with the SAME predicate the gate uses.
+      // A domain-service body is a TAIL-VALUE body (nothing is appended after
+      // `bodyLines`), so the `if` renders as a plain value-producing Elixir
+      // `if` with no threaded variable.  Lowering puts every `return` in tail
+      // position of its block, so a tail `if` whose branches `return` IS the
+      // function's result; a guard in a branch raises in place.
       return renderElixirIfStmt(s, {
         indent: "    ",
         cond: renderExpr(s.cond, rc),

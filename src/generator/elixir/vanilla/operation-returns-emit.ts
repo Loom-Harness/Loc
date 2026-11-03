@@ -26,11 +26,11 @@ import type {
   StmtIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
+import { branchesContain } from "../../../ir/util/if-normal-form.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { walkStmtsDeep } from "../../../ir/util/walk.js";
 import { elixirMatchRefusal } from "../../../ir/validate/checks/elixir-match-stmt-checks.js";
-import { elixirIfRefusal } from "../../../ir/validate/checks/if-stmt-checks.js";
 import {
   elixirLocal,
   elixirOpAction,
@@ -70,6 +70,7 @@ import {
 import { renderElixirIfStmt } from "./if-stmt-emit.js";
 import { renderElixirMatchStmt } from "./match-stmt-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
+import { isOpTree, opPaths, renderOpTree } from "./op-tree.js";
 import { collectVanillaLeaves, provColumn, provenancedFieldsOf } from "./provenance-emit.js";
 import { isRefCollFieldName, refCollPutAssocValue } from "./ref-collection-emit.js";
 import {
@@ -194,6 +195,7 @@ export function renderPrivateOpHelpers(
       // No lineage capture and no emit fan-out in a helper: both are
       // persist-path effects owned by the CALLER's tail, which runs once.
       captureProvenance: false,
+      dropEmits: true,
       ...(docStruct ? { docStruct: true } : {}),
       ...(aggForCtx ? { agg: aggForCtx } : {}),
     };
@@ -379,7 +381,7 @@ export function isReturningOperation(op: OperationIR): boolean {
  *  no phantom event fires on a failed write and each event reaches the context
  *  `Dispatcher` (the saga seam), not just the subscriber-less raw broadcast. */
 export function opEmitsEvent(op: OperationIR): boolean {
-  return op.statements.some((s) => s.kind === "emit");
+  return op.statements.some((s) => branchesContain(s, (n) => n.kind === "emit"));
 }
 
 /** Does an operation carry any `requires`/`precondition` guard?  A guarded op's
@@ -390,7 +392,9 @@ export function opEmitsEvent(op: OperationIR): boolean {
  *  body wrap AND the matching controller denial clauses, so the two never
  *  disagree.  A guard-free op stays byte-identical. */
 export function opHasGuards(op: OperationIR): boolean {
-  return op.statements.some((s) => s.kind === "requires" || s.kind === "precondition");
+  return op.statements.some((s) =>
+    branchesContain(s, (n) => n.kind === "requires" || n.kind === "precondition"),
+  );
 }
 
 /** One `requires`/`precondition` statement → an `ensure/2` with-clause.  A
@@ -512,7 +516,9 @@ export function returningOpHasCommitPath(
 
 /** The body renderer's persist decision — a returning op persists whenever it
  *  has a commit path AND it mutates state / is audited / provenanced / emits
- *  (S5a + S12).  A persisting body can return `{:error, %Ecto.Changeset{}}`, so
+ *  (S5a + S12), or its aggregate is `versioned`: a successful command bumps
+ *  the version whether or not it wrote a field, as the other four backends'
+ *  save-after-command does.  A persisting body can return `{:error, %Ecto.Changeset{}}`, so
  *  the controller's matching validation clause is gated on the SAME predicate
  *  (an unreachable clause trips Elixir 1.18's `--warnings-as-errors`). */
 export function returningOpPersistsChangeset(
@@ -520,9 +526,16 @@ export function returningOpPersistsChangeset(
   agg: AggregateIR,
   ctx: BoundedContextIR,
 ): boolean {
-  return (
-    returningOpHasCommitPath(op, agg, ctx) &&
-    (opMutatesState(op) || op.audited === true || opHasProvSite(op) || opEmitsEvent(op))
+  // Asked of every path: a body that branches per path (`op-tree.ts`) persists
+  // on some paths (a success return) and not on others (an error return).
+  return opPaths(op).some(
+    (p) =>
+      returningOpHasCommitPath(p, agg, ctx) &&
+      (opMutatesState(p) ||
+        p.audited === true ||
+        opHasProvSite(p) ||
+        opEmitsEvent(p) ||
+        savesLockVersion(agg)),
   );
 }
 
@@ -766,291 +779,356 @@ export function renderReturningOpFunction(
   const beforeBind = hasAudit
     ? [`    audit_before = ${wireSnapshot("record", false, appModule)}`]
     : [];
-  // A body that doesn't end in an explicit `return` falls through to its
-  // aggregate success variant (`Order` in `Order or NotFound`) — the mutated
-  // `record`.  That fall-through success branch is the only place a state change
-  // commits, so it's also the only place an audit / provenance row is recorded.
-  // S12: the persist decision is DECOUPLED from the success-path shape.  A
-  // returning op persists whenever its body mutates (assign/add/remove →
-  // `persistPutBodies` non-empty), is audited/provenanced, or emits — regardless
-  // of whether it falls through to the aggregate variant or ends in an explicit
-  // `return this`.  Only a body that never commits (a pure read/return, or one
-  // ending in an unconditional ERROR return) stays in-memory (no DB round-trip).
-  const fallThrough = returningOpHasSuccessPath(op, agg);
-  const lastStmt = op.statements[op.statements.length - 1];
-  const trailingReturn = lastStmt?.kind === "return" ? lastStmt : undefined;
-  const trailingIsError =
-    trailingReturn !== undefined &&
-    returnAlwaysFails(trailingReturn, (tag) => isErrorTag(tag, ctx));
-  // A trailing `return this` / aggregate-typed success return commits the same
-  // mutated aggregate as a fall-through — normalize it onto the persist path
-  // (the success wire projects off `saved`).  A trailing NON-aggregate success
-  // return (shape C, `return Reserved {…}`) instead re-renders its own tuple
-  // over the persisted struct.
-  const trailingIsAggregate =
-    trailingReturn !== undefined &&
-    !trailingIsError &&
-    (trailingReturn.value.kind === "this" || trailingReturn.variantTag === agg.name);
-  const persists = returningOpPersistsChangeset(op, agg, ctx);
-  // Project the aggregate wire off `saved` for a fall-through OR a normalized
-  // trailing `return this` (both yield the aggregate success variant).
-  const aggregateSuccess = persists && (fallThrough || trailingIsAggregate);
-  // S5a: when the op both persists and emits, the `emit`s are hoisted out of the
-  // interleaved body and fanned out (Dispatcher + broadcast) AFTER the write
-  // commits, so no phantom event fires on a failed persist and the event reaches
-  // the context Dispatcher (saga seam).  A non-persisting emit (a rare emit-only
-  // body ending in a non-committing return) keeps the legacy inline emit.
-  const hoistEmits = opEmitsEvent(op) && persists;
-  const hasDispatcher = contextHasDispatcher(ctx as EnrichedBoundedContextIR, extraChannels);
-  // Transactional outbox (dispatch-delivery-semantics.md §1): a DURABLE emit is
-  // an `__loom_outbox` INSERT, not a fan-out, so it has to ride the SAME
-  // `Repo.transaction` as the persist — see the `txWrapEmits` tail below.  The
-  // dispatch lines then sit two columns deeper.
-  const txWrapEmits = hoistEmits && opEmitsDurableEvent(op, channels);
-  const dispatchLines =
-    hoistEmits && !txWrapEmits
-      ? renderEmitDispatchLines(
+  // One linear body + its tail.  For a body that branches per path
+  // (`op-tree.ts`) this runs once per leaf, over that path as its own linear
+  // operation: `segment` names the statements the leaf renders as body lines
+  // (the rest of the path already ran above it), and `indexBase` keeps the
+  // per-statement temporaries distinct along the path.  A linear body is its
+  // own single leaf.
+  const leafParts = (
+    op: OperationIR,
+    segment?: ReadonlySet<StmtIR>,
+    indexBase = 0,
+  ): { bodyLines: string[]; tailLines: string[] } => {
+    // A body that doesn't end in an explicit `return` falls through to its
+    // aggregate success variant (`Order` in `Order or NotFound`) — the mutated
+    // `record`.  That fall-through success branch is the only place a state change
+    // commits, so it's also the only place an audit / provenance row is recorded.
+    // S12: the persist decision is DECOUPLED from the success-path shape.  A
+    // returning op persists whenever its body mutates (assign/add/remove →
+    // `persistPutBodies` non-empty), is audited/provenanced, or emits — regardless
+    // of whether it falls through to the aggregate variant or ends in an explicit
+    // `return this`.  Only a body that never commits (a pure read/return, or one
+    // ending in an unconditional ERROR return) stays in-memory (no DB round-trip).
+    const fallThrough = returningOpHasSuccessPath(op, agg);
+    const lastStmt = op.statements[op.statements.length - 1];
+    const trailingReturn = lastStmt?.kind === "return" ? lastStmt : undefined;
+    const trailingIsError =
+      trailingReturn !== undefined &&
+      returnAlwaysFails(trailingReturn, (tag) => isErrorTag(tag, ctx));
+    // A trailing `return this` / aggregate-typed success return commits the same
+    // mutated aggregate as a fall-through — normalize it onto the persist path
+    // (the success wire projects off `saved`).  A trailing NON-aggregate success
+    // return (shape C, `return Reserved {…}`) instead re-renders its own tuple
+    // over the persisted struct.
+    const trailingIsAggregate =
+      trailingReturn !== undefined &&
+      !trailingIsError &&
+      (trailingReturn.value.kind === "this" || trailingReturn.variantTag === agg.name);
+    const persists = returningOpPersistsChangeset(op, agg, ctx);
+    // Project the aggregate wire off `saved` for a fall-through OR a normalized
+    // trailing `return this` (both yield the aggregate success variant).
+    const aggregateSuccess = persists && (fallThrough || trailingIsAggregate);
+    // S5a: when the op both persists and emits, the `emit`s are hoisted out of the
+    // interleaved body and fanned out (Dispatcher + broadcast) AFTER the write
+    // commits, so no phantom event fires on a failed persist and the event reaches
+    // the context Dispatcher (saga seam).  A non-persisting emit (a rare emit-only
+    // body ending in a non-committing return) keeps the legacy inline emit.
+    const hoistEmits = opEmitsEvent(op) && persists;
+    const hasDispatcher = contextHasDispatcher(ctx as EnrichedBoundedContextIR, extraChannels);
+    // Transactional outbox (dispatch-delivery-semantics.md §1): a DURABLE emit is
+    // an `__loom_outbox` INSERT, not a fan-out, so it has to ride the SAME
+    // `Repo.transaction` as the persist — see the `txWrapEmits` tail below.  The
+    // dispatch lines then sit two columns deeper.
+    const txWrapEmits = hoistEmits && opEmitsDurableEvent(op, channels);
+    const dispatchLines =
+      hoistEmits && !txWrapEmits
+        ? renderEmitDispatchLines(
+            op,
+            renderCtx,
+            hasDispatcher,
+            "        ",
+            `${ctx.name}.${agg.name}.${op.name}`,
+            opFragments,
+            channels,
+          )
+        : [];
+    // Durable emit: the three phases straddle the transaction — binds ahead of it
+    // (so the event var is in scope on both sides), the outbox INSERT inside it,
+    // the PubSub broadcast only after it commits.
+    const durableEmit = txWrapEmits
+      ? renderDurableEmitDispatchParts(
           op,
           renderCtx,
           hasDispatcher,
-          "        ",
+          { bind: "    ", dispatch: "          ", broadcast: "        " },
           `${ctx.name}.${agg.name}.${op.name}`,
           opFragments,
           channels,
         )
-      : [];
-  // Durable emit: the three phases straddle the transaction — binds ahead of it
-  // (so the event var is in scope on both sides), the outbox INSERT inside it,
-  // the PubSub broadcast only after it commits.
-  const durableEmit = txWrapEmits
-    ? renderDurableEmitDispatchParts(
-        op,
-        renderCtx,
-        hasDispatcher,
-        { bind: "    ", dispatch: "          ", broadcast: "        " },
-        `${ctx.name}.${agg.name}.${op.name}`,
-        opFragments,
-        channels,
-      )
-    : { bind: [], dispatch: [], broadcast: [] };
-  const lastIdx = op.statements.length - 1;
-  // Per-statement index disambiguates provenance temp vars across writes.  When
-  // persisting, the hoisted `emit`s and the relocated trailing success `return`
-  // are rendered post-commit (below), not inline.  `bodyStmts` is kept
-  // alongside `bodyLines` (rather than only the mapped-over result) so a
-  // source-map collector can zip the two SAME-length, SAME-order arrays back
-  // together via `statementSubRegions` — the hoisted `emit`(s) and the
-  // relocated trailing return are deliberately excluded from both, matching
-  // the "regular body" scope this milestone covers (see `OpFragment`).
-  // The `when` state gate + `requires`/`precondition` guards are hoisted out of
-  // the linear body into a leading `with :ok <- ensure(...)` chain (below), so a
-  // failed guard returns a typed denial tuple (`:disallowed` 409 / `:forbidden`
-  // 403 / `:precondition_failed` 422) instead of raising (→ 500).  The guard
-  // STATEMENTS are excluded from the in-body statements, since they render in
-  // that chain rather than inline; the `when` gate is a predicate field, not a
-  // statement, so it needs no exclusion.
-  const guardClauses = collectOpGuardClauses(agg.name, op, renderCtx);
-  const bodyStmts = op.statements.filter((s, idx) => {
-    if (s.kind === "requires" || s.kind === "precondition") return false;
-    if (hoistEmits && s.kind === "emit") return false;
-    // A body ending in an error return leaves no trace (D-FAILURE-MODEL): its
-    // events are dropped with the unpersisted record, never broadcast.
-    if (trailingIsError && s.kind === "emit") return false;
-    if (persists && trailingReturn !== undefined && idx === lastIdx) return false;
-    return true;
-  });
-  const bodyLines = bodyStmts.map((s, i) => renderReturningStmt(s, ctx, renderCtx, i));
-  if (opFragments && bodyLines.length > 0) {
-    opFragments.push({
-      fragmentText: bodyLines.join("\n"),
-      subRegions: statementSubRegions(bodyStmts, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
+      : { bind: [], dispatch: [], broadcast: [] };
+    const lastIdx = op.statements.length - 1;
+    // Per-statement index disambiguates provenance temp vars across writes.  When
+    // persisting, the hoisted `emit`s and the relocated trailing success `return`
+    // are rendered post-commit (below), not inline.  `bodyStmts` is kept
+    // alongside `bodyLines` (rather than only the mapped-over result) so a
+    // source-map collector can zip the two SAME-length, SAME-order arrays back
+    // together via `statementSubRegions` — the hoisted `emit`(s) and the
+    // relocated trailing return are deliberately excluded from both, matching
+    // the "regular body" scope this milestone covers (see `OpFragment`).
+    // The `when` state gate + `requires`/`precondition` guards are hoisted out of
+    // the linear body into a leading `with :ok <- ensure(...)` chain (below), so a
+    // failed guard returns a typed denial tuple (`:disallowed` 409 / `:forbidden`
+    // 403 / `:precondition_failed` 422) instead of raising (→ 500).  The guard
+    // STATEMENTS are excluded from the in-body statements, since they render in
+    // that chain rather than inline; the `when` gate is a predicate field, not a
+    // statement, so it needs no exclusion.
+    const bodyStmts = op.statements.filter((s, idx) => {
+      if (segment && !segment.has(s)) return false;
+      if (s.kind === "requires" || s.kind === "precondition") return false;
+      if (hoistEmits && s.kind === "emit") return false;
+      // A body ending in an error return leaves no trace (D-FAILURE-MODEL): its
+      // events are dropped with the unpersisted record, never broadcast.
+      if (trailingIsError && s.kind === "emit") return false;
+      if (persists && trailingReturn !== undefined && idx === lastIdx) return false;
+      return true;
     });
-  }
-  // Did the body add/remove a reference collection (`X id[]` → `many_to_many`)?
-  // That mutation edits a join table, so the success path MUST round-trip the DB
-  // (a `put_assoc` changeset) rather than return the in-memory projection — and
-  // it guarantees the context's `__ref_id_list`/`__resolve_refs` helpers are
-  // emitted (`contextUsesRefCollOp`), so the wire projection below can call them.
-  const mutatesRefColl = opBodyStmtsDeep(op.statements).some(
-    (s) =>
-      (s.kind === "add" || s.kind === "remove") &&
-      s.collection &&
-      isRefCollFieldName(agg, snake(s.target.segments[0] ?? "")),
-  );
-  // The wire map the success branch returns — the same ordered `wireShape` the
-  // CRUD controllers expose, projected off the SAVED struct so it reflects the
-  // persisted state (no struct leaks `__meta__`/`__struct__` onto the wire).  A
-  // reference-collection field projects to its id list (`__ref_id_list/1`, the
-  // CRUD controller's `__ref_ids` analogue) so the wire carries ids, not the
-  // loaded `many_to_many` structs — but only when the op mutated a ref coll,
-  // which is exactly when that context helper is emitted.
-  // RS-21 NOTE — the AGGREGATE success variant of a union-returning op
-  // (`operation adjust(): Item or NotFound` falling through, or ending in
-  // `return this`) is deliberately left UNTAGGED here, unlike the scalar / none
-  // / record variants that `taggedSuccess` tags.  Not because the contract
-  // differs: `_payload/union-wire.ts` says every variant carries `type`.  It is
-  // because this shape has NO conforming oracle to match — node's domain method
-  // for it has no `return` at all (it falls off the end and the route
-  // `c.json`s `undefined`), and `return this` spreads a class instance's PRIVATE
-  // `_`-prefixed fields.  Tagging vanilla here would be a guess at a contract no
-  // shipped backend implements.  Tracked as its own gap; see
-  // docs/conformance-semantics.md RS-21.
-  const wireMap = (recordVar: string, projectRefColls: boolean): string =>
-    `%{${wireFieldsOf(agg)
-      .map((f) =>
-        projectRefColls && isRefCollFieldName(agg, f)
-          ? `${f}: __ref_id_list(${recordVar}.${f})`
-          : `${f}: ${recordVar}.${f}`,
-      )
-      .join(", ")}}`;
-
-  // The persist put bodies + changeset assignment are shared by every persisting
-  // shape (6-space indent, inside the `changeset =` block).
-  const putBodies = persistPutBodies(
-    op,
-    agg,
-    appModule,
-    facadeMod.split(".").slice(1).join("."),
-    relationalContainments,
-    ctx.aggregates,
-    valueRowFieldsOf(agg, ctx),
-  );
-  const putBlock = putBodies.map((b) => `\n      |> ${b}`).join("");
-
-  // The `versioned` counter bump, on the RETURNING-operation write path.
-  //
-  // `versioned` declares `version: int token = 1`, incremented per command
-  // (`src/macros/prelude.ts`), and the named-operation path in `context-emit.ts`
-  // bumps it the same way.  Without the bump here an exception-less
-  // `T or Error` operation would persist its field write and leave `version`
-  // untouched — `corpus/operation-returns`' `accept()` (`reserved := true`,
-  // returning `: string or NotFound`) must read back the same `version` on
-  // every backend.
-  //
-  // Not the RS-20 shape (java's Hibernate `@Version` tracks ROW DIRTINESS, so it
-  // misses a bump only when nothing actually changed).  Here the write is a real
-  // change, against a capability all five backends honour.
-  //
-  // The bump rides `optimistic_lock(:version)` rather than a plain
-  // `change(%{version: …+1})` — same +1 on the wire, plus the CAS filter a
-  // plain bump lacks, so a raced returning operation raises
-  // `Ecto.StaleEntryError` (rescued to `{:error, :conflict}` → 409 in
-  // `persist_change/1`) instead of silently overwriting the other writer.
-  const versionLock = savesLockVersion(agg)
-    ? "\n      |> Ecto.Changeset.optimistic_lock(:version)"
-    : "";
-  // The persisted changeset is built with `change(%{}) |> force_change`, which
-  // runs no validator — re-run the aggregate's invariants on it (both halves,
-  // see `opPersistInvariantPipes`) so a violating op answers 422 instead of
-  // committing.
-  const invPipes = opPersistInvariantPipes(agg, ctx, `${aggModule}Changeset`, 6);
-  // A trailing NON-aggregate success return (shape C), re-rendered to sit inside
-  // the `{:ok, saved}` commit arm over the persisted struct — a preceding
-  // `record = saved` rebinds `record`, so the return's `this.*` reads reflect the
-  // saved values.  It sits 8 columns in, 4 deeper than a body statement, so a
-  // multi-line return (a per-arm `cond`) shifts its continuation lines to match.
-  const shapeCReturn = (): string =>
-    renderReturningStmt(trailingReturn!, ctx, renderCtx, lastIdx)
-      .trimStart()
-      .split("\n")
-      .map((l, i) => (i === 0 || l.trim() === "" ? l : `    ${l}`))
-      .join("\n");
-
-  // Derived rows that must commit with the state change (provenance flush /
-  // audit record) — hoisted out of the prov/audit branch so the durable-outbox
-  // branch below can reuse the same transaction tail.
-  const txTail: string[] = [];
-  if (hasProv) txTail.push(`          ${appModule}.Provenance.flush(${appModule}.Repo)`);
-  if (hasAudit) {
-    txTail.push(
-      auditRecordCall({
-        appModule,
-        operationId: `${op.name}${aggPascal}`,
-        action: op.name,
-        targetType: aggPascal,
-        targetId: "saved.id",
-        before: "audit_before",
-        after: wireSnapshot("saved", false, appModule),
-        indent: "          ",
-      }),
+    const bodyLines = bodyStmts.map((s, i) =>
+      renderReturningStmt(s, ctx, renderCtx, indexBase + i),
     );
-  }
+    if (opFragments && bodyLines.length > 0) {
+      opFragments.push({
+        fragmentText: bodyLines.join("\n"),
+        subRegions: statementSubRegions(bodyStmts, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
+      });
+    }
+    // Did the body add/remove a reference collection (`X id[]` → `many_to_many`)?
+    // That mutation edits a join table, so the success path MUST round-trip the DB
+    // (a `put_assoc` changeset) rather than return the in-memory projection — and
+    // it guarantees the context's `__ref_id_list`/`__resolve_refs` helpers are
+    // emitted (`contextUsesRefCollOp`), so the wire projection below can call them.
+    const mutatesRefColl = opBodyStmtsDeep(op.statements).some(
+      (s) =>
+        (s.kind === "add" || s.kind === "remove") &&
+        s.collection &&
+        isRefCollFieldName(agg, snake(s.target.segments[0] ?? "")),
+    );
+    // The wire map the success branch returns — the same ordered `wireShape` the
+    // CRUD controllers expose, projected off the SAVED struct so it reflects the
+    // persisted state (no struct leaks `__meta__`/`__struct__` onto the wire).  A
+    // reference-collection field projects to its id list (`__ref_id_list/1`, the
+    // CRUD controller's `__ref_ids` analogue) so the wire carries ids, not the
+    // loaded `many_to_many` structs — but only when the op mutated a ref coll,
+    // which is exactly when that context helper is emitted.
+    // RS-21 — the AGGREGATE success variant of a union-returning op
+    // (`operation withdraw(): Account or Insufficient` falling through, or ending
+    // in `return this`) carries its `type` tag like every other variant
+    // (`_payload/union-wire.ts`): node answers `{ type: "Account", …wire }`, and
+    // the `op-return-this` golden records exactly that.  A plain (non-union)
+    // return type has no discriminator to carry.
+    const aggTag =
+      op.returnType?.kind === "union"
+        ? `type: ${JSON.stringify(variantTag(op.returnType.variants.find((v) => v.kind === "entity" && v.name === agg.name) ?? { kind: "entity", name: agg.name }))}, `
+        : "";
+    const wireMap = (recordVar: string, projectRefColls: boolean): string =>
+      `%{${aggTag}${wireFieldsOf(agg)
+        .map((f) =>
+          projectRefColls && isRefCollFieldName(agg, f)
+            ? `${f}: __ref_id_list(${recordVar}.${f})`
+            : `${f}: ${recordVar}.${f}`,
+        )
+        .join(", ")}}`;
 
-  // A relation-backed rewrite (`lines -= l`, `charges += c`, …) persists off the
-  // struct AS LOADED, so `put_assoc`/`put_embed` diff the real before/after and a
-  // removed child is DELETEd (M-T6.94) — see `opRewritesRelation`.  Bound only
-  // when the op persists, so a pure read never carries an unused binding.
-  const rewritesRelation = persists && opRewritesRelation(op, agg);
-  const persistBase = rewritesRelation ? "record_before" : "record";
-  const captureBase = rewritesRelation ? ["    record_before = record"] : [];
-  let tailLines: string[];
-  if (!persists) {
-    // Non-committing: a pure read/return (or one ending in an unconditional ERROR
-    // return) never touches the DB.  A fall-through returns the in-memory wire
-    // projection; an explicit `return` is rendered inline in `bodyLines`.
-    // Byte-identical to pre-S12 for these shapes.
-    tailLines = fallThrough ? [`    {:ok, ${wireMap("record", false)}}`] : [];
-  } else if (txWrapEmits) {
-    // Durable emit (dispatch-delivery-semantics.md §1): `Channels.dispatch/2`
-    // INSERTs an `__loom_outbox` row instead of fanning out, so persist + the
-    // outbox INSERT (+ any prov/audit rows) run in ONE `Repo.transaction` —
-    // commit records "this event is owed", rollback erases both.  The result is
-    // unwrapped post-commit so the returned tuple shape is unchanged.
+    // The persist put bodies + changeset assignment are shared by every persisting
+    // shape (6-space indent, inside the `changeset =` block).
+    const putBodies = persistPutBodies(
+      op,
+      agg,
+      appModule,
+      facadeMod.split(".").slice(1).join("."),
+      relationalContainments,
+      ctx.aggregates,
+      valueRowFieldsOf(agg, ctx),
+    );
+    const putBlock = putBodies.map((b) => `\n      |> ${b}`).join("");
+
+    // The `versioned` counter bump, on the RETURNING-operation write path.
     //
-    // The PubSub BROADCAST does NOT ride that transaction.  It is the
-    // SSE / LiveView wire, and a broadcast inside the tx is observable before
-    // the commit: a rollback then leaves subscribers holding an event whose
-    // write never happened, with no way to retract it.  So the event struct is
-    // bound BEFORE the transaction (that is what keeps `loom_event_<i>` in
-    // scope on both sides), the outbox INSERT stays inside, and the broadcast
-    // fires in the `{:ok, saved}` arm — the same after-commit ordering the
-    // non-durable branch below already documents.
-    const txBody = [
-      `    tx_result =`,
-      `      ${appModule}.Repo.transaction(fn ->`,
-      `      case ${repoMod}.persist_change(changeset) do`,
-      `        {:ok, saved} ->`,
-      ...txTail,
-      ...durableEmit.dispatch,
-      `          saved`,
-      ``,
-      `        {:error, reason} ->`,
-      `          ${appModule}.Repo.rollback(reason)`,
-      `      end`,
-      `    end)`,
-      ``,
-    ];
-    tailLines = [
-      ...durableEmit.bind,
-      ...(durableEmit.bind.length > 0 ? [``] : []),
-      `    changeset =`,
-      `      ${persistBase}`,
-      `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
-      ``,
-      ...txBody,
-      `    case tx_result do`,
-      `      {:ok, saved} ->`,
-      ...durableEmit.broadcast,
-      ...(aggregateSuccess
-        ? [`        {:ok, ${wireMap("saved", mutatesRefColl)}}`]
-        : [`        record = saved`, `        ${shapeCReturn()}`]),
-      ``,
-      `      {:error, reason} ->`,
-      `        {:error, reason}`,
-      `    end`,
-    ];
-  } else if (hasProv || hasAudit) {
-    // Forced transaction: persist the assigned columns, flush provenance and/or
-    // record the audit row — all in ONE transaction so the derived rows commit
-    // atomically with the state change.  A persist failure rolls back to
-    // `{:error, changeset}` (the controller's `_result/2` gains a matching
-    // validation clause).
-    tailLines = aggregateSuccess
-      ? hoistEmits
-        ? [
-            // Emit + prov/audit: the transaction commits the state change (+ derived
-            // rows), then the events are dispatched AFTER commit (outside the tx fn),
-            // so a rollback drops them too.
+    // `versioned` declares `version: int token = 1`, incremented per command
+    // (`src/macros/prelude.ts`), and the named-operation path in `context-emit.ts`
+    // bumps it the same way.  Without the bump here an exception-less
+    // `T or Error` operation would persist its field write and leave `version`
+    // untouched — `corpus/operation-returns`' `accept()` (`reserved := true`,
+    // returning `: string or NotFound`) must read back the same `version` on
+    // every backend.
+    //
+    // Not the RS-20 shape (java's Hibernate `@Version` tracks ROW DIRTINESS, so it
+    // misses a bump only when nothing actually changed).  Here the write is a real
+    // change, against a capability all five backends honour.
+    //
+    // The bump rides `optimistic_lock(:version)` rather than a plain
+    // `change(%{version: …+1})` — same +1 on the wire, plus the CAS filter a
+    // plain bump lacks, so a raced returning operation raises
+    // `Ecto.StaleEntryError` (rescued to `{:error, :conflict}` → 409 in
+    // `persist_change/1`) instead of silently overwriting the other writer.
+    const versionLock = savesLockVersion(agg)
+      ? "\n      |> Ecto.Changeset.optimistic_lock(:version)"
+      : "";
+    // The persisted changeset is built with `change(%{}) |> force_change`, which
+    // runs no validator — re-run the aggregate's invariants on it (both halves,
+    // see `opPersistInvariantPipes`) so a violating op answers 422 instead of
+    // committing.
+    const invPipes = opPersistInvariantPipes(agg, ctx, `${aggModule}Changeset`, 6);
+    // A trailing NON-aggregate success return (shape C), re-rendered to sit inside
+    // the `{:ok, saved}` commit arm over the persisted struct — a preceding
+    // `record = saved` rebinds `record`, so the return's `this.*` reads reflect the
+    // saved values.  It sits 8 columns in, 4 deeper than a body statement, so a
+    // multi-line return (a per-arm `cond`) shifts its continuation lines to match.
+    const shapeCReturn = (): string =>
+      renderReturningStmt(trailingReturn!, ctx, renderCtx, lastIdx)
+        .trimStart()
+        .split("\n")
+        .map((l, i) => (i === 0 || l.trim() === "" ? l : `    ${l}`))
+        .join("\n");
+
+    // `record = saved` only when the trailing return reads `record` — a return
+    // built from params alone would leave the binding unused
+    // (`--warnings-as-errors`).
+    const rebindSaved =
+      trailingReturn !== undefined &&
+      /\brecord\b/.test([shapeCReturn(), ...dispatchLines, ...durableEmit.broadcast].join("\n"))
+        ? ["        record = saved"]
+        : ["        _ = saved"];
+
+    // Derived rows that must commit with the state change (provenance flush /
+    // audit record) — hoisted out of the prov/audit branch so the durable-outbox
+    // branch below can reuse the same transaction tail.
+    const txTail: string[] = [];
+    if (hasProv) txTail.push(`          ${appModule}.Provenance.flush(${appModule}.Repo)`);
+    if (hasAudit) {
+      txTail.push(
+        auditRecordCall({
+          appModule,
+          operationId: `${op.name}${aggPascal}`,
+          action: op.name,
+          targetType: aggPascal,
+          targetId: "saved.id",
+          before: "audit_before",
+          after: wireSnapshot("saved", false, appModule),
+          indent: "          ",
+        }),
+      );
+    }
+
+    // A relation-backed rewrite (`lines -= l`, `charges += c`, …) persists off the
+    // struct AS LOADED, so `put_assoc`/`put_embed` diff the real before/after and a
+    // removed child is DELETEd (M-T6.94) — see `opRewritesRelation`.  Bound only
+    // when the op persists, so a pure read never carries an unused binding.
+    const persistBase = persists && capturesBefore ? "record_before" : "record";
+    let tailLines: string[];
+    if (!persists) {
+      // Non-committing: a pure read/return (or one ending in an unconditional ERROR
+      // return) never touches the DB.  A fall-through returns the in-memory wire
+      // projection; an explicit `return` is rendered inline in `bodyLines`.
+      // Byte-identical to pre-S12 for these shapes.
+      tailLines = fallThrough ? [`    {:ok, ${wireMap("record", false)}}`] : [];
+    } else if (txWrapEmits) {
+      // Durable emit (dispatch-delivery-semantics.md §1): `Channels.dispatch/2`
+      // INSERTs an `__loom_outbox` row instead of fanning out, so persist + the
+      // outbox INSERT (+ any prov/audit rows) run in ONE `Repo.transaction` —
+      // commit records "this event is owed", rollback erases both.  The result is
+      // unwrapped post-commit so the returned tuple shape is unchanged.
+      //
+      // The PubSub BROADCAST does NOT ride that transaction.  It is the
+      // SSE / LiveView wire, and a broadcast inside the tx is observable before
+      // the commit: a rollback then leaves subscribers holding an event whose
+      // write never happened, with no way to retract it.  So the event struct is
+      // bound BEFORE the transaction (that is what keeps `loom_event_<i>` in
+      // scope on both sides), the outbox INSERT stays inside, and the broadcast
+      // fires in the `{:ok, saved}` arm — the same after-commit ordering the
+      // non-durable branch below already documents.
+      const txBody = [
+        `    tx_result =`,
+        `      ${appModule}.Repo.transaction(fn ->`,
+        `      case ${repoMod}.persist_change(changeset) do`,
+        `        {:ok, saved} ->`,
+        ...txTail,
+        ...durableEmit.dispatch,
+        `          saved`,
+        ``,
+        `        {:error, reason} ->`,
+        `          ${appModule}.Repo.rollback(reason)`,
+        `      end`,
+        `    end)`,
+        ``,
+      ];
+      tailLines = [
+        ...durableEmit.bind,
+        ...(durableEmit.bind.length > 0 ? [``] : []),
+        `    changeset =`,
+        `      ${persistBase}`,
+        `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
+        ``,
+        ...txBody,
+        `    case tx_result do`,
+        `      {:ok, saved} ->`,
+        ...durableEmit.broadcast,
+        ...(aggregateSuccess
+          ? [`        {:ok, ${wireMap("saved", mutatesRefColl)}}`]
+          : [...rebindSaved, `        ${shapeCReturn()}`]),
+        ``,
+        `      {:error, reason} ->`,
+        `        {:error, reason}`,
+        `    end`,
+      ];
+    } else if (hasProv || hasAudit) {
+      // Forced transaction: persist the assigned columns, flush provenance and/or
+      // record the audit row — all in ONE transaction so the derived rows commit
+      // atomically with the state change.  A persist failure rolls back to
+      // `{:error, changeset}` (the controller's `_result/2` gains a matching
+      // validation clause).
+      tailLines = aggregateSuccess
+        ? hoistEmits
+          ? [
+              // Emit + prov/audit: the transaction commits the state change (+ derived
+              // rows), then the events are dispatched AFTER commit (outside the tx fn),
+              // so a rollback drops them too.
+              `    changeset =`,
+              `      ${persistBase}`,
+              `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
+              ``,
+              `    tx_result =`,
+              `      ${appModule}.Repo.transaction(fn ->`,
+              `      case ${repoMod}.persist_change(changeset) do`,
+              `        {:ok, saved} ->`,
+              ...txTail,
+              `          saved`,
+              ``,
+              `        {:error, reason} ->`,
+              `          ${appModule}.Repo.rollback(reason)`,
+              `      end`,
+              `    end)`,
+              ``,
+              `    case tx_result do`,
+              `      {:ok, saved} ->`,
+              ...dispatchLines,
+              `        {:ok, ${wireMap("saved", mutatesRefColl)}}`,
+              ``,
+              `      {:error, reason} ->`,
+              `        {:error, reason}`,
+              `    end`,
+            ]
+          : [
+              `    changeset =`,
+              `      ${persistBase}`,
+              `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
+              ``,
+              `    ${appModule}.Repo.transaction(fn ->`,
+              `      case ${repoMod}.persist_change(changeset) do`,
+              `        {:ok, saved} ->`,
+              ...txTail,
+              `          ${wireMap("saved", mutatesRefColl)}`,
+              ``,
+              `        {:error, reason} ->`,
+              `          ${appModule}.Repo.rollback(reason)`,
+              `      end`,
+              `    end)`,
+            ]
+        : // Shape C under prov/audit (rare): the transaction returns `saved` so the
+          // derived rows commit with it, then the trailing non-aggregate success
+          // return is rendered over `saved` post-commit — the tagged tuple is NOT
+          // wrapped by `Repo.transaction` (which would double-tag it).
+          [
             `    changeset =`,
             `      ${persistBase}`,
             `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
@@ -1069,11 +1147,33 @@ export function renderReturningOpFunction(
             ``,
             `    case tx_result do`,
             `      {:ok, saved} ->`,
+            ...rebindSaved,
             ...dispatchLines,
-            `        {:ok, ${wireMap("saved", mutatesRefColl)}}`,
+            `        ${shapeCReturn()}`,
             ``,
             `      {:error, reason} ->`,
             `        {:error, reason}`,
+            `    end`,
+          ];
+    } else if (mutatesRefColl) {
+      // Reference-collection mutation (`X id[]` add/remove → a `many_to_many` join
+      // table): the body bound an id-list local, so persist it via a `put_assoc`
+      // changeset and return the saved wire.  No provenance/audit → no transaction
+      // is needed (a single state write); a validation failure surfaces as
+      // `{:error, changeset}` (the controller's `_result/2` validation clause).
+      tailLines = hoistEmits
+        ? [
+            `    changeset =`,
+            `      ${persistBase}`,
+            `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
+            ``,
+            `    case ${repoMod}.persist_change(changeset) do`,
+            `      {:ok, saved} ->`,
+            ...dispatchLines,
+            `        {:ok, ${wireMap("saved", true)}}`,
+            ``,
+            `      {:error, changeset} ->`,
+            `        {:error, changeset}`,
             `    end`,
           ]
         : [
@@ -1081,135 +1181,99 @@ export function renderReturningOpFunction(
             `      ${persistBase}`,
             `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
             ``,
-            `    ${appModule}.Repo.transaction(fn ->`,
-            `      case ${repoMod}.persist_change(changeset) do`,
-            `        {:ok, saved} ->`,
-            ...txTail,
-            `          ${wireMap("saved", mutatesRefColl)}`,
-            ``,
-            `        {:error, reason} ->`,
-            `          ${appModule}.Repo.rollback(reason)`,
-            `      end`,
-            `    end)`,
-          ]
-      : // Shape C under prov/audit (rare): the transaction returns `saved` so the
-        // derived rows commit with it, then the trailing non-aggregate success
-        // return is rendered over `saved` post-commit — the tagged tuple is NOT
-        // wrapped by `Repo.transaction` (which would double-tag it).
-        [
-          `    changeset =`,
-          `      ${persistBase}`,
-          `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
-          ``,
-          `    tx_result =`,
-          `      ${appModule}.Repo.transaction(fn ->`,
-          `      case ${repoMod}.persist_change(changeset) do`,
-          `        {:ok, saved} ->`,
-          ...txTail,
-          `          saved`,
-          ``,
-          `        {:error, reason} ->`,
-          `          ${appModule}.Repo.rollback(reason)`,
-          `      end`,
-          `    end)`,
-          ``,
-          `    case tx_result do`,
-          `      {:ok, saved} ->`,
-          `        record = saved`,
-          ...dispatchLines,
-          `        ${shapeCReturn()}`,
-          ``,
-          `      {:error, reason} ->`,
-          `        {:error, reason}`,
-          `    end`,
-        ];
-  } else if (mutatesRefColl) {
-    // Reference-collection mutation (`X id[]` add/remove → a `many_to_many` join
-    // table): the body bound an id-list local, so persist it via a `put_assoc`
-    // changeset and return the saved wire.  No provenance/audit → no transaction
-    // is needed (a single state write); a validation failure surfaces as
-    // `{:error, changeset}` (the controller's `_result/2` validation clause).
-    tailLines = hoistEmits
-      ? [
-          `    changeset =`,
-          `      ${persistBase}`,
-          `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
-          ``,
-          `    case ${repoMod}.persist_change(changeset) do`,
-          `      {:ok, saved} ->`,
-          ...dispatchLines,
-          `        {:ok, ${wireMap("saved", true)}}`,
-          ``,
-          `      {:error, changeset} ->`,
-          `        {:error, changeset}`,
-          `    end`,
-        ]
-      : [
-          `    changeset =`,
-          `      ${persistBase}`,
-          `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
-          ``,
-          `    case ${repoMod}.persist_change(changeset) do`,
-          `      {:ok, saved} -> {:ok, ${wireMap("saved", true)}}`,
-          `      {:error, changeset} -> {:error, changeset}`,
-          `    end`,
-        ];
-  } else if (aggregateSuccess) {
-    // S12: a mutating (or emitting) success body — a fall-through OR a normalized
-    // trailing `return this` — persists the assigned columns and projects the
-    // aggregate wire off the SAVED struct.  Dispatch (if any) fires AFTER
-    // `{:ok, saved}`; a validation failure surfaces as `{:error, changeset}` (the
-    // controller gains the matching clause via `returningOpPersistsChangeset`).
-    tailLines = [
-      `    changeset =`,
-      `      ${persistBase}`,
-      `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
-      ``,
-      `    case ${repoMod}.persist_change(changeset) do`,
-      `      {:ok, saved} ->`,
-      ...dispatchLines,
-      `        {:ok, ${wireMap("saved", false)}}`,
-      ``,
-      `      {:error, changeset} ->`,
-      `        {:error, changeset}`,
-      `    end`,
-    ];
-  } else {
-    // Shape C: a mutating body ending in a NON-aggregate success return
-    // (`return Reserved {…}`).  Persist FIRST, rebind `record = saved`, then
-    // render the return over the persisted struct so it references saved values.
-    tailLines = [
-      `    changeset =`,
-      `      ${persistBase}`,
-      `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
-      ``,
-      `    case ${repoMod}.persist_change(changeset) do`,
-      `      {:ok, saved} ->`,
-      `        record = saved`,
-      ...dispatchLines,
-      `        ${shapeCReturn()}`,
-      ``,
-      `      {:error, changeset} ->`,
-      `        {:error, changeset}`,
-      `    end`,
-    ];
-  }
-  // A trailing `return match { … }` that can answer an error arm decides its
-  // arm before the write, so the error arm persists nothing.
-  if (
-    persists &&
-    trailingReturn?.armVariants &&
-    returnCanFail(trailingReturn, (tag) => isErrorTag(tag, ctx))
-  ) {
-    tailLines = decideArmBeforePersist(
-      renderReturningStmt(trailingReturn, ctx, renderCtx, lastIdx),
-      tailLines,
-    );
-  }
+            `    case ${repoMod}.persist_change(changeset) do`,
+            `      {:ok, saved} -> {:ok, ${wireMap("saved", true)}}`,
+            `      {:error, changeset} -> {:error, changeset}`,
+            `    end`,
+          ];
+    } else if (aggregateSuccess) {
+      // S12: a mutating (or emitting) success body — a fall-through OR a normalized
+      // trailing `return this` — persists the assigned columns and projects the
+      // aggregate wire off the SAVED struct.  Dispatch (if any) fires AFTER
+      // `{:ok, saved}`; a validation failure surfaces as `{:error, changeset}` (the
+      // controller gains the matching clause via `returningOpPersistsChangeset`).
+      tailLines = [
+        `    changeset =`,
+        `      ${persistBase}`,
+        `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
+        ``,
+        `    case ${repoMod}.persist_change(changeset) do`,
+        `      {:ok, saved} ->`,
+        ...dispatchLines,
+        `        {:ok, ${wireMap("saved", false)}}`,
+        ``,
+        `      {:error, changeset} ->`,
+        `        {:error, changeset}`,
+        `    end`,
+      ];
+    } else {
+      // Shape C: a mutating body ending in a NON-aggregate success return
+      // (`return Reserved {…}`).  Persist FIRST, rebind `record = saved`, then
+      // render the return over the persisted struct so it references saved values.
+      tailLines = [
+        `    changeset =`,
+        `      ${persistBase}`,
+        `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
+        ``,
+        `    case ${repoMod}.persist_change(changeset) do`,
+        `      {:ok, saved} ->`,
+        ...rebindSaved,
+        ...dispatchLines,
+        `        ${shapeCReturn()}`,
+        ``,
+        `      {:error, changeset} ->`,
+        `        {:error, changeset}`,
+        `    end`,
+      ];
+    }
+    // A trailing `return match { … }` that can answer an error arm decides its
+    // arm before the write, so the error arm persists nothing.
+    if (
+      persists &&
+      trailingReturn?.armVariants &&
+      returnCanFail(trailingReturn, (tag) => isErrorTag(tag, ctx))
+    ) {
+      tailLines = decideArmBeforePersist(
+        renderReturningStmt(trailingReturn, ctx, renderCtx, lastIdx),
+        tailLines,
+      );
+    }
+    return { bodyLines, tailLines };
+  };
+  // Guards the whole operation leads with — the `when` gate and the top-level
+  // `requires` / `precondition`s.  A guard inside a path's branch leads that
+  // branch instead (`op-tree.ts`).
+  const guardClauses = collectOpGuardClauses(agg.name, op, renderCtx);
+  // A relation-backed rewrite (`lines -= l`, …) persists off the struct AS
+  // LOADED — see `opRewritesRelation`.  Bound once, ahead of every path, when
+  // any persisting path rewrites one; scalar columns `force_change` from
+  // `record` either way, so a path that rewrites none persists the same.
+  const capturesBefore = opPaths(op).some(
+    (p) => returningOpPersistsChangeset(p, agg, ctx) && opRewritesRelation(p, agg),
+  );
+  const captureBase = capturesBefore ? ["    record_before = record"] : [];
+  const linear = isOpTree(op.statements) ? undefined : leafParts(op);
+  const innerLines = linear
+    ? [...linear.bodyLines, ...linear.tailLines]
+    : renderOpTree(op.statements, {
+        renderStmt: (s, i) => renderReturningStmt(s, ctx, renderCtx, i),
+        renderCond: (e) => renderExpr(e, renderCtx),
+        guardClauses: (guards) =>
+          guards.map((g) =>
+            renderOpGuardClause(g, renderCtx, new Set(op.params.map((p) => p.name))),
+          ),
+        renderLeaf: (path, segment) => {
+          const parts = leafParts(
+            { ...op, statements: path },
+            new Set(segment),
+            path.length - segment.length,
+          );
+          return [...parts.bodyLines, ...parts.tailLines];
+        },
+      });
   // A guarded op wraps its body + persist in a leading `with ensure(...)` chain
   // (guards short-circuit to `{:error, atom}` before any write); a guard-free op
   // keeps the flat linear body (byte-identical).
-  const innerLines = [...bodyLines, ...tailLines];
   const body = (
     guardClauses.length > 0
       ? [
@@ -1229,7 +1293,8 @@ export function renderReturningOpFunction(
   // `{:validation_failed, [%{…}]}` — the tag carries the rung and the second
   // element the RFC 7807 `detail` (or the `errors[]` list).  The spec said
   // `{:error, atom()}`, which no denial this function can produce matches.
-  const denialSpec = guardClauses.length > 0 ? " | {:error, {atom(), term()}}" : "";
+  const denialSpec =
+    guardClauses.length > 0 || opHasGuards(op) ? " | {:error, {atom(), term()}}" : "";
 
   return `  @doc "Returning operation \`${op.name}\` on \`${aggPascal}\` (exception-less)."
   @spec ${opSnake}_${aggSnake}(${aggModule}.t(), map()) ::
@@ -1416,6 +1481,9 @@ export function renderReturningStmt(
         : `    record = %{record | ${field}: record.${field} - ${value}}`;
     }
     case "emit": {
+      // A body that owns no dispatch (a pure core, a private-operation helper)
+      // renders no event — its caller's persist path dispatches.
+      if (rc.dropEmits) return "";
       // Broadcast a domain event — same form the vanilla workflow body emits.
       const fields = s.fields.map((f) => `${snake(f.name)}: ${renderExpr(f.value, rc)}`).join(", ");
       const appModule = rc.contextModule.split(".")[0]!;
@@ -1476,24 +1544,19 @@ export function renderReturningStmt(
       });
     }
     case "if": {
-      // A value-producing `if`: every arm ends in the threaded
-      // `record`, and the whole expression rebinds it, so a branch that assigns
-      // IS observable after the call.  The two sub-shapes this rendering cannot
-      // express (a `return` / a nested guard in a branch) are refused up front
-      // by `loom.elixir-if-stmt-unsupported`; this arm re-classifies with the
-      // SAME predicate the gate uses, so a bypassed validator fails loudly
-      // instead of emitting a body that drops the early exit.
-      const refusal = elixirIfRefusal([s], "operation");
-      if (refusal) {
-        throw new Error(
-          `platform: elixir — an 'if' statement with a ${refusal} reached the vanilla ` +
-            "operation emitter; it is refused at validation " +
-            `(loom.elixir-if-stmt-unsupported#${refusal}).`,
-        );
-      }
+      // A value-producing `if`.  In a body that threads `record` every arm ends
+      // in it and the whole expression rebinds it, so a branch that assigns IS
+      // observable after the `if`.  An `if` holding a `return` is always the
+      // last statement of its block (lowering's branch-total form), so it is
+      // the block's VALUE instead: each arm ends in its own result.  An
+      // operation renderer never hands this arm an `if` whose branches decide
+      // a persist, guard or emit per path — it renders those as a path tree
+      // (`op-tree.ts`); the bodies that do reach here with a guard in a branch
+      // (a pure core, a private-operation helper) raise it in place.
+      const returns = branchesContain(s, (n) => n.kind === "return");
       return renderElixirIfStmt(s, {
         indent: "    ",
-        threadVar: rc.thisName,
+        ...(returns ? {} : { threadVar: rc.thisName }),
         cond: renderExpr(s.cond, rc),
         renderInner: (stmts) => stmts.map((st, i) => renderReturningStmt(st, ctx, rc, index + i)),
       });

@@ -191,7 +191,7 @@ system FulfillmentSys {
     expect(persistAt).toBeLessThan(dispatchAt);
     // Wire projected off the SAVED struct, not the in-memory record.
     expect(body).toContain("{:ok, saved} ->");
-    expect(body).toContain("{:ok, %{id: saved.id");
+    expect(body).toContain('{:ok, %{type: "Order", id: saved.id');
   });
 
   it("a NON-emitting op keeps the byte-identical plain persist pipe (no case restructure)", async () => {
