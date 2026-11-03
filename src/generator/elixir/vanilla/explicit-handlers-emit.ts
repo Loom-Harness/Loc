@@ -44,6 +44,7 @@ import type {
 import { handlerUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { requestRecordFor, routedAbsenceAnswers404 } from "../../../ir/util/handler-contracts.js";
+import { bodyWriteScopeGuards, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
 import {
   pagedRunFindName,
   pagedRunGates,
@@ -357,6 +358,7 @@ function renderHandlerModule(
     domainServiceTier: (service, opName) => lookupServiceTier(ctx, service, opName),
     readingServiceModule: contextModuleFq,
     ...(threadsActor ? { repoRunActor: true } : {}),
+    writeScope: writeScopeContext(h.statements, ctx),
   };
 
   // The `return <expr>` is rendered into the with-chain's do-branch by
@@ -372,7 +374,22 @@ function renderHandlerModule(
     ownResult: true,
   });
   const resultExpr = h.returnValue ? renderExpr(h.returnValue, renderCtx) : ":ok";
-  const body = assembleHandlerBody(lines, resultExpr, routedAbsenceAnswers404(h, ctx));
+  const assembled = assembleHandlerBody(lines, resultExpr, routedAbsenceAnswers404(h, ctx));
+  // A body that re-checks a held row's write scope runs in one transaction,
+  // so a row outside the scope fails the whole command and rolls back the
+  // rows it already changed.
+  const body = handlerRechecksWriteScope(h, ctx)
+    ? [
+        `    ${appModule}.Repo.transaction(fn ->`,
+        `      case (`,
+        ...assembled.split("\n").map((l) => (l === "" ? l : `    ${l}`)),
+        `      ) do`,
+        `        {:ok, result} -> result`,
+        `        {:error, reason} -> ${appModule}.Repo.rollback(reason)`,
+        `      end`,
+        `    end)`,
+      ].join("\n")
+    : assembled;
   // Emit the `Context` alias iff the body actually references the context
   // module — a `with`-clause alone is NOT proof (a handler whose `with`
   // clauses only call `D.Resources.*` references no context module, so the
@@ -414,7 +431,24 @@ end
  *  (a `requires` gate or an expression), or a principal-filtered `Repo.run`
  *  read?  Then its `run` takes `current_user` and the route passes it. */
 function handlerTakesActor(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
-  return handlerUsesCurrentUser(h) || handlerThreadsActor(h, ctx);
+  return (
+    handlerUsesCurrentUser(h) ||
+    handlerThreadsActor(h, ctx) ||
+    writeScopeGuardsOf(h, ctx).some((g) => {
+      const agg = ctx.aggregates.find((a) => a.name === g.aggName);
+      return agg !== undefined && aggregateUsesPrincipalContextFilter(agg);
+    })
+  );
+}
+
+/** Every write-scope re-check in the handler's body. */
+function writeScopeGuardsOf(h: Handler, ctx: EnrichedBoundedContextIR) {
+  return h.extern ? [] : bodyWriteScopeGuards(h.statements, writeScopeContext(h.statements, ctx));
+}
+
+/** Does the handler's body re-check some held row's write scope? */
+function handlerRechecksWriteScope(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
+  return writeScopeGuardsOf(h, ctx).length > 0;
 }
 
 /** Does a (non-extern) handler run a criterion read — `Repo.run(<C>)`, or the
