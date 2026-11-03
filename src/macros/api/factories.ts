@@ -58,8 +58,11 @@ import type {
   UnaryExpr,
 } from "../../language/generated/ast.js";
 import {
+  isAggregate,
   isContainment,
   isDerivedProp,
+  isEntityPart,
+  isNamedType,
   isProperty,
   isStampDecl,
   isSubdomain,
@@ -887,47 +890,119 @@ function _cloneAstNode(node: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-/** The AST twin of the IR wire-projection `forApiRead(wireShape)`
- * (`src/ir/enrich/wire-projection.ts` + `wireFieldsForAggregate` in
- * `enrichments.ts`): the ordered field list an aggregate's `<Agg>Response`
- * read-projection carries.  Returns, IN wire order:
+/** The AST twin of the IR wire-projection `forApiRead(wireFieldsForAggregate)`
+ * (`src/ir/enrich/wire-projection.ts`, over the extends-merged field list
+ * `enrichments.ts` builds): the ordered field list an aggregate's
+ * `<Agg>Response` read-projection carries.  Returns, IN wire order:
  *
- *   1. the aggregate's `Property` members whose `access` is NOT `internal`
- *      and NOT `secret` (editable / immutable / managed / token stay) — the
- *      `forApiRead` matrix.  Unlike `writableCreateFields`, the origin-tag and
- *      stamp-target exclusions are NOT applied: apiRead keeps the macro-added
- *      managed/token fields (`createdAt`, `version`), exactly as wire shape
- *      does.  `tenantOwned`'s `dataKey` is `internal`, so the access filter
- *      already drops it — no special carve-out.
- *   2. one synthesized field per `Containment`, typed `<Part>Response` (the
- *      sibling record `scaffoldResponse` emits for the same part), array/optional
- *      matching the containment (`optional` only when single, never a collection).
+ *   1. the aggregate's value properties — every ancestor's first (root-most
+ *      base first, a nearer like-named field shadowing it, exactly the
+ *      enrichment merge), then its own — whose `access` is NOT `internal` and
+ *      NOT `secret` (the `forApiRead` matrix).  The macro-added managed/token
+ *      fields (`createdAt`, `version`) stay, exactly as in the wire shape;
+ *      `tenantOwned`'s `dataKey` is `internal`, so the access filter drops it.
+ *      A `provenanced` field keeps the flag, so the record lowers to the same
+ *      `Provenanced<T>` carrier `wireTypeForField` puts on the wire.
+ *   2. one synthesized field per containment — an explicit `contains` or an
+ *      inferred entity-typed property (`lines: Line[]`), interleaved in source
+ *      order as `lowerContainments` does — typed `<Part>Response` (the sibling
+ *      record `scaffoldHandlers` emits for the same part), array/optional
+ *      matching the containment (`optional` only when single).
  *   3. one synthesized field per non-`inspect` `DerivedProp` (name + cloned type).
+ *
+ * Only declared FIELDS inherit (the enrichment merge does not carry an
+ * ancestor's containments or derived getters), so steps 2–3 read the
+ * aggregate's own members.
  *
  * NO `id` field is emitted (grammar-reserved as a `Property` name; the wire
  * shape's synthetic `id` row has no source-record analogue).  Each returned
  * field is a fresh `field(...)` node (not the aggregate's own `Property`, which
- * `setContainer` would reparent) carrying name + type only — a response record
- * is name+type, exactly what the wire shape is. */
+ * `setContainer` would reparent). */
 export function apiReadFields(agg: Aggregate): readonly Property[] {
-  // Default-on `versioned` (M-T3.4) is spliced onto the aggregate LATER in the
-  // walk (`expandModel` visits this context's `scaffoldHandlers` before it
-  // reaches the child aggregate), so `version` is not yet a member here.  The
-  // IR wire read projection (`forApiRead`) always exposes it, so the read
-  // contract must too — re-derive it from the same default-on rule (every
-  // non-event-sourced aggregate) and splice it into the wire-shape slot (after
-  // declared properties, before containments).  Skip it when a `version` member
-  // already exists (an explicit context-level `with versioned` applied ahead of
-  // `scaffoldHandlers`), so it is never doubled.
+  // `version` is normally spliced by default-on versioning before the
+  // (late) contract macro reads the aggregate; re-derive it from the same rule
+  // (every non-event-sourced aggregate) for a read that runs earlier, into the
+  // wire-shape slot (after declared properties, before containments).  Skip it
+  // when a `version` member already exists, so it is never doubled.
   const members = agg.members ?? [];
   const isEventSourced = (agg as { persistedAs?: string }).persistedAs === "eventLog";
   const hasVersion = members.some((m) => isProperty(m) && m.name === "version");
   const trailing = !isEventSourced && !hasVersion ? [field("version", primType("int"))] : [];
-  return apiReadFieldsOf(members, trailing);
+  return apiReadFieldsOf(members, trailing, entityPartNames(agg), inheritedProperties(agg));
+}
+
+/** The names of `agg`'s entity parts — the set an entity-typed property must
+ * name to be an inferred containment.  Parts are aggregate-local, so the
+ * aggregate's own part list decides it for the aggregate AND its parts. */
+export function entityPartNames(agg: Aggregate): ReadonlySet<string> {
+  return new Set((agg.members ?? []).filter(isEntityPart).map((p) => p.name));
+}
+
+/** True for a `contains`-less entity-typed property (`lines: Line[]`) — the
+ * macro-phase twin of `isInferredContainment` (`src/language/containment.ts`),
+ * keyed on the part NAME because cross-references are not linked yet. */
+function isInferredContainmentByName(p: Property, partNames: ReadonlySet<string>): boolean {
+  const t = p.type;
+  if (!t || t.alternatives.length > 0 || t.ctors.length > 0) return false;
+  return isNamedType(t.base) && partNames.has(t.base.target.$refText);
+}
+
+/** The containment `m` declares — an explicit `contains` or an inferred
+ * entity-typed property — by part NAME, or `undefined` for any other member.
+ * The macro-phase twin of `lowerContainments`'s per-member split. */
+export function containmentOf(
+  m: unknown,
+  partNames: ReadonlySet<string>,
+): { name: string; part: string; collection: boolean; optional: boolean } | undefined {
+  if (isContainment(m)) {
+    return {
+      name: m.name,
+      part: m.partType.$refText,
+      collection: !!m.collection,
+      optional: !!m.optional,
+    };
+  }
+  if (isProperty(m) && isInferredContainmentByName(m, partNames) && isNamedType(m.type.base)) {
+    return {
+      name: m.name,
+      part: m.type.base.target.$refText,
+      collection: !!m.type.array,
+      optional: !!m.type.optional,
+    };
+  }
+  return undefined;
+}
+
+/** The value properties `agg` inherits through its FULL `extends` chain,
+ * root-most ancestor first, minus any name a nearer declaration redeclares —
+ * the same merge `enrichments.ts`'s `mergedFieldsFor` applies to the IR, over
+ * the same scope (a base resolved within the aggregate's own context). */
+function inheritedProperties(agg: Aggregate): Property[] {
+  const siblings = ((agg.$container as { members?: unknown[] } | undefined)?.members ?? []).filter(
+    isAggregate,
+  );
+  const ownProps = (a: Aggregate): Property[] => {
+    const parts = entityPartNames(a);
+    return (a.members ?? []).filter(
+      (m): m is Property => isProperty(m) && !isInferredContainmentByName(m, parts),
+    );
+  };
+  const merged = (a: Aggregate, seen: Set<string>): Property[] => {
+    const own = ownProps(a);
+    const baseName = a.superType?.$refText;
+    if (!baseName || seen.has(a.name)) return own;
+    seen.add(a.name);
+    const base = siblings.find((s) => s.name === baseName);
+    if (!base) return own;
+    const ownNames = new Set(own.map((p) => p.name));
+    return [...merged(base, seen).filter((p) => !ownNames.has(p.name)), ...own];
+  };
+  const own = new Set(ownProps(agg).map((p) => p.name));
+  return merged(agg, new Set()).filter((p) => !own.has(p.name));
 }
 
 /** The shared read-projection field walk for an aggregate OR an entity part
- * (`apiReadFields` wraps it for aggregates; `scaffoldResponse` calls it directly
+ * (`apiReadFields` wraps it for aggregates; `scaffoldHandlers` calls it directly
  * on a part's members).  A part has no synthetic `id` in its response body
  * either, so — like the aggregate case — no `id` field is emitted. */
 export function apiReadFieldsOf(
@@ -936,26 +1011,38 @@ export function apiReadFieldsOf(
   // and before containments — the wire-shape slot the macro-added `version`
   // token occupies (`wireFieldsForAggregate` appends it last among `fields`).
   trailingProps: readonly Property[] = [],
+  // The owning aggregate's entity-part names, so an entity-typed property is
+  // read as the containment it lowers to rather than as a value field.
+  partNames: ReadonlySet<string> = new Set(),
+  // Fields inherited through `extends`, already merged and shadow-filtered;
+  // they lead the property slice exactly as in the enriched field list.
+  inherited: readonly Property[] = [],
 ): Property[] {
   const out: Property[] = [];
-  // (a) declared properties minus internal / secret.
-  for (const m of members) {
-    if (!isProperty(m)) continue;
+  // (a) inherited then declared value properties, minus internal / secret.
+  const props = [
+    ...inherited,
+    ...members.filter(
+      (m): m is Property => isProperty(m) && !isInferredContainmentByName(m, partNames),
+    ),
+  ];
+  for (const m of props) {
     const access = (m as { access?: FieldAccess }).access;
     if (access === "internal" || access === "secret") continue;
-    out.push(field(m.name, cloneTypeRef(m.type)));
+    out.push(field(m.name, cloneTypeRef(m.type), { provenanced: !!m.provenanced }));
   }
   out.push(...trailingProps);
   // (b) containments → `<Part>Response` (the sibling record), array/optional
   //     mirroring the wire shape's `containmentTypeFor` + optionality rule.
   for (const m of members) {
-    if (!isContainment(m)) continue;
+    const c = containmentOf(m, partNames);
+    if (!c) continue;
     out.push(
       field(
-        m.name,
-        namedType(`${m.partType.$refText}Response`, {
-          array: m.collection,
-          optional: !!m.optional && !m.collection,
+        c.name,
+        namedType(`${c.part}Response`, {
+          array: c.collection,
+          optional: c.optional && !c.collection,
         }),
       ),
     );
