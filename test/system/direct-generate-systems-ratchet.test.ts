@@ -57,20 +57,6 @@ const GATED = new Set(["generateSystems", "generateSystemsFromLoom"]);
  */
 const PINNED: readonly string[] = [
   "test/conformance/corpus-mutation.test.ts",
-  "test/generator/vue/sourcemap.test.ts",
-  "test/generator/vue/vue-embedding.test.ts",
-  "test/generator/walker-match-expression.test.ts",
-  "test/ir/audited.test.ts",
-  "test/ir/provenance.test.ts",
-  "test/language/lsp/lsp-implementation.test.ts",
-  "test/language/parsing/aggregate-inheritance.test.ts",
-  "test/language/parsing/top-level-subdomain.test.ts",
-  "test/macro/version-field-collision.test.ts",
-  "test/pairwise/harness.ts",
-  "test/platform/backend-parity-gates.test.ts",
-  "test/platform/dotnet-fullstack.test.ts",
-  "test/platform/dotnet-multi-context-eventlog-naming.test.ts",
-  "test/platform/frontend-dispatch.test.ts",
 ];
 
 function testFiles(dir: string, out: string[] = []): string[] {
