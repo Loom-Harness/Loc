@@ -71,7 +71,7 @@ export function renderDapperTphBaseReaderImpl(
   const baseTable = aggregateTableName(base, ctx.aggregates);
   const table = sqlIdent(baseTable);
   const idClass = `${base.name}Id`;
-  const idCs = idTypes(base.idValueType).cs;
+  const idCs = idTypes().cs;
 
   const shapes: ConcreteShape[] = concretes.map((agg) => ({
     agg,

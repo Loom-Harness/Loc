@@ -124,7 +124,7 @@ function renderProjectionRowConfiguration(proj: ProjectionIR, ns: string, schema
       // The key is NOT NULL → the plain converter; a non-key id column is
       // nullable → the `HasValue`-guarded `Id? ⇆ Provider?` form (an
       // expression-tree lambda can't use `?.`, mirroring the aggregate config).
-      const provider = csIdValueClrType(leaf.valueType);
+      const provider = csIdValueClrType();
       const conv = isKey
         ? `.HasConversion(v => v.Value, v => new ${idType}(v))`
         : `.HasConversion(v => v.HasValue ? v.Value.Value : (${provider}?)null, v => v.HasValue ? (${idType}?)new ${idType}(v.Value) : (${idType}?)null)`;

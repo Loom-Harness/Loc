@@ -19,8 +19,7 @@ import { foreignIdBrandNames, workflowIdTypeSources } from "../../../src/ir/util
 // two arms of `workflowIdTypeSources` are asserted SEPARATELY — a collector
 // that kept only `stateFields` would still pass any test that supplies both.
 
-const idT = (targetName: string): TypeIR =>
-  ({ kind: "id", targetName, valueType: "guid" }) as unknown as TypeIR;
+const idT = (targetName: string): TypeIR => ({ kind: "id", targetName }) as unknown as TypeIR;
 const prim = (name: string): TypeIR => ({ kind: "primitive", name }) as TypeIR;
 
 const wf = (over: Partial<WorkflowIR> = {}): WorkflowIR =>

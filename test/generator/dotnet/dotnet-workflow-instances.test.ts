@@ -4,30 +4,17 @@
 // .../instances/{id} over the EF-mapped saga-state DbSet — the read-side
 // analogue of an aggregate's GET list / GET-by-id.
 
+import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateDotnet } from "../../_helpers/generate.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..", "..");
 
-async function generate(file: string): Promise<Map<string, string>> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(path.join(root, file)),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  expect(
-    errors.map((d) => d.message),
-    "fixture validation errors",
-  ).toEqual([]);
-  return generateDotnet(doc.parseResult.value as Model);
+function generate(file: string): Promise<Map<string, string>> {
+  return generateBackendFiles(readFileSync(path.join(root, file), "utf8"), "dotnet");
 }
 
 describe(".NET workflow instance read endpoints", () => {

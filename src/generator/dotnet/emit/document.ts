@@ -63,7 +63,7 @@ function snapshotInit(t: TypeIR): string {
  *  `Data` holds the serialised aggregate; `Version` is an EF
  *  concurrency token bumped on every save. */
 export function renderDocumentPoco(agg: EnrichedAggregateIR, ns: string): string {
-  const idType = csValueTypeForId(agg.idValueType);
+  const idType = csValueTypeForId();
   const idInit = idType === "string" ? " = default!;" : "";
   return (
     lines(

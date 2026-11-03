@@ -211,7 +211,7 @@ export function voEctoType(t: TypeIR, enums: ReadonlyMap<string, EnumIR> = new M
     case "primitive":
       return exEctoScalarType(t.name);
     case "id":
-      return exEctoIdType(t.valueType);
+      return exEctoIdType();
     case "enum": {
       const en = enums.get(t.name);
       return en

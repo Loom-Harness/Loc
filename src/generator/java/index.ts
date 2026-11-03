@@ -13,7 +13,6 @@ import type {
   EnrichedBoundedContextIR,
   EventIR,
   FieldIR,
-  IdValueType,
   ProjectionIR,
   RepositoryIR,
   SystemIR,
@@ -734,7 +733,7 @@ function emitProjectFromContexts(
       place(
         `${agg.name}Id.java`,
         "id",
-        renderJavaId(agg.name, agg.idValueType, basePkg),
+        renderJavaId(agg.name, basePkg),
         undefined,
         agg.origin,
         idConstruct,
@@ -743,7 +742,7 @@ function emitProjectFromContexts(
         place(
           `${part.name}Id.java`,
           "id",
-          renderJavaId(part.name, agg.idValueType, basePkg),
+          renderJavaId(part.name, basePkg),
           undefined,
           agg.origin,
           idConstruct,
@@ -763,7 +762,7 @@ function emitProjectFromContexts(
           place(
             `${assoc.targetAgg}IdJsonListConverter.java`,
             "id",
-            renderJavaIdListConverter(assoc.targetAgg, assoc.valueType, basePkg),
+            renderJavaIdListConverter(assoc.targetAgg, basePkg),
             undefined,
             agg.origin,
             idConstruct,
@@ -976,7 +975,7 @@ function emitProjectFromContexts(
         place(
           `${f.type.element.targetName}IdJsonListConverter.java`,
           "id",
-          renderJavaIdListConverter(f.type.element.targetName, f.type.element.valueType, basePkg),
+          renderJavaIdListConverter(f.type.element.targetName, basePkg),
           undefined,
           origin,
           construct,
@@ -1368,14 +1367,7 @@ function emitProjectFromContexts(
       ...userClaimIdTypeSources(system.sys.user),
     ]);
     for (const name of foreignIdNames) {
-      let idValueType = "uuid";
-      for (const sub of system.sys.subdomains) {
-        for (const c of sub.contexts) {
-          const agg = c.aggregates.find((a) => a.name === name);
-          if (agg) idValueType = agg.idValueType;
-        }
-      }
-      place(`${name}Id.java`, "id", renderJavaId(name, idValueType, basePkg));
+      place(`${name}Id.java`, "id", renderJavaId(name, basePkg));
     }
   }
 
@@ -1416,7 +1408,6 @@ function emitProjectFromContexts(
       channelBindings,
       carriedEvents,
       consumerHandlers,
-      system.sys,
       {
         durableBroker: durableBrokerEvents.size > 0,
         outboxEntityPkg: pkgFor("infra-persistence"),
@@ -1476,7 +1467,7 @@ function emitProjectFromContexts(
     // among THIS deployable's contexts (so the boot JdbcTemplate reaches it),
     // `currentUser.orgPath` reads the registry's `data_key` per request;
     // otherwise the claim-copy accessor stands.
-    let orgPathRegistry: { table: string; idValueType: IdValueType } | undefined;
+    let orgPathRegistry: { table: string } | undefined;
     const reg = hierarchyRegistry(system.sys);
     if (reg) {
       for (const ctx of contexts) {
@@ -1484,10 +1475,7 @@ function emitProjectFromContexts(
         if (regAgg) {
           const schema = resolveDataSourceConfig(regAgg, ctx, system.sys)?.schema;
           const table = registryTableName(system.sys) as string;
-          orgPathRegistry = {
-            table: schema ? `${schema}.${table}` : table,
-            idValueType: reg.idValueType,
-          };
+          orgPathRegistry = { table: schema ? `${schema}.${table}` : table };
           break;
         }
       }
@@ -1788,7 +1776,7 @@ function emitAggregate(
       place(
         `${plural(agg.name)}Controller.java`,
         "controller",
-        renderJavaBaseReadController(agg, read, agg.idValueType, {
+        renderJavaBaseReadController(agg, read, {
           basePkg,
           pkg: pkgFor("controller", agg.name),
           routePrefix,
@@ -1829,7 +1817,6 @@ function emitAggregate(
         fieldNames: new Set(inheritedBase.fields.map((f) => f.name)),
         derivedNames: new Set(inheritedBase.derived.map((d) => d.name)),
         sharesIdentity: !!tphBase,
-        idValueType: tphBase?.idValueType,
         pkg: pkgFor("entity", inheritedBase.name),
       }
     : undefined;

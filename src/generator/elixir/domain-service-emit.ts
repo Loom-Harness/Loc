@@ -55,6 +55,7 @@ import { type RenderCtx, renderExpr, renderTypespec } from "./render-expr.js";
 import { appModuleOf, guardRaiseLine } from "./vanilla/denial.js";
 import { renderElixirIfStmt } from "./vanilla/if-stmt-emit.js";
 import { renderElixirMatchStmt } from "./vanilla/match-stmt-emit.js";
+import { renderElixirUnionReturn } from "./vanilla/union-return-emit.js";
 import { opCallParamFields } from "./vanilla/workflow-execution-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -508,7 +509,14 @@ function renderStatement(
       }
       // `or`-union return → the tagged tuple the vanilla returning-op path
       // emits: an `error`-payload variant rides as `{:error, "<tag>", data}`,
-      // the success value as `{:ok, value}`.  No new union machinery.
+      // the success value as `{:ok, value}`.  A `return match { … }` answers
+      // each arm's own tuple.
+      const perArm = renderElixirUnionReturn(s, {
+        indent: "    ",
+        renderExpr: (e) => renderExpr(e, rc),
+        renderReturn: (r) => renderStatement(r, ctx, rc, isUnion),
+      });
+      if (perArm !== null) return perArm;
       if (s.variantTag && isErrorTag(s.variantTag, ctx)) {
         const data = s.value.kind === "object" ? value : `%{value: ${value}}`;
         return `    {:error, ${JSON.stringify(s.variantTag)}, ${data}}`;

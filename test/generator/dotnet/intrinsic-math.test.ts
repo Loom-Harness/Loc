@@ -15,8 +15,8 @@
 // floor/ceiling), so no other numeric row carries a query override.
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../_helpers/generate.js";
-import { parseString, parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
+import { parseString } from "../../_helpers/parse.js";
 
 const SRC = `
   context Billing {
@@ -53,15 +53,13 @@ describe("dotnet generator — numeric math intrinsics (stdlib A3)", () => {
   });
 
   it("renders round in-memory with MidpointRounding.AwayFromZero (both arities)", async () => {
-    const model = await parseValid(SRC);
-    const domain = generateDotnet(model).get("Domain/Invoices/Invoice.cs")!;
+    const domain = (await generateBackendFiles(SRC, "dotnet")).get("Domain/Invoices/Invoice.cs")!;
     expect(domain).toContain("Math.Round(this.Amount, 2, MidpointRounding.AwayFromZero)");
     expect(domain).toContain("Math.Round(this.Amount, MidpointRounding.AwayFromZero)");
   });
 
   it("renders abs/min/floor/ceil in-memory via System.Math", async () => {
-    const model = await parseValid(SRC);
-    const domain = generateDotnet(model).get("Domain/Invoices/Invoice.cs")!;
+    const domain = (await generateBackendFiles(SRC, "dotnet")).get("Domain/Invoices/Invoice.cs")!;
     expect(domain).toContain("Math.Abs(this.Qty)");
     expect(domain).toContain("Math.Min(this.Amount, this.Budget)");
     expect(domain).toContain("Math.Floor(this.Rate)");
@@ -69,8 +67,7 @@ describe("dotnet generator — numeric math intrinsics (stdlib A3)", () => {
   });
 
   it("renders chained intrinsics in an operation body (max then round)", async () => {
-    const model = await parseValid(SRC);
-    const domain = generateDotnet(model).get("Domain/Invoices/Invoice.cs")!;
+    const domain = (await generateBackendFiles(SRC, "dotnet")).get("Domain/Invoices/Invoice.cs")!;
     expect(domain).toContain(
       "Math.Round(Math.Max(this.Amount, delta), 2, MidpointRounding.AwayFromZero)",
     );
@@ -85,7 +82,7 @@ describe("dotnet generator — numeric math intrinsics (stdlib A3)", () => {
   };
 
   it("renders round in the criterion expression WITHOUT MidpointRounding (EF-translatable form)", async () => {
-    const files = generateDotnet(await parseValid(SRC));
+    const files = await generateBackendFiles(SRC, "dotnet");
     // Query override: MidpointRounding overloads don't translate; Postgres
     // round() is half-away-from-zero anyway, so the contract holds.
     expect(queryOf(files, "InvoicesPricierThan")).toBe("Math.Round(candidate.Amount, 2) > q");
@@ -96,7 +93,7 @@ describe("dotnet generator — numeric math intrinsics (stdlib A3)", () => {
   });
 
   it("renders abs/min/max/floor/ceil in criterion expressions as-is (EF translates them natively)", async () => {
-    const files = generateDotnet(await parseValid(SRC));
+    const files = await generateBackendFiles(SRC, "dotnet");
     expect(queryOf(files, "InvoicesByAbsQty")).toBe("Math.Abs(candidate.Qty) > n");
     expect(queryOf(files, "InvoicesCappedAt")).toBe("Math.Min(candidate.Amount, q) == q");
     expect(queryOf(files, "InvoicesByMaxBig")).toBe("Math.Max(candidate.Big, l) == l");

@@ -159,6 +159,10 @@ describe("HEEx design-pack wiring", () => {
     // Docker builds the assets; host dev gets the mix alias.
     expect(files.get("phoenix_app/Dockerfile")).toContain("AS assets-build");
     expect(files.get("phoenix_app/mix.exs")).toContain('"assets.build"');
+    // The host-dev install rides out a transient registry reset like the image build.
+    expect(files.get("phoenix_app/mix.exs")).toContain(
+      '"cmd --cd assets npm install --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000"',
+    );
   });
 
   it("daisyui's tailwind config loads the daisyui plugin", async () => {

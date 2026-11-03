@@ -84,8 +84,7 @@ function renderProjectionRowSchema(
 ): string {
   const corr = proj.correlationField as string;
   const corrField = proj.stateFields.find((f) => f.name === corr);
-  const pkType =
-    corrField && corrField.type.kind === "id" ? ectoIdType(corrField.type.valueType) : ":string";
+  const pkType = corrField && corrField.type.kind === "id" ? ectoIdType() : ":string";
   const table = projectionTableName(proj);
   const fieldLines = proj.stateFields
     .filter((f) => f.name !== corr)

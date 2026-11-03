@@ -91,7 +91,7 @@ export function emitAuthFiles(
         ? "Infrastructure/Persistence/DapperOrgPathResolver.cs"
         : "Infrastructure/Persistence/EfOrgPathResolver.cs",
       usingDapper
-        ? renderDapperOrgPathResolver(ns, registry, registryTableName(sys) as string)
+        ? renderDapperOrgPathResolver(ns, registryTableName(sys) as string)
         : renderEfOrgPathResolver(ns, registry),
     );
   }
@@ -155,11 +155,11 @@ function csClaimDecoder(t: TypeIR): CsClaimDecoder | undefined {
     return helper ? { csType: renderCsType(t), decode: helper } : undefined;
   }
   if (t.kind === "id") {
-    const helper = CS_SCALAR_DECODERS[t.valueType];
     const cls = renderCsType(t);
-    return helper
-      ? { csType: cls, decode: `e => ${helper}(e) is { } v ? new ${cls}(v) : null` }
-      : undefined;
+    return {
+      csType: cls,
+      decode: `e => ${CS_SCALAR_DECODERS.guid}(e) is { } v ? new ${cls}(v) : null`,
+    };
   }
   return undefined;
 }
@@ -1571,7 +1571,7 @@ function renderEfOrgPathResolver(ns: string, registry: AggregateIR): string {
   const idClass = `${registry.name}Id`;
   // Wrap the string claim to the registry's id value type (mirrors the derived
   // self-scope's `Guid.Parse` binding), guarded so a bad claim fails safe.
-  const wrap = idWrapForClaim(registry.idValueType, idClass);
+  const wrap = idWrapForClaim(idClass);
   return `// Auto-generated.
 using System;
 using System.Linq;
@@ -1627,12 +1627,12 @@ ${wrap}
  *  every failure path so the middleware falls back to the claim.  Emitting the
  *  EF file regardless of adapter does not compile on a Dapper deployable: no
  *  `Microsoft.EntityFrameworkCore`, no `AppDbContext`. */
-function renderDapperOrgPathResolver(ns: string, registry: AggregateIR, table: string): string {
+function renderDapperOrgPathResolver(ns: string, table: string): string {
   const dataKeyColumn = snake("dataKey");
   // The claim is bound as the RAW scalar (Dapper has no id-value-type handler),
   // guarded so a malformed claim fails safe — the raw-parameter mirror of the
   // EF path's `idWrapForClaim` strong-id wrap.
-  const wrap = rawIdWrapForClaim(registry.idValueType);
+  const wrap = rawIdWrapForClaim();
   return `// Auto-generated.  Dapper \`IOrgPathResolver\` (persistence: dapper).
 using System;
 using System.Threading;
@@ -1678,62 +1678,24 @@ ${wrap}
 }
 
 /** The C# guard + `var id = …` binding the string tenancy claim to the RAW
- *  scalar Dapper parameterizes with (the Dapper twin of `idWrapForClaim`, which
- *  wraps into the strongly-typed id class EF's LINQ comparison needs).  Guarded
- *  parses (guid / int / long) short-circuit to `null` on a bad claim; a string
- *  id is the key verbatim. */
-function rawIdWrapForClaim(idValueType: string): string {
-  const parser =
-    idValueType === "guid"
-      ? "Guid.TryParse"
-      : idValueType === "int"
-        ? "int.TryParse"
-        : idValueType === "long"
-          ? "long.TryParse"
-          : null;
-  if (!parser) {
-    return `        if (string.IsNullOrEmpty(claim))
-        {
-            return null;
-        }
-        var id = claim;`;
-  }
-  return `        if (string.IsNullOrEmpty(claim) || !${parser}(claim, out var id))
+ *  guid Dapper parameterizes with (the Dapper twin of `idWrapForClaim`, which
+ *  wraps into the strongly-typed id class EF's LINQ comparison needs).  The
+ *  guarded parse short-circuits to `null` on a bad claim. */
+function rawIdWrapForClaim(): string {
+  return `        if (string.IsNullOrEmpty(claim) || !Guid.TryParse(claim, out var id))
         {
             return null;
         }`;
 }
 
 /** The C# guard + `var id = …` that wraps the string tenancy claim to the
- *  registry's strongly-typed id (multi-tenancy).  Guarded parses (guid /
- *  int / long) short-circuit to `null` on a bad claim; a string id needs no
- *  parse.  Mirrors the derived self-scope's binding (`Guid.Parse`), fail-safe. */
-function idWrapForClaim(idValueType: string, idClass: string): string {
-  switch (idValueType) {
-    case "guid":
-      return `        if (string.IsNullOrEmpty(claim) || !Guid.TryParse(claim, out var raw))
+ *  registry's strongly-typed id (multi-tenancy).  The guarded parse
+ *  short-circuits to `null` on a bad claim.  Mirrors the derived self-scope's
+ *  binding (`Guid.Parse`), fail-safe. */
+function idWrapForClaim(idClass: string): string {
+  return `        if (string.IsNullOrEmpty(claim) || !Guid.TryParse(claim, out var raw))
         {
             return null;
         }
         var id = new ${idClass}(raw);`;
-    case "int":
-      return `        if (string.IsNullOrEmpty(claim) || !int.TryParse(claim, out var raw))
-        {
-            return null;
-        }
-        var id = new ${idClass}(raw);`;
-    case "long":
-      return `        if (string.IsNullOrEmpty(claim) || !long.TryParse(claim, out var raw))
-        {
-            return null;
-        }
-        var id = new ${idClass}(raw);`;
-    default:
-      // string id — the claim is the key verbatim.
-      return `        if (string.IsNullOrEmpty(claim))
-        {
-            return null;
-        }
-        var id = new ${idClass}(claim);`;
-  }
 }

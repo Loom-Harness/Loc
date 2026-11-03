@@ -634,7 +634,7 @@ function mapLeafTypeToEcto(t: TypeIR): string | null {
     case "id":
       // X id → FK column of the target's key type; the column itself is
       // enough for wire shape parity (the agg JSON includes the FK value).
-      return exEctoIdType(t.valueType);
+      return exEctoIdType();
     case "valueobject":
       // VO → the JSON column for a caller with no value-object table to build
       // the canonical `Loom.ValueObject` column type from (projection rows,

@@ -1,6 +1,6 @@
 // A2 string batch of the scalar-intrinsic catalogue (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md)
 // end-to-end on the .NET backend: toUpper/toLower/substring/startsWith/
-// endsWith/contains/replace/split from `.ddd` source through generateDotnet.
+// endsWith/contains/replace/split from `.ddd` source through the .NET backend.
 // Semantics contract (src/util/intrinsics.ts): substring is 0-based CLAMPING
 // (JS-slice) over CODE POINTS, startsWith/endsWith/contains are ordinal, replace hits all
 // occurrences literally, split keeps empty segments.  Only toUpper/toLower
@@ -8,8 +8,8 @@
 // same renderCsExpr path as trim (no separate SQL table on .NET).
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../_helpers/generate.js";
-import { parseString, parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
+import { parseString } from "../../_helpers/parse.js";
 
 const SRC = `
   context Catalog {
@@ -33,8 +33,7 @@ describe("dotnet generator — string intrinsics (stdlib A2 batch)", () => {
   });
 
   it("renders the string batch in-memory in derived/invariant bodies", async () => {
-    const model = await parseValid(SRC);
-    const domain = generateDotnet(model).get("Domain/Products/Product.cs")!;
+    const domain = (await generateBackendFiles(SRC, "dotnet")).get("Domain/Products/Product.cs")!;
     // derived slug — chained trim().toLower()
     expect(domain).toContain(".Trim().ToLowerInvariant()");
     expect(domain).toContain(".ToUpperInvariant()");
@@ -54,8 +53,9 @@ describe("dotnet generator — string intrinsics (stdlib A2 batch)", () => {
   });
 
   it("renders queryable toLower inside the criterion's expression tree (EF-translatable)", async () => {
-    const model = await parseValid(SRC);
-    const crit = generateDotnet(model).get("Domain/Criteria/ProductsByNormalizedNameCriterion.cs")!;
+    const crit = (await generateBackendFiles(SRC, "dotnet")).get(
+      "Domain/Criteria/ProductsByNormalizedNameCriterion.cs",
+    )!;
     expect(crit).toContain("ToExpression() => candidate => candidate.Name.ToLower() == q;");
   });
 
@@ -69,8 +69,7 @@ describe("dotnet generator — string intrinsics (stdlib A2 batch)", () => {
         }
       }
     `;
-    const model = await parseValid(src);
-    const domain = generateDotnet(model).get("Domain/Docs/Doc.cs")!;
+    const domain = (await generateBackendFiles(src, "dotnet")).get("Domain/Docs/Doc.cs")!;
     expect(domain).toContain("string.Concat(this.Body.EnumerateRunes().Skip(5))");
     expect(domain).toContain('.Split("\\n").ToList()');
   });
