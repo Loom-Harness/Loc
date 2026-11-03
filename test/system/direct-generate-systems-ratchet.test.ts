@@ -61,9 +61,7 @@ const GATED = new Set(["generateSystems", "generateSystemsFromLoom"]);
  * `test/_helpers/generate.ts` is the one legitimate importer — it IS the
  * gated wrapper — and is exempted below rather than pinned.
  */
-const PINNED: readonly string[] = [
-  "test/conformance/corpus-mutation.test.ts",
-];
+const PINNED: readonly string[] = ["test/conformance/corpus-mutation.test.ts"];
 
 function testFiles(dir: string, out: string[] = []): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
