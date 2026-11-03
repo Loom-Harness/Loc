@@ -1,9 +1,5 @@
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateDotnet } from "../../_helpers/generate.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // .NET backend — projection read models (projection.md, v1).  A projection
@@ -15,9 +11,8 @@ import { generateDotnet } from "../../_helpers/generate.js";
 // /warnaserror` gate lives in test/e2e/generated-dotnet-build.test.ts.
 // ---------------------------------------------------------------------------
 
-// `generateDotnet` lowers a BARE context (the legacy per-context entry, like
-// the dispatch test's `generateSource`), so the fixture is an unwrapped
-// `context {...}` rather than a full `system`.
+// `generateBackendFiles` hosts a bare context on one .NET deployable, so the
+// fixture is an unwrapped `context {...}` rather than a full `system`.
 const SRC = `context Orders {
   enum OrderStatus { Placed Shipped }
   event OrderPlaced  { order: Order id, customer: Customer id }
@@ -50,15 +45,8 @@ const SRC_NO_PROJECTION = `context Orders {
   repository Orders for Order { }
 }`;
 
-async function generate(src: string): Promise<Map<string, string>> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await parseHelper<Model>(services.Ddd)(src, { validation: true });
-  const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  expect(
-    errors.map((d) => d.message),
-    "source validation errors",
-  ).toEqual([]);
-  return generateDotnet(doc.parseResult.value);
+function generate(src: string): Promise<Map<string, string>> {
+  return generateBackendFiles(src, "dotnet");
 }
 
 function file(files: Map<string, string>, suffix: string): string {
@@ -125,9 +113,8 @@ describe(".NET projection runtime", () => {
   it("emits a read controller + Response DTO under /api/projections", async () => {
     const files = await generate(SRC);
     const ctrl = file(files, "Api/OrdersProjectionsController.cs");
-    // Bare-context mode has no `/api` route prefix (that's added in system mode);
-    // the compile-verified system-mode output mounts at `api/projections`.
-    expect(ctrl).toContain('[Route("projections")]');
+    // The hosted deployable mounts the projection reads under `api/projections`.
+    expect(ctrl).toContain('[Route("api/projections")]');
     expect(ctrl).toContain('[HttpGet("order_book")]');
     expect(ctrl).toContain("public async Task<IActionResult> ListOrderBook()");
     expect(ctrl).toContain('[HttpGet("order_book/{key}")]');

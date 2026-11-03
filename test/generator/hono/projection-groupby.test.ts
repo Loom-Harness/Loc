@@ -10,8 +10,7 @@
 // coercions the singleton uses.
 
 import { describe, expect, it } from "vitest";
-import { generateHono, generateSystemFiles } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Orders {
@@ -38,7 +37,7 @@ const SRC = `
 `;
 
 async function routes(): Promise<string> {
-  const files = await generateHono(await parseValid(SRC));
+  const files = await generateBackendFiles(SRC, "node");
   return files.get("http/query-projections.ts")!;
 }
 

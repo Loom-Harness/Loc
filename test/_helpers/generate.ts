@@ -4,7 +4,6 @@ import { lowerModel, mergeLoomModels } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { assertLoomModelVerifies } from "../../src/ir/verify/verify-ir.js";
 import type { Model } from "../../src/language/generated/ast.js";
-import { generateTypeScript } from "../../src/platform/hono/v4/emit.js";
 import { BACKEND_PINS as HONO_PINS } from "../../src/platform/hono/v5/pins.js";
 import {
   type GenerateSystemOptions,
@@ -28,11 +27,8 @@ export { HONO_PINS };
  * synchronous legacy `generate` helpers as well as the async ones.
  *
  * This is the shared body of the phase-⑤-and-later half of `assertGeneratable`;
- * both call it so the two paths cannot drift.  The whole point of extracting it
- * was `generateHono` below: at the 2026-09 census that wrapper was one line with
- * no checks at all, and its **66 call sites across 37 files** were the last
- * corner of the tree that could assert on emitted output from an IR nothing had
- * ever looked at (M-T9.48).
+ * both it and the legacy `generateDotnet` wrapper call it, so the two paths
+ * cannot drift.
  */
 export function assertModelVerifies(model: Model, context = ".ddd fixture"): void {
   // Phases ⑤/⑥ — the IR the backends will consume must hold its own contract
@@ -58,36 +54,14 @@ export function assertModelVerifies(model: Model, context = ".ddd fixture"): voi
 }
 
 /**
- * Generate the single-context Hono/TS project file map from an AST Model.
- *
- * Runs `assertModelVerifies` first, so this legacy single-context path asserts
- * everything `generateSystemFiles` asserts about the IR — phases ⑤/⑥ via the
- * verifier and phase ⑦ via `validateLoomModel`.  Phases ① and ④ are the
- * CALLER's, because this helper takes a Model rather than a source string: a
- * caller that reaches it through `parseValid` has both; one that reaches it
- * through a bare `parseString` has neither, which is what
- * `test/system/legacy-generate-path-ratchet.test.ts` pins.
- */
-export const generateHono = (model: Model): Map<string, string> => {
-  assertModelVerifies(model);
-  return generateTypeScript(model, HONO_PINS);
-};
-
-/**
  * Generate the single-context .NET project file map from an AST Model.
  *
- * The .NET twin of `generateHono` above, and it was the same hole: until
- * M-T9.49 this name was RE-EXPORTED straight from
- * `src/generator/dotnet/index.js`, so the helper wrapped it with nothing.  Its
- * call sites asserted on emitted C# from an IR nothing had ever inspected —
- * and most of them did not even reach the helper, importing the generator
- * directly from `src/` and so sitting outside every gate this module has.
- *
- * Now a real wrapper: `assertModelVerifies` first, exactly as `generateHono`
- * does, from the same shared body so the two legacy paths cannot drift.
- * Phases ① and ④ are the CALLER's for the same reason as above — this takes a
- * `Model`, not a source string — which is what the `parseString` column of
- * `test/system/legacy-generate-path-ratchet.test.ts` pins.
+ * A legacy path kept only for the callers
+ * `test/system/legacy-generate-path-ratchet.test.ts` still pins — new tests use
+ * `generateBackendFiles(contexts, "dotnet")`.  `assertModelVerifies` runs first,
+ * so phases ⑤/⑥/⑦ hold; phases ① and ④ are the CALLER's, because this takes a
+ * `Model`, not a source string — which is what the ratchet's `parseString`
+ * column pins.
  */
 export const generateDotnet = (
   model: Model,
@@ -306,8 +280,8 @@ export async function generateSystemFilesFromProject(
 
 /**
  * Emit ONE backend's project for a fixture written as bare `context { … }`
- * blocks — the replacement for the legacy single-context `generateHono` /
- * `generateDotnet` wrappers, through the orchestrator the CLI runs.
+ * blocks — the replacement for the legacy single-context `generateDotnet`
+ * wrapper, through the orchestrator the CLI runs.
  *
  * The legacy wrappers emitted from the model's LOOSE contexts, so a fixture
  * could stay a context and nothing else.  The product never emits that way:

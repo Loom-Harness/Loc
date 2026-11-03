@@ -6,8 +6,7 @@
 // the C# snippet in render-expr.ts (CS_INTRINSIC_RENDERERS).
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 describe("dotnet generator — string.trim() intrinsic (stdlib A1 pilot)", () => {
   it("renders a value-side trim (param receiver) the same way", async () => {
@@ -18,8 +17,9 @@ describe("dotnet generator — string.trim() intrinsic (stdlib A1 pilot)", () =>
         criterion ProductsByName(q: string) of Product = this.name == q.trim()
       }
     `;
-    const model = await parseValid(src);
-    const crit = generateDotnet(model).get("Domain/Criteria/ProductsByNameCriterion.cs")!;
+    const crit = (await generateBackendFiles(src, "dotnet")).get(
+      "Domain/Criteria/ProductsByNameCriterion.cs",
+    )!;
     expect(crit).toContain("ToExpression() => candidate => candidate.Name == q.Trim();");
   });
 });

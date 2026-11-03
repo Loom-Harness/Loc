@@ -6,6 +6,7 @@
 // attempts via the `event_dead_lettered` catalog event).  An `ephemeral`
 // channel keeps the at-most-once inline path byte-identically.
 
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { URI } from "langium";
@@ -81,16 +82,11 @@ describe("transactional outbox emission (retention: log)", () => {
 });
 
 // ─── .NET slice (T3.8 slice 2) ──────────────────────────────────────────────
-import { generateDotnet } from "../../_helpers/generate.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 describe("transactional outbox emission — .NET (retention: log)", () => {
   async function dotnetFiles(file: string): Promise<Map<string, string>> {
-    const services = createDddServices(NodeFileSystem);
-    const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-      URI.file(path.join(root, file)),
-    );
-    await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-    return generateDotnet(doc.parseResult.value as Model);
+    return generateBackendFiles(fs.readFileSync(path.join(root, file), "utf8"), "dotnet");
   }
 
   it("emits the OutboxMessage entity, dispatcher, relay, DbSet, and registrations", async () => {
@@ -113,8 +109,11 @@ describe("transactional outbox emission — .NET (retention: log)", () => {
       "DbSet<OutboxMessage> LoomOutbox",
     );
     const prog = files.get("Program.cs") ?? "";
+    // The fixture's channel is `delivery: broadcast`, so IDomainEventDispatcher
+    // is the realtime tee wrapping the outbox dispatcher (as on Hono above).
+    expect(prog).toContain("builder.Services.AddScoped<OutboxDomainEventDispatcher>();");
     expect(prog).toContain(
-      "builder.Services.AddScoped<IDomainEventDispatcher, OutboxDomainEventDispatcher>();",
+      "new RealtimeDomainEventDispatcher(sp.GetRequiredService<OutboxDomainEventDispatcher>(),",
     );
     expect(prog).toContain("builder.Services.AddHostedService<OutboxRelayService>();");
   });
@@ -122,8 +121,10 @@ describe("transactional outbox emission — .NET (retention: log)", () => {
   it("an ephemeral channel keeps the plain in-process registration (no outbox)", async () => {
     const files = await dotnetFiles("test/fixtures/dispatch-sample.ddd");
     expect(files.has("Infrastructure/Events/OutboxDomainEventDispatcher.cs")).toBe(false);
-    expect(files.get("Program.cs") ?? "").toContain(
-      "builder.Services.AddScoped<IDomainEventDispatcher, InProcessDomainEventDispatcher>();",
+    const prog = files.get("Program.cs") ?? "";
+    expect(prog).not.toContain("OutboxDomainEventDispatcher");
+    expect(prog).toContain(
+      "new RealtimeDomainEventDispatcher(sp.GetRequiredService<InProcessDomainEventDispatcher>(),",
     );
   });
 });
@@ -155,12 +156,7 @@ describe("idempotent-consumer markers — Hono", () => {
 
 describe("idempotent-consumer markers — .NET", () => {
   async function dotnetFiles2(file: string): Promise<Map<string, string>> {
-    const services = createDddServices(NodeFileSystem);
-    const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-      URI.file(path.join(root, file)),
-    );
-    await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-    return generateDotnet(doc.parseResult.value as Model);
+    return generateBackendFiles(fs.readFileSync(path.join(root, file), "utf8"), "dotnet");
   }
 
   it("state entity + EF mapping + OutboxDelivery AsyncLocal + handler check/stamp", async () => {

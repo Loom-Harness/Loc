@@ -6,8 +6,7 @@
 // (status from the stdlib default / api `httpStatus`) and a success to 200.
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Shop {
@@ -22,8 +21,7 @@ const SRC = `
 `;
 
 async function files(): Promise<Map<string, string>> {
-  const model = await parseValid(SRC);
-  return generateDotnet(model);
+  return generateBackendFiles(SRC, "dotnet");
 }
 
 /** Suffix-match the emitted path (the namespace prefix varies by entry point). */
@@ -104,8 +102,7 @@ describe("dotnet — exception-less operation returns (A3)", () => {
         }
       }
     `;
-    const model = await parseValid(src);
-    const u = find(await generateDotnet(model), "Domain/Orders/OrderOrNotFound.cs");
+    const u = find(await generateBackendFiles(src, "dotnet"), "Domain/Orders/OrderOrNotFound.cs");
     expect(u).toMatch(/using \S+\.Application\.Orders\.Responses;/);
     expect(u).toContain("IReadOnlyList<LineResponse> Lines");
   });

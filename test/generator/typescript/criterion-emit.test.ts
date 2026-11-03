@@ -4,8 +4,7 @@
 // per-backend query-engine change is needed.
 
 import { describe, expect, it } from "vitest";
-import { generateHono } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Sales {
@@ -28,8 +27,7 @@ const SRC = `
 
 describe("typescript generator — criterion", () => {
   it("lowers a criterion-composed read to the same Drizzle where as the inline one", async () => {
-    const model = await parseValid(SRC);
-    const files = generateHono(model);
+    const files = await generateBackendFiles(SRC, "node");
     const repo = files.get("db/repositories/customer-repository.ts")!;
     const expected = "and(eq(schema.customers.active, true), eq(schema.customers.region, r))";
     // Both the composed and the inline criterion reify to the same predicate…
