@@ -80,8 +80,8 @@ describe("python extern operations", () => {
     // One raising stub per extern op — loud, mirroring the Elixir analog.
     expect(hook).toContain("def confirm(order: Order) -> None:");
     expect(hook).toContain("def flag(order: Order, score: int) -> None:");
-    expect(hook).toContain("raise NotImplementedError(");
-    expect(hook).toContain("extern operation `confirm` on Order is not implemented");
+    expect(hook).toContain("raise ExternNotImplementedError(");
+    expect(hook).toContain("extern operation 'confirm' on Order is not implemented");
     // The aggregate imports the hook module, so the hook imports the aggregate
     // TYPE_CHECKING-only (no runtime cycle).
     expect(hook).toContain("from __future__ import annotations");

@@ -2,7 +2,6 @@ import {
   fieldCode,
   fieldFixedMessage,
   fieldSentenceSuffix,
-  INTEGER_RANGE_PARAMS,
   type WireRejectionClass,
   wireCode,
   wireFixedDetail,

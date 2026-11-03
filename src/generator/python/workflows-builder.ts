@@ -49,7 +49,6 @@ import {
   workflowFnSnake,
 } from "../../util/naming.js";
 import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
-import { pyRuleParams } from "./wire-policy-py.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { spellMarkers } from "../_imports/symbol.js";
 import { numericEncode } from "../_numeric/target.js";
@@ -99,7 +98,7 @@ import {
   requestFieldDecl,
 } from "./routes-builder.js";
 import { type PySaveLines, pySaveRenderer } from "./stamp-call.js";
-import { pyNotFoundRaise, wireStatusResolver } from "./wire-policy-py.js";
+import { pyNotFoundRaise, pyRuleParams, wireStatusResolver } from "./wire-policy-py.js";
 import { esFns } from "./workflow-eventsourced-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -1016,11 +1015,10 @@ export function instanceFieldValue(rowVar: string, f: WireField): string {
 // exit save does.
 /** A named workflow precondition also hands up the values it read (the wire
  *  `params`); empty for an unnamed one. */
-function precondParams(
-  st: { expr: ExprIR; message?: unknown },
-  rctx: PyRenderContext,
-): string {
-  const params = st.message ? pyRuleParams({ expr: st.expr }, (e) => renderPyExpr(e, rctx)) : undefined;
+function precondParams(st: { expr: ExprIR; message?: unknown }, rctx: PyRenderContext): string {
+  const params = st.message
+    ? pyRuleParams({ expr: st.expr }, (e) => renderPyExpr(e, rctx))
+    : undefined;
   return params ? `, ${params}` : "";
 }
 

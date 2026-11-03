@@ -275,16 +275,20 @@ describe(".NET generator", () => {
       expect(filter).toMatch(/Response\.Headers\["x-request-id"\] = traceId;/);
       // No dev-stub verifier here, so the 403 body is the constant `Forbidden`
       // (ruling D4, #20) — the gate text stays in the log line.
-      expect(filter).toMatch(/Problem\(context, 403, "Forbidden", "Forbidden", trace_id\)/);
       expect(filter).toMatch(
-        /Problem\(context, 422, "Unprocessable Entity", de\.Message, trace_id\)/,
+        /Problem\(context, 403, "Forbidden", "Forbidden", trace_id, "problem\.forbidden"\)/,
       );
-      expect(filter).toMatch(/Problem\(context, 404, "Not Found", nf\.Message, trace_id\)/);
+      expect(filter).toMatch(
+        /Problem\(context, 422, "Unprocessable Entity", de\.Message, trace_id, "problem\.domain-floor"\)/,
+      );
+      expect(filter).toMatch(
+        /Problem\(context, 404, "Not Found", nf\.Message, trace_id, "problem\.not-found"\)/,
+      );
       // Both 500 arms — the extern wrapper and the catch-all — now send the
       // same sanitized detail (RS-26), so this asserts the trace id threads
       // onto it rather than onto a message.
       expect(filter).toMatch(
-        /Problem\(context, 500, "Internal Server Error", "internal", trace_id\)/,
+        /Problem\(context, 500, "Internal Server Error", "internal", trace_id, "problem\.internal", new System\.Collections\.Generic\.Dictionary<string, object\?> \{ \["requestId"\] = trace_id \}\)/,
       );
     });
 
@@ -403,7 +407,7 @@ describe(".NET generator", () => {
     expect(impl).toMatch(/^\/\/ loom:scaffold-once/);
     expect(impl).toMatch(/public sealed partial class Order/);
     expect(impl).toMatch(
-      /private partial void ConfirmCore\(\)\s*=> throw new NotImplementedException\(/,
+      /private partial void ConfirmCore\(\)\s*=> throw new ExternNotImplementedException\(/,
     );
 
     // 5. The auto Mediator handler calls the aggregate method DIRECTLY — no
@@ -448,7 +452,7 @@ describe(".NET generator", () => {
       // strings) into a public response.  The operator-facing half is
       // unaffected — the LogError below still carries all three.
       expect(filter).toMatch(
-        /Problem\(context, 500, "Internal Server Error", "internal", trace_id\)/,
+        /Problem\(context, 500, "Internal Server Error", "internal", trace_id, "problem\.internal", new System\.Collections\.Generic\.Dictionary<string, object\?> \{ \["requestId"\] = trace_id \}\)/,
       );
       expect(filter).not.toMatch(/"Internal Server Error", xh\.Message/);
       // Logs the inner cause server-side via the neutral log-event
@@ -1155,7 +1159,9 @@ describe(".NET generator", () => {
     // own not-found result, so the exception arm is pinned here.
     const files = await salesFiles();
     const filter = files.get("Api/DomainExceptionFilter.cs")!;
-    expect(filter).toMatch(/Problem\(context, 404, "Not Found", nf\.Message, trace_id\)/);
+    expect(filter).toMatch(
+      /Problem\(context, 404, "Not Found", nf\.Message, trace_id, "problem\.not-found"\)/,
+    );
   });
 
   // -------------------------------------------------------------------------

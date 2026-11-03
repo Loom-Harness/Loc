@@ -84,6 +84,20 @@ const PENDING_ERROR_CODES: readonly WireWaiver[] =
 // `elixir` joined with M-T6.92, which turned its 500 into the same 409.
 export const WIRE_WAIVERS: readonly WireWaiver[] = [
   ...PENDING_ERROR_CODES,
+  // An unfilled `extern` stub answers 501 naming the file the author writes its
+  // body in, and that path is the backend's own source layout
+  // (`src/domain/product.ts`, `app/domain/extern/product_extern.py`,
+  // `Domain/Products/Product.Extern.cs`).  Status, title, code and the sentence
+  // up to the path agree.
+  {
+    backends: ["python", "dotnet", "dapper"],
+    cases: ["error-codes"],
+    request: "POST /api/products/{id}/ship",
+    path: "$.detail",
+    kinds: ["value"],
+    reason:
+      "#4473 — the 501 detail names the extern hook file, whose path is each backend's own source layout",
+  },
   // elixir's workflow / explicit-route dispatcher receives the bare
   // `{:error, :conflict}` (no aggregate, no row), so its 409 `detail` is the
   // generic sentence.  Status, `title` and `type` agree; every other backend

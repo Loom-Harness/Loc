@@ -296,7 +296,7 @@
       "status": 403,
       "body": {
         "code": "problem.forbidden",
-        "detail": "Forbidden: find all",
+        "detail": "Forbidden",
         "instance": "/api/orders",
         "status": 403,
         "title": "Forbidden",
@@ -338,7 +338,7 @@
       "status": 403,
       "body": {
         "code": "problem.forbidden",
-        "detail": "Forbidden: projection OrderBook",
+        "detail": "Forbidden",
         "instance": "/api/projections/order_book",
         "status": 403,
         "title": "Forbidden",
@@ -372,7 +372,7 @@
       "status": 403,
       "body": {
         "code": "problem.forbidden",
-        "detail": "Forbidden: projection OrderBook",
+        "detail": "Forbidden",
         "instance": "/api/projections/order_book/{id}",
         "status": 403,
         "title": "Forbidden",
@@ -396,7 +396,7 @@
       "status": 403,
       "body": {
         "code": "problem.forbidden",
-        "detail": "Forbidden: projection OpenOrders",
+        "detail": "Forbidden",
         "instance": "/api/projections/open_orders",
         "status": 403,
         "title": "Forbidden",
@@ -417,7 +417,7 @@
       "status": 403,
       "body": {
         "code": "problem.forbidden",
-        "detail": "Forbidden: find byId",
+        "detail": "Forbidden",
         "instance": "/api/orders/{id}",
         "status": 403,
         "title": "Forbidden",

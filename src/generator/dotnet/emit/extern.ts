@@ -65,6 +65,9 @@ export function renderExternHookImpl(agg: AggregateIR, ns: string): string | und
   return `// ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first
 // \`generate\` and NEVER overwrites it again, so your implementation survives every
 // regenerate.  Replace each \`throw\` with the operation's real domain logic.
+// CA1822 (could be static) is silenced for the scaffold: the compiler only
+// exempts a bare NotImplementedException body, and yours will read instance state.
+#pragma warning disable CA1822
 using System;
 using System.Collections.Generic;
 using System.Linq;

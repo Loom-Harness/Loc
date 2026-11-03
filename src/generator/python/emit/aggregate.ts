@@ -37,7 +37,6 @@ import { pythonIdent, snake } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { ruleText } from "../../_i18n/rule-text.js";
-import { pyRuleParams } from "../wire-policy-py.js";
 import { PY_IMPORTS, pyFrom, pyRef } from "../../_imports/python.js";
 import { ref } from "../../_imports/symbol.js";
 import { constructionSeededFields } from "../../construction-default.js";
@@ -56,6 +55,7 @@ import {
   type StampEvent,
   stampEventsFor,
 } from "../stamp-call.js";
+import { pyRuleParams } from "../wire-policy-py.js";
 
 /** One operation body's exact emitted text plus its per-statement
  *  sub-regions — surfaced by `renderPyAggregate` (when `opFragments` is

@@ -200,7 +200,9 @@ describe("python observability", () => {
     // not byte-identical, and byte-identity is the premise of the M-T9.11 wire
     // golden.  Pinned cross-backend by
     // test/conformance/internal-fault-parity.test.ts.
-    expect(problem).toContain('return problem(request, 500, "Internal Server Error", "internal")');
+    expect(problem).toContain(
+      '"internal",\n            code="problem.internal",\n            params={"requestId": request_id},',
+    );
   });
 
   it("the dispatcher's drop path logs event_unrouted on the catalog stream", async () => {

@@ -32,9 +32,7 @@ export function renderRequestContextMiddleware(
             var __rawIfMatch = __ifMatch.ToString().Trim();
             if (__rawIfMatch != "*")
             {
-                var __tag = IfMatchPattern.Match(__rawIfMatch);
-                if (!__tag.Success
-                    || !int.TryParse(__tag.Groups[1].Success ? __tag.Groups[1].Value : __tag.Groups[2].Value, out var __expectedVersion))
+                if (!TryParseIfMatch(__rawIfMatch, out var __expectedVersion))
                 {
                     await WriteMalformedIfMatchAsync(ctx, __ifMatch.ToString());
                     return;
@@ -45,8 +43,17 @@ export function renderRequestContextMiddleware(
     : "";
   const ifMatchMembers = hasVersioned
     ? `
-    private static readonly System.Text.RegularExpressions.Regex IfMatchPattern =
-        new("^(?:W/)?(?:\\"([0-9]+)\\"|([0-9]+))$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    /// <summary>The version in an entity-tag: a strong tag <c>"3"</c>, a weak tag
+    /// <c>W/"3"</c> or a bare <c>3</c>.  False for anything else.</summary>
+    private static bool TryParseIfMatch(string raw, out int version)
+    {
+        version = 0;
+        var tag = raw.StartsWith("W/", StringComparison.Ordinal) ? raw[2..] : raw;
+        if (tag.Length >= 2 && tag[0] == '\\"' && tag[^1] == '\\"') tag = tag[1..^1];
+        if (tag.Length == 0) return false;
+        foreach (var c in tag) if (!char.IsAsciiDigit(c)) return false;
+        return int.TryParse(tag, out version);
+    }
 
     /// <summary>RFC 7807 400 for an <c>If-Match</c> that is not an entity-tag over a version.</summary>
     private static async Task WriteMalformedIfMatchAsync(HttpContext ctx, string header)

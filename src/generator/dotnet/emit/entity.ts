@@ -32,7 +32,6 @@ import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { ruleText } from "../../_i18n/rule-text.js";
-import { csRuleParams } from "../wire-policy-cs.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import { csMemberScope, csParamIdent, csProjectType, typeMemberNames } from "../bcl-collision.js";
@@ -46,6 +45,7 @@ import {
   renderCsStatements,
   statementSubRegions,
 } from "../render-stmt.js";
+import { csRuleParams } from "../wire-policy-cs.js";
 import { CS_STATE_HOLDER } from "./state-holder.js";
 
 /** One operation body's exact emitted text plus its per-statement

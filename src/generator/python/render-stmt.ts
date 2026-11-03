@@ -16,8 +16,8 @@ const PROV = {
 } as const;
 
 import { ruleText } from "../_i18n/rule-text.js";
-import { pyRuleParams } from "./wire-policy-py.js";
 import { renderPyExpr, renderPyNegatedGuard, renderPyType } from "./render-expr.js";
+import { pyRuleParams } from "./wire-policy-py.js";
 
 // ---------------------------------------------------------------------------
 // Statement LEAF TABLE for the Python backend.  The 11-kind `StmtIR` dispatch,

@@ -1002,12 +1002,7 @@ export function generateTypeScriptForContexts(
   const emitDomainFloorCodes = hasDomainFloorMessages(merged);
   out.set(
     "domain/errors.ts",
-    errorsTs(
-      emitConcurrency,
-      emitNotImplemented,
-      emitVoInvariant,
-      emitDomainFloorCodes,
-    ),
+    errorsTs(emitConcurrency, emitNotImplemented, emitVoInvariant, emitDomainFloorCodes),
   );
   // The server never translates a response: every refusal carries the
   // catalog `code` a client localizes it by, so there is no backend message

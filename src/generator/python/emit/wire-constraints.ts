@@ -22,10 +22,10 @@ import {
 import { lines } from "../../../util/code-builder.js";
 import { pythonWireIdent, pythonWireNeedsAlias } from "../../../util/naming.js";
 import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
-import { pyRuleParams } from "../wire-policy-py.js";
 import { pyRef } from "../../_imports/python.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import { renderPyExpr, renderPyNegatedGuard } from "../render-expr.js";
+import { pyRuleParams } from "../wire-policy-py.js";
 
 // The pydantic carriers, written as `ref()` markers — the importing module's
 // block derives from whichever survive into its text.

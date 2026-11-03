@@ -2,7 +2,6 @@ import type { EnumIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
 import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
-import { csRuleParams } from "../wire-policy-cs.js";
 import { csMemberScope, csParamIdent, typeMemberNames } from "../bcl-collision.js";
 import { sortedCsUsings } from "../cs-symbols.js";
 import {
@@ -12,6 +11,7 @@ import {
   renderCsType,
 } from "../render-expr.js";
 import { collectCsStmtUsings, renderCsStatements } from "../render-stmt.js";
+import { csRuleParams } from "../wire-policy-cs.js";
 
 // Enum → C# enum.  Value object → sealed record with explicit
 // constructors (so invariants always run; positional records would

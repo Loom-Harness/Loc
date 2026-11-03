@@ -94,7 +94,9 @@ system Demo {
     );
     expect(routes).toMatch(/@model_validator\(mode="after"\)/);
     expect(routes).toContain("if not (self.handle != self.email):");
-    expect(routes).toContain('PydanticCustomError("invariant", "Business rule violated")');
+    expect(routes).toContain(
+      'PydanticCustomError("problem.domain-floor", "Business rule violated")',
+    );
     expect(routes).not.toContain("raise ValueError(");
     // M-T6.8/SYS-1: the crudish `update` op's request model mirrors create's
     // wire constraints — Field(min_length=1) + the cross-field @model_validator
@@ -141,8 +143,7 @@ describe("python routes", () => {
     );
     // Versioning is default-on (M-T3.4): the update path threads the If-Match
     // precondition into a guarded save.
-    expect(routes).toContain('_if_match = request.headers.get("if-match", "").strip(chr(34))');
-    expect(routes).toContain("_expected = int(_if_match) if _if_match.isdigit() else None");
+    expect(routes).toContain("_expected = parse_if_match(request)");
     expect(routes).toContain("await repo.save(found, expected_version=_expected)");
     expect(routes).toContain("return Response(status_code=204)");
   });
@@ -184,8 +185,9 @@ describe("python routes", () => {
     expect(problem).toContain('"pointer": _pointer(tuple(e["loc"])),');
     expect(problem).toContain('MISSING_FIELD_SUFFIX = "is required"');
     expect(problem).toContain("f\"{e['loc'][-1]} {MISSING_FIELD_SUFFIX}\"");
-    // a messaged rule's PydanticCustomError "msg.<hash>" type rides as errors[].code
-    expect(problem).toContain('if ".rule." in code:');
-    expect(problem).toContain('entry["code"] = code');
+    // every entry carries its catalog code (the pydantic error TYPE of a Loom
+    // check, else the field reason read off what pydantic found)
+    expect(problem).toContain('"code": _wire_code(e),');
+    expect(problem).toContain('or ".rule." in kind:');
   });
 });

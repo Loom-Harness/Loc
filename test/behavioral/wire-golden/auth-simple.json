@@ -213,7 +213,7 @@
       "status": 403,
       "body": {
         "code": "problem.forbidden",
-        "detail": "Forbidden: currentUser.role == \"agent\"",
+        "detail": "Forbidden",
         "instance": "/api/tickets/{id}/close",
         "status": 403,
         "title": "Forbidden",

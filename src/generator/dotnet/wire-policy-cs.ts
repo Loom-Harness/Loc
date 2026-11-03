@@ -58,7 +58,9 @@ export function csErrorVariantExt(
   fields: readonly { readonly json: string; readonly accessor: string }[],
   indent: string,
 ): string[] {
-  const out = [`${indent}${problemVar}.Extensions["code"] = ${csLit(errorVariantCode(ctx.name, tag))};`];
+  const out = [
+    `${indent}${problemVar}.Extensions["code"] = ${csLit(errorVariantCode(ctx.name, tag))};`,
+  ];
   if (fields.length > 0) {
     out.push(
       `${indent}${problemVar}.Extensions["params"] = new System.Collections.Generic.Dictionary<string, object?> { ${fields

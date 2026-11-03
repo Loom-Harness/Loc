@@ -50,7 +50,7 @@ describe(".NET generator — unique breach maps to 409", () => {
 
     // Friendly 409 Conflict problem response.
     expect(filter).toContain(
-      'context.Result = Problem(context, 409, "Conflict", "A resource with these values already exists.", trace_id);',
+      'context.Result = Problem(context, 409, "Conflict", "A resource with these values already exists.", trace_id, "problem.unique-conflict");',
     );
   });
 });

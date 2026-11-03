@@ -1,3 +1,4 @@
+import { fieldCode } from "../../ir/enrich/wire-policy.js";
 import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
@@ -18,13 +19,12 @@ import {
 } from "../../ir/validate/invariant-classify.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import { csCodePointLength } from "../_expr/code-point.js";
-import { fieldCode } from "../../ir/enrich/wire-policy.js";
 import { ruleCode, ruleText } from "../_i18n/rule-text.js";
-import { csRuleParams } from "./wire-policy-cs.js";
 import { singleFieldMessage } from "../zod-refine.js";
 import { CS, sortedCsUsings } from "./cs-symbols.js";
 import { collectCsExprUsings } from "./render-expr.js";
 import { isNullableWireDefault } from "./wire-default.js";
+import { csRuleParams } from "./wire-policy-cs.js";
 
 // ---------------------------------------------------------------------------
 // Per-command FluentValidation `AbstractValidator<TCommand>` emission.

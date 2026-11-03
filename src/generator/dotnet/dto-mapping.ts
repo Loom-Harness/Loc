@@ -1,3 +1,4 @@
+import { fieldCode } from "../../ir/enrich/wire-policy.js";
 import { forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
@@ -36,7 +37,6 @@ import { CS } from "./cs-symbols.js";
 import { csProvSibling, PROVENANCED_CS_RECORD } from "./emit/provenance.js";
 import { CS_NUMERIC } from "./numeric-codec.js";
 import { renderCsExpr } from "./render-expr.js";
-import { fieldCode } from "../../ir/enrich/wire-policy.js";
 import { csMoneyRangeMessage } from "./wire-policy-cs.js";
 
 /** Allocator for the C# pattern-variable names `maskWrap` binds.

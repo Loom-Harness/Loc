@@ -3,11 +3,11 @@ import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.
 import { lines } from "../../../util/code-builder.js";
 import { pythonIdent, pythonWireIdent } from "../../../util/naming.js";
 import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
-import { pyRuleParams } from "../wire-policy-py.js";
 import { PY_IMPORTS } from "../../_imports/python.js";
 import { PY } from "../py-symbols.js";
 import { renderPyExpr, renderPyNegatedGuard, renderPyType } from "../render-expr.js";
 import { renderPyStatements } from "../render-stmt.js";
+import { pyRuleParams } from "../wire-policy-py.js";
 
 // ---------------------------------------------------------------------------
 // `app/domain/value_objects.py` — enums as `StrEnum` subclasses (member

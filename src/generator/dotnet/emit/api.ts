@@ -31,7 +31,6 @@ import { csLocalNamer } from "../local-names.js";
 import {
   csCode,
   csCodeInit,
-  csErrorVariantExt,
   csFieldInvalidProblem,
   csFieldInvalidResult,
   csFixedDetail,

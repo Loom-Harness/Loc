@@ -63,6 +63,7 @@ import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.
 function hasExternOperation(ctx: { aggregates: readonly EnrichedAggregateIR[] }): boolean {
   return ctx.aggregates.some((a) => a.operations.some((o) => o.extern));
 }
+
 import type { Model } from "../../language/generated/ast.js";
 import { apiRoutePrefix } from "../../util/api-base.js";
 import { rewrite } from "../../util/emission-sink.js";

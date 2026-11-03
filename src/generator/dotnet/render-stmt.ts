@@ -10,13 +10,13 @@ import { walkStmtExprsDeep } from "../../ir/util/walk.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { ruleText } from "../_i18n/rule-text.js";
-import { csRuleParams } from "./wire-policy-cs.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { csProjectType } from "./bcl-collision.js";
 import { csLineageValue } from "./codec-spelling.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { addCsExprUsing, renderCsExpr } from "./render-expr.js";
+import { csRuleParams } from "./wire-policy-cs.js";
 
 // ---------------------------------------------------------------------------
 // Statement LEAF TABLE for the .NET backend.  The 11-kind `StmtIR` dispatch,
