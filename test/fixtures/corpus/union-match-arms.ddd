@@ -87,5 +87,14 @@ system UnionMatchArms {
     let committed = api.tickets.getById(u)
     expect(committed.closed).toBe(true)
     expect(committed.version).toBe(2)
+
+    // The remaining generated routes.  `t` goes first: no read records its
+    // `version`, which only the non-mutating calls above moved.
+    api.tickets.destroy(t)
+    expect(api.tickets.getById(t)).toThrow(404)
+    api.tickets.update(u, { title: "valve 2", closed: true })
+    expect(api.tickets.getById(u).title).toBe("valve 2")
+    let listed = api.tickets.all({ sort: "title", dir: "asc" })
+    expect(listed.items.length).toBe(1)
   }
 }

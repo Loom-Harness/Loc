@@ -114,6 +114,65 @@
     },
     {
       "seq": 10,
+      "method": "DELETE",
+      "path": "/api/tickets/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Ticket {id} not found",
+        "instance": "/api/tickets/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/tickets/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 200,
+      "body": {
+        "closed": true,
+        "id": "<volatile:key>",
+        "title": "valve 2",
+        "version": 3
+      }
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/tickets?dir=asc&sort=title",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "closed": true,
+            "id": "<volatile:key>",
+            "title": "valve 2",
+            "version": 3
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 15,
       "method": "PATCH",
       "path": "/api/tickets",
       "status": 405,
@@ -126,7 +185,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 16,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -139,7 +198,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 17,
       "method": "POST",
       "path": "/api/tickets",
       "status": 400,
