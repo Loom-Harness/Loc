@@ -71,7 +71,6 @@ const PINNED: readonly string[] = [
   "test/platform/dotnet-fullstack.test.ts",
   "test/platform/dotnet-multi-context-eventlog-naming.test.ts",
   "test/platform/frontend-dispatch.test.ts",
-  "test/system/architecture-integration.test.ts",
   "test/system/kubernetes-helm.test.ts",
   "test/system/launch-config.test.ts",
   "test/system/multifile-regression.test.ts",
