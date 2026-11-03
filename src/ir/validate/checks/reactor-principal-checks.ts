@@ -84,10 +84,10 @@ export function validateReactorGates(ctx: BoundedContextIR, diags: LoomDiagnosti
 }
 
 /** Does a workflow read opt out of the tenant filter?  An inline
- *  `Repo.all(…)` and a natural-key read carry their `ignoring` stance on
+ *  `Repo.all(…)`, a natural-key read and a widened `find` carry their `ignoring` stance on
  *  the statement; `get(id)` and the auto-reads cannot widen. */
 function readIgnoresTenant(s: Extract<WorkflowStmtIR, { kind: "repo-let" | "repo-run" }>): boolean {
-  const stance = s.kind === "repo-run" ? s : s.key;
+  const stance = s.kind === "repo-run" ? s : (s.key ?? s.bypassRead);
   return !!stance?.bypassAll || (stance?.bypassCaps ?? []).includes(TENANT_OWNED_CAPABILITY);
 }
 

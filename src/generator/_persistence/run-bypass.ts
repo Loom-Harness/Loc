@@ -1,48 +1,29 @@
-// The `ignoring` stance a retrieval runner must bake in.
+// The `ignoring` stance a retrieval runner bakes in.
 //
-// `Repo.all(<Criterion>) ignoring <Cap>` / `Repo.run(<Retrieval>(…)) ignoring *`
-// lower to a `repo-run` statement naming a retrieval, and every call site of
-// that retrieval shares ONE generated `run<Retrieval>` repository method.  A
-// runner that filters in the application (a document blob, which has no
-// queryable columns) cannot take the stance per call, so it bakes in the UNION
-// over every call site: `bypassAll` when any site bypasses everything, else
-// every capability any site names.  Deny and bare (capability-less)
-// restrictions are never bypassed — the read-scope fact drops only what an
-// `ignoring` clause names.
+// A widened list read (`Repo.all(<Criterion>) ignoring <Cap>` /
+// `Repo.all(<Retrieval>) ignoring *`) runs a retrieval of its own, named for
+// its stance (`widenedRetrievalName`), which enrichment derives with that
+// stance on `RetrievalIR.bypassAll` / `bypassCaps`.  The shared retrieval every
+// other caller runs carries none, so it keeps every filter.  A runner that
+// cannot take the stance per call (a document blob filtered in the
+// application, a Hibernate filter disabled around the query) reads it here.
+// Deny and bare (capability-less) restrictions are never bypassed — the
+// read-scope fact drops only what an `ignoring` clause names.
 
 import type { ReadBypass } from "../../ir/enrich/read-scope.js";
-import type { BoundedContextIR, WorkflowStmtIR } from "../../ir/types/loom-ir.js";
-import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import type { BoundedContextIR } from "../../ir/types/loom-ir.js";
 
-/** The union bypass per retrieval name over every `repo-run` of `aggName` in
- *  `ctx` — workflow starters and subscriptions, command handlers and query
- *  handlers, nested statements included.  Empty when no such read carries an
- *  `ignoring` clause. */
+/** The stance per retrieval of `aggName` in `ctx`, for every retrieval a
+ *  widened read runs.  Empty when no read of `aggName` widens. */
 export function runBypassesByRetrieval(
-  ctx: BoundedContextIR,
+  ctx: Pick<BoundedContextIR, "retrievals">,
   aggName: string,
 ): Map<string, ReadBypass> {
-  const acc = new Map<string, { bypassAll: boolean; caps: Set<string> }>();
-  const visit = (s: WorkflowStmtIR): void => {
-    if (s.kind !== "repo-run" || s.aggName !== aggName) return;
-    if (!s.bypassAll && (s.bypassCaps?.length ?? 0) === 0) return;
-    const cur = acc.get(s.retrievalName) ?? { bypassAll: false, caps: new Set<string>() };
-    if (s.bypassAll) cur.bypassAll = true;
-    for (const c of s.bypassCaps ?? []) cur.caps.add(c);
-    acc.set(s.retrievalName, cur);
-  };
-  const bodies: (readonly WorkflowStmtIR[])[] = [
-    ...ctx.workflows.flatMap((wf) => [
-      ...wf.creates.map((c) => c.statements),
-      ...(wf.subscriptions ?? []).map((on) => on.statements),
-    ]),
-    ...(ctx.commandHandlers ?? []).map((h) => h.statements),
-    ...(ctx.queryHandlers ?? []).map((h) => h.statements),
-  ];
-  for (const body of bodies) for (const s of body) walkWorkflowStmtsDeep(s, visit);
   const out = new Map<string, ReadBypass>();
-  for (const [name, v] of acc) {
-    out.set(name, v.bypassAll ? { bypassAll: true } : { bypassCaps: [...v.caps] });
+  for (const r of ctx.retrievals ?? []) {
+    if (r.targetType.kind !== "entity" || r.targetType.name !== aggName) continue;
+    if (r.bypassAll) out.set(r.name, { bypassAll: true });
+    else if (r.bypassCaps?.length) out.set(r.name, { bypassCaps: [...r.bypassCaps] });
   }
   return out;
 }

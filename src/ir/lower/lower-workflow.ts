@@ -40,7 +40,11 @@ import {
 import { handlerReturnGuard, terminalMatchReturns } from "../../language/handler-return.js";
 import { queryNamesOf } from "../../language/repo-query-arg.js";
 import { upperFirst } from "../../util/naming.js";
-import { namedRepoCallOp, repoVerbEffect } from "../../util/repository-contract.js";
+import {
+  namedRepoCallOp,
+  repoVerbEffect,
+  widenedRetrievalName,
+} from "../../util/repository-contract.js";
 import { findVerb } from "../resource-verbs.js";
 import { typeKey, variantTag } from "../stdlib/unions.js";
 import type {
@@ -97,6 +101,7 @@ import {
   bypassReadMethod,
   keyLookupIR,
   matchAllCall,
+  matchByIdBypassCall,
   matchFindCall,
   matchKeyLookupCall,
   matchRepoCall,
@@ -824,6 +829,10 @@ function lowerWorkflowStatementInner(
     // `Repo.find(id)` — the by-id read that answers absence.
     const anyRepoCall = matchRepoCall(stmt.source, reposByName);
     const byIdFind = findCall || keyFind || anyRepoCall?.verb !== "find" ? undefined : anyRepoCall;
+    // `Repo.find(id) ignoring …` calls its own widened method.
+    const byIdWidened = byIdFind
+      ? matchByIdBypassCall(stmt.source, reposByName, queryNames)?.bypassRead
+      : undefined;
     // `if let o = x` over an optional binding already in scope (`let x =
     // Repo.find…`): no read, only the narrowing.
     const boundLocal = findCall || keyFind || byIdFind ? undefined : localOf(stmt.source, env);
@@ -890,6 +899,9 @@ function lowerWorkflowStatementInner(
         ...(keySource ? { findMethod: keySource.method, key: keyLookupIR(keySource) } : {}),
         ...(findCall?.bypassRead
           ? { findMethod: bypassReadMethod(findCall.bypassRead), bypassRead: findCall.bypassRead }
+          : {}),
+        ...(byIdWidened
+          ? { findMethod: bypassReadMethod(byIdWidened), bypassRead: byIdWidened }
           : {}),
         thenBody,
         ...(elseBody.length > 0 ? { elseBody } : {}),
@@ -1076,9 +1088,16 @@ function lowerWorkflowStatementInner(
       const hasShaping = sortTerms.length > 0 || loadPaths.length > 0;
       const loadPlan: LoadPlanIR =
         loadPaths.length > 0 ? { kind: "explicit", paths: loadPaths } : { kind: "whole" };
-      const retrievalName = anon
-        ? `findAllBy${anon.criterionName}${hasShaping ? shapeSuffix(sortTerms, loadPaths) : ""}`
-        : runCall.retrievalName;
+      // A widened read (`… ignoring …`) runs a retrieval of its own, named for
+      // its stance, so the shared retrieval every other caller runs keeps its
+      // filters; enrichment derives it (`synthesizeFindAllRetrievals` /
+      // `synthesizeWidenedRetrievals`) with the stance on it.
+      const retrievalName = widenedRetrievalName(
+        anon
+          ? `findAllBy${anon.criterionName}${hasShaping ? shapeSuffix(sortTerms, loadPaths) : ""}`
+          : runCall.retrievalName,
+        bypass,
+      );
       const retrievalArgs = anon ? anon.criterionArgs : runCall.retrievalArgs;
       return {
         stmt: {
@@ -1111,6 +1130,10 @@ function lowerWorkflowStatementInner(
     if (findOneCall) {
       const aggName = findOneCall.repo.aggregate?.ref?.name ?? "Unknown";
       const returnType: TypeIR = { kind: "optional", inner: { kind: "entity", name: aggName } };
+      // A widened read (`… ignoring …`) calls its own method, exactly as the
+      // `if let` over the same source does; the plain read runs the shared
+      // retrieval.
+      const widened = findOneCall.bypassRead;
       return {
         stmt: {
           kind: "repo-let",
@@ -1118,10 +1141,12 @@ function lowerWorkflowStatementInner(
           repoName: findOneCall.repo.name,
           aggName,
           op: "select-one",
-          method: "find",
+          method: widened ? bypassReadMethod(widened) : "find",
           args: findOneCall.criterionArgs.map((a) => lowerExpr(a, env)),
           returnType,
-          retrievalName: `findAllBy${findOneCall.criterionName}`,
+          ...(widened
+            ? { bypassRead: widened }
+            : { retrievalName: `findAllBy${findOneCall.criterionName}` }),
           synthCriterion: { name: findOneCall.criterionName },
         },
         envAfter: withLocal(env, stmt.name, "let", returnType),
@@ -1149,6 +1174,28 @@ function lowerWorkflowStatementInner(
         },
         envAfter: withLocal(env, stmt.name, "let", returnType),
         binding: { name: stmt.name, aggName, repoName: keyCall.repo.name },
+      };
+    }
+    // repo-let over a widened by-id read: `let o = Repo.find(id) ignoring …`
+    // binds `T?` through the read's own method, as the `if let` source does.
+    const byIdWidened = matchByIdBypassCall(expr, reposByName, queryNames);
+    if (byIdWidened) {
+      const aggName = byIdWidened.repo.aggregate?.ref?.name ?? "Unknown";
+      const returnType: TypeIR = { kind: "optional", inner: { kind: "entity", name: aggName } };
+      return {
+        stmt: {
+          kind: "repo-let",
+          name: stmt.name,
+          repoName: byIdWidened.repo.name,
+          aggName,
+          op: "load-optional",
+          method: bypassReadMethod(byIdWidened.bypassRead),
+          args: byIdWidened.args.map((a) => lowerExpr(a, env)),
+          returnType,
+          bypassRead: byIdWidened.bypassRead,
+        },
+        envAfter: withLocal(env, stmt.name, "let", returnType, { absenceUnion: true }),
+        binding: { name: stmt.name, aggName, repoName: byIdWidened.repo.name },
       };
     }
     // repo-let: `Repo.method(args)`

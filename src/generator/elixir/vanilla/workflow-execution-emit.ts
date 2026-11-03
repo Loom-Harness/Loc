@@ -146,6 +146,43 @@ function readPassesActor(
   return !!find?.method && customFindReadsActor(ctx, find.aggName, find.method);
 }
 
+/** Does a body run a read that consumes the request actor — a criterion read
+ *  (`Repo.all(<C>)`, or the single-row `Repo.find(<C>)` as a `let` or `if
+ *  let`) whose retrieval reads it (a principal filter such as `tenantOwned` on
+ *  its target, or a `currentUser` criterion), or a declared / widened find that
+ *  still scopes by it?  Then the body binds `current_user` and each such read
+ *  forwards it; without it the read fails closed to no rows.  Shared by the
+ *  workflow and the explicit-handler emitters, so both thread the actor alike. */
+export function bodyReadsActor(
+  bodies: readonly (readonly WorkflowStmtIR[])[],
+  ctx: BoundedContextIR,
+): boolean {
+  const reads = (name: string | undefined): boolean => !!name && retrievalReadsActor(name, ctx);
+  const findReads = (aggName: string, method: string | undefined): boolean =>
+    !!method && customFindReadsActor(ctx, aggName, method);
+  let found = false;
+  for (const body of bodies) {
+    for (const top of body) {
+      walkWorkflowStmtsDeep(top, (st) => {
+        if (st.kind === "repo-run" && reads(st.retrievalName)) found = true;
+        if (
+          st.kind === "repo-let" &&
+          st.returnType.kind === "optional" &&
+          (st.retrievalName ? reads(st.retrievalName) : findReads(st.aggName, st.method))
+        )
+          found = true;
+        if (
+          st.kind === "if-let" &&
+          st.op !== "bound" &&
+          (st.retrievalName ? reads(st.retrievalName) : findReads(st.aggName, st.findMethod))
+        )
+          found = true;
+      });
+    }
+  }
+  return found;
+}
+
 /** The aggregate a workflow step targets, for the lifecycle-seam decision (which
  *  context function an IN-PROCESS caller may use).  `undefined` when the step
  *  names an aggregate in another context — then the seam falls back to the plain
@@ -549,6 +586,7 @@ function lowerStatement(
             method: st.method,
             aggregate: st.aggName,
             retrievalName: st.retrievalName,
+            widened: st.bypassRead !== undefined,
           },
           st.args.map((a) => renderExpr(a, renderCtx)),
           contextModule,
@@ -807,6 +845,7 @@ function lowerStatement(
                   method: st.findMethod ?? "",
                   aggregate: st.aggName,
                   retrievalName: st.retrievalName,
+                  widened: st.bypassRead !== undefined,
                 },
                 args,
                 contextModule,
@@ -1150,6 +1189,7 @@ function opCallThreadsUser(
  *  nesting depth (`for-each` / `if-let` / `variant-match` bodies). */
 function workflowNeedsCurrentUser(wf: WorkflowIR, ctx: BoundedContextIR): boolean {
   if (workflowUsesCurrentUser(wf)) return true;
+  if (bodyReadsActor([wf.statements], ctx)) return true;
   let needs = false;
   for (const st of wf.statements)
     walkWorkflowStmtsDeep(st, (n) => {
@@ -1754,6 +1794,9 @@ function renderWorkflowModule(
       ? (service, opName) => lookupServiceTier(ctx, service, opName)
       : undefined,
     readingServiceModule: contextModuleFq,
+    // A workflow that binds `current_user` forwards it to every read that
+    // scopes by the actor, as an explicit handler does.
+    ...(ctx && workflowNeedsCurrentUser(wf, ctx) ? { repoRunActor: true } : {}),
   };
   // Workflow lifecycle narrative — `workflow_started` at run entry, woven into
   // the success tail of the body by `assembleBody` (`workflow_completed`).  The

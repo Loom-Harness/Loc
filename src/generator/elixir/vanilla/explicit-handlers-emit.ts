@@ -62,11 +62,7 @@ import { claimsDerivedSlot, pathParamNames } from "../../_api/explicit-route-mou
 import type { ApiRoute } from "../api-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { type StrictIngressField, strictIngressFields } from "../wire-policy-ex.js";
-import {
-  aggregateUsesPrincipalContextFilter,
-  customFindReadsActor,
-  findUsesPrincipal,
-} from "./capability-filter.js";
+import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
 import { renderControllerSerialize } from "./controller-serialize.js";
 import {
   contextsHaveWireDenials,
@@ -86,9 +82,9 @@ import {
   renderStrictParamsPlug,
   requiredWireParams,
 } from "./problem-details-emit.js";
-import { retrievalReadsActor } from "./retrieval-emit.js";
 import {
   type BodyLine,
+  bodyReadsActor,
   collectParamRefs,
   collectWorkflowStmtParamRefs,
   lookupServiceTier,
@@ -410,31 +406,7 @@ function handlerTakesActor(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
  *  or a `currentUser` criterion)?  Then the read forwards `current_user` as its
  *  opt; without it the retrieval fails closed to no rows. */
 function handlerThreadsActor(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
-  if (h.extern) return false;
-  const reads = (name: string | undefined): boolean => !!name && retrievalReadsActor(name, ctx);
-  // A declared (or `ignoring`-synthesized) repository find that still scopes by
-  // the actor — the optional-read lookup passes `current_user` to it.
-  const findReads = (aggName: string, method: string | undefined): boolean =>
-    !!method && customFindReadsActor(ctx, aggName, method);
-  let found = false;
-  for (const top of h.statements) {
-    walkWorkflowStmtsDeep(top, (st) => {
-      if (st.kind === "repo-run" && reads(st.retrievalName)) found = true;
-      if (
-        st.kind === "repo-let" &&
-        st.returnType.kind === "optional" &&
-        (st.retrievalName ? reads(st.retrievalName) : findReads(st.aggName, st.method))
-      )
-        found = true;
-      if (
-        st.kind === "if-let" &&
-        st.op !== "bound" &&
-        (st.retrievalName ? reads(st.retrievalName) : findReads(st.aggName, st.findMethod))
-      )
-        found = true;
-    });
-  }
-  return found;
+  return !h.extern && bodyReadsActor([h.statements], ctx);
 }
 
 /** Emit the `run/1` handler modules for every explicit `commandHandler` /

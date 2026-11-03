@@ -10,6 +10,7 @@ import {
   REPOSITORY_CONTRACT,
   repoOpVerb,
   retiredRepoVerb,
+  retrievalBaseName,
 } from "../../../util/repository-contract.js";
 import {
   constructionBlockingInvariants,
@@ -1821,7 +1822,7 @@ function validateWorkflowStatements(
             message: diagMessage("loom.workflow-run-unknown-retrieval", {
               name: wf.name,
               repoName: st.repoName,
-              retrievalName: st.retrievalName,
+              retrievalName: retrievalBaseName(st.retrievalName, st),
             }),
             source: `${ctx.name}/${wf.name}`,
             origin: wf.origin,
@@ -1835,7 +1836,7 @@ function validateWorkflowStatements(
             code: "loom.workflow-run-retrieval-mismatch",
             message: diagMessage("loom.workflow-run-retrieval-mismatch", {
               name: wf.name,
-              retrievalName: st.retrievalName,
+              retrievalName: retrievalBaseName(st.retrievalName, st),
               target,
               repoName: st.repoName,
               aggName: st.aggName,

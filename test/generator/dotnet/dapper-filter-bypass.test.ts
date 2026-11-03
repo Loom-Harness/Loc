@@ -110,7 +110,7 @@ describe("dapper ignoring filter-bypass emission", () => {
   it("a retrieval composes its WHERE from the runtime FilterBypass (capability names, not EF filter names)", async () => {
     const run = method(
       await repo(),
-      "public async Task<IReadOnlyList<Order>> RunFindAllByBigOrdersAsync(",
+      "public async Task<IReadOnlyList<Order>> RunFindAllByBigOrdersIgnoringSoftDeletableAsync(",
     );
     // The retrieval composes its tail from the aggregate's scope helper and the
     // runtime bypass — it spells no capability predicate itself.

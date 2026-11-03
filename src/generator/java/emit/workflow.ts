@@ -432,14 +432,15 @@ export function javaWorkflowStmtTarget(
       // where `orderId` is an `OrderId`, which does not compile.
       // The two optional reads that do not answer `T`-or-null directly: a
       // criterion read runs the shared retrieval for one row (the `if let`
-      // lookup), and `findById` answers `Optional<T>`.
+      // lookup), and `findById` answers `Optional<T>`.  A widened read
+      // (`… ignoring …`) calls its own method, which answers `T`-or-null.
       if (s.op === "select-one" && s.retrievalName) {
         const rendered = s.args.map((a) => renderJavaExpr(a, renderCtx));
         return [
           `${indent}var ${bound(s.name)} = ${firstRowOf(repoField(s.aggName), s.retrievalName, rendered)};`,
         ];
       }
-      if (s.op === "load-optional") {
+      if (s.op === "load-optional" && !s.bypassRead) {
         return [
           `${indent}var ${bound(s.name)} = ${repoField(s.aggName)}.findById(${args}).orElse(null);`,
         ];
@@ -575,10 +576,10 @@ export function javaWorkflowStmtTarget(
       const lookup =
         s.op === "bound"
           ? args.join(", ")
-          : s.op === "load-optional"
-            ? `${repoField(s.aggName)}.findById(${args.join(", ")}).orElse(null)`
-            : s.findMethod
-              ? `${repoField(s.aggName)}.${s.findMethod}(${args.join(", ")})`
+          : s.findMethod
+            ? `${repoField(s.aggName)}.${s.findMethod}(${args.join(", ")})`
+            : s.op === "load-optional"
+              ? `${repoField(s.aggName)}.findById(${args.join(", ")}).orElse(null)`
               : firstRowOf(repoField(s.aggName), s.retrievalName, args);
       const inner = `${indent}    `;
       const thenSaves = s.savesInThen.flatMap((sv) => saveLines(inner, sv));

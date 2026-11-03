@@ -137,9 +137,10 @@ describe.each(
     expect(methodBody(repo, "runFindAllByDocsByLabel")).toContain(
       "const result = all.filter((x) => ((x.hidden === false)) && (x.label === l));",
     );
-    // `Docs.all(DocsAny(l)) ignoring hideable` — the bypassed conjunct is gone,
+    // `Docs.all(DocsAny(l)) ignoring hideable` runs its own stance-named
+    // retrieval: the bypassed conjunct is gone,
     // the criterion stays.
-    const anyBody = methodBody(repo, "runFindAllByDocsAny");
+    const anyBody = methodBody(repo, "runFindAllByDocsAnyIgnoringHideable");
     expect(anyBody).toContain("const result = all.filter((x) => (x.label !== l));");
     expect(anyBody).not.toContain("hidden");
   });

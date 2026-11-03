@@ -1175,10 +1175,10 @@ export function pyWorkflowStmtTarget(
       const lookup =
         st.op === "bound"
           ? [`${i}${v} = ${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")}`]
-          : st.op === "load-optional"
-            ? byName("findById")
-            : st.findMethod
-              ? byName(st.findMethod)
+          : st.findMethod
+            ? byName(st.findMethod)
+            : st.op === "load-optional"
+              ? byName("findById")
               : [
                   `${i}${hits} = ${runFirstRow(st.repoName, st.retrievalName, st.retrievalArgs)}`,
                   `${i}${v} = ${hits}[0] if ${hits} else None`,
