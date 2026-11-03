@@ -3764,8 +3764,26 @@ export type StmtIR =
       value: ExprIR;
       variantTag?: string;
       variantShape?: "record" | "scalar" | "none";
+      /**
+       * A returned value `match` whose arms build union variants is tagged per
+       * arm: one entry per arm (`arms` for the predicate form, `variantArms`
+       * for the variant form), then one for its `else`.  Each arm answers its
+       * own tag, and an `error` variant is the error path only when its arm
+       * runs.  Set only on an exhaustive match whose every arm resolves to a
+       * declared variant; `variantTag` / `variantShape` are absent then.
+       * `distributeUnionReturn` (`src/ir/util/union-return.ts`) expands it
+       * into one tagged `return` per arm.
+       */
+      armVariants?: ReturnVariantIR[];
       origin?: OriginRef;
     };
+
+/** The union variant a `return` produces: its wire discriminator and how the
+ *  value carries on the wire (see the `return` statement). */
+export interface ReturnVariantIR {
+  variantTag: string;
+  variantShape: "record" | "scalar" | "none";
+}
 
 /**
  * A path used as the LHS of an assignment / collection mutation.  All

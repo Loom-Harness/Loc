@@ -71,6 +71,11 @@ import { renderElixirMatchStmt } from "./match-stmt-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { collectVanillaLeaves, provColumn, provenancedFieldsOf } from "./provenance-emit.js";
 import { isRefCollFieldName, refCollPutAssocValue } from "./ref-collection-emit.js";
+import {
+  renderElixirUnionReturn,
+  returnAlwaysFails,
+  returnCanFail,
+} from "./union-return-emit.js";
 import { valueRowFieldsOf } from "./value-collection-schema-emit.js";
 import {
   EXPECTED_VERSION_BIND,
@@ -500,7 +505,7 @@ export function returningOpHasCommitPath(
   if (returningOpHasSuccessPath(op, agg)) return true; // fall-through to the aggregate
   const last = op.statements[op.statements.length - 1];
   if (last?.kind !== "return") return false;
-  return !(last.variantTag !== undefined && isErrorTag(last.variantTag, ctx));
+  return !returnAlwaysFails(last, (tag) => isErrorTag(tag, ctx));
 }
 
 /** The body renderer's persist decision — a returning op persists whenever it
@@ -773,7 +778,7 @@ export function renderReturningOpFunction(
   const lastStmt = op.statements[op.statements.length - 1];
   const trailingReturn = lastStmt?.kind === "return" ? lastStmt : undefined;
   const trailingIsError =
-    trailingReturn?.variantTag !== undefined && isErrorTag(trailingReturn.variantTag, ctx);
+    trailingReturn !== undefined && returnAlwaysFails(trailingReturn, (tag) => isErrorTag(tag, ctx));
   // A trailing `return this` / aggregate-typed success return commits the same
   // mutated aggregate as a fall-through — normalize it onto the persist path
   // (the success wire projects off `saved`).  A trailing NON-aggregate success
@@ -934,9 +939,14 @@ export function renderReturningOpFunction(
   // A trailing NON-aggregate success return (shape C), re-rendered to sit inside
   // the `{:ok, saved}` commit arm over the persisted struct — a preceding
   // `record = saved` rebinds `record`, so the return's `this.*` reads reflect the
-  // saved values.
+  // saved values.  It sits 8 columns in, 4 deeper than a body statement, so a
+  // multi-line return (a per-arm `cond`) shifts its continuation lines to match.
   const shapeCReturn = (): string =>
-    renderReturningStmt(trailingReturn!, ctx, renderCtx, lastIdx).trimStart();
+    renderReturningStmt(trailingReturn!, ctx, renderCtx, lastIdx)
+      .trimStart()
+      .split("\n")
+      .map((l, i) => (i === 0 || l.trim() === "" ? l : `    ${l}`))
+      .join("\n");
 
   // Derived rows that must commit with the state change (provenance flush /
   // audit record) — hoisted out of the prov/audit branch so the durable-outbox
@@ -1176,6 +1186,31 @@ export function renderReturningOpFunction(
       `    end`,
     ];
   }
+  // A trailing `return match { … }` with an error arm decides its arm over the
+  // in-memory record FIRST: an error arm answers its tuple and writes nothing
+  // (an error leaves no trace, D-FAILURE-MODEL), and only a success arm reaches
+  // the persist tail, which re-renders the return over the saved struct.
+  if (
+    persists &&
+    trailingReturn?.armVariants &&
+    returnCanFail(trailingReturn, (tag) => isErrorTag(tag, ctx))
+  ) {
+    tailLines = [
+      `    loom_arm_result =`,
+      `${renderReturningStmt(trailingReturn, ctx, renderCtx, lastIdx)
+        .split("\n")
+        .map((l) => (l.trim() === "" ? "" : `  ${l}`))
+        .join("\n")}`,
+      ``,
+      `    case loom_arm_result do`,
+      `      {:error, _, _} = failure ->`,
+      `        failure`,
+      ``,
+      `      {:ok, _} ->`,
+      ...tailLines.flatMap((l) => l.split("\n")).map((l) => (l.trim() === "" ? "" : `    ${l}`)),
+      `    end`,
+    ];
+  }
   // A guarded op wraps its body + persist in a leading `with ensure(...)` chain
   // (guards short-circuit to `{:error, atom}` before any write); a guard-free op
   // keeps the flat linear body (byte-identical).
@@ -1289,6 +1324,13 @@ export function renderReturningStmt(
       if (s.value.kind === "call" && s.value.callKind === "private-operation") {
         return `    ${renderExpr(s.value, rc)}`;
       }
+      // `return match { … }` tagged per arm: each arm answers its own tuple.
+      const perArm = renderElixirUnionReturn(s, {
+        indent: "    ",
+        renderExpr: (e) => renderExpr(e, rc),
+        renderReturn: (r) => renderReturningStmt(r, ctx, rc, index),
+      });
+      if (perArm !== null) return perArm;
       const value = renderExpr(s.value, rc);
       if (s.variantTag && isErrorTag(s.variantTag, ctx)) {
         // Error variant → `{:error, "<tag>", <fields-map>}`, and that map is
