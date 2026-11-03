@@ -133,7 +133,6 @@ function sourceIdent(source: string): string {
   return source === DEFAULT_SOURCE_LOCALE ? "en" : localeIdent(source);
 }
 
-
 /** `src/i18n.ts` — the locale model + `t(key, default, values?)` lookup and
  *  ICU-format shim.  Framework-AGNOSTIC: the locale lives in a module store
  *  (`getLocale` / `setLocale` / `subscribe`) that each frontend binds to its own
@@ -167,7 +166,9 @@ export function renderI18nModule(
   ].join("\n");
   const tagLines = [
     ...entries.map((e) => `  [${JSON.stringify(e.tag.toLowerCase())}, ${JSON.stringify(e.tag)}],`),
-    ...Object.entries(aliases).map(([a, tag]) => `  [${JSON.stringify(a)}, ${JSON.stringify(tag)}],`),
+    ...Object.entries(aliases).map(
+      ([a, tag]) => `  [${JSON.stringify(a)}, ${JSON.stringify(tag)}],`,
+    ),
   ].join("\n");
   const localeLines = entries
     .map(

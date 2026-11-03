@@ -24,9 +24,7 @@ export function emitLocaleSwitcher(
 ): string {
   void depth;
   if (ctx.target.framework !== "react") {
-    return ctx.target.renderComment(
-      `LocaleSwitcher: not yet supported on ${ctx.target.framework}`,
-    );
+    return ctx.target.renderComment(`LocaleSwitcher: not yet supported on ${ctx.target.framework}`);
   }
   addImport(ctx, "../lib/locale-switcher", "LocaleSwitcher");
   return "<LocaleSwitcher />";

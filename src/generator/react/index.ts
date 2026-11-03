@@ -31,9 +31,9 @@ import {
   renderTranslatedCatalogs,
   type TranslationCatalogs,
 } from "../_frontend/i18n-runtime.js";
+import { LIB_SCHEMAS_PROV_TS, PROV_LINEAGE_SCHEMA_BLOCK } from "../_frontend/lib-schemas.js";
 import { localeDir } from "../_frontend/locale-meta.js";
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
-import { LIB_SCHEMAS_PROV_TS, PROV_LINEAGE_SCHEMA_BLOCK } from "../_frontend/lib-schemas.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { buildPageModuleIndex } from "../_frontend/page-identity.js";
 import { buildProjectionsApiModule, readableProjections } from "../_frontend/projections-module.js";

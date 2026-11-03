@@ -156,6 +156,7 @@ import {
   emitTabs,
   emitToolbar,
 } from "./primitives/layout.js";
+import { emitLocaleSwitcher } from "./primitives/locale-switcher.js";
 import { emitProvenanceInfo } from "./primitives/provenance-info.js";
 import { emitTable } from "./primitives/table.js";
 import {
@@ -174,7 +175,6 @@ import {
   emitMoney,
   emitText,
 } from "./primitives/text.js";
-import { emitLocaleSwitcher } from "./primitives/locale-switcher.js";
 import { emitTimeline } from "./primitives/timeline.js";
 import type { ChildSlot } from "./target.js";
 import type { WalkContext as TsxWalkContext } from "./walker-core.js";

@@ -7,7 +7,7 @@ import type { ComponentIR, ExprIR, UiIR } from "../../ir/types/loom-ir.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 
 /** True when a page/component body contains a `LocaleSwitcher` call. */
-export function bodyUsesLocaleSwitcher(body: ExprIR | undefined): boolean {
+function bodyUsesLocaleSwitcher(body: ExprIR | undefined): boolean {
   let found = false;
   walkExprDeep(body, (e) => {
     if (e.kind === "call" && e.name === "LocaleSwitcher") found = true;
