@@ -36,10 +36,10 @@ describe("python generator — ruff-clean output", () => {
   it("F841: an unused `run` retrieval let drops the assignment, keeping the await", async () => {
     const routes = fileEndingWith(await build(), "app/http/workflows_routes.py");
     expect(routes).toContain(
-      "await projects.run_find_all_by_active_named_by_sequence_desc(needle)",
+      "await projects.run_find_all_by_active_named_by_sequence_desc(needle, offset=0, limit=100)",
     );
     expect(routes).not.toContain(
-      "adhoc = await projects.run_find_all_by_active_named_by_sequence_desc(needle)",
+      "adhoc = await projects.run_find_all_by_active_named_by_sequence_desc(needle",
     );
   });
 

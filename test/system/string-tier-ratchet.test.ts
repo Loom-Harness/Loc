@@ -110,7 +110,7 @@ const CEILINGS: Record<string, number> = {
   python: 1800,
   react: 1600,
   svelte: 600,
-  typescript: 1500,
+  typescript: 1700, // the node pins for numeric criterion binding, run-method local renames and post-save version advance assert the emitted TS (the generated-project tsc leg is their runtime proof)
   vue: 700,
   walker: 200,
 };
