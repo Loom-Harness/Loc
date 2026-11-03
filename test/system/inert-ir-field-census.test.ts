@@ -14,40 +14,24 @@
 // actual ask — "routed through EVERY parse-but-no-emit surface" — has no way to
 // be true or false. That is the shape `gated-features-inventory.md` rotted into.
 //
-// THE MEASUREMENT. A field declared on the IR and referenced by NO file under
-// `src/generator/**`, `src/system/**` or `src/platform/**` is a CANDIDATE inert
-// surface: something the pipeline computes and no target consumes. Measured
-// here: **27 of 330 declared fields**.
+// THE MEASUREMENT. A field declared on the IR and read by NO file under
+// `src/generator/**`, `src/system/**` or `src/platform/**` — nor by a
+// `src/ir/util/` helper those files import — is a CANDIDATE inert surface:
+// something the pipeline computes and no target consumes.  A name that appears
+// only in a comment is not a read.
 //
-// THE RULE is a shrink-only exact baseline, not a hard gate at zero, and that is
-// deliberate — the scan over-approximates in one direction. Three false-positive
-// classes are real and benign:
+// THE RULE is a shrink-only exact list, not a hard gate at zero, because the
+// scan over-approximates in one direction: a field consumed only by another
+// IR-layer derivation, read through a destructure the text scan cannot see, or
+// read by the CLI / `ddd verify` instead of an emitter is benign.  So the list
+// is split in two:
 //
-//   - a field consumed only by another IR-layer derivation (`loadPlan`,
-//     `resourceInterfaces`) — internal plumbing, never meant to reach a target;
-//   - a field read through a destructure or a spread this text scan cannot see;
-//   - a field the CLI / API / trace surfaces read instead of an emitter
-//     (`testCaseId`, `verifiesTestCase` — the `ddd verify` rollup).
+//   - `NO_READER_ALLOWED` — benign by design, with the reason.  Permanent.
+//   - `NO_READER_DEBT` — should be resolved (given a reader, a
+//     `RESERVED_SURFACES` row, deleted, or moved to the allowed list), each
+//     naming the issue that owns it.  Meant to reach zero.
 //
-// So a row here is "someone must say which of those it is", and the ratchet is
-// that the list can only get SHORTER: a new IR field with no downstream reader
-// fails until it is either given one, dispositioned here, or given a
-// `RESERVED_SURFACES` row (which is the honest outcome when the answer is "no
-// emitter honours this yet").
-//
-// THREE CONFIRMED, checked by hand, each a real parse-but-no-emit surface with
-// no `RESERVED_SURFACES` row today:
-//
-//   - `uiBindings` + `sourceDeployableName` — written by
-//     `src/ir/lower/lower-deployment.ts:139,142,185` from a `uiCompose { … }`
-//     clause, and read by NOTHING. The clause parses, lowers, and vanishes.
-//   - `accessSource` — stamped by `lower-members.ts:141` and
-//     `enrich/enrichments.ts:1890,1909` (`"declared"` / `"default"` / `"stamp"`)
-//     beside `access`, which IS read. The provenance half is not.
-//
-// Adding those rows is `src/ir/validate/checks/**` — packet 4c's fence, not
-// 4f's — so this census ships the measurement and the wave C4 packet 4f hand-off
-// carries the rows. When a row lands, its name comes OUT of the baseline below.
+// A new unread field fails until it is placed in one of the two.
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -66,61 +50,51 @@ const ROOT_FLOOR: Record<string, number> = {
   "src/platform": 36,
 };
 
+/** IR fields no target reads, by design.  Each says why that is benign. */
+const NO_READER_ALLOWED: Readonly<Record<string, string>> = {
+  timezone:
+    "has a RESERVED_SURFACES row (`timer-source-timezone`), so the author is told no target honours it",
+};
+
 /**
- * IR fields with no reference under an emitting root.  Shrink-only and exact:
- * a name leaves this list when it gains a reader, a disposition, or a
- * `RESERVED_SURFACES` row — and a NEW name fails until someone says which.
+ * IR fields no target reads that SHOULD be resolved — debt, with the issue that
+ * owns it.  Shrink-only and exact: a field leaves when it gains a reader, a
+ * `RESERVED_SURFACES` row, a deletion, or a move to `NO_READER_ALLOWED`; a NEW
+ * unread field fails until someone says which.
  */
+const NO_READER_DEBT: Readonly<Record<string, string>> = {
+  // Parse-but-no-emit: the clause parses, lowers, and vanishes.
+  accessSource: "#3373", // provenance beside `access`; `access` is read, this is not
+  sourceDeployableName: "#3373", // from a `uiCompose { … }` clause
+  uiBindings: "#3373", // from a `uiCompose { … }` clause
+  // Not yet dispositioned.
+  auditHistory: "#4636",
+  execTestsByCodeElement: "#4636",
+  generic: "#4636",
+  impliedBy: "#4636",
+  keyPrefix: "#4636",
+  loadPlan: "#4636",
+  needs: "#4636",
+  overlap: "#4636",
+  policyDenies: "#4636",
+  policyReadLevels: "#4636",
+  policyWriteLevels: "#4636",
+  priority: "#4636",
+  readonly: "#4636",
+  resourceInterfaces: "#4636",
+  retain: "#4636",
+  rootEnums: "#4636",
+  sessions: "#4636",
+  sourceAlias: "#4636",
+  testCaseId: "#4636",
+  ttl: "#4636",
+  urlStyle: "#4636",
+  verifiesTestCase: "#4636",
+};
+
 const NO_DOWNSTREAM_READER: readonly string[] = [
-  // --- confirmed parse-but-no-emit; rows owed to RESERVED_SURFACES ---------
-  "accessSource", // provenance beside `access`; `access` is read, this is not
-  "sourceDeployableName", // lower-deployment.ts:142, read by nothing
-  "uiBindings", // lower-deployment.ts:139,185 — a whole `uiCompose` clause
-  // --- the rest: candidates awaiting a disposition -------------------------
-  "auditHistory",
-  "crossTenant",
-  // M-T3.19 deny-by-default reads: read only through `src/ir/util/read-gates.ts`
-  // (`byIdRouteFind`) and the validator; the effect reaches every target as the
-  // stamped/synthesised `requires` gate, which every route emitter renders.
-  "defaultDenied",
-  "execTestsByCodeElement",
-  "impliedBy",
-  "keyPrefix",
-  "loadPlan",
-  "policyDenies",
-  // `policy { read X requires … }`: consumed by enrichment
-  // (`applyPolicyReadGates`), which puts the gate on every find's `requires` —
-  // the carrier every route emitter renders.
-  "policyReadGates",
-  "policyReadLevels",
-  "policyWriteLevels",
-  "priority",
-  "readonly",
-  "readsDefaultDenied", // see `defaultDenied` above — consumed via read-gates.ts
-  "resourceInterfaces",
-  "retain",
-  // An expected-failure result's per-value variant tags: read only through
-  // `src/ir/util/entry-result.ts` (`entryResult`), which every backend's
-  // workflow / handler emitter renders the answered value from.
-  "returnTags",
-  "rootEnums",
-  "rootPayloads",
-  "rootValueObjects",
-  "sessions",
-  "sourceAlias",
-  "sourceModule",
-  // A root-declared enum / value object: read only through
-  // `src/ir/util/model-text-owner.ts` (`modelTextContextOf`), which the
-  // frontends' implicit model-text sites key their `_system` identity text by.
-  "systemLevel",
-  "testCaseId",
-  // A migration table step's qualified target context: read only through
-  // `src/ir/util/table-step-target.ts` (`resolveTableStepTarget`), which the
-  // migration builder calls to place the step's tables.
-  "toContext",
-  "timezone", // already has a RESERVED_SURFACES row (`timer-source-timezone`)
-  "ttl",
-  "verifiesTestCase",
+  ...Object.keys(NO_READER_ALLOWED),
+  ...Object.keys(NO_READER_DEBT),
 ];
 
 /** Every field name declared at interface-member indent in `loom-ir.ts`. */
@@ -147,15 +121,44 @@ function tsFilesUnder(rel: string): string[] {
   return out;
 }
 
+/** `src/ir/util/` modules an emitting root imports, closed over their own
+ *  imports inside `src/ir/util/`.  A field such a helper reads reaches every
+ *  target that calls it (`read-gates.ts`, `entry-result.ts`, …), so it counts
+ *  as read downstream. */
+function irUtilReachedFromEmitters(): string[] {
+  const utilDir = path.join(REPO_ROOT, "src/ir/util");
+  const importsOf = (file: string): string[] =>
+    [...fs.readFileSync(file, "utf8").matchAll(/from\s+"(\.{1,2}\/[^"]+)"/g)].map((m) =>
+      path.resolve(path.dirname(file), (m[1] as string).replace(/\.js$/, ".ts")),
+    );
+  const reached = new Set<string>();
+  const queue = EMITTING_ROOTS.flatMap(tsFilesUnder).flatMap(importsOf);
+  while (queue.length > 0) {
+    const file = queue.pop() as string;
+    if (reached.has(file) || !file.startsWith(utilDir) || !fs.existsSync(file)) continue;
+    reached.add(file);
+    queue.push(...importsOf(file));
+  }
+  return [...reached];
+}
+
 /** A field is "read downstream" when any emitting-root file mentions it as a
  *  member access (`x.f`, `x?.f`) or as an object key / destructured binding
  *  (`f:`, `f,`, `f}`).  Deliberately generous — a false NEGATIVE here would
  *  hide a real inert surface, while a false positive only shortens the list. */
 function downstreamReaders(): (field: string) => boolean {
-  const blob = EMITTING_ROOTS.flatMap(tsFilesUnder)
-    .map((f) => fs.readFileSync(f, "utf8"))
-    .join("\n");
-  return (field) => new RegExp(`[.?]${field}\\b|\\b${field}\\s*[:,}]`).test(blob);
+  // Comments are dropped: a field named only in prose is not read.
+  const read = (files: string[]): string =>
+    files
+      .map((f) => fs.readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\/|(^|[^:"'`])\/\/.*$/gm, "$1"))
+      .join("\n");
+  const emitters = read(EMITTING_ROOTS.flatMap(tsFilesUnder));
+  // In an `ir/util` helper an object key is usually a WRITE (it builds IR), so
+  // only a member access counts there.
+  const helpers = read(irUtilReachedFromEmitters());
+  return (field) =>
+    new RegExp(`[.?]${field}\\b|\\b${field}\\s*[:,}]`).test(emitters) ||
+    new RegExp(`[.?]${field}\\b`).test(helpers);
 }
 
 describe("inert-IR-field census (M-T5.9 (a) denominator)", () => {
