@@ -979,16 +979,6 @@ const WAIVERS: Record<string, Waiver> = {
       "#4575: the param rewrite skips list / convert / match / … children, leaving an undeclared identifier in the C#",
     reviewUntil: IF_RUN_GAP_REVIEW,
   },
-  "src/system/ui-e2e-render.ts#walk": {
-    deferred:
-      "#4578: hand-recurses a fixed kind set, missing ui.<workflow> refs under lambda / list / match / nested statements",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
-  "src/system/ui-e2e-render.ts#walkExpr": {
-    deferred:
-      "#4578: hand-recurses a fixed kind set, missing ui.<aggregate> refs under lambda / list / match / nested statements",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
 };
 
 describe("IR walk census — no hand-rolled switch/if-chain over ExprIR/StmtIR/WorkflowStmtIR", () => {
