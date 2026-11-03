@@ -73,6 +73,8 @@ import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/prove
 import { giveUpText } from "../_walker/give-up.js";
 import { icuFromConcat, inlineComponentKeyPrefix, messageKey } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
+import { sourceText } from "../_walker/source-text.js";
+import { modelTextExpr } from "./heex-model-text.js";
 import { heexTarget, renderHeexStoreActionCall, renderHeexStoreFieldRead } from "./heex-target.js";
 import { pgettextCall } from "./i18n.js";
 import {
@@ -813,9 +815,9 @@ const HEEX_NODE_RENDERERS: {
   // never a page-body expression.  Reaching the HEEx page renderer means it
   // leaked from a filter position; throw rather than emit invalid markup.
   "authz-filter": rejectAuthzFilter,
-  // model-text-fanout(heex): `label(…)` / `plural(…)` renders its English
-  // default until the HEEx gettext path keys it by identity.
-  modelText: (e) => elixirString(e.defaultText),
+  // `label(…)` / `plural(…)` — the identity-keyed gettext call under i18n, else
+  // the English default as a string literal.
+  modelText: (e, ctx) => modelTextExpr(ctx, e.key, e.defaultText),
 };
 
 function rejectAuthzFilter(): never {
@@ -2199,15 +2201,16 @@ export function namedRole(primitive: string, name: string): string | undefined {
   return USER_VISIBLE_SLOTS[primitive]?.find((s) => s.kind === "named" && s.name === name)?.role;
 }
 
-// model-text-fanout(heex): a `label(…)` / `plural(…)` in a markup position
-// renders its English default as plain text until the HEEx gettext path keys
-// model text by identity.
-function modelTextStandIn(e: Extract<ExprIR, { kind: "modelText" }>): string {
-  return escapeHeexText(e.defaultText);
+/** A `label(…)` / `plural(…)` in a markup position: `<%= pgettext(<identity
+ *  key>, <English>) %>` under i18n, else the escaped English default. */
+function modelTextMarkup(e: Extract<ExprIR, { kind: "modelText" }>, ctx: WalkContext): string {
+  return ctx.i18nPrefix
+    ? `<%= ${pgettextCall(e.key, e.defaultText)} %>`
+    : escapeHeexText(sourceText(e.key, e.defaultText));
 }
 
 export function renderChild(child: ExprIR, ctx: WalkContext, role?: string): string {
-  if (child.kind === "modelText") return modelTextStandIn(child);
+  if (child.kind === "modelText") return modelTextMarkup(child, ctx);
   const localized = localizedHeex(child, ctx, role);
   if (localized !== undefined) return localized;
   // If the child is itself a primitive call that returns HEEx markup,
@@ -2229,7 +2232,7 @@ export function renderChild(child: ExprIR, ctx: WalkContext, role?: string): str
 }
 
 export function renderInTemplate(arg: ExprIR, ctx: WalkContext, role?: string): string {
-  if (arg.kind === "modelText") return modelTextStandIn(arg);
+  if (arg.kind === "modelText") return modelTextMarkup(arg, ctx);
   const localized = localizedHeex(arg, ctx, role);
   if (localized !== undefined) return localized;
   if (arg.kind === "literal" && arg.lit === "string") return escapeHeexText(arg.value);

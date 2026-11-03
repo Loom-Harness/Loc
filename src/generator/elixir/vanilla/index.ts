@@ -885,6 +885,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     seedModules,
     deployable.port,
     sourceLocaleOf(sys),
+    sys.subdomains.flatMap((sub) => sub.contexts),
   );
 
   // Deployment + boot machinery — the Elixir release, Dockerfile, and Ecto

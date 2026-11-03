@@ -205,6 +205,7 @@ function namedRef(call: ExprIR & { kind: "call" }, name: string): string | undef
 export function implicitModelTextEntries(
   ui: UiIR,
   contexts: readonly BoundedContextIR[],
+  opts: { optionalCreateInputs?: boolean } = {},
 ): MessageEntry[] {
   const out: MessageEntry[] = [];
   const aggregates = new Map<string, { agg: AggregateIR; bc: BoundedContextIR }>();
@@ -220,7 +221,9 @@ export function implicitModelTextEntries(
       if (e.name === "CreateForm") {
         const hit = aggregates.get(namedRef(e, "of") ?? "");
         if (!hit) return;
-        for (const f of createInputFields(hit.agg).filter((x) => !x.optional)) {
+        for (const f of createInputFields(hit.agg).filter(
+          (x) => opts.optionalCreateInputs || !x.optional,
+        )) {
           fieldEntries(hit.agg.name, f, hit.bc, contexts, out);
         }
         out.push(opEntry(hit.agg, "create", hit.bc, contexts));
