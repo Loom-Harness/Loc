@@ -111,7 +111,6 @@ import {
   commandCreateResult,
   emitsCommandRoute,
 } from "../../../ir/util/workflow-command-route.js";
-import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
 import {
   LOOM_OUTBOX_ORIGIN_KEY,
   OUTBOX_PURGE_INTERVAL_SECONDS,
@@ -1458,11 +1457,11 @@ export function entryErrorAnswer(
 }
 
 /** The TS type of a workflow route's declared result local — the WIRE type the
- *  200 schema publishes (a branded id is a `string`/`number` subtype, so the
- *  domain value assigns to it directly).  Only the result kinds phase ④ admits
+ *  200 schema publishes (a branded id is a `string` subtype, so the domain
+ *  value assigns to it directly).  Only the result kinds phase ④ admits
  *  (`loom.workflow-return-type-unsupported`) reach here. */
 function workflowResultTsType(t: TypeIR): string {
-  if (t.kind === "id") return t.valueType === "int" || t.valueType === "long" ? "number" : "string";
+  if (t.kind === "id") return "string";
   if (t.kind === "primitive") {
     if (t.name === "int" || t.name === "long") return "number";
     if (t.name === "bool") return "boolean";
@@ -1596,20 +1595,9 @@ function emitInstanceRoutes(
   out.push(`    path: "/${slug}/instances/{id}",`);
   out.push(`    tags: ["workflows"],`);
   out.push(`    operationId: "${camelId(opWorkflowInstanceById(wf.name))}",`);
-  // The param schema derives from the correlation id's value type — guid →
-  // uuid-format string, int/long → coerced integer, string → plain — so the
-  // parity gate's path-param dimension agrees with .NET / Java / Python /
-  // Phoenix by construction (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/non-guid-id-http-params.md).
-  const corrVt = workflowCorrIdValueType(wf);
-  const idParamZod =
-    corrVt === "guid"
-      ? "UuidString"
-      : corrVt === "string"
-        ? "z.string()"
-        : "z.coerce.number().int()";
-  // `load<T>Events` / `fold<T>` key streams as text; a numeric id stringifies.
-  const idAsKey = corrVt === "int" || corrVt === "long" ? "String(id)" : "id";
-  out.push(`    request: { params: z.object({ id: ${idParamZod} }) },`);
+  // The correlation id is a guid — a uuid-format string — so the parity
+  // gate's path-param dimension agrees with .NET / Java / Python / Phoenix.
+  out.push(`    request: { params: z.object({ id: UuidString }) },`);
   out.push(`    responses: {`);
   out.push(
     `      200: { description: "OK", content: { "application/json": { schema: ${T}InstanceResponse } } },`,
@@ -1620,7 +1608,7 @@ function emitInstanceRoutes(
       reasonPhrase(notFoundStatus),
     )}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
   );
-  // The correlation-id param is PARSED (uuid / coerced integer above), so a
+  // The correlation-id param is PARSED (uuid above), so a
   // malformed one answers the wire-validation 422 — the same set
   // `errorStatuses("getById")` publishes, which is exactly what the java and
   // elixir emitters render for this route.
@@ -1637,13 +1625,13 @@ function emitInstanceRoutes(
   if (wf.eventSourced) {
     // Single-stream load + fold for the given correlation id; an empty stream
     // means no such instance.
-    out.push(`    const __stream = await ${helpers.load}(db, ${idAsKey});`);
+    out.push(`    const __stream = await ${helpers.load}(db, id);`);
     // RS-27 extends here: a workflow INSTANCE read is addressed by id, so its
     // 404 carries the same sentence the aggregate getById route does.  Main's
     // fix covered the aggregate routes; these two surfaces were left on the
     // machine token.
     out.push(`    if (__stream.length === 0) ${tsNotFoundThrow(T, "id")}`);
-    out.push(`    const row = ${helpers.fold}(${idAsKey}, __stream);`);
+    out.push(`    const row = ${helpers.fold}(id, __stream);`);
   } else if (usingMikro) {
     out.push(`    const row = await db.findOne(${rowClass}, { ${corr}: id });`);
     out.push(`    if (!row) ${tsNotFoundThrow(T, "id")}`);
@@ -1813,6 +1801,11 @@ function emitOutboxRetention(): string[] {
   ];
 }
 
+/** The relay's per-tick failure log: a DB error anywhere in a drain pass is
+ *  logged and retried next interval, never an unhandled rejection. */
+const OUTBOX_RELAY_ERROR_LOG =
+  'baseLogger.warn({ event: "outbox_relay_error", error: err instanceof Error ? err.message : String(err) });';
+
 /** The drain pass's retention step: at most once per purge interval, delete
  *  the dispatched rows older than the retention window (`del` is the store's
  *  delete over `cutoff`).  A failed purge is logged and retried next interval
@@ -1825,7 +1818,7 @@ function outboxPurgeStep(del: string): string[] {
     `        try {`,
     `          await ${del};`,
     `        } catch (err) {`,
-    `          baseLogger.warn({ event: "outbox_relay_error", error: err instanceof Error ? err.message : String(err) });`,
+    `          ${OUTBOX_RELAY_ERROR_LOG}`,
     `        }`,
     `      }`,
   ];
@@ -1964,6 +1957,8 @@ function emitOutboxMachinery(
   out.push(`          }`);
   out.push(`        }`);
   out.push(`      }`);
+  out.push(`    } catch (err) {`);
+  out.push(`      ${OUTBOX_RELAY_ERROR_LOG}`);
   out.push(`    } finally {`);
   out.push(`      draining = false;`);
   out.push(`    }`);
@@ -2079,6 +2074,8 @@ function emitMikroOutboxMachinery(
     `          }`,
     `        }`,
     `      }`,
+    `    } catch (err) {`,
+    `      ${OUTBOX_RELAY_ERROR_LOG}`,
     `    } finally {`,
     `      draining = false;`,
     `    }`,

@@ -21,10 +21,6 @@
 // dispatch on its `refKind` / `primitive` / collection / nullable flags.
 //
 // Notes on intentional divergences preserved from the legacy code:
-//   - .NET `wireType` emits id as `Guid` regardless of the source id's
-//     `valueType`.  The OpenAPI emitter, in contrast, does honour
-//     `valueType` for path-param schemas.  Both behaviours are kept;
-//     `WireTypeInfo` exposes `idValueType` so callers can choose.
 //   - Hono / React `zod` request emission lowers `entity` to
 //     `z.unknown()` whereas response emission lowers it to
 //     `<Name>Response`.  Both directions are reflected via the `dir`
@@ -38,7 +34,7 @@
 //     will be lost.  No source today exercises that path.
 // ---------------------------------------------------------------------------
 
-import type { IdValueType, TypeIR } from "./loom-ir.js";
+import type { TypeIR } from "./loom-ir.js";
 
 /** Which side of the wire contract a field appears on.  `request`
  *  selects the input/create shape (e.g. nested value objects emit as
@@ -69,7 +65,7 @@ export type WirePrimitive =
   | "File";
 
 /** Category of the leaf type referenced.  `primitive`/`id` carry their
- *  full info on `WireTypeInfo` (`primitive`, `idTarget`, `idValueType`);
+ *  full info on `WireTypeInfo` (`primitive`, `idTarget`);
  *  `valueObject`/`entity`/`enum` indicate a user-defined name that the
  *  backend will join with its own suffix (`Request`, `Response`,
  *  `Schema`, …). */
@@ -120,12 +116,6 @@ export interface WireTypeInfo {
   /** Populated iff `refKind === "id"`.  The name of the aggregate the
    *  id targets (caller pairs this with its own suffix, e.g. `${idTarget}Id`). */
   idTarget?: string;
-  /** Populated iff `refKind === "id"`.  The underlying value type
-   *  (`guid` / `int` / `long` / `string`).  Used by the OpenAPI
-   *  emitter for path-param schemas; the .NET wire helper deliberately
-   *  ignores it (every id crosses the .NET wire as Guid for historical
-   *  symmetry with the Hono path). */
-  idValueType?: IdValueType;
   /** Populated iff `refKind === "provenanced"`.  The type the carrier wraps —
    *  the `value` member's type. */
   carried?: TypeIR;
@@ -216,7 +206,6 @@ export function wireTypeInfo(t: TypeIR, dir: WireDirection): WireTypeInfo {
         isCollection: collection,
         isNullable: nullable,
         idTarget: cur.targetName,
-        idValueType: cur.valueType,
         dir,
       };
     case "enum":

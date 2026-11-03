@@ -390,7 +390,7 @@ function declaredType(segs: string[], ctx: CriteriaCtx): string {
   let t: TypeIR | undefined;
   for (const [i, seg] of segs.entries()) {
     if (i === 0 && seg === "id") {
-      t = { kind: "id", targetName: ctx.agg.name, valueType: ctx.agg.idValueType };
+      t = { kind: "id", targetName: ctx.agg.name };
       break;
     }
     const f = fields.find((x) => x.name === seg);

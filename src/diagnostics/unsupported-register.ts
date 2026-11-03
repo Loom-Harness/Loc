@@ -162,7 +162,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-return-type-unsupported",
     kind: "scope",
-    site: "src/language/validators/structural.ts:496",
+    site: "src/language/validators/structural.ts:533",
     what:
       "a routed entry point's result that is (or has a success variant that is) a value " +
       "object / decimal / money / date / datetime, and a workflow `create`'s plain (non-union) " +

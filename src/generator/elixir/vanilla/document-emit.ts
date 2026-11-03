@@ -176,7 +176,7 @@ function castType(t: TypeIR): string {
     case "primitive":
       return exEctoScalarType(t.name);
     case "id":
-      return exEctoIdType(t.valueType);
+      return exEctoIdType();
     case "enum":
       return ":string";
     case "valueobject":

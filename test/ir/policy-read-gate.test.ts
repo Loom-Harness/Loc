@@ -58,7 +58,7 @@ describe("policy read gate — lowering and enrichment", () => {
     const gate = JSON.stringify(ctx.policyReadGates![0]!.gate);
     expect(JSON.stringify(listReadGate(repo))).toBe(gate);
     expect(JSON.stringify(repo.historyFind?.requires)).toBe(gate);
-    const byId = byIdRouteFind(repo, "guid");
+    const byId = byIdRouteFind(repo);
     expect(JSON.stringify(byId?.requires)).toBe(gate);
     expect(byId?.defaultDenied).toBeUndefined();
     // …and the derived route list hands that find to every backend.
@@ -76,7 +76,7 @@ describe("policy read gate — lowering and enrichment", () => {
     const ctx = (await enriched(src(""))).systems[0]!.subdomains[0]!.contexts[0]!;
     const repo = ctx.repositories.find((r) => r.aggregateName === "Ticket")!;
     expect(repo.finds.every((f) => f.requires === undefined)).toBe(true);
-    expect(byIdRouteFind(repo, "guid")).toBeUndefined();
+    expect(byIdRouteFind(repo)).toBeUndefined();
   });
 });
 

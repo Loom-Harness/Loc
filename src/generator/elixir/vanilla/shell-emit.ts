@@ -25,6 +25,7 @@ import {
   TEST_RESET_PATH,
   TEST_RESET_TOKEN_ENV,
 } from "../../../util/test-reset.js";
+import { NPM_FETCH_RETRY_FLAGS } from "../../_docker/node-stage.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import { packChromeCatalog } from "../../_packs/pack-chrome.js";
 import type { ApiRoute } from "../api-emit.js";
@@ -392,7 +393,7 @@ function renderVanillaMixExs(
   // the same step the Dockerfile's assets-build stage runs for the image.
   // Only LiveView deployables ship assets/, so only they get the alias.
   const assetsAlias = hasLiveView
-    ? `,\n      "assets.build": [\n        "cmd --cd assets npm install --no-audit --no-fund",\n        "cmd --cd assets npm run build"\n      ]`
+    ? `,\n      "assets.build": [\n        "cmd --cd assets npm install --no-audit --no-fund ${NPM_FETCH_RETRY_FLAGS}",\n        "cmd --cd assets npm run build"\n      ]`
     : "";
   // Translation runtime — only when the ui has strings to translate.
   const gettextDep = i18nEnabled ? `,\n      ${GETTEXT_DEP}` : "";
