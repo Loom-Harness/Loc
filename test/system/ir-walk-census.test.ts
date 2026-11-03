@@ -1008,11 +1008,6 @@ const WAIVERS: Record<string, Waiver> = {
       "#4579: an unlisted init kind (e.g. a negative literal as `unary`) silently mounts at the type's zero",
     reviewUntil: IF_RUN_GAP_REVIEW,
   },
-  "src/ir/validate/checks/context-filter-checks.ts#collectBypassRepoRuns": {
-    deferred:
-      "#4577: skips `variant-match` bodies, so filter-bypass diagnostics are not raised there",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
   "src/system/ui-e2e-render.ts#walk": {
     deferred:
       "#4578: hand-recurses a fixed kind set, missing ui.<workflow> refs under lambda / list / match / nested statements",

@@ -16,6 +16,7 @@ import type {
 } from "../../types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../types/loom-ir.js";
 import { TENANCY_SELF_SCOPE_ORIGIN, TENANT_OWNED_CAPABILITY } from "../../util/tenant-stance.js";
+import { walkWorkflowStmtsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------
@@ -151,21 +152,17 @@ function collectBypassRepoRuns(
   owner: string,
   out: BypassRead[],
 ): void {
-  for (const s of stmts) {
-    if (s.kind === "repo-run" && (s.bypassAll || (s.bypassCaps?.length ?? 0) > 0)) {
-      out.push({
-        bypassAll: s.bypassAll,
-        bypassCaps: s.bypassCaps,
-        aggName: s.aggName,
-        site: `${owner} inline read '${s.name}'`,
-      });
-    }
-    if (s.kind === "for-each") collectBypassRepoRuns(s.body, owner, out);
-    if (s.kind === "if-let") {
-      collectBypassRepoRuns(s.thenBody, owner, out);
-      collectBypassRepoRuns(s.elseBody ?? [], owner, out);
-    }
-  }
+  for (const root of stmts)
+    walkWorkflowStmtsDeep(root, (s) => {
+      if (s.kind === "repo-run" && (s.bypassAll || (s.bypassCaps?.length ?? 0) > 0)) {
+        out.push({
+          bypassAll: s.bypassAll,
+          bypassCaps: s.bypassCaps,
+          aggName: s.aggName,
+          site: `${owner} inline read '${s.name}'`,
+        });
+      }
+    });
 }
 
 /** Every `ignoring`-bearing read in a context, paired with its target
