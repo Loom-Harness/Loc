@@ -118,7 +118,9 @@ describe(".NET generator — reified criteria (Slice 2b: retrieval Specification
     const spec = out.get("Domain/Customers/ByRegionSpec.cs")!;
     expect(spec).toMatch(/public sealed class ByRegionSpec : Specification<Customer>/);
     expect(spec).toMatch(/public ByRegionSpec\(string rgn\)/);
-    expect(spec).toMatch(/Query\.Where\(new InRegionCriterion\(rgn\)\.ToExpression\(\)\);/);
+    expect(spec).toMatch(
+      /Query\.Where\(new InRegionCriterion\(rgn\)\.ToExpression\(\)\)\.OrderBy\(x => x\.Id\);/,
+    );
     // repo applies it
     expect(out.get("Infrastructure/Repositories/CustomerRepository.cs")!).toMatch(
       /WithSpecification\(new ByRegionSpec\(rgn\)\)/,
@@ -129,7 +131,9 @@ describe(".NET generator — reified criteria (Slice 2b: retrieval Specification
     const spec = (await all()).get("Domain/Customers/AllActiveSpec.cs")!;
     expect(spec).toMatch(/public sealed class AllActiveSpec : Specification<Customer>/);
     expect(spec).not.toMatch(/public AllActiveSpec\(\w/); // no ctor params
-    expect(spec).toMatch(/Query\.Where\(new ActiveCustomerCriterion\(\)\.ToExpression\(\)\);/);
+    expect(spec).toMatch(
+      /Query\.Where\(new ActiveCustomerCriterion\(\)\.ToExpression\(\)\)\.OrderBy\(x => x\.Id\);/,
+    );
   });
 
   it("a composed `where` → the Spec inlines the predicate (not reified)", async () => {
@@ -169,7 +173,9 @@ describe(".NET generator — reified criteria (Slice 2b: single-row reads)", () 
     const out = await files();
     const spec = out.get("Domain/Customers/FindAllByInRegionSpec.cs")!;
     expect(spec).toMatch(/using App\.Domain\.Criteria;/);
-    expect(spec).toMatch(/Query\.Where\(new InRegionCriterion\(rgn\)\.ToExpression\(\)\);/);
+    expect(spec).toMatch(
+      /Query\.Where\(new InRegionCriterion\(rgn\)\.ToExpression\(\)\)\.OrderBy\(x => x\.Id\);/,
+    );
     expect(out.get("Infrastructure/Repositories/CustomerRepository.cs")!).toMatch(
       /WithSpecification\(new FindAllByInRegionSpec\(rgn\)\)/,
     );

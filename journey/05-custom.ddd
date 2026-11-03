@@ -27,7 +27,7 @@ system Todo {
       aggregate Task with crudish {
         project: Project id
         title: string
-        status: Status
+        status: Status immutable
         priority: Priority
 
         invariant title.length > 0

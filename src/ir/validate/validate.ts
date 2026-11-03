@@ -1,5 +1,5 @@
 import type { DesignPackInspector } from "../../util/design-pack-defects.js";
-import type { EnrichedLoomModel } from "../types/loom-ir.js";
+import type { BoundedContextIR, EnrichedLoomModel, SystemIR } from "../types/loom-ir.js";
 import { allContexts } from "../types/loom-ir.js";
 import { validateAggregateConstructible } from "./checks/aggregate-constructible-checks.js";
 import {
@@ -27,6 +27,7 @@ import { validateElixirMatchStatements } from "./checks/elixir-match-stmt-checks
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
+import { validateLoopGateImplication } from "./checks/loop-gate-implication-checks.js";
 import { validateMemberResolution } from "./checks/member-resolution-checks.js";
 import {
   validateMigrationAdapterSupport,
@@ -37,7 +38,7 @@ import {
 import { validateOptionalBindings } from "./checks/optional-binding-checks.js";
 import { validatePagedParamNames } from "./checks/paged-param-checks.js";
 import {
-  mikroOrmOnlyContexts,
+  partCollectionsStored,
   validatePersistedCollectionPositions,
 } from "./checks/persisted-collection-checks.js";
 import { validateProjections } from "./checks/projection-checks.js";
@@ -151,7 +152,11 @@ import { validatePageGates } from "./checks/ui-gate-checks.js";
 import { validateUnionReads } from "./checks/union-read-checks.js";
 import { validateUnknownRepositoryReads } from "./checks/unknown-repo-read-checks.js";
 import { validateUpdateGateSuggestions } from "./checks/update-gate-suggestion-checks.js";
-import { validateEventChannelAmbiguous, validateWorkflows } from "./checks/workflow-checks.js";
+import {
+  validateEventChannelAmbiguous,
+  validateHandlerInlineRepoCalls,
+  validateWorkflows,
+} from "./checks/workflow-checks.js";
 import { validateWorkflowUnusedParams } from "./checks/workflow-unused-param-checks.js";
 
 // Public surface kept stable: LoomDiagnostic (now defined in checks/diagnostic)
@@ -315,6 +320,11 @@ export function validateLoomModel(
     // through `update`.  Points at `immutable` (and `managed` for the create
     // half), which leave the operation free to assign it.
     validateUpdateGateSuggestions(sys, diags);
+    // Advisory `loom.loop-gate-not-implied`: a loop over a list read calls a
+    // `when`-gated operation whose gate the read's predicate does not carry.
+    for (const mod of sys.subdomains) {
+      for (const ctx of mod.contexts) validateLoopGateImplication(ctx, diags);
+    }
     // Advisory `loom.crudish-hard-delete`: a `softDeletable` aggregate whose
     // `crudish`-synthesised `destroy` is a hard DELETE (documented; the remedy
     // is `crudish(updateOnly: true)` + `softDelete`).  Same advisory channel.
@@ -334,7 +344,11 @@ export function validateLoomModel(
   // Which backend (needsDb) platforms host each context — drives the TPH
   // storage gate (sharedTable is implemented for Hono only, v1).
   const backendPlatformsByContext = backendPlatformsHostingEachContext(loom);
-  const mikroOnly = mikroOrmOnlyContexts(loom);
+  const partStored = partCollectionsStored(loom);
+  const systemOfContext = new Map<BoundedContextIR, SystemIR>();
+  for (const sys of loom.systems) {
+    for (const m of sys.subdomains) for (const c of m.contexts) systemOfContext.set(c, sys);
+  }
   // Per-context checks apply uniformly whether the context is
   // bundled in a system's modules or sits at the top level.
   for (const c of allContexts(loom)) {
@@ -382,6 +396,10 @@ export function validateLoomModel(
     // Explicit application-layer handlers (unfoldable-api-derivation.md, Layer 3):
     // queryHandler-read-only + commandHandler-single-aggregate layering contracts.
     validateApplicationHandlers(c, diags);
+    // A repository read a handler body runs only on some paths, which lowering
+    // cannot hoist into a `let` (the workflow bodies get it inside
+    // `validateWorkflows`).
+    validateHandlerInlineRepoCalls(c, diags);
     validateOptionalBindings(c, diags);
     // Ruling D1: a reactor's gates are evaluated against the system principal;
     // warn on one it can never satisfy.
@@ -395,7 +413,7 @@ export function validateLoomModel(
     validateNamedLifecycleDropped(c, diags);
     validateUnmappedErrorStatuses(c, diags);
     validateReservedStructuralErrorNames(c, diags);
-    validatePersistedCollectionPositions(c, diags, mikroOnly.has(c.name));
+    validatePersistedCollectionPositions(c, diags, partStored.get(c.name), systemOfContext.get(c));
     validateInheritanceStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateEventSourcedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateProvenancedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());

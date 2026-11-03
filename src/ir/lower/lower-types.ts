@@ -12,6 +12,7 @@ import type {
   Model,
   Operation,
   PayloadDecl,
+  PostfixChain,
   Projection,
   Repository,
   TypeAtom,
@@ -206,6 +207,16 @@ export interface Env {
    *  unresolved `method-call`.  Undefined everywhere else — workflow bodies
    *  recognise repo reads through their own statement lowerer, never this. */
   serviceRepos?: Map<string, Repository>;
+  /** Repository reads of a workflow / handler body hoisted into a synthesized
+   *  `let` ahead of their statement (`hoist-reads.ts`), keyed by the source
+   *  chain the read heads, to the local that holds the read's value.  The
+   *  chain lowers as that local plus the suffixes after the read. */
+  hoistedReads?: ReadonlyMap<PostfixChain, string>;
+  /** Every local name a workflow / handler body declares or has hoisted so
+   *  far — shared (one mutable set) by the whole body, so a hoisted read's
+   *  local never repeats a name another block of the same body declares
+   *  (C# refuses the shadowing). */
+  bodyNames?: Set<string>;
 }
 
 export function newEnv(
