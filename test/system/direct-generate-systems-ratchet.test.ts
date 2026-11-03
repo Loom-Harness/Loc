@@ -57,17 +57,6 @@ const GATED = new Set(["generateSystems", "generateSystemsFromLoom"]);
  */
 const PINNED: readonly string[] = [
   "test/conformance/corpus-mutation.test.ts",
-  "test/generator/dotnet/paged-emit.test.ts",
-  "test/generator/dotnet/realtime-emission.test.ts",
-  "test/generator/dotnet/vo-invariant-422.test.ts",
-  "test/generator/elixir/api-client.test.ts",
-  "test/generator/elixir/audit-history-elixir.test.ts",
-  "test/generator/elixir/auth-oidc-emit.test.ts",
-  "test/generator/elixir/file-upload.test.ts",
-  "test/generator/elixir/phoenix-action.test.ts",
-  "test/generator/elixir/phoenix-e2e-dispatch.test.ts",
-  "test/generator/elixir/phoenix-extern-component.test.ts",
-  "test/generator/elixir/phoenix-extern-function.test.ts",
   "test/generator/python/audited-operation.test.ts",
   "test/generator/python/context-filter-emit.test.ts",
   "test/generator/python/context-integration-test.test.ts",
