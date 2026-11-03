@@ -1022,7 +1022,7 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     // The backends whose `test/_helpers/error-code-rows.ts` row is `done`; a
     // fan-out backend joins when it flips its row.
-    backends: ["node", "java", "elixir"],
+    backends: ["node", "java", "vanilla"],
     note: "#4473 — the wire golden is the cross-backend answer key for the codes; the other goldens already cover field.missing, the rules, not-found, the state gate, declared errors and the 500.",
   },
   {
