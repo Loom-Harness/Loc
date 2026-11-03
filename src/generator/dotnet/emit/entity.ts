@@ -28,7 +28,7 @@ import {
 } from "../../../ir/util/op-gates.js";
 import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
+import { escapeCsharpIdent, factoryLocal, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
@@ -241,17 +241,6 @@ export function csClaimStampsFor(
  *  declare both (CS0102).  On a collision the helper steps aside with
  *  trailing underscores (eval item 6, ruling D2); every other entity keeps the
  *  unchanged name. */
-/** The name of a construction factory's instance local: `e`, unless one of
- *  the factory's parameters (DSL names, before keyword escaping) already owns
- *  it — C# refuses a local re-declaring a parameter in the same scope (CS0136),
- *  so a create-input field named `e` takes `_e` (then `__e`, …) instead. */
-export function factoryLocal(paramNames: readonly string[]): string {
-  const taken = new Set(paramNames);
-  let name = "e";
-  while (taken.has(name)) name = `_${name}`;
-  return name;
-}
-
 function invariantHelperName(entity: EnrichedAggregateIR | EnrichedEntityPartIR): string {
   const ops = "operations" in entity ? entity.operations : [];
   const taken = new Set<string>([

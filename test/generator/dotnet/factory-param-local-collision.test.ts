@@ -6,7 +6,7 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { factoryLocal } from "../../../src/generator/dotnet/emit/entity.js";
+import { factoryLocal } from "../../../src/util/naming.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
 const SRC = readFileSync(

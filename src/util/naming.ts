@@ -120,6 +120,19 @@ export function humanize(input: string): string {
 // consumers), so it lives here alongside the other casing helpers.
 // ---------------------------------------------------------------------------
 
+/** The name of a construction factory's instance local: `e`, unless one of
+ *  the factory's parameters (DSL names, before keyword escaping) already owns
+ *  it — C# (CS0136) and Java ("variable e is already defined") both refuse a
+ *  local re-declaring a parameter in the same scope, so a create input named
+ *  `e` makes the local take `_e` (then `__e`, …) instead.  Shared so the two
+ *  backends that declare such a local agree. */
+export function factoryLocal(paramNames: readonly string[]): string {
+  const taken = new Set(paramNames);
+  let name = "e";
+  while (taken.has(name)) name = `_${name}`;
+  return name;
+}
+
 /** Escape a local identifier that collides with a C# keyword using the
  *  verbatim-identifier prefix (`base` → `@base`); pass through otherwise. */
 export function escapeCsharpIdent(name: string): string {
