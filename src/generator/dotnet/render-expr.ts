@@ -15,6 +15,7 @@ import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
 import type { RepoOp } from "../../util/repository-contract.js";
+import { checkedBinaryKind, checkedUnaryKind } from "../_expr/checked-int.js";
 import { csCodePointLength, csCodePointSubstring } from "../_expr/code-point.js";
 import { csSubtreeLikePattern } from "../_expr/subtree-like.js";
 import {
@@ -324,7 +325,11 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
   // this branch is unreachable (the validator rejects them).
   object: (fields) =>
     `new { ${fields.map((f) => `${upperFirst(f.name)} = ${f.value}`).join(", ")} }`,
-  unary: (op, operand) => `${op}${operand}`,
+  // RS-48: integer `+ - *` and unary `-` are `checked(...)` so an int32 / int64
+  // overflow throws `OverflowException` (the exception filter answers the domain
+  // floor's 422) instead of wrapping.  The EF-query target below stays unchecked.
+  unary: (op, operand, e) =>
+    op === "-" && checkedUnaryKind(e) !== null ? `checked(${op}${operand})` : `${op}${operand}`,
   binary: (left, right, e, ctx) => renderCsBinary(left, right, e, false, ctx.memberScope),
   ternary: (cond, then, otherwise, e, ctx) => {
     const narrowed = e && ctx ? narrowedNullableBranch(e, then, otherwise, ctx) : undefined;
@@ -569,6 +574,7 @@ function renderCsBinary(
   if (isIntDivWidenedToDecimal(e)) {
     return `(decimal)(${left}) / ${right}`;
   }
+  if (!efQuery && checkedBinaryKind(e) !== null) return `checked(${left} ${e.op} ${right})`;
   return `${left} ${e.op} ${right}`;
 }
 

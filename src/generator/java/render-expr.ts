@@ -10,6 +10,7 @@ import {
   upperFirst,
   workflowFnCamel,
 } from "../../util/naming.js";
+import { checkedBinaryKind, checkedUnaryKind, type IntegralKind } from "../_expr/checked-int.js";
 import { javaCodePointLength, javaCodePointSubstring } from "../_expr/code-point.js";
 import {
   type BinaryExpr,
@@ -354,7 +355,7 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
     // `Decimal.negate/1`).
     op === "-" && isMoneyLike(unwrapOptional(bodyTypeOf(e.operand)))
       ? `${operand}.negate()`
-      : `${op}${operand}`,
+      : javaUnaryInt(op, operand, checkedUnaryKind(e)),
   binary: renderBinary,
   ternary: (cond, then, otherwise) => `${cond} ? ${then} : ${otherwise}`,
   convert: (value, e) => renderJavaConvert(e.target, e.from, value),
@@ -945,7 +946,21 @@ function renderBinary(l: string, r: string, e: BinaryExpr): string {
     if (e.op === ">") return `${l}.compareTo(${r}) > 0`;
     if (e.op === ">=") return `${l}.compareTo(${r}) >= 0`;
   }
-  return `${l} ${e.op} ${r}`;
+  return javaCheckedBinary(l, r, e);
+}
+
+/** An integer `+ - *` renders through `Math.*Exact`, which throws
+ *  `ArithmeticException` on int32 / int64 overflow instead of wrapping (RS-48);
+ *  the exception advice answers it as the domain floor's 422. */
+function javaCheckedBinary(l: string, r: string, e: BinaryExpr): string {
+  const kind = checkedBinaryKind(e);
+  if (kind === null) return `${l} ${e.op} ${r}`;
+  const fn = e.op === "+" ? "addExact" : e.op === "-" ? "subtractExact" : "multiplyExact";
+  return `Math.${fn}(${l}, ${r})`;
+}
+
+function javaUnaryInt(op: "-" | "!", operand: string, kind: IntegralKind | null): string {
+  return op === "-" && kind !== null ? `Math.negateExact(${operand})` : `${op}${operand}`;
 }
 
 /** The temporal `+`/`-`/`*` arms (A5), or null to fall through to the

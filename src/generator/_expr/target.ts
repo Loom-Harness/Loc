@@ -182,7 +182,7 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
   lambdaBodyCtx?(param: string, ctx: Ctx): Ctx;
   newPart(fields: RenderedField[], e: NewExpr, ctx: Ctx): string;
   object(fields: RenderedField[]): string;
-  unary(op: UnaryExpr["op"], operand: string, e: UnaryExpr): string;
+  unary(op: UnaryExpr["op"], operand: string, e: UnaryExpr, ctx: Ctx): string;
   /** `ctx` lets a leaf qualify a framework reference it writes (.NET: the
    *  `Guid.Parse` of a `this.id == <string>` lift, `global::`-qualified when a
    *  member named `Guid` shadows it — see `CsRenderContext.memberScope`). */
@@ -310,7 +310,7 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
     case "paren":
       return `(${r(e.inner)})`;
     case "unary":
-      return t.unary(e.op, r(e.operand), e);
+      return t.unary(e.op, r(e.operand), e, ctx);
     case "binary":
       return t.binary(r(e.left), r(e.right), e, ctx);
     case "ternary":
@@ -799,7 +799,7 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
     }
     case "unary": {
       const operand = rm(e.operand);
-      return compose(t.unary(e.op, operand.text, e), [operand]);
+      return compose(t.unary(e.op, operand.text, e, ctx), [operand]);
     }
     case "binary": {
       const left = rm(e.left);

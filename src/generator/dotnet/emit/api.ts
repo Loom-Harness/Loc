@@ -870,6 +870,7 @@ export function renderExceptionFilter(
   // `httpStatus` map as the structural conflicts above; the defaults are the
   // 422 / 403 literals.
   const domainStatus = wireStatus("domain-floor", overrides);
+  const overflowStatus = wireStatus("arithmetic-overflow", overrides);
   const forbiddenStatus = wireStatus("forbidden", overrides);
   // The domain not-found rung resolves like its four siblings, so
   // `httpStatus NotFound -> <code>` moves this filter's
@@ -1216,6 +1217,18 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("domain_error");
             context.Result = Problem(context, ${domainStatus}, ${csTitle("domain-floor", overrides)}, de.Message, trace_id);
+            context.ExceptionHandled = true;
+            return;
+        }
+        // RS-48: a \`checked(...)\` integer \`+ - *\` left its int32 / int64 range.
+        if (context.Exception is System.OverflowException ofe)
+        {
+            ${renderDotnetLogCall("domainError", [
+              { name: "message", valueExpr: "ofe.Message" },
+              { name: "status", valueExpr: `${overflowStatus}` },
+            ])}
+            global::${ns}.Observability.HttpMetrics.RecordDomainFault("domain_error");
+            context.Result = Problem(context, ${overflowStatus}, ${csTitle("arithmetic-overflow", overrides)}, ${csFixedDetail("arithmetic-overflow")}, trace_id);
             context.ExceptionHandled = true;
             return;
         }

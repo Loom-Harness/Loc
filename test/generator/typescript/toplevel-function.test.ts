@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { generateHono } from "../../_helpers/generate.js";
 import { parseString, parseValid } from "../../_helpers/parse.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const SRC = `
   function isBlank(s: string): bool = s.trim().length == 0
@@ -34,7 +35,7 @@ describe("typescript generator — Phase B top-level function", () => {
     // `taxed(net, 20)` inlined, paren-wrapped, args substituted.
     // (`int / int` widens to `decimal`, and decimal arithmetic is exact —
     // RS-37 — so the chain from the division up rides decimal.js.)
-    expect(domain).toContain(
+    expect(uncheckedInt(domain)).toContain(
       "get gross(): number { return (new Decimal(this._net).plus(new Decimal(this._net * 20).div(100)).toNumber()); }",
     );
     // `!isBlank(customerName)` inlined into the invariant guard.

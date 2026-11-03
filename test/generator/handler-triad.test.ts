@@ -19,10 +19,12 @@
 //
 // Fixture: `test/fixtures/corpus/handler-triad.ddd` (the corpus copy, so the
 // five compile legs build exactly what these assertions read).
+
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { uncheckedInt } from "../_helpers/unchecked-int.js";
 
 const FIXTURE = fileURLToPath(new URL("../fixtures/corpus/handler-triad.ddd", import.meta.url));
 
@@ -62,7 +64,7 @@ describe("A — .NET emits a handler that touches no aggregate", () => {
     expect(rec).toContain("public sealed record SumQuery(int A, int B) : IQuery<int>;");
     const h = fileEndingWith(m, "Application/Handlers/SumHandler.cs");
     expect(h).toContain("public sealed class SumHandler : IQueryHandler<SumQuery, int>");
-    expect(h).toContain("return command.A + command.B;");
+    expect(uncheckedInt(h)).toContain("return command.A + command.B;");
   });
 
   it("routes both through the api controller (the route used to vanish too)", async () => {

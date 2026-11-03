@@ -12,6 +12,12 @@ import {
   workflowFnSnake,
 } from "../../util/naming.js";
 import {
+  checkedBinaryKind,
+  checkedUnaryKind,
+  DECLARED_INT_RANGE,
+  type IntegralKind,
+} from "../_expr/checked-int.js";
+import {
   type CallExpr,
   type ExprTarget,
   type MemberExpr,
@@ -122,7 +128,8 @@ const PY_TARGET: ExprTarget<PyRenderContext> = {
   // Bare object literals only appear in e2e contexts; in operation bodies
   // this branch is unreachable (the validator rejects them).
   object: (fields) => `{${fields.map((f) => `"${f.name}": ${f.value}`).join(", ")}}`,
-  unary: (op, operand) => (op === "!" ? `not ${operand}` : `${op}${operand}`),
+  unary: (op, operand, e) =>
+    op === "!" ? `not ${operand}` : pyCheckedInt(`${op}${operand}`, checkedUnaryKind(e)),
   binary: renderBinary,
   ternary: (cond, then, otherwise) => `(${then} if ${cond} else ${otherwise})`,
   convert: (value, e) => renderPyConvert(e.target, e.from, value),
@@ -765,7 +772,15 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   const dt = datetimeConcatSide(e);
   if (dt === "right") return `${left} ${pyBinOp(e.op)} ${right}.isoformat()`;
   if (dt === "left") return `${left}.isoformat() ${pyBinOp(e.op)} ${right}`;
-  return `${left} ${pyBinOp(e.op)} ${right}`;
+  return pyCheckedInt(`${left} ${pyBinOp(e.op)} ${right}`, checkedBinaryKind(e));
+}
+
+/** Range-check an integer `+ - *` result (RS-48): python ints never overflow,
+ *  so the declared int32 / int64 bound is enforced by `check_int`. */
+function pyCheckedInt(expr: string, kind: IntegralKind | null): string {
+  if (kind === null) return expr;
+  const { min, max } = DECLARED_INT_RANGE[kind];
+  return `${PY.check_int}(${expr}, ${min}, ${max})`;
 }
 
 /** An ORDERING with a nullable `money?`/`decimal?` side — or a nullable
