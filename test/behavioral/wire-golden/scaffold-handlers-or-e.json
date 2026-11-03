@@ -213,13 +213,6 @@
     },
     {
       "seq": 17,
-      "method": "DELETE",
-      "path": "/api/orders/{id}",
-      "status": 204,
-      "body": ""
-    },
-    {
-      "seq": 18,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -232,7 +225,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 18,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -245,7 +238,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 19,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,
@@ -254,6 +247,19 @@
         "instance": "/api/orders",
         "status": 400,
         "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "POST",
+      "path": "/api/orders/{id}/settle",
+      "status": 404,
+      "body": {
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/settle",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     },
@@ -274,19 +280,6 @@
       "seq": 22,
       "method": "POST",
       "path": "/api/orders/{id}/settle",
-      "status": 404,
-      "body": {
-        "detail": "Order {id} not found",
-        "instance": "/api/orders/{id}/settle",
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
-      }
-    },
-    {
-      "seq": 23,
-      "method": "POST",
-      "path": "/api/orders/{id}/settle",
       "status": 415,
       "body": {
         "detail": "Content-Type must be application/json",
@@ -297,7 +290,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 23,
       "method": "POST",
       "path": "/api/orders/{id}/update",
       "status": 404,

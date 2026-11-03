@@ -59,11 +59,14 @@ describe("a bound union arm answered by an entry point", () => {
     expect(h).toContain("OrderOrUnsettledResponse_Unsettled(v.code())");
   });
 
-  it("python: a bound error reads its keys; the own arm carries its id", async () => {
+  it("python: a bound arm reads the subject's keys; the own arm carries its id", async () => {
     const all = await files("python");
     expect(ending(all, "app/domain/order.py")).toContain('return {"type": "Order", "id": self.id}');
     const h = ending(all, "app/application/close_order.py");
-    expect(h).toContain('handler_result = {"type": "Unsettled", "code": v["code"]}');
-    expect(h).toContain('get_by_id(v["id"])');
+    // Read off the subject, never a rebinding: one name bound to a dict here
+    // and to a scalar in a sibling arm fails mypy --strict.
+    expect(h).toContain('handler_result = {"type": "Unsettled", "code": r["code"]}');
+    expect(h).toContain('get_by_id(cast(OrderId, r["id"]))');
+    expect(h).not.toMatch(/^\s*v = r$/m);
   });
 });

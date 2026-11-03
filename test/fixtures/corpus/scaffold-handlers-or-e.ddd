@@ -14,9 +14,13 @@ system ScaffoldHandlersOrE {
   subdomain Shop {
     context Sales with scaffoldHandlers {
       error Unsettled { code: string }
-      aggregate Order with crudish {
+      aggregate Order with crudish(updateOnly: true) {
         code: string
         paid: int
+        create(code: string, paid: int) {
+          code := code
+          paid := paid
+        }
         operation settle(): int or Unsettled {
           paid := paid + 1
           if paid > 2 {
@@ -85,6 +89,5 @@ system ScaffoldHandlersOrE {
     api.orders.update(other, { code: "B-3" })
     expect(api.orders.getById(other).code).toBe("B-3")
     expect(api.orders.all().items.length).toBe(2)
-    api.orders.destroy(other)
   }
 }
