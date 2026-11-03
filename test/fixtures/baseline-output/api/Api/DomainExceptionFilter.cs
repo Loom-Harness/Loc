@@ -59,10 +59,10 @@ public sealed class DomainExceptionFilter : IExceptionFilter
                         ["pointer"] = ValidationProblem.PointerOf(e.PropertyName),
                         ["message"] = e.ErrorMessage,
                     };
-                    // A messaged rule's WithErrorCode("msg.<hash>") surfaces as the
-                    // stable content-hash wire code; a message-less rule's default
-                    // FluentValidation ErrorCode is omitted (byte-identical body).
-                    if (e.ErrorCode != null && e.ErrorCode.StartsWith("msg.", StringComparison.Ordinal))
+                    // A named rule's WithErrorCode("<Ctx>.<Owner>.rule.<name>")
+                    // surfaces as its identity-key wire code; an unnamed rule's
+                    // default FluentValidation ErrorCode is omitted.
+                    if (e.ErrorCode != null && e.ErrorCode.Contains(".rule.", StringComparison.Ordinal))
                         err["code"] = e.ErrorCode;
                     return err;
                 })

@@ -20,7 +20,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.sb5be7",
+            "code": "Catalog.Product.rule.quantityCannotNegative",
             "message": "Quantity cannot be negative",
             "pointer": "/quantity"
           }
@@ -40,7 +40,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.izdgzf",
+            "code": "Catalog.Product.rule.nameRequired",
             "message": "Name is required",
             "pointer": "/name"
           }
@@ -60,7 +60,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.ap91wd",
+            "code": "Catalog.Sku.rule.skuCodeNeedsAt",
             "message": "SKU code needs at least 3 characters",
             "pointer": "/sku/code"
           }
@@ -80,7 +80,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.ap91wd",
+            "code": "Catalog.Sku.rule.skuCodeNeedsAt",
             "message": "SKU code needs at least 3 characters",
             "pointer": "/sku/code"
           }
@@ -228,7 +228,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.zjdkcr",
+            "code": "Catalog.Product.rule.restockAmountAtLeast",
             "message": "Restock amount must be at least 1",
             "pointer": "/amount"
           }
@@ -248,7 +248,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.76qyxv",
+            "code": "Catalog.Product.rule.labelNeedsAtLeast",
             "message": "Label needs at least 3 characters",
             "pointer": "/label"
           }

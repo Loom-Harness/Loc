@@ -74,7 +74,7 @@
       "path": "/api/invoices/{id}/set_fee",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: x == null || x >= money(\"0\")",
+        "detail": "Business rule violated",
         "instance": "/api/invoices/{id}/set_fee",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -87,7 +87,7 @@
       "path": "/api/invoices/{id}/set_fee",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: fee != x",
+        "detail": "Business rule violated",
         "instance": "/api/invoices/{id}/set_fee",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -218,7 +218,7 @@
       "path": "/api/quotes/{id}/bid",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: x > money(\"0\")",
+        "detail": "Invalid value",
         "instance": "/api/quotes/{id}/bid",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -231,7 +231,7 @@
       "path": "/api/quotes/{id}/bid",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: x > money(\"0\")",
+        "detail": "Invalid value",
         "instance": "/api/quotes/{id}/bid",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -329,7 +329,7 @@
       "path": "/api/ledgers/{id}/spend",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: limit == null || balance + amount <= limit",
+        "detail": "Business rule violated",
         "instance": "/api/ledgers/{id}/spend",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -342,7 +342,7 @@
       "path": "/api/ledgers/{id}/spend",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: amount > money(\"0\")",
+        "detail": "Invalid value",
         "instance": "/api/ledgers/{id}/spend",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -355,7 +355,7 @@
       "path": "/api/ledgers/{id}/set_limit",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: x != limit",
+        "detail": "Business rule violated",
         "instance": "/api/ledgers/{id}/set_limit",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -368,7 +368,7 @@
       "path": "/api/ledgers/{id}/set_limit",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: x >= balance",
+        "detail": "Business rule violated",
         "instance": "/api/ledgers/{id}/set_limit",
         "status": 422,
         "title": "Unprocessable Entity",

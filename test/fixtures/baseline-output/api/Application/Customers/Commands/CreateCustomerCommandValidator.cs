@@ -17,9 +17,9 @@ public sealed class CreateCustomerCommandValidator : AbstractValidator<CreateCus
             .WithMessage("Age must be between 18 and 150");
         RuleFor(x => x).Must(x => x.Username != x.Email)
             .WithName("Username")
-            .WithMessage("Invariant violated: username != email");
+            .WithMessage("Business rule violated");
         RuleFor(x => x).Must(x => Regex.IsMatch(x.Email, "^[^@]+@[^@]+\\.[^@]+$") && x.Email.EnumerateRunes().Count() <= 120)
             .WithName("Email")
-            .WithMessage("Invariant violated: email check email.matches(\"^[^@]+@[^@]+\\\\.[^@]+$\") && email.length <= 120");
+            .WithMessage("Business rule violated");
     }
 }

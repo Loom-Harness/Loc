@@ -35,7 +35,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.ipjnqi",
+            "code": "Codes.Code.rule.fiveUppercaseLetters",
             "message": "must be five uppercase letters",
             "pointer": "/code/value"
           }
@@ -55,7 +55,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.ipjnqi",
+            "code": "Codes.Code.rule.fiveUppercaseLetters",
             "message": "must be five uppercase letters",
             "pointer": "/code/value"
           }
@@ -75,7 +75,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.ipjnqi",
+            "code": "Codes.Code.rule.fiveUppercaseLetters",
             "message": "must be five uppercase letters",
             "pointer": "/code/value"
           }

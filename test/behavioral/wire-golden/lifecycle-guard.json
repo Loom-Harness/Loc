@@ -343,7 +343,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.2ivz0p",
+            "code": "Warehouse.Shipment.rule.shipmentReferenceNeedsAt",
             "message": "A shipment reference needs at least 3 characters",
             "pointer": "/reference"
           }
@@ -363,7 +363,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.2ivz0p",
+            "code": "Warehouse.Shipment.rule.shipmentReferenceNeedsAt",
             "message": "A shipment reference needs at least 3 characters",
             "pointer": "/reference"
           }

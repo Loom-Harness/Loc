@@ -114,7 +114,7 @@
         "detail": "A patient name needs two characters",
         "errors": [
           {
-            "code": "msg.ojnyph",
+            "code": "Scheduling.Appointment.rule.patientNameNeedsTwo",
             "message": "A patient name needs two characters",
             "pointer": "/patient"
           }
@@ -134,7 +134,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.f0bvq7",
+            "code": "Scheduling.Appointment.rule.duration10120Minutes",
             "message": "Duration must be 10–120 minutes",
             "pointer": "/minutes"
           }

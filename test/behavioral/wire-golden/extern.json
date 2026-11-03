@@ -26,7 +26,7 @@
       "path": "/api/orders/{id}/confirm",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: riskScore < 80",
+        "detail": "Invalid value",
         "instance": "/api/orders/{id}/confirm",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -42,7 +42,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.oa3tfi",
+            "code": "Sales.Order.rule.riskFlagCannotNegative",
             "message": "A risk flag cannot be negative",
             "pointer": "/score"
           }
@@ -79,7 +79,7 @@
       "path": "/api/orders/{id}/confirm",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: isMutable()",
+        "detail": "Business rule violated",
         "instance": "/api/orders/{id}/confirm",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -92,7 +92,7 @@
       "path": "/api/orders/{id}/cancel",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: isMutable()",
+        "detail": "Business rule violated",
         "instance": "/api/orders/{id}/cancel",
         "status": 422,
         "title": "Unprocessable Entity",

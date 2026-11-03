@@ -158,7 +158,7 @@
       "path": "/api/listings/{id}/discontinue",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: availability != Availability.Discontinued",
+        "detail": "Business rule violated",
         "instance": "/api/listings/{id}/discontinue",
         "status": 422,
         "title": "Unprocessable Entity",

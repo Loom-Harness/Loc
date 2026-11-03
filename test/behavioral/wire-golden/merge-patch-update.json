@@ -171,7 +171,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.cbw5sm",
+            "code": "Desk.Memo.rule.pagesCannotNegative",
             "message": "Pages cannot be negative",
             "pointer": "/pages"
           }
@@ -191,7 +191,7 @@
         "detail": "A memo has at least its minimum pages",
         "errors": [
           {
-            "code": "msg.vdy8wk",
+            "code": "Desk.Memo.rule.memoHasAtLeast",
             "message": "A memo has at least its minimum pages",
             "pointer": ""
           }

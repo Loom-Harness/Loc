@@ -73,7 +73,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.ts86ny",
+            "code": "_system.UnLocode.rule.unLocode5Characters",
             "message": "UN/LOCODE must be 5 characters",
             "pointer": "/tag/value"
           }
@@ -93,7 +93,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.ts86ny",
+            "code": "_system.UnLocode.rule.unLocode5Characters",
             "message": "UN/LOCODE must be 5 characters",
             "pointer": "/route/origin/value"
           }

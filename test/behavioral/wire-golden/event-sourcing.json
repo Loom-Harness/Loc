@@ -45,7 +45,7 @@
         "detail": "Balance cap exceeded",
         "errors": [
           {
-            "code": "msg.4ybnu4",
+            "code": "Accounts.Account.rule.balanceCapExceeded",
             "message": "Balance cap exceeded",
             "pointer": "/balance"
           }
