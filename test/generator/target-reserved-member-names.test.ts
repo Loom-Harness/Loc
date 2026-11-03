@@ -480,7 +480,7 @@ describe("node + react: JS/TS reserved words as field / parameter names", async 
       "  within(new_: number, default_: number): boolean { return new_ <= this.yield && default_ >= 0; }",
     );
     const svc = read("api/domain/services.ts");
-    expect(svc).toContain("export function sum(new_: number, default_: number): number {");
+    expect(svc).toContain("function calc_sum(new_: number, default_: number): number {");
     expect(uncheckedInt(svc)).toContain("const class_ = new_ + default_;");
     const wf = read("api/http/workflows.ts");
     expect(wf).toContain("const class_ = body.class;");

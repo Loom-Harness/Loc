@@ -52,6 +52,7 @@ import { opBodyStmtsDeep, opUsesCurrentUser, stmtUsesParam } from "../domain/pre
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { exErrorVariant } from "../wire-policy-ex.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
+import { opPersistInvariantPipes } from "./changeset-emit.js";
 import { exLineageValue } from "./codec-spelling-ex.js";
 import {
   appModuleOf,
@@ -939,6 +940,11 @@ export function renderReturningOpFunction(
   const versionLock = savesLockVersion(agg)
     ? "\n      |> Ecto.Changeset.optimistic_lock(:version)"
     : "";
+  // The persisted changeset is built with `change(%{}) |> force_change`, which
+  // runs no validator — re-run the aggregate's invariants on it (both halves,
+  // see `opPersistInvariantPipes`) so a violating op answers 422 instead of
+  // committing.
+  const invPipes = opPersistInvariantPipes(agg, ctx, `${aggModule}Changeset`, 6);
   // A trailing NON-aggregate success return (shape C), re-rendered to sit inside
   // the `{:ok, saved}` commit arm over the persisted struct — a preceding
   // `record = saved` rebinds `record`, so the return's `this.*` reads reflect the
@@ -1020,7 +1026,7 @@ export function renderReturningOpFunction(
       ...(durableEmit.bind.length > 0 ? [``] : []),
       `    changeset =`,
       `      ${persistBase}`,
-      `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
+      `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
       ``,
       ...txBody,
       `    case tx_result do`,
@@ -1048,7 +1054,7 @@ export function renderReturningOpFunction(
             // so a rollback drops them too.
             `    changeset =`,
             `      ${persistBase}`,
-            `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
+            `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
             ``,
             `    tx_result =`,
             `      ${appModule}.Repo.transaction(fn ->`,
@@ -1074,7 +1080,7 @@ export function renderReturningOpFunction(
         : [
             `    changeset =`,
             `      ${persistBase}`,
-            `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
+            `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
             ``,
             `    ${appModule}.Repo.transaction(fn ->`,
             `      case ${repoMod}.persist_change(changeset) do`,
@@ -1094,7 +1100,7 @@ export function renderReturningOpFunction(
         [
           `    changeset =`,
           `      ${persistBase}`,
-          `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
+          `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
           ``,
           `    tx_result =`,
           `      ${appModule}.Repo.transaction(fn ->`,
@@ -1128,7 +1134,7 @@ export function renderReturningOpFunction(
       ? [
           `    changeset =`,
           `      ${persistBase}`,
-          `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
+          `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
           ``,
           `    case ${repoMod}.persist_change(changeset) do`,
           `      {:ok, saved} ->`,
@@ -1142,7 +1148,7 @@ export function renderReturningOpFunction(
       : [
           `    changeset =`,
           `      ${persistBase}`,
-          `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
+          `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
           ``,
           `    case ${repoMod}.persist_change(changeset) do`,
           `      {:ok, saved} -> {:ok, ${wireMap("saved", true)}}`,
@@ -1158,7 +1164,7 @@ export function renderReturningOpFunction(
     tailLines = [
       `    changeset =`,
       `      ${persistBase}`,
-      `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
+      `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
       ``,
       `    case ${repoMod}.persist_change(changeset) do`,
       `      {:ok, saved} ->`,
@@ -1176,7 +1182,7 @@ export function renderReturningOpFunction(
     tailLines = [
       `    changeset =`,
       `      ${persistBase}`,
-      `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
+      `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
       ``,
       `    case ${repoMod}.persist_change(changeset) do`,
       `      {:ok, saved} ->`,

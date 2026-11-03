@@ -358,6 +358,10 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
       : javaUnaryInt(op, operand, checkedUnaryKind(e)),
   binary: renderBinary,
   ternary: (cond, then, otherwise) => `${cond} ? ${then} : ${otherwise}`,
+  // Left evaluated once; the fallback is a supplier, so it runs only when the
+  // left is null.
+  coalesce: (left, fallback) =>
+    `java.util.Optional.ofNullable(${left}).orElseGet(() -> ${fallback})`,
   convert: (value, e) => renderJavaConvert(e.target, e.from, value),
   // Transparent i18n wrapper (M-T1.11) — drop the format, emit the operand.
   i18nFormat: (inner) => inner,

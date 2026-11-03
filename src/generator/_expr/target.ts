@@ -2,6 +2,7 @@ import { diagMessage } from "../../diagnostics/messages.js";
 import { isScalarVariant, unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import type { ExprIR, LiteralKind } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
+import { coalesceParts } from "./coalesce.js";
 
 // ---------------------------------------------------------------------------
 // Shared ExprIR dispatch — the `ExprTarget` contract.
@@ -191,6 +192,11 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
    *  narrowing of a branch (.NET unwraps a narrowed `Nullable<T>`); absent for
    *  the synthesized presence ternaries, which have no source node. */
   ternary(cond: string, then: string, otherwise: string, e?: TernaryExpr, ctx?: Ctx): string;
+  /** `left ?? fallback` — a ternary of the shape `coalesceParts` recognises.
+   *  Both operands arrive rendered once; the leaf must evaluate `left` exactly
+   *  once and `fallback` only when `left` is null (never eagerly: the fallback
+   *  may be a call).  The condition is not rendered. */
+  coalesce(left: string, fallback: string, e: TernaryExpr, ctx: Ctx): string;
   /** `ctx` lets a leaf qualify a framework reference against its emission
    *  scope (.NET: `global::System` when a member named `System` shadows the
    *  namespace — see `CsRenderContext.memberScope`). */
@@ -313,8 +319,11 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
       return t.unary(e.op, r(e.operand), e, ctx);
     case "binary":
       return t.binary(r(e.left), r(e.right), e, ctx);
-    case "ternary":
+    case "ternary": {
+      const co = coalesceParts(e);
+      if (co) return t.coalesce(r(co.left), r(co.fallback), e, ctx);
       return t.ternary(r(e.cond), r(e.then), r(e.otherwise), e, ctx);
+    }
     case "convert":
       return t.convert(r(e.value), e, ctx);
     case "duration":
@@ -807,6 +816,12 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
       return compose(t.binary(left.text, right.text, e, ctx), [left, right]);
     }
     case "ternary": {
+      const co = coalesceParts(e);
+      if (co) {
+        const left = rm(co.left);
+        const fallback = rm(co.fallback);
+        return compose(t.coalesce(left.text, fallback.text, e, ctx), [left, fallback]);
+      }
       const cond = rm(e.cond);
       const then = rm(e.then);
       const otherwise = rm(e.otherwise);

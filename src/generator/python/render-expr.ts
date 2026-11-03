@@ -132,6 +132,12 @@ const PY_TARGET: ExprTarget<PyRenderContext> = {
     op === "!" ? `not ${operand}` : pyCheckedInt(`${op}${operand}`, checkedUnaryKind(e)),
   binary: renderBinary,
   ternary: (cond, then, otherwise) => `(${then} if ${cond} else ${otherwise})`,
+  // A one-element comprehension binds the left once without a walrus (illegal
+  // inside a comprehension's iterable, where `all(...)`/`sum(...)` receivers
+  // land) and keeps the fallback lazy.  The comprehension scope isolates the
+  // name, so nested coalesces cannot collide.
+  coalesce: (left, fallback) =>
+    `[__c if __c is not None else ${fallback} for __c in (${left},)][0]`,
   convert: (value, e) => renderPyConvert(e.target, e.from, value),
   // Transparent i18n wrapper (M-T1.11) — drop the format, emit the operand.
   i18nFormat: (inner) => inner,
