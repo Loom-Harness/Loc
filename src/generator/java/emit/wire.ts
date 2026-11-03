@@ -3,7 +3,6 @@ import { numericEncode } from "../../_numeric/target.js";
 import { javaCalendarDateWire, javaInstantWire } from "../codec-spelling.js";
 import { J } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
-import { javaValueTypeForId } from "../render-expr.js";
 import { JAVA_PROVENANCED_RECORD } from "./provenance.js";
 
 // ---------------------------------------------------------------------------
@@ -73,11 +72,10 @@ export function bearsNestedRecord(t: TypeIR): boolean {
   }
 }
 
-/** `javaValueTypeForId`, with the `UUID` spelling written as its import
- *  marker (M-T9.86) so a unit naming it derives `import java.util.UUID;`. */
-export function javaIdValueType(idValueType: string): string {
-  const v = javaValueTypeForId(idValueType);
-  return v === "UUID" ? J.UUID : v;
+/** `javaValueTypeForId` (a guid's `UUID`) written as its import marker, so a
+ *  unit naming it derives `import java.util.UUID;`. */
+export function javaIdValueType(): string {
+  return J.UUID;
 }
 
 /** The Java type a domain type takes inside a request/response record. */
@@ -127,7 +125,7 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
       }
       return "Object";
     case "id":
-      return javaIdValueType(t.valueType);
+      return javaIdValueType();
     case "enum":
       return t.name;
     case "valueobject":

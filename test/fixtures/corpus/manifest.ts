@@ -192,11 +192,31 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "state-gate", title: "`when` canCommand state gate + GET can-query companion", doc: "criterion", backends: ALL },
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
   {
+    id: "op-persist-field-invariant",
+    title: "a named operation assigning a field a single-field invariant guards (`invariant qty >= 0` under `setQty(-1)`) is refused with 422 and leaves the row unchanged",
+    doc: "language",
+    backends: ALL,
+    note: "Elixir's operation persist (`change(%{}) |> force_change`) re-ran only the residual cross-field rules, so a single-field invariant — native `validate_number` in `base_changeset` only — was bypassed and `setQty(-1)` committed.",
+  },
+  {
+    id: "union-match-arms",
+    title: "a `return match` whose arms build different union variants, tagged per arm",
+    doc: "payloads",
+    backends: ALL,
+  },
+  {
     id: "workflow-expected-failure",
     title: "a workflow `create` / handler answering `T or E`, rolled back whole on the error",
     doc: "workflow",
     backends: ["node", "dotnet", "java", "python"],
     note: "elixir refuses the let-bound mutating call every entry point here matches (`loom.elixir-bound-mutating-call-unsupported`).",
+  },
+  {
+    id: "scaffold-handlers-or-e",
+    title: "`scaffoldHandlers` over an operation answering `T or E`: the handler returns the result",
+    doc: "scaffold-macros",
+    backends: ["node", "dotnet", "java", "python"],
+    note: "elixir refuses an expected-failure entry point (`loom.elixir-entry-result-unsupported`).",
   },
   {
     id: "op-return-this",
@@ -615,6 +635,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "Minted by #3024.  `ddd new --platform dotnet --template crud` emits an aggregate named `Task`, and the generated project did not build AT ALL: `generate system` reported `0 error(s), 0 warning(s)` and `dotnet build` then produced 17 errors — CS0104 in every file that wildcard-imports the domain namespace, plus CS0535/CS0738 because the repository INTERFACE *declares* that namespace, so its bare `Task SaveAsync` return silently meant the DOMAIN type and disagreed with its own impl.  Repaired rather than refused (a file-scoped `using Task = <ns>.Domain.Tasks.Task;` outranks the wildcard import and, being non-generic, leaves `Task<…>` alone; only NON-GENERIC async returns are additionally qualified, and only for the name `Task`).  `Queue` is the second aggregate on purpose — it proves the alias is general, not `Task`-special-cased: aliasing only `Task` left `aggregate Type` failing with the identical triple against `System.Type`.  The row is ALL because the other four backends have no such ambiguity and must stay byte-identical — verified across 84 corpus/example models, where this shape is the only one whose output moves.",
+  },
+  {
+    id: "factory-param-local-collision",
+    title:
+      "a create-input field (`e: int`) and an event-sourced `create(e: int)` parameter named like the .NET construction factory's instance local",
+    doc: "language",
+    backends: ALL,
+    note: "The .NET `Create(...)` factory built the instance into `var e` and took each create input as a same-named parameter, so a field called `e` re-declared a parameter in the same scope (CS0136) — on both the state-backed and the event-sourced factory — while `generate system` reported 0 error(s).  The local now steps aside (`_e`) only when a parameter owns `e`, so every other model stays byte-identical.  The row is ALL because no other backend declares such a local, and nothing else may move.",
   },
   {
     id: "member-named-like-vo",

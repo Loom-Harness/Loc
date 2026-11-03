@@ -32,10 +32,10 @@ import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { collectLeaves, type ProvLeaf } from "../../_stmt/leaves.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import {
-  exFrameworkNow,
-  exFrameworkTimestampType,
   exLineageValue,
   exProvWireModule,
+  exRecordInstantType,
+  exRecordNow,
 } from "./codec-spelling-ex.js";
 
 /** The provenanced fields declared on an aggregate (root fields only —
@@ -107,7 +107,7 @@ defmodule ${appModule}.Provenance.Record do
     field :field, :string
     field :inputs, ${appModule}.Provenance.Json
     field :computed_value, ${appModule}.Provenance.Json
-    field :at, ${exFrameworkTimestampType()}
+    field :at, ${exRecordInstantType()}
     field :correlation_id, :string
     field :scope_id, :string
     field :actor_id, :string
@@ -155,7 +155,7 @@ defmodule ${appModule}.Provenance do
   """
   @spec flush(module()) :: :ok
   def flush(repo) do
-    now = ${exFrameworkNow()}
+    now = ${exRecordNow()}
 
     rows =
       Enum.map(drain(), fn lin ->

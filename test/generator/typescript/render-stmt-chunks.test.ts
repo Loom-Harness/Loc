@@ -138,7 +138,7 @@ describe("ts `-=` element removal — every boxed element type compares by value
 
   it("branded ids, enums and scalars keep `===` (byte-identical)", () => {
     for (const t of [
-      { kind: "id", targetName: "Order", valueType: "guid" },
+      { kind: "id", targetName: "Order" },
       { kind: "enum", name: "Status" },
       { kind: "primitive", name: "string" },
       // An entity PART emits no `equals()`, and its removal is genuinely

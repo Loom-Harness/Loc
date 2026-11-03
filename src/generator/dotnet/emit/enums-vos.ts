@@ -3,6 +3,7 @@ import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
 import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
 import { csMemberScope, csParamIdent, typeMemberNames } from "../bcl-collision.js";
+import { sortedCsUsings } from "../cs-symbols.js";
 import {
   collectCsExprUsings,
   collectCsTypeUsings,
@@ -111,7 +112,7 @@ export function renderValueObject(vo: ValueObjectIR, ns: string): string {
     return [head, "    {", ...(body.length > 0 ? [body] : []), "    }"];
   });
 
-  const extraUsings = [...usings].sort().map((n) => `using ${n};`);
+  const extraUsings = sortedCsUsings(usings);
   return (
     lines(
       "// Auto-generated.",

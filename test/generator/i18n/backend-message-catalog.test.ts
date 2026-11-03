@@ -257,9 +257,13 @@ describe("cross-backend parity", () => {
     // java / elixir extract the first tag, then hand the rest to their ecosystem.
     const advice = bySuffix(java, "ApiExceptionAdvice.java")!;
     expect(advice).toContain('RequestContext.locale().split(",")[0].split(";")[0].trim()');
+    // elixir's 422 handler hands the header to the shared Accept-Language
+    // matcher, which does the first-tag extraction (q-ordered) before gettext.
     const problem = bySuffix(elixir, "_web/problem_details.ex")!;
-    expect(problem).toContain('String.split(",")');
-    expect(problem).toContain('String.split(";")');
+    expect(problem).toContain("Web.Locale.header_gettext_locale(");
+    const matcher = bySuffix(elixir, "_web/locale.ex")!;
+    expect(matcher).toContain('String.split(",", trim: true)');
+    expect(matcher).toContain('String.split(";")');
   });
 
   it("a system with no authored message emits no catalog and no lookup", async () => {

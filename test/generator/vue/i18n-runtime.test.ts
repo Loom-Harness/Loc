@@ -98,7 +98,7 @@ describe("Vue i18n runtime", () => {
     const files = await generateSystemFiles(withComponent);
     const banner = [...files].find(([p]) => p.endsWith("components/Banner.vue"))![1];
     expect(banner).toMatch(/\{\{ t\("Web\.component\.Banner\.[^"]*", "Shop Banner"\) \}\}/);
-    expect(banner).toContain(`import { t } from "../i18n"`);
+    expect(banner).toContain(`import { t } from "../lib/locale"`);
     const locale = [...files].find(([p]) => p.endsWith("src/locales/en.json"))?.[1];
     expect(Object.values(JSON.parse(locale!) as Record<string, string>)).toContain("Shop Banner");
   });
@@ -121,9 +121,8 @@ describe("Vue i18n runtime", () => {
     );
     const i18n = [...files].find(([p]) => p.endsWith("src/i18n.ts"))![1];
     expect(i18n).toContain('import { IntlMessageFormat } from "intl-messageformat"');
-    expect(i18n).toContain(
-      "new IntlMessageFormat(message, locale).format(formatValues(message, values))",
-    );
+    expect(i18n).toContain("formatterFor(current, message).format(formatValues(message, values))");
+    expect(i18n).toContain("new IntlMessageFormat(message, locale)");
     const pkg = [...files].find(([p]) => p.endsWith("web/package.json"))![1];
     expect(pkg).toContain("intl-messageformat");
   });
@@ -137,7 +136,7 @@ describe("Vue i18n runtime", () => {
     expect(app).toContain(`{{ t("chrome.skipToContent", "Skip to content") }}`);
     // The primary-navigation landmark aria binds through Vue's `:aria-label`.
     expect(app).toContain(`:aria-label='t("chrome.primaryNav", "Primary navigation")'`);
-    expect(app).toContain(`import { t } from "./i18n"`);
+    expect(app).toContain(`import { t } from "./lib/locale"`);
     const catalog = JSON.parse(
       [...files].find(([p]) => p.endsWith("src/locales/en.json"))![1],
     ) as Record<string, string>;

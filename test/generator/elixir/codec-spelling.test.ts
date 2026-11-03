@@ -56,10 +56,8 @@ describe("migration columns", () => {
     expect(exMoneyColumnSql()).toBe("NUMERIC(19,4)");
   });
 
-  it("keys a text id as Ecto's :string and every other id as its column", () => {
-    expect(exMigrationKeyType(idColumn("string"))).toBe(":string");
-    expect(exMigrationKeyType(idColumn("guid"))).toBe(":uuid");
-    expect(exMigrationKeyType(idColumn("long"))).toBe(":bigint");
+  it("keys an id as its uuid column", () => {
+    expect(exMigrationKeyType(idColumn())).toBe(":uuid");
     expect(exMigrationRowIdType()).toBe(":uuid");
   });
 
@@ -86,14 +84,9 @@ describe("schema fields", () => {
     expect(exEctoJsonType()).toBe(":map");
   });
 
-  it("types an id by its value type's column", () => {
-    expect(exEctoIdType("guid")).toBe(":binary_id");
-    expect(exEctoIdType("string")).toBe(":string");
-    expect(exEctoIdType("int")).toBe(":integer");
-    expect(exEctoIdType("long")).toBe(":integer");
-    expect(exEctoIdJsonType("guid")).toBe(":string");
-    expect(exEctoIdJsonType("string")).toBe(":string");
-    expect(exEctoIdJsonType("int")).toBe(":integer");
+  it("types an id as the guid key, and as a JSON string inside jsonb", () => {
+    expect(exEctoIdType()).toBe(":binary_id");
+    expect(exEctoIdJsonType()).toBe(":string");
   });
 });
 

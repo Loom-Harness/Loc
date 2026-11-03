@@ -1095,7 +1095,7 @@ produces tables. The shape depends on the aggregate's saving shape, persistence
 mode, and inheritance:
 
 **Aggregate → table.** `aggregate Order` → table `orders` (`plural(snake(name))`),
-`id` PK typed from `idValueType`, one column per scalar/enum/`X id` field.
+`id` PK (a `uuid` — every identity is a guid), one column per scalar/enum/`X id` field.
 The spelling lives in one place, `tableNameFor` (`src/util/storage-names.ts`), with
 the per-node accessors (`aggregateTableName`, `partTableName`, `projectionTableName`,
 `associationTables`) in `src/ir/enrich/storage-names.ts`; every backend's ORM mapping
@@ -1580,7 +1580,8 @@ how the elixir migration emitter *renders* that column type, so:
   ```
 
   for every declared `datetime` column (the stamped `created_at` / `updated_at`
-  of an `auditable` aggregate included) and the event-log `occurred_at`. Loom
+  of an `auditable` aggregate included), the `at` of `audit_records` and
+  `provenance_records`, and the event-log `occurred_at`. Loom
   emits no such step: a type change that does not move the IR is invisible to
   the diff that would have to produce it — the same limit the RS-37 note above
   records for values.

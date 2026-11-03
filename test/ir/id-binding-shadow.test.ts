@@ -62,7 +62,7 @@ function everyNode(value: unknown, out: Record<string, unknown>[] = []) {
 }
 
 /** The implicit-identity EXPRESSION marker, `{kind:"id"}`.  Distinguished from
- *  the id TYPE (`{kind:"id", targetName, valueType}`) — a parameter declared
+ *  the id TYPE (`{kind:"id", targetName}`) — a parameter declared
  *  `id: WorkOrder id` legitimately carries the latter, and a filter that
  *  conflated them would report the fix as still broken. */
 const identityMarkers = (nodes: Record<string, unknown>[]) =>

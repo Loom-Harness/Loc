@@ -317,9 +317,9 @@ function zodForRequest(t: TypeIR): string {
       }
     case "id":
       // Same reference-is-a-uuid rule the aggregate request schemas use — see
-      // `zodForRequest` in ./zod-schemas.ts (schemathesis F2), on the same
-      // shared `UUID_WIRE_PATTERN` every backend validates against.
-      return t.valueType === "guid" ? `z.string().regex(${UUID_WIRE_REGEX_LITERAL})` : "z.string()";
+      // `zodForRequest` in ./zod-schemas.ts, on the same shared
+      // `UUID_WIRE_PATTERN` every backend validates against.
+      return `z.string().regex(${UUID_WIRE_REGEX_LITERAL})`;
     case "enum":
       return `${t.name}Schema`;
     case "valueobject":

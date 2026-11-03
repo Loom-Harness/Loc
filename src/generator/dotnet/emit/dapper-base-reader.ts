@@ -70,7 +70,7 @@ export function renderDapperTphBaseReaderImpl(
   const read = polymorphicReadFor(base, ctx.aggregates) as PolymorphicRead;
   const table = sqlIdent(dapperAggregateTable(base.name));
   const idClass = `${base.name}Id`;
-  const idCs = idTypes(base.idValueType).cs;
+  const idCs = idTypes().cs;
 
   const shapes: ConcreteShape[] = concretes.map((agg) => ({
     agg,

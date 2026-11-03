@@ -517,6 +517,12 @@ export const angularTarget: WalkerTarget = {
     return defaultInitForJs(type);
   },
 
+  /** `LocaleSwitcher {}` → the generated standalone `loom-locale-switcher`
+   *  component; the page shell adds it to `imports` off this selector. */
+  renderLocaleSwitcher() {
+    return "<loom-locale-switcher />";
+  },
+
   // --- Markup seams ---------------------------------------------------------
 
   /** HTML comment — Angular templates use plain markup comments. */

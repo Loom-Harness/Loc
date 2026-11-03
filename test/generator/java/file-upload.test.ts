@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Java/Spring backend — File upload/download (M-T1.2 slice 2c).  A `File` field
@@ -43,9 +42,7 @@ system FileSys {
 `;
 
 async function build(src = SRC): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(src);
-  if (errors.length) throw new Error(`source has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(src);
 }
 
 function pick(files: Map<string, string>, suffix: string): string {

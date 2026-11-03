@@ -458,6 +458,24 @@ field :attachment, :map
 
 A reference to another aggregate is spelled `Target id` (`IdType`), never the bare aggregate name. The structural validator rejects a bare cross-aggregate type with `loom.bare-aggregate-in-type` (*References across aggregate boundaries need an id link — write 'Customer id' (or 'Customer id[]' for many-to-many)*) — a bare `NamedType` resolves only to enums, value objects, and entity parts in the *same* aggregate. `X id` lowers to the target's primary-key value type (always `guid`) and produces a real foreign key, an index, and, on the typed backends, a strongly-typed id wrapper.
 
+The target must carry an identity: an aggregate (an `abstract` base included) or an entity part. A value object, enum, event, payload record (`command` / `query` / `response` / `error` / `payload`) or workflow has no id, so naming one is `loom.id-target-not-identity`:
+
+```ddd
+valueobject Point { x: int  y: int }
+enum Color { red, green }
+
+aggregate Shape {
+  origin: Point id   // error
+  color: Color id    // error
+}
+```
+
+```
+loom.id-target-not-identity: 'Point id' names a value object 'Point', which has no identity — only aggregates and entity parts carry an id. Reference an aggregate or an entity part instead, or hold the value itself: 'Point'.
+```
+
+Hold a value object or enum directly (`origin: Point`, `color: Color`); reference another aggregate's root with `Customer id`.
+
 ```ddd
 aggregate Customer { name: string }
 

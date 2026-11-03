@@ -4,22 +4,13 @@ import { URI } from "langium";
 import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../src/language/ddd-module.js";
-import type { Model } from "../../src/language/generated/ast.js";
-import { generateSystems } from "../../src/system/index.js";
+import { generateSystemFilesFromProject } from "../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
 
-async function buildModel(file: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(path.join(repoRoot, file)),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], {
-    validation: true,
-  });
-  return doc.parseResult.value as Model;
-}
+const filesFor = (file: string): Promise<Map<string, string>> =>
+  generateSystemFilesFromProject(path.join(repoRoot, file));
 
 describe("system / module / deployable", () => {
   it("parses examples/acme.ddd without errors", async () => {
@@ -35,8 +26,7 @@ describe("system / module / deployable", () => {
   });
 
   it("emits one project per deployable + docker-compose at the system root", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await filesFor("examples/acme.ddd");
     const keys = [...files.keys()];
     // Compose at the root.
     expect(keys).toContain("docker-compose.yml");
@@ -52,8 +42,7 @@ describe("system / module / deployable", () => {
   });
 
   it("scopes each deployable to its declared modules", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await filesFor("examples/acme.ddd");
     // catalog_web (Hono, modules: Catalog) sees Product but NOT Order.
     expect(files.has("catalog_web/domain/product.ts")).toBe(true);
     expect(files.has("catalog_web/domain/order.ts")).toBe(false);
@@ -64,8 +53,7 @@ describe("system / module / deployable", () => {
   });
 
   it("docker-compose.yml wires postgres + a healthcheck per deployable", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await filesFor("examples/acme.ddd");
     const compose = files.get("docker-compose.yml")!;
     expect(compose).toMatch(/image: postgres:18-alpine/);
     expect(compose).toMatch(/api:\s*\n\s*build: \.\/api/);
@@ -80,8 +68,7 @@ describe("system / module / deployable", () => {
   });
 
   it("isolates each deployable to its own postgres database", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await filesFor("examples/acme.ddd");
     // Init script runs on first boot of an empty pgdata volume — and, being
     // idempotent, again on every `up` via the db-bootstrap one-shot (B-26).
     const init = files.get("db-init/00-create-databases.sql")!;
@@ -102,8 +89,7 @@ describe("system / module / deployable", () => {
   });
 
   it("re-provisions every deployable's database on each `up` via the db-bootstrap one-shot (B-26)", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await filesFor("examples/acme.ddd");
     const compose = files.get("docker-compose.yml")!;
     // A one-shot that re-applies the idempotent init script over TCP once the
     // server accepts connections there (i.e. after any first-boot initdb run).
@@ -126,16 +112,14 @@ describe("system / module / deployable", () => {
   });
 
   it("wires the runtime LOG_LEVEL knob (default info) into each backend service env", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await filesFor("examples/acme.ddd");
     const compose = files.get("docker-compose.yml")!;
     // Overridable per backend service; the runtime default is "info".
     expect(compose).toMatch(/LOG_LEVEL: "info"/);
   });
 
   it("emits a /health endpoint on each deployable", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await filesFor("examples/acme.ddd");
     const honoIndex = files.get("catalog_web/http/index.ts")!;
     expect(honoIndex).toMatch(/app\.get\("\/health"/);
     const dotnetProgram = files.get("api/Program.cs")!;
@@ -144,8 +128,7 @@ describe("system / module / deployable", () => {
 
   describe("container basics (/ready, SIGTERM, fail-fast)", () => {
     it("Hono backend gets a /ready route that pings the DB", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await filesFor("examples/acme.ddd");
       const honoIndex = files.get("catalog_web/http/index.ts")!;
       expect(honoIndex).toMatch(/app\.get\("\/ready"/);
       // Drizzle DB ping using sql`select 1`.
@@ -156,8 +139,7 @@ describe("system / module / deployable", () => {
     });
 
     it(".NET backend gets a /ready route that pings the DB", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await filesFor("examples/acme.ddd");
       const program = files.get("api/Program.cs")!;
       expect(program).toMatch(/app\.MapGet\("\/ready"/);
       expect(program).toMatch(/db\.Database\.CanConnectAsync/);
@@ -165,8 +147,7 @@ describe("system / module / deployable", () => {
     });
 
     it("Hono root index.ts captures the server handle and listens for SIGTERM/SIGINT", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await filesFor("examples/acme.ddd");
       const idx = files.get("catalog_web/index.ts")!;
       // Captured `const server = serve(...)` so shutdown can close it.
       expect(idx).toMatch(/const server = serve\(/);
@@ -179,16 +160,14 @@ describe("system / module / deployable", () => {
     });
 
     it("Hono root index.ts fails fast on missing DATABASE_URL", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await filesFor("examples/acme.ddd");
       const idx = files.get("catalog_web/index.ts")!;
       expect(idx).toMatch(/if \(!process\.env\.DATABASE_URL\)/);
       expect(idx).toMatch(/DATABASE_URL is required/);
     });
 
     it(".NET Program.cs fails fast on missing connection string", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await filesFor("examples/acme.ddd");
       const program = files.get("api/Program.cs")!;
       expect(program).toMatch(/Missing connection string 'Default'/);
       expect(program).toMatch(/ConnectionStrings__Default/);
@@ -199,8 +178,7 @@ describe("system / module / deployable", () => {
       // identity (see Bite 5a) — server_shutdown / server_drained now
       // land on the structured stream with the cross-backend event
       // names Hono and Phoenix also use.
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await filesFor("examples/acme.ddd");
       const program = files.get("api/Program.cs")!;
       expect(program).toMatch(/ApplicationStopping\.Register/);
       expect(program).toMatch(/"server_shutdown", "SIGTERM"/);
@@ -209,8 +187,7 @@ describe("system / module / deployable", () => {
 
   describe("boot migration lifecycle events (observability.md)", () => {
     it("Hono root index.ts brackets the drizzle boot migrate with catalog events", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await filesFor("examples/acme.ddd");
       const idx = files.get("catalog_web/index.ts")!;
       // drizzle's migrate() runs the whole batch in one opaque call, so
       // starting/complete bracket it and failed sits in the catch — no
@@ -224,8 +201,7 @@ describe("system / module / deployable", () => {
     });
 
     it(".NET Program.cs brackets the EF boot migrate with catalog events (per-id applied)", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await filesFor("examples/acme.ddd");
       const program = files.get("api/Program.cs")!;
       // EF exposes the pending ids before applying, so migration_applied
       // fires per id (no cheap per-migration duration → duration_ms omitted).
@@ -249,8 +225,7 @@ describe("system / module / deployable", () => {
     });
 
     it("Python boot migrate runner emits the catalog migration-lifecycle events", async () => {
-      const model = await buildModel("test/e2e/fixtures/python-build/shell.ddd");
-      const { files } = generateSystems(model);
+      const files = await filesFor("test/e2e/fixtures/python-build/shell.ddd");
       const migrate = files.get("api/app/db/migrate.py")!;
       expect(migrate).toContain("from app.obs.log import log");
       expect(migrate).toContain('log("info", "migrations_starting", count=len(pending))');
@@ -265,16 +240,14 @@ describe("system / module / deployable", () => {
   });
 
   it("rejects `generate system` on a file with no system blocks", async () => {
-    // Legacy bare-context files don't have a system; generateSystems
+    // Legacy bare-context files don't have a system; the orchestrator
     // returns an empty file map.
-    const model = await buildModel("examples/sales.ddd");
-    const { files } = generateSystems(model);
+    const files = await filesFor("examples/sales.ddd");
     expect(files.size).toBe(0);
   });
 
   it("lowers `test e2e` blocks to a vitest file with typed fetch calls", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await filesFor("examples/acme.ddd");
     const e2e = files.get("e2e/Acme.e2e.test.ts")!;
     expect(e2e).toMatch(/import \{ describe, it, expect \} from "vitest"/);
     // Endpoint table per deployable.
@@ -294,8 +267,7 @@ describe("system / module / deployable", () => {
   });
 
   it("lowers `test e2e ... against <react>` to a Playwright spec via page objects", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await filesFor("examples/acme.ddd");
     // UI specs land inside the targeted react deployable's e2e/
     // folder, next to the auto-generated page objects.
     const ui = files.get("web_app/e2e/Acme.ui.spec.ts")!;
@@ -329,8 +301,7 @@ describe("system / module / deployable", () => {
   it("UI tests live in the targeted react deployable's e2e folder", async () => {
     // Negative: react deployables that aren't targeted by any UI
     // test shouldn't get a spec file.
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await filesFor("examples/acme.ddd");
     expect(files.has("web_app/e2e/Acme.ui.spec.ts")).toBe(true);
     // Backends never get UI specs.
     expect(files.has("api/e2e/Acme.ui.spec.ts")).toBe(false);

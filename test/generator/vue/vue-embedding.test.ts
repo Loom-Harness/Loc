@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Backend-host embedding for Vue (vue-frontend-plan.md Slice 8) — a
@@ -32,7 +31,7 @@ system Sys {
 `;
 
 async function files(source: string): Promise<Map<string, string>> {
-  return (await generateSystems(await parseValid(source))).files;
+  return generateSystemFiles(source);
 }
 
 describe("vue embedding on backend hosts", () => {

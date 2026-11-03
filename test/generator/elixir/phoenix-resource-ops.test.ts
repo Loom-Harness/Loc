@@ -1,8 +1,7 @@
 // Phase 4c (Phoenix) — Elixir resource modules + call sites + Hex deps.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
 system Sys {
@@ -30,8 +29,7 @@ system Sys {
 }`;
 
 async function gen() {
-  const { model } = await parseString(SRC, { validate: false });
-  return generateSystems(model).files;
+  return generateSystemFiles(SRC);
 }
 
 describe("Phoenix resource emission", () => {
@@ -105,8 +103,7 @@ system Sys {
   resource salesState { for: Sales, kind: state, use: pg }
   deployable api { platform: elixir, contexts: [Sales], dataSources: [salesState], port: 4000 }
 }`;
-    const { model } = await parseString(plain, { validate: false });
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(plain);
     expect([...files.keys()].some((k) => k.includes("/resources/"))).toBe(false);
     expect(files.get("api/mix.exs")!).not.toMatch(/ex_aws|amqp/);
   });

@@ -69,6 +69,7 @@ import { elixirString, humanize, snake, upperFirst } from "../../util/naming.js"
 import { USER_VISIBLE_SLOTS } from "../../util/user-visible-slots.js";
 import { type ExprCtxBase, type ExprTarget, renderExprWith } from "../_expr/target.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
+import type { LocaleEntry } from "../_frontend/locale-meta.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { icuFromConcat, inlineComponentKeyPrefix, messageKey } from "../_walker/i18n-extract.js";
@@ -543,6 +544,9 @@ export interface WalkContext {
    *  The HEEx engine is a FORK of the shared walker, so this mirrors
    *  `_walker/walker-core.ts`'s `i18nPrefix` rather than sharing it. */
   i18nPrefix?: string;
+  /** The locales the app ships, with their generate-time endonyms — read by
+   *  `LocaleSwitcher`.  Undefined means the system has a single locale. */
+  locales?: readonly LocaleEntry[];
 }
 
 // ---------------------------------------------------------------------------
@@ -592,6 +596,8 @@ export function walkBodyToHeex(
   stateOwner: string | undefined = undefined,
   /** See `WalkContext.refLabelTargets` — passed for page bodies only. */
   refLabelTargets: ReadonlySet<string> | undefined = undefined,
+  /** See `WalkContext.locales`. */
+  locales: readonly LocaleEntry[] | undefined = undefined,
 ): WalkResult {
   const stateNames = new Set<string>(page.state.map((f) => snake(f.name)));
   const stateFields = new Map<string, StateFieldIR>(page.state.map((f) => [snake(f.name), f]));
@@ -650,6 +656,7 @@ export function walkBodyToHeex(
     partContextModule,
     contextModuleByAggName,
     i18nPrefix,
+    locales,
   };
 
   seedHoistedHandlers(ctx, page, body);

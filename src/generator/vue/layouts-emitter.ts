@@ -131,6 +131,10 @@ function renderVueLayoutFile(
     const ext = externComponents.has(n) ? "" : ".vue";
     script.push(`import ${n} from "../components/${n}${ext}";`);
   }
+  if (slots.some((s) => s.html.includes("<LocaleSwitcher"))) {
+    script.push(`import LocaleSwitcher from "../components/LocaleSwitcher.vue";`);
+  }
+  const view = "<router-view />";
   if (usesNavigate) {
     script.push("");
     script.push("const router = useRouter();");
@@ -151,10 +155,10 @@ function renderVueLayoutFile(
   if (sidebar) {
     body.push('    <div class="loom-layout-body">');
     body.push(indentSlot(sidebar.html, "      "));
-    body.push('      <main id="main-content"><router-view /></main>');
+    body.push(`      <main id="main-content">${view}</main>`);
     body.push("    </div>");
   } else {
-    body.push('    <main id="main-content"><router-view /></main>');
+    body.push(`    <main id="main-content">${view}</main>`);
   }
   if (footer) {
     body.push("    <footer>");

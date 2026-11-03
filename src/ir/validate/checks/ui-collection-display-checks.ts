@@ -14,6 +14,7 @@ import {
   walkerPrimitiveNamedArgs,
 } from "../../../util/walker-primitive-args.js";
 import { WALKER_PRIMITIVE_SLOTS } from "../../../util/walker-primitive-names.js";
+import { PAGED_ITEMS_MEMBER, PAGED_META_MEMBERS } from "../../stdlib/generics.js";
 import type {
   ComponentIR,
   ExprIR,
@@ -664,6 +665,26 @@ export function checkFrontendCollectionOps(
       origin: "origin" in host ? host.origin : undefined,
     });
   };
+  // A member read off an explicitly-`paged:` binding that is neither a row
+  // read (`items`), a page-metadata field nor a catalogue op.  The envelope is
+  // untyped in the IR (lowering leaves UI-primitive lambda params at a
+  // placeholder type), so the phase-④ member typer cannot see it, and every
+  // walker prints the read verbatim — `customerAll.data.bogusOp(…)`.
+  const flaggedEnvelope = new Set<string>();
+  const reportEnvelope = (member: string): void => {
+    if (flaggedEnvelope.has(member)) return;
+    flaggedEnvelope.add(member);
+    diags.push({
+      severity: "error",
+      code: "loom.paged-envelope-unknown-member",
+      message: diagMessage("loom.paged-envelope-unknown-member", {
+        member,
+        known: [PAGED_ITEMS_MEMBER, ...PAGED_META_MEMBERS].join(", "),
+      }),
+      source: where,
+      origin: "origin" in host ? host.origin : undefined,
+    });
+  };
   // Scope-tracking walk over TWO binding kinds, both grown as we descend into a
   // `QueryView`'s `data:` lambda and both scoped to that lambda alone.
   // (`walkExprDeep` can't thread scope, hence the explicit recursion over
@@ -692,6 +713,10 @@ export function checkFrontendCollectionOps(
   const visit = (e: ExprIR, scope: Scope): void => {
     const op = unsupportedCollectionOp(e, scope.rows) ?? collectionOpOnBinding(e, scope.envelope);
     if (op !== undefined) report(op);
+    else {
+      const member = unknownEnvelopeMember(e, scope.envelope);
+      if (member !== undefined) reportEnvelope(member);
+    }
     const rowParam = rowSetLambdaParam(e, recordProjections);
     const envParam = pagedEnvelopeLambdaParam(e);
     // Rebind, don't merely add: a nested `QueryView` reusing the name (`rows`)
@@ -711,6 +736,21 @@ export function checkFrontendCollectionOps(
   const roots = "lifetime" in host ? storeRenderedExprs(host) : walkerRenderedExprs(host);
   for (const e of roots) visit(e, empty);
   for (const action of host.actions) for (const s of action.body) visitStmt(s, empty);
+}
+
+/** The member `e` reads off a bare ref to a paged-envelope binding, when that
+ *  member is not one the `paged` carrier declares — or undefined.  Catalogue
+ *  ops are left to `collectionOpOnBinding`, which refuses them with the
+ *  collection-op message. */
+function unknownEnvelopeMember(e: ExprIR, envelope: ReadonlySet<string>): string | undefined {
+  if (envelope.size === 0) return undefined;
+  if (e.kind !== "member" && e.kind !== "method-call") return undefined;
+  if (e.receiver.kind !== "ref" || !envelope.has(e.receiver.name)) return undefined;
+  if (e.member === PAGED_ITEMS_MEMBER || PAGED_META_MEMBERS.has(e.member)) {
+    // A declared field CALLED like a method (`rows.total()`) is not a field read.
+    return e.kind === "method-call" ? e.member : undefined;
+  }
+  return e.member;
 }
 
 // -------------------------------------------------------------------------

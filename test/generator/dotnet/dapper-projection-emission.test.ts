@@ -10,23 +10,8 @@
 // proof is `test/behavioral/run-dapper.mjs projection`; the compile proof is
 // `dotnet build /warnaserror`.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
-
-async function build(source: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await parseHelper<Model>(services.Ddd)(source, { validation: true });
-  const errs = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  expect(
-    errs.map((d) => d.message),
-    "source validation errors",
-  ).toEqual([]);
-  return doc.parseResult.value;
-}
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // A folded projection folding two carried events into a per-order read-model row.
 const SOURCE = (persistence: string) => `
@@ -76,7 +61,7 @@ const CTRL = "d/Api/OrdersProjectionsController.cs";
 
 describe("Dapper folded-projection read controller", () => {
   it("reads the read-model rows via raw Npgsql, decoupled from EF/AppDbContext", async () => {
-    const files = generateSystems(await build(SOURCE("dapper"))).files;
+    const files = await generateSystemFiles(SOURCE("dapper"));
     const ctrl = files.get(CTRL);
     expect(ctrl).toBeDefined();
     const src = ctrl!;
@@ -131,7 +116,7 @@ describe("Dapper folded-projection read controller", () => {
   });
 
   it("keeps the default EF-Core adapter on AppDbContext (unchanged)", async () => {
-    const files = generateSystems(await build(SOURCE("efcore"))).files;
+    const files = await generateSystemFiles(SOURCE("efcore"));
     const src = files.get(CTRL)!;
     // The EF path is untouched: AppDbContext-backed, EF-Core LINQ reads.
     expect(src).toContain("using Microsoft.EntityFrameworkCore;");

@@ -3,10 +3,9 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { translateBreakpoint } from "../../src/dap/breakpoints.js";
-import { generateSystems } from "../../src/system/index.js";
 import { parseFrames } from "../../src/trace/frames.js";
 import { resolveFrame, type SourceMap } from "../../src/trace/resolve.js";
-import { parseValid } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/index.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
@@ -432,8 +431,7 @@ const LET_LINE = REAL_SOURCE.split("\n").findIndex((l) => l.includes("let ok = 1
 
 describe("translateBreakpoint — real round trip over a generated system's sourcemap", () => {
   it("forward (translateBreakpoint) then back (resolveFrame) lands on the same .ddd line", async () => {
-    const model = await parseValid(REAL_SOURCE);
-    const { files } = generateSystems(model, { sourcemap: true });
+    const files = await generateSystemFiles(REAL_SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as SourceMap;
 
@@ -496,8 +494,7 @@ describe("translateBreakpoint — real round trip over a generated system's sour
 describe("translateBreakpoint — column round trip over examples/showcase.ddd", () => {
   it("a requires-guard .ddd line surfaces >=2 distinct columns on one generated line, and forward-with-column round-trips through resolveFrame", async () => {
     const showcaseSource = fs.readFileSync(path.join(repoRoot, "examples", "showcase.ddd"), "utf8");
-    const model = await parseValid(showcaseSource);
-    const { files } = generateSystems(model, { sourcemap: true });
+    const files = await generateSystemFiles(showcaseSource, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as SourceMap;
     const dddPath = map.sources[0]!;

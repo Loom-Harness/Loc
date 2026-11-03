@@ -263,22 +263,23 @@ describe("pack-chrome i18n — DataGrid pager", () => {
     expect(child).toContain(`{{ t("chrome.previous", "Previous") }}`);
     expect(child).toContain(`{{ t("chrome.next", "Next") }}`);
     expect(child).toContain(`:placeholder='t("chrome.filter", "Filter")'`);
-    // `src/components/` is one hop under `src/`, where the runtime lives — and
-    // unlike a page it never nests, so the specifier needs no depth rewrite.
-    expect(child).toContain(`import { t } from "../i18n";`);
+    // `src/components/` is one hop under `src/`, where the reactive locale
+    // adapter lives (`src/lib/locale.ts`) — and unlike a page it never nests,
+    // so the specifier needs no depth rewrite.
+    expect(child).toContain(`import { t } from "../lib/locale";`);
     expect(files.has("web/src/i18n.ts")).toBe(true);
     expect(catalogOf(files)["chrome.previous"]).toBe("Previous");
   });
 
-  it("Svelte (flowbite): the sibling component imports t from $lib/i18n", async () => {
+  it("Svelte (flowbite): the sibling component imports t from $lib/locale.svelte", async () => {
     const files = await generateSystemFiles(SYSTEM("svelte", "flowbite", GRID_BODY(true)));
     const child = gridChildOf(files, "src/lib/components/OrdersDataGrid.svelte");
     expect(child).toContain(`{t("chrome.previous", "Previous")}`);
     expect(child).toContain(`{t("chrome.next", "Next")}`);
     expect(child).toContain(`placeholder={t("chrome.filter", "Filter")}`);
-    // Depth-agnostic alias — the same specifier the walker's `../i18n` seam
-    // import rewrites to everywhere else on Svelte.
-    expect(child).toContain(`import { t } from "$lib/i18n";`);
+    // Depth-agnostic alias to the reactive locale adapter — the same specifier
+    // every other Svelte `t` import uses.
+    expect(child).toContain(`import { t } from "$lib/locale.svelte";`);
     expect(files.has("web/src/lib/i18n.ts")).toBe(true);
     expect(catalogOf(files)["chrome.next"]).toBe("Next");
   });
@@ -289,7 +290,7 @@ describe("pack-chrome i18n — DataGrid pager", () => {
     expect(child).toContain(`{{ t("chrome.previous", "Previous") }}`);
     expect(child).toContain(`{{ t("chrome.next", "Next") }}`);
     expect(child).toContain(`[placeholder]='t("chrome.filter", "Filter")'`);
-    expect(child).toContain(`import { t } from "../../lib/i18n";`);
+    expect(child).toContain(`import { t } from "../../lib/locale";`);
     // The import alone is not enough — an Angular template evaluates against
     // the component INSTANCE, so a module-scope `t` resolves to nothing.
     expect(child).toContain("protected readonly t = t;");
@@ -393,14 +394,14 @@ describe("pack-chrome i18n — pager position counter (ICU chrome)", () => {
         `{ page: table.getState().pagination.pageIndex + 1, ` +
         `pages: Math.max(table.getPageCount(), 1) }) }}`,
     );
-    expect(child).toContain(`import { t } from "../i18n";`);
+    expect(child).toContain(`import { t } from "../lib/locale";`);
   });
 
   it("Svelte (flowbite): the sibling component interpolates it", async () => {
     const files = await generateSystemFiles(SYSTEM("svelte", "flowbite", GRID_BODY(true)));
     const child = gridChildOf(files, "src/lib/components/OrdersDataGrid.svelte");
     expect(child).toContain(`{t("chrome.pageOf", "Page {page} of {pages}", { page: `);
-    expect(child).toContain(`import { t } from "$lib/i18n";`);
+    expect(child).toContain(`import { t } from "$lib/locale.svelte";`);
   });
 
   it("Angular (angularMaterial): the template evaluates it against the instance", async () => {

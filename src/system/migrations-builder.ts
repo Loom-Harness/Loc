@@ -19,7 +19,6 @@ import type {
   EnrichedSystemIR,
   EntityPartIR,
   FieldIR,
-  IdValueType,
   ManualIndexIR,
   PrimitiveName,
   ProjectionIR,
@@ -570,8 +569,7 @@ function workflowStateTableShape(
   const columns: ColumnShape[] = [];
   for (const f of wf.stateFields ?? []) {
     if (f.name === corr) {
-      const vt = f.type.kind === "id" ? f.type.valueType : "guid";
-      columns.push({ name: snake(f.name), type: idColumnType(vt), nullable: false });
+      columns.push({ name: snake(f.name), type: idColumnType(), nullable: false });
       continue;
     }
     if (isReferenceCollection(f.type)) {
@@ -610,8 +608,7 @@ function projectionTableShape(
   const columns: ColumnShape[] = [];
   for (const f of proj.stateFields) {
     if (f.name === corr) {
-      const vt = f.type.kind === "id" ? f.type.valueType : "guid";
-      columns.push({ name: snake(f.name), type: idColumnType(vt), nullable: false });
+      columns.push({ name: snake(f.name), type: idColumnType(), nullable: false });
       continue;
     }
     // Non-key columns are NULLABLE: a fold upserts only the fields an event
@@ -694,9 +691,7 @@ function orderTablesByFkDependency(tables: TableShape[]): TableShape[] {
  *  physical layout shared across every backend. */
 function embeddedTableForAggregate(agg: AggregateIR, ownerModule: string): TableShape {
   const tableName = tableNameFor(agg.name);
-  const columns: ColumnShape[] = [
-    { name: "id", type: idColumnType(agg.idValueType), nullable: false },
-  ];
+  const columns: ColumnShape[] = [{ name: "id", type: idColumnType(), nullable: false }];
   const foreignKeys: FKShape[] = [];
   const indexes: IndexShape[] = [];
   for (const f of agg.fields) {
@@ -743,7 +738,7 @@ function documentTableForAggregate(agg: AggregateIR, ownerModule: string): Table
     name: tableName,
     ownerModule,
     columns: [
-      { name: "id", type: idColumnType(agg.idValueType), nullable: false },
+      { name: "id", type: idColumnType(), nullable: false },
       { name: "data", type: { kind: "json" }, nullable: false },
       { name: "version", type: { kind: "int" }, nullable: false },
     ],
@@ -3546,9 +3541,7 @@ function tableForAggregate(
   enumLookup: EnumLookup,
 ): TableShape {
   const tableName = tableNameFor(agg.name);
-  const columns: ColumnShape[] = [
-    { name: "id", type: idColumnType(agg.idValueType), nullable: false },
-  ];
+  const columns: ColumnShape[] = [{ name: "id", type: idColumnType(), nullable: false }];
   const foreignKeys: FKShape[] = [];
   const indexes: IndexShape[] = uniqueIndexesFor(agg, tableName);
 
@@ -3619,7 +3612,7 @@ function tphTableForAggregate(
     optional: false,
   } as FieldIR;
   const columns: ColumnShape[] = [
-    { name: "id", type: idColumnType(base.idValueType), nullable: false },
+    { name: "id", type: idColumnType(), nullable: false },
     mapField(kindField).column,
   ];
   const foreignKeys: FKShape[] = [];
@@ -3726,8 +3719,8 @@ function tableForPart(
   const parentTable = tableNameFor(fkOwnerName);
   const parentFk = `${snake(fkOwnerName)}_id`;
   const columns: ColumnShape[] = [
-    { name: "id", type: idColumnType(parent.idValueType), nullable: false },
-    { name: parentFk, type: idColumnType(parent.idValueType), nullable: false },
+    { name: "id", type: idColumnType(), nullable: false },
+    { name: parentFk, type: idColumnType(), nullable: false },
   ];
   const foreignKeys: FKShape[] = [{ column: parentFk, refTable: parentTable, onDelete: "cascade" }];
   const indexes: IndexShape[] = [
@@ -3783,7 +3776,7 @@ function tableForAssociation(
   pool: readonly AggregateIR[],
 ): TableShape {
   const { ownerTable, targetTable } = associationTables(assoc, pool);
-  const idType = idColumnType(assoc.valueType);
+  const idType = idColumnType();
   return {
     name: assoc.joinTable,
     ownerModule,
@@ -3847,7 +3840,7 @@ function valueCollectionTableShape(
   partName?: string,
 ): TableShape {
   const ownerTable = partName ? tableNameFor(partName) : tableNameFor(parentAgg.name);
-  const idType = idColumnType(parentAgg.idValueType);
+  const idType = idColumnType();
   const elementFields = voLookup.get(vc.voName) ?? [];
   const columns: ColumnShape[] = [
     { name: vc.parentFk, type: idType, nullable: false },
@@ -4259,7 +4252,7 @@ function mapTypeToColumn(t: TypeIR): {
       return { type: primitiveColumnType(t.name) };
     case "id":
       return {
-        type: idColumnType(t.valueType),
+        type: idColumnType(),
         fkRefTable: tableNameFor(t.targetName),
       };
     case "enum":
@@ -4300,8 +4293,8 @@ function primitiveColumnType(name: PrimitiveName): ColumnType {
   return scalarCodec(name).column;
 }
 
-function idColumnType(t: IdValueType): ColumnType {
-  return idColumn(t);
+function idColumnType(): ColumnType {
+  return idColumn();
 }
 
 // ---------------------------------------------------------------------------

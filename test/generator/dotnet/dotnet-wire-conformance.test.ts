@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
-import { generateSystems } from "../../../src/system/index.js";
 import { buildWireSpec } from "../../../src/system/wire-spec.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 import { parseString } from "../../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
@@ -83,8 +83,7 @@ async function buildDotnetModel() {
 
 describe("cross-platform wire-spec conformance (dotnet vs wire-spec.json)", () => {
   it(".NET DTO files exist for every aggregate served by the api", async () => {
-    const model = await buildDotnetModel();
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(DOTNET_FIXTURE);
     expect(files.has("dotnet_api/Application/Customers/Responses/CustomerResponses.cs")).toBe(true);
     expect(files.has("dotnet_api/Application/Customers/Requests/CustomerRequests.cs")).toBe(true);
     expect(files.has("dotnet_api/Application/Orders/Responses/OrderResponses.cs")).toBe(true);
@@ -95,7 +94,7 @@ describe("cross-platform wire-spec conformance (dotnet vs wire-spec.json)", () =
     const model = await buildDotnetModel();
     const sys = enrichLoomModel(lowerModel(model)).systems[0]!;
     const wireSpec = buildWireSpec(sys);
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(DOTNET_FIXTURE);
     const dtoSource = [...files.entries()]
       .filter(([k]) => /^dotnet_api\/Application\/.*\/(Requests|Responses)\//.test(k))
       .map(([, v]) => v)
@@ -109,7 +108,7 @@ describe("cross-platform wire-spec conformance (dotnet vs wire-spec.json)", () =
     const model = await buildDotnetModel();
     const sys = enrichLoomModel(lowerModel(model)).systems[0]!;
     const wireSpec = buildWireSpec(sys);
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(DOTNET_FIXTURE);
     const dtoSource = [...files.entries()]
       .filter(([k]) => /^dotnet_api\/Application\/.*\/(Requests|Responses)\//.test(k))
       .map(([, v]) => v)
@@ -125,7 +124,7 @@ describe("cross-platform wire-spec conformance (dotnet vs wire-spec.json)", () =
     const model = await buildDotnetModel();
     const sys = enrichLoomModel(lowerModel(model)).systems[0]!;
     const wireSpec = buildWireSpec(sys);
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(DOTNET_FIXTURE);
     const dtoSource = [...files.entries()]
       .filter(([k]) => /^dotnet_api\/Application\/.*\/Responses\//.test(k))
       .map(([, v]) => v)
@@ -139,7 +138,7 @@ describe("cross-platform wire-spec conformance (dotnet vs wire-spec.json)", () =
     const model = await buildDotnetModel();
     const sys = enrichLoomModel(lowerModel(model)).systems[0]!;
     const wireSpec = buildWireSpec(sys);
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(DOTNET_FIXTURE);
     const customerResponses = files.get(
       "dotnet_api/Application/Customers/Responses/CustomerResponses.cs",
     );

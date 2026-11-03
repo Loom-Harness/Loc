@@ -13,7 +13,6 @@ import type {
   EnrichedEntityPartIR,
   ExprIR,
   FieldIR,
-  IdValueType,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
@@ -29,12 +28,13 @@ import {
 } from "../../../ir/util/op-gates.js";
 import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
+import { escapeCsharpIdent, factoryLocal, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import { csMemberScope, csParamIdent, csProjectType, typeMemberNames } from "../bcl-collision.js";
+import { sortedCsUsings } from "../cs-symbols.js";
 import { collectCsExprUsings, csNewIdValue, renderCsExpr, renderCsType } from "../render-expr.js";
 import {
   collectCsStmtUsings,
@@ -199,10 +199,8 @@ export function weaveLineDirectives(
  *  `sharesIdentity` distinguishes TPH (`sharedTable`) from TPC (`ownTable`):
  *  a TPH concrete shares the base's single-table primary key, so the base
  *  owns the `Id` property and the concrete must NOT declare its own (it
- *  inherits the strongly-typed `<Base>Id`).  `idValueType` carries the
- *  base's id value type so the concrete's `Create` factory mints the
- *  inherited key with the right `csNewIdValue`.  A TPC concrete leaves both
- *  unset and keeps its own `<Concrete>Id`. */
+ *  inherits the strongly-typed `<Base>Id`).  A TPC concrete leaves it unset
+ *  and keeps its own `<Concrete>Id`. */
 export interface SuperTypeInfo {
   readonly name: string;
   readonly fieldNames: ReadonlySet<string>;
@@ -211,7 +209,6 @@ export interface SuperTypeInfo {
    *  hide the inherited member (CS0108, fatal under `/warnaserror`). */
   readonly derivedNames?: ReadonlySet<string>;
   readonly sharesIdentity?: boolean;
-  readonly idValueType?: IdValueType;
 }
 
 /** Claim-valued principal stamps (`tenantId := currentUser.tenantId`) for one
@@ -312,14 +309,10 @@ export function renderEntity(
   // EnrichedEntityPartIR — wrapped in a type predicate so the union
   // narrows in every downstream consumer without per-site casts.
   const isAgg = (e: typeof entity): e is EnrichedAggregateIR => "operations" in e;
-  const idValueType = isAgg(entity) ? entity.idValueType : "guid";
   // TPH (`sharesIdentity`): the concrete shares the base's single-table key,
-  // so its `Id` / `State.Id` / `Create` mint the inherited `<Base>Id` with the
-  // base's value type.  TPC and standalone aggregates use their own id class.
+  // so its `Id` / `State.Id` / `Create` mint the inherited `<Base>Id`.  TPC
+  // and standalone aggregates use their own id class.
   const idClass = superType?.sharesIdentity ? `${superType.name}Id` : `${entity.name}Id`;
-  const effIdValueType: IdValueType = superType?.sharesIdentity
-    ? (superType.idValueType ?? idValueType)
-    : idValueType;
   const operations = isAgg(entity) ? entity.operations : [];
   // Public `Create(...)` factory params — the create-input set
   // (`forCreateInput`, incl. optionals), matching the CreateCommand/handler
@@ -752,6 +745,7 @@ export function renderEntity(
   // where each `emit` records-and-folds the creation event.  Input is the
   // create action's params (the command shape).  Replaces the state-writing
   // public factory for event-sourced aggregates.
+  const esLocal = factoryLocal((esCreate?.params ?? []).map((p) => p.name));
   const esCreateFactoryLines: string[] =
     isRoot && eventSourced && esCreate
       ? [
@@ -759,10 +753,10 @@ export function renderEntity(
             .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
             .join(", ")})`,
           "    {",
-          `        var e = new ${entity.name}();`,
-          `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType, renderCtx.memberScope)});`,
-          `        e._Init(${esCreate.params.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
-          "        return e;",
+          `        var ${esLocal} = new ${entity.name}();`,
+          `        ${esLocal}.Id = new ${idClass}(${csNewIdValue(renderCtx.memberScope)});`,
+          `        ${esLocal}._Init(${esCreate.params.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
+          `        return ${esLocal};`,
           "    }",
           "",
           `    private void _Init(${esCreate.params
@@ -918,11 +912,14 @@ export function renderEntity(
     if (omission.kind === "empty-collection") return "[]";
     return undefined; // plain optional — already nullable
   };
+  // The factory's instance local must not shadow one of its own parameters
+  // (CS0136) — a create-input field may well be named `e`.
+  const pubLocal = factoryLocal(createInputFieldList.map((f) => f.name));
   const createAssignments = createInputFieldList.map((f) => {
     const dflt = csFactoryDefault(f);
     // `??`, not a truthiness test: an explicit 0/""/false must survive.
     const arg = escapeCsharpIdent(f.name);
-    return `        e.${upperFirst(f.name)} = ${dflt === undefined ? arg : `${arg} ?? ${dflt}`};`;
+    return `        ${pubLocal}.${upperFirst(f.name)} = ${dflt === undefined ? arg : `${arg} ?? ${dflt}`};`;
   });
   // Server-seeded literal defaults (RS-11): fields outside the create-input set
   // (`token`/`managed`/`internal`) whose default is a construction-time
@@ -939,14 +936,17 @@ export function renderEntity(
         ...constructionSeededFields(
           entity.fields,
           new Set(createInputFieldList.map((f) => f.name)),
-        ).map((f) => `        e.${upperFirst(f.name)} = ${renderCsExpr(f.default, renderCtx)};`),
+        ).map(
+          (f) =>
+            `        ${pubLocal}.${upperFirst(f.name)} = ${renderCsExpr(f.default, renderCtx)};`,
+        ),
         // A server-owned field with no default (`openedAt: datetime managed`)
         // takes the shared language-defined seed — the value node and python
         // name too.  Left to the CLR default it read back as 0001-01-01, and a
         // `string` / list one went in as NULL (500).
         ...serverSeededFields(entity).map(
           ({ field, seed }) =>
-            `        e.${upperFirst(field.name)} = ${csServerInitSeed(seed, field.type)};`,
+            `        ${pubLocal}.${upperFirst(field.name)} = ${csServerInitSeed(seed, field.type)};`,
         ),
       ]
     : [];
@@ -959,7 +959,7 @@ export function renderEntity(
         .filter((f) => !createInputNames.has(f.name) && f.default === undefined)
         .flatMap((f) => {
           const v = csFactoryDefault(f);
-          return v === undefined ? [] : [`        e.${upperFirst(f.name)} = ${v};`];
+          return v === undefined ? [] : [`        ${pubLocal}.${upperFirst(f.name)} = ${v};`];
         })
     : [];
   const createBody = isAgg(entity) ? createBodyStatements(entity) : [];
@@ -987,22 +987,24 @@ export function renderEntity(
             })
             .join(", ")})`,
           "    {",
-          `        var e = new ${entity.name}();`,
-          `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType, renderCtx.memberScope)});`,
+          `        var ${pubLocal} = new ${entity.name}();`,
+          `        ${pubLocal}.Id = new ${idClass}(${csNewIdValue(renderCtx.memberScope)});`,
           ...createAssignments,
           ...createDefaultSeeds,
           ...createNarrowedSeeds,
           // Public Create factory — same "<init>" label as the hydration path.
-          emitTrace ? `        e.${assertName}("<init>");` : `        e.${assertName}();`,
+          emitTrace
+            ? `        ${pubLocal}.${assertName}("<init>");`
+            : `        ${pubLocal}.${assertName}();`,
           // The create body (`createBodyStatements`) runs against the
           // constructed instance, exactly like an operation body: params as
           // locals, unlisted fields already at their declared defaults.
           ...(createBody.length > 0
             ? [
-                `        e._CreateBody(${createParams.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
+                `        ${pubLocal}._CreateBody(${createParams.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
               ]
             : []),
-          "        return e;",
+          `        return ${pubLocal};`,
           "    }",
           ...(createBody.length > 0
             ? [
@@ -1114,7 +1116,7 @@ export function renderEntity(
     );
   }
 
-  const extraUsings = [...usings].sort().map((n) => `using ${n};`);
+  const extraUsings = sortedCsUsings(usings);
   return (
     lines(
       "// Auto-generated.",
@@ -1231,7 +1233,7 @@ export function renderAbstractBaseEntity(
     (d) =>
       `    public ${renderCsType(d.type)} ${upperFirst(d.name)} => ${renderCsExpr(d.expr, renderCtx)};`,
   );
-  const extraUsings = [...usings].sort().map((n) => `using ${n};`);
+  const extraUsings = sortedCsUsings(usings);
   return (
     lines(
       "// Auto-generated.",

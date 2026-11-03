@@ -47,6 +47,7 @@ import {
 } from "../../i18n/merge.js";
 import { joinCatalog, runtimeKeyOf, splitCatalog } from "../../i18n/namespace.js";
 import { PSEUDO_LOCALE, pseudoCatalog } from "../../i18n/pseudo.js";
+import { detectRenames, type KeyMove, moveKeys } from "../../i18n/renames.js";
 import { extractProject } from "./extract.js";
 import { type LocaleEntry, type LocaleFilter, openReviewKeys, openTree, relPath } from "./open.js";
 import {
@@ -127,8 +128,9 @@ export async function runI18nInit(file: string, locale: string, options: DirOpti
   }
 }
 
-function summarize(locale: string, report: MergeReport): string {
+function summarize(locale: string, report: MergeReport, renamed = 0): string {
   const parts = [`+${report.added.length} new`, `${report.kept.length} kept`];
+  if (renamed) parts.push(`${renamed} renamed`);
   if (report.untranslated.length) parts.push(`${report.untranslated.length} untranslated`);
   if (report.updated.length) parts.push(`${report.updated.length} placeholder rename`);
   if (report.carried.length) parts.push(`${report.carried.length} carried`);
@@ -152,18 +154,54 @@ function reportCarried(report: MergeReport): void {
   }
 }
 
+/** A translation carried to a new identity key; `textChanged` when the English
+ *  source moved too (the merge then flags the carried translation for review). */
+interface AppliedMove extends KeyMove {
+  textChanged: boolean;
+}
+
+/** Name every identity-key rename a locale's translations were carried across. */
+function reportMoves(moved: readonly AppliedMove[]): void {
+  for (const m of moved) {
+    console.log(`      renamed: ${m.from}`);
+    console.log(
+      `            -> ${m.to} (${m.via === "declared" ? "migration block" : "inferred: one key out, one in, same text"})${m.textChanged ? " - source text changed, needs review" : ""}`,
+    );
+  }
+}
+
 /** Merge one locale namespace by namespace, reporting in runtime keys. */
 function mergeLocale(
-  base: ReadonlyMap<string, Catalog>,
-  entry: LocaleEntry,
+  baseIn: ReadonlyMap<string, Catalog>,
+  entryIn: LocaleEntry,
   theirs: ReadonlyMap<string, Catalog>,
-  options: { keepStale?: boolean },
+  options: { keepStale?: boolean; moves?: readonly KeyMove[]; names?: ReadonlySet<string> },
 ): {
   merged: Map<string, Catalog>;
   review: Map<string, Record<string, ReviewEntry>>;
   stale: Map<string, Catalog>;
   report: MergeReport;
+  moved: AppliedMove[];
 } {
+  // Re-key the translations whose model element was renamed or moved, in OURS,
+  // BASE and the review state alike, so the per-key merge below sees one key.
+  const ours = joinCatalog(entryIn.files);
+  const baseFlat = joinCatalog(baseIn);
+  const theirsFlat = joinCatalog(theirs);
+  const moved: AppliedMove[] = (options.moves ?? [])
+    .filter((m) => m.from in ours && !(m.to in ours))
+    .map((m) => ({ ...m, textChanged: baseFlat[m.from] !== theirsFlat[m.to] }));
+  let base = baseIn;
+  let entry = entryIn;
+  if (moved.length > 0 && options.names) {
+    const map = new Map(moved.map((m) => [m.from, m.to]));
+    base = moveKeys(baseIn, map, options.names);
+    entry = {
+      ...entryIn,
+      files: moveKeys(entryIn.files, map, options.names),
+      review: moveKeys(entryIn.review, map, options.names),
+    };
+  }
   const merged = new Map<string, Catalog>();
   const review = new Map<string, Record<string, ReviewEntry>>();
   const stale = new Map<string, Catalog>();
@@ -202,7 +240,7 @@ function mergeLocale(
       ...result.report.carried.map((c) => ({ key: key(c.key), from: key(c.from) })),
     );
   }
-  return { merged, review, stale, report };
+  return { merged, review, stale, report, moved };
 }
 
 function reportMigration(): void {
@@ -231,7 +269,8 @@ export async function runI18nSync(
   file: string,
   options: DirOption & LocaleFilter & { keepStale?: boolean },
 ): Promise<void> {
-  const { dir, theirs, tree, source, catalog, names } = await openTree(file, options);
+  const { dir, theirs, tree, source, catalog, names, renames } = await openTree(file, options);
+  const moves = detectRenames(joinCatalog(tree.base), catalog, renames);
 
   if (tree.locales.length === 0) {
     console.error(
@@ -251,12 +290,15 @@ export async function runI18nSync(
       console.log(`  ${locale}: pseudo-locale regenerated (${Object.keys(catalog).length} key(s))`);
       continue;
     }
-    const { merged, review, stale, report } = mergeLocale(tree.base, entry, theirs, {
+    const { merged, review, stale, report, moved } = mergeLocale(tree.base, entry, theirs, {
       keepStale: options.keepStale,
+      moves,
+      names,
     });
     writeLocaleDir(dir, locale, merged, theirs.keys(), { review, stale });
     if (fromFlat) fs.rmSync(path.join(dir, `${locale}.json`));
-    console.log(summarize(locale, report));
+    console.log(summarize(locale, report, moved.length));
+    reportMoves(moved);
     reportCarried(report);
   }
 
@@ -276,7 +318,8 @@ export async function runI18nStatus(
   file: string,
   options: DirOption & LocaleFilter,
 ): Promise<void> {
-  const { theirs, tree, catalog, names } = await openTree(file, options);
+  const { theirs, tree, catalog, names, renames } = await openTree(file, options);
+  const moves = detectRenames(joinCatalog(tree.base), catalog, renames);
 
   if (tree.locales.length === 0) {
     console.log("No locale files — nothing to sync.");
@@ -301,10 +344,11 @@ export async function runI18nStatus(
       if (stale) pending = true;
       continue;
     }
-    const { report } = mergeLocale(tree.base, entry, theirs, {});
-    console.log(summarize(entry.locale, report));
+    const { report, moved } = mergeLocale(tree.base, entry, theirs, { moves, names });
+    console.log(summarize(entry.locale, report, moved.length));
+    reportMoves(moved);
     reportCarried(report);
-    if (reportHasPending(report)) pending = true;
+    if (reportHasPending(report) || moved.length > 0) pending = true;
   }
   if (pending) {
     console.error("\nPending changes — run `ddd i18n sync`.");

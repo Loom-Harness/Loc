@@ -18,7 +18,7 @@ Once a plan exists (or the user has approved an approach), **execute it end to e
 - **Don't idle on CI.** If the next slice is independent, start it while CI runs. If it builds on an unmerged branch, **stack the PR** on the previous one rather than waiting for green. Report status in a line and keep moving.
 - **Surface, don't stall.** When you do hit a real blocker, say what's blocked and what you'd do by default, then take that default unless it's irreversible — don't wait for "continue with recommended".
 - **Found it, file it, move on.** A bug, gap or debt you hit while doing other work becomes a GitHub issue, not more work in this session (see "Track work in GitHub issues" below). Fix it in your PR only when your own acceptance gate cannot pass without it — then minimally, and still file the remainder.
-- **Done means:** the claimed issue's acceptance is met, the PR is green (or in the merge queue), and every discovered bug is filed. The final report lists the issues you filed.
+- **Done means:** the claimed issue's acceptance is met, the PR is merged (auto-merge on, driven through the merge queue by you — never left for the owner to merge), and every discovered bug is filed. The final report lists the issues you filed.
 
 ## Sync with `main` constantly — it moves under you
 

@@ -332,7 +332,9 @@ describe("feliz `persist:` — what it must NOT touch", () => {
     const fs = await app(MEMORY_STORE);
     expect(fs).not.toContain("StorePersist");
     expect(fs).not.toContain("updateWithPersist");
-    expect(fs).not.toContain("localStorage");
+    // (`localStorage` itself appears in the i18n runtime's stored LOCALE choice;
+    // the store key is what a persisting store would add.)
+    expect(fs).not.toContain("loom.store");
     expect(fs).not.toContain("StoreUrlChanged");
     // The memory store still folds into the Model + init exactly as before.
     expect(fs).toContain("CartItems: int");
