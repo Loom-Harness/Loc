@@ -1,7 +1,0 @@
-// Auto-generated.
-import { uuidv7 } from "uuidv7";
-
-export type TaskId = string & { readonly __brand: "TaskId" };
-export const TaskId = (value: string): TaskId => value as TaskId;
-export const newTaskId = (): TaskId => uuidv7() as TaskId;
-

@@ -1,9 +1,0 @@
-
- RUN  v4.1.11 /home/user/Loc/.claude/worktrees/agent-ae1b5baca662c01c5
-
-
- Test Files  1 passed (1)
-      Tests  3 passed (3)
-   Start at  01:03:56
-   Duration  20.26s (transform 14.72s, setup 0ms, import 17.84s, tests 2.23s, environment 0ms)
-
