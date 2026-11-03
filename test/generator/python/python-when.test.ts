@@ -34,7 +34,7 @@ describe("python when gate + can-query", () => {
     expect(routes).toContain("from app.domain.errors import DisallowedError");
     expect(routes).toContain('if not (found.status == "Draft"):');
     expect(routes).toContain(
-      'raise DisallowedError("operation \'submit\' is not allowed in the current state of Order (when status == \\"Draft\\").")',
+      "raise DisallowedError(\"operation 'submit' is not allowed in the current state of Order.\")",
     );
     // The gate runs after the load and before the domain mutation.
     const submit = routes.slice(routes.indexOf("async def submit_order"));

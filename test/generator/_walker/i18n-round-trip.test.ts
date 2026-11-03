@@ -38,6 +38,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
+import { WIRE_ERROR_MESSAGES } from "../../../src/generator/_i18n/wire-error-text.js";
 import { USER_VISIBLE_SLOTS } from "../../../src/util/user-visible-slots.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
@@ -584,7 +585,12 @@ function roundTrip(
   menu: MenuShape,
 ): RoundTrip {
   const all = JSON.parse(files.get(".loom/messages.en.json") ?? "{}") as Record<string, string>;
-  const catalog = Object.fromEntries(Object.entries(all).filter(([k]) => !k.startsWith("msg.")));
+  // The server-error codes (`problem.*` / `field.*`, #4473) are read by the
+  // CODE a response carries — `t(pd.code, …)` — never by a literal key in the
+  // tree, so they cannot be consumed the way this walk measures.
+  const catalog = Object.fromEntries(
+    Object.entries(all).filter(([k]) => !k.startsWith("msg.") && !(k in WIRE_ERROR_MESSAGES)),
+  );
   const tree = consumptionTree(files, t);
   const text = [...tree.values()].join("\n");
   const dead = Object.keys(catalog).filter((k) => !quoted(k).test(text));
@@ -774,7 +780,8 @@ describe("i18n round trip — frontends (M-T9.39)", () => {
 /** The five backends' runtime catalogs and the chokepoint that raises codes.
  *  `catalog` locates the runtime catalog file by suffix. */
 const BACKENDS = [
-  { platform: "node", catalog: "http/messages.ts" },
+  // node ships no catalog: it answers each rule's code and the client
+  // localizes (#4473).  The other four leave with the fan-out.
   { platform: "dotnet", catalog: "Localization/LoomMessages.cs" },
   { platform: "java", catalog: "src/main/resources/messages.properties" },
   { platform: "python", catalog: "app/i18n.py" },

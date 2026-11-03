@@ -40,7 +40,10 @@ import {
   canonicalIsoExpr,
 } from "../../../generator/typescript/repository-wire-builder.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
-import { tsErrorVariantExt, tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
+import {
+  tsErrorVariantExt,
+  tsNotFoundThrow,
+} from "../../../generator/typescript/wire-policy-ts.js";
 import {
   chainSingleFieldNative,
   openapiLengthMeta,

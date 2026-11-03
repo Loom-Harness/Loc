@@ -95,7 +95,7 @@ describe("react generator", () => {
     const { files } = generateSystems(model);
     const newOrder = files.get("web_app/src/pages/orders/new.tsx")!;
     expect(newOrder).toMatch(/from "react-hook-form"/);
-    expect(newOrder).toMatch(/from "@hookform\/resolvers\/zod"/);
+    expect(newOrder).toMatch(/from "(\.\.\/)+lib\/zod-resolver"/);
     expect(newOrder).toMatch(/zodResolver\(CreateOrderRequest\)/);
     expect(newOrder).toMatch(/notifications\.show/);
     expect(newOrder).toMatch(/useCreateOrder/);

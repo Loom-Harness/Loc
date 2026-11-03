@@ -26,9 +26,9 @@
 
 import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { emissionSink } from "../../util/emission-sink.js";
+import { sourceText } from "../_i18n/source-text.js";
 import { chromeMergedWhenEnabled, type FormSentenceScope } from "../_walker/i18n-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
-import { sourceText } from "../_walker/source-text.js";
 
 /** Build the flat, key-sorted `{ key: message }` catalog for one UI.  Pack-chrome
  *  strings (`chrome.<name>`) ride in through `collectUiMessages` used-only, so a

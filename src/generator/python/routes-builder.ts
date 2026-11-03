@@ -1088,9 +1088,7 @@ function whenGate(agg: EnrichedAggregateIR, op: OperationIR): string[] {
   if (!op.when) return [];
   return [
     `    if ${renderPyNegatedGuard(op.when, { thisName: "found" })}:`,
-    `        raise ${PY.DisallowedError}(${JSON.stringify(
-      disallowedDetail(op.name, agg.name),
-    )})`,
+    `        raise ${PY.DisallowedError}(${JSON.stringify(disallowedDetail(op.name, agg.name))})`,
   ];
 }
 

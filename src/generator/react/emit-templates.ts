@@ -63,9 +63,7 @@ export type StrictFieldMap<TPayload, TFormState> = {
  * `message` the server sent is shown as-is.
  */
 export function reactLibApplyServerErrorsTs(i18n: boolean): string {
-  const tImport = i18n
-    ? 'import { t } from "../i18n";\n'
-    : "";
+  const tImport = i18n ? 'import { t } from "../i18n";\n' : "";
   const tLocal = i18n
     ? ""
     : `

@@ -82,7 +82,10 @@ describe(".loom/messages.en.json catalog artifact", () => {
           k.startsWith("Web.menu.") ||
           k.startsWith("Sales.") ||
           k.startsWith("chrome.") ||
-          k.startsWith("pack."),
+          k.startsWith("pack.") ||
+          // the server-error codes a client localizes a refusal by
+          k.startsWith("problem.") ||
+          k.startsWith("field."),
       ),
     ).toBe(true);
     // The app-shell chrome rode in (404 + skip link).

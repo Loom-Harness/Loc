@@ -25,7 +25,12 @@ import {
   wireProjectionValue,
 } from "../../../generator/typescript/repository-wire-builder.js";
 import { readDiscriminator, readScopeFor } from "../../../ir/enrich/read-scope.js";
-import { wireCode, wireFixedDetail, wireStatus, wireTitle } from "../../../ir/enrich/wire-policy.js";
+import {
+  wireCode,
+  wireFixedDetail,
+  wireStatus,
+  wireTitle,
+} from "../../../ir/enrich/wire-policy.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,

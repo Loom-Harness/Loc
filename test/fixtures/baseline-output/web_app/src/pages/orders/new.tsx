@@ -3,7 +3,8 @@ import { useNavigate, Link as RouterLink } from "react-router";
 import { CreateOrderRequest, useCreateOrder } from "../../api/order";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { fieldErrorText } from "../../lib/field-error";
+import { zodResolver } from "../../lib/zod-resolver";
 import { Anchor, Breadcrumbs, Button, Card, Group, Select, Stack, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { Controller, useForm } from "react-hook-form";
@@ -39,7 +40,7 @@ export default function OrderNew() {
                   }
                 })} data-testid="orders-new">
           <Stack gap="md">
-            <TextInput label={ t("Orders.Order.field.customerId", "Customer Id") } {...register("customerId")} data-testid="orders-new-input-customerId" error={errors.customerId?.message} />
+            <TextInput label={ t("Orders.Order.field.customerId", "Customer Id") } {...register("customerId")} data-testid="orders-new-input-customerId" error={fieldErrorText(errors.customerId)} />
     
             <Controller
               control={control}
@@ -49,7 +50,7 @@ export default function OrderNew() {
               )}
             />
     
-            <TextInput label={ t("Orders.Order.field.placedAt", "Placed At") } {...register("placedAt")} data-testid="orders-new-input-placedAt" type="datetime-local" error={errors.placedAt?.message} />
+            <TextInput label={ t("Orders.Order.field.placedAt", "Placed At") } {...register("placedAt")} data-testid="orders-new-input-placedAt" type="datetime-local" error={fieldErrorText(errors.placedAt)} />
     
             <Group justify="flex-end" gap="xs" mt="md">
               <Button type="submit" loading={ create.isPending } data-testid="orders-new-submit">{t("Orders.Order.op.create", "Create")}</Button>

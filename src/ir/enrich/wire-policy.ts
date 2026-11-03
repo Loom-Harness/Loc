@@ -39,9 +39,9 @@ import {
   errorTypeUri,
   resolveErrorStatus,
 } from "../../util/error-defaults.js";
-import { INTEGER_RANGE_MESSAGE } from "../../util/numeric-range.js";
-import { FIND_ABSENT_DETAIL } from "../../util/repository-contract.js";
 import { modelTextKey } from "../../util/model-text-key.js";
+import { INT32_MAX, INT32_MIN, INTEGER_RANGE_MESSAGE } from "../../util/numeric-range.js";
+import { FIND_ABSENT_DETAIL } from "../../util/repository-contract.js";
 import { UUID_WIRE_MESSAGE } from "../../util/uuid-wire.js";
 import type { InvariantIR } from "../types/loom-ir.js";
 import type { WirePrimitive } from "../types/wire-types.js";
@@ -415,7 +415,8 @@ export function wireSentenceFor(cls: WireRejectionClass, subject: string): strin
 // client shows (`t(code, detail, params)`), so no client keeps a mapping
 // table.  `title`, `detail` and `errors[].message` stay English, for API
 // callers and logs.  The English of every `problem.*` / `field.*` key is
-// registered once, in `src/generator/_walker/i18n-chrome.ts`.
+// registered once, in `src/generator/_i18n/wire-error-text.ts` (merged into
+// every catalog by `_walker/i18n-chrome.ts`).
 //
 //   a rejection class         problem.<class>
 //   a field reason            field.<reason>
@@ -454,6 +455,12 @@ const FIELD_PARAMS: Readonly<Partial<Record<FieldRejectionReason, readonly strin
   "integer-range": ["min", "max"],
   "money-grammar": ["value"],
   "money-range": ["value"],
+};
+
+/** The `params` an `integer-range` refusal carries: the int32 bounds. */
+export const INTEGER_RANGE_PARAMS: Readonly<{ min: number; max: number }> = {
+  min: INT32_MIN,
+  max: INT32_MAX,
 };
 
 /** The param names a field reason carries (empty for most). */

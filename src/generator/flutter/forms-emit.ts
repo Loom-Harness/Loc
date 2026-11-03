@@ -61,12 +61,12 @@ import { modelTextEntry } from "../../util/model-text-key.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
+import { sourceText } from "../_i18n/source-text.js";
 import {
   type FormInputModelText,
   formInputModelText,
   paramLabelOwner,
 } from "../_walker/model-text-sites.js";
-import { sourceText } from "../_walker/source-text.js";
 import { STANDARD_AGG_OPS } from "../_walker/walker-core.js";
 import { flutterHttpImport } from "./api-client.js";
 import { type FlutterFieldRule, flutterValidatorMap, ruleGuards } from "./form-validators.js";

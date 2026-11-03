@@ -66,15 +66,13 @@ const PENDING_ERROR_CODES: readonly WireWaiver[] =
           path: "**.code",
           kinds: ["key-set", "value"],
           goldenValues: WIRE_ERROR_CODE,
-          reason:
-            "#4473 — the fan-out backends do not yet put the catalog `code` on every refusal",
+          reason: "#4473 — the fan-out backends do not yet put the catalog `code` on every refusal",
         },
         {
           backends: pendingErrorCodeLegs(),
           path: "**.params",
           kinds: ["key-set", "value"],
-          reason:
-            "#4473 — the fan-out backends do not yet put the message `params` on a refusal",
+          reason: "#4473 — the fan-out backends do not yet put the message `params` on a refusal",
         },
       ];
 

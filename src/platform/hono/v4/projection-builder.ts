@@ -11,7 +11,12 @@ import {
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import { isFlattenedValueObject, voLeaves } from "../../../generator/typescript/vo-flatten.js";
 import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
-import { wireCode, wireFixedDetail, wireStatus, wireTitle } from "../../../ir/enrich/wire-policy.js";
+import {
+  wireCode,
+  wireFixedDetail,
+  wireStatus,
+  wireTitle,
+} from "../../../ir/enrich/wire-policy.js";
 import type {
   EnrichedBoundedContextIR,
   ProjectionIR,

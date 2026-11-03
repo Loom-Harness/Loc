@@ -3,8 +3,9 @@ import { useParams, Link as RouterLink } from "react-router";
 import { UpdateProductRequest, useUpdateProduct } from "../../api/product";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
+import { fieldErrorText } from "../../lib/field-error";
 import { KeyValueRow } from "../../lib/format";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { zodResolver } from "../../lib/zod-resolver";
 import { Alert, Anchor, Breadcrumbs, Button, Card, Fieldset, Group, NumberInput, Skeleton, Stack, Text, TextInput, Title } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
@@ -42,7 +43,7 @@ function UpdateForm({ mut, onClose }: { mut: ReturnType<typeof useUpdateProduct>
       })}
     >
       <Stack>
-        <TextInput label={ t("Products.Product.field.sku", "Sku") } {...register("sku")} data-testid="products-op-update-input-sku" error={errors.sku?.message} />
+        <TextInput label={ t("Products.Product.field.sku", "Sku") } {...register("sku")} data-testid="products-op-update-input-sku" error={fieldErrorText(errors.sku)} />
 
         <Fieldset legend={ t("Products.Product.field.price", "Price") } variant="filled" radius="md" data-testid="products-op-update-input-price">
           <Stack gap="sm">
@@ -54,7 +55,7 @@ function UpdateForm({ mut, onClose }: { mut: ReturnType<typeof useUpdateProduct>
           )}
         />
 
-<TextInput label={ t("Products.Money.field.currency", "Currency") } {...register("price.currency")} data-testid="products-op-update-input-price-currency" error={errors.price?.currency?.message} />
+<TextInput label={ t("Products.Money.field.currency", "Currency") } {...register("price.currency")} data-testid="products-op-update-input-price-currency" error={fieldErrorText(errors.price?.currency)} />
 
           </Stack>
         </Fieldset>

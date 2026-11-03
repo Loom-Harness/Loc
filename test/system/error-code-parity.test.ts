@@ -20,7 +20,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { WIRE_ERROR_MESSAGES } from "../../src/generator/_walker/i18n-chrome.js";
+import { WIRE_ERROR_MESSAGES } from "../../src/generator/_i18n/wire-error-text.js";
 import { allPlatforms } from "../../src/platform/registry.js";
 import { ERROR_CODE_ROWS, type ErrorCodeRow } from "../_helpers/error-code-rows.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
@@ -63,7 +63,10 @@ const BACKEND_FACTS: Readonly<
   Record<ErrorCodeRow["platform"], { schema: readonly RegExp[]; catalog: RegExp }>
 > = {
   node: {
-    schema: [/code: z\.string\(\)\.nullish\(\)/, /params: z\.record\(z\.string\(\), z\.unknown\(\)\)/],
+    schema: [
+      /code: z\.string\(\)\.nullish\(\)/,
+      /params: z\.record\(z\.string\(\), z\.unknown\(\)\)/,
+    ],
     catalog: /localizeMessage|\/http\/messages\.ts/,
   },
   dotnet: { schema: [], catalog: /LoomMessages|Localization\/LoomMessages\.cs/ },
@@ -126,7 +129,10 @@ describe("error-code parity — one row per backend (error-code-rows.ts)", () =>
         }, 120_000);
 
         it("declares `code` and `params` on its OpenAPI ProblemDetails schema", async () => {
-          expect(facts.schema.length, `BACKEND_FACTS.${row.platform}.schema is empty`).toBeGreaterThan(0);
+          expect(
+            facts.schema.length,
+            `BACKEND_FACTS.${row.platform}.schema is empty`,
+          ).toBeGreaterThan(0);
           const all = [...(await load()).values()].join("\n");
           for (const marker of facts.schema) expect(all).toMatch(marker);
         }, 120_000);

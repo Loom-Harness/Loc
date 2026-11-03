@@ -11,7 +11,7 @@
 
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { WIRE_ERROR_MESSAGES } from "../../../src/generator/_walker/i18n-chrome.js";
+import { WIRE_ERROR_MESSAGES } from "../../../src/generator/_i18n/wire-error-text.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
 const SYSTEM = (pageBody: string) => `
@@ -159,7 +159,11 @@ describe("React — server errors are localized by code", () => {
     };
     // A named rule's issue: the resolver put its catalog code on the error.
     expect(
-      fieldErrorText({ type: "custom", message: "Qty positive", loomCode: "Sales.Order.rule.qtyPositive" }),
+      fieldErrorText({
+        type: "custom",
+        message: "Qty positive",
+        loomCode: "Sales.Order.rule.qtyPositive",
+      }),
     ).toBe("Quantité {qty} refusée");
     // A native-chain bound carries no Loom code: it is an unnamed rule.
     expect(fieldErrorText({ type: "too_small", message: "Qty must be at least 1" })).toBe(

@@ -1,4 +1,9 @@
-import { wireCode, wireFixedDetail, wireStatus, wireTitle } from "../../../ir/enrich/wire-policy.js";
+import {
+  wireCode,
+  wireFixedDetail,
+  wireStatus,
+  wireTitle,
+} from "../../../ir/enrich/wire-policy.js";
 import type { EnrichedBoundedContextIR } from "../../../ir/types/loom-ir.js";
 import { isMaterializedProjection, isQueryTimeProjection } from "../../../ir/types/loom-ir.js";
 import {

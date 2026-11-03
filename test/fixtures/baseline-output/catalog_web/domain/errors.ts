@@ -21,11 +21,13 @@ export class DomainError extends Error {
 export class ValueObjectInvariantError extends DomainError {
   readonly valueObject: string;
   readonly code: string | undefined;
-  constructor(valueObject: string, message: string, code?: string) {
+  readonly params: Record<string, unknown> | undefined;
+  constructor(valueObject: string, message: string, code?: string, params?: Record<string, unknown>) {
     super(message, "invariant");
     this.name = "ValueObjectInvariantError";
     this.valueObject = valueObject;
     this.code = code;
+    this.params = params;
   }
 }
 export class AggregateNotFoundError extends Error {

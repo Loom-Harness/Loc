@@ -3,7 +3,8 @@ import { useNavigate, Link as RouterLink } from "react-router";
 import { CreateProductRequest, useCreateProduct } from "../../api/product";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { fieldErrorText } from "../../lib/field-error";
+import { zodResolver } from "../../lib/zod-resolver";
 import { Anchor, Breadcrumbs, Button, Card, Fieldset, Group, NumberInput, Stack, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { Controller, useForm } from "react-hook-form";
@@ -39,7 +40,7 @@ export default function ProductNew() {
                   }
                 })} data-testid="products-new">
           <Stack gap="md">
-            <TextInput label={ t("Products.Product.field.sku", "Sku") } {...register("sku")} data-testid="products-new-input-sku" error={errors.sku?.message} />
+            <TextInput label={ t("Products.Product.field.sku", "Sku") } {...register("sku")} data-testid="products-new-input-sku" error={fieldErrorText(errors.sku)} />
     
             <Fieldset legend={ t("Products.Product.field.price", "Price") } variant="filled" radius="md" data-testid="products-new-input-price">
               <Stack gap="sm">
@@ -51,7 +52,7 @@ export default function ProductNew() {
               )}
             />
     
-    <TextInput label={ t("Products.Money.field.currency", "Currency") } {...register("price.currency")} data-testid="products-new-input-price-currency" error={errors.price?.currency?.message} />
+    <TextInput label={ t("Products.Money.field.currency", "Currency") } {...register("price.currency")} data-testid="products-new-input-price-currency" error={fieldErrorText(errors.price?.currency)} />
     
               </Stack>
             </Fieldset>

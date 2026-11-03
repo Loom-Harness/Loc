@@ -3,8 +3,9 @@ import { useParams, Link as RouterLink } from "react-router";
 import { UpdateCustomerRequest, useUpdateCustomer } from "../../api/customer";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
+import { fieldErrorText } from "../../lib/field-error";
 import { KeyValueRow } from "../../lib/format";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { zodResolver } from "../../lib/zod-resolver";
 import { Alert, Anchor, Breadcrumbs, Button, Card, Group, NumberInput, Skeleton, Stack, Text, TextInput, Title } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
@@ -42,9 +43,9 @@ function UpdateForm({ mut, onClose }: { mut: ReturnType<typeof useUpdateCustomer
       })}
     >
       <Stack>
-        <TextInput label={ t("Customers.Customer.field.username", "Username") } {...register("username")} data-testid="customers-op-update-input-username" error={errors.username?.message} />
+        <TextInput label={ t("Customers.Customer.field.username", "Username") } {...register("username")} data-testid="customers-op-update-input-username" error={fieldErrorText(errors.username)} />
 
-        <TextInput label={ t("Customers.Customer.field.email", "Email") } {...register("email")} data-testid="customers-op-update-input-email" error={errors.email?.message} />
+        <TextInput label={ t("Customers.Customer.field.email", "Email") } {...register("email")} data-testid="customers-op-update-input-email" error={fieldErrorText(errors.email)} />
 
         <Controller
           control={control}

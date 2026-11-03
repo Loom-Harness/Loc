@@ -92,6 +92,7 @@ import {
   fieldSentenceSuffix,
   fieldValuePrefix,
   frameworkReasonPhrase,
+  INTEGER_RANGE_PARAMS,
   REASON_PHRASE_STATUSES,
   wireCode,
   wireFixedDetail,
@@ -157,7 +158,6 @@ import { lines } from "../../../util/code-builder.js";
 // Hono-framework builders now live in this package (P2b) — siblings.
 import { emissionSink } from "../../../util/emission-sink.js";
 import { lowerFirst, plural } from "../../../util/naming.js";
-import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
 import { emitApiClientModule } from "./adapters/api-client.js";
 import {
@@ -565,7 +565,7 @@ function issueCode(issue: ZodIssueLike): string {
 function issueParams(input: unknown, issue: ZodIssueLike): Record<string, unknown> | undefined {
   const p = issue.params;
   if (p?.loomValues) return p.loomValues;
-  if (issue.message === ${JSON.stringify(fieldFixedMessage("integer-range"))}) return { min: ${INT32_MIN}, max: ${INT32_MAX} };
+  if (issue.message === ${JSON.stringify(fieldFixedMessage("integer-range"))}) return ${JSON.stringify(INTEGER_RANGE_PARAMS)};
   if (!p?.loomReads || p.loomReads.length === 0) return undefined;
   const owner = valueAt(input, p.loomPointed ? issue.path.slice(0, -1) : issue.path);
   if (owner === null || typeof owner !== "object") return undefined;

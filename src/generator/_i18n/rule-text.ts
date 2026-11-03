@@ -18,15 +18,15 @@
 //   problem.domain-floor  anything else
 //
 // — both registered with the other wire error codes in
-// `_walker/i18n-chrome.ts`, and overridable through `locales/en/_chrome.json`
+// `wire-error-text.ts`, and overridable through `locales/en/_chrome.json`
 // like any other key.
 // ---------------------------------------------------------------------------
 
 import { fieldCode, wireCode } from "../../ir/enrich/wire-policy.js";
 import type { ExprIR, InvariantIR, MessageIR } from "../../ir/types/loom-ir.js";
 import { singleFieldShape } from "../../ir/validate/invariant-classify.js";
-import { wireErrorMessage } from "../_walker/i18n-chrome.js";
-import { sourceText } from "../_walker/source-text.js";
+import { sourceText } from "./source-text.js";
+import { wireErrorMessage } from "./wire-error-text.js";
 
 /** The source-language text of a named rule's `MessageIR`. */
 export function namedRuleText(message: MessageIR): string {

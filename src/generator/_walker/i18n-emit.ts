@@ -36,16 +36,16 @@
 // ---------------------------------------------------------------------------
 
 import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { sourceText } from "../_i18n/source-text.js";
 import { ariaLabelAttr, escapeHtmlAttr } from "./a11y-emit.js";
 import { chromeKey, chromeMessage } from "./i18n-chrome.js";
 import { icuFromConcat, literalString, messageKey } from "./i18n-extract.js";
 import { registerI18nImport } from "./render-primitive.js";
 import { namedArgValue, positionalArgs, unwrapTextLiteral } from "./shared/args.js";
-import { sourceText } from "./source-text.js";
 import type { StringPart } from "./target.js";
 import { emitExpr, renderTextContent, type WalkContext } from "./walker-core.js";
 
-export { sourceText, withSourceOverrides } from "./source-text.js";
+export { sourceText, withSourceOverrides } from "../_i18n/source-text.js";
 
 /** `t()` always returns a `string`, so the interpolation seam is told so.  The
  *  four JSX/markup targets ignore `exprType` (interpolation auto-coerces), which

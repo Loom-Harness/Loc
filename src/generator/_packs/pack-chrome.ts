@@ -73,8 +73,8 @@ import Handlebars from "handlebars";
 import { diagMessage } from "../../diagnostics/messages.js";
 import type { PackFormat } from "../../util/builtin-formats.js";
 import { contentHash } from "../../util/content-hash.js";
+import { sourceText } from "../_i18n/source-text.js";
 import { chromeKey, chromeMessage } from "../_walker/i18n-chrome.js";
-import { sourceText } from "../_walker/source-text.js";
 import {
   chromeDeclarationDefects,
   describePackDefects,

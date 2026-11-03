@@ -10,8 +10,8 @@ export class Money {
   ) {
     this.amount = amount;
     this.currency = currency;
-    if (!(this.amount >= 0)) throw new ValueObjectInvariantError("Money", "Invalid value");
-    if (!([...this.currency].length === 3)) throw new ValueObjectInvariantError("Money", "Invalid value");
+    if (!(this.amount >= 0)) throw new ValueObjectInvariantError("Money", "Invalid value", "field.rule");
+    if (!([...this.currency].length === 3)) throw new ValueObjectInvariantError("Money", "Invalid value", "field.rule");
   }
 
   equals(other: Money): boolean {

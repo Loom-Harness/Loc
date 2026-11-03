@@ -17,7 +17,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { URI } from "langium";
 import { NodeFileSystem } from "langium/node";
-import { withSourceOverrides } from "../../generator/_walker/source-text.js";
+import { withSourceOverrides } from "../../generator/_i18n/source-text.js";
 import type { Catalog } from "../../i18n/merge.js";
 import { namespaceNamesOf } from "../../i18n/namespace.js";
 import { enrichLoomModel } from "../../ir/enrich/enrichments.js";
