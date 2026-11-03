@@ -403,7 +403,7 @@ export const AUTHZ_LADDERS = {
       },
       // M-T3.16 C2 — the ORDER of the wire-validation rung and the create
       // gate.  The same guarded create, with a body the wire validator refuses
-      // (`reference` shorter than the fixture's messaged invariant allows):
+      // (`reference` shorter than the fixture's named invariant allows):
       // BOTH principals answer 422, i.e. the request is validated before the
       // gate is evaluated.  Node / .NET / java / python validate at the route
       // boundary, ahead of the handler that runs the gate; Phoenix gated in

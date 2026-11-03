@@ -59,7 +59,7 @@ export function renderVanillaProblemDetailsModule(
    *  resolves through gettext for the request locale.  False ⇒ byte-identical to
    *  pre-catalog output. */
   localizeMessages = false,
-  /** True when some aggregate operation carries a WIRE-RUNG denial — a messaged
+  /** True when some aggregate operation carries a WIRE-RUNG denial — a named
    *  `precondition` over the op's own request params, which the other four
    *  backends lift into the request validator (M-T6.20) — or a command
    *  workflow takes params (its missing-param 422, L1-E / E7).  Gates the extra
@@ -71,7 +71,7 @@ export function renderVanillaProblemDetailsModule(
    *  (`validate_body_value_objects/1` exists).  Carries the DOMAIN-FLOOR status
    *  + title the refusal answers with; `undefined` ⇒ byte-identical. */
   bodyValueObjects?: { status: number; title: string },
-  /** M-T1.11 (c) — a MESSAGED rule can trip at the DOMAIN FLOOR: an invariant
+  /** M-T1.11 (c) — a NAMED rule can trip at the DOMAIN FLOOR: an invariant
    *  re-asserted after an operation body (a changeset error tagged
    *  `loom_domain_floor`) or a precondition denying with a coded map detail.
    *  Both answer through the SAME domain-floor entry sender the body-built value
@@ -117,10 +117,10 @@ export function renderVanillaProblemDetailsModule(
   // through, and the resolution is gettext's.
   //
   // `pgettext` reconciles the two key models exactly as it does on the frontend
-  // half (see `elixir/i18n.ts`): the Loom content-hash code is the msgctxt and
+  // half (see `elixir/i18n.ts`): the Loom identity-key code is the msgctxt and
   // the authored English the msgid.  gettext's own "an empty translation renders
   // the msgid" rule IS the fallback, so an untranslated locale returns the
-  // authored text with no branch here.
+  // rule text with no branch here.
   //
   // The RUNTIME `Gettext.pgettext/4` rather than the same-named MACRO: the
   // msgctxt arrives as a changeset-error metadata value, and the macros require
@@ -130,7 +130,7 @@ export function renderVanillaProblemDetailsModule(
     ? `
 
   # Resolve a named rule's stable wire code against this project's
-  # gettext catalog for the request locale, falling back to the authored text.
+  # gettext catalog for the request locale, falling back to the rule text.
   defp localize(nil, message), do: message
 
   defp localize(code, message) do
@@ -412,7 +412,7 @@ ${strictIngressFns}
   wire-validation rung for a denial that never builds an \`Ecto.Changeset\`
   (a \`precondition\` over the operation's own request params,
   which the other four backends lift into the \`<Op>Request\` validator).  Each
-  entry is \`%{pointer:, message:, code:}\` (no code for a message-less rule); the code resolves through the same
+  entry is \`%{pointer:, message:, code:}\` (no code for an unnamed rule); the code resolves through the same
   catalog the changeset path uses, so both rungs localise identically.
   """
   def validation_errors_response(conn, errors) when is_list(errors) do
@@ -423,7 +423,7 @@ ${strictIngressFns}
     %{pointer: pointer, message: ${localizeMessages ? "localize(code, message)" : "message"}, code: code}
   end
 
-  # A message-LESS rule's entry has no code: its sentence is the one node's
+  # An UNNAMED rule's entry has no code: its sentence is the one node's
   # validator sends, and a code is the i18n key of AUTHORED text only.
   # A STRUCTURAL error (a workflow request missing a param) carries no code —
   # the same shape zod's structural issues take on node.
@@ -541,7 +541,7 @@ ${responseFns}${sendValidationProblemFn}${bodyValueObjectFns}${wireErrorsFn}
   """${
     domainFloorCodes
       ? `
-  # M-T1.11 (c) — a MESSAGED precondition denied at the domain floor carries its
+  # M-T1.11 (c) — a NAMED precondition denied at the domain floor carries its
   # detail as a map with the rule's code and pointer: the same domain-floor
   # answer, plus the errors[] entry the other four backends' coded throw gets.
   def problem_response(conn, _status, _title, %{detail: detail, code: code, pointer: pointer}) do
@@ -665,8 +665,8 @@ ${forbiddenBodyRedaction}
       localizeMessages ? "localize(Keyword.get(opts, :loom_code), interpolated)" : "interpolated"
     }}
 
-    # A messaged rule carries a "loom_code" metadata key (the stable
-    # content-hash wire code / i18n key) on the changeset error; a message-less
+    # A named rule carries a "loom_code" metadata key (the stable
+    # identity-key wire code / i18n key) on the changeset error; an unnamed
     # rule has none, so the code field is omitted (byte-identical body).
     case Keyword.get(opts, :loom_code) do
       nil -> base

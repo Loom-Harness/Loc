@@ -30,8 +30,8 @@ system MergePatch {
         note: string?
         pages: int
         minPages: int = 0
-        invariant pages >= 0 message "Pages cannot be negative"
-        invariant minPages <= pages message "A memo has at least its minimum pages"
+        invariant pagesNonNegative: pages >= 0
+        invariant memoMinPages: minPages <= pages
         ${extra}
       }
       repository Memos for Memo { }
@@ -156,7 +156,7 @@ describe("merge-patch update — .NET", () => {
     const files = await generateSystemFiles(
       SYSTEM("dotnet", "cost: Cost").replace(
         "aggregate Memo",
-        'valueobject Cost { amount: int  invariant amount >= 0 message "Cost cannot be negative" }\n      aggregate Memo',
+        "valueobject Cost { amount: int  invariant costNonNegative: amount >= 0 }\n      aggregate Memo",
       ),
     );
     const validators = fileEndingWith(files, "Requests/MemoRequestValidators.cs");
@@ -230,7 +230,7 @@ describe("merge-patch update — elixir", () => {
     expect(update.slice(0, update.indexOf("\n  end"))).not.toMatch(/__require_keys|__clear_absent/);
     expect(update).toContain("|> validate_patch_invariants(attrs)");
     expect(changeset).toContain(
-      'defp __patch_members(:min_pages, "A memo has at least its minimum pages"), do: ["min_pages", "pages"]',
+      'defp __patch_members(:min_pages, "Memo min pages"), do: ["min_pages", "pages"]',
     );
     const controller = fileEndingWith(files, "controllers/memo_controller.ex");
     expect(controller).toContain("@patch_required ~w(title pages minPages)");

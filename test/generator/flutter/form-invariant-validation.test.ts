@@ -39,7 +39,7 @@ system Inv {
       invariant priority <= 5
       invariant code.length == 6
       invariant weight > 0.5
-      invariant email.matches("^[^@]+@[^@]+$") message "Email must look like an address"
+      invariant emailAddress: email.matches("^[^@]+@[^@]+$")
       operation reprioritize(newPriority: int) {
         precondition newPriority >= 1
         priority := newPriority
@@ -102,9 +102,7 @@ describe("flutter forms — invariant-derived client validation (M-T1.16)", () =
 
   it("a regex rides a Dart RAW string, and an AUTHORED message wins", async () => {
     const src = await formsDart();
-    expect(src).toContain(
-      "if (!RegExp(r'^[^@]+@[^@]+$').hasMatch(s)) { return 'Email must look like an address'; }",
-    );
+    expect(src).toContain("if (!RegExp(r'^[^@]+@[^@]+$').hasMatch(s)) { return 'Email address'; }");
     // Not the derived fallback — the author wrote a message.
     expect(src).not.toContain("Email is not in the expected format");
   });

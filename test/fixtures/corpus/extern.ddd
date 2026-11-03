@@ -25,8 +25,8 @@ system ExternSys {
           precondition isMutable()
           precondition riskScore < 80
         }
-        // MESSAGED since wave C3, for the reason `vo-id-reference.ddd` gives: a
-        // message-less param bound answers each framework's default text.
+        // NAMED since wave C3, for the reason `vo-id-reference.ddd` gives: a
+        // unnamed param bound answers each framework's default text.
         operation flag(score: int) extern { precondition riskFlagCannotNegative: score >= 0 }
         operation cancel() { precondition isMutable()  status := OrderStatus.Cancelled }
       }

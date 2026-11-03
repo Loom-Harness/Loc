@@ -143,7 +143,7 @@ export function denialMessage(s: GuardStmt): string {
 //
 // The rescue must NOT route by MESSAGE PREFIX (`String.starts_with?(guard_msg,
 // "Precondition failed: ")`): that makes the message the ROUTING KEY, so an
-// authored `message "…"` would miss the prefix and `reraise` into a 500.
+// a rule's own text would miss the prefix and `reraise` into a 500.
 //
 // The classification is OUT OF BAND: one domain-layer `defexception`
 // carrying a `kind` field (`:forbidden` / `:precondition`) that the rescue
@@ -273,7 +273,7 @@ export function notFoundStmtClause(st: { detail?: string; subject?: string }): s
 
 /** The denial term for a guard in a WORKFLOW / command-handler body.  An
  *  orchestration precondition never lifts into a request validator, so a
- *  MESSAGED one always answers the domain floor WITH its `errors[]` entry —
+ *  NAMED one always answers the domain floor WITH its `errors[]` entry —
  *  the same coded map an operation precondition's domain-floor denial carries
  *  (banking eval B-02).  The workflow controller hands the detail to
  *  `ProblemDetails.problem_response/4`, whose map arm the domain-floor gate
@@ -301,7 +301,7 @@ function codedPreconditionTerm(s: GuardStmt, code: string): string {
 //
 // Elixir lowers preconditions to the `ensure/2` control-flow chain instead, so
 // without this rung the same denial would answer the DOMAIN-FLOOR 422 —
-// authored message in `detail`, no `errors[]`, hence no pointer and no code,
+// rule text in `detail`, no `errors[]`, hence no pointer and no code,
 // and a frontend ACL's `applyServerErrors` would bind nothing on this backend
 // (the `corpus/validation-messages` wire-golden pins the agreement).
 //

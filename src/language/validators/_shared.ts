@@ -43,14 +43,7 @@ import {
   type Subdomain,
   type ValueObject,
 } from "../generated/ast.js";
-import {
-  declaredRuleName,
-  type RuleNode,
-  ruleContext,
-  ruleNameOf,
-  ruleOwner,
-  rulesOf,
-} from "../rule-names.js";
+import { declaredRuleName, type RuleNode, ruleContext, ruleOwner, rulesOf } from "../rule-names.js";
 import {
   type Env,
   makeEnv,
@@ -384,7 +377,7 @@ export function pagePropDisplayName(typeName: string): string {
 
 /** The name `scripts/codemod-rule-names.mjs` gives the unnamed rule `node`
  *  carrying `message "…"`: the derived name, deduplicated against every declared
- *  name in the owner and the names it hands the owner's earlier messaged rules.
+ *  name in the owner and the names it hands the owner's earlier named rules.
  *  Only the diagnostic's hint reads it — a message never names a rule. */
 function suggestedRuleName(node: RuleNode, message: string): string {
   const owner = ruleOwner(node);

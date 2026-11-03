@@ -46,7 +46,7 @@ function relativeRootRefs(files: Map<string, string>, ns: string): string[] {
 
 // A deployable literally named `api` — the name `ddd new` scaffolds, and the
 // one no corpus fixture uses.  Carries a channel (ChannelTransport.cs) and a
-// messaged invariant (Localization/LoomMessages.cs), the two emitters that got
+// named invariant (Localization/LoomMessages.cs), the two emitters that got
 // this wrong.
 const SOURCE = `
 system X {
@@ -55,7 +55,7 @@ system X {
       aggregate Foo with crudish {
         name: string
         derived display: string = name
-        invariant name.length >= 3 message "Name needs at least 3 characters"
+        invariant nameLength: name.length >= 3
         operation ping() { name := name  emit Pinged { foo: id, at: now() } }
       }
       repository Foos for Foo { }

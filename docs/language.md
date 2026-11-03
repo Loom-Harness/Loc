@@ -1715,7 +1715,7 @@ hypothetical: that is the 2026-09-13 testability audit's F11.  Name the rung:
 
 ```ddd
 operation complete() {
-    precondition status == InProgress message "finish the work first"
+    precondition finishWorkFirst: status == InProgress
     status := Completed
 }
 
@@ -1726,7 +1726,7 @@ test "a fresh work order cannot be completed" {
 ```
 
 The rung is **structural** on every backend: the domain error carries it as a
-field, separate from the message, so an authored `message "…"` on the rule costs
+field, separate from the message, so a rule's name and its English text cost
 the assertion nothing.
 
 ```ts
@@ -1765,7 +1765,7 @@ The field is `DomainError.kind` (node, python), `DomainException.getKind()`
 (java), `DomainException.Kind` (.NET; a value object's invariant throws the
 separate `ValueObjectInvariantException`, so there the type is the rung) and
 `GuardError.kind` (elixir).  It does not reach the wire: the HTTP answer is the
-same 422 problem whose `detail` is the authored message.
+same 422 problem whose `detail` is the rule text.
 
 `precondition` and `invariant` are keywords, not values — they are legal only in
 this one argument position (`loom.throw-kind-outside-tothrow`).  Two rules

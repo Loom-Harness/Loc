@@ -835,13 +835,13 @@ export function renderExceptionFilter(
      *  (byte-identical default). */
     structuralStatuses?: Record<string, number>;
     /** True when this project ships `Localization/LoomMessages.cs` — the 422 arm
-     *  then resolves each messaged rule's wire `code` against the catalog for the
+     *  then resolves each named rule's wire `code` against the catalog for the
      *  request locale.  False ⇒ byte-identical to pre-catalog output (M-T1.11). */
     localizeMessages?: boolean;
     /** True when a hosted value object declares an invariant — the filter then
      *  carries the `ValueObjectInvariantException` arm (M-T5.1). */
     valueObjectInvariants?: boolean;
-    /** True when a messaged aggregate rule can trip at the domain floor — the
+    /** True when a named aggregate rule can trip at the domain floor — the
      *  filter then answers a `DomainException` carrying a `RuleCode` with the
      *  same errors[] entry (M-T1.11 (c)). */
     domainFloorCodes?: boolean;
@@ -889,12 +889,12 @@ export function renderExceptionFilter(
   // A value object refused inside a domain body (M-T5.1) — the domain-floor
   // status plus one RFC 7807 errors[] entry: the whole-request pointer "" (the
   // value was computed by the body, so it names no request member), the rule's
-  // message and, for a messaged rule, its content-hash code.  Ahead of the
+  // message and, for a named rule, its identity-key code.  Ahead of the
   // DomainException arm; absent (byte-identical) when no hosted value object
   // declares an invariant, since nothing else raises the exception.
   // ONE arm template for both refusals that answer the domain floor WITH an
   // errors[] entry — the value object refused inside a body (M-T5.1, pointer
-  // "") and the messaged invariant / check / precondition (M-T1.11 (c), the
+  // "") and the named invariant / check / precondition (M-T1.11 (c), the
   // rule's own pointer) — so the two can never drift into different bodies.
   const domainFloorErrorsArm = (
     match: string,
@@ -944,8 +944,8 @@ export function renderExceptionFilter(
         "voProblem",
       )
     : "";
-  // The messaged domain-floor rule (M-T1.11 (c)) — only a `DomainException`
-  // that CARRIES a code takes it; a message-less rule falls through to the
+  // The named domain-floor rule (M-T1.11 (c)) — only a `DomainException`
+  // that CARRIES a code takes it; an unnamed rule falls through to the
   // plain domain-floor arm below, unchanged.
   const domainFloorCodeArm = options?.domainFloorCodes
     ? domainFloorErrorsArm(

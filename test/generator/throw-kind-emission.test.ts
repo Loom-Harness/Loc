@@ -16,10 +16,9 @@
 // THE RUNG IS STRUCTURAL ON ALL FIVE.  Each backend's domain error carries the
 // rung as a field — `DomainError.kind` (node, python), `DomainException.getKind()`
 // (java), `DomainException.Kind` (.NET), `GuardError.kind` (elixir) — and the
-// unit assertion reads that field, never the message, because an authored
-// `message "..."` REPLACES the derived "Precondition failed: <src>" sentence.
-// So a messaged rule is asserted exactly like a message-less one (the
-// `messaged` probe below).
+// unit assertion reads that field, never the message, because a NAMED
+// rule answers its own sentence instead of the generic one.  So a named rule is
+// asserted exactly like an unnamed one (the `named` probe below).
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
@@ -27,7 +26,7 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 /** The audit's probe, reduced: ONE operation carrying BOTH rungs — a
  *  `precondition` and a guarded collection `invariant` that trips on the same
  *  call — so that with the precondition gone the invariant throws instead. */
-const SOURCE = (platform: string, matcher: string, messaged = false) => `
+const SOURCE = (platform: string, matcher: string, named = false) => `
 system Probe {
   subdomain Ops {
     context Work {
@@ -39,14 +38,12 @@ system Probe {
         contains tasks: Task[]
         entity Task { label: string }
 
-        invariant tasks.count > 0 when status == Completed${
-          messaged ? ` message "a completed work order needs at least one task"` : ""
-        }
+        invariant ${named ? "workNeedsTask: " : ""}tasks.count > 0 when status == Completed
 
         create(reference: string, status: WorkStatus) { }
 
         operation complete() {
-          precondition status == InProgress${messaged ? ` message "finish the work first"` : ""}
+          precondition ${named ? "finishWorkFirst: " : ""}status == InProgress
           status := Completed
         }
 
@@ -78,8 +75,8 @@ system Probe {
  *  rung spellings this asserts also appear in the DOMAIN source (that is where
  *  they are thrown from), so a whole-tree `toContain` would pass without the
  *  assertion ever being emitted. */
-async function unitTest(platform: string, matcher: string, messaged = false): Promise<string> {
-  const files = await generateSystemFiles(SOURCE(platform, matcher, messaged));
+async function unitTest(platform: string, matcher: string, named = false): Promise<string> {
+  const files = await generateSystemFiles(SOURCE(platform, matcher, named));
   const hits = [...files.entries()].filter(
     ([p]) => /work[_.]?order/i.test(p) && /test/i.test(p) && !/integration/i.test(p),
   );
@@ -167,13 +164,13 @@ describe("toThrow(<kind>) — the emitted unit assertion pins the rung on all fi
       for (const pin of PINS[platform]!.precondition) expect(out).toContain(pin);
     });
 
-    it(`${platform}: a MESSAGED rule is asserted exactly like a message-less one`, async () => {
-      // An authored message replaces the derived sentence, and must not cost
-      // the assertion anything: the rung is read structurally.
+    it(`${platform}: a NAMED rule is asserted exactly like an unnamed one`, async () => {
+      // A named rule answers its own sentence, and must not cost the assertion
+      // anything: the rung is read structurally.
       const plain = await unitTest(platform, "toThrow(precondition)");
-      const messaged = await unitTest(platform, "toThrow(precondition)", true);
-      expect(messaged).toBe(plain);
-      expect(messaged).not.toContain("finish the work first");
+      const named = await unitTest(platform, "toThrow(precondition)", true);
+      expect(named).toBe(plain);
+      expect(named).not.toContain("Finish work first");
     });
 
     it(`${platform}: the bare toThrow() is unchanged — the kind form is additive`, async () => {
@@ -204,9 +201,9 @@ describe("toThrow(<kind>) — the emitted unit assertion pins the rung on all fi
         .map(([, c]) => c)
         .join("\n");
       const pins = THROW_SITE_PINS[platform]!;
-      // The authored text stays the MESSAGE (the HTTP `detail` reads it); the
+      // The rule text stays the MESSAGE (the HTTP `detail` reads it); the
       // rung rides right after it.
-      expect(domain).toContain(`"finish the work first", ${pins.precondition}`);
+      expect(domain).toContain(`"Finish work first", ${pins.precondition}`);
       expect(domain).toContain(
         `"a completed work order needs at least one task", ${pins.invariant}`,
       );

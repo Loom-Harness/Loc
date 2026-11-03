@@ -118,7 +118,7 @@ def confirm_order(%ExApi.Orders.Order{} = record, params) when is_map(params) do
       |> Ecto.Changeset.force_change(:status, record.status)
       |> Ecto.Changeset.optimistic_lock(:version)
       # |> ExApi.Orders.OrderChangeset.validate_invariants()  ← only when the
-      #    aggregate carries a RESIDUAL invariant (cross-field, or messaged);
+      #    aggregate carries a RESIDUAL invariant (cross-field, or named);
       #    a single-field rule rides a native Ecto `validate_*` instead.
 
     case ExApi.Orders.OrderRepository.persist_change(changeset) do
@@ -172,7 +172,7 @@ aggregate Order {
 }
 ```
 
-`requires` may be written on the header (`operation addLine(...) requires isStaff { … }`) or as the first statement(s) of the body — the header form lowers to a synthetic leading `requires` statement, so the two are indistinguishable after phase ⑤. A `precondition` may carry `message "…"` to replace the derived `Precondition failed: <source>` text. A refused `when` names its predicate the same way — `operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft).` — identically on all five backends. Evaluation order at the call site is **requires → when → body**, so a 403 wins over a 409 wins over a 422.
+`requires` may be written on the header (`operation addLine(...) requires isStaff { … }`) or as the first statement(s) of the body — the header form lowers to a synthetic leading `requires` statement, so the two are indistinguishable after phase ⑤. A `precondition` may be named (`precondition inStock: …`), which keys its user-facing text (`<Ctx>.<Owner>.rule.<name>`); an unnamed one answers the generic message, never its source. A refused `when` names its predicate the same way — `operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft).` — identically on all five backends. Evaluation order at the call site is **requires → when → body**, so a 403 wins over a 409 wins over a 422.
 
 **Where each gate runs.** `when` is a property of the **domain method**: every backend emits the predicate as the first line of the generated operation, so every caller evaluates it (the route, a workflow step, a handler). The **leading run of `requires`** is deliberately *hoisted* out of the entity to the calling handler (`src/ir/util/op-gates.ts`), because authorization needs a principal the domain layer does not carry; a `requires` further down the body stays where it is. The hoisted gate, one level up on each backend:
 
@@ -482,7 +482,7 @@ aggregate Appointment {
   patient: string
   status: AppointmentStatus = Requested
   create(patient: string) {
-    precondition patient.length >= 2 message "A patient name needs two characters"
+    precondition patientNameLength: patient.length >= 2
     emit AppointmentRequested { appointment: id, patient: patient }
   }
 }
@@ -500,7 +500,7 @@ static create(input: { patient: string }): Appointment {
 }
 
 private _createBody(patient: string): void {
-  if (!([...patient].length >= 2)) throw new DomainError("A patient name needs two characters", "msg.ojnyph", "/patient");
+  if (!([...patient].length >= 2)) throw new DomainError("Patient name length", "Scheduling.Appointment.rule.patientNameLength", "/patient");
   this._events.push({ type: "AppointmentRequested", appointment: this._id, patient: patient });
 }
 ```
@@ -510,7 +510,7 @@ private _createBody(patient: string): void {
 def create_appointment(attrs) do
   with {:ok, record} <- Ecto.Changeset.apply_action(AppointmentChangeset.base_changeset(AppointmentChangeset.take_create_attrs(attrs)), :insert),
        patient = record.patient,
-       :ok <- ensure(length(String.to_charlist(patient)) >= 2, {:precondition_failed, %{detail: "A patient name needs two characters", code: "msg.ojnyph", pointer: "/patient"}}) do
+       :ok <- ensure(length(String.to_charlist(patient)) >= 2, {:precondition_failed, %{detail: "Patient name length", code: "Scheduling.Appointment.rule.patientNameLength", pointer: "/patient"}}) do
     case AppointmentRepository.insert(attrs) do
       {:ok, record} ->
         loom_event_0 = %Scheduling.Events.AppointmentRequested{appointment: record.id, patient: patient}

@@ -168,12 +168,12 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     }
   }
   const notFoundStatus = denialStatus("notFound", ladderStatuses);
-  // Validation-message catalog (M-T1.11): the authored messages this deployable's
+  // Validation-message catalog (M-T1.11): the rule texts this deployable's
   // wire validators can surface.  They merge into the SAME `priv/gettext` tree the
   // HEEx frontend translates through, and the 422 changeset-error renderer
   // resolves each `loom_code` against it.  Empty ⇒ byte-identical output.
   const validationMessages = collectWireValidationMessages(contexts);
-  // M-T6.20 — does any aggregate operation carry a WIRE-RUNG denial (a messaged
+  // M-T6.20 — does any aggregate operation carry a WIRE-RUNG denial (a named
   // `precondition` over the op's own params)?  Gates the extra
   // `validation_errors_response/2` responder; false ⇒ byte-identical.
   // …OR a paged read: an out-of-range `page`/`pageSize` now answers the same
@@ -215,7 +215,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
             title: denialTitle("precondition", ladderStatuses),
           }
         : undefined,
-      // M-T1.11 (c) — a messaged rule can trip at the domain floor.
+      // M-T1.11 (c) — a named rule can trip at the domain floor.
       contexts.some(hasDomainFloorMessages),
       // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
       echoesDenialDetail(deployable, sys),
@@ -875,7 +875,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // the `priv/gettext` catalog, the hex dep and the `html_helpers` import.
     i18nUi,
     // The SECOND catalog source (M-T1.11) — turns the gettext runtime on even for
-    // a JSON-API-only deployable with an authored `message "…"`.
+    // a JSON-API-only deployable with a named rule.
     validationMessages,
     // First-boot seeding (M-T6.37) — the `<Ctx>.Seeds` modules emitted above,
     // called from `Application.start/2` once the Repo is supervised (and from

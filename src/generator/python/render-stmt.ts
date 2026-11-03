@@ -55,7 +55,7 @@ export interface PyStmtCtx {
    *  routes it to the co-located `_<field>_provenance` backing field, and
    *  pushes it onto the per-request ContextVar buffer via `record(...)`. */
   emitProvenance?: boolean;
-  /** True when rendering an aggregate OPERATION body: a messaged
+  /** True when rendering an aggregate OPERATION body: a named
    *  `precondition` then raises its wire code and pointer too (M-T1.11 (c)). */
   domainFloorCodes?: boolean;
 }

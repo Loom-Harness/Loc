@@ -184,7 +184,7 @@ describe("python routes", () => {
     expect(problem).toContain('"pointer": _pointer(tuple(e["loc"])),');
     expect(problem).toContain('MISSING_FIELD_SUFFIX = "is required"');
     expect(problem).toContain("f\"{e['loc'][-1]} {MISSING_FIELD_SUFFIX}\"");
-    // a messaged rule's PydanticCustomError "msg.<hash>" type rides as errors[].code
+    // a named rule's PydanticCustomError "<Ctx>.<Owner>.rule.<name>" type rides as errors[].code
     expect(problem).toContain('if ".rule." in code:');
     expect(problem).toContain('entry["code"] = code');
   });

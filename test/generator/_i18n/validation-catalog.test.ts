@@ -69,7 +69,7 @@ describe("validation-message catalog — what it collects", () => {
     const catalog = await catalogOf(`
       valueobject Sku {
         code: string
-        invariant code.length >= 3 message "SKU code needs at least 3 characters"
+        invariant skuCodeLength: code.length >= 3
       }
       aggregate Product {
         sku: Sku
@@ -78,9 +78,7 @@ describe("validation-message catalog — what it collects", () => {
       repository Products for Product { }
     `);
     expect(catalog).toEqual({
-      // The removed `message "…"` clause still compiles — named as the codemod
-      // names it, its text the English default.
-      "Cat.Sku.rule.skuCodeNeedsAt": "SKU code needs at least 3 characters",
+      "Cat.Sku.rule.skuCodeLength": "Sku code length",
     });
   });
 
@@ -119,20 +117,20 @@ describe("validation-message catalog — what it collects", () => {
     expect(Object.keys(catalog)).toEqual(["Cat.Product.rule.nameLong"]);
   });
 
-  it("keeps two rules with the same text as two entries — each has its own key", async () => {
+  it("keeps two rules as two entries — each has its own key", async () => {
     const catalog = await catalogOf(`
       aggregate Product {
         a: int
         b: int
-        invariant a >= 0 message "Must not be negative"
-        invariant b >= 0 message "Must not be negative"
+        invariant aNonNegative: a >= 0
+        invariant bNonNegative: b >= 0
         create(x: int, y: int) { a := x  b := y }
       }
       repository Products for Product { }
     `);
     expect(catalog).toEqual({
-      "Cat.Product.rule.notNegative": "Must not be negative",
-      "Cat.Product.rule.notNegative2": "Must not be negative",
+      "Cat.Product.rule.aNonNegative": "A non negative",
+      "Cat.Product.rule.bNonNegative": "B non negative",
     });
   });
 

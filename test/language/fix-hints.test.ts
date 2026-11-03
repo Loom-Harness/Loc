@@ -457,6 +457,21 @@ describe("fix-hints", () => {
     expect(fixed).not.toContain("= 1");
   });
 
+  it("entity-field-modifier: drops a named `check name: …` whole (round-trip clean)", async () => {
+    const fixed = await closesTheLoop(
+      `context Sales {
+  aggregate Order {
+    entity Line { qty: int }
+    line: Line check lineValid: 1 > 0
+  }
+}`,
+      "loom.entity-field-modifier",
+      { kind: "replace-text", op: "replace" },
+    );
+    expect(fixed).toContain("line: Line\n");
+    expect(fixed).not.toMatch(/check|lineValid/);
+  });
+
   it("entity-field-modifier: drops `check … message …` whole (round-trip clean)", async () => {
     const fixed = await closesTheLoop(
       `context Sales {

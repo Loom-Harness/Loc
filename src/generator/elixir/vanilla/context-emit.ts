@@ -835,7 +835,7 @@ ${body}
       ...body.flatMap((st) => {
         // An empty wire set: a create precondition is not lifted into the
         // create request validator on any backend, so it answers the domain
-        // floor (with its `errors[]` entry when messaged), like the other four.
+        // floor (with its `errors[]` entry when named), like the other four.
         if (st.kind === "precondition") return [renderOpGuardClause(st, bodyRc, new Set())];
         if (st.kind === "let")
           return [`${escapeElixirIdent(snake(st.name))} = ${renderExpr(st.expr, bodyRc)}`];
@@ -1450,7 +1450,7 @@ function renderExternOpFunction(
   // Re-assert the aggregate's cross-field invariants after the hook mutates and
   // before the write (D3c) — byte-identical when the aggregate has none.
   const changesetMod = `${aggModule}Changeset`;
-  // M-T1.11 (c): the domain-floor twin when a messaged invariant is present.
+  // M-T1.11 (c): the domain-floor twin when a named invariant is present.
   const invFn = aggregateHasDomainFloorCodes(agg) ? "validate_domain_floor" : "validate_invariants";
   const invPipe = aggregateHasResidualInvariants(agg)
     ? `\n      |> ${changesetMod}.${invFn}()`
@@ -1686,8 +1686,8 @@ function renderNamedOpFunction(
   // unmet invariant returns `{:error, changeset}` (422) instead of committing.
   // Gated on residual invariants → byte-identical when the aggregate has none.
   const changesetMod = `${aggModule}Changeset`;
-  // M-T1.11 (c): an operation persist is the DOMAIN FLOOR — with a messaged
-  // invariant present it runs the `validate_domain_floor/1` twin, so a messaged
+  // M-T1.11 (c): an operation persist is the DOMAIN FLOOR — with a named
+  // invariant present it runs the `validate_domain_floor/1` twin, so a named
   // violation answers the domain-floor 422 with its errors[] entry (not the
   // request changeset's "Validation failed").
   const invFn = aggregateHasDomainFloorCodes(agg) ? "validate_domain_floor" : "validate_invariants";

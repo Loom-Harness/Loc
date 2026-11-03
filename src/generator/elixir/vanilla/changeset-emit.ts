@@ -49,7 +49,7 @@ import {
 } from "./changeset-ingress.js";
 import {
   aggregateHasResidualInvariants,
-  messagedRoutesToResidual,
+  namedRoutesToResidual,
   renderInvariantValidatorFn,
   renderPatchInvariantFn,
 } from "./changeset-invariant-emit.js";
@@ -314,11 +314,11 @@ function renderChangeset(
   // that are actually cast (`@all_fields`) get a validator.
   const castFields = new Set(allFields.map((f) => snake(f.name)));
   const validatorLines = (agg.invariants ?? []).flatMap((inv) =>
-    // A messaged rule that routes to the `validate_invariants/1` residual
+    // A named rule that routes to the `validate_invariants/1` residual
     // carrier (to carry its wire `code`) is emitted there, not as a native
-    // `validate_*` line — otherwise it would double-validate. A message-less
-    // rule (and a messaged rule that can't route) keeps its native line.
-    messagedRoutesToResidual(inv)
+    // `validate_*` line — otherwise it would double-validate. An unnamed
+    // rule (and a named rule that can't route) keeps its native line.
+    namedRoutesToResidual(inv)
       ? []
       : (singleFieldConstraints(inv) ?? [])
           .filter((c) => castFields.has(snake(c.field)))
@@ -588,12 +588,12 @@ ${keyAliasPairs.join(",\n")}
   # Run a value object's validating constructor over a cast map field; an
   # invariant violation surfaces as a changeset error rather than persisting.
   #
-  # The VO's OWN errors are forwarded verbatim — its authored message, its
+  # The VO's OWN errors are forwarded verbatim — its rule text, its
   # \`loom_code\`, and its inner field name carried on \`loom_path\` so
   # ProblemDetails can render \`/sku/code\` rather than the whole object.  A flat
   # \`[{field, "is invalid"}]\` threw all three away: the wire said only that
   # something about \`/sku\` was wrong, so the frontend ACL could not bind the
-  # 422 to the control that caused it and the authored text never reached the
+  # 422 to the control that caused it and the rule text never reached the
   # user.  A VO persists as one jsonb \`:map\` column rather than an embed, so
   # there is no child changeset for the ProblemDetails walk to find — this is
   # the only place that path exists.
@@ -623,8 +623,8 @@ ${keyAliasPairs.join(",\n")}
   // constructor, tagging the error `loom_body_value_object` so ProblemDetails
   // answers it on the DOMAIN-FLOOR rung with one `errors[]` entry — the shape
   // the other four backends' value-object constructor throw answers — rather
-  // than the wire-validation 422 a request-body field earns.  A messaged rule
-  // carries its content-hash code (looked up by the authored text the VO's
+  // than the wire-validation 422 a request-body field earns.  A named rule
+  // carries its identity-key code (looked up by the rule text the VO's
   // own changeset reports).  Emitted only when some op body assigns such a
   // field, so every other aggregate's changeset module is byte-identical.
   const bodyVoFields = aggregateBodyValueObjectFields(agg, ctx.valueObjects);

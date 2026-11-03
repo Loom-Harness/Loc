@@ -161,7 +161,7 @@ workflow replicateTechs {
 }
 workflow assign {
   create(workOrderId: WorkOrder id, assignTo: Technician id) {
-    if let t = TechReplicas.find(ForTech(assignTo)) { … } else { precondition false message "unknown technician" }
+    if let t = TechReplicas.find(ForTech(assignTo)) { … } else { precondition unknownTechnician: false }
   }
 }
 ```

@@ -751,7 +751,7 @@ export function renderApiExceptionAdvice(
    *  carries the `ValueObjectInvariantException` handler (M-T5.1).  False ⇒
    *  byte-identical. */
   valueObjectInvariants = false,
-  /** True when a messaged aggregate rule can trip at the domain floor — the
+  /** True when a named aggregate rule can trip at the domain floor — the
    *  `onDomain` handler then answers a `DomainException` carrying a rule code
    *  with the same errors[] entry (M-T1.11 (c)).  False ⇒ byte-identical. */
   domainFloorCodes = false,
@@ -810,7 +810,7 @@ export function renderApiExceptionAdvice(
     // The optimistic-lock → 409 handler (+ its import) is emitted only when some
     // aggregate is `versioned` — a version-free project stays byte-identical.
     // MessageSource + the request locale (M-T1.11) — only when this project ships
-    // a message bundle, so a message-less app's imports are unchanged.
+    // a message bundle, so an unnamed app's imports are unchanged.
     `import org.springframework.http.HttpStatus;`,
     `import org.springframework.http.MediaType;`,
     `import org.springframework.http.ProblemDetail;`,
@@ -850,7 +850,7 @@ export function renderApiExceptionAdvice(
     // `Errors.rejectValue(field, code, message)`, surfaced as
     // MethodArgumentNotValidException.  Map each field error to the cross-backend
     // `{pointer,message,code?}` envelope — `code` only when it's a `msg.` i18n
-    // key (a messaged rule); the message-less sentinel code is omitted.
+    // key (a named rule); the unnamed sentinel code is omitted.
     `    @ExceptionHandler(MethodArgumentNotValidException.class)`,
     `    public ResponseEntity<ProblemDetail> onValidation(MethodArgumentNotValidException e, WebRequest request) {`,
     `        CatalogLog.event(${javaLogEvent("domainError")}, "message", ${title("field-invalid")}, "status", ${fieldInvalid});`,
@@ -870,7 +870,7 @@ export function renderApiExceptionAdvice(
     // A FieldError IS a MessageSourceResolvable: MessageSource tries its codes
     // (the `<Ctx>.<Owner>.rule.<name>` i18n key) and falls back to getDefaultMessage() — the
     // authored English — when the bundle has no entry for this locale.  The
-    // message-less sentinel code resolves to nothing and keeps its default, so
+    // unnamed sentinel code resolves to nothing and keeps its default, so
     // no branching is needed here (M-T1.11).
     // An absent required field (`@NotNull` on the boxed record component) reads
     // the same on every backend (RS-39).
@@ -930,12 +930,12 @@ export function renderApiExceptionAdvice(
     // M-T5.1 — a value object refused INSIDE a domain body: the domain-floor
     // status plus one RFC 7807 errors[] entry.  Pointer "" (the whole request —
     // the body computed the value, so it names no request member), the rule's
-    // message, and for a messaged rule its content-hash code, resolved through
+    // message, and for a named rule its identity-key code, resolved through
     // the same bundle the wire rung uses.  Spring dispatches to the MOST
     // specific handler, so this wins over `onDomain` for the subclass.
     // M-T5.1 + M-T1.11 (c) — ONE errors[]-entry serializer for both
     // domain-floor refusals a client can bind: the value object refused inside a
-    // body (pointer "") and, with the code carriage on, a MESSAGED invariant /
+    // body (pointer "") and, with the code carriage on, a NAMED invariant /
     // check / precondition (the rule's own pointer).  The message resolves
     // through the same bundle the wire rung uses.
     ...(valueObjectInvariants || domainFloorCodes

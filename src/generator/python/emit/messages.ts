@@ -2,7 +2,7 @@
 // The Python backend's validation-message catalog + lookup (M-T1.11).
 //
 // `app/i18n.py`, resolved from the FastAPI `RequestValidationError` handler —
-// the single 422 chokepoint that already reads a messaged rule's content-hash
+// the single 422 chokepoint that already reads a named rule's content-hash
 // `code` off `PydanticCustomError`'s type.
 //
 // WHY A MODULE-LEVEL DICT rather than the stdlib `gettext`.  Python's `gettext`
@@ -36,8 +36,8 @@ export function renderPyMessagesModule(messages: readonly ValidationMessage[]): 
   return lines(
     '"""Validation-message catalog (Loom i18n).',
     "",
-    "Keys are the stable content-hash codes the wire validators attach to a",
-    "messaged ``invariant`` / ``check`` / ``precondition`` (``errors[].code``),",
+    "Keys are the stable identity-key codes the wire validators attach to a",
+    "named ``invariant`` / ``check`` / ``precondition`` (``errors[].code``),",
     "identical to the keys in the system's ``.loom/messages.en.json`` and on every",
     "other backend.  A locale with no entry for a code falls back to the authored",
     "source-language text, so an untranslated message still reads correctly.",

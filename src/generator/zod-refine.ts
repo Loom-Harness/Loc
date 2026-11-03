@@ -272,7 +272,7 @@ export function singleFieldMessage(field: string, pattern: SingleFieldPattern): 
  *  `field` is the request-body field the pattern constrains.  It is no part of
  *  the CHECK — only of the human message every chained constraint now carries
  *  (`singleFieldMessage`) — and it is REQUIRED so a new call site cannot
- *  silently re-emit a message-less `"Invalid input"` chain.
+ *  silently re-emit an unnamed `"Invalid input"` chain.
  *
  *  The `len-*` arms do NOT use zod's `.min`/`.max`/`.length`: those count
  *  UTF-16 code units, while the `minLength`/`maxLength` this same constraint
@@ -421,9 +421,9 @@ export function refineClauseFor(
   // shipping a broken refine.
   if (!refineRenderable(inv.expr, decimal)) return null;
   if (inv.guard && !refineRenderable(inv.guard, decimal)) return null;
-  // A messaged single-field invariant is deliberately kept OUT of the native
+  // A named single-field invariant is deliberately kept OUT of the native
   // chain (which has no message slot) so its refine survives — only suppress the
-  // refine for a message-less shape the chain already absorbed.
+  // refine for an unnamed shape the chain already absorbed.
   if (!inv.message && takeSingleFieldChain(inv, ctx, decimal)) return null;
   const body = renderRefineExpr(inv.expr);
   const ruled = inv.guard ? `!(${renderRefineExpr(inv.guard)}) || (${body})` : body;

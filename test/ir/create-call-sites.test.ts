@@ -227,7 +227,7 @@ describe("Agg.create({…}) nested in a workflow branch (claims eval D5)", () =>
           if let r = Reps.find(ForPid(pid)) {
             let c = Claim.create(lossDate: lossDate, description: description)
           } else {
-            precondition false message "unknown"
+            precondition unknownRule: false
           }
         }
       }`);

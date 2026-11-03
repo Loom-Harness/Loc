@@ -9,9 +9,9 @@
 // node/.NET/java/python, and on elixir the in-body construction was never
 // checked at all: `resize(0)` persisted `{"value": 0}` and answered 204.
 //
-// Both rule shapes are compiled: a MESSAGED invariant (its `errors[]` entry
-// carries the content-hash `code` the wire rung carries) and a MESSAGE-LESS one
-// (no `code`; see the note at its call site for why only the messaged refusal
+// Both rule shapes are compiled: a NAMED invariant (its `errors[]` entry
+// carries the identity-key `code` the wire rung carries) and a MESSAGE-LESS one
+// (no `code`; see the note at its call site for why only the named refusal
 // is exercised at runtime).  Both body sites are carried too: an aggregate
 // operation and a workflow step that invokes it — the two routers a body-side
 // breach answers through.
@@ -65,16 +65,16 @@ system VoInBody {
     api.orders.resize(o, { n: 5 })
     let resized = api.orders.getById(o)
     expect(resized.qty.value).toBe(5)
-    // The messaged rule: 422, the authored text, its content-hash `code`.
+    // The named rule: 422, the rule text, its identity-key `code`.
     expect(api.orders.resize(o, { n: 0 })).toThrow(422)
     // The refused write left the row as it was.
     let kept = api.orders.getById(o)
     expect(kept.qty.value).toBe(5)
-    // The message-LESS rule's refusal is NOT exercised at runtime here: its
+    // The UNNAMED rule's refusal is NOT exercised at runtime here: its
     // text is each backend's derived default, and elixir's value-object carrier
     // is Ecto's native `validate_*` chain ("should be at least 1 character(s)")
     // where the other four derive "Invariant violated: text.length > 0" — the
-    // same native-chain split the WIRE rung has for message-less rules, which
+    // same native-chain split the WIRE rung has for unnamed rules, which
     // the golden would record as a divergence.  `relabel` is still compiled on
     // all five by the corpus tier, and a valid relabel round-trips.
     api.orders.relabel(o, { t: "second" })

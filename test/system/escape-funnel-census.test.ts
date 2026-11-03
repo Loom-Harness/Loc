@@ -188,8 +188,6 @@ function safeTargetDirFor(file: string): { prefix: string; reason: string } | un
  *  ID-terminal name (`src/util/naming.ts`), or a small set of
  *  message/title BUILDERS that hash or map their input to a stable,
  *  bounded output before it reaches `JSON.stringify`:
- *    - `messageCode(text)` → `msg.<hash>` (src/util/message-code.ts) — a
- *      content hash, never the text itself.
  *    - `problemTitle(status)` / `disallowedMessage(agg, op)` — fixed
  *      strings built from a closed httpStatus / compiler-name vocabulary
  *      (Wave 1 hand-off's own "compiler-built strings" group).

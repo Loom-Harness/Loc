@@ -26,9 +26,9 @@
 //       another (A13's exact shape: the modal TITLE translated, the TRIGGER
 //       raw two lines below) fails here even though (a) passes.
 //
-// The backend half (the five `msg.<hash>` validation catalogs) is the second
+// The backend half (the five validation-message catalogs) is the second
 // describe: every code in a backend's runtime catalog is RAISED by one of its
-// validation / domain-floor sites, and every messaged rule's code is both in
+// validation / domain-floor sites, and every named rule's code is both in
 // the catalog and raised.
 //
 // Waivers ratchet (the repo rule): a waived dead key must STILL be dead, so a
@@ -825,7 +825,7 @@ describe("i18n round trip — backend rule-key catalogs", () => {
     .sort();
 
   for (const b of BACKENDS) {
-    it(`${b.platform}: every catalog code is raised, every messaged rule is catalogued`, async () => {
+    it(`${b.platform}: every catalog code is raised, every named rule is catalogued`, async () => {
       const files = await generateSystemFiles(backendSystem(b.platform));
       const catalogPath = [...files.keys()].find((k) => k.endsWith(b.catalog));
       expect(catalogPath, `${b.platform}: no runtime catalog`).toBeDefined();
@@ -846,7 +846,7 @@ describe("i18n round trip — backend rule-key catalogs", () => {
           .map(([, s]) => s)
           .join("\n"),
       );
-      // (b) every messaged rule is catalogued (extraction) …
+      // (b) every named rule is catalogued (extraction) …
       expect(catalogCodes.filter((c) => expected.includes(c))).toEqual(expected);
       // … and raised (consumption) — the state precondition only by the domain floor.
       expect(raised.filter((c) => expected.includes(c))).toEqual(expected);

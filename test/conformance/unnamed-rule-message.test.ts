@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
-// RS-43 / D-MESSAGELESS-DEFAULT — a message-LESS wire rule refuses with the
+// RS-43 / D-MESSAGELESS-DEFAULT — an UNNAMED wire rule refuses with the
 // sentence node's validator chain sends for it, on every backend.
 //
 // The expected set is DERIVED from node's emitted route module (every
@@ -11,8 +11,8 @@ import { generateSystemFiles } from "../_helpers/index.js";
 // fails here instead of on a booted leg.  Before the ruling .NET sent
 // FluentValidation's `'Seats' must be between 1 and 500.`, java the generic
 // `Invariant violated: …` for a shape it had classified as single-field,
-// elixir answered a message-less precondition from the domain floor, and
-// python prefixed a message-less model-level invariant with "Value error, " at
+// elixir answered an unnamed precondition from the domain floor, and
+// python prefixed an unnamed model-level invariant with "Value error, " at
 // an empty pointer.
 // ---------------------------------------------------------------------------
 
@@ -74,7 +74,7 @@ async function nodeMessages(): Promise<Set<string>> {
   return out;
 }
 
-describe("RS-43 — a message-less rule answers node's sentence on every backend", () => {
+describe("RS-43 — an unnamed rule answers node's sentence on every backend", () => {
   it("the derived set covers every rule shape the fixture declares", async () => {
     const node = await nodeMessages();
     expect([...node].sort()).toEqual(
@@ -109,7 +109,7 @@ describe("RS-43 — a message-less rule answers node's sentence on every backend
     expect(java).not.toContain('"Invariant violated: seats >= 1 && seats <= 500"');
   });
 
-  it("elixir: a message-less precondition denies on the errors[] rung, with node's sentence and no code", async () => {
+  it("elixir: an unnamed precondition denies on the errors[] rung, with node's sentence and no code", async () => {
     const ex = all(await generateSystemFiles(fixture("elixir")), ".ex");
     expect(ex).toContain(
       '{:validation_failed, [%{pointer: "/count", message: "Count must be at least 1"}]}',
@@ -121,7 +121,7 @@ describe("RS-43 — a message-less rule answers node's sentence on every backend
     expect(ex).toContain("defp render_wire_error(%{pointer: pointer, message: message}) do");
   });
 
-  it("python: a message-less model-level invariant raises a typed error at its field", async () => {
+  it("python: an unnamed model-level invariant raises a typed error at its field", async () => {
     const routes = find(await generateSystemFiles(fixture("python")), "http/customer_routes.py");
     expect(routes).not.toContain('raise ValueError("Invariant violated');
     expect(routes).toMatch(

@@ -19,7 +19,7 @@ import {
   recordGeneration,
 } from "../../src/system/migration-chain.js";
 import { extractErrors, parseString } from "./parse.js";
-import { overridesBeside, registeredOverrides } from "./source-overrides.js";
+import { overridesBeside, overridesOf } from "./source-overrides.js";
 
 export { HONO_PINS };
 
@@ -186,7 +186,7 @@ export async function generateSystemFiles(
  *  file `source` was read from (`test/_helpers/source-overrides.ts`); an explicit
  *  `sourceOverrides` wins. */
 function withOverrides(source: string, options: GenerateSystemOptions): GenerateSystemOptions {
-  const sourceOverrides = registeredOverrides(source);
+  const sourceOverrides = overridesOf(source);
   return sourceOverrides && !options.sourceOverrides ? { ...options, sourceOverrides } : options;
 }
 

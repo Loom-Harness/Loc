@@ -1008,8 +1008,8 @@ function emitProjectFromContexts(
   // exception the guarded write's stale-write raises.  A project with neither
   // stays byte-identical.
   const hasConcurrency = aggregatesNeedConcurrency(merged.aggregates);
-  // Validation-message catalog (M-T1.11): a messaged rule's wire `code` resolves
-  // SERVER-side against this project's catalog.  No messaged rule ⇒ no catalog
+  // Validation-message catalog (M-T1.11): a named rule's wire `code` resolves
+  // SERVER-side against this project's catalog.  No named rule ⇒ no catalog
   // file and a byte-identical exception filter.
   const validationMessages = collectWireValidationMessages(contexts);
   if (validationMessages.length > 0) {

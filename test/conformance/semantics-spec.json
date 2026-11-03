@@ -824,7 +824,7 @@
     },
     {
       "id": "RS-43",
-      "title": "A message-less rule's 422 carries node's sentence on every backend",
+      "title": "An unnamed rule's 422 carries node's sentence on every backend",
       "trigger": "`validation-messages.ddd` seq 14/15 (`ship(amount: 0)` against `precondition amount >= 1`, `retag(code: \"abc\")` against a regex precondition) and `intrinsics.ddd`'s blank-name create against `invariant name.trim().length > 0`",
       "observable": "the wire `errors[].message` is node's: `singleFieldMessage` for a single-field shape (\"Amount must be at least 1\", \"Code is not in the expected format\"), the generic `ruleText` (\"Business rule violated\" — never the rule source) at the `pickErrorPath` pointer otherwise; no `errors[].code`",
       "conforms": [
@@ -838,7 +838,7 @@
       ],
       "provenance": [
         "M-T6.86 / M-T6.87 (rule half) / wave C3 3d D13; ruled D-MESSAGELESS-DEFAULT (docs/decisions.md); fixed by wave C3F packet F4, which deleted the four M-T6.86 wire waivers",
-        "seams pinned in test/conformance/message-less-rule-message.test.ts (node's sentence set derived from its emitted routes)"
+        "seams pinned in test/conformance/unnamed-rule-message.test.ts (node's sentence set derived from its emitted routes)"
       ],
       "tier": "behavioral"
     },

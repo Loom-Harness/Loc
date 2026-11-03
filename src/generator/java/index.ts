@@ -365,8 +365,8 @@ function emitProjectFromContexts(
     layout.packageFor(category, basePkg, aggregateName);
 
   // Validation-message catalog (M-T1.11): a `ResourceBundle` Spring Boot
-  // auto-configures a MessageSource over, so a messaged rule's wire `code`
-  // resolves SERVER-side for the request locale.  No messaged rule ⇒ no bundle
+  // auto-configures a MessageSource over, so a named rule's wire `code`
+  // resolves SERVER-side for the request locale.  No named rule ⇒ no bundle
   // and a byte-identical ApiExceptionAdvice.
   const validationMessages = collectWireValidationMessages(contexts);
   if (validationMessages.length > 0) {
@@ -570,7 +570,7 @@ function emitProjectFromContexts(
       // M-T5.1: the value-object-invariant handler rides on a hosted value
       // object declaring an invariant; a project without one is byte-identical.
       contexts.some(hasValueObjectInvariants),
-      // M-T1.11 (c): the domain-floor code answer rides on a messaged aggregate
+      // M-T1.11 (c): the domain-floor code answer rides on a named aggregate
       // rule the same way.
       contexts.some(hasDomainFloorMessages),
       // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.

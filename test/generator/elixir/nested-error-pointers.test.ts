@@ -35,7 +35,7 @@ system NP {
     context Sales {
       valueobject Sku {
         code: string
-        invariant code.length >= 3 message "SKU code needs at least 3 characters"
+        invariant skuCodeLength: code.length >= 3
       }
       aggregate Order with crudish {
         sku: Sku
@@ -100,7 +100,7 @@ describe("elixir/vanilla — a 422 names the nested field it rejected", () => {
     expect(pd).not.toContain("pointer_of([field])");
   });
 
-  it("a value object forwards its OWN errors — inner path, authored message, loom_code", async () => {
+  it("a value object forwards its OWN errors — inner path, rule text, loom_code", async () => {
     const cs = file(await generateSystemFiles(SRC), "/order_changeset.ex");
 
     // The collapse this replaces.  `"is invalid"` survives only as the floor

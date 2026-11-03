@@ -86,7 +86,7 @@ export function renderOperationValidator(
   const preconditions: InvariantIR[] = [];
   for (const s of op.statements) {
     if (s.kind === "precondition") {
-      // `message` rides along: a messaged precondition must reach the
+      // `message` rides along: a named precondition must reach the
       // `.Must(...).WithMessage(text).WithErrorCode(<Ctx>.<Owner>.rule.<name>)` carrier, exactly
       // as it does on Hono (`preconditionsAsInvariants`) and Java. Dropping it
       // here silently downgraded an authored precondition message to the
@@ -142,7 +142,7 @@ function buildFluentRules(
   const remaining: InvariantIR[] = [];
   for (const inv of invariants) {
     if (!classifyForWire(inv, ctx)) continue;
-    // A messaged invariant is kept OUT of the native single-field chain (whose
+    // A named invariant is kept OUT of the native single-field chain (whose
     // `.MinimumLength(N)` etc. carry FluentValidation's default message) so it
     // renders through the `.Must(...).WithMessage(<text>)` carrier below.
     const single = inv.message ? null : singleFieldShape(inv);
@@ -462,7 +462,7 @@ function lengthMust(check: string): string {
   return `.Must(v => v == null || ${check})`;
 }
 
-/** One FluentValidation rule for a message-less single-field pattern, carrying
+/** One FluentValidation rule for an unnamed single-field pattern, carrying
  *  node's synthesized sentence (`singleFieldMessage` — "Amount must be at least
  *  1", "Code is not in the expected format") rather than FluentValidation's own
  *  `'Amount' must be greater than or equal to '1'.`: one `errors[].message` per

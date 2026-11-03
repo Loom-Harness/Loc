@@ -216,16 +216,16 @@ the conforming backends, and the fix that established it.
   than at the request schema, so there is no request member to point at.  It
   answers the domain-floor status and title, the rule's message as `detail`,
   and ONE `errors[]` entry `{pointer: "", message, code?}` — `code` only for a
-  messaged rule.  Before this node/.NET/java/python answered the bare domain
+  named rule.  Before this node/.NET/java/python answered the bare domain
   floor (no `errors[]`, no `code`) and elixir did not check the value at all
   (the op persists through `force_change`, which runs no validator — `resize(0)`
   answered 204 and stored `{"value": 0}`).  Pinned by the `vo-invariant-in-body`
   wire golden; runtime-proven on node and python (booted, golden-matched; each
   mutation-proved by disabling that backend's answer, which the golden then
   reports as `$.errors` absent), compile-checked on .NET / java / elixir.  A
-  message-LESS rule is compiled but not in the golden: its text is each
+  UNNAMED rule is compiled but not in the golden: its text is each
   backend's derived default, and elixir's value-object carrier is Ecto's native
-  chain — the same split the wire layer has for a message-less rule.
+  chain — the same split the wire layer has for an unnamed rule.
 - **A wrong verb is `405` everywhere, with `Allow`.** This was briefly recorded
   here as a known divergence — node and elixir answering `404` because "hono and
   phoenix route on (method, path) as one key, with no method-not-allowed concept
@@ -1364,9 +1364,9 @@ nothing and the test passes vacuously.
   code-unit backends accepted a value their own published `maxLength`/
   `minLength` forbade — the write side persisted data the read side could not
   legally serve.
-- **Both carriers, or neither.** A message-less single-field bound rides each
+- **Both carriers, or neither.** An unnamed single-field bound rides each
   backend's *native validator chain* (zod `.min`/`.max`, FluentValidation
-  `.MinimumLength`, …); a messaged rule and the domain floor ride the
+  `.MinimumLength`, …); a named rule and the domain floor ride the
   *expression renderer*. They are separate code paths, so fixing one leaves the
   other wrong — which is why the pinned case exercises both directions.
 - **The declaration survives.** zod cannot describe a `.refine` to the OpenAPI
@@ -2070,8 +2070,8 @@ nothing and the test passes vacuously.
   grammar gate) and `test/conformance/numeric-ingress-parity.test.ts` (the
   range seam per backend).
 
-### RS-43 · A message-less rule's 422 carries node's sentence on every backend
-- **Guarantee.** A rule with no `message "…"` that rides the wire validator —
+### RS-43 · An unnamed rule's 422 carries node's sentence on every backend
+- **Guarantee.** An unnamed rule that rides the wire validator —
   an `invariant` over request fields, an operation `precondition` over its
   params — refuses with the sentence node's zod chain sends for it, at the
   pointer node's chain names, and with **no** `errors[].code`:
@@ -2087,18 +2087,18 @@ nothing and the test passes vacuously.
   for one rule: FluentValidation's `'Amount' must be greater than or equal to
   '1'.` on .NET and Dapper; java's generic `Invariant violated: amount >= 1` for
   a single-field shape it had already classified; elixir did not lift a
-  message-less precondition to the wire rung at all and answered the domain
+  unnamed precondition to the wire rung at all and answered the domain
   floor (`Precondition failed: …`, no `errors[]`); and python prefixed a
-  message-less `model_validator` raise with pydantic's `Value error, ` and,
+  unnamed `model_validator` raise with pydantic's `Value error, ` and,
   having no `loc`, pointed at `""`.
 - **Why node's.** Ruled as `D-MESSAGELESS-DEFAULT` (which extends
   `D-MESSAGELESS-RULE-WIRE-MESSAGE` from python to every backend and from the
-  single-field shape to every message-less rule): node is the wire oracle, its
+  single-field shape to every unnamed rule): node is the wire oracle, its
   sentence already names the field's label without the server's regex, and a
   code is the i18n key of AUTHORED text only.
 - **Not part of the guarantee (named).** A MISSING required field's sentence is
   still each framework's (`M-T6.93`). Elixir's create/update changeset sends
-  node's sentence for a message-less single-field rule (`validate_number(:seats,
+  node's sentence for an unnamed single-field rule (`validate_number(:seats,
   greater_than_or_equal_to: 1, message: "Seats must be at least 1")`), and applies `validate_required` before the
   invariant, so a whitespace-only string is "can't be blank" there until wave
   C3F packet F1's D14 fix lands.
@@ -2233,8 +2233,8 @@ nothing and the test passes vacuously.
     note: string?
     pages: int
     minPages: int = 0
-    invariant pages >= 0 message "Pages cannot be negative"
-    invariant minPages <= pages message "A memo has at least its minimum pages"
+    invariant pagesCannotNegative: pages >= 0
+    invariant memoHasAtLeast: minPages <= pages
   }
   ```
 
@@ -2268,7 +2268,7 @@ nothing and the test passes vacuously.
   key. Elixir's update changeset is already a merge — `cast/3` leaves an absent
   key's stored value — so it drops the full-replacement presence and clearing
   checks, refuses a required `null` in the `refuse_null_patch_params` plug, and
-  re-stages each messaged rule by the keys the patch carried
+  re-stages each named rule by the keys the patch carried
   (`validate_patch_invariants/2`).
 - **Masked fields.** A caller who cannot read a `mask unless` field no longer
   has to send it, so an update no longer wipes what the caller could not see

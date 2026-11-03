@@ -29,7 +29,7 @@ system RS2 {
     context C {
       valueobject Code {
         value: string
-        invariant value.matches("^[A-Z]{5}$") message "five caps"
+        invariant fiveCaps: value.matches("^[A-Z]{5}$")
       }
       aggregate Thing with crudish {
         name: string

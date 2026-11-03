@@ -82,7 +82,7 @@ function nodeMessages(fs: Map<string, string>): Set<string> {
   return out;
 }
 
-describe("python — a message-less single-field rule answers node's message (#15d, D10)", () => {
+describe("python — an unnamed single-field rule answers node's message (#15d, D10)", () => {
   it("re-words the regex constraint instead of leaking the pattern", async () => {
     const routes = find(await generateSystemFiles(fixture("python")), "http/customer_routes.py");
     // The check itself is still the native, schema-publishing constraint.
@@ -114,7 +114,7 @@ describe("python — a message-less single-field rule answers node's message (#1
       '("tag", "string_too_long"): "Tag must be exactly 3 characters",',
       '("handle", "string_too_short"): "Handle must be 2 to 20 characters",',
       '("handle", "string_too_long"): "Handle must be 2 to 20 characters",',
-      // A message-less precondition rides the op request's own table.
+      // An unnamed precondition rides the op request's own table.
       '("count", "greater_than_equal"): "Count must be at least 1",',
       // A conjunction node does NOT chain natively rides its zod refine, whose
       // message is the generic rule text — python sends that, not a per-conjunct

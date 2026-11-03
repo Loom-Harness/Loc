@@ -27,7 +27,7 @@
 // counts code points like `length` (an astral character is one position), and
 // `toUpper` maps `ß` to "SS" (RS-31, the catalogue contract).
 //
-// A whitespace-only name trips the message-less `invariant
+// A whitespace-only name trips the unnamed `invariant
 // name.trim().length > 0`, and every backend answers it with node's refine
 // default at `/name` (D-MESSAGELESS-DEFAULT).
 //

@@ -2,7 +2,7 @@
 // The TypeScript backend's validation-message catalog + lookup (M-T1.11).
 //
 // Emitted as `http/messages.ts` alongside `http/problem-details.ts`, whose
-// `defaultHook` is the single 422 chokepoint that resolves every messaged rule's
+// `defaultHook` is the single 422 chokepoint that resolves every named rule's
 // `code` before serialising `errors[]`.
 //
 // WHY AN INLINE MAP rather than a JSON resource.  Node has no standard message
@@ -34,8 +34,8 @@ export function renderMessagesModule(messages: readonly ValidationMessage[]): st
   return lines(
     "// Auto-generated.  Validation-message catalog (Loom i18n).",
     "//",
-    "// Keys are the stable content-hash codes the wire validators attach to a",
-    "// messaged `invariant` / `check` / `precondition` (`errors[].code`), identical",
+    "// Keys are the stable identity-key codes the wire validators attach to a",
+    "// named `invariant` / `check` / `precondition` (`errors[].code`), identical",
     "// to the keys in the system's `.loom/messages.en.json` and on every other",
     "// backend.  A locale with no entry for a code falls back to the authored",
     "// source-language text, so an untranslated message still reads correctly.",

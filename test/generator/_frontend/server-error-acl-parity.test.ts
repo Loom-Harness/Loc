@@ -60,7 +60,7 @@ const DOMAIN = `
       aggregate Ticket with crudish {
         title: string
         estimate: int?
-        invariant estimate == null || estimate >= 0 message "Estimate cannot be negative"
+        invariant estimateNonNegative: estimate == null || estimate >= 0
       }
       repository Tickets for Ticket { }
     }

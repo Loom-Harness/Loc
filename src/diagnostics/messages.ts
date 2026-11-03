@@ -1033,7 +1033,7 @@ export const DIAGNOSTIC_MESSAGES = {
     "observable IN-PROCESS: the generated domain layer raises a typed error carrying the " +
     "rung as a structural `kind` field, whatever the rule's message says. Over HTTP both " +
     "rungs answer 422, and their only discriminator is the RFC 7807 `detail` sentence — " +
-    'which an authored `message "..."` on the rule overwrites. Pin the wire fact here ' +
+    "which the rule's own text overwrites. Pin the wire fact here " +
     "instead — `toThrow(<status>)`, e.g. `toThrow(422)` — and move the rung assertion to " +
     `a unit \`test\` block on the aggregate, where \`toThrow(${p.kind})\` reads the real ` +
     "domain error.",

@@ -20,17 +20,17 @@ export function renderCommon(
     concurrencyException?: boolean;
     file?: boolean;
     valueObjectInvariant?: boolean;
-    /** A messaged aggregate rule can trip at the domain floor (M-T1.11 (c)) —
+    /** A named aggregate rule can trip at the domain floor (M-T1.11 (c)) —
      *  `DomainException` then carries the rule's wire code and pointer. */
     domainFloorCodes?: boolean;
   } = {},
 ): string {
-  // M-T1.11 (c): a MESSAGED invariant / field check / precondition throws its
+  // M-T1.11 (c): a NAMED invariant / field check / precondition throws its
   // `<Ctx>.<Owner>.rule.<name>` code and RFC 6901 pointer along with the text, so
   // DomainExceptionFilter answers the same `errors[]` entry the wire rung
-  // carries.  Byte-identical without a messaged aggregate rule.
+  // carries.  Byte-identical without a named aggregate rule.
   // Every DomainException carries the refusing rung as `Kind`, apart from the
-  // message an authored `message "..."` replaces.
+  // message a rule's own text replaces.
   const domainErrorKind = `/// <summary>Which rung of the domain floor refused a call — carried apart
 /// from the message, which an authored <c>message "..."</c> replaces.</summary>
 public enum DomainErrorKind
@@ -48,7 +48,7 @@ public enum DomainErrorKind
     public DomainErrorKind? Kind { get; }
     /// <summary>A named rule's <c>&lt;Ctx&gt;.&lt;Owner&gt;.rule.&lt;name&gt;</c> code (the same one the
     /// wire rung carries) and the RFC 6901 pointer its domain-floor
-    /// <c>errors[]</c> entry names (M-T1.11 (c)).  Null for a message-less
+    /// <c>errors[]</c> entry names (M-T1.11 (c)).  Null for an unnamed
     /// rule.</summary>
     public string? RuleCode { get; }
     /// Named RulePointer, not Pointer: CA1720 ("identifier contains type
@@ -85,7 +85,7 @@ public enum DomainErrorKind
 /// DomainExceptionFilter answers the domain-floor status with one RFC 7807
 /// <c>errors[]</c> entry: the whole-request pointer <c>""</c> (the value was
 /// computed by a body, so it names no request member), the rule's message
-/// and, for a messaged rule, its content-hash code.</summary>
+/// and, for a named rule, its identity-key code.</summary>
 public sealed class ValueObjectInvariantException : Exception
 {
     public string ValueObject { get; }

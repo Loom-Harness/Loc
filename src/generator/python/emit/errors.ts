@@ -23,14 +23,14 @@ export function errorsPy(
 class ValueObjectInvariantError(DomainError):
     """A value object's invariant refused a value (surfaces as HTTP 422 with
     one errors[] entry: the whole-request pointer "", the rule's message and,
-    for a messaged rule, its content-hash code)."""
+    for a named rule, its identity-key code)."""
 
     def __init__(self, value_object: str, message: str, code: str | None = None) -> None:
         ${hasDomainFloorCodes ? 'super().__init__(message, "invariant", code, "")' : 'super().__init__(message, "invariant")'}
         self.value_object = value_object${hasDomainFloorCodes ? "" : "\n        self.code = code"}`
     : "";
   // Every DomainError carries the refusing rung as \`kind\`, apart from the
-  // message an authored \`message "..."\` replaces.  With M-T1.11 (c) a MESSAGED
+  // message an authored \`message "..."\` replaces.  With M-T1.11 (c) a NAMED
   // invariant / field check / precondition also raises its wire \`<Ctx>.<Owner>.rule.<name>\`
   // code and RFC 6901 pointer, so the DomainError handler answers the same
   // errors[] entry the wire rung carries.
@@ -38,8 +38,8 @@ class ValueObjectInvariantError(DomainError):
     ? `
     """Precondition or invariant violation (surfaces as HTTP 422).  \`kind\` names
     the refusing rung (None outside the precondition / invariant floor).  A
-    messaged rule carries its wire code and the pointer its errors[] entry names
-    (M-T1.11 (c)); both are None for a message-less rule."""
+    named rule carries its wire code and the pointer its errors[] entry names
+    (M-T1.11 (c)); both are None for an unnamed rule."""
 
     def __init__(
         self,
