@@ -57,7 +57,7 @@ system S {
   }
   storage primary { type: postgres }
   resource cState { for: C, kind: state, use: primary }
-  deployable api { platform: PLAT  contexts: [C]  serves: SApi  dataSources: [cState]  port: 3000 }
+  deployable api { platform: node  contexts: [C]  serves: SApi  dataSources: [cState]  port: 3000 }
 }`;
 
 const cache = new Map<string, Map<string, string>>();
@@ -65,7 +65,7 @@ async function gen(src: string, platform: string): Promise<Map<string, string>> 
   const key = `${src.length}:${src.slice(0, 40)}:${platform}`;
   let files = cache.get(key);
   if (!files) {
-    files = await generateSystemFiles(src.replace("platform: PLAT", `platform: ${platform}`));
+    files = await generateSystemFiles(src.replace("platform: node ", `platform: ${platform} `));
     cache.set(key, files);
   }
   return files;
@@ -272,7 +272,7 @@ system T {
     route GET "/orders/scoped" -> C.ScopedCode
     route GET "/orders/mine" -> C.MyFirst
   }
-  deployable api { platform: PLAT  contexts: [C]  serves: CApi  dataSources: [cState]  port: 3000  auth: required }
+  deployable api { platform: node  contexts: [C]  serves: CApi  dataSources: [cState]  port: 3000  auth: required }
 }`;
 
 describe("Dapper — `all(C) ignoring *` binds no tenant claim it does not read (#4416)", () => {
@@ -333,7 +333,7 @@ system Shop {
   api ShopApi from Sales
   storage db { type: postgres }
   resource st { for: Ordering, kind: state, use: db }
-  deployable api { platform: PLAT contexts: [Ordering] serves: ShopApi dataSources: [st] port: 8080 }
+  deployable api { platform: node contexts: [Ordering] serves: ShopApi dataSources: [st] port: 8080 }
 }`;
 
 describe("context integration test — `Agg.find(id) ignoring …` reads through the widened method (#4343)", () => {
