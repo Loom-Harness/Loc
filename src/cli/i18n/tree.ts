@@ -16,7 +16,13 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { type Catalog, hasConflictMarkers, isTodo } from "../../i18n/merge.js";
+import {
+  type Catalog,
+  hasConflictMarkers,
+  isTodo,
+  normalizeLegacy,
+  type ReviewEntry,
+} from "../../i18n/merge.js";
 import { joinCatalog, splitCatalog } from "../../i18n/namespace.js";
 import { DEFAULT_SOURCE_LOCALE } from "../../ir/types/loom-ir.js";
 
@@ -49,9 +55,9 @@ export class I18nLayoutError extends Error {
   }
 }
 
-function readCatalog(file: string): Catalog {
+function readCatalog<T = string>(file: string): Record<string, T> {
   if (!fs.existsSync(file)) return {};
-  return JSON.parse(fs.readFileSync(file, "utf8")) as Catalog;
+  return JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, T>;
 }
 
 export function writeJson(file: string, value: unknown): void {
@@ -61,32 +67,80 @@ export function writeJson(file: string, value: unknown): void {
 
 /** Every `<ns>.json` under `dir`, as `ns -> file content`.  A missing dir is an
  *  empty map. */
-export function readNamespaceDir(dir: string): Map<string, Catalog> {
-  const out = new Map<string, Catalog>();
+export function readNamespaceDir<T = string>(dir: string): Map<string, Record<string, T>> {
+  const out = new Map<string, Record<string, T>>();
   if (!fs.existsSync(dir)) return out;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
     const ns = entry.name.slice(0, -".json".length);
-    out.set(ns, readCatalog(path.join(dir, entry.name)));
+    out.set(ns, readCatalog<T>(path.join(dir, entry.name)));
   }
   return new Map([...out].sort(([a], [b]) => a.localeCompare(b)));
 }
 
 /** Make `dir` hold exactly the non-empty files in `files`: write each, and
  *  delete every other `<ns>.json` (an emptied namespace leaves no file). */
-export function writeNamespaceDir(dir: string, files: ReadonlyMap<string, Catalog>): void {
+export function writeNamespaceDir<T = string>(
+  dir: string,
+  files: ReadonlyMap<string, Record<string, T>>,
+  options: { keepEmpty?: boolean } = {},
+): void {
   for (const [ns, catalog] of files) {
-    if (Object.keys(catalog).length > 0) writeJson(path.join(dir, `${ns}.json`), catalog);
+    if (options.keepEmpty || Object.keys(catalog).length > 0) {
+      writeJson(path.join(dir, `${ns}.json`), catalog);
+    }
   }
   if (!fs.existsSync(dir)) return;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
     const ns = entry.name.slice(0, -".json".length);
     const kept = files.get(ns);
-    if (kept === undefined || Object.keys(kept).length === 0) {
+    if (kept === undefined || (!options.keepEmpty && Object.keys(kept).length === 0)) {
       fs.rmSync(path.join(dir, entry.name));
     }
   }
+  if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+}
+
+// ---- Out-of-band state ----------------------------------------------------
+//
+//   <dir>/.loom/review/<locale>/<ns>.json   needs-review entries (ReviewEntry)
+//   <dir>/.loom/stale/<locale>/<ns>.json    translations of source-deleted keys
+//
+// Same per-namespace shape and file-key spelling as the locale files, so a
+// locale file stays a plain `{ key: translation }` map any translation tool
+// can round-trip.  Absence of a key from the locale file IS the untranslated
+// state; nothing is written for it.
+
+export const REVIEW_DIR_REL = path.join(".loom", "review");
+export const STALE_DIR_REL = path.join(".loom", "stale");
+
+/** The locale directory content: the files the locale holds plus an empty
+ *  `{}` file for every namespace the source emits, so a locale with nothing
+ *  translated yet still exists on disk (an empty directory is not committed). */
+export function localeFiles(
+  merged: ReadonlyMap<string, Catalog>,
+  namespaces: Iterable<string>,
+): Map<string, Catalog> {
+  const out = new Map<string, Catalog>(merged);
+  for (const ns of namespaces) if (!out.has(ns)) out.set(ns, {});
+  return new Map([...out].sort(([a], [b]) => a.localeCompare(b)));
+}
+
+/** Write one locale: its translations plus its review and stale sidecars. */
+export function writeLocaleDir(
+  dir: string,
+  locale: string,
+  files: ReadonlyMap<string, Catalog>,
+  namespaces: Iterable<string>,
+  state: {
+    review: ReadonlyMap<string, Record<string, ReviewEntry>>;
+    stale: ReadonlyMap<string, Catalog>;
+  },
+): void {
+  writeNamespaceDir(path.join(dir, locale), localeFiles(files, namespaces), { keepEmpty: true });
+  writeNamespaceDir(path.join(dir, REVIEW_DIR_REL, locale), state.review);
+  writeNamespaceDir(path.join(dir, STALE_DIR_REL, locale), state.stale);
 }
 
 /** The locales under `dir`, by layout: a directory is the split layout, a
@@ -253,7 +307,16 @@ export function loadTranslations(
  *  regardless of what is on disk (a flat tree is migrated in memory). */
 export interface Tree {
   /** Translator locales (the source language excluded), `ns -> catalog`. */
-  locales: { locale: string; files: Map<string, Catalog>; fromFlat: boolean }[];
+  locales: {
+    locale: string;
+    /** Finished translations, legacy in-band markers already lifted out. */
+    files: Map<string, Catalog>;
+    review: Map<string, Record<string, ReviewEntry>>;
+    stale: Map<string, Catalog>;
+    fromFlat: boolean;
+    /** Values still in the in-band scheme (`TODO:`, conflict blocks, `_stale.`). */
+    legacy: number;
+  }[];
   /** The source language's overrides, `ns -> catalog`. */
   overrides: Map<string, Catalog>;
   overridesFromFlat: boolean;
@@ -263,6 +326,9 @@ export interface Tree {
   /** True when a file is still in the flat layout, i.e. `sync` has a layout
    *  migration to perform. */
   migrationPending: boolean;
+  /** True when a locale file still carries in-band `TODO:` / conflict / `_stale.`
+   *  values that `sync` will lift into the out-of-band state. */
+  legacyPending: boolean;
 }
 
 export interface TreeContext {
@@ -284,24 +350,41 @@ export function readTree(ctx: TreeContext): Tree {
   const toFiles = (catalog: Catalog): Map<string, Catalog> =>
     splitCatalog(migrateLegacyKeys(catalog, ctx.uiNames, ctx.current), ctx.names);
 
+  // Lift legacy in-band markers out of each file and fold them into the
+  // out-of-band state already on disk.
+  const lift = (
+    locale: string,
+    raw: Map<string, Catalog>,
+    fromFlat: boolean,
+  ): Tree["locales"][number] => {
+    const files = new Map<string, Catalog>();
+    const review = readNamespaceDir<ReviewEntry>(path.join(ctx.dir, REVIEW_DIR_REL, locale));
+    const stale = readNamespaceDir<string>(path.join(ctx.dir, STALE_DIR_REL, locale));
+    let legacy = 0;
+    for (const [ns, catalog] of raw) {
+      const lifted = normalizeLegacy(catalog);
+      legacy += lifted.changed;
+      files.set(ns, lifted.ours);
+      if (Object.keys(lifted.review).length > 0) {
+        review.set(ns, { ...review.get(ns), ...lifted.review });
+      }
+      if (Object.keys(lifted.stale).length > 0) {
+        stale.set(ns, { ...stale.get(ns), ...lifted.stale });
+      }
+    }
+    return { locale, files, review, stale, fromFlat, legacy };
+  };
+
   const locales: Tree["locales"] = [];
   for (const locale of split) {
     if (locale === ctx.source) continue;
     if (ctx.locale && locale !== ctx.locale) continue;
-    locales.push({
-      locale,
-      files: readNamespaceDir(path.join(ctx.dir, locale)),
-      fromFlat: false,
-    });
+    locales.push(lift(locale, readNamespaceDir(path.join(ctx.dir, locale)), false));
   }
   for (const locale of flat) {
     if (locale === ctx.source) continue;
     if (ctx.locale && locale !== ctx.locale) continue;
-    locales.push({
-      locale,
-      files: toFiles(readCatalog(path.join(ctx.dir, `${locale}.json`))),
-      fromFlat: true,
-    });
+    locales.push(lift(locale, toFiles(readCatalog(path.join(ctx.dir, `${locale}.json`))), true));
   }
   locales.sort((a, b) => a.locale.localeCompare(b.locale));
 
@@ -328,6 +411,7 @@ export function readTree(ctx: TreeContext): Tree {
     base,
     baseFromFlat,
     migrationPending: locales.some((l) => l.fromFlat) || overridesFromFlat || baseFromFlat,
+    legacyPending: locales.some((l) => l.legacy > 0),
   };
 }
 
