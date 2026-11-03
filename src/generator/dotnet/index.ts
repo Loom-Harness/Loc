@@ -213,7 +213,9 @@ import {
   renderTestsFile,
   renderValidationProblem,
   renderValueObject,
+  renderValueObjectSchemaMergeFilter,
   renderVoTestsFile,
+  VO_MERGE_FILTER_PATH,
 } from "./emit.js";
 import { emitExplicitHandlers, emitExplicitRouteController } from "./explicit-handlers-emit.js";
 import {
@@ -226,7 +228,7 @@ import { rewriteNamespacesForLayout } from "./layout-namespaces.js";
 import { emitProjectionDispatch, emitProjectionReads } from "./projection-emit.js";
 import { emitProjectionRowPersistence } from "./projection-state-emit.js";
 import { emitQueryProjections } from "./query-projection-emit.js";
-import { dotnetSchemaIdOverrides } from "./schema-ids.js";
+import { dotnetSchemaIdOverrides, valueObjectSchemaMerges } from "./schema-ids.js";
 import { emitRetrievalSpecs, renderPagingExtension } from "./spec-emit.js";
 import { hasAnyWireValidator, renderValidationBehavior } from "./validator-emit.js";
 import { emitDispatchHandlers, emitWorkflowInstanceReads, emitWorkflows } from "./workflow-emit.js";
@@ -2057,6 +2059,16 @@ function emitProject(
   // aggregates does not take the whole `/openapi.json` document down with a
   // duplicate schemaId.  Collision-free ⇒ empty ⇒ byte-identical Program.cs.
   const schemaIdOverrides = dotnetSchemaIdOverrides(out);
+  // One component per value object (cross-backend parity): fold the
+  // `<Vo>Request` / `<Vo>Response` records into `<Vo>` on the finished document.
+  const voMerges = valueObjectSchemaMerges(
+    valueObjectPool(ctx).map((v) => v.name),
+    out,
+    schemaIdOverrides,
+  );
+  if (voMerges.length > 0) {
+    out.set(VO_MERGE_FILTER_PATH, renderValueObjectSchemaMergeFilter(ns, voMerges));
+  }
   out.set(
     "Program.cs",
     renderProgram(ctx, ns, {
@@ -2064,6 +2076,7 @@ function emitProject(
       schemaIdOverrides,
       // Read off the emitted files, like `schemaIdOverrides` above.
       opUnionFilter: out.has(OP_UNION_FILTER_PATH),
+      voMergeFilter: out.has(VO_MERGE_FILTER_PATH),
       authRequired: !!options?.authRequired,
       userFields: options?.userFields ?? [],
       usesValidators,
