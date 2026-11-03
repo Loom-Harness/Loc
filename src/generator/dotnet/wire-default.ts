@@ -47,6 +47,21 @@ export function isNullableWireDefault(e: ExprIR | undefined): e is ExprIR {
   );
 }
 
+/** True when the field is `money` (or `money?`): it crosses the wire as the
+ *  RS-12 STRING while its declared literal default lowers to a C# `decimal`
+ *  (`0.00m`), which cannot be a `string` parameter default (CS1750). */
+function isMoneyField(f: FieldIR): boolean {
+  const base = f.type.kind === "optional" ? f.type.inner : f.type;
+  return base.kind === "primitive" && base.name === "money";
+}
+
+/** Field-level form of {@link isNullableWireDefault}: additionally treats a
+ *  defaulted `money` field as non-constant on the wire, so the request param is
+ *  `string? Name = null` and the controller coalesces the decimal default. */
+export function hasNullableWireDefault(f: FieldIR): boolean {
+  return isNullableWireDefault(f.default) || (f.default !== undefined && isMoneyField(f));
+}
+
 /** True when a create-request field is a non-nullable collection with no
  *  explicit default: the client may omit it and it initialises to the empty
  *  collection (`createOmissionValue`'s `empty-collection` arm — the .NET twin of

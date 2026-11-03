@@ -4,8 +4,8 @@
 // TS is the representative pin.
 
 import { describe, expect, it } from "vitest";
-import { generateHono } from "../../_helpers/generate.js";
-import { parseString, parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
+import { parseString } from "../../_helpers/parse.js";
 
 const SRC = `
   function isBlank(s: string): bool = s.trim().length == 0
@@ -22,6 +22,32 @@ const SRC = `
   }
 `;
 
+// The same fixture hosted the way `ddd generate system` needs it: the
+// top-level functions stay at file scope, the context moves into a system
+// with a node deployable bound to a postgres state resource.
+const SYSTEM = `
+  function isBlank(s: string): bool = s.trim().length == 0
+  function taxed(amount: int, pct: int): decimal = amount + amount * pct / 100
+
+  system Billing {
+    subdomain S {
+      context Sales {
+        aggregate Invoice {
+          customerName: string
+          net: int
+          invariant !isBlank(customerName)
+          derived gross: decimal = taxed(net, 20)
+        }
+        repository Invoices for Invoice { }
+      }
+    }
+    api A from S
+    storage pg { type: postgres }
+    resource st { for: Sales, kind: state, use: pg }
+    deployable app { platform: node  contexts: [Sales]  dataSources: [st]  serves: A }
+  }
+`;
+
 describe("typescript generator — Phase B top-level function", () => {
   it("parses + validates cleanly", async () => {
     const { errors } = await parseString(SRC);
@@ -29,8 +55,7 @@ describe("typescript generator — Phase B top-level function", () => {
   });
 
   it("inlines the function body at the call site (no emitted function)", async () => {
-    const model = await parseValid(SRC);
-    const domain = generateHono(model).get("domain/invoice.ts")!;
+    const domain = (await generateSystemFiles(SYSTEM)).get("app/domain/invoice.ts")!;
     // `taxed(net, 20)` inlined, paren-wrapped, args substituted.
     // (`int / int` widens to `decimal`, and decimal arithmetic is exact —
     // RS-37 — so the chain from the division up rides decimal.js.)

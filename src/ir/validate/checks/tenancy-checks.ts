@@ -1,6 +1,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { platformFamily } from "../../../language/validators/data/platform-rules.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../types/loom-ir.js";
+import { isMaterializedProjection } from "../../types/loom-ir.js";
 import { canonicalCreate } from "../../util/canonical-lifecycle.js";
 import { contextReadsOrgContext } from "../../util/org-context.js";
 import {
@@ -486,6 +487,39 @@ function validateOrgContextGate(sys: SystemIR, diags: LoomDiagnostic[]): void {
   }
 }
 
+/** A folded (`on(e: …)`) projection under `tenancy by` is refused: the fold
+ *  writes rows no tenant command owns, so on every backend the read-model
+ *  table has no tenant column and the `GET /projections/<p>` routes read it
+ *  whole — one tenant's events served to every tenant.  Stamping the fold row
+ *  with the event's tenant (and keying it by tenant) is a feature no backend
+ *  has, so until one does the shape is an error rather than a silent leak.  A
+ *  query-time projection over the source aggregate is the scoped alternative:
+ *  it reads through the aggregate's read scope, tenant floor included. */
+function validateFoldedProjectionTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  const tenancy = sys.tenancy;
+  if (!tenancy) return;
+  for (const sd of sys.subdomains) {
+    for (const ctx of sd.contexts) {
+      for (const p of ctx.projections ?? []) {
+        if (!isMaterializedProjection(p)) continue;
+        const events = [...new Set(p.handlers.map((h) => h.event))];
+        diags.push({
+          severity: "error",
+          code: "loom.tenancy-folded-projection-unscoped",
+          message: diagMessage("loom.tenancy-folded-projection-unscoped", {
+            name: p.name,
+            ctxName: ctx.name,
+            events: events.map((e) => `'${e}'`).join(", "),
+            claim: tenancy.claimField,
+          }),
+          source: `${ctx.name}/${p.name}`,
+          origin: p.origin,
+        });
+      }
+    }
+  }
+}
+
 export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
   validateOrgContextGate(sys, diags);
   validateTenantRegistry(sys, diags);
@@ -493,6 +527,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
   validatePolicyReadLevels(sys, diags);
   validatePolicyWriteLevels(sys, diags);
   validatePolicyDenies(sys, diags);
+  validateFoldedProjectionTenancy(sys, diags);
   const tenancy = sys.tenancy;
 
   // Registry existence is a LINKING concern since 1b.1 — `of <Registry>` is a
@@ -504,7 +539,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
     // The derived registry self-scope filter compares
     // `<Registry>.id == currentUser.<claim>` — the `tenantId ≡
     // <Registry>.id` identity — so the claim's declared type must bind
-    // against the registry's id value type: same-typed always works, and a
+    // against the registry's guid id: a `guid` claim always works, and a
     // `string` claim binds as a guid at each backend's accessor site
     // (`tenancyClaimBinding`).  Anything else can't compare on any backend —
     // reject with the fix spelled out rather than emitting a filter that
@@ -514,11 +549,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
       .flatMap((ctx) => ctx.aggregates)
       .find((a) => a.name === tenancy.registryName);
     const claimType = sys.user?.fields.find((f) => f.name === tenancy.claimField)?.type;
-    if (
-      registry &&
-      claimType &&
-      tenancyClaimBinding(registry.idValueType, claimType) === "mismatch"
-    ) {
+    if (registry && claimType && tenancyClaimBinding(claimType) === "mismatch") {
       diags.push({
         severity: "error",
         code: "loom.tenancy-claim-type-mismatch",
@@ -527,11 +558,6 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
           claimField: tenancy.claimField,
           claimType: typeName(claimType),
           registryName: registry.name,
-          idValueType: registry.idValueType,
-          idValueType2:
-            registry.idValueType === "guid"
-              ? ` (or '${tenancy.claimField}: string', bound as a guid at the accessor site)`
-              : "",
         }),
         source: `${sys.name}/tenancy`,
       });

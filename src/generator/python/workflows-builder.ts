@@ -38,7 +38,6 @@ import {
   commandCreateResult,
   commandWorkflowsOf,
 } from "../../ir/util/workflow-command-route.js";
-import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { type WriteScopeContext, writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import {
@@ -311,17 +310,14 @@ function lookupOp(
  *  `this-derived` — the refKinds `lower-expr.ts` gives an own-state name)
  *  reached through any statement's expressions.  `walkWorkflowStmtExprsDeep`
  *  visits an `assign`'s VALUE but not its PathIR target, so the write half is
- *  checked directly; recurses into `for-each` / `if-let` nested bodies for
- *  both halves. */
+ *  checked directly, over every nested body. */
 function usesOwnState(statements: WorkflowStmtIR[]): boolean {
-  const hasAssign = (sts: WorkflowStmtIR[]): boolean =>
-    sts.some((s) => {
-      if (s.kind === "assign") return true;
-      if (s.kind === "for-each") return hasAssign(s.body);
-      if (s.kind === "if-let") return hasAssign(s.thenBody) || hasAssign(s.elseBody ?? []);
-      return false;
+  let assigns = false;
+  for (const root of statements)
+    walkWorkflowStmtsDeep(root, (s) => {
+      if (s.kind === "assign") assigns = true;
     });
-  if (hasAssign(statements)) return true;
+  if (assigns) return true;
   let found = false;
   for (const s of statements) {
     walkWorkflowStmtExprsDeep(s, (e) => {
@@ -940,14 +936,9 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
   // snake-cased attrs `instance_field_value` projects, so the projection,
   // operationIds, and route paths stay identical to the state path.
   const fns = esFns(wf);
-  // The `{id}` param annotation derives from the correlation id's value type —
-  // guid → the uuid-format str `ID_PARAM`, int/long → `int`, string → plain
-  // `str` — parity with Hono / .NET / Java / Phoenix by construction
-  // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/non-guid-id-http-params.md).
-  const corrVt = workflowCorrIdValueType(wf);
-  const idParam = corrVt === "guid" ? ID_PARAM : corrVt === "string" ? "id: str" : "id: int";
-  // `_load_<wf>_events` / `_fold_<wf>` key streams as str; a numeric id stringifies.
-  const idAsKey = corrVt === "int" || corrVt === "long" ? "str(id)" : "id";
+  // The correlation id is a guid, so the `{id}` param is the uuid-format str
+  // `ID_PARAM` — parity with Hono / .NET / Java / Phoenix.
+  const idParam = ID_PARAM;
   const list = wf.eventSourced
     ? lines(
         `@router.get("/${slug}/instances", response_model=${T}InstanceListResponse, operation_id="${camelId(opWorkflowInstances(wf.name))}"${listKwarg})`,
@@ -968,10 +959,10 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
         `@router.get("/${slug}/instances/{id}", response_model=${T}InstanceResponse, operation_id="${camelId(opWorkflowInstanceById(wf.name))}"${byIdKwarg})`,
         `async def ${slug}_instance(${idParam}, ${userParam}session: SessionDep) -> dict[str, object]:`,
         gateLines,
-        `    __stream = await ${dispatchFn(fns.load)}(session, ${idAsKey})`,
+        `    __stream = await ${dispatchFn(fns.load)}(session, id)`,
         "    if not __stream:",
         `        ${pyNotFoundRaise(H.AggregateNotFoundError, T, "id")}`,
-        `    row = ${dispatchFn(fns.fold)}(${idAsKey}, __stream)`,
+        `    row = ${dispatchFn(fns.fold)}(id, __stream)`,
         `    return {${proj("row")}}`,
       )
     : lines(

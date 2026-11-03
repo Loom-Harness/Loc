@@ -17,6 +17,7 @@ import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fiel
 import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
+import { csNsRef, csUsing } from "../../_imports/dotnet.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { efReadSource, efWriteSet } from "../ef-read-source.js";
@@ -36,6 +37,9 @@ import { csClaimStampsFor } from "./entity.js";
 import { eventDbSetName, eventRecordClass } from "./event-store.js";
 import { joinDbSetName, joinEntityName, joinFkPropName } from "./join-entities.js";
 import { handleSaveOverloadLines, saveInterfaceLines, saveParamsCs } from "./version-check-cs.js";
+
+/** Ardalis' `IQueryable.WithSpecification` extension (a retrieval run). */
+const ARDALIS_EF = csNsRef("Ardalis.Specification.EntityFrameworkCore");
 
 /** The locals an EF relational `find` method (plain + paged) declares for
  *  itself — each yields to a same-named find param. */
@@ -452,8 +456,8 @@ export function renderRepositoryImpl(
     // DbContext, so it is applied here and the spec carries only the sort.
     const repoWhere = retrievalWhereInRepository(r, agg);
     const applySpec = repoWhere
-      ? `${retrievalRepositoryWhere(r, agg)}.WithSpecification(new ${upperFirst(r.name)}Spec())`
-      : `.WithSpecification(new ${upperFirst(r.name)}Spec(${specArgs}))`;
+      ? `${retrievalRepositoryWhere(r, agg)}${ARDALIS_EF}.WithSpecification(new ${upperFirst(r.name)}Spec())`
+      : `${ARDALIS_EF}.WithSpecification(new ${upperFirst(r.name)}Spec(${specArgs}))`;
     return [
       `    public async Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)})`,
       "    {",
@@ -484,7 +488,7 @@ export function renderRepositoryImpl(
       "using Microsoft.EntityFrameworkCore;",
       "using Microsoft.Extensions.Logging;",
       // `.WithSpecification(...)` for `Run<Name>Async` retrieval methods.
-      retrievals.length > 0 ? "using Ardalis.Specification.EntityFrameworkCore;" : null,
+      csUsing("Ardalis.Specification.EntityFrameworkCore"),
       `using ${ns}.Domain.${plural(agg.name)};`,
       ...domainAliases,
       `using ${ns}.Domain.Common;`,
@@ -1305,7 +1309,7 @@ export function renderEventSourcedRepositoryImpl(
   // The event types this aggregate's stream can contain — the events its
   // appliers fold.  Drives the `RowToEvent` deserialiser dispatch.
   const eventNames = [...new Set((agg.appliers ?? []).map((a) => a.event))];
-  const idValue = csValueTypeForId(agg.idValueType);
+  const idValue = csValueTypeForId();
   const parseId =
     idValue === "Guid"
       ? "Guid.Parse(__kv.Key)"

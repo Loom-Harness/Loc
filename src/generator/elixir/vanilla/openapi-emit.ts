@@ -660,11 +660,6 @@ function renderApiSpec(
   for (const wf of observableWorkflows) {
     const slug = snake(wf.name);
     const T = upperFirst(wf.name);
-    const corr = (wf.instanceWireShape ?? []).find((f) => f.source === "id");
-    const corrValueType = corr
-      ? (wireTypeInfo(corr.type, "response").idValueType ?? "guid")
-      : "guid";
-    const idSchema = OPENAPI_ID_VALUE[corrValueType] ?? OPENAPI_ID_VALUE.guid;
     pathEntries.push(`      "/workflows/${slug}/instances" => %OpenApiSpex.PathItem{
         get: %OpenApiSpex.Operation{
           summary: "List ${wf.name} instances",
@@ -684,7 +679,7 @@ function renderApiSpec(
           operationId: "${camelId(opWorkflowInstanceById(wf.name))}",
           tags: ["workflows"],
           parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idSchema}}
+            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
           ],
           responses: %{
             200 => %OpenApiSpex.Response{
@@ -694,23 +689,6 @@ function renderApiSpec(
           }
         }
       }`);
-  }
-
-  // Map the aggregate's `idValueType` to the OpenAPI path-param schema
-  // shape Hono and .NET emit.  Without this, every `:id` parameter
-  // landed as plain `{type: :string}`, which surfaces in the parity
-  // diff as `path-param types: hono=[string:uuid] phoenix=[string]`
-  // (caught by `pathParamSignatures` in test/_helpers/openapi-normalize.ts).
-  function idParamSchema(idValueType: string): string {
-    switch (idValueType) {
-      case "guid":
-        return "%OpenApiSpex.Schema{type: :string, format: :uuid}";
-      case "int":
-      case "long":
-        return "%OpenApiSpex.Schema{type: :integer}";
-      default:
-        return "%OpenApiSpex.Schema{type: :string}";
-    }
   }
 
   // Aggregate CRUD paths: GET /<plural>, GET /<plural>/{id}, POST /<plural>
@@ -777,9 +755,7 @@ ${pagingQueryParams()}
       : "";
     // The polymorphic base read: documented iff the router mounts it.
     if (isAbstractBase(agg)) {
-      pathEntries.push(
-        ...polymorphicPathEntries(agg, ctx, aggSlug, schemasModule, idParamSchema(agg.idValueType)),
-      );
+      pathEntries.push(...polymorphicPathEntries(agg, ctx, aggSlug, schemasModule));
     } else
       pathEntries.push(
         `      "/${aggSlug}" => %OpenApiSpex.PathItem{
@@ -808,7 +784,7 @@ ${pagingQueryParams()}
           operationId: "${camelId(opGetById(agg.name))}",
           tags: ["${aggSlug}"],
           parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idParamSchema(agg.idValueType)}}
+            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
           ],
           responses: %{
             200 => %OpenApiSpex.Response{
@@ -828,7 +804,7 @@ ${pagingQueryParams()}
           operationId: "${camelId(opDestroy(agg.name))}",
           tags: ["${aggSlug}"],
           parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idParamSchema(agg.idValueType)}}
+            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
           ],
           responses: %{
             204 => %OpenApiSpex.Response{description: "No Content"}${statusResponseEntries(withResolvedNotFound(derivedOps.find((o) => o.kind === "destroy")!.errorStatuses, notFoundStatus), schemasModule)}
@@ -854,7 +830,7 @@ ${pagingQueryParams()}
           operationId: "${camelId(opFind(agg.name, "history"))}",
           tags: ["${aggSlug}"],
           parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idParamSchema(agg.idValueType)}}
+            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
           ],
           responses: %{
             200 => %OpenApiSpex.Response{
@@ -894,7 +870,7 @@ ${pagingQueryParams()}
           operationId: "${camelId(opOperation(agg.name, op.name))}",
           tags: ["${aggSlug}"],
           parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idParamSchema(agg.idValueType)}}
+            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
           ],
           requestBody: %OpenApiSpex.RequestBody{
             required: ${!commandBodyOptional(op.params)},
@@ -952,7 +928,7 @@ ${pagingQueryParams()}
           operationId: "${camelId(opOperation(agg.name, `can_${op.name}`))}",
           tags: ["${aggSlug}"],
           parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idParamSchema(agg.idValueType)}}
+            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
           ],
           responses: %{
             200 => %OpenApiSpex.Response{
@@ -1070,14 +1046,11 @@ const OPENAPI_PRIMITIVE: Record<WirePrimitive, string> = {
   File: "%OpenApiSpex.Schema{type: :object, properties: %{url: %OpenApiSpex.Schema{type: :string}, key: %OpenApiSpex.Schema{type: :string}, contentType: %OpenApiSpex.Schema{type: :string}, size: %OpenApiSpex.Schema{type: :integer}}, required: [:url, :key, :contentType, :size]}",
 };
 
-/** Id value-type → OpenApiSpex %Schema{} literal.  Mirrors the
- *  path-param schema used by `idParamSchema` above. */
-const OPENAPI_ID_VALUE: Record<string, string> = {
-  guid: "%OpenApiSpex.Schema{type: :string, format: :uuid}",
-  int: "%OpenApiSpex.Schema{type: :integer}",
-  long: "%OpenApiSpex.Schema{type: :integer}",
-  string: "%OpenApiSpex.Schema{type: :string}",
-};
+/** The OpenApiSpex %Schema{} literal of an `X id` — every identity is a
+ *  guid, a uuid-format string — the shape Hono and .NET emit for an id body
+ *  field and an `{id}` path param, so the parity diff's path-param dimension
+ *  agrees (`pathParamSignatures` in test/_helpers/openapi-normalize.ts). */
+const OPENAPI_ID_SCHEMA = "%OpenApiSpex.Schema{type: :string, format: :uuid}";
 
 /** Map a TypeIR to an OpenApiSpex %Schema{} literal snippet.
  *  `schemasModule` is the `<Web>.Api.Schemas` prefix: enum / entity /
@@ -1208,7 +1181,7 @@ function openApiType(t: TypeIR, schemasModule: string): string {
     case "primitive":
       return OPENAPI_PRIMITIVE[info.primitive!];
     case "id":
-      return OPENAPI_ID_VALUE[info.idValueType!]!;
+      return OPENAPI_ID_SCHEMA;
     case "enum":
       // Named string schema carrying the value-set.  Module atom → the
       // resolver registers it in components and rewrites to a `$ref`.
@@ -1589,7 +1562,6 @@ function renderAuditEntrySchema(webModule: string): string {
 
 function renderCreateResponseSchema(agg: AggregateIR, webModule: string): string {
   const moduleName = `${webModule}.Api.Schemas.Create${agg.name}Response`;
-  const idSchema = OPENAPI_ID_VALUE[agg.idValueType] ?? OPENAPI_ID_VALUE.guid;
   return `# Auto-generated.
 defmodule ${moduleName} do
   @moduledoc "OpenApiSpex schema for #{__MODULE__}."
@@ -1600,7 +1572,7 @@ defmodule ${moduleName} do
     title: "Create${agg.name}Response",
     type: :object,
     properties: %{
-      id: ${idSchema}
+      id: ${OPENAPI_ID_SCHEMA}
     },
     required: [:id]
   })
@@ -1671,8 +1643,6 @@ function polymorphicPathEntries(
   ctx: EnrichedBoundedContextIR,
   aggSlug: string,
   schemasModule: string,
-  /** The `{id}` path-parameter schema (`idParamSchema`). */
-  idSchema: string,
 ): string[] {
   if (!routesPolymorphicRead(base, ctx)) return [];
   const pageParams = pagingQueryParams().split(",\n").slice(0, 2).join(",\n");
@@ -1701,7 +1671,7 @@ ${pageParams}
           operationId: "${camelId(opGetById(base.name))}",
           tags: ["${aggSlug}"],
           parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idSchema}}
+            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
           ],
           responses: %{
             200 => %OpenApiSpex.Response{

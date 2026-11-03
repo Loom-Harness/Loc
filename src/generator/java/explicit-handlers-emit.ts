@@ -743,7 +743,7 @@ function wireActionParam(
   const t = p.type;
   const annot = local !== p.name ? `@PathVariable("${p.name}")` : "@PathVariable";
   if (t.kind === "id") {
-    const wire = javaIdValueType(t.valueType);
+    const wire = javaIdValueType();
     return {
       actionParam: `${annot} ${wire} ${local}`,
       callArg: `new ${t.targetName}Id(${local})`,
@@ -763,7 +763,7 @@ function wireQueryParam(
   const t = p.type;
   const annot = local !== p.name ? `@RequestParam("${p.name}")` : "@RequestParam";
   if (t.kind === "id") {
-    const wire = javaIdValueType(t.valueType);
+    const wire = javaIdValueType();
     return {
       actionParam: `${annot} ${wire} ${local}`,
       callArg: `new ${t.targetName}Id(${local})`,

@@ -54,7 +54,7 @@ describe("componentPropTsType — scalars", () => {
   });
 
   it("maps `X id` and an enum to `string`", () => {
-    const id: TypeIR = { kind: "id", targetName: "Order", valueType: "guid" };
+    const id: TypeIR = { kind: "id", targetName: "Order" };
     expect(componentPropTsType(id, aggs(), noImports())).toBe("string");
     expect(componentPropTsType({ kind: "enum", name: "Status" }, aggs(), noImports())).toBe(
       "string",

@@ -8,6 +8,7 @@
 
 import type { EnrichedAggregateIR, RepositoryIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { renderTsType } from "../render-expr.js";
 import { aggHasFieldMask } from "../repository-wire-builder.js";
 
 /**
@@ -52,6 +53,9 @@ export const maskUserImport = (agg: EnrichedAggregateIR, repo?: RepositoryIR): s
 
 export function tsParamType(t: TypeIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
+  // A collection keeps its element type (`string[]`, `Ids.XId[]`); the shared
+  // TS type renderer owns the element mapping.
+  if (inner.kind === "array") return renderTsType(inner);
   if (inner.kind === "id") return `Ids.${inner.targetName}Id`;
   if (inner.kind === "enum") return inner.name;
   if (inner.kind === "primitive") {
