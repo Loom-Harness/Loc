@@ -1,4 +1,5 @@
 import { readFilterRestrictions, readScopeFor } from "../../../ir/enrich/read-scope.js";
+import { aggregateTableName, partTableName } from "../../../ir/enrich/storage-names.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -31,7 +32,6 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
 import { BCL_COLLIDING_TYPE_NAMES, collidingNamesOfAggregate } from "../bcl-collision.js";
 import { csJsonSqlType } from "../codec-spelling.js";
 import { projectionRowClass, projectionRowDbSet } from "../projection-state-emit.js";
@@ -567,7 +567,7 @@ export function renderConfiguration(
         // dataSource-driven table mapping.  `tablePrefix` lands first (it
         // shifts the local table name); `schema` is the second arg when set.
         // Both default to undefined → byte-identical single-arg `ToTable`.
-        `        builder.ToTable(${renderTableArgs(tableNameFor(agg.name), options)});`,
+        `        builder.ToTable(${renderTableArgs(aggregateTableName(agg, ctx.aggregates), options)});`,
         "        builder.HasKey(x => x.Id);",
         // ValueGeneratedNever: the id is always minted app-side (Guid.CreateVersion7
         // in the aggregate factory), so tell EF not to treat the Guid key as
@@ -1391,6 +1391,7 @@ function containmentConfigLines(
   voLookup?: VoLookup,
 ): string[] {
   const part = agg.parts.find((p) => p.name === c.partName);
+  const partTable = partTableName(part ?? { name: c.partName });
   const partFields = part?.fields ?? [];
   // Embedded (`shape: embedded`) fold: the containment serialises into a
   // single JSONB column on the root via EF owned-types `.ToJson(...)` —
@@ -1471,7 +1472,7 @@ function containmentConfigLines(
     // `Ignore` + `"_<name>"` backing-field indirection.
     return [
       `${indent}${builderVar}.OwnsOne<${c.partName}>(x => x.${upperFirst(c.name)}, ${childVar} => {`,
-      `${inner}${childVar}.ToTable(${renderTableArgs(tableNameFor(c.partName), options)});`,
+      `${inner}${childVar}.ToTable(${renderTableArgs(partTable, options)});`,
       `${inner}${childVar}.WithOwner().HasForeignKey("ParentId");`,
       `${inner}${childVar}.Property("ParentId").HasColumnName("${fkColumn}");`,
       `${inner}${childVar}.HasKey(x => x.Id);`,
@@ -1501,7 +1502,7 @@ function containmentConfigLines(
     // Containment part tables inherit the aggregate's dataSource
     // schema + prefix — both halves of the parent / part live in
     // the same physical store.
-    `${inner}${childVar}.ToTable(${renderTableArgs(tableNameFor(c.partName), options)});`,
+    `${inner}${childVar}.ToTable(${renderTableArgs(partTable, options)});`,
     `${inner}${childVar}.WithOwner().HasForeignKey("ParentId");`,
     // The owner FK column is the migration's `<direct-parent>_id` (tableForPart
     // in migrations-builder), not EF's default `ParentId` — map the shadow

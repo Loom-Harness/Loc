@@ -29,6 +29,7 @@
 // of tagged rows) and `GET /api/<bases>/{id}`.
 
 import { type PolymorphicRead, polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
+import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import type {
   AggregateIR,
   EnrichedAggregateIR,
@@ -41,7 +42,6 @@ import {
   claimGuidHelperLines,
   collectFilterPrincipalRefs,
   columnsOf,
-  dapperAggregateTable,
   idTypes,
   principalFields,
   sqlIdent,
@@ -68,7 +68,8 @@ export function renderDapperTphBaseReaderImpl(
   isFlat: (agg: EnrichedAggregateIR) => boolean,
 ): string {
   const read = polymorphicReadFor(base, ctx.aggregates) as PolymorphicRead;
-  const table = sqlIdent(dapperAggregateTable(base.name));
+  const baseTable = aggregateTableName(base, ctx.aggregates);
+  const table = sqlIdent(baseTable);
   const idClass = `${base.name}Id`;
   const idCs = idTypes(base.idValueType).cs;
 
@@ -92,7 +93,7 @@ export function renderDapperTphBaseReaderImpl(
   for (const r of read.restrictions) {
     if (!r.predicate) continue;
     exprs.push(r.predicate);
-    sqls.push(whereToSql(r.predicate, { agg: base, table: dapperAggregateTable(base.name) }));
+    sqls.push(whereToSql(r.predicate, { agg: base, table: baseTable }));
   }
   for (const g of read.subtypeRestrictions) {
     const declared = (ctx.aggregates.find((a) => a.name === g.restriction.declaredOn) ??
@@ -101,7 +102,7 @@ export function renderDapperTphBaseReaderImpl(
     sqls.push(
       `(kind <> '${g.discriminator.replace(/'/g, "''")}' OR ${whereToSql(g.restriction.predicate!, {
         agg: declared as EnrichedAggregateIR,
-        table: dapperAggregateTable(base.name),
+        table: baseTable,
       })})`,
     );
   }

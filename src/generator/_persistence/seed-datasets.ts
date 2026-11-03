@@ -15,6 +15,7 @@
 // `src/generator/<platform>/emit/seed.ts` — see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/archive/missions/M-T9.2-persistence-seam-design.md §.
 // ---------------------------------------------------------------------------
 
+import { aggregateTableNameOf } from "../../ir/enrich/storage-names.js";
 import {
   type CreateOmissionValue,
   createInputFields,
@@ -31,6 +32,8 @@ import type {
 export interface Entry {
   row: SeedRowIR;
   raw: boolean;
+  /** The table the row's aggregate lives in (`aggregateTableNameOf`). */
+  table: string;
 }
 
 /** One dataset's merged entries (across all `seed <dataset>` blocks). */
@@ -58,7 +61,12 @@ export function groupByDataset(ctx: EnrichedBoundedContextIR): Dataset[] {
       byName.set(seed.dataset, ds);
       order.push(seed.dataset);
     }
-    for (const row of seed.rows) ds.entries.push({ row, raw: seed.path === "raw" });
+    for (const row of seed.rows)
+      ds.entries.push({
+        row,
+        raw: seed.path === "raw",
+        table: aggregateTableNameOf(row.aggregate, ctx.aggregates),
+      });
   }
   return order.map((n) => byName.get(n)!);
 }

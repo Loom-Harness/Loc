@@ -1,3 +1,4 @@
+import { projectionSourceTableName } from "../../ir/enrich/storage-names.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -35,7 +36,6 @@ import { efReadSource } from "./ef-read-source.js";
 import {
   collectFilterPrincipalRefs,
   type DapperColumn,
-  dapperAggregateTable,
   fieldColumn,
   principalFields,
   sqlIdent,
@@ -549,7 +549,7 @@ function dapperAggregationWhere(
  *  OWNER of the source (a TPH concrete owns none — its rows live in the root's
  *  shared table, scoped by `dapperAggregationWhere`'s `kind` conjunct). */
 function dapperProjectionTable(source: string, ctx: EnrichedBoundedContextIR): string {
-  return dapperAggregateTable(projectionSourceTable(source, ctx.aggregates).tableOwner);
+  return projectionSourceTableName(source, ctx.aggregates);
 }
 
 /** True when this aggregate's DECLARED wire field crosses as a float64.
