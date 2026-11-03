@@ -19,7 +19,7 @@
 // ---------------------------------------------------------------------------
 
 /** A language tag — one finalizer per tag. */
-export type ImportLang = "py" | "java";
+export type ImportLang = "py" | "java" | "ts";
 
 /** A typed handle on an importable symbol. */
 export interface ImportSymbol {
@@ -30,6 +30,9 @@ export interface ImportSymbol {
   readonly name?: string;
   /** The local binding (`from m import N as alias` / `import m as alias`). */
   readonly alias?: string;
+  /** TypeScript only: the reference sits in a type position, so an import
+   *  that only such references need is written `import type`. */
+  readonly typeOnly?: boolean;
 }
 
 const OPEN = "";
@@ -38,13 +41,18 @@ const SEP = "|";
 
 /** Every marker in a text. Module / name / alias never contain `|` or the
  *  private-use delimiters, so the token grammar is unambiguous. */
-const MARKER_RE = /([a-z]+)\|([^|]*)\|([^|]*)\|([^|]*)/g;
+const MARKER_RE = /([a-z]+)\|([^|]*)\|([^|]*)\|([^|]*)\|(t?)/g;
 
 const IDENT_PATH = /^[A-Za-z_][\w]*(\.[A-Za-z_][\w]*)*$/;
-const IDENT = /^[A-Za-z_][\w]*$/;
+/** A TypeScript module specifier: a package (`decimal.js`, `@hono/zod-openapi`,
+ *  `node:crypto`) or a project-root path (`~/domain/errors`). */
+const TS_MODULE = /^~?[@\w.:/-]+$/;
+const IDENT = /^[A-Za-z_$][\w$]*$/;
 
 function check(sym: ImportSymbol): ImportSymbol {
-  if (!IDENT_PATH.test(sym.module)) throw new Error(`import symbol: bad module '${sym.module}'`);
+  if (!(sym.lang === "ts" ? TS_MODULE : IDENT_PATH).test(sym.module)) {
+    throw new Error(`import symbol: bad module '${sym.module}'`);
+  }
   if (sym.name !== undefined && !IDENT.test(sym.name)) {
     throw new Error(`import symbol: bad name '${sym.name}' (from ${sym.module})`);
   }
@@ -58,7 +66,7 @@ function check(sym: ImportSymbol): ImportSymbol {
  *  finalizer turns into the spelling AND an import line. */
 export function ref(sym: ImportSymbol): string {
   check(sym);
-  return `${OPEN}${sym.lang}${SEP}${sym.module}${SEP}${sym.name ?? ""}${SEP}${sym.alias ?? ""}${CLOSE}`;
+  return `${OPEN}${symbolKey(sym)}${CLOSE}`;
 }
 
 /** The spelling a reference to `sym` resolves to. */
@@ -76,15 +84,22 @@ export function binding(sym: ImportSymbol): string {
 
 /** A stable identity for de-duplication. */
 export function symbolKey(sym: ImportSymbol): string {
-  return `${sym.lang}${SEP}${sym.module}${SEP}${sym.name ?? ""}${SEP}${sym.alias ?? ""}`;
+  return `${sym.lang}${SEP}${sym.module}${SEP}${sym.name ?? ""}${SEP}${sym.alias ?? ""}${SEP}${sym.typeOnly ? "t" : ""}`;
 }
 
-function decode(lang: string, module: string, name: string, alias: string): ImportSymbol {
+function decode(
+  lang: string,
+  module: string,
+  name: string,
+  alias: string,
+  flags: string,
+): ImportSymbol {
   return {
     lang: lang as ImportLang,
     module,
     ...(name !== "" ? { name } : {}),
     ...(alias !== "" ? { alias } : {}),
+    ...(flags === "t" ? { typeOnly: true } : {}),
   };
 }
 
@@ -99,8 +114,8 @@ export function resolveMarkers(
   const seen = new Map<string, ImportSymbol>();
   const out = text.replace(
     MARKER_RE,
-    (_m, lang: string, mod: string, name: string, alias: string) => {
-      const sym = decode(lang, mod, name, alias);
+    (_m, lang: string, mod: string, name: string, alias: string, flags: string) => {
+      const sym = decode(lang, mod, name, alias, flags);
       if (sym.name !== undefined && isLocal(sym)) return sym.name;
       const key = symbolKey(sym);
       if (!seen.has(key)) seen.set(key, sym);
