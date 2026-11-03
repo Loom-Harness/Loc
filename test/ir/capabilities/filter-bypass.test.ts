@@ -220,6 +220,39 @@ describe("ignoring filter-bypass validator gates", () => {
     expect(diags.map((d) => d.code)).toEqual(["loom.filter-bypass-no-filter"]);
   });
 
+  it("fires on an inline repo-run bypass inside a match arm and its else", async () => {
+    const source = systemWith(`repository R for Order
+      criterion Recent of Order = this.total > 0
+      workflow Peek { create(x: int) {
+        let found = R.find(Recent())
+        match found {
+          Order o => { let xs = R.all(Recent()) ignoring tenantScoped }
+          else => { let ys = R.all(Recent()) ignoring tenantScoped }
+        }
+      } }`);
+    // Non-vacuity: both reads really lower into the match's arm and else body.
+    const { model, errors } = await parseString(source);
+    expect(errors).toEqual([]);
+    const bodies: string[] = [];
+    for (const s of lowerModel(model).systems)
+      for (const m of s.subdomains)
+        for (const c of m.contexts)
+          for (const wf of c.workflows)
+            for (const create of wf.creates)
+              for (const st of create.statements)
+                if (st.kind === "variant-match") {
+                  for (const arm of st.arms) bodies.push(...arm.body.map((b) => b.kind));
+                  for (const b of st.elseBody ?? []) bodies.push(b.kind);
+                }
+    expect(bodies).toEqual(["repo-run", "repo-run"]);
+
+    const diags = await bypassDiags(source);
+    expect(diags.map((d) => d.code)).toEqual([
+      "loom.filter-bypass-unknown-capability",
+      "loom.filter-bypass-unknown-capability",
+    ]);
+  });
+
   it("fires on an inline repo-run bypass of an unknown capability", async () => {
     const diags = await bypassDiags(
       systemWith(`repository R for Order

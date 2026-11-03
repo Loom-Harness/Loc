@@ -52,12 +52,19 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 import { REPO_ROOT } from "../_helpers/ddd-corpus.js";
 
 const IR_TYPES = path.join(REPO_ROOT, "src/ir/types/loom-ir.ts");
 
 /** Roots that EMIT. A field no file here mentions reaches no target. */
 const EMITTING_ROOTS = ["src/generator", "src/system", "src/platform"];
+/** Per-root file floors (~90% of today's count).  A root missing here fails (floor = Infinity). */
+const ROOT_FLOOR: Record<string, number> = {
+  "src/generator": 580,
+  "src/system": 24,
+  "src/platform": 36,
+};
 
 /**
  * IR fields with no reference under an emitting root.  Shrink-only and exact:
@@ -102,6 +109,10 @@ const NO_DOWNSTREAM_READER: readonly string[] = [
   "sessions",
   "sourceAlias",
   "sourceModule",
+  // A projection source's declaring context: read only through
+  // `src/ir/util/projection-source.ts` (`projectionSourceContext`), which the
+  // java / elixir / .NET projection emitters call to find the source's scope.
+  "sourceContext",
   // A root-declared enum / value object: read only through
   // `src/ir/util/model-text-owner.ts` (`modelTextContextOf`), which the
   // frontends' implicit model-text sites key their `_system` identity text by.
@@ -157,12 +168,16 @@ describe("inert-IR-field census (M-T5.9 (a) denominator)", () => {
   it("the scan reaches the real IR and the real emitters", () => {
     // Vacuum guard: a scan that matched nothing would pass everything below
     // (experience_gathered §59).
-    expect(fields.size).toBeGreaterThan(250);
+    expectReach("IR fields", fields.size, 306);
     for (const known of ["wireShape", "name", "statements", "params"]) {
       expect(fields, `${known} is no longer a declared IR field`).toContain(known);
     }
     for (const root of EMITTING_ROOTS) {
-      expect(tsFilesUnder(root).length, `${root} has no .ts files`).toBeGreaterThan(10);
+      expectReach(
+        `${root} .ts files`,
+        tsFilesUnder(root).length,
+        ROOT_FLOOR[root] ?? Number.POSITIVE_INFINITY,
+      );
     }
     // And the baseline must be a subset of what is actually declared — a name
     // left here after the field was deleted is a stale row, not a finding.

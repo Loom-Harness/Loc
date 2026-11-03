@@ -12,6 +12,7 @@ import {
   styleSupportedLayouts,
 } from "../../src/platform/adapter-metadata.js";
 import { FLUTTER_UNRENDERED_PRIMITIVES } from "../../src/util/flutter-deferred-primitives.js";
+import { expectReach } from "../_helpers/census-reach.js";
 import { COVERED_ELSEWHERE, UNCOVERED } from "./diagnostic-firing-census.data.js";
 
 // ---------------------------------------------------------------------------
@@ -1877,6 +1878,9 @@ system P {
   // `workflow-name-collision` on a clash with an aggregate / value object /
   // enum / event / repository, and a workflow named after an aggregate trips
   // only the second.  The other three are confirmed preempted and pinned below.
+  "loom.duplicate-repository": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    repository Stuff for Thing`),
   "loom.duplicate-workflow": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing
     workflow Dup { create(n: string) { precondition n.length > 0 } }
@@ -3867,6 +3871,57 @@ system S {
   deployable api { platform: node contexts: [Work] dataSources: [st] serves: Api port: 3000 auth: required }
 }`,
 
+  // A per-row query-time projection reading another context's aggregate on a
+  // backend that synthesises the source find only in the aggregate's context.
+  "loom.projection-cross-context-source-unsupported": `
+system S {
+  subdomain D {
+    context Orders {
+      aggregate Order with crudish { code: string  total: int }
+      repository Orders for Order { }
+    }
+    context Reports {
+      projection Codes {
+        code: string
+        from Order as o
+        select code = o.code
+      }
+    }
+  }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable api { platform: node contexts: [Orders, Reports] dataSources: [st] serves: Api port: 3000 }
+}`,
+
+  // A folded projection over a `tenantOwned` aggregate's events: the fold row
+  // has no tenant column and the read routes no tenant predicate.
+  "loom.tenancy-folded-projection-unscoped": `
+system S {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain D { context C {
+    event Paid { acct: Acct id, amount: int }
+    aggregate Org with crudish { name: string }
+    aggregate Acct with tenantOwned, crudish {
+      owner: string
+      operation pay(amount: int) { emit Paid { acct: id, amount: amount } }
+    }
+    repository Accts for Acct { }
+    repository Orgs for Org { }
+    channel Ev { carries: Paid }
+    projection Totals keyed by acct {
+      acct: Acct id
+      paid: int
+      on(e: Paid) { acct := e.acct  paid := e.amount }
+    }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+
   // --- page-body / gate shapes that used to reach CODEGEN (audit D2/D3/D4) --
   // `permissions.<name>` is a subdomain-scoped catalogue reference; a `ui` is
   // declared outside the subdomain that owns it, so the name does not resolve
@@ -4347,7 +4402,7 @@ describe("diagnostic firing census", () => {
     // a rule rename would empty it and make every `covers-every-frontend` pin
     // pass without checking anything.
     it("the frontend roster is scraped from the grammar and complete", () => {
-      expect(FRONTEND_FRAMEWORKS.length).toBeGreaterThanOrEqual(7);
+      expectReach("frontend frameworks", FRONTEND_FRAMEWORKS.length, 7);
       expect(FRONTEND_FRAMEWORKS).toContain("react");
       expect(FRONTEND_FRAMEWORKS).toContain("phoenixLiveView");
     });
@@ -4548,7 +4603,7 @@ describe("diagnostic firing census", () => {
 
 describe("the generic code `loom.unknown` reaches no user", () => {
   it("scans the real fixture population (guard against a vacuous pass)", () => {
-    expect(Object.keys(FIRING_FIXTURES).length).toBeGreaterThan(50);
+    expectReach("firing fixtures", Object.keys(FIRING_FIXTURES).length, 297);
   });
 
   for (const [code, source] of Object.entries(FIRING_FIXTURES)) {

@@ -2,6 +2,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 // ---------------------------------------------------------------------------
 // "No hand-rolled IR walks" (Wave 2 packet 2.3 of
@@ -85,7 +86,7 @@ interface Site {
   file: string;
   line: number;
   union: TargetUnion;
-  form: "switch" | "if-chain";
+  form: "switch" | "if-chain" | "if-run";
   exhaustive: boolean;
 }
 
@@ -184,6 +185,137 @@ function hasNeverCheck(node: ts.Node): boolean {
   }
   visit(node);
   return found;
+}
+
+/** Minimum distinct kinds a run of independent `if`s must test before it is a
+ *  dispatch rather than a guard.  Matches Form 2's chain threshold. */
+const IF_RUN_MIN_KINDS = 3;
+
+/** Every `<recv>.kind === "<lit>"` test in a condition, through `||` and `&&`. */
+function kindTests(expr: ts.Expression): { recv: string; lit: string; recvNode: ts.Node }[] {
+  const out: { recv: string; lit: string; recvNode: ts.Node }[] = [];
+  const visit = (e: ts.Expression): void => {
+    if (ts.isParenthesizedExpression(e)) {
+      visit(e.expression);
+      return;
+    }
+    if (!ts.isBinaryExpression(e)) return;
+    const op = e.operatorToken.kind;
+    if (op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.AmpersandAmpersandToken) {
+      visit(e.left);
+      visit(e.right);
+      return;
+    }
+    if (
+      (op === ts.SyntaxKind.EqualsEqualsEqualsToken || op === ts.SyntaxKind.EqualsEqualsToken) &&
+      ts.isPropertyAccessExpression(e.left) &&
+      e.left.name.text === "kind" &&
+      ts.isStringLiteralLike(e.right)
+    ) {
+      out.push({
+        recv: e.left.expression.getText(),
+        lit: e.right.text,
+        recvNode: e.left.expression,
+      });
+    }
+  };
+  visit(expr);
+  return out;
+}
+
+/** Is `fn` a callback handed to a deep walker — a `walk*Deep` / `forEach*Expr`
+ *  helper from `src/ir/util/`, or a local wrapper whose body calls one?  Its
+ *  kind tests then only pick which visited node to act on; the walker already
+ *  reaches every node, so they are not a hand-rolled traversal. */
+function isDeepWalkerCallback(fn: ts.Node, checker: ts.TypeChecker): boolean {
+  if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) return false;
+  const call = fn.parent;
+  if (!ts.isCallExpression(call) || !call.arguments.includes(fn as ts.Expression)) return false;
+  let sym = checker.getSymbolAtLocation(call.expression);
+  if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+  const decl = sym?.declarations?.[0];
+  if (!decl) return false;
+  const file = decl.getSourceFile().fileName.replaceAll(path.sep, "/");
+  if (/\/src\/ir\/util\/(walk|model-exprs)\.ts$/.test(file)) return true;
+  return /\bwalk\w*Deep\(/.test(decl.getText());
+}
+
+/** Nearest enclosing function-like node, or the source file. */
+function enclosingFunction(node: ts.Node): ts.Node {
+  let cur: ts.Node | undefined = node.parent;
+  while (cur) {
+    if (ts.isFunctionLike(cur)) return cur;
+    if (ts.isSourceFile(cur)) return cur;
+    cur = cur.parent;
+  }
+  return node.getSourceFile();
+}
+
+/** Form 4: a run of INDEPENDENT kind tests on one receiver —
+ *  `if (e.kind === "a") …; if (e.kind === "b") …; if (e.kind === "c") …`.
+ *  It is the same per-kind dispatch as an if-chain written as separate
+ *  statements, so Form 2 (which follows one else-if chain) never sees it.
+ *  Every kind-literal test in an `if` condition is grouped by (enclosing
+ *  function, receiver text); a receiver tested in two or more separate chains,
+ *  on IF_RUN_MIN_KINDS or more distinct kinds in all, is a site.  Chains Form 2
+ *  already reported (`reportedChainLines`) are left out, so a site counts once. */
+function ifRunSites(
+  sf: ts.SourceFile,
+  checker: ts.TypeChecker,
+  members: UnionMembers,
+  reportedChainLines: ReadonlySet<number>,
+): { name: string; line: number; union: TargetUnion; exhaustive: boolean }[] {
+  const lineOf = (n: ts.Node): number => sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
+  type Run = {
+    fn: ts.Node;
+    recvNode: ts.Node;
+    heads: Set<ts.Node>;
+    lits: Set<string>;
+    line: number;
+  };
+  const runs = new Map<string, Run>();
+  const collect = (node: ts.Node): void => {
+    if (ts.isIfStatement(node)) {
+      let head: ts.IfStatement = node;
+      while (ts.isIfStatement(head.parent) && head.parent.elseStatement === head)
+        head = head.parent;
+      if (!reportedChainLines.has(lineOf(head))) {
+        const fn = enclosingFunction(node);
+        for (const h of kindTests(node.expression)) {
+          const key = `${fn.pos}:${h.recv}`;
+          let run = runs.get(key);
+          if (!run) {
+            run = {
+              fn,
+              recvNode: h.recvNode,
+              heads: new Set(),
+              lits: new Set(),
+              line: lineOf(node),
+            };
+            runs.set(key, run);
+          }
+          run.heads.add(head);
+          run.lits.add(h.lit);
+        }
+      }
+    }
+    ts.forEachChild(node, collect);
+  };
+  collect(sf);
+  const out: { name: string; line: number; union: TargetUnion; exhaustive: boolean }[] = [];
+  for (const run of runs.values()) {
+    if (run.heads.size < 2 || run.lits.size < IF_RUN_MIN_KINDS) continue;
+    if (isDeepWalkerCallback(run.fn, checker)) continue;
+    const union = typeNameMatches(checker, checker.getTypeAtLocation(run.recvNode), members);
+    if (!union) continue;
+    out.push({
+      name: ts.isSourceFile(run.fn) ? "<module>" : enclosingName(run.fn.getChildAt(0)),
+      line: run.line,
+      union,
+      exhaustive: hasNeverCheck(run.fn),
+    });
+  }
+  return out;
 }
 
 let cachedSites: Site[] | null = null;
@@ -341,6 +473,25 @@ function computeSites(): Site[] {
       ts.forEachChild(node, visit);
     }
     visit(sf);
+
+    const reportedChains = new Set(
+      sites.filter((x) => x.file === rel && x.form === "if-chain").map((x) => x.line),
+    );
+    for (const { name, line, union, exhaustive } of ifRunSites(
+      sf,
+      checker,
+      members,
+      reportedChains,
+    )) {
+      sites.push({
+        id: nextId(`${rel}#${name}`),
+        file: rel,
+        line,
+        union,
+        form: "if-run",
+        exhaustive,
+      });
+    }
   }
 
   cachedSites = sites;
@@ -576,6 +727,33 @@ const DELEGATES_TO_SANCTIONED_WALKER = {
 // must be drained or honestly re-dated.
 // ---------------------------------------------------------------------------
 
+/** An if-run that matches a fixed set of shapes — peeling parens or one
+ *  receiver spine — and returns a defined default for every other kind.  It
+ *  visits no children, so a new kind is correctly "not a match". */
+const SHAPE_PREDICATE = {
+  standing:
+    "a shape matcher / spine peeler: it tests a fixed set of kinds and returns a defined default (null / false / a placeholder label) for every other kind; it is not a traversal, so a new kind is correctly not a match",
+} as const;
+
+/** An if-run that special-cases a few kinds and sends every other kind to the
+ *  full expression emitter, a refusal, or a throw. */
+const SOUND_FALLBACK_DISPATCH = {
+  standing:
+    "a per-kind dispatch whose unlisted kinds fall through to the full expression renderer or to a refusal / throw, so a new kind is rendered or refused, never dropped",
+} as const;
+
+/** An if-run that only SELECTS among nodes something else already enumerated
+ *  in full — a callback handed to a deep walker by name, or a filter over a
+ *  list already flattened by `walk*Deep` / deliberately top-level. */
+const SELECTS_FROM_COMPLETE_SET = {
+  standing:
+    "the kind tests only pick which already-enumerated node to act on; the enumeration is a deep walk (walk*Deep / forEachModelExpr) or a deliberately top-level statement list, so no child is skipped here",
+} as const;
+
+/** Debt the independent-if detector surfaced: a traversal or renderer that
+ *  silently skips kinds.  Each names the issue that owns the fix. */
+const IF_RUN_GAP_REVIEW = "2027-02-28";
+
 const WAIVERS: Record<string, Waiver> = {
   "src/ir/util/ui-gate.ts#firstNonUiGateNode": UI_GATE_CLOSED_SUBSET,
   "src/ir/util/ui-gate.ts#printGateExpr": UI_GATE_CLOSED_SUBSET,
@@ -629,11 +807,12 @@ const WAIVERS: Record<string, Waiver> = {
   // domain-service call inside a `match` arm derived no read port, and the
   // emitted Hono workflow handler named an undeclared repository binding.
   //
-  // No traversal or child-list-builder waiver remains: those sites ride
-  // `walk.ts` (`walkExprDeep`, `walkWorkflowStmtExprsDeep`, `walkExprChildren`,
-  // and `mapExprChildren` for an IR→IR rewrite).  The four `deferred` rows
-  // left are emitters that silently drop or abort on a statement kind another
-  // backend renders — each needs rendering work, not a walk migration.
+  // Switch and if-chain traversals ride `walk.ts` (`walkExprDeep`,
+  // `walkWorkflowStmtExprsDeep`, `walkExprChildren`, and `mapExprChildren` for
+  // an IR→IR rewrite).  Their `deferred` rows are emitters that silently drop
+  // or abort on a statement kind another backend renders — rendering work, not
+  // a walk migration.  The `deferred` if-run rows further down are real
+  // traversal or renderer gaps, each owned by the issue its reason names.
 
   // --- already delegates to a sanctioned walker for recursion --------------
   "src/generator/java/explicit-handlers-emit.ts#reposUsed": DELEGATES_TO_SANCTIONED_WALKER,
@@ -750,6 +929,86 @@ const WAIVERS: Record<string, Waiver> = {
     standing:
       "a REFUSING default — a new ExprIR kind fails closed into `loom.ui-gate-expr-unsupported` (a readable refusal) instead of the gate renderers' bare `throw`, which is the direction this check exists to enforce; an exhaustive arm would repeat the same refusal 21 times",
   },
+  // -- independent-if runs (Form 4) -----------------------------------------
+  "src/generator/_stmt/leaves.ts#leafPath": SHAPE_PREDICATE,
+  "src/generator/_walker/api-hook-detector.ts#tryDetectApiHook": SHAPE_PREDICATE,
+  "src/generator/_walker/walker-core.ts#renderTextContent": SOUND_FALLBACK_DISPATCH,
+  "src/generator/dotnet/emit/dapper.ts#whereToSql$2": SOUND_FALLBACK_DISPATCH,
+  "src/generator/dotnet/render-expr.ts#isIdTyped": SHAPE_PREDICATE,
+  "src/generator/dotnet/render-expr.ts#operandType": SHAPE_PREDICATE,
+  "src/generator/elixir/heex-primitives.ts#resolveQueryAggregate": SHAPE_PREDICATE,
+  "src/generator/elixir/heex-walker-core.ts#renderChild": SOUND_FALLBACK_DISPATCH,
+  "src/generator/elixir/heex-walker-core.ts#renderInTemplate": SOUND_FALLBACK_DISPATCH,
+  "src/generator/elixir/render-expr.ts#ectoNilTest": SHAPE_PREDICATE,
+  "src/generator/elixir/render-expr.ts#isStringType": SHAPE_PREDICATE,
+  "src/generator/elixir/vanilla/changeset-invariant-emit.ts#look": SELECTS_FROM_COMPLETE_SET,
+  "src/generator/elixir/vanilla/context-emit.ts#renderNamedOpFunction": SELECTS_FROM_COMPLETE_SET,
+  "src/generator/elixir/vanilla/operation-returns-emit.ts#renderReturningOpFunction":
+    SELECTS_FROM_COMPLETE_SET,
+  "src/generator/feliz/update-emit.ts#fsYieldsOption": SHAPE_PREDICATE,
+  "src/generator/java/render-criteria.ts#criteriaPathExpr": SHAPE_PREDICATE,
+  "src/generator/java/render-criteria.ts#pathSegments": SHAPE_PREDICATE,
+  "src/generator/java/render-expr.ts#isJavaIdTyped": SHAPE_PREDICATE,
+  "src/generator/java/render-jpql.ts#nullValueTest": SHAPE_PREDICATE,
+  "src/generator/typescript/emit/mikroorm-filter.ts#predicateEntry": SOUND_FALLBACK_DISPATCH,
+  "src/generator/typescript/repository-find-predicate.ts#booleanColumnRef": SHAPE_PREDICATE,
+  "src/generator/typescript/repository-find-predicate.ts#isNullableValue": SHAPE_PREDICATE,
+  "src/generator/typescript/repository-find-predicate.ts#renderColumnRef": SHAPE_PREDICATE,
+  "src/generator/typescript/repository-find-predicate.ts#renderValue": SOUND_FALLBACK_DISPATCH,
+  "src/ir/util/principal-term.ts#operand": SHAPE_PREDICATE,
+  "src/ir/util/ref-collection.ts#refCollectionFieldName": SHAPE_PREDICATE,
+  "src/ir/validate/checks/if-stmt-checks.ts#returnsAreTailOnly": SOUND_FALLBACK_DISPATCH,
+  "src/ir/validate/checks/shared.ts#describeColumnRef": SHAPE_PREDICATE,
+  "src/ir/validate/checks/shared.ts#describePredicateLeaf": SHAPE_PREDICATE,
+  "src/ir/validate/checks/shared.ts#firstNonQueryablePredicate": SOUND_FALLBACK_DISPATCH,
+  "src/ir/validate/checks/shared.ts#isColumnRef": SHAPE_PREDICATE,
+  "src/ir/validate/checks/shared.ts#isColumnRootedBool": SHAPE_PREDICATE,
+  "src/ir/validate/checks/structural-checks.ts#instanceDependence": SELECTS_FROM_COMPLETE_SET,
+  "src/ir/validate/checks/structural-checks.ts#visitor": SELECTS_FROM_COMPLETE_SET,
+  "src/ir/validate/checks/test-checks.ts#exprLabel": SHAPE_PREDICATE,
+  "src/ir/validate/checks/ui-action-body-checks.ts#describeReceiver": SHAPE_PREDICATE,
+  "src/ir/validate/checks/ui-page-structure-checks.ts#ofSpelling": SHAPE_PREDICATE,
+  "src/ir/validate/checks/ui-page-structure-checks.ts#rootRefOf": SHAPE_PREDICATE,
+  "src/ir/validate/checks/shared.ts#firstColumnVsColumn": {
+    standing:
+      "runs only on a predicate `firstNonQueryablePredicate` already admitted, so it walks just the boolean spine (binary / paren / unary); every compound kind that could hide a comparison has been refused by the exhaustive `firstNonQueryableNode` first",
+  },
+  // Debt: each is a real gap, owned by the issue in its reason.
+  "src/ir/types/loom-ir.ts#exprUsesMoney": {
+    deferred:
+      "#4580: hand-recurses a fixed kind set, missing money under list / convert / variant-match arms / lambda blocks",
+    reviewUntil: IF_RUN_GAP_REVIEW,
+  },
+  "src/generator/_frontend/store-field-init.ts#renderStoreInitLiteral": {
+    deferred:
+      "#4579: an unlisted init kind (ternary / convert / duration) silently becomes the type's zero",
+    reviewUntil: IF_RUN_GAP_REVIEW,
+  },
+  "src/generator/angular/walker/page-shell.ts#renderInitLiteral": {
+    deferred:
+      "#4579: an unlisted init kind (e.g. a negative literal as `unary`) silently mounts at the type's zero",
+    reviewUntil: IF_RUN_GAP_REVIEW,
+  },
+  "src/generator/dotnet/workflow-emit.ts#rec": {
+    deferred:
+      "#4575: the param rewrite skips list / convert / match / … children, leaving an undeclared identifier in the C#",
+    reviewUntil: IF_RUN_GAP_REVIEW,
+  },
+  "src/generator/vue/walker/page-shell.ts#renderInitLiteral": {
+    deferred:
+      "#4579: an unlisted init kind (e.g. a negative literal as `unary`) silently mounts at the type's zero",
+    reviewUntil: IF_RUN_GAP_REVIEW,
+  },
+  "src/system/ui-e2e-render.ts#walk": {
+    deferred:
+      "#4578: hand-recurses a fixed kind set, missing ui.<workflow> refs under lambda / list / match / nested statements",
+    reviewUntil: IF_RUN_GAP_REVIEW,
+  },
+  "src/system/ui-e2e-render.ts#walkExpr": {
+    deferred:
+      "#4578: hand-recurses a fixed kind set, missing ui.<aggregate> refs under lambda / list / match / nested statements",
+    reviewUntil: IF_RUN_GAP_REVIEW,
+  },
 };
 
 describe("IR walk census — no hand-rolled switch/if-chain over ExprIR/StmtIR/WorkflowStmtIR", () => {
@@ -760,8 +1019,8 @@ describe("IR walk census — no hand-rolled switch/if-chain over ExprIR/StmtIR/W
     // `expr-site-census.test.ts`): a broken detector reports zero sites,
     // which reads as "every switch is exhaustive" to anyone who checks this
     // test's colour instead of its count.
-    expect(sites.length).toBeGreaterThan(80);
-    expect(sites.filter((s) => s.form === "switch").length).toBeGreaterThan(70);
+    expectReach("IR dispatch sites", sites.length, 103);
+    expectReach("switch sites", sites.filter((s) => s.form === "switch").length, 99);
   });
 
   it("no reflective Object.values() walk over an IR node", () => {
@@ -912,7 +1171,7 @@ describe("IR walk census — receiver classification", () => {
     "}",
   ].join("\n");
 
-  function classifyFixtureSwitches(): (TargetUnion | null)[] {
+  function fixtureProgram(source: string) {
     const file = "/fixture-census.ts";
     const options: ts.CompilerOptions = {
       strict: true,
@@ -923,12 +1182,50 @@ describe("IR walk census — receiver classification", () => {
     const getSourceFile = host.getSourceFile.bind(host);
     host.getSourceFile = (name, lang, ...rest) =>
       name === file
-        ? ts.createSourceFile(name, FIXTURE, lang, true)
+        ? ts.createSourceFile(name, source, lang, true)
         : getSourceFile(name, lang, ...rest);
     const program = ts.createProgram({ rootNames: [file], options, host });
     const checker = program.getTypeChecker();
-    const members = collectUnionMembers(program, checker);
     const sf = program.getSourceFile(file);
+    if (!sf) throw new Error("fixture did not load");
+    return { sf, checker, members: collectUnionMembers(program, checker) };
+  }
+
+  it("finds a run of independent ifs over three kinds, and not a two-kind guard", () => {
+    const { sf, checker, members } = fixtureProgram(
+      [
+        "interface RefExpr { kind: 'ref'; name: string }",
+        "interface MemberExpr { kind: 'member'; receiver: ExprIR }",
+        "interface LitExpr { kind: 'lit' }",
+        "type ExprIR = RefExpr | MemberExpr | LitExpr;",
+        "export function run(e: ExprIR): number {",
+        "  if (e.kind === 'ref') return 1;",
+        "  if (e.kind === 'member') return run(e.receiver);",
+        "  if (e.kind === 'lit') return 3;",
+        "  return 0;",
+        "}",
+        "export function guard(e: ExprIR): number {",
+        "  if (e.kind === 'ref') return 1;",
+        "  if (e.kind === 'lit') return 3;",
+        "  return 0;",
+        "}",
+        "export function closed(e: ExprIR): number {",
+        "  if (e.kind === 'ref') return 1;",
+        "  if (e.kind === 'member') return 2;",
+        "  if (e.kind === 'lit') return 3;",
+        "  const _never: never = e;",
+        "  return _never;",
+        "}",
+      ].join("\n"),
+    );
+    expect(ifRunSites(sf, checker, members, new Set())).toEqual([
+      { name: "run", line: 6, union: "ExprIR", exhaustive: false },
+      { name: "closed", line: 17, union: "ExprIR", exhaustive: true },
+    ]);
+  });
+
+  function classifyFixtureSwitches(): (TargetUnion | null)[] {
+    const { sf, checker, members } = fixtureProgram(FIXTURE);
     const out: (TargetUnion | null)[] = [];
     const visit = (n: ts.Node): void => {
       if (ts.isSwitchStatement(n) && ts.isPropertyAccessExpression(n.expression)) {
@@ -937,7 +1234,7 @@ describe("IR walk census — receiver classification", () => {
       }
       ts.forEachChild(n, visit);
     };
-    if (sf) visit(sf);
+    visit(sf);
     return out;
   }
 
