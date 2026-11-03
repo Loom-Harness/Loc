@@ -326,7 +326,7 @@ export async function generateBackendFiles(
   platform: "node" | "dotnet",
   options: GenerateSystemOptions = {},
 ): Promise<Map<string, string>> {
-  const names = [...contexts.matchAll(/\bcontext\s+([A-Z]\w*)\s*\{/g)].map((m) => m[1]!);
+  const names = [...contexts.matchAll(/\bcontext\s+([A-Z]\w*)\b[^{}]*\{/g)].map((m) => m[1]!);
   if (names.length === 0) {
     throw new Error("generateBackendFiles: the fixture declares no `context Name { … }` block");
   }

@@ -120,7 +120,6 @@ const PINNED_HONO: Readonly<Record<string, number>> = {
 const PINNED_DOTNET: Readonly<Record<string, number>> = {
   "test/adapters/dotnet-orchestrator-rewire.test.ts": 1,
   "test/conformance/paged-wire-parity.test.ts": 1,
-  "test/generator/dotnet/capability.test.ts": 16,
   "test/generator/dotnet/criteria-emit.test.ts": 3,
   "test/generator/dotnet/crudish-document.test.ts": 1,
   "test/generator/dotnet/document-nested-parts.test.ts": 2,
@@ -134,10 +133,8 @@ const PINNED_DOTNET: Readonly<Record<string, number>> = {
   "test/generator/dotnet/dotnet-observability-namespace.test.ts": 1,
   "test/generator/dotnet/dotnet-projection-emission.test.ts": 1,
   "test/generator/dotnet/dotnet-seed.test.ts": 1,
-  "test/generator/dotnet/dotnet-tracing.test.ts": 3,
   "test/generator/dotnet/dotnet-transitive-vo-nested.test.ts": 1,
   "test/generator/dotnet/dotnet-workflow-instances.test.ts": 1,
-  "test/generator/dotnet/generator-dotnet.test.ts": 48,
   "test/generator/dotnet/intrinsic-math.test.ts": 5,
   "test/generator/dotnet/intrinsic-strings.test.ts": 3,
   "test/generator/dotnet/intrinsic-trim.test.ts": 1,
@@ -150,7 +147,6 @@ const PINNED_DOTNET: Readonly<Record<string, number>> = {
   "test/generator/dotnet/required-value-type-members.test.ts": 2,
   "test/generator/dotnet/retrieval-emit.test.ts": 2,
   "test/generator/dotnet/single-containment.test.ts": 1,
-  "test/generator/dotnet/validation-error-extension.test.ts": 6,
   "test/generator/typescript/outbox-emission.test.ts": 2,
   "test/ir/collection-op-lambda-element-type.test.ts": 1,
 };
