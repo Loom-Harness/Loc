@@ -52,6 +52,7 @@ import {
   tableOwnerName,
   tphConcretesOf,
 } from "../../ir/util/inheritance.js";
+import { projectionSourceContext } from "../../ir/util/projection-source.js";
 import { runBypassesByRetrieval } from "../_persistence/run-bypass.js";
 import {
   type FilterParam,
@@ -99,10 +100,15 @@ function nonPrincipalCapabilityOrigins(agg: AggregateIR): string[] {
 }
 
 /** Every `ignoring`-bearing read of `agg` in `ctx` — repository finds, views
- *  over the aggregate, and the retrievals a widened inline `Repo.all(…)` read
- *  runs (from any workflow, reactor or handler body) — as a list of bypass
- *  specs. */
-function bypassesForAggregate(agg: AggregateIR, ctx: BoundedContextIR): FilterBypass[] {
+ *  over the aggregate, the retrievals a widened inline `Repo.all(…)` read
+ *  runs (from any workflow, reactor or handler body), and the query-time
+ *  projections (in any hosted context) whose source is `agg` — as a list of
+ *  bypass specs. */
+function bypassesForAggregate(
+  agg: AggregateIR,
+  ctx: BoundedContextIR,
+  hosted: readonly BoundedContextIR[],
+): FilterBypass[] {
   const bypasses: FilterBypass[] = [];
   for (const repo of ctx.repositories) {
     if (repo.aggregateName !== agg.name) continue;
@@ -115,11 +121,17 @@ function bypassesForAggregate(agg: AggregateIR, ctx: BoundedContextIR): FilterBy
   bypasses.push(...inlineRunBypassesByRetrieval(ctx, agg.name).values());
   // A query-time projection's `ignoring` bypasses its `from` source aggregate's
   // filters through the synthesised source find — so it PROMOTES the cap too.
-  for (const p of ctx.projections ?? []) {
-    const q = p.query;
-    if (!isQueryTimeProjection(p) || q?.source !== agg.name) continue;
-    if (q.bypassAll || (q.bypassCaps?.length ?? 0) > 0) {
-      bypasses.push({ bypassAll: q.bypassAll, bypassCaps: q.bypassCaps });
+  // The projection may be declared in any hosted context; what matters is that
+  // its source's home is `ctx`.
+  const hosts = hosted.includes(ctx) ? hosted : [ctx, ...hosted];
+  for (const host of hosts) {
+    for (const p of host.projections ?? []) {
+      const q = p.query;
+      if (!isQueryTimeProjection(p) || q?.source !== agg.name) continue;
+      if (projectionSourceContext(p, host, hosts) !== ctx) continue;
+      if (q.bypassAll || (q.bypassCaps?.length ?? 0) > 0) {
+        bypasses.push({ bypassAll: q.bypassAll, bypassCaps: q.bypassCaps });
+      }
     }
   }
   return bypasses;
@@ -131,10 +143,18 @@ function bypassesForAggregate(agg: AggregateIR, ctx: BoundedContextIR): FilterBy
  *  the always-on `@SQLRestriction` and is emitted as a bypassable `@Filter`
  *  instead.  Returns the promoted-cap NAMES (a subset of `agg`'s non-principal
  *  capability-filter origins), deduped and ordered by first contribution. */
-export function promotedCapabilities(agg: AggregateIR, ctx: BoundedContextIR): string[] {
+export function promotedCapabilities(
+  agg: AggregateIR,
+  ctx: BoundedContextIR,
+  /** The deployable's hosted contexts — a query-time projection in any of them
+   *  may bypass `agg`'s filters.  Every caller deciding the SAME entity's
+   *  filters must pass the same list, or a read disables a filter its entity
+   *  never declared. */
+  hosted: readonly BoundedContextIR[] = [ctx],
+): string[] {
   const origins = nonPrincipalCapabilityOrigins(agg);
   if (origins.length === 0) return [];
-  const bypasses = bypassesForAggregate(agg, ctx);
+  const bypasses = bypassesForAggregate(agg, ctx, hosted);
   return origins.filter((cap) => bypasses.some((b) => bypassDrops(cap, b)));
 }
 
@@ -253,9 +273,13 @@ function tphRootOf(agg: AggregateIR, pool: readonly AggregateIR[]): AggregateIR 
 }
 
 /** Every capability some read of the hierarchy rooted at `root` bypasses. */
-function hierarchyPromoted(root: AggregateIR, ctx: BoundedContextIR): Set<string> {
+function hierarchyPromoted(
+  root: AggregateIR,
+  ctx: BoundedContextIR,
+  hosted: readonly BoundedContextIR[],
+): Set<string> {
   const members = [root, ...tphConcretesOf(root, ctx.aggregates)];
-  return new Set(members.flatMap((m) => promotedCapabilities(m, ctx)));
+  return new Set(members.flatMap((m) => promotedCapabilities(m, ctx, hosted)));
 }
 
 /** The restrictions the JPA entity for `agg` declares.  Empty for a TPH
@@ -265,12 +289,16 @@ export function restrictionHostFor(
   agg: AggregateIR,
   ctx: BoundedContextIR,
   enumsPkg = "domain.enums",
+  /** See `promotedCapabilities`. */
+  hosted: readonly BoundedContextIR[] = [ctx],
 ): RestrictionHost {
   const pool = ctx.aggregates;
   if (isTphConcrete(agg, pool)) return EMPTY_HOST;
   const tphRoot = isTphBase(agg, pool);
   if (agg.isAbstract && !tphRoot) return EMPTY_HOST;
-  const promoted = tphRoot ? hierarchyPromoted(agg, ctx) : new Set(promotedCapabilities(agg, ctx));
+  const promoted = tphRoot
+    ? hierarchyPromoted(agg, ctx, hosted)
+    : new Set(promotedCapabilities(agg, ctx, hosted));
   const scope = readScopeFor(agg, pool);
   const sqlRestriction: string[] = [];
   const byName = new Map<
@@ -382,9 +410,11 @@ export function hasStaticRestriction(reader: AggregateIR, ctx: BoundedContextIR)
 export function bypassFilterNames(
   reader: AggregateIR,
   ctx: BoundedContextIR,
+  /** See `promotedCapabilities`. */
+  hosted: readonly BoundedContextIR[] = [ctx],
 ): ReadonlyMap<string, readonly string[]> {
   const root = tphRootOf(reader, ctx.aggregates);
-  const host = restrictionHostFor(root ?? reader, ctx);
+  const host = restrictionHostFor(root ?? reader, ctx, undefined, hosted);
   const out = new Map<string, string[]>();
   for (const f of host.filters) {
     if (f.cap === undefined) continue;

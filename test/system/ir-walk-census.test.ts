@@ -999,18 +999,9 @@ const WAIVERS: Record<string, Waiver> = {
       "#4575: the param rewrite skips list / convert / match / … children, leaving an undeclared identifier in the C#",
     reviewUntil: IF_RUN_GAP_REVIEW,
   },
-  "src/generator/python/workflows-builder.ts#hasAssign": {
-    deferred: "#4576: skips `variant-match` bodies, so the scratch `self` is not seeded",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
   "src/generator/vue/walker/page-shell.ts#renderInitLiteral": {
     deferred:
       "#4579: an unlisted init kind (e.g. a negative literal as `unary`) silently mounts at the type's zero",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
-  "src/ir/validate/checks/context-filter-checks.ts#collectBypassRepoRuns": {
-    deferred:
-      "#4577: skips `variant-match` bodies, so filter-bypass diagnostics are not raised there",
     reviewUntil: IF_RUN_GAP_REVIEW,
   },
   "src/system/ui-e2e-render.ts#walk": {

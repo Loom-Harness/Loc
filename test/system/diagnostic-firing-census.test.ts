@@ -1878,6 +1878,9 @@ system P {
   // `workflow-name-collision` on a clash with an aggregate / value object /
   // enum / event / repository, and a workflow named after an aggregate trips
   // only the second.  The other three are confirmed preempted and pinned below.
+  "loom.duplicate-repository": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    repository Stuff for Thing`),
   "loom.duplicate-workflow": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing
     workflow Dup { create(n: string) { precondition n.length > 0 } }
@@ -3863,6 +3866,57 @@ system S {
   storage pg { type: postgres }
   resource st { for: Work, kind: state, use: pg }
   deployable api { platform: node contexts: [Work] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+
+  // A per-row query-time projection reading another context's aggregate on a
+  // backend that synthesises the source find only in the aggregate's context.
+  "loom.projection-cross-context-source-unsupported": `
+system S {
+  subdomain D {
+    context Orders {
+      aggregate Order with crudish { code: string  total: int }
+      repository Orders for Order { }
+    }
+    context Reports {
+      projection Codes {
+        code: string
+        from Order as o
+        select code = o.code
+      }
+    }
+  }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable api { platform: node contexts: [Orders, Reports] dataSources: [st] serves: Api port: 3000 }
+}`,
+
+  // A folded projection over a `tenantOwned` aggregate's events: the fold row
+  // has no tenant column and the read routes no tenant predicate.
+  "loom.tenancy-folded-projection-unscoped": `
+system S {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain D { context C {
+    event Paid { acct: Acct id, amount: int }
+    aggregate Org with crudish { name: string }
+    aggregate Acct with tenantOwned, crudish {
+      owner: string
+      operation pay(amount: int) { emit Paid { acct: id, amount: amount } }
+    }
+    repository Accts for Acct { }
+    repository Orgs for Org { }
+    channel Ev { carries: Paid }
+    projection Totals keyed by acct {
+      acct: Acct id
+      paid: int
+      on(e: Paid) { acct := e.acct  paid := e.amount }
+    }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
 }`,
 
   // --- page-body / gate shapes that used to reach CODEGEN (audit D2/D3/D4) --
