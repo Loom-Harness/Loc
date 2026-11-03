@@ -178,8 +178,8 @@ describe("hand-predicated import census (M-T9.84)", () => {
     // Comment prose quoting an import after a `:` is not a site.
     expect(probe("elixir", `        // macros: \`use Gettext.Backend\``)).toBe(false);
     expect(probe("elixir", `/** Shared prelude: \`import Swoosh.Email\` and,`)).toBe(false);
-    expect(probe("typescript", `  // (default-import: \`import Decimal from "decimal.js"\`).`)).toBe(
-      false,
-    );
+    expect(
+      probe("typescript", `  // (default-import: \`import Decimal from "decimal.js"\`).`),
+    ).toBe(false);
   });
 });
