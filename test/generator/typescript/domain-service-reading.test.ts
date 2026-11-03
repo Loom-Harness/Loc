@@ -50,7 +50,7 @@ describe("typescript generator — domainService reading tier", () => {
     // The handle is typed against the domain-side PORT (audit S7), NOT the
     // concrete infra repository.
     expect(services).toContain(
-      "export async function isEmailAvailable(accounts: AccountRepositoryPort, holder: string): Promise<boolean>",
+      "async function registration_isEmailAvailable(accounts: AccountRepositoryPort, holder: string): Promise<boolean>",
     );
     // The `repo-read` arm renders against the threaded handle, await-wrapped.
     expect(services).toContain(
@@ -65,14 +65,14 @@ describe("typescript generator — domainService reading tier", () => {
   it("keeps the PURE-tier operation byte-identical (no port, no async, no await)", async () => {
     const model = await parseValid(READING_SRC);
     const services = generateHono(model).get("domain/services.ts")!;
-    // FeeQuote takes no read-port, is a plain `export function`, returns the
+    // FeeQuote takes no read-port, is a plain `function`, returns the
     // value directly — the pure-tier shell unchanged by the reading slice.
-    expect(services).toContain("export namespace FeeQuote {");
+    expect(services).toContain("export const FeeQuote = {");
     // Plain `export function` (not `async`), value return (not `Promise<…>`),
     // and no read-port repository in the signature — the pure-tier shell.
-    expect(services).toContain("export function forAmount(amount: Money): Money {");
-    expect(services).not.toContain("export async function forAmount");
-    expect(services).not.toMatch(/forAmount\([^)]*Repository/);
+    expect(services).toContain("function feeQuote_forAmount(amount: Money): Money {");
+    expect(services).not.toContain("async function feeQuote_forAmount");
+    expect(services).not.toMatch(/feeQuote_forAmount\([^)]*Repository/);
   });
 
   it("wires the read-port handle at the workflow call site", async () => {
@@ -113,7 +113,7 @@ describe("typescript generator — pure domainService stays byte-identical", () 
   it("emits no read-port import and no async for a pure-only context", async () => {
     const model = await parseValid(PURE_SRC);
     const services = generateHono(model).get("domain/services.ts")!;
-    expect(services).toContain("export function quote(cart: Cart, customer: Customer): Decimal {");
+    expect(services).toContain("function pricing_quote(cart: Cart, customer: Customer): Decimal {");
     expect(services).not.toContain("Repository");
     expect(services).not.toContain("async");
     expect(services).not.toContain("await");
