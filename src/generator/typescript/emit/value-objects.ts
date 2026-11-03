@@ -144,8 +144,8 @@ function renderValueObject(v: ValueObjectIR): string[] {
   // parameter properties — the latter is non-erasable sugar the type
   // checker must desugar, which Node's `--experimental-strip-types` /
   // unflagged type stripping (Node 24) rejects outright
-  // (`ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`); see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md
-  // "Non-erasable syntax". Semantically identical output otherwise.
+  // (`ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`); see docs/debugging.md
+  // (the generated TypeScript must stay erasable). Semantically identical output otherwise.
   const fieldDecls = v.fields.map(
     (f) => `  readonly ${escapeTargetFieldMember("ts", f.name)}: ${renderTsType(f.type)};`,
   );
