@@ -112,13 +112,13 @@ export function writeNamespaceDir<T = string>(
 // can round-trip.  Absence of a key from the locale file IS the untranslated
 // state; nothing is written for it.
 
-export const REVIEW_DIR_REL = path.join(".loom", "review");
-export const STALE_DIR_REL = path.join(".loom", "stale");
+const REVIEW_DIR_REL = path.join(".loom", "review");
+const STALE_DIR_REL = path.join(".loom", "stale");
 
 /** The locale directory content: the files the locale holds plus an empty
  *  `{}` file for every namespace the source emits, so a locale with nothing
  *  translated yet still exists on disk (an empty directory is not committed). */
-export function localeFiles(
+function localeFiles(
   merged: ReadonlyMap<string, Catalog>,
   namespaces: Iterable<string>,
 ): Map<string, Catalog> {

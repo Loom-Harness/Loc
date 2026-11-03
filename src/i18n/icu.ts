@@ -215,21 +215,18 @@ export function placeholdersOf(nodes: readonly IcuNode[], into = new Set<string>
 }
 
 /** Every plural / selectordinal node, nested ones included. */
-export function pluralsOf(nodes: readonly IcuNode[], into: IcuChoice[] = []): IcuChoice[] {
+function collectPlurals(nodes: readonly IcuNode[], into: IcuChoice[] = []): IcuChoice[] {
   for (const n of nodes) {
     if (n.kind !== "choice") continue;
     if (n.type !== "select") into.push(n);
-    for (const o of n.options) pluralsOf(o.body, into);
+    for (const o of n.options) collectPlurals(o.body, into);
   }
   return into;
 }
 
 /** The CLDR plural categories `locale` uses, or undefined for a locale the
  *  runtime does not know. */
-export function pluralCategories(
-  locale: string,
-  type: "cardinal" | "ordinal",
-): string[] | undefined {
+function categoriesFor(locale: string, type: "cardinal" | "ordinal"): string[] | undefined {
   try {
     if (Intl.PluralRules.supportedLocalesOf([locale]).length === 0) return undefined;
     return [...(new Intl.PluralRules(locale, { type }).resolvedOptions().pluralCategories ?? [])];
@@ -297,8 +294,8 @@ export function validateTranslation(
       if (!sourceNames.has(name)) issues.push({ kind: "unexpected-placeholder", name });
     }
   }
-  for (const p of pluralsOf(parsed)) {
-    const required = pluralCategories(locale, p.type === "plural" ? "cardinal" : "ordinal");
+  for (const p of collectPlurals(parsed)) {
+    const required = categoriesFor(locale, p.type === "plural" ? "cardinal" : "ordinal");
     if (!required) continue;
     const forms = new Set(p.options.map((o) => o.selector).filter((s) => !s.startsWith("=")));
     for (const form of required) {
