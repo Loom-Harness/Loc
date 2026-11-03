@@ -981,17 +981,12 @@ const WAIVERS: Record<string, Waiver> = {
   },
   "src/generator/_frontend/store-field-init.ts#renderStoreInitLiteral": {
     deferred:
-      "#4579: an unlisted init kind (ternary / convert / duration) silently becomes the type's zero",
+      "#4664: an unlisted init kind (ternary / convert / duration) silently becomes the type's zero",
     reviewUntil: IF_RUN_GAP_REVIEW,
   },
   "src/generator/_walker/walker-core.ts#isWalkableLayoutBody": {
     deferred:
       "#4574: misses `paren` and variant-form `match` arms, so react/svelte drop the page silently",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
-  "src/generator/angular/walker/page-shell.ts#renderInitLiteral": {
-    deferred:
-      "#4579: an unlisted init kind (e.g. a negative literal as `unary`) silently mounts at the type's zero",
     reviewUntil: IF_RUN_GAP_REVIEW,
   },
   "src/generator/dotnet/workflow-emit.ts#rec": {
@@ -1001,11 +996,6 @@ const WAIVERS: Record<string, Waiver> = {
   },
   "src/generator/python/workflows-builder.ts#hasAssign": {
     deferred: "#4576: skips `variant-match` bodies, so the scratch `self` is not seeded",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
-  "src/generator/vue/walker/page-shell.ts#renderInitLiteral": {
-    deferred:
-      "#4579: an unlisted init kind (e.g. a negative literal as `unary`) silently mounts at the type's zero",
     reviewUntil: IF_RUN_GAP_REVIEW,
   },
   "src/ir/validate/checks/context-filter-checks.ts#collectBypassRepoRuns": {
