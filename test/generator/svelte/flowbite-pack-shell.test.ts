@@ -131,7 +131,7 @@ describe("flowbite (svelte) pack — the shell contract a rendered page depends 
     expect(shell).not.toContain(">closeProject<");
     // The labels the scaffold's page `menu:` metadata authors read through
     // their catalog keys.
-    expect(shell).toMatch(/>\{t\("\w+\.page\.\w+\.menu\.label\.\w+", "Close Project"\)\}</);
-    expect(shell).toMatch(/>\{t\("\w+\.page\.\w+\.menu\.label\.\w+", "Projects"\)\}</);
+    expect(shell).toMatch(/>\{t\("\w+\.\w+\.name\.one", "Close Project"\)\}</);
+    expect(shell).toMatch(/>\{t\("\w+\.Project\.name\.other", "Projects"\)\}</);
   });
 });

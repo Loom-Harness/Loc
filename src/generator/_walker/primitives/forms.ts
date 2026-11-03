@@ -465,10 +465,11 @@ function prepareFormFields(
   fieldsForHelpers: { name: string; type: TypeIR; optional: boolean; default?: ExprIR }[],
   bc: BoundedContextIR,
   testidNamespace: string,
-  seedRecordVar?: string,
+  seedRecordVar: string | undefined,
   /** The model type each input's label is keyed under (by input name), for
-   *  its identity-keyed text; `undefined` keeps the humanized English. */
-  labelOwnerOf: (name: string) => string | undefined = () => undefined,
+   *  its identity-keyed text; a name it maps to `undefined` keeps the
+   *  humanized English. */
+  labelOwnerOf: (name: string) => string | undefined,
 ): PreparedForm {
   const aggregatesByNameMut = new Map(ctx.aggregatesByName);
   const idTargets = idTargetsInFields(fieldsForHelpers, bc, aggregatesByNameMut);
