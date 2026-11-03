@@ -21,36 +21,42 @@
 /** A flat source-key → message catalog (English source or one translation). */
 export type Catalog = Record<string, string>;
 
-/** Prefix a still-untranslated entry carries so it stands out in a diff and is
- *  greppable by `ddd i18n check`. */
+/** The in-band untranslated marker legacy trees carry.  Nothing writes it any
+ *  more: an untranslated key is simply ABSENT from the locale file.  It is read
+ *  only to migrate old files (see {@link normalizeLegacy}). */
 export const TODO_PREFIX = "TODO: ";
 
-/** True when `value` is an untranslated placeholder (`TODO: …`). */
+/** True when `value` is a legacy untranslated placeholder (`TODO: …`). */
 export function isTodo(value: string): boolean {
   return value.startsWith(TODO_PREFIX);
 }
 
-/** True when `value` carries unresolved git-style conflict markers. */
+/** True when `value` carries legacy in-band git-style conflict markers. */
 export function hasConflictMarkers(value: string): boolean {
   return value.includes("<<<<<<< OURS") || value.includes(">>>>>>> THEIRS");
 }
 
-/** Build the git-style diff3 conflict-marker block for a source-changed key
- *  whose translation the human already wrote.  Embedded in the merged value so
- *  the file still round-trips as JSON, while `ddd i18n check` flags it. */
+/** Build the legacy diff3 conflict-marker block.  The merge no longer writes
+ *  one (a source-changed key is flagged out of band, see {@link ReviewEntry});
+ *  kept to read and migrate old files, and as a fixture for that path. */
 export function conflictMarker(ours: string, base: string, theirs: string): string {
   return `<<<<<<< OURS\n${ours}\n||||||| BASE\n${base}\n=======\n${theirs}\n>>>>>>> THEIRS`;
 }
 
 /** Per-key classification of what the merge did, for `sync`/`status` reporting. */
 export interface MergeReport {
-  /** New source keys with no translation yet — written as `TODO: …`. */
+  /** Source keys the lock has not seen yet.  They have no translation, so the
+   *  locale file does not change; the lock does. */
   added: string[];
+  /** Keys the source emits that this locale has no translation for (absent
+   *  from the file).  Informational: not pending, nothing for `sync` to do. */
+  untranslated: string[];
   /** Keys whose existing translation was carried through unchanged. */
   kept: string[];
   /** Keys present in OURS but gone from the source — dropped from the result. */
   dropped: string[];
-  /** Same-key source changes over a human translation — conflict markers written. */
+  /** Same-key source changes over a human translation.  The translation is
+   *  kept as is and flagged needs-review in the sidecar state. */
   conflicted: string[];
   /** Keys whose source only RENAMED its placeholders (`Order {id}` ->
    *  `Order {number}`): the translation is carried with its holes renamed to
@@ -73,15 +79,81 @@ export interface CarriedEntry {
   from: string;
 }
 
+/** Out-of-band "a human should look at this translation again" state, stored
+ *  beside the locale file (never inside the value), so a translation tool reads
+ *  the value as a finished translation and the state as metadata. */
+export interface ReviewEntry {
+  /** The translation as it stood when the source moved under it.  Editing the
+   *  value past this clears the flag by itself.  Absent on a re-key HINT: an
+   *  untranslated key that replaces a reworded one, so a translator sees what
+   *  the string used to say (and how it was translated). */
+  translation?: string;
+  /** The source message the translation was written against. */
+  previousSource: string;
+  /** The old translation a re-key hint points back to, when there was one. */
+  previousTranslation?: string;
+  /** The source message now. */
+  source: string;
+}
+
 export interface MergeResult {
+  /** The locale file's content: finished translations only. */
   merged: Catalog;
+  /** The needs-review sidecar for this file, by key. */
+  review: Record<string, ReviewEntry>;
+  /** Translations of source-deleted keys, parked when `keepStale` is set. */
+  stale: Catalog;
   report: MergeReport;
 }
 
 export interface MergeOptions {
-  /** Keep dropped-source keys under a `_stale.<key>` shadow instead of deleting
+  /** Park dropped-source translations in the stale sidecar instead of deleting
    *  them (i18n.md §"The four cases", deleted-key row — configurable). */
   keepStale?: boolean;
+  /** The needs-review entries already recorded for this file. */
+  review?: Record<string, ReviewEntry>;
+}
+
+/** What {@link normalizeLegacy} found in a file written by the in-band scheme. */
+export interface LegacyNormalization {
+  ours: Catalog;
+  review: Record<string, ReviewEntry>;
+  stale: Catalog;
+  /** Number of values rewritten; 0 for a file already in the new scheme. */
+  changed: number;
+}
+
+const CONFLICT_BLOCK =
+  /^<<<<<<< OURS\n([\s\S]*?)\n\|\|\|\|\|\|\| BASE\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> THEIRS$/;
+
+/** Lift the in-band states of an old locale file into the out-of-band model:
+ *  `TODO: …` values become absent keys, a conflict block becomes the OURS text
+ *  plus a review entry, and `_stale.<key>` shadows move to the stale sidecar. */
+export function normalizeLegacy(ours: Catalog): LegacyNormalization {
+  const out: Catalog = {};
+  const review: Record<string, ReviewEntry> = {};
+  const stale: Catalog = {};
+  let changed = 0;
+  for (const key of Object.keys(ours)) {
+    const value = ours[key]!;
+    if (typeof value !== "string") continue;
+    if (key.startsWith("_stale.")) {
+      stale[key.slice("_stale.".length)] = value;
+      changed += 1;
+    } else if (isTodo(value)) {
+      changed += 1;
+    } else if (hasConflictMarkers(value)) {
+      changed += 1;
+      const m = CONFLICT_BLOCK.exec(value);
+      if (m) {
+        out[key] = m[1]!;
+        review[key] = { translation: m[1]!, previousSource: m[2]!, source: m[3]! };
+      }
+    } else {
+      out[key] = value;
+    }
+  }
+  return { ours: out, review, stale, changed };
 }
 
 // ---------------------------------------------------------------------------
@@ -224,15 +296,64 @@ function planPackFamilyCarry(
   return plan;
 }
 
+// ---------------------------------------------------------------------------
+// Re-key hints.  A reworded string gets a new content-hash key, so its old
+// translation is dropped and the new key starts untranslated.  Where the old
+// and new keys share every segment but the trailing hash, and the pairing is
+// 1:1, the new key is a rewording of the old one: the translator is shown the
+// previous source (and previous translation) instead of a bare gap.  Ambiguity
+// hints nothing.
+// ---------------------------------------------------------------------------
+
+const HASH_SEGMENT = /^[0-9a-z]{6}$/;
+
+function hashPrefix(key: string): string | undefined {
+  const dot = key.lastIndexOf(".");
+  if (dot <= 0 || !HASH_SEGMENT.test(key.slice(dot + 1))) return undefined;
+  return key.slice(0, dot);
+}
+
+function planRekeyHints(
+  base: Catalog,
+  ours: Catalog,
+  theirs: Catalog,
+): Map<string, { previousSource: string; previousTranslation?: string }> {
+  const gone = new Map<string, string[]>();
+  for (const key of Object.keys(base)) {
+    if (key in theirs) continue;
+    const prefix = hashPrefix(key);
+    if (prefix) push(gone, prefix, key);
+  }
+  const fresh = new Map<string, string[]>();
+  for (const key of Object.keys(theirs)) {
+    if (key in ours || key in base) continue;
+    const prefix = hashPrefix(key);
+    if (prefix && gone.has(prefix)) push(fresh, prefix, key);
+  }
+  const out = new Map<string, { previousSource: string; previousTranslation?: string }>();
+  for (const [prefix, added] of fresh) {
+    const removed = gone.get(prefix);
+    if (added.length !== 1 || removed?.length !== 1) continue;
+    const old = removed[0]!;
+    out.set(added[0]!, {
+      previousSource: base[old]!,
+      ...(typeof ours[old] === "string" ? { previousTranslation: ours[old] } : {}),
+    });
+  }
+  return out;
+}
+
 /**
  * Three-way merge one locale.  Keys come from THEIRS (the live source);
  * values are preferred from OURS (the human translation).  See the five cases:
  *
- *  1. New key       — in THEIRS, not in OURS            → `TODO: <source>`.
- *  2. Deleted key   — in OURS, not in THEIRS            → dropped (or `_stale`).
+ *  1. New key       — in THEIRS, not in OURS            → stays ABSENT
+ *     (untranslated); reported `added` when BASE has not seen it yet.
+ *  2. Deleted key   — in OURS, not in THEIRS            → dropped (or parked
+ *     in the stale sidecar).
  *  3. Unchanged     — in THEIRS & OURS, source == BASE  → keep OURS.
- *  4. Source-changed— same key, THEIRS != BASE, has OURS→ conflict markers,
- *     unless the two differ only in placeholder NAMES (the key hashes the
+ *  4. Source-changed— same key, THEIRS != BASE, has OURS→ OURS is kept and a
+ *     needs-review entry is recorded, unless the two differ only in placeholder NAMES (the key hashes the
  *     positional form, so a renamed hole keeps its key): then OURS' holes are
  *     renamed to match and the key is reported `updated`.
  *  5. Pack family swap — `pack.<family>.<role>.<hash>` re-keyed by a design-pack
@@ -253,8 +374,11 @@ export function mergeCatalog(
   options: MergeOptions = {},
 ): MergeResult {
   const merged: Catalog = {};
+  const review: Record<string, ReviewEntry> = {};
+  const stale: Catalog = {};
   const report: MergeReport = {
     added: [],
+    untranslated: [],
     kept: [],
     dropped: [],
     conflicted: [],
@@ -262,6 +386,7 @@ export function mergeCatalog(
     carried: [],
   };
   const carry = planPackFamilyCarry(base, ours, theirs);
+  const rekeyTwins = planRekeyHints(base, ours, theirs);
 
   for (const key of Object.keys(theirs).sort()) {
     const source = theirs[key];
@@ -277,9 +402,24 @@ export function mergeCatalog(
         merged[key] = carried.value;
         report.carried.push({ key, from: carried.from });
       } else {
-        // Case 1 — never translated for this locale.
-        merged[key] = `${TODO_PREFIX}${source}`;
-        report.added.push(key);
+        // Case 1 — never translated for this locale: the key stays absent.
+        // Only a key the lock has not seen is news; one BASE already holds is
+        // a standing gap, so a settled tree reports nothing pending.
+        if (based === undefined) report.added.push(key);
+        report.untranslated.push(key);
+        const twin = rekeyTwins.get(key);
+        const open = options.review?.[key];
+        if (twin) {
+          review[key] = {
+            previousSource: twin.previousSource,
+            ...(twin.previousTranslation !== undefined
+              ? { previousTranslation: twin.previousTranslation }
+              : {}),
+            source,
+          };
+        } else if (open && open.translation === undefined) {
+          review[key] = { ...open, source };
+        }
       }
     } else if (based !== undefined && based !== source) {
       // Case 4 — the source moved under a translation that's still here.
@@ -288,13 +428,20 @@ export function mergeCatalog(
         merged[key] = renamed;
         report.updated.push(key);
       } else {
-        merged[key] = conflictMarker(translated, based, source);
+        merged[key] = translated;
+        review[key] = { translation: translated, previousSource: based, source };
         report.conflicted.push(key);
       }
     } else {
       // Case 3 — unchanged, or new-since-base but already translated.
       merged[key] = translated;
       report.kept.push(key);
+      // A recorded review stays until the translator edits the value (the
+      // entry's snapshot no longer matches) or approves it.
+      const open = options.review?.[key];
+      if (open && open.translation !== undefined && open.translation === translated) {
+        review[key] = { ...open, source };
+      }
     }
   }
 
@@ -308,10 +455,10 @@ export function mergeCatalog(
   for (const key of Object.keys(ours).sort()) {
     if (key in theirs) continue;
     report.dropped.push(key);
-    if (options.keepStale && !carriedFrom.has(key)) merged[`_stale.${key}`] = ours[key];
+    if (options.keepStale && !carriedFrom.has(key)) stale[key] = ours[key]!;
   }
 
-  return result(merged, report);
+  return result(merged, report, review, stale);
 }
 
 // ---------------------------------------------------------------------------
@@ -358,15 +505,24 @@ function renamePlaceholders(ours: string, base: string, theirs: string): string 
   });
 }
 
-function result(merged: Catalog, report: MergeReport): MergeResult {
-  // Stable, key-sorted output so the written file diffs cleanly.
-  const sorted: Catalog = {};
-  for (const key of Object.keys(merged).sort()) sorted[key] = merged[key];
-  return { merged: sorted, report };
+function sortedRecord<T>(record: Record<string, T>): Record<string, T> {
+  const sorted: Record<string, T> = {};
+  for (const key of Object.keys(record).sort()) sorted[key] = record[key]!;
+  return sorted;
 }
 
-/** True when a merge would change the file — a new `TODO`, a conflict, a
- *  renamed placeholder, or a dropped key.  Drives `status`/`sync` exit codes.
+function result(
+  merged: Catalog,
+  report: MergeReport,
+  review: Record<string, ReviewEntry>,
+  stale: Catalog,
+): MergeResult {
+  // Stable, key-sorted output so the written file diffs cleanly.
+  return { merged: sortedRecord(merged), review: sortedRecord(review), stale, report };
+}
+
+/** True when a merge would change the tree — a key new to the lock, a flagged
+ *  conflict, a renamed placeholder, or a dropped key.  Drives `status`/`sync` exit codes.
  *
  *  A case-5 carry-over needs no arm of its own: a carry exists only where a
  *  donor key was dropped, so `dropped` is already non-empty whenever `carried`
