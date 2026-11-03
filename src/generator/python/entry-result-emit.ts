@@ -37,13 +37,18 @@ function leafDict(
   selfShape: readonly WireField[],
 ): string {
   const tag = JSON.stringify(leaf.arm.tag);
+  // A `match`-arm binding (`Order v => { return v }`) is the operation's own
+  // union dict, not a domain object: its fields are read by key.
+  const bound = leaf.value.kind === "ref" && leaf.value.refKind === "match-binding";
   switch (leaf.arm.kind) {
     case "value":
       return `{"type": ${tag}, "value": ${pyScalarReturnToWire(render(leaf.value), leaf.arm.type)}}`;
-    case "aggregate":
+    case "aggregate": {
       // Read back after the body's saves: the saved row carries the version
       // the save advanced to.
-      return `{"type": ${tag}, **${repoOf(leaf.arm.name)}.to_wire(await ${repoOf(leaf.arm.name)}.get_by_id(${render(leaf.value)}.id))}`;
+      const id = bound ? `${render(leaf.value)}["id"]` : `${render(leaf.value)}.id`;
+      return `{"type": ${tag}, **${repoOf(leaf.arm.name)}.to_wire(await ${repoOf(leaf.arm.name)}.get_by_id(${id}))}`;
+    }
     case "workflow":
       return `{"type": ${tag}, ${selfShape.map((f) => `"${f.name}": ${selfField(f)}`).join(", ")}}`;
     case "payload":
@@ -51,10 +56,15 @@ function leafDict(
       const member = unionMembers(t.variants, ctx).find((m) => m.tag === leaf.arm.tag);
       const fields = member?.shape === "record" ? member.fields : [];
       const obj = leaf.value.kind === "object" ? leaf.value.fields : [];
-      const parts = fields.flatMap((f) => {
-        const v = obj.find((o) => o.name === f.name);
-        return v ? [`"${f.name}": ${pyScalarReturnToWire(render(v.value), f.type)}`] : [];
-      });
+      const parts = bound
+        ? fields.map(
+            (f) =>
+              `"${f.name}": ${pyScalarReturnToWire(`${render(leaf.value)}["${f.name}"]`, f.type)}`,
+          )
+        : fields.flatMap((f) => {
+            const v = obj.find((o) => o.name === f.name);
+            return v ? [`"${f.name}": ${pyScalarReturnToWire(render(v.value), f.type)}`] : [];
+          });
       return `{"type": ${tag}${parts.length > 0 ? `, ${parts.join(", ")}` : ""}}`;
     }
   }

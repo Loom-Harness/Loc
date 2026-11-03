@@ -1326,6 +1326,8 @@ export function renderJavaWorkflows(
               ctx,
               "            ",
               "workflowResult",
+              undefined,
+              repoField,
             ),
             // An error answer rolls the whole command back: every write it made
             // is discarded at the `@Transactional` boundary, and the events it

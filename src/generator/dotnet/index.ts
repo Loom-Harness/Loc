@@ -28,6 +28,7 @@ import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
 import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { discardedAggregates } from "../../ir/util/discards.js";
+import { answersEntryResults } from "../../ir/util/entry-result.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
   foreignValueTypeSeeds,
@@ -99,6 +100,7 @@ import {
 import { domainUnionFiles } from "./cqrs/dtos.js";
 import { emitCqrs } from "./cqrs-emit.js";
 import { canEmitToExpressionFor, emitCriteria } from "./criteria-emit.js";
+import { projectEntityArgs } from "./dto-mapping.js";
 import {
   renderAuditRecord,
   renderAuditRecordConfiguration,
@@ -833,6 +835,7 @@ function emitProjectFromContexts(
       eventLogContexts(contexts).map((c) => c.name),
       dapperWfDurable,
       out,
+      answersEntryResults(merged),
     );
     // Event-sourced workflow fold classes (Application/Workflows/<Wf>State.cs)
     // are persistence-neutral (JSON codec over the event stream) — reused
@@ -952,7 +955,11 @@ function emitProjectFromContexts(
     // IReadModelStore the orchestration handlers depend on INSTEAD of the
     // concrete AppDbContext.  Emitted when the deployable hosts a workflow or a
     // projection (the port users); byte-identical (no file) otherwise.
-    if (merged.workflows.length > 0 || merged.projections.length > 0) {
+    if (
+      merged.workflows.length > 0 ||
+      merged.projections.length > 0 ||
+      answersEntryResults(merged)
+    ) {
       out.set("Infrastructure/Persistence/PersistencePorts.cs", renderPersistencePortAdapters(ns));
     }
   }
@@ -1571,13 +1578,20 @@ function emitAggregate(
   // so the entity emitter can type the method + thread the variant order.
   const operationReturnUnions = new Map<
     string,
-    { name: string; members: ReturnType<typeof unionMembers> }
+    { name: string; members: ReturnType<typeof unionMembers>; selfArgs?: string }
   >();
   for (const op of agg.operations) {
     if (op.returnType?.kind !== "union") continue;
+    const members = unionMembers(op.returnType.variants, ctx);
+    // The aggregate's own arm (`return this`) is built from the aggregate's
+    // wire projection, unmasked: a domain method has no request principal.
+    const selfArm = members.some((m) => m.tag === agg.name && m.shape === "record");
     operationReturnUnions.set(op.name, {
       name: unionInstanceName(op.returnType.variants),
-      members: unionMembers(op.returnType.variants, ctx),
+      members,
+      ...(selfArm
+        ? { selfArgs: projectEntityArgs("this", agg, ctx, { unionVariant: true, unmasked: true }) }
+        : {}),
     });
   }
   // Only collected when a recorder is actually threaded in — a no-sourcemap
@@ -1911,7 +1925,7 @@ function emitInfrastructure(
   // Gated on the SAME condition renderProgram registers the ports under
   // (ctx.workflows / ctx.projections), so a project that uses none of these
   // ports emits neither the registrations NOR this file — never disagree.
-  if (ctx.workflows.length > 0 || ctx.projections.length > 0) {
+  if (ctx.workflows.length > 0 || ctx.projections.length > 0 || answersEntryResults(ctx)) {
     out.set("Infrastructure/Persistence/PersistencePorts.cs", renderPersistencePortAdapters(ns));
   }
   // Validation-message catalog (M-T1.11) — same gate as the system-mode emitter.

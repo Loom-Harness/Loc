@@ -1,0 +1,78 @@
+// `scaffoldHandlers` over operations whose result is an expected failure
+// (`T or E`).  The generated commandHandler returns the operation's result —
+//
+//   commandHandler SettleOrder(orderId: Order id): int or Unsettled {
+//     let o = OrderRepo.get(orderId)
+//     let r = o.settle()
+//     match r { int v => { return v }  Unsettled v => { return v } }
+//   }
+//
+// — so the error answers its mapped status (409) and rolls the command back,
+// and a success answers 200 with the tagged variant: a scalar wraps `value`,
+// the aggregate itself (`close` returns `this`) answers its `OrderResponse`.
+system ScaffoldHandlersOrE {
+  subdomain Shop {
+    context Sales with scaffoldHandlers {
+      error Unsettled { code: string }
+      aggregate Order with crudish {
+        code: string
+        paid: int
+        operation settle(): int or Unsettled {
+          paid := paid + 1
+          if paid > 2 {
+            return Unsettled { code: code }
+          }
+          return paid
+        }
+        operation close(): Order or Unsettled {
+          if paid == 0 {
+            return Unsettled { code: code }
+          }
+          code := "closed"
+          return this
+        }
+      }
+      repository OrderRepo for Order { }
+    }
+  }
+  api ShopApi from Shop {
+    httpStatus Unsettled -> 409
+    route POST "/settle/{orderId}" -> Sales.SettleOrder
+    route POST "/close/{orderId}" -> Sales.CloseOrder
+  }
+  storage primary { type: postgres }
+  resource salesState { for: Sales, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Sales]
+    dataSources: [salesState]
+    serves: ShopApi
+    port: 4000
+  }
+
+  test e2e "a scaffolded handler answers its operation's expected failure" against d {
+    let o = api.orders.create({ code: "A-1", paid: 0 })
+
+    // The aggregate's own error arm: 409, nothing written.
+    expect(api.sales.closeOrder(o.id)).toThrow(409)
+    expect(api.orders.getById(o).code).toBe("A-1")
+
+    // A scalar success arm answers its tagged value and persists.
+    let settled = api.sales.settleOrder(o.id)
+    expect(settled.type).toBe("int")
+    expect(settled.value).toBe(1)
+    expect(api.sales.settleOrder(o.id).value).toBe(2)
+    expect(api.orders.getById(o).paid).toBe(2)
+
+    // The scalar's error arm: 409, and the operation's own change rolls back.
+    expect(api.sales.settleOrder(o.id)).toThrow(409)
+    expect(api.orders.getById(o).paid).toBe(2)
+
+    // The aggregate's own success arm answers its wire projection.
+    let closed = api.sales.closeOrder(o.id)
+    expect(closed.type).toBe("Order")
+    expect(closed.code).toBe("closed")
+    expect(closed.paid).toBe(2)
+    expect(api.orders.getById(o).code).toBe("closed")
+  }
+}
