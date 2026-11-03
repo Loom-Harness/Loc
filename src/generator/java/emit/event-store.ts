@@ -190,7 +190,6 @@ export function renderJavaEventSourcedRepositoryImpl(
     `import java.util.ArrayList;`,
     `import java.util.LinkedHashMap;`,
     `import java.util.List;`,
-    tenancy ? `import java.util.Map;` : null,
     `import java.util.Optional;`,
     ``,
     `import tools.jackson.databind.ObjectMapper;`,

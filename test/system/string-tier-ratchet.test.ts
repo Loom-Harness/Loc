@@ -84,7 +84,12 @@ const CEILINGS: Record<string, number> = {
   // `T?` miss answers 404, that every accepted `ignoring` position omits the
   // predicate it names, and each criterion predicate's emitted shape — emission
   // details (a missing guard, a dropped bypass) that compile cleanly when wrong.
-  "(cross-target)": 3500,
+  // 3500 → 3700: the #3593 wave-2 train pins, on all five backends, that a
+  // tenant-scoped event stream and a tenant-scoped fold carry the tenant
+  // predicate on every read (an absence no compile gate sees), that integer
+  // arithmetic is wrapped in the RS-48 overflow guard, and that response
+  // records carry inherited / provenanced fields.
+  "(cross-target)": 3700,
   _expr: 200,
   _frontend: 400,
   _i18n: 200,
@@ -106,7 +111,10 @@ const CEILINGS: Record<string, number> = {
   hono: 500,
   i18n: 200,
   imports: 200,
-  java: 1900,
+  // 1900 → 2100: java's stream-tenant / fold-tenant scoping and its
+  // `Math.*Exact` overflow guards (#3533, #4594, #3585) — per-site predicates in
+  // emitted JPQL / service code that compile cleanly when missing.
+  java: 2100,
   python: 1800,
   react: 1600,
   svelte: 600,
