@@ -20,6 +20,7 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { findRaisesNotFound } from "../../ir/util/key-lookup.js";
 import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
+import { pyGuardedSaveTail } from "./guarded-save-py.js";
 import { pyConflictRaise, pyNotFoundRaise } from "./wire-policy-py.js";
 
 /** The minimal read shape the query-time projection reuse feeds
@@ -1367,7 +1368,7 @@ function saveMethod(
     // Guarded upsert (optimistic concurrency): on an INSERT-conflict, only
     // overwrite when the stored `version` still equals the caller's expected
     // value, bumping it by one; a stale write matches the `where` against no
-    // row, so `RETURNING id` comes back empty → ConcurrencyError → 409.  A
+    // row, so `RETURNING version` comes back empty → ConcurrencyError → 409.  A
     // fresh INSERT never conflicts, so create/seed writes are unaffected.
     const setEntries = rootPairs
       .map(([k]) => k)
@@ -1389,10 +1390,13 @@ function saveMethod(
         : `                where=${root}.version == _expected,`,
     );
     out.push("            )");
-    out.push(`            .returning(${root}.id)`);
-    out.push("        )");
-    out.push("        if _guarded.first() is None:");
-    out.push(`            ${pyConflictRaise(R.ConcurrencyError, agg.name, `${aggVar}.id`)}`);
+    out.push(
+      ...pyGuardedSaveTail(
+        root,
+        aggVar,
+        pyConflictRaise(R.ConcurrencyError, agg.name, `${aggVar}.id`),
+      ),
+    );
   } else {
     out.push("        await self._session.execute(");
     out.push(

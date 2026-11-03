@@ -44,6 +44,12 @@ import {
 } from "../repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
 import {
+  applySavedVersion,
+  savedVersionDecl,
+  savedVersionOnInsert,
+  savedVersionOnUpdate,
+} from "../saved-version.js";
+import {
   aggregateIsAudited,
   insertStampEntries,
   stampImportLine,
@@ -696,9 +702,11 @@ export function renderMikroRepository(
     `    const existing = await em.findOne(${tableRow}, { id: aggregate.id as string }, { filters: false });`,
     `    if (existing === null) {`,
     `      await em.insert(${row}, ${insertValues});`,
+    savedVersionOnInsert("      "),
     `    } else {`,
     `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, version: expected }, ${updateSet}, { filters: false });`,
     `      if (affected === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+    savedVersionOnUpdate("      "),
     `    }`,
   ];
 
@@ -917,12 +925,14 @@ export function renderMikroRepository(
       ? `  async save(aggregate: ${agg.name}, expectedVersion?: number): Promise<void> {`
       : `  async save(aggregate: ${agg.name}): Promise<void> {`,
     ...MIKRO_OUTBOX_DRAIN_LINES,
+    versioned && savedVersionDecl("    "),
     ...mikroSaveTxLines([
       ...(versioned ? versionedSaveLines : [upsertCall]),
       ...(hasAssocs ? assocSaveLines(agg, "em", "    ") : []),
       ...(hasContains ? containSaveLines(agg, ctx, "em", "    ") : []),
       MIKRO_OUTBOX_RECORD_LINE,
     ]),
+    versioned && applySavedVersion("    "),
     `    requestLog().debug({ event: "repository_save", aggregate: "${agg.name}", id: aggregate.id as string });`,
     "",
     `    for (const event of dispatchAfterCommit) {`,
