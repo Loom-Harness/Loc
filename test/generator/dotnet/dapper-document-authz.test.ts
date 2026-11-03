@@ -23,8 +23,7 @@
 // structural pin, and the ONLY gate on the silent read-filter half.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 /** A document-shaped, tenant-owned aggregate under a subtree read ladder, plus
  *  the hierarchy registry the `deep` rung's materialized path needs — the
@@ -70,7 +69,7 @@ const SRC = `
 
 let cache: Map<string, string> | undefined;
 async function files(): Promise<Map<string, string>> {
-  cache ??= (await generateSystems(await parseValid(SRC))).files;
+  cache ??= await generateSystemFiles(SRC);
   return cache;
 }
 

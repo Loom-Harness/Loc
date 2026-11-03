@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // M-T9.24 A3 — cross-backend `%` semantics on Python.
@@ -77,9 +76,7 @@ system ModProbe {
 const IMPORT = "from app.domain.numeric import trunc_mod";
 
 async function build(): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(SOURCE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(SOURCE);
 }
 
 describe("python `%` truncates towards zero (cross-backend parity)", () => {
@@ -113,9 +110,7 @@ describe("python `%` truncates towards zero (cross-backend parity)", () => {
   });
 
   it("does not emit the helper for a project with no `%`", async () => {
-    const { model, errors } = await parseString(SOURCE.replace(/ % \d+/g, " + 1"));
-    if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SOURCE.replace(/ % \d+/g, " + 1"));
     expect(files.has("svc/app/domain/numeric.py")).toBe(false);
     for (const [, content] of files) expect(content).not.toContain(IMPORT);
   });

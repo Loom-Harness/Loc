@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // M-T9.24 F1b — a scaffolded form over a bare `money` field failed `tsc`.
@@ -65,9 +64,7 @@ system MoneyForm {
 `;
 
 async function build(totalType: string, design?: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(system(totalType, design));
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(system(totalType, design));
 }
 
 describe("money forms use RHF's three-generic useForm", () => {

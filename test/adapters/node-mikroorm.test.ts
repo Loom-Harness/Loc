@@ -14,8 +14,8 @@ import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 import { mikroOrmPersistenceAdapter } from "../../src/platform/hono/v4/adapters/mikroorm-persistence.js";
 import { adaptersFor } from "../../src/platform/resolve-adapters.js";
-import { generateSystems } from "../../src/system/index.js";
 import { diagText } from "../_helpers/diagnostics.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** Lower + enrich + run parse diagnostics AND the IR validator (where
  *  `loom.mikroorm-unsupported` lives), then emit. */
@@ -29,7 +29,7 @@ async function emit(src: string): Promise<{ files: Map<string, string>; errors: 
     .map(diagText);
   const errors = [...parseErrors, ...irErrors];
   if (errors.length > 0) return { files: new Map(), errors };
-  return { files: generateSystems(doc.parseResult.value as Model).files, errors };
+  return { files: await generateSystemFiles(src), errors };
 }
 
 const sys = (persistence: string, body = "") => `

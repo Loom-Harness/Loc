@@ -6,8 +6,7 @@
 // maps to 403 via the app exception handler.  Ungated → no gate.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 function src(readGate: string): string {
   return `system Acme {
@@ -25,9 +24,7 @@ function src(readGate: string): string {
 }
 
 async function emitted(readGate: string): Promise<{ handler: string; routes: string }> {
-  const { model, errors } = await parseString(src(readGate));
-  if (errors.length) throw new Error(errors.join("\n"));
-  const files = generateSystems(model).files;
+  const files = await generateSystemFiles(src(readGate));
   const handler = files.get("api/app/application/get_ticket_by_subject.py");
   const routes = files.get("api/app/http/api_routes.py");
   expect(handler, "get_ticket_by_subject.py not emitted").toBeDefined();

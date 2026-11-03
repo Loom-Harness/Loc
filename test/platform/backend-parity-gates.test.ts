@@ -6,9 +6,10 @@
 // Every feature below ships on all five domain backends, so for each
 // (feature, backend) pair the test asserts BOTH:
 //
-//   1. ACCEPTED — validateLoomModel(...) returns no error-severity diagnostic,
-//                 so no gate refuses the feature on that backend; and
-//   2. EMITTED  — generateSystems(model).files contains the feature's
+//   1. ACCEPTED — the model passes every phase the product runs (syntax, AST
+//                 and IR validation), so no gate refuses the feature on that
+//                 backend; and
+//   2. EMITTED  — the generated files contain the feature's
 //                 backend-specific emitter marker (the feature is realised).
 //
 // Accepted-but-not-emitted is the F1 silent gap and FAILS this test.  Every
@@ -21,15 +22,11 @@
 // Markers were chosen empirically (generate each feature × emitting backend,
 // pick a robust shared/per-backend string proven present on the emitting
 // backends AND absent on a feature-free baseline — see the probe log in the
-// W5 audit).  Fast suite: no docker, no LOOM_* env; pure lower+enrich+validate
-// and in-memory generateSystems.
+// W5 audit).  Fast suite: no docker, no LOOM_* env; one in-memory
+// `generateSystemFiles` per cell.
 
 import { describe, expect, it } from "vitest";
-import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
-import { lowerModel } from "../../src/ir/lower/lower.js";
-import { validateLoomModel } from "../../src/ir/validate/validate.js";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 // The five domain (logic-running, persistence-owning) backends.  `elixir` has a
 // single foundation — vanilla (plain Phoenix+Ecto) — which emits every feature
@@ -797,33 +794,28 @@ const FEATURES: readonly Feature[] = [
 
 /** Accept + emit verdict for one (feature, backend) cell, from a SINGLE parse.
  *
- *  One parse, deliberately.  `parseString` shares one Langium service instance
- *  and evicts only the single previous document, so two parses of the same
- *  source in flight at once let the macro expander re-run over a document that
- *  is still live — a `with <Cap>` aggregate then collects the capability's
- *  filter TWICE (observed as EF `IgnoreQueryFilters(["IsDeletedFilter",
- *  "IsDeletedFilter2"])`, i.e. a model no `.ddd` describes).  Nothing about an
- *  accept-vs-emit comparison needs two models anyway: both verdicts are pure
- *  functions of one, and asking the same question of one AST is also the
- *  stronger claim.
+ *  One parse, deliberately: the gated helper parses once and runs every phase
+ *  the product runs (①/④/⑤⑥/⑦) before emitting, so its refusal IS the
+ *  validator verdict and its output IS the emit verdict.  Two separate parses
+ *  of the same source would also be a hazard — `parseString` shares one
+ *  Langium service instance, and a `with <Cap>` aggregate re-expanded over a
+ *  still-live document collects the capability's filter twice.
  *
- *  Generation may THROW on an invalid model — a throw counts as "not emitted". */
+ *  A refusal ("`.ddd fixture has …`") becomes the cell's errors; any other
+ *  throw is a generator crash, which counts as "not emitted". */
 async function probeCell(
   feature: Feature,
   backend: Backend,
 ): Promise<{ errors: string[]; emitted: boolean }> {
-  const { model } = await parseString(feature.ddd(backend), { validate: false });
-  const errors = validateLoomModel(enrichLoomModel(lowerModel(model)))
-    .filter((d) => d.severity === "error")
-    .map((d) => `${d.code}: ${d.message}`);
   let files: Map<string, string>;
   try {
-    files = generateSystems(model).files;
-  } catch {
-    return { errors, emitted: false };
+    files = await generateSystemFiles(feature.ddd(backend));
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { errors: /^\.ddd fixture has/.test(message) ? [message] : [], emitted: false };
   }
   const marker = feature.marker[backend];
-  return { errors, emitted: [...files.values()].some((c) => c.includes(marker)) };
+  return { errors: [], emitted: [...files.values()].some((c) => c.includes(marker)) };
 }
 
 describe("backend capability-feature parity (F1 guardrail)", () => {
