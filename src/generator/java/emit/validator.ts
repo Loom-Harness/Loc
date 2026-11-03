@@ -358,7 +358,7 @@ function renderValidatorClass(spec: CommandSpec, pkg: string, basePkg: string): 
   );
   const lets = referenced.map((p) => {
     collectWireToDomainImports(eff(p.type, !!p.optional), imports, basePkg);
-    return `        var ${localOf(locals, p.name)} = ${validatorLocal(eff(p.type, !!p.optional), `request.${jid(p.name)}()`)};`;
+    return `        var ${localOf(locals, p.name)} = ${validatorLocal(eff(p.type, !!p.optional), `request.${jid(p.name)}()`, `/${p.name}`)};`;
   });
 
   const patternFields = [...regexFields].map(
@@ -404,10 +404,10 @@ function renderValidatorClass(spec: CommandSpec, pkg: string, basePkg: string): 
  *  their domain value (`wireToDomain`); a value-object-bearing field keeps its
  *  wire record (its `to<VO>` parser is service-private, and nested accessors
  *  read the same shape) so member predicates resolve without it. */
-function validatorLocal(type: TypeIR, expr: string, pointer = ""): string {
-  // The validator evaluates member predicates over an already-parsed local; a
-  // money conversion here would have been refused at the service seam first,
-  // so the pointer is informational and defaults to the document root.
+function validatorLocal(type: TypeIR, expr: string, pointer: string): string {
+  // The validator runs at the `@Valid` seam, before the service, so a parse it
+  // refuses (a malformed money) is the refusal the client sees: it carries the
+  // field's own wire pointer.
   return bearsValueObject(type) ? expr : wireToDomain(type, expr, pointer);
 }
 

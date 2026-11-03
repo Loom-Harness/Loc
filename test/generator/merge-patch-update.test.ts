@@ -182,6 +182,16 @@ describe("merge-patch update — python", () => {
 });
 
 describe("merge-patch update — java", () => {
+  it("parses a money member at the validator with the field's own pointer", async () => {
+    // The validator runs before the service, so its parse is the refusal the
+    // client sees; a document-root pointer would name no field.
+    const files = await generateSystemFiles(
+      readFileSync("test/fixtures/corpus/wire-ingress.ddd", "utf8").replace("__PLATFORM__", "java"),
+    );
+    const validator = fileEndingWith(files, "UpdateProductValidator.java");
+    expect(validator).toContain('WireFormatException.money(request.price(), "/price")');
+  });
+
   it("imports the shared FileRef record for a File member", async () => {
     const files = await generateSystemFiles(
       readFileSync("test/fixtures/corpus/file-download.ddd", "utf8").replace(
