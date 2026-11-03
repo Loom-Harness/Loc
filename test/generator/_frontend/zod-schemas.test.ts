@@ -319,7 +319,7 @@ describe("emitObjectWithRefines", () => {
     const inv: InvariantIR = {
       expr: bin(">=", fieldRef("qty"), intLit(1)),
       source: "qty >= 1",
-      message: { text: "At least one, please" },
+      message: { key: "C.Order.rule.atLeastOne", text: "At least one, please" },
     };
     const out = emitObjectWithRefines("CreateOrderRequest", fields, [inv], available);
     expect(out).toContain("  qty: z.number().int(),"); // NOT folded

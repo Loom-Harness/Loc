@@ -1,38 +1,37 @@
 import { describe, expect, it } from "vitest";
-import { messageCode } from "../../../src/util/message-code.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // The BACKEND message catalog, on all five backends (M-T1.11).
 //
-// A messaged `invariant` / `check` / `precondition` already put a stable
-// content-hash `code` on the 422 `errors[]`.  This slice adds the other half of
-// "localise by code": each backend ships a CATALOG keyed by those same codes and
-// resolves `errors[].message` through it for the request locale, so localisation
-// no longer requires every client to carry a copy of every rule's text.
+// A NAMED `invariant` / `check` / `precondition` puts its identity key
+// `<Ctx>.<Owner>.rule.<name>` as the `code` on the 422 `errors[]`.  Each backend
+// ships a CATALOG keyed by those same codes and resolves `errors[].message`
+// through it for the request locale, so localisation does not require every
+// client to carry a copy of every rule's text.
 //
 // Two invariants are asserted per backend:
 //
-//   1. the catalog exists, keyed by `messageCode(text)` — the SAME hash already
-//      on the wire, so an existing client's `code` keeps resolving;
+//   1. the catalog exists, keyed by the rule's identity key — the SAME code
+//      on the wire;
 //   2. the backend's single 422 chokepoint RESOLVES through it (an emitted
 //      catalog nothing reads is the dead-catalog class, gated on the UI side by
 //      `user-visible-slot-coverage.test.ts`).
 //
-// Plus the byte-identical gate: a system with no authored message emits no
-// catalog and no lookup anywhere.
+// Plus the byte-identical gate: a system with no named rule emits no catalog
+// and no lookup anywhere.
 // ---------------------------------------------------------------------------
 
 const DOMAIN = `
       aggregate Product {
-        sku: string check sku.length > 0 message "SKU is required"
+        sku: string check skuRequired: sku.length > 0
         name: string
         qty: int
-        invariant name.length >= 2 && name.length <= 120 message "Name must be 2-120 characters"
+        invariant nameLength: name.length >= 2 && name.length <= 120
         invariant qty >= 0
         create(name: string, sku: string, qty: int) { }
         operation restock(amount: int) {
-          precondition amount >= 1 message "Amount must be positive"
+          precondition amountPositive: amount >= 1
           qty := qty + amount
         }
       }
@@ -65,9 +64,9 @@ const NO_MESSAGES = `
       repository Products for Product { }
 `;
 
-const NAME_CODE = messageCode("Name must be 2-120 characters");
-const SKU_CODE = messageCode("SKU is required");
-const AMOUNT_CODE = messageCode("Amount must be positive");
+const NAME_CODE = "Cat.Product.rule.nameLength";
+const SKU_CODE = "Cat.Product.rule.skuRequired";
+const AMOUNT_CODE = "Cat.Product.rule.amountPositive";
 const ALL_CODES = [AMOUNT_CODE, NAME_CODE, SKU_CODE].sort();
 
 async function filesFor(platform: string, domain?: string): Promise<Map<string, string>> {
@@ -86,7 +85,7 @@ describe("node/Hono — http/messages.ts + defaultHook resolution", () => {
     const catalog = bySuffix(await filesFor("node"), "http/messages.ts")!;
     expect(catalog).toBeDefined();
     for (const code of ALL_CODES) expect(catalog).toContain(`"${code}"`);
-    expect(catalog).toContain(`"${NAME_CODE}": "Name must be 2-120 characters"`);
+    expect(catalog).toContain(`"${NAME_CODE}": "Name length"`);
     // The lookup input is the AMBIENT request locale (D-CTX-SHAPE), not a new
     // plumbing axis.
     expect(catalog).toContain("requestContext()?.locale");
@@ -106,7 +105,7 @@ describe(".NET — Localization/LoomMessages.cs + exception-filter resolution", 
     const catalog = bySuffix(await filesFor("dotnet"), "Localization/LoomMessages.cs")!;
     expect(catalog).toBeDefined();
     for (const code of ALL_CODES) expect(catalog).toContain(`["${code}"]`);
-    expect(catalog).toContain(`["${NAME_CODE}"] = "Name must be 2-120 characters"`);
+    expect(catalog).toContain(`["${NAME_CODE}"] = "Name length"`);
     expect(catalog).toContain("RequestContext.Current?.Locale");
   });
 
@@ -117,10 +116,10 @@ describe(".NET — Localization/LoomMessages.cs + exception-filter resolution", 
 
   it("routes a messaged PRECONDITION onto the carrier with its text + code", async () => {
     // The op validator dropped `message` when lifting preconditions, silently
-    // downgrading an authored precondition to "Invariant violated: <src>" and
+    // downgrading an authored precondition to the generic text and
     // costing it the wire `code` every other backend keyed.
     const validator = bySuffix(await filesFor("dotnet"), "RestockCommandValidator.cs")!;
-    expect(validator).toContain('.WithMessage("Amount must be positive")');
+    expect(validator).toContain('.WithMessage("Amount positive")');
     expect(validator).toContain(`.WithErrorCode("${AMOUNT_CODE}")`);
   });
 });
@@ -129,9 +128,9 @@ describe("java/Spring — messages.properties ResourceBundle + MessageSource res
   it("emits the bundle keyed by the wire codes", async () => {
     const bundle = bySuffix(await filesFor("java"), "src/main/resources/messages.properties")!;
     expect(bundle).toBeDefined();
-    expect(bundle).toContain(`${NAME_CODE}=Name must be 2-120 characters`);
-    expect(bundle).toContain(`${SKU_CODE}=SKU is required`);
-    expect(bundle).toContain(`${AMOUNT_CODE}=Amount must be positive`);
+    expect(bundle).toContain(`${NAME_CODE}=Name length`);
+    expect(bundle).toContain(`${SKU_CODE}=Sku required`);
+    expect(bundle).toContain(`${AMOUNT_CODE}=Amount positive`);
   });
 
   it("resolves each FieldError through MessageSource for the ambient locale", async () => {
@@ -151,7 +150,7 @@ describe("python/FastAPI — app/i18n.py + validation-handler resolution", () =>
   it("emits the catalog keyed by the wire codes", async () => {
     const catalog = bySuffix(await filesFor("python"), "app/i18n.py")!;
     expect(catalog).toBeDefined();
-    expect(catalog).toContain(`"${NAME_CODE}": "Name must be 2-120 characters"`);
+    expect(catalog).toContain(`"${NAME_CODE}": "Name length"`);
     expect(catalog).toContain("from app.obs.log import locale");
   });
 
@@ -170,7 +169,7 @@ describe("elixir/Phoenix — priv/gettext catalog + changeset-error resolution",
     // pgettext reconciles the two key models: the Loom code is the CONTEXT and
     // the authored English the msgid — identical to the HEEx frontend half.
     expect(po).toContain(`msgctxt "${NAME_CODE}"`);
-    expect(po).toContain('msgid "Name must be 2-120 characters"');
+    expect(po).toContain('msgid "Name length"');
     // A `.pot` template ships beside it so `mix gettext.merge` works normally.
     expect(bySuffix(files, "priv/gettext/default.pot")).toContain(`msgctxt "${SKU_CODE}"`);
   });
@@ -195,7 +194,7 @@ describe("elixir/Phoenix — priv/gettext catalog + changeset-error resolution",
 describe("cross-backend parity", () => {
   it("all five backends ship the SAME code set — one collector, five renderings", async () => {
     const codesIn = (content: string): string[] =>
-      [...new Set(content.match(/msg\.[a-z0-9]+/g) ?? [])].sort();
+      [...new Set(content.match(/Cat\.Product\.rule\.[A-Za-z0-9]+/g) ?? [])].sort();
     const [node, dotnet, java, python, elixir] = await Promise.all([
       filesFor("node"),
       filesFor("dotnet"),
@@ -224,7 +223,7 @@ describe("cross-backend parity", () => {
     for (const code of ALL_CODES) {
       expect(Object.keys(systemCatalog)).toContain(code);
     }
-    expect(systemCatalog[NAME_CODE]).toBe("Name must be 2-120 characters");
+    expect(systemCatalog[NAME_CODE]).toBe("Name length");
   });
 
   it("all five resolve the SAME locale-lookup contract off the ambient locale", async () => {
@@ -285,5 +284,20 @@ describe("cross-backend parity", () => {
     expect(bySuffix(await filesFor("java", NO_MESSAGES), "ApiExceptionAdvice.java")).toContain(
       'entry.put("message", "NotNull".equals(err.getCode()) ? lastKey((String) entry.get("pointer")) + " is required" : err.getDefaultMessage());',
     );
+  });
+});
+
+describe("a locales/en override", () => {
+  it("replaces a named rule's English in every backend catalog and on the wire", async () => {
+    const overrides = new Map([[NAME_CODE, "Name must be 2-120 characters"]]);
+    for (const [platform, suffix] of [
+      ["node", "http/messages.ts"],
+      ["python", "app/i18n.py"],
+      ["java", "src/main/resources/messages.properties"],
+    ] as const) {
+      const files = await generateSystemFiles(src(platform), { sourceOverrides: overrides });
+      expect(bySuffix(files, suffix), platform).toContain("Name must be 2-120 characters");
+      expect(bySuffix(files, suffix), platform).not.toContain("Name length");
+    }
   });
 });

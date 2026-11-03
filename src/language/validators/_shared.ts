@@ -28,6 +28,7 @@ import {
   type DerivedProp,
   type EntityPart,
   type FunctionDecl,
+  type Invariant,
   isBoundedContext,
   isContainment,
   isCriterion,
@@ -441,10 +442,18 @@ export function checkRuleNaming(
   if (declared === undefined || !owner) return;
   const first = rulesOf(owner).find((r) => declaredRuleName(r) === declared);
   if (first !== undefined && first !== node) {
-    const text = diagMessage("loom.rule-name-duplicate", { name: declared, owner: owner.name });
-    if (isProperty(node))
-      accept("error", text, { node, property: "checkName", code: "loom.rule-name-duplicate" });
-    else accept("error", text, { node, property: "name", code: "loom.rule-name-duplicate" });
+    // The name is on `checkName` for a field check, `name` otherwise.
+    const at = (
+      isProperty(node) ? { node, property: "checkName" } : { node, property: "name" }
+    ) as {
+      node: Invariant;
+      property: "name";
+    };
+    accept(
+      "error",
+      diagMessage("loom.rule-name-duplicate", { name: declared, owner: owner.name }),
+      { ...at, code: "loom.rule-name-duplicate" },
+    );
   }
 }
 

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { contentHash } from "../../src/util/content-hash.js";
-import { messageCode } from "../../src/util/message-code.js";
 
 // `contentHash` (src/util/content-hash.ts) is the ONE hash primitive behind the
 // whole i18n key family — the `msg.<hash>` validation-message wire codes and the
@@ -96,16 +95,5 @@ describe("contentHash — sensitivity", () => {
       else seen.set(h, text);
     }
     expect(collisions).toEqual([]);
-  });
-});
-
-describe("contentHash — the message-code consumer agrees", () => {
-  it("`messageCode` is `msg.` + the content hash of the same text", () => {
-    // src/util/message-code.ts is the wire-code half of the same key family;
-    // pinning it here is what makes a change to `contentHash` visible as a
-    // CHANGED WIRE CODE rather than as an isolated util-level edit.
-    for (const s of ["Order total must be positive", "", "Quantity must be at least {min}"]) {
-      expect(messageCode(s)).toBe(`msg.${contentHash(s)}`);
-    }
   });
 });
