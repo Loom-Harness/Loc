@@ -61,13 +61,15 @@ import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import type { Model } from "../../language/generated/ast.js";
 import { apiRoutePrefix } from "../../util/api-base.js";
-import { emissionSink, rewrite } from "../../util/emission-sink.js";
+import { rewrite } from "../../util/emission-sink.js";
 import { plural, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
+import { finalizeCsUnit } from "../_imports/dotnet.js";
+import { spellMarkers } from "../_imports/symbol.js";
 import { unionMembers } from "../_payload/union-wire.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
@@ -99,6 +101,7 @@ import {
 import { domainUnionFiles } from "./cqrs/dtos.js";
 import { emitCqrs } from "./cqrs-emit.js";
 import { canEmitToExpressionFor, emitCriteria } from "./criteria-emit.js";
+import { DotnetOutputMap } from "./cs-output.js";
 import {
   renderAuditRecord,
   renderAuditRecordConfiguration,
@@ -304,7 +307,7 @@ export function generateDotnetForContexts(
     sourceTexts?: ReadonlyMap<string, string>;
   } = {},
 ): Map<string, string> {
-  const out = emissionSink("generator/dotnet/index");
+  const out = new DotnetOutputMap();
   const emitTrace = !!options.emitTrace;
   if (namespace !== undefined) {
     // Single project containing all the given contexts under one namespace.
@@ -329,7 +332,7 @@ export function generateDotnetForContexts(
       for (const [path, src] of layerClashAliases(out, root, [ctx])) rewrite(out, path, src);
     }
   }
-  return out;
+  return out.assertFinal();
 }
 
 function emitProjectFromContexts(
@@ -524,7 +527,7 @@ function emitProjectFromContexts(
       const evPath = `Domain/Events/${ev.name}.cs`;
       const evContent = renderEvent(ev, ns);
       out.set(evPath, evContent);
-      sourcemap?.file(evPath, evContent, ev.origin, `${ctx.name}.${ev.name}`);
+      sourcemap?.file(evPath, finalizeCsUnit(evContent), ev.origin, `${ctx.name}.${ev.name}`);
     }
     for (const agg of ctx.aggregates) {
       emitAggregate(agg, ctx, ns, out, routePrefix, emitTrace, emitCtx, sourcemap, sourceTexts);
@@ -1421,14 +1424,19 @@ function emitAggregate(
       emitCtx ?? ({} as EmitCtx),
     );
     out.set(path, content);
-    sourcemap?.file(path, content, origin, construct);
+    sourcemap?.file(path, finalizeCsUnit(content), origin, construct);
     // Statement-granular sub-regions (source-map) — layered onto
     // the whole-file region just recorded above, anchored by exact-text
     // search against this SAME final content, so they land at the right
     // absolute lines regardless of what the layout adapter did to the path.
     if (sourcemap && opFragments) {
       for (const frag of opFragments) {
-        sourcemap.fragment(path, content, frag.fragmentText, frag.subRegions);
+        sourcemap.fragment(
+          path,
+          finalizeCsUnit(content),
+          spellMarkers(frag.fragmentText),
+          frag.subRegions,
+        );
       }
     }
   };
@@ -1831,7 +1839,7 @@ function emitAggregate(
     for (const artifact of artifacts) {
       const path = layout.pathFor(artifact, emitCtx);
       out.set(path, artifact.content);
-      sourcemap?.file(path, artifact.content, agg.origin, construct);
+      sourcemap?.file(path, finalizeCsUnit(artifact.content), agg.origin, construct);
     }
   } else {
     emitCqrs(agg, repo, ctx, ns, out, { routePrefix, emitTrace });
@@ -1840,7 +1848,7 @@ function emitAggregate(
   if (testsFile) {
     const testsPath = `Tests/${ns}.Tests/${aggFolder}/${agg.name}Tests.cs`;
     out.set(testsPath, testsFile);
-    sourcemap?.file(testsPath, testsFile, agg.origin, construct);
+    sourcemap?.file(testsPath, finalizeCsUnit(testsFile), agg.origin, construct);
   }
 }
 

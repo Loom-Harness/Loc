@@ -37,6 +37,7 @@ import {
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { type UnionMember, unionMembers } from "../../_payload/union-wire.js";
+import { CS, sortedCsUsings } from "../cs-symbols.js";
 import type { CsRenderContext } from "../render-expr.js";
 import { renderCsType } from "../render-expr.js";
 import { collectCsStmtUsings, renderCsStatements } from "../render-stmt.js";
@@ -149,7 +150,7 @@ function renderDomainService(
   if (!reading) {
     return lines(
       header,
-      ...[...usings].sort().map((u) => `using ${u};`),
+      ...sortedCsUsings(usings),
       "",
       `namespace ${ns}.Domain.Services;`,
       "",
@@ -161,8 +162,7 @@ function renderDomainService(
   }
 
   // The DI'd reading service: ctor-injected repository fields + a constructor.
-  usings.add("System.Threading");
-  usings.add("System.Threading.Tasks");
+  // A reading op's `Task` / `CancellationToken` are written through `ref`.
   const fields = ports.map(
     (p) => `    private readonly I${p.aggregate}Repository ${portFieldName(p.repo)};`,
   );
@@ -172,7 +172,7 @@ function renderDomainService(
     .join("; ");
   return lines(
     header,
-    ...[...usings].sort().map((u) => `using ${u};`),
+    ...sortedCsUsings(usings, ["System.Threading", "System.Threading.Tasks"]),
     "",
     `namespace ${ns}.Domain.Services;`,
     "",
@@ -235,12 +235,12 @@ function renderOperation(
   const opReads = readPortsForOperation(op).length > 0;
   const userParams = op.params.map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`);
   const params = (
-    opReads ? [...userParams, "CancellationToken cancellationToken = default"] : userParams
+    opReads ? [...userParams, `${CS.CancellationToken} cancellationToken = default`] : userParams
   ).join(", ");
   const baseRet = op.returnType ? renderCsType(op.returnType) : "void";
   // A reading op awaits its repo reads → `async Task<T>` (or `async Task` for a
   // void return).  Pure ops keep the bare return type.
-  const retType = opReads ? (op.returnType ? `Task<${baseRet}>` : "Task") : baseRet;
+  const retType = opReads ? (op.returnType ? `${CS.Task}<${baseRet}>` : CS.Task) : baseRet;
   // An `or`-union return threads the Domain union name + variant order so a
   // tagged `return { … }` constructs the right `<Union>_<Tag>(...)` record.
   const returnUnion =

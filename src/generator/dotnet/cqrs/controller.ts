@@ -21,7 +21,6 @@ import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { findUnionSpec, unionMembers } from "../../_payload/union-wire.js";
 import {
-  collectWireUsings,
   csIdValueClrType,
   isWireValueType,
   wireToCommandArgument,
@@ -232,13 +231,8 @@ export function emitController(
     derivedOps.filter((o) => o.kind === "gateProbe").map((o) => [o.operation, o]),
   );
   const findEntries = derivedOps.filter((o) => isAllFind(o));
-  const publicOps = opEntries.map((o) => o.operation!);
   const exposedFinds = findEntries.map((o) => o.find!);
   const usings = new Set<string>();
-  for (const f of requiredFields) collectWireUsings(f.type, ctx, usings);
-  for (const op of publicOps) for (const p of op.params) collectWireUsings(p.type, ctx, usings);
-  for (const find of exposedFinds)
-    for (const p of find.params) collectWireUsings(p.type, ctx, usings);
   // A paged find's action returns `Paged<…Response>` from the shared runtime.
   if (exposedFinds.some((f) => pagedReturn(f.returnType))) usings.add(`${ns}.Domain.Common`);
   // A server-sourced field default (`now()` / `currentUser.*`) is applied
