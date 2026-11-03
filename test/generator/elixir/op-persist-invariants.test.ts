@@ -1,9 +1,12 @@
 // An elixir operation persist is `change(%{}) |> force_change(…)` — a changeset
 // that never passes through `base_changeset`, where the native single-field
 // validators (`validate_number(:qty, greater_than_or_equal_to: 0)`) live.  It
-// must re-run BOTH halves of the invariant floor before the write, or
-// `setQty(-1)` under `invariant qty >= 0` commits.  Covered on all three op
-// persist shapes: a plain named op, a returning op, an extern op.
+// must re-assert the invariants before the write, or `setQty(-1)` under
+// `invariant qty >= 0` commits — and answer the OPERATION's domain-error shape
+// the other four backends answer (422 "Unprocessable Entity", detail
+// `Invariant violated: qty >= 0`, no errors[]), not the request changeset's
+// "Validation failed" envelope.  Covered on all three op persist shapes: a
+// plain named op, a returning op, an extern op.
 //
 // Also pinned: the context-nested ExUnit integration test keys an op call's
 // POSITIONAL arguments by the op's parameter names (`%{"n" => -1}`) — the
@@ -66,20 +69,34 @@ const source = (invariant: string, TESTS: string): string => `system T {
 }`;
 
 describe("elixir operation persist re-runs single-field invariants (E11)", () => {
-  it("the changeset module exposes the native single-field validators as validate_field_invariants/1", async () => {
+  it("assert_op_invariants/1 tags the first violated rule with its `Invariant violated:` text", async () => {
     const cs = file(
       await generateSystemFiles(corpus("op-persist-field-invariant")),
       "counter_changeset.ex",
     );
-    const fn = defBody(cs, "validate_field_invariants");
-    expect(fn).toContain("validate_number(:qty, greater_than_or_equal_to: 0");
+    const fn = defBody(cs, "assert_op_invariants");
+    expect(fn).toContain(
+      'add_error(changeset, :qty, "Invariant violated: qty >= 0", loom_invariant: true)',
+    );
+    expect(fn).toContain('"Invariant violated: label != \\"\\""');
+    expect(fn.indexOf(":qty")).toBeLessThan(fn.indexOf(":label"));
+  });
+
+  it("ProblemDetails answers a tagged violation as the operation's domain error", async () => {
+    const pd = file(
+      await generateSystemFiles(corpus("op-persist-field-invariant")),
+      "problem_details.ex",
+    );
+    const fn = defBody(pd, "validation_error_response");
+    expect(fn).toContain("case op_invariant_violation(changeset) do");
+    expect(fn).toContain('problem_response(conn, 422, "Unprocessable Entity", detail)');
   });
 
   it("every operation persist shape pipes through it before the write", async () => {
     const ctx = file(await generateSystemFiles(source("invariant qty >= 0", "")), "lib/e/c.ex");
     for (const op of ["set_qty_counter", "set_qty_and_read_counter", "bump_extern_counter"]) {
       const body = defBody(ctx, op);
-      const pipe = body.indexOf("CounterChangeset.validate_field_invariants()");
+      const pipe = body.indexOf("CounterChangeset.assert_op_invariants()");
       expect(pipe, `${op} skips the single-field invariants`).toBeGreaterThan(0);
       expect(pipe, `${op} validates only after the write`).toBeLessThan(
         body.indexOf("persist_change"),
@@ -87,10 +104,11 @@ describe("elixir operation persist re-runs single-field invariants (E11)", () =>
     }
   });
 
-  it("an aggregate with no single-field invariant gets no pipe", async () => {
+  it("an aggregate with no invariant gets no pipe and no ProblemDetails branch", async () => {
     const files = await generateSystemFiles(source("", ""));
-    expect(file(files, "lib/e/c.ex")).not.toContain("validate_field_invariants");
-    expect(file(files, "counter_changeset.ex")).not.toContain("validate_field_invariants");
+    expect(file(files, "lib/e/c.ex")).not.toContain("assert_op_invariants");
+    expect(file(files, "counter_changeset.ex")).not.toContain("assert_op_invariants");
+    expect(file(files, "problem_details.ex")).not.toContain("op_invariant_violation");
   });
 });
 

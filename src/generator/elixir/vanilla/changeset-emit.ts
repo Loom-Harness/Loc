@@ -51,7 +51,9 @@ import {
   aggregateHasDomainFloorCodes,
   aggregateHasResidualInvariants,
   messagedRoutesToResidual,
+  opAssertedInvariants,
   renderInvariantValidatorFn,
+  renderOpInvariantAssertFn,
   renderPatchInvariantFn,
 } from "./changeset-invariant-emit.js";
 import {
@@ -126,31 +128,40 @@ function castScalarFields(agg: AggregateIR, ctx: BoundedContextIR): AggField[] {
  *  invariants return null and keep their domain-level enforcement.  Only fields
  *  that are actually cast get a validator.
  *
- *  One list, read by both the cast seams and `validate_field_invariants/1`
- *  (which the context's named-operation persist pipes through), so the two
- *  write paths cannot enforce different rule sets. */
-export function fieldInvariantValidatorLines(agg: AggregateIR, ctx: BoundedContextIR): string[] {
+ *  One list, read by both the cast seams and (its MESSAGED subset, `messagedOnly`)
+ *  `validate_field_invariants/1`, which an operation persist pipes through; a
+ *  message-less rule reaches the operation path through `assert_op_invariants/1`
+ *  instead, so it answers the operation's domain-error shape. */
+export function fieldInvariantValidatorLines(
+  agg: AggregateIR,
+  ctx: BoundedContextIR,
+  messagedOnly = false,
+): string[] {
   const castFields = new Set(castScalarFields(agg, ctx).map((f) => snake(f.name)));
   return (agg.invariants ?? []).flatMap((inv) =>
-    // A messaged rule that routes to the `validate_invariants/1` residual
-    // carrier (to carry its wire `code`) is emitted there, not as a native
-    // `validate_*` line — otherwise it would double-validate. A message-less
-    // rule (and a messaged rule that can't route) keeps its native line.
-    messagedRoutesToResidual(inv)
+    messagedOnly && inv.message == null
       ? []
-      : (singleFieldConstraints(inv) ?? [])
-          .filter((c) => castFields.has(snake(c.field)))
-          .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),
+      : // A messaged rule that routes to the `validate_invariants/1` residual
+        // carrier (to carry its wire `code`) is emitted there, not as a native
+        // `validate_*` line — otherwise it would double-validate. A message-less
+        // rule (and a messaged rule that can't route) keeps its native line.
+        messagedRoutesToResidual(inv)
+        ? []
+        : (singleFieldConstraints(inv) ?? [])
+            .filter((c) => castFields.has(snake(c.field)))
+            .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),
   );
 }
 
 /** The invariant pipes an operation persist appends to its
  *  `change(%{}) |> force_change(…)` changeset, `indent` spaces deep.  That
- *  changeset never passes through `base_changeset`, so it re-runs both halves of
- *  the floor there: the single-field validators (`validate_field_invariants/1`)
- *  and the residual cross-field / guarded / coded rules (`validate_invariants/1`,
- *  or its `validate_domain_floor/1` twin when a messaged rule carries a wire
- *  code).  Empty when the aggregate declares neither, so such an op is unchanged. */
+ *  changeset never passes through `base_changeset`, so it re-runs the floor
+ *  there: every message-less rule as the operation's domain error
+ *  (`assert_op_invariants/1`), the messaged single-field validators
+ *  (`validate_field_invariants/1`), and the residual cross-field / guarded /
+ *  coded rules (`validate_invariants/1`, or its `validate_domain_floor/1` twin
+ *  when a messaged rule carries a wire code).  Empty when the aggregate declares
+ *  none, so such an op is unchanged. */
 export function opPersistInvariantPipes(
   agg: AggregateIR,
   ctx: BoundedContextIR,
@@ -158,11 +169,14 @@ export function opPersistInvariantPipes(
   indent: number,
 ): string {
   const pad = `\n${" ".repeat(indent)}|> ${changesetMod}.`;
+  const asserted = opAssertedInvariants(agg).length > 0 ? `${pad}assert_op_invariants()` : "";
   const field =
-    fieldInvariantValidatorLines(agg, ctx).length > 0 ? `${pad}validate_field_invariants()` : "";
+    fieldInvariantValidatorLines(agg, ctx, true).length > 0
+      ? `${pad}validate_field_invariants()`
+      : "";
   const invFn = aggregateHasDomainFloorCodes(agg) ? "validate_domain_floor" : "validate_invariants";
   const residual = aggregateHasResidualInvariants(agg) ? `${pad}${invFn}()` : "";
-  return `${field}${residual}`;
+  return `${asserted}${field}${residual}`;
 }
 
 /** A TPH/TPC concrete subtype's canonical `update` carries only its OWN
@@ -360,16 +374,18 @@ function renderChangeset(
   // invariants return null and keep their domain-level enforcement.  Only fields
   // that are actually cast (`@all_fields`) get a validator.
   const validatorLines = fieldInvariantValidatorLines(agg, ctx);
-  // The same lines as a public function, so a named-operation persist — a
-  // `change(%{}) |> force_change` changeset that never passes through
-  // `base_changeset` — enforces a single-field invariant too (`setQty(-1)`
-  // under `invariant qty >= 0` answers 422 instead of committing).
+  const messagedFieldLines = fieldInvariantValidatorLines(agg, ctx, true);
+  const opAssertFn = renderOpInvariantAssertFn(agg, `${appModule}.${ctxModule}`);
+  // An operation persist is a `change(%{}) |> force_change` changeset that
+  // never passes through `base_changeset`.  A message-less rule reaches it as
+  // `assert_op_invariants/1` (the operation's domain error); the MESSAGED
+  // single-field lines reach it as this public function.
   const fieldInvariantFn =
-    validatorLines.length > 0
-      ? `\n\n  @doc "Assert the aggregate's single-field invariants on a changeset built outside \`base_changeset\` — the named-operation persist."
+    messagedFieldLines.length > 0
+      ? `\n\n  @doc "Assert the aggregate's messaged single-field invariants on a changeset built outside \`base_changeset\` — the operation persist."
   def validate_field_invariants(changeset) do
     changeset
-${validatorLines.join("\n")}
+${messagedFieldLines.join("\n")}
   end`
       : "";
   // Money RANGE (M-T6.60 divergence 3) — one `validate_change` per cast money
@@ -985,7 +1001,7 @@ defmodule ${changesetMod} do
     ${voKeyNormalizeLine}${valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : ""}struct
     |> ${castLines("@all_fields", "@string_fields")}${createIngressLine}${defaultBlock}
     |> ${requireLines("@required_fields", "@required_strings")}${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}
-  end${updateChangesetBlock}${invariantFnBlock}${fieldInvariantFn}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voShapeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
+  end${updateChangesetBlock}${invariantFnBlock}${opAssertFn ? `\n\n${opAssertFn}` : ""}${fieldInvariantFn}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voShapeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
 
 ${actionHelpers}
 end
