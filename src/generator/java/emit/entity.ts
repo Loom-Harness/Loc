@@ -32,7 +32,7 @@ import { snake } from "../../../util/naming.js";
 import { tableNameFor } from "../../../util/storage-names.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaOnDemandRef, javaRef } from "../../_imports/java.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
 import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
@@ -66,6 +66,9 @@ import {
   jpaSingleContainmentParentAnnotations,
 } from "./jpa-annotations.js";
 
+/** A `jakarta.persistence` type, spelled simple-named; the unit gains
+ *  `import jakarta.persistence.*;` iff one of these survives into its text. */
+const JPA = (name: string): string => javaOnDemandRef("jakarta.persistence", name);
 const ARRAY_LIST = javaRef("java.util", "ArrayList");
 const JDBC_TYPE_CODE = javaRef("org.hibernate.annotations", "JdbcTypeCode");
 const SQL_TYPES = javaRef("org.hibernate.type", "SqlTypes");
@@ -438,7 +441,7 @@ export function renderJavaEntity(
       fieldLines.push(`    @${javaRef("org.springframework.data.annotation", audit.annotation)}`);
       if (persistence) {
         fieldLines.push(
-          `    @Column(name = "${hbIdent(snake(f.name))}"${audit.createEvent ? ", updatable = false" : ""})`,
+          `    @${JPA("Column")}(name = "${hbIdent(snake(f.name))}"${audit.createEvent ? ", updatable = false" : ""})`,
         );
       }
       fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
@@ -452,7 +455,7 @@ export function renderJavaEntity(
       // INSERT — same column semantics as the annotation path).
       if (persistence) {
         fieldLines.push(
-          `    @Column(name = "${hbIdent(snake(f.name))}"${claimColumn.createEvent ? ", updatable = false" : ""})`,
+          `    @${JPA("Column")}(name = "${hbIdent(snake(f.name))}"${claimColumn.createEvent ? ", updatable = false" : ""})`,
         );
       }
       fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
@@ -481,7 +484,7 @@ export function renderJavaEntity(
     if (persistence?.embedded) {
       fieldLines.push(
         `    @${JDBC_TYPE_CODE}(${SQL_TYPES}.JSON)`,
-        `    @Column(name = "${hbIdent(snake(c.name))}", nullable = false)`,
+        `    @${JPA("Column")}(name = "${hbIdent(snake(c.name))}", nullable = false)`,
       );
       fieldLines.push(
         c.collection
@@ -518,7 +521,7 @@ export function renderJavaEntity(
     for (const f of provFields) {
       if (persistence) {
         fieldLines.push(`    @${JDBC_TYPE_CODE}(${SQL_TYPES}.JSON)`);
-        fieldLines.push(`    @Column(name = "${snake(f.name)}_provenance")`);
+        fieldLines.push(`    @${JPA("Column")}(name = "${snake(f.name)}_provenance")`);
       }
       fieldLines.push(`    ProvLineage ${jid(f.name)}Provenance;`);
     }
@@ -1138,7 +1141,7 @@ export function renderJavaEntity(
       ];
     };
     claimStampHookLines.push(
-      ...(plainStampHooks ? [] : [`    @PrePersist`]),
+      ...(plainStampHooks ? [] : [`    @${JPA("PrePersist")}`]),
       `    void _stampOnCreate() {`,
       ...hookBody(claimStamps, "create"),
       `    }`,
@@ -1147,7 +1150,7 @@ export function renderJavaEntity(
     const updateStamps = claimStamps.filter((s) => !s.createEvent);
     if (updateStamps.length > 0) {
       claimStampHookLines.push(
-        ...(plainStampHooks ? [] : [`    @PreUpdate`]),
+        ...(plainStampHooks ? [] : [`    @${JPA("PreUpdate")}`]),
         `    void _stampOnUpdate() {`,
         ...hookBody(updateStamps, "update"),
         `    }`,
@@ -1189,9 +1192,6 @@ export function renderJavaEntity(
     ``,
     `import java.util.List;`,
     ``,
-    // An on-demand import — the JPA annotations stay simple-named under it.
-    persistence ? `import jakarta.persistence.*;` : null,
-    persistence ? `` : null,
     `import ${basePkg}.domain.common.*;`,
     `import ${basePkg}.domain.enums.*;`,
     `import ${basePkg}.domain.events.*;`,
@@ -1203,7 +1203,7 @@ export function renderJavaEntity(
     // they carry only @Entity + their @DiscriminatorValue (= the kind
     // value every backend stamps).
     persistence && superType?.sharesIdentity
-      ? [`@Entity`, `@DiscriminatorValue("${entity.name}")`]
+      ? [`@${JPA("Entity")}`, `@${JPA("DiscriminatorValue")}("${entity.name}")`]
       : persistence
         ? jpaClassAnnotations(persistence.tableName, {
             schema: persistence.schema,
@@ -1213,7 +1213,7 @@ export function renderJavaEntity(
     ...restrictionAnnotations,
     // Compose the auditing listener (it stacks with inheritance — no
     // @MappedSuperclass needed, so it doesn't collide with `extends`).
-    isAuditable ? `@EntityListeners(${AUDITING_ENTITY_LISTENER}.class)` : null,
+    isAuditable ? `@${JPA("EntityListeners")}(${AUDITING_ENTITY_LISTENER}.class)` : null,
     jmolecules,
     `public class ${entity.name}${superType ? ` extends ${javaRef(superType.pkg ?? pkg, superType.name)}` : ""}${
       isAuditable ? ` implements Auditable` : ""
@@ -1324,8 +1324,8 @@ export function renderJavaAbstractBaseEntity(
     ? [
         ...(persistence
           ? [
-              `    @EmbeddedId`,
-              `    @AttributeOverride(name = "value", column = @Column(name = "id"))`,
+              `    @${JPA("EmbeddedId")}`,
+              `    @${JPA("AttributeOverride")}(name = "value", column = @${JPA("Column")}(name = "id"))`,
             ]
           : []),
         `    protected ${base.name}Id id;`,
@@ -1395,9 +1395,6 @@ export function renderJavaAbstractBaseEntity(
   return lines(
     `package ${pkg};`,
     ``,
-    // An on-demand import — the JPA annotations stay simple-named under it.
-    persistence ? `import jakarta.persistence.*;` : null,
-    persistence ? `` : null,
     `import ${basePkg}.domain.common.*;`,
     `import ${basePkg}.domain.enums.*;`,
     `import ${basePkg}.domain.ids.*;`,
@@ -1411,14 +1408,14 @@ export function renderJavaAbstractBaseEntity(
       : `// columns onto its own table (JPA @MappedSuperclass).`,
     ...(persistence && options.tph
       ? [
-          `@Entity`,
-          `@Table(name = "${hbIdent(tableNameFor(base.name))}"${persistence.schema ? `, schema = "${persistence.schema}"` : ""})`,
-          `@Inheritance(strategy = InheritanceType.SINGLE_TABLE)`,
-          `@DiscriminatorColumn(name = "kind")`,
+          `@${JPA("Entity")}`,
+          `@${JPA("Table")}(name = "${hbIdent(tableNameFor(base.name))}"${persistence.schema ? `, schema = "${persistence.schema}"` : ""})`,
+          `@${JPA("Inheritance")}(strategy = ${JPA("InheritanceType")}.SINGLE_TABLE)`,
+          `@${JPA("DiscriminatorColumn")}(name = "kind")`,
           ...hostedRestrictions,
         ]
       : []),
-    persistence && !options.tph ? `@MappedSuperclass` : null,
+    persistence && !options.tph ? `@${JPA("MappedSuperclass")}` : null,
     `public abstract class ${base.name} {`,
     ...idLines,
     ...fieldLines,

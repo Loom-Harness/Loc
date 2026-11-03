@@ -70,7 +70,7 @@ const CEILING: Record<Backend, number> = {
   python: 0,
   typescript: 230,
   dotnet: 40,
-  java: 2,
+  java: 0,
   elixir: 2,
 };
 
