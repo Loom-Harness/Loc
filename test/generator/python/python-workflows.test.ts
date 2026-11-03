@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — command workflows (plan S15a).  POST /workflows/
@@ -21,9 +20,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python workflows", () => {
@@ -102,9 +99,7 @@ describe("python workflows", () => {
         port: 8081
       }
     }`;
-    const { model, errors } = await parseString(src);
-    if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-    const wf = generateSystems(model).files.get("api1/app/http/workflows_routes.py")!;
+    const wf = (await generateSystemFiles(src)).get("api1/app/http/workflows_routes.py")!;
     expect(wf).toContain("async def touch_active_workflow(");
     // The repo handle is constructed before the if-let retrieval uses it.
     expect(wf).toContain("projects = ProjectRepository(session, NoopDomainEventDispatcher())");

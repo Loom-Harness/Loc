@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // Regression: an operation whose param is a cross-aggregate `X id` emits
 // `XId(...)` in the FastAPI route, so the route must import `XId`. The import
@@ -32,9 +31,7 @@ system S {
 
 describe("python routes — cross-aggregate operation-param id import", () => {
   it("imports the foreign id type referenced only through an operation param", async () => {
-    const { model, errors } = await parseString(SRC);
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SRC);
     const routes = files.get("api/app/http/order_routes.py");
     expect(routes, "order_routes.py should be emitted").toBeDefined();
     // The op body wraps the param as ProductId(...) — that reference must be imported.

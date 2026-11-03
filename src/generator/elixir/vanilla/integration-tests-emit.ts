@@ -3,7 +3,8 @@
 // but persistence goes through the plain CONTEXT MODULE (not a hand-built repo):
 // a `context`-nested `test` (or `test … for <Context>`) runs cross-aggregate
 // behaviour against the live Ecto repo — a create persists via
-// `<Ctx>.create_<agg>(attrs)`, a named operation via `<Ctx>.<op>_<agg>(rec, %{})`,
+// `<Ctx>.create_<agg>(attrs)`, a named operation via
+// `<Ctx>.<op>_<agg>(rec, %{"<param>" => arg})`,
 // and a repository find reads back via `<Ctx>.get_<agg>(id)` / `list_<plural>()`.
 //
 // DB isolation uses `Ecto.Adapters.SQL.Sandbox` (config/test.exs already wires
@@ -27,6 +28,7 @@ import { repoVerbOpAt } from "../../../util/repository-contract.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn } from "../lifecycle-seam.js";
 import { type Env, renderExpect, vtExpr } from "./tests-emit.js";
+import { opCallParamFields } from "./workflow-execution-emit.js";
 
 /** A `<Agg>.create(...)` / named create-action call → the owning aggregate;
  *  undefined when the call is not a create. */
@@ -86,6 +88,22 @@ function attrsMap(e: ExprIR | undefined, env: Env): string {
   return `%{${e.fields.map((f) => `${snake(f.name)}: ${vtExpr(f.value, env)}`).join(", ")}}`;
 }
 
+/** Render an operation call's positional arguments to the `params` map the
+ *  context op function reads — keyed by the operation's own parameter names as
+ *  STRING keys (`%{"n" => -1}`), because the facade reads each one with
+ *  `Map.get(params, "<name>")`.  An argument dropped here reaches the op as
+ *  `nil`, so a `c.setQty(-1)` would run as `setQty(nil)` and an
+ *  `assert {:error, _}` would pass for the wrong reason. */
+function opParamsMap(e: ExprIR & { kind: "method-call" }, agg: AggregateIR, env: Env): string {
+  const op = agg.operations.find((o) => o.name === e.member);
+  const fields = opCallParamFields(
+    e.args.map((a) => vtExpr(a, env)),
+    op,
+    `${agg.name}.${e.member}`,
+  );
+  return `%{${fields}}`;
+}
+
 /** Render one integration-test statement. */
 function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, ctxMod: string, env: Env): string[] {
   switch (s.kind) {
@@ -112,7 +130,7 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, ctxMod: string, env: E
         // rebind the receiver to the persisted result.
         const recv = vtExpr(s.expr.receiver, env);
         return [
-          `{:ok, ${recv}} = ${ctxMod}.${snake(s.expr.member)}_${snake(opAgg.name)}(${recv}, ${attrsMap(s.expr.args[0], env)})`,
+          `{:ok, ${recv}} = ${ctxMod}.${snake(s.expr.member)}_${snake(opAgg.name)}(${recv}, ${opParamsMap(s.expr, opAgg, env)})`,
         ];
       }
       return [vtExpr(s.expr, env)];
@@ -132,7 +150,7 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, ctxMod: string, env: E
       if (opAgg && inner.kind === "method-call") {
         const recv = vtExpr(inner.receiver, env);
         return [
-          `assert {:error, _} = ${ctxMod}.${snake(inner.member)}_${snake(opAgg.name)}(${recv}, ${attrsMap(inner.args[0], env)})`,
+          `assert {:error, _} = ${ctxMod}.${snake(inner.member)}_${snake(opAgg.name)}(${recv}, ${opParamsMap(inner, opAgg, env)})`,
         ];
       }
       return [`assert {:error, _} = ${vtExpr(inner, env)}`];

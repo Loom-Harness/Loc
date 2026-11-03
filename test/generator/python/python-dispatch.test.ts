@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — in-process event dispatch (plan S15b, channels.md).
@@ -25,9 +24,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python event dispatch (sagas)", () => {
@@ -115,9 +112,7 @@ describe("python event dispatch (sagas)", () => {
   it("a channel-less project emits the SAME dispatch module and live wiring", async () => {
     const source = FIXTURE.replace(/channel Lifecycle \{[\s\S]*?\n {6}\}\n/, "");
     expect(source).not.toContain("channel Lifecycle");
-    const { model, errors } = await parseString(source);
-    if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(source);
     const dispatch = files.get("api/app/dispatch.py");
     expect(dispatch, "no dispatch module for an uncarried saga").toBeDefined();
     expect(dispatch).toContain("async def _order_fulfillment_create_order_placed(");
@@ -133,8 +128,7 @@ describe("python event dispatch (sagas)", () => {
   // in-process dispatcher — the honest residue of the deleted block.
   it("the channel still decides the realtime tee, and only that", async () => {
     const source = FIXTURE.replace(/channel Lifecycle \{[\s\S]*?\n {6}\}\n/, "");
-    const { model } = await parseString(source);
-    const dispatch = generateSystems(model).files.get("api/app/dispatch.py")!;
+    const dispatch = (await generateSystemFiles(source)).get("api/app/dispatch.py")!;
     expect(dispatch).toContain(
       "def make_dispatcher(session: AsyncSession) -> PostCommitDispatcher:",
     );

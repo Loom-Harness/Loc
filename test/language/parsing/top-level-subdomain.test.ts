@@ -9,8 +9,8 @@ import { lowerProject } from "../../../src/ir/lower/lower.js";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
 import { loadProject } from "../../../src/language/project-loader.js";
-import { generateSystemsFromLoom } from "../../../src/system/index.js";
 import { diagText, type LspDiagnostic } from "../../_helpers/diagnostics.js";
+import { generateSystemFilesFromProject } from "../../_helpers/generate.js";
 
 // Tier 1 of implicit-system-composition.md: a `subdomain` declared at the
 // top level of a sibling `.ddd` file folds into the project's single
@@ -113,7 +113,7 @@ describe("top-level subdomain composition", () => {
     expect(sub).toEqual(["People", "Sales"]);
 
     // The deployable actually hosts both — their aggregate code is emitted.
-    const { files } = generateSystemsFromLoom(loom);
+    const files = await generateSystemFilesFromProject(path.join(tmp, "project.ddd"));
     const paths = [...files.keys()].join("\n");
     expect(paths).toMatch(/customer/i);
     expect(paths).toMatch(/employee/i);
@@ -171,7 +171,7 @@ describe("top-level subdomain composition", () => {
     expect(sys.theme?.primary).toBe("#2563eb");
 
     // Generation hosts the cross-file context AND emits the cross-file e2e.
-    const { files } = generateSystemsFromLoom(loom);
+    const files = await generateSystemFilesFromProject(path.join(tmp, "main.ddd"));
     const paths = [...files.keys()].join("\n");
     expect(paths).toMatch(/customer/i);
     expect(files.has("docker-compose.yml")).toBe(true);

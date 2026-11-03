@@ -8,16 +8,14 @@
 // test/generator/typescript/intrinsic-trim.test.ts.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 import { parseString } from "../../_helpers/index.js";
 
 const DOMAIN = "api/app/domain/product.py";
 const REPO = "api/app/db/repositories/product_repository.py";
 
 async function build(source: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(source);
-  if (errors.length) throw new Error(`source has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(source);
 }
 
 describe("python generator — string.trim() intrinsic (stdlib A1 pilot)", () => {

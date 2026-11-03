@@ -1,31 +1,21 @@
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { URI } from "langium";
 import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
 import { diagText } from "../../_helpers/diagnostics.js";
+import { generateSystemFiles, generateSystemFilesFromProject } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
 
-async function buildModel(file: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(path.join(repoRoot, file)),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], {
-    validation: true,
-  });
-  return doc.parseResult.value as Model;
-}
+const buildFiles = (file: string): Promise<Map<string, string>> =>
+  generateSystemFilesFromProject(path.join(repoRoot, file));
 
 describe("react generator", () => {
   it("emits a Vite + React + RQ + Zod + Mantine shell for a react deployable", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await buildFiles("examples/acme.ddd");
     const keys = [...files.keys()];
 
     // Project shell.
@@ -54,8 +44,7 @@ describe("react generator", () => {
   });
 
   it("inherits the target's modules, so pages cover both Catalog and Sales", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await buildFiles("examples/acme.ddd");
     const keys = [...files.keys()];
     // From Catalog.
     expect(keys).toContain("web_app/src/api/product.ts");
@@ -68,8 +57,7 @@ describe("react generator", () => {
   });
 
   it("emits typed React Query hooks per HTTP route", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await buildFiles("examples/acme.ddd");
     const orderApi = files.get("web_app/src/api/order.ts")!;
     expect(orderApi).toMatch(/export function useAllOrders/);
     expect(orderApi).toMatch(/export function useOrderById/);
@@ -80,8 +68,7 @@ describe("react generator", () => {
   });
 
   it("Zod schemas mirror the wire shape — request + response", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await buildFiles("examples/acme.ddd");
     const orderApi = files.get("web_app/src/api/order.ts")!;
     expect(orderApi).toMatch(/CreateOrderRequest = z\.object/);
     expect(orderApi).toMatch(/OrderResponse = z\.object/);
@@ -91,8 +78,7 @@ describe("react generator", () => {
   });
 
   it("react-hook-form wires to mutations and surfaces notifications", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await buildFiles("examples/acme.ddd");
     const newOrder = files.get("web_app/src/pages/orders/new.tsx")!;
     expect(newOrder).toMatch(/from "react-hook-form"/);
     expect(newOrder).toMatch(/from "@hookform\/resolvers\/zod"/);
@@ -119,8 +105,7 @@ describe("react generator", () => {
     // fill hanging the real browser; the backend accepts the
     // minute-precision value (UTC-implicit), so the round-trip stays
     // correct.
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await buildFiles("examples/acme.ddd");
     const newOrder = files.get("web_app/src/pages/orders/new.tsx")!;
     expect(newOrder).toMatch(
       /<TextInput label=\{ t\("Orders\.Order\.field\.placedAt", "Placed At"\) \}[^>]*type="datetime-local"/,
@@ -136,8 +121,7 @@ describe("react generator", () => {
   });
 
   it("page object clicks the testid'd option for X id params", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await buildFiles("examples/acme.ddd");
     const orderPo = files.get("web_app/e2e/pages/order.ts")!;
     expect(orderPo).toMatch(
       /getByTestId\(`orders-op-addLine-input-productId-option-\$\{input\.productId!\}`\)/,
@@ -147,8 +131,7 @@ describe("react generator", () => {
   });
 
   it("bakes the relative /api base and proxies it to the target port in dev", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await buildFiles("examples/acme.ddd");
     const config = files.get("web_app/src/api/config.ts")!;
     // Same-origin relative base; docker-compose overrides via env, and
     // `vite dev` proxies it to the backend (so no CORS in local dev).
@@ -166,8 +149,7 @@ describe("react generator", () => {
   });
 
   it("value-object fieldsets render as filled-variant grouped sub-forms", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await buildFiles("examples/acme.ddd");
     // Product.unitPrice is a Money value object — `new` form wraps
     // its inputs in a styled <Fieldset variant="filled" radius="md">.
     const productNew = files.get("web_app/src/pages/products/new.tsx")!;
@@ -179,8 +161,7 @@ describe("react generator", () => {
   });
 
   it("emits Playwright page-object classes per aggregate under e2e/pages/", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await buildFiles("examples/acme.ddd");
     const orderPo = files.get("web_app/e2e/pages/order.ts")!;
     expect(orderPo).toMatch(/from "@playwright\/test"/);
     expect(orderPo).toMatch(/export class OrderListPage/);
@@ -201,8 +182,7 @@ describe("react generator", () => {
   });
 
   it("emits playwright.config.ts and a smoke spec under e2e/", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await buildFiles("examples/acme.ddd");
     const config = files.get("web_app/e2e/playwright.config.ts")!;
     expect(config).toMatch(/E2E_BASE_URL/);
     expect(config).toMatch(/http:\/\/localhost:3001/);
@@ -225,8 +205,7 @@ describe("react generator", () => {
   });
 
   it("emits a certs/ directory + Dockerfile that copies it (proxy-CA escape hatch)", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await buildFiles("examples/acme.ddd");
     expect(files.has("web_app/certs/.gitkeep")).toBe(true);
     expect(files.has("api/certs/.gitkeep")).toBe(true);
     expect(files.has("catalog_web/certs/.gitkeep")).toBe(true);
@@ -239,8 +218,7 @@ describe("react generator", () => {
   });
 
   it("docker-compose service has VITE_API_BASE_URL and no DB connection", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await buildFiles("examples/acme.ddd");
     const compose = files.get("docker-compose.yml")!;
     expect(compose).toMatch(/web_app:\s*\n\s*build: \.\/web_app/);
     expect(compose).toMatch(/VITE_API_BASE_URL/);
@@ -260,8 +238,7 @@ describe("react generator", () => {
 
   describe("AppShell.Navbar + NavLink sidebar redesign", () => {
     it("App.tsx mounts AppShell.Navbar with Burger toggle + grouped NavLinks", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await buildFiles("examples/acme.ddd");
       const app = files.get("web_app/src/App.tsx")!;
       // AppShell carries a navbar config.
       expect(app).toMatch(
@@ -289,8 +266,7 @@ describe("react generator", () => {
 
     // accessibility.md Phase 2 — bypass-blocks skip link + named landmarks.
     it("App.tsx emits a skip link targeting the <main> landmark", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await buildFiles("examples/acme.ddd");
       const app = files.get("web_app/src/App.tsx")!;
       // Skip link is present and points at the main-content anchor.  The label
       // is pack-chrome: bound through `t("chrome.skipToContent", …)` under i18n
@@ -305,8 +281,7 @@ describe("react generator", () => {
     });
 
     it("sidebar groups Aggregates / Workflows with Dividers + active highlighting", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await buildFiles("examples/acme.ddd");
       const app = files.get("web_app/src/App.tsx")!;
       // Section headers (the one cross-pack section-label style).
       // Headings and labels the scaffold's page `menu:` metadata authors read
@@ -332,11 +307,8 @@ describe("react generator", () => {
     });
 
     it("sidebar omits a section when the deployable has no entries of that kind", async () => {
-      const { parseHelper } = await import("langium/test");
-      const services = createDddServices(NodeFileSystem);
-      const helper = parseHelper(services.Ddd);
       // Single aggregate, no workflows.
-      const doc = await helper(
+      const files = await generateSystemFiles(
         `
         system Plain {
           subdomain M {
@@ -352,9 +324,7 @@ describe("react generator", () => {
           deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
         }
       `,
-        { validation: true },
       );
-      const { files } = generateSystems(doc.parseResult.value as Model);
       const app = files.get("web/src/App.tsx")!;
       expect(app).toMatch(
         /<div className="loom-nav-section">\{t\("WebApp\.page\.List\.menu\.section\.\w+", "Aggregates"\)\}</,
@@ -366,8 +336,7 @@ describe("react generator", () => {
   });
 
   it("App.tsx wraps Routes in an error boundary and registers a 404 catch-all", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await buildFiles("examples/acme.ddd");
     const app = files.get("web_app/src/App.tsx")!;
     // Class component error boundary at the App level.
     expect(app).toMatch(/class AppErrorBoundary extends React\.Component/);
@@ -457,8 +426,7 @@ describe("react generator", () => {
 
   describe("design tokens (theme block → Mantine theme)", () => {
     it("emits src/theme.ts with shade ramps + wires MantineProvider when theme is declared", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await buildFiles("examples/acme.ddd");
       const theme = files.get("web_app/src/theme.ts")!;
       // 10-shade arrays for each declared color, anchored at index 6.
       expect(theme).toMatch(/const brand: MantineColorsTuple = \[/);
@@ -482,10 +450,7 @@ describe("react generator", () => {
     });
 
     it("emits a default theme.ts even when the system declares no theme block", async () => {
-      const { parseHelper } = await import("langium/test");
-      const services = createDddServices(NodeFileSystem);
-      const helper = parseHelper(services.Ddd);
-      const doc = await helper(
+      const files = await generateSystemFiles(
         `
         system Untheme {
           subdomain M {
@@ -501,10 +466,7 @@ describe("react generator", () => {
           deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
         }
       `,
-        { validation: true },
       );
-      const model = doc.parseResult.value as Model;
-      const { files } = generateSystems(model);
       // Every generated React app ships with a baseline theme so it
       // looks like a coherent product rather than untouched Mantine
       // defaults.  When the DSL declares no `theme {}`, we fall back
@@ -620,8 +582,7 @@ describe("react generator", () => {
 
   describe("workflow form pages", () => {
     it("emits an api/workflows.ts module with one Zod schema + mutation hook per workflow", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await buildFiles("examples/acme.ddd");
       const api = files.get("web_app/src/api/workflows.ts")!;
       // Per-workflow request schema + inferred type.
       expect(api).toMatch(/export const PlaceOrderRequest = z\.object\(\{/);
@@ -635,8 +596,7 @@ describe("react generator", () => {
     });
 
     it("emits a per-workflow form page with typed inputs reusing the v4 form helpers", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await buildFiles("examples/acme.ddd");
       const page = files.get("web_app/src/pages/workflows/place_order.tsx")!;
       // RHF + zodResolver wiring matches the aggregate-operation pattern.
       expect(page).toMatch(/import \{ Controller, useForm \} from "react-hook-form"/);
@@ -665,8 +625,7 @@ describe("react generator", () => {
     });
 
     it("App.tsx registers /workflows + /workflows/<slug> routes and sidebar entry", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await buildFiles("examples/acme.ddd");
       const app = files.get("web_app/src/App.tsx")!;
       // Index + per-workflow imports.
       expect(app).toMatch(
@@ -693,8 +652,7 @@ describe("react generator", () => {
 
   describe("DSL e2e for ui.workflows.*", () => {
     it("emits a Playwright page object per workflow", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await buildFiles("examples/acme.ddd");
       const po = files.get("web_app/e2e/pages/workflows/place_order.ts")!;
       expect(po).toMatch(/export class PlaceOrderWorkflowPage/);
       // Typed `fill` accepting Partial<PlaceOrderRequest>.
@@ -710,8 +668,7 @@ describe("react generator", () => {
     });
 
     it("UI spec lowers ui.workflows.<name>(...) to the generated page object's run()", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await buildFiles("examples/acme.ddd");
       const ui = files.get("web_app/e2e/Acme.ui.spec.ts")!;
       // Page-object import.
       expect(ui).toMatch(
@@ -766,8 +723,7 @@ describe("react generator", () => {
   // -------------------------------------------------------------------
   describe("invariants on the wire (React Zod refines)", () => {
     it("absorbs single-field VO invariants into idiomatic native chains on <VO>Schema", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await buildFiles("examples/acme.ddd");
       const productApi = files.get("web_app/src/api/product.ts")!;
       // acme Money: invariant amount >= 0 + invariant currency.length == 3
       expect(productApi).toMatch(
@@ -787,8 +743,7 @@ describe("react generator", () => {
     });
 
     it("absorbs single-field aggregate invariants into native chains on Create<Agg>Request", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await buildFiles("examples/acme.ddd");
       const productApi = files.get("web_app/src/api/product.ts")!;
       // acme Product has `invariant sku.length > 0` — recognised as a length
       // bound, which is a CODE-POINT predicate rather than zod's code-unit
@@ -804,8 +759,7 @@ describe("react generator", () => {
     });
 
     it("absorbs single-field op-precondition into native chain on <Op>Request", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await buildFiles("examples/acme.ddd");
       const orderApi = files.get("web_app/src/api/order.ts")!;
       // acme Order.addLine: precondition qty > 0 (int qty).
       expect(orderApi).toMatch(
@@ -814,8 +768,7 @@ describe("react generator", () => {
     });
 
     it("excludes invariants referencing aggregate state (containment / helper-fn / state) from wire schemas", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await buildFiles("examples/acme.ddd");
       const orderApi = files.get("web_app/src/api/order.ts")!;
       // CreateOrderRequest carries customerId + status + placedAt.
       // Order.invariants reference `lines.count` (containment, not in body).
@@ -830,8 +783,7 @@ describe("react generator", () => {
     });
 
     it("RHF still binds zodResolver to the refined CreateProductRequest schema", async () => {
-      const model = await buildModel("examples/acme.ddd");
-      const { files } = generateSystems(model);
+      const files = await buildFiles("examples/acme.ddd");
       const newProduct = files.get("web_app/src/pages/products/new.tsx")!;
       // Existing contract — refines compose into the same
       // schema name, so the form keeps working.
@@ -844,10 +796,7 @@ describe("react generator", () => {
   // -------------------------------------------------------------------
   describe("DSL extensions", () => {
     it("absorbs `string.matches(literal)` as `z.string().regex(/.../)`", async () => {
-      const { parseHelper } = await import("langium/test");
-      const services = createDddServices(NodeFileSystem);
-      const helper = parseHelper(services.Ddd);
-      const doc = await helper(
+      const files = await generateSystemFiles(
         `
           system Acme {
             subdomain M {
@@ -867,9 +816,7 @@ describe("react generator", () => {
             deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
           }
         `,
-        { validation: true },
       );
-      const { files } = generateSystems(doc.parseResult.value as Model);
       const userApi = files.get("web/src/api/user.ts")!;
       expect(userApi).toMatch(
         /email: z\.string\(\)\.regex\(\/\^\[\^@\]\+@\.\+\$\/, \{ message: "Email is not in the expected format" \}\)/,
@@ -877,10 +824,7 @@ describe("react generator", () => {
     });
 
     it("mirrors create wire constraints onto the client Update<Agg>Request schema (SYS-1)", async () => {
-      const { parseHelper } = await import("langium/test");
-      const services = createDddServices(NodeFileSystem);
-      const helper = parseHelper(services.Ddd);
-      const doc = await helper(
+      const files = await generateSystemFiles(
         `
           system Acme {
             subdomain M {
@@ -900,9 +844,7 @@ describe("react generator", () => {
             deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
           }
         `,
-        { validation: true },
       );
-      const { files } = generateSystems(doc.parseResult.value as Model);
       const userApi = files.get("web/src/api/user.ts")!;
       // M-T6.8/SYS-1: the client Update<Agg>Request schema mirrors the create
       // schema's wire constraint, so the update form validates as strictly as
@@ -915,10 +857,7 @@ describe("react generator", () => {
     });
 
     it("desugars `field: T check <expr>` to an invariant on the parent", async () => {
-      const { parseHelper } = await import("langium/test");
-      const services = createDddServices(NodeFileSystem);
-      const helper = parseHelper(services.Ddd);
-      const doc = await helper(
+      const files = await generateSystemFiles(
         `
           system Acme {
             subdomain M {
@@ -938,9 +877,7 @@ describe("react generator", () => {
             deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
           }
         `,
-        { validation: true },
       );
-      const { files } = generateSystems(doc.parseResult.value as Model);
       const productApi = files.get("web/src/api/product.ts")!;
       // Both checks are absorbed into the field's chain — as CODE-POINT
       // predicates, not zod's code-unit `.min`/`.max` (RS-31).  The `>= 1 &&
@@ -954,10 +891,7 @@ describe("react generator", () => {
     });
 
     it("`private invariant` is skipped from wire schemas (server-only)", async () => {
-      const { parseHelper } = await import("langium/test");
-      const services = createDddServices(NodeFileSystem);
-      const helper = parseHelper(services.Ddd);
-      const doc = await helper(
+      const files = await generateSystemFiles(
         `
           system Acme {
             subdomain M {
@@ -977,9 +911,7 @@ describe("react generator", () => {
             deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
           }
         `,
-        { validation: true },
       );
-      const { files } = generateSystems(doc.parseResult.value as Model);
       const userApi = files.get("web/src/api/user.ts")!;
       // The private invariant must NOT contribute a min(3) chain or a refine.
       expect(userApi).toMatch(

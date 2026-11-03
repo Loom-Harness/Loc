@@ -27,7 +27,7 @@ import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake } from "../../../util/naming.js";
+import { factoryLocal, snake } from "../../../util/naming.js";
 import { tableNameFor } from "../../../util/storage-names.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
@@ -858,16 +858,18 @@ export function renderJavaEntity(
   }
 
   // --- event-sourced construction ----------------------------------------------
+  // The factory's instance local must not shadow one of its own parameters.
+  const esLocal = factoryLocal((esCreate?.params ?? []).map((p) => p.name));
   const esCreateFactoryLines: string[] =
     isRoot && eventSourced && esCreate
       ? [
           `    public static ${entity.name} create(${esCreate.params
             .map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`)
             .join(", ")}) {`,
-          `        var e = new ${entity.name}();`,
-          `        e.id = ${idClass}.newId();`,
-          `        e._init(${esCreate.params.map((p) => jid(p.name)).join(", ")});`,
-          `        return e;`,
+          `        var ${esLocal} = new ${entity.name}();`,
+          `        ${esLocal}.id = ${idClass}.newId();`,
+          `        ${esLocal}._init(${esCreate.params.map((p) => jid(p.name)).join(", ")});`,
+          `        return ${esLocal};`,
           `    }`,
           ``,
           `    private void _init(${esCreate.params
@@ -936,6 +938,8 @@ export function renderJavaEntity(
   // construction goes through the `_init` emit-and-fold path above).
   const createBody = isAgg(entity) ? createBodyStatements(entity) : [];
   const createParams = isAgg(entity) ? createBodyParams(entity) : [];
+  // The factory's instance local must not shadow one of its own parameters.
+  const pubLocal = factoryLocal(createInputFieldList.map((f) => f.name));
   const createPublicLines: string[] =
     isRoot && isAgg(entity) && hasCreate(entity) && !eventSourced
       ? [
@@ -952,8 +956,8 @@ export function renderJavaEntity(
                 `${renderJavaType(javaFactoryDefault(f) === undefined ? f.type : { kind: "optional", inner: f.type })} ${jid(f.name)}`,
             )
             .join(", ")}) {`,
-          `        var e = new ${entity.name}();`,
-          `        e.id = ${idClass}.newId();`,
+          `        var ${pubLocal} = new ${entity.name}();`,
+          `        ${pubLocal}.id = ${idClass}.newId();`,
           ...createInputFieldList.map((f) => {
             const dflt = javaFactoryDefault(f);
             const t = f.type.kind === "optional" ? f.type.inner : f.type;
@@ -965,7 +969,7 @@ export function renderJavaEntity(
             // corpus case).
             const given = t.kind === "array" ? `new ${ARRAY_LIST}<>(${jid(f.name)})` : jid(f.name);
             // `!= null`, not a truthiness test: an explicit 0/""/false survives.
-            return `        e.${jid(f.name)} = ${
+            return `        ${pubLocal}.${jid(f.name)} = ${
               dflt === undefined
                 ? t.kind === "array"
                   ? `${jid(f.name)} != null ? ${given} : null`
@@ -986,7 +990,10 @@ export function renderJavaEntity(
             ? constructionSeededFields(
                 entity.fields,
                 new Set(createInputFieldList.map((f) => f.name)),
-              ).map((f) => `        e.${jid(f.name)} = ${renderJavaExpr(f.default, renderCtx)};`)
+              ).map(
+                (f) =>
+                  `        ${pubLocal}.${jid(f.name)} = ${renderJavaExpr(f.default, renderCtx)};`,
+              )
             : []),
           // A field a narrowed `create(…)` leaves out with no declared default
           // is a bare `bool` or a collection (`loom.create-param-required-
@@ -1000,7 +1007,7 @@ export function renderJavaEntity(
                 )
                 .flatMap((f) => {
                   const v = javaFactoryDefault(f);
-                  return v === undefined ? [] : [`        e.${jid(f.name)} = ${v};`];
+                  return v === undefined ? [] : [`        ${pubLocal}.${jid(f.name)} = ${v};`];
                 })
             : []),
           // A server-owned field with no default (`openedAt: datetime managed`)
@@ -1010,17 +1017,21 @@ export function renderJavaEntity(
           ...(isAgg(entity)
             ? serverSeededFields(entity).map(
                 ({ field, seed }) =>
-                  `        e.${jid(field.name)} = ${javaServerInitSeed(seed, field.type)};`,
+                  `        ${pubLocal}.${jid(field.name)} = ${javaServerInitSeed(seed, field.type)};`,
               )
             : []),
-          emitTrace ? `        e._assertInvariants("<init>");` : `        e._assertInvariants();`,
+          emitTrace
+            ? `        ${pubLocal}._assertInvariants("<init>");`
+            : `        ${pubLocal}._assertInvariants();`,
           // The create body (`createBodyStatements`) runs against the
           // constructed instance, exactly like an operation body: params as
           // locals, unlisted fields already at their declared defaults.
           ...(createBody.length > 0
-            ? [`        e._createBody(${createParams.map((p) => jid(p.name)).join(", ")});`]
+            ? [
+                `        ${pubLocal}._createBody(${createParams.map((p) => jid(p.name)).join(", ")});`,
+              ]
             : []),
-          `        return e;`,
+          `        return ${pubLocal};`,
           `    }`,
           ``,
           ...(createBody.length > 0

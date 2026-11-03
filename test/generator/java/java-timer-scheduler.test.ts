@@ -10,8 +10,7 @@
 // deployable is byte-identical.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const WITH_TIMERS = `
 system Reaping {
@@ -56,9 +55,7 @@ const get =
 
 describe("timerSource → Java durable scheduler", () => {
   it("runs cron: on a JobRunr job bean + JobRunrConfig", async () => {
-    const { model, errors } = await parseString(WITH_TIMERS);
-    expect(errors).toEqual([]);
-    const g = get(generateSystems(model).files);
+    const g = get(await generateSystemFiles(WITH_TIMERS));
 
     // cron: → a JobRunr job bean (no advisory lock — JobRunr owns single-fire;
     // rethrows so JobRunr's automatic retry engages).
@@ -87,8 +84,7 @@ describe("timerSource → Java durable scheduler", () => {
   });
 
   it("keeps every: timers in-process (@Scheduled + advisory lock), not JobRunr", async () => {
-    const { model } = await parseString(WITH_TIMERS);
-    const g = get(generateSystems(model).files);
+    const g = get(await generateSystemFiles(WITH_TIMERS));
 
     const scheduler = g("d/src/main/java/com/loom/d/TimerScheduler.java");
     expect(scheduler).not.toBe("");
@@ -103,8 +99,7 @@ describe("timerSource → Java durable scheduler", () => {
   });
 
   it("is byte-identical for a timer-free deployable (no scheduler artifacts)", async () => {
-    const { model } = await parseString(NO_TIMERS);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(NO_TIMERS);
     const keys = [...files.keys()];
     expect(keys.some((k) => k.endsWith("TimerScheduler.java"))).toBe(false);
     expect(keys.some((k) => k.endsWith("JobRunrConfig.java"))).toBe(false);

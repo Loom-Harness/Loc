@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // M-T9.24 F2 — `match { … }` used as a VALUE.
@@ -64,9 +63,7 @@ system MatchExpr {
 `;
 
 async function pageFor(platform: string, match: (path: string) => boolean): Promise<string> {
-  const { model, errors } = await parseString(source(platform));
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  const files = generateSystems(model).files;
+  const files = await generateSystemFiles(source(platform));
   const hit = [...files].find(([p]) => match(p));
   if (!hit) throw new Error(`no page file for ${platform} in:\n${[...files.keys()].join("\n")}`);
   return hit[1];
@@ -105,8 +102,7 @@ describe("`match` in expression position", () => {
 
   it("no longer emits the unsupported-expression marker", async () => {
     for (const platform of ["react", "vue", "svelte", "angular", "feliz", "flutter"]) {
-      const { model } = await parseString(source(platform));
-      for (const [path, content] of generateSystems(model).files) {
+      for (const [path, content] of await generateSystemFiles(source(platform))) {
         expect(content, `${platform}: ${path}`).not.toContain("unsupported expr: match");
       }
     }

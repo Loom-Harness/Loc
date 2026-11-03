@@ -7,11 +7,14 @@ import { lowerModel } from "../../src/ir/lower/lower.js";
 import { stmtHasProv } from "../../src/ir/util/prov-id.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import { isProperty, type Model, type Property } from "../../src/language/generated/ast.js";
-import { generateSystems } from "../../src/system/index.js";
 import { captureSnapshots } from "../../src/system/loomsnap.js";
 import { type ChainEntry, serializeEntry } from "../../src/system/migration-chain.js";
 import { diagText } from "../_helpers/diagnostics.js";
-import { generateEvolvedSystemFiles, recordChain } from "../_helpers/generate.js";
+import {
+  generateEvolvedSystemFiles,
+  generateSystemFiles,
+  recordChain,
+} from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // `provenanced` stored-field modifier — per-write-site rule snapshots
@@ -216,8 +219,7 @@ describe("provenanced — IR lowering", () => {
 
 describe("provenanced — TypeScript emission", () => {
   it("emits the lineage types and the co-located backing field + history buffer", async () => {
-    const { model } = await parseModel(SYSTEM(""));
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SYSTEM(""));
     expect(files.has("api/domain/provenance.ts")).toBe(true);
     expect(files.get("api/domain/provenance.ts")!).toContain("export interface ProvLineage");
     const cart = files.get("api/domain/cart.ts")!;
@@ -234,8 +236,7 @@ describe("provenanced — TypeScript emission", () => {
   });
 
   it("persists the co-located column and the history table in the schema", async () => {
-    const { model } = await parseModel(SYSTEM(""));
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SYSTEM(""));
     const schema = files.get("api/db/schema.ts")!;
     expect(schema).toContain(", jsonb }");
     expect(schema).toContain('total_provenance: jsonb("total_provenance").$type<');
@@ -249,8 +250,7 @@ describe("provenanced — TypeScript emission", () => {
   // a separate out-of-chain migration.
   describe("provenanced — TypeScript migration", () => {
     it("creates the co-located column + the history table in the module's Initial", async () => {
-      const { model } = await parseModel(SYSTEM(""));
-      const files = generateSystems(model).files;
+      const files = await generateSystemFiles(SYSTEM(""));
       const initial = [...files.entries()].find(([k]) =>
         /db\/migrations\/\d+_.*_initial\.sql$/.test(k),
       )?.[1];
@@ -301,8 +301,7 @@ describe("provenanced — TypeScript emission", () => {
 
     it("emits no provenance migration when nothing is provenanced", async () => {
       const src = SYSTEM("").replace("total: int provenanced", "total: int");
-      const { model } = await parseModel(src);
-      const files = generateSystems(model).files;
+      const files = await generateSystemFiles(src);
       const sql = [...files.entries()].filter(([k]) => /^api\/db\/migrations\/[^/]+\.sql$/.test(k));
       expect(sql).toHaveLength(1);
       expect(sql[0]![1]).not.toContain("provenance");
@@ -350,8 +349,7 @@ describe("provenanced — TypeScript emission", () => {
   });
 
   it("flushes the history transactionally and rides the lineage on the wire", async () => {
-    const { model } = await parseModel(SYSTEM(""));
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SYSTEM(""));
     const routes = files.get("api/http/cart.routes.ts")!;
     expect(routes).toContain("await db.transaction(async (tx) => {");
     expect(routes).toContain("const __prov = aggregate.drainProv();");
@@ -375,8 +373,7 @@ describe("provenanced — TypeScript emission", () => {
   });
 
   it("stamps the request correlation id + scope id + actor id onto each provenance row", async () => {
-    const { model } = await parseModel(SYSTEM(""));
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SYSTEM(""));
     const schema = files.get("api/db/schema.ts")!;
     expect(schema).toContain('correlationId: text("correlation_id")');
     expect(schema).toContain('scopeId: text("scope_id")');
@@ -394,8 +391,7 @@ describe("provenanced — TypeScript emission", () => {
 
   it("emits nothing when no field is provenanced (toggle off)", async () => {
     const src = SYSTEM("").replace("total: int provenanced", "total: int");
-    const { model } = await parseModel(src);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(src);
     expect(files.has("api/domain/provenance.ts")).toBe(false);
     expect(files.get("api/domain/cart.ts")).not.toContain("ProvLineage");
     expect(files.get("api/db/schema.ts")).not.toContain("provenance_records");
@@ -403,8 +399,7 @@ describe("provenanced — TypeScript emission", () => {
   });
 
   it("does not auto-emit a snapshot artefact on generate", async () => {
-    const { model } = await parseModel(SYSTEM(""));
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SYSTEM(""));
     expect([...files.keys()].some((p) => p.includes("loomsnap"))).toBe(false);
   });
 });
@@ -421,7 +416,7 @@ describe("provenanced — snapshot capture", () => {
     expect(doc.system).toBe("S");
     // the write-site's snapshotId appears both in the artefact and in code.
     const id = Object.keys(doc.snapshots)[0]!;
-    const gen = generateSystems(model).files.get("api/domain/cart.ts")!;
+    const gen = (await generateSystemFiles(SYSTEM(""))).get("api/domain/cart.ts")!;
     expect(gen).toContain(`snapshotId: ${JSON.stringify(id)}`);
     expect(doc.snapshots[id].expression.text).toBe("base * qty - discount");
   });
@@ -467,9 +462,7 @@ system S {
 
 describe("provenanced — workflow capture", () => {
   it("flushes provenance for workflow-driven writes inside a child frame", async () => {
-    const { model, errors } = await parseModel(SYSTEM_WF);
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SYSTEM_WF);
     const wf = files.get("api/http/workflows.ts")!;
     expect(wf).toBeDefined();
     // The workflow body runs in a child frame so its provenance rows record a
@@ -494,9 +487,7 @@ describe("provenanced — workflow capture", () => {
     // Drop `provenanced` → no aggregate has a prov write-site → no flush, and
     // the workflow body stays in the root frame (byte-identical to before).
     const src = SYSTEM_WF.replace("total: int provenanced", "total: int");
-    const { model, errors } = await parseModel(src);
-    expect(errors).toEqual([]);
-    const wf = generateSystems(model).files.get("api/http/workflows.ts")!;
+    const wf = (await generateSystemFiles(src)).get("api/http/workflows.ts")!;
     expect(wf).not.toContain("runInChildContext");
     expect(wf).not.toContain("drainProv");
   });
@@ -541,9 +532,7 @@ system S {
 
 describe("provenanced — reactor capture", () => {
   it("flushes provenance for reactor-driven writes inside a child frame", async () => {
-    const { model, errors } = await parseModel(SYSTEM_REACTOR);
-    expect(errors).toEqual([]);
-    const wf = generateSystems(model).files.get("api/http/workflows.ts")!;
+    const wf = (await generateSystemFiles(SYSTEM_REACTOR)).get("api/http/workflows.ts")!;
     expect(wf).toBeDefined();
     // The reactor's inline op-call drains + persists its lineage (previously
     // dropped), in a child frame so the rows carry their call-structure scope.
@@ -558,9 +547,7 @@ describe("provenanced — reactor capture", () => {
 
   it("leaves a provenance-free reactor without a flush or child frame", async () => {
     const src = SYSTEM_REACTOR.replace("fee: int provenanced", "fee: int");
-    const { model, errors } = await parseModel(src);
-    expect(errors).toEqual([]);
-    const wf = generateSystems(model).files.get("api/http/workflows.ts")!;
+    const wf = (await generateSystemFiles(src)).get("api/http/workflows.ts")!;
     expect(wf).not.toContain("runInChildContext");
     expect(wf).not.toContain("drainProv");
   });

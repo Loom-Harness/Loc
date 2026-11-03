@@ -976,17 +976,7 @@ const WAIVERS: Record<string, Waiver> = {
   // Debt: each is a real gap, owned by the issue in its reason.
   "src/generator/_frontend/store-field-init.ts#renderStoreInitLiteral": {
     deferred:
-      "#4579: an unlisted init kind (ternary / convert / duration) silently becomes the type's zero",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
-  "src/generator/angular/walker/page-shell.ts#renderInitLiteral": {
-    deferred:
-      "#4579: an unlisted init kind (e.g. a negative literal as `unary`) silently mounts at the type's zero",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
-  "src/generator/vue/walker/page-shell.ts#renderInitLiteral": {
-    deferred:
-      "#4579: an unlisted init kind (e.g. a negative literal as `unary`) silently mounts at the type's zero",
+      "#4664: an unlisted init kind (ternary / convert / duration) silently becomes the type's zero",
     reviewUntil: IF_RUN_GAP_REVIEW,
   },
   "src/system/ui-e2e-render.ts#walk": {

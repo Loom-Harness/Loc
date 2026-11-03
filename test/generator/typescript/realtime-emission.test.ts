@@ -20,8 +20,7 @@ import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
 import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
 import { BACKEND_PINS } from "../../../src/platform/hono/v5/pins.js";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..", "..");
@@ -129,8 +128,7 @@ system TenantRealtime {
 
 describe("realtime rooms — Hono (tenant-scoped delivery)", () => {
   async function backendRealtime(source: string): Promise<string> {
-    const model = await parseValid(source);
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(source);
     const key = [...files.keys()].find((k) => k.endsWith("backend/http/realtime.ts"));
     expect(key, "backend realtime.ts emitted").toBeTruthy();
     return files.get(key ?? "") ?? "";
@@ -241,8 +239,7 @@ system RealtimeShop {
 
 describe("realtime SSE client — React", () => {
   it("emits src/api/realtime.ts when the targeted Hono backend has a broadcast channel", async () => {
-    const model = await parseValid(REALTIME_SYSTEM);
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(REALTIME_SYSTEM);
     const key = [...files.keys()].find((k) => k.endsWith("web_app/src/api/realtime.ts"));
     expect(key, "react realtime client emitted").toBeTruthy();
     const client = files.get(key ?? "") ?? "";
@@ -266,10 +263,9 @@ describe("realtime SSE client — React", () => {
   });
 
   it("emits no client when the system has no broadcast channel", async () => {
-    const model = await parseValid(
+    const files = await generateSystemFiles(
       REALTIME_SYSTEM.replace("delivery: broadcast", "delivery: queue"),
     );
-    const { files } = generateSystems(model);
     expect([...files.keys()].some((k) => k.endsWith("/src/api/realtime.ts"))).toBe(false);
     expect([...files.keys()].some((k) => k.endsWith("/http/realtime.ts"))).toBe(false);
   });
@@ -292,8 +288,7 @@ const HANDLERS_SYSTEM = REALTIME_SYSTEM.replace(
 
 describe("realtime live-event handlers — React (`on <channel>.<Event>`)", () => {
   it("emits RealtimeHandlers.tsx with the pack toast and mounts it in App", async () => {
-    const model = await parseValid(HANDLERS_SYSTEM);
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(HANDLERS_SYSTEM);
     const key = [...files.keys()].find((k) =>
       k.endsWith("web_app/src/components/RealtimeHandlers.tsx"),
     );
@@ -312,8 +307,7 @@ describe("realtime live-event handlers — React (`on <channel>.<Event>`)", () =
   });
 
   it("a ui without handlers gets no component and an unchanged App shell", async () => {
-    const model = await parseValid(REALTIME_SYSTEM);
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(REALTIME_SYSTEM);
     expect([...files.keys()].some((k) => k.endsWith("/RealtimeHandlers.tsx"))).toBe(false);
     const appKey = [...files.keys()].find((k) => k.endsWith("web_app/src/App.tsx"));
     expect(files.get(appKey ?? "") ?? "").not.toContain("RealtimeHandlers");
@@ -330,8 +324,7 @@ describe("realtime live-event handlers — React (`on <channel>.<Event>`)", () =
       / {2}ui WebApp \{[\s\S]*?\n {2}\}/,
       refetchUi.trimStart().replace(/^/, "  "),
     );
-    const model = await parseValid(system);
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(system);
     const key = [...files.keys()].find((k) =>
       k.endsWith("web_app/src/components/RealtimeHandlers.tsx"),
     );

@@ -5,8 +5,7 @@
 // foundation the in-process dispatcher + instance reads build on.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `system S { subdomain O { context O {
   aggregate Order { status: string  operation place() { status := "P"  emit OrderPlaced { order: id } } }
@@ -25,9 +24,7 @@ const SRC = `system S { subdomain O { context O {
   deployable api { platform: java contexts: [O] serves: A dataSources: [oState] port: 8080 } }`;
 
 async function gen(): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(SRC);
-  if (errors.length) throw new Error(errors.join("\n"));
-  return generateSystems(model).files;
+  return generateSystemFiles(SRC);
 }
 
 describe("java saga-state persistence", () => {
@@ -81,8 +78,7 @@ describe("java saga-state persistence", () => {
     } } api A from O storage pg { type: postgres }
   resource oState { for: O, kind: state, use: pg }
   deployable api { platform: java contexts: [O] serves: A dataSources: [oState] port: 8080 } }`;
-    const { model } = await parseString(PLAIN);
-    const keys = [...generateSystems(model).files.keys()];
+    const keys = [...(await generateSystemFiles(PLAIN)).keys()];
     expect(keys.some((k) => /State\.java$|StateRepository\.java$/.test(k))).toBe(false);
   });
 });
