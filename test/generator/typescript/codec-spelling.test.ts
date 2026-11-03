@@ -34,11 +34,8 @@ describe("drizzle columns", () => {
     expect(drizzleScalarColumn("File", "n")).toBe('jsonb("n")');
   });
 
-  it("spells id columns by value type", () => {
-    expect(drizzleIdColumn("guid", "id")).toBe('uuid("id")');
-    expect(drizzleIdColumn("int", "id")).toBe('integer("id")');
-    expect(drizzleIdColumn("long", "id")).toBe('bigint("id", { mode: "number" })');
-    expect(drizzleIdColumn("string", "id")).toBe('text("id")');
+  it("spells an id column as the guid's uuid", () => {
+    expect(drizzleIdColumn("id")).toBe('uuid("id")');
   });
 });
 

@@ -93,6 +93,11 @@ import {
   walkWorkflowStmtsDeep,
 } from "../../../ir/util/walk.js";
 import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
+import {
+  bodyWriteScopeGuards,
+  writeScopeContext,
+  writeScopeGuards,
+} from "../../../ir/util/write-scope-guards.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
@@ -109,7 +114,7 @@ import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
 import { optionalReadLookup, type RenderCtx, renderExpr } from "../render-expr.js";
 import { stateDefault, stateDefaultDecls } from "../state-default.js";
 import { exLit, exSentence, exValuePrefix, strictIngressFields } from "../wire-policy-ex.js";
-import { customFindReadsActor } from "./capability-filter.js";
+import { aggregateUsesPrincipalContextFilter, customFindReadsActor } from "./capability-filter.js";
 import { exMoneyGrammarRegex } from "./codec-spelling-ex.js";
 import {
   contextsHaveWireDenials,
@@ -770,7 +775,13 @@ function lowerStatement(
       // (mirrors the op-call `{:ok, _}` shape); a failure threads `{:error, _}`
       // up the with-chain so a transactional workflow rolls back.
       const action = internalDeleteFn(st.aggName, aggOf(ctx, st.aggName));
-      const call = `${contextModule}.${action}(${renderExpr(st.entity, renderCtx)})`;
+      const call = withWriteScopeGuards(
+        st,
+        `${contextModule}.${action}(${renderExpr(st.entity, renderCtx)})`,
+        renderCtx,
+        contextModule,
+        ctx,
+      );
       return [
         {
           kind: "with-clause",
@@ -1094,7 +1105,48 @@ function opCallSource(
   const op = ctx ? lookupOp(ctx, st.aggName, st.op) : undefined;
   const argFields = opCallParamFields(argTexts, op, `${st.aggName}.${st.op}`);
   const actor = ctx && opCallThreadsUser(st, ctx) ? ", current_user" : "";
-  return `${contextModule}.${snake(st.op)}_${snake(st.aggName)}(${escapeElixirIdent(snake(st.target))}, %{${argFields}}${actor})`;
+  return withWriteScopeGuards(
+    st,
+    `${contextModule}.${snake(st.op)}_${snake(st.aggName)}(${escapeElixirIdent(snake(st.target))}, %{${argFields}}${actor})`,
+    renderCtx,
+    contextModule,
+    ctx,
+  );
+}
+
+/** The with-clauses re-loading each row `st` mutates or deletes through the
+ *  context's `get_<agg>_for_write` — the load every mutation route uses — so
+ *  a row outside the caller's write scope answers `{:error, :not_found}`
+ *  (→ 404) before anything is written, and threads up the chain into the
+ *  workflow's rollback.  Empty outside a command body (`renderCtx.writeScope`
+ *  unset) and for a row the body created. */
+function writeScopeGuardClauses(
+  st: WorkflowStmtIR,
+  renderCtx: RenderCtx,
+  contextModule: string,
+  ctx?: BoundedContextIR,
+): string[] {
+  const cx = renderCtx.writeScope;
+  if (!cx) return [];
+  return writeScopeGuards(st, cx).map((g) => {
+    const agg = aggOf(ctx, g.aggName);
+    const actor = agg && aggregateUsesPrincipalContextFilter(agg) ? ", current_user" : "";
+    return `{:ok, _} <- ${contextModule}.get_${snake(g.aggName)}_for_write(${escapeElixirIdent(snake(g.name))}.id${actor})`;
+  });
+}
+
+/** `call` behind the write-scope guards of `st`: unchanged when there are
+ *  none, else an inline `with` that answers the first guard's error instead
+ *  of running the call. */
+function withWriteScopeGuards(
+  st: WorkflowStmtIR,
+  call: string,
+  renderCtx: RenderCtx,
+  contextModule: string,
+  ctx?: BoundedContextIR,
+): string {
+  const clauses = writeScopeGuardClauses(st, renderCtx, contextModule, ctx);
+  return clauses.length === 0 ? call : `(with ${clauses.join(", ")}, do: ${call})`;
 }
 
 /** Resolve a `mutating` `domain-service-call` to its inlined with-clauses
@@ -1114,9 +1166,14 @@ export function resolveInlinedServiceClauses(
   const op = svc?.operations.find((o) => o.name === st.op);
   if (!op) return [];
   const callArgs = st.call.kind === "call" ? st.call.args : [];
-  return inlineMutatingServiceCall(op, callArgs, ctx, contextModule, (e) =>
+  const inlined = inlineMutatingServiceCall(op, callArgs, ctx, contextModule, (e) =>
     renderExpr(e, renderCtx),
   );
+  // The rows the service mutates re-check their write scope ahead of its
+  // first write.
+  const guards =
+    inlined.length > 0 ? writeScopeGuardClauses(st, renderCtx, contextModule, ctx) : [];
+  return [...guards.map((text) => ({ text })), ...inlined];
 }
 
 /** Look up an operation by aggregate + op name in the context's aggregate
@@ -1196,7 +1253,12 @@ function workflowNeedsCurrentUser(wf: WorkflowIR, ctx: BoundedContextIR): boolea
       if (n.kind === "op-call" && opCallThreadsUser(n, ctx)) needs = true;
       if (n.kind === "factory-let" && factoryStampsActor(ctx, n.aggName)) needs = true;
     });
-  return needs;
+  if (needs) return true;
+  // A write-scope re-check passes the actor to `get_<agg>_for_write`.
+  return bodyWriteScopeGuards(wf.statements, writeScopeContext(wf.statements, ctx)).some((g) => {
+    const agg = aggOf(ctx, g.aggName);
+    return agg !== undefined && aggregateUsesPrincipalContextFilter(agg);
+  });
 }
 
 /** Statement kinds that are themselves fallible control flow / repo binds —
@@ -1755,7 +1817,13 @@ function renderWorkflowModule(
   const moduleName = `${appModule}.${ctxModule}.Workflows.${wfPascal}`;
   const contextModuleFq = `${appModule}.${ctxModule}`;
   const repoMod = `${appModule}.Repo`;
-  const transactional = !!wf.transactional;
+  // A body that re-checks a held row's write scope runs in one transaction,
+  // so a row outside the scope fails the whole command and rolls back the
+  // rows it already changed.
+  const writeScope = ctx ? writeScopeContext(wf.statements, ctx) : undefined;
+  const transactional =
+    !!wf.transactional ||
+    (writeScope !== undefined && bodyWriteScopeGuards(wf.statements, writeScope).length > 0);
   // Resolved transaction isolation (workflow override → state-dataSource
   // default → undefined).  Only meaningful on the transactional path.
   const isolation =
@@ -1794,6 +1862,7 @@ function renderWorkflowModule(
       ? (service, opName) => lookupServiceTier(ctx, service, opName)
       : undefined,
     readingServiceModule: contextModuleFq,
+    ...(writeScope ? { writeScope } : {}),
     // A workflow that binds `current_user` forwards it to every read that
     // scopes by the actor, as an explicit handler does.
     ...(ctx && workflowNeedsCurrentUser(wf, ctx) ? { repoRunActor: true } : {}),

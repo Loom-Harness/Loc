@@ -84,8 +84,10 @@ describe("api-surface — resolved error statuses", () => {
     const ops = deriveContextOperations(orders(model));
     const destroy = opByKey(ops, "delete", "/api/orders/{id}");
     // 422 is the parsed-`{id}` tier and is NOT remappable — only the
-    // FK-restrict conflict moves with the override.
-    expect(destroy?.errorStatuses).toEqual([404, 422, 423]);
+    // FK-restrict conflict moves with the override.  `Order` is `versioned`
+    // (the default), so its DELETE reads `If-Match` and also declares the
+    // stale-tag `ConcurrencyConflict`, which this override leaves at 409.
+    expect(destroy?.errorStatuses).toEqual([404, 409, 422, 423]);
     const cancel = opByKey(ops, "post", "/api/orders/{id}/cancel");
     // Base operation set [400, 404, 422] plus the remapped Disallowed — and no
     // stray default 409, which is what the pre-fix hardcoding produced.

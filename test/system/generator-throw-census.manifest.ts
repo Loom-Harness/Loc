@@ -18,6 +18,23 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "JACKSON_LOGICAL_TYPE is a closed emitter-side table; two primitives sharing a Jackson logical type must carry the same ingress rule, which the java wire-policy census pins. No .ddd input moves it.",
   },
+  // src/generator/_imports/dotnet.ts
+  "src/generator/_imports/dotnet.ts#csUsing": {
+    invariant:
+      'Every slot namespace is an emitter-side constant (`csUsing("System.Linq")`, the persistence/channel header slots); no .ddd input reaches it. (src/generator/_imports/dotnet.ts:59)',
+  },
+  "src/generator/_imports/dotnet.ts#finalizeCsUnit": {
+    invariant:
+      "Every `ref()` handle the .NET backend writes is a fixed BCL/package type (`cs-symbols.ts` and the emitters' constant `csRef`s), none sharing a simple name across namespaces; user type names are never written through `ref`. The wiring gate (test/generator/imports/dotnet-imports.test.ts) finalizes corpus units. (src/generator/_imports/dotnet.ts:121)",
+  },
+  "src/generator/_imports/dotnet.ts#finalizeCsUnit$2": {
+    invariant:
+      "No emitter writes an aliased handle whose alias a hand-written `using Alias = …;` line already binds to another target; aliases are emitter-side constants. (src/generator/_imports/dotnet.ts:160)",
+  },
+  "src/generator/_imports/dotnet.ts#finalizeCsUnit$3": {
+    invariant:
+      "Every emitted .cs unit has a `namespace` declaration or a leading `using` region, so a derived line always has a place; an emitter-authoring contract no .ddd input moves. (src/generator/_imports/dotnet.ts:182)",
+  },
   // src/generator/_imports/java.ts
   "src/generator/_imports/java.ts#finalizeJavaUnit": {
     invariant:
@@ -94,6 +111,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/_imports/symbol.ts#check$3": {
     invariant:
       "Import handles are constructed by emitter code from fixed module paths and names that pass through the backend's identifier escaping; a malformed handle is an emitter bug, caught at construction instead of emitting a broken import line. (src/generator/_imports/symbol.ts:52)",
+  },
+  "src/generator/_imports/symbol.ts#check$4": {
+    invariant:
+      "Only javaOnDemandRef builds an on-demand handle, always java and always named; any other on-demand handle is an emitter bug, caught at construction instead of emitting a wildcard import no unit can use. (src/generator/_imports/symbol.ts:59)",
   },
   "src/generator/_imports/symbol.ts#resolveMarkers": {
     invariant:

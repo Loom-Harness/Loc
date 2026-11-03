@@ -57,6 +57,7 @@ import {
   checkHandlerBodies,
   checkI18nBlock,
   checkIconOnlyButtonName,
+  checkIdTargets,
   checkImageAltText,
   checkInheritance,
   checkIntegerLiteralPrecision,
@@ -308,6 +309,9 @@ export class DddValidator {
     // `entity <Name>` make a bare `Name id` resolve to an arbitrary one via
     // the global scope — report the ambiguity at the reference site.
     guard("ambiguous-part-ref", model, () => checkAmbiguousPartRefs(model, accept));
+    // `X id` must name an identity — an aggregate or an entity part; a value
+    // object / enum / event / payload / workflow has no id to reference.
+    guard("id-targets", model, () => checkIdTargets(model, accept));
     // Aggregate-inheritance surface (aggregate-inheritance.md, I1):
     // `extends` may only target an `abstract` base; abstract bases have no
     // repository and declare no lifecycle actions; `inheritanceUsing: …` is

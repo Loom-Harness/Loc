@@ -40,7 +40,7 @@ const DOMAIN: { label: string; type: TypeIR }[] = [
   ...PRIMITIVES.map((name) => ({ label: `primitive ${name}`, type: prim(name) })),
   { label: "duration (expression-only)", type: prim("duration") },
   { label: "enum", type: { kind: "enum", name: "Status" } },
-  { label: "id", type: { kind: "id", targetName: "Order", valueType: "guid" } },
+  { label: "id", type: { kind: "id", targetName: "Order" } },
   { label: "entity", type: { kind: "entity", name: "Order" } },
   { label: "valueobject", type: { kind: "valueobject", name: "Address" } },
   { label: "none", type: { kind: "none" } },

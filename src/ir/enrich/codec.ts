@@ -37,7 +37,7 @@ import {
   LONG_SAFE_MAX,
   LONG_SAFE_MIN,
 } from "../../util/numeric-range.js";
-import type { IdValueType, PrimitiveName, TypeIR, ValueObjectIR } from "../types/loom-ir.js";
+import type { PrimitiveName, TypeIR, ValueObjectIR } from "../types/loom-ir.js";
 import type { ColumnType } from "../types/migrations-ir.js";
 
 // ---------------------------------------------------------------------------
@@ -296,17 +296,14 @@ export function allScalarCodecs(): readonly ScalarCodec[] {
   return Object.values(SCALARS);
 }
 
-/** The scalar an `X id` of this value type is carried as. */
-function idScalar(valueType: IdValueType): CodecPrimitive {
-  return valueType === "string" ? "string" : valueType;
-}
+/** The scalar every `X id` is carried as — identities are guids. */
+const ID_SCALAR: CodecPrimitive = "guid";
 
-/** The column an `X id` / primary key of this value type is stored in.  Not
- *  `scalarCodec(idScalar(v)).column`: the two agree today, and are named
- *  separately so a key column can change (a `bigserial`) without touching the
- *  scalar. */
-export function idColumn(valueType: IdValueType): ColumnType {
-  return scalarCodec(idScalar(valueType)).column;
+/** The column an `X id` / primary key is stored in.  Named separately from
+ *  `scalarCodec(ID_SCALAR).column` so a key column can change without
+ *  touching the scalar. */
+export function idColumn(): ColumnType {
+  return scalarCodec(ID_SCALAR).column;
 }
 
 // ---------------------------------------------------------------------------
@@ -353,7 +350,7 @@ function codecOfAt(t: TypeIR, lookupVo: ValueObjectLookup | undefined, seen: Set
         ? { kind: "opaque", reason: "duration is expression-only" }
         : { kind: "scalar", scalar: scalarCodec(t.name) };
     case "id":
-      return { kind: "id", target: t.targetName, scalar: scalarCodec(idScalar(t.valueType)) };
+      return { kind: "id", target: t.targetName, scalar: scalarCodec(ID_SCALAR) };
     case "enum":
       return { kind: "enum", name: t.name, scalar: scalarCodec("string") };
     case "optional":
