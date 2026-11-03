@@ -138,6 +138,39 @@ describe("loom.rule-message-removed", () => {
   });
 });
 
+describe("loom.rule-message-removed — suggested name for a blank message", () => {
+  const hint = async (body: string): Promise<string> => {
+    const { diagnostics } = await parseString(wrap(body));
+    return diagnostics.find((d) => d.code === "loom.rule-message-removed")!.message;
+  };
+
+  it("derives an invariant's name from the first field it reads", async () => {
+    const msg = await hint(`qty: int
+        invariant qty >= 0 message ""`);
+    expect(msg).toContain("invariant qtyValid: …");
+    expect(msg).not.toContain("ruleRule");
+  });
+
+  it("derives a field check's name from the field", async () => {
+    const msg = await hint(`qty: int check qty >= 0 message "  "`);
+    expect(msg).toContain("qtyValid");
+    expect(msg).not.toContain("ruleRule");
+  });
+
+  it("falls back to the rule's position when the expression names no field", async () => {
+    const msg = await hint(`qty: int
+        invariant true message ""`);
+    expect(msg).toContain("invariant invariant1: …");
+  });
+
+  it("does not collide with a name the owner already declares", async () => {
+    const msg = await hint(`qty: int
+        invariant qtyValid: qty < 1000
+        invariant qty >= 0 message ""`);
+    expect(msg).toContain("invariant qtyValid2: …");
+  });
+});
+
 describe("rule keys — lowering", () => {
   it("keys a named rule by identity and leaves an unnamed one keyless", async () => {
     const ir = await buildLoomModel(
