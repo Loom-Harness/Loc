@@ -5,8 +5,7 @@
 // inheritance — `mypy --strict` proves conformance at the workflow call site.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   system S {
@@ -26,7 +25,7 @@ const SRC = `
 `;
 
 async function files(): Promise<Map<string, string>> {
-  return (await generateSystems(await parseValid(SRC))).files;
+  return await generateSystemFiles(SRC);
 }
 
 function get(map: Map<string, string>, suffix: string): string {

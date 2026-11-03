@@ -4,6 +4,7 @@ import {
   UI_BODY_FEATURE_RENDERERS,
   type UiBodyFeature,
 } from "../../src/ir/validate/checks/ui-body-vocabulary-checks.js";
+import { expectReach } from "../_helpers/census-reach.js";
 import { generateSystemFilesUnchecked } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
@@ -422,6 +423,10 @@ async function measure(fw: Frontend): Promise<Map<number, Outcome>> {
 }
 
 describe("ui-body census — every frontend × body shape renders or is refused", () => {
+  it("measures its full matrix", () => {
+    expectReach("frontend × probe cells", FRONTENDS.length * PROBES.length, 252);
+  });
+
   for (const fw of FRONTENDS) {
     it(fw, async () => {
       const cells = await measure(fw);

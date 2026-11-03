@@ -12,6 +12,7 @@
 // asserted explicitly.  Pure string emission, no IO; runs in <50ms.
 
 import { describe, expect, it } from "vitest";
+import { hasMarkers, spellMarkers } from "../../../src/generator/_imports/symbol.js";
 import { renderCsExpr, renderCsType } from "../../../src/generator/dotnet/render-expr.js";
 import type { ExprIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
 import type { ExprOf } from "../../_helpers/ir-builders.js";
@@ -154,16 +155,17 @@ describe("dotnet renderCsExpr — member + method-call", () => {
   });
 
   it("renders `string.matches(literal)` as `Regex.IsMatch(recv, pattern)`", () => {
-    expect(
-      renderCsExpr({
-        kind: "method-call",
-        receiver: thisProp("email"),
-        member: "matches",
-        args: [litStr("^[^@]+@.+$")],
-        receiverType: STRING,
-        isCollectionOp: false,
-      }),
-    ).toBe('Regex.IsMatch(this.Email, "^[^@]+@.+$")');
+    const out = renderCsExpr({
+      kind: "method-call",
+      receiver: thisProp("email"),
+      member: "matches",
+      args: [litStr("^[^@]+@.+$")],
+      receiverType: STRING,
+      isCollectionOp: false,
+    });
+    // `Regex` is written through `ref`, so the hosting file derives its using.
+    expect(hasMarkers(out)).toBe(true);
+    expect(spellMarkers(out)).toBe('Regex.IsMatch(this.Email, "^[^@]+@.+$")');
   });
 
   it("renders the `string.trim()` intrinsic as `.Trim()`", () => {

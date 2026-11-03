@@ -41,6 +41,7 @@ import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
+import { NPM_FETCH_RETRY_FLAGS } from "../_docker/node-stage.js";
 import {
   E2E_FIXTURES_TS,
   E2E_PACKAGE_JSON,
@@ -1875,7 +1876,7 @@ function renderAppFs(
     // A rejected submit's decoded ProblemDetails — the error every create /
     // operation / workflow Api fn fails with, so it precedes `Api`.
     hasFormSubmits && "",
-    hasFormSubmits && renderServerErrorsModule(),
+    hasFormSubmits && renderServerErrorsModule(i18nEnabled),
     // Api module — reads (fetch + decode), mutations (verb request), creates (POST).
     hasHttp && "",
     hasHttp && api,
@@ -1883,7 +1884,7 @@ function renderAppFs(
     // (validated forms), so a form-only page still gets the helper.
     (hasReads || hasFieldErrors || usesChart || hasForms) && "",
     (hasReads || hasFieldErrors || usesChart || hasForms) &&
-      renderViewModule(reads, hasIdSelect, hasFieldErrors, usesChart, hasForms),
+      renderViewModule(reads, hasIdSelect, hasFieldErrors, usesChart, hasForms, i18nEnabled),
     // Routing table (multi-page only) — Page union + parseUrl, ahead of Model.
     routed && "",
     routed && renderRouting(pages, nameCtx, usesRouteIdFn(update, init)),
@@ -2183,7 +2184,7 @@ const STYLES_CSS = `@tailwind base;
 // step needs Node, so the build stage carries both; the runtime stage serves
 // the static bundle.  (Compose-boot verification is a follow-up slice; this
 // makes the emitted tree structurally buildable.)
-const DOCKERFILE = `# syntax=docker/dockerfile:1
+export const DOCKERFILE = `# syntax=docker/dockerfile:1
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /app
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \\
@@ -2191,7 +2192,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \\
   && rm -rf /var/lib/apt/lists/*
 COPY . .
 RUN dotnet tool restore
-RUN npm install
+RUN npm install --no-audit --no-fund ${NPM_FETCH_RETRY_FLAGS}
 RUN npm run build
 
 FROM nginx:1.27-alpine AS runtime

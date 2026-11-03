@@ -36,31 +36,23 @@
 // .NET emit is more specific than their OpenAPI schemas admit; the
 // frontend ACL reads the body directly.
 
+import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateDotnet } from "../../_helpers/generate.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
 
-async function buildModel(file: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(path.join(repoRoot, file)),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  return doc.parseResult.value as Model;
+/** The `.NET` project for a bare-context example, hosted on one deployable. */
+function generateExample(file: string): Promise<Map<string, string>> {
+  return generateBackendFiles(readFileSync(path.join(repoRoot, file), "utf8"), "dotnet");
 }
 
 describe(".NET validation-error extension — DomainExceptionFilter emission", () => {
   it('FluentValidation arm emits 422 ProblemDetails with Extensions["errors"]', async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
+    const files = await generateExample("examples/sales.ddd");
     const filter = files.get("Api/DomainExceptionFilter.cs")!;
     // Catches FluentValidation.ValidationException.
     expect(filter).toMatch(/is FluentValidation\.ValidationException fv/);
@@ -93,8 +85,7 @@ describe(".NET validation-error extension — DomainExceptionFilter emission", (
   });
 
   it("PointerOf helper converts FluentValidation paths to RFC 6901 JSON pointers", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
+    const files = await generateExample("examples/sales.ddd");
     // The helper moved to Api/ValidationProblem.cs, which is emitted
     // unconditionally: MVC's invalid-model-state factory needs the same
     // pointer conversion, and that path exists whether or not the model has
@@ -118,8 +109,7 @@ describe(".NET validation-error extension — DomainExceptionFilter emission", (
   });
 
   it("emits the using directives the helper needs when validators are present", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
+    const files = await generateExample("examples/sales.ddd");
     const filter = files.get("Api/DomainExceptionFilter.cs")!;
     expect(filter).toMatch(/using System\.Collections\.Generic;/);
     expect(filter).toMatch(/using System\.Linq;/);
@@ -130,10 +120,7 @@ describe(".NET validation-error extension — DomainExceptionFilter emission", (
     // Plain aggregate with no wire-translatable invariants → no
     // FluentValidation pipeline → no PointerOf helper → no
     // System.Linq / System.Text.Json / System.Collections.Generic usings.
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
+    const files = await generateBackendFiles(
       `
         context Plain {
           aggregate Note {
@@ -144,9 +131,8 @@ describe(".NET validation-error extension — DomainExceptionFilter emission", (
           repository Notes for Note { }
         }
       `,
-      { validation: true },
+      "dotnet",
     );
-    const files = generateDotnet(doc.parseResult.value as Model);
     const filter = files.get("Api/DomainExceptionFilter.cs")!;
     expect(filter).not.toMatch(/PointerOf/);
     expect(filter).not.toMatch(/is FluentValidation\.ValidationException/);
@@ -161,8 +147,7 @@ describe(".NET validation-error extension — DomainExceptionFilter emission", (
     // controllers' create / operation / workflow actions carry
     // [ProducesResponseType(typeof(ProblemDetails), 422)] alongside the
     // existing 400 attribute.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
+    const files = await generateExample("examples/sales.ddd");
     const controllerKey = [...files.keys()].find(
       (k) => k.endsWith("Controller.cs") && !k.endsWith("DomainExceptionFilter.cs"),
     );
@@ -178,8 +163,7 @@ describe(".NET validation-error extension — DomainExceptionFilter emission", (
     // declaration with the §3.2 `errors[]` array (per-field
     // `{ pointer, message }`) the runtime FluentValidation arm emits,
     // so the published OpenAPI contract matches the actual wire body.
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
+    const files = await generateExample("examples/sales.ddd");
     const filter = files.get("Api/ProblemDetailsResponsesFilter.cs")!;
     expect(filter).toMatch(/AugmentProblemDetailsSchema/);
     // The augmentation runs on the SchemaRepository so it's idempotent

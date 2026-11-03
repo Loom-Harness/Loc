@@ -64,7 +64,7 @@ describe("registry self-scope filter (enrichment derivation)", () => {
         receiver: { kind: "this" },
         member: "id",
         receiverType: { kind: "entity", name: "Organization" },
-        memberType: { kind: "id", targetName: "Organization", valueType: "guid" },
+        memberType: { kind: "id", targetName: "Organization" },
       },
       right: {
         kind: "member",
@@ -155,15 +155,12 @@ describe("registry self-scope filter (enrichment derivation)", () => {
 });
 
 describe("tenancyClaimBinding", () => {
-  it("classifies the id/claim type link", () => {
-    expect(tenancyClaimBinding("guid", { kind: "primitive", name: "guid" })).toBe("same");
-    expect(tenancyClaimBinding("guid", { kind: "primitive", name: "string" })).toBe(
-      "guid-from-string",
-    );
-    expect(tenancyClaimBinding("string", { kind: "primitive", name: "string" })).toBe("same");
-    expect(tenancyClaimBinding("guid", { kind: "primitive", name: "int" })).toBe("mismatch");
-    expect(tenancyClaimBinding("string", { kind: "primitive", name: "guid" })).toBe("mismatch");
-    expect(tenancyClaimBinding("int", undefined)).toBe("mismatch");
+  it("classifies the claim type against the registry's guid id", () => {
+    expect(tenancyClaimBinding({ kind: "primitive", name: "guid" })).toBe("same");
+    expect(tenancyClaimBinding({ kind: "primitive", name: "string" })).toBe("guid-from-string");
+    expect(tenancyClaimBinding({ kind: "primitive", name: "int" })).toBe("mismatch");
+    expect(tenancyClaimBinding({ kind: "enum", name: "Org" })).toBe("mismatch");
+    expect(tenancyClaimBinding(undefined)).toBe("mismatch");
   });
 });
 

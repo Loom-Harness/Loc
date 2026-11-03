@@ -50,10 +50,10 @@ describe("feliz per-field form validation", () => {
     expect(app).toContain("let productCreateFormValid (form: ProductCreateForm) : bool =");
     // Plus a per-field error function returning a message option.
     expect(app).toContain(
-      "let productCreateFormNameError (form: ProductCreateForm) : string option =",
+      "let productCreateFormNameError (form: ProductCreateForm) : (string * string) option =",
     );
     expect(app).toContain(
-      'if System.String.IsNullOrWhiteSpace form.name then Some "Required" else None',
+      'if System.String.IsNullOrWhiteSpace form.name then Some ("field.missing", "Required") else None',
     );
   });
 
@@ -65,7 +65,7 @@ describe("feliz per-field form validation", () => {
     // helper (beside View.remoteList) — not inlined at every input.  It takes the
     // error element's id (for the input's aria-describedby).
     expect(app).toContain(
-      "  let fieldError (touched: Set<string>) (name: string) (fieldId: string) (err: string option) : ReactElement =",
+      "  let fieldError (touched: Set<string>) (name: string) (fieldId: string) (err: (string * string) option) : ReactElement =",
     );
     expect(app).toContain(
       '(View.fieldError model.ProductCreateFormTouched "name" "ProductCreateForm-name-error" (Validation.productCreateFormNameError model.ProductCreateForm))',

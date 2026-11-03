@@ -12,13 +12,16 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { platformFamily } from "../../../language/validators/data/platform-rules.js";
 import { pagedReturn } from "../../stdlib/generics.js";
 import type { SystemIR } from "../../types/loom-ir.js";
 import { isQueryTimeProjection } from "../../types/loom-ir.js";
 import { pagedRunBodyIsPure, pagedRunStmt } from "../../util/paged-run.js";
+import { projectionSourceContext } from "../../util/projection-source.js";
 import {
   columnlessProjectionSource,
   documentAggregationSource,
+  queryProjectionArm,
   unappliedCapabilityFilters,
 } from "../../util/query-projection-arm.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -129,6 +132,52 @@ export function validateDocumentAggregationFilters(sys: SystemIR, diags: LoomDia
             caps: caps.join(", "),
           }),
           source: `${ctx.name}/${p.name}`,
+          origin: p.origin,
+        });
+      }
+    }
+  }
+}
+
+// CROSS-CONTEXT repository-sourced projection — per backend.
+//
+// The per-row arm reads its source through a find synthesised on the source
+// aggregate's repository.  node, python and .NET synthesise those finds from
+// the projections declared in the aggregate's OWN context, so a projection in
+// another context calls a repository method that is never emitted.  java and
+// elixir resolve the source's home context and emit it.  The direct-table
+// arms (whole-table, grouped) and the workflow / projection sources read the
+// table themselves and are not affected.
+// ---------------------------------------------------------------------------
+
+const CROSS_CONTEXT_REPOSITORY_ARM_FAMILIES: ReadonlySet<string> = new Set(["java", "elixir"]);
+
+export function validateCrossContextRepositoryProjections(
+  sys: SystemIR,
+  diags: LoomDiagnostic[],
+): void {
+  const contexts = sys.subdomains.flatMap((sd) => sd.contexts);
+  for (const dep of sys.deployables) {
+    const family = platformFamily(dep.platform);
+    if (!family || CROSS_CONTEXT_REPOSITORY_ARM_FAMILIES.has(family)) continue;
+    for (const ctxName of dep.contextNames) {
+      const ctx = contexts.find((c) => c.name === ctxName);
+      if (!ctx) continue;
+      for (const p of ctx.projections ?? []) {
+        if (!isQueryTimeProjection(p) || queryProjectionArm(p) !== "repository") continue;
+        const home: typeof ctx | undefined = projectionSourceContext(p, ctx, contexts);
+        if (!home || home === ctx) continue;
+        diags.push({
+          severity: "error",
+          code: "loom.projection-cross-context-source-unsupported",
+          message: diagMessage("loom.projection-cross-context-source-unsupported", {
+            name: p.name,
+            ctxName: ctx.name,
+            source: p.query!.source,
+            homeName: home.name,
+            platform: dep.platform,
+          }),
+          source: `${sys.name}/${dep.name}`,
           origin: p.origin,
         });
       }

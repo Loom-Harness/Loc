@@ -32,15 +32,14 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..", "..", "..");
 
 async function generateFromFile(file: string): Promise<Map<string, string>> {
   const src = readFileSync(resolve(repoRoot, file), "utf8");
-  return generateSystems(await parseValid(src)).files;
+  return generateSystemFiles(src);
 }
 
 /** Extract every `data-testid="..."` literal from a TSX string. */

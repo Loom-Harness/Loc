@@ -1,5 +1,6 @@
 import type { ExprIR, InvariantIR } from "../../ir/types/loom-ir.js";
 import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
+import { clientRuleCode } from "../_frontend/error-codes.js";
 import { takeSingleFieldChain } from "../zod-refine.js";
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,10 @@ export interface FelizFieldRule {
   /** The inline message — rule-specific, not the flat "Required" this
    *  frontend used to be limited to. */
   message: string;
+  /** The catalog code the message renders under (a named rule's identity key,
+   *  an unnamed single-field rule's `field.rule`): the view translates it with
+   *  `I18n.t code message` when it RENDERS. */
+  code: string;
 }
 
 /** F# code-point length of a string expression.  `Seq.length` over an F#
@@ -82,7 +87,11 @@ function dec(n: number): string {
  *  twin of `validatorsForPattern` (Angular) and `chainSingleFieldNative` (zod).
  *  A `between` / length range expands to a low+high pair, mirroring the two
  *  chained zod calls. */
-function rulesForPattern(p: SingleFieldPattern, access: string): FelizFieldRule[] {
+function rulesForPattern(p: SingleFieldPattern, access: string, code: string): FelizFieldRule[] {
+  return plainRules(p, access).map((r) => ({ ...r, code }));
+}
+
+function plainRules(p: SingleFieldPattern, access: string): Omit<FelizFieldRule, "code">[] {
   switch (p.kind) {
     case "min": {
       // `violated` is the NEGATION of the bound, so an unparseable / blank cell
@@ -189,7 +198,7 @@ export function felizFieldRules(
     const guarded = unguardedOptional(inv);
     const taken = takeSingleFieldChain(guarded.inv, ctx);
     if (!taken || (guarded.field !== undefined && taken.field !== guarded.field)) continue;
-    const rules = rulesForPattern(taken.pattern, accessFor(taken.field));
+    const rules = rulesForPattern(taken.pattern, accessFor(taken.field), clientRuleCode(inv));
     if (rules.length === 0) continue;
     out.set(taken.field, [...(out.get(taken.field) ?? []), ...rules]);
   }

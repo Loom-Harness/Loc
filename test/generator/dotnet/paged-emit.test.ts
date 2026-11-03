@@ -7,14 +7,8 @@
 // `build-generated-dotnet` (examples/paged-dotnet.ddd); these unit tests pin
 // the emitted C# shape.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
-import { generateDotnet } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Orders {
@@ -29,7 +23,7 @@ const SRC = `
 `;
 
 async function files(): Promise<Map<string, string>> {
-  return generateDotnet(await parseValid(SRC));
+  return generateBackendFiles(SRC, "dotnet");
 }
 
 describe(".NET generator — paged reads (P3b)", () => {
@@ -140,11 +134,7 @@ system Shop {
     port: 8080
   }
 }`;
-    const services = createDddServices(NodeFileSystem);
-    const doc = await parseHelper(services.Ddd)(SRC, { validation: true });
-    const errs = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-    if (errs.length) throw new Error(errs.map((e) => e.message).join("\n"));
-    const files = generateSystems(doc.parseResult.value as Model).files;
+    const files = await generateSystemFiles(SRC);
     return files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
   }
 

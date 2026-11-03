@@ -13,29 +13,10 @@
 // end-to-end by the LOOM_DOTNET_BUILD `stamps-principal.ddd` cell; this suite
 // pins the emitted constructs in the fast suite.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
-
-async function build(source: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const helper = parseHelper(services.Ddd);
-  const doc = await helper(source, { validation: true });
-  const diagErrs = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  if (diagErrs.length) {
-    throw new Error(
-      `diagnostics:\n${diagErrs
-        .map((e) => `${e.range.start.line + 1}:${e.range.start.character + 1} ${e.message}`)
-        .join("\n")}`,
-    );
-  }
-  return doc.parseResult?.value as Model;
-}
 
 const SOURCE = `
 system PS {
@@ -62,7 +43,7 @@ system PS {
 
 describe(".NET lifecycle stamping (AuditableInterceptor)", () => {
   it("keeps stamped entity fields `private set` (no marker, no `internal set` leak)", async () => {
-    const files = generateSystems(await build(SOURCE)).files;
+    const files = await generateSystemFiles(SOURCE);
     // No marker interface is emitted — the concrete switch needs none.
     expect(files.has("api/Domain/Common/IAuditable.cs")).toBe(false);
     const entity = files.get("api/Domain/Orders/Order.cs")!;
@@ -101,7 +82,7 @@ system TS {
   deployable api { platform: dotnet, contexts: [Ledger], dataSources: [st], serves: A, port: 8081, auth: required }
 }
 `;
-    const files = generateSystems(await build(claim)).files;
+    const files = await generateSystemFiles(claim);
     const src = files.get("api/Infrastructure/Persistence/AuditableInterceptor.cs")!;
     expect(src).toMatch(
       /ctx\.Entry\(e\)\.Property\(x => x\.TenantId\)\.CurrentValue = RequestContext\.Current!\.CurrentUser!\.TenantId;/,
@@ -145,7 +126,7 @@ system PS {
   deployable api { platform: dotnet, contexts: [Orgs, Shop], dataSources: [so, st], auth: required, port: 8081 }
 }
 `;
-    const files = generateSystems(await build(twoCaps)).files;
+    const files = await generateSystemFiles(twoCaps);
     const src = files.get("api/Infrastructure/Persistence/AuditableInterceptor.cs")!;
     // The block's extent is anchored on the OPENING brace's indentation and a
     // backreference to it, not on the first `\n<ws>}`.  The arm legitimately

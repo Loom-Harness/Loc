@@ -1,4 +1,8 @@
-import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
+import {
+  destroyVersionCheck,
+  operationVersionCheck,
+  readsIfMatch,
+} from "../../../ir/enrich/version-check.js";
 import {
   fieldFixedMessage,
   type WireRejectionClass,
@@ -139,7 +143,8 @@ export function renderJavaController(
   // Other routes thread nothing → byte-identical routes.
   const readsIfMatchFor = (op: OperationIR): boolean =>
     readsIfMatch(operationVersionCheck(agg, op));
-  const versioned = agg.operations.some(readsIfMatchFor);
+  const destroyReadsIfMatch = readsIfMatch(destroyVersionCheck(agg));
+  const versioned = agg.operations.some(readsIfMatchFor) || destroyReadsIfMatch;
   //
   // The header binds as a STRING and is parsed by the shared `IfMatch` helper,
   // not as a `@RequestHeader … Integer`.  An entity-tag is a QUOTED string
@@ -151,15 +156,14 @@ export function renderJavaController(
   // so java binding the raw value to a number was the one backend that could
   // not accept what the others do — invisible because no generated client has
   // ever sent the header.
+  const ifMatchHeader = `, @RequestHeader(value = "If-Match", required = false) String ifMatch`;
   const ifMatchHeaderParam = (op: OperationIR): string =>
-    readsIfMatchFor(op)
-      ? `, @RequestHeader(value = "If-Match", required = false) String ifMatch`
-      : "";
+    readsIfMatchFor(op) ? ifMatchHeader : "";
   const ifMatchServiceArg = (op: OperationIR): string =>
     readsIfMatchFor(op) ? ", IfMatch.expectedVersion(ifMatch)" : "";
   // The id's raw value type — `UUID` as an import marker (M-T9.86), so the
   // path-variable / find-param spellings below derive their own import.
-  const idJava = javaIdValueType(agg.idValueType);
+  const idJava = javaIdValueType();
 
   // Authorization gates on finds (default-deny) — a `requires <expr>` runs in
   // the controller action before delegating to the service, throwing
@@ -353,8 +357,10 @@ export function renderJavaController(
     ? [
         `    @DeleteMapping("${relativeOpPath(destroyEntry)}")`,
         `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
-        `    public void destroy${agg.name}(@PathVariable ${idJava} id) {`,
-        `        service.destroy${agg.name}(new ${idClass}(id));`,
+        `    public void destroy${agg.name}(@PathVariable ${idJava} id${destroyReadsIfMatch ? ifMatchHeader : ""}) {`,
+        `        service.destroy${agg.name}(new ${idClass}(id)${
+          destroyReadsIfMatch ? ", IfMatch.expectedVersion(ifMatch)" : ""
+        });`,
         `    }`,
         ``,
       ]
@@ -1071,7 +1077,38 @@ export function renderApiExceptionAdvice(
     `        if (overflow != null) {`,
     `            return onWireFormat(new WireFormatException(overflow, ${javaLit(fieldFixedMessage("integer-range"))}), request);`,
     `        }`,
+    `        var badId = malformedIdPointer(e);`,
+    `        if (badId != null) {`,
+    `            return onWireFormat(new WireFormatException(badId, ${javaLit(fieldFixedMessage("malformed-id"))}), request);`,
+    `        }`,
     `        return respond(problem(${wireStatus("malformed-body")}, ${title("malformed-body")}, ${fixed("malformed-body")}, request), ${wireStatus("malformed-body")});`,
+    `    }`,
+    ``,
+    // A body `X id` that is not a uuid (`{"agent":"nope"}`) is well-formed JSON
+    // with one refused FIELD value — `malformed-id`, a `field-invalid` 422 at
+    // its pointer (wirePolicy), never the syntax-error 400.
+    `    /** The RFC 6901 pointer of the uuid field Jackson refused as malformed,`,
+    `     *  or null when the failure is anything else (a real syntax error). */`,
+    `    private static String malformedIdPointer(Throwable e) {`,
+    `        boolean badUuid = false;`,
+    `        java.util.List<tools.jackson.core.JacksonException.Reference> path = java.util.List.of();`,
+    `        for (Throwable t = e; t != null; t = t.getCause() == t ? null : t.getCause()) {`,
+    `            if (t instanceof tools.jackson.databind.exc.InvalidFormatException ife`,
+    `                    && java.util.UUID.class.equals(ife.getTargetType())) badUuid = true;`,
+    `            if (t instanceof tools.jackson.core.JacksonException je && je.getPath().size() > path.size()) {`,
+    `                path = je.getPath();`,
+    `            }`,
+    `        }`,
+    `        return badUuid && !path.isEmpty() ? pointerOfPath(path) : null;`,
+    `    }`,
+    ``,
+    `    private static String pointerOfPath(java.util.List<tools.jackson.core.JacksonException.Reference> path) {`,
+    `        var out = new StringBuilder();`,
+    `        for (var ref : path) {`,
+    `            var seg = ref.getPropertyName() != null ? ref.getPropertyName() : String.valueOf(ref.getIndex());`,
+    `            out.append('/').append(seg.replace("~", "~0").replace("/", "~1"));`,
+    `        }`,
+    `        return out.toString();`,
     `    }`,
     ``,
     `    /** The RFC 6901 pointer of the integral field Jackson refused as out of`,
@@ -1087,13 +1124,7 @@ export function renderApiExceptionAdvice(
     `                path = je.getPath();`,
     `            }`,
     `        }`,
-    `        if (!coercion || path.isEmpty()) return null;`,
-    `        var out = new StringBuilder();`,
-    `        for (var ref : path) {`,
-    `            var seg = ref.getPropertyName() != null ? ref.getPropertyName() : String.valueOf(ref.getIndex());`,
-    `            out.append('/').append(seg.replace("~", "~0").replace("/", "~1"));`,
-    `        }`,
-    `        return out.toString();`,
+    `        return coercion && !path.isEmpty() ? pointerOfPath(path) : null;`,
     `    }`,
     ``,
     // A path `{id}` / typed query param that will not CONVERT — `GET

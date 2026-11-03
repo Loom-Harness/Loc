@@ -13,7 +13,6 @@ import type {
   EnrichedEntityPartIR,
   ExprIR,
   FieldIR,
-  IdValueType,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
@@ -36,6 +35,7 @@ import { ruleText } from "../../_i18n/rule-text.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import { csMemberScope, csParamIdent, csProjectType, typeMemberNames } from "../bcl-collision.js";
+import { sortedCsUsings } from "../cs-symbols.js";
 import { collectCsExprUsings, csNewIdValue, renderCsExpr, renderCsType } from "../render-expr.js";
 import {
   collectCsStmtUsings,
@@ -200,10 +200,8 @@ export function weaveLineDirectives(
  *  `sharesIdentity` distinguishes TPH (`sharedTable`) from TPC (`ownTable`):
  *  a TPH concrete shares the base's single-table primary key, so the base
  *  owns the `Id` property and the concrete must NOT declare its own (it
- *  inherits the strongly-typed `<Base>Id`).  `idValueType` carries the
- *  base's id value type so the concrete's `Create` factory mints the
- *  inherited key with the right `csNewIdValue`.  A TPC concrete leaves both
- *  unset and keeps its own `<Concrete>Id`. */
+ *  inherits the strongly-typed `<Base>Id`).  A TPC concrete leaves it unset
+ *  and keeps its own `<Concrete>Id`. */
 export interface SuperTypeInfo {
   readonly name: string;
   readonly fieldNames: ReadonlySet<string>;
@@ -212,7 +210,6 @@ export interface SuperTypeInfo {
    *  hide the inherited member (CS0108, fatal under `/warnaserror`). */
   readonly derivedNames?: ReadonlySet<string>;
   readonly sharesIdentity?: boolean;
-  readonly idValueType?: IdValueType;
 }
 
 /** Claim-valued principal stamps (`tenantId := currentUser.tenantId`) for one
@@ -313,14 +310,10 @@ export function renderEntity(
   // EnrichedEntityPartIR — wrapped in a type predicate so the union
   // narrows in every downstream consumer without per-site casts.
   const isAgg = (e: typeof entity): e is EnrichedAggregateIR => "operations" in e;
-  const idValueType = isAgg(entity) ? entity.idValueType : "guid";
   // TPH (`sharesIdentity`): the concrete shares the base's single-table key,
-  // so its `Id` / `State.Id` / `Create` mint the inherited `<Base>Id` with the
-  // base's value type.  TPC and standalone aggregates use their own id class.
+  // so its `Id` / `State.Id` / `Create` mint the inherited `<Base>Id`.  TPC
+  // and standalone aggregates use their own id class.
   const idClass = superType?.sharesIdentity ? `${superType.name}Id` : `${entity.name}Id`;
-  const effIdValueType: IdValueType = superType?.sharesIdentity
-    ? (superType.idValueType ?? idValueType)
-    : idValueType;
   const operations = isAgg(entity) ? entity.operations : [];
   // Public `Create(...)` factory params — the create-input set
   // (`forCreateInput`, incl. optionals), matching the CreateCommand/handler
@@ -761,7 +754,7 @@ export function renderEntity(
             .join(", ")})`,
           "    {",
           `        var e = new ${entity.name}();`,
-          `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType, renderCtx.memberScope)});`,
+          `        e.Id = new ${idClass}(${csNewIdValue(renderCtx.memberScope)});`,
           `        e._Init(${esCreate.params.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
           "        return e;",
           "    }",
@@ -986,7 +979,7 @@ export function renderEntity(
             .join(", ")})`,
           "    {",
           `        var e = new ${entity.name}();`,
-          `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType, renderCtx.memberScope)});`,
+          `        e.Id = new ${idClass}(${csNewIdValue(renderCtx.memberScope)});`,
           ...createAssignments,
           ...createDefaultSeeds,
           ...createNarrowedSeeds,
@@ -1112,7 +1105,7 @@ export function renderEntity(
     );
   }
 
-  const extraUsings = [...usings].sort().map((n) => `using ${n};`);
+  const extraUsings = sortedCsUsings(usings);
   return (
     lines(
       "// Auto-generated.",
@@ -1229,7 +1222,7 @@ export function renderAbstractBaseEntity(
     (d) =>
       `    public ${renderCsType(d.type)} ${upperFirst(d.name)} => ${renderCsExpr(d.expr, renderCtx)};`,
   );
-  const extraUsings = [...usings].sort().map((n) => `using ${n};`);
+  const extraUsings = sortedCsUsings(usings);
   return (
     lines(
       "// Auto-generated.",

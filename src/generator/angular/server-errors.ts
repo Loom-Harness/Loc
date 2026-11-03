@@ -14,14 +14,35 @@
 // them to the app's `LoomErrorHandler` banner, the place every other unhandled
 // Angular failure already surfaces.
 
-/** `src/lib/server-errors.ts` — framework-specific (`@angular/forms`) but
- *  pack-agnostic; emitted into every Angular project. */
-export const ANGULAR_SERVER_ERRORS_TS = `// Auto-generated.  Do not edit by hand.
-import type { AbstractControl } from "@angular/forms";
+import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
 
+/** `src/lib/server-errors.ts` — framework-specific (`@angular/forms`) but
+ *  pack-agnostic; emitted into every Angular project.
+ *
+ *  The server never translates a response: every refusal and `errors[]` entry
+ *  carries a catalog `code` (+ `params`), and the mapper renders it through
+ *  `t(code, english, params)` — the app's catalog under i18n, the English the
+ *  server sent otherwise. */
+export function angularServerErrorsTs(i18n: boolean): string {
+  return ANGULAR_SERVER_ERRORS_TEMPLATE.replace("/*{{T_BINDING}}*/", () =>
+    errorCodeTBinding(i18n, "./i18n"),
+  ).replace("/*{{HELPERS}}*/", () => ERROR_CODE_HELPERS_TS);
+}
+
+const ANGULAR_SERVER_ERRORS_TEMPLATE = `// Auto-generated.  Do not edit by hand.
+import type { AbstractControl } from "@angular/forms";
+/*{{T_BINDING}}*/
+/*{{HELPERS}}*/
 /** The part of a \`FormGroup\` the mapper needs: control lookup by dot-path. */
 export interface ServerErrorForm {
   get(path: string): AbstractControl | null;
+}
+
+interface ProblemBody {
+  code?: string;
+  detail?: string;
+  title?: string;
+  params?: Record<string, unknown>;
 }
 
 export type ServerErrorOutcome =
@@ -37,21 +58,36 @@ export function applyServerErrors(error: unknown, form: ServerErrorForm): Server
   const body = error && typeof error === "object" ? (error as { body?: unknown }).body : undefined;
   const entries =
     body && typeof body === "object" ? (body as { errors?: unknown }).errors : undefined;
-  if (!Array.isArray(entries)) return { kind: "unhandled" };
+  if (!Array.isArray(entries)) {
+    // A coded refusal with no field errors is form-level: its catalog code over
+    // the English \`detail\` (then \`title\`).
+    const pd = body && typeof body === "object" ? (body as ProblemBody) : undefined;
+    const english = pd?.detail || pd?.title;
+    return typeof pd?.code === "string" && english
+      ? { kind: "global", title: localizeProblem(pd.code, english, pd.params) }
+      : { kind: "unhandled" };
+  }
   let placed = false;
   let formLevel: string | undefined;
   for (const entry of entries) {
     if (!entry || typeof entry !== "object") continue;
-    const { pointer, message } = entry as { pointer?: unknown; message?: unknown };
+    const { pointer, message, code, params } = entry as {
+      pointer?: unknown;
+      message?: unknown;
+      code?: unknown;
+      params?: Record<string, unknown>;
+    };
     if (typeof message !== "string" || message.length === 0) continue;
     const path = typeof pointer === "string" ? pointerToPath(pointer) : "";
     const control = path ? form.get(path) : null;
     if (control) {
-      control.setErrors({ server: message });
+      control.setErrors({
+        server: localizeProblem(typeof code === "string" ? code : "field.rule", message, params),
+      });
       control.markAsTouched();
       placed = true;
     } else {
-      formLevel ??= message;
+      formLevel ??= localizeProblem(typeof code === "string" ? code : "problem.internal", message, params);
     }
   }
   if (formLevel !== undefined) return { kind: "global", title: formLevel };

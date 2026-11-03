@@ -114,11 +114,8 @@ describe("scalar codecs — the cross-backend contract", () => {
     expect(() => scalarCodec("duration" as never)).toThrow(/expression-only/);
   });
 
-  it("an id column follows its value type", () => {
-    expect(idColumn("guid")).toEqual({ kind: "uuid" });
-    expect(idColumn("int")).toEqual({ kind: "int" });
-    expect(idColumn("long")).toEqual({ kind: "bigint" });
-    expect(idColumn("string")).toEqual({ kind: "text" });
+  it("an id column is the guid's uuid", () => {
+    expect(idColumn()).toEqual({ kind: "uuid" });
   });
 });
 
@@ -200,8 +197,8 @@ describe("codecOf — a declared type", () => {
     expect(codecOf({ kind: "optional", inner: prim("date") } as TypeIR, undefined).kind).toBe(
       "optional",
     );
-    const id = codecOf({ kind: "id", targetName: "Order", valueType: "long" } as TypeIR, undefined);
-    expect(id.kind === "id" && id.scalar.primitive).toBe("long");
+    const id = codecOf({ kind: "id", targetName: "Order" } as TypeIR, undefined);
+    expect(id.kind === "id" && id.scalar.primitive).toBe("guid");
     const en = codecOf({ kind: "enum", name: "Status" } as TypeIR, undefined);
     expect(en.kind === "enum" && en.scalar.wire.form).toBe("text");
   });

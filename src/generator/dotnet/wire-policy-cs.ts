@@ -137,6 +137,11 @@ export function csTypeMismatchMessage(): string {
   return "Invalid value";
 }
 
+/** The refusal message of a body `X id` that is not a uuid (`malformed-id`). */
+export function csMalformedIdMessage(): string {
+  return fieldFixedMessage("malformed-id");
+}
+
 /** The refusal message of an `int` literal outside int32 (RS-42). */
 export function csIntegerRangeMessage(): string {
   return fieldFixedMessage("integer-range");

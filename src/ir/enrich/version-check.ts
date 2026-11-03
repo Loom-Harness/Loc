@@ -28,10 +28,9 @@
 //                  absent).  An event-sourced stream: `handle` (the stream
 //                  version the fold reached; `If-Match` on a stream is #3994).
 //                  Otherwise `none`.
-//   destroy      — RULED `if-match` for a `versioned` row, like an operation;
-//                  `none` until the backends implement it (no backend reads
-//                  `If-Match` on DELETE or conditions the delete on a version
-//                  yet), so the contract carries the ruling as `pending`.
+//   destroy      — a `versioned` row: `if-match`, like an operation (a stale
+//                  tag is 409; with the header absent the delete is checked
+//                  against the loaded version).  Otherwise `none`.
 //   persist      — a workflow / handler save: `handle` for a row or stream the
 //                  body LOADED; `none` for one it CREATED (an insert).  A body
 //                  is not a request about one row, so it never reads `If-Match`.
@@ -72,27 +71,13 @@ export type UncheckedReason =
   | "insert"
   /** The aggregate carries no version to check (not `versioned`, not a stream). */
   | "unversioned"
-  /** A delete: no backend conditions it on a version yet (see `pending`). */
+  /** A delete of an aggregate with no version to check (not `versioned`, or a stream). */
   | "destroy";
-
-/** A ruled contract the backends do not implement yet: what the path WILL
- *  check, and the issue that moves every backend onto it. */
-export interface PendingVersionCheck {
-  checksVersion: Exclude<ChecksVersion, "none">;
-  guard: VersionGuard;
-  issue: string;
-}
 
 /** One write path's concurrency contract. */
 export type VersionCheck =
   | { checksVersion: Exclude<ChecksVersion, "none">; guard: VersionGuard; store: WriteStore }
-  | {
-      checksVersion: "none";
-      reason: UncheckedReason;
-      store: WriteStore;
-      /** Set when the path is ruled to check a version but no backend does yet. */
-      pending?: PendingVersionCheck;
-    };
+  | { checksVersion: "none"; reason: UncheckedReason; store: WriteStore };
 
 /** A write path of an aggregate. */
 export type WritePath =
@@ -139,20 +124,12 @@ export function operationVersionCheck(agg: AggregateIR, _op?: OperationIR): Vers
   return { checksVersion: "none", reason: "unversioned", store };
 }
 
-/** The issue that moves every backend's DELETE onto the ruled contract. */
-const DESTROY_IF_MATCH_ISSUE = "#4341";
-
-/** The contract of the canonical `destroy` route: unchecked today; ruled to
- *  read `If-Match` on a `versioned` row, which `pending` records. */
+/** The contract of the canonical `destroy` route: a `versioned` row reads
+ *  `If-Match` like a named operation; anything else is unchecked. */
 export function destroyVersionCheck(agg: AggregateIR): VersionCheck {
   const store = writeStoreFor(agg);
   return rowVersionGuarded(agg)
-    ? {
-        checksVersion: "none",
-        reason: "destroy",
-        store,
-        pending: { checksVersion: "if-match", guard: "row-version", issue: DESTROY_IF_MATCH_ISSUE },
-      }
+    ? { checksVersion: "if-match", guard: "row-version", store }
     : { checksVersion: "none", reason: "destroy", store };
 }
 
@@ -189,7 +166,9 @@ export function aggregateCanConflict(agg: AggregateIR): boolean {
 /** True when some aggregate's route reads `If-Match` — the project needs the
  *  entity-tag parser. */
 export function anyRouteReadsIfMatch(aggs: readonly AggregateIR[]): boolean {
-  return aggs.some((a) => readsIfMatch(operationVersionCheck(a)));
+  return aggs.some(
+    (a) => readsIfMatch(operationVersionCheck(a)) || readsIfMatch(destroyVersionCheck(a)),
+  );
 }
 
 /** The contract of one derived save in a workflow / handler body: `handle`

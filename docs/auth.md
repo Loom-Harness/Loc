@@ -861,6 +861,49 @@ policy {
 - **`deny write on X`** denies **write** only: reads still work, but every instance
   mutation (update-style ops, `destroy`, applier dispatch) 404s.
 
+**Every mutation re-checks the write scope, whatever loaded the row.** A workflow
+command or `commandHandler` can hold a row no write-scope load produced — one
+`Repo.all(<criterion>)` returned, a `find`, a loop variable. Before such a body
+mutates (an operation call, a `mutating` domain-service call) or removes a row it
+holds, it re-loads that row through the same write-scope load the op route uses.
+A row outside the caller's write scope — `deny write`, or the own-org floor under
+`allow deep` — fails the **whole** body with the op route's 404, and the body runs
+in one transaction, so the rows it already changed roll back. Rows are never
+filtered out silently. A row the body itself created is exempt (it is not stored
+yet). The requirement is derived from the body's `mutate` / `delete` effects
+(`src/ir/util/write-scope-guards.ts`).
+
+**Event reactors are not re-checked.** A reactor runs as the
+[system principal](#the-system-principal--currentuserissystem), not as the user
+whose command raised the event, so a held-row mutation in a reactor body skips
+this re-check. That command already passed the caller's write scope, and a
+reaction may legitimately update rows outside that caller's write scope — a
+parent org's rollup, a counter another org owns. A reaction that must stay inside
+the originating user's scope says so with an explicit gate on `causedBy` or the
+event's own fields.
+
+```ddd
+workflow touchLedgers {
+  create() {
+    let rows = Ledgers.all(AnyLedger, page: { offset: 0, limit: 50 })
+    for l in rows { l.touch() }      // under `deny write on Ledger` → 404, nothing changes
+  }
+}
+```
+```ts
+// node / Hono — the body runs in one transaction; each held row re-loads
+// through `getById` (the write-scope load) before its mutation
+await db.transaction(async (tx) => {
+  const ledgers = new LedgerRepository(tx, __deferred);
+  const rows = await ledgers.runFindAllByAnyLedger({ offset: 0, limit: 50 });
+  for (const l of rows) {
+    await ledgers.getById(l.id);
+    l.touch();
+    await ledgers.save(l);
+  }
+});
+```
+
 Deny is **all-or-nothing at the aggregate** — there is no level word (a partial
 deny is field-masking / row-clause territory, a later slice). It composes as an
 **always-false predicate** through the *existing* filter seams — the read

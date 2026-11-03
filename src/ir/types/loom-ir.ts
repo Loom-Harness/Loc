@@ -37,9 +37,12 @@ import {
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../util/walk.js";
+import {
+  bodyWriteScopeGuards,
+  type WriteScopeHost,
+  writeScopeContext,
+} from "../util/write-scope-guards.js";
 import type { OriginRef } from "./origin.js";
-
-export type IdValueType = "guid" | "int" | "long" | "string";
 
 export type PrimitiveName =
   | "int"
@@ -125,10 +128,15 @@ export type SensitivityTags = readonly string[];
  *  structural-print, playground inspector) return the literal
  *  `"slot"` so editors and diagnostics still read sensibly when a
  *  slot-typed component param surfaces in a label.  React's
- *  `propType` recognises the variant and emits `ReactNode`. */
+ *  `propType` recognises the variant and emits `ReactNode`.
+ *
+ *  The `"id"` arm is an `X id` reference to an aggregate or entity part.
+ *  Every identity is a guid — there is no per-aggregate id value type, so
+ *  backends spell an id's underlying scalar (column, wire format, CLR/Java
+ *  type) as their guid form unconditionally. */
 export type TypeIR =
   | { kind: "primitive"; name: PrimitiveName; sensitivity?: SensitivityTags }
-  | { kind: "id"; targetName: string; valueType: IdValueType; sensitivity?: SensitivityTags }
+  | { kind: "id"; targetName: string; sensitivity?: SensitivityTags }
   | { kind: "enum"; name: string; sensitivity?: SensitivityTags }
   | { kind: "valueobject"; name: string; sensitivity?: SensitivityTags }
   | { kind: "entity"; name: string; sensitivity?: SensitivityTags }
@@ -307,8 +315,6 @@ export interface AssociationIR {
   ownerAgg: string;
   /** The referenced aggregate (`Pokemon`). */
   targetAgg: string;
-  /** The id value type of the target reference. */
-  valueType: IdValueType;
   /** Join-table name, `snake(owner)_snake(field)` — distinct per
    * field even when several fields target the same aggregate. */
   joinTable: string;
@@ -523,7 +529,6 @@ export interface ApplyIR {
 export interface EntityPartIR {
   name: string;
   parentName: string;
-  parentIdValueType: IdValueType;
   fields: FieldIR[];
   contains: ContainmentIR[];
   derived: DerivedIR[];
@@ -564,7 +569,6 @@ export interface WireField {
 
 export interface AggregateIR {
   name: string;
-  idValueType: IdValueType;
   fields: FieldIR[];
   contains: ContainmentIR[];
   derived: DerivedIR[];
@@ -1696,6 +1700,15 @@ export interface ProjectionQueryIR {
    *  folded-hybrid case).  A workflow / projection source is `select`-projection
    *  only (no `join`s). */
   sourceKind?: "aggregate" | "workflow" | "projection";
+  /** The bounded context `source` is declared in, as name resolution linked
+   *  it.  A projection may read a source declared in ANOTHER context of its
+   *  subdomain (`context Reports { projection V { from Order … } }` over
+   *  `Orders.Order`), so `source` alone is ambiguous to a backend that emits
+   *  per context: its capability filters, tenancy floor, table and module all
+   *  belong to the HOME context.  Resolve it through
+   *  `projectionSourceContext` (`src/ir/util/projection-source.ts`), never by
+   *  looking `source` up in the projection's own context. */
+  sourceContext?: string;
   /** The author's alias for the source candidate (`from Order as o`).  `this`
    *  / bare stays the default; the alias resolves identically (like
    *  `criterion … of T as o`). */
@@ -3762,8 +3775,26 @@ export type StmtIR =
       value: ExprIR;
       variantTag?: string;
       variantShape?: "record" | "scalar" | "none";
+      /**
+       * A returned value `match` whose arms build union variants is tagged per
+       * arm: one entry per arm (`arms` for the predicate form, `variantArms`
+       * for the variant form), then one for its `else`.  Each arm answers its
+       * own tag, and an `error` variant is the error path only when its arm
+       * runs.  Set only on an exhaustive match whose every arm resolves to a
+       * declared variant; `variantTag` / `variantShape` are absent then.
+       * `distributeUnionReturn` (`src/ir/util/union-return.ts`) expands it
+       * into one tagged `return` per arm.
+       */
+      armVariants?: ReturnVariantIR[];
       origin?: OriginRef;
     };
+
+/** The union variant a `return` produces: its wire discriminator and how the
+ *  value carries on the wire (see the `return` statement). */
+export interface ReturnVariantIR {
+  variantTag: string;
+  variantShape: "record" | "scalar" | "none";
+}
 
 /**
  * A path used as the LHS of an assignment / collection mutation.  All
@@ -4512,11 +4543,15 @@ export function workflowIsGuarded(wf: WorkflowIR): boolean {
  *
  *  3. A `notFound` statement — the body answering the rung explicitly (the
  *     `else` of an `if let` over a criterion read).
+ *  4. A write-scope re-check (`ir/util/write-scope-guards.ts`): a body that
+ *     mutates or deletes a row it holds, in `host`'s context where that
+ *     aggregate's write scope is narrowed, re-loads it through the write-scope
+ *     load, which answers 404 for a row outside the caller's scope.
  *
  *  Everything else that reads is absence-shaped and cannot throw: `repo-run` /
  *  `findAll` return arrays, `if-let` exists precisely to handle the empty case,
  *  and a criterion `find` read renders as `[0] ?? null`. */
-export function workflowCanAnswerNotFound(wf: WorkflowIR): boolean {
+export function workflowCanAnswerNotFound(wf: WorkflowIR, host?: WriteScopeHost): boolean {
   /** A repository read throws on an absent row when it is a must-exist read
    *  (`getById` / `getBy`).  An unknown method is not evidence that it
    *  throws — it is a phase-⑦ error (`loom.workflow-unknown-repository-method`). */
@@ -4540,6 +4575,11 @@ export function workflowCanAnswerNotFound(wf: WorkflowIR): boolean {
       if (!read) return;
       if (readThrows(read.op)) canNotFound = true;
     });
+  }
+  // Producer 4 — the write-scope re-check.
+  if (!canNotFound && host) {
+    canNotFound =
+      bodyWriteScopeGuards(wf.statements, writeScopeContext(wf.statements, host)).length > 0;
   }
   return canNotFound;
 }
@@ -4658,26 +4698,61 @@ export function typeUsesMoney(t: TypeIR | undefined): boolean {
  *  field. */
 export function exprUsesMoney(e: ExprIR | undefined): boolean {
   if (!e) return false;
-  if (e.kind === "literal" && e.lit === "money") return true;
-  if (e.kind === "binary") {
-    if (typeUsesMoney(e.leftType) || typeUsesMoney(e.resultType)) return true;
-    return exprUsesMoney(e.left) || exprUsesMoney(e.right);
+  // Exhaustive and `never`-checked: this layer cannot import `ir/util/walk.ts`
+  // (it imports these types), so the child enumeration lives here, slot for
+  // slot with `walkExprChildren`.
+  switch (e.kind) {
+    case "literal":
+      return e.lit === "money";
+    case "this":
+    case "id":
+    case "ref":
+    case "action-ref":
+    case "modelText":
+    case "authz-filter":
+      return false;
+    case "binary":
+      if (typeUsesMoney(e.leftType) || typeUsesMoney(e.resultType)) return true;
+      return exprUsesMoney(e.left) || exprUsesMoney(e.right);
+    case "member":
+      return exprUsesMoney(e.receiver);
+    case "method-call":
+      return exprUsesMoney(e.receiver) || e.args.some(exprUsesMoney);
+    case "call":
+      return (
+        e.args.some(exprUsesMoney) || (e.style?.entries ?? []).some((s) => exprUsesMoney(s.value))
+      );
+    case "ternary":
+      return exprUsesMoney(e.cond) || exprUsesMoney(e.then) || exprUsesMoney(e.otherwise);
+    case "unary":
+      return exprUsesMoney(e.operand);
+    case "paren":
+      return exprUsesMoney(e.inner);
+    case "lambda":
+      return exprUsesMoney(e.body) || (e.block ?? []).some(stmtUsesMoney);
+    case "new":
+    case "object":
+      return e.fields.some((f) => exprUsesMoney(f.value));
+    case "list":
+      return e.elements.some(exprUsesMoney);
+    case "convert":
+      return e.target === "money" || exprUsesMoney(e.value);
+    case "duration":
+      return exprUsesMoney(e.amount);
+    case "i18nFormat":
+      return exprUsesMoney(e.inner);
+    case "match":
+      return (
+        exprUsesMoney(e.subject) ||
+        e.arms.some((a) => exprUsesMoney(a.cond) || exprUsesMoney(a.value)) ||
+        e.variantArms.some((a) => exprUsesMoney(a.value)) ||
+        exprUsesMoney(e.otherwise)
+      );
+    default: {
+      const _exhaustive: never = e;
+      return _exhaustive;
+    }
   }
-  if (e.kind === "member") return exprUsesMoney(e.receiver);
-  if (e.kind === "method-call") return exprUsesMoney(e.receiver) || e.args.some(exprUsesMoney);
-  if (e.kind === "ternary")
-    return exprUsesMoney(e.cond) || exprUsesMoney(e.then) || exprUsesMoney(e.otherwise);
-  if (e.kind === "unary") return exprUsesMoney(e.operand);
-  if (e.kind === "paren") return exprUsesMoney(e.inner);
-  if (e.kind === "call") return e.args.some(exprUsesMoney);
-  if (e.kind === "lambda") return exprUsesMoney(e.body);
-  if (e.kind === "new" || e.kind === "object") return e.fields.some((f) => exprUsesMoney(f.value));
-  if (e.kind === "match")
-    return (
-      e.arms.some((a) => exprUsesMoney(a.cond) || exprUsesMoney(a.value)) ||
-      exprUsesMoney(e.otherwise)
-    );
-  return false;
 }
 
 function stmtUsesMoney(s: StmtIR): boolean {

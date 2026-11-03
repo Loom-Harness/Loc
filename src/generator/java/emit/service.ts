@@ -1,4 +1,8 @@
-import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
+import {
+  destroyVersionCheck,
+  operationVersionCheck,
+  readsIfMatch,
+} from "../../../ir/enrich/version-check.js";
 import {
   createInputFields,
   emitsRestCreate,
@@ -679,10 +683,11 @@ export function renderJavaService(
   // (before = the last snapshot, after = JSON null via NullNode → satisfies the
   // NOT NULL jsonb column), THEN hard-delete — all in this @Transactional method
   // so the audit insert + the delete commit or roll back together.
+  const destroyReadsIfMatch = readsIfMatch(destroyVersionCheck(agg));
   const destroyLines =
     (agg.destroys?.length ?? 0) > 0
       ? [
-          `    public void destroy${agg.name}(${idClass} id) {`,
+          `    public void destroy${agg.name}(${idClass} id${destroyReadsIfMatch ? ", Integer ifMatch" : ""}) {`,
           `        var aggregate = repository.getById(id);`,
           // AFTER the load (the gate may read the row) and BEFORE the audit row
           // is staged, so a denied delete records nothing.  `aggregate` is bound
@@ -691,6 +696,13 @@ export function renderJavaService(
             ? [`        var currentUser = currentUserAccessor.user();`]
             : []),
           ...lifecycleGateLines(destroyGates, "aggregate"),
+          // The row's `If-Match` precondition, like a named operation's: a stale
+          // tag raises the exception the repository's guarded save raises (409).
+          ...(destroyReadsIfMatch
+            ? [
+                `        if (ifMatch != null && aggregate.version() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, id.value());`,
+              ]
+            : []),
           ...(auditDestroy
             ? [
                 `        var __before = ${agg.name}Response.from(aggregate);`,

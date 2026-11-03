@@ -50,7 +50,7 @@ describe("workflow by-correlation — lowering", () => {
     if (corr?.kind === "member") {
       expect(corr.member).toBe("order");
       expect(corr.receiverType).toEqual({ kind: "entity", name: "PaymentReceived" });
-      expect(corr.memberType).toEqual({ kind: "id", targetName: "Order", valueType: "guid" });
+      expect(corr.memberType).toEqual({ kind: "id", targetName: "Order" });
     }
   });
 

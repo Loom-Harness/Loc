@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — domain primitives emission (plan S3): NewType ids,
@@ -62,9 +61,7 @@ const FIXTURE = `system PyDomain {
 `;
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python domain primitives", () => {
@@ -147,14 +144,12 @@ describe("python domain primitives", () => {
   });
 
   it("an event-less context degrades DomainEvent to Never", async () => {
-    const { model, errors } = await parseString(
+    const files = await generateSystemFiles(
       FIXTURE.replace(/event WidgetActivated \{[\s\S]*?\}\n/, "").replace(
         /\s*emit WidgetActivated \{ widget: id, at: now\(\) \}/,
         "",
       ),
     );
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
     const events = files.get("api/app/domain/events.py")!;
     expect(events).toContain("DomainEvent = Never");
     expect(events).toContain("from typing import Never, Protocol");

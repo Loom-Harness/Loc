@@ -8,8 +8,7 @@
 // declared (`<Aggregate>Id` / `<Part>Id`).
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   system S {
@@ -22,7 +21,10 @@ const SRC = `
         total: int
       }
       repository OrderRepo for Order
-      criterion OrdersByRef(r: RefId) of Order = this.ref == r
+      // Only the parameter's TYPE matters here (it puts RefId in the port
+      // signature).  Comparing the whole VO, \`this.ref == r\`, is refused by
+      // loom.retrieval-where-not-queryable, and a param member (\`r.code\`) is too.
+      criterion OrdersByRef(r: RefId) of Order = this.total > 0
       queryHandler ListOrdersByRef(r: RefId): Order[] {
         let x = OrderRepo.all(OrdersByRef(r))
         return x
@@ -35,7 +37,7 @@ const SRC = `
 `;
 
 async function portsFile(): Promise<string> {
-  const files = (await generateSystems(await parseValid(SRC))).files;
+  const files = await generateSystemFiles(SRC);
   const k = [...files.keys()].find((key) => key.endsWith("app/domain/repository_ports.py"));
   expect(k, "repository_ports.py not emitted").toBeDefined();
   return files.get(k!)!;

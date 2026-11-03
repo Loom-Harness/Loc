@@ -257,7 +257,7 @@ export function generateFlutterForContexts(
     out.set("lib/i18n.dart", renderFlutterI18nModule(ui, sourceLocaleOf(sys), contexts));
   }
   if (forms.length > 0) {
-    out.set("lib/forms.dart", renderFormsFile(forms, credentialed));
+    out.set("lib/forms.dart", renderFormsFile(forms, credentialed, uiI18n));
   }
   const gates = renderGatesFile(
     contexts.flatMap((c) => c.aggregates),

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Realtime SSE wire — Python / FastAPI (channels.md Part I).  A `delivery:
@@ -74,8 +73,7 @@ const QUEUE = `
 `;
 
 async function generate(src: string): Promise<Map<string, string>> {
-  const model = await parseValid(src);
-  return generateSystems(model).files;
+  return generateSystemFiles(src);
 }
 
 const get = (files: Map<string, string>, suffix: string): string =>

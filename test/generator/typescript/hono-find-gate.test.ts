@@ -6,8 +6,7 @@
 // ungated aggregate's read emits no gate.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 function sys(readClause: string): string {
   return `
@@ -29,7 +28,7 @@ function sys(readClause: string): string {
 }
 
 async function routesFile(readClause: string): Promise<string> {
-  const files = (await generateSystems(await parseValid(sys(readClause)))).files;
+  const files = await generateSystemFiles(sys(readClause));
   const path = [...files.keys()].find((k) => k.endsWith("http/api-routes.ts"));
   expect(path, "api-routes.ts not emitted").toBeDefined();
   const rf = files.get(path!)!;

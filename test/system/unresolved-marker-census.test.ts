@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
@@ -138,6 +139,7 @@ describe("no emitted file carries the `unresolved:` marker", () => {
     "%s: the api-param-less scaffolded dashboard",
     async (frontend, design) => {
       const files = await generateSystemFiles(dashboardSystem(frontend, "scaffolded", design));
+      expectReach(`${frontend} emitted files`, files.size, 55);
       expect(
         markerHits(files),
         `${frontend}: the emitter wrote \`${MARKER}\` into generated output and reported ` +
@@ -163,6 +165,7 @@ describe("no emitted file carries the `unresolved:` marker", () => {
 
   it.each(["scaffolded", "handwritten"] as const)("phoenix/heex: %s dashboard", async (variant) => {
     const files = await generateSystemFiles(phoenixDashboardSystem(variant));
+    expectReach(`phoenix ${variant} emitted files`, files.size, 80);
     expect(markerHits(files), `phoenix: ${variant} dashboard`).toEqual([]);
   }, 180_000);
 });

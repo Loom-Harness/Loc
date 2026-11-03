@@ -23,7 +23,7 @@ import {
   formStyle,
   partitionAngularFields,
 } from "./form-fields.js";
-import { angularValidatorMap, applyAngularValidators } from "./form-validators.js";
+import { angularRuleCodes, applyAngularValidators } from "./form-validators.js";
 import { angularSink } from "./walker/sink.js";
 // ---------------------------------------------------------------------------
 // Angular `Modal { OperationForm(…), trigger: Button(…) }` renderer — the
@@ -192,7 +192,7 @@ export function renderAngularModal(
   // matching its inline error.
   const opInvariants = [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)];
   const available = new Set(op.params.map((p) => p.name));
-  const errorFields = new Set(angularValidatorMap(opInvariants, available).keys());
+  const errorFields = angularRuleCodes(opInvariants, available);
 
   const parts = bc
     ? partitionAngularFields(op.params, bc, ns, ctx, formVar, errorFields, (name) =>
