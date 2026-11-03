@@ -31,7 +31,7 @@ export interface HeexModelTextCtx {
 }
 
 /** True when the implicit model-text sites render through gettext. */
-export function heexModelTextOn(ctx: HeexModelTextCtx): boolean {
+function heexModelTextOn(ctx: HeexModelTextCtx): boolean {
   return ctx.i18nPrefix !== undefined;
 }
 
