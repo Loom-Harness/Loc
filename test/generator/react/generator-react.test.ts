@@ -122,7 +122,9 @@ describe("react generator", () => {
     const model = await buildModel("examples/acme.ddd");
     const { files } = generateSystems(model);
     const newOrder = files.get("web_app/src/pages/orders/new.tsx")!;
-    expect(newOrder).toMatch(/<TextInput label=\{ t\("Orders\.Order\.field\.placedAt", "Placed At"\) \}[^>]*type="datetime-local"/);
+    expect(newOrder).toMatch(
+      /<TextInput label=\{ t\("Orders\.Order\.field\.placedAt", "Placed At"\) \}[^>]*type="datetime-local"/,
+    );
     expect(newOrder).not.toMatch(/DateTimePicker/);
     expect(newOrder).not.toMatch(/@mantine\/dates/);
     const orderPo = files.get("web_app/e2e/pages/order.ts")!;
@@ -642,9 +644,15 @@ describe("react generator", () => {
       expect(page).toMatch(/usePlaceOrderWorkflow/);
       // String param → TextInput; X id → Select with target's display field;
       // int → NumberInput with allowDecimal={false}.
-      expect(page).toMatch(/<TextInput label=\{ t\("Orders\.placeOrder\.field\.customerId", "Customer Id"\) \}/);
-      expect(page).toMatch(/<Select label=\{ t\("Orders\.placeOrder\.field\.productId", "Product Id"\) \}[\s\S]+?__products\.data/);
-      expect(page).toMatch(/<NumberInput label=\{ t\("Orders\.placeOrder\.field\.quantity", "Quantity"\) \}[\s\S]+?allowDecimal=\{false\}/);
+      expect(page).toMatch(
+        /<TextInput label=\{ t\("Orders\.placeOrder\.field\.customerId", "Customer Id"\) \}/,
+      );
+      expect(page).toMatch(
+        /<Select label=\{ t\("Orders\.placeOrder\.field\.productId", "Product Id"\) \}[\s\S]+?__products\.data/,
+      );
+      expect(page).toMatch(
+        /<NumberInput label=\{ t\("Orders\.placeOrder\.field\.quantity", "Quantity"\) \}[\s\S]+?allowDecimal=\{false\}/,
+      );
       // useAllProducts pulled in for the Product id Select.
       expect(page).toMatch(/import \{ useAllProducts \} from "\.\.\/\.\.\/api\/product"/);
       // Submit button + success/error toast.

@@ -18,7 +18,7 @@
 //      sites (form labels, submit buttons, the sidebar).
 //
 // Mutation-proven: reverting one scaffold site to an English literal (the List
-// heading, `pluralOf(aggName)` → `stringLit("Tasks")`) fails check 1.
+// heading, `otherNameOf(aggName)` → `stringLit("Tasks")`) fails check 1.
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { renderStarter } from "../../src/cli/new-templates.js";

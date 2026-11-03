@@ -278,7 +278,9 @@ export function scaffoldHome(
     ]),
   });
   for (const agg of nav.aggregates ?? []) {
-    cards.push(launcher(otherNameOf(agg.aggregate), `Open ${agg.label.toLowerCase()} →`, agg.route));
+    cards.push(
+      launcher(otherNameOf(agg.aggregate), `Open ${agg.label.toLowerCase()} →`, agg.route),
+    );
   }
   if (counts.workflows > 0 && (nav.hasWorkflows ?? true)) {
     cards.push(launcher(stringLit("Workflows"), "Open workflows →", "/workflows"));
