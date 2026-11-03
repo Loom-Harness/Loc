@@ -51,8 +51,6 @@ function fsPrimitive(name: PrimitiveName): string {
     //     'string'`, once per guid field per decoder/encoder/form site;
     //   * `fsZeroValue` below falls through to `""` for a guid, so a
     //     `state { x: guid }` cell initialised a `System.Guid` from a string;
-    //   * `findParamQueryValue` (wire.ts) passes a guid find parameter into
-    //     the query string verbatim, i.e. as a `string`;
     //   * an `X id` — a guid on every backend — already lowers to the `id`
     //     arm of `typeToFs` below, which is `string`.
     //

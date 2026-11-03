@@ -434,7 +434,7 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  18 -> 19: `loom.ui-body-feature-unsupported`, the per-target frontend body
  *  vocabulary (`UI_BODY_FEATURE_RENDERERS`).  The same trade once more: every
  *  refused cell either crashed `ddd generate system` with an uncoded `Error`
- *  (the Feliz MVU renderer, the Flutter notifier, the Feliz find-read builder)
+ *  (the Feliz MVU renderer, the Flutter notifier)
  *  or emitted code that does not compile (`s.matches(…)`, `xs.filter(…)`
  *  verbatim in F# / Dart).  Drains row by row as an emitter learns a feature —
  *  the census then asks for the table row to grow — and the row goes when the
