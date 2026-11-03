@@ -8,6 +8,7 @@
 
 import type { AssociationIR, EnrichedAggregateIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
+import { T, TT } from "./ts-symbols.js";
 
 /** Associations (`T id[]` reference collections) declared on an
  * aggregate, persisted as many-to-many join tables.  Empty when none. */
@@ -39,10 +40,10 @@ export function associationMapLines(
     const map = `${assoc.fieldName}ByOwner`;
     return [
       `${indent}const ${rows} = await ${dbExpr}.select({ o: schema.${joinConst}.${ownerCol}, t: schema.${joinConst}.${targetCol} }).from(schema.${joinConst}).where(inArray(schema.${joinConst}.${ownerCol}, rootIds)).orderBy(schema.${joinConst}.${ownerCol}, schema.${joinConst}.${targetCol});`,
-      `${indent}const ${map} = new Map<string, Ids.${assoc.targetAgg}Id[]>();`,
+      `${indent}const ${map} = new Map<string, ${TT.Ids}.${assoc.targetAgg}Id[]>();`,
       `${indent}for (const r of ${rows}) {`,
       `${indent}  const list = ${map}.get(r.o) ?? [];`,
-      `${indent}  list.push(Ids.${assoc.targetAgg}Id(r.t));`,
+      `${indent}  list.push(${T.Ids}.${assoc.targetAgg}Id(r.t));`,
       `${indent}  ${map}.set(r.o, list);`,
       `${indent}}`,
     ];

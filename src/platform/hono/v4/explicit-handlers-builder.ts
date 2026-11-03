@@ -1,3 +1,4 @@
+import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import {
   reasonPhrase,
@@ -1055,7 +1056,7 @@ export function buildExplicitRoutesFile(
   imports.push(`import { ${problemNamed.join(", ")} } from "./problem-details";`);
   if (/\bHTTPException\b/.test(bodyStr))
     imports.push(`import { HTTPException } from "hono/http-exception";`);
-  if (/\bIds\.\w/.test(bodyStr)) imports.push(`import * as Ids from "../domain/ids";`);
+  imports.push(tsImportSlot("~/domain/ids"));
   if (errorClasses.length > 0) {
     imports.push(`import { ${errorClasses.join(", ")} } from "../domain/errors";`);
   }
@@ -1155,7 +1156,7 @@ function renderExternHandlerImpl(h: Handler, ctx: EnrichedBoundedContextIR): str
     .filter(refersTo)
     .sort();
   const imports: string[] = [`import { ExternHandlerError } from "../domain/errors";`];
-  if (/\bIds\.\w/.test(scan)) imports.push(`import * as Ids from "../domain/ids";`);
+  imports.push(tsImportSlot("~/domain/ids"));
   for (const agg of aggRefs) {
     imports.push(`import { ${agg} } from "../domain/${lowerFirst(agg)}";`);
   }

@@ -42,6 +42,7 @@ import {
   provColumnEntries,
 } from "../repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
+import { T, TT } from "../ts-symbols.js";
 import {
   aggregateIsAudited,
   insertStampEntries,
@@ -87,10 +88,10 @@ function assocMapLoadLines(agg: EnrichedAggregateIR, emVar: string, indent: stri
     const map = `${a.fieldName}ByOwner`;
     return [
       `${indent}const ${rows} = rootIds.length === 0 ? [] : await ${emVar}.find(${jc}, { ${oc}: { $in: rootIds } }, { orderBy: { ${oc}: "asc", ${tc}: "asc" } });`,
-      `${indent}const ${map} = new Map<string, Ids.${a.targetAgg}Id[]>();`,
+      `${indent}const ${map} = new Map<string, ${TT.Ids}.${a.targetAgg}Id[]>();`,
       `${indent}for (const jr of ${rows}) {`,
       `${indent}  const list = ${map}.get(jr.${oc}) ?? [];`,
-      `${indent}  list.push(Ids.${a.targetAgg}Id(jr.${tc}));`,
+      `${indent}  list.push(${T.Ids}.${a.targetAgg}Id(jr.${tc}));`,
       `${indent}  ${map}.set(jr.${oc}, list);`,
       `${indent}}`,
     ];
@@ -118,7 +119,7 @@ function assocInlineLoadLines(
     const jc = joinRowClassOf(a);
     const oc = joinColumnName(a.ownerFk);
     const tc = joinColumnName(a.targetFk);
-    return `${indent}const ${a.fieldName} = (await ${emVar}.find(${jc}, { ${oc}: ${ownerIdExpr} }, { orderBy: { ${tc}: "asc" } })).map((jr) => Ids.${a.targetAgg}Id(jr.${tc}));`;
+    return `${indent}const ${a.fieldName} = (await ${emVar}.find(${jc}, { ${oc}: ${ownerIdExpr} }, { orderBy: { ${tc}: "asc" } })).map((jr) => ${T.Ids}.${a.targetAgg}Id(jr.${tc}));`;
   });
 }
 
@@ -855,7 +856,7 @@ export function renderMikroRepository(
   const deleteMethod = canonicalDestroy(agg)
     ? hasChildren
       ? lines(
-          `  async delete(id: Ids.${agg.name}Id): Promise<void> {`,
+          `  async delete(id: ${TT.Ids}.${agg.name}Id): Promise<void> {`,
           `    const em = this.em.fork({ keepTransactionContext: true });`,
           // No FK cascade (MikroORM owns the schema), so clear the owner's
           // pivot rows + contained child rows before the root delete.
@@ -868,7 +869,7 @@ export function renderMikroRepository(
           `  }`,
         )
       : lines(
-          `  async delete(id: Ids.${agg.name}Id): Promise<void> {`,
+          `  async delete(id: ${TT.Ids}.${agg.name}Id): Promise<void> {`,
           `    await this.em.fork({ keepTransactionContext: true }).nativeDelete(${row}, { id: id as string }, { filters: false });`,
           `  }`,
         )
@@ -888,7 +889,7 @@ export function renderMikroRepository(
     `    this.events = events;`,
     `  }`,
     "",
-    `  async findById(id: Ids.${agg.name}Id): Promise<${agg.name} | null> {`,
+    `  async findById(id: ${TT.Ids}.${agg.name}Id): Promise<${agg.name} | null> {`,
     `    const em = this.em.fork({ keepTransactionContext: true });`,
     `    const row = await em.findOne(${row}, { id: id as string });`,
     `    if (row === null) {`,
@@ -903,9 +904,9 @@ export function renderMikroRepository(
     `    return loaded;`,
     `  }`,
     "",
-    ...mikroGetByIdLines(agg, `Ids.${agg.name}Id`, row),
+    ...mikroGetByIdLines(agg, `${TT.Ids}.${agg.name}Id`, row),
     "",
-    `  async findManyByIds(ids: Ids.${agg.name}Id[]): Promise<${agg.name}[]> {`,
+    `  async findManyByIds(ids: ${TT.Ids}.${agg.name}Id[]): Promise<${agg.name}[]> {`,
     `    if (ids.length === 0) return [];`,
     `    const em = this.em.fork({ keepTransactionContext: true });`,
     `    const rows = await em.find(${row}, { id: { $in: ids as string[] } });`,

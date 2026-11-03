@@ -19,6 +19,7 @@ import { isValueCollectionType, type ValueCollectionIR } from "../../ir/util/val
 import { numericEncode } from "../_numeric/target.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { isRefCollection } from "./repository-associations-builder.js";
+import { T } from "./ts-symbols.js";
 
 export function hydrateRootExpr(
   agg: EnrichedAggregateIR,
@@ -32,7 +33,7 @@ export function hydrateRootExpr(
   // signature under strict tsc.
   const forceNonNull = isTphConcrete(agg, ctx.aggregates);
   const fields: string[] = [];
-  fields.push(`id: Ids.${agg.name}Id(${rowVar}.id)`);
+  fields.push(`id: ${T.Ids}.${agg.name}Id(${rowVar}.id)`);
   for (const f of agg.fields) {
     if (isRefCollection(f.type) || isValueCollectionType(f.type)) {
       // Loaded into a local const from its join / child table (see
@@ -80,7 +81,7 @@ export function hydrateConcreteFromSharedRow(
   rowVar: string,
   ctx: BoundedContextIR,
 ): string {
-  const fields: string[] = [`id: Ids.${agg.name}Id(${rowVar}.id)`];
+  const fields: string[] = [`id: ${T.Ids}.${agg.name}Id(${rowVar}.id)`];
   for (const f of agg.fields) {
     if (isRefCollection(f.type)) {
       fields.push(`${f.name}: []`);
@@ -115,10 +116,12 @@ export function hydrateEntityExpr(
   opts?: { collectionField?: (f: FieldIR, rowVar: string) => string },
 ): string {
   const fields: string[] = [];
-  fields.push(`id: Ids.${part.name}Id(${rowVar}.id)`);
+  fields.push(`id: ${T.Ids}.${part.name}Id(${rowVar}.id)`);
   // A nested part's parentId is branded to its DIRECT parent (a sibling part),
   // not the aggregate root — matching the schema FK it was loaded through.
-  fields.push(`parentId: Ids.${directParentName(agg, part.name, agg.name)}Id(${rowVar}.parentId)`);
+  fields.push(
+    `parentId: ${T.Ids}.${directParentName(agg, part.name, agg.name)}Id(${rowVar}.parentId)`,
+  );
   for (const f of part.fields) {
     const arr = f.type.kind === "optional" ? f.type.inner : f.type;
     if (opts?.collectionField && arr.kind === "array") {
@@ -200,7 +203,7 @@ function hydrateValueExpr(
     return mapped ? `(${colExpr} ?? []).map((__v) => ${mapped("__v")})` : colExpr;
   }
   if (t.kind === "id") {
-    return `Ids.${t.targetName}Id(${colExpr})`;
+    return `${T.Ids}.${t.targetName}Id(${colExpr})`;
   }
   if (t.kind === "enum") {
     // A VO subfield's pgEnum column already carries the literal-union type,
@@ -286,7 +289,7 @@ export function hydrateRootForFindAllExpr(
   // table but present for this `kind`, so assert non-null on read.
   const forceNonNull = isTphConcrete(agg, ctx.aggregates);
   const fields: string[] = [];
-  fields.push(`id: Ids.${agg.name}Id(${rowVar}.id)`);
+  fields.push(`id: ${T.Ids}.${agg.name}Id(${rowVar}.id)`);
   for (const f of agg.fields) {
     if (isRefCollection(f.type)) {
       fields.push(`${f.name}: ${f.name}ByOwner.get(${rowVar}.id) ?? []`);

@@ -55,6 +55,7 @@ import {
   renderCriterionArg,
   repoTableName,
 } from "./repository-find-predicate.js";
+import { T, TT } from "./ts-symbols.js";
 
 /** The capability-filter predicate to AND into one read.  When the read
  *  carries an `ignoring` clause (`bypassAll` / `bypassCaps`), recompute the
@@ -291,7 +292,7 @@ export function findManyByIdsMethod(
     associationsOf(agg).length > 0 ||
     valueCollectionsFor(agg).length > 0;
   return lines(
-    `  async findManyByIds(ids: Ids.${agg.name}Id[]): Promise<${agg.name}[]> {`,
+    `  async findManyByIds(ids: ${TT.Ids}.${agg.name}Id[]): Promise<${agg.name}[]> {`,
     `    if (ids.length === 0) return [];`,
     `    const rootRows = await this.db.select().from(schema.${tableName}).where(${rootWhere}).orderBy(${drizzleOrderBy(tableName)});`,
     `    if (rootRows.length === 0) return [];`,
@@ -316,7 +317,7 @@ export function findByIdMethod(
   // without duplicating the body across both variants.
   const body = txCallbackBody(agg, ctx, filterPred);
   return lines(
-    `  async findById(id: Ids.${agg.name}Id): Promise<${agg.name} | null> {`,
+    `  async findById(id: ${TT.Ids}.${agg.name}Id): Promise<${agg.name} | null> {`,
     emitTrace
       ? [
           // Trace-on: wrap the existing call in try/catch + the three
@@ -378,7 +379,7 @@ function txCallbackBody(
     const targetCol = joinColumnName(assoc.targetFk);
     return [
       `      const ${assoc.fieldName}Rows = await tx.select({ t: schema.${joinConst}.${targetCol} }).from(schema.${joinConst}).where(eq(schema.${joinConst}.${ownerCol}, id)).orderBy(schema.${joinConst}.${targetCol});`,
-      `      const ${assoc.fieldName} = ${assoc.fieldName}Rows.map((r) => Ids.${assoc.targetAgg}Id(r.t));`,
+      `      const ${assoc.fieldName} = ${assoc.fieldName}Rows.map((r) => ${T.Ids}.${assoc.targetAgg}Id(r.t));`,
     ];
   });
   return [
@@ -758,7 +759,7 @@ export function buildFindWhereClause(
 }
 
 function tsTypeForReturn(t: TypeIR): string {
-  if (t.kind === "id") return `Ids.${t.targetName}Id`;
+  if (t.kind === "id") return `${TT.Ids}.${t.targetName}Id`;
   if (t.kind === "primitive") {
     switch (t.name) {
       case "int":
