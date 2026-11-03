@@ -172,6 +172,11 @@ export function pyIntegerRange(name: "int" | "long"): { min: number; max: number
   return { min, max };
 }
 
+/** A `money` expression (a `Decimal`) → its fixed-scale wire string (RS-12). */
+export function pyMoneyWire(expr: string): string {
+  return numericEncode(PY_NUMERIC, "money", "dto-map", expr);
+}
+
 /** A domain scalar → its wire value, for the scalars whose python domain value
  *  is NOT already its wire form: money (a `Decimal`), datetime and date.
  *  Undefined for every other scalar — its domain value is the wire value (a

@@ -6,8 +6,7 @@
 // guarantee made physical).
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Sales {
@@ -34,7 +33,7 @@ const SRC = `
 `;
 
 async function files(): Promise<Map<string, string>> {
-  return generateDotnet(await parseValid(SRC));
+  return generateBackendFiles(SRC, "dotnet");
 }
 
 describe(".NET generator — domainService", () => {

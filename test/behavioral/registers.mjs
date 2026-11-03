@@ -289,6 +289,15 @@ export const BEHAVIOURAL_XFAIL = {
       reason:
         "a workflow `create` / handler answering `T or E`: the Phoenix routes have no tagged result and no rollback seam that undoes the whole command on the error",
     },
+    // The scaffolded handler answers its operation's `T or E`, an
+    // expected-failure entry point Phoenix refuses (unsupported register).
+    "scaffold-handlers-or-e": {
+      issue: "#4571",
+      expect: "error",
+      match: "loom\\.elixir-entry-result-unsupported",
+      reason:
+        "a scaffolded commandHandler answering its operation's `T or E`: the Phoenix routes have no tagged result and no rollback seam",
+    },
     // A mutating call bound with `let` is refused on Phoenix, so generation
     // stops at phase ⑦ (unsupported register).
     "match-op-result": {

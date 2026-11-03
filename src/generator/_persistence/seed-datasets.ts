@@ -15,6 +15,7 @@
 // `src/generator/<platform>/emit/seed.ts` — see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/archive/missions/M-T9.2-persistence-seam-design.md §.
 // ---------------------------------------------------------------------------
 
+import { scalarCodecOf } from "../../ir/enrich/codec.js";
 import {
   type CreateOmissionValue,
   createInputFields,
@@ -23,9 +24,23 @@ import {
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
+  ExprIR,
   SeedRowIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
+
+/** A bare numeric literal written into a `money` seed field (`minRent: 500.00`)
+ *  is a money value, not a float: retag it so each backend's money-literal
+ *  renderer (`new Decimal("500.00")` / `Decimal("500.00")`) spells it, keeping
+ *  the digits exact (RS-12).  Any other expression passes through. */
+export function asMoneySeedLiteral(value: ExprIR, type: TypeIR | undefined): ExprIR {
+  if (!type || scalarCodecOf(type)?.wire.form !== "fixed-scale-decimal") return value;
+  if (value.kind === "literal" && (value.lit === "decimal" || value.lit === "int"))
+    return { ...value, lit: "money" };
+  if (value.kind === "unary" && value.op === "-")
+    return { ...value, operand: asMoneySeedLiteral(value.operand, type) };
+  return value;
+}
 
 /** A seed row plus its block's path (domain create vs raw insert). */
 export interface Entry {

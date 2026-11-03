@@ -68,6 +68,7 @@ import {
 } from "../../ir/util/paged-run.js";
 import { routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtChildren, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { walkExpr } from "../../ir/validate/checks/shared.js";
 import { lines } from "../../util/code-builder.js";
 import {
@@ -489,7 +490,7 @@ function renderHandlerModule(
   const renderSave = pySaveRenderer(h.statements, ctx.aggregates);
   const stmtLines = renderWorkflowStmtChunks(
     h.statements,
-    pyWorkflowStmtTarget(rctx, ctx, usedLets, renderSave),
+    pyWorkflowStmtTarget(rctx, ctx, usedLets, renderSave, writeScopeContext(h.statements, ctx)),
     "    ",
   ).flat();
   const saveLines = h.savesAtExit.flatMap((s) => renderSave(s, "    "));

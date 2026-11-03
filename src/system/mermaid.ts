@@ -426,7 +426,7 @@ export function buildErDiagram(sys: SystemIR): string {
   for (const m of sys.subdomains) {
     for (const c of m.contexts) {
       for (const a of c.aggregates) {
-        entities.push(...erEntity(a.name, [`${a.idValueType} id PK`, ...a.fields.map(erAttr)]));
+        entities.push(...erEntity(a.name, ["guid id PK", ...a.fields.map(erAttr)]));
         for (const con of a.contains) {
           rel(
             `  ${a.name} ${con.collection ? "||--o{" : "||--||"} ${con.partName} : "${con.name}"`,

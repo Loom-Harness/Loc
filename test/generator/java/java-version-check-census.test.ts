@@ -18,7 +18,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { operationVersionCheck, readsIfMatch } from "../../../src/ir/enrich/version-check.js";
+import {
+  destroyVersionCheck,
+  operationVersionCheck,
+  readsIfMatch,
+} from "../../../src/ir/enrich/version-check.js";
 import { buildLoomModel, enrichedContexts } from "../../_helpers/ir.js";
 import { corpusSourceFor, generateCorpusCase } from "../../fixtures/corpus/harness.js";
 import { CORPUS } from "../../fixtures/corpus/manifest.js";
@@ -86,6 +90,22 @@ describe("java checksVersion census — emitted routes and saves", () => {
         )?.[1];
         const service = javaFiles.find(([p]) => p.endsWith(`/${agg.name}Service.java`))?.[1];
         if (!controller || !service) continue;
+        const wantsDestroy = readsIfMatch(destroyVersionCheck(agg));
+        const destroyRoute = new RegExp(
+          `public [^\\n]*\\bdestroy${agg.name}\\(([^\\n]*)\\) \\{`,
+        ).exec(controller);
+        if (destroyRoute) {
+          expect(
+            destroyRoute[1].includes('@RequestHeader(value = "If-Match"'),
+            `${agg.name}.destroy route binds If-Match`,
+          ).toBe(wantsDestroy);
+          const svc = new RegExp(`public [^\\n]*\\bdestroy${agg.name}\\(([^\\n]*)\\) \\{`).exec(
+            service,
+          );
+          expect(svc?.[1].includes("Integer ifMatch"), `${agg.name}.destroy service`).toBe(
+            wantsDestroy,
+          );
+        }
         for (const op of agg.operations) {
           if (op.visibility !== "public") continue;
           const wants = readsIfMatch(operationVersionCheck(agg, op));

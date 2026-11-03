@@ -40,10 +40,7 @@ describe("columns", () => {
     expect(csSqlType("json")).toBe("jsonb");
     expect(csSqlType("File")).toBe("jsonb");
     expect(csJsonSqlType()).toBe("jsonb");
-    expect(csIdSqlType("guid")).toBe("uuid");
-    expect(csIdSqlType("int")).toBe("integer");
-    expect(csIdSqlType("long")).toBe("bigint");
-    expect(csIdSqlType("string")).toBe("text");
+    expect(csIdSqlType()).toBe("uuid");
   });
 });
 

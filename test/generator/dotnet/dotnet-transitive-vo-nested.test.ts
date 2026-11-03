@@ -13,14 +13,12 @@
 // React/Hono `<Enum>Schema` fixes.
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
-  valueobject Inner { code: string }
-  valueobject Outer { label: string  inner: Inner }
-
   context Sales {
+    valueobject Inner { code: string }
+    valueobject Outer { label: string  inner: Inner }
     aggregate Customer {
       name: string
       box: Outer
@@ -38,7 +36,7 @@ function joinAll(files: Map<string, string>, suffix: string): string {
 
 describe(".NET DTOs — value object nested in a value object", () => {
   it("emits the nested VO's Response + Request records", async () => {
-    const files = generateDotnet(await parseValid(SRC));
+    const files = await generateBackendFiles(SRC, "dotnet");
 
     // Assert the record DECLARATIONS, not bare name references: a missing
     // `Inner` still leaves `InnerResponse` as OuterResponse's param TYPE,

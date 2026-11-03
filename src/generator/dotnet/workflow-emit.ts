@@ -18,6 +18,9 @@ import {
 } from "../../ir/util/op-gates.js";
 import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
 import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
+import { finalizeCsUnit } from "../_imports/dotnet.js";
+import { spellMarkers } from "../_imports/symbol.js";
+import { CS, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
 
 /** The resolved body of one subscription (the `on` reactor or event-`create`
  *  starter): its statements, aggregate saves, and correlation routing expr. */
@@ -52,7 +55,11 @@ import {
   commandCreateResult,
   emitsCommandRoute,
 } from "../../ir/util/workflow-command-route.js";
-import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
+import {
+  bodyWriteScopeGuards,
+  type WriteScopeContext,
+  writeScopeContext,
+} from "../../ir/util/write-scope-guards.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { escapeCsharpIdent, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
@@ -72,7 +79,6 @@ import {
 } from "../_workflow/stmt-target.js";
 import { dotnetResourceAdapterFor, resourceClassName } from "./adapters/resource-clients.js";
 import {
-  collectWireUsings,
   csIdValueClrType,
   dtoParam,
   maskNamer,
@@ -212,7 +218,7 @@ export function emitWorkflows(
     const requestPath = `Application/Workflows/${upperFirst(wf.name)}Request.cs`;
     const requestContent = renderRequestDto(wf, ctx, ns);
     out.set(requestPath, requestContent);
-    sourcemap?.file(requestPath, requestContent, wf.origin, construct);
+    sourcemap?.file(requestPath, finalizeCsUnit(requestContent), wf.origin, construct);
     // An expected-failure result's wire union (`Application.EntryResults`).
     const routed = commandCreateResult(wf);
     if (routed?.type.kind === "union" && commandCreateEntryResult(wf, ctx)) {
@@ -222,27 +228,32 @@ export function emitWorkflows(
     const commandPath = `Application/Workflows/${upperFirst(wf.name)}Command.cs`;
     const commandContent = renderCommand(wf, ns);
     out.set(commandPath, commandContent);
-    sourcemap?.file(commandPath, commandContent, wf.origin, construct);
+    sourcemap?.file(commandPath, finalizeCsUnit(commandContent), wf.origin, construct);
     const handlerPath = `Application/Workflows/${upperFirst(wf.name)}Handler.cs`;
     // Only collected when a recorder is actually threaded in — a
     // no-sourcemap run pays no per-statement bookkeeping cost.
     const opFragments: OpFragment[] | undefined = sourcemap ? [] : undefined;
     const handlerContent = renderHandler(wf, usage, ns, ctx, options?.sys, opFragments);
     out.set(handlerPath, handlerContent);
-    sourcemap?.file(handlerPath, handlerContent, wf.origin, construct);
+    sourcemap?.file(handlerPath, finalizeCsUnit(handlerContent), wf.origin, construct);
     // Statement-granular sub-regions (source-map) — layered onto
     // the whole-file region just recorded above, anchored by exact-text
     // search against this SAME final content.
     if (sourcemap && opFragments) {
       for (const frag of opFragments) {
-        sourcemap.fragment(handlerPath, handlerContent, frag.fragmentText, frag.subRegions);
+        sourcemap.fragment(
+          handlerPath,
+          finalizeCsUnit(handlerContent),
+          spellMarkers(frag.fragmentText),
+          frag.subRegions,
+        );
       }
     }
     const fnsContent = renderWorkflowFunctions(wf, ns);
     if (fnsContent) {
       const fnsPath = `Application/Workflows/${upperFirst(wf.name)}Functions.cs`;
       out.set(fnsPath, fnsContent);
-      sourcemap?.file(fnsPath, fnsContent, wf.origin, construct);
+      sourcemap?.file(fnsPath, finalizeCsUnit(fnsContent), wf.origin, construct);
     }
   }
   if (commandWfs.length > 0) {
@@ -513,10 +524,15 @@ export function emitDispatchHandlers(
         opFragments,
       );
       out.set(path, content);
-      sourcemap?.file(path, content, wf.origin, construct);
+      sourcemap?.file(path, finalizeCsUnit(content), wf.origin, construct);
       if (sourcemap && opFragments) {
         for (const frag of opFragments)
-          sourcemap.fragment(path, content, frag.fragmentText, frag.subRegions);
+          sourcemap.fragment(
+            path,
+            finalizeCsUnit(content),
+            spellMarkers(frag.fragmentText),
+            frag.subRegions,
+          );
       }
       continue;
     }
@@ -543,10 +559,15 @@ export function emitDispatchHandlers(
       opFragments,
     );
     out.set(path, content);
-    sourcemap?.file(path, content, wf.origin, construct);
+    sourcemap?.file(path, finalizeCsUnit(content), wf.origin, construct);
     if (sourcemap && opFragments) {
       for (const frag of opFragments)
-        sourcemap.fragment(path, content, frag.fragmentText, frag.subRegions);
+        sourcemap.fragment(
+          path,
+          finalizeCsUnit(content),
+          spellMarkers(frag.fragmentText),
+          frag.subRegions,
+        );
     }
   }
 }
@@ -710,9 +731,6 @@ function renderEventReactorHandler(
       );
       ctorAssigns.push("_eventStore = eventStore");
       usings.add(`${ns}.Infrastructure.Persistence.Events`);
-      // Stream fold uses System.Linq (`Select`/`ToList`) + DateTime (append).
-      usings.add("System");
-      usings.add("System.Linq");
     } else {
       fields.push(
         `    private readonly global::${ns}.Domain.Common.ISagaStateStore<${workflowStateClass(wf)}> _sagaState;`,
@@ -724,10 +742,9 @@ function renderEventReactorHandler(
       usings.add(`${ns}.Infrastructure.Persistence.Workflows`);
     }
     if (trigger === "on") {
-      fields.push(`    private readonly ILogger<${className}> _log;`);
-      ctorParamPairs.push(`ILogger<${className}> log`);
+      fields.push(`    private readonly ${CS.ILogger}<${className}> _log;`);
+      ctorParamPairs.push(`${CS.ILogger}<${className}> log`);
       ctorAssigns.push("_log = log");
-      usings.add("Microsoft.Extensions.Logging");
     }
   }
 
@@ -794,7 +811,7 @@ function renderEventReactorHandler(
         stmtLines.push("        }");
       }
       stmtLines.push(
-        `        var state = ${stateCls}._FromEvents(__key, __rows.Select(${stateCls}.RowToEvent).ToList());`,
+        `        var state = ${stateCls}._FromEvents(__key, __rows${CS.Linq}.Select(${stateCls}.RowToEvent).ToList());`,
       );
     } else {
       stmtLines.push(
@@ -882,7 +899,7 @@ function renderEventReactorHandler(
       stmtLines.push("                Version = __version,");
       stmtLines.push("                Type = __ev.GetType().Name,");
       stmtLines.push(`                Data = ${stateCls}.ToData(__ev),`);
-      stmtLines.push("                OccurredAt = DateTime.UtcNow,");
+      stmtLines.push(`                OccurredAt = ${CS.DateTime}.UtcNow,`);
       stmtLines.push("            });");
       stmtLines.push("        }");
       stmtLines.push("        await _eventStore.SaveChangesAsync(cancellationToken);");
@@ -927,7 +944,11 @@ function renderEventReactorHandler(
       ]),
     ),
   ];
-  const extraUsings = [...usings].sort().map((n) => `using ${n};`);
+  const extraUsings = sortedCsUsings(usings, [
+    "System",
+    "System.Linq",
+    "Microsoft.Extensions.Logging",
+  ]);
   return `// Auto-generated.
 using System.Threading;
 using System.Threading.Tasks;${extraUsings.length > 0 ? "\n" + extraUsings.join("\n") : ""}
@@ -1025,7 +1046,7 @@ function renderCsEsBranch(
       "                Version = __version,",
       "                Type = __ev.GetType().Name,",
       `                Data = ${stateCls}.ToData(__ev),`,
-      "                OccurredAt = DateTime.UtcNow,",
+      `                OccurredAt = ${CS.DateTime}.UtcNow,`,
       "            });",
       "        }",
       "        await _eventStore.SaveChangesAsync(cancellationToken);",
@@ -1123,8 +1144,6 @@ function renderMergedEventSourcedHandler(
   );
   ctorAssigns.push("_eventStore = eventStore");
   usings.add(`${ns}.Infrastructure.Persistence.Events`);
-  usings.add("System");
-  usings.add("System.Linq");
 
   const resourceClasses = buildResourceClasses(sys);
   const usesResourceOp = mergedStatements.some((st) => {
@@ -1175,7 +1194,7 @@ function renderMergedEventSourcedHandler(
     `        var __key = ${keyExpr};`,
     "        var __sid = __key.Value.ToString();",
     `        var __rows = await _eventStore.LoadStreamAsync("${st}", __sid, cancellationToken);`,
-    `        var state = ${stateCls}._FromEvents(__key, __rows.Select(${stateCls}.RowToEvent).ToList());`,
+    `        var state = ${stateCls}._FromEvents(__key, __rows${CS.Linq}.Select(${stateCls}.RowToEvent).ToList());`,
     "        if (__rows.Count == 0)",
     "        {",
     ...createBranch.map((l) => `    ${l}`),
@@ -1207,7 +1226,7 @@ function renderMergedEventSourcedHandler(
       ]),
     ),
   ];
-  const extraUsings = [...usings].sort().map((n) => `using ${n};`);
+  const extraUsings = sortedCsUsings(usings, ["System", "System.Linq"]);
   return `// Auto-generated.
 using System.Threading;
 using System.Threading.Tasks;${extraUsings.length > 0 ? "\n" + extraUsings.join("\n") : ""}
@@ -1354,7 +1373,7 @@ function renderWorkflowFunctions(wf: WorkflowIR, ns: string): string | undefined
     const body = renderCsStatements(fn.body.stmts, renderCtx);
     return [head, "    {", ...(body.length > 0 ? [body] : []), "    }"];
   });
-  const usingLines = [...usings].sort().map((u) => `using ${u};`);
+  const usingLines = sortedCsUsings(usings);
   return `// Auto-generated.
 ${usingLines.join("\n")}${usingLines.length > 0 ? "\n" : ""}
 namespace ${ns}.Application.Workflows;
@@ -1396,7 +1415,14 @@ function renderHandler(
   // An expected-failure result (`T or E`) runs in one transaction whether or
   // not the workflow is `transactional`; an error answer rolls it back.
   const er = commandCreateEntryResult(wf, ctx);
-  const inTx = wf.transactional || er !== undefined;
+  // A body that re-checks a held row's write scope runs in one transaction
+  // too, so a row outside the scope fails the whole command and rolls back
+  // the rows it already changed.
+  const writeScope = writeScopeContext(wf.statements, ctx);
+  const inTx =
+    wf.transactional ||
+    er !== undefined ||
+    bodyWriteScopeGuards(wf.statements, writeScope).length > 0;
   // F58 — a state-bearing workflow's COMMAND handler must load-or-allocate the
   // same saga row `renderEventReactorHandler` does and render the body against
   // it.  Without this the body's own-state writes rendered `this.<Field>` on a
@@ -1416,10 +1442,9 @@ function renderHandler(
   // outside the SDK's implicit-usings set — collect them per file.
   const usings = new Set<string>();
   // The `IsolationLevel.X` enum literal passed to `IUnitOfWork.BeginTransactionAsync`
-  // lives in System.Data.  The transaction itself goes through the domain
-  // `IUnitOfWork` port, NOT `_db.Database.BeginTransactionAsync`, so the
-  // handler needs no EntityFrameworkCore namespace.
-  if (wf.transactional && effectiveIsolation) usings.add("System.Data");
+  // is written through `ref` (System.Data).  The transaction itself goes
+  // through the domain `IUnitOfWork` port, NOT `_db.Database.BeginTransactionAsync`,
+  // so the handler needs no EntityFrameworkCore namespace.
   if (usesUser) usings.add(`${ns}.Auth`);
   // Field declarations for injected dependencies.
   const repoEntries = [...usage.repos.entries()];
@@ -1472,10 +1497,9 @@ function renderHandler(
   // command handler always logs both, so inject the catalog logger
   // (`renderDotnetLogCall` assumes a `_log` ILogger field).  Shared catalog
   // identity (field `workflow`) across every backend.
-  fields.push(`    private readonly ILogger<${handlerName}> _log;`);
-  ctorParamPairs.push(`ILogger<${handlerName}> log`);
+  fields.push(`    private readonly ${CS.ILogger}<${handlerName}> _log;`);
+  ctorParamPairs.push(`${CS.ILogger}<${handlerName}> log`);
   ctorAssigns.push("_log = log");
-  usings.add("Microsoft.Extensions.Logging");
   // Extern op-call DI: each unique extern target needs its
   // user-supplied IXAggHandler injected.  Field name follows the
   // op+agg convention (`_confirmOrderHandler`).
@@ -1606,7 +1630,7 @@ function renderHandler(
   // that owns the recorder + this file's final content (source-map).
   const stmtChunks = renderWorkflowStmtChunks(
     wf.statements,
-    csWorkflowStmtTarget(ctx, renderArg, dereffedLoads, auditsOps),
+    csWorkflowStmtTarget(ctx, renderArg, dereffedLoads, auditsOps, writeScope),
     INDENT,
   );
   stmtLines.push(...stmtChunks.flat());
@@ -1674,7 +1698,7 @@ function renderHandler(
   if (inTx) {
     const beginCall =
       wf.transactional && effectiveIsolation
-        ? `_uow.BeginTransactionAsync(IsolationLevel.${csIsolationLevel(effectiveIsolation)}, cancellationToken)`
+        ? `_uow.BeginTransactionAsync(${CS.IsolationLevel}.${csIsolationLevel(effectiveIsolation)}, cancellationToken)`
         : `_uow.BeginTransactionAsync(cancellationToken)`;
     // Aggregate events raised by the body's saves buffer in this scope and
     // dispatch only after CommitAsync (banking-eval B-04); a rollback
@@ -1736,7 +1760,7 @@ function renderHandler(
       ]),
     ),
   ];
-  const extraUsings = [...usings].sort().map((n) => `using ${n};`);
+  const extraUsings = sortedCsUsings(usings, ["System.Data", "Microsoft.Extensions.Logging"]);
   return `// Auto-generated.
 using System.Threading;
 using System.Threading.Tasks;${extraUsings.length > 0 ? "\n" + extraUsings.join("\n") : ""}
@@ -1858,6 +1882,10 @@ export function csWorkflowStmtTarget(
    *  an AuditRecord via the handler's injected `_audit`; the reactor path
    *  leaves it false (no audit writer injected there). */
   audit = false,
+  /** The body's write-scope requirement — present on a command body (a
+   *  workflow's command handler, an explicit command handler); a reactor
+   *  passes none. */
+  writeScope?: WriteScopeContext,
 ): WorkflowStmtTarget {
   // Unique suffix per in-body audit capture so multiple audited op-calls don't
   // collide on the before/after temp-var names.
@@ -2309,6 +2337,20 @@ export function csWorkflowStmtTarget(
     notFound: (st, indent) => [
       `${indent}throw new AggregateNotFoundException(${JSON.stringify(notFoundStmtDetail(st))});`,
     ],
+    // A held row is re-loaded through `GetByIdForWriteAsync` — the load every
+    // mutation command handler uses — before the statement mutates or deletes
+    // it; a row outside the caller's write scope throws the same not-found
+    // (→ 404).
+    ...(writeScope
+      ? {
+          writeScope: {
+            cx: writeScope,
+            guard: (g, indent) => [
+              `${indent}_ = await _${lowerFirst(g.repoName)}.GetByIdForWriteAsync(${g.name}.Id, cancellationToken) ?? throw ${csNotFoundException(null, `${g.aggName} {${g.name}.Id}`)};`,
+            ],
+          },
+        }
+      : {}),
   };
 }
 
@@ -2437,7 +2479,7 @@ function workflowResultCs(
  *  id's raw value type, else the scalar itself.  Only the kinds phase ④ admits
  *  (`loom.workflow-return-type-unsupported`) reach here. */
 function workflowResultWireCs(t: import("../../ir/types/loom-ir.js").TypeIR): string {
-  return t.kind === "id" ? csIdValueClrType(t.valueType) : renderCsType(t);
+  return t.kind === "id" ? csIdValueClrType() : renderCsType(t);
 }
 
 // ---------------------------------------------------------------------------
@@ -2452,13 +2494,8 @@ function renderController(
 ): string {
   const className = `${ctx.name}WorkflowsController`;
   const route = `${routePrefix ?? ""}workflows`;
-  // Tracks namespaces the wire→domain coercion reaches into beyond the
-  // SDK's implicit-usings set (e.g. System.Globalization when a
-  // workflow has a datetime param).
-  const usings = new Set<string>();
   const blocks: string[] = [];
   for (const wf of workflows) {
-    for (const p of wf.params) collectWireUsings(p.type, ctx, usings);
     const cmdArgs = wf.params
       .map((p) =>
         wireToCommandArgument(`request.${upperFirst(p.name)}`, p.type, ctx, {
@@ -2481,7 +2518,7 @@ function renderController(
       "workflow",
       workflowIsGuarded(wf),
       wireStatusResolver(ctx.structuralErrorStatuses),
-      { readsAggregate: workflowCanAnswerNotFound(wf) },
+      { readsAggregate: workflowCanAnswerNotFound(wf, ctx) },
     )
       .map((s) => `    [ProducesResponseType(typeof(ProblemDetails), ${s})]\n`)
       .join("");
@@ -2502,7 +2539,7 @@ function renderController(
         workflowIsGuarded(wf),
         wireStatusResolver(ctx.structuralErrorStatuses),
         {
-          readsAggregate: workflowCanAnswerNotFound(wf),
+          readsAggregate: workflowCanAnswerNotFound(wf, ctx),
         },
       ),
     );
@@ -2534,7 +2571,9 @@ function renderController(
     );
   }
   void csIdValueClrType;
-  const extraUsings = [...usings].sort().map((n) => `using ${n};`);
+  // The wire→domain coercion's BCL types (`CultureInfo`) are written through
+  // `ref`; their slots render iff the actions use them.
+  const extraUsings = sortedCsUsings([]);
   return `// Auto-generated.
 using System.Threading.Tasks;${extraUsings.length > 0 ? "\n" + extraUsings.join("\n") : ""}
 using Mediator;
@@ -2652,7 +2691,6 @@ function renderInstancesController(
     const T = upperFirst(wf.name);
     const dbSet = workflowStateDbSet(wf);
     const shape = wf.instanceWireShape ?? [];
-    for (const f of shape) collectWireUsings(f.type, ctx, usings);
     const corr = shape.find((f) => f.source === "id");
     const corrName = upperFirst(wf.correlationField as string);
     const targetName = corr && corr.type.kind === "id" ? corr.type.targetName : "";
@@ -2673,7 +2711,7 @@ function renderInstancesController(
     // long / string), so Swashbuckle emits the matching param schema — parity
     // with Hono / Java / Python / Phoenix by construction
     // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/non-guid-id-http-params.md).
-    const corrClr = csIdValueClrType(workflowCorrIdValueType(wf));
+    const corrClr = csIdValueClrType();
     if (wf.eventSourced) {
       const st = esStreamType(wf);
       const stateCls = workflowStateClass(wf);
@@ -2685,13 +2723,13 @@ function renderInstancesController(
           "seq AS Seq, stream_type AS StreamType, stream_id AS StreamId, version AS Version, type AS Type, data AS Data, occurred_at AS OccurredAt";
         listBody =
           `        await using var conn = await _db.OpenConnectionAsync();\n` +
-          `        var __rows = (await conn.QueryAsync<${rec}>(new CommandDefinition("SELECT ${cols} FROM ${table} WHERE stream_type = @st ORDER BY stream_id, version", new { st = "${st}" }))).ToList();\n` +
+          `        var __rows = (await conn${CS.Dapper}.QueryAsync<${rec}>(new CommandDefinition("SELECT ${cols} FROM ${table} WHERE stream_type = @st ORDER BY stream_id, version", new { st = "${st}" }))).ToList();\n` +
           `        var rows = __rows.GroupBy(e => e.StreamId).Select(g => ${stateCls}._FromEvents(new ${corrId}(${csIdFromString("g.Key", corrClr)}), g.Select(${stateCls}.RowToEvent).ToList()));\n` +
           `        return Ok(rows.Select(x => new ${T}InstanceResponse(${proj("x")})));\n`;
         byIdBody =
           `        var __sid = id.ToString();\n` +
           `        await using var conn = await _db.OpenConnectionAsync();\n` +
-          `        var __rows = (await conn.QueryAsync<${rec}>(new CommandDefinition("SELECT ${cols} FROM ${table} WHERE stream_type = @st AND stream_id = @sid ORDER BY version", new { st = "${st}", sid = __sid }))).ToList();\n` +
+          `        var __rows = (await conn${CS.Dapper}.QueryAsync<${rec}>(new CommandDefinition("SELECT ${cols} FROM ${table} WHERE stream_type = @st AND stream_id = @sid ORDER BY version", new { st = "${st}", sid = __sid }))).ToList();\n` +
           // M-T6.31 — the shared carrier, not ASP.NET's own 404 (see
           // `dotnetNotFoundThrow`): the instance show answered a different
           // envelope from every other 404 in the same service.
@@ -2701,12 +2739,12 @@ function renderInstancesController(
       } else {
         const eventSet = esEventDbSet(wf, ownerOf);
         listBody =
-          `        var __rows = await _db.${eventSet}.AsNoTracking().Where(e => e.StreamType == "${st}").OrderBy(e => e.StreamId).ThenBy(e => e.Version).ToListAsync();\n` +
+          `        var __rows = await _db.${eventSet}${CS.EfCore}.AsNoTracking().Where(e => e.StreamType == "${st}").OrderBy(e => e.StreamId).ThenBy(e => e.Version).ToListAsync();\n` +
           `        var rows = __rows.GroupBy(e => e.StreamId).Select(g => ${stateCls}._FromEvents(new ${corrId}(${csIdFromString("g.Key", corrClr)}), g.Select(${stateCls}.RowToEvent).ToList()));\n` +
           `        return Ok(rows.Select(x => new ${T}InstanceResponse(${proj("x")})));\n`;
         byIdBody =
           `        var __sid = id.ToString();\n` +
-          `        var __rows = await _db.${eventSet}.AsNoTracking().Where(e => e.StreamType == "${st}" && e.StreamId == __sid).OrderBy(e => e.Version).ToListAsync();\n` +
+          `        var __rows = await _db.${eventSet}${CS.EfCore}.AsNoTracking().Where(e => e.StreamType == "${st}" && e.StreamId == __sid).OrderBy(e => e.Version).ToListAsync();\n` +
           // M-T6.31 — the shared carrier, not ASP.NET's own 404 (see
           // `dotnetNotFoundThrow`): the instance show answered a different
           // envelope from every other 404 in the same service.
@@ -2737,21 +2775,21 @@ function renderInstancesController(
       const selCols = stateCols.map((c) => c.col).join(", ");
       listBody =
         `        await using var conn = await _db.OpenConnectionAsync();\n` +
-        `        var rows = (await conn.QueryAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${table}"))).Select(${mapFn});\n` +
+        `        var rows = (await conn${CS.Dapper}.QueryAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${table}"))).Select(${mapFn});\n` +
         `        return Ok(rows.Select(x => new ${T}InstanceResponse(${proj("x")})));\n`;
       byIdBody =
         `        await using var conn = await _db.OpenConnectionAsync();\n` +
-        `        var __row = await conn.QuerySingleOrDefaultAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${table} WHERE ${pkCol} = @id", new { id }));\n` +
+        `        var __row = await conn${CS.Dapper}.QuerySingleOrDefaultAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${table} WHERE ${pkCol} = @id", new { id }));\n` +
         `        if (__row is null) ${dotnetNotFoundThrow(ns, T, "id")}\n` +
         `        var x = ${mapFn}(__row);\n` +
         `        return Ok(new ${T}InstanceResponse(${proj("x")}));\n`;
     } else {
       listBody =
-        `        var rows = await _db.${dbSet}.AsNoTracking().ToListAsync();\n` +
+        `        var rows = await _db.${dbSet}${CS.EfCore}.AsNoTracking().ToListAsync();\n` +
         `        return Ok(rows.Select(x => new ${T}InstanceResponse(${proj("x")})));\n`;
       byIdBody =
         `        var __key = new ${targetName}Id(id);\n` +
-        `        var x = await _db.${dbSet}.AsNoTracking().FirstOrDefaultAsync(r => r.${corrName} == __key);\n` +
+        `        var x = await _db.${dbSet}${CS.EfCore}.AsNoTracking().FirstOrDefaultAsync(r => r.${corrName} == __key);\n` +
         `        if (x is null) ${dotnetNotFoundThrow(ns, T, "id")}\n` +
         `        return Ok(new ${T}InstanceResponse(${proj("x")}));\n`;
     }
@@ -2813,11 +2851,9 @@ function renderInstancesController(
         `    }\n`,
     );
   }
-  const extraUsings = [...usings].sort().map((n) => `using ${n};`);
-  const persistenceUsings = usingDapper
-    ? "using Dapper;\nusing Npgsql;"
-    : "using Microsoft.EntityFrameworkCore;";
-  const dbFieldType = usingDapper ? "NpgsqlDataSource" : "AppDbContext";
+  const extraUsings = sortedCsUsings(usings);
+  const persistenceUsings = CS_PERSISTENCE_USINGS;
+  const dbFieldType = usingDapper ? CS.NpgsqlDataSource : "AppDbContext";
   const ctorField = needsCurrentUser
     ? `    private readonly ${dbFieldType} _db;\n` +
       `    private readonly ICurrentUserAccessor _currentUser;\n` +

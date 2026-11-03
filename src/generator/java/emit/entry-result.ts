@@ -54,8 +54,14 @@ function leafCtor(
   t: Extract<TypeIR, { kind: "union" }>,
   ctx: BoundedContextIR,
   selfVar: string,
+  repoOf: ((aggName: string) => string) | undefined,
 ): string {
   const rec = `${entryUnionJava(t)}_${leaf.arm.tag}`;
+  // A `match`-arm binding (`Order v => { return v }`) is the operation's own
+  // union carrier, captured inside the domain method — before the save.  The
+  // aggregate is re-read so the answer carries the version the save advanced
+  // to; a payload / error carrier is read through its accessors.
+  const bound = leaf.value.kind === "ref" && leaf.value.refKind === "match-binding";
   const member = unionMembers(t.variants, ctx).find((m) => m.tag === leaf.arm.tag);
   const fields = member?.shape === "record" ? member.fields : [];
   const eff = (ft: TypeIR, optional: boolean): TypeIR =>
@@ -63,12 +69,17 @@ function leafCtor(
   switch (leaf.arm.kind) {
     case "value":
       return `new ${rec}(${domainToWire(leaf.arm.type, rendered)})`;
-    case "aggregate":
-      return `new ${rec}(${fields.map((f) => domainToWire(eff(f.type, f.optional), `${rendered}.${jid(f.name)}()`)).join(", ")})`;
+    case "aggregate": {
+      const src = bound && repoOf ? `${repoOf(leaf.arm.name)}.getById(${rendered}.id())` : rendered;
+      return `new ${rec}(${fields.map((f) => domainToWire(eff(f.type, f.optional), `${src}.${jid(f.name)}()`)).join(", ")})`;
+    }
     case "workflow":
       return `new ${rec}(${fields.map((f) => domainToWire(eff(f.type, f.optional), `${selfVar}.${jid(f.name)}()`)).join(", ")})`;
     case "payload":
     case "error": {
+      if (bound) {
+        return `new ${rec}(${fields.map((f) => domainToWire(eff(f.type, f.optional), `${rendered}.${jid(f.name)}()`)).join(", ")})`;
+      }
       const obj = leaf.value.kind === "object" ? leaf.value.fields : [];
       return `new ${rec}(${fields
         .map((f) => {
@@ -94,9 +105,12 @@ export function entryResultJavaLines(
   indent: string,
   target: string,
   selfVar = "state",
+  /** The repository field for an aggregate, so a bound aggregate arm is read
+   *  back after the save. */
+  repoOf?: (aggName: string) => string,
 ): string[] {
   const assign = (leaf: EntryResultLeaf, pad: string) =>
-    `${pad}${target} = ${leafCtor(leaf, render(leaf.value), render, t, ctx, selfVar)};`;
+    `${pad}${target} = ${leafCtor(leaf, render(leaf.value), render, t, ctx, selfVar, repoOf)};`;
   const m = er.match;
   if (!m?.subject) return er.leaves.map((l) => assign(l, indent));
   const subject = render(m.subject);

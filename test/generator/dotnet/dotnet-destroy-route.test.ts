@@ -6,8 +6,7 @@
 // (test/generator/hono/hono-destroy-route.test.ts).
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/index.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const FIXTURE = `
 context Ops {
@@ -24,8 +23,7 @@ context Ops {
 `;
 
 async function gen(): Promise<Map<string, string>> {
-  const model = await parseValid(FIXTURE);
-  return generateDotnet(model);
+  return generateBackendFiles(FIXTURE, "dotnet");
 }
 
 describe(".NET canonical-destroy → DELETE /{id}", () => {

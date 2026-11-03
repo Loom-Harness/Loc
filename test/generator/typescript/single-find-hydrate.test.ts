@@ -5,8 +5,7 @@
 // straight from `rootRows`.
 
 import { describe, expect, it } from "vitest";
-import { generateHono } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Inventory {
@@ -39,8 +38,7 @@ function method(src: string, name: string): string {
 
 describe("typescript generator — single-result read hydrates in place", () => {
   it("does NOT re-fetch via findById; hydrates from the selected row", async () => {
-    const model = await parseValid(SRC);
-    const files = generateHono(model);
+    const files = await generateBackendFiles(SRC, "node");
 
     const warehouses = method(files.get("db/repositories/warehouse-repository.ts")!, "findByCode");
     // The redundant re-fetch is gone.

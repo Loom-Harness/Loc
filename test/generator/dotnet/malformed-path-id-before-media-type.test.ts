@@ -109,8 +109,7 @@ describe("the guard runs before model binding, and only where it binds", () => {
 });
 
 describe("the narrowing is a RUNTIME check, not an emit-time gate", () => {
-  // An aggregate's identity is always a guid today — `lower.ts` stamps
-  // `idValueType` as the literal "guid" and there is no `ids` clause — so an
+  // Every identity is a guid — the IR has no id value-type axis — so an
   // emit-time gate on it would be an always-true branch nothing could exercise,
   // and a test for its false arm could not be written without a fixture the
   // grammar rejects. The narrowing that matters therefore lives INSIDE the

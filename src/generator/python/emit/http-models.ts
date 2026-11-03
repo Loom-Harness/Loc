@@ -390,7 +390,7 @@ function wireFieldType(
       // RESPONSE stays a bare `str`: the constraint is an INPUT gate, and the
       // response models are also fed by `to_wire` (which already yields the
       // stored uuid), so re-validating outbound buys nothing.
-      return t.valueType === "guid" && inbound ? wireModelRef(PY_UUID_STR) : "str";
+      return inbound ? wireModelRef(PY_UUID_STR) : "str";
     case "enum":
       return pyVoOrEnum(t.name);
     case "valueobject":

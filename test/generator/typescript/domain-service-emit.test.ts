@@ -4,8 +4,7 @@
 // operation renders as `Pricing.quote(...)`.
 
 import { describe, expect, it } from "vitest";
-import { generateHono } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Sales {
@@ -33,8 +32,7 @@ const SRC = `
 
 describe("typescript generator — domainService", () => {
   it("emits an exported namespace of pure functions in domain/services.ts", async () => {
-    const model = await parseValid(SRC);
-    const files = generateHono(model);
+    const files = await generateBackendFiles(SRC, "node");
     const services = files.get("domain/services.ts");
     expect(services).toBeDefined();
     expect(services!).toContain("export namespace Pricing {");
@@ -44,8 +42,7 @@ describe("typescript generator — domainService", () => {
   });
 
   it("renders a domain-service member call as Pricing.quote(...)", async () => {
-    const model = await parseValid(SRC);
-    const files = generateHono(model);
+    const files = await generateBackendFiles(SRC, "node");
     // The aggregate file carries the lowered call site.
     const cart = files.get("domain/cart.ts")!;
     expect(cart).toContain("Pricing.quote(");
