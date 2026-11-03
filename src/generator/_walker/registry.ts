@@ -440,9 +440,9 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     admissibleInSource: true,
     tsx: emitLocaleSwitcher,
     heex: renderLocaleSwitcherHeex,
-    // A native `<select>` whose accessible name is the active locale's own name,
-    // so the contract carries no obligation beyond the element's built-in role.
-    a11y: {},
+    // A native `<select>` (its built-in role needs no `role=`) that must carry a
+    // discernible name: every target labels it with the active locale (`aria-label`).
+    a11y: { needsName: true },
   },
   // A link needs discernible text (native `<a href>` role="link").
   Anchor: {

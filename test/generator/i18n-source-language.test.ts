@@ -120,16 +120,19 @@ describe('i18n { source: "de" } — generated output', () => {
   it("feliz and flutter fall back to the source language", async () => {
     const feliz = await generateSystemFiles(spa("feliz", DE));
     const fs = file(feliz, "src/App.fs")!;
-    expect(fs).toContain('Map.ofList [ "de", src_de ]');
-    expect(fs).toContain('else "de"');
-    expect(fs).toContain("'de').split('-')");
+    // The source catalog is registered under its own tag, and an unmatched
+    // negotiation lands on the source language.
+    expect(fs).toContain('let sourceLocale: string = "de"');
+    expect(fs).toContain('[ "de", src_de ]');
+    expect(fs).toContain("defaultArg (matchLocale candidates) sourceLocale");
     expect(file(feliz, "index.html")).toContain('<html lang="de"');
     expect(fs).not.toContain('"en"');
 
     const flutter = await generateSystemFiles(spa("flutter", DE));
     const dart = file(flutter, "lib/i18n.dart")!;
-    expect(dart).toContain("'de': _src_de,");
-    expect(dart).toContain(": 'de';");
+    expect(dart).toContain("const String sourceLocale = 'de';");
+    expect(dart).toContain("'de': _catDe,");
+    expect(dart).toContain("ValueNotifier<String>('de')");
     expect(dart).not.toContain("'en'");
   });
 
