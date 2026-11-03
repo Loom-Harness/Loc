@@ -29,7 +29,7 @@ import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { runBypassesByRetrieval } from "../_persistence/run-bypass.js";
 import { drizzleImportLine } from "./drizzle-imports.js";
 import { aggregateIsAudited, stampImportLine, stampInsertCall } from "./emit/audit-stamp.js";
-import { inMemoryRunMethod } from "./in-memory-run.js";
+import { inMemoryRunMethod, type RunLocals } from "./in-memory-run.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "./paged-locals.js";
 import { synthProjectionFinds } from "./projection-finds.js";
@@ -120,9 +120,9 @@ export function buildDocumentRepositoryFile(
   // find paths above.
   const capRec = documentCapabilityBody(agg, ctx, "rec");
   const capX = documentCapabilityBody(agg, ctx, "x");
-  const runMethods = documentRunMethods(agg, ctx, (all) => [
-    `    const rows = await this.db.select().from(schema.${tableName}).orderBy(schema.${tableName}.id);`,
-    `    const ${all} = rows.map((r) => ${fromDocOf("r")});`,
+  const runMethods = documentRunMethods(agg, ctx, ({ all, rows }) => [
+    `    const ${rows} = await this.db.select().from(schema.${tableName}).orderBy(schema.${tableName}.id);`,
+    `    const ${all} = ${rows}.map((r) => ${fromDocOf("r")});`,
   ]);
 
   const bodyStr = lines(
@@ -317,7 +317,7 @@ export function buildDocumentRepositoryFile(
 export function documentRunMethods(
   agg: EnrichedAggregateIR,
   ctx: EnrichedBoundedContextIR,
-  loadLines: (all: string) => readonly string[],
+  loadLines: (names: RunLocals) => readonly string[],
 ): string[] {
   const bypasses = runBypassesByRetrieval(ctx, agg.name);
   return aggregateRetrievals(agg, ctx).map((r) =>

@@ -1,22 +1,23 @@
 // ---------------------------------------------------------------------------
-// Collision-free names for the locals a PAGED find method declares.
+// Collision-free names for the locals a node repository READ method declares.
 //
-// Every node repository's `find … paged` method body declares bookkeeping
-// locals (`offset`, `total`, `totalPages`, `items`, the sort whitelist, …) in
-// the SAME function scope as the find's own parameters.  A find param that
-// happens to share one of those names — `find byTotal(total: int): X paged` —
-// redeclared it: `const total = …` against a `total: number` parameter is
-// TS2300 "Duplicate identifier" in the generated project, with no diagnostic
-// from `ddd parse`.  The param name is the user's (it is the route's query
-// field and the `where` clause reads it), so the method's OWN locals step
-// aside instead: a colliding local gets a `__` prefix (more `_`s until free),
-// and a non-colliding one keeps its name — byte-identical output for every
-// find that has no collision.
+// Every node repository read method — a `find … paged`, an array or single-row
+// find, a `run<Retrieval>` — declares its own names (`offset`, `total`,
+// `items`, `query`, `rootRows`, `rootIds`, `result`, the run method's trailing
+// call-site `page?` parameter, …) in the SAME function scope as the read's own
+// parameters.  A param that happens to share one of those names —
+// `criterion ByRows(rootRows: int)` read through `run…` — redeclared it:
+// `const rootRows = …` against a `rootRows: number` parameter is TS2300
+// "Duplicate identifier" in the generated project, with no diagnostic from
+// `ddd parse`.  The param name is the user's (it is the route's query field and
+// the `where` clause reads it), so the method's OWN names step aside instead: a
+// colliding name gets a `__` prefix (more `_`s until free), and a non-colliding
+// one keeps its name — byte-identical output for every read that has no
+// collision.  The shared bulk-load helpers take the owner-ids local's name, so
+// a renamed `rootIds` reaches them.
 //
-// Only the locals a paged branch declares in its own body are handled here;
-// the locals the shared hydration/load helpers hardcode, which every find
-// shape declares too (`rootIds`, `<part>Rows`, `rows`, `all`, `em`), are the
-// same collision class on the unpaged finds and are not renamed.
+// The per-containment locals the hydration helpers derive from a field name
+// (`<part>Rows`, `<part>ByParent`, `<field>JoinRows`) are not renamed.
 // ---------------------------------------------------------------------------
 
 import { escapeTsIdent } from "../../util/naming.js";

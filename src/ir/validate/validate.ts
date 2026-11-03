@@ -152,7 +152,11 @@ import { validatePageGates } from "./checks/ui-gate-checks.js";
 import { validateUnionReads } from "./checks/union-read-checks.js";
 import { validateUnknownRepositoryReads } from "./checks/unknown-repo-read-checks.js";
 import { validateUpdateGateSuggestions } from "./checks/update-gate-suggestion-checks.js";
-import { validateEventChannelAmbiguous, validateWorkflows } from "./checks/workflow-checks.js";
+import {
+  validateEventChannelAmbiguous,
+  validateHandlerInlineRepoCalls,
+  validateWorkflows,
+} from "./checks/workflow-checks.js";
 import { validateWorkflowUnusedParams } from "./checks/workflow-unused-param-checks.js";
 
 // Public surface kept stable: LoomDiagnostic (now defined in checks/diagnostic)
@@ -388,6 +392,10 @@ export function validateLoomModel(
     // Explicit application-layer handlers (unfoldable-api-derivation.md, Layer 3):
     // queryHandler-read-only + commandHandler-single-aggregate layering contracts.
     validateApplicationHandlers(c, diags);
+    // A repository read a handler body runs only on some paths, which lowering
+    // cannot hoist into a `let` (the workflow bodies get it inside
+    // `validateWorkflows`).
+    validateHandlerInlineRepoCalls(c, diags);
     validateOptionalBindings(c, diags);
     // Ruling D1: a reactor's gates are evaluated against the system principal;
     // warn on one it can never satisfy.

@@ -2049,7 +2049,7 @@ system P {
     workflow W {
       create(tid: Thing id) {
         let t = Things.get(tid)
-        precondition t.name == Others.get(t.otherId).label
+        precondition t.name == "" || t.name == Others.get(t.otherId).label
       }
     }`),
   // The code whose "covered by message in validation.test.ts" claim outlived
