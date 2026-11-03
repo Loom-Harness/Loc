@@ -1,32 +1,28 @@
 // ---------------------------------------------------------------------------
 // The storage-names census: a SQL table name or a URL route segment is spelled
-// in exactly one place.
+// in exactly one place, and an emitter never decides which declaration a table
+// is spelled from.
 //
 // A table or route named after a declaration is its snake_case plural, and
 // `plural(snake(n))` and `snake(plural(n))` disagree for a name that ends in an
-// acronym (`ProductSKU` → `product_skus` vs `product_sk_us`).  Backends that
-// composed the two by hand mapped their ORM to a table the migration never
-// created.  The spelling now lives in `src/util/storage-names.ts`
-// (`tableNameFor` / `routeSegmentFor`), with the IR-node accessors in
-// `src/ir/enrich/storage-names.ts`, and this census keeps it there:
+// acronym (`ProductSKU` → `product_skus` vs `product_sk_us`).  The spelling
+// lives in `src/util/storage-names.ts` (`tableNameFor` / `routeSegmentFor`);
+// the node accessors in `src/ir/enrich/storage-names.ts` decide which name a
+// node's table is spelled from (a TPH concrete's rows live in its root's
+// table).  This census is the permanent half of that rule:
 //
 //   1. No composition of `snake` and `plural` anywhere in `src/` outside the
 //      two naming modules — neither nested (`snake(plural(x))`) nor through a
 //      variable (`snake(pluralName)`, `plural(oldStem)`).
-//   2. No private re-implementation of `plural`.
-//   3. No emitter (`src/generator`, `src/platform`) spells a table from a
-//      NAME (`tableNameFor`): it reads the table off the node it is emitting
-//      through `aggregateTableName` / `partTableName` / `projectionTableName`
-//      / …, so which declaration a table is spelled from (a TPH concrete's
-//      rows live in its root's table) is decided once, not per emitter.
-//   4. Every raw `plural(` call in the emitters (`src/generator`,
-//      `src/platform`, the migrations builder) builds something that is
-//      neither a table nor a route — a target-language identifier, a folder,
-//      a UI label.  A call matching one of the reasoned SAFE_SHAPES passes; any
-//      other needs a per-file waiver whose count matches exactly, so a new raw
-//      call (or a stale waiver) fails until someone looks at it.
+//   2. No emitter (`src/generator`, `src/platform`) calls the name-keyed
+//      `tableNameFor`: it reads the table off the node it is emitting.
 //
-// The answer-key half is `test/conformance/acronym-storage-names.test.ts`.
+// The behavioural half — every table an ORM maps is one the migration created,
+// every route a backend mounts is the one its client calls — is
+// `test/conformance/acronym-storage-names.test.ts` (every adapter, the acronym
+// trap) and `test/conformance/corpus-storage-names.test.ts` (every corpus
+// feature).  This census catches what those cannot reach: an emitter path no
+// fixture exercises, such as a new backend's first migration.
 // ---------------------------------------------------------------------------
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -78,65 +74,6 @@ const COMPOSED = [
   /\bplural\(\s*\w*(?:[Ss]nake|[Ss]tem)\w*\s*\)/,
 ];
 
-/** A raw `plural(` whose result is visibly not a table or a route. */
-const SAFE_SHAPES: { re: RegExp; why: string }[] = [
-  { re: /humanize\(plural\(/, why: "a human-facing label (`Product Skus`)" },
-  { re: /useAll\$\{plural\(/, why: "the frontend list-hook identifier (`useAllOrders`)" },
-  {
-    re: /(?:Domain|Application|Api)[./]\$\{(?:upperFirst\()?plural\(/,
-    why: "a C# namespace or project folder (`Domain.Orders`, `Application/Orders/…`)",
-  },
-  {
-    re: /lowerFirst\(plural\(/,
-    why: "a camelCase identifier — the drizzle table handle `schema.orders` or a Java repository bean `ordersRepository` — never the SQL name",
-  },
-  {
-    re: /plural\(upperFirst\(|upperFirst\(plural\(/,
-    why: "a PascalCase identifier — a C# DbSet / controller / folder, an F# message, an OpenAPI tag",
-  },
-  { re: /\$\{plural\([^)]*\)\}Controller/, why: "a controller class name (`OrdersController`)" },
-  {
-    re: /(?:namePlural|pluralAggregateName): plural\(/,
-    why: "the page-shell template's PascalCase plural (`useAllOrders`, `allOrders`)",
-  },
-];
-
-/** Raw `plural(` calls that match no SAFE_SHAPE, per file, with the reason none
- *  of them names a table or a route.  The count must match exactly. */
-const WAIVERS: Record<string, { count: number; why: string }> = {
-  "src/generator/java/adapters/by-layer-layout.ts": {
-    count: 1,
-    why: "the Java package segment (`features.orders`)",
-  },
-  "src/generator/dotnet/index.ts": { count: 1, why: "the C# aggregate folder (`Domain/Orders`)" },
-  "src/generator/dotnet/cqrs-emit.ts": { count: 1, why: "the C# aggregate folder" },
-  "src/generator/dotnet/adapters/cqrs-style.ts": { count: 1, why: "the C# aggregate folder" },
-  "src/generator/dotnet/emit/join-entities.ts": {
-    count: 1,
-    why: "the C# DbSet property of a join entity (`ProductSkuAliases`); its SQL name is `AssociationIR.joinTable`",
-  },
-  "src/generator/dotnet/auth-emit.ts": {
-    count: 1,
-    why: "the C# DbSet property of the tenant registry",
-  },
-  "src/generator/python/explicit-handlers-emit.ts": {
-    count: 3,
-    why: "the repository name a Python handler keys its repo handles by (and the handle an expected-failure aggregate arm projects through)",
-  },
-  "src/generator/python/workflows-builder.ts": {
-    count: 1,
-    why: "the repository handle an expected-failure aggregate arm projects through (`accounts`)",
-  },
-  "src/platform/hono/v4/explicit-handlers-builder.ts": {
-    count: 1,
-    why: "the repository name an expected-failure handler builds its repo handle from (`new AccountRepository` bound to `accounts`)",
-  },
-  "src/generator/_packs/loader.ts": {
-    count: 1,
-    why: "the design packs' `plural` Handlebars helper",
-  },
-};
-
 describe("storage-names census", () => {
   it("reaches src/ and the emitter roots", () => {
     expectReach("src/ files", ALL_SRC.length, 1050);
@@ -168,60 +105,6 @@ describe("storage-names census", () => {
     expect(
       hits,
       "read the table off the node: aggregateTableName / partTableName / projectionTableName / aggregateTableNameOf (src/ir/enrich/storage-names.ts)",
-    ).toEqual([]);
-  });
-
-  it("no file re-implements plural", () => {
-    const hits: string[] = [];
-    for (const f of ALL_SRC) {
-      if (rel(f) === "src/util/naming.ts") continue;
-      for (const { line, text } of codeLines(f)) {
-        if (/\bfunction\s+plural\w*\s*\(|\bconst\s+plural\w*\s*=\s*\(/.test(text)) {
-          hits.push(`${rel(f)}:${line}: ${text.trim()}`);
-        }
-      }
-    }
-    expect(hits).toEqual([]);
-  });
-
-  it("every raw plural( in the emitters builds an identifier or a label, never a table or a route", () => {
-    const emitters = [
-      ...collectTs(join(SRC, "generator")),
-      ...collectTs(join(SRC, "platform")),
-      join(SRC, "system", "migrations-builder.ts"),
-    ];
-    const unwaived: Record<string, string[]> = {};
-    for (const f of emitters) {
-      for (const { line, text } of codeLines(f)) {
-        // A call is safe when some SAFE_SHAPE match spans its `plural(`.
-        const safeSpans = SAFE_SHAPES.flatMap((s) =>
-          [...text.matchAll(new RegExp(s.re, "g"))].map((m) => [m.index, m.index + m[0].length]),
-        );
-        for (const call of text.matchAll(/(?<![\w.$])plural\(/g)) {
-          if (safeSpans.some(([a, b]) => call.index >= a && call.index < b)) continue;
-          const sites = unwaived[rel(f)] ?? [];
-          sites.push(`${line}: ${text.trim()}`);
-          unwaived[rel(f)] = sites;
-        }
-      }
-    }
-    const mismatched: string[] = [];
-    for (const [file, sites] of Object.entries(unwaived)) {
-      const w = WAIVERS[file];
-      if (!w)
-        mismatched.push(`${file}: ${sites.length} unwaived raw plural( — ${sites.join(" | ")}`);
-      else if (w.count !== sites.length) {
-        mismatched.push(
-          `${file}: waiver says ${w.count}, found ${sites.length} — ${sites.join(" | ")}`,
-        );
-      }
-    }
-    for (const file of Object.keys(WAIVERS)) {
-      if (!unwaived[file]) mismatched.push(`${file}: stale waiver — no unmatched raw plural( left`);
-    }
-    expect(
-      mismatched,
-      "a table or route goes through src/ir/enrich/storage-names.ts; a genuine identifier gets a SAFE_SHAPE or a reasoned waiver",
     ).toEqual([]);
   });
 });
