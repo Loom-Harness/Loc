@@ -195,7 +195,10 @@ const IF_RUN_MIN_KINDS = 3;
 function kindTests(expr: ts.Expression): { recv: string; lit: string; recvNode: ts.Node }[] {
   const out: { recv: string; lit: string; recvNode: ts.Node }[] = [];
   const visit = (e: ts.Expression): void => {
-    if (ts.isParenthesizedExpression(e)) return visit(e.expression);
+    if (ts.isParenthesizedExpression(e)) {
+      visit(e.expression);
+      return;
+    }
     if (!ts.isBinaryExpression(e)) return;
     const op = e.operatorToken.kind;
     if (op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.AmpersandAmpersandToken) {
