@@ -59,12 +59,16 @@ describe("negotiation order — URL, stored choice, browser languages, source", 
     const fs = await appFs(["de", "fr"]);
     const body = fs.slice(fs.indexOf("let private negotiate () : string ="));
     const negotiate = body.slice(0, body.indexOf("let private dirOf"));
-    const url = negotiate.indexOf("urlLang ()");
-    const stored = negotiate.indexOf("storedChoice ()");
-    const platform = negotiate.indexOf("platformLanguages ()");
+    // The ORDER is the candidate list's: URL, stored choice, then the browser.
+    const candidates = negotiate.slice(negotiate.indexOf("let candidates ="));
+    const url = candidates.indexOf("[ url ]");
+    const stored = candidates.indexOf("[ stored ]");
+    const platform = candidates.indexOf("platformLanguages ()");
     expect(url).toBeGreaterThan(-1);
     expect(stored).toBeGreaterThan(url);
     expect(platform).toBeGreaterThan(stored);
+    expect(negotiate).toContain("let url = urlLang ()");
+    expect(negotiate).toContain("let stored = storedChoice ()");
     expect(negotiate).toContain("defaultArg (matchLocale candidates) sourceLocale");
     expect(fs).toContain('let sourceLocale: string = "en"');
   });
