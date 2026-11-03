@@ -110,10 +110,15 @@ describe("dapper persistence adapter — dotnet (Phase 5c)", () => {
     expect(repo).toContain(
       "VALUES (@id, @customer, @status, @total::jsonb, @note, 1) ON CONFLICT (id) DO UPDATE SET customer = excluded.customer, status = excluded.status, total = excluded.total, note = excluded.note, version = orders.version + 1 WHERE orders.version = @ExpectedVersion",
     );
-    // Zero affected rows ⇒ the CAS failed (stale write / stale precondition) ⇒
-    // throw the persistence-neutral conflict exception (→ 409).
+    // No returned row ⇒ the CAS failed (stale write / stale precondition) ⇒
+    // throw the persistence-neutral conflict exception (→ 409); otherwise the
+    // stored version is carried back onto the aggregate, as EF's tracker does.
+    expect(repo).toContain("WHERE orders.version = @ExpectedVersion RETURNING version");
     expect(repo).toContain(
-      'if (__affected == 0) throw new ConcurrencyConflictException("Order", aggregate.Id.Value);',
+      'if (__written is null) throw new ConcurrencyConflictException("Order", aggregate.Id.Value);',
+    );
+    expect(repo).toContain(
+      'typeof(Order).GetProperty("Version")!.DeclaringType!.GetProperty("Version")!.SetValue(aggregate, __written.Value);',
     );
     // The persistence-neutral exception is emitted into Domain.Common (Dapper
     // only — EF keys its 409 arm on DbUpdateConcurrencyException).

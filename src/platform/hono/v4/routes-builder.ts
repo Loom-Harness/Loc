@@ -1957,6 +1957,7 @@ function auditProvTxLines(args: {
   errorTags?: readonly string[];
 }): string[] {
   const { agg, op, ctx, audit, prov, usingMikro, check, mutation } = args;
+  const answer = hostReturnProjection(agg, op, "__result", "repoTx", "aggregate");
   const out: string[] = [];
   if (audit) {
     // Actor = the principal's declared shape (`auditActor`, null when no
@@ -2028,10 +2029,35 @@ function auditProvTxLines(args: {
     );
     out.push(`      }`);
   }
-  if (args.capture) out.push(`      return __result;`);
+  if (args.capture) out.push(`      return ${answer};`);
   out.push(`    });`);
   out.push(`    await __deferred.flush();`);
   return out;
+}
+
+/** The 200 body of an operation whose result is (or has an arm that is) its
+ *  own aggregate.  The domain method hands back `this` (tagged for a union
+ *  arm), whose private fields are not the wire; the route answers the
+ *  aggregate's projection through the repository's `toWire`, as every CRUD
+ *  read does.  Any other result is answered as returned. */
+function hostReturnProjection(
+  agg: AggregateIR,
+  op: OperationIR,
+  result: string,
+  repo: string,
+  aggregate: string,
+): string {
+  const rt = op.returnType;
+  const isHost = (t: TypeIR) => t.kind === "entity" && t.name === agg.name;
+  // Read back after the save: the saved row carries the version the save
+  // advanced to, which the in-memory aggregate does not.
+  const saved = `${repo}.toWire(await ${repo}.getById(${aggregate}.id))`;
+  if (rt && isHost(rt)) return saved;
+  if (rt?.kind === "union" && rt.variants.some(isHost)) {
+    const tag = JSON.stringify(agg.name);
+    return `(${result}.type === ${tag} ? { type: ${tag} as const, ...(${saved} as Record<string, unknown>) } : ${result})`;
+  }
+  return result;
 }
 
 function emitOperationRoute(
@@ -2334,10 +2360,22 @@ function emitReturningOperationRoute(
     op.returnType?.kind === "primitive" &&
     (op.returnType as { name?: string }).name === "money";
   if (!(audit || prov)) out.push(checkedSaveLine(operationVersionCheck(agg, op), "repo", "    "));
+  // An operation answering its own aggregate (`return this`) answers the
+  // aggregate's wire projection; the audited path projected it inside the
+  // transaction already.
   const successResult = scalarMoneyReturn
     ? `result === null ? null : ${numericEncode(TS_NUMERIC, "money", "dto-map", "result")}`
-    : "result";
-  out.push(`    return c.json(${successResult}, 200);`);
+    : audit || prov
+      ? "result"
+      : hostReturnProjection(agg, op, "result", "repo", "aggregate");
+  // The projected aggregate is typed `unknown` by `toWire`; it IS the declared
+  // 200 body.
+  const answersHost = hostReturnProjection(agg, op, "result", "repo", "aggregate") !== "result";
+  out.push(
+    answersHost
+      ? `    return c.json(${successResult} as unknown as z.infer<typeof ${successSchema}>, 200);`
+      : `    return c.json(${successResult}, 200);`,
+  );
   out.push(`  },`);
   out.push(`);`);
   return out;
@@ -2924,7 +2962,7 @@ function isResponsePayloadName(ctx: BoundedContextIR, name: string): boolean {
   return ctx.payloads.some((p) => p.kind === "response" && p.name === name);
 }
 
-function zodForResponseInner(t: TypeIR): string {
+export function zodForResponseInner(t: TypeIR): string {
   const info = wireTypeInfo(t, "response");
   if (info.isNullable) return `${zodForResponseInner(peelNullable(t))}.nullish()`;
   if (info.isCollection) return `z.array(${zodForResponseInner(peelCollection(t))})`;

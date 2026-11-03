@@ -11,7 +11,13 @@ import {
   PAGED_MAX_PAGE_SIZE,
 } from "../../../ir/stdlib/generics.js";
 import { lines } from "../../../util/code-builder.js";
-import { MONEY_INTEGER_DIGITS, MONEY_PRECISION, MONEY_WIRE_SCALE } from "../../money-scale.js";
+import {
+  javaCalendarDateParse,
+  javaInstantTruncate,
+  javaMoneyColumnLabel,
+  javaMoneyGrammarLiteral,
+  javaMoneyIntegerDigits,
+} from "../codec-spelling.js";
 import { javaIngressCoercions, javaLit, javaSentence } from "../wire-policy-java.js";
 
 /**
@@ -209,17 +215,17 @@ export function renderWireFormatException(basePkg: string): string {
     `    }`,
     ``,
     `    /** node's money grammar, character for character — no exponent, no`,
-    `     *  grouping, no leading '+', which is what the NUMERIC(19,4) column and`,
+    `     *  grouping, no leading '+', which is what the ${javaMoneyColumnLabel()} column and`,
     `     *  every other backend's parser accept. */`,
-    `    private static final Pattern MONEY = Pattern.compile("^-?\\\\d+(\\\\.\\\\d+)?$");`,
+    `    private static final Pattern MONEY = Pattern.compile(${javaMoneyGrammarLiteral()});`,
     ``,
     `    /** Parse a money wire string, or refuse with a pointer.  Total: the`,
     `     *  bare {@code new BigDecimal(s)} it replaces threw on anything the`,
     `     *  grammar rejects.`,
     `     *`,
-    `     *  The second guard is RANGE, not format: a ${MONEY_INTEGER_DIGITS + 25}-digit price is a`,
+    `     *  The second guard is RANGE, not format: a ${javaMoneyIntegerDigits() + 25}-digit price is a`,
     `     *  perfectly well-formed decimal string, so it passed the grammar,`,
-    `     *  reached NUMERIC(${MONEY_PRECISION},${MONEY_WIRE_SCALE}) and the DATABASE refused it — a 500`,
+    `     *  reached ${javaMoneyColumnLabel()} and the DATABASE refused it — a 500`,
     `     *  for a client fault (M-T6.60 divergence 3).  {@code precision() -`,
     `     *  scale()} is the integer-digit count BigDecimal already tracks, so`,
     `     *  nothing is re-parsed. */`,
@@ -228,7 +234,7 @@ export function renderWireFormatException(basePkg: string): string {
     `            throw new WireFormatException(pointer, ${javaLit(`${fieldValuePrefix("money-grammar")}: `)} + quote(value));`,
     `        }`,
     `        BigDecimal parsed = new BigDecimal(value);`,
-    `        if (parsed.precision() - parsed.scale() > ${MONEY_INTEGER_DIGITS}) {`,
+    `        if (parsed.precision() - parsed.scale() > ${javaMoneyIntegerDigits()}) {`,
     `            throw new WireFormatException(pointer, ${javaLit(`${fieldValuePrefix("money-range")}: `)} + quote(value));`,
     `        }`,
     `        return parsed;`,
@@ -245,7 +251,7 @@ export function renderWireFormatException(basePkg: string): string {
     `            // Sub-millisecond input is TRUNCATED at ingress (RS-38): the stored`,
     `            // value and the wire value then agree, and truncation (never`,
     `            // rounding) cannot carry an instant into the next second.`,
-    `            return java.time.Instant.parse(value).truncatedTo(java.time.temporal.ChronoUnit.MILLIS);`,
+    `            return ${javaInstantTruncate("java.time.Instant.parse(value)")};`,
     `        } catch (RuntimeException e) {`,
     `            throw new WireFormatException(pointer, "Invalid datetime: " + quote(value));`,
     `        }`,
@@ -256,7 +262,7 @@ export function renderWireFormatException(basePkg: string): string {
     `     *  refused rather than having its time-of-day dropped. */`,
     `    public static java.time.LocalDate date(String value, String pointer) {`,
     `        try {`,
-    `            return java.time.LocalDate.parse(value);`,
+    `            return ${javaCalendarDateParse("value")};`,
     `        } catch (RuntimeException e) {`,
     `            throw new WireFormatException(pointer, "Invalid date: " + quote(value));`,
     `        }`,

@@ -1,0 +1,174 @@
+// A workflow `create`, a `commandHandler` and a `queryHandler` whose result
+// declares an expected failure (`T or E`, 13-workflows.md "Expected failures").
+//
+// Each answers from the arms of its terminal `match`: a success arm answers
+// 200 with the tagged success variant, an error arm answers its mapped status
+// as problem+json.  An error answer rolls the WHOLE command back
+// (D-FAILURE-MODEL): the saves before it, the error arm's own writes, and every
+// event — so
+//
+//   * `Pay`'s error path leaves the balance unchanged, its `Note` ("declined")
+//     unwritten, and no `Attempted` event reaches `Audit`, whose
+//     event-triggered starter would otherwise write an "attempted" note;
+//   * its success path persists the withdrawal and answers the `Receipt`.
+//
+// `Hold` is CORRELATED: its success arm answers the workflow itself
+// (`return this`, the instance state the instance-read route serves), and its
+// error path leaves no instance row.  `Charge` answers the account (an
+// aggregate success arm, `AccountResponse` fields); `Peek` reads only, and
+// answers its error when the account is absent.
+system WorkflowExpectedFailure {
+  subdomain Banking {
+    context Ledger {
+      error Insufficient { needed: int }
+      error PaymentDeclined { available: int }
+      payload Receipt { left: int }
+      event Attempted { account: Account id, amt: int }
+
+      aggregate Account with crudish {
+        owner: string
+        balance: int
+        operation withdraw(amt: int): int or Insufficient {
+          balance := balance - amt
+          if balance < 0 {
+            return Insufficient { needed: 0 - balance }
+          }
+          return balance
+        }
+      }
+      repository Accounts for Account
+
+      aggregate Note with crudish { text: string }
+      repository Notes for Note
+
+      workflow Pay {
+        create(account: Account id, amt: int): Receipt or PaymentDeclined {
+          emit Attempted { account: account, amt: amt }
+          let a = Accounts.get(account)
+          let r = a.withdraw(amt)
+          match r {
+            int left => { return Receipt { left: left } }
+            Insufficient e => {
+              let n = Note.create(text: "declined")
+              return PaymentDeclined { available: amt - e.needed }
+            }
+          }
+        }
+      }
+
+      workflow Audit {
+        attemptOf: Account id
+        create(e: Attempted) by e.account {
+          let n = Note.create(text: "attempted")
+        }
+      }
+
+      workflow Hold {
+        holdOf: Account id
+        amount: int
+        create(account: Account id, amt: int): Hold or PaymentDeclined {
+          holdOf := account
+          amount := amt
+          let a = Accounts.get(account)
+          let r = a.withdraw(amt)
+          match r {
+            int left => { return this }
+            Insufficient e => { return PaymentDeclined { available: amt - e.needed } }
+          }
+        }
+      }
+
+      commandHandler Charge(account: Account id, amt: int): Account or PaymentDeclined {
+        let a = Accounts.get(account)
+        let r = a.withdraw(amt)
+        match r {
+          int left => { return a }
+          Insufficient e => { return PaymentDeclined { available: amt - e.needed } }
+        }
+      }
+
+      queryHandler Peek(account: Account id, limit: int): int or PaymentDeclined {
+        let found = Accounts.find(account)
+        match found {
+          Account x => { return x.balance - limit }
+          else => { return PaymentDeclined { available: limit } }
+        }
+      }
+    }
+  }
+  api BankApi from Banking {
+    httpStatus PaymentDeclined -> 409
+    httpStatus Insufficient -> 409
+    route POST "/charge/{account}" -> Ledger.Charge
+    route GET "/peek/{account}" -> Ledger.Peek
+  }
+  storage primary { type: postgres }
+  resource ledgerState { for: Ledger, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ledger]
+    dataSources: [ledgerState]
+    serves: BankApi
+    port: 4000
+  }
+
+  test e2e "an expected failure rolls the whole command back" against d {
+    let a = api.accounts.create({ owner: "ann", balance: 100 })
+
+    // The error path: 409 problem+json, and nothing the command did persists —
+    // not the withdrawal, not the error arm's note, not the reactor's note.
+    expect(api.pay.run({ account: a.id, amt: 500 })).toThrow(409)
+    expect(api.accounts.getById(a).balance).toBe(100)
+    expect(api.notes.all().items.length).toBe(0)
+
+    // The success path answers the Receipt and persists; the reactor runs.
+    let receipt = api.pay.run({ account: a.id, amt: 30 })
+    expect(receipt.type).toBe("Receipt")
+    expect(receipt.left).toBe(70)
+    expect(api.accounts.getById(a).balance).toBe(70)
+    let notes = api.notes.all()
+    expect(notes.items.length).toBe(1)
+    expect(notes.items.first().text).toBe("attempted")
+
+    // A correlated create answers its own instance state.
+    let held = api.hold.run({ account: a.id, amt: 20 })
+    expect(held.type).toBe("Hold")
+    expect(held.holdOf).toBe(a.id)
+    expect(held.amount).toBe(20)
+    expect(api.hold.instance(a.id).amount).toBe(20)
+    expect(api.accounts.getById(a).balance).toBe(50)
+    let b = api.accounts.create({ owner: "bob", balance: 5 })
+    expect(api.hold.run({ account: b.id, amt: 50 })).toThrow(409)
+    expect(api.hold.instance(b.id)).toThrow(404)
+    expect(api.accounts.getById(b).balance).toBe(5)
+
+    // A commandHandler answers the aggregate arm as AccountResponse.
+    let charged = api.ledger.charge(a.id, 10)
+    expect(charged.type).toBe("Account")
+    expect(charged.owner).toBe("ann")
+    expect(charged.balance).toBe(40)
+    expect(api.ledger.charge(a.id, 500)).toThrow(409)
+    expect(api.accounts.getById(a).balance).toBe(40)
+
+    // A queryHandler's expected failure.
+    expect(api.ledger.peek(a.id, 15).value).toBe(25)
+    expect(api.ledger.peek("00000000-0000-4000-8000-000000000001", 1)).toThrow(409)
+    expect(api.accounts.getById(a).balance).toBe(40)
+
+    // The operation's own route answers the same error at its mapped status.
+    expect(api.accounts.withdraw(a, { amt: 500 })).toThrow(409)
+    expect(api.accounts.getById(a).balance).toBe(40)
+
+    // The remaining generated routes.
+    api.accounts.update(a, { owner: "bea", balance: 40 })
+    expect(api.accounts.getById(a).owner).toBe("bea")
+    expect(api.accounts.all().items.length).toBe(2)
+    let note = api.notes.create({ text: "manual" })
+    expect(api.notes.getById(note).text).toBe("manual")
+    api.notes.update(note, { text: "edited" })
+    api.notes.destroy(note)
+    api.accounts.destroy(b)
+    api.accounts.destroy(a)
+    expect(api.accounts.getById(a)).toThrow(404)
+  }
+}

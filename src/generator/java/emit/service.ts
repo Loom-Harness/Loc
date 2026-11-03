@@ -608,6 +608,7 @@ export function renderJavaService(
       // rollback-only — the loaded aggregate is a managed entity, so a plain
       // return would still flush its mutated fields at commit.
       const errorArms = spec ? spec.arms.filter((a) => a.isError) : [];
+      const hostArm = spec?.arms.find((a) => a.tag === agg.name && !a.isError);
       const errorGuard =
         errorArms.length > 0
           ? [
@@ -652,6 +653,17 @@ export function renderJavaService(
           ? `        CatalogLog.event(${javaLogEvent("auditRecorded")}, "action", ${JSON.stringify(op.name)}, "target", ${JSON.stringify(agg.name)}, "actor", RequestContext.actorId());`
           : null,
         `        publishEvents(aggregate);`,
+        // The aggregate's own arm (`return this`) is rebuilt after the save,
+        // so it carries the version the save advanced to.
+        ...(spec && hostArm
+          ? [
+              `        if (result instanceof ${ctx.entityPkg}.${spec.name}_${hostArm.tag}) result = new ${ctx.entityPkg}.${spec.name}_${hostArm.tag}(${
+                hostArm.member.shape === "record"
+                  ? hostArm.member.fields.map((f) => `aggregate.${jid(f.name)}()`).join(", ")
+                  : ""
+              });`,
+            ]
+          : []),
         spec
           ? `        return result;`
           : scalarReturn

@@ -1520,7 +1520,15 @@ export interface CommandHandlerIR {
    *  workflow statement renderer has no `return` arm — workflow handles never
    *  return a value).  A backend renders the body statements, then
    *  `return <returnValue>`.  Absent for a `: void`-equivalent handler. */
-  returnValue?: ExprIR;
+  returnValue?: ExprIR /** For a result that declares an expected failure (`T or E`): the declared
+   *  variant each answered value produces, by tag — one entry when
+   *  `returnValue` is a tail `return`, else one per arm of the value `match`
+   *  `returnValue` holds (its `variantArms` in order, then `otherwise`).  A
+   *  body ending in a terminal statement `match` whose arms `return` lowers
+   *  to that statement `match` (arms keep their statements) plus this value
+   *  `match` over the same subject — the value is answered after the body.
+   *  Read through `entryResult` (src/ir/util/entry-result.ts). */;
+  returnTags?: string[];
 }
 
 /** A top-level `queryHandler name(params): T { … }` application-layer member
@@ -1541,7 +1549,15 @@ export interface QueryHandlerIR {
   /** The lowered `return <expr>` value (see `CommandHandlerIR.returnValue`).  A
    *  query always produces a response, so this is effectively always present —
    *  optional only so a malformed (return-less) body lowers without a cast. */
-  returnValue?: ExprIR;
+  returnValue?: ExprIR /** For a result that declares an expected failure (`T or E`): the declared
+   *  variant each answered value produces, by tag — one entry when
+   *  `returnValue` is a tail `return`, else one per arm of the value `match`
+   *  `returnValue` holds (its `variantArms` in order, then `otherwise`).  A
+   *  body ending in a terminal statement `match` whose arms `return` lowers
+   *  to that statement `match` (arms keep their statements) plus this value
+   *  `match` over the same subject — the value is answered after the body.
+   *  Read through `entryResult` (src/ir/util/entry-result.ts). */;
+  returnTags?: string[];
 }
 
 /** A workflow starter declared via `create [name](params) [by <expr>] { … }`
@@ -1572,7 +1588,15 @@ export interface CreateIR {
    *  shared workflow statement vocabulary has no `return` arm — see
    *  `CommandHandlerIR.returnValue`).  Lowered whenever the body ends in a
    *  return, annotated or not, so the validator can refuse the unannotated one. */
-  returnValue?: ExprIR;
+  returnValue?: ExprIR /** For a result that declares an expected failure (`T or E`): the declared
+   *  variant each answered value produces, by tag — one entry when
+   *  `returnValue` is a tail `return`, else one per arm of the value `match`
+   *  `returnValue` holds (its `variantArms` in order, then `otherwise`).  A
+   *  body ending in a terminal statement `match` whose arms `return` lowers
+   *  to that statement `match` (arms keep their statements) plus this value
+   *  `match` over the same subject — the value is answered after the body.
+   *  Read through `entryResult` (src/ir/util/entry-result.ts). */;
+  returnTags?: string[];
 }
 
 /** A `on(e: Event) [by <expr>] { … }` reactor on a workflow — an extrinsic

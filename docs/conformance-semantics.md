@@ -337,12 +337,10 @@ the conforming backends, and the fix that established it.
 - **Lineage gap (#3527).** A provenanced `money` field's lineage
   (`inputs[].value`, `computedValue`) is a wire context too: the owner ruled
   (2026-10-21) that it carries the same fixed-scale string. The `Codec` fact
-  (`src/ir/enrich/codec.ts`, D-CODEC) records this as `lineage: "wire"`. node
-  conforms; it wrote decimal.js's unscaled `"3000.3"` until the fact. java and
-  .NET send a JSON number, elixir an unscaled Decimal string, and python 500s
-  on the write. Those four boot `corpus/provenance-money` as tracked expected
-  failures until each is moved onto the fact. Pinned by the
-  `provenance-money` wire golden.
+  (`src/ir/enrich/codec.ts`, D-CODEC) records this as `lineage: "wire"`. node,
+  python, .NET and java conform. elixir sends an unscaled Decimal string and
+  boots `corpus/provenance-money` as a tracked expected failure until it is
+  moved onto the fact. Pinned by the `provenance-money` wire golden.
 
 ### RS-13 · A create `POST` returns the id envelope, not the whole aggregate
 - **Guarantee.** A create `POST /api/<plural>` answers `201` with the id
@@ -1834,14 +1832,14 @@ nothing and the test passes vacuously.
 - **Extended by owner ruling (#3593, D-CODEC).** The same form applies to a
   `datetime` in a provenance lineage and inside a channel (CloudEvents)
   envelope or realtime frame. The lineage half is booted by
-  `corpus/provenance-money` (node, python, .NET, elixir; java is a tracked
-  expected failure there on its money lineage first). In the envelope, node
+  `corpus/provenance-money` on every backend. In the envelope, node
   spells `time` canonically but still serializes a `datetime` in `data` and in
   a realtime frame with `JSON.stringify` (`.000Z` on a whole second); python
   spells all three through `iso()`; .NET spells all three through the same wire
-  instant (`CanonicalInstant`); elixir spells the envelope `time` and a
-  `datetime` in `data` through `Loom.Datetime.wire/1`, and its realtime frame
-  is not yet audited (#3394). None of the envelope is goldened. Elixir's framework columns (`inserted_at`, the audit/provenance
+  instant (`CanonicalInstant`); java spells all three through
+  `javaInstantWire`; elixir spells the envelope `time` and a `datetime` in
+  `data` through `Loom.Datetime.wire/1`, and its realtime frame is not yet
+  audited (#3394). None of the envelope is goldened. Elixir's framework columns (`inserted_at`, the audit/provenance
   `at`) stay `:utc_datetime` — second precision, canonically spelled. A deployed
   elixir database created before this rule keeps its `timestamp(0)` columns until
   an operator alters them — see [`migrations.md`](migrations.md).

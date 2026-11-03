@@ -1126,7 +1126,13 @@ export function generateTypeScriptForContexts(
     for (const apiName of system.deployable.serves) {
       const api = system.sys.apis.find((a) => a.name === apiName);
       if (!api || api.routes.length === 0) continue;
-      const content = buildExplicitRoutesFile(api.name, api.routes, contexts, resourceSourceTypes);
+      const content = buildExplicitRoutesFile(
+        api.name,
+        api.routes,
+        contexts,
+        resourceSourceTypes,
+        usingMikro,
+      );
       if (!content) continue;
       const slug = lowerFirst(api.name);
       out.set(`http/${slug}-routes.ts`, content);
