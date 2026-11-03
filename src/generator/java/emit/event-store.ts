@@ -2,6 +2,7 @@ import type { EnrichedAggregateIR, RepositoryIR } from "../../../ir/types/loom-i
 import { lines } from "../../../util/code-builder.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { javaJsonSqlType } from "../codec-spelling.js";
 import { javaLocals, localOf } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { javaValueTypeForId, renderJavaExpr, renderJavaType } from "../render-expr.js";
@@ -176,7 +177,8 @@ export function renderJavaEventSourcedRepositoryImpl(
     ``,
     `    @Override`,
     `    public ${javaRef(ctx.entityPkg, agg.name)} save(${agg.name} aggregate) {`,
-    `        var pending = aggregate.pullEvents();`,
+    // Appending must not drain: the service publishes the same events afterwards and owns the `event_dispatched` line.
+    `        var pending = aggregate._unappendedEvents();`,
     `        if (!pending.isEmpty()) {`,
     `            var sid = String.valueOf(aggregate.id().value());`,
     // Expected-version append (M-T6.98): continue from the version THIS handle
@@ -188,7 +190,7 @@ export function renderJavaEventSourcedRepositoryImpl(
     `                version++;`,
     `                try {`,
     `                    jdbc.update(`,
-    `                        "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::jsonb)",`,
+    `                        "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::${javaJsonSqlType()})",`,
     `                        "${streamType}", sid, version, ev.getClass().getSimpleName(), JSON.writeValueAsString(ev));`,
     // The (stream_id, version) PK IS the event stream's optimistic-concurrency
     // control: a stale handle's append re-inserts a version that exists and
@@ -201,9 +203,9 @@ export function renderJavaEventSourcedRepositoryImpl(
     `                } catch (tools.jackson.core.JacksonException e) {`,
     `                    throw new IllegalStateException("event serialization failed", e);`,
     `                }`,
-    `                CatalogLog.event(${javaLogEvent("eventDispatched")}, "event_type", ev.getClass().getSimpleName(), "aggregate", "${agg.name}");`,
     `            }`,
     `            aggregate._streamVersion(version);`,
+    `            aggregate._markAppended();`,
     `        }`,
     // repository_save (debug) — after the stream append; (aggregate, id) prefix
     // mirrors the relational repo + .NET/Hono emission (children omitted).

@@ -5856,9 +5856,18 @@ types, money grammar and bounds, `.isoformat()`). .NET (EF Core and Dapper)
 spells it in `src/generator/dotnet/codec-spelling.ts` and `numeric-codec.ts`,
 guarded by `test/generator/dotnet/codec-census.test.ts` (Postgres column types,
 money bound and grammar, the `yyyy-MM-dd` / `fff` formats, the `ToString("o")`
-envelope time). The other two backends move onto the fact one at a time. Until
-each does, it boots `corpus/provenance-money` as a tracked expected failure
-(`BEHAVIOURAL_XFAIL`, #4402).
+envelope time). java/Spring spells it in `src/generator/java/codec-spelling.ts`
+and `numeric-codec.ts`, guarded by `test/generator/java/codec-census.test.ts`
+(the `?::jsonb` casts, money scale, bound and grammar, the int range, the
+`truncatedTo(MILLIS)` instant, `LocalDate` text, the `Instant.now().toString()`
+envelope time); a lineage value goes through the emitted `ProvWire` helper.
+elixir (plain Phoenix / Ecto) spells it in
+`src/generator/elixir/vanilla/codec-spelling-ex.ts`, `numeric-codec.ts` and
+`datetime-type-emit.ts` (the `Loom.Datetime` Ecto type, whose `wire/1` is the
+instant's spelling), guarded by `test/generator/elixir/codec-census.test.ts`
+(Ecto schema and migration types, the money bound, scale and grammar, the int
+range, `to_iso8601` / `DateTime.truncate`, the Ecto datetime types). Every
+backend is on the fact.
 
 java/Spring renders the fact through `src/generator/java/wire-policy-java.ts`
 (`test/generator/java/wire-policy-census.test.ts` is its census, with the
@@ -5911,8 +5920,8 @@ call statement dropped it, and a workflow answered 204.
 - **A read does not encode absence as an error.** `T or NotFound` finds go; a
   read that may miss is `T?` (`find…`), one that must hit is `T` (`get…`, the
   standard 404). (#3951)
-- **Workflows return `or E` too**, once a workflow body can `match` a result
-  (#3367). (#3916)
+- **Workflows return `or E` too**: a routed command entry point answers an
+  expected failure, rolled back whole on the error (see Consequences). (#3916)
 - **The wire is the boundary.** In process an `E` is a value; a route renders
   it as problem+json at its `httpStatus` (D-WIRE-POLICY,
   `errorVariantResponse`), never as a 200 union.
@@ -5973,6 +5982,43 @@ switch (r.type) {
 }
 ```
 
+A routed command entry point — the workflow `create` its `POST` serves, a
+`commandHandler`, a `queryHandler` — may itself answer `or E`, from a tail
+`return` or from the `return` ending each arm of its terminal `match`
+(13-workflows.md, "Expected failures").  "An error leaves no trace" then
+covers the WHOLE command, not one call: the entry point runs in one
+transaction whether or not it is `transactional`, and an error answer rolls
+back everything it did — the saves before the `match`, the saga row,
+outbox / audit / provenance rows, the error arm's own writes — and dispatches
+no event; the route translates the error exactly as an operation route does.
+
+```ddd
+workflow Pay {
+  create(account: Account id, amt: int): Receipt or PaymentDeclined {
+    let a = Accounts.get(account)
+    let r = a.withdraw(amt)
+    match r {
+      int left => { return Receipt { left: left } }
+      Insufficient e => { let n = Note.create(text: "declined")  return PaymentDeclined { available: amt - e.needed } }
+    }
+  }
+}
+```
+
+```ts
+// node — the rollback marker leaves the transaction; nothing is flushed or dispatched
+  if (workflowResult.type === "PaymentDeclined") throw __rollback;
+});
+} catch (err) { if (err !== __rollback) throw err; }
+if (!(workflowResult.type === "PaymentDeclined")) await __deferred.flush();
+if (workflowResult.type === "PaymentDeclined") return httpCtx.json({ ...workflowResult, … status: 409 … }, 409, …);
+```
+
+(.NET rolls back the `IUnitOfWork` transaction and leaves the event deferral
+unflushed; Java marks the `@Transactional` rollback-only, so no AFTER_COMMIT
+listener sees its events; Python's 4xx answer rolls back the request
+session.  Elixir refuses it, `loom.elixir-entry-result-unsupported`.)
+
 ## D-ABSENCE-MODEL — "may be missing" has one type, `T?`; presence is the generated update's rule, not a type
 
 **Status:** PINNED (owner rulings 2026-10-25 on #4108; parent #4120).
@@ -6007,6 +6053,15 @@ of an `option` find, in a workflow, handler or domain-service body, binds the
 `T?` exactly as a find declared `T?` does: the binding may be null, and its
 reads go through `?.`, `??` or an `if let x = R.find(…) { … } else { … }`
 branch.
+
+The merge-patch update is RS-47. "The generated update" is recognised by shape —
+an `update` operation whose body only assigns each parameter to the
+same-named field (`mergePatchFields`, `src/ir/util/merge-patch.ts`) — so a
+`crudish` update keeps the contract after `unfold`. `null` on a required field
+is the missing-field 422 (`"<field> is required"`). A wire rule is judged in
+the request schema only when the patch carries every member it reads, and by
+the domain floor over the merged state otherwise. A caller no longer has to
+send a `mask unless` field it cannot read (#3600).
 
 ## D-CREATE-CALL-STYLE — an aggregate's `create` is called like a method; the record form is retired
 

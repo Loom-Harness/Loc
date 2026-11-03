@@ -442,12 +442,12 @@ system Shop {
       valueobject Money {
         amount: int
         currency: string
-        function label(): string = currency
+        function caption(): string = currency
       }
       aggregate Cart shape: document with crudish {
         qty: int
         price: Money
-        derived tag: string = price.label()
+        derived tag: string = price.caption()
         derived shout: string = tag + "!"
         operation bump() {
           precondition shout != ""

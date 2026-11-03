@@ -144,6 +144,10 @@ const PROBES: Record<ExprIR["kind"], { expr: ExprIR; supported: boolean }> = {
     expr: { kind: "i18nFormat", inner: claim("role"), format: ", number" },
     supported: false,
   },
+  modelText: {
+    expr: { kind: "modelText", key: "Projects.Task.name.one", defaultText: "Task" },
+    supported: false,
+  },
   match: {
     expr: { kind: "match", arms: [{ cond: claim("active"), value: str("a") }], variantArms: [] },
     supported: false,

@@ -45,8 +45,8 @@ describe("operation-call return typing (A2 prerequisite)", () => {
       context Shop {
         aggregate Order {
           code: string
-          operation label(): string { return code }
-          operation wrap() { let x = label() }
+          operation tag(): string { return code }
+          operation wrap() { let x = tag() }
         }
       }
     `);

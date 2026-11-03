@@ -57,6 +57,18 @@ import { renderAngularDataGridChild } from "./data-grid-child.js";
  *  by the cross-target conformance test and the shared markup walker. */
 export const angularTarget: WalkerTarget = {
   framework: "angular",
+  // The Angular form fields (`angular/form-fields.ts`) and the shared `EnumBadge`
+  // read the identity-keyed form label / enum option / submit text
+  // (`_walker/model-text-sites.ts`).
+  modelTextImplicitSites: true,
+
+  /** An Angular template has no arrow functions or type assertions, so an enum
+   *  value's label is an object-literal lookup.  `$any` types the literal as
+   *  indexable by the (string) value under `strictTemplates`. */
+  renderEnumLabelLookup(entries, valueExpr): string {
+    const literal = entries.map((e) => `${JSON.stringify(e.value)}: ${e.label}`).join(", ");
+    return `($any({ ${literal} })[${valueExpr}] ?? ${valueExpr})`;
+  },
 
   // The chart component takes a FLAT point list, so the `x:`/`y:` accessors are
   // applied here rather than passed along as key names — the same split every
@@ -515,17 +527,6 @@ export const angularTarget: WalkerTarget = {
   /** Angular interpolation in text/child position. */
   renderInterpolation(jsExpr: string): string {
     return `{{ ${jsExpr} }}`;
-  },
-
-  /** Angular's template grammar has NO template literals, so a holed message is
-   *  built with `+` over single-quoted literals — exactly how the packs already
-   *  spelled `'Filter by ' + String(...)` before it became chrome. */
-  renderStringConcat(parts): string {
-    return parts
-      .map((p) =>
-        "expr" in p ? p.expr : `'${p.text.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`,
-      )
-      .join(" + ");
   },
 
   /** Angular property binding — `[name]="expr"`, leading space included.

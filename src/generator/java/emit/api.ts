@@ -31,10 +31,13 @@ import { plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
-import { findUnionSpec } from "../../_payload/union-wire.js";
-import { PG_FOREIGN_KEY_VIOLATION, PG_RESTRICT_VIOLATION } from "../../_persistence/pg-sqlstate.js";
-import { javaLocals, jid, localOf, requestParam } from "../java-ident.js";
-import { renderJavaExpr, renderJavaType } from "../render-expr.js";
+import {
+  PG_FOREIGN_KEY_VIOLATION,
+  PG_RESTRICT_VIOLATION,
+  PG_UNIQUE_VIOLATION,
+} from "../../_persistence/pg-sqlstate.js";
+import { jid } from "../java-ident.js";
+import { renderJavaExpr } from "../render-expr.js";
 import {
   javaErrorVariantLines,
   javaLit,
@@ -42,9 +45,9 @@ import {
   javaSentence,
 } from "../wire-policy-java.js";
 import { javaAuditApiPkg, javaHistoryFind, renderJavaHistoryRoute } from "./audit-history.js";
-import { JAVA_FIND_ABSENCE_THROW, JAVA_PAGED_QUERY_PARAMS } from "./common.js";
+import { JAVA_PAGED_QUERY_PARAMS } from "./common.js";
 import { EMPTY_COMMAND_BODY_PARAM } from "./empty-body-filter.js";
-import { declaredFinds, isPagedAutoAll, isPagedFind } from "./repository.js";
+import { declaredFinds, isPagedAutoAll } from "./repository.js";
 import { returnUnionSpec, unionWireCtorArgs } from "./unions.js";
 import { javaCommandValidatorNames } from "./validator.js";
 import { javaIdValueType, wireJavaType } from "./wire.js";
@@ -96,7 +99,7 @@ export interface ControllerCtx {
  *  `page`/`pageSize`/`sort`/`dir` query params are deliberately NOT here: a
  *  find param of that name collides on the WIRE (two values for one query
  *  key), which a Java-local rename would only hide. */
-const FIND_ROUTE_METHOD_NAMES: ReadonlySet<string> = new Set([
+const _FIND_ROUTE_METHOD_NAMES: ReadonlySet<string> = new Set([
   "service",
   "currentUserAccessor",
   "currentUser",
@@ -130,9 +133,6 @@ export function renderJavaController(
   // methods and request records stay — the explicit handler may call them.
   const routed = (o: ApiOperationIR | undefined): ApiOperationIR | undefined =>
     o?.claimedByExplicitRoute ? undefined : o;
-  const findEntries = derivedOps.filter(
-    (o) => o.kind === "find" && !isAllFind(o) && !o.claimedByExplicitRoute,
-  );
   // Optimistic concurrency: an operation route reads the client's expected
   // version from the `If-Match` header (think-time CAS) exactly where the
   // `checksVersion` fact says `if-match`, and forwards it to the service.
@@ -208,9 +208,6 @@ export function renderJavaController(
   };
 
   const unionImports = new Set<string>();
-  /** Set when a find arm throws the shared find-absence 404 (RS-22/RS-27), so
-   *  the controller imports `AggregateNotFoundException` only where it uses it. */
-  let anyFindAbsenceThrow = false;
   // Extern ops route identically — the service dispatches to the
   // user-supplied handler instead of an aggregate method.
   // The side-effect-free `can_<op>` companion of a `when`-gated operation
@@ -347,132 +344,6 @@ export function renderJavaController(
     }
   });
 
-  const findRoutes = findEntries.flatMap((entry) => {
-    const f = entry.find!;
-    {
-      // An id-typed find param (`find byOrder(order: Order id)`) binds as its
-      // RAW underlying type (`UUID`/`long`/…) and wraps into the id class at the
-      // service call — Spring has no `String → <Agg>Id` value-type converter, so
-      // binding `@RequestParam OrderId` 500s.  Mirrors the getById path variable
-      // (`@PathVariable UUID id` → `new OrderId(id)`).
-      // M-T6.36 — a param named after a Java reserved word binds under a
-      // MANGLED java identifier, so the query-parameter key has to be named
-      // explicitly (`@RequestParam("case") String case_`); Spring would
-      // otherwise publish `?case_=` on java alone.  `requestParam` is the
-      // bare `@RequestParam` for every other name, so output is unmoved.
-      // A find param named like a name the route method spells itself (the
-      // injected `service`, the `r`/`response`/`result`/`problem` locals, the
-      // gate's `currentUser`) binds under a `_`-suffixed Java parameter
-      // (`javaLocals`), its query key named explicitly by `requestParam` — the
-      // same split as the keyword mangle above.  Unmoved for every other name.
-      const locals = javaLocals(
-        f.params.map((p) => p.name),
-        FIND_ROUTE_METHOD_NAMES,
-      );
-      const declared = f.params.map((p) => {
-        const local = localOf(locals, p.name);
-        return p.type.kind === "id"
-          ? `${requestParam(p.name, local)} ${javaIdValueType(p.type.valueType)} ${local}`
-          : `${requestParam(p.name, local)} ${renderJavaType(p.type)} ${local}`;
-      });
-      const params = declared.join(", ");
-      const args = f.params
-        .map((p) => {
-          const local = localOf(locals, p.name);
-          return p.type.kind === "id" ? `new ${p.type.targetName}Id(${local})` : local;
-        })
-        .join(", ");
-      // Union find (`Order or NotFound` / `Order option`): the service returns
-      // the success variant's `<Agg>Response` (or null).  Per exception-less.md
-      // §4 the 200 body is that success variant DIRECTLY — never a tagged union
-      // component (an error variant belongs at its status, not in a 200 schema) —
-      // so found → 200 `<Agg>Response`, absent → bare 404 (`none`) or an RFC-7807
-      // ProblemDetail at the error's mapped status (with the `resource` extension
-      // when declared).  Wire-identical to `<Agg>?` / `<Agg> option`.
-      const spec = ctx.boundedContext
-        ? findUnionSpec(f.returnType, agg.name, ctx.boundedContext)
-        : null;
-      if (spec) {
-        if (spec.absent.kind === "none") anyFindAbsenceThrow = true;
-        const absent =
-          spec.absent.kind === "none"
-            ? // RS-22/RS-27 — THROW, so the `@RestControllerAdvice` renders the
-              // five-member envelope.  `ResponseEntity.notFound().build()` is
-              // Spring's own bare 404 with an EMPTY BODY and never reaches the
-              // advice; it would also make this controller emit two different
-              // wires for shapes `payloads.md` declares wire-identical, since
-              // the `error`-variant branch below builds a
-              // real ProblemDetail.
-              [`            throw ${JAVA_FIND_ABSENCE_THROW};`]
-            : (() => {
-                return javaErrorVariantLines({
-                  tag: spec.absent.tag,
-                  overrides: ctx.boundedContext?.errorStatusOverrides,
-                  problemType: PROBLEM_DETAIL,
-                  mediaType: MEDIA_TYPE,
-                  indent: "            ",
-                  props: spec.absent.hasResource
-                    ? [`problem.setProperty("resource", "${agg.name}");`]
-                    : [],
-                  emit: "return",
-                });
-              })();
-        return [
-          `    @GetMapping("${relativeOpPath(entry)}")`,
-          `    public ResponseEntity<?> ${f.name}${agg.name}(${params}) {`,
-          ...(f.requires ? findGateLines(f, locals) : []),
-          `        var r = service.${jid(f.name)}(${args});`,
-          `        if (r == null) {`,
-          ...absent,
-          `        }`,
-          `        return ResponseEntity.ok(r);`,
-          `    }`,
-          ``,
-        ];
-      }
-      if (isPagedFind(f)) {
-        const pagedParams = [...declared, ...JAVA_PAGED_QUERY_PARAMS].join(", ");
-        const pagedArgs = [args, "page, pageSize, sort, dir"].filter(Boolean).join(", ");
-        // F2-W-07 — return the CONCRETE `<Agg>Paged` record, exactly as the
-        // auto-findAll route below does.  Returning the raw `Paged<T>` generic
-        // made springdoc name the component `Paged<Agg>Response`, while node
-        // (`.openapi("<Agg>Paged")`), python (`response_model=<Agg>Paged`),
-        // elixir (`<Agg>Paged` schema) and .NET (`CustomSchemaIds` mapping
-        // `Paged<T>` → `<Agg>Paged`) all publish `<Agg>Paged` for the same
-        // route.  The service still returns `Paged<T>`; the controller wraps.
-        return [
-          `    @GetMapping("${relativeOpPath(entry)}")`,
-          `    public ${agg.name}Paged ${f.name}${agg.name}(${pagedParams}) {`,
-          ...(f.requires ? findGateLines(f, locals) : []),
-          `        var result = service.${jid(f.name)}(${pagedArgs});`,
-          `        return new ${agg.name}Paged(result.items(), result.page(), result.pageSize(), result.total(), result.totalPages());`,
-          `    }`,
-          ``,
-        ];
-      }
-      const single = f.returnType.kind !== "array";
-      if (single) anyFindAbsenceThrow = true;
-      const retType = single ? `ResponseEntity<${agg.name}Response>` : `List<${agg.name}Response>`;
-      return [
-        `    @GetMapping("${relativeOpPath(entry)}")`,
-        `    public ${retType} ${f.name}${agg.name}(${params}) {`,
-        ...(f.requires ? findGateLines(f, locals) : []),
-        single
-          ? `        var response = service.${jid(f.name)}(${args});`
-          : `        return service.${jid(f.name)}(${args});`,
-        single
-          ? // RS-22/RS-27 — same repair as the `option` arm above: an OPTIONAL
-            // find (`find byEmail(...): Customer?`) is wire-identical to
-            // `Customer option`, so its miss must carry the same five-member
-            // envelope rather than Spring's bare empty 404.
-            `        if (response == null) throw ${JAVA_FIND_ABSENCE_THROW};\n        return ResponseEntity.ok(response);`
-          : null,
-        `    }`,
-        ``,
-      ].filter((l): l is string => l !== null);
-    }
-  });
-
   // NAMED FIX (unification): the DELETE gate is the shared `emitsRestDestroy`
   // (canonical destroy), not `destroys.length > 0` — a named-only destroy is a
   // domain command, and java was the only backend mounting a generic DELETE
@@ -557,7 +428,6 @@ export function renderJavaController(
             `    }`,
             ``,
           ]),
-    ...findRoutes,
     ...destroyRoutes,
   ];
   while (body[body.length - 1] === "") body.pop();
@@ -582,7 +452,6 @@ export function renderJavaController(
     // does not import from its own package.
     versioned && ctx.pkg !== `${ctx.basePkg}.api` ? `import ${ctx.basePkg}.api.IfMatch;` : null,
     anyFindGate ? `import ${ctx.basePkg}.domain.common.ForbiddenException;` : null,
-    anyFindAbsenceThrow ? `import ${ctx.basePkg}.domain.common.AggregateNotFoundException;` : null,
     anyFindGateUsesUser ? `import ${ctx.basePkg}.auth.CurrentUserAccessor;` : null,
     // Entity history — the shared `AuditEntry` wire record.  Under byLayer the
     // controller already lives in `<base>.api`, so the import is emitted only
@@ -1135,7 +1004,9 @@ export function renderApiExceptionAdvice(
       `        // \`foreign_key_violation\` (23503).  Keying the still-referenced arm on`,
       `        // 23503 is why it never fired here and a delete fell through to the`,
       `        // unique-violation arm, answering a conflict about values that already`,
-      `        // exist.  \`unique (...)\` is 23505.  Anything else is a conflict too.`,
+      `        // exist.  \`unique (...)\` is 23505 and is the only conflict this arm`,
+      `        // answers; any other SQLState (a 23514 check violation, a 23502 not-null)`,
+      `        // is not a uniqueness clash and takes the catch-all 500, as on node and .NET.`,
       hasReferencedDelete &&
         `        if (${JSON.stringify(PG_RESTRICT_VIOLATION)}.equals(sqlState(e))) {`,
       hasReferencedDelete &&
@@ -1155,6 +1026,7 @@ export function renderApiExceptionAdvice(
       hasDanglingRef &&
         `            return respond(problem(${domainStatus}, ${title("dangling-reference")}, ${danglingDetail}, request), ${domainStatus});`,
       hasDanglingRef && `        }`,
+      `        if (!${JSON.stringify(PG_UNIQUE_VIOLATION)}.equals(sqlState(e))) return onUnhandled(e, request);`,
       `        CatalogLog.event(${javaLogEvent("disallowed")}, "message", ${uniqueDetail}, "status", ${uniquenessStatus});`,
       `        httpMetrics.recordDomainFault("disallowed");`,
       `        return respond(problem(${uniquenessStatus}, ${title("unique-conflict")}, ${uniqueDetail}, request), ${uniquenessStatus});`,

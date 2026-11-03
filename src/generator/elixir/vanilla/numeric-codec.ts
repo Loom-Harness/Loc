@@ -1,5 +1,5 @@
+import { moneyWire } from "../../../ir/enrich/codec.js";
 import { type NumericTarget, numericEncode } from "../../_numeric/target.js";
-import { MONEY_WIRE_SCALE } from "../../money-scale.js";
 
 // ---------------------------------------------------------------------------
 // Elixir's `NumericTarget` (M-T9.36) — the ONE place `Decimal.round(_,
@@ -12,6 +12,9 @@ import { MONEY_WIRE_SCALE } from "../../money-scale.js";
 // private function), but the LITERAL decision inside every one of them now
 // comes from here instead of five re-typed copies.
 // ---------------------------------------------------------------------------
+
+/** The money wire scale, from the `Codec` fact (RS-12). */
+const MONEY_WIRE_SCALE = moneyWire().scale;
 
 export const ELIXIR_NUMERIC: NumericTarget = {
   lang: "elixir",

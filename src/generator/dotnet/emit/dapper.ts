@@ -1427,7 +1427,7 @@ export function renderDapperRepository(
   // ONLY when the row's current version matches the expected version (the
   // client's `If-Match`, or the loaded aggregate's own version) — a CAS in the
   // conflict branch's `WHERE`.  A stale row / stale precondition makes the
-  // UPDATE match zero rows, so `ExecuteAsync` returns 0 and we throw
+  // UPDATE match zero rows, so `RETURNING version` yields no row and we throw
   // `ConcurrencyConflictException` (→ 409 via DomainExceptionFilter's Dapper
   // arm) — the persistence-neutral mirror of EF's `IsConcurrencyToken()` +
   // `DbUpdateConcurrencyException`.  The expected version is read from the
@@ -1480,8 +1480,13 @@ export function renderDapperRepository(
         `        ${dapperOpenConn(ns)}`,
         `        ${DAPPER_BEGIN_TX}`,
         "        var __expected = expectedVersion ?? aggregate.Version;",
-        `        var __affected = await conn.ExecuteAsync(new CommandDefinition(${csSqlLiteral(`INSERT INTO ${table} (${insertColList}) VALUES (${versionedInsertValsTph}) ON CONFLICT (id) DO UPDATE SET ${versionedSetClause} WHERE ${table}.${versionCol} = @ExpectedVersion${tph ? ` AND ${scope.writeKindOn(table)}` : ""}`)}, new { ${saveParams}, ExpectedVersion = __expected }, transaction: __tx, cancellationToken: cancellationToken));`,
-        `        if (__affected == 0) throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
+        `        var __written = await conn.ExecuteScalarAsync<int?>(new CommandDefinition(${csSqlLiteral(`INSERT INTO ${table} (${insertColList}) VALUES (${versionedInsertValsTph}) ON CONFLICT (id) DO UPDATE SET ${versionedSetClause} WHERE ${table}.${versionCol} = @ExpectedVersion${tph ? ` AND ${scope.writeKindOn(table)}` : ""} RETURNING ${versionCol}`)}, new { ${saveParams}, ExpectedVersion = __expected }, transaction: __tx, cancellationToken: cancellationToken));`,
+        `        if (__written is null) throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
+        // The aggregate now carries the version it was stored at, so a response
+        // projected after the save reads it, as on the EF path, where the change
+        // tracker writes the bumped token back.  `Version` has a private setter,
+        // reached through the declaring type's property.
+        `        typeof(${agg.name}).GetProperty("Version")!.DeclaringType!.GetProperty("Version")!.SetValue(aggregate, __written.Value);`,
       ]
     : [
         `        ${dapperOpenConn(ns)}`,
@@ -2005,10 +2010,16 @@ export function renderDapperRepository(
         // placeholder in the SQL); only the C# local holding the bag may move.
         return `        ${L("p")}.Add("${p.name}", ${val});`;
       }),
-      // Principal params (`__cu_<claim>`) — the spliced capability filter's refs
-      // plus any the retrieval's own `where` carries — bound from the ambient
-      // request principal (the retrieval method takes no `currentUser` param).
-      ...dedupPrincipalRefs([...filterPrincipalRefs, ...collectFilterPrincipalRefs([r.where])]).map(
+      // Principal params (`__cu_<claim>`) — the refs of the capability filters
+      // the retrieval keeps plus any its own `where` carries — bound from the
+      // ambient request principal (the retrieval method takes no `currentUser`
+      // param).  A widened read's own retrieval drops the filters its stance
+      // names, so it binds none of theirs: `ignoring *` must not dereference
+      // the principal an unauthenticated call does not have.
+      ...dedupPrincipalRefs([
+        ...filterPrincipalRefsFor({ bypassAll: r.bypassAll, bypassCaps: r.bypassCaps }),
+        ...collectFilterPrincipalRefs([r.where]),
+      ]).map(
         (pr) =>
           `        ${L("p")}.Add("${pr.param}", ${principalValue(pr, AMBIENT_CURRENT_USER)});`,
       ),

@@ -17,6 +17,7 @@ import {
   TRACE_COLLECTOR,
 } from "../generator/_obs/tracing.js";
 import { SourceMapRecorder } from "../generator/_trace/sourcemap.js";
+import { withSourceOverrides } from "../generator/_walker/source-text.js";
 import { E2E_FIXTURES_TS } from "../generator/react/emit-templates.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel } from "../ir/lower/lower.js";
@@ -31,6 +32,7 @@ import type {
   SystemIR,
   TypeIR,
 } from "../ir/types/loom-ir.js";
+import { sourceLocaleOf } from "../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../ir/types/migrations-ir.js";
 import { apiResourceBindings } from "../ir/util/api-resource-binding.js";
 import {
@@ -179,6 +181,11 @@ export interface GenerateSystemOptions {
    *  `ddd i18n` subcommand uses) and the playground supplies its own.  Absent
    *  / empty is the normal case and emits byte-identically to before. */
   translations?: ReadonlyMap<string, Record<string, string>>;
+  /** Source-language text overrides from the translator tree's
+   *  `locales/<source>/<ns>.json` files, keyed by runtime key.  An override
+   *  replaces the text derived from the model in every emitted default and
+   *  source catalog (`sourceText`).  Absent / empty emits the derived text. */
+  sourceOverrides?: ReadonlyMap<string, string>;
 }
 
 export function generateSystems(model: Model, options: GenerateSystemOptions = {}): SystemEmission {
@@ -207,17 +214,19 @@ export function generateSystemsFromLoom(
   const recorder = options.sourcemap ? SourceMapRecorder.create() : undefined;
   // Every system's phase-⑨ advisories, folded into one list on the emission.
   const migrationWarnings: MigrationWarning[] = [];
-  for (const sys of loom.systems) {
-    emitSystem(sys, loom, out, {
-      emitTrace: options.emitTrace,
-      emitKubernetes: options.emitKubernetes,
-      migrationChain: options.migrationChain,
-      collectMigrationWarnings: migrationWarnings,
-      sourcemap: recorder,
-      sourceTexts: options.sourceTexts,
-      translations: options.translations,
-    });
-  }
+  withSourceOverrides(options.sourceOverrides, () => {
+    for (const sys of loom.systems) {
+      emitSystem(sys, loom, out, {
+        emitTrace: options.emitTrace,
+        emitKubernetes: options.emitKubernetes,
+        migrationChain: options.migrationChain,
+        collectMigrationWarnings: migrationWarnings,
+        sourcemap: recorder,
+        sourceTexts: options.sourceTexts,
+        translations: options.translations,
+      });
+    }
+  });
   // Traceability artifacts — model-global (requirements may
   // reference code across systems), so emitted once at the output root
   // rather than per system.  No-op when the source declares no
@@ -397,7 +406,7 @@ function emitSystem(
   // extracted from the system's UIs, keyed by content-hash (D-I18N-KEY).  The
   // diff surface `ddd i18n sync` merges each locale against.  See
   // `i18n-catalog.ts` and https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/i18n.md.
-  out.set(".loom/messages.en.json", renderMessageCatalog(sys));
+  out.set(`.loom/messages.${sourceLocaleOf(sys)}.json`, renderMessageCatalog(sys));
   // Mermaid views of the IR — a domain class diagram and a per-workflow
   // call flowchart.  The playground previews them inline; GitHub renders
   // them in fences.  See `mermaid.ts`.

@@ -65,6 +65,7 @@ export function walkExprChildren(e: ExprIR, v: ExprChildVisitor): void {
     case "id":
     case "ref":
     case "action-ref":
+    case "modelText":
       // Leaves — no child expressions.
       break;
     case "member":
@@ -282,6 +283,7 @@ export function mapExprChildren(e: ExprIR, f: (child: ExprIR) => ExprIR): ExprIR
     case "id":
     case "ref":
     case "action-ref":
+    case "modelText":
       return e;
     case "member":
       return { ...e, receiver: f(e.receiver) };

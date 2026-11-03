@@ -818,6 +818,12 @@ export type TestStmtIR =
 export interface EnumIR {
   name: string;
   values: string[];
+  /** Declared at the root of a file, outside every bounded context (the shared
+   *  kernel).  Enrichment folds such an enum into every context's `enums`, so
+   *  where it was DECLARED is an input fact this flag keeps: its model-text
+   *  keys file under `_system` (`src/util/model-text-key.ts`), not under
+   *  whichever context happens to render it. */
+  systemLevel?: true;
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; lets an IR-phase
    * diagnostic about this node print `path:line:col`. */
@@ -827,6 +833,8 @@ export interface EnumIR {
 export interface ValueObjectIR {
   name: string;
   fields: FieldIR[];
+  /** Declared outside every bounded context — see {@link EnumIR.systemLevel}. */
+  systemLevel?: true;
   derived: DerivedIR[];
   invariants: InvariantIR[];
   functions: FunctionIR[];
@@ -1142,6 +1150,13 @@ export interface RetrievalIR {
   sort: SortTermIR[];
   /** Fetch shape; `{ kind: "whole" }` when no `loads:` clause. */
   loadPlan: LoadPlanIR;
+  /** The `ignoring` stance of a widened list read's own retrieval
+   *  (`widenedRetrievalName`): `ignoring *` → `bypassAll`, `ignoring A, B` →
+   *  `bypassCaps`.  Set only on the retrievals enrichment derives for a
+   *  `Repo.all(…) ignoring …` read; the shared retrieval never carries one.
+   *  See `FindIR.bypassAll`. */
+  bypassAll?: boolean;
+  bypassCaps?: string[];
   /** Provenance back to the `retrieval` declaration — the span its
    *  diagnostics point at. */
   origin?: OriginRef;
@@ -1520,7 +1535,15 @@ export interface CommandHandlerIR {
    *  workflow statement renderer has no `return` arm — workflow handles never
    *  return a value).  A backend renders the body statements, then
    *  `return <returnValue>`.  Absent for a `: void`-equivalent handler. */
-  returnValue?: ExprIR;
+  returnValue?: ExprIR /** For a result that declares an expected failure (`T or E`): the declared
+   *  variant each answered value produces, by tag — one entry when
+   *  `returnValue` is a tail `return`, else one per arm of the value `match`
+   *  `returnValue` holds (its `variantArms` in order, then `otherwise`).  A
+   *  body ending in a terminal statement `match` whose arms `return` lowers
+   *  to that statement `match` (arms keep their statements) plus this value
+   *  `match` over the same subject — the value is answered after the body.
+   *  Read through `entryResult` (src/ir/util/entry-result.ts). */;
+  returnTags?: string[];
 }
 
 /** A top-level `queryHandler name(params): T { … }` application-layer member
@@ -1541,7 +1564,15 @@ export interface QueryHandlerIR {
   /** The lowered `return <expr>` value (see `CommandHandlerIR.returnValue`).  A
    *  query always produces a response, so this is effectively always present —
    *  optional only so a malformed (return-less) body lowers without a cast. */
-  returnValue?: ExprIR;
+  returnValue?: ExprIR /** For a result that declares an expected failure (`T or E`): the declared
+   *  variant each answered value produces, by tag — one entry when
+   *  `returnValue` is a tail `return`, else one per arm of the value `match`
+   *  `returnValue` holds (its `variantArms` in order, then `otherwise`).  A
+   *  body ending in a terminal statement `match` whose arms `return` lowers
+   *  to that statement `match` (arms keep their statements) plus this value
+   *  `match` over the same subject — the value is answered after the body.
+   *  Read through `entryResult` (src/ir/util/entry-result.ts). */;
+  returnTags?: string[];
 }
 
 /** A workflow starter declared via `create [name](params) [by <expr>] { … }`
@@ -1572,7 +1603,15 @@ export interface CreateIR {
    *  shared workflow statement vocabulary has no `return` arm — see
    *  `CommandHandlerIR.returnValue`).  Lowered whenever the body ends in a
    *  return, annotated or not, so the validator can refuse the unannotated one. */
-  returnValue?: ExprIR;
+  returnValue?: ExprIR /** For a result that declares an expected failure (`T or E`): the declared
+   *  variant each answered value produces, by tag — one entry when
+   *  `returnValue` is a tail `return`, else one per arm of the value `match`
+   *  `returnValue` holds (its `variantArms` in order, then `otherwise`).  A
+   *  body ending in a terminal statement `match` whose arms `return` lowers
+   *  to that statement `match` (arms keep their statements) plus this value
+   *  `match` over the same subject — the value is answered after the body.
+   *  Read through `entryResult` (src/ir/util/entry-result.ts). */;
+  returnTags?: string[];
 }
 
 /** A `on(e: Event) [by <expr>] { … }` reactor on a workflow — an extrinsic
@@ -1884,6 +1923,13 @@ export type WorkflowStmtIR =
        *  carry the criterion's arguments.  Absent for every other op. */
       retrievalName?: string;
       synthCriterion?: { name: string };
+      /** A widened single-row read (`let c = Repo.find(<Criterion>) ignoring …`
+       *  / `let o = Repo.find(id) ignoring …`): the source and stance of the
+       *  method `method` names, which enrichment synthesises
+       *  (`synthesizeBypassReadFinds`).  `retrievalName` is then absent — the
+       *  read runs its own method, not the shared retrieval — and a backend
+       *  calls `method` the way it calls an `if let`'s `findMethod`. */
+      bypassRead?: BypassReadIR;
       origin?: OriginRef;
     }
   | {
@@ -2059,9 +2105,10 @@ export type WorkflowStmtIR =
       findMethod?: string;
       /** A natural-key source's tuple + `ignoring` stance (see `repo-let`). */
       key?: KeyLookupIR;
-      /** A `Repo.find(<Criterion>) ignoring …` source: the criterion and the
-       *  stance of the widened read `findMethod` names.  `synthCriterion`
-       *  still names the criterion (it is validated like any criterion read);
+      /** A `Repo.find(<Criterion>) ignoring …` / `Repo.find(id) ignoring …`
+       *  source: the criterion (or id) and the stance of the widened read
+       *  `findMethod` names.  For a criterion source `synthCriterion` still
+       *  names the criterion (it is validated like any criterion read);
        *  `retrievalName` is empty, as the read does not run the shared
        *  retrieval. */
       bypassRead?: BypassReadIR;
@@ -2635,6 +2682,10 @@ export interface SystemIR {
    *  emitter translates the framework-agnostic tokens into Mantine /
    *  shadcn / etc. theming knobs. */
   theme?: ThemeIR;
+  /** System-wide i18n settings.  Always present: `source` is the declared
+   *  `i18n { source: … }` tag, or {@link DEFAULT_SOURCE_LOCALE} when the block
+   *  is absent. */
+  i18n: I18nIR;
   /** UI declarations at system scope.  Each is referenced by
    *  zero-or-more deployables via `DeployableIR.uiName`.  Empty when
    *  the system declares no `ui { ... }` blocks.  Order preserves
@@ -2776,6 +2827,21 @@ export type StorageKind =
  *  the platform's defaults.  Color values are validated to be
  *  CSS hex strings (#RGB / #RRGGBB / #RRGGBBAA); radius is one
  *  of the five named scale steps. */
+/** The default source language of a system with no `i18n { … }` block. */
+export const DEFAULT_SOURCE_LOCALE = "en";
+
+/** The source language of a system.  Tolerates a hand-built system with no
+ *  `i18n` (the default source). */
+export function sourceLocaleOf(sys: { i18n?: I18nIR }): string {
+  return sys.i18n?.source ?? DEFAULT_SOURCE_LOCALE;
+}
+
+/** The resolved `i18n { … }` block of a system. */
+export interface I18nIR {
+  /** BCP-47 tag of the language the `.ddd` text is written in. */
+  source: string;
+}
+
 export interface ThemeIR {
   /** Brand color — e.g. "#3b82f6".  Mantine emitter generates a
    *  10-shade ramp from this hex and registers it as the project's
@@ -3916,6 +3982,11 @@ export type ExprIR =
        *  the thrown error into the union) around a variant-match on the
        *  result; every other consumer ignores it. */
       awaited?: boolean;
+      /** A context integration test's widened by-id read
+       *  (`let o = Order.find(id) ignoring …`): `member` names the read's own
+       *  method (`bypassReadMethodName`), which enrichment synthesises on the
+       *  aggregate's repository from this source and stance. */
+      bypassRead?: BypassReadIR;
       origin?: OriginRef;
     }
   | {
@@ -4242,6 +4313,24 @@ export type ExprIR =
       inner: ExprIR;
       /** Raw ICU suffix incl. the leading comma, e.g. `", number, ::currency/USD"`. */
       format: string;
+      origin?: OriginRef;
+    }
+  /**
+   * The translated text a user sees for a model element — the lowered
+   * `label(Task)` / `plural(Task)` / `label(Task.title)` / `label(Status.Draft)`
+   * intrinsic (i18n identity keys).  `key` is the context-qualified identity key
+   * (`Projects.Task.name.other`) and `defaultText` its English default
+   * (`"Tasks"`), both built by `src/util/model-text-key.ts`.
+   *
+   * UI-only: the validator (`loom.model-text-outside-ui`) keeps it out of every
+   * domain-logic position, so the backend `ExprTarget`s never see one.  A
+   * frontend renders it as a call into its translation runtime
+   * (`t(key, defaultText)`), or as the bare default when the UI has no runtime.
+   */
+  | {
+      kind: "modelText";
+      key: string;
+      defaultText: string;
       origin?: OriginRef;
     }
   /**

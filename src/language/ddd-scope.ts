@@ -32,6 +32,7 @@ import {
   isUiChannelParam,
   isUserBlock,
   isValueObject,
+  isWorkflow,
   type Model,
   type PayloadDecl,
   type Ui,
@@ -94,7 +95,10 @@ export class DddScopeProvider extends DefaultScopeProvider {
     // filter transport types back out of the `X id` slot.  Aggregates / parts /
     // enums / value objects still resolve via the default global scope.
     if (context.container.$type === "IdType" && context.property === "target") {
-      return this.filterScope(super.getScope(context), (d) => !isTransportType(d.type));
+      return this.filterScope(
+        super.getScope(context),
+        (d) => !isTransportType(d.type) && d.type !== "Workflow",
+      );
     }
     // `channel Orders: Sales.Lifecycle` — the channel segment resolves only
     // within the named context (channels are context members, never exported
@@ -206,12 +210,22 @@ export class DddScopeProvider extends DefaultScopeProvider {
     // name in an aggregate field / UI param / operation param position resolves
     // to nothing (a clear error) rather than silently typing as a transport
     // record.
+    const createResult = workflowCreateResultOwner(context.container);
     const allowTransport =
       inWorkflowCreateParam(context.container) ||
       inUnionVariant(context.container) ||
-      inHandlerContract(context.container);
+      inHandlerContract(context.container) ||
+      createResult !== undefined;
     const aggregate = enclosingAggregate(context.container);
-    const defaultScope = super.getScope(context);
+    const ownWorkflow = createResult
+      ? AstUtils.getContainerOfType(createResult, isWorkflow)
+      : undefined;
+    const defaultScope = ownWorkflow
+      ? this.createScope(
+          [this.descriptions.createDescription(ownWorkflow, ownWorkflow.name)],
+          super.getScope(context),
+        )
+      : super.getScope(context);
     // Event-triggered `create(e: X)` is a subscription position like `on(e: X)`
     // — its event resolves system-wide (M-T4.4 cross-deployable choreography:
     // a Shipping starter reacts to Orders' event received over a wired broker
@@ -239,7 +253,8 @@ export class DddScopeProvider extends DefaultScopeProvider {
           d.type === "EnumDecl" ||
           d.type === "ValueObject" ||
           d.type === "Aggregate" ||
-          (allowTransport && isTransportType(d.type)),
+          (allowTransport && isTransportType(d.type)) ||
+          (ownWorkflow !== undefined && d.type === "Workflow" && d.node === ownWorkflow),
       );
       // Only names the filtered scope can't already resolve — a same-document
       // event stays the winner; the widening adds the foreign ones.
@@ -449,6 +464,18 @@ function inHandlerContract(namedType: AstNode | undefined): boolean {
   const owner = typeRef.$container;
   if (owner?.$type === "Parameter") return isHandlerDecl(owner.$container?.$type);
   return typeRef.$containerProperty === "returnType" && isHandlerDecl(owner?.$type);
+}
+
+/** The workflow `create` whose declared result type `namedType` sits in — the
+ *  head of `create(…): T` or one of its `or` alternatives — else undefined.  A
+ *  create's result is a transport boundary like a handler's return, so payloads
+ *  resolve there, and so does the create's own workflow (`return this`). */
+function workflowCreateResultOwner(namedType: AstNode | undefined): AstNode | undefined {
+  let typeRef = namedType?.$container;
+  if (typeRef?.$type === "TypeAtom") typeRef = typeRef.$container;
+  if (typeRef?.$type !== "TypeRef" || typeRef.$containerProperty !== "returnType") return undefined;
+  const owner = typeRef.$container;
+  return owner?.$type === "WorkflowCreateDecl" ? owner : undefined;
 }
 
 function isHandlerDecl(type: string | undefined): boolean {

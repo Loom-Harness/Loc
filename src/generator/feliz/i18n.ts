@@ -24,7 +24,7 @@
 // app is byte-identical to pre-i18n (no module, no npm dependency).
 // ---------------------------------------------------------------------------
 
-import type { UiIR } from "../../ir/types/loom-ir.js";
+import { type BoundedContextIR, DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { buildUiCatalog } from "../_frontend/i18n-runtime.js";
 import { fsString } from "./fs-expr.js";
@@ -43,8 +43,19 @@ export function felizI18nEnabled(ui: UiIR): boolean {
 /** The `I18n` F# module spliced into `App.fs` — catalog + lookup + ICU format.
  *  Placed near the top of the file (it references nothing else, and F# is
  *  order-sensitive: every page view below calls into it). */
-export function renderFelizI18nModule(ui: UiIR): string {
-  const catalog = buildUiCatalog(ui);
+export function renderFelizI18nModule(
+  ui: UiIR,
+  source: string = DEFAULT_SOURCE_LOCALE,
+  /** The contexts the ui's forms render over, so the implicit model-text keys
+   *  (form labels, enum options, submit buttons) join the runtime catalog. */
+  contexts: readonly BoundedContextIR[] = [],
+): string {
+  // The source catalog's F# binding: `en` for the default source (unchanged
+  // output), a prefixed identifier otherwise so a tag like `in` or `pt-BR`
+  // never collides with an F# keyword or an illegal character.
+  const sourceIdent =
+    source === DEFAULT_SOURCE_LOCALE ? "en" : `src_${source.replace(/[^A-Za-z0-9_]/g, "_")}`;
+  const catalog = buildUiCatalog(ui, {}, { contexts, sentences: [], implicitModelText: true });
   // `buildUiCatalog` already returns key-sorted entries, so the emitted map is
   // stable across runs (a reordered page must not churn App.fs).
   // F# is offside-sensitive: the list literal must be indented PAST its
@@ -77,25 +88,25 @@ export function renderFelizI18nModule(ui: UiIR): string {
     // `globalThis.navigator` rather than the shim's `typeof navigator !==
     // \"undefined\"`: the emitted F# is checked by `no-js-isms.test.ts`, which
     // (rightly) treats a bare `undefined` anywhere in App.fs as a walker leak.
-    "    [<Fable.Core.Emit(\"(globalThis.navigator ? globalThis.navigator.language : 'en').split('-')[0]\")>]",
+    `    [<Fable.Core.Emit("(globalThis.navigator ? globalThis.navigator.language : '${source}').split('-')[0]")>]`,
     "    let private browserLanguage () : string = jsNative",
     "",
     "    /// Source-language catalog for this ui — the same keys and messages",
-    "    /// `.loom/messages.en.json` carries (D-I18N-KEY content hashes).",
-    "    let private en: Map<string, string> =",
+    `    /// \`.loom/messages.${source}.json\` carries (D-I18N-KEY content hashes).`,
+    `    let private ${sourceIdent}: Map<string, string> =`,
     "        Map.ofList",
     ...entries,
     "",
-    '    let private catalogs: Map<string, Map<string, string>> = Map.ofList [ "en", en ]',
+    `    let private catalogs: Map<string, Map<string, string>> = Map.ofList [ ${fsString(source)}, ${sourceIdent} ]`,
     "",
     "    let private activeLocale: string =",
     "        let lang = browserLanguage ()",
-    '        if catalogs.ContainsKey lang then lang else "en"',
+    `        if catalogs.ContainsKey lang then lang else ${fsString(source)}`,
     "",
     "    let private messages: Map<string, string> =",
     "        match catalogs.TryFind activeLocale with",
     "        | Some m -> m",
-    "        | None -> en",
+    `        | None -> ${sourceIdent}`,
     "",
     "    /// Translate a key, falling back to the source-language default.",
     "    let t (key: string) (defaultMessage: string) : string =",

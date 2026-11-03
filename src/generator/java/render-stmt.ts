@@ -1,9 +1,10 @@
-import type { ExprIR, PathIR, ProvSite, StmtIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR, PathIR, ProvSite, StmtIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { walkStmtsDeep } from "../../ir/util/walk.js";
 import { escapeJavaIdent } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
+import { javaLineageValue } from "./codec-spelling.js";
 import { jid } from "./java-ident.js";
 import { type JavaRenderContext, renderJavaExpr, withLambdaScope } from "./render-expr.js";
 
@@ -117,6 +118,7 @@ function javaStmtTarget(ctx: JavaRenderContext, traceCtx: JavaTraceCtx): StmtTar
         s.value,
         ix.prov,
         ctx,
+        s.targetType,
       );
     },
 
@@ -221,6 +223,12 @@ function javaStmtTarget(ctx: JavaRenderContext, traceCtx: JavaTraceCtx): StmtTar
       const member = ctx.returnUnion.members.find((m) => m.tag === s.variantTag);
       const objFields = s.value.kind === "object" ? s.value.fields : [];
       const order = member && member.shape === "record" ? member.fields : [];
+      // `return this` in the aggregate's own arm: the record carries the
+      // aggregate's fields, read through its accessors.
+      if (s.value.kind === "this") {
+        const reads = order.map((mf) => `this.${jid(mf.name)}()`);
+        return `${INDENT}return new ${variant}(${reads.join(", ")});`;
+      }
       const args = order.map((mf) => {
         const f = objFields.find((of) => of.name === mf.name);
         return f ? renderJavaExpr(f.value, ctx) : "null";
@@ -303,6 +311,7 @@ function withProvCapture(
   value: ExprIR,
   index: number,
   ctx: JavaRenderContext,
+  targetType?: TypeIR,
 ): string {
   if (!prov) return base;
   // Co-located capture is for top-level provenanced fields of the aggregate
@@ -311,10 +320,11 @@ function withProvCapture(
   // co-located slot — skip, mirroring the value-computed trace's same guard.
   if (target.segments.length !== 1) return base;
   const inputs = collectLeaves(value, (x) => renderJavaExpr(x, ctx))
-    .map((l) => `new ProvInput(${JSON.stringify(l.path)}, ${l.value})`)
+    .map((l) => `new ProvInput(${JSON.stringify(l.path)}, ${javaLineageValue(l.value, l.type)})`)
     .join(", ");
   const { tmp, lin } = provTempNames(index);
-  const computed = renderPath(target);
+  // A collection target (`add` / `remove`) records the collection as it is.
+  const computed = javaLineageValue(renderPath(target), targetType);
   const field = `${prov.target.field}Provenance`;
   const targetLit = `new ProvTarget(${JSON.stringify(prov.target.type)}, ${JSON.stringify(prov.target.field)})`;
   return wrapProvCapture(base, {

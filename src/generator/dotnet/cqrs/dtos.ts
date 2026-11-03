@@ -12,6 +12,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
+import { type MergePatchField, mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
@@ -289,7 +290,7 @@ export function emitRequestDtos(
    *  on `hasCreate`. */
   createInputOverride?: AggregateIR["fields"],
 ): void {
-  const records: { name: string; params: string }[] = [];
+  const records: { name: string; params: string; decl?: string }[] = [];
   for (const vo of valueObjectsUsedBy(agg, ctx)) {
     records.push({
       name: `${vo.name}Request`,
@@ -369,6 +370,13 @@ export function emitRequestDtos(
     });
   }
   for (const op of agg.operations.filter((o) => o.visibility === "public")) {
+    const patch = mergePatchFields(op);
+    if (patch) {
+      const name = `${upperFirst(op.name)}${agg.name}Request`;
+      const decl = renderMergePatchRequest(name, patch, ctx);
+      records.push({ name, params: decl, decl });
+      continue;
+    }
     records.push({
       name: `${upperFirst(op.name)}${agg.name}Request`,
       params: op.params
@@ -407,4 +415,52 @@ export function emitRequestDtos(
   if (requestValidators) {
     out.set(`Application/${aggFolder}/Requests/${agg.name}RequestValidators.cs`, requestValidators);
   }
+}
+
+/** The merge-patch update request (RS-47): a class, not a positional record,
+ *  because the question it has to answer is which keys the body CARRIED.
+ *  System.Text.Json calls a property's setter only for a key present in the
+ *  JSON — an explicit `null` included — so each `init` records its wire key,
+ *  and `PatchedKeys()` hands the set to the command.  Every property is
+ *  nullable and none is `[Required]`: an absent key keeps the stored value.
+ *  `null` on a required field is refused by `Validate` with `[Required]`'s own
+ *  sentence, which `ValidationProblem` renders as `"<field> is required"`. */
+function renderMergePatchRequest(
+  name: string,
+  fields: readonly MergePatchField[],
+  ctx: EnrichedBoundedContextIR,
+): string {
+  const props = fields.map((f) => {
+    const wt = wireType(f.type, ctx, "request");
+    const nullable = wt.endsWith("?") ? wt : `${wt}?`;
+    const guard = nullable === "string?" ? "[NoNulChar] " : "";
+    const prop = upperFirst(f.name);
+    return [
+      `    private ${nullable} _${f.name};`,
+      `    ${guard}public ${nullable} ${prop} { get => _${f.name}; init { _${f.name} = value; _present.Add(${JSON.stringify(f.name)}); } }`,
+    ];
+  });
+  const refusals = fields
+    .filter((f) => !f.nullable)
+    .map(
+      (f) =>
+        `        if (_present.Contains(${JSON.stringify(f.name)}) && _${f.name} is null) yield return new ValidationResult(${JSON.stringify(`The ${upperFirst(f.name)} field is required.`)}, new[] { nameof(${upperFirst(f.name)}) });`,
+    );
+  return lines(
+    `public sealed class ${name} : IValidatableObject`,
+    "{",
+    "    private readonly HashSet<string> _present = new();",
+    "",
+    "    /// <summary>The wire keys the body carried.</summary>",
+    "    public IReadOnlySet<string> PatchedKeys() => _present;",
+    "",
+    ...props.flat(),
+    "",
+    "    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)",
+    "    {",
+    ...refusals,
+    ...(refusals.length === 0 ? ["        yield break;"] : []),
+    "    }",
+    "}",
+  );
 }

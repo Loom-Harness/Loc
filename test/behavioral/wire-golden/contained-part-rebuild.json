@@ -175,18 +175,12 @@
       "seq": 12,
       "method": "POST",
       "path": "/api/carts/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "name is required",
-            "pointer": "/name"
-          }
-        ],
+        "detail": "Cart {id} not found",
         "instance": "/api/carts/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

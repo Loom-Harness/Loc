@@ -656,10 +656,12 @@ export function runMethod(
     : lowered.expr;
   // A capability `filter` is always-on for every root read — including
   // criterion retrievals.  AND it into the retrieval's own `where` exactly as
-  // the find path does (buildFindWhereClause); retrievals carry no `ignoring`
-  // bypass, so the full predicate applies.  Omitting it leaked soft-deleted /
-  // other-tenant rows through `run<Name>` (silent gap).
-  const whereClause = `.where(${combinePredicate(whereInner, filterPred)})`;
+  // the find path does (buildFindWhereClause).  Omitting it leaked
+  // soft-deleted / other-tenant rows through `run<Name>` (silent gap).  A
+  // widened read's own retrieval (`… ignoring …`) drops the restrictions its
+  // stance names; the shared retrieval carries no stance.
+  const readPred = readFilterPred(agg, ctx, filterPred, retrieval);
+  const whereClause = `.where(${combinePredicate(whereInner, readPred)})`;
 
   // `sort` → `.orderBy(asc(col), desc(col), …, asc(id))`: the declared terms
   // with the `id` tie-break, or `id` alone (the read-scope order).  Only the

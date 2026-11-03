@@ -533,6 +533,10 @@ export function mikroRetrievalMethod(
   r: RetrievalIR,
   row: string,
   hydrateTail: readonly string[],
+  /** The `filters:` option switching off what a widened read's own
+   *  retrieval (`… ignoring …`) bypasses; empty for the shared retrieval,
+   *  which keeps every schema filter. */
+  ignoring: string | null = null,
 ): string {
   const methodName = `run${upperFirst(r.name)}`;
   const baseParams = r.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
@@ -556,7 +560,7 @@ export function mikroRetrievalMethod(
   return lines(
     `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
     `    const em = this.em.fork({ keepTransactionContext: true });`,
-    `    const rows = await em.find(${row}, ${filter}, { limit: page?.limit, offset: page?.offset${orderBy} });`,
+    `    const rows = await em.find(${row}, ${filter}, { limit: page?.limit, offset: page?.offset${orderBy}${ignoring ? `, ${ignoring}` : ""} });`,
     `    requestLog().debug({ event: "find_executed", aggregate: "${agg.name}", find: "${r.name}", rows: rows.length });`,
     ...hydrateTail,
     `  }`,
@@ -839,7 +843,13 @@ export function renderMikroRepository(
       (r): r is RetrievalIR => r.targetType.kind === "entity" && r.targetType.name === agg.name,
     )
     .map((r) =>
-      mikroRetrievalMethod(agg, r, row, assocHydrateBind(agg, ctx, "em", "", "return", "    ")),
+      mikroRetrievalMethod(
+        agg,
+        r,
+        row,
+        assocHydrateBind(agg, ctx, "em", "", "return", "    "),
+        mikroFilterOption(agg, pool, { bypassAll: r.bypassAll, bypassCaps: r.bypassCaps }),
+      ),
     );
 
   const deleteMethod = canonicalDestroy(agg)

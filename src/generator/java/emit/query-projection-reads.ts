@@ -25,13 +25,13 @@ import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { joinReadFieldNames } from "../../_projection/join-read.js";
-import { MONEY_WIRE_ZERO } from "../../money-scale.js";
 import {
   bypassDrops,
   bypassedFilterNames,
   bypassFilterNames,
   type FilterBypass,
 } from "../capability-filter.js";
+import { javaCalendarDateWire, javaInstantWire, javaMoneyWireZero } from "../codec-spelling.js";
 import {
   javaLocals,
   jid,
@@ -52,7 +52,7 @@ import {
 } from "../render-jpql.js";
 import { projectionRepoField } from "./projection-reads.js";
 import { projectionRowClass } from "./projection-state.js";
-import { domainToWire, javaInstantWire, wireJavaType } from "./wire.js";
+import { domainToWire, wireJavaType } from "./wire.js";
 import { workflowStateClass } from "./workflow-state.js";
 
 // ---------------------------------------------------------------------------
@@ -946,7 +946,7 @@ function jpqlCoerce(s: AggregateSelect, read: string): string {
     const scaled = numericEncode(JAVA_NUMERIC, "money", "projection-read", read);
     return c.optional
       ? `${read} == null ? null : ${scaled}`
-      : `${read} == null ? "${MONEY_WIRE_ZERO}" : ${scaled}`;
+      : `${read} == null ? "${javaMoneyWireZero()}" : ${scaled}`;
   }
   if (c.asString) {
     return c.optional
@@ -1031,8 +1031,8 @@ function groupKeyCoerce(t: TypeIR, read: string, basePkg: string, viaFunction = 
         // and the wire shape are the same record.
         return `(${javaRef(`${basePkg}.domain.common`, "FileRef")}) ${read}`;
       case "date":
-        // A `LocalDate` column → its ISO `yyyy-MM-dd` wire text.
-        return `((${J.LocalDate}) ${read}).toString()`;
+        // A `LocalDate` column → its calendar-date wire text.
+        return javaCalendarDateWire(`((${J.LocalDate}) ${read})`);
     }
   }
   throw new Error(

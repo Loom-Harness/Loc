@@ -50,10 +50,10 @@ describe("HEEx DestroyForm (parity finding #5)", () => {
     const live = await detailLive();
     expect(live).toMatch(/phx-click="destroy_order"/);
     expect(live).toContain("phx-value-id={@id}");
-    // The prompt is the shared `chrome.deleteConfirm` message (the fixture's ui
-    // is i18n-enabled), the entity name substituted for its `{entity}` hole.
+    // The prompt is the aggregate's own whole sentence (the fixture's ui is
+    // i18n-enabled): no word is substituted into it at runtime.
     expect(live).toContain(
-      'data-confirm={String.replace(pgettext("chrome.deleteConfirm", "Delete this \\x7Bentity\\x7D?"), "\\x7Bentity\\x7D", "order")}',
+      'data-confirm={pgettext("chrome.deleteConfirm.Order", "Delete this order?")}',
     );
   });
 

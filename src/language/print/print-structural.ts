@@ -23,6 +23,7 @@ import type {
   EnumDecl,
   EventDecl,
   FunctionDecl,
+  I18nBlock,
   Invariant,
   Layout,
   LayoutNamedSlot,
@@ -195,6 +196,8 @@ export function printStructural(node: AstNode): string {
       return printDeployable(node as Deployable);
     case "ThemeBlock":
       return printThemeBlock(node as ThemeBlock);
+    case "I18nBlock":
+      return printI18nBlock(node as I18nBlock);
     case "UserBlock":
       return printUserBlock(node as UserBlock);
     case "AuthBlock":
@@ -354,6 +357,10 @@ function printPermissionsBlock(node: PermissionsBlock): string {
 
 function printThemeBlock(node: ThemeBlock): string {
   return block("theme", () => node.props.map((p) => `${p.name}: ${quote(p.value)}`));
+}
+
+function printI18nBlock(node: I18nBlock): string {
+  return block("i18n", () => (node.source === undefined ? [] : [`source: ${quote(node.source)}`]));
 }
 
 function printUserBlock(node: UserBlock): string {

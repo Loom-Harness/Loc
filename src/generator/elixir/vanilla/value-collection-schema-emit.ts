@@ -9,7 +9,7 @@ import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/va
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { ectoValidator, messageCodeTagging } from "./changeset-validators.js";
-import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
+import { exEctoIdType, exEctoScalarType } from "./codec-spelling-ex.js";
 import { NORMALIZE_KEYS_DEFP } from "./key-normalize.js";
 
 // ---------------------------------------------------------------------------
@@ -104,28 +104,9 @@ function ectoFieldType(
 ): string {
   switch (t.kind) {
     case "primitive":
-      switch (t.name) {
-        case "int":
-        case "long":
-          return ":integer";
-        case "decimal":
-        case "money":
-          return ":decimal";
-        case "bool":
-          return ":boolean";
-        case "datetime":
-          return LOOM_DATETIME_MODULE;
-        case "date":
-          return ":date";
-        case "guid":
-          return "Ecto.UUID";
-        case "json":
-          return ":map";
-        default:
-          return ":string";
-      }
+      return exEctoScalarType(t.name);
     case "id":
-      return ":binary_id";
+      return exEctoIdType(t.valueType);
     case "enum": {
       const en = enumsByName.get(t.name);
       if (!en) return ":string";

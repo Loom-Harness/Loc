@@ -103,7 +103,7 @@ describe("policy deny survives `ignoring *` — dapper", () => {
   it("a retrieval's runtime FilterBypass cannot drop the deny conjunct either", async () => {
     const run = method(
       await repo(DAPPER),
-      "public async Task<IReadOnlyList<Secret>> RunFindAllByAnyCodeAsync(",
+      "public async Task<IReadOnlyList<Secret>> RunFindAllByAnyCodeIgnoringAllAsync(",
     );
     // The retrieval's tail is the aggregate scope helper's runtime composition…
     expect(run).toContain("SecretScope.Runtime(bypass)");
@@ -148,7 +148,7 @@ describe("policy deny survives `ignoring *` — efcore", () => {
   it("a retrieval's runtime `bypass.All` enumerates the bypassable filters only", async () => {
     const run = method(
       await repo(EF),
-      "public async Task<IReadOnlyList<Secret>> RunFindAllByAnyCodeAsync(",
+      "public async Task<IReadOnlyList<Secret>> RunFindAllByAnyCodeIgnoringAllAsync(",
     );
     expect(run).toContain('if (bypass.All) __q = __q.IgnoreQueryFilters(["IsDeletedFilter"]);');
   });

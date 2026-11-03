@@ -52,13 +52,13 @@ describe("feliz modal", () => {
     // extractor keys it (`page.<P>.button.<hash>`) and this renderer used to
     // splice it raw: a live catalog entry nothing rendered (A13).
     expect(app).toMatch(
-      /Html\.summary \[ prop\.custom\("data-testid", "products-op-rename"\); prop\.className "collapse-title font-medium"; prop\.text \(\(I18n\.t "page\.\w+\.button\.\w+" "Rename"\)\) \]/,
+      /Html\.summary \[ prop\.custom\("data-testid", "products-op-rename"\); prop\.className "collapse-title font-medium"; prop\.text \(\(I18n\.t "Cat\.Product\.op\.rename" "Rename"\)\) \]/,
     );
     // The wrapped operation form renders inline inside the disclosure (its inputs
     // + the id-carrying submit — the same `renderOperationForm` markup).
     expect(app).toContain('prop.placeholder "newName"');
     expect(app).toContain(
-      'prop.onClick (fun _ -> dispatch (SubmitRenameProductOpForm id)); prop.text "Rename Product"',
+      'prop.onClick (fun _ -> dispatch (SubmitRenameProductOpForm id)); prop.text (I18n.t "Cat.Product.op.rename" "Rename")',
     );
     // No dead trigger-only button leaks (the pre-disclosure inert placeholder).
     expect(app).not.toContain('prop.className "loom-modal-trigger"');

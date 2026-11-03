@@ -46,6 +46,7 @@ on:
       - 'src/generator/_numeric/**'
       - 'src/generator/_obs/**'
       - 'src/generator/_payload/**'
+      - 'src/generator/_api/**'
       - 'src/generator/_persistence/**'
       - 'src/generator/_projection/**'
       - 'src/generator/_stmt/**'

@@ -36,6 +36,12 @@ import {
   renderInvariantValidatorFn,
 } from "./changeset-invariant-emit.js";
 import { partConstraintLines } from "./changeset-validators.js";
+import {
+  exEctoIdType,
+  exEctoJsonType,
+  exEctoScalarType,
+  exFrameworkTimestampType,
+} from "./codec-spelling-ex.js";
 import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
 import { isVanillaDocAgg, renderDocSchema } from "./document-emit.js";
 import { needsPureDomainCore, renderAggregatePureCore } from "./domain-core-emit.js";
@@ -238,7 +244,7 @@ function renderPartSchema(
   const belongsToLine = relational
     ? `    belongs_to :${snake(ownerName)}, ${appModule}.${ctxModule}.${upperFirst(ownerName)}, foreign_key: :${snake(ownerName)}_id, type: :binary_id`
     : "";
-  const timestampsLine = relational ? "    timestamps(type: :utc_datetime)" : "";
+  const timestampsLine = relational ? `    timestamps(type: ${exFrameworkTimestampType()})` : "";
   const schemaBody = [fieldLines, containLines, belongsToLine, timestampsLine]
     .filter(Boolean)
     .join("\n");
@@ -412,7 +418,9 @@ function renderSchema(
   // twice ("field/association :inserted_at already exists on schema").  The
   // declared field keeps its wire key and its column; the migration drops its
   // `timestamps()` by the same column test (`migrations-emit.ts`).
-  const timestampsLine = hasEctoTimestamps(agg.fields) ? "    timestamps(type: :utc_datetime)" : "";
+  const timestampsLine = hasEctoTimestamps(agg.fields)
+    ? `    timestamps(type: ${exFrameworkTimestampType()})`
+    : "";
   const refCollBlock = refCollLines.join("\n");
   const schemaBody = [
     kindLine,
@@ -614,52 +622,24 @@ export function mapTypeToEcto(t: TypeIR, enumsByName: Map<string, EnumIR>): stri
   return parts.opts ? `${parts.type}, ${parts.opts}` : parts.type;
 }
 
-/** Leaf (non-enum, non-array, non-optional) Loom type → Ecto type term. */
+/** Leaf (non-enum, non-array, non-optional) Loom type → Ecto type term — the
+ *  Ecto spelling of the `Codec` fact's column (`codec-spelling-ex.ts`): a
+ *  `datetime` is the millisecond `Loom.Datetime` (RS-38), a `date` a calendar
+ *  `%Date{}`, a `File` its FileRef map over the fact's JSON column. */
 function mapLeafTypeToEcto(t: TypeIR): string | null {
   switch (t.kind) {
-    case "primitive": {
-      switch (t.name) {
-        case "string":
-          return ":string";
-        case "int":
-        case "long":
-          return ":integer";
-        case "decimal":
-        case "money":
-          return ":decimal";
-        case "bool":
-          return ":boolean";
-        case "datetime":
-          // Millisecond UTC instant (RS-38) — see `datetime-type-emit.ts`.
-          return LOOM_DATETIME_MODULE;
-        case "date":
-          // A calendar `%Date{}`; casts the wire's ISO `YYYY-MM-DD` text.
-          return ":date";
-        case "guid":
-          return "Ecto.UUID";
-        case "json":
-          return ":map";
-        case "File":
-          // A `File` field's FileRef ({url,key,contentType,size}) is a plain map
-          // stored in a jsonb column (M-T1.2) — the schema type must be `:map`
-          // to agree with the migration (jsonb) and the typespec (map()), or a
-          // load/changeset mismatches the string default.
-          return ":map";
-        default:
-          return ":string";
-      }
-    }
+    case "primitive":
+      return exEctoScalarType(t.name);
     case "id":
-      // X id → FK column; `belongs_to` association left for a
-      // dedicated assoc emit pass.  The column itself is enough for
-      // wire shape parity (the agg JSON includes the FK value).
-      return ":binary_id";
+      // X id → FK column of the target's key type; the column itself is
+      // enough for wire shape parity (the agg JSON includes the FK value).
+      return exEctoIdType(t.valueType);
     case "valueobject":
-      // VO → `:map` (JSONB) for a caller with no value-object table to build
+      // VO → the JSON column for a caller with no value-object table to build
       // the canonical `Loom.ValueObject` column type from (projection rows,
       // dispatch params).  An aggregate or part column renders through
       // `valueObjectColumnType` instead (`renderFieldLine`).
-      return ":map";
+      return exEctoJsonType();
     default:
       return null;
   }

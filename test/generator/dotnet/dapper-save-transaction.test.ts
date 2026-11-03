@@ -73,14 +73,14 @@ describe("Dapper SaveAsync is transactional", () => {
     // join-table DELETE + INSERT, and the containment DELETE + INSERT.
     expect(save).toContain("DELETE FROM order_tags");
     expect(save).toContain("DELETE FROM line_items");
-    // No save-path ExecuteAsync may omit the transaction.  The cut is the
+    // No save-path Execute*Async may omit the transaction.  The cut is the
     // outbox-capture call (`RecordDurableAsync`), which is the last statement
     // before the commit — `PullEvents` used to mark that boundary, but the
     // transactional-outbox fix moved the drain to just BEFORE the commit so the
     // durable rows can be written on `__tx` (dispatch-delivery-semantics.md §1).
     const cut = save.indexOf("RecordDurableAsync");
     expect(cut).toBeGreaterThan(0);
-    const execCalls = save.slice(0, cut).match(/ExecuteAsync\(/g) ?? [];
+    const execCalls = save.slice(0, cut).match(/Execute\w*Async(<[^>]*>)?\(/g) ?? [];
     const withTx = save.slice(0, cut).match(/transaction: __tx, cancellationToken/g) ?? [];
     expect(execCalls.length).toBeGreaterThan(0);
     expect(withTx.length).toBe(execCalls.length);

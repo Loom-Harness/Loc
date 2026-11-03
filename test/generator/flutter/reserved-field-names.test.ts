@@ -70,7 +70,8 @@ describe("flutter — Dart-reserved wire field names", () => {
     const files = await generateSystemFiles(SYS);
     const detail = files.get("app/lib/pages/product_detail_page.dart")!;
     expect(detail).toContain(".default_}");
-    expect(detail).not.toMatch(/\.default\b/);
+    // A Dart member read, not a catalog key (`t('Orders.Product.field.default', …)`).
+    expect(detail.replace(/t\('[^']*'/g, "")).not.toMatch(/\.default\b/);
     const list = files.get("app/lib/pages/product_list_page.dart")!;
     expect(list).toContain("row.default_");
     expect(list).not.toMatch(/row\.default\b/);

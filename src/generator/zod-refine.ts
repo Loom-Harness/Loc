@@ -205,6 +205,7 @@ export function refineRenderable(e: ExprIR, decimal: RefineDecimalMode = "server
     case "match":
     case "list":
     case "action-ref":
+    case "modelText":
     case "authz-filter":
       return false;
     default: {
@@ -409,6 +410,11 @@ export function refineClauseFor(
   inv: InvariantIR,
   ctx: ClassifyContext,
   decimal: RefineDecimalMode = "server-only",
+  /** Merge-patch body (RS-47): the request members the rule reads.  The rule
+   *  is judged here only when the body carries every one of them; a patch
+   *  that leaves one out passes the refine and the domain floor judges the
+   *  merged state. */
+  presence?: readonly string[],
 ): string | null {
   if (!classifyForWire(inv, ctx)) return null;
   // Local (browser-JS) admission — see the header note.  An invariant this
@@ -421,7 +427,11 @@ export function refineClauseFor(
   // refine for a message-less shape the chain already absorbed.
   if (!inv.message && takeSingleFieldChain(inv, ctx, decimal)) return null;
   const body = renderRefineExpr(inv.expr);
-  const guarded = inv.guard ? `!(${renderRefineExpr(inv.guard)}) || (${body})` : body;
+  const ruled = inv.guard ? `!(${renderRefineExpr(inv.guard)}) || (${body})` : body;
+  const guarded =
+    presence && presence.length > 0
+      ? `${presence.map((m) => `data.${m} === undefined`).join(" || ")} || (${ruled})`
+      : ruled;
   // Author `message "..."` wins over the derived "Invariant violated: <src>"
   // default; when present it also carries a stable content-hash `loomCode` in the
   // zod issue `params` so the route's `defaultHook` can surface it on
@@ -495,6 +505,7 @@ export function renderRefineExpr(e: ExprIR): string {
     case "match":
     case "list":
     case "action-ref":
+    case "modelText":
     case "authz-filter":
       // `classifyForWire` excludes these AND `refineRenderable` re-checks, so
       // reaching the renderer means a bug upstream — fail generation loudly

@@ -434,7 +434,7 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  18 -> 19: `loom.ui-body-feature-unsupported`, the per-target frontend body
  *  vocabulary (`UI_BODY_FEATURE_RENDERERS`).  The same trade once more: every
  *  refused cell either crashed `ddd generate system` with an uncoded `Error`
- *  (the Feliz MVU renderer, the Flutter notifier, the Feliz find-read builder)
+ *  (the Feliz MVU renderer, the Flutter notifier)
  *  or emitted code that does not compile (`s.matches(…)`, `xs.filter(…)`
  *  verbatim in F# / Dart).  Drains row by row as an emitter learns a feature —
  *  the census then asks for the table row to grow — and the row goes when the
@@ -466,8 +466,14 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  four other backends render it, and Phoenix — whose op calls persist inside
  *  the context function and match `{:ok, _}` away at every with-chain site —
  *  refuses it instead of dropping the binding.  Drains when the Phoenix
- *  with-chain sites bind the call's tuple. */
-const MAX_OPEN_GAPS = 17;
+ *  with-chain sites bind the call's tuple.
+ *
+ *  17 -> 18: `loom.elixir-entry-result-unsupported`.  A routed workflow
+ *  `create` / handler answering `T or E` (and a create answering its own
+ *  workflow) ships on the other four backends, each running the command in
+ *  one transaction rolled back whole on an error answer; the Phoenix routes
+ *  have neither a tagged result nor a rollback seam for it, and refuse it. */
+const MAX_OPEN_GAPS = 18;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

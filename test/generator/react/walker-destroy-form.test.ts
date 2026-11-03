@@ -61,10 +61,8 @@ describe("DestroyForm — canonical destroy confirmation", () => {
       sys(`Stack { Heading { "Danger zone" }, DestroyForm { of: Order } }`),
     );
     const page = files.get("web/src/pages/order_admin.tsx")!;
-    expect(page).toContain(
-      't("chrome.deleteConfirm", "Delete this {entity}?", { entity: "order" })',
-    );
-    expect(page).toContain('t("chrome.deleteEntity", "Delete {entity}", { entity: "Order" })');
+    expect(page).toContain('t("chrome.deleteConfirm.Order", "Delete this order?")');
+    expect(page).toContain('t("chrome.deleteEntity.Order", "Delete Order")');
   });
 
   it("renders a visible placeholder for an aggregate without a canonical destroy", async () => {

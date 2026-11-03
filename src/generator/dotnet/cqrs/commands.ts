@@ -8,6 +8,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { mergePatchFields } from "../../../ir/util/merge-patch.js";
 import {
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
@@ -18,7 +19,13 @@ import {
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { unionMembers } from "../../_payload/union-wire.js";
-import { maskNamer, projectEntityExpr, projectToResponse, wireType } from "../dto-mapping.js";
+import {
+  maskNamer,
+  projectEntityArgs,
+  projectEntityExpr,
+  projectToResponse,
+  wireType,
+} from "../dto-mapping.js";
 import { IF_MATCH_EXPECTED_VERSION_CS } from "../emit/version-check-cs.js";
 import { renderCommand, renderCommandHandler } from "../emit.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "../render-expr.js";
@@ -401,9 +408,13 @@ export function emitOperationCommandAndHandler(
   idClass: string = `${agg.name}Id`,
 ): void {
   {
+    // A merge-patch update (RS-47) also carries the keys its body held; the
+    // handler passes the stored value for every other one.
+    const patch = mergePatchFields(op);
     const params = [
       `${idClass} Id`,
       ...op.params.map((p) => `${renderCsType(p.type)} ${upperFirst(p.name)}`),
+      ...(patch ? ["IReadOnlySet<string> PatchedKeys"] : []),
     ].join(", ");
     // Exception-less return-typed op (exception-less.md): the command carries
     // the Domain union as its result (`ICommand<Union>`), the handler returns it
@@ -421,6 +432,12 @@ export function emitOperationCommandAndHandler(
       op.returnType && op.returnType.kind !== "union"
         ? wireType(op.returnType, ctx, "response")
         : undefined;
+    // An entity return (`return this`) answers its `<Agg>Response`, which
+    // lives in the aggregate's `Responses` namespace.
+    const responseUsing =
+      op.returnType?.kind === "entity" && !op.audited
+        ? `${ns}.Application.${plural(agg.name)}.Responses`
+        : undefined;
     out.set(
       `Application/${aggFolder}/Commands/${upperFirst(op.name)}Command.cs`,
       renderCommand({
@@ -429,7 +446,11 @@ export function emitOperationCommandAndHandler(
         commandName: `${upperFirst(op.name)}Command`,
         commandParams: params,
         returnType: returnUnion ?? scalarWireType,
-        extraUsings: returnUnion ? [`${ns}.Domain.${plural(agg.name)}`] : undefined,
+        extraUsings: returnUnion
+          ? [`${ns}.Domain.${plural(agg.name)}`]
+          : responseUsing
+            ? [responseUsing]
+            : undefined,
       }),
     );
     // Per-op FluentValidation rules from wire-translatable
@@ -452,7 +473,11 @@ export function emitOperationCommandAndHandler(
     // The handler evaluates the gate, so it needs the accessor injected even
     // when the remaining body takes no principal.
     const gateUsesUser = operationGatesUseCurrentUser(op);
-    const baseCallArgs = op.params.map((p) => `command.${upperFirst(p.name)}`);
+    const baseCallArgs = op.params.map((p) =>
+      patch
+        ? `(command.PatchedKeys.Contains(${JSON.stringify(p.name)}) ? command.${upperFirst(p.name)} : aggregate.${upperFirst(p.name)})`
+        : `command.${upperFirst(p.name)}`,
+    );
     const callArgs = (usesUser ? [...baseCallArgs, "_currentUser.User"] : baseCallArgs).join(", ");
     const userExtraDeps =
       usesUser || gateUsesUser ? [{ type: "ICurrentUserAccessor", field: "_currentUser" }] : [];
@@ -570,6 +595,31 @@ export function emitOperationCommandAndHandler(
     const saveArgs = readsIfMatch(operationVersionCheck(agg, op))
       ? `${IF_MATCH_EXPECTED_VERSION_CS}, cancellationToken`
       : "cancellationToken";
+    // A success arm that is the aggregate itself (`return this`) is answered
+    // as the aggregate's wire projection read AFTER the save, as a plain
+    // `: Agg` return is; the domain method cannot project its own response.
+    const hostTag = variants.some((v) => v.kind === "entity" && v.name === agg.name)
+      ? unionMembers(variants, ctx).find((_, i) => {
+          const v = variants[i]!;
+          return v.kind === "entity" && v.name === agg.name;
+        })?.tag
+      : undefined;
+    const hostArmProjection =
+      returnUnion && hostTag
+        ? (() => {
+            const arm = `global::${ns}.Domain.${plural(agg.name)}.${returnUnion}_${hostTag}`;
+            return `        if (result is ${arm}) result = new ${arm}(${projectEntityArgs("aggregate", agg as EnrichedAggregateIR, ctx, { unionVariant: true })});\n`;
+          })()
+        : "";
+    // The projection constructs the contained parts' `<Part>Response` records,
+    // which live in the aggregate's `Responses` namespace.  That namespace also
+    // declares an application-side twin of the domain union, so it is imported
+    // as one alias per part record rather than as a whole namespace (which
+    // would make the handler's union return type ambiguous).
+    const responsesNs = `global::${ns}.Application.${plural(agg.name)}.Responses`;
+    const partResponseAliases = [
+      ...new Set([...hostArmProjection.matchAll(/new (\w+Response)\(/g)].map((m) => m[1]!)),
+    ].map((r) => `${r} = ${responsesNs}.${r}`);
     const handlerBody = returnUnion
       ? loadLine +
         auditBefore +
@@ -577,6 +627,7 @@ export function emitOperationCommandAndHandler(
         errorGuard +
         auditStage +
         `        await _repo.SaveAsync(aggregate, ${saveArgs});\n` +
+        hostArmProjection +
         `        return result;\n`
       : scalarWireType
         ? // Scalar return (BUG-003): capture the domain value, save, then project
@@ -614,7 +665,12 @@ export function emitOperationCommandAndHandler(
         commandName: `${upperFirst(op.name)}Command`,
         returnType: handlerReturnType,
         extraDeps: [...userExtraDeps, ...auditDeps],
-        extraUsings: [...userExtraUsings, ...auditUsings],
+        extraUsings: [
+          ...userExtraUsings,
+          ...auditUsings,
+          ...(responseUsing ? [responseUsing] : []),
+          ...partResponseAliases,
+        ],
         body: handlerBody,
       }),
     );

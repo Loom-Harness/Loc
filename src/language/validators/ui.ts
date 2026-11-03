@@ -7,6 +7,7 @@ import type {
   Api,
   Area,
   Component,
+  I18nBlock,
   Layout,
   MenuBlock,
   Model,
@@ -122,6 +123,24 @@ function checkDuplicateActions(
     }
     seen.add(a.name);
   }
+}
+
+/** True when `tag` is a well-formed BCP-47 language tag. */
+function isLanguageTag(tag: string): boolean {
+  try {
+    return Intl.getCanonicalLocales(tag).length === 1;
+  } catch {
+    return false;
+  }
+}
+
+export function checkI18nBlock(block: I18nBlock, accept: ValidationAcceptor): void {
+  if (block.source === undefined || isLanguageTag(block.source)) return;
+  accept("error", diagMessage("loom.i18n-source-invalid", { source: block.source }), {
+    node: block,
+    property: "source",
+    code: "loom.i18n-source-invalid",
+  });
 }
 
 export function checkTheme(block: ThemeBlock, accept: ValidationAcceptor): void {

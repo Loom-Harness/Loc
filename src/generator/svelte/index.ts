@@ -6,6 +6,7 @@ import {
   type EnrichedAggregateIR,
   type EnrichedBoundedContextIR,
   type SystemIR,
+  sourceLocaleOf,
   uiUsesMoney,
 } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
@@ -78,6 +79,7 @@ import {
   emitSveltePagesForUi,
 } from "./routes-emitter.js";
 import { renderSvelteStoreModule, storeModulePath } from "./store-builder.js";
+import { svelteTarget } from "./walker/svelte-target.js";
 import { allWorkflows, buildWorkflowsApiModule, hasAnyWorkflow } from "./workflow-builder.js";
 
 // ---------------------------------------------------------------------------
@@ -179,22 +181,32 @@ export function generateSvelteForContexts(
   // Pack-DECLARED chrome rides the SAME already-enabled gate (see the React
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
+  const formScope = {
+    contexts,
+    sentences: pack.manifest.sentenceChrome ?? [],
+    implicitModelText: svelteTarget.modelTextImplicitSites === true,
+  };
   if (i18nEnabled) {
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
     // produced (scoped to this ui's keys, `TODO:` values already dropped by
     // the loader).  The shim imports and registers exactly the locales emitted
     // here, so what the translator wrote is what the app can resolve — with no
     // translator tree the list is empty and the shim is byte-identical.
-    out.set("src/lib/locales/en.json", renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)));
+    out.set(
+      `src/lib/locales/${sourceLocaleOf(sys)}.json`,
+      renderLocaleCatalog(ui, packChromeCatalog(pack.manifest), formScope),
+    );
     const translated = renderTranslatedCatalogs(
       ui,
       options.translations,
       packChromeCatalog(pack.manifest),
+      sourceLocaleOf(sys),
+      formScope,
     );
     for (const [locale, content] of translated) {
       out.set(`src/lib/locales/${locale}.json`, content);
     }
-    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()]));
+    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()], sourceLocaleOf(sys)));
   }
 
   // Per-aggregate api modules.
@@ -475,7 +487,10 @@ export function generateSvelteForContexts(
   out.set("src/routes/+layout.ts", SVELTE_LAYOUT_TS);
 
   // Project shell.
-  out.set("src/app.html", pack.render("main", { title: humanize(sys.name) }));
+  out.set(
+    "src/app.html",
+    pack.render("main", { title: humanize(sys.name), lang: sourceLocaleOf(sys) }),
+  );
   out.set("src/app.d.ts", SVELTE_APP_DTS);
   out.set("src/theme.css", pack.render("theme", themeVM(sys)));
   out.set("package.json", pack.render("package-json", { usesMoney, usesCodeBlock }));

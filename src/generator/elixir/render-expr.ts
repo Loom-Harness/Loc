@@ -7,6 +7,7 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.js";
+import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
@@ -48,6 +49,7 @@ import {
   type UnaryExpr,
 } from "../_expr/target.js";
 import { elixirFindFacadeFn } from "./find-facade-name.js";
+import { exPgInstantType } from "./vanilla/codec-spelling-ex.js";
 import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-object-type-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -126,6 +128,12 @@ export interface RenderCtx {
    *  parameters.  Off everywhere else (op / derived / invariant bodies use
    *  plain locals + the in-memory `Decimal.*` API). */
   filterArgs?: boolean;
+  /** Inside an Ecto query filter (`filterArgs`), the Ecto schema module of the
+   *  aggregate being read.  A `this.<refColl>.contains(x)` membership then
+   *  renders as an `id in subquery(...)` over the `many_to_many` association —
+   *  the same `assoc` join the repository's find path uses — instead of the
+   *  in-memory `Enum.member?`, which is not valid inside `where:`. */
+  refCollOwnerModule?: string;
   /** Renders the aggregate-`id` expression (`{kind:"id"}`) as this bare
    *  local instead of `<thisName>.id`.  Set by the event-sourced create
    *  command runner, where the new aggregate id is a freshly generated
@@ -430,9 +438,16 @@ export function renderExpr(e: ExprIR, ctx: RenderCtx = DEFAULT): string {
  *  `get_<agg>/1` (`find_by_id`) facade; a custom find maps to the per-find
  *  `<method>_<agg>` defdelegate.  Both are emitted by `context-emit.ts`, so a
  *  reading service rendered as a context fn (which has the ambient `Repo`)
- *  resolves them as bare same-module calls. */
-export function contextFindFnFor(op: RepoOp, method: string, aggregate: string): string {
-  return op === "load" || op === "load-optional"
+ *  resolves them as bare same-module calls.  A widened by-id read
+ *  (`find(id) ignoring …`) has a method of its own, so it maps to that
+ *  method's delegate, not to `get_<agg>`. */
+export function contextFindFnFor(
+  op: RepoOp,
+  method: string,
+  aggregate: string,
+  widened = false,
+): string {
+  return isByIdOp(op) && !widened
     ? `get_${snake(aggregate)}`
     : elixirFindFacadeFn(method, aggregate);
 }
@@ -445,7 +460,14 @@ export function contextFindFnFor(op: RepoOp, method: string, aggregate: string):
  *  absent row being `{:error, :not_found}` or `{:ok, nil}`).  Shared by the
  *  `let` and the `if let` over the same read. */
 export function optionalReadLookup(
-  read: { op: RepoOp; method: string; aggregate: string; retrievalName?: string },
+  read: {
+    op: RepoOp;
+    method: string;
+    aggregate: string;
+    retrievalName?: string;
+    /** A widened read (`… ignoring …`) calls its own method. */
+    widened?: boolean;
+  },
   args: readonly string[],
   contextModule: string,
   /** The retrieval reads the request actor and the caller has `current_user`
@@ -462,9 +484,10 @@ export function optionalReadLookup(
   }
   // A declared find takes the actor positionally after its own params (its
   // context facade is `<find>_<agg>(args…, current_user \\ nil)`).
-  const findArgs = passActor && !isByIdOp(read.op) ? [...args, "current_user"] : args;
+  const byId = isByIdOp(read.op) && !read.widened;
+  const findArgs = passActor && !byId ? [...args, "current_user"] : args;
   return {
-    call: `${contextModule}.${contextFindFnFor(read.op, read.method, read.aggregate)}(${findArgs.join(", ")})`,
+    call: `${contextModule}.${contextFindFnFor(read.op, read.method, read.aggregate, read.widened)}(${findArgs.join(", ")})`,
     hit: "{:ok, hit}",
   };
 }
@@ -883,17 +906,22 @@ function renderMethodCall(recv: string, args: string[], e: MethodCallExpr, ctx: 
   // `__ref_id_list/1` helper first — the same helper the `+=`/`-=` mutation path
   // uses, and which handles the not-loaded case (`%NotLoaded{}` → `[]`).
   //
-  // NB: this only ever runs in DOMAIN-LOGIC contexts (operation bodies).  The
-  // repository FIND path intercepts a `contains` where-clause BEFORE render-expr
-  // (`containsRefCollField` → a real join query in `repository-emit.ts`), so an
-  // Ecto-query-mode `Enum.member?` is never emitted here.  Detection is
-  // structural: `contains`, receiverType array<id>, a single arg.
+  // Inside an Ecto query (`filterArgs`) with `refCollOwnerModule` set — a
+  // retrieval `where` — the membership is an `id in subquery(...)` over the
+  // association instead; the repository FIND path intercepts a whole-`where`
+  // `contains` before render-expr (`containsRefCollField` → a join query in
+  // `repository-emit.ts`).  Detection is structural: `contains`, receiverType
+  // array<id>, a single arg.
   if (
     e.member === "contains" &&
     e.receiverType.kind === "array" &&
     e.receiverType.element.kind === "id" &&
     e.args.length === 1
   ) {
+    const field = ctx.filterArgs ? refCollectionFieldName(e.receiver) : null;
+    if (field && ctx.refCollOwnerModule) {
+      return `${ctx.thisName}.id in subquery(from(owner_row in ${ctx.refCollOwnerModule}, join: member_row in assoc(owner_row, :${snake(field)}), where: member_row.id == ${args[0]}, select: owner_row.id))`;
+    }
     return `Enum.member?(__ref_id_list(${recv}), ${args[0]})`;
   }
   if (e.isCollectionOp) {
@@ -1302,7 +1330,7 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
           ? `(case ${call} do\n      {:ok, [value | _]} -> value\n      _ -> nil\n    end)`
           : `(case ${call} do\n      {:ok, value} -> value\n      _ -> []\n    end)`;
       }
-      const fn = contextFindFnFor(read.op, read.method, read.aggregate);
+      const fn = contextFindFnFor(read.op, read.method, read.aggregate, !!read.bypassRead);
       const call = `${fn}(${args.join(", ")})`;
       // `getById` is contractually NON-NULL — it throws rather than returning
       // absent (`findById` is the read that answers absence), and
@@ -1445,6 +1473,7 @@ function isDecimalOperand(operand: ExprIR): boolean {
     case "call":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "id":
     case "lambda":
     case "list":
@@ -1942,7 +1971,7 @@ function renderEctoTemporalBinary(l: string, r: string, e: BinaryExpr): string |
   // side is already typed by the table, and a nested interval fragment must
   // NOT be cast (the suffix would bind to `make_interval(...)`, not the sum),
   // so this is a POSITIVE test for the bound-scalar shapes only.
-  const cast = isBoundDatetimeOperand(otherRaw) ? "::timestamptz" : "";
+  const cast = isBoundDatetimeOperand(otherRaw) ? `::${exPgInstantType()}` : "";
   return `fragment("?${cast} ${e.op} make_interval(${MAKE_INTERVAL_ARG[dur.unit]} => ?)", ${side}, ${amount})`;
 }
 

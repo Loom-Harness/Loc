@@ -208,6 +208,7 @@ function sqlExprFamily(e: ExprIR): string | undefined {
     case "convert":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "id":
     case "lambda":
     case "list":
@@ -556,6 +557,7 @@ function nullableSources(
     case "convert":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "id":
     case "lambda":
     case "list":

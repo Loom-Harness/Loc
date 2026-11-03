@@ -68,7 +68,7 @@ describe("React i18n runtime", () => {
     const home = await pageOf(files);
     expect(home).toContain('"Orders")'); // the literal heading is translated
     // `status` is a page param ref — interpolated, never a t() call.
-    expect(home).not.toContain('t("page.Home.text');
+    expect(home).not.toContain('t("Web.page.Home.text');
   });
 
   it("does not emit the runtime for a string-less app", async () => {
@@ -156,10 +156,10 @@ describe("React i18n runtime", () => {
     const files = await generateSystemFiles(withParam);
     const home = [...files].find(([p]) => p.endsWith("home.tsx"))![1];
     expect(home).toContain(
-      't("page.Home.text.io7xmj", "You have {count, plural, one {# order} other {# orders}}", { count: count })',
+      't("Web.page.Home.text.io7xmj", "You have {count, plural, one {# order} other {# orders}}", { count: count })',
     );
     expect(home).toContain(
-      't("page.Home.text.0lqlui", "Status: {status, select, shipped {Shipped} other {Pending}}", { status: status })',
+      't("Web.page.Home.text.0lqlui", "Status: {status, select, shipped {Shipped} other {Pending}}", { status: status })',
     );
     const catalog = JSON.parse(
       [...files].find(([p]) => p.endsWith("src/locales/en.json"))![1],
@@ -192,7 +192,7 @@ describe("React i18n runtime", () => {
         ),
       );
       const home = await pageOf(files);
-      expect(home, design).toMatch(/t\("page\.Home\.dividerLabel\.\w+", "Section break"\)/);
+      expect(home, design).toMatch(/t\("Web\.page\.Home\.dividerLabel\.\w+", "Section break"\)/);
       expect(home, design).toContain("<HStack");
     }
   });

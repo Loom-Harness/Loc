@@ -31,7 +31,7 @@
 
 import { lines } from "../../../util/code-builder.js";
 import { FORMAT_MODULE_EXPORTS } from "../../_frontend/format-helpers.js";
-import { CHROME_T_CALL } from "../../_walker/i18n-emit.js";
+import { callsTranslationRuntime, PAGE_I18N_IMPORT } from "../../_walker/i18n-emit.js";
 import { mergedImports } from "../../_walker/shared/imports.js";
 import type { DataGridChild, DataGridColumn, DataGridSpec } from "../../_walker/target.js";
 import type { WalkContext } from "../../_walker/walker-core.js";
@@ -74,7 +74,7 @@ function renderSfc(spec: DataGridSpec): string {
   // is likewise a walker-emitted `<button>` with inline reset styles
   // (`vueTarget.renderSortableHeader`), not pack markup.
   const body = spec.renderBody({
-    headerBody: headerBody(selection, spec.sortByAria, spec.selectAllRowsAria),
+    headerBody: headerBody(selection, spec.selectAllRowsAria),
     cellBody: cellBody(columns, selection, spec.selectRowAria),
   });
 
@@ -129,9 +129,9 @@ function renderSfc(spec: DataGridSpec): string {
   // hid this: its components are globally registered, so only the format
   // helper was missing.)  Merged per source — the chrome and the cells often
   // import from the same module, and two import lines for it would collide.
-  const packImportLines = mergedImports([...spec.packImports, ...spec.cellImports]).map(
-    (i) => `import { ${i.named.join(", ")} } from "${i.from}";`,
-  );
+  const packImportLines = mergedImports([...spec.packImports, ...spec.cellImports])
+    .filter((i) => i.from !== PAGE_I18N_IMPORT)
+    .map((i) => `import { ${i.named.join(", ")} } from "${i.from}";`);
 
   // Pack-chrome i18n (M-T1.11).  The pack's grid markup carries the pager's
   // `{{ t("chrome.previous", …) }}` labels under i18n — and unlike React, whose
@@ -143,7 +143,10 @@ function renderSfc(spec: DataGridSpec): string {
   // The runtime is at `src/i18n.ts` and this file at `src/components/<Name>.vue`,
   // so the specifier is the plain one-hop `../i18n` — no depth rewrite, unlike
   // the page shell's (pages nest, `src/components/` does not).
-  const i18nImportLine = body.includes(CHROME_T_CALL) ? [`import { t } from "../i18n";`] : [];
+  const i18nImportLine =
+    callsTranslationRuntime(body) || columns.some((c) => c.headerValue?.startsWith("t("))
+      ? [`import { t } from "../i18n";`]
+      : [];
 
   // Format helpers, on the same terms the page shell imports them: a Vue pack
   // template may call `formatDateTime(...)` / `formatMoney(...)` from its
@@ -303,7 +306,7 @@ function columnDefs(columns: readonly DataGridColumn[], selection: boolean): str
 
 /** The full `<th>` content: the select-all checkbox (when selection is on), a
  *  sortable header button, or the plain header. */
-function headerBody(selection: boolean, sortByAria: string, selectAllRowsAria: string): string {
+function headerBody(selection: boolean, selectAllRowsAria: string): string {
   const style =
     "background: none; border: none; padding: 0; font: inherit; cursor: pointer; user-select: none;";
   const indicator =
@@ -325,7 +328,6 @@ function headerBody(selection: boolean, sortByAria: string, selectAllRowsAria: s
     `  ${selection ? "v-else-if" : "v-if"}="h.column.getCanSort()"`,
     `  type="button"`,
     `  style="${style}"`,
-    `  ${sortByAria}`,
     `  @click="h.column.toggleSorting()"`,
     `>`,
     `  <FlexRender :render="h.column.columnDef.header" :props="h.getContext()" />`,

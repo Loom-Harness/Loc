@@ -128,7 +128,7 @@ describe("M-T6.73 — an explicit route serves under API_BASE_PATH on every back
     // \"hi\"".  int / bool / decimal / an entity DTO already fall through to the
     // JSON formatter, which is why only this arm changes.
     const ctrl = await fileEndingWith(CLEAN_SRC("dotnet"), "Api/ARoutesController.cs");
-    expect(ctrl).toContain("return new JsonResult(result);");
+    expect(ctrl).toContain("return new JsonResult(__result);");
   });
 
   it("dotnet leaves a NON-string scalar on Ok() (the formatter does not touch it)", async () => {
@@ -139,7 +139,7 @@ describe("M-T6.73 — an explicit route serves under API_BASE_PATH on every back
       )
       .replace('route POST "/echo/{text}" -> Sales.Echo', 'route GET "/sum/{a}/{b}" -> Sales.Sum');
     const ctrl = await fileEndingWith(intSrc, "Api/ARoutesController.cs");
-    expect(ctrl).toContain("return Ok(result);");
+    expect(ctrl).toContain("return Ok(__result);");
     expect(ctrl).not.toContain("JsonResult");
   });
 

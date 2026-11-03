@@ -109,11 +109,11 @@ describe("DataGrid — TanStack wiring", () => {
     // the key is a content hash, and pinning it here would re-key the assertion
     // on every rephrase of a header this test does not care about.
     expect(page).toMatch(
-      /\{ id: "name", accessorKey: "name", header: t\("page\.X\.columnHeader\.\w+", "Name"\), enableSorting: true, enableColumnFilter: true \},/,
+      /\{ id: "name", accessorKey: "name", header: t\("\w+\.page\.X\.columnHeader\.\w+", "Name"\), enableSorting: true, enableColumnFilter: true \},/,
     );
     // `sortable:` without `filterable:` must not enable filtering.
     expect(page).toMatch(
-      /\{ id: "tier", accessorKey: "tier", header: t\("page\.X\.columnHeader\.\w+", "Tier"\), enableSorting: true, enableColumnFilter: false \},/,
+      /\{ id: "tier", accessorKey: "tier", header: t\("\w+\.page\.X\.columnHeader\.\w+", "Tier"\), enableSorting: true, enableColumnFilter: false \},/,
     );
   });
 
@@ -304,7 +304,7 @@ describe("DataGrid — money columns get a numeric comparator", () => {
     // The header translates (`columnHeader` slot); the comparator is what this
     // case is about, so the key is matched by shape.
     expect(page).toMatch(
-      /\{ id: "amount", accessorKey: "amount", header: t\("page\.X\.columnHeader\.\w+", "Amount"\), enableSorting: true, enableColumnFilter: false, sortingFn: compareDecimal \}/,
+      /\{ id: "amount", accessorKey: "amount", header: t\("\w+\.page\.X\.columnHeader\.\w+", "Amount"\), enableSorting: true, enableColumnFilter: false, sortingFn: compareDecimal \}/,
     );
     expect(page).not.toMatch(/id: "ref"[^}]*sortingFn/);
     expect(page).not.toMatch(/id: "qty"[^}]*sortingFn/);

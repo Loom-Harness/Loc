@@ -6,7 +6,6 @@ import type {
   EnumIR,
   ExprIR,
   FunctionIR,
-  IdValueType,
   OnIR,
   ProjectionIR,
   ProjectionOnIR,
@@ -37,6 +36,7 @@ import { elixirFindFacadeFn } from "./find-facade-name.js";
 import { internalCreateFn, internalDeleteFn } from "./lifecycle-seam.js";
 import { optionalReadLookup, type RenderCtx, renderExpr } from "./render-expr.js";
 import { type StateDefaultDecls, stateDefault, stateDefaultDecls } from "./state-default.js";
+import { exEctoIdJsonType, exEctoIdType } from "./vanilla/codec-spelling-ex.js";
 import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { denialTerm, notFoundStmtTerm } from "./vanilla/denial.js";
 import { bodyUsesParam, renderFunctionBodyLines } from "./vanilla/function-emit.js";
@@ -343,20 +343,9 @@ export function emitDispatch(
 // ---------------------------------------------------------------------------
 
 /** The Ecto field/primary-key type for an id-valued correlation column —
- *  aligned with the migration's column type (`idColumnType` in the
- *  migrations builder): guid → uuid column → `:binary_id`, string → text
- *  column → `:string`, int/long → `:integer`. */
-export function ectoIdType(vt: IdValueType): string {
-  switch (vt) {
-    case "guid":
-      return ":binary_id";
-    case "string":
-      return ":string";
-    case "int":
-    case "long":
-      return ":integer";
-  }
-}
+ *  aligned with the migration's column type through the `Codec` fact's
+ *  `idColumn` (`codec-spelling-ex.ts`). */
+export const ectoIdType = exEctoIdType;
 
 /** Plain (non-correlation) state-field Ecto type — it must agree with the
  *  column the migrations builder derives for the same field
@@ -385,9 +374,7 @@ function ectoStateFieldType(t: TypeIR, enums: readonly EnumIR[]): string {
     return ":string";
   }
   if (t.kind === "array" && t.element.kind === "id") {
-    const el =
-      t.element.valueType === "int" || t.element.valueType === "long" ? ":integer" : ":string";
-    return `{:array, ${el}}`;
+    return `{:array, ${exEctoIdJsonType(t.element.valueType)}}`;
   }
   return mapTypeToEcto(t, new Map()) ?? ":string";
 }
@@ -1137,6 +1124,7 @@ function renderStmt(
             method: st.method,
             aggregate: st.aggName,
             retrievalName: st.retrievalName,
+            widened: st.bypassRead !== undefined,
           },
           st.args.map((a) => renderExpr(a, renderCtx)),
           contextModule,
@@ -1350,6 +1338,7 @@ function renderStmt(
                 method: st.findMethod ?? "",
                 aggregate: st.aggName,
                 retrievalName: st.retrievalName,
+                widened: st.bypassRead !== undefined,
               },
               args,
               contextModule,

@@ -64,6 +64,7 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import type { LoadedPack } from "../_packs/loader.js";
+import { componentKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { angularComponentSelector } from "./component-selector.js";
 import { angularTargetFor } from "./walker/angular-target.js";
@@ -93,6 +94,8 @@ export interface AngularComponentCtx {
   /** True when the ui has extractable user-visible strings (M-T1.11) — the walk
    *  then keys literal text to the catalog under `component.<Name>`. */
   i18nEnabled: boolean;
+  /** The hosting ui's name — the leading segment of every catalog key. */
+  uiName: string;
 }
 
 /** A `slot`-typed (or optional-slot) param — no `ngComponentOutletInputs`
@@ -145,7 +148,7 @@ function renderOne(
     ctx.externFunctions,
     new Set(c.derived.map((d) => d.name)),
     ctx.authUi,
-    ctx.i18nEnabled ? `component.${c.name}` : undefined,
+    ctx.i18nEnabled ? componentKeyPrefix({ name: ctx.uiName }, c) : undefined,
   );
   if (pageNeedsDeferredFeatures(result)) return undefined;
   // An api read whose ARG reads an `@Input()` is deferred.  The shell hoists a

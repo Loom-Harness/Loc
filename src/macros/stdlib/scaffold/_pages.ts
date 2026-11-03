@@ -8,7 +8,7 @@
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import type { Aggregate, Area, Expression, Page, Ui, Workflow } from "../../api/index.js";
-import { area, boolLit, callExpr, page, stringLit } from "../../api/index.js";
+import { area, boolLit, callExpr, modelTextExpr, page, stringLit } from "../../api/index.js";
 import {
   listReadGateForAggregate,
   listShapeForAggregate,
@@ -79,7 +79,6 @@ export function aggregateHasPagedFindAll(agg: Aggregate): boolean {
 export function pagesForAggregate(agg: Aggregate, ui: Ui): Page[] {
   const pluralSnake = routeSegmentFor(agg.name);
   const aggName = agg.name;
-  const labelPlural = humanize(plural(aggName));
   const apiHandle = firstApiHandle(ui);
   // The `policy { read T requires … }` gate guards `GET /<aggs>` — the very
   // read this List page makes.  Same reasoning as the workflow-instance pages:
@@ -113,7 +112,9 @@ export function pagesForAggregate(agg: Aggregate, ui: Ui): Page[] {
       state: ["sortKey", "sortDir", { name: "pageNum", type: "int", init: 1 } as const],
       menu: {
         section: stringLit("Aggregates"),
-        label: stringLit(labelPlural),
+        // The sidebar entry is the aggregate's plural NAME — a model fact, so
+        // it shares the identity key every heading and breadcrumb uses.
+        label: modelTextExpr("plural", [aggName]),
       },
     }),
     page({
@@ -234,7 +235,7 @@ export function pageForWorkflow(wf: Workflow): Page {
     body: scaffoldWorkflowForm(wf.name),
     menu: {
       section: stringLit("Workflows"),
-      label: stringLit(humanize(wf.name)),
+      label: modelTextExpr("label", [wf.name]),
     },
   });
 }
@@ -275,6 +276,7 @@ export function homePage(
       aggregates: aggregates
         .filter((agg) => !listReadGateForAggregate(agg))
         .map((agg) => ({
+          aggregate: agg.name,
           label: humanize(plural(agg.name)),
           route: `/${routeSegmentFor(agg.name)}`,
         })),
