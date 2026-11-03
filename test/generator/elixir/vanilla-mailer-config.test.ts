@@ -10,8 +10,7 @@
 // carry `config :swoosh, :api_client, false` for an smtp-only mailer.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 function src(mailerType: "smtp" | "ses" | "sendgrid" | null): string {
   const storage =
@@ -51,18 +50,18 @@ const config = (files: Map<string, string>): string =>
 
 describe("vanilla Phoenix — Swoosh api_client boot config", () => {
   it("smtp mailer → config/config.exs disables the Swoosh api_client", async () => {
-    const { files } = generateSystems(await parseValid(src("smtp")));
+    const files = await generateSystemFiles(src("smtp"));
     expect(config(files)).toMatch(/config :swoosh, :api_client, false/);
   });
 
   it("no mailer → no Swoosh api_client config (byte-identical shell)", async () => {
-    const { files } = generateSystems(await parseValid(src(null)));
+    const files = await generateSystemFiles(src(null));
     expect(config(files)).not.toMatch(/swoosh/);
   });
 
   it("ses/sendgrid mailer keeps the default api_client (hackney is a dep)", async () => {
     for (const t of ["ses", "sendgrid"] as const) {
-      const { files } = generateSystems(await parseValid(src(t)));
+      const files = await generateSystemFiles(src(t));
       // The HTTP adapters need Swoosh's api_client, so it must NOT be disabled.
       expect(config(files)).not.toMatch(/config :swoosh, :api_client, false/);
     }
