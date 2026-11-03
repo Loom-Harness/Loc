@@ -22,10 +22,13 @@
 // has one definition.  It is pure: no fs, no parse.
 // ---------------------------------------------------------------------------
 
+import { SYSTEM_TEXT_NS } from "../util/model-text-key.js";
+
 /** Namespace holding keys that carry no context/ui prefix. */
 export const CHROME_NS = "_chrome";
-/** Reserved namespace for system-scoped keys. */
-const SYSTEM_NS = "_system";
+/** Reserved namespace for system-scoped keys — the identity text of a type
+ *  declared outside every bounded context. */
+const SYSTEM_NS = SYSTEM_TEXT_NS;
 
 /** Prefixes whose keys always live verbatim in {@link CHROME_NS}, even when a
  *  context or ui happens to share the name. */

@@ -102,6 +102,10 @@ const NO_DOWNSTREAM_READER: readonly string[] = [
   "sessions",
   "sourceAlias",
   "sourceModule",
+  // A root-declared enum / value object: read only through
+  // `src/ir/util/model-text-owner.ts` (`modelTextContextOf`), which the
+  // frontends' implicit model-text sites key their `_system` identity text by.
+  "systemLevel",
   "testCaseId",
   // A migration table step's qualified target context: read only through
   // `src/ir/util/table-step-target.ts` (`resolveTableStepTarget`), which the

@@ -42,7 +42,7 @@ import type { WalkContext } from "./walker-core.js";
 const STRING: TypeIR = { kind: "primitive", name: "string" };
 
 /** True when the implicit sites render through the translation runtime. */
-export function implicitModelTextOn(ctx: WalkContext): boolean {
+function implicitModelTextOn(ctx: WalkContext): boolean {
   return ctx.i18nPrefix !== undefined && ctx.target.modelTextImplicitSites === true;
 }
 

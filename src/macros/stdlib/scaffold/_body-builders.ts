@@ -57,8 +57,8 @@ import { ROW_COUNT } from "./_dashboard-shared.js";
 // SENTENCES ("No tasks yet.", "Create task") stay literals: a placeholder
 // carries data, never words.
 
-/** `plural(<Type>)` — the type's plural name. */
-function pluralOf(type: string): Expression {
+/** `plural(<Type>)` — the type's plural name (its `name.other` key). */
+function otherNameOf(type: string): Expression {
   return modelTextExpr("plural", [type]);
 }
 
@@ -72,7 +72,7 @@ export function scaffoldNewForm(aggName: string): Expression {
   const slug = routeSegmentFor(aggName);
   const humanAgg = humanize(aggName);
   return callExpr("Stack", [
-    { value: breadcrumbs(() => pluralOf(aggName), slug, "New") },
+    { value: breadcrumbs(() => otherNameOf(aggName), slug, "New") },
     {
       value: callExpr("Heading", [
         { value: stringLit(`Create ${humanAgg.toLowerCase()}`) },
@@ -278,7 +278,7 @@ export function scaffoldHome(
     ]),
   });
   for (const agg of nav.aggregates ?? []) {
-    cards.push(launcher(pluralOf(agg.aggregate), `Open ${agg.label.toLowerCase()} →`, agg.route));
+    cards.push(launcher(otherNameOf(agg.aggregate), `Open ${agg.label.toLowerCase()} →`, agg.route));
   }
   if (counts.workflows > 0 && (nav.hasWorkflows ?? true)) {
     cards.push(launcher(stringLit("Workflows"), "Open workflows →", "/workflows"));
@@ -335,7 +335,7 @@ function kpiRow(k: {
     const read = memberAccess(nameRefExpr(row), f);
     return {
       value: callExpr("Stat", [
-        { value: f === ROW_COUNT ? pluralOf(k.aggregate) : stringLit(kpiLabel(f)) },
+        { value: f === ROW_COUNT ? otherNameOf(k.aggregate) : stringLit(kpiLabel(f)) },
         { value: money.has(f) ? callExpr("Money", [{ value: read }]) : read },
       ]),
     };
@@ -692,7 +692,7 @@ export function scaffoldDetailsParts(
         },
         {
           value: callExpr("Anchor", [
-            { value: pluralOf(agg.name) },
+            { value: otherNameOf(agg.name) },
             { name: "to", value: stringLit(`/${slug}`) },
           ]),
         },
@@ -1496,12 +1496,12 @@ export function scaffoldList(
         makeQueryView(memberAccess(queryRoot(), "all", { call: true, args: [] }), false);
 
   return callExpr("Stack", [
-    { value: breadcrumbs(() => pluralOf(aggName), slug) },
+    { value: breadcrumbs(() => otherNameOf(aggName), slug) },
     {
       value: callExpr("Toolbar", [
         {
           value: callExpr("Heading", [
-            { value: pluralOf(aggName) },
+            { value: otherNameOf(aggName) },
             { name: "level", value: intLit(2) },
           ]),
         },
