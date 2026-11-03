@@ -515,6 +515,12 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
     action: ":index",
   });
 
+  // A `File` field references the one named `FileRef` component every backend
+  // publishes; the module exists only when some schema reaches for it.
+  if ([...files.values()].some((c) => c.includes(`${webModule}.Api.Schemas.FileRef`))) {
+    files.set(`${schemaDir}/file_ref.ex`, renderFileRefSchema(webModule));
+  }
+
   for (const [path, content] of files) {
     const fixed = withoutStructOnReservedKey(content);
     if (fixed !== content) files.replace(path, fixed);
@@ -1067,7 +1073,8 @@ const OPENAPI_PRIMITIVE: Record<WirePrimitive, string> = {
   date: "%OpenApiSpex.Schema{type: :string, format: :date}",
   guid: "%OpenApiSpex.Schema{type: :string, format: :uuid}",
   json: "%OpenApiSpex.Schema{type: :object}",
-  File: "%OpenApiSpex.Schema{type: :object, properties: %{url: %OpenApiSpex.Schema{type: :string}, key: %OpenApiSpex.Schema{type: :string}, contentType: %OpenApiSpex.Schema{type: :string}, size: %OpenApiSpex.Schema{type: :integer}}, required: [:url, :key, :contentType, :size]}",
+  // Never read: `openApiType` answers a `File` with the named `FileRef` module.
+  File: "%OpenApiSpex.Schema{type: :object}",
 };
 
 /** Id value-type → OpenApiSpex %Schema{} literal.  Mirrors the
@@ -1206,6 +1213,7 @@ function openApiType(t: TypeIR, schemasModule: string): string {
   }
   switch (info.refKind) {
     case "primitive":
+      if (info.primitive === "File") return `${schemasModule}.FileRef`;
       return OPENAPI_PRIMITIVE[info.primitive!];
     case "id":
       return OPENAPI_ID_VALUE[info.idValueType!]!;
@@ -1371,6 +1379,29 @@ ${propsBlock}
     },
     required: ${requiredBlock}
   }${deriveOpt})
+end
+`;
+}
+
+/** The `FileRef` schema module — the wire object a `File` field crosses as. */
+function renderFileRefSchema(webModule: string): string {
+  return `# Auto-generated.
+defmodule ${webModule}.Api.Schemas.FileRef do
+  @moduledoc "Reference to a stored file — the wire shape of a \`File\` field."
+
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "FileRef",
+    type: :object,
+    properties: %{
+      url: %OpenApiSpex.Schema{type: :string},
+      key: %OpenApiSpex.Schema{type: :string},
+      contentType: %OpenApiSpex.Schema{type: :string},
+      size: %OpenApiSpex.Schema{type: :integer}
+    },
+    required: [:url, :key, :contentType, :size]
+  })
 end
 `;
 }

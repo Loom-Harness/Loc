@@ -532,7 +532,9 @@ export function voRecord(
   return {
     name: `${vo}${dir}.java`,
     category: dir === "Request" ? "request-dto" : "response-dto",
-    content: recordFile(pkg, basePkg, `${vo}${dir}`, components, body, imports),
+    // One value object is ONE component on every backend: the Request and
+    // Response records (distinct Java types) publish under the VO's own name.
+    content: recordFile(pkg, basePkg, `${vo}${dir}`, components, body, imports, undefined, vo),
   };
 }
 

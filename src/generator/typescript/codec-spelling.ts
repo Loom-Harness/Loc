@@ -204,3 +204,9 @@ export function tsEnvelopeInstant(dateExpr: string): string {
     throw new Error("codec-spelling: the envelope instant is no longer the wire instant");
   return tsInstantWire(dateExpr);
 }
+
+/** The served-spec shape of a `File` field: the named `FileRef` component every
+ *  backend publishes (dotnet / java / python reference it too), never an
+ *  anonymous inline object. */
+export const FILE_REF_ZOD =
+  'z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() }).openapi("FileRef")';
