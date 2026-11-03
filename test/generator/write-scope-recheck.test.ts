@@ -59,6 +59,21 @@ system F3 {
           for t in rows { t.rename(n) }
         }
       }
+      domainService Bump {
+        operation run(l: Ledger) { l.touch() }
+      }
+      workflow bumpLedgers {
+        create() {
+          let rows = Ledgers.all(AnyLedger, page: { offset: 0, limit: 50 })
+          for l in rows { Bump.run(l) }
+        }
+      }
+      workflow purgeLedgers {
+        create() {
+          let rows = Ledgers.all(AnyLedger, page: { offset: 0, limit: 50 })
+          for l in rows { Ledgers.remove(l) }
+        }
+      }
       commandHandler TouchOne(lid: Ledger id) {
         if let l = Ledgers.find(lid) { l.touch() }
       }
@@ -97,6 +112,17 @@ describe("write-scope guards — derived from the body's mutate / delete effects
     expect(guarded).toEqual([
       { kind: "op-call", name: "l", aggName: "Ledger", repoName: "Ledgers" },
     ]);
+  });
+
+  it("guards a row a `mutating` domain service writes, and a row the body removes", async () => {
+    const ctx = await contextOf("node");
+    for (const name of ["bumpLedgers", "purgeLedgers"]) {
+      const wf = ctx.workflows.find((w) => w.name === name)!;
+      expect(
+        bodyWriteScopeGuards(wf.statements, writeScopeContext(wf.statements, ctx)),
+        name,
+      ).toEqual([{ name: "l", aggName: "Ledger", repoName: "Ledgers" }]);
+    }
   });
 
   it("exempts a row the body created", async () => {
@@ -161,6 +187,19 @@ function guardsBefore(text: string, guard: string, mutation: string): void {
 }
 
 describe("node (Hono)", () => {
+  it("re-checks before a mutating service call and before a removal", async () => {
+    const text = await fileEnding("node", "http/workflows.ts");
+    guardsBefore(
+      slice(text, '"/bump_ledgers"', '"/purge_ledgers"'),
+      "await ledgers.getById(l.id);",
+      "Bump.run(",
+    );
+    guardsBefore(
+      slice(text, '"/purge_ledgers"', "app.onError"),
+      "await ledgers.getById(l.id);",
+      "await ledgers.delete(",
+    );
+  });
   it("re-loads the loop row through getById, inside a transaction", async () => {
     const wf = slice(
       await fileEnding("node", "http/workflows.ts"),
@@ -174,7 +213,7 @@ describe("node (Hono)", () => {
   it("leaves a created row and an unnarrowed aggregate alone", async () => {
     const text = await fileEnding("node", "http/workflows.ts");
     expect(slice(text, '"/open_ledger"', '"/rename_tags"')).not.toContain("getById");
-    expect(slice(text, '"/rename_tags"', "app.onError")).not.toContain("getById");
+    expect(slice(text, '"/rename_tags"', '"/bump_ledgers"')).not.toContain("getById");
   });
   it("a command handler re-checks inside a transaction", async () => {
     const h = await fileEnding("node", "http/booksApi-routes.ts");
