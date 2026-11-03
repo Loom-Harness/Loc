@@ -1,6 +1,6 @@
 # 7. Invariants, derived fields & functions
 
-Three pure, read-only member kinds shared by aggregates, entity parts, and value objects: `invariant` predicates (with optional `when` guard, `message`, and the `private` modifier), `derived` computed fields (including the reserved `display` and `inspect`), and reusable `function` helpers in expression or block form. None of them mutate state — invariants *check* it after every mutation, derived fields *project* it onto the wire shape, functions *compute* over it. Reach for this chapter when you want a rule enforced at construction time, a value computed once and shown everywhere, or a predicate shared between several operations. The per-field read mask (`mask unless`) is summarised at the end and specified in [`../auth.md`](../auth.md).
+Three pure, read-only member kinds shared by aggregates, entity parts, and value objects: `invariant` predicates (with an optional `name:`, an optional `when` guard, and the `private` modifier), `derived` computed fields (including the reserved `display` and `inspect`), and reusable `function` helpers in expression or block form. None of them mutate state — invariants *check* it after every mutation, derived fields *project* it onto the wire shape, functions *compute* over it. Reach for this chapter when you want a rule enforced at construction time, a value computed once and shown everywhere, or a predicate shared between several operations. The per-field read mask (`mask unless`) is summarised at the end and specified in [`../auth.md`](../auth.md).
 
 > **Grammar:** `Invariant`, `Unique`, `DerivedProp`, `FunctionDecl`, the `mask unless` tail of `Property` · **Validators:** `loom.construction-missing-field`, `loom.construction-field-type`, `loom.unknown-construction-field`, `loom.unique-*`, `loom.reserved-derived-on-vo`, `loom.ui-id-ref-no-display`, `loom.function-block-no-return`, `loom.function-toplevel-block`, `loom.function-recursive`, `loom.workflow-function-uses-state`, `loom.field-mask-*`; uncoded type errors `Invariant must be of type 'bool'` / `Invariant guard ('when …') must be of type 'bool'` / `Cannot assign to derived property` (`src/language/validators/types.ts`, `statements.ts`); the IR purity gate `loom.function-block-impure` (`src/ir/validate/checks/structural-checks.ts`; five `#`-slug variants in the message catalog, one per way a body reaches past the pure subset) · **Docs:** [`../language.md`](../language.md) · [`../criterion.md`](../criterion.md) · [`../stdlib.md`](../stdlib.md) · [`../auth.md`](../auth.md)
 
@@ -32,7 +32,7 @@ The check is rendered as a guarded throw — `if (!(<pred>)) throw …` — carr
 // domain/order.ts
 private _assertInvariants(): void {
   if (!(this._qty <= 1000)) throw new DomainError("At most 1000 items per order");
-  if (!(this._taxRate >= 0)) throw new DomainError("Invariant violated: taxRate >= 0");
+  if (!(this._taxRate >= 0)) throw new DomainError("Invalid value");
 }
 ```
 The constructor calls `this._assertInvariants()` after assigning state, so an out-of-range value never escapes `Order.create(...)`.
@@ -42,7 +42,7 @@ The constructor calls `this._assertInvariants()` after assigning state, so an ou
 private void AssertInvariants()
 {
     if (!(this.Qty <= 1000)) throw new DomainException("At most 1000 items per order");
-    if (!(this.TaxRate >= 0m)) throw new DomainException("Invariant violated: taxRate >= 0");
+    if (!(this.TaxRate >= 0m)) throw new DomainException("Invalid value");
 }
 ```
 == java
@@ -50,7 +50,7 @@ private void AssertInvariants()
 // features/orders/Order.java — decimal is BigDecimal, so >= is compareTo
 public void _assertInvariants() {
     if (!(this.qty <= 1000)) throw new DomainException("At most 1000 items per order");
-    if (!(this.taxRate.compareTo(new BigDecimal("0")) >= 0)) throw new DomainException("Invariant violated: taxRate >= 0");
+    if (!(this.taxRate.compareTo(new BigDecimal("0")) >= 0)) throw new DomainException("Invalid value");
 }
 ```
 == python
@@ -60,7 +60,7 @@ def _assert_invariants(self) -> None:
     if not (self._qty <= 1000):
         raise DomainError("At most 1000 items per order")
     if not (self._tax_rate >= 0):
-        raise DomainError("Invariant violated: taxRate >= 0")
+        raise DomainError("Invalid value")
 ```
 == elixir
 ```elixir
@@ -360,9 +360,9 @@ public CreateOrderCommandValidator()
 ```java
 // features/orders/CreateOrderValidator.java — a Spring Validator over the request record;
 // an unnamed rule carries the sentinel code "loom.invariant" (not a diagnostic)
-if (!(((int) note.codePoints().count()) >= 1)) errors.rejectValue("note", "loom.invariant", "Invariant violated: note.length > 0");
+if (!(((int) note.codePoints().count()) >= 1)) errors.rejectValue("note", "loom.invariant", "Invalid value");
 if (!(qty <= 1000)) errors.rejectValue("qty", "Demo.Order.rule.maxItems", "At most 1000 items per order");
-if (!(taxRate.compareTo(new java.math.BigDecimal("0")) >= 0)) errors.rejectValue("taxRate", "loom.invariant", "Invariant violated: taxRate >= 0");
+if (!(taxRate.compareTo(new java.math.BigDecimal("0")) >= 0)) errors.rejectValue("taxRate", "loom.invariant", "Invalid value");
 ```
 == python
 ```python
@@ -413,8 +413,8 @@ Both rules appear in the domain floor; only the non-private one reaches the requ
 ```ts
 // domain/order.ts — BOTH invariants present in the floor
 private _assertInvariants(): void {
-  if (!(this._qty >= 0)) throw new DomainError("Invariant violated: qty >= 0");
-  if (!(this._taxRate >= 0)) throw new DomainError("Invariant violated: taxRate >= 0");
+  if (!(this._qty >= 0)) throw new DomainError("Invalid value");
+  if (!(this._taxRate >= 0)) throw new DomainError("Invalid value");
 }
 ```
 ```ts
@@ -428,8 +428,8 @@ const CreateOrderRequest = z.object({
 == dotnet
 ```csharp
 // Domain/Orders/Order.cs — both in the domain floor
-if (!(this.Qty >= 0)) throw new DomainException("Invariant violated: qty >= 0");
-if (!(this.TaxRate >= 0m)) throw new DomainException("Invariant violated: taxRate >= 0");
+if (!(this.Qty >= 0)) throw new DomainException("Invalid value");
+if (!(this.TaxRate >= 0m)) throw new DomainException("Invalid value");
 ```
 ```csharp
 // CreateOrderCommandValidator.cs — only the non-private rule reaches FluentValidation
@@ -464,44 +464,44 @@ The guard is evaluated first; the predicate is only asserted when the guard is t
 == node
 ```ts
 // domain/order.ts
-if ((this._taxRate > 0) && !([...this._note].length > 0)) throw new DomainError("Invariant violated: note.length > 0");
+if ((this._taxRate > 0) && !([...this._note].length > 0)) throw new DomainError("Business rule violated");
 ```
 ```ts
 // http/order.routes.ts — the wire layer renders it as a Zod refine (implication form)
-.refine((data: any) => !(data.taxRate > 0) || ([...data.note].length > 0), { path: ["note"], message: "Invariant violated: note.length > 0" })
+.refine((data: any) => !(data.taxRate > 0) || ([...data.note].length > 0), { path: ["note"], message: "Business rule violated" })
 ```
 == dotnet
 ```csharp
 // Domain/Orders/Order.cs
-if ((this.TaxRate > 0m) && !(this.Note.EnumerateRunes().Count() > 0)) throw new DomainException("Invariant violated: note.length > 0");
+if ((this.TaxRate > 0m) && !(this.Note.EnumerateRunes().Count() > 0)) throw new DomainException("Business rule violated");
 ```
 ```csharp
 // CreateOrderCommandValidator.cs — wire layer as a .Must implication
 RuleFor(x => x).Must(x => !(x.TaxRate > 0m) || (x.Note.EnumerateRunes().Count() > 0))
     .WithName("Note")
-    .WithMessage("Invariant violated: note.length > 0");
+    .WithMessage("Business rule violated");
 ```
 == java
 ```java
 // features/orders/Order.java — the domain floor is correct
-if ((this.taxRate.compareTo(new BigDecimal("0")) > 0) && !(((int) this.note.codePoints().count()) > 0)) throw new DomainException("Invariant violated: note.length > 0");
+if ((this.taxRate.compareTo(new BigDecimal("0")) > 0) && !(((int) this.note.codePoints().count()) > 0)) throw new DomainException("Business rule violated");
 ```
 ```java
 // features/orders/CreateOrderValidator.java — KNOWN BUG: the wire rule drops the guard,
 // so an empty note is rejected even when taxRate == 0 (src/generator/java/emit/validator.ts
 // renders inv.expr without the `!(guard) ||` implication the other backends emit)
-if (!(((int) note.codePoints().count()) > 0)) errors.rejectValue("note", "loom.invariant", "Invariant violated: note.length > 0");
+if (!(((int) note.codePoints().count()) > 0)) errors.rejectValue("note", "loom.invariant", "Business rule violated");
 ```
 == python
 ```python
 # app/domain/order.py
 if (self._tax_rate > 0) and not (len(self._note) > 0):
-    raise DomainError("Invariant violated: note.length > 0")
+    raise DomainError("Business rule violated")
 ```
 ```python
 # app/http/order_routes.py — model_validator, implication form
 if not (not (self.taxRate > 0) or (len(self.note) > 0)):
-    raise ValueError("Invariant violated: note.length > 0")
+    raise ValueError("Business rule violated")
 ```
 == elixir
 ```elixir

@@ -224,7 +224,7 @@ export const lines = ordersSchema.table("lines", {
 ```ts
 // domain/order.ts — the check lowers to an invariant on Line's ctor
 private _assertInvariants(): void {
-  if (!(this._qty > 0)) throw new DomainError("Invariant violated: qty check qty > 0");
+  if (!(this._qty > 0)) throw new DomainError("Invalid value");
 }
 // Order keeps an owned, read-only collection:
 get lines(): readonly Line[] { return this._lines; }
@@ -240,7 +240,7 @@ public sealed class Line
     public int Qty { get; private set; } = default!;
     private void AssertInvariants()
     {
-        if (!(this.Qty > 0)) throw new DomainException("Invariant violated: qty check qty > 0");
+        if (!(this.Qty > 0)) throw new DomainException("Invalid value");
     }
 }
 ```
@@ -261,7 +261,7 @@ List<Line> lines = new ArrayList<>();
 # app/domain/order.py — the check on Line's constructor
 def _assert_invariants(self) -> None:
     if not (self._qty > 0):
-        raise DomainError("Invariant violated: qty check qty > 0")
+        raise DomainError("Invalid value")
 ```
 == elixir
 ```elixir
@@ -572,7 +572,7 @@ aggregate Claim with crudish {
 ```ts
 // generated: api/domain/claim.ts (node; the other four backends are the same shape)
 public approve(): void {
-  if (!(this._status === ClaimStatus.UnderReview)) throw new DomainError("Precondition failed: status == UnderReview");
+  if (!(this._status === ClaimStatus.UnderReview)) throw new DomainError("Business rule violated");
   this._status = ClaimStatus.Approved;       // immutable ≠ unassignable
 }
 public update(description: string): void {   // `status` is GONE from the update surface
