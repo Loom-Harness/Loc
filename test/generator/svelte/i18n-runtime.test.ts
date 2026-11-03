@@ -91,7 +91,7 @@ describe("Svelte i18n runtime", () => {
     expect(shell).toContain(`{t("chrome.skipToContent", "Skip to content")}`);
     // The primary-navigation landmark aria binds through t() (JSX-shaped attr).
     expect(shell).toContain(`aria-label={t("chrome.primaryNav", "Primary navigation")}`);
-    expect(shell).toContain(`import { t } from "$lib/i18n"`);
+    expect(shell).toContain(`import { t } from "$lib/locale.svelte"`);
     // The merged catalog carries the shell chrome key.
     const catalog = JSON.parse(
       [...files].find(([p]) => p.endsWith("src/lib/locales/en.json"))![1],
@@ -141,7 +141,7 @@ describe("Svelte i18n runtime", () => {
     const files = await generateSystemFiles(withComponent);
     const banner = [...files].find(([p]) => p.endsWith("components/Banner.svelte"))![1];
     expect(banner).toMatch(/\{t\("Web\.component\.Banner\.[^"]*", "Shop Banner"\)\}/);
-    expect(banner).toContain(`import { t } from "$lib/i18n"`);
+    expect(banner).toContain(`import { t } from "$lib/locale.svelte"`);
     const locale = [...files].find(([p]) => p.endsWith("src/lib/locales/en.json"))?.[1];
     expect(Object.values(JSON.parse(locale!) as Record<string, string>)).toContain("Shop Banner");
   });

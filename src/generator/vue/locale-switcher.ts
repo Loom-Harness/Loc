@@ -4,19 +4,23 @@
 // The framework-agnostic store lives in the generated `src/i18n.ts`
 // (`getLocale` / `setLocale` / `subscribe`).  This file is the Vue half:
 //
-//   - `src/lib/locale.ts`  — `useLocale()`: one module-level `ref` seeded from
-//                            `getLocale()` and kept current through `subscribe`.
+//   - `src/lib/locale.ts`  — the `locale` ref (seeded from `getLocale()`, kept
+//                            current through `subscribe`), `useLocale()`, and the
+//                            ref-reading `t` / `getLocale` generated code calls.
 //   - `src/components/LocaleSwitcher.vue` — a native `<select>` of the shipped
 //                            locales, each option labelled with the locale's OWN
 //                            name.  Pack-independent on purpose: a language
 //                            picker is one control and a native select needs no
 //                            design-pack template to stay in step across packs.
 //
-// Why a remount and not a reactive `t()`: `t()` is a plain function over the
-// module-level store, so a template that calls it records no reactive
-// dependency.  The shell reads `useLocale()` and keys the routed `<router-view>`
-// on it, which re-renders the shell's own `t()` calls and remounts the routed
-// tree under the new locale (server state survives in the vue-query cache).
+// How a switch reaches the `t(...)` calls.  `t()` in the shared runtime is a
+// plain function over a module-level store, so a template that calls it records
+// no reactive dependency.  The adapter's `t` / `getLocale` read the `locale` ref
+// FIRST, then delegate: a template render (or computed) that calls either one
+// tracks the ref and re-runs in place when `subscribe` updates it.  Nothing
+// remounts, so form input, focus, scroll and component state survive a switch.
+// Every generated page, component, layout, shell, data-grid child and pack
+// format helper imports `t` / `getLocale` from this module, never from `i18n`.
 //
 // Emitted whenever the ui is i18n-enabled.
 // ---------------------------------------------------------------------------
@@ -27,18 +31,33 @@ export const VUE_LOCALE_SWITCHER_PATH = "src/components/LocaleSwitcher.vue";
 export function renderVueLocaleComposable(): string {
   return `// Auto-generated.  Do not edit by hand.
 import { ref, type Ref } from "vue";
-import { getLocale, subscribe } from "../i18n";
+import { getLocale as baseGetLocale, subscribe, t as baseT } from "../i18n";
 
-const locale = ref(getLocale());
+const locale = ref(baseGetLocale());
 // Lives as long as the app: the store is module-level, so is this subscription.
 subscribe(() => {
-  locale.value = getLocale();
+  locale.value = baseGetLocale();
 });
 
-/** The active locale, as a ref. Reading \`.value\` in a template or computed makes
- *  it re-run when the locale switches. */
+/** The active locale, as a ref. */
 export function useLocale(): Readonly<Ref<string>> {
   return locale;
+}
+
+/** The active locale. Reading it while a template or computed runs makes that
+ *  consumer run again when the locale switches. */
+export function getLocale(): string {
+  return locale.value;
+}
+
+/** \`t\` that re-runs its caller on a locale switch (see \`getLocale\`). */
+export function t(
+  key: string,
+  defaultMessage: string,
+  values?: Parameters<typeof baseT>[2],
+): string {
+  void locale.value;
+  return baseT(key, defaultMessage, values);
 }
 `;
 }

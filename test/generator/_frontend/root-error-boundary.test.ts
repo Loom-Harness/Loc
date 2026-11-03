@@ -61,7 +61,7 @@ describe("root render-time error boundary", () => {
     const files = await project("svelte", "shadcnSvelte");
     const layout = files.get("web/src/routes/+layout.svelte")!;
     expect(layout).toContain('t("chrome.rootErrorTitle", "Something went wrong.")');
-    expect(layout).toContain('import { t } from "$lib/i18n";');
+    expect(layout).toContain('import { t } from "$lib/locale.svelte";');
     expect(files.get("web/src/lib/locales/en.json")!).toContain("rootErrorTitle");
   });
 

@@ -4,7 +4,6 @@ import { onErrorCaptured, ref } from "vue";
 import { useRoute } from "vue-router";
 {{#if i18nEnabled}}import { t } from "{{i18nImportPath}}";
 {{/if}}{{#if localeSwitchable}}import LocaleSwitcher from "{{srcPrefix}}components/LocaleSwitcher.vue";
-import { useLocale } from "{{srcPrefix}}lib/locale";
 {{/if}}{{#if navUsesSession}}import { useSession } from "./auth/useSession";
 {{/if}}{{#if authUi}}import { signOut } from "{{sessionImportPath}}";
 {{/if}}{{#if hasRealtimeHandlers}}import RealtimeHandlers from "./components/RealtimeHandlers.vue";
@@ -12,9 +11,6 @@ import { useLocale } from "{{srcPrefix}}lib/locale";
 {{/if}}
 {{#if navUsesSession}}// Verified session claims — gate forbidden pages' nav links (auth: ui).
 const currentUser = (useSession().user.value ?? {}) as Record<string, any>;
-{{/if}}{{#if localeSwitchable}}// The active locale. The routed tree is keyed on it, so a switch re-renders the
-// shell's own `t()` calls and remounts the page under the new locale.
-const locale = useLocale();
 {{/if}}const drawer = ref(true);
 // App-level error capture — a render-time crash in any page lands
 // here instead of blanking the whole shell.  Reset navigates home,
@@ -64,7 +60,7 @@ function isActive(path: string, opts?: { exact?: boolean }): boolean {
           <v-alert type="error" {{{errorTitleAttr}}} :text="appError.message" />
           <v-btn class="mt-4" variant="outlined" @click="resetError">{{{backToHomeText}}}</v-btn>
         </div>
-        <router-view v-else{{#if localeSwitchable}} :key="locale"{{/if}} />
+        <router-view v-else />
       </v-container>
     </v-main>
 {{#if hasRealtimeHandlers}}    <RealtimeHandlers />

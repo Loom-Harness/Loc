@@ -123,73 +123,186 @@ describe("shell switcher — mounted at 2+ locales, absent otherwise", () => {
   }
 });
 
-describe("Vue — a ref over the store, the routed tree keyed on it", () => {
-  for (const design of ["vuetify", "shadcnVue"]) {
-    it(`${design}: the shell keys <router-view> on the locale ref`, async () => {
-      const files = await generateSystemFiles(system("vue", design), {
-        translations: catalogsFor("de", "fr"),
-      });
-      const shell = mustFile(files, "src/App.vue");
-      expect(shell).toMatch(/import \{ useLocale \} from "(\.\/|@\/)lib\/locale";/);
-      expect(shell).toContain("const locale = useLocale();");
-      expect(shell).toContain('<router-view v-else :key="locale" />');
-    });
-  }
-
-  it("useLocale is a ref seeded from getLocale() and updated through subscribe", async () => {
+describe("Vue — t() and getLocale() read a ref, no remount", () => {
+  it("the adapter is a ref seeded from the store; t and getLocale read it first", async () => {
     const files = await generateSystemFiles(system("vue", "vuetify"), {
       translations: catalogsFor("de"),
     });
     const mod = mustFile(files, "src/lib/locale.ts");
-    expect(mod).toContain("const locale = ref(getLocale());");
-    expect(mod).toMatch(/subscribe\(\(\) => \{\s*locale\.value = getLocale\(\);/);
+    expect(mod).toContain("const locale = ref(baseGetLocale());");
+    expect(mod).toMatch(/subscribe\(\(\) => \{\s*locale\.value = baseGetLocale\(\);/);
+    expect(mod).toMatch(/export function useLocale\(\)/);
+    expect(mod).toMatch(/export function getLocale\(\): string \{\s*return locale\.value;/);
+    expect(mod).toMatch(
+      /export function t\([^)]*\): string \{\s*void locale\.value;\s*return baseT\(/s,
+    );
     const sw = mustFile(files, "src/components/LocaleSwitcher.vue");
     expect(sw).toContain('data-testid="locale-switcher"');
     expect(sw).toContain("setLocale((e.target as HTMLSelectElement).value)");
   });
 
-  it("named layouts key their routed view and import a switcher in their header", async () => {
+  for (const design of ["vuetify", "shadcnVue"]) {
+    it(`${design}: the shell mounts the switcher and does not key <router-view>`, async () => {
+      const files = await generateSystemFiles(system("vue", design), {
+        translations: catalogsFor("de", "fr"),
+      });
+      const shell = mustFile(files, "src/App.vue");
+      expect(shell).toMatch(/import \{ t \} from "(\.\/|@\/)lib\/locale";/);
+      expect(shell).toContain("<router-view v-else />");
+      expect(shell).not.toMatch(/useLocale|:key="locale"/);
+    });
+  }
+
+  it("named layouts mount the switcher and do not key their routed view", async () => {
     const src = system("vue", "vuetify").replace(
       "api DemoApi from S",
       "api DemoApi from S\n    layout Frame {\n      header { LocaleSwitcher {} }\n      main\n    }",
     );
     const files = await generateSystemFiles(
       src.replace('route: "/about"', 'route: "/about"\n        layout: Frame'),
-      { translations: catalogsFor("de") },
+      { translations: catalogsFor("de", "fr") },
     );
     const layout = mustFile(files, "src/layouts/Frame.vue");
-    expect(layout).toContain('<router-view :key="locale" />');
+    expect(layout).toContain("<router-view />");
+    expect(layout).not.toContain(":key");
     expect(layout).toContain('import LocaleSwitcher from "../components/LocaleSwitcher.vue";');
   });
 });
 
-describe("Svelte — a readable store, the routed tree in {#key $locale}", () => {
-  it("locale is a readable over subscribe/getLocale", async () => {
+describe("Svelte — t() and getLocale() read a $state, no remount", () => {
+  it("the runes adapter holds the locale as $state; t and getLocale read it first", async () => {
     const files = await generateSystemFiles(system("svelte", "flowbite"), {
       translations: catalogsFor("de"),
     });
-    const mod = mustFile(files, "src/lib/locale.ts");
-    expect(mod).toContain("readable(getLocale(), (set) => {");
-    expect(mod).toContain("return subscribe(() => set(getLocale()));");
+    const mod = mustFile(files, "src/lib/locale.svelte.ts");
+    expect(mod).toContain("let current = $state(baseGetLocale());");
+    expect(mod).toMatch(/subscribe\(\(\) => \{\s*current = baseGetLocale\(\);/);
+    expect(mod).toMatch(/export function getLocale\(\): string \{\s*return current;/);
+    expect(mod).toMatch(/export function t\([^)]*\): string \{\s*void current;\s*return baseT\(/s);
+    expect(file(files, "src/lib/locale.ts")).toBeUndefined();
     const sw = mustFile(files, "src/lib/components/LocaleSwitcher.svelte");
     expect(sw).toContain('data-testid="locale-switcher"');
     expect(sw).toContain("setLocale(e.currentTarget.value);");
+    expect(sw).not.toMatch(/tick|focus\(/);
   });
 
   for (const design of ["flowbite", "shadcnSvelte"]) {
-    it(`${design}: the root layout re-renders its children when the locale changes`, async () => {
+    it(`${design}: the root layout renders its children directly`, async () => {
       const files = await generateSystemFiles(system("svelte", design), {
         translations: catalogsFor("de", "fr"),
       });
       const root = mustFile(files, "src/routes/+layout.svelte");
-      expect(root).toContain('import { locale } from "$lib/locale";');
-      expect(root).toMatch(/\{#key \$locale\}\s*\{@render children\(\)\}\s*\{\/key\}/);
+      expect(root).toContain('import { t } from "$lib/locale.svelte";');
+      expect(root).not.toMatch(/\{#key|\$locale/);
+      expect(root).toContain("{@render children()}");
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Census: no remount key anywhere, and every `t` / `getLocale` a generated file
+// imports comes from the reactive adapter.  Walks EVERY emitted file (pages,
+// components, layouts, shell, data-grid children, pack helpers), so a new
+// emitter that imports from `i18n` directly fails here.
+// ---------------------------------------------------------------------------
+
+const CENSUS_UI = `
+      page About {
+        route: "/about"
+        title: "About us"
+        layout: Frame
+        state { entries: string[] }
+        body: Stack {
+          Heading { "All the documents" },
+          Timeline { of: entries },
+          LocaleSwitcher {}
+        }
+      }`;
+
+const censusSystem = (platform: "vue" | "svelte", design: string): string =>
+  system(platform, design, CENSUS_UI).replace(
+    "api DemoApi from S",
+    "api DemoApi from S\n    layout Frame {\n      header { LocaleSwitcher {} }\n      main\n    }",
+  );
+
+/** Path an import specifier resolves to, relative to the project root. */
+const resolveSpec = (importer: string, spec: string): string => {
+  if (spec.startsWith("@/")) return `src/${spec.slice(2)}`;
+  if (spec.startsWith("$lib/")) return `src/lib/${spec.slice(5)}`;
+  if (!spec.startsWith(".")) return spec;
+  const parts = importer.split("/").slice(0, -1);
+  for (const seg of spec.split("/")) {
+    if (seg === "..") parts.pop();
+    else if (seg !== ".") parts.push(seg);
+  }
+  return parts.join("/");
+};
+
+const REACTIVE_ADAPTER: Record<"vue" | "svelte", string> = {
+  vue: "src/lib/locale",
+  svelte: "src/lib/locale.svelte",
+};
+const BASE_RUNTIME: Record<"vue" | "svelte", string> = {
+  vue: "src/i18n",
+  svelte: "src/lib/i18n",
+};
+/** Files that may read the base store directly: the runtime, the adapter, the
+ *  API client (Accept-Language wants the plain value, not a reactive read). */
+const BASE_READERS: Record<"vue" | "svelte", readonly string[]> = {
+  vue: ["src/i18n.ts", "src/lib/locale.ts", "src/api/client.ts"],
+  svelte: ["src/lib/i18n.ts", "src/lib/locale.svelte.ts", "src/lib/api/client.ts"],
+};
+
+/** Every `[names, resolved module]` pair a file's import statements spell. */
+const importsOf = (path: string, content: string): Array<{ names: string[]; mod: string }> =>
+  [...content.matchAll(/import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/g)].map((m) => ({
+    names: (m[1] ?? "").split(",").map((n) => n.trim().split(/\s+as\s+/)[0] ?? ""),
+    mod: resolveSpec(path, m[2] ?? "").replace(/\.(ts|js)$/, ""),
+  }));
+
+describe("reactive-adapter census — no remount, no direct i18n import of t / getLocale", () => {
+  const CENSUS_CELLS = CELLS.filter(
+    (c): c is Cell & { platform: "vue" | "svelte" } => c.platform !== "angular",
+  );
+  for (const c of CENSUS_CELLS) {
+    it(`${cellName(c)}: every t / getLocale import comes from the reactive adapter`, async () => {
+      const files = await generateSystemFiles(censusSystem(c.platform, c.design), {
+        translations: catalogsFor("de", "fr"),
+      });
+      let fromAdapter = 0;
+      for (const [fullPath, content] of files) {
+        // Paths are relative to the project root (`web/src/...` -> `src/...`).
+        const at = fullPath.indexOf("src/");
+        const path = at >= 0 ? fullPath.slice(at) : fullPath;
+        // No remount key keyed on the locale.
+        expect(content, fullPath).not.toMatch(/:key="locale"|\{#key \$locale\}|\$locale\b/);
+        if (!/\.(vue|svelte|ts|tsx)$/.test(path)) continue;
+        for (const { names, mod } of importsOf(path, content)) {
+          if (!names.some((n) => n === "t" || n === "getLocale")) continue;
+          if (mod === BASE_RUNTIME[c.platform]) {
+            expect(BASE_READERS[c.platform], `${path} imports t/getLocale from i18n`).toContain(
+              path,
+            );
+          } else if (mod === REACTIVE_ADAPTER[c.platform]) {
+            fromAdapter++;
+          }
+        }
+      }
+      // Pages, components, layouts, shell, helpers all ride the adapter.
+      expect(fromAdapter).toBeGreaterThan(2);
     });
 
-    it(`${design}: the root layout is untouched at one locale`, async () => {
-      const files = await generateSystemFiles(system("svelte", design));
-      const root = mustFile(files, "src/routes/+layout.svelte");
-      expect(root).not.toContain("$locale");
+    it(`${cellName(c)}: pack format helpers and the Timeline read the reactive getLocale`, async () => {
+      const files = await generateSystemFiles(censusSystem(c.platform, c.design), {
+        translations: catalogsFor("de", "fr"),
+      });
+      const fmt = mustFile(files, "src/lib/format.ts");
+      expect(fmt).toContain(
+        `import { getLocale } from "./locale${c.platform === "svelte" ? ".svelte" : ""}";`,
+      );
+      const page = [...files].find(([p]) => p.endsWith("about.vue") || p.includes("about/+page"));
+      expect(page?.[1], cellName(c)).toMatch(/toLocaleString\(getLocale\(\)\)/);
+      expect(page?.[1], cellName(c)).toMatch(/import \{[^}]*getLocale[^}]*\} from "[^"]*locale/);
     });
   }
 });
@@ -259,8 +372,8 @@ describe("one locale for text, formatting and the API", () => {
     angular: 'import { getLocale } from "../lib/i18n";',
   };
   const FORMAT_IMPORT: Record<Cell["platform"], string> = {
-    vue: 'import { getLocale } from "../i18n";',
-    svelte: 'import { getLocale } from "./i18n";',
+    vue: 'import { getLocale } from "./locale";',
+    svelte: 'import { getLocale } from "./locale.svelte";',
     angular: 'import { getLocale } from "./locale";',
   };
 
@@ -304,6 +417,7 @@ describe("one locale for text, formatting and the API", () => {
         .replace(/\n\s*framework: \w+/, `\n      framework: ${platform}`);
       const files = await generateSystemFiles(src);
       expect(file(files, "src/lib/locale.ts")).toBeUndefined();
+      expect(file(files, "src/lib/locale.svelte.ts")).toBeUndefined();
       expect(file(files, API_CLIENT[platform])).not.toContain("accept-language");
       expect(file(files, FORMAT[platform])).toContain("toLocaleString(undefined");
     });

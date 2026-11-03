@@ -467,7 +467,7 @@ export function generateVueForContexts(
   out.set(
     "src/pages/NotFound.vue",
     renderShell(pack, "not-found-page", {
-      scriptBody: i18nEnabled ? '\nimport { t } from "../i18n";\n' : "",
+      scriptBody: i18nEnabled ? '\nimport { t } from "../lib/locale";\n' : "",
       notFoundText: shellChromeText("notFound", i18nEnabled),
       backToHomeText: shellChromeText("backToHome", i18nEnabled),
     }),
@@ -507,7 +507,6 @@ export function generateVueForContexts(
     pack,
     options.topLevelComponents ?? [],
     externComponentNames,
-    localeSwitchable,
   );
   const useLayouts = preparedLayouts.length > 0 || nonePages.length > 0;
   for (const l of preparedLayouts) out.set(`src/layouts/${l.name}.vue`, l.content);
@@ -752,21 +751,18 @@ export function generateVueForContexts(
         hasRealtimeHandlers: false,
         hasToastHost: false,
         // DefaultLayout.vue sits one directory deeper than `src/`.
-        i18nImportPath: "../i18n",
+        i18nImportPath: "../lib/locale",
         srcPrefix: "../",
         sessionImportPath: "../auth/session",
       }),
     );
-    out.set(
-      "src/App.vue",
-      renderShell(pack, "app-root", { hasRealtimeHandlers, localeSwitchable }),
-    );
+    out.set("src/App.vue", renderShell(pack, "app-root", { hasRealtimeHandlers }));
   } else {
     out.set(
       "src/App.vue",
       renderShell(pack, "app-shell", {
         ...chromeVM,
-        i18nImportPath: "./i18n",
+        i18nImportPath: "./lib/locale",
         srcPrefix: "./",
         sessionImportPath: "./auth/session",
       }),

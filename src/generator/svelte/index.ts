@@ -503,8 +503,6 @@ export function generateSvelteForContexts(
       // (Svelte shares JSX's single-brace interpolation, so the same token
       // renders); raw string when i18n is off, so that output is unchanged.
       i18nEnabled,
-      // The routed tree is keyed on the locale so a switch re-renders it.
-      localeSwitchable,
       errorTitleText: shellChromeText("rootErrorTitle", i18nEnabled),
       // Side-effect import of the vendored highlighter; the module self-arms a
       // MutationObserver over every `pre code` the app renders.
