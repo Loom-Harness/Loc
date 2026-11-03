@@ -581,6 +581,7 @@ function emitProjectFromContexts(
       routePrefix,
       sourcemap,
       usingDapper: system?.deployable.persistence === "dapper",
+      contexts,
     });
   }
   // Explicit transport layer (unfoldable-api-derivation.md, A1): one

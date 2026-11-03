@@ -282,6 +282,7 @@ bases are exempt; a subtype inherits its base's stance). An unmarked aggregate i
 | `loom.tenancy-claim-type-mismatch` | the claim's type can't bind against the registry's `ids` type (see the id-vs-claim rule above) | error |
 | `loom.tenant-owned-claim-type` | a `tenantOwned` aggregate exists but the claim isn't `string` (the capability's field is `tenantId: string`; a `guid` claim mis-compiles typed backends — declare the claim `string`, guid values round-trip as text) | error |
 | `loom.tenancy-filter-bypass` | a read (`find` / query-time `projection` / inline `Repo.all`) whose `ignoring` clause drops the tenant floor or the registry self-scope — see [`ignoring` and the tenant filter](#ignoring-and-the-tenant-filter). Independent of `auth { enforcement: }` | warning |
+| `loom.tenancy-folded-projection-unscoped` | a folded projection (`on(e: …)` folds) under `tenancy by`: its read-model rows carry no tenant and its read routes no tenant predicate, so it is refused; read the source through a query-time projection (`from <Aggregate> …`), which applies the aggregate's tenant floor | error |
 
 ### Inheritance: a subtype inherits its base's stance
 

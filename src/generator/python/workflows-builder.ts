@@ -310,17 +310,14 @@ function lookupOp(
  *  `this-derived` — the refKinds `lower-expr.ts` gives an own-state name)
  *  reached through any statement's expressions.  `walkWorkflowStmtExprsDeep`
  *  visits an `assign`'s VALUE but not its PathIR target, so the write half is
- *  checked directly; recurses into `for-each` / `if-let` nested bodies for
- *  both halves. */
+ *  checked directly, over every nested body. */
 function usesOwnState(statements: WorkflowStmtIR[]): boolean {
-  const hasAssign = (sts: WorkflowStmtIR[]): boolean =>
-    sts.some((s) => {
-      if (s.kind === "assign") return true;
-      if (s.kind === "for-each") return hasAssign(s.body);
-      if (s.kind === "if-let") return hasAssign(s.thenBody) || hasAssign(s.elseBody ?? []);
-      return false;
+  let assigns = false;
+  for (const root of statements)
+    walkWorkflowStmtsDeep(root, (s) => {
+      if (s.kind === "assign") assigns = true;
     });
-  if (hasAssign(statements)) return true;
+  if (assigns) return true;
   let found = false;
   for (const s of statements) {
     walkWorkflowStmtExprsDeep(s, (e) => {

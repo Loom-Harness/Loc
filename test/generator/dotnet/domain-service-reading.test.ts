@@ -14,8 +14,7 @@
 // (src/ir/util/domain-service-read-ports.ts), shared with the TS trailblazer.
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet, generateSystemFiles } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 // A reading service (`Registration.isEmailAvailable` reads
 // `Accounts.find(AccountsByHolder(…))`),
@@ -116,7 +115,7 @@ function bySuffix(f: Map<string, string>, suffix: string): string {
 }
 
 async function files(): Promise<Map<string, string>> {
-  return generateDotnet(await parseValid(SRC));
+  return generateBackendFiles(SRC, "dotnet");
 }
 
 describe(".NET generator — reading-tier domainService (domain-services.md rev. 4)", () => {
@@ -205,7 +204,7 @@ describe(".NET generator — reading-tier domainService (domain-services.md rev.
 
     // A PURE-ONLY system: the pure call stays the static `Service.Op(...)` form,
     // no service is injected, and Program.cs registers no domain service.
-    const pure = await generateDotnet(await parseValid(PURE_SRC));
+    const pure = await generateBackendFiles(PURE_SRC, "dotnet");
     const pureSvc = pure.get("Domain/Services/FeeQuote.cs")!;
     expect(pureSvc).toMatch(/public static class FeeQuote/);
     const handler = pure.get("Application/Workflows/RecomputeHandler.cs")!;

@@ -1698,6 +1698,15 @@ export interface ProjectionQueryIR {
    *  folded-hybrid case).  A workflow / projection source is `select`-projection
    *  only (no `join`s). */
   sourceKind?: "aggregate" | "workflow" | "projection";
+  /** The bounded context `source` is declared in, as name resolution linked
+   *  it.  A projection may read a source declared in ANOTHER context of its
+   *  subdomain (`context Reports { projection V { from Order … } }` over
+   *  `Orders.Order`), so `source` alone is ambiguous to a backend that emits
+   *  per context: its capability filters, tenancy floor, table and module all
+   *  belong to the HOME context.  Resolve it through
+   *  `projectionSourceContext` (`src/ir/util/projection-source.ts`), never by
+   *  looking `source` up in the projection's own context. */
+  sourceContext?: string;
   /** The author's alias for the source candidate (`from Order as o`).  `this`
    *  / bare stays the default; the alias resolves identically (like
    *  `criterion … of T as o`). */
@@ -4660,26 +4669,61 @@ export function typeUsesMoney(t: TypeIR | undefined): boolean {
  *  field. */
 export function exprUsesMoney(e: ExprIR | undefined): boolean {
   if (!e) return false;
-  if (e.kind === "literal" && e.lit === "money") return true;
-  if (e.kind === "binary") {
-    if (typeUsesMoney(e.leftType) || typeUsesMoney(e.resultType)) return true;
-    return exprUsesMoney(e.left) || exprUsesMoney(e.right);
+  // Exhaustive and `never`-checked: this layer cannot import `ir/util/walk.ts`
+  // (it imports these types), so the child enumeration lives here, slot for
+  // slot with `walkExprChildren`.
+  switch (e.kind) {
+    case "literal":
+      return e.lit === "money";
+    case "this":
+    case "id":
+    case "ref":
+    case "action-ref":
+    case "modelText":
+    case "authz-filter":
+      return false;
+    case "binary":
+      if (typeUsesMoney(e.leftType) || typeUsesMoney(e.resultType)) return true;
+      return exprUsesMoney(e.left) || exprUsesMoney(e.right);
+    case "member":
+      return exprUsesMoney(e.receiver);
+    case "method-call":
+      return exprUsesMoney(e.receiver) || e.args.some(exprUsesMoney);
+    case "call":
+      return (
+        e.args.some(exprUsesMoney) || (e.style?.entries ?? []).some((s) => exprUsesMoney(s.value))
+      );
+    case "ternary":
+      return exprUsesMoney(e.cond) || exprUsesMoney(e.then) || exprUsesMoney(e.otherwise);
+    case "unary":
+      return exprUsesMoney(e.operand);
+    case "paren":
+      return exprUsesMoney(e.inner);
+    case "lambda":
+      return exprUsesMoney(e.body) || (e.block ?? []).some(stmtUsesMoney);
+    case "new":
+    case "object":
+      return e.fields.some((f) => exprUsesMoney(f.value));
+    case "list":
+      return e.elements.some(exprUsesMoney);
+    case "convert":
+      return e.target === "money" || exprUsesMoney(e.value);
+    case "duration":
+      return exprUsesMoney(e.amount);
+    case "i18nFormat":
+      return exprUsesMoney(e.inner);
+    case "match":
+      return (
+        exprUsesMoney(e.subject) ||
+        e.arms.some((a) => exprUsesMoney(a.cond) || exprUsesMoney(a.value)) ||
+        e.variantArms.some((a) => exprUsesMoney(a.value)) ||
+        exprUsesMoney(e.otherwise)
+      );
+    default: {
+      const _exhaustive: never = e;
+      return _exhaustive;
+    }
   }
-  if (e.kind === "member") return exprUsesMoney(e.receiver);
-  if (e.kind === "method-call") return exprUsesMoney(e.receiver) || e.args.some(exprUsesMoney);
-  if (e.kind === "ternary")
-    return exprUsesMoney(e.cond) || exprUsesMoney(e.then) || exprUsesMoney(e.otherwise);
-  if (e.kind === "unary") return exprUsesMoney(e.operand);
-  if (e.kind === "paren") return exprUsesMoney(e.inner);
-  if (e.kind === "call") return e.args.some(exprUsesMoney);
-  if (e.kind === "lambda") return exprUsesMoney(e.body);
-  if (e.kind === "new" || e.kind === "object") return e.fields.some((f) => exprUsesMoney(f.value));
-  if (e.kind === "match")
-    return (
-      e.arms.some((a) => exprUsesMoney(a.cond) || exprUsesMoney(a.value)) ||
-      exprUsesMoney(e.otherwise)
-    );
-  return false;
 }
 
 function stmtUsesMoney(s: StmtIR): boolean {
