@@ -3,7 +3,7 @@
           name="{{path}}"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{{label}}</FormLabel>
+              <FormLabel>{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</FormLabel>
               <FormControl>
                 <Input type="datetime-local" data-testid="{{testId}}" {...field} value={(field.value as string) ?? ""} />
               </FormControl>

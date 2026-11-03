@@ -10,6 +10,7 @@ import {
   REPOSITORY_CONTRACT,
   repoOpVerb,
   retiredRepoVerb,
+  retrievalBaseName,
 } from "../../../util/repository-contract.js";
 import {
   constructionBlockingInvariants,
@@ -212,6 +213,26 @@ export function validateWorkflows(
         }),
         source: `${ctx.name}/${wf.name}`,
       });
+    }
+    // `create(…): <Wf>` / `<Wf> or E` answers the workflow's instance state —
+    // the row the instance-read route serves, keyed by the correlation field.
+    // An uncorrelated workflow persists no such row, so there is nothing to
+    // answer.
+    if (!wf.correlationField || wf.eventSourced) {
+      for (const c of wf.creates) {
+        const t = c.returnType;
+        const names = t?.kind === "union" ? t.variants : t ? [t] : [];
+        if (!names.some((v) => v.kind === "entity" && v.name === wf.name)) continue;
+        diags.push({
+          severity: "error",
+          code: "loom.workflow-return-this-uncorrelated",
+          message: diagMessage("loom.workflow-return-this-uncorrelated", {
+            workflow: wf.name,
+            create: c.name ?? "create",
+          }),
+          source: `${ctx.name}/${wf.name}`,
+        });
+      }
     }
     // Runs BEFORE the body check: it reports the boundary violation and returns
     // the let-bindings it poisoned, so the body check can stay quiet about the
@@ -1357,20 +1378,10 @@ function validateWorkflowStatements(
       return false;
     }
     const crit = ctx.criteria.find((c) => c.name === critName);
-    if (!crit) {
-      diags.push({
-        severity: "error",
-        code: "loom.findall-unknown-criterion",
-        message: diagMessage("loom.findall-unknown-criterion", {
-          name: wf.name,
-          repoName,
-          critName,
-        }),
-        source: `${ctx.name}/${wf.name}`,
-        origin: wf.origin,
-      });
-      return false;
-    }
+    // A criterion read is only classified (`classifyRepoArg`) when the context
+    // declares the criterion, so an undeclared name never reaches here — it
+    // is a retrieval reference (`loom.workflow-run-unknown-retrieval`).
+    if (!crit) return false;
     const candidate = crit.targetType.kind === "entity" ? crit.targetType.name : "";
     if (candidate !== aggName) {
       diags.push({
@@ -1714,20 +1725,8 @@ function validateWorkflowStatements(
           }
           const critName = st.synthCriterion.name;
           const crit = ctx.criteria.find((c) => c.name === critName);
-          if (!crit) {
-            diags.push({
-              severity: "error",
-              code: "loom.findall-unknown-criterion",
-              message: diagMessage("loom.findall-unknown-criterion", {
-                name: wf.name,
-                repoName: st.repoName,
-                critName,
-              }),
-              source: `${ctx.name}/${wf.name}`,
-              origin: wf.origin,
-            });
-            break;
-          }
+          // Classified as a criterion only when declared (see `checkCriterionRead`).
+          if (!crit) break;
           const candidate = crit.targetType.kind === "entity" ? crit.targetType.name : "";
           if (candidate !== st.aggName) {
             diags.push({
@@ -1801,7 +1800,7 @@ function validateWorkflowStatements(
             message: diagMessage("loom.workflow-run-unknown-retrieval", {
               name: wf.name,
               repoName: st.repoName,
-              retrievalName: st.retrievalName,
+              retrievalName: retrievalBaseName(st.retrievalName, st),
             }),
             source: `${ctx.name}/${wf.name}`,
             origin: wf.origin,
@@ -1815,7 +1814,7 @@ function validateWorkflowStatements(
             code: "loom.workflow-run-retrieval-mismatch",
             message: diagMessage("loom.workflow-run-retrieval-mismatch", {
               name: wf.name,
-              retrievalName: st.retrievalName,
+              retrievalName: retrievalBaseName(st.retrievalName, st),
               target,
               repoName: st.repoName,
               aggName: st.aggName,

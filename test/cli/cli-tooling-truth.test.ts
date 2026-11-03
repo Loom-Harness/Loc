@@ -323,14 +323,23 @@ describe("ddd i18n — model-relative defaults", () => {
     expect(fs.existsSync(path.join(elsewhere, "out"))).toBe(false);
   });
 
-  it("init scaffolds <model dir>/locales/<locale>.json, whatever the cwd is", () => {
+  it("init scaffolds <model dir>/locales/<locale>/<ns>.json, whatever the cwd is", () => {
     const dir = project("i18n-init", { "shop.ddd": I18N_DDL });
     const elsewhere = project("i18n-init-cwd", {});
     const r = run(["i18n", "init", path.join(dir, "shop.ddd"), "fr"], { cwd: elsewhere });
     expect(r.status).toBe(0);
-    const fr = path.join(dir, "locales", "fr.json");
+    const fr = path.join(dir, "locales", "fr");
     expect(fs.existsSync(fr)).toBe(true);
-    expect(Object.values(JSON.parse(fs.readFileSync(fr, "utf8")))).toContain("TODO: Hello");
+    const strings = fs
+      .readdirSync(fr)
+      .flatMap((f) => Object.values(JSON.parse(fs.readFileSync(path.join(fr, f), "utf8"))));
+    // A new locale is empty (untranslated = absent); the source goes in the lock.
+    expect(strings).toEqual([]);
+    const lock = path.join(dir, "locales", ".loom", "source.lock");
+    const locked = fs
+      .readdirSync(lock)
+      .flatMap((f) => Object.values(JSON.parse(fs.readFileSync(path.join(lock, f), "utf8"))));
+    expect(locked).toContain("Hello");
     expect(fs.existsSync(path.join(elsewhere, "locales"))).toBe(false);
   });
 
@@ -339,7 +348,7 @@ describe("ddd i18n — model-relative defaults", () => {
     const custom = path.join(dir, "strings");
     const r = run(["i18n", "init", path.join(dir, "shop.ddd"), "fr", "--dir", custom]);
     expect(r.status).toBe(0);
-    expect(fs.existsSync(path.join(custom, "fr.json"))).toBe(true);
+    expect(fs.existsSync(path.join(custom, "fr"))).toBe(true);
   });
 });
 

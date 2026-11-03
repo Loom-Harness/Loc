@@ -32,6 +32,7 @@
 import type { FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
 import { exLit, exValuePrefix } from "../wire-policy-ex.js";
+import { exMoneyGrammarRegex } from "./codec-spelling-ex.js";
 
 /** One decimal leaf the ingress guard checks: its snake-cased path from the
  *  aggregate root, and whether a blank value means "absent" (only a top-level
@@ -135,7 +136,7 @@ export function renderDecimalIngressHelpers(): string {
   defp __loom_decimal_ok?(value, _blank_is_absent) when is_integer(value) or is_float(value), do: true
 
   defp __loom_decimal_ok?(value, blank_is_absent) when is_binary(value) do
-    Regex.match?(~r/^-?\\d+(\\.\\d+)?$/, value) or (blank_is_absent and String.trim(value) == "")
+    Regex.match?(${exMoneyGrammarRegex()}, value) or (blank_is_absent and String.trim(value) == "")
   end
 
   defp __loom_decimal_ok?(_value, _blank_is_absent), do: false

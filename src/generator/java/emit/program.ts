@@ -678,6 +678,10 @@ export function renderDockerfile(
     ``,
     `FROM eclipse-temurin:${JAVA_VERSION}-jre`,
     `WORKDIR /app`,
+    `# wget backs the compose healthcheck; installed explicitly rather than`,
+    `# relying on what the base image happens to include.`,
+    `RUN apt-get update -y && apt-get install -y --no-install-recommends wget \\`,
+    `    && apt-get clean && rm -rf /var/lib/apt/lists/*`,
     `COPY --from=build /src/build/libs/*.jar app.jar`,
     options.embeddedSpa
       ? `COPY --from=spa-build /spa/${options.spaOutDir ?? "dist"} /app/ui`

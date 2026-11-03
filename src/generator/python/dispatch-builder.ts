@@ -434,7 +434,15 @@ export function buildPyDispatchFile(
       "DomainEvent",
       ...(hasChannels ? ["DomainEventDispatcher"] : []),
       "PostCommitDispatcher",
-      ...[...new Set([...eventNames, ...esEventNames, ...emittedEventNames])].sort(),
+      ...[
+        ...new Set([
+          ...eventNames,
+          ...esEventNames,
+          ...emittedEventNames,
+          // The outbox codec constructs every durable event by name.
+          ...(hasOutbox ? durableEvents.map((e) => e.name) : []),
+        ]),
+      ].sort(),
     ].join(", ")}`,
     ...factoryAggs.map((n) => `from app.domain.${snake(n)} import ${n}`),
     ...resourceImports,
@@ -806,7 +814,7 @@ function handlerFn(
     }
   }
   for (const r of reposIn(statements, saves)) {
-    out.push(`    ${snake(r.repoName)} = ${repoClass(r.aggName)}(session, events)`);
+    out.push(`    ${pythonIdent(r.repoName)} = ${repoClass(r.aggName)}(session, events)`);
   }
   const hasEmit = workflowEmits(statements).length > 0;
   if (hasEmit) out.push("    workflow_events: list[DomainEvent] = []");
@@ -927,7 +935,7 @@ function esHandlerFn(
   }
   if (usesState) out.push(`    state = ${fns.fold}(__key, __events)`);
   for (const r of reposIn(statements, saves)) {
-    out.push(`    ${snake(r.repoName)} = ${repoClass(r.aggName)}(session, events)`);
+    out.push(`    ${pythonIdent(r.repoName)} = ${repoClass(r.aggName)}(session, events)`);
   }
   const hasEmit = workflowEmits(statements).length > 0;
   if (hasEmit) out.push("    workflow_events: list[DomainEvent] = []");

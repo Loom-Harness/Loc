@@ -404,6 +404,7 @@ function docExprUnsupported(
     case "list":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "authz-filter":
     case "action-ref":
       return true;

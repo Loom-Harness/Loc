@@ -197,9 +197,7 @@ describe("RS-39 — an absent required field: one 422 everywhere; a create with 
   it("node: the hook answers the wirePolicy `<field> is required` sentence for an absent key; Ticket's create body is optional", async () => {
     const m = await files("node");
     const problem = fileEndingWith(m, "http/problem-details.ts");
-    expect(problem).toContain(
-      "isAbsent(result.data, issue.path) ? missingFieldMessage(issue.path)",
-    );
+    expect(problem).toContain("isMissing(result.data, issue) ? missingFieldMessage(issue.path)");
     expect(problem).toContain(
       `return \`\${String(path[path.length - 1])} ${fieldSentenceSuffix("missing")}\`;`,
     );

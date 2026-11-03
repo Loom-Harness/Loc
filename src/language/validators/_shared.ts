@@ -26,11 +26,15 @@ import {
   type DerivedProp,
   type EntityPart,
   type FunctionDecl,
+  isBoundedContext,
   isContainment,
+  isCriterion,
   isDecLit,
   isDerivedProp,
   isIntLit,
+  isNamedType,
   isProperty,
+  isRetrieval,
   type LValue,
   type Subdomain,
   type ValueObject,
@@ -309,6 +313,21 @@ export function findAggregateInModule(mod: Subdomain, name: string): Aggregate |
 export function listValidApiOperations(agg: Aggregate): string[] {
   const ops = new Set<string>(["all", "byId", "create", "update", "delete"]);
   if (aggregateServesHistory(agg)) ops.add(AUDIT_HISTORY_FIND);
+  // The paged reads a `queryHandler` over a criterion / retrieval of this
+  // aggregate runs (`findAllBy<Criterion>` / `page<Retrieval>` — the names the
+  // enrichment synthesizes, `ir/util/paged-run.ts`).  Whether a handler really
+  // runs one is the IR gate's question (`loom.ui-read-unresolved`); here the
+  // spelling is only recognised, so the api-handle-qualified read
+  // (`Support.Ticket.findAllByOpen(…)`) is not refused where the bare one works.
+  const ctx = agg.$container;
+  if (isBoundedContext(ctx)) {
+    for (const m of ctx.members ?? []) {
+      if (!isCriterion(m) && !isRetrieval(m)) continue;
+      const base = m.target?.base;
+      if (!base || !isNamedType(base) || base.target.$refText !== agg.name) continue;
+      ops.add(isCriterion(m) ? `findAllBy${m.name}` : `page${m.name}`);
+    }
+  }
   // Public `operation`s declared on the aggregate are exposed as api routes
   // (each gets a `use<Op><Agg>` frontend hook) — so a UI body may call them
   // off the api handle (`Sales.Order.placeOrder()`), including as the awaited

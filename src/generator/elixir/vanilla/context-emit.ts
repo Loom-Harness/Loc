@@ -38,11 +38,9 @@ import {
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
-import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { declarationSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
-import { MONEY_MAX_EXCLUSIVE, MONEY_PRECISION, MONEY_WIRE_SCALE } from "../../money-scale.js";
 import { type ElixirChannelsCfg, opEmitsDurableEvent } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opBodyStmtsDeep, opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
@@ -62,6 +60,12 @@ import {
   aggregateHasResidualInvariants,
 } from "./changeset-invariant-emit.js";
 import { aggregateBodyValueObjectFields, opAssignedFields } from "./changeset-validators.js";
+import {
+  exInt32Range,
+  exMoneyColumnSql,
+  exMoneyGrammarRegex,
+  exMoneyMaxExclusive,
+} from "./codec-spelling-ex.js";
 import { normalizeDatetime } from "./datetime-type-emit.js";
 import { denialTerm } from "./denial.js";
 import {
@@ -332,7 +336,7 @@ function renderNumericParamHelpers(
   end
 
   defp __loom_decimal_param(record, field, value) when is_binary(value) do
-    if Regex.match?(~r/^-?\\d+(\\.\\d+)?$/, value) do
+    if Regex.match?(${exMoneyGrammarRegex()}, value) do
       if __loom_money_in_range?(Decimal.new(value)) do
         {:ok, Decimal.new(value)}
       else
@@ -349,11 +353,11 @@ function renderNumericParamHelpers(
   # RANGE, not format: the grammar already passed, and what is left is a
   # magnitude question the COLUMN answers.  Without this a 40-digit price is a
   # well-formed decimal string Decimal.new/1 happily accepts, so it reached
-  # NUMERIC(${MONEY_PRECISION},${MONEY_WIRE_SCALE}) and the DATABASE refused it — a 500 for a client
+  # ${exMoneyColumnSql()} and the DATABASE refused it — a 500 for a client
   # fault (M-T6.60 divergence 3).  The bound is derived from the column's own
   # precision, so one constant governs the guard and the DDL.
   defp __loom_money_in_range?(%Decimal{} = value) do
-    Decimal.lt?(Decimal.abs(value), Decimal.new(${JSON.stringify(MONEY_MAX_EXCLUSIVE)}))
+    Decimal.lt?(Decimal.abs(value), Decimal.new(${exMoneyMaxExclusive()}))
   end
 `;
   const int = `
@@ -374,7 +378,7 @@ function renderNumericParamHelpers(
   defp __loom_int32_param(_record, _field, nil), do: {:ok, nil}
 
   defp __loom_int32_param(_record, _field, value)
-       when is_integer(value) and value >= ${INT32_MIN} and value <= ${INT32_MAX},
+       when is_integer(value) and value >= ${exInt32Range().min} and value <= ${exInt32Range().max},
        do: {:ok, value}
 
   defp __loom_int32_param(record, field, value) when is_integer(value),
@@ -629,10 +633,14 @@ ${auditRecordCall({
     // `change_<agg>(record, params)` for validate).  Delegates to the
     // per-aggregate Changeset module's `base_changeset/2`.  A DOCUMENT
     // aggregate has no `base_changeset` (it round-trips via
-    // `document_changeset`), so the facade is skipped there.
+    // `document_changeset`); its form fields live on the embedded `Data`
+    // struct, so the facade builds the `Data` changeset the form binds.
     const changesetMod = `${facadeMod}.${aggPascal}Changeset`;
     const changeFacade = isDoc
-      ? ""
+      ? `\n
+  @doc "Blank-or-seeded Ecto changeset over the ${aggPascal} document's embedded data, for the create/update forms."
+  def change_${aggSnake}(record_or_struct \\\\ %${facadeMod}.${aggPascal}{}, attrs \\\\ %{}),
+    do: ${facadeMod}.${aggPascal}.Data.changeset(record_or_struct.data || %${facadeMod}.${aggPascal}.Data{}, attrs)`
       : `\n
   @doc "Blank-or-seeded Ecto changeset for the ${aggPascal} create/operation forms."
   def change_${aggSnake}(record_or_struct \\\\ %${facadeMod}.${aggPascal}{}, attrs \\\\ %{}),

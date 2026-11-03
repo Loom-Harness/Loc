@@ -254,8 +254,9 @@ describe("elixir/vanilla — capability filter on a shape: document aggregate", 
   // find renderer was handed the aggregate-level predicate instead of computing
   // its own, so the clause reached nothing.  Wrong DATA, fail-closed and
   // silent: the read the author wrote to SEE deleted rows returned none.
-  // #4435: a criterion read's bypass does not reach the document renderer yet.
-  it.fails("honours `ignoring <Cap>` on a document read — the named capability's predicate is dropped — #4435", async () => {
+  // A widened paged read gets a find of its own, named for its stance, which
+  // carries that stance into the document renderer.
+  it("honours `ignoring <Cap>` on a document read — the named capability's predicate is dropped", async () => {
     const repo = codeOf((await generateSystemFiles(DOC_IGNORING)).get(DOC_REPO)!);
     const fn = (name: string) =>
       repo.slice(repo.indexOf(`def ${name}(`), repo.indexOf(`def ${name}(`) + 400);
@@ -266,13 +267,14 @@ describe("elixir/vanilla — capability filter on a shape: document aggregate", 
     );
     // `ignoring softDeletable` drops exactly that one — the criterion's own
     // predicate survives untouched.
-    expect(fn("find_all_by_docs_by_label_all")).toContain("record.label == l");
-    expect(fn("find_all_by_docs_by_label_all")).not.toContain("is_deleted");
+    const widened = fn("find_all_by_docs_by_label_all_ignoring_soft_deletable");
+    expect(widened).toContain("record.label == l");
+    expect(widened).not.toContain("is_deleted");
   });
 
-  it.fails("honours `ignoring *` on a document read — every capability predicate is dropped — #4435", async () => {
+  it("honours `ignoring *` on a document read — every capability predicate is dropped", async () => {
     const repo = codeOf((await generateSystemFiles(DOC_IGNORING)).get(DOC_REPO)!);
-    const at = repo.indexOf("def find_all_by_docs_by_note_any(");
+    const at = repo.indexOf("def find_all_by_docs_by_note_any_ignoring_all(");
     const fn = repo.slice(at, at + 400);
     expect(fn).toContain("record.note == n");
     expect(fn).not.toContain("is_deleted");

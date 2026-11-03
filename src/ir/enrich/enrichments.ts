@@ -1,7 +1,7 @@
 import { descriptorFor } from "../../platform/metadata.js";
 import { defaultErrorStatus, STRUCTURAL_CONFLICT_ERRORS } from "../../util/error-defaults.js";
 import { plural, snake } from "../../util/naming.js";
-import { isKeyLookupOp } from "../../util/repository-contract.js";
+import { isKeyLookupOp, retrievalBaseName } from "../../util/repository-contract.js";
 import { defaultInterfaceFor } from "../../util/source-types.js";
 import {
   forEachGenericInstance,
@@ -1063,7 +1063,7 @@ function keyLookupReads(ctx: BoundedContextIR): KeyLookupRead[] {
 function bypassReads(ctx: BoundedContextIR): BypassRead[] {
   const out: BypassRead[] = [];
   const noteStmt = (st: WorkflowStmtIR): void => {
-    if (st.kind === "if-let" && st.bypassRead) {
+    if ((st.kind === "if-let" || st.kind === "repo-let") && st.bypassRead) {
       out.push({ repoName: st.repoName, read: st.bypassRead });
     }
   };
@@ -1079,6 +1079,20 @@ function bypassReads(ctx: BoundedContextIR): BypassRead[] {
           if (read?.bypassRead) out.push({ repoName: read.repo, read: read.bypassRead });
         });
       }
+    }
+  }
+  // A context integration test reads through the aggregate's repository by
+  // aggregate name (`let o = Order.find(id) ignoring …`).
+  const noteTestExpr = (e: ExprIR): void => {
+    if (e.kind !== "method-call" || !e.bypassRead || e.receiver.kind !== "ref") return;
+    const aggName = e.receiver.name;
+    const repo = ctx.repositories.find((r) => r.aggregateName === aggName);
+    if (repo) out.push({ repoName: repo.name, read: e.bypassRead });
+  };
+  for (const t of ctx.tests ?? []) {
+    for (const st of t.statements) {
+      if (st.kind === "expect" || st.kind === "expect-throws") walkExprDeep(st.expr, noteTestExpr);
+      else walkStmtExprsDeep(st, noteTestExpr);
     }
   }
   return out;
@@ -1113,6 +1127,7 @@ function synthesizeFindAllRetrievals(
     retrievalName: string;
     sort?: SortTermIR[];
     loadPlan?: LoadPlanIR;
+    stance?: ReadStance;
   }): void => {
     if (!synth.retrievalName || seen.has(synth.retrievalName)) return;
     const crit = crits.find((c) => c.name === synth.name);
@@ -1134,30 +1149,43 @@ function synthesizeFindAllRetrievals(
       // shape.  Default to no sort / whole-load for a bare `findAll` / `find`.
       sort: synth.sort ?? [],
       loadPlan: synth.loadPlan ?? { kind: "whole" },
+      ...stanceOf(synth.stance),
     });
   };
-  for (const wf of workflows) {
-    for (const st of allWorkflowStmts(wf)) {
-      // `Repo.all(<Criterion>)` (repo-run), the `if let` /
-      // `Repo.find(<Criterion>)` (if-let) source and a `let`-bound
-      // `Repo.find(<Criterion>)` (repo-let) ride a `findAllBy<Criterion>`
-      // retrieval; the single-result two carry no sort/loads (they take the
-      // first row).  Collect the criterion + shaping from whichever shape.
-      if (st.kind === "repo-run" && st.synthCriterion) {
-        materialise({
-          name: st.synthCriterion.name,
-          retrievalName: st.retrievalName,
-          sort: st.synthSort,
-          loadPlan: st.synthLoadPlan,
-        });
-      } else if (st.kind === "if-let" && st.synthCriterion.name) {
-        materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
-      } else if (st.kind === "repo-let" && st.synthCriterion && st.retrievalName) {
-        // `let c = Repo.find(<Criterion>)` — the same single-result run.
-        materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
-      }
+  // A widened read of a DECLARED retrieval (`Repo.all(R) ignoring …`) runs
+  // its own copy of `R`, named for the stance (`widenedRetrievalName`).
+  const widen = (retrievalName: string, stance: ReadStance): void => {
+    if (seen.has(retrievalName)) return;
+    const baseName = retrievalBaseName(retrievalName, stance);
+    const shared = base.find((r) => r.name === baseName);
+    if (!shared || baseName === retrievalName) return; // refused by the IR validator
+    seen.add(retrievalName);
+    out.push({ ...shared, name: retrievalName, ...stanceOf(stance) });
+  };
+  // `Repo.all(<Criterion>)` (repo-run), the `if let` / `Repo.find(<Criterion>)`
+  // (if-let) source and a `let`-bound `Repo.find(<Criterion>)` (repo-let) ride
+  // a `findAllBy<Criterion>` retrieval; the single-result two carry no
+  // sort/loads (they take the first row).  Collect the criterion + shaping
+  // from whichever shape.
+  const noteStmt = (st: WorkflowStmtIR): void => {
+    if (st.kind === "repo-run" && st.synthCriterion) {
+      materialise({
+        name: st.synthCriterion.name,
+        retrievalName: st.retrievalName,
+        sort: st.synthSort,
+        loadPlan: st.synthLoadPlan,
+        stance: st,
+      });
+    } else if (st.kind === "repo-run" && hasStance(st)) {
+      widen(st.retrievalName, st);
+    } else if (st.kind === "if-let" && st.synthCriterion.name) {
+      materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
+    } else if (st.kind === "repo-let" && st.synthCriterion && st.retrievalName) {
+      // `let c = Repo.find(<Criterion>)` — the same single-result run.
+      materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
     }
-  }
+  };
+  for (const wf of workflows) for (const st of allWorkflowStmts(wf)) noteStmt(st);
   // Domain-service `reading`-tier bodies ride the SAME synthetic retrievals: a
   // `Repo.all(<Criterion>)` in a `domainService` operation lowers to a
   // `repo-read` Call carrying `synthCriterion` + `retrievalName` (mirror of the
@@ -1178,23 +1206,23 @@ function synthesizeFindAllRetrievals(
   // and the read hits the whole-table `findAll` (or references a missing
   // `runFindAllBy...` method).  Underpins the paged-run queryHandler.
   for (const h of [...(queryHandlers ?? []), ...(commandHandlers ?? [])]) {
-    for (const st of flattenHandlerStmts(h.statements)) {
-      if (st.kind === "repo-run" && st.synthCriterion) {
-        materialise({
-          name: st.synthCriterion.name,
-          retrievalName: st.retrievalName,
-          sort: st.synthSort,
-          loadPlan: st.synthLoadPlan,
-        });
-      } else if (st.kind === "if-let" && st.synthCriterion.name) {
-        materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
-      } else if (st.kind === "repo-let" && st.synthCriterion && st.retrievalName) {
-        // `let c = Repo.find(<Criterion>)` — the same single-result run.
-        materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
-      }
-    }
+    for (const st of flattenHandlerStmts(h.statements)) noteStmt(st);
   }
   return out;
+}
+
+/** A read's `ignoring` stance, as a repo-run / find / retrieval carries it. */
+type ReadStance = { bypassAll?: boolean; bypassCaps?: string[] };
+
+function hasStance(s: ReadStance): boolean {
+  return !!s.bypassAll || (s.bypassCaps?.length ?? 0) > 0;
+}
+
+/** The stance fields to spread onto a derived find / retrieval — none for a
+ *  plain read, so its IR stays byte-identical. */
+function stanceOf(s: ReadStance | undefined): ReadStance {
+  if (s?.bypassAll) return { bypassAll: true };
+  return s?.bypassCaps?.length ? { bypassCaps: [...s.bypassCaps] } : {};
 }
 
 /** Walk a flat handler statement body (`queryHandler` / `commandHandler`),
@@ -1251,13 +1279,18 @@ function synthesizePagedQueryHandlerFinds(
             (p): ExprIR => ({ kind: "ref", name: p.name, refKind: "param", type: p.type }),
           ),
         },
+        // A widened read (`… ignoring …`) pages past the filters it names;
+        // its find is named for the stance, so it is never the shared one.
+        ...stanceOf(run),
         synthesized: true,
       });
       continue;
     }
     // A named retrieval: its `where` filters the page, its `sort:` orders it
-    // unless the caller picks a whitelisted `sort` column.
-    const r = (retrievals ?? []).find((x) => x.name === run.retrievalName);
+    // unless the caller picks a whitelisted `sort` column.  A widened read
+    // pages the shared retrieval's `where` past the filters it names.
+    const baseName = retrievalBaseName(run.retrievalName, run);
+    const r = (retrievals ?? []).find((x) => x.name === baseName);
     if (!r) continue;
     repo.finds.push({
       name: pagedRunFindName(run),
@@ -1266,6 +1299,7 @@ function synthesizePagedQueryHandlerFinds(
       filter: r.where,
       ...(r.criterionRef ? { criterionRef: r.criterionRef } : {}),
       ...(r.sort.length > 0 ? { defaultSort: r.sort } : {}),
+      ...stanceOf(run),
       synthesized: true,
     });
   }

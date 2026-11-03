@@ -3,6 +3,7 @@ import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { lowerFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { giveUp } from "../_walker/give-up.js";
+import { opModelText } from "../_walker/model-text-sites.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import {
   type AngularFieldArraySpec,
@@ -127,12 +128,12 @@ export function renderAngularCreateForm(
   // matching `aria-invalid` / `aria-describedby` on the control itself.
   const available = new Set(fields.map((f) => f.name));
   const errorFields = new Set(angularValidatorMap(agg.invariants, available).keys());
-  const parts = partitionAngularFields(fields, bc, ns, ctx, formVar, errorFields);
+  const parts = partitionAngularFields(fields, bc, ns, ctx, formVar, errorFields, () => agg.name);
   const fieldMarkup = applyAngularValidators(parts, agg.invariants, available, formVar, ns, ctx);
   const submit = formButton(ctx, {
     type: "submit",
     emphasis: "primary",
-    label: "Create",
+    label: opModelText(ctx, bc, agg.name, "create")?.markup ?? "Create",
     attrs: ` [disabled]="${mutationVar}.isPending()" data-testid="${ns}-submit"`,
   });
 

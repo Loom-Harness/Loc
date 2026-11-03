@@ -71,7 +71,7 @@ describe("Svelte i18n runtime", () => {
     const home = await homeOf(files);
     expect(home).toMatch(/\{t\("[^"]*", "Orders"\)\}/); // literal heading translated
     // `status` is a page-scope ref — interpolated, never a t() call.
-    expect(home).not.toContain('t("page.Home.text');
+    expect(home).not.toContain('t("Web.page.Home.text');
   });
 
   it("does not emit the runtime for a string-less app", async () => {
@@ -140,7 +140,7 @@ describe("Svelte i18n runtime", () => {
     );
     const files = await generateSystemFiles(withComponent);
     const banner = [...files].find(([p]) => p.endsWith("components/Banner.svelte"))![1];
-    expect(banner).toMatch(/\{t\("component\.Banner\.[^"]*", "Shop Banner"\)\}/);
+    expect(banner).toMatch(/\{t\("Web\.component\.Banner\.[^"]*", "Shop Banner"\)\}/);
     expect(banner).toContain(`import { t } from "$lib/i18n"`);
     const locale = [...files].find(([p]) => p.endsWith("src/lib/locales/en.json"))?.[1];
     expect(Object.values(JSON.parse(locale!) as Record<string, string>)).toContain("Shop Banner");

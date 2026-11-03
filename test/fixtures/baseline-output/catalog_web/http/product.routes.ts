@@ -21,8 +21,8 @@ const CreateProductRequest = z.object({
 const CreateProductResponse = z.object({ id: z.string() }).openapi("CreateProductResponse");
 
 const UpdateProductRequest = z.object({
-  sku: z.string().refine((s) => [...s].length >= 1, { message: "Sku must be at least 1 character" }).openapi({ minLength: 1 }).refine((s: string) => !s.includes("\u0000")),
-  price: MoneySchema,
+  sku: z.string().refine((s) => [...s].length >= 1, { message: "Sku must be at least 1 character" }).openapi({ minLength: 1 }).refine((s: string) => !s.includes("\u0000")).optional(),
+  price: MoneySchema.optional(),
 }).openapi("UpdateProductRequest");
 
 const AllQuery = z.object({
@@ -153,7 +153,7 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
       const aggregate = await repo.getById(Ids.ProductId(id));
       const ifMatch = c.req.header("if-match");
       const expectedVersion = parseIfMatch(ifMatch, aggregate.version);
-      aggregate.update(body.sku, new Money(body.price.amount, body.price.currency));
+      aggregate.update((body.sku === undefined ? aggregate.sku : body.sku), (body.price === undefined ? aggregate.price : new Money(body.price.amount, body.price.currency)));
       await repo.save(aggregate, expectedVersion);
       return c.body(null, 204);
     },

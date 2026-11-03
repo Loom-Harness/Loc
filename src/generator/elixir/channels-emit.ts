@@ -12,6 +12,11 @@ import { type BrokerBinding, kafkaStartsAtEarliest } from "../_channels/bindings
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
+import {
+  exCalendarDateWire,
+  exEnvelopeInstant,
+  exLogInstantType,
+} from "./vanilla/codec-spelling-ex.js";
 import { ELIXIR_NUMERIC } from "./vanilla/numeric-codec.js";
 
 // ---------------------------------------------------------------------------
@@ -117,14 +122,13 @@ function uniqueBindings(bindings: BrokerBinding[]): BrokerBinding[] {
 function encodeExpr(access: string, t: TypeIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
   if (inner.kind === "primitive" && inner.name === "datetime") {
-    return t.kind === "optional"
-      ? `${access} && DateTime.to_iso8601(${access})`
-      : `DateTime.to_iso8601(${access})`;
+    // The RS-38 wire instant (the `Codec` fact's envelope ruling) — nil-safe.
+    return exEnvelopeInstant(access);
   }
   if (inner.kind === "primitive" && inner.name === "date") {
     return t.kind === "optional"
-      ? `${access} && Date.to_iso8601(${access})`
-      : `Date.to_iso8601(${access})`;
+      ? `${access} && ${exCalendarDateWire(access)}`
+      : exCalendarDateWire(access);
   }
   if (inner.kind === "primitive" && inner.name === "money") {
     // money pins the FIXED wire scale (RS-12) — a bare `Decimal.to_string`
@@ -529,12 +533,12 @@ defmodule ${appModule}.LoomOutbox do
 
   @primary_key {:id, :binary_id, autogenerate: true}
   schema "__loom_outbox" do
-    field :occurred_at, :utc_datetime_usec
+    field :occurred_at, ${exLogInstantType()}
     field :type, :string
     field :payload, :map
-    field :dispatched_at, :utc_datetime_usec
+    field :dispatched_at, ${exLogInstantType()}
     field :attempts, :integer, default: 0
-    field :dead_at, :utc_datetime_usec
+    field :dead_at, ${exLogInstantType()}
   end
 end
 `,
@@ -779,7 +783,7 @@ ${originHelpers(webModule, carriesOrigin && opts.durableBroker, carriesOrigin)}
       "id" => id,
       "type" => context <> "." <> type,
       "source" => "/loom/" <> context,
-      "time" => DateTime.to_iso8601(DateTime.utc_now()),
+      "time" => ${exEnvelopeInstant("DateTime.utc_now()")},
       "datacontenttype" => "application/json",
       "loomchannel" => address,
       "data" => data
@@ -1026,12 +1030,12 @@ defmodule ${appModule}.LoomOutbox do
 
   @primary_key {:id, :binary_id, autogenerate: true}
   schema "__loom_outbox" do
-    field :occurred_at, :utc_datetime_usec
+    field :occurred_at, ${exLogInstantType()}
     field :type, :string
     field :payload, :map
-    field :dispatched_at, :utc_datetime_usec
+    field :dispatched_at, ${exLogInstantType()}
     field :attempts, :integer, default: 0
-    field :dead_at, :utc_datetime_usec
+    field :dead_at, ${exLogInstantType()}
   end
 end
 `,

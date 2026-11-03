@@ -52,7 +52,7 @@ import {
 } from "../../../ir/util/projection-aggregate.js";
 import { aggregateArgColumn, isValueObjectLeaf } from "../../../ir/util/projection-column.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
-import { integralWireRange, numericKindOf } from "../../_numeric/codec.js";
+import { numericKindOf } from "../../_numeric/codec.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import type { ApiRoute } from "../api-emit.js";
@@ -65,6 +65,7 @@ import {
   renderDocPredicate,
   vanillaDocCapabilityFilter,
 } from "./capability-filter.js";
+import { exIntegerRange } from "./codec-spelling-ex.js";
 import { normalizeDatetime } from "./datetime-type-emit.js";
 import { denialOverrides, denialResponse } from "./denial.js";
 import { docFilterLambdaArg, docPredReadsRecord, isVanillaDocAgg } from "./document-emit.js";
@@ -347,8 +348,8 @@ ${
     ? `
   # A bucketed grouping key is SELECTed as a raw \`fragment\`, which bypasses
   # Ecto's schema type mapping — Postgrex returns a \`%NaiveDateTime{}\` with
-  # microsecond precision where the schema-typed \`:utc_datetime\` field would
-  # give a second-precision \`%DateTime{}\`.  Without this the key serialised
+  # microsecond precision where the schema-typed \`Loom.Datetime\` field would
+  # give the canonical millisecond \`%DateTime{}\`.  Without this the key serialised
   # \`2026-08-01T00:00:00.000000\` instead of \`2026-08-01T00:00:00Z\`, diverging
   # from the other four backends.  Accepts either shape so a driver that
   # already hands back a \`%DateTime{}\` stays correct.
@@ -792,7 +793,7 @@ function ectoCoerce(s: AggregateSelect, read: string): string {
   // contract, five backends: a value that does not fit is an error.
   const integral = integralKind(s.type);
   if (integral) {
-    const { min, max } = integralWireRange(integral);
+    const { min, max } = exIntegerRange(integral);
     // `count` is never optional (`AggregateCoercion.optional` excludes it), so
     // the nil arm is the sum/min/max-over-an-empty-table one.
     return c.optional
@@ -968,8 +969,8 @@ function renderQueryProjectionAction(
   const webModule = `${appModule}Web`;
   // Read-side `requires` authorization gate (default-deny): a 403 returned
   // before the query runs when the `currentUser`-only predicate fails — the
-  // read-side analogue of the aggregate read gate on a find (mirrors
-  // `renderFindActions`).  Ungated projections stay byte-identical.
+  // read-side analogue of the aggregate read gate.  Ungated projections stay
+  // byte-identical.
   const projGate = effectiveGate(proj.query?.requires);
   const gate = projGate
     ? renderExpr(projGate, {

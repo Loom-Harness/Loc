@@ -43,11 +43,10 @@ import { giveUp } from "../give-up.js";
 import {
   localizedChromeAriaAttr,
   localizedChromeAttr,
-  localizedChromeIcuAria,
-  localizedChromeIcuExpr,
   localizedChromeIcuText,
   localizedChromeText,
   localizedChromeValue,
+  localizedModelText,
   localizedPositionalTranslation,
 } from "../i18n-emit.js";
 import {
@@ -63,20 +62,8 @@ import type { WalkContext } from "../walker-core.js";
 import { emitExpr, propagateChildFlags, walk } from "../walker-core.js";
 import { columnAccessorKey, columnIsFilterable, gridColumns } from "./data-grid-shape.js";
 
-/** The column header a per-column control names itself after, as every `.hbs`
- *  pack already reads it off the bound TanStack header `h`.  One expression for
- *  all fifteen — including the Angular packs, whose `[attr.aria-label]` binding
- *  differs but whose EXPRESSION is the same JavaScript. */
-const GRID_COLUMN_HEADER = "String(h.column.columnDef.header ?? h.id)";
-
-/** The same header through Fable's dynamic access — `loomText` is the Feliz
- *  pack's own string coercion, so the concatenation it lands in stays exactly
- *  the sentence that pack spelled by hand. */
-const FELIZ_COLUMN_HEADER = "loomText (h?column?columnDef?header)";
-
 /** The column-visibility toggle's LABEL, for the `columnVisibility: true`
- *  checkbox list — one expression for every pack, the same way the per-column
- *  ARIA above is one expression.
+ *  checkbox list — one expression for every pack.
  *
  *  Not `String(col.columnDef.header ?? col.id)`, which every pack had spelled
  *  by hand: a TanStack `header` is `string | (ctx) => rendered`, and the
@@ -174,11 +161,6 @@ export function emitDataGrid(
       pageSize,
       selection,
       testidAttr,
-      // The sort button is target-emitted on every frontend but React, so its
-      // accessible name has to reach the SPEC, not just the pack context.
-      sortByAria: localizedChromeIcuAria(ctx, "sortBy", [
-        { name: "column", expr: GRID_COLUMN_HEADER },
-      ]),
       // The selection checkboxes' names.  A checkbox carries no visible label,
       // so this string IS its accessible name — the one control on the grid
       // that is completely unusable to a screen reader when untranslated.
@@ -237,29 +219,19 @@ export function emitDataGrid(
           prevLabelValue: localizedChromeValue(ctx, "previous"),
           nextLabelValue: localizedChromeValue(ctx, "next"),
           filterPlaceholderValue: localizedChromeValue(ctx, "filter"),
-          // The per-column control ARIA — holed chrome in ATTRIBUTE position.
-          // The hole is the COLUMN's own header, read at runtime off the
-          // TanStack header object every one of these templates already binds
-          // (`h`), so one expression serves all fifteen packs.  The `?? h.id`
-          // fallback is the packs' own, kept verbatim.
-          sortByAria: localizedChromeIcuAria(ctx, "sortBy", [
-            { name: "column", expr: GRID_COLUMN_HEADER },
-          ]),
-          filterByAria: localizedChromeIcuAria(ctx, "filterBy", [
-            { name: "column", expr: GRID_COLUMN_HEADER },
-          ]),
+          // The per-column filter input's accessible name: the whole word
+          // "Filter", like its placeholder.  The input sits inside its column's
+          // header cell, so the table structure carries which column it filters;
+          // the header is never inserted into a sentence frame.  (The sort
+          // button needs no label — its content is the header.)
+          filterByAria: localizedChromeAriaAttr(ctx, "filter"),
           // The visibility toggles' labels — the one per-column string that is
           // NOT chrome (it is the author's own column header), and the one the
           // packs had each spelled by hand.
           visibilityLabel: GRID_VISIBILITY_LABEL,
           // …and as VALUES, for the procedural pack (Feliz reaches the same
           // header through Fable's dynamic access, so it passes its own hole).
-          sortByAriaValue: localizedChromeIcuExpr(ctx, "sortBy", [
-            { name: "column", expr: FELIZ_COLUMN_HEADER },
-          ]),
-          filterByAriaValue: localizedChromeIcuExpr(ctx, "filterBy", [
-            { name: "column", expr: FELIZ_COLUMN_HEADER },
-          ]),
+          filterByAriaValue: localizedChromeValue(ctx, "filter"),
           // Every target-specific key a pack may reference is defaulted here,
           // not just supplied by the target that uses it.  `emitPageObjectsForUi`
           // drives the REACT tsx walker over whichever pack is active — Vue and
@@ -345,7 +317,13 @@ function resolveColumn(
   const headerArg = positionals[0];
   const accessorArg = positionals[1];
   const headerIsLiteral = headerArg?.kind === "literal" && headerArg.lit === "string";
-  const headerStr = headerIsLiteral ? headerArg.value : `Column ${index + 1}`;
+  // A `label(Task.title)` header is model text — see `emitColumn` in table.ts.
+  const headerText = headerArg?.kind === "modelText" ? headerArg : undefined;
+  const headerStr = headerIsLiteral
+    ? headerArg.value
+    : headerText
+      ? headerText.defaultText
+      : `Column ${index + 1}`;
   // The header is a user-visible slot (`columnHeader`, M-T1.11).  A grid header
   // is a VALUE in a column definition, not markup — every target spells it
   // `header: "Job Name"` inside a TanStack-shaped object — so the translated
@@ -353,7 +331,9 @@ function resolveColumn(
   // (byte-identical).  A dynamic header has no source string to translate.
   const headerValue = headerIsLiteral
     ? localizedPositionalTranslation(call, ctx, "columnHeader")
-    : undefined;
+    : headerText && ctx.i18nPrefix
+      ? localizedModelText(ctx, headerText.key, headerText.defaultText)
+      : undefined;
 
   // Read through the shared shape leaf, which the i18n extractor also consults
   // — `chrome.filter` must be in the catalog exactly when a filter input is

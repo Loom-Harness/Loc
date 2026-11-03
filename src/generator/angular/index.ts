@@ -11,7 +11,7 @@ import type {
   SystemIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
-import { contextUsesMoney } from "../../ir/types/loom-ir.js";
+import { contextUsesMoney, sourceLocaleOf } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
@@ -59,7 +59,7 @@ import { hasAnyWorkflow } from "../_frontend/workflows-module.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
-import { collectUiMessages } from "../_walker/i18n-extract.js";
+import { collectUiMessages, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import { buildAngularApiModule } from "./api-module.js";
@@ -78,7 +78,7 @@ import { ANGULAR_REF_LABEL, ANGULAR_REF_LABEL_PATH } from "./ref-label-runtime.j
 import { type AngularRouteDesc, renderAngularRoutes, routePath } from "./routes-emitter.js";
 import { ANGULAR_SERVER_ERRORS_TS } from "./server-errors.js";
 import { renderAngularStoreModule, storeFileSlug } from "./store-builder.js";
-import { angularTargetFor } from "./walker/angular-target.js";
+import { angularTarget, angularTargetFor } from "./walker/angular-target.js";
 import {
   pageComponentName,
   pageNeedsDeferredFeatures,
@@ -272,21 +272,34 @@ export function generateAngularForContexts(
   // render only once the pack's chrome binding knows the i18n state.
   out.set("src/lib/format.ts", pack.render("format-helpers", { moneySource: MONEY_TEXT_SOURCE }));
   if (i18nEnabled && ui) {
+    // The Angular forms are hand-built (`form-fields.ts`), so no pack sentence
+    // chrome (`addItem`, `operationSucceeded`) is rendered — only the
+    // identity-keyed model text of the forms' labels, options and buttons.
+    const formScope = {
+      contexts,
+      sentences: [],
+      implicitModelText: angularTarget.modelTextImplicitSites === true,
+    };
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
     // produced (scoped to this ui's keys, `TODO:` values already dropped by
     // the loader).  The shim imports and registers exactly the locales emitted
     // here, so what the translator wrote is what the app can resolve — with no
     // translator tree the list is empty and the shim is byte-identical.
-    out.set("src/lib/locales/en.json", renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)));
+    out.set(
+      `src/lib/locales/${sourceLocaleOf(sys)}.json`,
+      renderLocaleCatalog(ui, packChromeCatalog(pack.manifest), formScope),
+    );
     const translated = renderTranslatedCatalogs(
       ui,
       options.translations,
       packChromeCatalog(pack.manifest),
+      sourceLocaleOf(sys),
+      formScope,
     );
     for (const [locale, content] of translated) {
       out.set(`src/lib/locales/${locale}.json`, content);
     }
-    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()]));
+    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()], sourceLocaleOf(sys)));
   }
 
   // Extern frontend functions (extern-function-hook-escape-hatch.md §3): the
@@ -384,6 +397,7 @@ export function generateAngularForContexts(
       externFunctions: externFunctionNames,
       authUi,
       i18nEnabled,
+      uiName: ui?.name ?? "",
     },
   );
   // The chart runtime is emitted once per app, the first time ANY walked
@@ -451,7 +465,7 @@ export function generateAngularForContexts(
         authUi,
         // i18n key prefix — `page.<Name>` matches the catalog; undefined when
         // the ui has no extractable strings (byte-identical to pre-i18n).
-        i18nEnabled ? `page.${page.name}` : undefined,
+        i18nEnabled && ui ? pageKeyPrefix(ui, page) : undefined,
       );
       // A stub page discards the walk, so its hoisted files go with it.
       hoistedComponentFiles = pageNeedsDeferredFeatures(result)
@@ -476,6 +490,7 @@ export function generateAngularForContexts(
             // The route table an action body's `navigate(<Page>)` resolves
             // against (the body walk above already receives it).
             pageRoutes,
+            i18nPrefix: i18nEnabled && ui ? pageKeyPrefix(ui, page) : undefined,
           });
     }
     const pagePath = `src/app/pages/${slug}.component.ts`;
@@ -707,6 +722,7 @@ export function generateAngularForContexts(
     "src/index.html",
     pack.render("index-html", {
       title: humanize(sys.name),
+      lang: sourceLocaleOf(sys),
       baseHref,
       description: undefined,
       ogImage: undefined,

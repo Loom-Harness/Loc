@@ -287,12 +287,18 @@ export function renderMikroEmbeddedRepository(
   // `run<Retrieval>` whatever the saving shape.  The root scalars are real
   // columns, so the relational query applies; only the hydrate is per row.
   const runMethods = aggregateRetrievals(agg, ctx).map((r) =>
-    mikroRetrievalMethod(agg, r, row, [
-      `    return rows.map((row) => {`,
-      ...embeddedHydrateLocals(agg, "row", "      ", ctx),
-      `      return ${hydrateRootExpr(agg, "row", ctx)};`,
-      `    });`,
-    ]),
+    mikroRetrievalMethod(
+      agg,
+      r,
+      row,
+      [
+        `    return rows.map((row) => {`,
+        ...embeddedHydrateLocals(agg, "row", "      ", ctx),
+        `      return ${hydrateRootExpr(agg, "row", ctx)};`,
+        `    });`,
+      ],
+      mikroFilterOption(agg, pool, { bypassAll: r.bypassAll, bypassCaps: r.bypassCaps }),
+    ),
   );
 
   const deleteMethod = canonicalDestroy(agg)

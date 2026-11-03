@@ -1749,13 +1749,12 @@ describe(".NET generator", () => {
     // and the repository's load + membership diff-sync are asserted by value
     // on the booted .NET leg (`corpus/contained-part-removal`'s tags).
 
-    // KNOWN BUG (reported with the find-declaration removal): a criterion
-    // read over `this.<refColl>.contains(param)` renders the criterion's
-    // expression tree as `(candidate.Party).Contains(pokemon)` — a member the
-    // owner's EF configuration `Ignore`s (it lives in the join table), so the
-    // query cannot translate.  The find path lowered it to a join-table
-    // subquery; `it.fails` pins that contract until the criterion read does.
-    it.fails("lowers `this.<refColl>.contains(param)` to a join-table subquery", async () => {
+    // A criterion read over `this.<refColl>.contains(param)`: the collection is
+    // a member the owner's EF configuration `Ignore`s (it lives in the join
+    // table), so `(candidate.Party).Contains(pokemon)` cannot translate.  The
+    // repository filters with a subquery against the join entity instead, and
+    // the criterion carries no `ToExpression()` query face.
+    it("lowers `this.<refColl>.contains(param)` to a join-table subquery", async () => {
       const files = await generateSystemFiles(`
         system S {
           subdomain D {
@@ -1785,7 +1784,8 @@ describe(".NET generator", () => {
       expect(read).toContain("RunFindAllByTrainersHoldingInPartyAsync(");
       // The membership filter reaches the query as an EXISTS-style subquery
       // against the join entity, never as the ignored navigation.
-      expect(read).not.toContain("(candidate.Party).Contains(pokemon)");
+      expect(read).not.toContain("ToExpression() => candidate => (candidate.Party)");
+      expect(read).not.toContain("new TrainersHoldingInPartyCriterion(");
       expect(read).toMatch(
         /TrainerParties\.Any\(__j => __j\.TrainerId == \w+\.Id && __j\.PokemonId == pokemon\)/,
       );

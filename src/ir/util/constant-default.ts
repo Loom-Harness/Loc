@@ -42,6 +42,7 @@ export function isConstantDefault(e: ExprIR): boolean {
     case "convert":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "id":
     case "lambda":
     case "list":

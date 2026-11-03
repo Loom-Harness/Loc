@@ -36,7 +36,12 @@ import type { EffectIR } from "../../types/effect-ir.js";
 import type { EnrichedLoomModel, WorkflowStmtIR } from "../../types/loom-ir.js";
 import type { OriginRef } from "../../types/origin.js";
 import { type EffectBodyIR, isGuardedCall } from "../../util/effects.js";
+import { entryResult } from "../../util/entry-result.js";
 import { walkWorkflowStmtsDeep } from "../../util/walk.js";
+import {
+  commandCreateEntryResult,
+  commandCreateResult,
+} from "../../util/workflow-command-route.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 export interface CallResultSite {
@@ -203,6 +208,54 @@ export function validateElixirBoundMutatingCalls(
               });
             });
           }
+        }
+      }
+    }
+  }
+}
+
+/** `loom.elixir-entry-result-unsupported` — a routed command entry point an
+ *  elixir deployable emits whose result is an expected failure (`T or E`), or
+ *  a workflow `create` answering the workflow itself (`return this`).  The
+ *  other four backends run such an entry point in one transaction, roll it
+ *  back whole on an error answer and translate the error at the edge; the
+ *  Phoenix workflow / handler emitters have no tagged result and no rollback
+ *  seam for it yet, so it is refused rather than emitted half-wired. */
+export function validateElixirEntryResults(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
+  for (const sys of loom.systems) {
+    const elixirHost = new Map<string, string>();
+    for (const dep of sys.deployables) {
+      if (dep.platform !== "elixir") continue;
+      for (const cn of dep.contextNames) if (!elixirHost.has(cn)) elixirHost.set(cn, dep.name);
+    }
+    if (elixirHost.size === 0) continue;
+    for (const mod of sys.subdomains) {
+      for (const ctx of mod.contexts) {
+        const deployable = elixirHost.get(ctx.name);
+        if (!deployable) continue;
+        const push = (where: string, slug: "" | "#workflow-state") =>
+          diags.push({
+            severity: "error",
+            code: "loom.elixir-entry-result-unsupported",
+            message:
+              slug === ""
+                ? diagMessage("loom.elixir-entry-result-unsupported", { where, deployable })
+                : diagMessage("loom.elixir-entry-result-unsupported#workflow-state", {
+                    where,
+                    deployable,
+                  }),
+            source: `${ctx.name}/${where}`,
+          });
+        for (const wf of ctx.workflows) {
+          const r = commandCreateResult(wf);
+          if (!r) continue;
+          const where = `workflow '${wf.name}'`;
+          if (commandCreateEntryResult(wf, ctx)) push(where, "");
+          else if (r.type.kind === "entity" && r.type.name === wf.name)
+            push(where, "#workflow-state");
+        }
+        for (const h of [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])]) {
+          if (!h.extern && entryResult(h, ctx)) push(`handler '${h.name}'`, "");
         }
       }
     }

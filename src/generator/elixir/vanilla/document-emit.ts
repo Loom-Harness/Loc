@@ -59,6 +59,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { aggregateHasMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import { isDocumentShaped, resolveDataSourceConfig } from "../../../ir/util/resolve-datasource.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
@@ -82,7 +83,12 @@ import {
   vanillaDocWriteScopeFilter,
 } from "./capability-filter.js";
 import { ectoValidator } from "./changeset-validators.js";
-import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
+import {
+  exEctoIdType,
+  exEctoJsonType,
+  exEctoScalarType,
+  exFrameworkTimestampType,
+} from "./codec-spelling-ex.js";
 import { isVoValuedType, NORMALIZE_KEYS_DEFP, NORMALIZE_VO_KEYS_DEFP } from "./key-normalize.js";
 import { managedTimestampNames } from "./managed-timestamps.js";
 import { paramGuardClause } from "./op-param-guards.js";
@@ -168,32 +174,13 @@ function docRequiredFields(agg: AggregateIR): FieldIR[] {
 function castType(t: TypeIR): string {
   switch (t.kind) {
     case "primitive":
-      switch (t.name) {
-        case "int":
-        case "long":
-          return ":integer";
-        case "decimal":
-        case "money":
-          return ":decimal";
-        case "bool":
-          return ":boolean";
-        case "datetime":
-          return LOOM_DATETIME_MODULE;
-        case "date":
-          return ":date";
-        case "guid":
-          return "Ecto.UUID";
-        case "json":
-          return ":map";
-        default:
-          return ":string";
-      }
+      return exEctoScalarType(t.name);
     case "id":
-      return ":binary_id";
+      return exEctoIdType(t.valueType);
     case "enum":
       return ":string";
     case "valueobject":
-      return ":map";
+      return exEctoJsonType();
     case "array": {
       const inner = castType(t.element);
       return `{:array, ${inner}}`;
@@ -248,7 +235,7 @@ ${prefixLine}
   schema "${tableName}" do
     embeds_one :data, ${moduleName}.Data, on_replace: :update
     field :version, :integer, default: 1
-    timestamps(type: :utc_datetime)
+    timestamps(type: ${exFrameworkTimestampType()})
   end
 ${pureCoreBlock}end
 `;
@@ -379,8 +366,8 @@ export function renderDocChangeset(appModule: string, ctxModule: string, agg: Ag
   // `on_replace: :update` gives merge-on-update semantics for free) and stamps
   // the version.  `record` is `%<Agg>{}` on insert and the existing row on update.
   //
-  // The UPDATE seam takes the second head (M-T6.26).  RS-26 says the update
-  // contract is full-replacement, so an ABSENT KEY is a missing field — but
+  // The UPDATE seam takes the second head.  RS-26 says a command-shaped
+  // update is full-replacement, so an ABSENT KEY is a missing field — but
   // `on_replace: :update` merges the incoming attrs ONTO the stored embed, and
   // the embed's own `validate_required/2` then reads the retained value and
   // passes.  Elixir answered 204 where the other four backends answer 422.
@@ -388,7 +375,13 @@ export function renderDocChangeset(appModule: string, ctxModule: string, agg: Ag
   // ahead of `cast_embed`, exactly as the relational `update_changeset/2` does
   // (`changeset-emit.ts` `__require_keys/3`) — same helper, same error shape,
   // so ProblemDetails renders the same `{"pointer":"/<field>"}` entry.
-  const updateRequired = docRequiredFields(agg).filter((f) => isRequiredUpdateInput(f));
+  // A merge-patch update (RS-47) wants exactly the merge `on_replace: :update`
+  // gives — an absent key keeps the stored value — so neither the presence
+  // check nor its optional twin below applies to it.
+  const mergePatch = aggregateHasMergePatchUpdate(agg);
+  const updateRequired = mergePatch
+    ? []
+    : docRequiredFields(agg).filter((f) => isRequiredUpdateInput(f));
   // Emitted only where there IS a required field to check, so a document
   // aggregate whose updatable fields are all optional stays byte-identical.
   //
@@ -415,7 +408,7 @@ export function renderDocChangeset(appModule: string, ctxModule: string, agg: Ag
   // `nil` for each absent optional key, which is the only lever on this path —
   // a root-level `put_change` cannot reach inside the embed.  The relational
   // twin is `changeset-emit.ts`'s `__clear_absent/3`.
-  const updateOptional = docOptionalFields(agg);
+  const updateOptional = mergePatch ? [] : docOptionalFields(agg);
   // Emitted only where there IS an optional field to clear, so a document
   // aggregate whose updatable fields are all required stays byte-identical.
   const clearAbsentData =

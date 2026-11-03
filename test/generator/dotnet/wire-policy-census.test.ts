@@ -111,6 +111,12 @@ const WAIVERS: { file: string; line: string; reason: string }[] = [
       "recognises DataAnnotations' own [Required] sentence on the way IN so it can be re-worded; it answers nothing",
   },
   {
+    file: "src/generator/dotnet/cqrs/dtos.ts",
+    line: "field is required.`)}, new[] { nameof(",
+    reason:
+      "the merge-patch request raises DataAnnotations' own [Required] sentence for a refused null, which `ValidationProblem` re-words to the wirePolicy `<field> is required` on the way OUT — the same sentence the api.ts waiver above recognises",
+  },
+  {
     file: "src/generator/dotnet/emit/api.ts",
     line: "return Conflict(",
     reason:

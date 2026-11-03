@@ -152,7 +152,7 @@ describe("currentUser.isSystem — the language surface", () => {
 });
 
 /** A timer tick drives an event starter that reads a tenant-owned aggregate. */
-const timer = (read: "scoped" | "anyTenant") => `
+const timer = (read: "scoped" | "anyTenant" | "findScoped" | "findAnyTenant") => `
 system Sweeper {
   user { id: guid  tenantId: string }
   tenancy by user.tenantId of Organization
@@ -171,8 +171,13 @@ system Sweeper {
       workflow sweepRun {
         sweep: Sweep id
         create(t: SweepTick) by t.sweep {
-          let js = Jobs.all(ByCode("x"))${read === "anyTenant" ? " ignoring tenantOwned" : ""}
-          for j in js { j.close() }
+          ${
+            read === "scoped" || read === "anyTenant"
+              ? `let js = Jobs.all(ByCode("x"))${read === "anyTenant" ? " ignoring tenantOwned" : ""}
+          for j in js { j.close() }`
+              : `let j = Jobs.find(ByCode("x"))${read === "findAnyTenant" ? " ignoring tenantOwned" : ""}
+          if let k = j { k.close() }`
+          }
         }
       }
     }
@@ -198,8 +203,42 @@ describe("loom.timer-tenant-read (ruling D1)", () => {
     expect(hit[0]!.message).toContain("Jobs.all(findAllByByCode)");
   });
 
+  it("names the surface verb for a let-bound id read, never the IR method", async () => {
+    const src = timer("scoped")
+      .replace(
+        `create(t: SweepTick) by t.sweep {
+          let js = Jobs.all(ByCode("x"))
+          for j in js { j.close() }
+        }`,
+        `create(t: SweepTick) by t.sweep {
+          let j = Jobs.get(t.job)
+          j.close()
+        }`,
+      )
+      .replace(
+        "event SweepTick { sweep: Sweep id, at: datetime }",
+        "event SweepTick { sweep: Sweep id, job: Job id, at: datetime }",
+      );
+    const { ir } = await diags(src);
+    const hit = ir.filter((d) => d.code === "loom.timer-tenant-read");
+    expect(hit).toHaveLength(1);
+    expect(hit[0]!.message).toContain("Jobs.get(…)");
+    expect(hit[0]!.message).not.toContain("getById");
+  });
+
   it("accepts the read once it is explicitly cross-tenant (`ignoring tenantOwned`)", async () => {
     const { ir } = await diags(timer("anyTenant"));
+    expect(ir.filter((d) => d.code === "loom.timer-tenant-read")).toEqual([]);
+    expect(ir.filter((d) => d.severity === "error")).toEqual([]);
+  });
+
+  it("refuses a `let`-bound single-row read that keeps the tenant filter", async () => {
+    const { ir } = await diags(timer("findScoped"));
+    expect(ir.filter((d) => d.code === "loom.timer-tenant-read")).toHaveLength(1);
+  });
+
+  it("accepts a `let`-bound single-row read widened with `ignoring tenantOwned`", async () => {
+    const { ir } = await diags(timer("findAnyTenant"));
     expect(ir.filter((d) => d.code === "loom.timer-tenant-read")).toEqual([]);
     expect(ir.filter((d) => d.severity === "error")).toEqual([]);
   });

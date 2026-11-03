@@ -51,8 +51,12 @@ describe("HEEx Tabs (parity finding #5)", () => {
     expect((heex.match(/role="tab"/g) ?? []).length).toBe(2);
     // The caption is a user-visible slot (`tabLabel`, M-T1.11), so the trigger
     // renders it through `pgettext` rather than as raw text.
-    expect(heex).toMatch(/><%= pgettext\("page\.\w+\.tabLabel\.\w+", "Overview"\) %><\/button>/);
-    expect(heex).toMatch(/><%= pgettext\("page\.\w+\.tabLabel\.\w+", "Settings"\) %><\/button>/);
+    expect(heex).toMatch(
+      /><%= pgettext\("\w+\.page\.\w+\.tabLabel\.\w+", "Overview"\) %><\/button>/,
+    );
+    expect(heex).toMatch(
+      /><%= pgettext\("\w+\.page\.\w+\.tabLabel\.\w+", "Settings"\) %><\/button>/,
+    );
   });
 
   it("switches tabs with a Phoenix.LiveView.JS toggle (no server round-trip)", async () => {

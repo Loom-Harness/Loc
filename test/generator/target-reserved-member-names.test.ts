@@ -155,14 +155,13 @@ describe.skipIf(!PY)("python: every keyword Loom accepts as a name, in every mem
   });
 });
 
-// KNOWN DEFECT: a python handler binds a repository it reads to a local named
-// after the repository, unescaped — `repository As for A` read by a
-// `queryHandler` emits `as = ARepository(session, …)`, a SyntaxError.  The
-// sweep above names its repository `Items` so it keeps testing member roles;
-// this pins the repository-name position until it escapes.  `it.fails` keeps
-// the expectation on record; drop the `.fails` once the local is escaped.
+// A python handler binds a repository it reads to a local named after the
+// repository, through the identifier escaper: `repository As for A` read by a
+// `queryHandler` binds `as_`, never the keyword.  The sweep above names its
+// repository `Items` so it keeps testing member roles; this pins the
+// repository-name position.
 describe("python: a keyword-named repository read by a handler", () => {
-  it.fails("binds the repository local through the keyword escape", async () => {
+  it("binds the repository local through the keyword escape", async () => {
     const files = await generateSystemFiles(`
       system KwRepo {
         subdomain S {

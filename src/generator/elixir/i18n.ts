@@ -44,11 +44,17 @@
 // it.
 // ---------------------------------------------------------------------------
 
-import type { UiIR } from "../../ir/types/loom-ir.js";
+import { type BoundedContextIR, DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { buildUiCatalog } from "../_frontend/i18n-runtime.js";
-import { APP_SHELL_CHROME, chromeKey, chromeMessage } from "../_walker/i18n-chrome.js";
+import {
+  APP_SHELL_CHROME,
+  chromeKey,
+  chromeMessage,
+  type FormSentenceScope,
+} from "../_walker/i18n-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
+import { sourceText } from "../_walker/source-text.js";
 
 /** The gettext domain every generated message lands in — the Phoenix default,
  *  so `mix gettext.extract` and every `.po` tool need no configuration. */
@@ -93,7 +99,10 @@ export function heexIcuEnabled(ui: UiIR): boolean {
  *  compiled in.  Both halves of that are stated in the moduledoc — a `.po` file
  *  whose plural forms no backend can evaluate is the failure mode this note
  *  exists to prevent. */
-export function renderCldrBackend(appModule: string): string {
+export function renderCldrBackend(
+  appModule: string,
+  sourceLocale: string = DEFAULT_SOURCE_LOCALE,
+): string {
   return lines(
     `defmodule ${appModule}.Cldr do`,
     '  @moduledoc """',
@@ -105,15 +114,15 @@ export function renderCldrBackend(appModule: string): string {
     "",
     "  ADDING A LOCALE takes two steps, not one:",
     "",
-    "    1. copy `priv/gettext/en` to `priv/gettext/<locale>` and translate it;",
+    `    1. copy \`priv/gettext/${sourceLocale}\` to \`priv/gettext/<locale>\` and translate it;`,
     "    2. add `<locale>` to `locales:` below.",
     "",
     "  Step 2 is what compiles that locale's CLDR plural rules in.  Without it a",
     "  translated `{n, plural, few {…} many {…}}` has no rules to select by.",
     '  """',
     "  use Cldr,",
-    '    locales: ["en"],',
-    '    default_locale: "en",',
+    `    locales: [${JSON.stringify(sourceLocale)}],`,
+    `    default_locale: ${JSON.stringify(sourceLocale)},`,
     "    providers: [Cldr.Number, Cldr.Message]",
     "end",
   );
@@ -231,6 +240,13 @@ export function elixirI18nString(value: string): string {
   return `"${body}"`;
 }
 
+/** The `pgettext(<key>, <English>)` call every emitted translatable string
+ *  uses.  The English is the source text for `key`: the model's derived text,
+ *  or the translator's source-language override. */
+export function pgettextCall(key: string, english: string): string {
+  return `pgettext(${elixirI18nString(key)}, ${elixirI18nString(sourceText(key, english))})`;
+}
+
 /** `lib/<app>_web/gettext.ex` — the Gettext backend every `~H` template calls
  *  into.  A plain `use Gettext.Backend`, imported into `html_helpers` so
  *  `pgettext/2` resolves inside a template without qualification. */
@@ -281,8 +297,20 @@ export function renderGettextCatalog(
    *  has to carry it alongside the authored strings, keyed identically to
    *  `.loom/messages.en.json`. */
   packChrome: Record<string, string> = {},
+  /** The source language: the `.po` header's `Language`. */
+  sourceLocale: string = DEFAULT_SOURCE_LOCALE,
+  /** The system's contexts, which key the implicit model-text sites (form
+   *  labels, enum options, submit buttons) the HEEx walker translates; without
+   *  them those keys are rendered but never reach the `.po`. */
+  modelTextContexts: readonly BoundedContextIR[] = [],
 ): string {
-  const catalog: Record<string, string> = ui ? { ...buildUiCatalog(ui, packChrome) } : {};
+  const scope: FormSentenceScope = {
+    contexts: modelTextContexts,
+    sentences: [],
+    implicitModelText: true,
+    optionalCreateInputs: true,
+  };
+  const catalog: Record<string, string> = ui ? { ...buildUiCatalog(ui, packChrome, scope) } : {};
   for (const m of validationMessages) catalog[m.code] = m.text;
   const header =
     kind === "pot"
@@ -300,7 +328,7 @@ export function renderGettextCatalog(
           "## exactly the source-language behaviour.  Copy this tree to add a locale.",
           'msgid ""',
           'msgstr ""',
-          '"Language: en\\n"',
+          `"Language: ${sourceLocale}\\n"`,
           '"Content-Type: text/plain; charset=UTF-8\\n"',
         ];
   // Key-sorted: `buildUiCatalog` already sorts its own keys, but merging the
@@ -337,9 +365,7 @@ export function heexI18nUi(
 export function shellChromeText(name: string, i18nEnabled: boolean): string {
   const key = chromeKey(name);
   const english = APP_SHELL_CHROME[key]!;
-  return i18nEnabled
-    ? `<%= pgettext(${elixirI18nString(key)}, ${elixirI18nString(english)}) %>`
-    : english;
+  return i18nEnabled ? `<%= ${pgettextCall(key, english)} %>` : english;
 }
 
 /** The same chrome string in ATTRIBUTE position — a HEEx `{…}` expression
@@ -347,9 +373,7 @@ export function shellChromeText(name: string, i18nEnabled: boolean): string {
 export function shellChromeAria(name: string, i18nEnabled: boolean): string {
   const key = chromeKey(name);
   const english = APP_SHELL_CHROME[key]!;
-  return i18nEnabled
-    ? `{pgettext(${elixirI18nString(key)}, ${elixirI18nString(english)})}`
-    : `"${english}"`;
+  return i18nEnabled ? `{${pgettextCall(key, english)}}` : `"${english}"`;
 }
 
 /** A walker-chrome string (`CHROME_MESSAGES`) as a HEEx ATTRIBUTE VALUE — the
@@ -357,7 +381,5 @@ export function shellChromeAria(name: string, i18nEnabled: boolean): string {
 export function formChromeAttr(name: string, i18nEnabled: boolean): string {
   const key = chromeKey(name);
   const english = chromeMessage(name);
-  return i18nEnabled
-    ? `{pgettext(${elixirI18nString(key)}, ${elixirI18nString(english)})}`
-    : `"${english}"`;
+  return i18nEnabled ? `{${pgettextCall(key, english)}}` : `"${english}"`;
 }

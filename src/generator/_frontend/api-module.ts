@@ -84,26 +84,16 @@ export interface ApiModuleOptions {
   pagedFindRoutes?: PagedFindRoutes;
 }
 
-/** The client-side path of a find's hook, relative to the api base: the
- *  explicit route that serves a synthesized paged find (`pagedFindRoutes` —
- *  never one with path tokens, so the arguments ride the query string), else
- *  the derived `/<plural>/<find>` route. */
-export function findHookPath(
-  tag: string,
-  find: { name: string },
-  route: { path: string } | null | undefined,
-): string {
-  return route ? route.path : `/${tag}/${snake(find.name)}`;
-}
-
-/** The finds a frontend emits a hook for: every declared find, and each
- *  synthesized paged find the target backend actually routes. */
-export function clientFinds<F extends { name: string; synthesized?: boolean }>(
+/** The finds a frontend emits a hook for: the auto-`all`, and each
+ *  synthesized paged find the target backend actually routes (its hook calls
+ *  that route — `pagedFindRoutes`, never one with path tokens, so the
+ *  arguments ride the query string). */
+export function clientFinds<F extends { name: string }>(
   aggName: string,
   finds: readonly F[],
   routes: PagedFindRoutes | undefined,
 ): F[] {
-  return finds.filter((f) => servedFindRoute(aggName, f, routes) !== undefined);
+  return finds.filter((f) => f.name === "all" || servedFindRoute(aggName, f, routes) !== undefined);
 }
 
 /** The client read-hook name for an aggregate's entity-history trail.
@@ -579,6 +569,8 @@ export function buildApiModule(
   if (repo) {
     for (const find of repo.finds) {
       if (find.name === "all") continue;
+      const findRoute = servedFindRoute(agg.name, find, options.pagedFindRoutes);
+      if (!findRoute) continue;
       const findSnake = snake(find.name);
       const paged = pagedReturn(find.returnType);
       const isList = find.returnType.kind === "array";
@@ -624,9 +616,7 @@ export function buildApiModule(
         lines.push(
           `      const qs = new URLSearchParams(Object.entries(queryArgs.value).map(([k, v]) => [k, String(v)])).toString();`,
         );
-        lines.push(
-          `      const r = await api.get(\`${findHookPath(tag, find, servedFindRoute(agg.name, find, options.pagedFindRoutes))}\${qs ? "?" + qs : ""}\`);`,
-        );
+        lines.push(`      const r = await api.get(\`${findRoute.path}\${qs ? "?" + qs : ""}\`);`);
         lines.push(`      return ${responseSchema}.parse(r);`);
         lines.push(`    },`);
         lines.push(`  });`);
@@ -646,9 +636,7 @@ export function buildApiModule(
         // Record<string,string> rejects under strict tsc.
         `      const qs = new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)])).toString();`,
       );
-      lines.push(
-        `      const r = await api.get(\`${findHookPath(tag, find, servedFindRoute(agg.name, find, options.pagedFindRoutes))}\${qs ? "?" + qs : ""}\`);`,
-      );
+      lines.push(`      const r = await api.get(\`${findRoute.path}\${qs ? "?" + qs : ""}\`);`);
       lines.push(`      return ${responseSchema}.parse(r);`);
       lines.push(`    },`);
       lines.push(`  });`);

@@ -3,6 +3,7 @@ import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
 import { giveUp } from "../_walker/give-up.js";
+import { opModelText, paramLabelOwner } from "../_walker/model-text-sites.js";
 import { opGateFor } from "../_walker/op-gate.js";
 import { namedArgValue, positionalArgs, stringNamed } from "../_walker/shared/args.js";
 import { emitExpr, type WalkContext } from "../_walker/walker-core.js";
@@ -148,7 +149,9 @@ export function renderAngularOperationForm(
   const errorFields = new Set(angularValidatorMap(opInvariants, available).keys());
 
   const parts = bc
-    ? partitionAngularFields(op.params, bc, ns, ctx, formVar, errorFields)
+    ? partitionAngularFields(op.params, bc, ns, ctx, formVar, errorFields, (name) =>
+        agg ? paramLabelOwner(agg, name) : undefined,
+      )
     : {
         flatControls: [],
         flatMarkup: [],
@@ -185,7 +188,7 @@ export function renderAngularOperationForm(
 
   const inner = "  ".repeat(depth + 1);
   const close = "  ".repeat(depth);
-  const label = humanize(op.name);
+  const label = (bc && opModelText(ctx, bc, aggName, op.name)?.markup) || humanize(op.name);
   const submit = formButton(ctx, {
     type: "submit",
     emphasis: "primary",

@@ -377,6 +377,13 @@ const PINS: Record<ExprIR["kind"], Pin[]> = {
       dart: "5",
     },
   ],
+  modelText: [
+    {
+      name: "the English default as a Dart string literal (no i18n runtime)",
+      expr: { kind: "modelText", key: "Projects.Task.name.other", defaultText: "Tasks" },
+      dart: "'Tasks'",
+    },
+  ],
   match: [
     {
       name: "value position with `else` — a right fold of Dart conditionals",

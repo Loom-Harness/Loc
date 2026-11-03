@@ -17,6 +17,7 @@ import { exprUsesCurrentUser, operationUsesCurrentUser } from "../../../ir/types
 import { maskedHistoryFields } from "../../../ir/util/audit-history.js";
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { isMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import {
   callerGates,
   lifecycleGates,
@@ -531,17 +532,30 @@ export function renderJavaService(
         op.params.map((p) => p.name),
         OPERATION_METHOD_NAMES,
       );
-      const lets = op.params.map(
-        (p) =>
-          `        var ${localOf(opLocals, p.name)} = ${wireToDomain(p.type, `request.${jid(p.name)}()`, `/${p.name}`)};`,
-      );
+      // A merge-patch update (RS-47): an absent key reads null, so a required
+      // field converts only when carried, and the call passes the stored value
+      // for every key outside `request.has(...)`.
+      const patch = isMergePatchUpdate(op);
+      const lets = op.params.map((p) => {
+        const raw = `request.${jid(p.name)}()`;
+        const parsed = wireToDomain(p.type, raw, `/${p.name}`);
+        const value =
+          patch && p.type.kind !== "optional" && parsed !== raw
+            ? `${raw} == null ? null : ${parsed}`
+            : parsed;
+        return `        var ${localOf(opLocals, p.name)} = ${value};`;
+      });
       for (const p of op.params) collectWireToDomainImports(p.type, imports, ctx.basePkg);
       const usesUser =
         !!ctx.authed && (operationBodyUsesCurrentUser(op) || operationGatesUseCurrentUser(op));
       // Only what REMAINS of the body still takes the trailing argument.
       const passUser = !!ctx.authed && operationBodyUsesCurrentUser(op);
       const args = [
-        ...op.params.map((p) => localOf(opLocals, p.name)),
+        ...op.params.map((p) =>
+          patch
+            ? `request.has(${JSON.stringify(p.name)}) ? ${localOf(opLocals, p.name)} : aggregate.${jid(p.name)}()`
+            : localOf(opLocals, p.name),
+        ),
         ...(passUser ? ["currentUser"] : []),
       ].join(", ");
       if (op.extern) {
@@ -594,6 +608,7 @@ export function renderJavaService(
       // rollback-only — the loaded aggregate is a managed entity, so a plain
       // return would still flush its mutated fields at commit.
       const errorArms = spec ? spec.arms.filter((a) => a.isError) : [];
+      const hostArm = spec?.arms.find((a) => a.tag === agg.name && !a.isError);
       const errorGuard =
         errorArms.length > 0
           ? [
@@ -638,6 +653,17 @@ export function renderJavaService(
           ? `        CatalogLog.event(${javaLogEvent("auditRecorded")}, "action", ${JSON.stringify(op.name)}, "target", ${JSON.stringify(agg.name)}, "actor", RequestContext.actorId());`
           : null,
         `        publishEvents(aggregate);`,
+        // The aggregate's own arm (`return this`) is rebuilt after the save,
+        // so it carries the version the save advanced to.
+        ...(spec && hostArm
+          ? [
+              `        if (result instanceof ${ctx.entityPkg}.${spec.name}_${hostArm.tag}) result = new ${ctx.entityPkg}.${spec.name}_${hostArm.tag}(${
+                hostArm.member.shape === "record"
+                  ? hostArm.member.fields.map((f) => `aggregate.${jid(f.name)}()`).join(", ")
+                  : ""
+              });`,
+            ]
+          : []),
         spec
           ? `        return result;`
           : scalarReturn

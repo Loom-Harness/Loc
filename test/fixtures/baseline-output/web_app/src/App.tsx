@@ -145,13 +145,13 @@ function AppShellLayout() {
       </AppShell.Header>
       <AppShell.Navbar p="md" aria-label={t("chrome.primaryNav", "Primary navigation")}>
         <Stack gap={4} data-testid="nav-sidebar">
-          <div className="loom-nav-section">{t("page.List.menu.section.m7tqsh", "Aggregates")}</div>
-          <NavLink component={RouterLink} to="/products" label={t("page.List.menu.label.kdfstp", "Products")} active={isActive("/products")} data-testid="nav-products" />
-          <NavLink component={RouterLink} to="/orders" label={t("page.List.menu.label.xf3i18", "Orders")} active={isActive("/orders")} data-testid="nav-orders" />
-          <NavLink component={RouterLink} to="/customers" label={t("page.List.menu.label.vweyym", "Customers")} active={isActive("/customers")} data-testid="nav-customers" />
-          <div className="loom-nav-section">{t("page.WorkflowsIndex.menu.section.qrue75", "Workflows")}</div>
+          <div className="loom-nav-section">{t("WebApp.page.List.menu.section.m7tqsh", "Aggregates")}</div>
+          <NavLink component={RouterLink} to="/products" label={t("Products.Product.name.other", "Products")} active={isActive("/products")} data-testid="nav-products" />
+          <NavLink component={RouterLink} to="/orders" label={t("Orders.Order.name.other", "Orders")} active={isActive("/orders")} data-testid="nav-orders" />
+          <NavLink component={RouterLink} to="/customers" label={t("Customers.Customer.name.other", "Customers")} active={isActive("/customers")} data-testid="nav-customers" />
+          <div className="loom-nav-section">{t("WebApp.page.WorkflowsIndex.menu.section.qrue75", "Workflows")}</div>
           <NavLink component={RouterLink} to="/workflows" label="All workflows" active={isActive("/workflows", { exact: true })} data-testid="nav-workflows" />
-          <NavLink component={RouterLink} to="/workflows/place_order" label={t("page.PlaceOrderWorkflow.menu.label.gb2crw", "Place Order")} active={isActive("/workflows/place_order")} data-testid="nav-workflow-place_order" />
+          <NavLink component={RouterLink} to="/workflows/place_order" label={t("Orders.placeOrder.name.one", "Place Order")} active={isActive("/workflows/place_order")} data-testid="nav-workflow-place_order" />
         </Stack>
       </AppShell.Navbar>
       <AppShell.Main id="main-content" style={{ minWidth: 0 }}>

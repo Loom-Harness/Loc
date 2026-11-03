@@ -22,6 +22,7 @@ import { upperFirst } from "../../util/naming.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
 import { isIntDivWidenedToDecimal } from "../_expr/target.js";
 import { isValueObjectEquality } from "../_frontend/value-equals.js";
+import { sourceText } from "../_walker/source-text.js";
 import { fsIdent } from "./fs-ident.js";
 
 /** F# spelling of a Loom binary operator. */
@@ -517,7 +518,7 @@ export interface FsExprCtx {
   /** The F# expression naming the model a state ref resolves against — `model`
    *  by default (every `update` arm), but `__m` where the emission site has
    *  BOUND the updated/initial record and must read the NEW values off it
-   *  (`init`'s find-read `Cmd`s, a control's refetch arm).  Same reason
+   *  (`init`'s paged-read `Cmd`s, a control's refetch arm).  Same reason
    *  `pagedReadCmd` takes a `modelExpr`: reading `model.<Field>` there would
    *  issue the query with the value it just replaced. */
   modelExpr?: string;
@@ -530,6 +531,10 @@ export interface FsExprCtx {
    *  has no props to bind (`component-state-init.ts`).  Absent everywhere
    *  else. */
   paramValues?: ReadonlyMap<string, string>;
+  /** The ui ships the F# `I18n` module, so model text (`label(…)` / `plural(…)`)
+   *  renders as an `I18n.t` call under its identity key; absent ⇒ the English
+   *  default as a literal. */
+  i18n?: boolean;
 }
 
 /** The empty route id — what an `id` read resolves to on a ui with no routing
@@ -786,6 +791,12 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
         "internal: `this` reached the F# update renderer; loom.ui-this-unbound refuses it " +
           "at validation. Please file a bug.",
       );
+    case "modelText":
+      // `label(…)` / `plural(…)`: the identity-keyed translation call when the
+      // ui ships the `I18n` module, else the English default.
+      return ctx.i18n
+        ? `(I18n.t ${fsString(e.key)} ${fsString(sourceText(e.key, e.defaultText))})`
+        : FS_LEAVES.literal("string", sourceText(e.key, e.defaultText));
     case "authz-filter":
       // A read-path policy sentinel planted only on an aggregate's
       // `contextFilters` — never in a ui body.

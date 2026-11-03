@@ -24,10 +24,11 @@
 // engine already supports them, only the grammar/extractor gate them out.)
 // ---------------------------------------------------------------------------
 
-import type { UiIR } from "../../ir/types/loom-ir.js";
+import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { emissionSink } from "../../util/emission-sink.js";
-import { chromeMergedWhenEnabled } from "../_walker/i18n-chrome.js";
+import { chromeMergedWhenEnabled, type FormSentenceScope } from "../_walker/i18n-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
+import { sourceText } from "../_walker/source-text.js";
 
 /** Build the flat, key-sorted `{ key: message }` catalog for one UI.  Pack-chrome
  *  strings (`chrome.<name>`) ride in through `collectUiMessages` used-only, so a
@@ -44,22 +45,32 @@ export function buildUiCatalog(
    *  (`heexI18nEnabled` and friends), which must not see a UI turn
    *  translatable just because its pack ships chrome. */
   packChrome: Record<string, string> = {},
+  /** What the UI's forms render over, and which per-operation / per-item-type
+   *  sentences (`chrome.operationSucceeded.<op>`, `chrome.addItem.<valueobject>`)
+   *  the active pack reads.  Without it only the sentences readable off the UI
+   *  itself (the `DestroyForm` ones) are catalogued. */
+  scope?: FormSentenceScope,
 ): Record<string, string> {
   const byKey = new Map<string, string>();
   // Same key ⇒ same content hash ⇒ same message; collapses repeats.
   for (const { key, message } of collectUiMessages(ui)) byKey.set(key, message);
   if (byKey.size > 0) {
-    for (const [key, message] of Object.entries(chromeMergedWhenEnabled())) byKey.set(key, message);
+    for (const [key, message] of Object.entries(chromeMergedWhenEnabled(ui, scope)))
+      byKey.set(key, message);
     for (const [key, message] of Object.entries(packChrome)) byKey.set(key, message);
   }
   const out: Record<string, string> = {};
-  for (const key of [...byKey.keys()].sort()) out[key] = byKey.get(key)!;
+  for (const key of [...byKey.keys()].sort()) out[key] = sourceText(key, byKey.get(key)!);
   return out;
 }
 
-/** `src/locales/en.json` — the source-language catalog for this UI. */
-export function renderLocaleCatalog(ui: UiIR, packChrome: Record<string, string> = {}): string {
-  return `${JSON.stringify(buildUiCatalog(ui, packChrome), null, 2)}\n`;
+/** `src/locales/<source>.json` — the source-language catalog for this UI. */
+export function renderLocaleCatalog(
+  ui: UiIR,
+  packChrome: Record<string, string> = {},
+  scope?: FormSentenceScope,
+): string {
+  return `${JSON.stringify(buildUiCatalog(ui, packChrome, scope), null, 2)}\n`;
 }
 
 /** Translated locale catalogs, keyed by locale tag (`de`, `pt-BR`), as read off
@@ -88,13 +99,15 @@ export function renderTranslatedCatalogs(
   ui: UiIR,
   translations: TranslationCatalogs | undefined,
   packChrome: Record<string, string> = {},
+  sourceLocale: string = DEFAULT_SOURCE_LOCALE,
+  scope?: FormSentenceScope,
 ): Map<string, string> {
   const out = emissionSink("generator/_frontend/i18n-runtime");
   if (!translations || translations.size === 0) return out;
-  const keys = Object.keys(buildUiCatalog(ui, packChrome));
+  const keys = Object.keys(buildUiCatalog(ui, packChrome, scope));
   if (keys.length === 0) return out;
   for (const locale of [...translations.keys()].sort()) {
-    if (locale === "en") continue;
+    if (locale === sourceLocale) continue;
     const source = translations.get(locale) ?? {};
     const scoped: Record<string, string> = {};
     for (const key of keys) {
@@ -113,6 +126,12 @@ function localeIdent(locale: string): string {
   return `loc_${locale.replace(/[^A-Za-z0-9_$]/g, "_")}`;
 }
 
+/** The JS binding of the source-language catalog: `en` for the default source
+ *  (unchanged output), a derived identifier otherwise. */
+function sourceIdent(source: string): string {
+  return source === DEFAULT_SOURCE_LOCALE ? "en" : localeIdent(source);
+}
+
 /** The `catalogs` registry entries for the translated locales, in emission
  *  order (`en` first, then the rest sorted).
  *
@@ -124,12 +143,13 @@ function localeIdent(locale: string): string {
  *  this whole path exists to remove.  The alias is skipped when the base
  *  language has its own file (`pt.json` AND `pt-BR.json`): that file wins, and
  *  nothing is silently shadowed. */
-function catalogEntries(locales: readonly string[]): string[] {
-  const out = [`en: en as Catalog`];
+function catalogEntries(locales: readonly string[], source: string): string[] {
+  const isDefault = source === DEFAULT_SOURCE_LOCALE;
+  const out = [`${isDefault ? source : JSON.stringify(source)}: ${sourceIdent(source)} as Catalog`];
   for (const locale of locales) {
     out.push(`${JSON.stringify(locale)}: ${localeIdent(locale)} as Catalog`);
     const base = locale.split("-")[0] ?? locale;
-    if (base !== locale && !locales.includes(base) && base !== "en") {
+    if (base !== locale && !locales.includes(base) && base !== source) {
       out.push(`${JSON.stringify(base)}: ${localeIdent(locale)} as Catalog`);
     }
   }
@@ -143,8 +163,14 @@ function catalogEntries(locales: readonly string[]): string[] {
  *  which is what makes `activeLocale()` able to resolve it.  The default — no
  *  translator tree on disk, every caller before this existed — emits the
  *  module BYTE-IDENTICALLY to the source-language-only form. */
-export function renderI18nModule(locales: readonly string[] = []): string {
-  const extra = [...new Set(locales)].filter((l) => l !== "en").sort();
+export function renderI18nModule(
+  locales: readonly string[] = [],
+  source: string = DEFAULT_SOURCE_LOCALE,
+): string {
+  const extra = [...new Set(locales)].filter((l) => l !== source).sort();
+  const S = JSON.stringify(source);
+  const src = sourceIdent(source);
+  const sourceCatalog = source === DEFAULT_SOURCE_LOCALE ? "catalogs.en" : `catalogs[${S}]`;
   const imports = extra
     .map((l) => `import ${localeIdent(l)} from "./locales/${l}.json";\n`)
     .join("");
@@ -156,20 +182,20 @@ export function renderI18nModule(locales: readonly string[] = []): string {
 // may carry plain \`{name}\` holes or locale-formatted ones
 // (\`{total, number, ::currency/USD}\`, \`{d, date, ::yMMMd}\`).
 import { IntlMessageFormat } from "intl-messageformat";
-import en from "./locales/en.json";
+import ${src} from "./locales/${source}.json";
 ${imports}
 type Catalog = Record<string, string>;
 
-const catalogs: Record<string, Catalog> = { ${catalogEntries(extra).join(", ")} };
+const catalogs: Record<string, Catalog> = { ${catalogEntries(extra, source).join(", ")} };
 
 function activeLocale(): string {
-  const nav = typeof navigator !== "undefined" ? navigator.language : "en";
-  const lang = nav.split("-")[0] ?? "en";
-  return catalogs[lang] ? lang : "en";
+  const nav = typeof navigator !== "undefined" ? navigator.language : ${S};
+  const lang = nav.split("-")[0] ?? ${S};
+  return catalogs[lang] ? lang : ${S};
 }
 
 const locale = activeLocale();
-const messages: Catalog = catalogs[locale] ?? catalogs.en ?? {};
+const messages: Catalog = catalogs[locale] ?? ${sourceCatalog} ?? {};
 
 type Values = Record<string, string | number | boolean | Date>;
 

@@ -86,6 +86,7 @@ import { escapeHtmlAttr } from "./a11y-emit.js";
 import { tryDetectApiHook } from "./api-hook-detector.js";
 import { registerApiHook } from "./api-hook-register.js";
 import { giveUp, giveUpText, wrapLoneRootComment } from "./give-up.js";
+import { localizedModelText } from "./i18n-emit.js";
 import { storeMemberLocal, upperFirstName } from "./js-target-helpers.js";
 import { emitUserComponent } from "./primitives/controls.js";
 import { WALKER_PRIMITIVES } from "./registry.js";
@@ -993,6 +994,11 @@ export interface OperationFormState extends FormStateBase {
    *  (shadcn/mui/chakra) render the trigger inside the self-
    *  contained `<Op>OpModal` component, so they need it here. */
   triggerLabel: string;
+  /** The operation's identity-keyed label (`<Ctx>.<Agg>.op.<op>`) as a markup
+   *  token and an expression — the submit button's text and the dialog title's
+   *  fallback.  Absent when the implicit model-text sites are off
+   *  (`_walker/model-text-sites.ts`): the shell then uses the humanized name. */
+  opLabel?: { markup: string; expr: string };
   /** The dialog's TITLE, read from the enclosing `Modal`'s `title:` — the
    *  `modalTitle` user-visible slot, so it is already extracted into the
    *  catalog and already translated here (D-I18N-ATTR).  Two spellings,
@@ -1006,6 +1012,10 @@ export interface OperationFormState extends FormStateBase {
    *  through the `chrome.*` catalog key `opDialogChrome` picks (the template
    *  can't reach a WalkContext). */
   cancelLabel?: string;
+  /** The success toast's text, as a target-native VALUE expression (a `t(…)`
+   *  call or a quoted literal): the per-operation whole sentence
+   *  (`chrome.operationSucceeded.<op>`), resolved where a WalkContext exists. */
+  successMessage?: string;
   /** The accessible name of the dialog's close icon, as a target-native VALUE
    *  expression (a `t(…)` call or a quoted literal) for an attribute/prop slot
    *  — never equal to the submit label (`opDialogChrome`).  Read only by the
@@ -1204,6 +1214,12 @@ export function walk(
   switch (expr.kind) {
     case "call":
       return emitComponent(expr, ctx, depth, slot);
+    case "modelText":
+      // `label(…)` / `plural(…)` as a markup child — its translated text.
+      return ctx.target.renderInterpolation(localizedModelText(ctx, expr.key, expr.defaultText), {
+        kind: "primitive",
+        name: "string",
+      });
     case "literal":
       // String literal in a child position becomes a markup text node.
       // Other literal kinds (int / decimal / bool) stay as
@@ -2245,6 +2261,10 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       }
       return routeId;
     }
+    case "modelText":
+      // `label(…)` / `plural(…)` — the identity-keyed translation call, or the
+      // English default when the UI has no translation runtime.
+      return localizedModelText(ctx, expr.key, expr.defaultText);
     case "i18nFormat":
       // Transparent i18n wrapper (M-T1.11).  When a body opts into i18n the
       // format is spliced into the ICU message by `icuFromConcat`/`localizedRaw`

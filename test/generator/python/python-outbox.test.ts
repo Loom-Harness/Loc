@@ -128,4 +128,28 @@ describe("python durable-channel outbox", () => {
     expect(main).toContain("_outbox_relay = start_outbox_relay()");
     expect(main).toContain("_outbox_relay.cancel()");
   });
+
+  it("imports a durable event the context's reactors never subscribe to", async () => {
+    // `Dispatched` is emitted by an aggregate and carried by a durable channel,
+    // but no workflow subscribes to it — the outbox codec still constructs it.
+    const src = `system S { subdomain D { context C {
+      aggregate Shipment with crudish { status: string
+        operation dispatch() { status := "Dispatched"  emit Dispatched { shipment: id, at: now() } } }
+      repository Shipments for Shipment { }
+      event Dispatched { shipment: Shipment id, at: datetime }
+      event Kick { shipment: Shipment id }
+      channel K { carries: Kick }
+      workflow W { shipment: Shipment id
+        create(k: Kick) by k.shipment { let s = Shipments.get(k.shipment)  s.dispatch() } }
+      channel Feed { carries: Dispatched  delivery: queue  retention: work }
+    } } api A from D
+    storage pg { type: postgres }
+    resource st { for: C, kind: state, use: pg }
+    deployable api { platform: python contexts: [C] dataSources: [st] serves: A port: 8000 } }`;
+    const { model, errors } = await parseString(src);
+    if (errors.length) throw new Error(errors.join("\n"));
+    const dispatch = generateSystems(model).files.get("api/app/dispatch.py")!;
+    expect(dispatch).toContain("return Dispatched(");
+    expect(dispatch).toMatch(/^from app\.domain\.events import .*\bDispatched\b/m);
+  });
 });

@@ -511,18 +511,12 @@
       "seq": 46,
       "method": "POST",
       "path": "/api/cars/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "seats is required",
-            "pointer": "/seats"
-          }
-        ],
+        "detail": "Car {id} not found",
         "instance": "/api/cars/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     },

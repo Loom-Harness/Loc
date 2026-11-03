@@ -209,6 +209,11 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
    *  emits byte-identical to a format-less one (the format is dropped). The
    *  suffix only comes alive on the JS/TS frontends' translation runtime. */
   i18nFormat(inner: string): string;
+  /** `label(…)` / `plural(…)` model text — UI-only (`loom.model-text-outside-ui`
+   *  keeps it out of every domain position), so a domain-logic backend leaves
+   *  this unset and the dispatcher throws.  A frontend that rides this
+   *  dispatcher (HEEx) supplies it. */
+  modelText?(e: Extract<ExprIR, { kind: "modelText" }>, ctx: Ctx): string;
   /** Boolean predicate-arms `match { cond => value }` — the original form,
    *  unchanged.  Lowered to the backend's chained-conditional idiom. */
   match(arms: RenderedArm[], otherwise: string | undefined): string;
@@ -318,6 +323,9 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
       // Transparent i18n wrapper — render the wrapped operand and drop the
       // format (inert on every backend; only the frontends' i18n runtime uses it).
       return t.i18nFormat(r(e.inner));
+    case "modelText":
+      if (t.modelText) return t.modelText(e, ctx);
+      throw new Error("renderExprWith: 'modelText' is not a domain expression");
     case "match": {
       // Variant form (variant-match.md) when a subject is present.
       if (e.subject) {
@@ -821,6 +829,9 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
       const inner = rm(e.inner);
       return compose(t.i18nFormat(inner.text), [inner]);
     }
+    case "modelText":
+      if (t.modelText) return compose(t.modelText(e, ctx), []);
+      throw new Error("renderExprWithMarks: 'modelText' is not a domain expression");
     case "match": {
       if (e.subject) {
         const subject = rm(e.subject);

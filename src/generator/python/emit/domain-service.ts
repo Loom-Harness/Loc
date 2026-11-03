@@ -113,7 +113,7 @@ function renderOperation(op: DomainServiceOperationIR): string {
   // hexagonal), NOT the concrete infra repository: the domain layer must not
   // import from `app.db`.
   const portParams = ports.map(
-    (p) => `${snake(p.repo)}: ${pyRef(PORT_POOL_MODULE, repoPortName(p.aggregate))}`,
+    (p) => `${pythonIdent(p.repo)}: ${pyRef(PORT_POOL_MODULE, repoPortName(p.aggregate))}`,
   );
   const userParams = op.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
   const params = [...portParams, ...userParams].join(", ");

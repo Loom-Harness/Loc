@@ -20,11 +20,11 @@ export default function PlaceOrderWorkflow() {
   return (
     <Stack gap="md" data-testid="workflow-place_order-page">
       <Breadcrumbs>
-        <Anchor component={RouterLink} to="/">{t("page.PlaceOrderWorkflow.anchor.n0mxf2", "Home")}</Anchor>
-        <Anchor component={RouterLink} to="/workflows">{t("page.PlaceOrderWorkflow.anchor.qrue75", "Workflows")}</Anchor>
-        <Text>{t("page.PlaceOrderWorkflow.text.gb2crw", "Place Order")}</Text>
+        <Anchor component={RouterLink} to="/">{t("WebApp.page.PlaceOrderWorkflow.anchor.n0mxf2", "Home")}</Anchor>
+        <Anchor component={RouterLink} to="/workflows">{t("WebApp.page.PlaceOrderWorkflow.anchor.qrue75", "Workflows")}</Anchor>
+        <Text>{t("Orders.placeOrder.name.one", "Place Order")}</Text>
       </Breadcrumbs>
-      <Title order={2}>{t("page.PlaceOrderWorkflow.heading.gb2crw", "Place Order")}</Title>
+      <Title order={2}>{t("Orders.placeOrder.name.one", "Place Order")}</Title>
       <Card withBorder padding="md">
         <form onSubmit={handleSubmit(async (vals) => {
                   try {
@@ -41,13 +41,13 @@ export default function PlaceOrderWorkflow() {
                   }
                 })} data-testid="workflow-place_order">
           <Stack gap="md">
-            <TextInput label="Customer Id" {...register("customerId")} data-testid="workflow-place_order-input-customerId" error={errors.customerId?.message} />
+            <TextInput label={ t("Orders.placeOrder.field.customerId", "Customer Id") } {...register("customerId")} data-testid="workflow-place_order-input-customerId" error={errors.customerId?.message} />
     
             <Controller
               control={control}
               name="productId"
               render={({ field, fieldState }) => (
-                <Select label="Product Id" data-testid="workflow-place_order-input-productId" placeholder={t("chrome.selectPlaceholder", "Select…")} searchable data={(__products.data?.items ?? []).map((__o) => ({ value: __o.id, label: __o.display }))} renderOption={({ option }) => <div data-testid={`workflow-place_order-input-productId-option-${option.value}`}>{option.label}</div>} allowDeselect={false} value={field.value as string} onChange={(v) => field.onChange(v ?? "")} error={fieldState.error?.message} />
+                <Select label={ t("Orders.placeOrder.field.productId", "Product Id") } data-testid="workflow-place_order-input-productId" placeholder={t("chrome.selectPlaceholder", "Select…")} searchable data={(__products.data?.items ?? []).map((__o) => ({ value: __o.id, label: __o.display }))} renderOption={({ option }) => <div data-testid={`workflow-place_order-input-productId-option-${option.value}`}>{option.label}</div>} allowDeselect={false} value={field.value as string} onChange={(v) => field.onChange(v ?? "")} error={fieldState.error?.message} />
               )}
             />
     
@@ -55,7 +55,7 @@ export default function PlaceOrderWorkflow() {
               control={control}
               name="quantity"
               render={({ field, fieldState }) => (
-                <NumberInput label="Quantity" data-testid="workflow-place_order-input-quantity" allowDecimal={false} value={field.value as number | "" | undefined} onChange={(v) => field.onChange(typeof v === "number" ? v : Number(v) || 0)} error={fieldState.error?.message} />
+                <NumberInput label={ t("Orders.placeOrder.field.quantity", "Quantity") } data-testid="workflow-place_order-input-quantity" allowDecimal={false} value={field.value as number | "" | undefined} onChange={(v) => field.onChange(typeof v === "number" ? v : Number(v) || 0)} error={fieldState.error?.message} />
               )}
             />
     

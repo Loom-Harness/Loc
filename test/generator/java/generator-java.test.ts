@@ -86,6 +86,13 @@ describe("java generator — project shell (S1)", () => {
     expect(docker).toContain('ENTRYPOINT ["java", "-jar", "app.jar"]');
   });
 
+  it("runtime stage installs wget for the compose healthcheck", async () => {
+    const docker = (await files()).get("shop_api/Dockerfile")!;
+    const runtime = docker.slice(docker.indexOf("FROM eclipse-temurin:25-jre"));
+    expect(runtime).toMatch(/apt-get install -y --no-install-recommends wget/);
+    expect((await files()).get("docker-compose.yml")!).toContain("wget -qO-");
+  });
+
   it("compose stanza wires the Spring datasource env + /ready healthcheck", async () => {
     const compose = (await files()).get("docker-compose.yml")!;
     expect(compose).toContain('SPRING_DATASOURCE_URL: "jdbc:postgresql://db:5432/shop_api"');

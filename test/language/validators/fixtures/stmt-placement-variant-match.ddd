@@ -16,7 +16,7 @@ system VariantMatchPlacement {
       aggregate Order {
         code: string
         note: string?
-        function label(): string {
+        function noteLabel(): string {
           match note {
             string s => { let shown = s }
             else => { let shown = code }

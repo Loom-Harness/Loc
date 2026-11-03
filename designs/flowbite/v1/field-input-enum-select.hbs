@@ -1,5 +1,5 @@
 <div class="flex flex-col gap-2">
-          <Label for="{{testId}}">{{label}}</Label>
-          <Select id="{{testId}}" data-testid="{{testId}}" bind:value={form.values.{{path}} }>{#each ({{{enumValuesJson}}}) as __v (__v)}<option value={__v}>{__v}</option>{/each}</Select>
+          <Label for="{{testId}}">{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</Label>
+          <Select id="{{testId}}" data-testid="{{testId}}" bind:value={form.values.{{path}} }>{#each ({{{enumValuesJson}}}) as __v (__v)}<option value={__v}>{{#if enumLabelFn}}{({{{enumLabelFn}}})(__v)}{{else}}{__v}{{/if}}</option>{/each}</Select>
           {#if form.errors["{{path}}"]}<Helper color="red">{form.errors["{{path}}"]}</Helper>{/if}
         </div>

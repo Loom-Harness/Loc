@@ -11,7 +11,11 @@
 // Hono, .NET, Java, and Python backends.
 // ---------------------------------------------------------------------------
 
-import type { UiIR } from "../../../ir/types/loom-ir.js";
+import {
+  type BoundedContextIR,
+  DEFAULT_SOURCE_LOCALE,
+  type UiIR,
+} from "../../../ir/types/loom-ir.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import {
@@ -53,6 +57,7 @@ import {
   exStatus,
   exTitle,
 } from "../wire-policy-ex.js";
+import { exFrameworkTimestampType } from "./codec-spelling-ex.js";
 import { renderLoomDatetimeModule } from "./datetime-type-emit.js";
 import { renderGuardErrorModule } from "./denial.js";
 import { renderRepoReadScope } from "./read-scope-emit.js";
@@ -113,6 +118,12 @@ export function emitVanillaShellFiles(
   /** The port `mix phx.server` listens on in dev when PORT is unset — the
    *  deployable's declared port. */
   devPort = 4000,
+  /** The system's source language: the `.po` tree's locale, gettext's default
+   *  locale, the CLDR backend's locale and the layouts' `<html lang>`. */
+  sourceLocale: string = DEFAULT_SOURCE_LOCALE,
+  /** Every context of the system — keys the identity-keyed model text in the
+   *  `.po` catalog. */
+  modelTextContexts: readonly BoundedContextIR[] = [],
 ): void {
   const hasLiveView = liveRoutes.length > 0 || hasSidebar;
   // Either source of translatable strings turns the runtime on.
@@ -240,7 +251,7 @@ export function emitVanillaShellFiles(
     out.set(`lib/${appName}_web/components/layouts.ex`, renderLayouts(appName, appModule));
     out.set(
       `lib/${appName}_web/components/layouts/root.html.heex`,
-      pack.render("main", { appName }),
+      pack.render("main", { appName, lang: sourceLocale }),
     );
     // The app layout's chrome strings arrive pre-rendered (raw English, or
     // the pgettext call under i18n) so the pack template only places them.
@@ -274,16 +285,30 @@ export function emitVanillaShellFiles(
     const packChrome = pack ? packChromeCatalog(pack.manifest) : {};
     out.set(
       `priv/gettext/${GETTEXT_DOMAIN}.pot`,
-      renderGettextCatalog(i18nUi, "pot", validationMessages, packChrome),
+      renderGettextCatalog(
+        i18nUi,
+        "pot",
+        validationMessages,
+        packChrome,
+        sourceLocale,
+        modelTextContexts,
+      ),
     );
     out.set(
-      `priv/gettext/en/LC_MESSAGES/${GETTEXT_DOMAIN}.po`,
-      renderGettextCatalog(i18nUi, "po", validationMessages, packChrome),
+      `priv/gettext/${sourceLocale}/LC_MESSAGES/${GETTEXT_DOMAIN}.po`,
+      renderGettextCatalog(
+        i18nUi,
+        "po",
+        validationMessages,
+        packChrome,
+        sourceLocale,
+        modelTextContexts,
+      ),
     );
     // ICU formatting runs OVER gettext's result, so it ships only alongside
     // it — and only for a ui with an interpolated message.
     if (icuEnabled) {
-      out.set(`lib/${appName}/cldr.ex`, renderCldrBackend(appModule));
+      out.set(`lib/${appName}/cldr.ex`, renderCldrBackend(appModule, sourceLocale));
       out.set(`lib/${appName}_web/i18n.ex`, renderIcuRuntime(appModule));
     }
   }
@@ -302,7 +327,10 @@ export function emitVanillaShellFiles(
   // OTP supervision gives LiveView the render-time boundary + failure sink
   // for free once the socket is live; only the DEAD path needs one added.
   if (hasLiveView) {
-    out.set(`lib/${appName}_web/controllers/error_html.ex`, renderVanillaErrorHtml(appModule));
+    out.set(
+      `lib/${appName}_web/controllers/error_html.ex`,
+      renderVanillaErrorHtml(appModule, sourceLocale),
+    );
   }
   out.set(`lib/${appName}_web/body_parser.ex`, renderVanillaBodyParser(appModule));
   out.set(`lib/${appName}_web/fault_handler.ex`, renderVanillaFaultHandler(appModule));
@@ -331,6 +359,7 @@ export function emitVanillaShellFiles(
       usesOban,
       authEnabled && oidc,
       hasLiveView,
+      i18nEnabled ? sourceLocale : DEFAULT_SOURCE_LOCALE,
     ),
   );
   out.set("config/dev.exs", renderVanillaDev(appName, appModule, devPort));
@@ -1564,7 +1593,7 @@ end
  *  `detail_for(status, _, _) when status >= 500` rule) — an exception message
  *  can name modules, SQL text and hosts, and a customer-facing error page is
  *  exactly the wrong place to leak them regardless of format. */
-function renderVanillaErrorHtml(appModule: string): string {
+function renderVanillaErrorHtml(appModule: string, sourceLocale: string): string {
   return `# Auto-generated.
 defmodule ${appModule}Web.ErrorHTML do
   def render(template, _assigns) do
@@ -1573,7 +1602,7 @@ defmodule ${appModule}Web.ErrorHTML do
 
     Phoenix.HTML.raw("""
     <!DOCTYPE html>
-    <html lang="en">
+    <html lang="${sourceLocale}">
       <head>
         <meta charset="utf-8" />
         <title>#{status} #{title}</title>
@@ -1596,7 +1625,13 @@ function renderVanillaConfig(
   usesOban = false,
   oidc = false,
   hasLiveView = false,
+  sourceLocale: string = DEFAULT_SOURCE_LOCALE,
 ): string {
+  // gettext resolves a message in its default locale, `en` unless configured.
+  const gettextConfig =
+    sourceLocale === DEFAULT_SOURCE_LOCALE
+      ? ""
+      : `\nconfig :gettext, :default_locale, ${JSON.stringify(sourceLocale)}\n`;
   // OIDC only: joken_jwks fetches the issuer's JWKS through Tesla, whose
   // default adapter is Hackney (which we don't depend on) — left unset the
   // fetch raises `Tesla.Adapter.Hackney.call/2 is undefined`, the signer cache
@@ -1621,7 +1656,7 @@ function renderVanillaConfig(
 
 config :${appName},
   ecto_repos: [${appModule}.Repo],
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: ${exFrameworkTimestampType()}]
 ${swooshConfig}
 
 config :${appName}, ${appModule}Web.Endpoint,
@@ -1635,7 +1670,7 @@ config :${appName}, ${appModule}Web.Endpoint,
   live_view: [signing_salt: "loom_dev"]
 
 config :phoenix, :json_library, Jason
-${teslaConfig}${obanConfig}
+${gettextConfig}${teslaConfig}${obanConfig}
 # JSON Logger formatter — emits one structured JSON object per line so
 # the cross-backend observability catalog envelope (event, request_id,
 # method, path, status, duration_ms, …) is parseable upstream the same

@@ -20,6 +20,7 @@ import { FORMAT_CALL_HELPERS } from "../../_frontend/format-helpers.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import { usesToastEffect } from "../../_frontend/toast-effect.js";
 import type { LoadedPack } from "../../_packs/loader.js";
+import { localizedPageTitle } from "../../_walker/i18n-emit.js";
 import {
   closeUsedActions,
   emitExpr,
@@ -171,6 +172,9 @@ export interface AngularPageShellInput {
    *  so the import path a call site needs differs by flavour.  A name absent
    *  here is treated as extern (the pre-existing path). */
   walkedComponents?: ReadonlySet<string>;
+  /** i18n key prefix (`page.<Name>`) — set only when the UI has extractable
+   *  strings; the page `title:` keys against it. */
+  i18nPrefix?: string;
 }
 
 /** Component mode — render the walked body as a reusable standalone component
@@ -427,6 +431,32 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     }
   }
 
+  // Per-page document title: a field-initializer `effect` (an injection
+  // context) that re-runs when a signal the title reads changes — the
+  // counterpart of React's `useEffect` and Svelte's `$effect`.  The title
+  // expression shares `result.imports` + the page's i18n prefix, so a
+  // translated title lands its `t` import and keys against the catalog.
+  const titleEffectLines: string[] = [];
+  if (page.title && input.pack && !cm) {
+    coreSymbols.add("effect");
+    const paramNames = new Set(page.params.map((p) => p.name));
+    const stateNames = new Set(page.state.map((s) => s.name));
+    const derivedNames = new Set(derived.map((d) => d.name));
+    const tctx = {
+      ...derivedCtx(input.pack, paramNames, stateNames, derivedNames),
+      imports: result.imports,
+      i18nPrefix: input.i18nPrefix,
+    };
+    const titleExpr = prefixSignalReadsWithThis(
+      localizedPageTitle(page.title, tctx),
+      new Set<string>([...stateNames, ...derivedNames]),
+    );
+    if (tctx.usesState) derivedUsesState = true;
+    titleEffectLines.push(
+      `  private readonly titleEffect = effect(() => { document.title = ${titleExpr}; });`,
+    );
+  }
+
   // Named-action handlers → class methods (`<name>(<param>?) { … }`;
   // named-actions-and-stores.md, Proposal A Stage 1).  The body lowers through
   // the shared `emitStmt`, then signal reads (`count()`) + write targets
@@ -548,6 +578,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     );
   }
   members.push(...derivedLines);
+  members.push(...titleEffectLines);
   members.push(...actionMethods);
 
   // Navigation → `inject(Router)`; the walked handler calls
