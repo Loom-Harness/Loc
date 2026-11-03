@@ -186,6 +186,9 @@ const PROSE_SAYS_UNDEFINED = [
   // every backend answers a create with, so it evaluates to `undefined` in the
   // emitted JavaScript — the same content-not-interpolation reason as above.
   "loom.e2e-unknown-response-field#create",
+  // The PROJECTION-row variant: a member of the parsed `byKey` row, so it too
+  // evaluates to `undefined` in the emitted JavaScript.
+  "loom.e2e-unknown-response-field#projection",
   // Explains why `first`/`firstOrNull` are refused across the frontends: the
   // JS four answer `undefined` on an empty collection where F#/Dart raise.
   // That divergence IS the refusal's reason, so the word is the message's

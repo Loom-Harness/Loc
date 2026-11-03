@@ -23,13 +23,8 @@
 // Playwright specs, is strip-erasable.
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
-import { generateSystemFiles } from "../../_helpers/generate.js";
+import { generateSystemFiles, generateSystemFilesFromProject } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
@@ -38,14 +33,6 @@ const repoRoot = path.resolve(here, "..", "..", "..");
 // multiple lines, since the emitter formats one param per line) followed by
 // a public/private/protected modifier on a parameter.
 const PARAMETER_PROPERTY_RE = /constructor\s*\(\s*(?:\n\s*)*(public|private|protected)\b/;
-
-async function buildFixture(rel: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const docs = services.shared.workspace.LangiumDocuments;
-  const doc = await docs.getOrCreateDocument(URI.file(path.join(repoRoot, rel)));
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  return doc.parseResult.value as Model;
-}
 
 // Two fixtures, deliberately: `acme.ddd` is the everyday shape, but
 // `showcase.ddd` is the single-file conformance fixture built to exercise
@@ -61,8 +48,7 @@ describe("strip-erasable constructors (Node type-stripping compatibility)", () =
   it.each(
     STRIP_FIXTURES,
   )("no emitted .ts/.tsx file in %s carries a parameter-property constructor", async (rel) => {
-    const model = await buildFixture(rel);
-    const { files } = generateSystems(model);
+    const files = await generateSystemFilesFromProject(path.join(repoRoot, rel));
     const offenders: string[] = [];
     for (const [name, content] of files) {
       if (!name.endsWith(".ts") && !name.endsWith(".tsx")) continue;

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // `app/domain/value_objects.py` imported `UTC` alongside `datetime` whenever
@@ -40,9 +39,7 @@ system VoUtc {
 
 describe("python value_objects.py datetime imports", () => {
   it("imports `datetime` without `UTC` when no body stamps now(UTC)", async () => {
-    const { model, errors } = await parseString(SOURCE);
-    if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-    const vo = generateSystems(model).files.get("svc/app/domain/value_objects.py");
+    const vo = (await generateSystemFiles(SOURCE)).get("svc/app/domain/value_objects.py");
     expect(vo).toContain("from datetime import datetime");
     expect(vo).not.toContain("from datetime import UTC");
   });

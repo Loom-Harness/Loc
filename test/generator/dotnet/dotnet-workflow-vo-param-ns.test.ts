@@ -23,8 +23,7 @@
 // Compile-gated end to end by `dotnet build /warnaserror` under LOOM_DOTNET_BUILD.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // `Money` is referenced ONLY by the workflow param — no aggregate field/op uses
 // it — so its `MoneyRequest` has no per-aggregate emission.  The deployable is
@@ -60,7 +59,7 @@ const SRC = `
 
 describe(".NET workflow VO param — namespace + Request DTO", () => {
   it("global::-anchors the AppDbContext in a transactional handler (no Api.Api doubling)", async () => {
-    const files = (await generateSystems(await parseValid(SRC))).files;
+    const files = await generateSystemFiles(SRC);
     const handler = [...files.entries()].find(([k]) =>
       k.endsWith("Application/Workflows/RecordPaymentHandler.cs"),
     )?.[1];
@@ -73,7 +72,7 @@ describe(".NET workflow VO param — namespace + Request DTO", () => {
   });
 
   it("emits the MoneyRequest VO request DTO for the workflow param", async () => {
-    const files = (await generateSystems(await parseValid(SRC))).files;
+    const files = await generateSystemFiles(SRC);
     const voReqs = [...files.entries()].find(([k]) =>
       k.endsWith("Application/Workflows/WorkflowRequests.cs"),
     )?.[1];

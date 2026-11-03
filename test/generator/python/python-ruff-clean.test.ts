@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // The generated FastAPI project is gated by `ruff check` (python-build.yml).
 // These pin three shapes that emitted ruff-failing code, reproduced from the
@@ -16,9 +15,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const SHOWCASE = fs.readFileSync(path.resolve(here, "../../../examples/showcase.ddd"), "utf8");
 
 async function build(): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(SHOWCASE);
-  if (errors.length) throw new Error(`showcase has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(SHOWCASE);
 }
 
 function fileEndingWith(files: Map<string, string>, suffix: string): string {

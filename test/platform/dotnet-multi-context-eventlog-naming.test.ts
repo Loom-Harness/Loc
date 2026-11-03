@@ -16,8 +16,7 @@
 // aggregate repos alone run per-context and can't regress it.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const SRC = `
 system MC {
@@ -59,9 +58,7 @@ system MC {
 
 describe("multi-context event-log naming (.NET, two event-sourced contexts)", () => {
   it("emits a distinct <Ctx>EventRecord entity + <Ctx>Events DbSet per context", async () => {
-    const { model, errors } = await parseString(SRC);
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SRC);
     const keys = [...files.keys()];
     const has = (suffix: string): boolean => keys.some((k) => k.endsWith(suffix));
     const get = (suffix: string): string =>
