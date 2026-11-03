@@ -289,17 +289,26 @@ function idSelectOptionsExpr(
     : `${hookVar}.data ?? []`;
 }
 
+/** The text a field's error renders: `fieldErrorText(errors.foo?.bar)`, which
+ *  localizes the error by its catalog code when the form RENDERS (so a locale
+ *  change re-renders it), falling back to the English message.  The helper is
+ *  the React projects' `src/lib/field-error.ts`; only the React packs read
+ *  `errorExpr`. */
 function errorAccess(path: string): string {
   const parts = path.split(".");
-  return `errors.${parts.join("?.")}?.message`;
+  return `${FIELD_ERROR_TEXT}(errors.${parts.join("?.")})`;
 }
 
-/** Error access for one sub-field of one dynamic row —
- *  `errors.legs?.[index]?.voyage?.message`.  `arrayPath` is the array field's
- *  dotted path (so a nested array still optional-chains through its parents);
- *  `sub` is the row sub-field's bare name.  `index` is emitted verbatim: it is
- *  the row template's own loop variable, not a value this layer knows. */
+/** Error text for one sub-field of one dynamic row —
+ *  `fieldErrorText(errors.legs?.[index]?.voyage)`.  `arrayPath` is the array
+ *  field's dotted path (so a nested array still optional-chains through its
+ *  parents); `sub` is the row sub-field's bare name.  `index` is emitted
+ *  verbatim: it is the row template's own loop variable, not a value this
+ *  layer knows. */
 function rowErrorAccess(arrayPath: string, sub: string): string {
   const parts = arrayPath.split(".");
-  return `errors.${parts.join("?.")}?.[index]?.${sub}?.message`;
+  return `${FIELD_ERROR_TEXT}(errors.${parts.join("?.")}?.[index]?.${sub})`;
 }
+
+/** The render-time field-error localizer a form's `errorExpr` calls. */
+export const FIELD_ERROR_TEXT = "fieldErrorText";

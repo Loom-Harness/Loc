@@ -54,7 +54,9 @@ import {
   E2E_PACKAGE_JSON,
   E2E_TSCONFIG_JSON,
   PLAYWRIGHT_CONFIG_TS,
-  REACT_LIB_APPLY_SERVER_ERRORS_TS,
+  REACT_LIB_ZOD_RESOLVER_TS,
+  reactLibApplyServerErrorsTs,
+  reactLibFieldErrorTs,
   REACT_LIB_SCHEMAS_MONEY_TS,
   REACT_LIB_STRICT_FIELD_MAP_TS,
 } from "./emit-templates.js";
@@ -396,7 +398,9 @@ export function generateReactForContexts(
   // via the per-action FieldMap instance the form walker passes in.
   // See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/frontend-acl.md.
   out.set("src/lib/strict-field-map.ts", REACT_LIB_STRICT_FIELD_MAP_TS);
-  out.set("src/lib/apply-server-errors.ts", REACT_LIB_APPLY_SERVER_ERRORS_TS);
+  out.set("src/lib/apply-server-errors.ts", reactLibApplyServerErrorsTs(i18nEnabled));
+  out.set("src/lib/field-error.ts", reactLibFieldErrorTs(i18nEnabled));
+  out.set("src/lib/zod-resolver.ts", REACT_LIB_ZOD_RESOLVER_TS);
   // Theme — every generated app gets a tasteful baseline (indigo
   // primary, medium radius, Inter font) so the bare-Mantine
   // "construction site" look is gone by default.  System-level

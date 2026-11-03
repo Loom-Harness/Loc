@@ -202,6 +202,7 @@
       "path": "/api/employees/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Employee {id} not found",
         "instance": "/api/employees/{id}",
         "status": 404,
@@ -228,6 +229,7 @@
       "path": "/api/employees",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/employees",
         "instance": "/api/employees",
         "status": 405,
@@ -241,6 +243,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -254,6 +257,7 @@
       "path": "/api/employees",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/employees",
         "status": 400,
@@ -278,9 +282,11 @@
       "path": "/api/employees/{id}/promote",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
+            "code": "field.missing",
             "message": "newGrade is required",
             "pointer": "/newGrade"
           }

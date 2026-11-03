@@ -101,6 +101,7 @@
       "path": "/api/workflows/ask_for_rating/instances/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "AskForRating {id} not found",
         "instance": "/api/workflows/ask_for_rating/instances/{id}",
         "status": 404,
@@ -199,6 +200,7 @@
       "path": "/api/surveys/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Survey {id} not found",
         "instance": "/api/surveys/{id}",
         "status": 404,
@@ -247,6 +249,7 @@
       "path": "/api/tickets/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Ticket {id} not found",
         "instance": "/api/tickets/{id}",
         "status": 404,
@@ -260,6 +263,7 @@
       "path": "/api/tickets",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/tickets",
         "instance": "/api/tickets",
         "status": 405,
@@ -273,6 +277,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -286,6 +291,7 @@
       "path": "/api/tickets",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/tickets",
         "status": 400,
@@ -299,6 +305,7 @@
       "path": "/api/workflows/ask_for_rating/instances/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "AskForRating {id} not found",
         "instance": "/api/workflows/ask_for_rating/instances/{id}",
         "status": 404,
@@ -312,6 +319,7 @@
       "path": "/api/tickets/{id}/resolve",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Ticket {id} not found",
         "instance": "/api/tickets/{id}/resolve",
         "status": 404,
@@ -325,6 +333,7 @@
       "path": "/api/tickets/{id}/resolve",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Ticket {id} not found",
         "instance": "/api/tickets/{id}/resolve",
         "status": 404,
@@ -338,6 +347,7 @@
       "path": "/api/tickets/{id}/resolve",
       "status": 415,
       "body": {
+        "code": "problem.unsupported-media-type",
         "detail": "Content-Type must be application/json",
         "instance": "/api/tickets/{id}/resolve",
         "status": 415,

@@ -33,6 +33,7 @@
       "path": "/api/trucks/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Truck {id} not found",
         "instance": "/api/trucks/{id}",
         "status": 404,
@@ -121,6 +122,7 @@
       "path": "/api/drivers/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Driver {id} not found",
         "instance": "/api/drivers/{id}",
         "status": 404,
@@ -246,6 +248,7 @@
       "path": "/api/equipments/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Equipment {id} not found",
         "instance": "/api/equipments/{id}",
         "status": 404,
@@ -304,6 +307,7 @@
       "path": "/api/cars/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Car {id} not found",
         "instance": "/api/cars/{id}",
         "status": 404,
@@ -369,6 +373,7 @@
       "path": "/api/trucks/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Truck {id} not found",
         "instance": "/api/trucks/{id}",
         "status": 404,
@@ -418,6 +423,7 @@
       "path": "/api/drivers/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Driver {id} not found",
         "instance": "/api/drivers/{id}",
         "status": 404,
@@ -467,6 +473,7 @@
       "path": "/api/dispatchers/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Dispatcher {id} not found",
         "instance": "/api/dispatchers/{id}",
         "status": 404,
@@ -516,6 +523,7 @@
       "path": "/api/cranes/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Crane {id} not found",
         "instance": "/api/cranes/{id}",
         "status": 404,
@@ -565,6 +573,7 @@
       "path": "/api/forklifts/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Forklift {id} not found",
         "instance": "/api/forklifts/{id}",
         "status": 404,
@@ -578,6 +587,7 @@
       "path": "/api/cars",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/cars",
         "instance": "/api/cars",
         "status": 405,
@@ -591,6 +601,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -604,6 +615,7 @@
       "path": "/api/cars",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/cars",
         "status": 400,
@@ -617,6 +629,7 @@
       "path": "/api/trucks/{id}/archive",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Truck {id} not found",
         "instance": "/api/trucks/{id}/archive",
         "status": 404,
@@ -630,6 +643,7 @@
       "path": "/api/trucks/{id}/archive",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Truck {id} not found",
         "instance": "/api/trucks/{id}/archive",
         "status": 404,
@@ -643,6 +657,7 @@
       "path": "/api/trucks/{id}/archive",
       "status": 415,
       "body": {
+        "code": "problem.unsupported-media-type",
         "detail": "Content-Type must be application/json",
         "instance": "/api/trucks/{id}/archive",
         "status": 415,
@@ -656,6 +671,7 @@
       "path": "/api/cars/{id}/update",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Car {id} not found",
         "instance": "/api/cars/{id}/update",
         "status": 404,

@@ -56,6 +56,7 @@
       "path": "/api/shipments/{id}",
       "status": 403,
       "body": {
+        "code": "problem.forbidden",
         "detail": "Forbidden: currentUser.permissions.contains(permissions.manage) && quantity == 0",
         "instance": "/api/shipments/{id}",
         "status": 403,
@@ -97,6 +98,7 @@
       "path": "/api/shipments/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Shipment {id} not found",
         "instance": "/api/shipments/{id}",
         "status": 404,
@@ -169,6 +171,7 @@
       "path": "/api/crates/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Crate {id} not found",
         "instance": "/api/crates/{id}",
         "status": 404,
@@ -182,6 +185,7 @@
       "path": "/api/shipments",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/shipments",
         "instance": "/api/shipments",
         "status": 405,
@@ -195,6 +199,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -208,6 +213,7 @@
       "path": "/api/shipments",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/shipments",
         "status": 400,
@@ -231,6 +237,7 @@
       "path": "/api/crates/{id}/release",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Crate {id} not found",
         "instance": "/api/crates/{id}/release",
         "status": 404,
@@ -244,6 +251,7 @@
       "path": "/api/crates/{id}/release",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Crate {id} not found",
         "instance": "/api/crates/{id}/release",
         "status": 404,
@@ -257,6 +265,7 @@
       "path": "/api/crates/{id}/release",
       "status": 415,
       "body": {
+        "code": "problem.unsupported-media-type",
         "detail": "Content-Type must be application/json",
         "instance": "/api/crates/{id}/release",
         "status": 415,
@@ -270,9 +279,11 @@
       "path": "/api/shipments/{id}/restock",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
+            "code": "field.missing",
             "message": "by is required",
             "pointer": "/by"
           }
@@ -298,6 +309,7 @@
       "path": "/api/shipments",
       "status": 403,
       "body": {
+        "code": "problem.forbidden",
         "detail": "Forbidden: currentUser.permissions.contains(permissions.manage)",
         "instance": "/api/shipments",
         "status": 403,
@@ -320,6 +332,7 @@
       "path": "/api/crates/{id}",
       "status": 403,
       "body": {
+        "code": "problem.forbidden",
         "detail": "Forbidden: currentUser.permissions.contains(permissions.manage)",
         "instance": "/api/crates/{id}",
         "status": 403,
@@ -340,11 +353,15 @@
       "path": "/api/shipments",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
             "code": "Warehouse.Shipment.rule.shipmentReferenceNeedsAt",
             "message": "A shipment reference needs at least 3 characters",
+            "params": {
+              "reference": "AB"
+            },
             "pointer": "/reference"
           }
         ],
@@ -360,11 +377,15 @@
       "path": "/api/shipments",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
             "code": "Warehouse.Shipment.rule.shipmentReferenceNeedsAt",
             "message": "A shipment reference needs at least 3 characters",
+            "params": {
+              "reference": "AB"
+            },
             "pointer": "/reference"
           }
         ],
@@ -389,6 +410,7 @@
       "path": "/api/shipments/{id}",
       "status": 403,
       "body": {
+        "code": "problem.forbidden",
         "detail": "Forbidden: currentUser.permissions.contains(permissions.manage) && quantity == 0",
         "instance": "/api/shipments/{id}",
         "status": 403,

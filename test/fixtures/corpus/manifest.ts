@@ -1003,6 +1003,16 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "M-T9.42 promotion of the five `intrinsic-trim.test.ts` string copies; the in-memory arms are also rows of the evaluated value table (M-T9.43), the query side is what only a booted backend can answer.",
   },
   {
+    id: "error-codes",
+    title:
+      "every refusal carries its catalog `code` — the refusals no other booted fixture asks for: an out-of-range money, an `extern` stub's 501, a still-referenced delete",
+    doc: "language",
+    // The backends whose `test/_helpers/error-code-rows.ts` row is `done`; a
+    // fan-out backend joins when it flips its row.
+    backends: ["node"],
+    note: "#4473 — the wire golden is the cross-backend answer key for the codes; the other goldens already cover field.missing, the rules, not-found, the state gate, declared errors and the 500.",
+  },
+  {
     id: "unique-conflict",
     title:
       "a `unique (...)` key (single-column and compound) is enforced by the database: a duplicate create or an update into a taken key answers 409 with one RFC 7807 body; a key freed by a destroy can be taken again",

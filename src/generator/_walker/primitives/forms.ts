@@ -29,7 +29,7 @@ import {
 import { frontendRequestNames } from "../../_frontend/request-names.js";
 import { serverSourcedDefaultFields } from "../../_frontend/server-default.js";
 import type { FormFieldVM } from "../../_frontend/view-models.js";
-import { prepareFormFieldVM } from "../form-fields-vm.js";
+import { FIELD_ERROR_TEXT, prepareFormFieldVM } from "../form-fields-vm.js";
 import { GIVE_UP_SENTINEL, giveUp } from "../give-up.js";
 import { opDialogChrome, sentenceChromeName } from "../i18n-chrome.js";
 import {
@@ -496,10 +496,14 @@ function prepareFormFields(
   // Form-runtime imports are framework-shaped: RHF for TSX targets,
   // nothing for runes-based Svelte (the pack's form-of-decls template
   // imports `createForm` itself).  Optional seam with the RHF fallback
-  // so TSX/Vue output is unchanged.
+  // so TSX/Vue output is unchanged.  A React form takes its `zodResolver` from
+  // the project's `src/lib/zod-resolver.ts`, which keeps each issue's catalog
+  // code on the field error so the error localizes when it renders.
   const formImports = ctx.target.formRuntimeImports?.(useController) ?? [
     { from: "react-hook-form", named: useController ? ["useForm", "Controller"] : ["useForm"] },
-    { from: "@hookform/resolvers/zod", named: ["zodResolver"] },
+    ctx.target.framework === "react"
+      ? { from: "../lib/zod-resolver", named: ["zodResolver"] }
+      : { from: "@hookform/resolvers/zod", named: ["zodResolver"] },
   ];
   for (const imp of formImports) {
     for (const n of imp.named) addImport(ctx, imp.from, n);
@@ -528,6 +532,9 @@ function prepareFormFields(
     fieldTokens: (vm: FormFieldVM) => formFieldModelTextTokens(ctx, vm),
   };
   const fieldHtmls = fieldVMs.map((vm) => renderFormField(vm, ctx.pack, fieldChrome));
+  if (fieldHtmls.some((h) => h.includes(`${FIELD_ERROR_TEXT}(`))) {
+    addImport(ctx, "../lib/field-error", FIELD_ERROR_TEXT);
+  }
   for (const vm of fieldVMs) ctx.collectedTestids.add(vm.testId);
   // Field-arrays (`X[]` of a value-object) → one `useFieldArray` per field.  The
   // hook needs `control`, so it forces the controller on; a `useFieldArray`

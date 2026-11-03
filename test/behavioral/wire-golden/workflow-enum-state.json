@@ -150,6 +150,7 @@
       "path": "/api/claims/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Claim {id} not found",
         "instance": "/api/claims/{id}",
         "status": 404,
@@ -163,6 +164,7 @@
       "path": "/api/agencies",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/agencies",
         "instance": "/api/agencies",
         "status": 405,
@@ -176,6 +178,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -189,6 +192,7 @@
       "path": "/api/agencies",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/agencies",
         "status": 400,
@@ -202,6 +206,7 @@
       "path": "/api/workflows/review/instances/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Review {id} not found",
         "instance": "/api/workflows/review/instances/{id}",
         "status": 404,
@@ -215,6 +220,7 @@
       "path": "/api/claims/{id}/file",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Claim {id} not found",
         "instance": "/api/claims/{id}/file",
         "status": 404,
@@ -228,6 +234,7 @@
       "path": "/api/claims/{id}/file",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Claim {id} not found",
         "instance": "/api/claims/{id}/file",
         "status": 404,
@@ -241,6 +248,7 @@
       "path": "/api/claims/{id}/file",
       "status": 415,
       "body": {
+        "code": "problem.unsupported-media-type",
         "detail": "Content-Type must be application/json",
         "instance": "/api/claims/{id}/file",
         "status": 415,
@@ -254,6 +262,7 @@
       "path": "/api/claims/{id}/update",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Claim {id} not found",
         "instance": "/api/claims/{id}/update",
         "status": 404,

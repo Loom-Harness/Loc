@@ -50,11 +50,15 @@
       "path": "/api/tickets",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
             "code": "Tracking.Ticket.rule.estimateCannotNegative",
             "message": "Estimate cannot be negative",
+            "params": {
+              "estimate": -1
+            },
             "pointer": "/estimate"
           }
         ],
@@ -122,6 +126,7 @@
       "path": "/api/tickets/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Ticket {id} not found",
         "instance": "/api/tickets/{id}",
         "status": 404,
@@ -155,6 +160,7 @@
       "path": "/api/tickets",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/tickets",
         "instance": "/api/tickets",
         "status": 405,
@@ -168,6 +174,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -181,6 +188,7 @@
       "path": "/api/tickets",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/tickets",
         "status": 400,
@@ -194,6 +202,7 @@
       "path": "/api/tickets/{id}/update",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Ticket {id} not found",
         "instance": "/api/tickets/{id}/update",
         "status": 404,

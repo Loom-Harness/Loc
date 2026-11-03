@@ -44,15 +44,24 @@
       "path": "/api/accounts/{id}/withdraw",
       "status": 422,
       "body": {
+        "code": "Accounts.Account.rule.insufficientFunds",
         "detail": "Insufficient funds",
         "errors": [
           {
             "code": "Accounts.Account.rule.insufficientFunds",
             "message": "Insufficient funds",
+            "params": {
+              "amount": 50,
+              "balance": 12
+            },
             "pointer": ""
           }
         ],
         "instance": "/api/accounts/{id}/withdraw",
+        "params": {
+          "amount": 50,
+          "balance": 12
+        },
         "status": 422,
         "title": "Unprocessable Entity",
         "type": "about:blank"
@@ -64,15 +73,22 @@
       "path": "/api/accounts/{id}/overdraw",
       "status": 422,
       "body": {
+        "code": "Accounts.Account.rule.balanceCannotNegative",
         "detail": "Balance cannot be negative",
         "errors": [
           {
             "code": "Accounts.Account.rule.balanceCannotNegative",
             "message": "Balance cannot be negative",
+            "params": {
+              "balance": -38
+            },
             "pointer": "/balance"
           }
         ],
         "instance": "/api/accounts/{id}/overdraw",
+        "params": {
+          "balance": -38
+        },
         "status": 422,
         "title": "Unprocessable Entity",
         "type": "about:blank"
@@ -84,15 +100,24 @@
       "path": "/api/accounts/{id}/deposit",
       "status": 422,
       "body": {
+        "code": "Accounts.Account.rule.balanceCannotExceedCeiling",
         "detail": "Balance cannot exceed the ceiling",
         "errors": [
           {
             "code": "Accounts.Account.rule.balanceCannotExceedCeiling",
             "message": "Balance cannot exceed the ceiling",
+            "params": {
+              "balance": 512,
+              "ceiling": 100
+            },
             "pointer": ""
           }
         ],
         "instance": "/api/accounts/{id}/deposit",
+        "params": {
+          "balance": 512,
+          "ceiling": 100
+        },
         "status": 422,
         "title": "Unprocessable Entity",
         "type": "about:blank"
@@ -104,6 +129,7 @@
       "path": "/api/accounts/{id}/drain",
       "status": 422,
       "body": {
+        "code": "problem.domain-floor",
         "detail": "Business rule violated",
         "instance": "/api/accounts/{id}/drain",
         "status": 422,
@@ -192,6 +218,7 @@
       "path": "/api/accounts/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}",
         "status": 404,
@@ -205,6 +232,7 @@
       "path": "/api/accounts",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/accounts",
         "instance": "/api/accounts",
         "status": 405,
@@ -218,6 +246,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -231,6 +260,7 @@
       "path": "/api/accounts",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/accounts",
         "status": 400,
@@ -244,9 +274,11 @@
       "path": "/api/accounts/{id}/withdraw",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
+            "code": "field.missing",
             "message": "amount is required",
             "pointer": "/amount"
           }

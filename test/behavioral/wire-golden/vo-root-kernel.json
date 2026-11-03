@@ -70,11 +70,15 @@
       "path": "/api/shipments",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
             "code": "_system.UnLocode.rule.unLocode5Characters",
             "message": "UN/LOCODE must be 5 characters",
+            "params": {
+              "value": "NL"
+            },
             "pointer": "/tag/value"
           }
         ],
@@ -90,11 +94,15 @@
       "path": "/api/shipments",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
             "code": "_system.UnLocode.rule.unLocode5Characters",
             "message": "UN/LOCODE must be 5 characters",
+            "params": {
+              "value": "DE"
+            },
             "pointer": "/route/origin/value"
           }
         ],
@@ -148,6 +156,7 @@
       "path": "/api/shipments/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Shipment {id} not found",
         "instance": "/api/shipments/{id}",
         "status": 404,
@@ -161,6 +170,7 @@
       "path": "/api/shipments",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/shipments",
         "instance": "/api/shipments",
         "status": 405,
@@ -174,6 +184,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -187,6 +198,7 @@
       "path": "/api/shipments",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/shipments",
         "status": 400,

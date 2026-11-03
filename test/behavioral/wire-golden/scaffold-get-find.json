@@ -28,6 +28,7 @@
       "path": "/api/orders/by_code?code=NOPE",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/orders/by_code",
         "status": 404,
@@ -70,6 +71,7 @@
       "path": "/api/orders/by_code?code=C1",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/orders/by_code",
         "status": 404,
@@ -109,6 +111,7 @@
       "path": "/api/orders/by_code?code=C2",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/orders/by_code",
         "status": 404,
@@ -142,6 +145,7 @@
       "path": "/api/items/by_sku?sku=NOPE",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/items/by_sku",
         "status": 404,
@@ -184,6 +188,7 @@
       "path": "/api/items/by_sku?sku=S1",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/items/by_sku",
         "status": 404,
@@ -223,6 +228,7 @@
       "path": "/api/items/by_sku?sku=S2",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/items/by_sku",
         "status": 404,
@@ -236,6 +242,7 @@
       "path": "/api/orders",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/orders",
         "instance": "/api/orders",
         "status": 405,
@@ -249,6 +256,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -262,6 +270,7 @@
       "path": "/api/orders",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/orders",
         "status": 400,
@@ -275,6 +284,7 @@
       "path": "/api/orders/{id}/update",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/update",
         "status": 404,
