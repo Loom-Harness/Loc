@@ -1368,7 +1368,7 @@ function renderAppFs(
   // walks pass no prefix, and the file is byte-identical to pre-i18n.
   const i18nEnabled = felizI18nEnabled(ui);
   // Two or more locales ship: the Model carries the active `Locale`, `Msg` a
-  // `LocaleChanged` case (dispatched by the `localeSub` subscription whenever
+  // `LocaleChanged` case (dispatched by the listener `init` registers whenever
   // `I18n.setLocale` runs), and the navbar the language picker.
   const localeSwitchable = felizLocaleSwitchable(
     ui,
@@ -1952,10 +1952,7 @@ function renderAppFs(
     persistedStores.length > 0 ? renderUpdateWithPersist() : false,
     storeUrlSub ? "" : false,
     storeUrlSub || undefined,
-    // The locale subscription — `I18n.setLocale` (the switcher, or any caller)
-    // is turned into a `LocaleChanged` message here.
-    localeSwitchable ? "" : false,
-    localeSwitchable ? FELIZ_LOCALE_SUB : false,
+
     // Realtime subscription module (channels.md Part I) — references `Msg`,
     // `Api`, and the reads' `Loaded` cases, so it sits after `update`.
     hasRealtime ? "" : false,
@@ -2017,11 +2014,7 @@ function renderAppFs(
     '|> Program.withErrorHandler (fun (msg, ex) -> Fable.Core.JS.console.error ($"Unhandled error in {msg}:", ex))',
     // `Sub<'msg>` is a LIST of (id, start) pairs, so subscriptions compose by
     // concatenation — `withSubscription` itself takes only one.
-    programSubscription([
-      hasRealtime && "realtimeSub",
-      storeUrlSub && "storeUrlSub",
-      localeSwitchable && "localeSub",
-    ]),
+    programSubscription([hasRealtime && "realtimeSub", storeUrlSub && "storeUrlSub"]),
     '|> Program.withReactSynchronous "root"',
     "|> Program.run",
     "",
@@ -2036,21 +2029,6 @@ function programSubscription(producers: readonly (string | false | undefined)[])
   if (names.length === 1) return `|> Program.withSubscription ${names[0]}`;
   return `|> Program.withSubscription (fun m -> ${names.map((n) => `${n} m`).join(" @ ")})`;
 }
-
-/** The `Msg` case the locale subscription dispatches. */
-export const FELIZ_LOCALE_MSG = "LocaleChanged";
-
-/** `I18n.setLocale` -> `LocaleChanged` — a real Elmish subscription, so the
- *  listener is removed when the program stops. */
-const FELIZ_LOCALE_SUB = lines(
-  "// Active locale -> Elmish: `I18n.setLocale` notifies its listeners, and this",
-  "// subscription turns each change into a `LocaleChanged` message, which updates",
-  "// `Model.Locale` and so re-renders every view (and every `I18n.t` call).",
-  "let private localeSub (_: Model) : Sub<Msg> =",
-  "  let start (dispatch: Msg -> unit) : System.IDisposable =",
-  `    I18n.subscribe (fun tag -> dispatch (${FELIZ_LOCALE_MSG} tag))`,
-  '  [ [ "locale" ], start ]',
-);
 
 /** Fable.SimpleHttp's `Http`, shadowed so every request carries the active
  *  locale.  The `Api` and `Auth` modules keep their ordinary `Http.request …

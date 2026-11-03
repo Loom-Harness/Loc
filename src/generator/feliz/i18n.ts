@@ -48,7 +48,7 @@ export function felizI18nEnabled(ui: UiIR): boolean {
 
 /** The translated locales (everything but the source) the app ships, sorted —
  *  the same list `renderTranslatedCatalogs` keys its catalogs by. */
-export function felizTranslatedLocales(
+function felizTranslatedLocales(
   translations: TranslationCatalogs | undefined,
   source: string,
 ): string[] {
@@ -111,8 +111,8 @@ function catalogBinding(ident: string, catalog: Readonly<Record<string, string>>
  *  directions and aliases are computed HERE, at generate time, so the module
  *  needs no runtime dependency to label or direct a locale.
  *
- *  Reactivity is an Elmish message: `setLocale` notifies `subscribe`rs, the
- *  app's `localeSub` subscription dispatches `LocaleChanged`, and the new
+ *  Reactivity is an Elmish message: `setLocale` notifies the `onChange`
+ *  listener `init` registers, which dispatches `LocaleChanged`, and the new
  *  `Model.Locale` re-renders every view — and so every `I18n.t` call. */
 export function renderFelizI18nModule(
   ui: UiIR,
@@ -230,7 +230,7 @@ export function renderFelizI18nModule(
     "        candidates",
     "        |> List.tryPick (fun candidate ->",
     "            let tag = candidate.Trim().ToLowerInvariant().Replace('_', '-')",
-    '            if tag = "" then',
+    "            if tag.Length = 0 then",
     "                None",
     "            else",
     "                match tagIndex.TryFind tag with",
@@ -242,9 +242,9 @@ export function renderFelizI18nModule(
     "    let private negotiate () : string =",
     "        let candidates =",
     "            [ let url = urlLang ()",
-    '              if url <> "" then yield url',
+    "              if url.Length > 0 then yield url",
     "              let stored = storedChoice ()",
-    '              if stored <> "" then yield stored',
+    "              if stored.Length > 0 then yield stored",
     "              yield! List.ofArray (platformLanguages ()) ]",
     "        defaultArg (matchLocale candidates) sourceLocale",
     "",
@@ -266,12 +266,10 @@ export function renderFelizI18nModule(
     "    /// `Accept-Language` read.",
     "    let getLocale () : string = current",
     "",
-    "    /// Subscribe to locale changes; dispose to unsubscribe.",
-    "    let subscribe (listener: string -> unit) : System.IDisposable =",
+    "    /// Call `listener` with the new tag whenever the locale changes.  The app",
+    "    /// registers one at startup (`init`) that dispatches `LocaleChanged`.",
+    "    let onChange (listener: string -> unit) : unit =",
     "        listeners <- listener :: listeners",
-    "        { new System.IDisposable with",
-    "            member _.Dispose() =",
-    "                listeners <- List.filter (fun l -> not (obj.ReferenceEquals(box l, box listener))) listeners }",
     "",
     "    /// Switch the active locale: persist the choice, update `<html lang dir>` and",
     "    /// notify subscribers.  A tag that names no shipped locale is ignored.",

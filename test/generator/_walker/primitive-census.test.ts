@@ -267,10 +267,6 @@ const GAPS: Readonly<Record<string, string>> = {
     "React is the reference binding of the runtime locale model; this target still renders the placeholder comment until its fan-out slice lands (#4451)",
   "angular/spartanNg|LocaleSwitcher":
     "React is the reference binding of the runtime locale model; this target still renders the placeholder comment until its fan-out slice lands (#4451)",
-  "feliz|LocaleSwitcher":
-    "React is the reference binding of the runtime locale model; this target still renders the placeholder comment until its fan-out slice lands (#4451)",
-  "flutter|LocaleSwitcher":
-    "React is the reference binding of the runtime locale model; this target still renders the placeholder comment until its fan-out slice lands (#4451)",
 };
 
 // --- harness -----------------------------------------------------------------

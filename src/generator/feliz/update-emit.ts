@@ -397,6 +397,12 @@ export function renderInit(
         : `Cmd.OfAsync.perform Api.${r.apiFn} () ${r.msgCase}`,
     );
   if (hasPageCmd) cmds.push("pageCmd page");
+  // `I18n.setLocale` -> `LocaleChanged`: one listener for the life of the app.
+  if (locale) {
+    cmds.push(
+      "Cmd.ofEffect (fun dispatch -> I18n.onChange (fun tag -> dispatch (LocaleChanged tag)))",
+    );
+  }
   // The auth gate probes the session at init (batched with the reads).
   if (authUi) cmds.push("Cmd.OfAsync.perform Auth.checkSession () SessionChecked");
   const cmd =
