@@ -222,10 +222,20 @@ export function schemaFromModule(
     }
     const shape = shapeOf(agg, ctxFor(agg));
     if (shape === "document") {
-      return [withLineageColumns(agg, documentTableForAggregate(agg, aggregateTableName(agg, pool), module.name))];
+      return [
+        withLineageColumns(
+          agg,
+          documentTableForAggregate(agg, aggregateTableName(agg, pool), module.name),
+        ),
+      ];
     }
     if (shape === "embedded") {
-      return [withLineageColumns(agg, embeddedTableForAggregate(agg, aggregateTableName(agg, pool), module.name))];
+      return [
+        withLineageColumns(
+          agg,
+          embeddedTableForAggregate(agg, aggregateTableName(agg, pool), module.name),
+        ),
+      ];
     }
     const out: TableShape[] = [
       withLineageColumns(agg, tableForAggregate(agg, module.name, voLookup, enumLookup)),
