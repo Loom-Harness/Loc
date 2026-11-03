@@ -1,8 +1,7 @@
 // Phase 2.3 — docker-compose sidecars for object-store / queue storages.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseValid } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const SRC = `
 system Sys {
@@ -28,7 +27,7 @@ system Sys {
 
 describe("storage sidecars in docker-compose", () => {
   it("emits a minio service + volume for an s3 storage and a rabbitmq service", async () => {
-    const { files } = generateSystems(await parseValid(SRC));
+    const files = await generateSystemFiles(SRC);
     const compose = files.get("docker-compose.yml")!;
     // quay.io, not docker.io — MinIO's Docker Hub repository no longer exists
     // (`pull access denied for minio/minio`), and a failed pull aborts the
@@ -53,7 +52,7 @@ system Sys {
   deployable api { platform: node, contexts: [Sales], dataSources: [salesState], port: 3000 }
 }
 `;
-    const { files } = generateSystems(await parseValid(postgresOnly));
+    const files = await generateSystemFiles(postgresOnly);
     const compose = files.get("docker-compose.yml")!;
     expect(compose).not.toMatch(/minio|rabbitmq/);
   });

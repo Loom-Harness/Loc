@@ -974,19 +974,9 @@ const WAIVERS: Record<string, Waiver> = {
       "runs only on a predicate `firstNonQueryablePredicate` already admitted, so it walks just the boolean spine (binary / paren / unary); every compound kind that could hide a comparison has been refused by the exhaustive `firstNonQueryableNode` first",
   },
   // Debt: each is a real gap, owned by the issue in its reason.
-  "src/generator/angular/walker/page-shell.ts#renderInitLiteral": {
-    deferred:
-      "#4579: an unlisted init kind (e.g. a negative literal as `unary`) silently mounts at the type's zero",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
   "src/generator/dotnet/workflow-emit.ts#rec": {
     deferred:
       "#4575: the param rewrite skips list / convert / match / … children, leaving an undeclared identifier in the C#",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
-  "src/generator/vue/walker/page-shell.ts#renderInitLiteral": {
-    deferred:
-      "#4579: an unlisted init kind (e.g. a negative literal as `unary`) silently mounts at the type's zero",
     reviewUntil: IF_RUN_GAP_REVIEW,
   },
   "src/system/ui-e2e-render.ts#walk": {

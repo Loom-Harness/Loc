@@ -8,8 +8,7 @@
 // (node-cron is gone) — and that a timer-free deployable is byte-identical.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const WITH_TIMERS = `
 system Reaping {
@@ -49,9 +48,7 @@ system Plain {
 
 describe("timerSource → Hono durable scheduler", () => {
   it("runs cron: on pg-boss (durable + retry + catch-up) and every: in-process", async () => {
-    const { model, errors } = await parseString(WITH_TIMERS);
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(WITH_TIMERS);
     const get = (suffix: string): string =>
       [...files.entries()].find(([k]) => k.endsWith(suffix))?.[1] ?? "";
 
@@ -88,8 +85,7 @@ describe("timerSource → Hono durable scheduler", () => {
   });
 
   it("wires the durable scheduler at boot (async) and swaps node-cron for pg-boss deps", async () => {
-    const { model } = await parseString(WITH_TIMERS);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(WITH_TIMERS);
     const get = (suffix: string): string =>
       [...files.entries()].find(([k]) => k.endsWith(suffix))?.[1] ?? "";
 
@@ -106,8 +102,7 @@ describe("timerSource → Hono durable scheduler", () => {
   });
 
   it("is byte-identical for a timer-free deployable (no scheduler artifacts)", async () => {
-    const { model } = await parseString(NO_TIMERS);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(NO_TIMERS);
     const keys = [...files.keys()];
     expect(keys.some((k) => k.endsWith("d/scheduler.ts"))).toBe(false);
 

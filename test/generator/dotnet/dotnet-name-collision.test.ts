@@ -247,3 +247,55 @@ describe("loom.dotnet-name-collision", () => {
     expect(await collisions(source)).toHaveLength(1);
   });
 });
+
+// A `.ddd` member whose C# name equals a member the dotnet emitter GENERATES on
+// the same class: the root's `Inspect` / `ToString()` / `DomainEvents` /
+// `PullEvents()` and a part's `ParentId`.  Two declarations of one name in one
+// class body — CS0102 / CS0111 — whatever the member's kind or type, so no
+// Color-Color exemption applies.
+describe("loom.dotnet-name-collision — generated members", () => {
+  const ROOT = (decl: string) => `
+    title: string
+    ${decl}
+    operation rename(t: string) { title := t }`;
+
+  for (const [label, decl] of [
+    ["field inspect", `inspect: string = ""`],
+    ["field toString", `toString: string = ""`],
+    ["field domainEvents", `domainEvents: string = ""`],
+    ["function inspect()", "function inspect(): string = title"],
+    ["operation pullEvents()", `operation pullEvents() { title := "" }`],
+  ] as const) {
+    it(`refuses a root ${label}`, async () => {
+      const msgs = await collisions(system(ROOT(decl)));
+      expect(msgs).toHaveLength(1);
+      expect(msgs[0]).toContain("already GENERATES");
+    });
+  }
+
+  it("refuses a part field parentId", async () => {
+    const body = `
+      title: string
+      contains comments: Comment[]
+      entity Comment { body: string  parentId: string = "" }`;
+    const msgs = await collisions(system(body));
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toContain("'Tracking.Issue.Comment'");
+    expect(msgs[0]).toContain("'ParentId'");
+  });
+
+  it("NON-VACUITY: a near name, the `derived inspect` override, the same name on a part and a declared version all compile", async () => {
+    const body = `
+      title: string
+      inspection: string = ""
+      derived inspect: string = title
+      version: int = 0
+      contains comments: Comment[]
+      entity Comment { body: string  inspect: string = "" }`;
+    expect(await collisions(system(body))).toEqual([]);
+  });
+
+  it("is scoped to dotnet — the same model on node is untouched", async () => {
+    expect(await collisions(system(ROOT(`inspect: string = ""`), "node"))).toEqual([]);
+  });
+});

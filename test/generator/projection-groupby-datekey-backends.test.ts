@@ -27,8 +27,7 @@
 // error — hence these regressions.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const SYSTEM = (platform: string) => `system DayKey {
   subdomain Sales { context Orders {
@@ -50,9 +49,7 @@ const SYSTEM = (platform: string) => `system DayKey {
 }`;
 
 async function build(platform: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(SYSTEM(platform));
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(SYSTEM(platform));
 }
 
 function file(files: Map<string, string>, suffix: string): string {
@@ -96,7 +93,7 @@ describe("elixir — computed date grouping key", () => {
 /** A grouped projection with a BARE (untransformed) key — the shape that must
  *  stay byte-identical to the pre-transform emission. */
 async function buildPlainKey(): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(`system Plain {
+  return generateSystemFiles(`system Plain {
   subdomain Sales { context Orders {
     aggregate Order { code: string  placedAt: datetime  total: money }
     repository Orders for Order { }
@@ -110,6 +107,4 @@ async function buildPlainKey(): Promise<Map<string, string>> {
   resource oState { for: Orders, kind: state, use: pg }
   deployable api { platform: elixir contexts: [Orders] dataSources: [oState] serves: SalesApi port: 8080 }
 }`);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
 }

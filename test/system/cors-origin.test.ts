@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 // C8 — backends no longer emit a blanket wildcard CORS.  They read a
 // `CORS_ORIGIN` allowlist (the compose stack pins it to the frontend origins
@@ -66,9 +65,7 @@ system Shop {
 `;
 
 async function filesFor(src: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(src);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(src);
 }
 
 function findFile(files: Map<string, string>, suffix: string): string {
