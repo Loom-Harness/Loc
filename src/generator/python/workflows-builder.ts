@@ -659,7 +659,7 @@ function workflowRoute(
       er ? entryErrorStatusesPy(er, ctx) : [],
       conflictResolver(ctx),
       {
-        readsAggregate: workflowCanAnswerNotFound(wf),
+        readsAggregate: workflowCanAnswerNotFound(wf, ctx),
       },
     )})`,
     // A route-invoked workflow runs in a child frame under the request root, so

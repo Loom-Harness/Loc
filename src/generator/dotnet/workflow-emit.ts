@@ -2513,7 +2513,7 @@ function renderController(
       "workflow",
       workflowIsGuarded(wf),
       wireStatusResolver(ctx.structuralErrorStatuses),
-      { readsAggregate: workflowCanAnswerNotFound(wf) },
+      { readsAggregate: workflowCanAnswerNotFound(wf, ctx) },
     )
       .map((s) => `    [ProducesResponseType(typeof(ProblemDetails), ${s})]\n`)
       .join("");
@@ -2534,7 +2534,7 @@ function renderController(
         workflowIsGuarded(wf),
         wireStatusResolver(ctx.structuralErrorStatuses),
         {
-          readsAggregate: workflowCanAnswerNotFound(wf),
+          readsAggregate: workflowCanAnswerNotFound(wf, ctx),
         },
       ),
     );
