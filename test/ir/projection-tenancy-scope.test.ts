@@ -18,7 +18,7 @@ import { parseString } from "../_helpers/parse.js";
 
 async function diagnose(
   source: string,
-): Promise<{ code: string; message: string; severity: string }[]> {
+): Promise<{ code: string | undefined; message: string; severity: string }[]> {
   const { model } = await parseString(source, { validate: false });
   return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => ({
     code: d.code,
@@ -115,7 +115,7 @@ describe("cross-context query-time projection — `ignoring` resolves the source
 
   it("accepts `ignoring softDeletable` — the capability the home aggregate implements", async () => {
     const diags = await diagnose(crossContext("ignoring softDeletable"));
-    expect(diags.filter((d) => d.code.startsWith("loom.filter-bypass"))).toEqual([]);
+    expect(diags.filter((d) => d.code?.startsWith("loom.filter-bypass"))).toEqual([]);
   });
 
   it("names the home context when `ignoring tenantOwned` drops the tenant floor", async () => {

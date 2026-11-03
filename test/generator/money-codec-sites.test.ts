@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 // Money call sites that must spell a `money` value through the shared Codec
 // fact (src/ir/enrich/codec.ts): a seed-row literal is a Decimal, never a float.
@@ -20,10 +19,8 @@ ${body}
 `;
 }
 
-async function gen(src: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(src);
-  if (errors.length) throw new Error(`fixture errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+function gen(src: string): Promise<Map<string, string>> {
+  return generateSystemFiles(src);
 }
 
 function pick(files: Map<string, string>, re: RegExp): string {

@@ -55,5 +55,9 @@ describe("malformed body id is a 422 field refusal", () => {
       '{:ok, agent} <- __loom_id_param(record, :agent, Map.get(params, "agent"))',
     );
     expect(ctx).toContain('field, "Expected UUID.")');
+    // The id guard builds its own changeset: an id-only context must not carry
+    // the shared error helper, which `mix compile --warnings-as-errors`
+    // rejects as unused.
+    expect(ctx).not.toContain("defp __loom_param_error(");
   });
 });

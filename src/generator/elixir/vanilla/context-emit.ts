@@ -442,10 +442,13 @@ function renderNumericParamHelpers(
   defp __loom_vo_param(record, field, value, _types, _required),
     do: {:error, __loom_param_error(record, field, value, "Invalid value")}
 `;
+  // `__loom_id_param` builds its own changeset, so an id-only context must not
+  // carry the shared error helper (`--warnings-as-errors` rejects it unused).
+  const needsErr = needsDecimal || needsInt || needsInt32 || needsDate || needsVo;
   return `  # Wire-format guards for operation params (M-T6.48).  Each returns
   # \`{:ok, value}\` or \`{:error, changeset}\` — the latter renders as the
   # standard 422 with a \`/<param>\` pointer.
-${err}${needsDecimal ? dec : ""}${needsInt ? int : ""}${needsInt32 ? int32 : ""}${needsDate ? date : ""}${needsId ? id : ""}${needsVo ? vo : ""}`;
+${needsErr ? err : ""}${needsDecimal ? dec : ""}${needsInt ? int : ""}${needsInt32 ? int32 : ""}${needsDate ? date : ""}${needsId ? id : ""}${needsVo ? vo : ""}`;
 }
 
 function renderContextModule(
