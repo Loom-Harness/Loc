@@ -14,8 +14,7 @@
 import { describe, expect, it } from "vitest";
 import { emitVanillaWorkflowInstances } from "../../../src/generator/elixir/vanilla/workflow-instances-emit.js";
 import type { EnrichedBoundedContextIR, WorkflowIR } from "../../../src/ir/types/loom-ir.js";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 function ctxWith(workflows: WorkflowIR[]): EnrichedBoundedContextIR {
   return {
@@ -81,8 +80,7 @@ describe("vanilla foundation — workflow-instance read endpoints", () => {
         deployable api { platform: elixir  contexts: [F]  dataSources: [fState]  port: 4000 }
       }
     `;
-    const { model } = await parseString(SRC, { validate: false });
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SRC);
     const keys = [...files.keys()];
     const schema = keys.find((k) => k.endsWith("/workflows/order_fulfillment_state.ex"));
     const ctrl = keys.find((k) => k.endsWith("/controllers/workflow_instances_controller.ex"));
@@ -134,8 +132,7 @@ describe("workflow-instance LIST wire shape", () => {
   }`;
 
   it("agrees with the array-typed list schema this backend emits for it", async () => {
-    const { model } = await parseString(SRC, { validate: false });
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SRC);
     const schemaKey = [...files.keys()].find((k) =>
       k.endsWith("order_fulfillment_instance_list_response.ex"),
     );

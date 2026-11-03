@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — capability `filter` on a shape: document aggregate
@@ -24,9 +23,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function repo(): Promise<string> {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files.get("api/app/db/repositories/article_repository.py")!;
+  return (await generateSystemFiles(FIXTURE)).get("api/app/db/repositories/article_repository.py")!;
 }
 
 describe("python shape: document capability filter", () => {
@@ -67,10 +64,9 @@ describe("python shape: document capability filter", () => {
   // until the document repository emits criterion reads (capability predicate
   // AND-ed with the criterion over a raw load); then drop `.fails`.
   it.fails("a criterion read's repository method exists (document repository emits none)", async () => {
-    const { model, errors } = await parseString(
-      FIXTURE.replace(
-        /(criterion ArticlesPopular\(min: int\) of Article = this\.viewCount >= min)/,
-        `$1
+    const fixture = FIXTURE.replace(
+      /(criterion ArticlesPopular\(min: int\) of Article = this\.viewCount >= min)/,
+      `$1
       queryHandler GetPopular(min: int): Article {
         if let a = Articles.find(ArticlesPopular(min)) {
           return a
@@ -78,10 +74,8 @@ describe("python shape: document capability filter", () => {
           notFound
         }
       }`,
-      ),
     );
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(fixture);
     expect(files.get("api/app/application/get_popular.py")).toContain(
       "await articles.run_find_all_by_articles_popular(min, limit=1)",
     );

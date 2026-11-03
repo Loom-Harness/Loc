@@ -8,7 +8,7 @@ import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
-import { generateSystems } from "../../src/system/index.js";
+import { generateSystemFilesFromProject } from "../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
@@ -55,9 +55,7 @@ describe("playground storybook examples", () => {
   });
 
   it.each(storybooks)("%s generates a system", async (file) => {
-    const doc = await buildDoc(file);
-    const model = doc.parseResult.value as Model;
-    const { files } = generateSystems(model);
+    const files = await generateSystemFilesFromProject(path.join(repoRoot, file));
     // A Hono + React deployable pair emits both a backend entrypoint and a
     // docker-compose at the system root.
     expect(files.has("docker-compose.yml")).toBe(true);

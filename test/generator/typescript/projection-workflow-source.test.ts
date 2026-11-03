@@ -4,8 +4,7 @@
 // projects instance fields off each row.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   system S {
@@ -34,7 +33,7 @@ const SRC = `
 
 let cache: Map<string, string> | undefined;
 async function routes(): Promise<string> {
-  cache ??= (await generateSystems(await parseValid(SRC))).files;
+  cache ??= await generateSystemFiles(SRC);
   const k = [...cache.keys()].find((key) => key.endsWith("http/query-projections.ts"));
   expect(k, "query-projections.ts not emitted").toBeDefined();
   return cache.get(k!)!;

@@ -7,9 +7,8 @@
 // hand-written (bare) `filter` is never bypassable.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
 import { scopeFn } from "../../_helpers/drizzle-scope.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   system S {
@@ -44,7 +43,7 @@ const SRC = `
 
 let cache: Map<string, string> | undefined;
 async function repo(): Promise<string> {
-  cache ??= (await generateSystems(await parseValid(SRC))).files;
+  cache ??= await generateSystemFiles(SRC);
   const k = [...cache.keys()].find((key) => key.endsWith("db/repositories/order-repository.ts"));
   expect(k, "order-repository.ts not emitted").toBeDefined();
   return cache.get(k!)!;
@@ -132,7 +131,7 @@ const PROJ_SRC = `
 describe("node/Drizzle projection `ignoring` emission", () => {
   let pcache: Map<string, string> | undefined;
   async function projRepo(): Promise<string> {
-    pcache ??= (await generateSystems(await parseValid(PROJ_SRC))).files;
+    pcache ??= await generateSystemFiles(PROJ_SRC);
     const k = [...pcache.keys()].find((key) => key.endsWith("db/repositories/order-repository.ts"));
     expect(k, "order-repository.ts not emitted").toBeDefined();
     return pcache.get(k!)!;

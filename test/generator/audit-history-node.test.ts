@@ -13,8 +13,7 @@
 // (the behavioural harness has none), and the per-target spellings below.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** An audited aggregate with a masked field, a stamp, and a `versioned`
  *  counter — one of each thing the diff boundary must suppress. */
@@ -43,8 +42,7 @@ const MASKED = `system S {
 }`;
 
 async function emitFiles(src: string): Promise<Map<string, string>> {
-  const { model } = await parseString(src);
-  return generateSystems(model).files;
+  return generateSystemFiles(src);
 }
 
 const routesOf = (files: Map<string, string>, agg: string): string => {

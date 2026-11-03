@@ -2,8 +2,7 @@
 // and the remaining objectStore verbs.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
 system Sys {
@@ -34,8 +33,7 @@ system Sys {
 
 describe("hono 4b verb emission", () => {
   it("emits objectStore list/signedUrl/delete helpers + presigner import/dep", async () => {
-    const { model } = await parseString(SRC, { validate: false });
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(SRC);
     const s3 = files.get("api/resources/s3.ts")!;
     expect(s3).toMatch(/getSignedUrl/);
     expect(s3).toMatch(/ListObjectsV2Command/);
@@ -47,8 +45,7 @@ describe("hono 4b verb emission", () => {
   });
 
   it("emits queue enqueue/publish helpers", async () => {
-    const { model } = await parseString(SRC, { validate: false });
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(SRC);
     const mq = files.get("api/resources/rabbitmq.ts")!;
     expect(mq).toMatch(/export async function salesJobs\$enqueue/);
     expect(mq).toMatch(/export async function salesJobs\$publish/);
@@ -56,16 +53,14 @@ describe("hono 4b verb emission", () => {
   });
 
   it("emits api get/post helpers", async () => {
-    const { model } = await parseString(SRC, { validate: false });
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(SRC);
     const api = files.get("api/resources/restApi.ts")!;
     expect(api).toMatch(/export async function salesApi\$get/);
     expect(api).toMatch(/export async function salesApi\$post/);
   });
 
   it("imports every used helper into the workflow file", async () => {
-    const { model } = await parseString(SRC, { validate: false });
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(SRC);
     const wf = files.get("api/http/workflows.ts")!;
     expect(wf).toMatch(/from "\.\.\/resources\/s3"/);
     expect(wf).toMatch(/from "\.\.\/resources\/rabbitmq"/);

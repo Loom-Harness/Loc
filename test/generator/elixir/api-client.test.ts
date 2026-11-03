@@ -15,19 +15,12 @@
 //      resolves atom keys — so without the projection the call succeeds and
 //      the caller cannot read a single field off it.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
 import { resourceEnvUrlVar } from "../../../src/util/resource-env.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 async function emit(src: string) {
-  const services = createDddServices(NodeFileSystem);
-  const helper = parseHelper(services.Ddd);
-  const doc = await helper(src, { validation: true });
-  return generateSystems(doc.parseResult.value as Model).files;
+  return generateSystemFiles(src);
 }
 
 function system(paramType: string): string {

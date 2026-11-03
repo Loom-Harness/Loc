@@ -10,8 +10,8 @@ import {
   type Model,
   type Operation,
 } from "../../src/language/generated/ast.js";
-import { generateSystems } from "../../src/system/index.js";
 import { diagText } from "../_helpers/diagnostics.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // `audited` operation modifier — per-invocation audit records instrumented
@@ -131,7 +131,7 @@ system S {
     context C {
       aggregate Cart audited {
         label: string
-        status: int
+        status: int = 0
         create(label: string) { label := label }
         operation cancel(reason: int) { status := reason }
         private operation recalc() { status := 0 }
@@ -215,8 +215,7 @@ system S {
   });
 
   it("emits the same audit runtime the per-command form does", async () => {
-    const { model } = await parseModel(AGG_WIDE);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(AGG_WIDE);
     const schema = [...files.entries()].find(([p]) => p.endsWith("db/schema.ts"))?.[1] ?? "";
     expect(schema).toContain("audit_records");
     const routes = [...files.entries()].filter(([p]) => p.includes("routes"));
@@ -224,10 +223,9 @@ system S {
   });
 
   it("an aggregate without the flag stays byte-identical (auditing off pays nothing)", async () => {
-    const { model } = await parseModel(
+    const files = await generateSystemFiles(
       AGG_WIDE.replace("aggregate Cart audited", "aggregate Cart"),
     );
-    const files = generateSystems(model).files;
     const schema = [...files.entries()].find(([p]) => p.endsWith("db/schema.ts"))?.[1] ?? "";
     expect(schema).not.toContain("audit_records");
   });
@@ -235,8 +233,7 @@ system S {
 
 describe("audited — TypeScript emission", () => {
   it("adds the audit_records table and writes a row transactionally with the save", async () => {
-    const { model } = await parseModel(SYSTEM());
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SYSTEM());
 
     // DB-only: the audit log is a Drizzle table, not an in-memory SDK file.
     expect(files.has("api/domain/audit.ts")).toBe(false);
@@ -263,8 +260,7 @@ describe("audited — TypeScript emission", () => {
   });
 
   it("stamps the request correlation id + scope id onto the audit row from the carrier", async () => {
-    const { model } = await parseModel(SYSTEM());
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SYSTEM());
     // audit_records carries the governance ids + a correlation index.
     const schema = files.get("api/db/schema.ts")!;
     expect(schema).toContain('correlationId: text("correlation_id")');
@@ -279,8 +275,7 @@ describe("audited — TypeScript emission", () => {
   });
 
   it("instruments only the audited operation, not the plain one", async () => {
-    const { model } = await parseModel(SYSTEM());
-    const routes = generateSystems(model).files.get("api/http/cart.routes.ts")!;
+    const routes = (await generateSystemFiles(SYSTEM())).get("api/http/cart.routes.ts")!;
     // Exactly one audit insert site (cancel); touch is uninstrumented.
     expect(routes.match(/tx\.insert\(schema\.auditRecords\)/g)).toHaveLength(1);
   });
@@ -290,8 +285,7 @@ describe("audited — TypeScript emission", () => {
       "operation cancel(reason: int) audited {",
       "operation cancel(reason: int) {",
     );
-    const { model } = await parseModel(src);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(src);
     expect(files.get("api/db/schema.ts")).not.toContain("auditRecords");
     expect(files.get("api/http/cart.routes.ts")).not.toContain("tx.insert(schema.auditRecords)");
   });
@@ -299,9 +293,7 @@ describe("audited — TypeScript emission", () => {
 
 describe("audited — other-backend no-crash safety", () => {
   it("generates a dotnet deployable for an audited model with no audit code", async () => {
-    const { model, errors } = await parseModel(SYSTEM("", "dotnet"));
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SYSTEM("", "dotnet"));
     // No TS audit artefacts leak into the .NET output.
     expect([...files.keys()].some((p) => p.endsWith("/domain/audit.ts"))).toBe(false);
     expect([...files.keys()].some((p) => /auditRecords/.test(files.get(p)!))).toBe(false);
@@ -340,9 +332,7 @@ system S {
 
 describe("audited — workflow capture", () => {
   it("stages an audit_records row for an audited op invoked inline in a workflow", async () => {
-    const { model, errors } = await parseModel(SYSTEM_WF);
-    expect(errors).toEqual([]);
-    const wf = generateSystems(model).files.get("api/http/workflows.ts")!;
+    const wf = (await generateSystemFiles(SYSTEM_WF)).get("api/http/workflows.ts")!;
     expect(wf).toBeDefined();
     // The audited op runs inside a child frame so its row carries a distinct
     // scope under the request (parentId chains to the root).
@@ -365,9 +355,7 @@ describe("audited — workflow capture", () => {
   it("leaves audit-free workflows without an insert or child frame", async () => {
     // Drop `audited` → no audited op-call → no audit insert, no child frame.
     const src = SYSTEM_WF.replace("audited ", "");
-    const { model, errors } = await parseModel(src);
-    expect(errors).toEqual([]);
-    const wf = generateSystems(model).files.get("api/http/workflows.ts")!;
+    const wf = (await generateSystemFiles(src)).get("api/http/workflows.ts")!;
     expect(wf).not.toContain("schema.auditRecords");
     expect(wf).not.toContain("runInChildContext");
   });
@@ -411,9 +399,7 @@ system S {
 
 describe("audited — reactor capture", () => {
   it("stages an audit_records row for an audited op invoked inline in a reactor", async () => {
-    const { model, errors } = await parseModel(SYSTEM_REACTOR);
-    expect(errors).toEqual([]);
-    const wf = generateSystems(model).files.get("api/http/workflows.ts")!;
+    const wf = (await generateSystemFiles(SYSTEM_REACTOR)).get("api/http/workflows.ts")!;
     expect(wf).toBeDefined();
     // The reactor body runs in a child frame; the audited op stages a row
     // bracketed by before/after wire snapshots, exactly like the workflow path.
@@ -428,9 +414,7 @@ describe("audited — reactor capture", () => {
 
   it("leaves an audit-free reactor without an insert or child frame", async () => {
     const src = SYSTEM_REACTOR.replace("audited ", "");
-    const { model, errors } = await parseModel(src);
-    expect(errors).toEqual([]);
-    const wf = generateSystems(model).files.get("api/http/workflows.ts")!;
+    const wf = (await generateSystemFiles(src)).get("api/http/workflows.ts")!;
     expect(wf).not.toContain("schema.auditRecords");
     expect(wf).not.toContain("runInChildContext");
   });

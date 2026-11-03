@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — `test "…" { … }` blocks → pytest (plan S5).
@@ -16,9 +15,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python test emission", () => {
@@ -84,9 +81,7 @@ system S {
   deployable d { platform: python contexts: [C] dataSources: [st] serves: A port: 4000 }
 }
 `;
-    const { model, errors } = await parseString(src);
-    if (errors.length) throw new Error(errors.join("\n"));
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(src);
     const tests = [...files.entries()].find(([p]) => /tests\/test_order\.py$/.test(p))?.[1];
     expect(tests).toBeDefined();
     expect(tests!).toContain("assert (o.count < o.factor) == False");

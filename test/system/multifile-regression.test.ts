@@ -2,49 +2,21 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
-import { lowerModel, mergeLoomModels } from "../../src/ir/lower/lower.js";
-import { createDddServices } from "../../src/language/ddd-module.js";
-import type { Model } from "../../src/language/generated/ast.js";
-import { loadProject } from "../../src/language/project-loader.js";
-import { generateSystems, generateSystemsFromLoom } from "../../src/system/index.js";
+import { generateSystemFiles, generateSystemFilesFromProject } from "../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
 
-/** Load `entry` as a single document and run the legacy single-file
- *  generator path: parse → lower → enrich → generateSystems. */
-async function generateSingleFile(absoluteSourcePath: string): Promise<Map<string, string>> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(absoluteSourcePath),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  if (errors.length > 0) {
-    throw new Error(
-      `parse errors in ${absoluteSourcePath}:\n${errors.map((e) => `  ${e.message}`).join("\n")}`,
-    );
-  }
-  return generateSystems(doc.parseResult.value as Model).files;
-}
+/** The single-file path: one source string, parsed and generated on its
+ *  own — no project loader, no import graph. */
+const generateSingleFile = (absoluteSourcePath: string): Promise<Map<string, string>> =>
+  generateSystemFiles(fs.readFileSync(absoluteSourcePath, "utf8"));
 
-/** Drive the project-loader path: parse the entry, walk imports,
- *  lower each document, merge, enrich, generate. */
-async function generateProject(absoluteEntryPath: string): Promise<Map<string, string>> {
-  const services = createDddServices(NodeFileSystem);
-  const { all } = await loadProject(URI.file(absoluteEntryPath), services.shared);
-  const errors = all.flatMap((d) => (d.diagnostics ?? []).filter((x) => x.severity === 1));
-  if (errors.length > 0) {
-    throw new Error(`parse errors in project:\n${errors.map((e) => `  ${e.message}`).join("\n")}`);
-  }
-  const merged = mergeLoomModels(all.map((d) => lowerModel(d.parseResult.value as Model)));
-  const loom = enrichLoomModel(merged);
-  return generateSystemsFromLoom(loom).files;
-}
+/** The project-loader path `ddd generate system` takes: parse the entry,
+ *  walk imports, lower the graph as one project, enrich, generate. */
+const generateProject = (absoluteEntryPath: string): Promise<Map<string, string>> =>
+  generateSystemFilesFromProject(absoluteEntryPath);
 
 function expectEqualFileMaps(a: Map<string, string>, b: Map<string, string>): void {
   const aKeys = [...a.keys()].sort();

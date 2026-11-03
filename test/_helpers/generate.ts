@@ -1,6 +1,7 @@
 import { generateDotnet as generateDotnetProject } from "../../src/generator/dotnet/index.js";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel, mergeLoomModels } from "../../src/ir/lower/lower.js";
+import type { EnrichedLoomModel } from "../../src/ir/types/loom-ir.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { assertLoomModelVerifies } from "../../src/ir/verify/verify-ir.js";
 import type { Model } from "../../src/language/generated/ast.js";
@@ -231,6 +232,26 @@ export async function generateSystemResult(
 }
 
 /**
+ * `generateSystemFiles` with `sourceTexts` filled in the way the CLI fills it —
+ * the fixture's own text, keyed by the path of the document it was parsed
+ * into — and that path returned alongside the files.
+ *
+ * A source-mapped emission (`#line` directives, inlined sources) names that
+ * path, and only the parse knows it, so a test asserting on the directives
+ * cannot build `sourceTexts` itself without parsing outside the gated path.
+ */
+export async function generateSystemFilesWithSourceText(
+  source: string,
+  options: Omit<GenerateSystemOptions, "sourceTexts"> = {},
+): Promise<{ files: Map<string, string>; docPath: string }> {
+  const model = await assertGeneratable(source);
+  const docPath = model.$document?.uri.path;
+  if (!docPath) throw new Error("parsed fixture has no backing document — cannot key sourceTexts");
+  const sourceTexts = new Map([[docPath, source]]);
+  return { files: generateSystems(model, { ...options, sourceTexts }).files, docPath };
+}
+
+/**
  * The MULTI-FILE twin of `generateSystemFiles`: load a `.ddd` entry file from
  * disk with the import-graph project loader — the same path `ddd generate
  * system` takes — assert the same three phases, and emit.
@@ -273,13 +294,30 @@ export async function generateSystemFilesFromProject(
     );
   }
   const loom = enrichLoomModel(lowerProject(all.map((d) => d.parseResult.value as Model)));
+  return generateSystemFilesFromLoom(loom, options, absEntryFile);
+}
+
+/**
+ * Emit from an ALREADY-LOWERED, enriched model — after the phases the model
+ * still owes: the ⑤/⑥ verifier and phase ⑦ `validateLoomModel`.
+ *
+ * For a caller whose loader is not the disk one: the playground's VFS loader
+ * hands back documents `generateSystemFilesFromProject` cannot reach.  Phases ①
+ * and ④ are the CALLER's — they live on the documents it parsed, which this
+ * helper never sees — so read their diagnostics before calling it.
+ */
+export async function generateSystemFilesFromLoom(
+  loom: EnrichedLoomModel,
+  options: GenerateSystemOptions = {},
+  context = "loaded model",
+): Promise<Map<string, string>> {
   // Phases ⑤/⑥ then ⑦ — the same order, and the same two calls, the
   // single-source path makes in `assertGeneratable`.
-  assertLoomModelVerifies(loom, absEntryFile);
+  assertLoomModelVerifies(loom, context);
   const irErrors = validateLoomModel(loom).filter((d) => d.severity === "error");
   if (irErrors.length) {
     throw new Error(
-      `${absEntryFile}: ${irErrors.length} IR-validation error(s) (phase ⑦):\n` +
+      `${context}: ${irErrors.length} IR-validation error(s) (phase ⑦):\n` +
         irErrors.map((d) => `  ${d.code ?? "?"} ${d.message}`).join("\n"),
     );
   }
