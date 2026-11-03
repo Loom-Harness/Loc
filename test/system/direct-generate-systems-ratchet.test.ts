@@ -56,7 +56,6 @@ const GATED = new Set(["generateSystems", "generateSystemsFromLoom"]);
  * gated wrapper — and is exempted below rather than pinned.
  */
 const PINNED: readonly string[] = [
-  "test/conformance/corpus-mutation.test.ts",
   "test/generator/dotnet/paged-emit.test.ts",
   "test/generator/dotnet/realtime-emission.test.ts",
   "test/generator/dotnet/vo-invariant-422.test.ts",

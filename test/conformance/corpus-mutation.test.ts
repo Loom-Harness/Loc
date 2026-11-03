@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel, mergeLoomModels } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
-import { generateSystems } from "../../src/system/index.js";
 import type { LspDiagnostic as Diagnostic } from "../_helpers/diagnostics.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseString } from "../_helpers/parse.js";
 import { BACKEND_LABEL, type Backend, PLATFORM_CLAUSE } from "../fixtures/corpus/backends.js";
 import { corpusSource } from "../fixtures/corpus/harness.js";
@@ -59,8 +59,11 @@ function loomCodes(diagnostics: readonly Diagnostic[]): string[] {
     .filter((c) => c.startsWith("loom."));
 }
 
-/** Validate a mutated source once, on `node` — a rejection is model-level, so
- *  it does not depend on which backend the deployable targets.
+/** Validate a mutated source with its deployables on one platform (default
+ *  `node`).  Most rejections are model-level, but not all: a backend-scoped rule
+ *  (`loom.elixir-part-timestamp-field`, say) refuses the model only when an
+ *  elixir deployable hosts it, so arm 2 re-validates per backend before it
+ *  emits.
  *
  *  BOTH validation phases, because the product runs both: `ddd generate` (and
  *  `src/api/index.ts`) call the AST validators AND `validateLoomModel`, and
@@ -72,8 +75,9 @@ function loomCodes(diagnostics: readonly Diagnostic[]): string[] {
  *  and hides real ones (#2512); M-T9.35 measured this one. */
 async function validateOnce(
   source: string,
+  platformClause = "node",
 ): Promise<{ ok: true } | { ok: false; codes: string[]; errors: string[] }> {
-  const specialised = source.replaceAll("__PLATFORM__", "node");
+  const specialised = source.replaceAll("__PLATFORM__", platformClause);
   const { model, diagnostics, errors } = await parseString(specialised);
   if (errors.length > 0) return { ok: false, codes: loomCodes(diagnostics), errors };
   // Phase ⑦ — the same call the CLI and the api toolkit make.
@@ -91,8 +95,7 @@ async function validateOnce(
 /** Emit an already-validated mutated source on one backend, in-memory. */
 async function emitOn(source: string, backend: Backend): Promise<Map<string, string>> {
   const specialised = source.replaceAll("__PLATFORM__", PLATFORM_CLAUSE[backend]);
-  const { model } = await parseString(specialised, { validate: false });
-  return generateSystems(model).files;
+  return generateSystemFiles(specialised);
 }
 
 describe("corpus mutation — reject with a loom.* code, or emit on every declared backend", () => {
@@ -124,8 +127,19 @@ describe("corpus mutation — reject with a loom.* code, or emit on every declar
         }
 
         // Arm 2 — accepted, so it must emit on every backend the feature
-        // declares.  This is where an accepted-but-broken model surfaces.
+        // declares.  This is where an accepted-but-broken model surfaces.  A
+        // backend-scoped refusal is still arm 1 for that backend — honest
+        // only when a `loom.*` rule owns it.
         for (const backend of feature.backends) {
+          const onBackend = await validateOnce(mutated, PLATFORM_CLAUSE[backend]);
+          if (!onBackend.ok) {
+            expect(
+              onBackend.codes,
+              `${feature.id} x ${mutation.id} was rejected on ${BACKEND_LABEL[backend]}, but ` +
+                `by no loom.* rule (seam: ${mutation.seam})\n${onBackend.errors.join("\n")}`,
+            ).not.toHaveLength(0);
+            continue;
+          }
           const files = await emitOn(mutated, backend);
           expect(
             files.size,
