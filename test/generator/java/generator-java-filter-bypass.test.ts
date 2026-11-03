@@ -73,7 +73,7 @@ describe("java generator — `ignoring` filter bypass (§11.6 triage)", () => {
     // `Normal`'s read has no `ignoring` clause → a bare Specification delegate,
     // no Session unwrap.
     expect(impl).toMatch(
-      /public List<Product> runFindAllByProductsNormal\(Integer offset, Integer limit\) \{\s*var result = jpa\.findAll\(ProductCriteria\.ProductsNormal\(\), new OffsetLimitPageRequest\(offset, limit, Sort\.unsorted\(\)\)\)\.getContent\(\);\s*CatalogLog\.event\([^;]*\);\s*return result;\s*\}/,
+      /public List<Product> runFindAllByProductsNormal\(Integer offset, Integer limit\) \{\s*var result = jpa\.findAll\(ProductCriteria\.ProductsNormal\(\), new OffsetLimitPageRequest\(offset, limit, Sort\.by\(Sort\.Order\.asc\("id"\)\)\)\)\.getContent\(\);\s*CatalogLog\.event\([^;]*\);\s*return result;\s*\}/,
     );
     const handler = files.get(`${WORKFLOWS}/NormalHandler.java`)!;
     expect(handler).toContain("productsRepository.runFindAllByProductsNormal(null, 1)");

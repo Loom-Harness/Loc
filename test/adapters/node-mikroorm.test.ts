@@ -229,7 +229,7 @@ describe("mikroorm — context retrievals (DEBT-17)", () => {
     // sort → orderBy.
     expect(repo).toContain(
       'await em.find(OrderRow, { status: "Confirmed", quantity: { $gte: min } }, ' +
-        '{ limit: page?.limit, offset: page?.offset, orderBy: { placedAt: "desc" } });',
+        '{ limit: page?.limit, offset: page?.offset, orderBy: { placedAt: "desc", id: "asc" } });',
     );
     // Reuses the shared flat hydration seam (no bulk-load of containments).
     expect(repo).toContain("Order._rehydrate({");
@@ -296,7 +296,7 @@ describe("mikroorm — widened find predicates (bare boolean / unary NOT)", () =
     const repo = files.get("api/db/repositories/order-repository.ts")!;
     // Each criterion's read (`find(C)` runs its `findAllBy<C>`) carries the
     // lowered FilterQuery.
-    const PAGE = "{ limit: page?.limit, offset: page?.offset }";
+    const PAGE = '{ limit: page?.limit, offset: page?.offset, orderBy: { id: "asc" } }';
     expect(repo).toContain(`await em.find(OrderRow, { active: true }, ${PAGE})`);
     expect(repo).toContain(`await em.find(OrderRow, { active: false }, ${PAGE})`);
     expect(repo).toContain(
@@ -355,7 +355,7 @@ describe("mikroorm — `filter` capability predicates", () => {
     expect(repo).toContain("await em.findOne(OrderRow, { id: id as string });");
     expect(repo).toContain("await em.find(OrderRow, { id: { $in: ids as string[] } });");
     expect(repo).toContain(
-      "await em.find(OrderRow, { customer: customer }, { limit: page?.limit, offset: page?.offset });",
+      'await em.find(OrderRow, { customer: customer }, { limit: page?.limit, offset: page?.offset, orderBy: { id: "asc" } });',
     );
     expect(repo).toContain("await em.find(OrderRow, {}, { limit: pageSize,");
     expect(repo).not.toContain('status: "Active"');
@@ -400,7 +400,7 @@ describe("mikroorm — `filter` capability predicates", () => {
     );
     // …so the plain read states only its own where…
     expect(repo).toContain(
-      "async runFindAllByOrdersActive(customer: string, page?: { offset?: number; limit?: number }): Promise<Order[]> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const rows = await em.find(OrderRow, { customer: customer }, { limit: page?.limit, offset: page?.offset });",
+      'async runFindAllByOrdersActive(customer: string, page?: { offset?: number; limit?: number }): Promise<Order[]> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const rows = await em.find(OrderRow, { customer: customer }, { limit: page?.limit, offset: page?.offset, orderBy: { id: "asc" } });',
     );
     // …and a read that bypasses it by name or with `*` switches that filter off.
     expect(repo).toContain(
@@ -450,7 +450,7 @@ describe("mikroorm — principal-referencing (tenancy) `filter` predicates", () 
     const repo = files.get("api/db/repositories/account-repository.ts")!;
     expect(repo).toContain("await em.findOne(AccountRow, { id: id as string });");
     expect(repo).toContain(
-      "await em.find(AccountRow, { balance: { $gte: min } }, { limit: page?.limit, offset: page?.offset });",
+      'await em.find(AccountRow, { balance: { $gte: min } }, { limit: page?.limit, offset: page?.offset, orderBy: { id: "asc" } });',
     );
     expect(repo).not.toContain("requireCurrentUser");
     // The scope is a real FilterQuery, not a dropped/stubbed predicate.

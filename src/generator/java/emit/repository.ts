@@ -1,3 +1,4 @@
+import { readSortFor } from "../../../ir/enrich/read-scope.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import { envelopeReturn } from "../../../ir/stdlib/generics.js";
@@ -117,19 +118,21 @@ export interface JavaRepoCtx {
 // entity emitter declared, not the `.ddd` name.
 const dottedSortPath = (t: SortTermIR): string => t.path.map((s) => jid(s.name)).join(".");
 
-/** `Sort.by(Sort.Order.asc("a.b"), …)` for the Specification path. */
+/** `Sort.by(Sort.Order.asc("a.b"), …, Sort.Order.asc("id"))` for the
+ *  Specification path — the declared terms with the `id` tie-break, or `id`
+ *  alone (`readSortFor`), never `Sort.unsorted()`. */
 function springSort(sort: readonly SortTermIR[]): string {
-  if (sort.length === 0) return `${SORT}.unsorted()`;
-  const orders = sort.map(
+  const orders = readSortFor(sort).map(
     (t) => `${SORT}.Order.${t.direction}(${JSON.stringify(dottedSortPath(t))})`,
   );
   return `${SORT}.by(${orders.join(", ")})`;
 }
 
-/** ` order by e.a.b asc, …` for the JPQL path. */
+/** ` order by e.a.b asc, …, e.id asc` for the JPQL path (`readSortFor`). */
 function jpqlOrderBy(sort: readonly SortTermIR[]): string {
-  if (sort.length === 0) return "";
-  return ` order by ${sort.map((t) => `e.${dottedSortPath(t)} ${t.direction}`).join(", ")}`;
+  return ` order by ${readSortFor(sort)
+    .map((t) => `e.${dottedSortPath(t)} ${t.direction}`)
+    .join(", ")}`;
 }
 
 /** A `sort:` term as a chained accessor key extractor over `x`

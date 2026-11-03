@@ -7,6 +7,7 @@
 // logic change.
 // -------------------------------------------------------------------------
 
+import { readSortFor } from "../../../ir/enrich/read-scope.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -551,12 +552,12 @@ export function mikroRetrievalMethod(
       `  }`,
     );
   }
+  // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`).
   // Only the first path segment (a direct column) is used in v1 — nested /
   // collection sort paths are gated by validateRetrievals, same as drizzle.
-  const orderBy =
-    r.sort.length > 0
-      ? `, orderBy: { ${r.sort.map((s) => `${s.path[0]!.name}: "${s.direction}"`).join(", ")} }`
-      : "";
+  const orderBy = `, orderBy: { ${readSortFor(r.sort)
+    .map((s) => `${s.path[0]!.name}: "${s.direction}"`)
+    .join(", ")} }`;
   return lines(
     `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
     `    const em = this.em.fork({ keepTransactionContext: true });`,

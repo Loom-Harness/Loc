@@ -143,7 +143,7 @@ describe("dotnet method locals yield to a same-named .ddd param", () => {
     expect(spec).toContain(
       "public RetPSpec(string p, string sql, string conn, string pg, string x)",
     );
-    expect(spec).toContain("Query.Where(__x => __x.Label == p && __x.Label == x);");
+    expect(spec).toContain("Query.Where(__x => __x.Label == p && __x.Label == x).OrderBy(__x => __x.Id);");
 
     // Control.
     const calm = files.get(CALM_REPO)!;
@@ -152,7 +152,7 @@ describe("dotnet method locals yield to a same-named .ddd param", () => {
     );
     expect(calm).toContain("var __q = _db.Calms.AsQueryable();");
     expect(files.get("d/Domain/Calms/RetCalmSpec.cs")!).toContain(
-      "Query.Where(x => x.Label == v);",
+      "Query.Where(x => x.Label == v).OrderBy(x => x.Id);",
     );
   });
 

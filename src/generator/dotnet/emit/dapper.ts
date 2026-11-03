@@ -20,6 +20,7 @@
 // `text` (`.ToString()` / `Enum.Parse`).
 // ---------------------------------------------------------------------------
 
+import { readSortFor } from "../../../ir/enrich/read-scope.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -1968,15 +1969,10 @@ export function renderDapperRepository(
         `        => throw new NotImplementedException("Dapper v1 does not support this retrieval's predicate.");`,
       );
     }
-    const orderSql =
-      r.sort.length > 0
-        ? ` ORDER BY ${r.sort
-            .map(
-              (s) =>
-                `${sqlIdent(snake(s.path[0]!.name))} ${s.direction === "desc" ? "DESC" : "ASC"}`,
-            )
-            .join(", ")}`
-        : "";
+    // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`).
+    const orderSql = ` ORDER BY ${readSortFor(r.sort)
+      .map((s) => `${sqlIdent(snake(s.path[0]!.name))} ${s.direction === "desc" ? "DESC" : "ASC"}`)
+      .join(", ")}`;
     // A retrieval's `ignoring` clause arrives at RUNTIME (the `FilterBypass
     // bypass` port param a workflow's inline `Repo.run(...) ignoring …` binds),
     // so unlike the find path the SQL cannot be decided at emit time: the

@@ -1,4 +1,4 @@
-import { readFilterRestrictions, readScopeFor } from "../../ir/enrich/read-scope.js";
+import { readFilterRestrictions, readScopeFor, readSortFor } from "../../ir/enrich/read-scope.js";
 import { forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import {
@@ -698,12 +698,12 @@ function runMethod(
     `retrieval '${retrieval.name}' on '${agg.name}'`,
     lowerToSqlAlchemy(where, agg, ctx, principalOpts(where)),
   );
-  const orderBy =
-    retrieval.sort.length > 0
-      ? `.order_by(${retrieval.sort
-          .map((t) => `${root}.${pythonIdent(t.path[0]!.name)}.${t.direction}()`)
-          .join(", ")})`
-      : "";
+  // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`)
+  // — never the database's physical order, so a criterion `find` taking the
+  // first match answers the same row as every other backend.
+  const orderBy = `.order_by(${readSortFor(retrieval.sort)
+    .map((t) => `${root}.${pythonIdent(t.path[0]!.name)}.${t.direction}()`)
+    .join(", ")})`;
   const params = [
     "self",
     ...retrieval.params.map(

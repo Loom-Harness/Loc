@@ -132,13 +132,12 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
   ),
   // node/drizzle orders every read with no declared order by `id` (the
   // read-scope order).  The other legs still answer Postgres's physical order,
-  // which moves a row an `update` rewrote to the end, so the three reads below
+  // which moves a row an `update` rewrote to the end, so the two reads below
   // that list a row after updating it come back in a different order.  Each
   // entry goes when that backend's reads take the `id` order.
   ...(
     [
       ["projection-join", "GET /api/projections/order_with_customer"],
-      ["prefix-filter", "GET /api/docs/under/root"],
       ["datetime-wire", "GET /api/projections/slot_board"],
     ] as const
   ).map(
