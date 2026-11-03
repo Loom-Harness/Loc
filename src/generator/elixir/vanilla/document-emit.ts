@@ -102,6 +102,7 @@ import {
 } from "./operation-returns-emit.js";
 import { renderEctoDefault } from "./schema-emit.js";
 import { stampAssignmentPairs, stampUsesPrincipal, stampUsesPrincipalFor } from "./stamp-emit.js";
+import { decideArmBeforePersist, returnCanFail } from "./union-return-emit.js";
 import { savesLockVersion } from "./version-check-ex.js";
 /** True iff the aggregate's effective saving shape is `document` (binding-aware,
  *  matching the migration + validator).  `sys` may be absent in a few legacy
@@ -176,7 +177,7 @@ function castType(t: TypeIR): string {
     case "primitive":
       return exEctoScalarType(t.name);
     case "id":
-      return exEctoIdType(t.valueType);
+      return exEctoIdType();
     case "enum":
       return ":string";
     case "valueobject":
@@ -1243,6 +1244,19 @@ export function renderDocReturningOpFunction(
       `        ${trailingReturnLine}`,
       "",
     ]);
+  }
+
+  // A trailing `return match { … }` that can answer an error arm decides its
+  // arm before the write, so the error arm persists nothing.
+  if (
+    persists &&
+    trailingReturn?.armVariants &&
+    trailingReturnLine !== undefined &&
+    returnCanFail(trailingReturn, (tag) =>
+      ctx.payloads.some((p) => p.name === tag && p.kind === "error"),
+    )
+  ) {
+    tailLines = decideArmBeforePersist(`    ${trailingReturnLine}`, tailLines);
   }
 
   // `record = row.data` is live when the body reads/writes it, a persist reads it

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../_helpers/generate.js";
-import { generateSystemFiles, parseValid } from "../../_helpers/index.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
+import { generateSystemFiles } from "../../_helpers/index.js";
 
 // Mirrors the Hono seed fixture (string / int / enum / value-object fields),
 // targeting a `platform: dotnet` deployable.  Namespace derives from the
@@ -65,17 +65,16 @@ describe("dotnet database seeding (Phase 3a, domain path)", () => {
     expect(seed).toContain("private static async Task SeedDemo(");
   });
 
-  it("also emits the seeder via the legacy per-context `generate dotnet` path", async () => {
-    // The build gate runs `ddd generate dotnet <file>` (legacy, per-context),
-    // not `generate system` — so the per-context path must emit Seed.cs too.
+  it("also emits the seeder for a bare context hosted on one deployable", async () => {
+    // A context-only fixture (no hand-written `system`) wrapped in the minimal
+    // hosting system must emit Seed.cs too.
     const TOP_LEVEL = `context Catalog {
       enum Tier { Free, Pro }
       aggregate Widget with crudish { name: string size: int tier: Tier derived display: string = name }
       repository Widgets for Widget { }
       seed default { Widget { name: "Alpha", size: 1, tier: Free } }
     }`;
-    const model = await parseValid(TOP_LEVEL);
-    const files = generateDotnet(model);
+    const files = await generateBackendFiles(TOP_LEVEL, "dotnet");
     const seed = [...files].find(([k]) => /Seed\.cs$/.test(k))?.[1];
     expect(seed).toBeDefined();
     expect(seed!).toContain('Widget.Create(name: "Alpha", size: 1, tier: Tier.Free)');

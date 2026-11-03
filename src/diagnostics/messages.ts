@@ -708,6 +708,17 @@ export const DIAGNOSTIC_MESSAGES = {
   // src/language/validators/duplicates.ts
   // ----------------------------------------------------------------------
   // The two APPLICATION handler kinds share one route-target namespace.
+  "loom.duplicate-repository": (p: {
+    name: unknown;
+    agg: unknown;
+    first: unknown;
+    ctxName: unknown;
+  }) =>
+    `Repository '${p.name}' is a second repository for aggregate '${p.agg}' in context ` +
+    `'${p.ctxName}'; '${p.first}' already serves it. An aggregate has one repository — every ` +
+    `repository exposes the same verb contract, so a second one is only another name for the ` +
+    `same store. Use '${p.first}' and remove '${p.name}'.`,
+
   "loom.duplicate-handler": (p: { name: unknown; ctxName: unknown; kind: unknown }) =>
     `Duplicate handler '${p.name}' in context '${p.ctxName}'; a ${p.kind} shares its name ` +
     `with another handler. A 'route -> ${p.ctxName}.${p.name}' would ` +
@@ -1258,6 +1269,9 @@ export const DIAGNOSTIC_MESSAGES = {
     `${p.where} constructs '${p.name} { … }', an entity part of aggregate '${p.ownerName}'. ` +
     `An entity part is built only inside the aggregate that owns it — outside it there is nothing to hold it: ` +
     `call an operation on '${p.ownerName}' that adds the part, passing its fields as plain parameters.`,
+  "loom.id-target-not-identity": (p: { name: unknown; kind: unknown; hint: unknown }) =>
+    `'${p.name} id' names ${p.kind} '${p.name}', which has no identity — only aggregates and entity parts carry an id. ` +
+    `Reference an aggregate or an entity part instead${p.hint}.`,
   "loom.ambiguous-part-ref": (p: { name: unknown; list: unknown; names: unknown }) =>
     `Ambiguous entity-part reference '${p.name} id' — '${p.name}' is declared in ${p.list}. ` +
     `Entity parts are aggregate-local; reference the owning aggregate's root instead (e.g. '${p.names} id'), ` +
@@ -3811,6 +3825,34 @@ export const DIAGNOSTIC_MESSAGES = {
     `'ignoring' clause. No 'auth { enforcement: }' mode restores the filter — ` +
     `'enforcement: opt' checks nothing and 'requires true' satisfies ` +
     `'enforcement: denyByDefault' while still leaking.`,
+  // A folded read model's row is written by the fold, not by a tenant's
+  // command, so it carries no tenant column and its generated read routes no
+  // tenant predicate: under `tenancy by` every tenant would read every other
+  // tenant's rows.  Refused until a fold can carry the event's tenant.
+  "loom.tenancy-folded-projection-unscoped": (p: {
+    name: unknown;
+    ctxName: unknown;
+    events: unknown;
+    claim: unknown;
+  }) =>
+    `Projection '${p.ctxName}.${p.name}' folds ${p.events} into a read model under ` +
+    `'tenancy by user.${p.claim}', but a folded projection's rows carry no tenant and its ` +
+    `generated read routes apply no tenant predicate, so every tenant would read every ` +
+    `other tenant's rows. Read the source aggregate through a query-time projection ` +
+    `instead ('from <Aggregate> as a … select …', optionally 'group by'), which applies ` +
+    `the aggregate's own tenant floor on every backend.`,
+  "loom.projection-cross-context-source-unsupported": (p: {
+    name: unknown;
+    ctxName: unknown;
+    source: unknown;
+    homeName: unknown;
+    platform: unknown;
+  }) =>
+    `Query-time projection '${p.ctxName}.${p.name}' reads '${p.source}' row by row from ` +
+    `context '${p.homeName}', but '${p.platform}' synthesises a per-row projection's source ` +
+    `read only on a repository in the projection's own context. Declare the projection in ` +
+    `'${p.homeName}', or aggregate it ('select n = count()', 'group by'), which reads the ` +
+    `table directly.`,
   "loom.filter-bypass-no-filter": (p: {
     site: unknown;
     ctxName: unknown;
@@ -4781,14 +4823,12 @@ export const DIAGNOSTIC_MESSAGES = {
     claimField: unknown;
     claimType: unknown;
     registryName: unknown;
-    idValueType: unknown;
-    idValueType2: unknown;
   }) =>
     `system '${p.name}': tenancy claim 'user.${p.claimField}' is typed ` +
-    `'${p.claimType}' but registry '${p.registryName}' has a ${p.idValueType} id. ` +
+    `'${p.claimType}' but registry '${p.registryName}' has a guid id. ` +
     `The derived registry self-scope filter compares ${p.registryName}.id to the claim, so ` +
-    `declare the claim as '${p.claimField}: ${p.idValueType}'` +
-    `${p.idValueType2}.`,
+    `declare the claim as '${p.claimField}: guid'` +
+    ` (or '${p.claimField}: string', bound as a guid at the accessor site).`,
   "loom.tenant-owned-claim-type": (p: { name: unknown; claimField: unknown; claimType: unknown }) =>
     `system '${p.name}': tenancy claim 'user.${p.claimField}' is typed ` +
     `'${p.claimType}' but 'tenantOwned' provides 'tenantId: string' — the ` +

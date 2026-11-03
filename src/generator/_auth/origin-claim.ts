@@ -23,12 +23,12 @@ export type OriginClaimLang = "csharp" | "java" | "python" | "elixir";
 export function claimFromOriginString(t: TypeIR, s: string, lang: OriginClaimLang): string | null {
   if (t.kind === "id") {
     const cls = `${t.targetName}Id`;
-    const inner = scalarFrom(t.valueType, s, lang);
+    const inner = scalarFrom("guid", s, lang);
     switch (lang) {
       case "csharp":
       case "java":
         return `new ${cls}(${inner})`;
-      // python ids are `NewType("<T>Id", str)` whatever the value type.
+      // python ids are `NewType("<T>Id", str)`.
       case "python":
         return `${cls}(${s})`;
       // Phoenix's principal is an untyped map; the claim is the bare scalar.

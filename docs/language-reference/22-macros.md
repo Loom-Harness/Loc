@@ -340,6 +340,55 @@ commandHandler RenameProduct(productId: Product id, cmd: RenameProductCommand) {
 ```
 ::: end
 
+An operation whose result is an expected failure (`T or E`, a union with an `error` variant) gets a handler that answers that result: the handler declares it and returns each variant from its own arm, so the error answers its mapped status and rolls the command back (see [Expected failures](13-workflows.md#expected-failures)). An operation without an `error` variant keeps the bare call.
+
+::: tabs macro
+== written
+```ddd
+context Sales with scaffoldHandlers {
+  error Unsettled { code: string }
+  aggregate Order with crudish {
+    code: string
+    paid: int
+    operation close(): Order or Unsettled {
+      if paid == 0 { return Unsettled { code: code } }
+      code := "closed"
+      return this
+    }
+  }
+  repository OrderRepo for Order { }
+}
+```
+== expanded
+```ddd
+commandHandler CloseOrder(orderId: Order id): Order or Unsettled {
+  let o = OrderRepo.get(orderId)
+  let r = o.close()
+  match r {
+    Order v => { return v }
+    Unsettled v => { return v }
+  }
+}
+```
+== generated (node)
+```ts
+// http/shopApi-routes.ts — POST /close/{orderId}
+switch (r.type) {
+  case "Order": {
+    const v = r;
+    handlerResult = { type: "Order", ...(orderRepo.toWire(await orderRepo.getById(Ids.OrderId(String(v.id)))) as Record<string, unknown>) };
+    break;
+  }
+  case "Unsettled": {
+    const v = r;
+    handlerResult = { type: "Unsettled", ...(v as Record<string, unknown>) };
+    break;
+  }
+}
+if (handlerResult.type === "Unsettled") throw __rollback;   // 409 problem+json, nothing written
+```
+::: end
+
 `scaffoldPaged(of: <Criterion | Retrieval>)` (target `context`) is the ergonomic paged read — one `queryHandler` over the read-only port, and the way a named read reaches the wire (a `criterion` / `retrieval` has no route of its own). The macro reads its argument's kind:
 
 ::: tabs macro

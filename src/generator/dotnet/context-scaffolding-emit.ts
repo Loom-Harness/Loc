@@ -82,12 +82,10 @@ export function emitIds(ctx: BoundedContextIR, ns: string, out: Map<string, stri
       : undefined;
     out.set(
       `Domain/Ids/${agg.name}Id.cs`,
-      tphRoot
-        ? renderTphConcreteIdAlias(agg.name, tphRoot, ns)
-        : renderId(agg.name, agg.idValueType, ns),
+      tphRoot ? renderTphConcreteIdAlias(agg.name, tphRoot, ns) : renderId(agg.name, ns),
     );
     for (const part of agg.parts) {
-      out.set(`Domain/Ids/${part.name}Id.cs`, renderId(part.name, agg.idValueType, ns));
+      out.set(`Domain/Ids/${part.name}Id.cs`, renderId(part.name, ns));
     }
   }
 }

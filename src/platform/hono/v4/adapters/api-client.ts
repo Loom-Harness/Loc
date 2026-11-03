@@ -55,6 +55,7 @@ function aggregateNamed(sys: SystemIR, name: string): AggregateIR | undefined {
  *  path/query can carry are strings on the wire; a body param takes the
  *  callee's request shape, which we keep as the zod-inferred type. */
 function tsParamType(t: TypeIR): string {
+  if (t.kind === "array") return `${tsParamType(t.element)}[]`;
   if (t.kind === "id") return "string";
   if (t.kind === "primitive") {
     switch (t.name) {

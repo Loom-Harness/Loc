@@ -85,10 +85,20 @@ function checkUnionPosition(t: TypeRef, accept: ValidationAcceptor): void {
   accept("error", diagMessage("loom.union-position"), { node: t, code: "loom.union-position" });
 }
 
-/** True when the union variant names an `error` payload. */
+/** True when the union variant names an `error` payload.  A variant a macro
+ *  built carries a plain, never-linked `{ $refText }` reference (it resolves
+ *  by name, as lowering reads it), so an unlinked one is looked up by name
+ *  among the model's `error` records. */
 function isErrorAtom(a: TypeRef | TypeAtom): boolean {
-  const target = isNamedType(a.base) ? a.base.target?.ref : undefined;
-  return isPayloadDecl(target) && target.kind === "error";
+  if (!isNamedType(a.base)) return false;
+  const ref = a.base.target;
+  if (ref?.ref) return isPayloadDecl(ref.ref) && ref.ref.kind === "error";
+  const name = ref?.$refText;
+  if (!name) return false;
+  for (const n of AstUtils.streamAllContents(AstUtils.findRootNode(a))) {
+    if (isPayloadDecl(n) && n.kind === "error" && n.name === name) return true;
+  }
+  return false;
 }
 
 /** Stable structural key for a variant atom — base identity plus the postfix

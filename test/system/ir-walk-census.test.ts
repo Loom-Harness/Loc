@@ -974,33 +974,14 @@ const WAIVERS: Record<string, Waiver> = {
       "runs only on a predicate `firstNonQueryablePredicate` already admitted, so it walks just the boolean spine (binary / paren / unary); every compound kind that could hide a comparison has been refused by the exhaustive `firstNonQueryableNode` first",
   },
   // Debt: each is a real gap, owned by the issue in its reason.
-  "src/ir/types/loom-ir.ts#exprUsesMoney": {
-    deferred:
-      "#4580: hand-recurses a fixed kind set, missing money under list / convert / variant-match arms / lambda blocks",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
   "src/generator/_frontend/store-field-init.ts#renderStoreInitLiteral": {
     deferred:
       "#4664: an unlisted init kind (ternary / convert / duration) silently becomes the type's zero",
     reviewUntil: IF_RUN_GAP_REVIEW,
   },
-  "src/generator/_walker/walker-core.ts#isWalkableLayoutBody": {
-    deferred:
-      "#4574: misses `paren` and variant-form `match` arms, so react/svelte drop the page silently",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
   "src/generator/dotnet/workflow-emit.ts#rec": {
     deferred:
       "#4575: the param rewrite skips list / convert / match / … children, leaving an undeclared identifier in the C#",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
-  "src/generator/python/workflows-builder.ts#hasAssign": {
-    deferred: "#4576: skips `variant-match` bodies, so the scratch `self` is not seeded",
-    reviewUntil: IF_RUN_GAP_REVIEW,
-  },
-  "src/ir/validate/checks/context-filter-checks.ts#collectBypassRepoRuns": {
-    deferred:
-      "#4577: skips `variant-match` bodies, so filter-bypass diagnostics are not raised there",
     reviewUntil: IF_RUN_GAP_REVIEW,
   },
   "src/system/ui-e2e-render.ts#walk": {

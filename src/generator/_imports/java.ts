@@ -26,6 +26,12 @@ export function javaRef(pkg: string, name: string): string {
   return ref(javaType(pkg, name));
 }
 
+/** A reference satisfied by `import <pkg>.*;`: spells as the bare `<name>`, and
+ *  the unit gains the on-demand import iff the marker survives into its text. */
+export function javaOnDemandRef(pkg: string, name: string): string {
+  return ref({ lang: "java", module: pkg, name, onDemand: true });
+}
+
 /** The line a unit places where its import block goes when it has no
  *  hand-written import left (replaced by the derived block, or removed). */
 export const JAVA_IMPORTS = "java-imports";
@@ -118,6 +124,13 @@ export function finalizeJavaUnit(text: string, opts: FinalizeJavaOptions = {}): 
 
   const plain = new Set(region.plain);
   const onDemand = new Set(region.plain.filter((p) => p.endsWith(".*")).map((p) => p.slice(0, -2)));
+  // Referenced on-demand packages first, so a single-type reference from the
+  // same package is suppressed whatever the order the two were first used in.
+  for (const s of used) {
+    if (!s.onDemand) continue;
+    onDemand.add(s.module);
+    plain.add(`${s.module}.*`);
+  }
   // Simple-name collision: a referenced type against another referenced type
   // or a single-type hand import of the same simple name from elsewhere.
   const bySimple = new Map<string, string>();
@@ -126,6 +139,7 @@ export function finalizeJavaUnit(text: string, opts: FinalizeJavaOptions = {}): 
   }
   const seen = new Set<string>();
   for (const s of used) {
+    if (s.onDemand) continue;
     if (seen.has(symbolKey(s))) continue;
     seen.add(symbolKey(s));
     const fq = `${s.module}.${s.name}`;
