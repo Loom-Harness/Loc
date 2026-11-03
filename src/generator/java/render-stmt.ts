@@ -37,7 +37,7 @@ export interface JavaTraceCtx {
    *  records the event AND folds it via `_apply(ev)` so in-memory state
    *  reflects the transition before the command returns. */
   eventSourced?: boolean;
-  /** True when rendering an aggregate OPERATION body: a messaged
+  /** True when rendering an aggregate OPERATION body: a named
    *  `precondition` then throws its wire code and pointer too (M-T1.11 (c)). */
   domainFloorCodes?: boolean;
 }

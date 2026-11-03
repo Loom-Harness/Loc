@@ -17,15 +17,18 @@ import {
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
+import { csNsRef, csUsing } from "../../_imports/dotnet.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { PG_FOREIGN_KEY_VIOLATION, PG_UNIQUE_VIOLATION } from "../../_persistence/pg-sqlstate.js";
 import type { ReturnUnionSpec } from "../cqrs/controller.js";
+import { sortedCsUsings } from "../cs-symbols.js";
 import { csLocalNamer } from "../local-names.js";
 import {
   csFieldInvalidProblem,
   csFieldInvalidResult,
   csFixedDetail,
   csLit,
+  csMalformedIdMessage,
   csMissingSuffixLit,
   csNotFoundException,
   csProducesProblem,
@@ -35,6 +38,9 @@ import {
   wireStatusResolver,
 } from "../wire-policy-cs.js";
 import { dotnetFindAbsenceThrow } from "./common.js";
+
+/** FluentValidation's `ValidateAndThrow` extension. */
+const FLUENT = csNsRef("FluentValidation");
 
 /** Controller action method name = PascalCase of the shared operationId,
  *  so Program.cs's `CustomOperationIds` (lower-first of the action name)
@@ -383,7 +389,7 @@ export function renderController(
     ];
   });
 
-  const extraUsingsLines = (shape.extraUsings ?? []).map((n) => `using ${n};`);
+  const extraUsingsLines = sortedCsUsings(shape.extraUsings ?? []);
   // The `Commands` namespace exists only when at least one command file is
   // emitted for the aggregate (cqrs-emit gates them on exactly these three
   // facts): a REST create, a canonical destroy, or an operation.  A read-only
@@ -401,11 +407,9 @@ export function renderController(
       "using Mediator;",
       "using Microsoft.AspNetCore.Mvc;",
       "using Microsoft.Extensions.Logging;",
-      // FluentValidation's `ValidateAndThrow` extension — only when some action
-      // runs a VO-request validator (VO-invariant → 422), else CS8019 unused.
-      shape.createRequestValidator || shape.publicOps.some((o) => o.requestValidator)
-        ? "using FluentValidation;"
-        : null,
+      // FluentValidation's `ValidateAndThrow` extension — rendered iff some
+      // action runs a VO-request validator (VO-invariant → 422).
+      csUsing("FluentValidation"),
       hasCommands ? `using ${ns}.Application.${plural(agg.name)}.Commands;` : null,
       // `Application.Common` holds the shared `AuditEntry` shape the history
       // action returns — imported only when that action is emitted, so a
@@ -448,7 +452,9 @@ export function renderController(
             // constructing the throwing domain VOs below, so a malformed VO
             // field is a FluentValidation 422 (errors[]) not a domain 400.
             ...(shape.createRequestValidator
-              ? [`        new ${shape.createRequestValidator}().ValidateAndThrow(request);`]
+              ? [
+                  `        new ${shape.createRequestValidator}()${FLUENT}.ValidateAndThrow(request);`,
+                ]
               : []),
             `        var cmd = new Create${agg.name}Command(`,
             ...createBody,
@@ -706,7 +712,7 @@ export function renderOperationActionBlock(
     // VO-invariant → 422: validate the wire request before constructing the
     // throwing domain VOs, so a malformed VO field is a 422 not a 400.
     ...(op.requestValidator
-      ? [`        new ${op.requestValidator}().ValidateAndThrow(request);`]
+      ? [`        new ${op.requestValidator}()${FLUENT}.ValidateAndThrow(request);`]
       : []),
     ...wireInLine,
     // Business-narrative line — what the controller was asked to do,
@@ -835,13 +841,13 @@ export function renderExceptionFilter(
      *  (byte-identical default). */
     structuralStatuses?: Record<string, number>;
     /** True when this project ships `Localization/LoomMessages.cs` — the 422 arm
-     *  then resolves each messaged rule's wire `code` against the catalog for the
+     *  then resolves each named rule's wire `code` against the catalog for the
      *  request locale.  False ⇒ byte-identical to pre-catalog output (M-T1.11). */
     localizeMessages?: boolean;
     /** True when a hosted value object declares an invariant — the filter then
      *  carries the `ValueObjectInvariantException` arm (M-T5.1). */
     valueObjectInvariants?: boolean;
-    /** True when a messaged aggregate rule can trip at the domain floor — the
+    /** True when a named aggregate rule can trip at the domain floor — the
      *  filter then answers a `DomainException` carrying a `RuleCode` with the
      *  same errors[] entry (M-T1.11 (c)). */
     domainFloorCodes?: boolean;
@@ -889,12 +895,12 @@ export function renderExceptionFilter(
   // A value object refused inside a domain body (M-T5.1) — the domain-floor
   // status plus one RFC 7807 errors[] entry: the whole-request pointer "" (the
   // value was computed by the body, so it names no request member), the rule's
-  // message and, for a messaged rule, its content-hash code.  Ahead of the
+  // message and, for a named rule, its identity-key code.  Ahead of the
   // DomainException arm; absent (byte-identical) when no hosted value object
   // declares an invariant, since nothing else raises the exception.
   // ONE arm template for both refusals that answer the domain floor WITH an
   // errors[] entry — the value object refused inside a body (M-T5.1, pointer
-  // "") and the messaged invariant / check / precondition (M-T1.11 (c), the
+  // "") and the named invariant / check / precondition (M-T1.11 (c), the
   // rule's own pointer) — so the two can never drift into different bodies.
   const domainFloorErrorsArm = (
     match: string,
@@ -944,8 +950,8 @@ export function renderExceptionFilter(
         "voProblem",
       )
     : "";
-  // The messaged domain-floor rule (M-T1.11 (c)) — only a `DomainException`
-  // that CARRIES a code takes it; a message-less rule falls through to the
+  // The named domain-floor rule (M-T1.11 (c)) — only a `DomainException`
+  // that CARRIES a code takes it; an unnamed rule falls through to the
   // plain domain-floor arm below, unchanged.
   const domainFloorCodeArm = options?.domainFloorCodes
     ? domainFloorErrorsArm(
@@ -1533,6 +1539,11 @@ public static class ValidationProblem
             error.Exception?.Message ?? error.ErrorMessage;
         static bool IsTypeMismatch(ModelError error) =>
             MismatchText(error).StartsWith("The JSON value could not be converted", StringComparison.Ordinal);
+        // An id (a Guid on the wire) that is not a uuid is the same field
+        // refusal with the fact's malformed-id sentence: System.Text.Json
+        // names the target type in its text.
+        static bool IsMalformedId(ModelError error) =>
+            MismatchText(error).Contains("System.Guid", StringComparison.Ordinal);
         var mismatched = context.ModelState
             .Where(entry => entry.Value is not null && entry.Value.Errors.Any(IsTypeMismatch))
             .ToArray();
@@ -1543,7 +1554,9 @@ public static class ValidationProblem
                 .Select(entry => new Dictionary<string, object>
                 {
                     ["pointer"] = PointerOf(entry.Key.TrimStart('$').TrimStart('.')),
-                    ["message"] = ${csLit(csTypeMismatchMessage())},
+                    ["message"] = entry.Value!.Errors.Any(IsMalformedId)
+                        ? ${csLit(csMalformedIdMessage())}
+                        : ${csLit(csTypeMismatchMessage())},
                 })
                 .ToArray();
             return ${csFieldInvalidResult("mismatchProblem", "            ")};

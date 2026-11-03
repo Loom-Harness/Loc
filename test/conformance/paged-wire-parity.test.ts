@@ -19,8 +19,7 @@
 import { describe, expect, it } from "vitest";
 import { genericShape } from "../../src/ir/stdlib/generics.js";
 import { lowerFirst } from "../../src/util/naming.js";
-import { generateDotnet, generateHono, generateSystemFiles } from "../_helpers/generate.js";
-import { parseValid } from "../_helpers/parse.js";
+import { generateBackendFiles, generateSystemFiles } from "../_helpers/generate.js";
 
 // The canonical wire key order, straight from the single source of truth.
 const CANONICAL = genericShape("paged")
@@ -59,7 +58,7 @@ system PagedShop {
 
 /** Ordered keys of the Hono `OrderPaged` zod object. */
 async function honoKeys(): Promise<string[]> {
-  const files = generateHono(await parseValid(CONTEXT));
+  const files = await generateBackendFiles(CONTEXT, "node");
   const routes = files.get("http/order.routes.ts")!;
   const body = routes.match(/export const OrderPaged = z\.object\(\{([^}]*)\}\)/)![1]!;
   return [...body.matchAll(/(\w+):/g)].map((m) => m[1]!);
@@ -68,7 +67,7 @@ async function honoKeys(): Promise<string[]> {
 /** Ordered fields of the .NET generic `Paged<T>` record, lower-cased to the
  *  JSON wire form (System.Text.Json camelCases record properties). */
 async function dotnetKeys(): Promise<string[]> {
-  const files = generateDotnet(await parseValid(CONTEXT));
+  const files = await generateBackendFiles(CONTEXT, "dotnet");
   const common = files.get("Domain/Common/DomainException.cs")!;
   const params = common.match(/record Paged<T>\(([^)]*)\)/)![1]!;
   return params.split(",").map((p) => lowerFirst(p.trim().split(/\s+/).pop()!));

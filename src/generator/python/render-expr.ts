@@ -125,6 +125,12 @@ const PY_TARGET: ExprTarget<PyRenderContext> = {
   unary: (op, operand) => (op === "!" ? `not ${operand}` : `${op}${operand}`),
   binary: renderBinary,
   ternary: (cond, then, otherwise) => `(${then} if ${cond} else ${otherwise})`,
+  // A one-element comprehension binds the left once without a walrus (illegal
+  // inside a comprehension's iterable, where `all(...)`/`sum(...)` receivers
+  // land) and keeps the fallback lazy.  The comprehension scope isolates the
+  // name, so nested coalesces cannot collide.
+  coalesce: (left, fallback) =>
+    `[__c if __c is not None else ${fallback} for __c in (${left},)][0]`,
   convert: (value, e) => renderPyConvert(e.target, e.from, value),
   // Transparent i18n wrapper (M-T1.11) — drop the format, emit the operand.
   i18nFormat: (inner) => inner,
@@ -284,11 +290,11 @@ function renderRef(e: RefExpr, ctx: PyRenderContext): string {
       }
       // Wire DTO (`wireField`): an operation's params ARE the request model's
       // own fields, carried verbatim in camelCase — exactly like `this-prop`
-      // below.  Without this the `@model_validator` refine for a messaged (or
+      // below.  Without this the `@model_validator` refine for a named (or
       // cross-field) PRECONDITION rendered a bare `amount >= 1`, which is an
       // `F821 Undefined name` — a NameError at request time.  It went unseen
-      // because a message-LESS single-field precondition never reaches the
-      // refine (it becomes `Field(ge=1)`), and no fixture compiled a messaged
+      // because an UNNAMED single-field precondition never reaches the
+      // refine (it becomes `Field(ge=1)`), and no fixture compiled a named
       // one until `test/fixtures/corpus/validation-messages.ddd`.
       if (ctx.wireField) return `${ctx.thisName}.${pythonWireIdent(e.name)}`;
       return pythonIdent(e.name);

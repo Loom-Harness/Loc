@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — project-shell emission (plan S2).
@@ -39,9 +38,7 @@ const FIXTURE = `system PyShell {
 `;
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python project shell", () => {
@@ -138,14 +135,12 @@ describe("python project shell", () => {
   });
 
   it("camelCase deployable names fold to a snake slug in project name + DSN", async () => {
-    const { model, errors } = await parseString(
+    const files = await generateSystemFiles(
       FIXTURE.replace(/deployable api/, "deployable opsApi").replace(
         /contexts: \[Ops\]/,
         "contexts: [Ops]",
       ),
     );
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
     expect(files.get("ops_api/pyproject.toml")!).toContain('name = "ops_api"');
     expect(files.get("ops_api/app/settings.py")!).toContain("5432/ops_api");
   });

@@ -46,6 +46,7 @@
 // ---------------------------------------------------------------------------
 
 import type {
+  AggregateIR,
   BoundedContextIR,
   EnrichedAggregateIR,
   ExprIR,
@@ -55,6 +56,7 @@ import type {
 } from "../types/loom-ir.js";
 import { groupedAggregates, wholeTableAggregates } from "./projection-aggregate.js";
 import { resolveProjectionColumn, sourceMemberChain } from "./projection-column.js";
+import { projectionSourceAggregate } from "./projection-source.js";
 import { effectiveSavingShape, resolveDataSourceConfig } from "./resolve-datasource.js";
 import { walkExprDeep } from "./walk.js";
 
@@ -148,8 +150,10 @@ export function columnlessProjectionSource(
 ): string | null {
   if (!readsAggregateTableDirectly(queryProjectionArm(proj))) return null;
   const source = proj.query?.source;
-  const agg = ctx.aggregates.find((a) => a.name === source) as EnrichedAggregateIR | undefined;
-  if (!agg) return null;
+  const home = sourceHome(proj, ctx, sys);
+  if (!home) return null;
+  const agg = home.agg as EnrichedAggregateIR;
+  const srcCtx = home.ctx;
   if (agg.persistedAs === "eventLog") {
     return (
       `aggregates over event-sourced aggregate '${source}', which has no state table to ` +
@@ -162,7 +166,10 @@ export function columnlessProjectionSource(
       `no table of its own — each concrete is a separate table`
     );
   }
-  const shape = effectiveSavingShape(agg, sys ? resolveDataSourceConfig(agg, ctx, sys) : undefined);
+  const shape = effectiveSavingShape(
+    agg,
+    sys ? resolveDataSourceConfig(agg, srcCtx, sys) : undefined,
+  );
   if (shape === "document") {
     // A document table is the `(id, data, version)` triple and nothing else
     // (`documentTableForAggregate`, src/system/migrations-builder.ts), so `id`
@@ -183,7 +190,7 @@ export function columnlessProjectionSource(
   // field, a collection, and a whole value object all read fine on a hydrated
   // domain object and have no column behind them — see projection-column.ts.
   for (const chain of directTableChains(proj.query!)) {
-    const resolved = resolveProjectionColumn(chain, agg, ctx);
+    const resolved = resolveProjectionColumn(chain, agg, srcCtx);
     if (resolved && !resolved.ok) return resolved.reason;
   }
   return null;
@@ -202,12 +209,25 @@ export function documentAggregationSource(
   sys: SystemIR | undefined,
 ): EnrichedAggregateIR | undefined {
   if (!readsAggregateTableDirectly(queryProjectionArm(proj))) return undefined;
-  const agg = ctx.aggregates.find((a) => a.name === proj.query?.source) as
-    | EnrichedAggregateIR
-    | undefined;
-  if (!agg) return undefined;
-  const shape = effectiveSavingShape(agg, sys ? resolveDataSourceConfig(agg, ctx, sys) : undefined);
+  const home = sourceHome(proj, ctx, sys);
+  if (!home) return undefined;
+  const agg = home.agg as EnrichedAggregateIR;
+  const shape = effectiveSavingShape(
+    agg,
+    sys ? resolveDataSourceConfig(agg, home.ctx, sys) : undefined,
+  );
   return shape === "document" ? agg : undefined;
+}
+
+/** `proj`'s source aggregate in its HOME context — which may be another
+ *  context of the system than `ctx`, the one hosting `proj`. */
+function sourceHome(
+  proj: ProjectionIR,
+  ctx: BoundedContextIR,
+  sys: SystemIR | undefined,
+): { agg: AggregateIR; ctx: BoundedContextIR } | undefined {
+  const contexts = sys ? sys.subdomains.flatMap((sd) => sd.contexts) : [];
+  return projectionSourceAggregate(proj, ctx, contexts);
 }
 
 /** Human labels for the CAPABILITY filters a direct-table aggregation over

@@ -55,7 +55,7 @@ export interface PyStmtCtx {
    *  routes it to the co-located `_<field>_provenance` backing field, and
    *  pushes it onto the per-request ContextVar buffer via `record(...)`. */
   emitProvenance?: boolean;
-  /** True when rendering an aggregate OPERATION body: a messaged
+  /** True when rendering an aggregate OPERATION body: a named
    *  `precondition` then raises its wire code and pointer too (M-T1.11 (c)). */
   domainFloorCodes?: boolean;
 }
@@ -320,9 +320,10 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
       const v = renderPyExpr(s.value);
       if (!s.variantTag) return `${i}return ${v}`;
       const tag = JSON.stringify(s.variantTag);
-      // `return this` in the aggregate's own arm carries the tag alone: the
-      // aggregate is not a mapping, and the route answers its wire projection.
-      if (s.value.kind === "this") return `${i}return {"type": ${tag}}`;
+      // `return this` in the aggregate's own arm carries the tag and the id:
+      // the aggregate is not a mapping, so its answer is the wire projection a
+      // route or handler reads back by that id.
+      if (s.value.kind === "this") return `${i}return {"type": ${tag}, "id": self.id}`;
       const tagged =
         s.variantShape === "none"
           ? `{"type": ${tag}}`

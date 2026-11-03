@@ -46,7 +46,7 @@ system Ports {
         position: int
         derived assignedShip: Ship id = ship
         function servesShip(other: Ship id): bool = ship == other
-        invariant position > 0 message "A berth position starts at 1"
+        invariant berthPositionStartsAt: position > 0
       }
 
       aggregate Dock with crudish {

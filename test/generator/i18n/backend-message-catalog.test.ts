@@ -53,7 +53,7 @@ ${domain}
   }
 `;
 
-/** A message-LESS twin of `DOMAIN` — the byte-identical baseline. */
+/** An UNNAMED twin of `DOMAIN` — the byte-identical baseline. */
 const NO_MESSAGES = `
       aggregate Product {
         name: string
@@ -114,7 +114,7 @@ describe(".NET — Localization/LoomMessages.cs + exception-filter resolution", 
     expect(filter).toContain("LoomMessages.Localize(e.ErrorCode, e.ErrorMessage)");
   });
 
-  it("routes a messaged PRECONDITION onto the carrier with its text + code", async () => {
+  it("routes a named PRECONDITION onto the carrier with its text + code", async () => {
     // The op validator dropped `message` when lifting preconditions, silently
     // downgrading an authored precondition to the generic text and
     // costing it the wire `code` every other backend keyed.
@@ -162,7 +162,7 @@ describe("python/FastAPI — app/i18n.py + validation-handler resolution", () =>
 });
 
 describe("elixir/Phoenix — priv/gettext catalog + changeset-error resolution", () => {
-  it("emits the authored messages into the gettext catalog, keyed as msgctxt", async () => {
+  it("emits the rule texts into the gettext catalog, keyed as msgctxt", async () => {
     const files = await filesFor("elixir");
     const po = bySuffix(files, "priv/gettext/en/LC_MESSAGES/default.po")!;
     expect(po).toBeDefined();
@@ -176,7 +176,7 @@ describe("elixir/Phoenix — priv/gettext catalog + changeset-error resolution",
 
   it("emits the Gettext backend + hex dep for an API-only deployable (no ui)", async () => {
     // The gettext runtime used to be gated on the mounted ui having strings, so
-    // a JSON-API deployable with an authored message had no catalog to resolve.
+    // a JSON-API deployable with an rule text had no catalog to resolve.
     const files = await filesFor("elixir");
     expect(bySuffix(files, "_web/gettext.ex")).toBeDefined();
     expect(bySuffix(files, "mix.exs")).toContain("{:gettext,");
@@ -261,7 +261,7 @@ describe("cross-backend parity", () => {
     expect(problem).toContain('String.split(";")');
   });
 
-  it("a system with no authored message emits no catalog and no lookup", async () => {
+  it("a system with no rule text emits no catalog and no lookup", async () => {
     for (const [platform, suffix] of [
       ["node", "http/messages.ts"],
       ["dotnet", "Localization/LoomMessages.cs"],

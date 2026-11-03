@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolveToSource } from "../../src/ir/types/origin.js";
-import { generateSystems } from "../../src/system/index.js";
 import { toOriginRef, type WireOriginRef, type WireSourceRef } from "../../src/trace/resolve.js";
-import { parseString, parseValid } from "../_helpers/index.js";
+import { generateSystemFiles, generateSystemFilesWithSourceText } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Round-trip test for the `--sourcemap` artifact (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md
@@ -109,6 +108,9 @@ system SourceMapDemo {
       // reuse for boot tests.
       workflow notifyPlaced {
         orderId: Order id
+        // A reactor needs a starter to route to (loom.reactor-without-starter);
+        // this command create names the correlation field.
+        create(orderId: Order id) { }
         on(o: OrderPlaced) by o.order {
           let order = Orders.get(o.order)
           order.confirm()
@@ -242,28 +244,12 @@ function stripAllowImportingTsExtensions(content: string): string {
   return `${JSON.stringify(cfg, null, 2)}\n`;
 }
 
-// `langium/test`'s `parseHelper` mints the in-memory doc's URI from a
-// module-global counter (`/1.ddd`, `/2.ddd`, …) that keeps incrementing
-// across every `it` in this file — never assume `/1.ddd`.  Parse with
-// `parseString` (which returns the `LangiumDocument`, unlike `parseValid`)
-// and read the REAL path back off `doc.uri.path` so `sourceTexts` is keyed
-// correctly regardless of how many earlier tests already parsed something.
-async function parseWithSourceTexts(
-  source: string,
-): Promise<{ model: Awaited<ReturnType<typeof parseValid>>; sourceTexts: Map<string, string> }> {
-  const { model, doc, errors } = await parseString(source, { validate: true });
-  if (errors.length) throw new Error(`unexpected validation errors:\n${errors.join("\n")}`);
-  return { model, sourceTexts: new Map([[doc.uri.path, source]]) };
-}
-
 describe(".loom/sourcemap.json", () => {
   it("is absent by default, and output is otherwise byte-identical to a --sourcemap run", async () => {
-    const { model, sourceTexts } = await parseWithSourceTexts(SOURCE);
-    const withoutFlag = generateSystems(model).files;
-    const withFlag = generateSystems(model, {
+    const withoutFlag = await generateSystemFiles(SOURCE);
+    const { files: withFlag } = await generateSystemFilesWithSourceText(SOURCE, {
       sourcemap: true,
-      sourceTexts,
-    }).files;
+    });
 
     expect(withoutFlag.has(".loom/sourcemap.json")).toBe(false);
     expect([...withoutFlag.keys()].some((p) => p.endsWith(".map"))).toBe(false);
@@ -320,8 +306,7 @@ describe(".loom/sourcemap.json", () => {
   });
 
   it("emits a well-formed artifact when the flag is on", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json");
     expect(raw).toBeDefined();
     expect(raw!.endsWith("\n")).toBe(true);
@@ -340,8 +325,7 @@ describe(".loom/sourcemap.json", () => {
   // the wire artifact stays version 1 (additive field) but at least one
   // region on the TS/Hono aggregate file now carries a real `targetCol`.
   it("carries targetCol on the node backend's confirm() RHS region — additive, version unchanged", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       version: number;
@@ -374,8 +358,7 @@ describe(".loom/sourcemap.json", () => {
   // the two new kinds this test proves land a real targetCol region —
   // recomputed straight from the emitted content, the #1744 pattern.
   it("carries targetCol on an emit field expr and a precondition predicate (M17 slice 4 widening)", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<
@@ -418,8 +401,7 @@ describe(".loom/sourcemap.json", () => {
     )!;
     const productContent = files.get(productPath)!;
     const productRegions = map.files[productPath]!;
-    const preLine =
-      productContent.split("\n").findIndex((l) => l.includes("this._price > 0")) + 1;
+    const preLine = productContent.split("\n").findIndex((l) => l.includes("this._price > 0")) + 1;
     expect(preLine).toBeGreaterThan(0);
     const preMarked = productRegions.filter(
       (r) =>
@@ -443,8 +425,7 @@ describe(".loom/sourcemap.json", () => {
   });
 
   it("every recorded region resolves to a real source span and a sane target range", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       sources: string[];
@@ -503,8 +484,7 @@ describe(".loom/sourcemap.json", () => {
   it.each(
     BRACKETED,
   )("bracketed platform %s maps at least one file per aggregate", async (platform) => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<string, { construct?: string }[]>;
@@ -535,8 +515,7 @@ describe(".loom/sourcemap.json", () => {
   // and its origin is the `macro` kind a scaffolded ui always carries,
   // resolving to a real `.ddd` span.
   it("react frontend maps page files under the ui name, each with a macro origin resolving to source", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<string, { construct?: string; origin: WireOriginRef }[]>;
@@ -632,8 +611,7 @@ describe(".loom/sourcemap.json", () => {
     tokens,
     wholeFile,
   }) => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<
@@ -652,7 +630,7 @@ describe(".loom/sourcemap.json", () => {
     expect(path, `no ${file} region recorded under ${slug}/`).toBeDefined();
     const regions = map.files[path!]!;
     const content = files.get(path!)!;
-    // This suite's `generateSystems` call above passes no `sourceTexts`, so
+    // This suite's generate call above passes no `sourceTexts`, so
     // the .NET `#line` weave (M7 phase 6a, gated on BOTH `sourcemap` AND
     // `sourceTexts`) never fires here — the sub-region line math below stays
     // exactly the pre-M7 shape regardless of platform.
@@ -802,8 +780,7 @@ describe(".loom/sourcemap.json", () => {
     file,
     wholeFile,
   }) => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<
@@ -955,8 +932,7 @@ describe(".loom/sourcemap.json", () => {
     construct,
     wholeFile,
   }) => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<
@@ -1031,8 +1007,7 @@ describe(".loom/sourcemap.json", () => {
     platform,
     file,
   }) => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const map = JSON.parse(files.get(".loom/sourcemap.json")!) as {
       files: Record<
         string,
@@ -1134,8 +1109,7 @@ describe(".loom/sourcemap.json", () => {
     token,
     wholeFile,
   }) => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const map = JSON.parse(files.get(".loom/sourcemap.json")!) as {
       files: Record<
         string,
@@ -1194,8 +1168,7 @@ describe(".loom/sourcemap.json", () => {
   // REACTOR_STMT_CASES / merged-event-sourced-bodies / STMT_CASES cases
   // above, each carrying an `elixir` row.
   it("elixir's per-context module carries no stray confirmOrder-construct regions outside the dedicated workflow file", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<string, { target: [number, number]; construct?: string }[]>;
@@ -1286,16 +1259,13 @@ function decodeMappings(mappings: string): DecodedSegment[] {
 
 describe("Source Map v3 sidecars", () => {
   it("emits valid Source Map v3 sidecars for the node backend", async () => {
-    const { model, sourceTexts } = await parseWithSourceTexts(SOURCE);
-    const [sourcePath] = sourceTexts.keys();
-    const files = generateSystems(model, {
+    const { files, docPath: sourcePath } = await generateSystemFilesWithSourceText(SOURCE, {
       sourcemap: true,
-      sourceTexts,
       // The full-map assertions below (index-aligned `sourcesContent`) are
       // about the opt-in shape; the default omits the inlined text — see
       // `sourcemap-v3.test.ts` "omits sourcesContent unless the caller opts in".
       inlineSources: true,
-    }).files;
+    });
 
     const tsPath = "hono_api/domain/order.ts";
     const mapPath = `${tsPath}.map`;
@@ -1385,8 +1355,7 @@ describe("Source Map v3 sidecars", () => {
   });
 
   it("without sourceTexts, flag-on emits no v3 sidecars (honest skip)", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
 
     expect([...files.keys()].some((p) => p.endsWith(".map"))).toBe(false);
     for (const content of files.values()) {
@@ -1400,8 +1369,7 @@ describe("Source Map v3 sidecars", () => {
   // `.map` sidecar + trailing directive exactly like a Hono `.ts` file does,
   // with zero new code in the v3 loop itself.
   it("free-rides the v3 loop for a react .tsx page when both sourcemap and sourceTexts are passed", async () => {
-    const { model, sourceTexts } = await parseWithSourceTexts(SOURCE);
-    const files = generateSystems(model, { sourcemap: true, sourceTexts }).files;
+    const { files } = await generateSystemFilesWithSourceText(SOURCE, { sourcemap: true });
 
     const tsxPath = "react_app/src/pages/orders/list.tsx";
     const mapPath = `${tsxPath}.map`;
@@ -1429,8 +1397,7 @@ describe("Source Map v3 sidecars", () => {
 
 describe("JSR-45 SMAP sidecars (java)", () => {
   it("emits a .smap sidecar for the java backend's Order.java naming the Loom stratum", async () => {
-    const { model, sourceTexts } = await parseWithSourceTexts(SOURCE);
-    const files = generateSystems(model, { sourcemap: true, sourceTexts }).files;
+    const { files } = await generateSystemFilesWithSourceText(SOURCE, { sourcemap: true });
 
     const javaPath = "java_api/src/main/java/com/loom/javaapi/features/orders/Order.java";
     expect(files.has(javaPath), `expected ${javaPath} in output`).toBe(true);
@@ -1461,15 +1428,13 @@ describe("JSR-45 SMAP sidecars (java)", () => {
   });
 
   it("without sourceTexts, flag-on emits no .smap sidecars (honest skip)", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
 
     expect([...files.keys()].some((p) => p.endsWith(".smap"))).toBe(false);
   });
 
   it("emits the fenced injectSmap Gradle block in java_api/build.gradle.kts whenever the recorder is present, even without sourceTexts", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
 
     const content = files.get("java_api/build.gradle.kts")!;
     expect(content).toContain("// loom:sourcemap-begin");

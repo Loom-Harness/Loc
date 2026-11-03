@@ -1,4 +1,8 @@
-import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
+import {
+  destroyVersionCheck,
+  operationVersionCheck,
+  readsIfMatch,
+} from "../../../ir/enrich/version-check.js";
 import {
   fieldFixedMessage,
   type WireRejectionClass,
@@ -139,7 +143,8 @@ export function renderJavaController(
   // Other routes thread nothing → byte-identical routes.
   const readsIfMatchFor = (op: OperationIR): boolean =>
     readsIfMatch(operationVersionCheck(agg, op));
-  const versioned = agg.operations.some(readsIfMatchFor);
+  const destroyReadsIfMatch = readsIfMatch(destroyVersionCheck(agg));
+  const versioned = agg.operations.some(readsIfMatchFor) || destroyReadsIfMatch;
   //
   // The header binds as a STRING and is parsed by the shared `IfMatch` helper,
   // not as a `@RequestHeader … Integer`.  An entity-tag is a QUOTED string
@@ -151,15 +156,14 @@ export function renderJavaController(
   // so java binding the raw value to a number was the one backend that could
   // not accept what the others do — invisible because no generated client has
   // ever sent the header.
+  const ifMatchHeader = `, @RequestHeader(value = "If-Match", required = false) String ifMatch`;
   const ifMatchHeaderParam = (op: OperationIR): string =>
-    readsIfMatchFor(op)
-      ? `, @RequestHeader(value = "If-Match", required = false) String ifMatch`
-      : "";
+    readsIfMatchFor(op) ? ifMatchHeader : "";
   const ifMatchServiceArg = (op: OperationIR): string =>
     readsIfMatchFor(op) ? ", IfMatch.expectedVersion(ifMatch)" : "";
   // The id's raw value type — `UUID` as an import marker (M-T9.86), so the
   // path-variable / find-param spellings below derive their own import.
-  const idJava = javaIdValueType(agg.idValueType);
+  const idJava = javaIdValueType();
 
   // Authorization gates on finds (default-deny) — a `requires <expr>` runs in
   // the controller action before delegating to the service, throwing
@@ -353,8 +357,10 @@ export function renderJavaController(
     ? [
         `    @DeleteMapping("${relativeOpPath(destroyEntry)}")`,
         `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
-        `    public void destroy${agg.name}(@PathVariable ${idJava} id) {`,
-        `        service.destroy${agg.name}(new ${idClass}(id));`,
+        `    public void destroy${agg.name}(@PathVariable ${idJava} id${destroyReadsIfMatch ? ifMatchHeader : ""}) {`,
+        `        service.destroy${agg.name}(new ${idClass}(id)${
+          destroyReadsIfMatch ? ", IfMatch.expectedVersion(ifMatch)" : ""
+        });`,
         `    }`,
         ``,
       ]
@@ -751,7 +757,7 @@ export function renderApiExceptionAdvice(
    *  carries the `ValueObjectInvariantException` handler (M-T5.1).  False ⇒
    *  byte-identical. */
   valueObjectInvariants = false,
-  /** True when a messaged aggregate rule can trip at the domain floor — the
+  /** True when a named aggregate rule can trip at the domain floor — the
    *  `onDomain` handler then answers a `DomainException` carrying a rule code
    *  with the same errors[] entry (M-T1.11 (c)).  False ⇒ byte-identical. */
   domainFloorCodes = false,
@@ -810,7 +816,7 @@ export function renderApiExceptionAdvice(
     // The optimistic-lock → 409 handler (+ its import) is emitted only when some
     // aggregate is `versioned` — a version-free project stays byte-identical.
     // MessageSource + the request locale (M-T1.11) — only when this project ships
-    // a message bundle, so a message-less app's imports are unchanged.
+    // a message bundle, so an unnamed app's imports are unchanged.
     `import org.springframework.http.HttpStatus;`,
     `import org.springframework.http.MediaType;`,
     `import org.springframework.http.ProblemDetail;`,
@@ -850,7 +856,7 @@ export function renderApiExceptionAdvice(
     // `Errors.rejectValue(field, code, message)`, surfaced as
     // MethodArgumentNotValidException.  Map each field error to the cross-backend
     // `{pointer,message,code?}` envelope — `code` only when it's a `msg.` i18n
-    // key (a messaged rule); the message-less sentinel code is omitted.
+    // key (a named rule); the unnamed sentinel code is omitted.
     `    @ExceptionHandler(MethodArgumentNotValidException.class)`,
     `    public ResponseEntity<ProblemDetail> onValidation(MethodArgumentNotValidException e, WebRequest request) {`,
     `        CatalogLog.event(${javaLogEvent("domainError")}, "message", ${title("field-invalid")}, "status", ${fieldInvalid});`,
@@ -870,7 +876,7 @@ export function renderApiExceptionAdvice(
     // A FieldError IS a MessageSourceResolvable: MessageSource tries its codes
     // (the `<Ctx>.<Owner>.rule.<name>` i18n key) and falls back to getDefaultMessage() — the
     // authored English — when the bundle has no entry for this locale.  The
-    // message-less sentinel code resolves to nothing and keeps its default, so
+    // unnamed sentinel code resolves to nothing and keeps its default, so
     // no branching is needed here (M-T1.11).
     // An absent required field (`@NotNull` on the boxed record component) reads
     // the same on every backend (RS-39).
@@ -930,12 +936,12 @@ export function renderApiExceptionAdvice(
     // M-T5.1 — a value object refused INSIDE a domain body: the domain-floor
     // status plus one RFC 7807 errors[] entry.  Pointer "" (the whole request —
     // the body computed the value, so it names no request member), the rule's
-    // message, and for a messaged rule its content-hash code, resolved through
+    // message, and for a named rule its identity-key code, resolved through
     // the same bundle the wire rung uses.  Spring dispatches to the MOST
     // specific handler, so this wins over `onDomain` for the subclass.
     // M-T5.1 + M-T1.11 (c) — ONE errors[]-entry serializer for both
     // domain-floor refusals a client can bind: the value object refused inside a
-    // body (pointer "") and, with the code carriage on, a MESSAGED invariant /
+    // body (pointer "") and, with the code carriage on, a NAMED invariant /
     // check / precondition (the rule's own pointer).  The message resolves
     // through the same bundle the wire rung uses.
     ...(valueObjectInvariants || domainFloorCodes
@@ -1071,7 +1077,38 @@ export function renderApiExceptionAdvice(
     `        if (overflow != null) {`,
     `            return onWireFormat(new WireFormatException(overflow, ${javaLit(fieldFixedMessage("integer-range"))}), request);`,
     `        }`,
+    `        var badId = malformedIdPointer(e);`,
+    `        if (badId != null) {`,
+    `            return onWireFormat(new WireFormatException(badId, ${javaLit(fieldFixedMessage("malformed-id"))}), request);`,
+    `        }`,
     `        return respond(problem(${wireStatus("malformed-body")}, ${title("malformed-body")}, ${fixed("malformed-body")}, request), ${wireStatus("malformed-body")});`,
+    `    }`,
+    ``,
+    // A body `X id` that is not a uuid (`{"agent":"nope"}`) is well-formed JSON
+    // with one refused FIELD value — `malformed-id`, a `field-invalid` 422 at
+    // its pointer (wirePolicy), never the syntax-error 400.
+    `    /** The RFC 6901 pointer of the uuid field Jackson refused as malformed,`,
+    `     *  or null when the failure is anything else (a real syntax error). */`,
+    `    private static String malformedIdPointer(Throwable e) {`,
+    `        boolean badUuid = false;`,
+    `        java.util.List<tools.jackson.core.JacksonException.Reference> path = java.util.List.of();`,
+    `        for (Throwable t = e; t != null; t = t.getCause() == t ? null : t.getCause()) {`,
+    `            if (t instanceof tools.jackson.databind.exc.InvalidFormatException ife`,
+    `                    && java.util.UUID.class.equals(ife.getTargetType())) badUuid = true;`,
+    `            if (t instanceof tools.jackson.core.JacksonException je && je.getPath().size() > path.size()) {`,
+    `                path = je.getPath();`,
+    `            }`,
+    `        }`,
+    `        return badUuid && !path.isEmpty() ? pointerOfPath(path) : null;`,
+    `    }`,
+    ``,
+    `    private static String pointerOfPath(java.util.List<tools.jackson.core.JacksonException.Reference> path) {`,
+    `        var out = new StringBuilder();`,
+    `        for (var ref : path) {`,
+    `            var seg = ref.getPropertyName() != null ? ref.getPropertyName() : String.valueOf(ref.getIndex());`,
+    `            out.append('/').append(seg.replace("~", "~0").replace("/", "~1"));`,
+    `        }`,
+    `        return out.toString();`,
     `    }`,
     ``,
     `    /** The RFC 6901 pointer of the integral field Jackson refused as out of`,
@@ -1087,13 +1124,7 @@ export function renderApiExceptionAdvice(
     `                path = je.getPath();`,
     `            }`,
     `        }`,
-    `        if (!coercion || path.isEmpty()) return null;`,
-    `        var out = new StringBuilder();`,
-    `        for (var ref : path) {`,
-    `            var seg = ref.getPropertyName() != null ? ref.getPropertyName() : String.valueOf(ref.getIndex());`,
-    `            out.append('/').append(seg.replace("~", "~0").replace("/", "~1"));`,
-    `        }`,
-    `        return out.toString();`,
+    `        return coercion && !path.isEmpty() ? pointerOfPath(path) : null;`,
     `    }`,
     ``,
     // A path `{id}` / typed query param that will not CONVERT — `GET

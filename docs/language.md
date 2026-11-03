@@ -341,7 +341,7 @@ order:
 | `payload Name { … }` / `command` / `query` / `response` / `error` / `payload U = A \| B` | Transport records and discriminated unions — the workflow / handler command surface and `or`-union return arms.  See [`payloads.md`](payloads.md). |
 | `repository Name for Aggregate { find … }` | Repository declaration with optional find queries (see [Repositories](#repositories)). |
 | `criterion Name(params) of Aggregate = Expr` / `retrieval Name of Aggregate { where: Expr sort: [field desc, other asc] }` | Reusable, SQL-inlinable predicate specifications and the named list-read shapes `Repo.all(...)` consumes.  A retrieval also has a one-line form, `retrieval Name of Aggregate = Expr`.  **The block's clauses are NOT comma-separated** — `where:` / `sort:` follow one another directly (a newline between them is the readable spelling); only the items *inside* `sort: [...]` take commas.  The grammar also admits a `loads: [path, …]` clause, but declaring one is rejected today (`loom.retrieval-loads-unsupported` — a retrieval loads the whole aggregate).  See [`criterion.md`](criterion.md). |
-| `projection Name[(params)] [keyed by <field>] [requires Expr] { <fields> from <Source> [as x] [where …] [ignoring …] [join Agg as a on …] [group by …] select f = …, … }` / `projection Name keyed by k { <fields> on(e: Event) [by e.key] { … } }` | A read model: **query-time** (a `select` over an aggregate / projection / workflow source — optional `where`, `join`, `group by`, whole-table aggregation, paged reads) or **folded** (`on(e: Event)` arms folding a stream into a keyed row).  Exposed as `GET /projections/<name>` and readable from pages.  ~50 `loom.projection-*` gates; see [`language-reference/10-repositories-and-queries.md`](language-reference/10-repositories-and-queries.md) and [`scaffold-macros.md`](scaffold-macros.md) (`scaffoldDashboard`). |
+| `projection Name[(params)] [keyed by <field>] [requires Expr] { <fields> from <Source> [as x] [where …] [ignoring …] [join Agg as a on …] [group by …] select f = …, … }` / `projection Name keyed by k { <fields> on(e: Event) [by e.key] { … } }` | A read model: **query-time** (a `select` over an aggregate / projection / workflow source — optional `where`, `join`, `group by`, whole-table aggregation, paged reads) or **folded** (`on(e: Event)` arms folding a stream into a keyed row).  Exposed as `GET /projections/<name>` and readable from pages.  The `from` source may be declared in another context of the subdomain; the read applies that source's own scope (tenant floor, capability filters).  A folded projection under `tenancy by` is refused (`loom.tenancy-folded-projection-unscoped`, [`tenancy.md`](tenancy.md)).  ~50 `loom.projection-*` gates; see [`language-reference/10-repositories-and-queries.md`](language-reference/10-repositories-and-queries.md) and [`scaffold-macros.md`](scaffold-macros.md) (`scaffoldDashboard`). |
 | `workflow Name { create(...)[: T] …, on(e: Event) …, function … }` | Context-level orchestration across aggregates, with `create` starters, `on` reactors and workflow-local state (a named command entry is a context-level `commandHandler` — there is no workflow `handle`).  A command-triggered `create(…): T { … return <expr> }` answers its `POST` with 200 + the value (an `X id` / `string` / `int` / `long` / `bool`); without `: T` it stays 204.  See [`workflow.md`](workflow.md#returning-a-result--createt). |
 | `[extern] commandHandler Name(cmd: Cmd)[: Response] { … }` / `[extern] queryHandler Name(q: Query): Response { … }` | Application-layer handlers — a single-aggregate `handle` lifted out of a workflow (load → mutate → save → `return`), routable from an `api { … }` body.  `queryHandler` must not save (`loom.query-handler-saves`); `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`).  An `extern` handler is bodyless (`;`) — see [`extern.md`](extern.md). |
 | `domainService Name { operation calc(...): T { … } }` | A stateless, pure cross-aggregate calculator.  See [`domain-services.md`](domain-services.md). |
@@ -366,6 +366,12 @@ Cross-aggregate references are written as `Other id`:
 ```
 customerId: Customer id
 ```
+
+`X id` must name something with an identity — an aggregate (abstract bases
+included) or an entity part.  A value object, enum, event, payload record or
+workflow has no id, so `origin: Point id` over `valueobject Point` is
+`loom.id-target-not-identity`; hold the value directly (`origin: Point`)
+instead.
 
 The underlying value type is always `guid`, and there is **no `ids` clause** —
 `ids int|long|string` were removed (no backend implemented id generation for a
@@ -450,7 +456,7 @@ Inside an aggregate or an `entity` part:
 | `derived name: TypeRef = Expression` | Computed read-only property. |
 | `derived display: string = Expression` | **Reserved** — declares the aggregate's user-facing label.  When present, `string(aggregate)` and implicit `"x " + aggregate` compile to a member access on this derived; React Select pickers use it for option text.  Without it, those expressions are compile errors. |
 | `derived inspect: string = Expression` | **Reserved** — declares the aggregate's developer-facing debug form.  Auto-generated when omitted (structural form, sensitive fields shown as `<redacted>`).  Backends emit it as `ToString()` / `[util.inspect.custom]` / `Inspect` so debugger watches, exceptions, and logger output get a useful representation. |
-| `[private] invariant [name:] Expression [when Expression]` | `bool` predicate; checked after every mutation. Optional `when` is a guard; the optional `name:` keys the rule's user-facing text (`<Ctx>.<Owner>.rule.<name>`, English in `locales/en/<Ctx>.json`) — see [Naming a rule](language-reference/07-invariants-derived-functions.md#naming-a-rule). The `message "…"` clause is removed (`loom.rule-message-removed`, a warning until the corpus migration lands). `private` keeps the rule off the wire-layer schemas (Zod / FluentValidation / OpenAPI) — it runs only in the domain floor. |
+| `[private] invariant [name:] Expression [when Expression]` | `bool` predicate; checked after every mutation. Optional `when` is a guard; the optional `name:` keys the rule's user-facing text (`<Ctx>.<Owner>.rule.<name>`, English in `locales/en/<Ctx>.json`) — see [Naming a rule](language-reference/07-invariants-derived-functions.md#naming-a-rule). The `message "…"` clause is removed (`loom.rule-message-removed`, an error that names the rule to write). `private` keeps the rule off the wire-layer schemas (Zod / FluentValidation / OpenAPI) — it runs only in the domain floor. |
 | `unique (a, b)` | Set-level natural-key invariant — derived into a DB unique index (partial under `softDeletable`) plus a per-backend 23505 → 409 mapping (`loom.unique-*`).  A find that returns a single row (`T` / `T?`) by equality on fields no `unique (…)` covers gets the advisory `loom.single-row-find-not-unique` — with duplicates, every backend would return whichever row the database yields first. |
 | `function name(params): TypeRef = Expression` | Pure helper (expression form); callable from any expression in the same aggregate. Stays SQL-inlinable like a `criterion`. |
 | `function name(params): TypeRef { … }` | Pure helper (block form); `let` + branch (ternary/`match`, or a statement `if`/`else`) + bug-regime `precondition`/`requires`, returning a value on **every path** (`loom.function-block-no-return` — a `return` inside an `if` counts, but an `if` with no `else` leaves one path valueless). Still **pure** — no mutation, no `emit`, no repository / operation / domain-service / extern call (the IR validator rejects each). **Not queryable** (a block-form call is rejected in a `where` / `criterion` filter). |
@@ -1265,7 +1271,7 @@ Pragmatic core, similar to a subset of TypeScript / C# expressions.
 | `a + b`, `a - b`, `a * b`, `a / b`, `a % b` | Arithmetic. |
 | `a < b`, `a <= b`, `a > b`, `a >= b`, `a == b`, `a != b` | Comparison. |
 | `a && b`, `a \|\| b` | Logical. |
-| `a ?? b` | Nullish coalescing — `a` unless it is null, else `b`.  Binds LOOSER than `\|\|` and TIGHTER than `? :`, and is RIGHT-associative (`a ?? b ?? c` is `a ?? (b ?? c)`).  Pure sugar: it lowers to `a == null ? b : a`, so it works on every backend and every frontend the ternary does.  NOTE the left operand is evaluated TWICE (once in the test, once as the value) — bind an effectful one with `let` first. |
+| `a ?? b` | Nullish coalescing — `a` unless it is null, else `b`.  Binds LOOSER than `\|\|` and TIGHTER than `? :`, and is RIGHT-associative (`a ?? b ?? c` is `a ?? (b ?? c)`).  Pure sugar: it lowers to `a == null ? b : a`, so it works on every backend and every frontend the ternary does. The left operand is evaluated ONCE and the right only when the left is null on every backend (TS `(a ?? b)`, C# `(a ?? b)`, Java `Optional.ofNullable(a).orElseGet(() -> b)`, Python `[c if c is not None else b for c in (a,)][0]`, Elixir `case a do nil -> b; c -> c end`). |
 | `cond ? a : b` | Ternary (`loom.ternary-condition` / `loom.ternary-branches`). A direct null test on `cond` narrows the proven branch — see [Null narrowing](#null-narrowing). |
 | `match { cond => value, …, else => value }` | Predicate-arms expression — the first true arm wins; `else` is the fallthrough. |
 | `match subject { Variant [b] => value, …, else => value }` | Variant match over an `A or B` union or a `T?` scrutinee (a presence check), optionally binding the narrowed variant.  The subject must be a simple ref / member read, not a call — except `match await <call> { … }` in a page `action`, which awaits a remote command and matches its Result ([`actions.md`](actions.md)). |
@@ -1715,7 +1721,7 @@ hypothetical: that is the 2026-09-13 testability audit's F11.  Name the rung:
 
 ```ddd
 operation complete() {
-    precondition status == InProgress message "finish the work first"
+    precondition finishWorkFirst: status == InProgress
     status := Completed
 }
 
@@ -1726,7 +1732,7 @@ test "a fresh work order cannot be completed" {
 ```
 
 The rung is **structural** on every backend: the domain error carries it as a
-field, separate from the message, so an authored `message "…"` on the rule costs
+field, separate from the message, so a rule's name and its English text cost
 the assertion nothing.
 
 ```ts
@@ -1765,7 +1771,7 @@ The field is `DomainError.kind` (node, python), `DomainException.getKind()`
 (java), `DomainException.Kind` (.NET; a value object's invariant throws the
 separate `ValueObjectInvariantException`, so there the type is the rung) and
 `GuardError.kind` (elixir).  It does not reach the wire: the HTTP answer is the
-same 422 problem whose `detail` is the authored message.
+same 422 problem whose `detail` is the rule text.
 
 `precondition` and `invariant` are keywords, not values — they are legal only in
 this one argument position (`loom.throw-kind-outside-tothrow`).  Two rules
@@ -2101,10 +2107,6 @@ The validator runs after parsing and reports errors for:
   failure. The per-site table is in
   [Behavior & statements § The callable modifier surface](language-reference/06-behavior-and-statements.md#the-callable-modifier-surface).
 - `precondition` and `invariant` expressions whose type is not `bool`.
-- A blank `message "..."` clause — empty or whitespace-only — on an
-  `invariant`, property `check`, or `precondition` (`loom.blank-message`). A
-  blank message renders an empty user-facing error string (and degenerates the
-  content-hashed wire `code` derived from it), so it's almost always a typo.
 - Field / parameter / call / member-access type mismatches.
 - Access to a member that doesn't exist on a fully-resolved record
   receiver — `order.totl`, `paid.amont`, `this.noField` (`loom.unknown-member`).
@@ -2185,7 +2187,7 @@ validator raises is in it).  By family, with the doc that explains each:
 | `loom.macro-*`, `loom.unknown-macro`, `loom.scaffold-*`, `loom.softdelete-*`, `loom.capability-*`, `loom.stamp-*`, `loom.filter-*`, `loom.ignoring-clause-placement` | Macro args / targets, scaffold params, capability hosts, filters / stamps, `ignoring` placement | [`scaffold-macros.md`](scaffold-macros.md), [`capabilities.md`](capabilities.md) |
 | `loom.abstract-*`, `loom.extends-*`, `loom.tph-*`, `loom.polymorphic-*` | Inheritance, TPH / TPC layout | [`inheritance.md`](inheritance.md) |
 | `loom.intrinsic-*`, `loom.duration-*`, `loom.interp-*`, `loom.ternary-*`, `loom.call-arg-*`, `loom.construction-*`, `loom.unknown-*`, `loom.bare-collection-accessor`, `loom.user-visible-concat` | Expression typing — intrinsics, durations, interpolation formats, ternaries, calls, record construction, names / members | this document, [`stdlib.md`](stdlib.md) |
-| `loom.function-*`, `loom.blank-message`, `loom.entity-field-*`, `loom.duplicate-*` | Functions, `when` gates, messages, entity-typed fields, duplicate names / ports / tables | this document |
+| `loom.function-*`, `loom.entity-field-*`, `loom.duplicate-*` | Functions, `when` gates, messages, entity-typed fields, duplicate names / ports / tables | this document |
 | `loom.ui-*`, `loom.page-primitive*`, `loom.store-*`, `loom.datagrid-*`, `loom.chart-*`, `loom.table-*`, `loom.a11y-*`, `loom.slot-*`, `loom.component-*`, `loom.action-*`, `loom.missing-effect-marker`, `loom.match-await*`, `loom.feliz-*`, `loom.flutter-*`, `loom.heex-*`, `loom.frontend-*` | Page metamodel, primitive arity / args, stores and lifetimes, grids / charts, accessibility, slots, actions and effect markers, per-frontend support gaps | [`page-metamodel.md`](page-metamodel.md), [`actions.md`](actions.md) |
 | `loom.e2e-*`, `loom.test-*`, `loom.context-test-unsupported` | e2e bodies, test placement | this document, [`testing.md`](testing.md) |
 | `loom.domain-service-*` | Domain-service purity / read rules | [`domain-services.md`](domain-services.md) |

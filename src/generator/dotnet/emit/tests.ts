@@ -16,6 +16,7 @@ import { hasValueObjectInvariants } from "../../../ir/util/value-object-invarian
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { csRef, csUsing } from "../../_imports/dotnet.js";
 import {
   coerceMatcherExpected,
   coerceTestLiteral,
@@ -29,10 +30,7 @@ import { renderCsExpr } from "../render-expr.js";
  *  (`_test/arg-coercion.ts`).  An id is a `record struct <X>Id(Guid Value)`;
  *  `datetime` parses round-trip so the `Z` offset is honoured. */
 const CS_TEST_LITERAL: TestLiteralTarget = {
-  id: (rendered, targetName, valueType) =>
-    valueType === "guid"
-      ? `new ${targetName}Id(Guid.Parse(${rendered}))`
-      : `new ${targetName}Id(${rendered})`,
+  id: (rendered, targetName) => `new ${targetName}Id(Guid.Parse(${rendered}))`,
   datetime: (rendered) =>
     `DateTime.Parse(${rendered}, null, System.Globalization.DateTimeStyles.RoundtripKind)`,
   date: (rendered) => csCalendarDateParseExact(rendered),
@@ -42,7 +40,7 @@ const CS_TEST_LITERAL: TestLiteralTarget = {
 // `User currentUser` parameter; a domain `test` block has no auth context, so
 // calls to such ops are supplied a synthetic full-access actor (admin + `*`
 // permission) — parity with the Hono backend's TEST_ACTOR.
-const TEST_ACTOR = 'new User(System.Guid.Empty, "admin", new List<string> { "*" })';
+const TEST_ACTOR = `new User(System.Guid.Empty, "admin", new ${csRef("System.Collections.Generic", "List")}<string> { "*" })`;
 
 // ---------------------------------------------------------------------------
 // `test "..." { ... }` DSL → xUnit test class.
@@ -135,12 +133,14 @@ function renderSubjectTestsFile(
     .map((a) => `${ns}.Domain.${upperFirst(plural(a.name))}`)
     .sort();
 
-  const lines: string[] = [];
-  lines.push("// Auto-generated.  Do not edit by hand.");
-  lines.push("using System;");
-  if (usesActor) lines.push("using System.Collections.Generic;");
-  lines.push("using Xunit;");
-  lines.push("using AwesomeAssertions;");
+  const lines: string[] = [
+    "// Auto-generated.  Do not edit by hand.",
+    "using System;",
+    // Rendered iff a body threads the synthetic actor (`new List<string> …`).
+    csUsing("System.Collections.Generic"),
+    "using Xunit;",
+    "using AwesomeAssertions;",
+  ];
   if (ownUsing) lines.push(`using ${ownUsing};`);
   for (const u of siblingUsings) if (u !== ownUsing) lines.push(`using ${u};`);
   lines.push(`using ${ns}.Domain.Common;`);
@@ -404,7 +404,7 @@ function renderTestStmt(
     const exceptionType = voCtor ? "ValueObjectInvariantException" : "DomainException";
     const thrown = `Assert.Throws<${exceptionType}>(() => { ${body} })`;
     // `toThrow(<kind>)` — pin WHICH rung rejected by the exception's structural
-    // `Kind`, never its message, which an authored `message "..."` replaces.
+    // `Kind`, never its message, which a rule's own text replaces.
     // `Assert.Throws` returns the caught exception, so the rung is one local
     // plus `Assert.Equal`; the local carries the statement index so two throw
     // assertions in one `[Fact]` don't collide.  A value object's invariant is

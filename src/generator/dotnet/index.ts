@@ -28,6 +28,7 @@ import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
 import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { discardedAggregates } from "../../ir/util/discards.js";
+import { answersEntryResults } from "../../ir/util/entry-result.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
   foreignValueTypeSeeds,
@@ -61,13 +62,15 @@ import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import type { Model } from "../../language/generated/ast.js";
 import { apiRoutePrefix } from "../../util/api-base.js";
-import { emissionSink, rewrite } from "../../util/emission-sink.js";
+import { rewrite } from "../../util/emission-sink.js";
 import { plural, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
+import { finalizeCsUnit } from "../_imports/dotnet.js";
+import { spellMarkers } from "../_imports/symbol.js";
 import { unionMembers } from "../_payload/union-wire.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
@@ -99,6 +102,8 @@ import {
 import { domainUnionFiles } from "./cqrs/dtos.js";
 import { emitCqrs } from "./cqrs-emit.js";
 import { canEmitToExpressionFor, emitCriteria } from "./criteria-emit.js";
+import { DotnetOutputMap } from "./cs-output.js";
+import { projectEntityArgs } from "./dto-mapping.js";
 import {
   renderAuditRecord,
   renderAuditRecordConfiguration,
@@ -304,7 +309,7 @@ export function generateDotnetForContexts(
     sourceTexts?: ReadonlyMap<string, string>;
   } = {},
 ): Map<string, string> {
-  const out = emissionSink("generator/dotnet/index");
+  const out = new DotnetOutputMap();
   const emitTrace = !!options.emitTrace;
   if (namespace !== undefined) {
     // Single project containing all the given contexts under one namespace.
@@ -329,7 +334,7 @@ export function generateDotnetForContexts(
       for (const [path, src] of layerClashAliases(out, root, [ctx])) rewrite(out, path, src);
     }
   }
-  return out;
+  return out.assertFinal();
 }
 
 function emitProjectFromContexts(
@@ -524,7 +529,7 @@ function emitProjectFromContexts(
       const evPath = `Domain/Events/${ev.name}.cs`;
       const evContent = renderEvent(ev, ns);
       out.set(evPath, evContent);
-      sourcemap?.file(evPath, evContent, ev.origin, `${ctx.name}.${ev.name}`);
+      sourcemap?.file(evPath, finalizeCsUnit(evContent), ev.origin, `${ctx.name}.${ev.name}`);
     }
     for (const agg of ctx.aggregates) {
       emitAggregate(agg, ctx, ns, out, routePrefix, emitTrace, emitCtx, sourcemap, sourceTexts);
@@ -581,6 +586,7 @@ function emitProjectFromContexts(
       routePrefix,
       sourcemap,
       usingDapper: system?.deployable.persistence === "dapper",
+      contexts,
     });
   }
   // Explicit transport layer (unfoldable-api-derivation.md, A1): one
@@ -624,14 +630,7 @@ function emitProjectFromContexts(
       ...userClaimIdTypeSources(system.sys.user),
     ]);
     for (const name of foreignIdNames) {
-      let idValueType = "uuid";
-      for (const sub of system.sys.subdomains) {
-        for (const c of sub.contexts) {
-          const agg = c.aggregates.find((a) => a.name === name);
-          if (agg) idValueType = agg.idValueType;
-        }
-      }
-      out.set(`Domain/Ids/${name}Id.cs`, renderId(name, idValueType, ns));
+      out.set(`Domain/Ids/${name}Id.cs`, renderId(name, ns));
     }
   }
   // Broker transport module (M-T4.4) — channel-less projects stay
@@ -661,7 +660,6 @@ function emitProjectFromContexts(
         channelBindings,
         merged.events,
         hasChannelConsumers,
-        system.sys,
         hasRealtime
           ? "RealtimeDomainEventDispatcher"
           : hasOutboxTier
@@ -833,6 +831,7 @@ function emitProjectFromContexts(
       eventLogContexts(contexts).map((c) => c.name),
       dapperWfDurable,
       out,
+      answersEntryResults(merged),
     );
     // Event-sourced workflow fold classes (Application/Workflows/<Wf>State.cs)
     // are persistence-neutral (JSON codec over the event stream) — reused
@@ -952,7 +951,11 @@ function emitProjectFromContexts(
     // IReadModelStore the orchestration handlers depend on INSTEAD of the
     // concrete AppDbContext.  Emitted when the deployable hosts a workflow or a
     // projection (the port users); byte-identical (no file) otherwise.
-    if (merged.workflows.length > 0 || merged.projections.length > 0) {
+    if (
+      merged.workflows.length > 0 ||
+      merged.projections.length > 0 ||
+      answersEntryResults(merged)
+    ) {
       out.set("Infrastructure/Persistence/PersistencePorts.cs", renderPersistencePortAdapters(ns));
     }
   }
@@ -1008,8 +1011,8 @@ function emitProjectFromContexts(
   // exception the guarded write's stale-write raises.  A project with neither
   // stays byte-identical.
   const hasConcurrency = aggregatesNeedConcurrency(merged.aggregates);
-  // Validation-message catalog (M-T1.11): a messaged rule's wire `code` resolves
-  // SERVER-side against this project's catalog.  No messaged rule ⇒ no catalog
+  // Validation-message catalog (M-T1.11): a named rule's wire `code` resolves
+  // SERVER-side against this project's catalog.  No named rule ⇒ no catalog
   // file and a byte-identical exception filter.
   const validationMessages = collectWireValidationMessages(contexts);
   if (validationMessages.length > 0) {
@@ -1042,12 +1045,10 @@ function emitProjectFromContexts(
   out.set("Api/ValidationProblem.cs", renderValidationProblem(ns));
   out.set("Api/NoNulCharAttribute.cs", renderNoNulCharAttribute(ns));
   // The unparseable-`{id}` guard (F22).  Unconditional, like every other file
-  // in this block: an aggregate's identity is ALWAYS a guid today (`lower.ts`
-  // stamps `idValueType` as the literal `"guid"`; there is no `ids` clause), so
-  // an emit-time gate on it would be an always-true branch nothing could
-  // exercise.  The narrowing that matters is inside the filter and is a RUNTIME
-  // one — it acts only on an action that actually binds a `Guid id` — which
-  // keeps it correct if the identity axis ever opens up.
+  // in this block: every identity is a guid (the IR has no id value-type
+  // axis), so an emit-time gate on it would be an always-true branch nothing
+  // could exercise.  The narrowing that matters is inside the filter and is a
+  // RUNTIME one — it acts only on an action that actually binds a `Guid id`.
   out.set("Api/MalformedPathIdFilter.cs", renderMalformedPathIdFilter(ns));
   out.set("Api/ProblemDetailsResponsesFilter.cs", renderProblemDetailsFilter(ns));
   out.set(
@@ -1430,14 +1431,19 @@ function emitAggregate(
       emitCtx ?? ({} as EmitCtx),
     );
     out.set(path, content);
-    sourcemap?.file(path, content, origin, construct);
+    sourcemap?.file(path, finalizeCsUnit(content), origin, construct);
     // Statement-granular sub-regions (source-map) — layered onto
     // the whole-file region just recorded above, anchored by exact-text
     // search against this SAME final content, so they land at the right
     // absolute lines regardless of what the layout adapter did to the path.
     if (sourcemap && opFragments) {
       for (const frag of opFragments) {
-        sourcemap.fragment(path, content, frag.fragmentText, frag.subRegions);
+        sourcemap.fragment(
+          path,
+          finalizeCsUnit(content),
+          spellMarkers(frag.fragmentText),
+          frag.subRegions,
+        );
       }
     }
   };
@@ -1513,7 +1519,6 @@ function emitAggregate(
         fieldNames: new Set(inheritedBase.fields.map((f) => f.name)),
         derivedNames: new Set(inheritedBase.derived.map((d) => d.name)),
         sharesIdentity: !!tphBase,
-        idValueType: tphBase?.idValueType,
       }
     : undefined;
   // The strongly-typed id class for this aggregate's key.  `tableOwnerName`
@@ -1571,13 +1576,20 @@ function emitAggregate(
   // so the entity emitter can type the method + thread the variant order.
   const operationReturnUnions = new Map<
     string,
-    { name: string; members: ReturnType<typeof unionMembers> }
+    { name: string; members: ReturnType<typeof unionMembers>; selfArgs?: string }
   >();
   for (const op of agg.operations) {
     if (op.returnType?.kind !== "union") continue;
+    const members = unionMembers(op.returnType.variants, ctx);
+    // The aggregate's own arm (`return this`) is built from the aggregate's
+    // wire projection, unmasked: a domain method has no request principal.
+    const selfArm = members.some((m) => m.tag === agg.name && m.shape === "record");
     operationReturnUnions.set(op.name, {
       name: unionInstanceName(op.returnType.variants),
-      members: unionMembers(op.returnType.variants, ctx),
+      members,
+      ...(selfArm
+        ? { selfArgs: projectEntityArgs("this", agg, ctx, { unionVariant: true, unmasked: true }) }
+        : {}),
     });
   }
   // Only collected when a recorder is actually threaded in — a no-sourcemap
@@ -1841,7 +1853,7 @@ function emitAggregate(
     for (const artifact of artifacts) {
       const path = layout.pathFor(artifact, emitCtx);
       out.set(path, artifact.content);
-      sourcemap?.file(path, artifact.content, agg.origin, construct);
+      sourcemap?.file(path, finalizeCsUnit(artifact.content), agg.origin, construct);
     }
   } else {
     emitCqrs(agg, repo, ctx, ns, out, { routePrefix, emitTrace });
@@ -1850,7 +1862,7 @@ function emitAggregate(
   if (testsFile) {
     const testsPath = `Tests/${ns}.Tests/${aggFolder}/${agg.name}Tests.cs`;
     out.set(testsPath, testsFile);
-    sourcemap?.file(testsPath, testsFile, agg.origin, construct);
+    sourcemap?.file(testsPath, finalizeCsUnit(testsFile), agg.origin, construct);
   }
 }
 
@@ -1911,7 +1923,7 @@ function emitInfrastructure(
   // Gated on the SAME condition renderProgram registers the ports under
   // (ctx.workflows / ctx.projections), so a project that uses none of these
   // ports emits neither the registrations NOR this file — never disagree.
-  if (ctx.workflows.length > 0 || ctx.projections.length > 0) {
+  if (ctx.workflows.length > 0 || ctx.projections.length > 0 || answersEntryResults(ctx)) {
     out.set("Infrastructure/Persistence/PersistencePorts.cs", renderPersistencePortAdapters(ns));
   }
   // Validation-message catalog (M-T1.11) — same gate as the system-mode emitter.
@@ -1934,12 +1946,10 @@ function emitInfrastructure(
   out.set("Api/ValidationProblem.cs", renderValidationProblem(ns));
   out.set("Api/NoNulCharAttribute.cs", renderNoNulCharAttribute(ns));
   // The unparseable-`{id}` guard (F22).  Unconditional, like every other file
-  // in this block: an aggregate's identity is ALWAYS a guid today (`lower.ts`
-  // stamps `idValueType` as the literal `"guid"`; there is no `ids` clause), so
-  // an emit-time gate on it would be an always-true branch nothing could
-  // exercise.  The narrowing that matters is inside the filter and is a RUNTIME
-  // one — it acts only on an action that actually binds a `Guid id` — which
-  // keeps it correct if the identity axis ever opens up.
+  // in this block: every identity is a guid (the IR has no id value-type
+  // axis), so an emit-time gate on it would be an always-true branch nothing
+  // could exercise.  The narrowing that matters is inside the filter and is a
+  // RUNTIME one — it acts only on an action that actually binds a `Guid id`.
   out.set("Api/MalformedPathIdFilter.cs", renderMalformedPathIdFilter(ns));
   out.set("Api/ProblemDetailsResponsesFilter.cs", renderProblemDetailsFilter(ns));
   out.set("Api/ListResponseWrapperFilter.cs", renderListWrapperFilter(ns, listWrapperPairs([ctx])));

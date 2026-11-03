@@ -71,7 +71,6 @@ const PERSISTENCE_CONTEXT = javaRef("jakarta.persistence", "PersistenceContext")
 export function renderJavaBaseReadController(
   base: EnrichedAggregateIR,
   read: PolymorphicRead,
-  idValueType: string,
   ctx: JavaBaseReadCtx,
 ): string {
   const tph = read.layout === "sharedTable";
@@ -93,7 +92,7 @@ export function renderJavaBaseReadController(
     ),
     `        throw new IllegalStateException("unmapped ${base.name} subtype " + ${subject}.getClass().getName());`,
   ];
-  const idType = javaIdValueType(idValueType);
+  const idType = javaIdValueType();
   const idClass = javaRef(`${ctx.basePkg}.domain.ids`, `${base.name}Id`);
   const tphBody = [
     `    @${PERSISTENCE_CONTEXT}`,
@@ -157,7 +156,7 @@ export function renderJavaBaseReadController(
     ),
     // Postgres orders a uuid by its bytes, unsigned — which is the order of
     // its canonical lowercase hex text, not `UUID.compareTo` (signed).
-    `        merged.sort(java.util.Map.Entry.comparingByKey(${idComparator(idValueType)}));`,
+    `        merged.sort(java.util.Map.Entry.comparingByKey(${idComparator()}));`,
     `        int total = merged.size();`,
     `        var items = merged.stream().skip((long) (page - 1) * pageSize).limit(pageSize).map(java.util.Map.Entry::getValue).toList();`,
     `        return new ${paged}<>(items, page, pageSize, total, (total + pageSize - 1) / pageSize);`,
@@ -185,10 +184,8 @@ export function renderJavaBaseReadController(
   );
 }
 
-/** The `String` key comparator matching Postgres' `ORDER BY id` for the id's
- *  value type: text order for uuid / string ids, numeric for int / long. */
-function idComparator(idValueType: string): string {
-  return idValueType === "int" || idValueType === "long"
-    ? "java.util.Comparator.comparingLong(Long::parseLong)"
-    : "java.util.Comparator.naturalOrder()";
+/** The `String` key comparator matching Postgres' `ORDER BY id` over a
+ *  uuid key: text order. */
+function idComparator(): string {
+  return "java.util.Comparator.naturalOrder()";
 }

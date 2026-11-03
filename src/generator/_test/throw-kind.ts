@@ -7,8 +7,8 @@
 // order cannot be completed" went on claiming something it no longer proved.
 //
 // The rung is STRUCTURAL on every backend: the domain error carries it as a
-// field, independent of the message text, because an authored
-// `message "..."` REPLACES the derived "Precondition failed: <src>" sentence
+// field, independent of the message text, because a rule's
+// own text REPLACES the derived "Precondition failed: <src>" sentence
 // and so cannot be what a test reads.
 //
 //   node    `DomainError.kind`            "precondition" | "invariant"

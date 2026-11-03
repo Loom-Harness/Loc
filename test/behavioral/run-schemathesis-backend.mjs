@@ -57,6 +57,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { copyLocales, localesBeside } from "./case-source.mjs";
 import { resetDatabase } from "./cases.mjs";
 import { stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
 import { fuzzLeg, makeLogScraper, REPO, walk } from "./schemathesis-core.mjs";
@@ -340,6 +341,7 @@ async function boot(c) {
     const source = c.swap ? raw.replaceAll("platform: node", `platform: ${cfg.clause}`) : raw;
     const srcPath = join(workDir, "system.ddd");
     writeFileSync(srcPath, source);
+    copyLocales(localesBeside(join(REPO, c.ddd)), workDir);
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", srcPath, "-o", genDir], {
       stdio: "pipe",
     });

@@ -447,7 +447,7 @@ Guessing here is not a cosmetic difference: a first-wins pick lowers to a compar
 
 ## Fields (`Property`)
 
-A field is `name: Type [provenanced | sensitive(...) | access]* [= default] [check Expr [message "…"]] [mask unless Expr]` — the three flag-like modifiers parse in any order; the default, the check, and the mask stay after them, in that order. A `= default` value seeds the field when the client omits it; `check Expr` is a per-field validation predicate lowered to an invariant. (`provenanced` is covered in [`../provenance.md`](../provenance.md); `mask unless` — the read-side redaction gate — in [Auth](17-auth.md).)
+A field is `name: Type [provenanced | sensitive(...) | access]* [= default] [check [name:] Expr] [mask unless Expr]` — the three flag-like modifiers parse in any order; the default, the check, and the mask stay after them, in that order. A `= default` value seeds the field when the client omits it; `check Expr` is a per-field validation predicate lowered to an invariant. (`provenanced` is covered in [`../provenance.md`](../provenance.md); `mask unless` — the read-side redaction gate — in [Auth](17-auth.md).)
 
 ```ddd
 context Orders {

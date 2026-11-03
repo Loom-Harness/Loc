@@ -10,7 +10,7 @@ import { ValueObjectInvariantError } from "../domain/errors";
  *  a value object a domain BODY built (an operation, a workflow, a handler —
  *  not the request body, whose value objects the request schema already
  *  checked).  The entry carries the rule's message and, for a
- *  messaged rule, the same content-hash code the wire rung carries.  The
+ *  named rule, the same identity-key code the wire rung carries.  The
  *  pointer is the rule's ("/<field>" for a single-field rule) or "" — the
  *  whole request.  Anything else answers undefined and the caller's own arm
  *  runs. */
@@ -130,7 +130,7 @@ export function defaultHook(result: { success: boolean; data?: unknown; error?: 
   const errors = (result.error?.issues ?? []).map((issue) => ({
     pointer: pointerOf(issue.path),
     message: isMissing(result.data, issue) ? missingFieldMessage(issue.path) : issue.message,
-    // A messaged invariant/precondition carries a stable content-hash code (via
+    // A named invariant/precondition carries a stable identity-key code (via
     // the refine's params.loomCode) so a client can localise the error;
     // structural zod errors (type/min) have none.
     ...(issue.params?.loomCode ? { code: issue.params.loomCode } : {}),

@@ -21,9 +21,8 @@
 //     not name.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
 import { dapperScopeClass, inlineDapperScope } from "../../_helpers/dapper-scope.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   system S {
@@ -46,13 +45,14 @@ const SRC = `
       }
     }}
     storage primary { type: postgres }
-    deployable api { platform: dotnet { persistence: dapper }  contexts: [C]  port: 3000 }
+    resource cState { for: C, kind: state, use: primary }
+    deployable api { platform: dotnet { persistence: dapper }  contexts: [C]  dataSources: [cState]  port: 3000 }
   }
 `;
 
 let cache: Map<string, string> | undefined;
 async function rawRepo(): Promise<string> {
-  cache ??= (await generateSystems(await parseValid(SRC))).files;
+  cache ??= await generateSystemFiles(SRC);
   const key = [...cache.keys()].find((k) =>
     k.endsWith("Infrastructure/Repositories/OrderRepository.cs"),
   );
@@ -130,7 +130,7 @@ describe("dapper ignoring filter-bypass emission", () => {
   });
 
   it("the inline workflow read still passes a DOMAIN FilterBypass to the Dapper repository", async () => {
-    const files = (await generateSystems(await parseValid(SRC))).files;
+    const files = await generateSystemFiles(SRC);
     const key = [...files.keys()].find((k) => k.endsWith("Application/Workflows/SweepHandler.cs"));
     expect(key, "SweepHandler.cs not emitted").toBeDefined();
     expect(files.get(key!)).toContain('bypass: FilterBypass.Bypass("softDeletable")');

@@ -1,6 +1,6 @@
-// M-T1.11 (c) on .NET — the messaged domain-floor rule's exception members.
+// M-T1.11 (c) on .NET — the named domain-floor rule's exception members.
 //
-// A messaged `invariant` / `precondition` that trips at the domain floor
+// A named `invariant` / `precondition` that trips at the domain floor
 // throws `DomainException(message, ruleCode, rulePointer)` and the filter
 // answers the `errors[]` entry from those two members.  The pointer member is
 // named `RulePointer`, NOT `Pointer`: every emitted csproj runs Roslyn at
@@ -21,9 +21,9 @@ system Bank {
       aggregate Account with crudish {
         owner: string
         balance: int
-        invariant balance >= 0 message "Balance cannot be negative"
+        invariant balanceNonNegative: balance >= 0
         operation withdraw(amount: int) {
-          precondition balance >= amount message "Insufficient funds"
+          precondition insufficientFunds: balance >= amount
           balance := balance - amount
         }
       }
@@ -76,7 +76,7 @@ describe(".NET domain-floor rule code — the exception's pointer member is CA17
       /throw new DomainException\("Insufficient funds", DomainErrorKind\.Precondition, "Accounts\.Account\.rule\.[A-Za-z0-9]+", ""\)/,
     );
     expect(entity).toMatch(
-      /throw new DomainException\("Balance cannot be negative", DomainErrorKind\.Invariant, "Accounts\.Account\.rule\.[A-Za-z0-9]+", "\/balance"\)/,
+      /throw new DomainException\("Balance non negative", DomainErrorKind\.Invariant, "Accounts\.Account\.rule\.[A-Za-z0-9]+", "\/balance"\)/,
     );
   });
 });

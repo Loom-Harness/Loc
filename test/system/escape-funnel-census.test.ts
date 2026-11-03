@@ -47,6 +47,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 const REPO_ROOT = join(import.meta.dirname, "..", "..");
 const GEN_ROOT = join(REPO_ROOT, "src", "generator");
@@ -188,8 +189,6 @@ function safeTargetDirFor(file: string): { prefix: string; reason: string } | un
  *  ID-terminal name (`src/util/naming.ts`), or a small set of
  *  message/title BUILDERS that hash or map their input to a stable,
  *  bounded output before it reaches `JSON.stringify`:
- *    - `messageCode(text)` → `msg.<hash>` (src/util/message-code.ts) — a
- *      content hash, never the text itself.
  *    - `problemTitle(status)` / `disallowedMessage(agg, op)` — fixed
  *      strings built from a closed httpStatus / compiler-name vocabulary
  *      (Wave 1 hand-off's own "compiler-built strings" group).
@@ -352,10 +351,7 @@ function classify(site: CallSite, fullLine: string): Classified {
 describe("escape-funnel census (F2-ELX-ESCAPE-FUNNEL class)", () => {
   it("every generator JSON.stringify( site is a documented JS/safe-target position, a safe compiler-derived pattern, or an individually waived splice", () => {
     const sites = collectCallSites();
-    expect(
-      sites.length,
-      "the census found zero JSON.stringify( sites — the scanner is broken",
-    ).toBeGreaterThan(100);
+    expectReach("generator JSON.stringify( sites", sites.length, 1068);
 
     const byFile = new Map<string, string[]>();
     for (const site of sites) {

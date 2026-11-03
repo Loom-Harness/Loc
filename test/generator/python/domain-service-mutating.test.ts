@@ -8,8 +8,7 @@
 // explicit `repository.save(...)` is the per-arg unit-of-work registration.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const MUTATING = `system PyMutating {
   subdomain Banking {
@@ -54,9 +53,7 @@ const MUTATING = `system PyMutating {
 `;
 
 async function build(src: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(src);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(src);
 }
 
 describe("python generator — domainService mutating tier", () => {

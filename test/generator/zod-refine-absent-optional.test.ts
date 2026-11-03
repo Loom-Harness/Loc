@@ -41,7 +41,7 @@ const SOURCE = `
           status: TaskStatus
           // The null-guard shape: legal only because \`estimate\` is optional.
           invariant estimate == null || estimate >= 0
-          // A message-LESS single-field range — the native-chain carrier.
+          // An UNNAMED single-field range — the native-chain carrier.
           invariant code.length >= 2 && code.length <= 5
           // A non-null equality, so the strict-vs-loose choice is pinned in
           // BOTH directions by the same fixture.

@@ -13,18 +13,12 @@
 // handler, or a workflow.  Names are unique per owner
 // (`loom.rule-name-duplicate`).
 //
-// A rule that still carries the removed `message "…"` clause and no name is
-// named as the codemod would name it (`deriveRuleName`, deduplicated against
-// every other name in the owner), so an un-migrated model keys its text the
-// way the migrated one will.
-//
 // Pure language layer: AST only.  The lowering (`src/ir/lower/rule-message.ts`)
-// and the validator read the same table, so the key a rule lowers to and the
-// name the duplicate check sees cannot disagree.
+// and the validator read the same declared names, so the key a rule lowers to
+// and the name the duplicate check sees cannot disagree.
 // ---------------------------------------------------------------------------
 
 import { type AstNode, AstUtils } from "langium";
-import { dedupeRuleName, deriveRuleName } from "../util/rule-name.js";
 import {
   type Invariant,
   isAggregate,
@@ -86,29 +80,7 @@ export function rulesOf(owner: RuleOwner): RuleNode[] {
   return out;
 }
 
-/** The effective name of every named rule in `owner`: its declared name, or —
- *  for an unnamed rule carrying `message "…"` — the derived one.  A rule with
- *  neither is absent. */
-function ruleNamesOf(owner: RuleOwner): ReadonlyMap<RuleNode, string> {
-  const rules = rulesOf(owner);
-  const taken = new Set<string>();
-  for (const r of rules) {
-    const d = declaredRuleName(r);
-    if (d !== undefined) taken.add(d);
-  }
-  const names = new Map<RuleNode, string>();
-  for (const r of rules) {
-    const declared = declaredRuleName(r);
-    const legacy = r.message;
-    if (declared !== undefined) names.set(r, declared);
-    else if (legacy !== undefined && legacy.trim() !== "")
-      names.set(r, dedupeRuleName(deriveRuleName(legacy), taken));
-  }
-  return names;
-}
-
-/** The effective name of rule `n` (see {@link ruleNamesOf}). */
+/** The name of rule `n`, or `undefined` for an unnamed rule. */
 export function ruleNameOf(n: RuleNode): string | undefined {
-  const owner = ruleOwner(n);
-  return owner ? ruleNamesOf(owner).get(n) : (declaredRuleName(n) ?? undefined);
+  return declaredRuleName(n) ?? undefined;
 }

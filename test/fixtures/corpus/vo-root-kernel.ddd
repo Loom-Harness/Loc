@@ -50,7 +50,7 @@
 // The shared kernel: declared at FILE scope, outside every context.
 valueobject UnLocode {
   value: string
-  invariant value.length == 5 message "UN/LOCODE must be 5 characters"
+  invariant unLocode5Characters: value.length == 5
   derived label: string = value
 }
 

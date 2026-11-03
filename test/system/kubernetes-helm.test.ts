@@ -5,19 +5,11 @@
 // Secret (external/managed), backends are ClusterIP, frontends get a gated
 // Ingress.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../src/language/ddd-module.js";
-import type { Model } from "../../src/language/generated/ast.js";
-import { generateSystems } from "../../src/system/index.js";
-
-const services = createDddServices(NodeFileSystem);
-const parse = parseHelper<Model>(services.Ddd);
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 async function filesFor(src: string, emitKubernetes: boolean): Promise<Map<string, string>> {
-  const doc = await parse(src, { validation: false });
-  return generateSystems(doc.parseResult.value, { emitKubernetes }).files;
+  return generateSystemFiles(src, { emitKubernetes });
 }
 
 // A backend (hono, needs DB) + a react frontend that targets it.

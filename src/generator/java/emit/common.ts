@@ -58,7 +58,7 @@ export function renderValueObjectInvariantException(basePkg: string): string {
     `/** A value object's invariant refused a value.  Answered with the domain-floor`,
     ` *  status plus one RFC 7807 errors[] entry: the whole-request pointer "" (a`,
     ` *  body computed the value, so it names no request member), the rule's`,
-    ` *  message and, for a messaged rule, its content-hash code. */`,
+    ` *  message and, for a named rule, its identity-key code. */`,
     `public class ValueObjectInvariantException extends DomainException {`,
     `    private static final long serialVersionUID = 1L;`,
     `    private final String valueObject;`,
@@ -98,7 +98,7 @@ export function renderDomainException(basePkg: string, domainFloorCodes = false)
       `    private static final long serialVersionUID = 1L;`,
       ``,
       `    /** Which rung of the domain floor refused a call — carried apart from the`,
-      `     *  message, which an authored {@code message "..."} replaces. */`,
+      `     *  message, which a rule's own text replaces. */`,
       `    public enum Kind { PRECONDITION, INVARIANT }`,
       ``,
       `    private final Kind kind;`,
@@ -119,23 +119,23 @@ export function renderDomainException(basePkg: string, domainFloorCodes = false)
       ``,
     );
   }
-  // M-T1.11 (c): a MESSAGED invariant / field check / precondition throws its
+  // M-T1.11 (c): a NAMED invariant / field check / precondition throws its
   // wire `<Ctx>.<Owner>.rule.<name>` code and RFC 6901 pointer along with the text, so
   // `ApiExceptionAdvice.onDomain` answers the same errors[] entry the wire rung
-  // carries.  Emitted only when a messaged aggregate rule exists.
+  // carries.  Emitted only when a named aggregate rule exists.
   return lines(
     `package ${basePkg}.domain.common;`,
     ``,
     `/** Domain-rule violation (preconditions, invariants) — maps to HTTP 400.`,
     ` *  {@link #getKind()} names the refusing rung (null outside the precondition /`,
-    ` *  invariant floor).  A messaged rule carries its wire code and the pointer its`,
+    ` *  invariant floor).  A named rule carries its wire code and the pointer its`,
     ` *  domain-floor errors[] entry names (M-T1.11 (c)); both are null for a`,
-    ` *  message-less one. */`,
+    ` *  unnamed one. */`,
     `public class DomainException extends RuntimeException {`,
     `    private static final long serialVersionUID = 1L;`,
     ``,
     `    /** Which rung of the domain floor refused a call — carried apart from the`,
-    `     *  message, which an authored {@code message "..."} replaces. */`,
+    `     *  message, which a rule's own text replaces. */`,
     `    public enum Kind { PRECONDITION, INVARIANT }`,
     ``,
     `    private final Kind kind;`,

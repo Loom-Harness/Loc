@@ -123,15 +123,14 @@ system S {
 });
 
 describe("loom.rule-message-removed", () => {
-  it("warns on each removed clause, naming the rule and its locales line", async () => {
+  it("errors on each removed clause, naming the rule and its locales line", async () => {
     const { diagnostics } = await parseString(
       wrap(`qty: int
         invariant qty >= 0 message "Quantity cannot be negative"`),
     );
     const hit = diagnostics.filter((d) => d.code === "loom.rule-message-removed");
     expect(hit).toHaveLength(1);
-    // A WARNING until the corpus migration lands.
-    expect(hit[0]!.severity).toBe(2);
+    expect(hit[0]!.severity).toBe(1);
     expect(hit[0]!.message).toContain("invariant quantityCannotNegative: …");
     expect(hit[0]!.message).toContain(
       'locales/en/Cat.json as "Product.rule.quantityCannotNegative": "Quantity cannot be negative"',
@@ -145,7 +144,6 @@ describe("rule keys — lowering", () => {
       wrap(`qty: int
         invariant positive: qty >= 0
         invariant qty < 1000
-        invariant qty != 7 message "Seven is unlucky"
         operation take(n: int) {
           precondition enoughStock: n <= qty
           qty := qty - n
@@ -155,8 +153,6 @@ describe("rule keys — lowering", () => {
     expect(agg.invariants.map((i) => i.message)).toEqual([
       { key: "Cat.Product.rule.positive", text: "Positive" },
       undefined,
-      // The removed clause still compiles — named as the codemod names it.
-      { key: "Cat.Product.rule.sevenUnlucky", text: "Seven is unlucky" },
     ]);
     const pre = agg.operations[0]!.statements[0]!;
     expect(pre.kind === "precondition" ? pre.message : "?").toEqual({

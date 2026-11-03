@@ -16,7 +16,7 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 // separate code paths:
 //   * MESSAGE-LESS single-field shapes  → the native validator chain
 //     (`chainSingleFieldFluent` / the java validator / zod's chain)
-//   * everything else (messaged rules, the domain floor) → the expression
+//   * everything else (named rules, the domain floor) → the expression
 //     renderer (`render-expr.ts` / `zod-refine.ts` / `renderFluentPredicate`)
 //
 // The snippets themselves live in `src/generator/_expr/code-point.ts`.
@@ -33,8 +33,8 @@ const SOURCE = `
           invariant code.length <= 16
           create(code: string) { }
           operation relabel(label: string) {
-            // Messaged -> the refine / predicate carrier instead.
-            precondition label.length >= 4 message "Label needs at least 4 characters"
+            // Named -> the refine / predicate carrier instead.
+            precondition labelLength: label.length >= 4
             code := label
           }
         }
@@ -104,7 +104,7 @@ describe("string .length is code points — node/Hono", () => {
     expect(routes).toContain(".openapi({ minLength: 3, maxLength: 16 })");
   });
 
-  it("the messaged refine carrier counts code points too", async () => {
+  it("the named refine carrier counts code points too", async () => {
     const routes = await file("node_api/http/product.routes.ts");
     expect(routes).toContain("[...data.label].length >= 4");
   });
@@ -174,7 +174,7 @@ describe("string .length is code points — python (already correct)", () => {
     expect(wire).toMatch(/max_length=16/);
   });
 
-  it("the messaged predicate carrier uses len(), which counts code points", async () => {
+  it("the named predicate carrier uses len(), which counts code points", async () => {
     const routes = await file("app/http/product_routes.py");
     expect(routes).toContain("len(self.label) >= 4");
   });
@@ -189,7 +189,7 @@ describe("string .length is code points — elixir", () => {
   // make elixir disagree with itself): Ecto has no `:codepoints` option, so the
   // native chain's length arm became a `validate_change/3` closure carrying
   // Ecto's own error tuple.
-  it("the message-LESS chain counts code points, not graphemes", async () => {
+  it("the UNNAMED chain counts code points, not graphemes", async () => {
     const changeset = await file("cat/product_changeset.ex");
     expect(changeset).toContain("|> validate_change(:code, fn _, value ->");
     expect(changeset).toContain("length(String.to_charlist(value)) >= 3");
@@ -203,7 +203,7 @@ describe("string .length is code points — elixir", () => {
     expect(changeset).not.toContain("String.length(");
   });
 
-  it("the messaged predicate carrier counts code points too", async () => {
+  it("the named predicate carrier counts code points too", async () => {
     const ctx = await file("cat.ex");
     expect(ctx).toContain("length(String.to_charlist(label)) >= 4");
     expect(ctx).not.toContain("String.length(label)");

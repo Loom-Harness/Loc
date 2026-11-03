@@ -192,11 +192,24 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "state-gate", title: "`when` canCommand state gate + GET can-query companion", doc: "criterion", backends: ALL },
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
   {
+    id: "union-match-arms",
+    title: "a `return match` whose arms build different union variants, tagged per arm",
+    doc: "payloads",
+    backends: ALL,
+  },
+  {
     id: "workflow-expected-failure",
     title: "a workflow `create` / handler answering `T or E`, rolled back whole on the error",
     doc: "workflow",
     backends: ["node", "dotnet", "java", "python"],
     note: "elixir refuses the let-bound mutating call every entry point here matches (`loom.elixir-bound-mutating-call-unsupported`).",
+  },
+  {
+    id: "scaffold-handlers-or-e",
+    title: "`scaffoldHandlers` over an operation answering `T or E`: the handler returns the result",
+    doc: "scaffold-macros",
+    backends: ["node", "dotnet", "java", "python"],
+    note: "elixir refuses an expected-failure entry point (`loom.elixir-entry-result-unsupported`).",
   },
   {
     id: "op-return-this",
@@ -440,7 +453,7 @@ export const CORPUS: readonly CorpusFeature[] = [
   {
     id: "part-rules-private-op",
     title:
-      "part-level `check` / `invariant`, a GUARDED single-field invariant (messaged and not), and a private-operation call from a sibling operation — three domain rules with one enforcement site each",
+      "part-level `check` / `invariant`, a GUARDED single-field invariant (named and not), and a private-operation call from a sibling operation — three domain rules with one enforcement site each",
     doc: "language",
     backends: ALL,
     note: "minted by M-T6.55 (F14/F15/F24).  All three shipped on node/.NET/java/python and were SILENT on Phoenix: the part changeset only `cast`, a guarded rule fell between the native `validate_*` path (which refuses a guard) and the residual carrier (which asked the native classifier and got null), and a bare private-op call rendered `_ = nil  # vanilla: bare call to 'recompute' (no callable target); record unchanged` — a comment in emitted output, not a diagnostic.  `Invoice.total` is assigned ONLY by the private operation, so a half-fix that emits the call but leaves `persistPutBodies` walking the caller's own statements still ships a row whose `total` never changes.  UNIT-TIER: a domain `test` block (no `test e2e`) is the runtime oracle for that write on all five — the `numeric-operands` shape.  NOT `with crudish`: that plus a relational entity part emits an `UpdateInvoiceRequest(… List<LineResponse>)` against an `Invoice.update(String, List<Line>)` and javac rejects the project — an older, separate java gap this fixture found and does not own (handed off in wave-c1-1f).",
@@ -949,10 +962,10 @@ export const CORPUS: readonly CorpusFeature[] = [
   {
     id: "validation-messages",
     title:
-      "authored `message \"…\"` on invariant / field check / precondition / VO invariant + the per-backend message CATALOG the wire `code` resolves against",
+      "a rule name on invariant / field check / precondition / VO invariant + the per-backend message CATALOG the wire `code` resolves against",
     doc: "language",
     backends: ALL,
-    note: "the FIRST corpus fixture with a `message` clause at all — before it, every backend's messaged-rule carrier AND the M-T1.11 catalog emission were uncompiled by the corpus tier (retro §78: a conditional emission needs a fixture that satisfies its condition)",
+    note: "the FIRST corpus fixture with a `message` clause at all — before it, every backend's named-rule carrier AND the M-T1.11 catalog emission were uncompiled by the corpus tier (retro §78: a conditional emission needs a fixture that satisfies its condition)",
   },
   {
     id: "vo-invariant-in-body",
@@ -960,15 +973,15 @@ export const CORPUS: readonly CorpusFeature[] = [
       "a value object BUILT by a domain body whose invariant refuses the value — 422 with an RFC 7807 `errors[]` entry; plus the `getById` miss on every load path",
     doc: "payloads",
     backends: ALL,
-    note: "M-T5.1 (VO→422 + A4).  Every other VO invariant in the corpus is exercised at the WIRE, where the request schema carries the rule; a value object constructed from a scalar parameter inside an operation reaches the constructor instead.  Before M-T5.1 that answered the domain-floor 422 with no `errors[]` on node/.NET/java/python — and on elixir the in-body construction was not checked at all (`resize(0)` persisted `{\"value\": 0}` and answered 204).  Carries a messaged and a message-less rule, and both body routers (aggregate operation, workflow step).",
+    note: "M-T5.1 (VO→422 + A4).  Every other VO invariant in the corpus is exercised at the WIRE, where the request schema carries the rule; a value object constructed from a scalar parameter inside an operation reaches the constructor instead.  Before M-T5.1 that answered the domain-floor 422 with no `errors[]` on node/.NET/java/python — and on elixir the in-body construction was not checked at all (`resize(0)` persisted `{\"value\": 0}` and answered 204).  Carries a named and an unnamed rule, and both body routers (aggregate operation, workflow step).",
   },
   {
     id: "domain-floor-messages",
     title:
-      "M-T1.11 (c) — a messaged invariant / precondition tripped at the DOMAIN FLOOR answers 422 with an `errors[]` entry carrying the rule's `msg.<hash>` code",
+      "M-T1.11 (c) — a named invariant / precondition tripped at the DOMAIN FLOOR answers 422 with an `errors[]` entry carrying the rule's `<Ctx>.<Owner>.rule.<name>` code",
     doc: "language",
     backends: ALL,
-    note: "the domain-floor half of the message ladder: every rule reads aggregate STATE, so no wire validator sees it.  Before item (c) node/.NET/java/python answered `detail` only (no `errors[]`, no code) and elixir answered the wire rung's shape for invariants and the bare floor for preconditions.  One case per pointer shape (state-vs-param precondition \"\", single-field invariant \"/balance\", cross-field invariant \"\") plus the message-less control.",
+    note: "the domain-floor half of the message ladder: every rule reads aggregate STATE, so no wire validator sees it.  Before item (c) node/.NET/java/python answered `detail` only (no `errors[]`, no code) and elixir answered the wire rung's shape for invariants and the bare floor for preconditions.  One case per pointer shape (state-vs-param precondition \"\", single-field invariant \"/balance\", cross-field invariant \"\") plus the unnamed control.",
   },
   {
     id: "datetime-wire",

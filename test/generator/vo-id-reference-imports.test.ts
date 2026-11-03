@@ -149,9 +149,7 @@ describe("a value object holding a cross-aggregate reference imports its id type
     // is what makes the scan safe to widen from types to bodies.
     const src = fileEndingWith(
       await generateSystemFiles(
-        systemWith(
-          'position: int\n        invariant position > 0 message "Decimal berths are not Ids. allowed"',
-        ),
+        systemWith("position: int\n        invariant berthPositive: position > 0"),
       ),
       "domain/value-objects.ts",
     );

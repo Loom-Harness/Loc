@@ -189,7 +189,7 @@ function valueObjectInvariantErrorTs(domainFloorCodes: boolean): string {
     ? `/** A value object's invariant refused a value (M-T5.1).  A DomainError, so
  *  every catch still classifies it; the routers answer it with the domain-floor
  *  status PLUS one RFC 7807 errors[] entry carrying the rule's message and, for
- *  a messaged rule, its content-hash code. */
+ *  a named rule, its identity-key code. */
 export class ValueObjectInvariantError extends DomainError {
   readonly valueObject: string;
   constructor(valueObject: string, message: string, code?: string) {
@@ -202,7 +202,7 @@ export class ValueObjectInvariantError extends DomainError {
     : `/** A value object's invariant refused a value (M-T5.1).  A DomainError, so
  *  every catch still classifies it; the routers answer it with the domain-floor
  *  status PLUS one RFC 7807 errors[] entry carrying the rule's message and, for
- *  a messaged rule, its content-hash code. */
+ *  a named rule, its identity-key code. */
 export class ValueObjectInvariantError extends DomainError {
   readonly valueObject: string;
   readonly code: string | undefined;
@@ -217,17 +217,17 @@ export class ValueObjectInvariantError extends DomainError {
 }
 
 /** `DomainErrorKind` — which rung of the domain floor refused a call, carried
- *  apart from the message text because an authored `message "..."` replaces the
+ *  apart from the message text because a rule's own text replaces the
  *  derived sentence. */
 const DOMAIN_ERROR_KIND_TS = `/** Which rung of the domain floor refused a call: a \`precondition\` of the
  *  operation, or an \`invariant\` of the aggregate / part / value object.  It is
- *  carried apart from the message, which an authored \`message "..."\` replaces. */
+ *  carried apart from the message, which a rule's own text replaces. */
 export type DomainErrorKind = "precondition" | "invariant";
 
 `;
 
 /** The base `DomainError`.  It carries the refusing rung as `kind`; with the
- *  domain-floor code carriage on (M-T1.11 (c)) a messaged invariant / field
+ *  domain-floor code carriage on (M-T1.11 (c)) a named invariant / field
  *  check / precondition also throws its wire `<Ctx>.<Owner>.rule.<name>` code and RFC 6901
  *  pointer along with the text. */
 function domainErrorTs(domainFloorCodes: boolean): string {
@@ -238,7 +238,7 @@ function domainErrorTs(domainFloorCodes: boolean): string {
   readonly kind: DomainErrorKind | undefined;
   /** A named rule's \`<Ctx>.<Owner>.rule.<name>\` code — the same one the wire rung carries —
    *  and the RFC 6901 pointer its domain-floor \`errors[]\` entry names
-   *  (M-T1.11 (c)).  Undefined for a message-less rule. */
+   *  (M-T1.11 (c)).  Undefined for an unnamed rule. */
   readonly code: string | undefined;
   readonly pointer: string | undefined;
   constructor(message: string, kind?: DomainErrorKind, code?: string, pointer?: string) {
@@ -265,7 +265,7 @@ function domainErrorTs(domainFloorCodes: boolean): string {
 
 /** `domainFloorProblem` — the domain-floor `errors[]` answer: a value object's
  *  invariant refused inside a body (M-T5.1) and, with the code carriage on, a
- *  MESSAGED invariant / check / precondition tripped at the domain floor
+ *  NAMED invariant / check / precondition tripped at the domain floor
  *  (M-T1.11 (c)).  ONE serializer for both — the entry shape is the same. */
 function domainFloorProblemTs(
   localizeMessages: boolean,
@@ -284,8 +284,8 @@ function domainFloorProblemTs(
  *  wire rung gives a request member, for a refusal the wire could not see:
  *  a value object a domain BODY built (an operation, a workflow, a handler —
  *  not the request body, whose value objects the request schema already
- *  checked)${domainFloorCodes ? ", or a MESSAGED invariant / check / precondition tripped at the domain\n *  floor (M-T1.11 (c))" : ""}.  The entry carries the rule's message and, for a
- *  messaged rule, the same content-hash code the wire rung carries.  The
+ *  checked)${domainFloorCodes ? ", or a NAMED invariant / check / precondition tripped at the domain\n *  floor (M-T1.11 (c))" : ""}.  The entry carries the rule's message and, for a
+ *  named rule, the same identity-key code the wire rung carries.  The
  *  pointer is the rule's ("/<field>" for a single-field rule) or "" — the
  *  whole request.  Anything else answers undefined and the caller's own arm
  *  runs. */
@@ -534,19 +534,19 @@ export function defaultHook(result: { success: boolean; data?: unknown; error?: 
   const errors = (result.error?.issues ?? []).map((issue) => ({
     pointer: pointerOf(issue.path),
     ${
-      // The message-LESS shape is kept EXACTLY as it was so a project with no
-      // authored message emits a byte-identical file (the acme baseline fixture
+      // The UNNAMED shape is kept EXACTLY as it was so a project with no
+      // named rule emits a byte-identical file (the acme baseline fixture
       // is the gate).  Under a catalog the code resolves SERVER-side (M-T1.11).
       localizeMessages
         ? `// The SERVER localises the message too: the code resolves
     // against the generated catalog for the request locale, falling back to the
-    // authored text the refine carries.  Resolved HERE rather than in the refine
+    // rule text the refine carries.  Resolved HERE rather than in the refine
     // because a zod "message" is fixed when the schema is CONSTRUCTED (module
     // load), where no request — and so no locale — exists yet.
     message: isMissing(result.data, issue) ? missingFieldMessage(issue.path) : localizeMessage(issue.params?.loomCode, issue.message),`
         : `message: isMissing(result.data, issue) ? missingFieldMessage(issue.path) : issue.message,`
     }
-    // A messaged invariant/precondition carries a stable content-hash code (via
+    // A named invariant/precondition carries a stable identity-key code (via
     // the refine's params.loomCode) so a client can localise the error;
     // structural zod errors (type/min) have none.
     ...(issue.params?.loomCode ? { code: issue.params.loomCode } : {}),
@@ -940,7 +940,7 @@ export function generateTypeScriptForContexts(
   // `ValueObjectInvariantError` + its `domainFloorProblem` answer ride on a
   // hosted value object declaring an invariant (M-T5.1) — nothing else raises
   // it, so a project without one stays byte-identical.  The domain-floor code
-  // carriage (M-T1.11 (c)) rides on a messaged aggregate rule the same way.
+  // carriage (M-T1.11 (c)) rides on a named aggregate rule the same way.
   const emitVoInvariant = hasValueObjectInvariants(merged);
   const emitDomainFloorCodes = hasDomainFloorMessages(merged);
   out.set(
@@ -956,7 +956,7 @@ export function generateTypeScriptForContexts(
   );
   // Validation-message catalog (M-T1.11): a named rule's wire `code` resolves
   // SERVER-side against this project's catalog, so a localised client is no
-  // longer the only way to see a translated rule.  No messaged rule ⇒ no catalog
+  // longer the only way to see a translated rule.  No named rule ⇒ no catalog
   // module and a byte-identical problem-details file.
   const validationMessages = collectWireValidationMessages(contexts);
   if (validationMessages.length > 0) {
@@ -2000,6 +2000,9 @@ function projectTsconfigJson(debugImports: boolean): string {
           // tsup handles emit (single bundled `dist/index.js`); tsc is
           // type-check only via `npm run typecheck`.
           noEmit: true,
+          // Node's type stripping (the debug run path) rejects `namespace`,
+          // `enum` and parameter properties; docs/debugging.md.
+          erasableSyntaxOnly: true,
           // `Bundler` resolution lets relative imports omit the `.js`
           // extension — esbuild (via tsup at build time, tsx at dev
           // time, vite-node at test time) resolves them.

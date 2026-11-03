@@ -6,7 +6,7 @@ system X { subdomain S { context C {
   workflow after transactional {          // let BEFORE the for  → OK
     create(id0: Thing id) {
       let xs = Things.all(All(), page: { offset: 0, limit: 10 })
-      for i in xs { if let q = Things.find(All()) { q.bump() } else { precondition false message "x" } }
+      for i in xs { if let q = Things.find(All()) { q.bump() } else { precondition xRule: false } }
       let t = Things.get(id0)
       t.bump()
     }

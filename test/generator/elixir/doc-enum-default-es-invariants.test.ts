@@ -34,7 +34,7 @@ const ES = `system Bank {
       aggregate Account persistedAs: eventLog {
         owner: string
         balance: int
-        invariant balance <= 100 message "Balance cap exceeded"
+        invariant balanceCap: balance <= 100
         invariant balance >= 0
         create open(owner: string, balance: int) {
           emit Opened { account: id, owner: owner, balance: balance }
@@ -70,7 +70,7 @@ describe("elixir event-sourced commands — aggregate invariants", () => {
       ':ok <- if(folded.balance >= 0, do: :ok, else: {:error, {:precondition_failed, "Invalid value"}})',
     );
     expect(mod).toContain(
-      'if not (folded.balance <= 100), do: raise(D.GuardError, kind: :precondition, message: "Balance cap exceeded")',
+      'if not (folded.balance <= 100), do: raise(D.GuardError, kind: :precondition, message: "Balance cap")',
     );
   });
 

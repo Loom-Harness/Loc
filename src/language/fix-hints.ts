@@ -312,8 +312,8 @@ const PROVIDERS: Record<string, FixHintProvider> = {
   // line: Line`, `line: Line = …`, `line: Line check …`) doesn't apply → drop
   // it.  The diagnostic's range is the offending modifier, so the splice window
   // is the flagged region itself — EXCEPT for the two clauses whose range covers
-  // only their expression: `= <default>` and `check <expr> [message "…"]`, where
-  // the leading keyword (and the check's trailing `message`) must go too or the
+  // only their expression: `= <default>` and `check [name:] <expr> [message "…"]`, where
+  // the leading keyword and rule name (and the check's trailing `message`) must go too or the
   // remainder doesn't parse.
   "loom.entity-field-modifier": (d, doc, node) => {
     const prop = addressableProperty(node);
@@ -326,7 +326,7 @@ const PROVIDERS: Record<string, FixHintProvider> = {
     const relOf = (n: { $cstNode?: { offset: number } } | undefined): number | undefined =>
       n?.$cstNode ? n.$cstNode.offset - base : undefined;
     if (relOf(prop.check) === start) {
-      const kw = /\bcheck\s*$/.exec(before);
+      const kw = /\bcheck\s*(?:[A-Za-z_]\w*\s*:\s*)?$/.exec(before);
       if (!kw) return undefined;
       start = kw.index;
       if (prop.message !== undefined) {

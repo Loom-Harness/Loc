@@ -730,8 +730,8 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     out.set("app/scheduling.py", renderPyTimerScheduler(ownedTimers, eventByName, hasDispatch));
   }
 
-  // Validation-message catalog (M-T1.11): the wire `code` a messaged rule
-  // attaches resolves SERVER-side against this project's catalog.  No messaged
+  // Validation-message catalog (M-T1.11): the wire `code` a named rule
+  // attaches resolves SERVER-side against this project's catalog.  No named
   // rule ⇒ no module and a byte-identical problem handler.
   const validationMessages = collectWireValidationMessages(args.contexts);
   if (validationMessages.length > 0) {
@@ -761,7 +761,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       // M-T5.1: the value-object-invariant handler rides on a hosted value
       // object declaring an invariant; a project without one is byte-identical.
       hasValueObjectInvariants(merged),
-      // M-T1.11 (c): the domain-floor code answer rides on a messaged
+      // M-T1.11 (c): the domain-floor code answer rides on a named
       // aggregate rule the same way.
       hasDomainFloorMessages(merged),
       // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
@@ -1954,7 +1954,7 @@ function renderProblemPy(
    *  <Code>` override, defaulting to 409 → byte-identical). */
   structuralErrorStatuses?: Record<string, number>,
   /** True when this project ships `app/i18n.py` — the 422 handler then resolves
-   *  each messaged rule's wire `code` against the catalog for the request
+   *  each named rule's wire `code` against the catalog for the request
    *  locale.  False ⇒ byte-identical to pre-catalog output (M-T1.11). */
   localizeMessages = false,
   /** True when a hosted value object declares an invariant — the module then
@@ -2063,13 +2063,11 @@ function renderProblemPy(
         # A DB constraint tripped.  Discriminate by Postgres SQLSTATE so a
         # dangling cross-aggregate reference (23503 foreign_key_violation) is not
         # conflated with a \`unique (...)\` breach (23505 unique_violation), which
-        # is a conflict with state that DOES exist.  Anything else is a conflict
-        # too, so it shares the 409.  asyncpg exposes \`.sqlstate\` on the driver
-        # error SQLAlchemy wraps in \`.orig\`.
+        # is a conflict with state that DOES exist.  Any other SQLSTATE is not a
+        # client conflict: it takes the sanitized 500 catch-all.  asyncpg exposes
+        # \`.sqlstate\` on the driver error SQLAlchemy wraps in \`.orig\`.
         sqlstate = getattr(getattr(err, "orig", None), "sqlstate", None)
-${danglingRefArm}${uniqueArm}        log("warn", "disallowed", message=str(err), status=${uniquenessStatus})
-        record_domain_fault("disallowed")
-        return problem(request, ${uniquenessStatus}, ${title("unique-conflict")}, "The request conflicts with the current state.")
+${danglingRefArm}${uniqueArm}        return await _internal(request, err)
 
 `
     : "";
@@ -2095,24 +2093,24 @@ ${danglingRefArm}${uniqueArm}        log("warn", "disallowed", message=str(err),
 `
     : "";
   // The catalog lookup (M-T1.11) — imported only when this project has an
-  // authored validation message, so a message-less app's imports are unchanged.
+  // authored validation message, so an unnamed app's imports are unchanged.
   const i18nImport = localizeMessages ? "\nfrom app.i18n import localize_message" : "";
   // Resolve the code against the catalog for the request locale, falling back to
-  // Pydantic's message (the authored text `PydanticCustomError` carries).
+  // Pydantic's message (the rule text `PydanticCustomError` carries).
   const localizeLine = localizeMessages
     ? '\n                entry["message"] = localize_message(code, entry["message"])'
     : "";
   // M-T5.1 — a value object refused INSIDE a domain body: the domain-floor
   // status plus one RFC 7807 errors[] entry.  Pointer "" (the whole request —
   // the body computed the value, so it names no request member), the rule's
-  // message, and for a messaged rule its content-hash code resolved through the
+  // message, and for a named rule its identity-key code resolved through the
   // same catalog the wire rung uses.  Starlette dispatches on the exception's
   // MRO, so this subclass handler wins over `_domain`.
   const voImport = valueObjectInvariants ? "    ValueObjectInvariantError,\n" : "";
   const voLocalize = localizeMessages
     ? '\n            entry["message"] = localize_message(err.code, str(err))'
     : "";
-  // M-T1.11 (c) — the SAME errors[]-entry answer for a MESSAGED invariant /
+  // M-T1.11 (c) — the SAME errors[]-entry answer for a NAMED invariant /
   // check / precondition tripped at the domain floor: one helper both handlers
   // call, so the two refusals cannot drift into different bodies.
   const domainFloorEntryFn = domainFloorCodes

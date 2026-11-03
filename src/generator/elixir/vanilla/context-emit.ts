@@ -315,6 +315,7 @@ function renderNumericParamHelpers(
   needsInt32: boolean,
   needsDate = false,
   needsVo = false,
+  needsId = false,
 ): string {
   // Emitted SEPARATELY, not as one block: `mix compile --warnings-as-errors`
   // rejects an unused private function, so a context whose ops take an `int`
@@ -403,6 +404,17 @@ function renderNumericParamHelpers(
   defp __loom_date_param(record, field, value),
     do: {:error, __loom_param_error(record, field, value, "Invalid date")}
 `;
+  // A uuid `X id` param: the same check the find-param and path-id edges make
+  // (36 characters that cast), refused with the fact's `malformed-id` message.
+  const id = `
+  defp __loom_id_param(_record, _field, nil), do: {:ok, nil}
+
+  defp __loom_id_param(record, field, value) do
+    if is_binary(value) and byte_size(value) == 36 and match?({:ok, _}, Ecto.UUID.cast(value)),
+      do: {:ok, value},
+      else: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, ${exFieldMessage("malformed-id")})}
+  end
+`;
   // A value-object param is cast against its declared fields; each member error
   // keeps its own key on `loom_path`, so the 422 points at `/<param>/<member>`.
   const vo = `
@@ -430,10 +442,13 @@ function renderNumericParamHelpers(
   defp __loom_vo_param(record, field, value, _types, _required),
     do: {:error, __loom_param_error(record, field, value, "Invalid value")}
 `;
+  // `__loom_id_param` builds its own changeset, so an id-only context must not
+  // carry the shared error helper (`--warnings-as-errors` rejects it unused).
+  const needsErr = needsDecimal || needsInt || needsInt32 || needsDate || needsVo;
   return `  # Wire-format guards for operation params (M-T6.48).  Each returns
   # \`{:ok, value}\` or \`{:error, changeset}\` — the latter renders as the
   # standard 422 with a \`/<param>\` pointer.
-${err}${needsDecimal ? dec : ""}${needsInt ? int : ""}${needsInt32 ? int32 : ""}${needsDate ? date : ""}${needsVo ? vo : ""}`;
+${needsErr ? err : ""}${needsDecimal ? dec : ""}${needsInt ? int : ""}${needsInt32 ? int32 : ""}${needsDate ? date : ""}${needsId ? id : ""}${needsVo ? vo : ""}`;
 }
 
 function renderContextModule(
@@ -835,7 +850,7 @@ ${body}
       ...body.flatMap((st) => {
         // An empty wire set: a create precondition is not lifted into the
         // create request validator on any backend, so it answers the domain
-        // floor (with its `errors[]` entry when messaged), like the other four.
+        // floor (with its `errors[]` entry when named), like the other four.
         if (st.kind === "precondition") return [renderOpGuardClause(st, bodyRc, new Set())];
         if (st.kind === "let")
           return [`${escapeElixirIdent(snake(st.name))} = ${renderExpr(st.expr, bodyRc)}`];
@@ -1071,9 +1086,15 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   const needsInt32Param = assembledBody.includes("__loom_int32_param(");
   const needsDateParam = assembledBody.includes("__loom_date_param(");
   const needsVoParam = assembledBody.includes("__loom_vo_param(");
+  const needsIdParam = assembledBody.includes("__loom_id_param(");
   const numericParamHelpers =
-    needsDecimalParam || needsIntParam || needsInt32Param || needsDateParam || needsVoParam
-      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam, needsInt32Param, needsDateParam, needsVoParam)}`
+    needsDecimalParam ||
+    needsIntParam ||
+    needsInt32Param ||
+    needsDateParam ||
+    needsVoParam ||
+    needsIdParam
+      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam, needsInt32Param, needsDateParam, needsVoParam, needsIdParam)}`
       : "";
 
   return `# Auto-generated.
@@ -1450,7 +1471,7 @@ function renderExternOpFunction(
   // Re-assert the aggregate's cross-field invariants after the hook mutates and
   // before the write (D3c) — byte-identical when the aggregate has none.
   const changesetMod = `${aggModule}Changeset`;
-  // M-T1.11 (c): the domain-floor twin when a messaged invariant is present.
+  // M-T1.11 (c): the domain-floor twin when a named invariant is present.
   const invFn = aggregateHasDomainFloorCodes(agg) ? "validate_domain_floor" : "validate_invariants";
   const invPipe = aggregateHasResidualInvariants(agg)
     ? `\n      |> ${changesetMod}.${invFn}()`
@@ -1686,8 +1707,8 @@ function renderNamedOpFunction(
   // unmet invariant returns `{:error, changeset}` (422) instead of committing.
   // Gated on residual invariants → byte-identical when the aggregate has none.
   const changesetMod = `${aggModule}Changeset`;
-  // M-T1.11 (c): an operation persist is the DOMAIN FLOOR — with a messaged
-  // invariant present it runs the `validate_domain_floor/1` twin, so a messaged
+  // M-T1.11 (c): an operation persist is the DOMAIN FLOOR — with a named
+  // invariant present it runs the `validate_domain_floor/1` twin, so a named
   // violation answers the domain-floor 422 with its errors[] entry (not the
   // request changeset's "Validation failed").
   const invFn = aggregateHasDomainFloorCodes(agg) ? "validate_domain_floor" : "validate_invariants";

@@ -15,7 +15,7 @@
 // the schema stage from the domain stage: `pages >= 0` reads one member, so a
 // patch that carries `pages` is refused at the wire and one that omits it
 // never runs it; `minPages <= pages` reads two, so a patch carrying only one of
-// them is judged by the domain floor over the MERGED state.  The message-less
+// them is judged by the domain floor over the MERGED state.  The unnamed
 // `title.length <= 80` is the single-field shape each backend writes as a
 // native constraint (zod `.max`, a Pydantic `Field`, a FluentValidation chain,
 // a java pattern check, Ecto's `validate_length`) — it must not fire on a patch
@@ -38,8 +38,8 @@ system MergePatchUpdate {
         tags: string[]
         span: Span?
         invariant title.length <= 80
-        invariant pages >= 0 message "Pages cannot be negative"
-        invariant minPages <= pages message "A memo has at least its minimum pages"
+        invariant pagesCannotNegative: pages >= 0
+        invariant memoHasAtLeast: minPages <= pages
       }
       repository Memos for Memo { }
     }

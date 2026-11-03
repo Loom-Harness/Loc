@@ -59,12 +59,12 @@ ${branches}
 /** Map a recognised single-field invariant pattern to the idiomatic Ecto
  *  changeset validator pipe line (4-space-indented, ready for a `|>` pipe). */
 export function ectoValidator(field: string, p: SingleFieldPattern, message?: string): string {
-  // An author `message "..."` rides along as Ecto's own `message:` option, so a
-  // messaged single-field rule keeps its native `validate_*` enforcement AND
-  // surfaces the author text (VOs have no residual carrier to route to). A
-  // message-less rule is byte-identical.
-  // Same funnel as the length arm above — author text, never spliced raw.
-  // A message-less rule answers node's `singleFieldMessage` sentence, not Ecto's
+  // A named rule's text rides along as Ecto's own `message:` option, so a
+  // named single-field rule keeps its native `validate_*` enforcement AND
+  // surfaces the rule text (VOs have no residual carrier to route to). A
+  // unnamed rule is byte-identical.
+  // Same funnel as the length arm above — rule text, never spliced raw.
+  // An unnamed rule answers node's `singleFieldMessage` sentence, not Ecto's
   // own text (D-MESSAGELESS-DEFAULT), so the 422 reads the same on every backend.
   const text = message ?? singleFieldMessage(field, p);
   const m = `, message: ${elixirString(text)}`;
@@ -146,7 +146,7 @@ function constraintLinesFor(owner: {
   );
 }
 
-/** The wire `code` for a MESSAGED single-field rule emitted as a native Ecto
+/** The wire `code` for a NAMED single-field rule emitted as a native Ecto
  *  `validate_*` line on a changeset that has no residual carrier (a value
  *  object's `changeset/1`, a value-collection row's `changeset/2`).  Ecto's
  *  validators take a `message:` but no metadata, so the rule's stable
@@ -176,7 +176,7 @@ export function messageCodeTagging(owner: {
 
   # A named rule's stable wire code rides the error opts as \`loom_code\`
   # (ProblemDetails renders it as the 422 \`code\`); Ecto's own validators
-  # cannot carry it, so it is attached here by the rule's authored text.
+  # cannot carry it, so it is attached here by the rule's text.
   defp __loom_tag_codes(changeset) do
     errors =
       Enum.map(changeset.errors, fn
@@ -213,7 +213,7 @@ export function voEctoType(t: TypeIR, enums: ReadonlyMap<string, EnumIR> = new M
     case "primitive":
       return exEctoScalarType(t.name);
     case "id":
-      return exEctoIdType(t.valueType);
+      return exEctoIdType();
     case "enum": {
       const en = enums.get(t.name);
       return en

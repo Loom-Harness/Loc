@@ -28,16 +28,17 @@ import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
+import { generateSystemFilesFromProject } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
 const fixtureRoot = path.join(repoRoot, "test/fixtures/baseline-output");
+const acmePath = path.join(repoRoot, "examples/acme.ddd");
 
 async function buildAcme(): Promise<Model> {
   const services = createDddServices(NodeFileSystem);
   const docs = services.shared.workspace.LangiumDocuments;
-  const doc = await docs.getOrCreateDocument(URI.file(path.join(repoRoot, "examples/acme.ddd")));
+  const doc = await docs.getOrCreateDocument(URI.file(acmePath));
   await services.shared.workspace.DocumentBuilder.build([doc], {
     validation: true,
   });
@@ -56,8 +57,7 @@ function listFixtureFiles(dir: string, prefix = ""): string[] {
 
 describe("byte-equivalence — page emitter vs legacy direct walk", () => {
   it("emits the same file set as the baseline fixture (paths only)", async () => {
-    const model = await buildAcme();
-    const { files } = generateSystems(model);
+    const files = await generateSystemFilesFromProject(acmePath);
     const emitted = new Set([...files.keys()]);
     const expected = new Set(listFixtureFiles(fixtureRoot));
     // Diff symmetric — fail when either set has paths the other lacks.
@@ -68,8 +68,7 @@ describe("byte-equivalence — page emitter vs legacy direct walk", () => {
   });
 
   it("emits byte-identical content for every fixture file", async () => {
-    const model = await buildAcme();
-    const { files } = generateSystems(model);
+    const files = await generateSystemFilesFromProject(acmePath);
     const expected = listFixtureFiles(fixtureRoot);
     const mismatches: string[] = [];
     for (const rel of expected) {
@@ -95,8 +94,7 @@ describe("byte-equivalence — page emitter vs legacy direct walk", () => {
     // files are emitted at all (they require both `ui.pages` to
     // contain the right archetype entries AND the per-archetype
     // dispatch in `emitPageObjectsForUi` to route them).
-    const model = await buildAcme();
-    const { files } = generateSystems(model);
+    const files = await generateSystemFilesFromProject(acmePath);
     expect([...files.keys()]).toContain("web_app/e2e/pages/order.ts");
     expect([...files.keys()]).toContain("web_app/e2e/pages/customer.ts");
     expect([...files.keys()]).toContain("web_app/e2e/pages/product.ts");

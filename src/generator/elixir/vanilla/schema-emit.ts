@@ -31,10 +31,7 @@ import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { tableNameFor } from "../../../util/storage-names.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
-import {
-  messagedRoutesToResidual,
-  renderInvariantValidatorFn,
-} from "./changeset-invariant-emit.js";
+import { namedRoutesToResidual, renderInvariantValidatorFn } from "./changeset-invariant-emit.js";
 import { partConstraintLines } from "./changeset-validators.js";
 import {
   exEctoIdType,
@@ -271,13 +268,13 @@ function renderPartSchema(
   // `changeset/2` is what the owner's `cast_embed`/`cast_assoc` runs (M-T6.55
   // F14 — it used to only `cast`, while node/.NET/java/python assert both forms
   // at the part's domain floor).  Same two-carrier split as the aggregate
-  // changeset: a message-less single-field rule takes its native `validate_*`
-  // line; everything else (cross-field, guarded, messaged) routes to the
+  // changeset: an unnamed single-field rule takes its native `validate_*`
+  // line; everything else (cross-field, guarded, named) routes to the
   // part's own `validate_invariants/1`, so neither double-emits.
   const partInvariants = part.invariants ?? [];
   const nativeLines = partConstraintLines({
     fields: part.fields,
-    invariants: partInvariants.filter((inv) => !messagedRoutesToResidual(inv)),
+    invariants: partInvariants.filter((inv) => !namedRoutesToResidual(inv)),
   });
   const invariantFn = renderInvariantValidatorFn(
     // `derived` rides along since #3023 — a part's own `derived` must be
@@ -633,7 +630,7 @@ function mapLeafTypeToEcto(t: TypeIR): string | null {
     case "id":
       // X id → FK column of the target's key type; the column itself is
       // enough for wire shape parity (the agg JSON includes the FK value).
-      return exEctoIdType(t.valueType);
+      return exEctoIdType();
     case "valueobject":
       // VO → the JSON column for a caller with no value-object table to build
       // the canonical `Loom.ValueObject` column type from (projection rows,

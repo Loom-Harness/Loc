@@ -26,10 +26,10 @@ const SYSTEM = `system Ingress {
       valueobject Offer { price: money  rate: Rate  note: string? }
       valueobject Sku {
         code: string
-        invariant code.length >= 3 message "SKU code needs at least 3 characters"
+        invariant skuCodeLength: code.length >= 3
       }
       aggregate Product with crudish {
-        name: string check name.length > 0 message "Name is required"
+        name: string check nameRequired: name.length > 0
         nick: string?
         price: money
         discount: money?

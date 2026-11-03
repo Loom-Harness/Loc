@@ -14,7 +14,7 @@
 // contract the wire validators already emit (`rejectValue(field, code,
 // message)`, where `code` is the `<Ctx>.<Owner>.rule.<name>` i18n key and `message` the
 // authored English).  So a translated bundle wins, an untranslated one silently
-// yields the authored text, and the message-less sentinel code (`loom.invariant`)
+// yields the rule text, and the unnamed sentinel code (`loom.invariant`)
 // resolves to nothing and keeps its default — no branching needed anywhere.
 //
 // ADDING A LOCALE means a `messages_<locale>.properties` sibling; `ddd i18n
@@ -42,18 +42,18 @@ function propertiesValue(text: string): string {
 }
 
 /** `src/main/resources/messages.properties` — the source-language bundle
- *  `MessageSource` resolves each messaged rule's wire `code` against. */
+ *  `MessageSource` resolves each named rule's wire `code` against. */
 export function renderJavaMessagesBundle(messages: readonly ValidationMessage[]): string {
   return lines(
     "# Validation-message catalog (Loom i18n).",
     "#",
-    "# Keys are the stable content-hash codes the wire validators attach to a",
-    "# messaged invariant / check / precondition (errors[].code), identical to the",
+    "# Keys are the stable identity-key codes the wire validators attach to a",
+    "# named invariant / check / precondition (errors[].code), identical to the",
     "# keys in the system's .loom/messages.en.json and on every other backend.",
     "#",
     "# Spring Boot auto-configures a MessageSource over this bundle (the default",
     "# `messages` basename); ApiExceptionAdvice resolves each FieldError through it",
-    "# and falls back to the authored text below when a locale has no entry.  Add a",
+    "# and falls back to the rule text below when a locale has no entry.  Add a",
     "# locale by adding a messages_<locale>.properties sibling.",
     ...messages.map((m) => `${m.code}=${propertiesValue(m.text)}`),
   );

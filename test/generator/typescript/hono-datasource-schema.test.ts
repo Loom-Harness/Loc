@@ -15,8 +15,7 @@
 // resolution is a separate feature outside this slice.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const baseSystem = (dataSourceClauses: string, dataSourceNames: string) => `
 system Sys {
@@ -44,7 +43,7 @@ system Sys {
 `;
 
 async function generate(src: string): Promise<Map<string, string>> {
-  return (await generateSystems(await parseValid(src))).files;
+  return await generateSystemFiles(src);
 }
 
 function schemaFile(files: Map<string, string>): string {

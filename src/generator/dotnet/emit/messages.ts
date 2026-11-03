@@ -3,7 +3,7 @@
 //
 // `Localization/LoomMessages.cs`, resolved from the FluentValidation arm of the
 // domain-exception filter — the single 422 chokepoint that already reads a
-// messaged rule's `.WithErrorCode("<Ctx>.<Owner>.rule.<name>")` off each `ValidationFailure`.
+// named rule's `.WithErrorCode("<Ctx>.<Owner>.rule.<name>")` off each `ValidationFailure`.
 //
 // WHY A GENERATED STATIC MAP rather than `IStringLocalizer`.  ASP.NET's
 // localization stack keys off satellite `.resx` assemblies: a `.resx` is XML that
@@ -38,8 +38,8 @@ export function renderCsMessages(ns: string, messages: readonly ValidationMessag
   return lines(
     "// Auto-generated.  Validation-message catalog (Loom i18n).",
     "//",
-    "// Keys are the stable content-hash codes the wire validators attach to a",
-    "// messaged invariant / check / precondition (errors[].code), identical to the",
+    "// Keys are the stable identity-key codes the wire validators attach to a",
+    "// named invariant / check / precondition (errors[].code), identical to the",
     "// keys in the system's .loom/messages.en.json and on every other backend.",
     "// A locale with no entry for a code falls back to the authored source-language",
     "// text, so an untranslated message still reads correctly.",

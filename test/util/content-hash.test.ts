@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 import { contentHash } from "../../src/util/content-hash.js";
 
 // `contentHash` (src/util/content-hash.ts) is the ONE hash primitive behind the
-// whole i18n key family — the `msg.<hash>` validation-message wire codes and the
-// user-visible-string catalog keys.  Its contract (D-I18N-KEY) is entirely about
+// whole i18n key family — the user-visible-string catalog keys.  Its contract (D-I18N-KEY) is entirely about
 // STABILITY and SHAPE, not strength: the same source text must always yield the
 // same 6-char key (so a translated catalog entry keeps matching), and any
 // rephrase must yield a different one (so `ddd i18n sync` sees delete-old +

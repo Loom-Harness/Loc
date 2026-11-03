@@ -29,8 +29,8 @@ system DateScalar {
         // `today()` is `now().toDate()` — the UTC calendar date.  A precondition,
         // not an invariant: `now()` is not evaluable in elixir's changeset.
         operation book(visit: date) {
-          precondition birthDate <= today() message "A birth date cannot be in the future"
-          precondition visit >= birthDate message "A visit cannot precede the birth date"
+          precondition birthDateCannotIn: birthDate <= today()
+          precondition visitCannotPrecedeBirth: visit >= birthDate
           nextVisit := visit
         }
 

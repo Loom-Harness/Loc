@@ -57,10 +57,9 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/language/validators/_shared.ts
   // ----------------------------------------------------------------------
-  "loom.blank-message": "A 'message' clause must not be blank.",
   // The `message "…"` clause left the language: a rule is NAMED and its text
-  // is keyed by identity.  A WARNING until the corpus is migrated
-  // (`scripts/codemod-rule-names.mjs`), then an error.
+  // is keyed by identity.  The grammar still parses the clause so this error can
+  // name the rule it becomes.
   "loom.rule-message-removed": (p: {
     rule: unknown;
     name: unknown;
@@ -68,7 +67,7 @@ export const DIAGNOSTIC_MESSAGES = {
     key: unknown;
     text: unknown;
   }) =>
-    `'message "…"' on ${p.rule} is no longer part of the language: name the rule — '${p.rule} ${p.name}: …' — and put its text in ${p.file} as "${p.key}": ${JSON.stringify(String(p.text))}. Run 'node scripts/codemod-rule-names.mjs <path>' to migrate every rule at once. (A warning until the corpus migration lands; then an error.)`,
+    `'message "…"' on ${p.rule} is no longer part of the language: name the rule — '${p.rule} ${p.name}: …' — and put its text in ${p.file} as "${p.key}": ${JSON.stringify(String(p.text))}. Run 'node scripts/codemod-rule-names.mjs <path>' to migrate every rule at once.`,
   "loom.rule-name-duplicate": (p: { name: unknown; owner: unknown }) =>
     `Rule name '${p.name}' is already used in '${p.owner}' — invariants, field checks and preconditions share one rule namespace per owner, because the name is the rule's i18n key. Rename one of them.`,
   // `warnSensitivityDrop` is ONE forwarding helper called from every
@@ -721,6 +720,17 @@ export const DIAGNOSTIC_MESSAGES = {
   // src/language/validators/duplicates.ts
   // ----------------------------------------------------------------------
   // The two APPLICATION handler kinds share one route-target namespace.
+  "loom.duplicate-repository": (p: {
+    name: unknown;
+    agg: unknown;
+    first: unknown;
+    ctxName: unknown;
+  }) =>
+    `Repository '${p.name}' is a second repository for aggregate '${p.agg}' in context ` +
+    `'${p.ctxName}'; '${p.first}' already serves it. An aggregate has one repository — every ` +
+    `repository exposes the same verb contract, so a second one is only another name for the ` +
+    `same store. Use '${p.first}' and remove '${p.name}'.`,
+
   "loom.duplicate-handler": (p: { name: unknown; ctxName: unknown; kind: unknown }) =>
     `Duplicate handler '${p.name}' in context '${p.ctxName}'; a ${p.kind} shares its name ` +
     `with another handler. A 'route -> ${p.ctxName}.${p.name}' would ` +
@@ -1034,7 +1044,7 @@ export const DIAGNOSTIC_MESSAGES = {
     "observable IN-PROCESS: the generated domain layer raises a typed error carrying the " +
     "rung as a structural `kind` field, whatever the rule's message says. Over HTTP both " +
     "rungs answer 422, and their only discriminator is the RFC 7807 `detail` sentence — " +
-    'which an authored `message "..."` on the rule overwrites. Pin the wire fact here ' +
+    "which the rule's own text overwrites. Pin the wire fact here " +
     "instead — `toThrow(<status>)`, e.g. `toThrow(422)` — and move the rung assertion to " +
     `a unit \`test\` block on the aggregate, where \`toThrow(${p.kind})\` reads the real ` +
     "domain error.",
@@ -1271,6 +1281,9 @@ export const DIAGNOSTIC_MESSAGES = {
     `${p.where} constructs '${p.name} { … }', an entity part of aggregate '${p.ownerName}'. ` +
     `An entity part is built only inside the aggregate that owns it — outside it there is nothing to hold it: ` +
     `call an operation on '${p.ownerName}' that adds the part, passing its fields as plain parameters.`,
+  "loom.id-target-not-identity": (p: { name: unknown; kind: unknown; hint: unknown }) =>
+    `'${p.name} id' names ${p.kind} '${p.name}', which has no identity — only aggregates and entity parts carry an id. ` +
+    `Reference an aggregate or an entity part instead${p.hint}.`,
   "loom.ambiguous-part-ref": (p: { name: unknown; list: unknown; names: unknown }) =>
     `Ambiguous entity-part reference '${p.name} id' — '${p.name}' is declared in ${p.list}. ` +
     `Entity parts are aggregate-local; reference the owning aggregate's root instead (e.g. '${p.names} id'), ` +
@@ -3824,6 +3837,34 @@ export const DIAGNOSTIC_MESSAGES = {
     `'ignoring' clause. No 'auth { enforcement: }' mode restores the filter — ` +
     `'enforcement: opt' checks nothing and 'requires true' satisfies ` +
     `'enforcement: denyByDefault' while still leaking.`,
+  // A folded read model's row is written by the fold, not by a tenant's
+  // command, so it carries no tenant column and its generated read routes no
+  // tenant predicate: under `tenancy by` every tenant would read every other
+  // tenant's rows.  Refused until a fold can carry the event's tenant.
+  "loom.tenancy-folded-projection-unscoped": (p: {
+    name: unknown;
+    ctxName: unknown;
+    events: unknown;
+    claim: unknown;
+  }) =>
+    `Projection '${p.ctxName}.${p.name}' folds ${p.events} into a read model under ` +
+    `'tenancy by user.${p.claim}', but a folded projection's rows carry no tenant and its ` +
+    `generated read routes apply no tenant predicate, so every tenant would read every ` +
+    `other tenant's rows. Read the source aggregate through a query-time projection ` +
+    `instead ('from <Aggregate> as a … select …', optionally 'group by'), which applies ` +
+    `the aggregate's own tenant floor on every backend.`,
+  "loom.projection-cross-context-source-unsupported": (p: {
+    name: unknown;
+    ctxName: unknown;
+    source: unknown;
+    homeName: unknown;
+    platform: unknown;
+  }) =>
+    `Query-time projection '${p.ctxName}.${p.name}' reads '${p.source}' row by row from ` +
+    `context '${p.homeName}', but '${p.platform}' synthesises a per-row projection's source ` +
+    `read only on a repository in the projection's own context. Declare the projection in ` +
+    `'${p.homeName}', or aggregate it ('select n = count()', 'group by'), which reads the ` +
+    `table directly.`,
   "loom.filter-bypass-no-filter": (p: {
     site: unknown;
     ctxName: unknown;
@@ -4794,14 +4835,12 @@ export const DIAGNOSTIC_MESSAGES = {
     claimField: unknown;
     claimType: unknown;
     registryName: unknown;
-    idValueType: unknown;
-    idValueType2: unknown;
   }) =>
     `system '${p.name}': tenancy claim 'user.${p.claimField}' is typed ` +
-    `'${p.claimType}' but registry '${p.registryName}' has a ${p.idValueType} id. ` +
+    `'${p.claimType}' but registry '${p.registryName}' has a guid id. ` +
     `The derived registry self-scope filter compares ${p.registryName}.id to the claim, so ` +
-    `declare the claim as '${p.claimField}: ${p.idValueType}'` +
-    `${p.idValueType2}.`,
+    `declare the claim as '${p.claimField}: guid'` +
+    ` (or '${p.claimField}: string', bound as a guid at the accessor site).`,
   "loom.tenant-owned-claim-type": (p: { name: unknown; claimField: unknown; claimType: unknown }) =>
     `system '${p.name}': tenancy claim 'user.${p.claimField}' is typed ` +
     `'${p.claimType}' but 'tenantOwned' provides 'tenantId: string' — the ` +

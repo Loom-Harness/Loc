@@ -200,8 +200,8 @@ system FieldOps {
         contains lines: WorkOrderLine[]
 
         invariant currency.length == 3
-        invariant lines.all(l => l.currency == currency)
-          message "all work-order lines must share the order currency"
+        invariant allWorkOrderLines: lines.all(l => l.currency == currency)
+
 
         derived total: money = lines.sum(l => l.subtotal)
         derived display: string = `WO {status} for {customerId}`
@@ -238,13 +238,13 @@ system FieldOps {
 
         operation cancel() {
           requires currentUser.permissions.contains(permissions.workOrderWrite)
-          precondition status != Completed message "a completed work order cannot be cancelled"
+          precondition completedWorkOrderCannot: status != Completed
           status := Cancelled
         }
 
         operation addLine(kind: LineKind, description: string, quantity: decimal, unitPrice: money) {
           requires currentUser.permissions.contains(permissions.workOrderWrite)
-          precondition isDraft() message "lines can only be added to a draft"
+          precondition linesCanOnlyAdded: isDraft()
           precondition quantity > 0
           lines += WorkOrderLine {
             kind: kind, description: description, quantity: quantity,
@@ -313,8 +313,8 @@ system FieldOps {
           let wo = WorkOrders.get(workOrder)
           let tech = Technicians.get(technician)
           let a = Assets.get(asset)
-          precondition tech.hasSkill(a.requiredSkill)
-            message "technician is not qualified for this asset"
+          precondition technicianNotQualifiedFor: tech.hasSkill(a.requiredSkill)
+
           wo.schedule(technician, at)
         }
       }
@@ -356,7 +356,7 @@ system FieldOps {
         operation consume(qty: int) {
           requires currentUser.permissions.contains(permissions.workOrderWrite)
           precondition qty > 0
-          precondition stockOnHand >= qty message "insufficient stock"
+          precondition insufficientStock: stockOnHand >= qty
           stockOnHand := stockOnHand - qty
         }
         operation restock(qty: int) {
@@ -396,7 +396,7 @@ system FieldOps {
             if let p = Parts.find(PartBySku(u.partSku)) {
               p.consume(u.qty)
             } else {
-              precondition false message "part no longer exists"
+              precondition partNoLongerExists: false
             }
           }
           let wo = WorkOrders.get(workOrder)

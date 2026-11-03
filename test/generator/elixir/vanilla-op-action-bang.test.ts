@@ -89,7 +89,7 @@ describe("vanilla LiveView operation-action bang seams (§13)", () => {
     expect(confirm).toContain("rescue");
     // M-T6.20 — routed on the exception's `:kind` FIELD, not on the message
     // prefix.  The prefix `cond` made the detail the routing key, which is why
-    // an authored `message "…"` could not be emitted on the raise path at all.
+    // a rule's own text could not be emitted on the raise path at all.
     expect(confirm).toContain("guard_error in Api.GuardError ->");
     expect(confirm).toContain("case guard_error.kind do");
     expect(confirm).toContain(":forbidden ->");

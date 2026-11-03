@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Java/Spring — a value object's OWN `invariant`s are enforced at the WIRE
@@ -20,7 +19,7 @@ system Shop {
     context Catalog {
       valueobject Quantity { value: int  invariant value > 0 }
       valueobject Sku { code: string  invariant code.length >= 3  invariant code.length <= 12 }
-      valueobject Extent { lo: int  hi: int  invariant lo < hi message "lo must be below hi" }
+      valueobject Extent { lo: int  hi: int  invariant loBelowHi: lo < hi }
       aggregate Item with crudish {
         name: string
         qty: Quantity
@@ -38,9 +37,7 @@ system Shop {
 `;
 
 async function files(): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(SRC);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(SRC);
 }
 
 function find(map: Map<string, string>, suffix: string): string {
@@ -59,11 +56,11 @@ describe("java — VO invariant → 422 at the wire", () => {
     expect(q).toContain('if (!(value >= 1)) errors.rejectValue("value"');
 
     const e = find(map, "features/items/ExtentValidator.java");
-    // Cross-field / messaged rule carries the stable wire code + author message.
+    // Cross-field / named rule carries the stable wire code + author message.
     expect(e).toContain(
-      'if (!(lo < hi)) errors.rejectValue("lo", "Catalog.Extent.rule.loBelowHi", "lo must be below hi");',
+      'if (!(lo < hi)) errors.rejectValue("lo", "Catalog.Extent.rule.loBelowHi", "Lo below hi");',
     );
-    expect(e).toContain("lo must be below hi");
+    expect(e).toContain("Lo below hi");
   });
 
   it("the command validator nest-invokes each VO-typed field's validator", async () => {

@@ -169,8 +169,6 @@ describe("money emission — Hono lib/schemas.ts helper", () => {
 
 describe("money emission — repository persist drops redundant parens", () => {
   it("emits `aggregate.subtotal.toString()` (no wrapping parens)", async () => {
-    const { generateSystems } = await import("../../../src/system/index.js");
-    void generateSystems; // unused; kept for parallel import shape with above
     const { buildLoomModel } = await import("../../_helpers/index.js");
     const { generateTypeScriptForContexts } = await import("../../../src/platform/hono/v4/emit.js");
     const { BACKEND_PINS } = await import("../../../src/platform/hono/v5/pins.js");

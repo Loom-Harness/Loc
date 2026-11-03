@@ -101,7 +101,7 @@ system Helpdesk {
         email: string
         company: string?
         derived display: string = name
-        invariant email.contains("@") message "email must contain @"
+        invariant emailContain: email.contains("@")
         unique (email)
       }
 
@@ -154,7 +154,7 @@ system Helpdesk {
         derived commentCount: int = comments.count
         derived isOpen: bool = status != Resolved && status != Closed
 
-        invariant subject.length > 0 message "subject is required"
+        invariant subjectRequired: subject.length > 0
         unique (number)
 
         function slaHours(): int = match {
@@ -184,13 +184,13 @@ system Helpdesk {
 
         operation comment(body: string) when status != Closed {
           requires currentUser.role == "agent" || currentUser.customerId == customer
-          precondition body.length > 0 message "comment body is required"
+          precondition commentBodyRequired: body.length > 0
           comments += Comment { author: currentUser.id, body: body, at: now() }
         }
 
         operation tag(label: string) {
           requires currentUser.role == "agent"
-          precondition !tags.contains(label) message "already tagged"
+          precondition alreadyTagged: !tags.contains(label)
           tags += label
         }
 
@@ -216,7 +216,7 @@ system Helpdesk {
 
         operation resolve() when isOpen {
           requires currentUser.role == "agent"
-          precondition assignee != null message "assign the ticket before resolving"
+          precondition assignTicketBeforeResolving: assignee != null
           status := Resolved
           resolvedAt := now()
           emit TicketResolved { ticket: id, at: now() }

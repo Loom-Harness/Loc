@@ -30,6 +30,8 @@ const INDENT = "    ";
  *  through the renderer rather than re-discovered at every emission
  *  site.  When `emitTrace` is false the renderer behaves byte-identically
  *  to its pre-trace output. */
+import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
+
 export interface TraceCtx {
   emitTrace: boolean;
   aggregate: string;
@@ -41,11 +43,16 @@ export interface TraceCtx {
    *  Off ⇒ `emit` is byte-identical to the legacy notification-event push. */
   eventSourced?: boolean;
   /** True when rendering an aggregate OPERATION body, whose router answers a
-   *  messaged domain-floor refusal with the `errors[]` entry (M-T1.11 (c)): a
+   *  named domain-floor refusal with the `errors[]` entry (M-T1.11 (c)): a
    *  named `precondition` then throws its `<Ctx>.<Owner>.rule.<name>` code and pointer
    *  along with the text.  Every other host (functions, domain services,
    *  event-sourced appliers) keeps the text-only throw. */
   domainFloorCodes?: boolean;
+  /** The aggregate's wire field names, when rendering one of its operation
+   *  bodies.  A `return this` into the aggregate's own union arm builds that
+   *  arm from these getters: spreading the instance would copy its private
+   *  backing fields, not the wire fields the arm's type declares. */
+  selfWireFields?: readonly string[];
 }
 
 const NO_TRACE: TraceCtx = { emitTrace: false, aggregate: "", op: "" };
@@ -302,12 +309,15 @@ function tsStmtTarget(emitProvenance: boolean, traceCtx: TraceCtx): StmtTarget {
       const v = renderTsExpr(s.value);
       if (!s.variantTag) return `${INDENT}return ${v};`;
       const tag = JSON.stringify(s.variantTag);
+      const self = s.value.kind === "this" ? traceCtx.selfWireFields : undefined;
       const tagged =
         s.variantShape === "none"
           ? `{ type: ${tag} }`
           : s.variantShape === "scalar"
             ? `{ type: ${tag}, value: ${v} }`
-            : `{ type: ${tag}, ...(${v}) }`;
+            : self
+              ? `{ type: ${tag}${self.map((f) => `, ${f}: this.${escapeTargetFieldMember("ts", f)}`).join("")} }`
+              : `{ type: ${tag}, ...(${v}) }`;
       return `${INDENT}return ${tagged};`;
     },
   };

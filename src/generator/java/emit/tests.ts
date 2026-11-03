@@ -218,10 +218,7 @@ export function testBodyRenderContext(
  *  emitted `UUID` / `Instant` brings its import with it. */
 function javaTestLiteral(): TestLiteralTarget {
   return {
-    id: (rendered, targetName, valueType) => {
-      if (valueType === "guid") return `new ${targetName}Id(${J.UUID}.fromString(${rendered}))`;
-      return `new ${targetName}Id(${rendered})`;
-    },
+    id: (rendered, targetName) => `new ${targetName}Id(${J.UUID}.fromString(${rendered}))`,
     datetime: (rendered) => `${J.Instant}.parse(${rendered})`,
     date: (rendered) => `${J.LocalDate}.parse(${rendered})`,
   };
@@ -433,7 +430,7 @@ function renderTestStmt(
       withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state);
     // `toThrow(<kind>)` — bind the thrown `DomainException` (a value object's
     // `ValueObjectInvariantException` subclasses it) and assert its structural
-    // `getKind()`, never its message, which an authored `message "..."`
+    // `getKind()`, never its message, which a rule's own text
     // replaces.  `assertThrows` already RETURNS the exception, so the rung
     // costs one local and one assertion; the local is suffixed with the
     // statement index so several throw assertions in one test body don't

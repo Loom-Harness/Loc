@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — a value object's OWN `invariant`s are enforced at the WIRE
@@ -20,7 +19,7 @@ system Shop {
     context Catalog {
       valueobject Quantity { value: int  invariant value > 0 }
       valueobject Sku { code: string  invariant code.length >= 3  invariant code.length <= 12 }
-      valueobject Range { lo: int  hi: int  invariant lo < hi message "lo must be below hi" }
+      valueobject Range { lo: int  hi: int  invariant loBelowHi: lo < hi }
       aggregate Item with crudish {
         name: string
         qty: Quantity
@@ -38,9 +37,7 @@ system Shop {
 `;
 
 async function wireModels(): Promise<string> {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files.get("d/app/http/wire_models.py")!;
+  return (await generateSystemFiles(FIXTURE)).get("d/app/http/wire_models.py")!;
 }
 
 describe("python VO invariant → 422 at the wire", () => {
@@ -60,22 +57,22 @@ describe("python VO invariant → 422 at the wire", () => {
     );
   });
 
-  it("cross-field / messaged VO invariants route through a `@model_validator`", async () => {
+  it("cross-field / named VO invariants route through a `@model_validator`", async () => {
     const wm = await wireModels();
     expect(wm).toContain("class Range(BaseModel):");
     expect(wm).toContain('    @model_validator(mode="after")');
     expect(wm).toContain("        if not (self.lo < self.hi):");
-    // A messaged rule carries the author text via PydanticCustomError (its
+    // A named rule carries the rule text via PydanticCustomError (its
     // stable `type` surfaces as errors[].code — the i18n key) plus the field's
     // `loc`, which only `ValidationError.from_exception_data` can supply from a
     // `model_validator` (M-T1.11) — so `errors[].pointer` names the field.
-    expect(wm).toContain('"lo must be below hi"');
+    expect(wm).toContain('"Lo below hi"');
     expect(wm).toContain("from pydantic_core import InitErrorDetails, PydanticCustomError");
     expect(wm).toContain('loc=("lo",),');
   });
 
   it("a VO with no invariants stays byte-identical (fields only, BaseModel only)", async () => {
-    const { model } = await parseString(`
+    const files = await generateSystemFiles(`
       system S {
         subdomain Sub {
           context C {
@@ -90,7 +87,7 @@ describe("python VO invariant → 422 at the wire", () => {
         deployable d { platform: python  contexts: [C]  serves: SApi  dataSources: [cState]  port: 4000 }
       }
     `);
-    const wm = generateSystems(model).files.get("d/app/http/wire_models.py")!;
+    const wm = files.get("d/app/http/wire_models.py")!;
     // `StringConstraints`/`WithJsonSchema` ride the always-emitted `UuidStr`
     // alias (schemathesis F2); the VO-driven names stay demand-gated.
     // `Field` is now unconditional: the `Int32` alias uses it, and that alias

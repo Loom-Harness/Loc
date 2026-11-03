@@ -17,7 +17,7 @@ import { parseString } from "../../_helpers/parse.js";
 //
 //   1. `loom.e2e-throw-kind-invalid` — in a `test e2e` body.  Over HTTP
 //      both rungs answer 422 and their only discriminator is the RFC 7807
-//      `detail` sentence, which an authored `message` overwrites.  The e2e body
+//      `detail` sentence, which a rule's own text overwrites.  The e2e body
 //      keeps the wire-level form, `toThrow(<status>)`.  (This is the same
 //      shape #2959 fixed on the ui side, where `toThrow(422)` silently meant
 //      something weaker.)

@@ -38,7 +38,7 @@ system VoRegexInvariant {
     context Codes {
       valueobject Code {
         value: string
-        invariant value.matches("^[A-Z]{5}$") message "must be five uppercase letters"
+        invariant fiveUppercaseLetters: value.matches("^[A-Z]{5}$")
         derived label: string = value
       }
 

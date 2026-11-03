@@ -1,5 +1,6 @@
 import { moneyWire } from "../../ir/enrich/codec.js";
 import type { NumericTarget } from "../_numeric/target.js";
+import { CS } from "./cs-symbols.js";
 
 // ---------------------------------------------------------------------------
 // .NET's `NumericTarget` (M-T9.36) — the ONE place `ToString("F4"...)` /
@@ -57,12 +58,12 @@ export const CS_NUMERIC: NumericTarget = {
     // (the DTO mapper carries no `using System.Globalization;` of its own).
     "dto-map": (e) =>
       `${e}.ToString("F${moneyWire().scale}", System.Globalization.CultureInfo.InvariantCulture)`,
-    // The projection emitter already brings `CultureInfo` into scope, so its
-    // read path spells the short form — same fixed scale (RS-12), same
-    // rounding (#2549: a projection read must not disagree with the
-    // aggregate's own `ToWire`).
+    // The projection read path spells the short form through `ref`, so the
+    // hosting file derives its `using System.Globalization;` — same fixed
+    // scale (RS-12), same rounding (a projection read must not disagree with
+    // the aggregate's own `ToWire`).
     "projection-read": (e) =>
-      `${e}.ToString("F${moneyWire().scale}", CultureInfo.InvariantCulture)`,
+      `${e}.ToString("F${moneyWire().scale}", ${CS.CultureInfo}.InvariantCulture)`,
   },
   decimal: {
     "dto-map": csDecimalToWireDouble,

@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { emitDotnetMigrations } from "../../../src/generator/dotnet/emit/migrations.js";
 import type { MigrationsIR, SchemaSnapshot } from "../../../src/ir/types/migrations-ir.js";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // .NET migrations emitter — one Migration class per MigrationsIR, plus
@@ -140,7 +139,7 @@ describe("dotnet migrations emitter", () => {
     // database and no-ops — so a Migrate() that discovered zero migrations
     // (the missing-[DbContext] bug) left __EFMigrationsHistory behind and
     // EnsureCreated() then silently skipped creating the entity tables.
-    const { model, errors } = await parseString(`system Mig {
+    const files = await generateSystemFiles(`system Mig {
       subdomain Shop {
         context Catalog {
           aggregate Product with crudish { sku: string derived display: string = sku }
@@ -151,8 +150,6 @@ describe("dotnet migrations emitter", () => {
       resource catalogState { for: Catalog, kind: state, use: db }
       deployable api { platform: dotnet contexts: [Catalog] dataSources: [catalogState] port: 8080 }
     }`);
-    if (errors.length) throw new Error(errors.join("\n"));
-    const files = generateSystems(model).files;
     const program = [...files.entries()].find(([k]) => /api\/Program\.cs$/.test(k))?.[1];
     expect(program, "Program.cs missing").toBeDefined();
     expect(program).toContain("db.Database.Migrate()");
