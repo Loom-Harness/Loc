@@ -148,6 +148,22 @@ describe("merge-patch update — .NET", () => {
       '!x.PatchedKeys.Contains("minPages") || !x.PatchedKeys.Contains("pages") || (x.MinPages <= x.Pages)',
     );
   });
+
+  it("narrows a required value-object member's nested validator, which the patch may omit", async () => {
+    // Every member of the update request is nullable, so `IValidator<CostRequest>`
+    // must be bound to the narrowed `x.Cost!` (CS8620 under /warnaserror otherwise).
+    const files = await generateSystemFiles(
+      SYSTEM("dotnet", "cost: Cost").replace(
+        "aggregate Memo",
+        'valueobject Cost { amount: int  invariant amount >= 0 message "Cost cannot be negative" }\n      aggregate Memo',
+      ),
+    );
+    const validators = fileEndingWith(files, "Requests/MemoRequestValidators.cs");
+    const update = validators.slice(validators.indexOf("class UpdateMemoRequestValidator"));
+    expect(update).toContain(
+      "RuleFor(x => x.Cost!).SetValidator(new CostRequestValidator()).When(x => x.Cost is not null);",
+    );
+  });
 });
 
 describe("merge-patch update — python", () => {

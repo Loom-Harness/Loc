@@ -282,6 +282,9 @@ export function voHasWireRules(vo: ValueObjectIR): boolean {
 function voRequestFields(
   params: { name: string; type: TypeIR; default?: ExprIR }[],
   voByName: ReadonlyMap<string, ValueObjectIR>,
+  /** A merge-patch update request: every member is nullable on the request
+   *  class (an absent key keeps the stored value), so every VO rule narrows. */
+  patch = false,
 ): { field: string; voClass: string; each: boolean; nullable: boolean }[] {
   const out: { field: string; voClass: string; each: boolean; nullable: boolean }[] = [];
   for (const p of params) {
@@ -301,7 +304,7 @@ function voRequestFields(
       // hits the identical CS8620 under `/warnaserror`.  (Only the scalar
       // `RuleFor` arm reads this: `RuleForEach` over a nullable list binds
       // `IEnumerable<T>` and compiles as is.)
-      nullable: p.type.kind === "optional" || isNullableWireDefault(p.default),
+      nullable: patch || p.type.kind === "optional" || isNullableWireDefault(p.default),
     });
   }
   return out;
@@ -320,10 +323,16 @@ function voRequestFields(
  *  and got a validator against it anyway.  Both halves are `emitsRestCreate`
  *  now, and the params follow the same event-sourced create-action override
  *  the record uses, so the rules can only name fields the record declares. */
-function requestParamSets(
-  agg: AggregateIR,
-): { name: string; params: { name: string; type: TypeIR; default?: ExprIR }[] }[] {
-  const sets: { name: string; params: { name: string; type: TypeIR; default?: ExprIR }[] }[] = [];
+function requestParamSets(agg: AggregateIR): {
+  name: string;
+  params: { name: string; type: TypeIR; default?: ExprIR }[];
+  patch?: boolean;
+}[] {
+  const sets: {
+    name: string;
+    params: { name: string; type: TypeIR; default?: ExprIR }[];
+    patch?: boolean;
+  }[] = [];
   if (emitsRestCreate(agg)) {
     // Event sourcing (appliers A2.2b): the create record is built from the
     // single `create` action's params, not the field set.
@@ -344,6 +353,7 @@ function requestParamSets(
     sets.push({
       name: `${upperFirst(op.name)}${agg.name}Request`,
       params: op.params.map((p) => ({ name: p.name, type: p.type })),
+      patch: isMergePatchUpdate(op),
     });
   }
   return sets;
@@ -406,7 +416,7 @@ export function renderRequestValidators(
 
   // 2) A `<Request>Validator` per request that SetValidator-refs its VO fields.
   for (const set of requestParamSets(agg)) {
-    const fields = voRequestFields(set.params, voByName);
+    const fields = voRequestFields(set.params, voByName, set.patch);
     if (fields.length === 0) continue;
     const rules = fields.map((f) => {
       const prop = upperFirst(f.field);
