@@ -1,18 +1,16 @@
 // ---------------------------------------------------------------------------
-// The `if` STATEMENT on the vanilla Phoenix backend (M-T6.59).
+// The `if` STATEMENT on the vanilla Phoenix backend.
 //
 // Elixir is immutable, so every Phoenix body renderer threads its result
-// through a REBOUND variable (`record` in an aggregate body, the bare value in
-// a pure `function` / `domainService` body).  A binding made inside an `if`
-// block does NOT escape that block, so the naive rendering
+// through a REBOUND variable (`record` in an aggregate body, `state` in a fold,
+// the bare value in a pure `function` / `domainService` body).  A binding made
+// inside an `if` block does NOT escape that block, so the naive rendering
 //
 //     if cond do
 //       record = %{record | tier: "gold"}
 //     end
 //
-// compiles clean under `--warnings-as-errors` and then silently does nothing —
-// the exact silent-drop class the repo's gates exist to prevent, which is why
-// `loom.elixir-if-stmt-unsupported` refused the statement outright.
+// compiles clean under `--warnings-as-errors` and then silently does nothing.
 //
 // The shape that WORKS is a value-producing branch: the `if` is an expression
 // whose every arm ends in the threaded variable, and the whole expression
@@ -31,25 +29,12 @@
 // Elixir, which would null the threaded variable) — the synthesised arm is
 // just the variable itself.
 //
-// WHAT STAYS GATED.  Three sub-shapes do not fit this rendering and keep an
-// (each strictly narrower) arm in `if-stmt-checks.ts`:
-//
-//   * `#return-in-branch` — a `return` inside a branch is an EARLY EXIT.  The
-//     returning-op path emits `{:ok, …}` / `{:error, …}` tuples as the body's
-//     TAIL expression and appends a persist tail after the body, so an early
-//     return has to restructure the statements that FOLLOW the `if` into a
-//     `case` arm — a list-level transform, not a statement-level one, and one
-//     that would break the same-length/same-order `statementSubRegions`
-//     zip the sourcemap collector depends on.
-//   * `#guard-in-branch` — a `precondition`/`requires` nested in a branch.
-//     The op path HOISTS top-level guards into a leading `with :ok <- ensure(…)`
-//     chain so a failed guard answers 403/422; a nested one would fall through
-//     to the inline `raise` arm and answer 500 instead — a wire divergence from
-//     the other four backends, which is worse than the honest refusal.
-//   * `#event-sourced` — an event-sourced command body is not a statement list
-//     at all: `eventsourced-emit.ts` sorts its statements into `with`-chain
-//     guard clauses, `let` preambles and an `events = [...]` list, so a
-//     conditional `emit` has no place to render.
+// Without a thread variable the `if` is its block's VALUE — the shape of an
+// `if` whose branches `return` (always the last statement of its block, by
+// lowering's branch-total form).  An `if` whose branches decide what an
+// operation persists, guards or emits never reaches this renderer: the
+// operation renderers split it into one complete body per path
+// (`op-tree.ts`).
 // ---------------------------------------------------------------------------
 
 import type { StmtIR } from "../../../ir/types/loom-ir.js";

@@ -80,6 +80,9 @@ import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-ob
 export interface RenderCtx {
   /** Rendered name for `this`-rooted references.  Default: `"record"`. */
   thisName: string;
+  /** Set by a body that owns no event dispatch (a pure domain core, a
+   *  private-operation helper): an `emit` statement renders nothing there. */
+  dropEmits?: boolean;
   /** Set by an event reactor that bound `current_user` to the system
    *  principal (ruling D1): an op-call to a `currentUser`-reading operation
    *  threads it as the context function's trailing actor.  Unset elsewhere. */

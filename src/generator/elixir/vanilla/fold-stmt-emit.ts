@@ -10,7 +10,7 @@
 // `emit` / side-effecting `call` / `precondition` / `requires` inside an
 // applier BEFORE codegen, so only the pure fold statements below can reach
 // here: assignments, collection/scalar mutations (`+=` / `-=`), `let`
-// bindings, and a bare `expression`.  Any other kind is an internal invariant
+// bindings, an `if` over those, and a bare `expression`.  Any other kind is an internal invariant
 // violation, so the dispatch THROWS rather than emitting a silent
 // `# unsupported` comment (which drops the transition at runtime while
 // compiling green — the exact silent-fallthrough this module removes).
@@ -38,6 +38,7 @@ import type { EntityPartIR, ExprIR, StmtIR } from "../../../ir/types/loom-ir.js"
 import { escapeElixirIdent, snake } from "../../../util/naming.js";
 import type { NewExpr } from "../../_expr/target.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { renderElixirIfStmt } from "./if-stmt-emit.js";
 
 /** Resolve a contained entity part by name — supplied by the aggregate fold so
  *  a `Box{…}` construction can project the part's wire shape into a map.  The
@@ -79,16 +80,36 @@ export function renderFoldStatement(s: StmtIR, ctx: RenderCtx, opts: FoldOpts = 
       return `    ${escapeElixirIdent(snake(s.name))} = ${renderFoldValue(s.expr, ctx, opts)}`;
     case "expression":
       return `    _ = ${renderFoldValue(s.expr, ctx, opts)}`;
-    default:
+    case "if":
+      // A value-producing `if`: every arm ends in the threaded state and the
+      // whole expression rebinds it, so a conditional write survives the
+      // branch (an Elixir `if` block's own bindings do not escape it).
+      return renderElixirIfStmt(s, {
+        indent: "    ",
+        threadVar: state,
+        cond: renderExpr(s.cond, ctx),
+        renderInner: (stmts) => stmts.map((st) => renderFoldStatement(st, ctx, opts)),
+      });
+    case "emit":
+    case "call":
+    case "precondition":
+    case "requires":
+    case "return":
+    case "variant-match":
       // The ES applier-body discipline validator rejects every other statement
       // kind (`loom.applier-emits` / `loom.applier-impure-call` /
-      // `loom.applier-guard`), so reaching this arm is an internal invariant
-      // violation — fail loudly instead of emitting a silent comment.
+      // `loom.applier-guard` / `loom.applier-stmt-invalid`), so reaching this
+      // arm is an internal invariant violation — fail loudly instead of
+      // emitting a silent comment.
       throw new Error(
-        `elixir vanilla fold: unsupported applier statement '${(s as StmtIR).kind}' — ` +
-          `an applier folds pure assignments / collection mutations / let bindings only; ` +
-          `the event-sourcing discipline validator should have rejected this.`,
+        `elixir vanilla fold: unsupported applier statement '${s.kind}' — ` +
+          `an applier folds pure assignments / collection mutations / let bindings / ` +
+          `\`if\` only; the event-sourcing discipline validator should have rejected this.`,
       );
+    default: {
+      const _exhaustive: never = s;
+      throw new Error(`elixir vanilla fold: unhandled statement ${JSON.stringify(_exhaustive)}`);
+    }
   }
 }
 
@@ -138,12 +159,9 @@ function renderFoldNewMap(e: NewExpr, ctx: RenderCtx, opts: FoldOpts): string {
   return `%{${entries.join(", ")}}`;
 }
 
-/** True when any fold statement's value/right-hand expression references the
- *  bound event param — decides whether the `apply_event` head binds it or
- *  `_param`s it (an unused bind fails `--warnings-as-errors`).  Must scan the
- *  SAME statement kinds `renderFoldStatement` reads a value from (assign / add
- *  / remove / let / expression) so a body whose only param use is inside a
- *  `+=` still binds the param. */
+/** True when any fold statement references the bound event param — decides
+ *  whether the `apply_event` head binds it or `_param`s it (an unused bind
+ *  fails `--warnings-as-errors`). */
 export function foldStmtsUseParam(
   stmts: StmtIR[],
   param: string,
@@ -151,13 +169,7 @@ export function foldStmtsUseParam(
   opts: FoldOpts = {},
 ): boolean {
   const token = new RegExp(`\\b${escapeElixirIdent(snake(param))}\\b`);
-  return stmts.some((s) => {
-    const rhs =
-      s.kind === "assign" || s.kind === "add" || s.kind === "remove"
-        ? renderFoldValue(s.value, ctx, opts)
-        : s.kind === "let" || s.kind === "expression"
-          ? renderFoldValue(s.expr, ctx, opts)
-          : "";
-    return token.test(rhs);
-  });
+  // Scans the RENDERED statement — an `if` included, condition and branches —
+  // so it reads exactly what `renderFoldStatement` emits.
+  return stmts.some((s) => token.test(renderFoldStatement(s, ctx, opts)));
 }
