@@ -48,6 +48,7 @@ import {
   renderRequirePresentHelper,
 } from "./changeset-ingress.js";
 import {
+  aggregateHasDomainFloorCodes,
   aggregateHasResidualInvariants,
   messagedRoutesToResidual,
   renderInvariantValidatorFn,
@@ -116,6 +117,52 @@ function filterCastableFields(
 
 function castScalarFields(agg: AggregateIR, ctx: BoundedContextIR): AggField[] {
   return filterCastableFields(agg.fields as AggField[], agg, ctx);
+}
+
+/** Per-field constraint validators derived from single-field invariants (the
+ *  same `singleFieldConstraints` classifier Zod / FluentValidation / the Java
+ *  validator consume) — `f >= N` → `validate_number`, `f.length <= N` →
+ *  `validate_length`, `f.matches(r)` → `validate_format`.  Guarded / cross-field
+ *  invariants return null and keep their domain-level enforcement.  Only fields
+ *  that are actually cast get a validator.
+ *
+ *  One list, read by both the cast seams and `validate_field_invariants/1`
+ *  (which the context's named-operation persist pipes through), so the two
+ *  write paths cannot enforce different rule sets. */
+export function fieldInvariantValidatorLines(agg: AggregateIR, ctx: BoundedContextIR): string[] {
+  const castFields = new Set(castScalarFields(agg, ctx).map((f) => snake(f.name)));
+  return (agg.invariants ?? []).flatMap((inv) =>
+    // A messaged rule that routes to the `validate_invariants/1` residual
+    // carrier (to carry its wire `code`) is emitted there, not as a native
+    // `validate_*` line — otherwise it would double-validate. A message-less
+    // rule (and a messaged rule that can't route) keeps its native line.
+    messagedRoutesToResidual(inv)
+      ? []
+      : (singleFieldConstraints(inv) ?? [])
+          .filter((c) => castFields.has(snake(c.field)))
+          .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),
+  );
+}
+
+/** The invariant pipes an operation persist appends to its
+ *  `change(%{}) |> force_change(…)` changeset, `indent` spaces deep.  That
+ *  changeset never passes through `base_changeset`, so it re-runs both halves of
+ *  the floor there: the single-field validators (`validate_field_invariants/1`)
+ *  and the residual cross-field / guarded / coded rules (`validate_invariants/1`,
+ *  or its `validate_domain_floor/1` twin when a messaged rule carries a wire
+ *  code).  Empty when the aggregate declares neither, so such an op is unchanged. */
+export function opPersistInvariantPipes(
+  agg: AggregateIR,
+  ctx: BoundedContextIR,
+  changesetMod: string,
+  indent: number,
+): string {
+  const pad = `\n${" ".repeat(indent)}|> ${changesetMod}.`;
+  const field =
+    fieldInvariantValidatorLines(agg, ctx).length > 0 ? `${pad}validate_field_invariants()` : "";
+  const invFn = aggregateHasDomainFloorCodes(agg) ? "validate_domain_floor" : "validate_invariants";
+  const residual = aggregateHasResidualInvariants(agg) ? `${pad}${invFn}()` : "";
+  return `${field}${residual}`;
 }
 
 /** A TPH/TPC concrete subtype's canonical `update` carries only its OWN
@@ -312,18 +359,19 @@ function renderChangeset(
   // `validate_length`, `f.matches(r)` → `validate_format`.  Guarded / cross-field
   // invariants return null and keep their domain-level enforcement.  Only fields
   // that are actually cast (`@all_fields`) get a validator.
-  const castFields = new Set(allFields.map((f) => snake(f.name)));
-  const validatorLines = (agg.invariants ?? []).flatMap((inv) =>
-    // A messaged rule that routes to the `validate_invariants/1` residual
-    // carrier (to carry its wire `code`) is emitted there, not as a native
-    // `validate_*` line — otherwise it would double-validate. A message-less
-    // rule (and a messaged rule that can't route) keeps its native line.
-    messagedRoutesToResidual(inv)
-      ? []
-      : (singleFieldConstraints(inv) ?? [])
-          .filter((c) => castFields.has(snake(c.field)))
-          .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),
-  );
+  const validatorLines = fieldInvariantValidatorLines(agg, ctx);
+  // The same lines as a public function, so a named-operation persist — a
+  // `change(%{}) |> force_change` changeset that never passes through
+  // `base_changeset` — enforces a single-field invariant too (`setQty(-1)`
+  // under `invariant qty >= 0` answers 422 instead of committing).
+  const fieldInvariantFn =
+    validatorLines.length > 0
+      ? `\n\n  @doc "Assert the aggregate's single-field invariants on a changeset built outside \`base_changeset\` — the named-operation persist."
+  def validate_field_invariants(changeset) do
+    changeset
+${validatorLines.join("\n")}
+  end`
+      : "";
   // Money RANGE (M-T6.60 divergence 3) — one `validate_change` per cast money
   // COLUMN.  The create/update path never reaches `__loom_decimal_param` (the
   // op-param guard): it casts straight onto the `:decimal` field, and
@@ -937,7 +985,7 @@ defmodule ${changesetMod} do
     ${voKeyNormalizeLine}${valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : ""}struct
     |> ${castLines("@all_fields", "@string_fields")}${createIngressLine}${defaultBlock}
     |> ${requireLines("@required_fields", "@required_strings")}${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}
-  end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voShapeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
+  end${updateChangesetBlock}${invariantFnBlock}${fieldInvariantFn}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voShapeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
 
 ${actionHelpers}
 end

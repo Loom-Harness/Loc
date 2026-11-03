@@ -156,17 +156,28 @@ export function exEctoJsonType(): string {
   return exSchemaType(scalarCodec("json").column);
 }
 
-/** The Ecto type of a framework `datetime` column the backend owns itself —
- *  `inserted_at` / `updated_at`, an audit or provenance row's `at`.  Not a
- *  declared scalar, so not the codec's instant: second precision, which Jason
- *  prints canonically (no fraction). */
+/** The Ecto type of Ecto's own bookkeeping columns — `inserted_at` /
+ *  `updated_at` from `timestamps()`.  Never on a wire (the serializer strips
+ *  them), and the migration's `timestamps()` creates them as `timestamp(0)`, so
+ *  second precision is what the column holds. */
 export function exFrameworkTimestampType(): string {
   return ":utc_datetime";
 }
 
-/** The value written into an `exFrameworkTimestampType` column. */
-export function exFrameworkNow(): string {
-  return "DateTime.utc_now() |> DateTime.truncate(:second)";
+/** The Ecto type of an audit or provenance row's `at`.  The column is a
+ *  MigrationsIR `datetime` — `timestamptz`, like every declared `datetime` —
+ *  and the audit history serves it on the wire, so it is the codec's instant
+ *  (RS-38: milliseconds, as the other four backends store and serve it), not a
+ *  second-precision framework stamp. */
+export function exRecordInstantType(): string {
+  return LOOM_DATETIME_MODULE;
+}
+
+/** The value written into an `exRecordInstantType` column: now, normalised to
+ *  the millisecond, so the struct an insert returns already equals what a read
+ *  of the row loads. */
+export function exRecordNow(): string {
+  return `${LOOM_DATETIME_MODULE}.normalize(DateTime.utc_now())`;
 }
 
 /** The Ecto type of an outbox / event-log time column (`occurred_at`,
