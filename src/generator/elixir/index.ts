@@ -58,6 +58,10 @@ export interface GenerateElixirArgs {
    *  artifact.  Absent → every recorder call is a no-op (see
    *  `SourceMapRecorder.file`). */
   sourcemap?: SourceMapRecorder;
+  /** Translated catalogs from the translator tree (`ddd i18n`), keyed by locale
+   *  tag.  Each is emitted as a gettext `.po` and its tag joins the runtime
+   *  locale negotiation. */
+  translations?: ReadonlyMap<string, Record<string, string>>;
 }
 
 /** The args the vanilla orchestrator receives — `GenerateElixirArgs` plus the

@@ -1,5 +1,6 @@
 // Auto-generated.  Do not edit by hand.
 import { t } from "../i18n";
+import { getLocale } from "../i18n";
 import { Text, Tooltip, Code, Group, Stack } from "@mantine/core";
 import type { ReactNode } from "react";
 
@@ -38,7 +39,7 @@ export function DateTimeValue({ iso }: { iso: string | null | undefined }) {
   try {
     const d = new Date(s);
     if (!Number.isNaN(d.getTime())) {
-      pretty = d.toLocaleString(undefined, {
+      pretty = d.toLocaleString(getLocale(), {
         year: "numeric",
         month: "short",
         day: "2-digit",
@@ -73,7 +74,7 @@ export function NumberValue({ value, decimals = 0 }: { value: number | string | 
   if (isEmpty(value)) return <EmptyValue />;
   const n = typeof value === "number" ? value : Number(value);
   if (Number.isNaN(n)) return <Text component="span">{String(value)}</Text>;
-  const fmt = new Intl.NumberFormat(undefined, {
+  const fmt = new Intl.NumberFormat(getLocale(), {
     minimumFractionDigits: decimals,
     maximumFractionDigits: Math.max(decimals, 2),
   });

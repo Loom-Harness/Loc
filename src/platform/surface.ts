@@ -251,8 +251,9 @@ export interface PlatformSurface extends PlatformDescriptor {
      *  frontend platform with a JSON-file translation runtime emits one
      *  `src/locales/<locale>.json` per entry — scoped to its own ui's keys —
      *  and registers each in the generated `src/i18n.ts`.  Every backend
-     *  platform, and the three frontends that compile their catalog into
-     *  source (Phoenix/HEEx, Feliz, Flutter), ignore it. */
+     *  platform, and the two frontends that compile their catalog into
+     *  source (Feliz, Flutter), ignore it.  Phoenix emits one gettext `.po` per
+     *  entry and negotiates among their tags at runtime. */
     translations?: ReadonlyMap<string, Record<string, string>>;
   }): Map<string, string>;
   /** Inputs for the deployable's docker-compose service stanza. */

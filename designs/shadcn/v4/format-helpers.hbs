@@ -1,5 +1,6 @@
 // Auto-generated.  Do not edit by hand.
-{{{chromeImport "../i18n"}}}//
+{{{chromeImport "../i18n"}}}{{#if i18nEnabled}}import { getLocale } from "../i18n";
+{{/if}}//
 // shadcn-flavoured runtime formatting helpers.  Same exported
 // surface as the Mantine variant (IdValue / DateTimeValue /
 // BoolValue / NumberValue / EmptyValue / PlainValue / KeyValueRow)
@@ -43,7 +44,7 @@ export function DateTimeValue({ iso }: { iso: string | null | undefined }) {
   try {
     const d = new Date(s);
     if (!Number.isNaN(d.getTime())) {
-      pretty = d.toLocaleString(undefined, {
+      pretty = d.toLocaleString({{#if i18nEnabled}}getLocale(){{else}}undefined{{/if}}, {
         year: "numeric",
         month: "short",
         day: "2-digit",
@@ -79,7 +80,7 @@ export function NumberValue({ value, decimals = 0 }: { value: number | string | 
   if (isEmpty(value)) return <EmptyValue />;
   const n = typeof value === "number" ? value : Number(value);
   if (Number.isNaN(n)) return <span>{String(value)}</span>;
-  const fmt = new Intl.NumberFormat(undefined, {
+  const fmt = new Intl.NumberFormat({{#if i18nEnabled}}getLocale(){{else}}undefined{{/if}}, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: Math.max(decimals, 2),
   });

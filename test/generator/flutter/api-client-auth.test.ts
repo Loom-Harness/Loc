@@ -97,7 +97,10 @@ describe("flutter api client — the credential (M-T4.12 / D-FLUTTER-BEARER)", (
     expect(facade).toContain(
       "import 'api_client_io.dart' if (dart.library.js_interop) 'api_client_web.dart';",
     );
-    expect(facade).toContain("final http.Client loomHttp = loomApiClient();");
+    // The fixture renders translated text, so the shared client also stamps the
+    // active locale on every request (`Accept-Language`).
+    expect(facade).toContain("final http.Client loomHttp = _LoomLocaleClient(loomApiClient());");
+    expect(facade).toContain("request.headers['Accept-Language'] = activeLocale();");
     for (const verb of ["get", "post", "put", "patch", "delete", "head"]) {
       expect(facade, `${verb} not redefined`).toContain(`loomHttp.${verb}(url`);
     }
@@ -141,17 +144,20 @@ describe("flutter api client — the credential (M-T4.12 / D-FLUTTER-BEARER)", (
     );
   });
 
-  it("an `auth: none` app is UNCHANGED — no client, bare import, bare stream", async () => {
+  it("an `auth: none` app carries NO credential — only the active locale rides its client", async () => {
     const files = await emit(false);
-    for (const f of [
-      "lib/api_client.dart",
-      "lib/api_client_web.dart",
-      "lib/api_client_io.dart",
-      "lib/loom_bearer.dart",
-    ]) {
+    // The credential halves never exist without `auth: ui`…
+    for (const f of ["lib/api_client_web.dart", "lib/api_client_io.dart", "lib/loom_bearer.dart"]) {
       expect(files.has(f), `${f} emitted for an auth: none app`).toBe(false);
     }
-    expect(files.get("lib/reads.dart")!).toContain("import 'package:http/http.dart' as http;");
+    // …but the fixture renders translated text, so the locale-only drop-in
+    // stamps `Accept-Language` over a plain client: no cookie, no bearer.
+    const facade = files.get("lib/api_client.dart")!;
+    expect(facade).toContain("final http.Client loomHttp = _LoomLocaleClient(http.Client());");
+    expect(facade).not.toContain("loomApiClient");
+    expect(facade).not.toContain("loom_bearer");
+    expect(facade).not.toContain("withCredentials");
+    expect(files.get("lib/reads.dart")!).toContain("import 'api_client.dart' as http;");
     const rt = files.get("lib/realtime.dart")!;
     expect(rt).toContain("loomEventSource(apiUri('/realtime/events'), loomRealtimeEvents)");
     expect(rt).not.toContain("withCredentials");

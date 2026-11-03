@@ -26,6 +26,7 @@ import {
   TEST_RESET_TOKEN_ENV,
 } from "../../../util/test-reset.js";
 import { NPM_FETCH_RETRY_FLAGS } from "../../_docker/node-stage.js";
+import { uiUsesLocaleSwitcher } from "../../_frontend/locale-switcher-use.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import { packChromeCatalog } from "../../_packs/pack-chrome.js";
 import type { ApiRoute } from "../api-emit.js";
@@ -42,6 +43,14 @@ import {
   shellChromeText,
 } from "../i18n.js";
 import type { LiveRoute } from "../liveview-emit.js";
+import {
+  gettextLocale,
+  phoenixLocaleModel,
+  renderLocaleHook,
+  renderLocaleModule,
+  renderLocalePlug,
+  renderLocaleSelect,
+} from "../locale.js";
 import {
   renderApplication,
   renderLiveNav,
@@ -125,6 +134,10 @@ export function emitVanillaShellFiles(
   /** Every context of the system — keys the identity-keyed model text in the
    *  `.po` catalog. */
   modelTextContexts: readonly BoundedContextIR[] = [],
+  /** Translated catalogs from the translator tree (`ddd i18n`), keyed by locale
+   *  tag.  Each becomes a `priv/gettext/<locale>/LC_MESSAGES/default.po`, and
+   *  its tag joins the negotiation's known-locale table. */
+  translations: ReadonlyMap<string, Record<string, string>> = new Map(),
 ): void {
   const hasLiveView = liveRoutes.length > 0 || hasSidebar;
   // Either source of translatable strings turns the runtime on.
@@ -133,6 +146,16 @@ export function emitVanillaShellFiles(
   // ui that actually INTERPOLATES, so a translatable-but-literal-only app pays
   // for no ICU dep.
   const icuEnabled = i18nUi !== undefined && heexIcuEnabled(i18nUi);
+  // The locale model: the source plus every translated catalog.  The
+  // negotiation wiring (plug, `on_mount`, `<html lang dir>`, the shell
+  // switcher) ships when there is a second locale to negotiate to, or when a
+  // page places a `LocaleSwitcher` itself; the matcher module itself rides
+  // with the gettext runtime because the 422 renderer resolves through it.
+  const localeModel = phoenixLocaleModel(sourceLocale, [...translations.keys()]);
+  const localeNegotiation =
+    i18nEnabled &&
+    hasLiveView &&
+    (localeModel.entries.length >= 2 || (i18nUi !== undefined && uiUsesLocaleSwitcher(i18nUi)));
   // Swoosh boots its default API client (Hackney) when the `:swoosh`
   // application starts — even for the SMTP adapter, which sends through
   // gen_smtp and needs no HTTP client.  The smtp mailer pulls `swoosh` +
@@ -229,7 +252,15 @@ export function emitVanillaShellFiles(
   );
   out.set(
     `lib/${appName}_web/router.ex`,
-    renderVanillaRouter(appModule, apiRoutes, authEnabled, oidc, liveRoutes, hasEmbeddedSpa),
+    renderVanillaRouter(
+      appModule,
+      apiRoutes,
+      authEnabled,
+      oidc,
+      liveRoutes,
+      hasEmbeddedSpa,
+      localeNegotiation,
+    ),
   );
   // Embedded-SPA fallback controller — serves the built `priv/static/app/
   // index.html` for `/app` deep-links (Plug.Static handles real asset files
@@ -252,7 +283,12 @@ export function emitVanillaShellFiles(
     out.set(`lib/${appName}_web/components/layouts.ex`, renderLayouts(appName, appModule));
     out.set(
       `lib/${appName}_web/components/layouts/root.html.heex`,
-      pack.render("main", { appName, lang: sourceLocale }),
+      pack.render("main", {
+        appName,
+        lang: sourceLocale,
+        dir: localeModel.entries[0]?.dir ?? "ltr",
+        localeNegotiation,
+      }),
     );
     // The app layout's chrome strings arrive pre-rendered (raw English, or
     // the pgettext call under i18n) so the pack template only places them.
@@ -264,6 +300,12 @@ export function emitVanillaShellFiles(
         currentUser: authEnabled,
         skipToContent: shellChromeText("skipToContent", i18nEnabled),
         primaryNavAria: shellChromeAria("primaryNav", i18nEnabled),
+        // The switcher joins the header at two or more locales, like the React
+        // shell; its option labels are generate-time endonyms.
+        localeSwitcher:
+          localeNegotiation && localeModel.entries.length >= 2
+            ? renderLocaleSelect(appModule, localeModel.entries)
+            : "",
       }),
     );
     out.set(`lib/${appName}_web/nav.ex`, renderLiveNav(appModule));
@@ -279,6 +321,11 @@ export function emitVanillaShellFiles(
   // through them.  Neither half ⇒ no module, no `priv/gettext`, no dep.
   if (i18nEnabled) {
     out.set(`lib/${appName}_web/gettext.ex`, renderGettextBackend(appName, appModule));
+    out.set(`lib/${appName}_web/locale.ex`, renderLocaleModule(appModule, localeModel, icuEnabled));
+    if (localeNegotiation) {
+      out.set(`lib/${appName}_web/locale_plug.ex`, renderLocalePlug(appModule));
+      out.set(`lib/${appName}_web/locale_hook.ex`, renderLocaleHook(appModule));
+    }
     // The active HEEx pack's DECLARED chrome (D-PACK-CHROME) — English baked
     // into the pack's own `.hbs`, which no IR walk sees.  `pack ?` because a
     // JSON-API-only deployable reaches this with no pack at all, and that
@@ -306,10 +353,33 @@ export function emitVanillaShellFiles(
         modelTextContexts,
       ),
     );
+    // One `.po` per translated locale, scoped to this deployable's keys.
+    for (const locale of [...translations.keys()].sort()) {
+      if (locale === sourceLocale) continue;
+      out.set(
+        `priv/gettext/${gettextLocale(locale)}/LC_MESSAGES/${GETTEXT_DOMAIN}.po`,
+        renderGettextCatalog(
+          i18nUi,
+          "po",
+          validationMessages,
+          packChrome,
+          locale,
+          modelTextContexts,
+          translations.get(locale) ?? {},
+        ),
+      );
+    }
     // ICU formatting runs OVER gettext's result, so it ships only alongside
     // it — and only for a ui with an interpolated message.
     if (icuEnabled) {
-      out.set(`lib/${appName}/cldr.ex`, renderCldrBackend(appModule, sourceLocale));
+      out.set(
+        `lib/${appName}/cldr.ex`,
+        renderCldrBackend(
+          appModule,
+          sourceLocale,
+          localeModel.entries.map((e) => e.tag),
+        ),
+      );
       out.set(`lib/${appName}_web/i18n.ex`, renderIcuRuntime(appModule));
     }
   }
@@ -778,6 +848,7 @@ function renderVanillaRouter(
   oidc: boolean,
   liveRoutes: LiveRoute[] = [],
   hasEmbeddedSpa = false,
+  localeNegotiation = false,
 ): string {
   // Routes prefixed with `!root:` (e.g. the OpenAPI spec endpoint, the `/files`
   // object-store pair, and an explicit route whose `/api` slot an auto-derived
@@ -879,11 +950,14 @@ ${sseLines}
   // frontend guard).  Runs right after `:fetch_session`.  The dev stub needs
   // none — LiveAuth's dev_user fallback grants LiveViews out of the box.
   const browserAuthPlug = authEnabled && oidc ? `\n    plug ${webModule}.BrowserAuth` : "";
+  // The locale plug runs right after the session loads (it stores the result in
+  // it) and before the root layout renders `<html lang dir>`.
+  const localePlug = localeNegotiation ? `\n    plug ${webModule}.LocalePlug` : "";
   const browserPipeline = hasLiveView
     ? `
   pipeline :browser do
     plug :accepts, ["html"]
-    plug :fetch_session${browserAuthPlug}
+    plug :fetch_session${localePlug}${browserAuthPlug}
     plug :fetch_live_flash
     plug :put_root_layout, html: {${webModule}.Layouts, :root}
     plug :protect_from_forgery
@@ -895,9 +969,10 @@ ${sseLines}
   // redirecting to the login handshake when the session carries no principal)
   // and assigns `@current_user`; Nav then adds `@current_path`.  Without auth,
   // Nav alone.  This is the `auth: ui` guard for the Phoenix-LiveView frontend.
+  const localeHook = localeNegotiation ? `${webModule}.LocaleHook, ` : "";
   const liveOnMount = authEnabled
-    ? `[${webModule}.LiveAuth, ${webModule}.Nav]`
-    : `[${webModule}.Nav]`;
+    ? `[${localeHook}${webModule}.LiveAuth, ${webModule}.Nav]`
+    : `[${localeHook}${webModule}.Nav]`;
   const liveScope = hasLiveView
     ? `
   scope "/", ${webModule} do
