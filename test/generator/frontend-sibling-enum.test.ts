@@ -72,8 +72,10 @@ describe("a sibling-context enum renders as an enum on the frontends", () => {
     const files = await generateSystemFiles(src("platform: angular, design: angularMaterial"));
     for (const page of ["clm-new.component.ts", "file-clm-workflow.component.ts"]) {
       expect(bySuffix(files, page), page).toContain('<mat-select formControlName="kind"');
+      // The option labels are identity-keyed under the enum's own context
+      // (`A.Kind.value.Fire`), not the form's (`B`).
       expect(bySuffix(files, page), page).toMatch(
-        /<mat-select formControlName="kind"[^>]*><mat-option value="Fire">Fire<\/mat-option><mat-option value="Theft">Theft<\/mat-option><\/mat-select>/,
+        /<mat-select formControlName="kind"[^>]*><mat-option value="Fire">\{\{ t\("A\.Kind\.value\.Fire", "Fire"\) \}\}<\/mat-option><mat-option value="Theft">\{\{ t\("A\.Kind\.value\.Theft", "Theft"\) \}\}<\/mat-option><\/mat-select>/,
       );
     }
   });
