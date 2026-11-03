@@ -1057,7 +1057,7 @@ export interface Containment extends langium.AstNode {
     readonly $container: Aggregate | EntityPart;
     readonly $type: 'Containment';
     collection: boolean;
-    name: string;
+    name: PropertyName;
     optional: boolean;
     partType: langium.Reference<EntityPart>;
 }

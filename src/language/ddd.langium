@@ -1925,8 +1925,9 @@ Property:
 SensitivityClause:
     'sensitive' '(' tags+=ID (',' tags+=ID)* ')';
 
+// The name takes the soft keywords a field name does (`contains label: Label`).
 Containment:
-    'contains' name=ID ':' partType=[EntityPart:ID] (collection?='[]')? (optional?='?')?;
+    'contains' name=PropertyName ':' partType=[EntityPart:ID] (collection?='[]')? (optional?='?')?;
 
 // The name takes the soft keywords a field name does — `derived label: string`
 // must keep parsing now that `label` is the model-text intrinsic's keyword.
