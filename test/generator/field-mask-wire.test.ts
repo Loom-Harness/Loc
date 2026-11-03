@@ -15,6 +15,7 @@ import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { forApiRead, wireFieldsFor } from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { EnrichedAggregateIR } from "../../src/ir/types/loom-ir.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseString } from "../_helpers/parse.js";
 
 const SRC = `system S {
@@ -69,5 +70,21 @@ describe("mask unless — node wire serializer", () => {
     expect(method).toContain("currentUser !== null");
     expect(method).toContain('(currentUser.permissions).includes("m.unmask")');
     expect(method).toContain("wire.salary = null");
+  });
+});
+
+describe("mask unless — node response schema", () => {
+  it("admits the redacted null as `.nullish()`, so the field is not in the OpenAPI required set", async () => {
+    const src = SRC.replace("  storage db", "  api A from M\n  storage db").replace(
+      "port: 8080",
+      "serves: A  port: 8080",
+    );
+    const files = await generateSystemFiles(src);
+    const routes = [...files.entries()].find(([p]) => p.endsWith("http/p.routes.ts"))?.[1];
+    expect(routes).toBeDefined();
+    // Every backend leaves a nullable response property out of `required`; a
+    // `.nullable()` (present-but-null) spelling would keep it required on node.
+    expect(routes).toContain("salary: z.number().nullish(),");
+    expect(routes).not.toMatch(/salary: z\.number\(\)\.nullable\(\)/);
   });
 });
