@@ -11,29 +11,18 @@
 
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
+import { generateSystemFilesFromProject } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
 
-async function buildAcme(): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(path.join(repoRoot, "examples/acme.ddd")),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  return doc.parseResult.value as Model;
-}
+const buildAcme = (): Promise<Map<string, string>> =>
+  generateSystemFilesFromProject(path.join(repoRoot, "examples/acme.ddd"));
 
 describe("frontend ACL shared files — emission", () => {
   it("emits src/lib/strict-field-map.ts into every React deployable", async () => {
-    const model = await buildAcme();
-    const { files } = generateSystems(model);
+    const files = await buildAcme();
     const keys = [...files.keys()];
     const reactRoots = keys
       .filter((k) => k.endsWith("/src/main.tsx"))
@@ -45,8 +34,7 @@ describe("frontend ACL shared files — emission", () => {
   });
 
   it("emits src/lib/apply-server-errors.ts into every React deployable", async () => {
-    const model = await buildAcme();
-    const { files } = generateSystems(model);
+    const files = await buildAcme();
     const keys = [...files.keys()];
     const reactRoots = keys
       .filter((k) => k.endsWith("/src/main.tsx"))
@@ -60,7 +48,7 @@ describe("frontend ACL shared files — emission", () => {
 
 describe("frontend ACL shared files — content", () => {
   it("strict-field-map.ts is type-only (no runtime statements after imports)", async () => {
-    const { files } = generateSystems(await buildAcme());
+    const files = await buildAcme();
     const mainKey = [...files.keys()].find((k) => k.endsWith("/src/main.tsx"))!;
     const reactRoot = mainKey.slice(0, -"/src/main.tsx".length);
     const src = files.get(`${reactRoot}/src/lib/strict-field-map.ts`)!;
@@ -73,7 +61,7 @@ describe("frontend ACL shared files — content", () => {
   });
 
   it("apply-server-errors.ts exports applyServerErrors with the locked signature", async () => {
-    const { files } = generateSystems(await buildAcme());
+    const files = await buildAcme();
     const mainKey = [...files.keys()].find((k) => k.endsWith("/src/main.tsx"))!;
     const reactRoot = mainKey.slice(0, -"/src/main.tsx".length);
     const src = files.get(`${reactRoot}/src/lib/apply-server-errors.ts`)!;
@@ -104,7 +92,7 @@ describe("frontend ACL shared files — content", () => {
     // Architectural invariant: the runtime helper is pack-agnostic.
     // Pack-native toast emission happens inline at the form walker's
     // catch block via design-pack templates, NOT inside this helper.
-    const { files } = generateSystems(await buildAcme());
+    const files = await buildAcme();
     const mainKey = [...files.keys()].find((k) => k.endsWith("/src/main.tsx"))!;
     const reactRoot = mainKey.slice(0, -"/src/main.tsx".length);
     const src = files.get(`${reactRoot}/src/lib/apply-server-errors.ts`)!;
@@ -123,7 +111,7 @@ describe("frontend ACL — wired into emitted form catch blocks (Phase 2)", () =
   // loop.
 
   it("orders/new.tsx (form-of/create) imports and uses applyServerErrors", async () => {
-    const { files } = generateSystems(await buildAcme());
+    const files = await buildAcme();
     const mainKey = [...files.keys()].find((k) => k.endsWith("/src/main.tsx"))!;
     const reactRoot = mainKey.slice(0, -"/src/main.tsx".length);
     const src = files.get(`${reactRoot}/src/pages/orders/new.tsx`)!;
@@ -139,7 +127,7 @@ describe("frontend ACL — wired into emitted form catch blocks (Phase 2)", () =
   });
 
   it("orders/detail.tsx (form-op/modal) imports and uses applyServerErrors", async () => {
-    const { files } = generateSystems(await buildAcme());
+    const files = await buildAcme();
     const mainKey = [...files.keys()].find((k) => k.endsWith("/src/main.tsx"))!;
     const reactRoot = mainKey.slice(0, -"/src/main.tsx".length);
     const src = files.get(`${reactRoot}/src/pages/orders/detail.tsx`)!;
@@ -160,7 +148,7 @@ describe("frontend ACL — wired into emitted form catch blocks (Phase 2)", () =
   });
 
   it("workflows/place_order.tsx (form-runs) imports and uses applyServerErrors", async () => {
-    const { files } = generateSystems(await buildAcme());
+    const files = await buildAcme();
     const mainKey = [...files.keys()].find((k) => k.endsWith("/src/main.tsx"))!;
     const reactRoot = mainKey.slice(0, -"/src/main.tsx".length);
     const src = files.get(`${reactRoot}/src/pages/workflows/place_order.tsx`)!;
@@ -175,7 +163,7 @@ describe("frontend ACL — wired into emitted form catch blocks (Phase 2)", () =
     // Mantine pack — catch block routes outcome.global to notifications.show
     // with outcome.title, and outcome.unhandled to notifications.show with
     // the raw Error message.  Successful-path notification is untouched.
-    const { files } = generateSystems(await buildAcme());
+    const files = await buildAcme();
     const mainKey = [...files.keys()].find((k) => k.endsWith("/src/main.tsx"))!;
     const reactRoot = mainKey.slice(0, -"/src/main.tsx".length);
     const src = files.get(`${reactRoot}/src/pages/orders/new.tsx`)!;
@@ -255,7 +243,7 @@ function readApplyServerErrorsSrc(files: Map<string, string>): string {
 
 describe("applyServerErrors — runtime behaviour against synthetic inputs", () => {
   it("returns { kind: 'applied' } and dispatches setError per pointer for a 422 with errors[]", async () => {
-    const { files } = generateSystems(await buildAcme());
+    const files = await buildAcme();
     const fn = loadApplyServerErrors(readApplyServerErrorsSrc(files));
 
     const calls: SetErrorCall[] = [];
@@ -289,7 +277,7 @@ describe("applyServerErrors — runtime behaviour against synthetic inputs", () 
     // match the form-state key directly, the FieldMap is the lookup
     // table.  This proves the indirection is wired correctly even
     // though Phase 2's MVP uses an identity (empty) map.
-    const { files } = generateSystems(await buildAcme());
+    const files = await buildAcme();
     const fn = loadApplyServerErrors(readApplyServerErrorsSrc(files));
 
     const calls: SetErrorCall[] = [];
@@ -312,7 +300,7 @@ describe("applyServerErrors — runtime behaviour against synthetic inputs", () 
   });
 
   it("returns { kind: 'global', title } when 422 has a title but no errors[]", async () => {
-    const { files } = generateSystems(await buildAcme());
+    const files = await buildAcme();
     const fn = loadApplyServerErrors(readApplyServerErrorsSrc(files));
     const calls: SetErrorCall[] = [];
 
@@ -330,7 +318,7 @@ describe("applyServerErrors — runtime behaviour against synthetic inputs", () 
   });
 
   it("returns { kind: 'unhandled' } for non-422 status (e.g. 500)", async () => {
-    const { files } = generateSystems(await buildAcme());
+    const files = await buildAcme();
     const fn = loadApplyServerErrors(readApplyServerErrorsSrc(files));
     const calls: SetErrorCall[] = [];
 
@@ -345,7 +333,7 @@ describe("applyServerErrors — runtime behaviour against synthetic inputs", () 
   });
 
   it("returns { kind: 'unhandled' } for network failure (no response object)", async () => {
-    const { files } = generateSystems(await buildAcme());
+    const files = await buildAcme();
     const fn = loadApplyServerErrors(readApplyServerErrorsSrc(files));
     const calls: SetErrorCall[] = [];
 
@@ -363,7 +351,7 @@ describe("applyServerErrors — runtime behaviour against synthetic inputs", () 
     // RFC 6901 percent-escaping inside pointer segments — `/foo%2Fbar`
     // should decode to the flat key `foo/bar`.  Edge case but cheap to
     // assert; protects against pointer-to-flat regressions.
-    const { files } = generateSystems(await buildAcme());
+    const files = await buildAcme();
     const fn = loadApplyServerErrors(readApplyServerErrorsSrc(files));
     const calls: SetErrorCall[] = [];
 
@@ -384,7 +372,7 @@ describe("applyServerErrors — runtime behaviour against synthetic inputs", () 
     // pointer routes to itself (after the flatten transform).  Without
     // this fallback, every form would need a populated fieldMap to do
     // anything at all.
-    const { files } = generateSystems(await buildAcme());
+    const files = await buildAcme();
     const fn = loadApplyServerErrors(readApplyServerErrorsSrc(files));
     const calls: SetErrorCall[] = [];
 

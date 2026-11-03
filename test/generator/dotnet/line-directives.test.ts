@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString, parseValid } from "../../_helpers/index.js";
+import { generateSystemFiles, generateSystemFilesWithSourceText } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // M7 phase 6a — .NET enhanced `#line` directives.  Reuses the exact fixture
@@ -63,19 +62,9 @@ function lineCol(text: string, offset: number): { line: number; col: number } {
   return { line: rows.length, col: rows[rows.length - 1]!.length + 1 };
 }
 
-async function parseWithSourceTexts(
-  source: string,
-): Promise<{ model: Awaited<ReturnType<typeof parseValid>>; sourceTexts: Map<string, string> }> {
-  const { model, doc, errors } = await parseString(source, { validate: true });
-  if (errors.length) throw new Error(`unexpected validation errors:\n${errors.join("\n")}`);
-  return { model, sourceTexts: new Map([[doc.uri.path, source]]) };
-}
-
 describe(".NET enhanced #line directives (M7 phase 6a)", () => {
   it("weaves a directive immediately before the let and emit statements, and one #line default after the body", async () => {
-    const { model, sourceTexts } = await parseWithSourceTexts(SOURCE);
-    const [docPath] = sourceTexts.keys();
-    const files = generateSystems(model, { sourcemap: true, sourceTexts }).files;
+    const { files, docPath } = await generateSystemFilesWithSourceText(SOURCE, { sourcemap: true });
     const content = files.get(ORDER_CS_PATH);
     expect(content, `${ORDER_CS_PATH} not emitted`).toBeDefined();
     const lines = content!.split("\n");
@@ -120,8 +109,7 @@ describe(".NET enhanced #line directives (M7 phase 6a)", () => {
   });
 
   it(".loom/sourcemap.json statement regions still resolve after the weave (fragment anchoring survived)", async () => {
-    const { model, sourceTexts } = await parseWithSourceTexts(SOURCE);
-    const files = generateSystems(model, { sourcemap: true, sourceTexts }).files;
+    const { files } = await generateSystemFilesWithSourceText(SOURCE, { sourcemap: true });
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<
@@ -174,8 +162,7 @@ describe(".NET enhanced #line directives (M7 phase 6a)", () => {
   });
 
   it("honest skip: {sourcemap:true} without sourceTexts weaves no directives", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const content = files.get(ORDER_CS_PATH)!;
     expect(content).not.toContain("#line");
   });
@@ -184,12 +171,11 @@ describe(".NET enhanced #line directives (M7 phase 6a)", () => {
   // run, so the weave must also key on the recorder — docs/debugging.md
   // promises byte-identical output with `--sourcemap` off.
   it("without sourcemap, sourceTexts alone weaves no directives (and the file matches a plain generate)", async () => {
-    const { model, sourceTexts } = await parseWithSourceTexts(SOURCE);
-    const withTexts = generateSystems(model, { sourceTexts }).files.get(ORDER_CS_PATH)!;
-    const plain = generateSystems(model, {}).files.get(ORDER_CS_PATH)!;
+    const withTexts = (await generateSystemFilesWithSourceText(SOURCE)).files.get(ORDER_CS_PATH)!;
+    const plain = (await generateSystemFiles(SOURCE)).get(ORDER_CS_PATH)!;
     expect(withTexts).not.toContain("#line");
     expect(withTexts).toBe(plain);
-    const mapped = generateSystems(model, { sourcemap: true, sourceTexts }).files.get(
+    const mapped = (await generateSystemFilesWithSourceText(SOURCE, { sourcemap: true })).files.get(
       ORDER_CS_PATH,
     )!;
     expect(mapped).toContain("#line");

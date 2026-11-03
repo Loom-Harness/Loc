@@ -16,8 +16,7 @@
 // assertions fail.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const SRC = `
 system MC {
@@ -54,9 +53,7 @@ system MC {
 
 describe("multi-context event-log naming (Python, merged contexts)", () => {
   it("names the <Ctx>EventRow model + table by the stream's OWNING context, not the merge", async () => {
-    const { model, errors } = await parseString(SRC);
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SRC);
     const get = (suffix: string): string =>
       [...files.entries()].find(([k]) => k.endsWith(suffix))?.[1] ?? "";
 

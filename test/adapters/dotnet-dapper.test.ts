@@ -14,9 +14,9 @@ import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 import { adaptersFor } from "../../src/platform/resolve-adapters.js";
-import { generateSystems } from "../../src/system/index.js";
 import { inlineDapperScope } from "../_helpers/dapper-scope.js";
 import { diagText } from "../_helpers/diagnostics.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** The Dapper deployable's DDL, as the assertions below read it: every
  *  `Migrations/*.cs` statement (Dapper applies the shared migration chain —
@@ -46,7 +46,7 @@ async function emit(src: string): Promise<{ files: Map<string, string>; errors: 
     .map(diagText);
   const errors = [...parseErrors, ...irErrors];
   if (errors.length > 0) return { files: new Map(), errors };
-  return { files: generateSystems(doc.parseResult.value as Model).files, errors };
+  return { files: await generateSystemFiles(src), errors };
 }
 
 const sys = (deployable: string, body = "") => `

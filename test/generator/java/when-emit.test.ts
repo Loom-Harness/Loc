@@ -10,8 +10,7 @@
 // shared `CanResponse { allowed }` record.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
 system Sys {
@@ -41,7 +40,7 @@ system Sys {
 `;
 
 async function gen(): Promise<Map<string, string>> {
-  return (await generateSystems(await parseValid(SRC))).files;
+  return generateSystemFiles(SRC);
 }
 
 function find(files: Map<string, string>, pred: (k: string) => boolean, label: string): string {

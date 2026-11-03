@@ -1381,12 +1381,16 @@ function taggedEntryValue(
       return `{ type: ${tag}, value: ${rendered} }`;
     case "payload":
     case "error":
-      return `{ type: ${tag}, ...(${rendered}) }`;
+      // A bound union arm (`NotFound e => { return e }`) already carries its
+      // own `type` (the same tag); widened so the spread may restate it.
+      return `{ type: ${tag}, ...(${rendered} as Record<string, unknown>) }`;
     case "aggregate": {
       const repo = repoVarByAgg.get(leaf.arm.name) ?? `${lowerFirst(plural(leaf.arm.name))}`;
       // Read back after the body's saves: the saved row carries the version
-      // the save advanced to, which the in-memory aggregate does not.
-      return `{ type: ${tag}, ...(${repo}.toWire(await ${repo}.getById(${rendered}.id)) as Record<string, unknown>) }`;
+      // the save advanced to, which the in-memory aggregate does not.  The id
+      // is re-branded: a bound union arm of an operation's result carries the
+      // aggregate's wire projection, whose id is a plain string.
+      return `{ type: ${tag}, ...(${repo}.toWire(await ${repo}.getById(Ids.${leaf.arm.name}Id(String(${rendered}.id)))) as Record<string, unknown>) }`;
     }
     case "workflow":
       return `{ type: ${tag}, ...(${selfRow} as Record<string, unknown>) }`;

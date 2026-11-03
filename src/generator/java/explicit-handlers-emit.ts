@@ -522,6 +522,8 @@ function renderHandlerClass(
         ctx,
         "        ",
         "handlerResult",
+        undefined,
+        repoField,
       ),
       `        if (${entryErrorTestJava(er, h.returnType, "handlerResult")}) {`,
       `            org.springframework.transaction.interceptor.TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();`,

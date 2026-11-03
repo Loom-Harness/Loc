@@ -3,14 +3,13 @@ import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { generateSystems } from "../../src/system/index.js";
 import type { VirtualFile } from "../../web/src/build/protocol.js";
 import {
   inlineSourcemapArtifacts,
   overlaySourcemapArtifacts,
   stripSourcemapArtifacts,
 } from "../../web/src/build/strip-sourcemap.js";
-import { parseString } from "../_helpers/index.js";
+import { generateSystemFiles, generateSystemFilesWithSourceText } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Playground DevTools `.ddd` debugging — the ENABLER slice on top of the
@@ -58,15 +57,13 @@ function toVirtualFiles(map: Map<string, string>): VirtualFile[] {
 
 async function generateAcmeOffAndOn(): Promise<{ off: VirtualFile[]; on: VirtualFile[] }> {
   const source = readFileSync(ACME_DDD, "utf-8");
-  const { model, doc, errors } = await parseString(source, { validate: true });
-  expect(errors).toEqual([]);
-  const sourceTexts = new Map([[doc.uri.path, source]]);
-  const off = toVirtualFiles(generateSystems(model).files);
+  const off = toVirtualFiles(await generateSystemFiles(source));
   // `inlineSources: true` mirrors `web/src/build/build.worker.ts` — the
   // playground has no filesystem behind `sources`, so its sidecars must carry
   // the `.ddd` text (the CLI's default omits it; see GenerateSystemOptions).
   const on = toVirtualFiles(
-    generateSystems(model, { sourcemap: true, sourceTexts, inlineSources: true }).files,
+    (await generateSystemFilesWithSourceText(source, { sourcemap: true, inlineSources: true }))
+      .files,
   );
   return { off, on };
 }

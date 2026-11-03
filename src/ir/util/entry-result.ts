@@ -76,6 +76,15 @@ function declaresEntryFailure(owner: EntryOwner, ctx: BoundedContextIR): boolean
   return t?.kind === "union" && t.variants.some((v) => entryResultArm(v, ctx).kind === "error");
 }
 
+/** True when a routed `commandHandler` / `queryHandler` of `ctx` answers an
+ *  expected failure — it then runs in a unit-of-work transaction the backend
+ *  must provide, exactly as a workflow does. */
+export function answersEntryResults(ctx: BoundedContextIR): boolean {
+  return [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])].some(
+    (h) => !h.extern && entryResult(h, ctx) !== undefined,
+  );
+}
+
 /** The leaves of an expected-failure result, or undefined when `owner` does
  *  not declare one (or has no answered value — an `extern` handler). */
 export function entryResult(owner: EntryOwner, ctx: BoundedContextIR): EntryResult | undefined {
