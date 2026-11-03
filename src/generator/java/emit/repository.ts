@@ -560,9 +560,11 @@ export function renderJavaSpringDataRepository(
   // already manages it answers from the persistence context, with no SQL and
   // so no `@SQLRestriction` / `@Filter` — a row soft-deleted earlier in the
   // same transaction, or loaded under another principal, reads back.  A query
-  // flushes and re-filters.
+  // flushes and re-filters.  The write-scope load (`getById` under the
+  // `<Agg>_writeScope` filter) needs the same: a workflow re-checks the write
+  // scope of a row an earlier read in its transaction already holds.
   const principalOverrides: string[] = [];
-  if (ctx.staticRestriction) {
+  if (ctx.staticRestriction || writeScopeFilterName(agg) !== undefined) {
     principalOverrides.push(
       `    @${QUERY}("select e from ${agg.name} e where e.id = :id")`,
       `    ${OPTIONAL}<${agg.name}> findById(@${PARAM}("id") ${idClass} id);`,
