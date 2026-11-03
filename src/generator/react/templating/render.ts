@@ -102,6 +102,9 @@ export function renderAppShell(
   /** The ui's pages, so a DEFAULT sidebar entry inherits the `requires` gate of
    *  the page it links to (M-T3.15-C3). */
   uiPages: readonly PageIR[] = [],
+  /** Two or more locales ship — the shell header mounts the `LocaleSwitcher`
+   *  and the root re-renders on a locale switch. */
+  localeSwitchable = false,
 ): string {
   return pack.render("app-shell", {
     hasRealtimeHandlers,
@@ -121,6 +124,7 @@ export function renderAppShell(
       i18nEnabled,
       pageModules,
       uiPages,
+      localeSwitchable,
     ),
     routerPackage: ROUTER_PACKAGE,
   });

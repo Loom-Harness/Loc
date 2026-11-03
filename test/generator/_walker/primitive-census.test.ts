@@ -102,6 +102,7 @@ const PROBES: Readonly<Record<string, Probe>> = {
   },
   FileUpload: { state: `doc: File`, body: `FileUpload { "DocLbl", bind: doc }`, witness: "DocLbl" },
   Loader: { body: `Loader {}` },
+  LocaleSwitcher: { body: `LocaleSwitcher {}` },
   Anchor: { body: `Anchor { "anchorText", to: "/x" }`, witness: "anchorText" },
   Image: { body: `Image { src: "/logo.png", alt: "LogoAlt" }`, witness: "/logo.png" },
   Avatar: { body: `Avatar { alt: "AvatarAlt" }`, witness: "AvatarAlt" },
@@ -251,7 +252,26 @@ const REFUSED: Readonly<Record<string, { cells: readonly string[]; code: string 
 /** `<cell>|<primitive>` → why the cell renders but degrades.  Shrink-only.
  *  Empty: every gap the first run measured (2026-09-28) is fixed.  A new row is
  *  a defect handed off with a repro, and goes in the change that fixes it. */
-const GAPS: Readonly<Record<string, string>> = {};
+const GAPS: Readonly<Record<string, string>> = {
+  "vue/vuetify|LocaleSwitcher":
+    "React is the reference binding of the runtime locale model; this target still renders the placeholder comment until its fan-out slice lands (#4451)",
+  "vue/shadcnVue|LocaleSwitcher":
+    "React is the reference binding of the runtime locale model; this target still renders the placeholder comment until its fan-out slice lands (#4451)",
+  "svelte/shadcnSvelte|LocaleSwitcher":
+    "React is the reference binding of the runtime locale model; this target still renders the placeholder comment until its fan-out slice lands (#4451)",
+  "svelte/flowbite|LocaleSwitcher":
+    "React is the reference binding of the runtime locale model; this target still renders the placeholder comment until its fan-out slice lands (#4451)",
+  "angular/angularMaterial|LocaleSwitcher":
+    "React is the reference binding of the runtime locale model; this target still renders the placeholder comment until its fan-out slice lands (#4451)",
+  "angular/primeng|LocaleSwitcher":
+    "React is the reference binding of the runtime locale model; this target still renders the placeholder comment until its fan-out slice lands (#4451)",
+  "angular/spartanNg|LocaleSwitcher":
+    "React is the reference binding of the runtime locale model; this target still renders the placeholder comment until its fan-out slice lands (#4451)",
+  "feliz|LocaleSwitcher":
+    "React is the reference binding of the runtime locale model; this target still renders the placeholder comment until its fan-out slice lands (#4451)",
+  "flutter|LocaleSwitcher":
+    "React is the reference binding of the runtime locale model; this target still renders the placeholder comment until its fan-out slice lands (#4451)",
+};
 
 // --- harness -----------------------------------------------------------------
 

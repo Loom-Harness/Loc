@@ -96,7 +96,7 @@ describe('i18n { source: "de" } — generated output', () => {
       expect(runtime).toContain('/locales/de.json"');
       expect(runtime).toContain('"de"');
       expect(runtime).not.toContain('"en"');
-      expect(runtime).toContain('return catalogs[lang] ? lang : "de";');
+      expect(runtime).toContain('export const SOURCE_LOCALE = "de";');
       const html = [...files].find(([p]) => /(^|\/)(index|app)\.html$/.test(p))![1];
       expect(html).toContain('<html lang="de"');
     });
@@ -161,7 +161,7 @@ describe("no i18n block — the English output is unchanged", () => {
     expect(file(files, ".loom/messages.en.json")).toBeDefined();
     const runtime = file(files, "src/i18n.ts")!;
     expect(runtime).toContain('import en from "./locales/en.json";');
-    expect(runtime).toContain('return catalogs[lang] ? lang : "en";');
+    expect(runtime).toContain('export const SOURCE_LOCALE = "en";');
     expect(file(files, "index.html")).toContain('<html lang="en"');
 
     const ph = await generateSystemFiles(phoenix());

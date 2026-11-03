@@ -24,6 +24,7 @@
 
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
 import { giveUp } from "../give-up.js";
+import { addImport, I18N_MODULE } from "../render-primitive.js";
 import { namedArgValue, positionalArgs } from "../shared/args.js";
 import type { WalkContext } from "../walker-core.js";
 import { emitExpr, testidAttr } from "../walker-core.js";
@@ -45,8 +46,12 @@ export function emitTimeline(
   const testid = testidAttr(call, ctx);
 
   switch (ctx.target.framework) {
-    case "react":
-      return reactTimeline(entries, testid);
+    case "react": {
+      // Under i18n the timestamp formats in the ACTIVE locale (the one `t()`
+      // and every pack formatter read), not the browser default.
+      if (ctx.i18nPrefix) addImport(ctx, I18N_MODULE, "getLocale");
+      return reactTimeline(entries, testid, ctx.i18nPrefix ? "getLocale()" : "");
+    }
     case "vue":
       return vueTimeline(entries, testid);
     case "svelte":
@@ -78,13 +83,13 @@ function guardedList(entries: string): string {
 }
 
 /** React — `{(entries ?? []).map(...)}`. */
-function reactTimeline(entries: string, testid: string): string {
+function reactTimeline(entries: string, testid: string, locale: string): string {
   return [
     `<ol className="loom-timeline"${testid}>`,
     `  {${entries}.map((__e) => (`,
     `    <li key={__e.auditId} className="loom-timeline-entry">`,
     `      <span className="loom-timeline-action">{__e.action}</span>`,
-    `      <time dateTime={__e.at}>{new Date(__e.at).toLocaleString()}</time>`,
+    `      <time dateTime={__e.at}>{new Date(__e.at).toLocaleString(${locale})}</time>`,
     `      {__e.actor != null ? <span className="loom-timeline-actor">{String(__e.actor)}</span> : null}`,
     `      {__e.changes.length > 0 ? (`,
     `        <dl className="loom-timeline-changes">`,
