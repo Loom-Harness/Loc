@@ -174,8 +174,10 @@ export function renderFlutterI18nModule(
     "// are stable across every frontend — only the spelling differs.",
     "//",
     "// To add a locale: add its map below and register it in `_catalogs` and",
-    "// `_tagIndex`.  Date symbols load lazily — `initLocale()` loads them for every",
-    "// shipped locale before the first frame.",
+    switchable
+      ? "// `_tagIndex`.  Date symbols load lazily — `initLocale()` loads them for every"
+      : "// `_tagIndex`.",
+    switchable ? "// shipped locale before the first frame." : undefined,
     switchable ? "import 'dart:async';" : undefined,
     switchable ? "import 'dart:ui' as ui;" : undefined,
     switchable ? "" : undefined,
@@ -183,7 +185,7 @@ export function renderFlutterI18nModule(
     "import 'package:flutter/material.dart';",
     switchable ? "import 'package:flutter_localizations/flutter_localizations.dart';" : undefined,
     switchable ? "import 'package:intl/date_symbol_data_local.dart';" : undefined,
-    "import 'package:intl/intl.dart';",
+    "import 'package:intl/intl.dart' hide TextDirection;",
     "import 'package:intl/message_format.dart';",
     switchable ? "import 'package:shared_preferences/shared_preferences.dart';" : undefined,
     "",

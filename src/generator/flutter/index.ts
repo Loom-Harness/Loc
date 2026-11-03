@@ -41,10 +41,10 @@ import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, upperFirst } from "../../util/naming.js";
+import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { usesValueEquals } from "../_frontend/value-equals.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
-import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
 import { localizedPageTitle } from "../_walker/i18n-emit.js";
 import { pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
@@ -1798,6 +1798,10 @@ function renderPubspec(
   // `flutter_localizations` carries the Material / Widgets / Cupertino strings
   // for the shipped locales (`MaterialApp.localizationsDelegates`).
   const localizations = usesLocales ? "\n  flutter_localizations:\n    sdk: flutter" : "";
+  // `flutter_localizations` pins `intl` to the exact version the SDK ships, so a
+  // caret range here makes `pub get` unsolvable on any SDK newer than it; `any`
+  // follows the SDK (the constraint the Flutter localization guide prescribes).
+  const intlVersion = usesLocales ? "any" : "^0.19.0";
   // `url_launcher` backs the `auth: ui` sign-in / sign-out REDIRECT — Dart's
   // core SDK cannot navigate to an external URL.  Same use-driven rule as
   // `file_picker`: an unauthenticated app's pubspec stays byte-identical.
@@ -1822,7 +1826,7 @@ dependencies:
     sdk: flutter
   http: 1.6.0
   flutter_riverpod: 2.6.1
-  intl: ^0.19.0${localizations}${filePicker}${prefs}${launcher}${webPkg}
+  intl: ${intlVersion}${localizations}${filePicker}${prefs}${launcher}${webPkg}
 
 dev_dependencies:
   flutter_test:
