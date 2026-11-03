@@ -129,7 +129,11 @@ describe.skipIf(!ENABLED)(
           const outDir = fs.mkdtempSync(path.join(mix.root, `${name.replace(/\.ddd$/, "")}-`));
           try {
             const genRoot = path.join(outDir, "out");
-            await sh(`node ${cli} generate system ${fixturePath} -o ${genRoot}`, {
+            // A fixture with a sibling `<stem>.locales/` translator tree ships those
+            // locales (the default `locales/` dir is shared by every fixture here).
+            const localesDir = fixturePath.replace(/\.ddd$/, ".locales");
+            const localesFlag = fs.existsSync(localesDir) ? ` --locales ${localesDir}` : "";
+            await sh(`node ${cli} generate system ${fixturePath} -o ${genRoot}${localesFlag}`, {
               cwd: repoRoot,
               timeout: 300_000,
             });
