@@ -23,7 +23,9 @@ import { expectReach } from "../_helpers/census-reach.js";
 // `.unshift(` on the same line, or alone on a line whose predecessor ends in
 // `?`, `&&`, `||` or `=>` (the wrapped ternary arm).  An import literal that is
 // a bare element of an unconditional `lines(...)` list is NOT counted — both
-// halves of such a header are constant, so they cannot drift.
+// halves of such a header are constant, so they cannot drift.  Nor is a
+// comment line (`//`, `/*`, ` *`): prose quoting an import after a `:` is not
+// an emitter deciding one.
 //
 // It is a consistent progress measure, not a proof of absence: a predicate
 // held in a variable is counted where the literal sits.  Proof of absence is
@@ -68,14 +70,15 @@ const COLLECTOR_LITERAL: Partial<Record<Backend, RegExp>> = {
 /** Live count per backend — lower it in the PR that removes sites. */
 const CEILING: Record<Backend, number> = {
   python: 0,
-  typescript: 230,
+  typescript: 229,
   dotnet: 40,
   java: 2,
-  elixir: 2,
+  elixir: 0,
 };
 
 const SAME_LINE = /(\?|:|&&|\|\||=>|\bpush\(|\badd\(|\bunshift\()\s*$/;
 const PREV_LINE = /(\?|&&|\|\||=>)\s*$/;
+const COMMENT_LINE = /^\s*(\/\/|\/\*|\*)/;
 
 function tsFiles(dir: string): string[] {
   const out: string[] = [];
@@ -93,6 +96,7 @@ function predicatedImportSites(backend: Backend): { file: string; line: number; 
     for (const file of tsFiles(path.join(repoRoot, root))) {
       const src = fs.readFileSync(file, "utf8").split("\n");
       src.forEach((text, i) => {
+        if (COMMENT_LINE.test(text)) return;
         if (COLLECTOR_LITERAL[backend]?.test(text)) {
           sites.push({ file: path.relative(repoRoot, file), line: i + 1, text: text.trim() });
           return;
@@ -149,6 +153,7 @@ describe("hand-predicated import census (M-T9.84)", () => {
     // so a regex edit that silently stops matching fails here, not by
     // quietly reading zero on a backend.
     const probe = (backend: Backend, line: string, prev = ""): boolean => {
+      if (COMMENT_LINE.test(line)) return false;
       const m = IMPORT_LITERAL[backend].exec(line);
       if (!m) return false;
       const before = line.slice(0, m.index);
@@ -170,5 +175,11 @@ describe("hand-predicated import census (M-T9.84)", () => {
     expect(COLLECTOR_LITERAL.dotnet!.test(`  usings.add("System.Linq");`)).toBe(true);
     expect(COLLECTOR_LITERAL.java!.test(`  names.add("orderId");`)).toBe(false);
     expect(probe("elixir", `    needsRepo ? "alias MyApp.Repo" : nil,`)).toBe(true);
+    // Comment prose quoting an import after a `:` is not a site.
+    expect(probe("elixir", `        // macros: \`use Gettext.Backend\``)).toBe(false);
+    expect(probe("elixir", `/** Shared prelude: \`import Swoosh.Email\` and,`)).toBe(false);
+    expect(probe("typescript", `  // (default-import: \`import Decimal from "decimal.js"\`).`)).toBe(
+      false,
+    );
   });
 });
