@@ -156,12 +156,17 @@ describe.skipIf(!ENABLED)(
       // …and the mirror: rejections must still be REACHED.  If phase ⑦ stopped
       // running (the hole this harness shipped with once — see harness.ts), the
       // honest refusals would silently become `ok` and the sweep would go quiet
-      // exactly where it is most load-bearing.
+      // exactly where it is most load-bearing.  The floor must sit ABOVE the
+      // phase-④ share, or it stops detecting a silent phase ⑦: today 288
+      // refusals = 210 phase-④ (`loom.event-sourced-command-mutation`, an AST
+      // check) + 78 phase-⑦ (`loom.target-unsupported`,
+      // `loom.vanilla-document-unsupported`).  With phase ⑦ off the count
+      // drops to 210 < 250.
       expect(
         rejected,
         "crossings refused by a named loom.* diagnostic — zero here means the " +
           "validator phases are not being run at all",
-      ).toBeGreaterThan(400);
+      ).toBeGreaterThan(250);
     }, 900_000);
   },
 );
