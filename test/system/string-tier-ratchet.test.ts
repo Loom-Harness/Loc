@@ -84,7 +84,7 @@ const CEILINGS: Record<string, number> = {
   // `T?` miss answers 404, that every accepted `ignoring` position omits the
   // predicate it names, and each criterion predicate's emitted shape — emission
   // details (a missing guard, a dropped bypass) that compile cleanly when wrong.
-  "(cross-target)": 3500,
+  "(cross-target)": 3700, // cross-backend pins for unsorted-read id order, hoisted handler reads, widened domain-service reads and document nested VO collections
   _expr: 200,
   _frontend: 400,
   _i18n: 200,
