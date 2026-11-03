@@ -80,9 +80,9 @@ describe("RS-43 — a message-less rule answers node's sentence on every backend
     expect([...node].sort()).toEqual(
       [
         "Billing Email is not in the expected format",
+        "Business rule violated",
         "Code is not in the expected format",
         "Count must be at least 1",
-        "Invariant violated: handle.trim().length > 0",
         "Seats must be between 1 and 500",
         "Tag must be exactly 3 characters",
       ].sort(),
@@ -100,7 +100,7 @@ describe("RS-43 — a message-less rule answers node's sentence on every backend
 
   it("java: each single-field rule carries node's sentence, not the refine default", async () => {
     // The request VALIDATORS — the domain floor (`DomainException`) keeps its
-    // own "Invariant violated: …" text, as it does on node.
+    // generic "Business rule violated" text, as it does on node.
     const java = all(await generateSystemFiles(fixture("java")), "Validator.java");
     for (const msg of await nodeMessages()) {
       expect(java, `java does not send "${msg}"`).toContain(JSON.stringify(msg));
@@ -125,7 +125,7 @@ describe("RS-43 — a message-less rule answers node's sentence on every backend
     const routes = find(await generateSystemFiles(fixture("python")), "http/customer_routes.py");
     expect(routes).not.toContain('raise ValueError("Invariant violated');
     expect(routes).toMatch(
-      /type=PydanticCustomError\("invariant", "Invariant violated: handle\.trim\(\)\.length > 0"\),\s+loc=\("handle",\),/,
+      /type=PydanticCustomError\("invariant", "Business rule violated"\),\s+loc=\("handle",\),/,
     );
   });
 });
