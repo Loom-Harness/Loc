@@ -135,6 +135,11 @@ describe("MikroORM transactional outbox", () => {
       "await em.nativeUpdate(LoomOutboxRow, { id: row.id }, { attempts, deadAt: dead ? new Date() : null });",
     );
     expect(wf).toContain('event: "event_dead_lettered"');
+    // A poll failure is logged and retried next tick, never an unhandled
+    // rejection from the interval callback.
+    expect(wf).toMatch(
+      /\n    \} catch \(err\) \{\n      baseLogger\.warn\(\{ event: "outbox_relay_error"[^\n]*\n    \} finally \{\n      draining = false;/,
+    );
   });
 
   it("wraps createApp's dispatcher and starts the relay at boot", async () => {
