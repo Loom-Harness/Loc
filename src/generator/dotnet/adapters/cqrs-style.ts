@@ -146,7 +146,7 @@ export const cqrsStyleAdapter: StyleAdapter = {
       { ...buildOperationSpec(agg, hosted!, owningCtx, ns), apiOp, probeOp },
       {
         idClass,
-        idClrType: csIdValueClrType(agg.idValueType),
+        idClrType: csIdValueClrType(),
         emitTrace: !!ctx.emitTrace,
       },
     );

@@ -765,19 +765,10 @@ function derivedHoldsEntity(t: TypeIR): boolean {
   return t.kind === "entity";
 }
 
-/** The underlying CLR type a strongly-typed id wraps, by its value kind —
- *  the type the JSON array of id values (de)serialises as. */
-function idValueClrType(vt: AssociationIR["valueType"]): string {
-  switch (vt) {
-    case "int":
-      return "int";
-    case "long":
-      return "long";
-    case "string":
-      return "string";
-    default:
-      return "Guid";
-  }
+/** The underlying CLR type a strongly-typed id wraps (a guid) — the type the
+ *  JSON array of id values (de)serialises as. */
+function idValueClrType(): string {
+  return "Guid";
 }
 
 /** EF mapping for an EMBEDDED aggregate's reference-collection (`X id[]`):
@@ -789,7 +780,7 @@ function idValueClrType(vt: AssociationIR["valueType"]): string {
 function embeddedRefCollectionLines(a: AssociationIR): string[] {
   const prop = upperFirst(a.fieldName);
   const idClass = `${a.targetAgg}Id`;
-  const inner = idValueClrType(a.valueType);
+  const inner = idValueClrType();
   const listOfId = `System.Collections.Generic.List<${idClass}>`;
   const listOfInner = `System.Collections.Generic.List<${inner}>`;
   return [
@@ -1131,7 +1122,7 @@ function fieldConfigLines(
   const isOptional = f.type.kind === "optional";
   const leaf = f.type.kind === "optional" ? f.type.inner : f.type;
   if (leaf.kind === "id") {
-    const conv = idConversion(leaf.targetName, leaf.valueType, isOptional);
+    const conv = idConversion(leaf.targetName, isOptional);
     return [`${indent}${builder}.Property(x => x.${upperFirst(f.name)})${conv}${colName};`];
   }
   if (leaf.kind === "enum") {
@@ -1203,13 +1194,9 @@ function fieldConfigLines(
  *  guarding on `HasValue` (an expression-tree lambda can't use the `?.`
  *  null-propagating operator — CS8072).  Shared by the root, owned-VO and
  *  owned-VO-collection property paths. */
-function idConversion(
-  targetName: string,
-  valueType: AssociationIR["valueType"],
-  optional: boolean,
-): string {
+function idConversion(targetName: string, optional: boolean): string {
   const idType = `${targetName}Id`;
-  const provider = idValueClrType(valueType);
+  const provider = idValueClrType();
   return optional
     ? `.HasConversion(v => v.HasValue ? v.Value.Value : (${provider}?)null, v => v.HasValue ? (${idType}?)new ${idType}(v.Value) : (${idType}?)null)`
     : `.HasConversion(v => v.Value, v => new ${idType}(v))`;
@@ -1236,7 +1223,7 @@ function ownedVoLines(
     }
     const sel = `o.Property(x => x.${upperFirst(vf.name)})`;
     if (base.kind === "id") {
-      const conv = idConversion(base.targetName, base.valueType, vf.type.kind === "optional");
+      const conv = idConversion(base.targetName, vf.type.kind === "optional");
       return [`${inner}${sel}${conv}.HasColumnName("${col}");`];
     }
     if (base.kind === "enum") {
@@ -1335,7 +1322,7 @@ function ownedVoArrayLines(
     }
     const sel = `o.Property(x => x.${upperFirst(vf.name)})`;
     if (base.kind === "id") {
-      const conv = idConversion(base.targetName, base.valueType, vf.type.kind === "optional");
+      const conv = idConversion(base.targetName, vf.type.kind === "optional");
       return [`${inner}${sel}${conv}.HasColumnName("${col}");`];
     }
     if (base.kind === "enum") {

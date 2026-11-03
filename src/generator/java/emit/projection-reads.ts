@@ -105,7 +105,7 @@ function renderProjectionsController(
     if (inner.kind !== "id") {
       throw new Error(`java projection-reads: correlation of '${proj.name}' must be id-typed`);
     }
-    return javaIdValueType(inner.valueType);
+    return javaIdValueType();
   };
   const forbidden = javaRef(`${pctx.basePkg}.domain.common`, "ForbiddenException");
   const accessor = javaRef(`${pctx.basePkg}.auth`, "CurrentUserAccessor");

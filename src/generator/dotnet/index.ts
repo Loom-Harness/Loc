@@ -624,14 +624,7 @@ function emitProjectFromContexts(
       ...userClaimIdTypeSources(system.sys.user),
     ]);
     for (const name of foreignIdNames) {
-      let idValueType = "uuid";
-      for (const sub of system.sys.subdomains) {
-        for (const c of sub.contexts) {
-          const agg = c.aggregates.find((a) => a.name === name);
-          if (agg) idValueType = agg.idValueType;
-        }
-      }
-      out.set(`Domain/Ids/${name}Id.cs`, renderId(name, idValueType, ns));
+      out.set(`Domain/Ids/${name}Id.cs`, renderId(name, ns));
     }
   }
   // Broker transport module (M-T4.4) — channel-less projects stay
@@ -661,7 +654,6 @@ function emitProjectFromContexts(
         channelBindings,
         merged.events,
         hasChannelConsumers,
-        system.sys,
         hasRealtime
           ? "RealtimeDomainEventDispatcher"
           : hasOutboxTier
@@ -1042,12 +1034,10 @@ function emitProjectFromContexts(
   out.set("Api/ValidationProblem.cs", renderValidationProblem(ns));
   out.set("Api/NoNulCharAttribute.cs", renderNoNulCharAttribute(ns));
   // The unparseable-`{id}` guard (F22).  Unconditional, like every other file
-  // in this block: an aggregate's identity is ALWAYS a guid today (`lower.ts`
-  // stamps `idValueType` as the literal `"guid"`; there is no `ids` clause), so
-  // an emit-time gate on it would be an always-true branch nothing could
-  // exercise.  The narrowing that matters is inside the filter and is a RUNTIME
-  // one — it acts only on an action that actually binds a `Guid id` — which
-  // keeps it correct if the identity axis ever opens up.
+  // in this block: every identity is a guid (the IR has no id value-type
+  // axis), so an emit-time gate on it would be an always-true branch nothing
+  // could exercise.  The narrowing that matters is inside the filter and is a
+  // RUNTIME one — it acts only on an action that actually binds a `Guid id`.
   out.set("Api/MalformedPathIdFilter.cs", renderMalformedPathIdFilter(ns));
   out.set("Api/ProblemDetailsResponsesFilter.cs", renderProblemDetailsFilter(ns));
   out.set(
@@ -1513,7 +1503,6 @@ function emitAggregate(
         fieldNames: new Set(inheritedBase.fields.map((f) => f.name)),
         derivedNames: new Set(inheritedBase.derived.map((d) => d.name)),
         sharesIdentity: !!tphBase,
-        idValueType: tphBase?.idValueType,
       }
     : undefined;
   // The strongly-typed id class for this aggregate's key.  `tableOwnerName`
@@ -1934,12 +1923,10 @@ function emitInfrastructure(
   out.set("Api/ValidationProblem.cs", renderValidationProblem(ns));
   out.set("Api/NoNulCharAttribute.cs", renderNoNulCharAttribute(ns));
   // The unparseable-`{id}` guard (F22).  Unconditional, like every other file
-  // in this block: an aggregate's identity is ALWAYS a guid today (`lower.ts`
-  // stamps `idValueType` as the literal `"guid"`; there is no `ids` clause), so
-  // an emit-time gate on it would be an always-true branch nothing could
-  // exercise.  The narrowing that matters is inside the filter and is a RUNTIME
-  // one — it acts only on an action that actually binds a `Guid id` — which
-  // keeps it correct if the identity axis ever opens up.
+  // in this block: every identity is a guid (the IR has no id value-type
+  // axis), so an emit-time gate on it would be an always-true branch nothing
+  // could exercise.  The narrowing that matters is inside the filter and is a
+  // RUNTIME one — it acts only on an action that actually binds a `Guid id`.
   out.set("Api/MalformedPathIdFilter.cs", renderMalformedPathIdFilter(ns));
   out.set("Api/ProblemDetailsResponsesFilter.cs", renderProblemDetailsFilter(ns));
   out.set("Api/ListResponseWrapperFilter.cs", renderListWrapperFilter(ns, listWrapperPairs([ctx])));

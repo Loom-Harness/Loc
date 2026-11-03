@@ -166,18 +166,11 @@ const externImplFilePath = (name: string): string =>
 const externImplModule = (name: string): string =>
   `../application/${handlerKebab(name)}-handler-impl`;
 
-/** Path-param zod for a wire-coerced route segment.  Ids resolve by their value
- *  type (guid → uuid string, int/long → coerced integer, string → plain);
- *  scalars mirror the same numeric/textual split.  Matches the `corrVt` switch
- *  in `emitInstanceRoutes` (non-guid-id-http-params.md). */
+/** Path-param zod for a wire-coerced route segment.  An id is a guid — a
+ *  uuid string, the same `UuidString` the workflow-instance `{id}` param uses;
+ *  scalars split numeric/textual. */
 function pathParamZod(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
-  if (t.kind === "id") {
-    return t.valueType === "guid"
-      ? "UuidString"
-      : t.valueType === "int" || t.valueType === "long"
-        ? "z.coerce.number().int()"
-        : "z.string()";
-  }
+  if (t.kind === "id") return "UuidString";
   if (t.kind === "primitive") {
     switch (t.name) {
       case "int":

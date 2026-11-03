@@ -39,8 +39,6 @@ import {
 } from "../util/walk.js";
 import type { OriginRef } from "./origin.js";
 
-export type IdValueType = "guid" | "int" | "long" | "string";
-
 export type PrimitiveName =
   | "int"
   | "long"
@@ -125,10 +123,15 @@ export type SensitivityTags = readonly string[];
  *  structural-print, playground inspector) return the literal
  *  `"slot"` so editors and diagnostics still read sensibly when a
  *  slot-typed component param surfaces in a label.  React's
- *  `propType` recognises the variant and emits `ReactNode`. */
+ *  `propType` recognises the variant and emits `ReactNode`.
+ *
+ *  The `"id"` arm is an `X id` reference to an aggregate or entity part.
+ *  Every identity is a guid — there is no per-aggregate id value type, so
+ *  backends spell an id's underlying scalar (column, wire format, CLR/Java
+ *  type) as their guid form unconditionally. */
 export type TypeIR =
   | { kind: "primitive"; name: PrimitiveName; sensitivity?: SensitivityTags }
-  | { kind: "id"; targetName: string; valueType: IdValueType; sensitivity?: SensitivityTags }
+  | { kind: "id"; targetName: string; sensitivity?: SensitivityTags }
   | { kind: "enum"; name: string; sensitivity?: SensitivityTags }
   | { kind: "valueobject"; name: string; sensitivity?: SensitivityTags }
   | { kind: "entity"; name: string; sensitivity?: SensitivityTags }
@@ -307,8 +310,6 @@ export interface AssociationIR {
   ownerAgg: string;
   /** The referenced aggregate (`Pokemon`). */
   targetAgg: string;
-  /** The id value type of the target reference. */
-  valueType: IdValueType;
   /** Join-table name, `snake(owner)_snake(field)` — distinct per
    * field even when several fields target the same aggregate. */
   joinTable: string;
@@ -525,7 +526,6 @@ export interface ApplyIR {
 export interface EntityPartIR {
   name: string;
   parentName: string;
-  parentIdValueType: IdValueType;
   fields: FieldIR[];
   contains: ContainmentIR[];
   derived: DerivedIR[];
@@ -566,7 +566,6 @@ export interface WireField {
 
 export interface AggregateIR {
   name: string;
-  idValueType: IdValueType;
   fields: FieldIR[];
   contains: ContainmentIR[];
   derived: DerivedIR[];

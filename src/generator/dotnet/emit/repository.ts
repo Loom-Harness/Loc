@@ -1305,7 +1305,7 @@ export function renderEventSourcedRepositoryImpl(
   // The event types this aggregate's stream can contain — the events its
   // appliers fold.  Drives the `RowToEvent` deserialiser dispatch.
   const eventNames = [...new Set((agg.appliers ?? []).map((a) => a.event))];
-  const idValue = csValueTypeForId(agg.idValueType);
+  const idValue = csValueTypeForId();
   const parseId =
     idValue === "Guid"
       ? "Guid.Parse(__kv.Key)"

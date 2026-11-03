@@ -367,6 +367,12 @@ Cross-aggregate references are written as `Other id`:
 customerId: Customer id
 ```
 
+`X id` must name something with an identity — an aggregate (abstract bases
+included) or an entity part.  A value object, enum, event, payload record or
+workflow has no id, so `origin: Point id` over `valueobject Point` is
+`loom.id-target-not-identity`; hold the value directly (`origin: Point`)
+instead.
+
 The underlying value type is always `guid`, and there is **no `ids` clause** —
 `ids int|long|string` were removed (no backend implemented id generation for a
 non-guid primary key, so declaring one produced an app that collided on the

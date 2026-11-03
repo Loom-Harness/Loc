@@ -458,7 +458,6 @@ ${cuBind}${indexCuBind}${indexBody}
   // `by_id` action (`renderFindActions`).
   const byIdFind = byIdRouteFind(
     (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name),
-    agg.idValueType,
   );
   const showGate = effectiveGate(byIdFind?.requires);
   const showCuBind =

@@ -1951,6 +1951,9 @@ system P {
     }`),
   // `let r = o.hold()` whose result can be an error, never matched: nothing may
   // save the tentative change.
+  // `X id` naming a value object: only aggregates and entity parts carry an id.
+  "loom.id-target-not-identity": repoOnly(`    valueobject Pt { x: int }
+    aggregate R with crudish { p: Pt id }`),
   // `create(…): W` answers the workflow's instance state, but W has no
   // correlation field, so no instance is persisted.
   "loom.workflow-return-this-uncorrelated": repoOnly(`    error Declined { reason: string }

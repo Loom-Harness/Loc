@@ -74,6 +74,7 @@ export {
   checkContainment,
   checkContext,
   checkEntityPart,
+  checkIdTargets,
   checkSlotTypePosition,
   checkTypeReferences,
   checkValueObject,

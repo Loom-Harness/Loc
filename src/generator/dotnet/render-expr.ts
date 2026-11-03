@@ -631,9 +631,9 @@ function renderCsTemporalBinary(
 }
 
 /** When `idSide` is the aggregate's own key (`this.id`, id-typed) and
- *  `scalarSide` is a raw scalar of the id's value type — or a `string`
- *  against a guid id — return the scalar's rendered text lifted into the
- *  strongly-typed `<Agg>Id`; else null (no rewrite). */
+ *  `scalarSide` is a raw `guid` scalar — or a `string`, parsed — return the
+ *  scalar's rendered text lifted into the strongly-typed `<Agg>Id`; else null
+ *  (no rewrite). */
 function liftScalarToSelfId(
   idSide: ExprIR,
   scalarSide: ExprIR,
@@ -644,8 +644,8 @@ function liftScalarToSelfId(
   if (!idType) return null;
   const scalarType = staticScalarTypeOf(scalarSide);
   if (!scalarType) return null;
-  if (scalarType === idType.valueType) return `new ${idType.targetName}Id(${renderedScalar})`;
-  if (idType.valueType === "guid" && scalarType === "string")
+  if (scalarType === "guid") return `new ${idType.targetName}Id(${renderedScalar})`;
+  if (scalarType === "string")
     return `new ${idType.targetName}Id(${csBcl("Guid", scope)}.Parse(${renderedScalar}))`;
   return null;
 }
@@ -1525,34 +1525,17 @@ export function renderCsType(t: TypeIR): string {
   return renderTypeWith(t, CS_TYPE_TARGET);
 }
 
-export function csValueTypeForId(idValueType: string): string {
-  switch (idValueType) {
-    case "int":
-      return "int";
-    case "long":
-      return "long";
-    case "string":
-      return "string";
-    default:
-      return "Guid";
-  }
+/** The CLR type a strong id wraps — every identity is a guid. */
+export function csValueTypeForId(): string {
+  return "Guid";
 }
 
+/** A fresh id value: UUIDv7 (time-ordered) — native on net9+; better index
+ *  locality than the random v4. */
 export function csNewIdValue(
-  idValueType: string,
   /** The emitting class's member scope — `global::System.Guid` when a member
    *  named `Guid` shadows the type there (bcl-collision.ts). */
   scope?: CsMemberScope,
 ): string {
-  switch (idValueType) {
-    case "int":
-    case "long":
-      return "0";
-    case "string":
-      // UUIDv7 (time-ordered) — native on net9+; better index locality than
-      // the random v4 without giving up the portable guid wire shape.
-      return `${csBcl("Guid", scope)}.CreateVersion7().ToString()`;
-    default:
-      return `${csBcl("Guid", scope)}.CreateVersion7()`;
-  }
+  return `${csBcl("Guid", scope)}.CreateVersion7()`;
 }

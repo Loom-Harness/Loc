@@ -81,7 +81,7 @@ export function emitResponseDtos(
   if (emitsRestCreate(agg)) {
     records.push({
       name: `Create${agg.name}Response`,
-      params: dtoParam(csIdValueClrType(agg.idValueType), "Id"),
+      params: dtoParam(csIdValueClrType(), "Id"),
     });
   }
   // Provenance (provenance.md): a response carrying any provenanced field's

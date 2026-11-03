@@ -159,7 +159,7 @@ export function renderJavaController(
     readsIfMatchFor(op) ? ", IfMatch.expectedVersion(ifMatch)" : "";
   // The id's raw value type — `UUID` as an import marker (M-T9.86), so the
   // path-variable / find-param spellings below derive their own import.
-  const idJava = javaIdValueType(agg.idValueType);
+  const idJava = javaIdValueType();
 
   // Authorization gates on finds (default-deny) — a `requires <expr>` runs in
   // the controller action before delegating to the service, throwing
