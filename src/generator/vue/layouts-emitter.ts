@@ -55,8 +55,6 @@ export function prepareVueNamedLayouts(
   pack: LoadedPack,
   topLevelComponents: readonly ComponentIR[] = [],
   externComponents: ReadonlySet<string> = new Set(),
-  /** Two or more locales ship: the layout's routed view is keyed on the locale. */
-  localeSwitchable = false,
 ): PreparedVueLayout[] {
   if (sys.layouts.length === 0) return [];
   const referenced = new Set<string>();
@@ -76,13 +74,7 @@ export function prepareVueNamedLayouts(
     if (!referenced.has(layout.name)) continue;
     out.push({
       name: layout.name,
-      content: renderVueLayoutFile(
-        layout,
-        pack,
-        userComponents,
-        externComponents,
-        localeSwitchable,
-      ),
+      content: renderVueLayoutFile(layout, pack, userComponents, externComponents),
     });
   }
   return out;
@@ -93,7 +85,6 @@ function renderVueLayoutFile(
   pack: LoadedPack,
   userComponents: ReadonlyMap<string, readonly ParamIR[]>,
   externComponents: ReadonlySet<string>,
-  localeSwitchable: boolean,
 ): string {
   const header = layout.header ? walkSlot(layout.header, pack, userComponents) : undefined;
   const sidebar = layout.sidebar ? walkSlot(layout.sidebar, pack, userComponents) : undefined;
@@ -143,13 +134,7 @@ function renderVueLayoutFile(
   if (slots.some((s) => s.html.includes("<LocaleSwitcher"))) {
     script.push(`import LocaleSwitcher from "../components/LocaleSwitcher.vue";`);
   }
-  // Keying the routed view on the locale remounts the page under a new locale,
-  // so its `t()` calls re-run (`vue/locale-switcher.ts`).
-  if (localeSwitchable) {
-    script.push(`import { useLocale } from "../lib/locale";`);
-    script.push("const locale = useLocale();");
-  }
-  const view = localeSwitchable ? '<router-view :key="locale" />' : "<router-view />";
+  const view = "<router-view />";
   if (usesNavigate) {
     script.push("");
     script.push("const router = useRouter();");

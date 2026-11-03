@@ -6,7 +6,6 @@ import { Menu } from "lucide-vue-next";
 import { Alert, AlertDescription, AlertTitle, Button } from "@/components/ui";
 {{#if i18nEnabled}}import { t } from "{{i18nImportPath}}";
 {{/if}}{{#if localeSwitchable}}import LocaleSwitcher from "@/components/LocaleSwitcher.vue";
-import { useLocale } from "@/lib/locale";
 {{/if}}{{#if navUsesSession}}import { useSession } from "@/auth/useSession";
 {{/if}}{{#if authUi}}import { signOut } from "@/auth/session";
 {{/if}}{{#if hasRealtimeHandlers}}import RealtimeHandlers from "@/components/RealtimeHandlers.vue";
@@ -19,10 +18,7 @@ const currentUser = (useSession().user.value ?? {}) as Record<string, any>;
 // burger opens it; auto-closes after a route change so tapping a nav
 // link doesn't leave the menu covering the destination page.
 const opened = ref(false);
-{{#if localeSwitchable}}// The active locale. The routed tree is keyed on it, so a switch re-renders the
-// shell's own `t()` calls and remounts the page under the new locale.
-const locale = useLocale();
-{{/if}}
+
 // App-level error capture — a render-time crash in any page lands
 // here instead of blanking the whole shell.  Reset navigates home,
 // matching "the dashboard keeps working when one page is broken".
@@ -82,7 +78,7 @@ function isActive(path: string, opts?: { exact?: boolean }): boolean {
             <Button variant="outline" @click="resetError">{{{backToHomeText}}}</Button>
           </div>
         </div>
-        <router-view v-else{{#if localeSwitchable}} :key="locale"{{/if}} />
+        <router-view v-else />
       </main>
     </div>
 {{#if hasRealtimeHandlers}}    <RealtimeHandlers />
