@@ -34,18 +34,27 @@
 //                            itself holds an `X id[]` / `<VO>[]` — a value
 //                            object flattens into scalar `<field>_<sub>`
 //                            columns, and a collection has no such column.
+//                            On a `shape: document` aggregate a nested
+//                            `<VO>[]` is accepted: the aggregate persists as
+//                            one jsonb blob, flattens nothing, and every
+//                            backend's document serializer writes the nested
+//                            array as a JSON array.  A nested `X id[]` stays
+//                            refused there too.
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { descriptorFor } from "../../../platform/metadata.js";
 import type {
   BoundedContextIR,
+  EnrichedAggregateIR,
   EnrichedLoomModel,
   FieldIR,
+  SystemIR,
   TypeIR,
   ValueObjectIR,
 } from "../../types/loom-ir.js";
 import { findValueObjectInScope } from "../../util/reachable-types.js";
+import { isDocumentShaped, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 type Owner = "aggregate" | "part" | "projection" | "workflow";
@@ -63,23 +72,33 @@ function collectionKind(t: TypeIR): "reference" | "value" | undefined {
   return undefined;
 }
 
-/** The first `X id[]` / `<VO>[]` field inside value object `voName` (searched
+/** The first refused collection field inside value object `voName` (searched
  *  through nested value-object fields and value-collection elements), as a
- *  dotted path below the VO — or undefined when it holds none. */
+ *  dotted path below the VO — or undefined when it holds none.  Every
+ *  `X id[]` / `<VO>[]` is refused, except a `<VO>[]` when `valuesStored` (a
+ *  document aggregate's blob holds it). */
 function nestedCollectionPath(
   ctx: BoundedContextIR,
   voName: string,
   seen: Set<string>,
+  valuesStored: boolean,
 ): string | undefined {
   if (seen.has(voName)) return undefined;
   seen.add(voName);
   const vo: ValueObjectIR | undefined = findValueObjectInScope(ctx, voName);
   if (!vo) return undefined;
   for (const f of vo.fields) {
-    if (collectionKind(f.type)) return f.name;
+    const kind = collectionKind(f.type);
+    if (kind === "reference" || (kind === "value" && !valuesStored)) return f.name;
     const inner = unwrap(f.type);
-    if (inner.kind === "valueobject") {
-      const below = nestedCollectionPath(ctx, inner.name, seen);
+    const nestedVo =
+      inner.kind === "valueobject"
+        ? inner.name
+        : inner.kind === "array" && inner.element.kind === "valueobject"
+          ? inner.element.name
+          : undefined;
+    if (nestedVo) {
+      const below = nestedCollectionPath(ctx, nestedVo, seen, valuesStored);
       if (below) return `${f.name}.${below}`;
     }
   }
@@ -93,6 +112,7 @@ function checkField(
   f: FieldIR,
   diags: LoomDiagnostic[],
   partRefsStored: boolean,
+  inDocument = false,
 ): void {
   const field = f.name;
   const push = (message: string): void => {
@@ -104,7 +124,7 @@ function checkField(
     });
   };
   const nested = (voName: string): void => {
-    const path = nestedCollectionPath(ctx, voName, new Set());
+    const path = nestedCollectionPath(ctx, voName, new Set(), inDocument);
     if (path) {
       push(
         diagMessage("loom.collection-field-unpersisted#nested-in-value-object", {
@@ -169,15 +189,30 @@ export function mikroOrmOnlyContexts(loom: EnrichedLoomModel): Set<string> {
   );
 }
 
+/** Is `agg` stored as one jsonb document blob?  Its own state shape, not an
+ *  event stream, under the binding's `shape:` (else the aggregate header's). */
+function storedAsDocument(
+  agg: EnrichedAggregateIR,
+  ctx: BoundedContextIR,
+  sys: SystemIR | undefined,
+): boolean {
+  if (agg.persistedAs === "eventLog") return false;
+  return isDocumentShaped(agg, sys ? resolveDataSourceConfig(agg, ctx, sys) : undefined);
+}
+
 export function validatePersistedCollectionPositions(
   ctx: BoundedContextIR,
   diags: LoomDiagnostic[],
   partRefsStored = false,
+  sys?: SystemIR,
 ): void {
   for (const agg of ctx.aggregates) {
-    for (const f of agg.fields) checkField(ctx, "aggregate", agg.name, f, diags, partRefsStored);
+    const doc = storedAsDocument(agg as EnrichedAggregateIR, ctx, sys);
+    for (const f of agg.fields)
+      checkField(ctx, "aggregate", agg.name, f, diags, partRefsStored, doc);
     for (const part of agg.parts) {
-      for (const f of part.fields) checkField(ctx, "part", part.name, f, diags, partRefsStored);
+      for (const f of part.fields)
+        checkField(ctx, "part", part.name, f, diags, partRefsStored, doc);
     }
   }
   for (const proj of ctx.projections) {

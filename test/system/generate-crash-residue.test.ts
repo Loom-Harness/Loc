@@ -85,6 +85,46 @@ system S {
     expect(codes).toContain("loom.collection-field-unpersisted");
   });
 
+  // A document aggregate stores the whole tree as one jsonb blob — nothing
+  // flattens into columns, so a collection nested in a value object is just a
+  // JSON array inside it.  Decided by the header shape and by a binding's.
+  it("accepts a collection nested inside a value object on a `shape: document` aggregate", async () => {
+    const codes = await errorCodes(
+      sys(`valueobject Bag { labels: Label[] }
+      valueobject Shelf { bags: Bag[] }
+      aggregate Order shape: document with crudish { code: string  bag: Bag  shelves: Shelf[] }`),
+    );
+    expect(codes).not.toContain("loom.collection-field-unpersisted");
+  });
+
+  it("accepts the nested collection when the BINDING makes the aggregate a document", async () => {
+    const codes = await errorCodes(
+      sys(`valueobject Bag { labels: Label[] }
+      aggregate Order with crudish { code: string  bag: Bag }`).replace(
+        "resource st { for: C, kind: state, use: pg }",
+        "resource st { for: C, kind: state, use: pg, shape: document }",
+      ),
+    );
+    expect(codes).not.toContain("loom.collection-field-unpersisted");
+  });
+
+  it("still refuses a nested REFERENCE collection on a `shape: document` aggregate", async () => {
+    const codes = await errorCodes(
+      sys(`valueobject Pin { tags: Tag id[] }
+      valueobject Board { pins: Pin[] }
+      aggregate Order shape: document with crudish { code: string  board: Board }`),
+    );
+    expect(codes).toContain("loom.collection-field-unpersisted");
+  });
+
+  it("still refuses the nested collection on a `shape: embedded` aggregate's own columns", async () => {
+    const codes = await errorCodes(
+      sys(`valueobject Bag { labels: Label[] }
+      aggregate Order shape: embedded with crudish { code: string  bag: Bag }`),
+    );
+    expect(codes).toContain("loom.collection-field-unpersisted");
+  });
+
   it("keeps the supported positions silent (root `X id[]`, root and part `<VO>[]`)", async () => {
     const codes = await errorCodes(
       sys(`aggregate Order with crudish {
