@@ -72,6 +72,7 @@ import {
   type WalkContext,
 } from "./heex-walker-core.js";
 import { formChromeAttr, pgettextCall } from "./i18n.js";
+import { renderLocaleSelect } from "./locale.js";
 import { liveViewCallsOp, servesCanProbe } from "./vanilla/op-form.js";
 // ---------------------------------------------------------------------------
 // Scaffold expander primitive renderers.
@@ -2064,26 +2065,17 @@ export function renderLoader(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
   return `<div class="animate-spin h-6 w-6 rounded-full border-2 border-gray-300 border-t-transparent" role="status" aria-label=${aria}${testidAttr}></div>`;
 }
 
-/** `LocaleSwitcher {}` → a `<select>` over the Gettext backend's known locales.
- *  Choosing one writes the `loom_locale` cookie and reloads under `?lang=<tag>`,
- *  the two inputs a server-side negotiation reads first (the URL, then the
- *  cookie).  Options are labelled with the tag: the locale list is a runtime
- *  fact of the gettext tree here, so the generate-time endonym table the JS
- *  frontends carry is not available to this renderer. */
+/** `LocaleSwitcher {}` → a `<select>` over the shipped locales, each under its
+ *  own generate-time name (`Deutsch`, `Français`).  Choosing one writes the
+ *  `loom_locale` cookie and reloads under `?lang=<tag>`, the two inputs the
+ *  server-side negotiation reads first (the URL, then the cookie).  The locale
+ *  list is threaded into the walk context at generate time. */
 export function renderLocaleSwitcher(
   expr: Extract<ExprIR, { kind: "call" }>,
   ctx: WalkContext,
 ): string {
-  const gettext = `${ctx.appModule}Web.Gettext`;
   const testidAttr = testIdAttr(expr, ctx) || ' data-testid="locale-switcher"';
-  const onchange =
-    "document.cookie='loom_locale='+encodeURIComponent(this.value)+'; path=/; max-age=31536000; SameSite=Lax'; " +
-    "var u=new URL(window.location.href); u.searchParams.set('lang', this.value); window.location.assign(u)";
-  return [
-    `<select class="loom-locale-switcher" aria-label={Gettext.get_locale(${gettext})} onchange="${onchange}"${testidAttr}>`,
-    `  <option :for={locale <- Gettext.known_locales(${gettext})} value={locale} selected={locale == Gettext.get_locale(${gettext})}>{locale}</option>`,
-    "</select>",
-  ].join("\n");
+  return renderLocaleSelect(ctx.appModule, ctx.locales ?? [], testidAttr);
 }
 
 /** `Money(value, currency?, decimals?)` → a money span.  An optional
