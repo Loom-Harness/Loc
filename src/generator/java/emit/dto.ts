@@ -436,12 +436,16 @@ function mergePatchRequestFile(
     const nested = bearsNestedRecord(f.type) ? `@${VALID} ` : "";
     return { f, type, plain: boxed, nested, id: jid(f.name) };
   });
+  // A `File` member is the shared `FileRef` record in domain.common, imported
+  // precisely as `recordFile` does.
+  const usesFileRef = members.some((m) => /\bFileRef\b/.test(m.plain));
   return lines(
     `package ${pkg};`,
     ``,
     `import ${basePkg}.domain.enums.*;`,
     `import ${basePkg}.domain.ids.*;`,
     `import ${basePkg}.domain.valueobjects.*;`,
+    usesFileRef ? `import ${basePkg}.domain.common.FileRef;` : null,
     ``,
     schemaName !== name ? `@${SCHEMA}(name = ${JSON.stringify(schemaName)})` : null,
     `public final class ${name} {`,

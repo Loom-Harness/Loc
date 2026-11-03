@@ -11,6 +11,7 @@
 // The behavioural proof is `test/fixtures/corpus/merge-patch-update.ddd` and
 // its golden; this file is the fast, docker-free pin of each emission.
 
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   isMergePatchUpdate,
@@ -181,6 +182,18 @@ describe("merge-patch update — python", () => {
 });
 
 describe("merge-patch update — java", () => {
+  it("imports the shared FileRef record for a File member", async () => {
+    const files = await generateSystemFiles(
+      readFileSync("test/fixtures/corpus/file-download.ddd", "utf8").replace(
+        "__PLATFORM__",
+        "java",
+      ),
+    );
+    const req = fileEndingWith(files, "UpdateAttachmentRequest.java");
+    expect(req).toContain("private FileRef doc;");
+    expect(req).toMatch(/^import [\w.]+\.domain\.common\.FileRef;$/m);
+  });
+
   it("records the carried keys and merges in the service", async () => {
     const files = await filesFor("java");
     const req = fileEndingWith(files, "UpdateMemoRequest.java");
