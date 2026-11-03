@@ -82,7 +82,14 @@ const REGISTERED: Ratchet[] = [
     // -Route, -HandlerRef (`scaffoldGetApi` synthesises the route binding),
     // +VariantArm (its witness matched a union find's result; union finds are
     // gone, see D-FINDDECL-REMOVED).
-    max: 12,
+    //
+    // 12 -> 19: +4 ConnectionSource kinds, +IntConfigValue, +BoolConfigValue,
+    // +ChannelSource — showcase.ddd is pinned warning-free
+    // (examples-zero-warnings.test.ts), and each of these is a warning on any
+    // model that writes it (an inert `connection:`, a config key no sourceType
+    // declares, a channelSource no deployable binds).  Parse coverage moved to
+    // storage-instance-connection.test.ts and the channels corpus fixtures.
+    max: 19,
   },
   // Walker primitives with a TSX renderer but no HEEx one.  Empty: the last
   // entry — `ProvenanceInfo`, the provenance "?" disclosure — landed its HEEx

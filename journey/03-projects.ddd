@@ -19,7 +19,7 @@ system Todo {
       aggregate Project with crudish {
         name: string
         description: string?
-        archived: bool
+        archived: bool immutable
         createdAt: datetime managed
 
         invariant name.length > 0
@@ -42,7 +42,7 @@ system Todo {
       aggregate Task with crudish {
         project: Project id
         title: string
-        status: Status
+        status: Status immutable
         priority: Priority
         due: datetime?
         notes: string?

@@ -42,7 +42,7 @@ import { CS } from "./cs-symbols.js";
 import { joinDbSetName, joinFkPropName } from "./emit/join-entities.js";
 import { csStateHolderOf } from "./emit/state-holder.js";
 import { csFindMethodName } from "./find-method-name.js";
-import { csReadOwnParams } from "./local-names.js";
+import { csFilterBypassArg, csReadOwnParams } from "./local-names.js";
 import { csNotFoundException } from "./wire-policy-cs.js";
 
 // ---------------------------------------------------------------------------
@@ -1355,11 +1355,15 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
         // in one expression cannot collide.
         if (read.retrievalName) {
           const method = `Run${upperFirst(read.retrievalName)}Async`;
-          const { ct } = csReadOwnParams(ctx.retrievalParamNames?.(read.retrievalName) ?? []);
-          const callArgs =
-            argList.length > 0
-              ? `${argList}, ${ct}: cancellationToken`
-              : `${ct}: cancellationToken`;
+          const own = csReadOwnParams(ctx.retrievalParamNames?.(read.retrievalName) ?? []);
+          // A widened list read passes its stance; the retrieval applies only
+          // the bypass its caller hands it.
+          const bypassArg = csFilterBypassArg(own.bypass, read);
+          const callArgs = [
+            ...(argList.length > 0 ? [argList] : []),
+            ...(bypassArg ? [bypassArg] : []),
+            `${own.ct}: cancellationToken`,
+          ].join(", ");
           const call = `${handle}.${method}(${callArgs})`;
           return read.op === "select-one"
             ? `((await ${call}) switch { [var __first, ..] => __first, _ => null })`
