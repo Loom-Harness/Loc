@@ -89,7 +89,7 @@ export function pyConflictRaise(excRef: string, aggName: string, idExpr: string)
 /** The `"code": …, "params": {…}` members of a DECLARED error variant's problem
  *  body, as Python dict content: its `<Ctx>.<Error>.message` code and the error
  *  record's own fields as `params` (left out for a record with none). */
-export function pyErrorVariantExt(
+function pyErrorVariantExt(
   ctx: Pick<BoundedContextIR, "name" | "payloads">,
   tag: string,
   fieldValue: (field: string) => string,
