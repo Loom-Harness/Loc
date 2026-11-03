@@ -192,7 +192,9 @@ UserFieldName returns string:
     ID | 'id' | 'permissions'
     // `migration` is hard only at the top-level `Migration` block head;
     // soft in field-name position so a domain field named `migration` parses.
-    | 'migration';
+    | 'migration'
+    // The model-text intrinsics' words: a claim may still be called `label`.
+    | 'label' | 'plural';
 
 // System-level OIDC authentication config.  Sibling to `user { … }`: the
 // user block declares the claim SHAPE, this block declares WHO issues the

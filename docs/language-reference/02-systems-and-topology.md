@@ -573,6 +573,28 @@ system Shop {
 
 The source language names the source catalog (`.loom/messages.de.json`, each frontend's `src/locales/de.json`), the runtime fallback every `t()` lookup lands on, the `<html lang>` of the generated shells, and — on Phoenix — the `.po` tree (`priv/gettext/de/`), gettext's default locale and the CLDR backend's locale. The translator tree's `locales/de/<ns>.json` files then hold *overrides* of the source text rather than translations (see [`../tools.md`](../tools.md#i18n-translator-workflow-ddd-i18n)).
 
+### Model text: `label(…)` and `plural(…)`
+
+```
+ModelText: kind=('label' | 'plural') '(' path+=NameRefIdent ('.' path+=MemberName)* ')';
+```
+
+Text a user sees about a MODEL element is keyed by the element, not by the page that shows it, so a word on six pages is one catalog entry. The path is `[Ctx.]Type[.member]`; the context qualifier is needed only when two contexts declare the type.
+
+| Call | Catalog key | English default |
+|---|---|---|
+| `label(Task)` | `Projects.Task.name.one` | `Task` |
+| `plural(Task)` | `Projects.Task.name.other` | `Tasks` |
+| `label(Task.title)` | `Projects.Task.field.title` | `Title` |
+| `label(Task.complete)` | `Projects.Task.op.complete` | `Complete` |
+| `label(Status.Draft)` | `Projects.Status.value.Draft` (a root-level enum: `_system.Status.value.Draft`) | `Draft` |
+
+```ddd
+Heading { plural(Task) }    // React: {t("Projects.Task.name.other", "Tasks")}
+```
+
+The calls are admitted only in page and component bodies (`loom.model-text-outside-ui`) and never inside a backtick template or a `+` chain (`loom.model-text-in-template`) — a placeholder carries data, never words. `plural()` takes a type, not a member, an enum or an error (`loom.model-text-plural-member`); a path naming nothing, or a type two contexts declare left unqualified, is `loom.model-text-unresolved`. `label` and `plural` are soft keywords: a field, parameter or containment may still be called `label`, but a `function` or `operation` may not.
+
 ## `tenancy by user.<claim> of <Registry>`
 
 ```

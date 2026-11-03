@@ -4285,10 +4285,10 @@ export function isUserField(item: unknown): item is UserField {
     return reflection.isInstance(item, UserField.$type);
 }
 
-export type UserFieldName = 'id' | 'migration' | 'permissions' | string;
+export type UserFieldName = 'id' | 'label' | 'migration' | 'permissions' | 'plural' | string;
 
 export function isUserFieldName(item: unknown): item is UserFieldName {
-    return item === 'id' || item === 'permissions' || item === 'migration' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
+    return item === 'id' || item === 'permissions' || item === 'migration' || item === 'label' || item === 'plural' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
 }
 
 export interface ValueObject extends langium.AstNode {

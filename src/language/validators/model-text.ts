@@ -100,12 +100,16 @@ export function checkModelText(
         code: "loom.model-text-plural-member",
       });
     } else if (r.reason === "ambiguous") {
-      accept("error", diagMessage("loom.model-text-unresolved#ambiguous", s), {
-        node,
-        code: "loom.model-text-unresolved",
-      });
+      accept(
+        "error",
+        diagMessage("loom.model-text-unresolved#ambiguous", { call: s.call, path: s.path }),
+        {
+          node,
+          code: "loom.model-text-unresolved",
+        },
+      );
     } else {
-      accept("error", diagMessage("loom.model-text-unresolved", s), {
+      accept("error", diagMessage("loom.model-text-unresolved", { call: s.call, path: s.path }), {
         node,
         code: "loom.model-text-unresolved",
       });

@@ -2199,7 +2199,15 @@ export function namedRole(primitive: string, name: string): string | undefined {
   return USER_VISIBLE_SLOTS[primitive]?.find((s) => s.kind === "named" && s.name === name)?.role;
 }
 
+// model-text-fanout(heex): a `label(…)` / `plural(…)` in a markup position
+// renders its English default as plain text until the HEEx gettext path keys
+// model text by identity.
+function modelTextStandIn(e: Extract<ExprIR, { kind: "modelText" }>): string {
+  return escapeHeexText(e.defaultText);
+}
+
 export function renderChild(child: ExprIR, ctx: WalkContext, role?: string): string {
+  if (child.kind === "modelText") return modelTextStandIn(child);
   const localized = localizedHeex(child, ctx, role);
   if (localized !== undefined) return localized;
   // If the child is itself a primitive call that returns HEEx markup,
@@ -2221,6 +2229,7 @@ export function renderChild(child: ExprIR, ctx: WalkContext, role?: string): str
 }
 
 export function renderInTemplate(arg: ExprIR, ctx: WalkContext, role?: string): string {
+  if (arg.kind === "modelText") return modelTextStandIn(arg);
   const localized = localizedHeex(arg, ctx, role);
   if (localized !== undefined) return localized;
   if (arg.kind === "literal" && arg.lit === "string") return escapeHeexText(arg.value);
@@ -2265,6 +2274,7 @@ export function renderAttrValue(
   if (arg.kind === "literal" && arg.lit === "string") {
     return `"${escapeHeexAttr(arg.value)}"`;
   }
+  if (arg.kind === "modelText") return `"${escapeHeexAttr(arg.defaultText)}"`;
   if (isStatic && arg.kind === "literal") {
     return `"${escapeHeexAttr(arg.value)}"`;
   }

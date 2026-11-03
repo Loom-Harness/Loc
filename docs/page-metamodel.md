@@ -1528,7 +1528,10 @@ point).
   labels, enum options and submit buttons the same way.  The calls are allowed
   only in page / component bodies (`loom.model-text-outside-ui`), never inside a
   template or `+` chain (`loom.model-text-in-template`); `plural()` takes a type,
-  not a member (`loom.model-text-plural-member`).
+  not a member (`loom.model-text-plural-member`).  Both words are soft
+  keywords: a field, parameter, containment or derived value may still be
+  called `label`, but a `function` or `operation` may not (`label(x)` would read
+  as the intrinsic).
 
   ```ddd
   Heading { plural(Task) }                     // t("Projects.Task.name.other", "Tasks")

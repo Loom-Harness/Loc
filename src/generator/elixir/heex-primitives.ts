@@ -181,8 +181,9 @@ export function renderModal(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
       // A user-visible named slot (`modalTitle`) — translated under i18n,
       // the raw escaped literal otherwise (byte-identical).
       if (arg.kind === "literal" && typeof arg.value === "string") titleEnglish = arg.value;
+      if (arg.kind === "modelText") titleEnglish = arg.defaultText;
       title =
-        arg.kind === "literal"
+        arg.kind === "literal" || arg.kind === "modelText"
           ? renderInTemplate(arg, ctx, "modalTitle")
           : renderExpr(arg, { ...ctx, position: "template" });
     } else if (name === "trigger") {
@@ -282,7 +283,8 @@ ${heading}${childrenHeex}
     for (let i = 0; i < triggerExpr.args.length; i++) {
       const n = triggerExpr.argNames?.[i];
       const a = triggerExpr.args[i]!;
-      if (!n && a.kind === "literal") label = renderInTemplate(a, ctx, "button");
+      if (!n && (a.kind === "literal" || a.kind === "modelText"))
+        label = renderInTemplate(a, ctx, "button");
     }
   }
   const testidAttr = testIdAttr(expr, ctx);
