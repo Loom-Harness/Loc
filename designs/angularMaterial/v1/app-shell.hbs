@@ -12,9 +12,8 @@ import { LoomErrorHandler } from "./error-handler";
 {{#if authUi}}import { AuthGateComponent } from "./auth/auth-gate.component";
 {{/if}}{{#if shellUsesSession}}import { SessionService } from "./auth/session.service";
 {{/if}}{{#if hasRealtimeHandlers}}import { RealtimeHandlersComponent } from "./realtime-handlers.component";
-{{/if}}{{#if i18nEnabled}}import { t } from "../lib/i18n";
-{{/if}}{{#if localeSwitchable}}import { locale } from "../lib/locale";
-import { LocaleSwitcher } from "../lib/locale-switcher";
+{{/if}}{{#if i18nEnabled}}import { t } from "../lib/locale";
+{{/if}}{{#if localeSwitchable}}import { LocaleSwitcher } from "../lib/locale-switcher";
 {{/if}}
 @Component({
   selector: "app-root",
@@ -50,7 +49,7 @@ import { LocaleSwitcher } from "../lib/locale-switcher";
 {{else}}          <a mat-list-item routerLink="{{to}}" routerLinkActive="loom-active" data-testid="{{testId}}">{{{labelText}}}</a>
 {{/if}}{{/if}}{{/each}}{{/each}}        </mat-nav-list>
       </mat-sidenav>
-      <mat-sidenav-content class="loom-content" id="main-content" role="main"{{#if localeSwitchable}} [attr.data-locale]="locale()"{{/if}}>
+      <mat-sidenav-content class="loom-content" id="main-content" role="main">
 {{#if authUi}}        <app-auth-gate>
           <router-outlet />
         </app-auth-gate>

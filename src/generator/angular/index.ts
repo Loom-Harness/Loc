@@ -269,7 +269,8 @@ export function generateAngularForContexts(
   // `t(key, default, values?)` (the key matches the `.loom/messages.en.json`
   // catalog via the SHARED walker seam) and the app ships `src/lib/i18n.ts` +
   // `src/lib/locales/en.json`.  The walker's `../i18n` seam import rewrites to
-  // `../../lib/i18n` in page-shell, and `t` is re-exposed as a component member
+  // `../../lib/locale` in page-shell (the signal-reading `t` over that runtime,
+  // so a locale switch re-renders OnPush views), and `t` is re-exposed as a component member
   // (Angular templates resolve interpolations against the instance).  A
   // string-less ui emits neither the runtime nor a prefix → byte-identical.
   const i18nEnabled = ui
@@ -641,7 +642,7 @@ export function generateAngularForContexts(
   // The app shell (Material toolbar + sidenav).  Pack-chrome (M-T1.11): the
   // baked-in skip-to-content link binds through `t()` when the ui is
   // i18n-enabled, else stays the raw source string (byte-identical).  When
-  // enabled, `app.component.ts` (at `src/app/`) also gets the `../lib/i18n`
+  // enabled, `app.component.ts` (at `src/app/`) also gets the `../lib/locale`
   // import + the `protected readonly t = t;` member so the Angular
   // interpolation resolves against the component instance — the same lift the
   // page shell applies (page-shell.ts), one hop shallower.
@@ -680,10 +681,6 @@ export function generateAngularForContexts(
     );
   }
   if (i18nEnabled) appClassMembers.push("  protected readonly t = t;");
-  // The shell's template reads this signal (`[attr.data-locale]`), so a locale
-  // switch from anywhere schedules a change-detection pass that re-evaluates
-  // every `t()` beneath it (`angular/locale-switcher.ts`).
-  if (localeSwitchable) appClassMembers.push("  protected readonly locale = locale;");
   // The IN-SHELL heading key (`chrome.somethingWentWrong`, no full stop), not
   // React's `rootErrorTitle`: this banner renders inside the app shell, where
   // that key already lives.  `rootErrorTitle` belongs to a STANDALONE root
@@ -895,7 +892,7 @@ function renderNotFoundComponent(i18nEnabled: boolean): string {
   return `// Auto-generated.
 import { Component } from "@angular/core";
 import { RouterLink } from "@angular/router";
-${i18nEnabled ? 'import { t } from "../lib/i18n";\n' : ""}
+${i18nEnabled ? 'import { t } from "../lib/locale";\n' : ""}
 @Component({
   selector: "app-not-found",
   imports: [RouterLink],

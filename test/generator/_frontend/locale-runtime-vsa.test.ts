@@ -194,43 +194,52 @@ describe("Svelte — a readable store, the routed tree in {#key $locale}", () =>
   }
 });
 
-describe("Angular — a signal the shell reads, default change detection", () => {
-  it("locale is a signal set from subscribe", async () => {
+describe("Angular — every t() and getLocale() call reads a signal", () => {
+  it("locale is a signal set from subscribe; t and getLocale read it first", async () => {
     const files = await generateSystemFiles(system("angular", "angularMaterial"), {
       translations: catalogsFor("de"),
     });
     const mod = mustFile(files, "src/lib/locale.ts");
-    expect(mod).toContain("export const locale = signal(getLocale());");
-    expect(mod).toContain("subscribe(() => locale.set(getLocale()));");
+    expect(mod).toContain("export const locale = signal(i18n.getLocale());");
+    expect(mod).toContain("i18n.subscribe(() => locale.set(i18n.getLocale()));");
+    expect(mod).toMatch(/export function getLocale\(\): string \{\s*return locale\(\);/);
+    expect(mod).toMatch(/export function t\([^)]*\): string \{\s*locale\(\);\s*return i18n\.t\(/s);
     const sw = mustFile(files, "src/lib/locale-switcher.ts");
     expect(sw).toContain('selector: "loom-locale-switcher"');
     expect(sw).toContain('data-testid="locale-switcher"');
     expect(sw).toContain("setLocale((e.target as HTMLSelectElement).value)");
   });
 
+  it("pages, the shell, data grids and the 404 import t from the signal-reading module", async () => {
+    const files = await generateSystemFiles(system("angular", "angularMaterial"), {
+      translations: catalogsFor("de"),
+    });
+    expect(mustFile(files, "src/app/pages/about.component.ts")).toContain(
+      'import { t } from "../../lib/locale";',
+    );
+    expect(mustFile(files, "src/app/app.component.ts")).toContain(
+      'import { t } from "../lib/locale";',
+    );
+    expect(mustFile(files, "src/app/not-found.component.ts")).toContain(
+      'import { t } from "../lib/locale";',
+    );
+    for (const [path, content] of files) {
+      if (path.endsWith(".component.ts") || path.includes("/pages/")) {
+        expect(content, path).not.toMatch(/import \{ t \} from "[./]*\/lib\/i18n"/);
+      }
+    }
+  });
+
   for (const design of ["angularMaterial", "primeng", "spartanNg"]) {
-    it(`${design}: the shell reads the signal and registers the switcher`, async () => {
+    it(`${design}: the shell registers the switcher and imports t from the signal module`, async () => {
       const files = await generateSystemFiles(system("angular", design), {
         translations: catalogsFor("de", "fr"),
       });
       const shell = mustFile(files, "src/app/app.component.ts");
-      expect(shell).toContain('import { locale } from "../lib/locale";');
       expect(shell).toContain('import { LocaleSwitcher } from "../lib/locale-switcher";');
-      expect(shell).toContain('[attr.data-locale]="locale()"');
-      expect(shell).toContain("protected readonly locale = locale;");
       expect(shell).toMatch(/imports: \[[^\]]*LocaleSwitcher/s);
     });
   }
-
-  it("no generated component opts out of default change detection", async () => {
-    // The re-evaluation of `t()` on a switch relies on it (angular/locale-switcher.ts).
-    const files = await generateSystemFiles(system("angular", "angularMaterial"), {
-      translations: catalogsFor("de"),
-    });
-    for (const [path, content] of files) {
-      if (path.includes("/web/")) expect(content, path).not.toContain("OnPush");
-    }
-  });
 });
 
 describe("one locale for text, formatting and the API", () => {
@@ -252,7 +261,7 @@ describe("one locale for text, formatting and the API", () => {
   const FORMAT_IMPORT: Record<Cell["platform"], string> = {
     vue: 'import { getLocale } from "../i18n";',
     svelte: 'import { getLocale } from "./i18n";',
-    angular: 'import { getLocale } from "./i18n";',
+    angular: 'import { getLocale } from "./locale";',
   };
 
   for (const c of CELLS) {

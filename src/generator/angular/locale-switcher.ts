@@ -2,27 +2,31 @@
 // Angular binding of the shared locale model (`_frontend/i18n-runtime.ts`).
 //
 // The framework-agnostic store lives in the generated `src/lib/i18n.ts`
-// (`getLocale` / `setLocale` / `subscribe`).  This file is the Angular half:
+// (`getLocale` / `setLocale` / `subscribe` / `t`).  This file is the Angular half:
 //
-//   - `src/lib/locale.ts`            — `locale`: a module-level signal seeded from
-//                                      `getLocale()` and set from `subscribe`.
-//   - `src/lib/locale-switcher.ts`   — the standalone `LocaleSwitcher` component
-//                                      (`<loom-locale-switcher />`): a native
-//                                      `<select>` of the shipped locales, each
-//                                      option labelled with the locale's OWN name.
-//                                      Pack-independent on purpose: a language
-//                                      picker is one control and a native select
-//                                      needs no design-pack template.
+//   - `src/lib/locale.ts`          — the `locale` signal (seeded from
+//                                    `getLocale()`, set from `subscribe`) and the
+//                                    signal-reading `t` / `getLocale` every
+//                                    component template, effect and format helper
+//                                    calls.
+//   - `src/lib/locale-switcher.ts` — the standalone `LocaleSwitcher` component
+//                                    (`<loom-locale-switcher />`): a native
+//                                    `<select>` of the shipped locales, each
+//                                    option labelled with the locale's OWN name.
+//                                    Pack-independent on purpose: a language
+//                                    picker is one control and a native select
+//                                    needs no design-pack template.
 //
-// How a switch reaches the `t(...)` calls: a template's `{{ t(key, default) }}`
-// is a plain method call re-evaluated on every change-detection pass of a
-// default-strategy component, and no generated component opts out
-// (`ChangeDetectionStrategy.OnPush` is never emitted).  What a plain call cannot
-// do is ASK for a pass: `setLocale` may run outside the zone or in a zoneless
-// app.  So the app shell reads the `locale` signal in its template; a signal
-// change marks that view dirty and schedules change detection however the
-// switch originated, and the pass re-evaluates every `t()` beneath the shell.
-// No remount: form input and page state survive a language change.
+// How a switch reaches the `t(...)` calls.  Angular 22 components default to
+// OnPush, so a template that calls the plain `t` is not checked again after the
+// locale changes — the call has no input that moved.  `t` in `locale.ts` reads
+// the `locale` signal first; reading a signal while a template (or an `effect`)
+// executes registers it as a dependency, so every view that rendered a string
+// is marked dirty when `subscribe` sets the signal, however the switch began
+// (a zone event, a zoneless callback, `setLocale` from a store).  The same read
+// in `getLocale` makes the pack format helpers (dates, numbers, the Yes/No
+// cells) follow the locale.  Nothing remounts: form input and page state
+// survive a language change.
 //
 // Emitted whenever the ui is i18n-enabled.
 // ---------------------------------------------------------------------------
@@ -36,13 +40,28 @@ export const ANGULAR_LOCALE_SWITCHER_CLASS = "LocaleSwitcher";
 export function renderAngularLocaleSignal(): string {
   return `// Auto-generated.  Do not edit by hand.
 import { signal } from "@angular/core";
-import { getLocale, subscribe } from "./i18n";
+import * as i18n from "./i18n";
 
-/** The active locale. Reading it in a template makes that view re-check when the
- *  locale switches. */
-export const locale = signal(getLocale());
+/** The active locale, as a signal. */
+export const locale = signal(i18n.getLocale());
 // Lives as long as the app: the store is module-level, so is this subscription.
-subscribe(() => locale.set(getLocale()));
+i18n.subscribe(() => locale.set(i18n.getLocale()));
+
+/** The active locale. Reading it while a template, \`computed\` or \`effect\` runs
+ *  makes that consumer run again when the locale switches. */
+export function getLocale(): string {
+  return locale();
+}
+
+/** \`t\` that re-runs its caller on a locale switch (see \`getLocale\`). */
+export function t(
+  key: string,
+  defaultMessage: string,
+  values?: Parameters<typeof i18n.t>[2],
+): string {
+  locale();
+  return i18n.t(key, defaultMessage, values);
+}
 `;
 }
 

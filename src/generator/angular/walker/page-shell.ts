@@ -1142,12 +1142,13 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     // shared variant-match envelope records) rewrites one level deeper.  The
     // Angular renderers that add api imports directly already spell `../../api/`,
     // so this only lifts the framework-neutral single-dot entries.
-    // The i18n runtime lives at `src/lib/i18n.ts`, two hops up from
-    // `src/app/pages/` — the walker's `../i18n` seam import rewrites to
-    // `../../lib/i18n` (M-T1.11), same lift as the `../api/` entries.
+    // The Angular `t` lives in `src/lib/locale.ts` (the signal-reading wrapper
+    // over `src/lib/i18n.ts`), two hops up from `src/app/pages/` — the walker's
+    // `../i18n` seam import rewrites to `../../lib/locale`, same lift as the
+    // `../api/` entries.
     const rewritten = from
       .replace(/^\.\.\/api\//, "../../api/")
-      .replace(/^\.\.\/i18n$/, "../../lib/i18n");
+      .replace(/^\.\.\/i18n$/, "../../lib/locale");
     const sorted = [...names].sort();
     imports.push(`import { ${sorted.join(", ")} } from ${JSON.stringify(rewritten)};`);
     for (const n of sorted) {
