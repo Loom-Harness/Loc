@@ -124,18 +124,24 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/_expr/target.ts
   "src/generator/_expr/target.ts#renderExprWith": {
-    invariant:
-      "action-ref is lowered only when env.actions/env.stores are set (page/component/store lowering), and those bodies are rendered only by the frontend walkers (walker-core.ts:2200, heex-walker-core.ts:780), never by the backend renderExprWith callers (domain bodies, requires gates). (src/ir/lower/lower-expr.ts:2455, src/ir/lower/lower-expr.ts:744, src/ir/lower/lower-ui.ts:134/374)",
+    guardedBy: ["loom.model-text-outside-ui"],
+  },
+  "src/generator/_expr/target.ts#renderExprWithMarks": {
+    guardedBy: ["loom.model-text-outside-ui"],
   },
   "src/generator/_expr/target.ts#renderExprWith$2": {
     invariant:
+      "action-ref is lowered only when env.actions/env.stores are set (page/component/store lowering), and those bodies are rendered only by the frontend walkers (walker-core.ts:2200, heex-walker-core.ts:780), never by the backend renderExprWith callers (domain bodies, requires gates). (src/ir/lower/lower-expr.ts:2455, src/ir/lower/lower-expr.ts:744, src/ir/lower/lower-ui.ts:134/374)",
+  },
+  "src/generator/_expr/target.ts#renderExprWith$3": {
+    invariant:
       "authz-filter is built only by enrichment (tenant-stance.ts:349/451, enrichments.ts:588/682) into contextFilters/writeScopeFilter, and every backend filter translator special-cases it (isDenyFilter/isDeepScopeFilter; in-app path _expr/authz-filter-inapp.ts). Empirically: the 90-fixture corpus with `deny on <every aggregate>` and `deny write` injected into every context, generated on node, node{mikroorm}, dotnet, dotnet{dapper}, python, java and elixir, never reached this throw. The document-shape crossing (policy-document.ddd) was the historical leak and is fixed. (src/ir/util/tenant-stance.ts:349,451; src/generator/_expr/authz-filter-inapp.ts)",
   },
-  "src/generator/_expr/target.ts#renderExprWithMarks": {
+  "src/generator/_expr/target.ts#renderExprWithMarks$2": {
     invariant:
       "Only caller is the TS aggregate op-body loop (domain statements); action-ref is lowered only in UI bodies (env.actions/env.stores). (src/generator/typescript/render-stmt.ts:161; src/ir/lower/lower-expr.ts:2455)",
   },
-  "src/generator/_expr/target.ts#renderExprWithMarks$2": {
+  "src/generator/_expr/target.ts#renderExprWithMarks$3": {
     invariant:
       "Only caller renders aggregate op-body statements, which never contain the enrichment-only authz-filter sentinel (built at tenant-stance.ts:349/451 into filters only). (src/generator/typescript/render-stmt.ts:161)",
   },

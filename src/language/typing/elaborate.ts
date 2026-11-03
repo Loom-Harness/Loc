@@ -102,6 +102,7 @@ import {
   isMatchExpr,
   isMatchStmt,
   isMemberSuffix,
+  isModelText,
   isNamedType,
   isNameRef,
   isNowExpr,
@@ -613,6 +614,8 @@ export class Elaborator {
     if (isBoolLit(e)) return Ty.prim("bool");
     if (isNullLit(e)) return Ty.opt(Ty.never);
     if (isNowExpr(e)) return Ty.prim("datetime");
+    // `label(…)` / `plural(…)` — the translated text of a model element.
+    if (isModelText(e)) return Ty.prim("string");
     if (isPrimitiveConversion(e)) {
       this.synth(e.value, scope);
       return Ty.prim(e.target as PrimitiveName);

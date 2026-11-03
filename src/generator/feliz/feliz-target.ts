@@ -97,8 +97,11 @@ function modalTriggerLabel(call: ExprIR & { kind: "call" }): string {
   const trigIdx = names.indexOf("trigger");
   const trigger = trigIdx >= 0 ? call.args[trigIdx] : undefined;
   if (trigger?.kind === "call") {
-    const lit = trigger.args.find((a, i) => !(trigger.argNames ?? [])[i] && a.kind === "literal");
+    const lit = trigger.args.find(
+      (a, i) => !(trigger.argNames ?? [])[i] && (a.kind === "literal" || a.kind === "modelText"),
+    );
     if (lit?.kind === "literal" && lit.lit === "string") return String(lit.value);
+    if (lit?.kind === "modelText") return lit.defaultText;
   }
   const titleIdx = names.indexOf("title");
   const title = titleIdx >= 0 ? call.args[titleIdx] : undefined;
@@ -887,10 +890,18 @@ export const felizTarget: WalkerTarget = {
     // F# expression under i18n and `undefined` otherwise, which keeps the raw
     // `prop.text "…"` spelling byte-identical when i18n is off.
     const triggerCall = namedArgValue(call, "trigger");
-    const labelT =
+    // A `label(…)` trigger (the scaffold's op trigger) is model text: its
+    // identity-keyed translation call, like any other `label(…)` expression.
+    const triggerText =
       triggerCall?.kind === "call"
-        ? localizedPositionalTranslation(triggerCall, ctx, "button")
+        ? triggerCall.args.find((_, i) => !(triggerCall.argNames ?? [])[i])
         : undefined;
+    const labelT =
+      triggerText?.kind === "modelText" && ctx.i18nPrefix
+        ? emitExpr(triggerText, ctx)
+        : triggerCall?.kind === "call"
+          ? localizedPositionalTranslation(triggerCall, ctx, "button")
+          : undefined;
     const label = modalTriggerLabel(call).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     const summaryText = labelT ? `prop.text (${labelT})` : `prop.text "${label}"`;
     // The op page-object method CLICKS the trigger (`<slug>-op-<op>`) before it

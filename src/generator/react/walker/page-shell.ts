@@ -822,7 +822,7 @@ function renderFormOpWiring(
     opPascal,
     opCamel: escapeTsIdent(lowerFirst(op.name)),
     idExpr,
-    humanOp: humanize(op.name),
+    humanOp: state.opLabel?.markup ?? humanize(op.name),
     // The dialog title: the authored `Modal { title: … }` (already translated,
     // the `modalTitle` catalog slot) when present, else the humanized op name —
     // which is what every pack hardcoded before the slot was honoured.  Two
@@ -841,8 +841,9 @@ function renderFormOpWiring(
     closeLabelExpr:
       state.closeLabelExpr ??
       JSON.stringify(chromeMessage(opDialogChrome(humanize(op.name)).close)),
-    modalTitle: state.modalTitle || humanize(op.name),
-    modalTitleExpr: state.modalTitleExpr ?? JSON.stringify(humanize(op.name)),
+    modalTitle: state.modalTitle || state.opLabel?.markup || humanize(op.name),
+    modalTitleExpr:
+      state.modalTitleExpr ?? state.opLabel?.expr ?? JSON.stringify(humanize(op.name)),
     slug: routeSegmentFor(agg.name),
     srcImportPrefix,
     fieldArrays,

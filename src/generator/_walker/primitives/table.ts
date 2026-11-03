@@ -11,6 +11,7 @@ import {
   localizedChromeIcuValue,
   localizedChromeText,
   localizedChromeValue,
+  localizedModelText,
   localizedPositionalTranslation,
 } from "../i18n-emit.js";
 import { registerI18nImport, renderPrimitive } from "../render-primitive.js";
@@ -368,7 +369,14 @@ function emitColumn(
   const headerArg = positionals[0];
   const accessorArg = positionals[1];
   const headerIsLiteral = headerArg?.kind === "literal" && headerArg.lit === "string";
-  const headerStr = headerIsLiteral ? headerArg.value : `Column ${index + 1}`;
+  // A `label(Task.title)` header is model text: its English default heads the
+  // column (and keys it), its identity key translates it.
+  const headerText = headerArg?.kind === "modelText" ? headerArg : undefined;
+  const headerStr = headerIsLiteral
+    ? headerArg.value
+    : headerText
+      ? headerText.defaultText
+      : `Column ${index + 1}`;
   // Keyed off the SOURCE literal, never the translated header — a per-locale
   // column key would break every selector and page object built on it.
   const key = slugify(headerStr) || `col-${index + 1}`;
@@ -408,7 +416,9 @@ function emitColumn(
   // has no source string and keeps the `Column N` fallback.
   const headerTranslation = headerIsLiteral
     ? localizedPositionalTranslation(call, ctx, "columnHeader")
-    : undefined;
+    : headerText && ctx.i18nPrefix
+      ? localizedModelText(ctx, headerText.key, headerText.defaultText)
+      : undefined;
   let header =
     headerTranslation === undefined
       ? ctx.target.escapeText(headerStr)

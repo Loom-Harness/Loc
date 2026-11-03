@@ -1,1 +1,1 @@
-<TextInput label="{{label}}" {...register("{{path}}")} data-testid="{{testId}}" type="date" error={{expr errorExpr}} />
+<TextInput {{#if labelExpr}}label={ {{{labelExpr}}} }{{else}}label="{{label}}"{{/if}} {...register("{{path}}")} data-testid="{{testId}}" type="date" error={{expr errorExpr}} />

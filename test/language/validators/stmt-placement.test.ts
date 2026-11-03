@@ -72,7 +72,7 @@ describe("statement placement (M-T5.28)", () => {
     // The message names the body it found, so the span alone is not the only
     // way to locate it in a multi-member aggregate, and points at the value
     // form and at the bodies where the statement IS legal.
-    expect(raised[0]!.message).toContain("function 'label'");
+    expect(raised[0]!.message).toContain("function 'noteLabel'");
     expect(raised[0]!.message).toContain("value form");
     expect(raised[0]!.message).toContain("operation, workflow or handler");
     expect(raised[0]!.message).not.toMatch(/M-T\d/);

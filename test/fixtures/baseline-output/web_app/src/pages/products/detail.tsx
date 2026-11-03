@@ -12,7 +12,7 @@ import { Controller, useForm } from "react-hook-form";
 import { useProductById } from "../../api/product";
 function openUpdateModal(mut: ReturnType<typeof useUpdateProduct>): void {
   modals.open({
-    title: t("WebApp.page.Detail.modalTitle.uk4kus", "Update"),
+    title: t("Products.Product.op.update", "Update"),
     closeButtonProps: { "aria-label": t("chrome.close", "Close") },
     children: <UpdateForm mut={mut} onClose={() => modals.closeAll()} />,
   });
@@ -42,26 +42,26 @@ function UpdateForm({ mut, onClose }: { mut: ReturnType<typeof useUpdateProduct>
       })}
     >
       <Stack>
-        <TextInput label="Sku" {...register("sku")} data-testid="products-op-update-input-sku" error={errors.sku?.message} />
+        <TextInput label={ t("Products.Product.field.sku", "Sku") } {...register("sku")} data-testid="products-op-update-input-sku" error={errors.sku?.message} />
 
-        <Fieldset legend="Price" variant="filled" radius="md" data-testid="products-op-update-input-price">
+        <Fieldset legend={ t("Products.Product.field.price", "Price") } variant="filled" radius="md" data-testid="products-op-update-input-price">
           <Stack gap="sm">
             <Controller
           control={control}
           name="price.amount"
           render={({ field, fieldState }) => (
-            <NumberInput label="Amount" data-testid="products-op-update-input-price-amount" decimalScale={2} fixedDecimalScale value={field.value as number | "" | undefined} onChange={(v) => field.onChange(typeof v === "number" ? v : Number(v) || 0)} error={fieldState.error?.message} />
+            <NumberInput label={ t("Products.Money.field.amount", "Amount") } data-testid="products-op-update-input-price-amount" decimalScale={2} fixedDecimalScale value={field.value as number | "" | undefined} onChange={(v) => field.onChange(typeof v === "number" ? v : Number(v) || 0)} error={fieldState.error?.message} />
           )}
         />
 
-<TextInput label="Currency" {...register("price.currency")} data-testid="products-op-update-input-price-currency" error={errors.price?.currency?.message} />
+<TextInput label={ t("Products.Money.field.currency", "Currency") } {...register("price.currency")} data-testid="products-op-update-input-price-currency" error={errors.price?.currency?.message} />
 
           </Stack>
         </Fieldset>
 
         <Group justify="flex-end" gap="xs" mt="md">
           <Button variant="default" onClick={onClose}>{t("chrome.cancel", "Cancel")}</Button>
-          <Button type="submit" loading={mut.isPending} data-testid="products-op-update-submit">Update</Button>
+          <Button type="submit" loading={mut.isPending} data-testid="products-op-update-submit">{t("Products.Product.op.update", "Update")}</Button>
         </Group>
       </Stack>
     </form>
@@ -76,7 +76,7 @@ export default function ProductDetail() {
     <Stack gap="md" data-testid="products-detail">
       <Breadcrumbs>
         <Anchor component={RouterLink} to="/">{t("WebApp.page.Detail.anchor.n0mxf2", "Home")}</Anchor>
-        <Anchor component={RouterLink} to="/products">{t("WebApp.page.Detail.anchor.kdfstp", "Products")}</Anchor>
+        <Anchor component={RouterLink} to="/products">{t("Products.Product.name.other", "Products")}</Anchor>
         <Text>{t("WebApp.page.Detail.text.ei31dg", "Detail")}</Text>
       </Breadcrumbs>
       <Title order={2}>{t("WebApp.page.Detail.heading.8ba34l", "Product detail")}</Title>
@@ -98,14 +98,14 @@ export default function ProductDetail() {
           <Stack gap="md">
             <Card withBorder padding="md">
               <Stack gap="md">
-                <KeyValueRow label={t("WebApp.page.Detail.keyValue.gkg0ca", "Sku")} data-testid="products-detail-sku"><Text>{productById.data.sku}</Text></KeyValueRow>
+                <KeyValueRow label={t("Products.Product.field.sku", "Sku")} data-testid="products-detail-sku"><Text>{productById.data.sku}</Text></KeyValueRow>
                 <KeyValueRow label={t("WebApp.page.Detail.keyValue.6rtmhu", "Price Amount")}><Text>{productById.data.price.amount}</Text></KeyValueRow>
                 <KeyValueRow label={t("WebApp.page.Detail.keyValue.vd0zdh", "Price Currency")}><Text>{productById.data.price.currency}</Text></KeyValueRow>
-                <KeyValueRow label={t("WebApp.page.Detail.keyValue.oz7oad", "Display")} data-testid="products-detail-display"><Text>{productById.data.display}</Text></KeyValueRow>
+                <KeyValueRow label={t("Products.Product.field.display", "Display")} data-testid="products-detail-display"><Text>{productById.data.display}</Text></KeyValueRow>
               </Stack>
             </Card>
             <Group gap="xs">
-              <Button variant="filled" onClick={() => openUpdateModal(update)} data-testid="products-op-update">{t("WebApp.page.Detail.button.uk4kus", "Update")}</Button>
+              <Button variant="filled" onClick={() => openUpdateModal(update)} data-testid="products-op-update">{t("Products.Product.op.update", "Update")}</Button>
     
             </Group>
           </Stack>

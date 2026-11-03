@@ -59,10 +59,12 @@ describe("a sibling-context enum renders as an enum on the frontends", () => {
       expect(tsx, page).toContain('defaultValues: { kind: "Fire", title: "" }');
       expect(tsx, page).toMatch(
         new RegExp(
-          `<Select label="Kind" data-testid="${testId}" data=\\{ \\["Fire","Theft"\\] \\}`,
+          // The label and option labels are identity-keyed (`B.Clm.field.kind`,
+          // `A.ClaimKind.value.Fire`): the sibling enum keeps its own context.
+          `<Select label=\\{ t\\("\\w+\\.\\w+\\.field\\.kind", "Kind"\\) \\} data-testid="${testId}" data=\\{ \\(\\["Fire","Theft"\\]\\)\\.map`,
         ),
       );
-      expect(tsx, page).not.toMatch(/<TextInput label="Kind"/);
+      expect(tsx, page).not.toMatch(/<TextInput label=\{ t\("\w+\.\w+\.field\.kind"/);
     }
   });
 

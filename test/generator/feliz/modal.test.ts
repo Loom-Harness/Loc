@@ -52,7 +52,7 @@ describe("feliz modal", () => {
     // extractor keys it (`page.<P>.button.<hash>`) and this renderer used to
     // splice it raw: a live catalog entry nothing rendered (A13).
     expect(app).toMatch(
-      /Html\.summary \[ prop\.custom\("data-testid", "products-op-rename"\); prop\.className "collapse-title font-medium"; prop\.text \(\(I18n\.t "\w+\.page\.\w+\.button\.\w+" "Rename"\)\) \]/,
+      /Html\.summary \[ prop\.custom\("data-testid", "products-op-rename"\); prop\.className "collapse-title font-medium"; prop\.text \(\(I18n\.t "Cat\.Product\.op\.rename" "Rename"\)\) \]/,
     );
     // The wrapped operation form renders inline inside the disclosure (its inputs
     // + the id-carrying submit — the same `renderOperationForm` markup).

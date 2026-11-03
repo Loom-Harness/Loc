@@ -786,6 +786,10 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
         "internal: `this` reached the F# update renderer; loom.ui-this-unbound refuses it " +
           "at validation. Please file a bug.",
       );
+    case "modelText":
+      // model-text-fanout(feliz): `label(…)` / `plural(…)` renders its English
+      // default in the F# update renderer until Feliz keys it by identity.
+      return FS_LEAVES.literal("string", e.defaultText);
     case "authz-filter":
       // A read-path policy sentinel planted only on an aggregate's
       // `contextFilters` — never in a ui body.

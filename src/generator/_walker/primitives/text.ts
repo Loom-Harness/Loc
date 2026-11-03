@@ -3,7 +3,8 @@
 // renders through the active design pack; KeyValueRow recurses into a
 // value child via the shared `walk`.
 
-import type { ExprIR } from "../../../ir/types/loom-ir.js";
+import type { ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { rowShapeByKey } from "../../_frontend/optional-member.js";
 import { giveUp } from "../give-up.js";
 import {
   localizedChromeAria,
@@ -11,6 +12,7 @@ import {
   localizedPositionalAttr,
   localizedText,
 } from "../i18n-emit.js";
+import { enumBadgeValueExpr } from "../model-text-sites.js";
 import { renderPrimitive } from "../render-primitive.js";
 import {
   boolNamed,
@@ -130,7 +132,9 @@ export function emitEnumBadge(
 ): string {
   void depth;
   const value = namedArgValue(call, "value") ?? positionalArgs(call)[0];
-  const valueExpr = value ? emitExpr(value, ctx) : '""';
+  const raw = value ? emitExpr(value, ctx) : '""';
+  // The badge shows the value's identity-keyed label when its enum is known.
+  const valueExpr = enumBadgeValueExpr(ctx, enumTypeOf(value, ctx), raw);
   const color = stringNamed(call, "color");
   return renderPrimitive(ctx, "primitive-enum-badge", {
     valueExpr,
@@ -139,6 +143,22 @@ export function emitEnumBadge(
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
   });
+}
+
+/** The enum a badge's value reads: the member's resolved type, else — for a
+ *  table/grid row binding, whose member types are not resolved — the field's
+ *  declared type on the row aggregate. */
+function enumTypeOf(value: ExprIR | undefined, ctx: WalkContext): string | undefined {
+  if (value?.kind !== "member") return undefined;
+  const unwrap = (t: TypeIR | undefined): TypeIR | undefined =>
+    t?.kind === "optional" ? unwrap(t.inner) : t;
+  const typed = unwrap(value.memberType);
+  if (typed?.kind === "enum") return typed.name;
+  if (value.receiver.kind !== "ref") return undefined;
+  const rowAgg = ctx.listRowAggregates?.get(value.receiver.name);
+  const field = rowShapeByKey(rowAgg, ctx)?.fields.find((f) => f.name === value.member);
+  const declared = unwrap(field?.type);
+  return declared?.kind === "enum" ? declared.name : undefined;
 }
 
 export function emitEmpty(

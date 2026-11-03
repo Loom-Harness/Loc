@@ -192,7 +192,9 @@ UserFieldName returns string:
     ID | 'id' | 'permissions'
     // `migration` is hard only at the top-level `Migration` block head;
     // soft in field-name position so a domain field named `migration` parses.
-    | 'migration';
+    | 'migration'
+    // The model-text intrinsics' words: a claim may still be called `label`.
+    | 'label' | 'plural';
 
 // System-level OIDC authentication config.  Sibling to `user { … }`: the
 // user block declares the claim SHAPE, this block declares WHO issues the
@@ -1925,11 +1927,14 @@ Property:
 SensitivityClause:
     'sensitive' '(' tags+=ID (',' tags+=ID)* ')';
 
+// The name takes the soft keywords a field name does (`contains label: Label`).
 Containment:
-    'contains' name=ID ':' partType=[EntityPart:ID] (collection?='[]')? (optional?='?')?;
+    'contains' name=PropertyName ':' partType=[EntityPart:ID] (collection?='[]')? (optional?='?')?;
 
+// The name takes the soft keywords a field name does — `derived label: string`
+// must keep parsing now that `label` is the model-text intrinsic's keyword.
 DerivedProp:
-    'derived' name=ID ':' type=TypeRef '=' expr=Expression;
+    'derived' name=PropertyName ':' type=TypeRef '=' expr=Expression;
 
 // Invariants default to "every layer the classifier can translate
 // the predicate to" (frontend Zod, Hono routes, FluentValidation).
@@ -2130,11 +2135,11 @@ SoftKeywordsExceptSort returns string:
       | 'flutter' | 'footer' | 'framework' | 'global' | 'group' | 'header' | 'hosts' | 'httpStatus'
       | 'i18n' | 'immutable' | 'implements' | 'implies' | 'index' | 'inheritanceUsing' | 'inMemory' | 'instance'
       | 'internal' | 'isolationLevel' | 'issuer' | 'java' | 'join' | 'jwt' | 'kafka' | 'key' | 'keyed'
-      | 'keyPrefix' | 'kind' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'localDisk' | 'log'
+      | 'keyPrefix' | 'kind' | 'label' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'localDisk' | 'log'
       | 'mailer' | 'main' | 'managed' | 'mantine' | 'mask' | 'meilisearch' | 'menu' | 'message' | 'migration'
       | 'modules' | 'money' | 'mui' | 'mysql' | 'nats' | 'node' | 'objectStore' | 'of' | 'ogImage' | 'oidc'
       | 'onCreate' | 'onUpdate' | 'opt' | 'option' | 'or' | 'overlap' | 'ownTable' | 'paged' | 'parent'
-      | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'policy'
+      | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'plural' | 'policy'
       | 'port' | 'postgres' | 'primeng' | 'projection' | 'provenanced' | 'provider'
       | 'python' | 'query' | 'queryHandler' | 'queue' | 'rabbitmq' | 'raw' | 'react' | 'readCommitted'
       | 'readonly' | 'readUncommitted' | 'redis' | 'relational' | 'repeatableRead' | 'replica'
@@ -2768,6 +2773,7 @@ PrimaryExpr infers Expression:
     | TemplateString
     | LiteralExpr
     | PrimitiveConversion
+    | ModelText
     | NowExpr
     | ThisRef
     | IdRef
@@ -2903,6 +2909,17 @@ LiteralExpr:
 // so no backend, emitter or IR consumer sees this change.
 PrimitiveConversion:
     {infer PrimitiveConversion} target=('string' | 'long' | 'decimal' | 'money') '(' value=Expression ')';
+
+// The translated text a user sees for a model element (i18n identity keys):
+// `label(Task)` (singular name), `plural(Task)` (plural name),
+// `label(Task.title)` (a field), `label(Task.complete)` (an operation),
+// `label(Status.Draft)` (an enum value).  `path` is a flat `[Ctx.]Type[.member]`
+// list resolved by `src/language/model-text.ts`; the call is admitted only in a
+// user-visible page / component position (`loom.model-text-outside-ui`).  Both
+// words are soft, so `label:` stays a named argument and a field may be
+// called `label`.
+ModelText:
+    {infer ModelText} kind=('label' | 'plural') '(' path+=NameRefIdent ('.' path+=MemberName)* ')';
 
 NowExpr:
     {infer NowExpr} 'now' '(' ')';

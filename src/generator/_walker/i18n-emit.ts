@@ -97,6 +97,17 @@ function translateExpr(
   return `t(${args.join(", ")})`;
 }
 
+/** A model-identity text EXPRESSION — `label(…)` / `plural(…)`, or an implicit
+ *  site (a form label, an enum option, a submit button) keyed by
+ *  `src/util/model-text-key.ts`.  Under i18n it is the target's translation call
+ *  (`t("Projects.Task.name.other", "Tasks")`); with i18n off it is the English
+ *  default as a string literal.  Expression position: a JSX/markup caller wraps
+ *  it with `renderInterpolation` (text) or `renderAttrBinding` (attribute). */
+export function localizedModelText(ctx: WalkContext, key: string, defaultText: string): string {
+  if (ctx.i18nPrefix) return translateCall(ctx, key, defaultText);
+  return ctx.target.exprLiteral("string", sourceText(key, defaultText));
+}
+
 /** The raw text token for a user-visible slot, translating a plain literal
  *  through the generated `t()` helper when the body opted into i18n
  *  (`ctx.i18nPrefix`).  Returns either the interpolation `{t(key, "default")}`

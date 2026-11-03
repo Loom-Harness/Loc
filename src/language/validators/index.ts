@@ -44,6 +44,7 @@ export {
   checkThrowKindPlacement,
 } from "./match.js";
 export { checkMigrations } from "./migration.js";
+export { checkModelText } from "./model-text.js";
 export { checkUnknownNameRefs } from "./names.js";
 export { checkNullableReceivers } from "./nullable-receiver.js";
 export { checkIntegerLiteralPrecision } from "./numeric-literals.js";

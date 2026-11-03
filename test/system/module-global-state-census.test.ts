@@ -75,6 +75,10 @@ const PINNED: Record<string, Pin> = {
     discipline: "per-run-reset",
     reason: "`lowerModel` calls `setAmbientEnumIndex` before lowering any body (lower.ts:271).",
   },
+  "src/ir/lower/lower-expr.ts:modelTextIndex": {
+    discipline: "per-run-reset",
+    reason: "`lowerProject` calls `setModelTextIndex` before lowering any body.",
+  },
   "src/ir/lower/lower-expr.ts:topLevelFnIndex": {
     discipline: "per-run-reset",
     reason: "`lowerModel` calls `setTopLevelFnIndex` before lowering any body (lower.ts:293).",

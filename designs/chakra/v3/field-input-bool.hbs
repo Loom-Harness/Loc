@@ -6,7 +6,7 @@
               <Switch.Root checked={!!field.value} onCheckedChange={(e) => field.onChange(e.checked)} data-testid="{{testId}}">
                 <Switch.HiddenInput />
                 <Switch.Control />
-                <Switch.Label>{{label}}</Switch.Label>
+                <Switch.Label>{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</Switch.Label>
               </Switch.Root>
             </Field.Root>
           )}

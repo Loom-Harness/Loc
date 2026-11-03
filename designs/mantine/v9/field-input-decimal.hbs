@@ -2,6 +2,6 @@
           control={control}
           name="{{path}}"
           render={({ field, fieldState }) => (
-            <NumberInput label="{{label}}" data-testid="{{testId}}" decimalScale={2} fixedDecimalScale value={field.value as number | "" | undefined} onChange={(v) => field.onChange(typeof v === "number" ? v : Number(v) || 0)} error={fieldState.error?.message} />
+            <NumberInput {{#if labelExpr}}label={ {{{labelExpr}}} }{{else}}label="{{label}}"{{/if}} data-testid="{{testId}}" decimalScale={2} fixedDecimalScale value={field.value as number | "" | undefined} onChange={(v) => field.onChange(typeof v === "number" ? v : Number(v) || 0)} error={fieldState.error?.message} />
           )}
         />

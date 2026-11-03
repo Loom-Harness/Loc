@@ -103,7 +103,11 @@ describe("scaffolded List columns (U1)", () => {
     for (const h of ["Updated At", "Created By", "Updated By", "Created At"]) {
       expect(list).not.toContain(`"${h}")`);
     }
-    const headers = [...list.matchAll(/columnHeader\.\w+", "([^"]+)"/g)].map((m) => m[1]);
+    // A literal header is page-keyed; a model-derived one (`label(Ticket.status)`)
+    // is identity-keyed.
+    const headers = [
+      ...list.matchAll(/(?:columnHeader\.\w+|\.field\.\w+|\.name\.one)", "([^"]+)"/g),
+    ].map((m) => m[1]);
     // One QueryView per arm (the `bySubject` filter arm, then `all`): each
     // table is the label column + six data columns.
     expect(headers.slice(0, 7)).toEqual(["Ticket", "Status", "Customer", "A1", "A2", "A3", "A4"]);
@@ -186,7 +190,7 @@ describe("operation triggers honour a currentUser-only `requires` (U7)", () => {
     [
       "flutter",
       "web/lib/pages/ticket_detail_page.dart",
-      /\(\(currentUser\.role == 'agent'\)\) \? Consumer[^\n]*\w+\.page\.Detail\.button\.\w+', 'Retitle'/,
+      /\(\(currentUser\.role == 'agent'\)\) \? Consumer[^\n]*\w+\.Ticket\.op\.retitle', 'Retitle'/,
     ],
   ];
   for (const [fw, path, gated] of cases) {

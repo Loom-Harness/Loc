@@ -142,7 +142,7 @@ const PROBES: readonly Probe[] = [
     host: { page: "let l = s  s := l.frob()" },
     expect: { refused: "loom.intrinsic-unknown" },
   },
-  { id: "vo-fn", host: { page: "s := a.label()" }, expect: { refused: "loom.unknown-member" } },
+  { id: "vo-fn", host: { page: "s := a.caption()" }, expect: { refused: "loom.unknown-member" } },
   { id: "vo-frob", host: { page: "s := a.frob()" }, expect: { refused: "loom.unknown-member" } },
   {
     id: "lambda-unknown-method",
@@ -294,7 +294,7 @@ system Census {
   subdomain S {
     context C with scaffoldPaged(of: OrdersByCustomer), scaffoldPaged(of: OrdersByCustomers) {
       error OrderMissing { missingRef: string }
-      valueobject Addr { city: string  function label(): string { return city } }
+      valueobject Addr { city: string  function caption(): string { return city } }
       aggregate Order with crudish {
         customerId: string
         operation reserve(): Order or OrderMissing {

@@ -56,7 +56,7 @@ describe("scaffold body-builders — AST → printable source", () => {
     const src = printExpr(scaffoldNewForm("Order"));
     expect(src).toContain("Stack(");
     expect(src).toContain(
-      'Breadcrumbs(Anchor("Home", to: "/"), Anchor("Orders", to: "/orders"), Text("New"))',
+      'Breadcrumbs(Anchor("Home", to: "/"), Anchor(plural(Order), to: "/orders"), Text("New"))',
     );
     expect(src).toContain('Heading("Create order", level: 2)');
     expect(src).toContain('Card(CreateForm(of: Order, testid: "orders-new"))');
@@ -71,8 +71,8 @@ describe("scaffold body-builders — AST → printable source", () => {
   it("scaffoldList scaffolds a list: toolbar + QueryView over a column table", () => {
     const src = printExpr(scaffoldList("Order", [text("reference"), text("status")]));
     // breadcrumb + toolbar with a "New order" button
-    expect(src).toContain('Breadcrumbs(Anchor("Home", to: "/"), Text("Orders"))');
-    expect(src).toContain('Heading("Orders", level: 2)');
+    expect(src).toContain('Breadcrumbs(Anchor("Home", to: "/"), Text(plural(Order)))');
+    expect(src).toContain("Heading(plural(Order), level: 2)");
     expect(src).toContain('Button("New order", to: "/orders/new", testid: "orders-list-create")');
     // QueryView over the server-paged <Agg>.all (M-T2.6): the find takes the
     // page window + sort controls and the view carries `paged: true`. The
@@ -93,9 +93,11 @@ describe("scaffold body-builders — AST → printable source", () => {
       'Column("ID", o => IdLink(o.id, of: Order), sortable: true, field: "id")',
     );
     expect(src).toContain(
-      'Column("Reference", o => Text(o.reference), sortable: true, field: "reference")',
+      'Column(label(Order.reference), o => Text(o.reference), sortable: true, field: "reference")',
     );
-    expect(src).toContain('Column("Status", o => Text(o.status), sortable: true, field: "status")');
+    expect(src).toContain(
+      'Column(label(Order.status), o => Text(o.status), sortable: true, field: "status")',
+    );
     // Server-paged rows (M-T2.6): the Table consumes the `Paged<T>` envelope's
     // `.items` + `.totalPages` (no client-side `pageSize` slice) and flags
     // `serverPaged: true`, then the style props — one per line.
@@ -133,21 +135,25 @@ describe("scaffold body-builders — AST → printable source", () => {
       { name: "blob", kind: { tag: "file" } },
     ];
     const src = printExpr(scaffoldList("Order", cols));
-    expect(src).toContain('Column("Ref", o => IdLink(o.ref, of: Customer))');
-    expect(src).toContain(
-      'Column("Created At", o => DateDisplay(o.createdAt), sortable: true, field: "createdAt")',
+    expect(flat(src)).toContain("Column(label(Order.ref), o => IdLink(o.ref, of: Customer))");
+    expect(flat(src)).toContain(
+      'Column(label(Order.createdAt), o => DateDisplay(o.createdAt), sortable: true, field: "createdAt")',
     );
-    expect(src).toContain(
-      'Column("Active", o => Text(o.active ? "Yes" : "No"), sortable: true, field: "active")',
+    expect(flat(src)).toContain(
+      'Column(label(Order.active), o => Text(o.active ? "Yes" : "No"), sortable: true, field: "active")',
     );
-    expect(src).toContain('Column("Total", o => Text(o.total), sortable: true, field: "total")');
-    expect(src).toContain(
-      'Column("Status", o => EnumBadge(o.status), sortable: true, field: "status")',
+    expect(flat(src)).toContain(
+      'Column(label(Order.total), o => Text(o.total), sortable: true, field: "total")',
     );
-    expect(src).toContain('Column("Note", o => Text(o.note), sortable: true, field: "note")');
+    expect(flat(src)).toContain(
+      'Column(label(Order.status), o => EnumBadge(o.status), sortable: true, field: "status")',
+    );
+    expect(flat(src)).toContain(
+      'Column(label(Order.note), o => Text(o.note), sortable: true, field: "note")',
+    );
     // A `File` column renders a `FileLink` download anchor (the FileRef object
     // is not a ReactNode) — see `typedCell` "file".
-    expect(src).toContain('Column("Blob", o => FileLink(o.blob))');
+    expect(flat(src)).toContain("Column(label(Order.blob), o => FileLink(o.blob))");
     expect(
       parseRawResult(inPage(src))
         .parserErrors.map((e) => e.message)
@@ -162,7 +168,7 @@ describe("scaffold body-builders — AST → printable source", () => {
 
   it("uses the aggregate's own pluralisation/casing", () => {
     const src = printExpr(scaffoldNewForm("Category"));
-    expect(src).toContain('Anchor("Categories", to: "/categories")');
+    expect(src).toContain('Anchor(plural(Category), to: "/categories")');
     expect(src).toContain('Heading("Create category", level: 2)');
     expect(src).toContain('CreateForm(of: Category, testid: "categories-new")');
   });
@@ -194,10 +200,10 @@ function findNode(root: unknown, type: string, name: string): any {
 describe("scaffoldWorkflowForm — workflow command page body", () => {
   it("scaffolds Breadcrumbs/Heading/Card(WorkflowForm)", () => {
     const src = printExpr(scaffoldWorkflowForm("placeOrder"));
-    expect(src).toContain(
-      'Breadcrumbs(Anchor("Home", to: "/"), Anchor("Workflows", to: "/workflows"), Text("Place Order"))',
+    expect(flat(src)).toContain(
+      'Breadcrumbs(Anchor("Home", to: "/"), Anchor("Workflows", to: "/workflows"), Text(label(placeOrder)))',
     );
-    expect(src).toContain('Heading("Place Order", level: 2)');
+    expect(src).toContain("Heading(label(placeOrder), level: 2)");
     expect(src).toContain('Card(WorkflowForm(runs: placeOrder, testid: "workflow-place_order"))');
     expect(src).toContain('testid: "workflow-place_order-page"');
     expect(
@@ -228,9 +234,9 @@ describe("scaffoldOperations — per-operation modals", () => {
     const order = findNode(model, "Aggregate", "Order");
     const src = printExpr(scaffoldOperations(order));
     expect(src).toContain('OperationForm(of: Order, op: approve, testid: "orders-op-approve"),');
-    expect(src).toContain('title: "Approve",');
+    expect(src).toContain("title: label(Order.approve),");
     expect(src).toContain(
-      'trigger: Button("Approve", emphasis: "primary", testid: "orders-op-approve")',
+      'trigger: Button(label(Order.approve), emphasis: "primary", testid: "orders-op-approve")',
     );
     expect(src).toContain('emphasis: "secondary", testid: "orders-op-cancel"');
     expect(
@@ -364,8 +370,8 @@ describe("scaffold list/detail — internal & secret fields stay off the page", 
     expect(errors).toEqual([]);
     const widget = findNode(model, "Aggregate", "Widget");
     const src = printExpr(scaffoldDetails(widget));
-    expect(src).toContain('KeyValueRow("Name"');
-    expect(src).toContain('KeyValueRow("Deleted At"');
+    expect(src).toContain("KeyValueRow(label(Widget.name)");
+    expect(flat(src)).toContain("KeyValueRow(label(Widget.deletedAt)");
     expect(src).not.toContain("tenantId");
     expect(src).not.toContain("apiKey");
   });
@@ -399,7 +405,7 @@ describe("scaffold list/detail — the optimistic-concurrency counter stays off 
     // …but not on the page
     expect(scalarColumnsForAggregate(task).map((c) => c.name)).toEqual(["title"]);
     const details = printExpr(scaffoldDetails(task));
-    expect(details).toContain('KeyValueRow("Title"');
+    expect(details).toContain("KeyValueRow(label(Task.title)");
     expect(details).not.toContain("Version");
     expect(details).not.toContain("version");
   });
@@ -409,7 +415,7 @@ describe("scaffold list/detail — the optimistic-concurrency counter stays off 
     expect(errors).toEqual([]);
     const release = findNode(model, "Aggregate", "Release");
     expect(scalarColumnsForAggregate(release).map((c) => c.name)).toEqual(["name", "version"]);
-    expect(printExpr(scaffoldDetails(release))).toContain('KeyValueRow("Version"');
+    expect(printExpr(scaffoldDetails(release))).toContain("KeyValueRow(label(Release.version)");
   });
 });
 
@@ -437,22 +443,22 @@ describe("scaffoldDetails — aggregate read view + related cards", () => {
     const src = printExpr(scaffoldDetails(order));
     // shell: breadcrumbs / heading / by-id query
     expect(src).toContain(
-      'Breadcrumbs(Anchor("Home", to: "/"), Anchor("Orders", to: "/orders"), Text("Detail"))',
+      'Breadcrumbs(Anchor("Home", to: "/"), Anchor(plural(Order), to: "/orders"), Text("Detail"))',
     );
     expect(src).toContain('Heading("Order detail", level: 2)');
     expect(src).toContain("of: Order.byId(id),");
     expect(src).toContain("single: true,");
     expect(src).toContain('Alert("No order matches that id.", color: "yellow")');
     // field card: scalar row carries a testid; value-object flattens to labelled leaves
-    expect(src).toContain(
-      'KeyValueRow("Reference", Text(data.reference), testid: "orders-detail-reference")',
+    expect(flat(src)).toContain(
+      'KeyValueRow(label(Order.reference), Text(data.reference), testid: "orders-detail-reference")',
     );
     expect(src).toContain('KeyValueRow("Total Amount", Text(data.total.amount))');
     expect(src).toContain('KeyValueRow("Total Currency", Text(data.total.currency))');
     // related collection → a framed table card over data.lines
-    expect(src).toContain('Heading("Lines", level: 4)');
-    expect(src).toContain('Column("Sku", row => Text(row.sku))');
-    expect(src).toContain('Column("Quantity", row => Text(row.quantity))');
+    expect(src).toContain("Heading(label(Order.lines), level: 4)");
+    expect(src).toContain("Column(label(OrderLine.sku), row => Text(row.sku))");
+    expect(src).toContain("Column(label(OrderLine.quantity), row => Text(row.quantity))");
     expect(src).toContain("rows: data.lines");
     expect(src).toContain('testid: "orders-detail-lines"');
     expect(
@@ -486,7 +492,7 @@ describe("scaffoldDetails — aggregate read view + related cards", () => {
       'ProvenanceInfo(of: data, field: "total", testid: "orders-detail-total-prov")',
     );
     // A plain field gets no disclosure — exactly one ProvenanceInfo on the page.
-    expect(src).toContain('KeyValueRow("Reference", Text(data.reference)');
+    expect(flat(src)).toContain("KeyValueRow(label(Order.reference), Text(data.reference)");
     expect(src.match(/ProvenanceInfo\(/g)).toHaveLength(1);
     // Still prints to re-parseable `.ddd` source (unfold-safe).
     expect(
@@ -518,9 +524,9 @@ describe("scaffold instance builders — observable workflow pages", () => {
     const wf = findNode(model, "Workflow", "Fulfillment");
     const src = printExpr(scaffoldInstanceList(wf));
     expect(flat(src)).toContain(
-      'Column("Order Id", i => Anchor(i.orderId, to: "/workflows/fulfillment/instances/" + i.orderId))',
+      'Column(label(Fulfillment.orderId), i => Anchor(i.orderId, to: "/workflows/fulfillment/instances/" + i.orderId))',
     );
-    expect(src).toContain('Column("Status", i => EnumBadge(i.status))');
+    expect(src).toContain("Column(label(Fulfillment.status), i => EnumBadge(i.status))");
     expect(src).toContain('rowTestid: r => "fulfillment-instances-row-" + r.orderId');
     expect(src).toContain("of: Fulfillment.instances.all,");
     expect(src).toContain('Heading("Fulfillment instances", level: 2)');
@@ -536,8 +542,10 @@ describe("scaffold instance builders — observable workflow pages", () => {
     const { model } = await parseString(observable);
     const wf = findNode(model, "Workflow", "Fulfillment");
     const src = printExpr(scaffoldInstanceDetails(wf));
-    expect(src).toContain('KeyValueRow("Order Id", IdLink(data.orderId, of: Order))');
-    expect(src).toContain('KeyValueRow("Status", EnumBadge(data.status))');
+    expect(src).toContain(
+      "KeyValueRow(label(Fulfillment.orderId), IdLink(data.orderId, of: Order))",
+    );
+    expect(src).toContain("KeyValueRow(label(Fulfillment.status), EnumBadge(data.status))");
     expect(src).toContain("of: Fulfillment.instances.byId(id),");
     expect(src).toContain("single: true,");
     expect(src).toContain(
@@ -608,8 +616,8 @@ describe("scalarColumnsForAggregate — resolves columns from the aggregate AST"
 describe("scaffoldHome", () => {
   const nav = {
     aggregates: [
-      { label: "Issues", route: "/issues" },
-      { label: "Projects", route: "/projects" },
+      { aggregate: "Issue", label: "Issues", route: "/issues" },
+      { aggregate: "Project", label: "Projects", route: "/projects" },
     ],
   };
 
@@ -617,10 +625,10 @@ describe("scaffoldHome", () => {
     const body = flat(printExpr(scaffoldHome({ aggregates: 2, workflows: 1 }, [], nav)));
     // The sidebar's own labels + routes — not "2 aggregates".
     expect(body).toContain(
-      'Card(Heading("Issues", level: 4), Anchor("Open issues →", to: "/issues"))',
+      'Card(Heading(plural(Issue), level: 4), Anchor("Open issues →", to: "/issues"))',
     );
     expect(body).toContain(
-      'Card(Heading("Projects", level: 4), Anchor("Open projects →", to: "/projects"))',
+      'Card(Heading(plural(Project), level: 4), Anchor("Open projects →", to: "/projects"))',
     );
     // The workflows index is one more sidebar entry, so one more card.
     expect(body).toContain('Anchor("Open workflows →", to: "/workflows")');
