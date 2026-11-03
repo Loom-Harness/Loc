@@ -40,6 +40,7 @@ import {
 import { canonicalCreate, canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
 import { disallowedDetail } from "../../ir/util/denial-detail.js";
+import { mergePatchFields } from "../../ir/util/merge-patch.js";
 import {
   lifecycleGates,
   lifecycleGatesReadRow,
@@ -597,19 +598,22 @@ function opRequestModel(
   const available = new Set(op.params.map((p) => p.name));
   const invariants: InvariantIR[] = [...agg.invariants, ...preconditionsAsInvariants(op)];
   const constraints = createFieldConstraints(invariants, available);
+  // A merge-patch update (RS-47): every key is optional — an absent one keeps
+  // the stored value, which the route reads off `model_fields_set`.
+  const patch = mergePatchFields(op);
   return lines(
     `class ${cls}(${H.BaseModel}):`,
     op.params.length > 0
       ? op.params.map((p) =>
           withFieldConstraint(
             p.name,
-            requestFieldDecl(p.type, false, ctx, undefined, "operation"),
+            requestFieldDecl(p.type, patch !== null, ctx, undefined, "operation"),
             constraints.get(p.name),
           ),
         )
       : ["    pass"],
     createFieldMessageValidator(invariants, available),
-    createModelValidator(invariants, available, cls),
+    createModelValidator(invariants, available, cls, patch ?? undefined),
     "",
     "",
   );
@@ -1252,8 +1256,21 @@ function operationRoute(
     ...(needsRequest ? [PY_REQUEST_PARAM] : []),
     "session: SessionDep",
   ].join(", ");
+  // A merge-patch update (RS-47) passes the stored value for every key the
+  // body left out.  A required field's `None` can only mean absent (the model
+  // refused an explicit null); an optional one asks `model_fields_set`.
+  const patch = mergePatchFields(op);
   const callArgs = [
-    ...op.params.map((p) => pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx)),
+    ...op.params.map((p) => {
+      const attr = `body.${pythonWireIdent(p.name)}`;
+      const value = pyWireToDomain(attr, p.type, ctx);
+      if (!patch) return value;
+      const present =
+        p.type.kind === "optional"
+          ? `${JSON.stringify(pythonWireIdent(p.name))} in body.model_fields_set`
+          : `${attr} is not None`;
+      return `(${value} if ${present} else found.${pythonIdent(p.name)})`;
+    }),
   ];
   if (usesUser) callArgs.push("current_user");
   const vsave = versionedSave(agg);

@@ -102,12 +102,13 @@ describe("dotnet — a parameter spelled like a member of its class", () => {
       expect(item).toContain("        Guid = guid;\n        Total = total;\n        Name = name;");
       expect(item).not.toMatch(/^\s+(\w+) = \1;/m);
       // The static factory is unaffected (it assigns through `e.`), and the
-      // handler still calls the update positionally.
+      // handler still calls the update positionally — each argument the patched
+      // value or, for an absent key, the stored one (RS-47).
       expect(item).toContain(
         "    public static Item Create(string Guid, int Total, string name, Tag tag)",
       );
       expect(files.get("api/Application/Items/Commands/UpdateHandler.cs")).toContain(
-        "aggregate.Update(command.Guid, command.Total, command.Name, command.Tag);",
+        'aggregate.Update((command.PatchedKeys.Contains("Guid") ? command.Guid : aggregate.Guid), (command.PatchedKeys.Contains("Total") ? command.Total : aggregate.Total), (command.PatchedKeys.Contains("name") ? command.Name : aggregate.Name), (command.PatchedKeys.Contains("tag") ? command.Tag : aggregate.Tag));',
       );
     });
   }

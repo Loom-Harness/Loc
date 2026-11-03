@@ -30,6 +30,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { outboundReferenceFields } from "../../../ir/util/aggregate-flags.js";
 import { baseOf, ownFieldsOf, uniqueKeyIndex } from "../../../ir/util/inheritance.js";
+import { aggregateHasMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
@@ -50,6 +51,7 @@ import {
   aggregateHasResidualInvariants,
   messagedRoutesToResidual,
   renderInvariantValidatorFn,
+  renderPatchInvariantFn,
 } from "./changeset-invariant-emit.js";
 import {
   aggregateBodyValueObjectFields,
@@ -152,6 +154,9 @@ export function aggregateNeedsUpdateChangeset(
 ): boolean {
   if (isEventSourced(agg) || isAbstractBase(agg)) return false;
   if (aggregateIsVersioned(agg)) return true;
+  // A merge-patch update (RS-47) judges each rule by which keys the patch
+  // carried, which only the dedicated seam knows how to do.
+  if (aggregateHasMergePatchUpdate(agg)) return true;
   if ((agg.contains ?? []).length > 0) return true;
   // The update-excluded-field check needs the context (value-collection
   // resolution); the emitter always has one, so routing stays in step.
@@ -734,7 +739,11 @@ ${
   const hasResidualInvariants = aggregateHasResidualInvariants(agg);
   const invBlock = hasResidualInvariants ? "\n    |> validate_invariants()" : "";
   const invariantFn = renderInvariantValidatorFn(agg, `${appModule}.${ctxModule}`);
-  const invariantFnBlock = invariantFn ? `\n\n${invariantFn}` : "";
+  // A merge-patch update judges a rule at the wire only when the patch carried
+  // every member it reads; otherwise its error moves to the domain floor.
+  const patchInvFn =
+    hasResidualInvariants && aggregateHasMergePatchUpdate(agg) ? renderPatchInvariantFn(agg) : "";
+  const invariantFnBlock = `${invariantFn ? `\n\n${invariantFn}` : ""}${patchInvFn ? `\n\n${patchInvFn}` : ""}`;
 
   // Dedicated `update_changeset/2` — the generic PATCH seam (repository `update`
   // routes here when `aggregateNeedsUpdateChangeset` is true).  It differs from
@@ -797,15 +806,19 @@ ${
   // RS-26 presence check.  `validate_required/2` alone CANNOT enforce a required
   // field on update: it resolves through `get_field/2`, which falls back to the
   // loaded row, so an omitted KEY is indistinguishable from one carrying the
-  // stored value.  The update contract is full-replacement, so an absent key IS
-  // a missing field — and the other four backends reject it at their
+  // stored value.  A command-shaped update is full-replacement, so an absent key
+  // IS a missing field (the merge-patch `update`, RS-47, skips this check) — and the other four backends reject it at their
   // deserialization boundary, before any row exists to fall back to.  Presence
   // is therefore checked against the raw attrs, ahead of `cast`.
   //
   // Emitted only where there is a required field to check, so an aggregate whose
   // updatable fields are all optional stays byte-identical.
   const updateRequiredNames = updateFields.filter((f) => isRequiredUpdateInput(f));
-  const emitPresenceCheck = emitUpdateChangeset && updateRequiredNames.length > 0;
+  // A merge-patch update (RS-47) is the opposite contract: an absent key keeps
+  // the stored value — exactly what `cast/3` does — so neither the presence
+  // check nor its optional twin below applies.
+  const mergePatch = aggregateHasMergePatchUpdate(agg);
+  const emitPresenceCheck = emitUpdateChangeset && !mergePatch && updateRequiredNames.length > 0;
   const presenceLine = emitPresenceCheck ? `\n    |> __require_keys(attrs, ${updateReqList})` : "";
   // RS-26's OPTIONAL twin.  The update contract is FULL REPLACEMENT, but
   // `cast/3` ignores a key the attrs do not carry — so an OMITTED optional field
@@ -820,7 +833,7 @@ ${
   // Emitted only where there is an optional field to clear, so an aggregate whose
   // updatable fields are all required stays byte-identical.
   const updateOptionalNames = updateFields.filter((f) => f.optional || f.type.kind === "optional");
-  const emitClearAbsent = emitUpdateChangeset && updateOptionalNames.length > 0;
+  const emitClearAbsent = emitUpdateChangeset && !mergePatch && updateOptionalNames.length > 0;
   const clearAbsentDecl = emitClearAbsent
     ? `\n  @update_optional [${updateOptionalNames.map((f) => `:${snake(f.name)}`).join(", ")}]`
     : "";
@@ -867,7 +880,7 @@ ${
     attrs = __normalize_keys(attrs)
     ${voKeyNormalizeLine}${updateVcPrep}struct
     |> ${castLines(updateColsList, updateStringList)}${updateIngressLine}${presenceLine}${clearAbsentLine}
-    |> ${requireLines(updateReqList, updateReqStringList)}${validatorBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}${optimisticLine}
+    |> ${requireLines(updateReqList, updateReqStringList)}${validatorBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${patchInvFn ? "\n    |> validate_patch_invariants(attrs)" : invBlock}${optimisticLine}
   end`
     : "";
 

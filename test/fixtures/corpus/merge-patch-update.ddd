@@ -1,0 +1,117 @@
+// The crudish `update` is a JSON Merge Patch (RFC 7396, RS-47): a key the body
+// leaves out keeps the stored value, `null` clears an optional field, and a
+// value sets it.  `null` on a REQUIRED field is refused at the wire (422,
+// `"<field> is required"`) — a merge patch can remove only what may be absent.
+//
+// Before the ruling every backend read the update body as a full replacement:
+// an update that omitted `note` CLEARED it (the optional param bound to null),
+// and an update that omitted `title` was a 422 — so a client that could not
+// read a field (a `mask unless` one) could not update the row without wiping
+// it.
+//
+// Field shapes are one of each kind the merge has to carry back unchanged when
+// absent: a required and an optional scalar, an int, an optional date, an
+// enum, a scalar collection and an optional value object.  The two rules split
+// the schema stage from the domain stage: `pages >= 0` reads one member, so a
+// patch that carries `pages` is refused at the wire and one that omits it
+// never runs it; `minPages <= pages` reads two, so a patch carrying only one of
+// them is judged by the domain floor over the MERGED state.  The message-less
+// `title.length <= 80` is the single-field shape each backend writes as a
+// native constraint (zod `.max`, a Pydantic `Field`, a FluentValidation chain,
+// a java pattern check, Ecto's `validate_length`) — it must not fire on a patch
+// that leaves `title` out.
+system MergePatchUpdate {
+  subdomain Work {
+    context Desk {
+      enum Priority { Low, High }
+      valueobject Span {
+        start: int
+        end: int
+      }
+      aggregate Memo with crudish {
+        title: string
+        note: string?
+        pages: int
+        minPages: int = 0
+        due: date?
+        priority: Priority
+        tags: string[]
+        span: Span?
+        invariant title.length <= 80
+        invariant pages >= 0 message "Pages cannot be negative"
+        invariant minPages <= pages message "A memo has at least its minimum pages"
+      }
+      repository Memos for Memo { }
+    }
+  }
+  api DeskApi from Work
+  storage primary { type: postgres }
+  resource deskState { for: Desk, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Desk]
+    dataSources: [deskState]
+    serves: DeskApi
+    port: 4000
+  }
+
+  test e2e "an update body is a merge patch: absent keeps, null clears, a value sets" against d {
+    let m = api.memos.create({ title: "Draft", note: "keep me", pages: 3, minPages: 1, due: "2026-03-04", priority: "High", tags: ["a", "b"], span: { start: 1, end: 2 } })
+
+    // A one-key patch: every other field keeps its stored value — the optional
+    // `note` is NOT cleared, the required ones are not refused as missing.
+    api.memos.update(m, { title: "Renamed" })
+    let renamed = api.memos.getById(m)
+    expect(renamed.title).toBe("Renamed")
+    expect(renamed.note).toBe("keep me")
+    expect(renamed.pages).toBe(3)
+    expect(renamed.minPages).toBe(1)
+    expect(renamed.due).toBe("2026-03-04")
+    expect(renamed.priority).toBe("High")
+    expect(renamed.tags.length).toBe(2)
+    expect(renamed.span.end).toBe(2)
+
+    // `null` on an optional field clears it; the rest still stands.
+    api.memos.update(m, { note: null, span: null })
+    let cleared = api.memos.getById(m)
+    expect(cleared.note).toBeNull()
+    expect(cleared.span).toBeNull()
+    expect(cleared.title).toBe("Renamed")
+    expect(cleared.due).toBe("2026-03-04")
+
+    // A value sets it, other fields still untouched.
+    api.memos.update(m, { note: "back", tags: ["c"] })
+    let set = api.memos.getById(m)
+    expect(set.note).toBe("back")
+    expect(set.tags.length).toBe(1)
+    expect(set.pages).toBe(3)
+
+    // An empty patch is a no-op that still answers 204.
+    api.memos.update(m, {})
+    let same = api.memos.getById(m)
+    expect(same.title).toBe("Renamed")
+    expect(same.note).toBe("back")
+
+    // `null` on a required field: a merge patch cannot remove it.
+    expect(api.memos.update(m, { title: null })).toThrow(422)
+    expect(api.memos.update(m, { pages: null })).toThrow(422)
+
+    // A one-member rule over a key the patch carries: refused at the wire.
+    expect(api.memos.update(m, { pages: -1 })).toThrow(422)
+    // A two-member rule with only one member in the patch: the domain floor
+    // judges the MERGED state (stored pages 3 < new minimum 5)…
+    expect(api.memos.update(m, { minPages: 5 })).toThrow(422)
+    // …and admits a patch whose merge satisfies it.
+    api.memos.update(m, { minPages: 2 })
+    let raised = api.memos.getById(m)
+    expect(raised.minPages).toBe(2)
+    expect(raised.pages).toBe(3)
+    expect(raised.title).toBe("Renamed")
+
+    let listed = api.memos.all()
+    expect(listed.total).toBe(1)
+    expect(listed.items.first().note).toBe("back")
+    api.memos.destroy(m)
+    expect(api.memos.getById(m)).toThrow(404)
+  }
+}

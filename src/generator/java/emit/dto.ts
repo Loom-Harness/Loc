@@ -18,6 +18,7 @@ import type {
   TypeIR,
   WireField,
 } from "../../../ir/types/loom-ir.js";
+import { type MergePatchField, mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
@@ -265,6 +266,22 @@ export function renderDtoFiles(
   // --- per-operation requests (ops with params only) ----------------------------
   for (const op of agg.operations) {
     if (op.params.length === 0) continue;
+    const patch = mergePatchFields(op);
+    if (patch) {
+      const name = `${upperFirst(op.name)}${agg.name}Request`;
+      out.push({
+        name: `${name}.java`,
+        category: "request-dto",
+        content: mergePatchRequestFile(
+          pkg,
+          basePkg,
+          name,
+          patch,
+          reqNameFor({ kind: "operation", aggregate: agg.name, operation: op.name }),
+        ),
+      });
+      continue;
+    }
     const imports = new Set<string>();
     const components = op.params.map((p) => {
       if (isOptionalType(p.type))
@@ -393,6 +410,72 @@ function nulGuarded(javaType: string, basePkg: string): string {
   const list = [`${J.List}<`, "List<"].find((p) => javaType.startsWith(p));
   const mark = `@${noNulChar(basePkg)} `;
   return list ? javaType.replace(list, `${list}${mark}`) : `${mark}${javaType}`;
+}
+
+/** The merge-patch update request (RS-47): a class, not a record, because the
+ *  question it has to answer is which keys the body CARRIED.  Jackson calls a
+ *  setter only for a key present in the JSON — an explicit `null` included —
+ *  so each setter records its wire key and `has(key)` answers it.  Every
+ *  member is a boxed reference with no `@NotNull`: an absent key keeps the
+ *  stored value.  `null` on a required member is refused by the request's
+ *  validator (`NotNull` → `"<field> is required"`).  Record-style accessors
+ *  keep the validator and service reading `request.<field>()` as for any
+ *  other request; the JavaBeans getters are what `Errors.rejectValue` reads
+ *  the refused value through. */
+function mergePatchRequestFile(
+  pkg: string,
+  basePkg: string,
+  name: string,
+  fields: readonly MergePatchField[],
+  schemaName: string,
+): string {
+  const jsonProperty = javaRef("com.fasterxml.jackson.annotation", "JsonProperty");
+  const members = fields.map((f) => {
+    const boxed = wireJavaType(eff(f.type, true), "Request");
+    const type = bearsWireString(f.type) ? nulGuarded(boxed, basePkg) : boxed;
+    const nested = bearsNestedRecord(f.type) ? `@${VALID} ` : "";
+    return { f, type, plain: boxed, nested, id: jid(f.name) };
+  });
+  return lines(
+    `package ${pkg};`,
+    ``,
+    `import ${basePkg}.domain.enums.*;`,
+    `import ${basePkg}.domain.ids.*;`,
+    `import ${basePkg}.domain.valueobjects.*;`,
+    ``,
+    schemaName !== name ? `@${SCHEMA}(name = ${JSON.stringify(schemaName)})` : null,
+    `public final class ${name} {`,
+    `    private final ${javaRef("java.util", "Set")}<String> present = new ${javaRef("java.util", "HashSet")}<>();`,
+    ``,
+    ...members.map(
+      (m) =>
+        `    @${jsonProperty}(${JSON.stringify(m.f.name)}) ${m.nested}private ${m.type} ${m.id};`,
+    ),
+    ``,
+    ...members.flatMap((m) => [
+      `    @${jsonProperty}(${JSON.stringify(m.f.name)})`,
+      `    public void set${upperFirst(m.id)}(${m.plain} value) {`,
+      `        this.${m.id} = value;`,
+      `        present.add(${JSON.stringify(m.f.name)});`,
+      `    }`,
+      ``,
+      `    public ${m.plain} ${m.id}() {`,
+      `        return ${m.id};`,
+      `    }`,
+      ``,
+      `    @${jsonProperty}(${JSON.stringify(m.f.name)})`,
+      `    public ${m.plain} get${upperFirst(m.id)}() {`,
+      `        return ${m.id};`,
+      `    }`,
+      ``,
+    ]),
+    `    /** True when the body carried this wire key. */`,
+    `    public boolean has(String key) {`,
+    `        return present.contains(key);`,
+    `    }`,
+    `}`,
+    ``,
+  );
 }
 
 function bearsWireString(t: TypeIR): boolean {

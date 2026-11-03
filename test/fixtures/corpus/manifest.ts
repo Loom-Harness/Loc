@@ -913,6 +913,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "minted by the Fable field test (A1): node's zod refine rendered `==` as JS `===`, so an omitted optional key — `undefined`, the wire's OTHER spelling of absent — failed the guard and `POST /api/tasks` answered 422 where .NET and Python answered 201.  No corpus fixture omitted an optional field a rule then referenced, so the five-way wire golden could not see the divergence at all.  The aggregate is `Ticket`, not the `Task` the field test used: an aggregate named `Task` shadows `System.Threading.Tasks.Task` inside the generated .NET repository, so `ITaskRepository` and `TaskRepository` disagree on `SaveAsync(Task, CancellationToken)` and the project does not compile (CS0535/CS0738, reproduced on the behavioral-dotnet leg).  That BCL-name collision is real and unfixed — `loom.dotnet-name-collision` (#2737) refuses a member colliding with a SIBLING type, not an aggregate colliding with a type the emitter itself uses — but it is not what this fixture is for, and pinning it here would make the absent-optional row unreachable on .NET",
   },
   {
+    id: "merge-patch-update",
+    title:
+      "the crudish `update` body as a JSON Merge Patch (RFC 7396) — an absent key keeps the stored value, `null` clears a `T?` field and is refused on a required one, a one-member rule judged at the wire only when its member is present, a two-member rule over a partial patch judged by the domain floor",
+    doc: "scaffold-macros",
+    backends: ALL,
+    note: "minted by the owner ruling on #4109 (RS-47): every backend read the update body as a full replacement, so an update omitting `note` CLEARED it (the optional param bound to null) and one omitting a required field was a 422 — which also meant a caller who could not read a `mask unless` field (#3600) could not update the row without wiping it.  One field of each shape the merge has to carry back unchanged (required/optional scalar, int, optional date, enum, scalar collection, optional value object).  The `test e2e` block carries this fixture's golden",
+  },
+  {
     id: "managed-seeds",
     title:
       "server-owned fields with no default (`openedAt: datetime managed`, `hits: int managed`, … `seenAt: datetime internal`) read back at the shared language-defined seed",

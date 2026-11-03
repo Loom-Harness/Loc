@@ -447,6 +447,54 @@ of these shapes (a counted warning, never an error); `managed = <default>`
 additionally keeps the field off `create` (see [`language.md`](language.md) →
 "Field access modifiers").
 
+### The `update` body is a merge patch
+
+`POST /{id}/update` takes a JSON Merge Patch (RFC 7396,
+[RS-47](conformance-semantics.md#rs-47--the-generated-update-body-is-a-json-merge-patch-an-absent-key-keeps-the-stored-value-null-clears-a-t-field)),
+not a full replacement: a key the body leaves out keeps the stored value,
+`null` clears an optional (`T?`) field and is refused on a required one, and a
+value sets the field.
+
+```ddd
+aggregate Memo with crudish {
+  title: string
+  note: string?
+}
+```
+
+```http
+POST /api/memos/{id}/update   {"title": "Renamed"}   → 204, note unchanged
+POST /api/memos/{id}/update   {"note": null}         → 204, note cleared
+POST /api/memos/{id}/update   {"title": null}        → 422 [{ "pointer": "/title", "message": "title is required" }]
+POST /api/memos/{id}/update   {}                     → 204, nothing changed
+```
+
+The route loads the row and passes the stored value for each absent key, so the
+operation, its gates, its invariants and the `If-Match` check run as before:
+
+```ts
+// generated (Hono) — http/memo.routes.ts
+const UpdateMemoRequest = z.object({
+  title: z.string().refine((s: string) => !s.includes("\u0000")).optional(),
+  note: z.string().nullish(),
+}).openapi("UpdateMemoRequest");
+// …
+aggregate.update((body.title === undefined ? aggregate.title : body.title), (body.note === undefined ? aggregate.note : (body.note == null ? null : body.note)));
+```
+
+```csharp
+// generated (.NET) — the request records which keys it carried; the handler merges
+aggregate.Update((command.PatchedKeys.Contains("title") ? command.Title : aggregate.Title), (command.PatchedKeys.Contains("note") ? command.Note : aggregate.Note));
+```
+
+The rule is the operation's shape, not the macro: an `update` whose body only
+assigns each parameter to the same-named field is a merge patch, so the
+`crudish` update keeps it after `unfold`, and a hand-written `update` of that
+shape gets it too. Every other operation is a command whose required
+parameters are required. A rule the request validates (an `invariant` over the
+update's fields) is checked there only when the patch carries every field it
+reads; otherwise the operation judges the merged state.
+
 Pass `with crudish(updateOnly: true)` to emit only `update` — no
 canonical `create`/`destroy`.  Use it when another macro owns the
 create/delete lifecycle, e.g. `with crudish(updateOnly: true),

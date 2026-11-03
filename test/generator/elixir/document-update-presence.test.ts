@@ -1,8 +1,11 @@
 // ---------------------------------------------------------------------------
 // RS-26 on the DOCUMENT write seam (M-T6.26 residual).
 //
-// Loom's update contract is full-replacement: an ABSENT KEY is a missing field,
-// and the other four backends reject it at their deserialization boundary.  On
+// An `update` that is a COMMAND (its body does more than assign its own
+// parameters) is full-replacement: an ABSENT KEY is a missing field, and the
+// other four backends reject it at their deserialization boundary.  The crudish
+// `update` is a merge patch instead (RS-47), and keeps the merge
+// `on_replace: :update` already gives — the last test below.  On
 // Elixir the relational aggregate gets that from `update_changeset/2`'s
 // `__require_keys/3` (`changeset-emit.ts`) — but a `shape: document` aggregate
 // takes a different emitter entirely, and `document_changeset/3` had no
@@ -29,10 +32,22 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 const DOC_SYSTEM = `system DocPresence {
   subdomain S {
     context C {
-      aggregate Cart shape: document with crudish {
+      aggregate Cart shape: document {
         reference: string
         itemCount: int
         note: string?
+        create(reference: string, itemCount: int, note: string?) {
+          reference := reference
+          itemCount := itemCount
+          note := note
+        }
+        operation update(reference: string, itemCount: int, note: string?) {
+          precondition itemCount >= 0 message "A cart cannot hold a negative count"
+          reference := reference
+          itemCount := itemCount
+          note := note
+        }
+        destroy { }
       }
       repository Carts for Cart { }
     }
@@ -49,8 +64,8 @@ const DOC_SYSTEM = `system DocPresence {
   }
 }`;
 
-async function emitted(suffix: string): Promise<string> {
-  const files = await generateSystemFiles(DOC_SYSTEM);
+async function emitted(suffix: string, source = DOC_SYSTEM): Promise<string> {
+  const files = await generateSystemFiles(source);
   for (const [p, c] of files) if (p.endsWith(suffix)) return c;
   throw new Error(`${suffix} not found in: ${[...files.keys()].join(", ")}`);
 }
@@ -108,5 +123,17 @@ describe("a document aggregate's PUT rejects an omitted required field", () => {
     expect(repo).toMatch(/def update\([\s\S]*?document_update_changeset\(attrs,/);
     // Create is a construction, not a replacement — it keeps the plain head.
     expect(repo).toMatch(/def insert\([\s\S]*?\|> \w[\w.]*\.document_changeset\(attrs, 1\)/);
+  });
+
+  it("is absent from the merge-patch crudish update (RS-47) — the merge is the contract", async () => {
+    const crudish = DOC_SYSTEM.replace(
+      /aggregate Cart shape: document \{[\s\S]*?\n {6}\}\n/,
+      "aggregate Cart shape: document with crudish {\n        reference: string\n        itemCount: int\n        note: string?\n      }\n",
+    );
+    expect(crudish).toContain("with crudish");
+    const changeset = await emitted("/cart_changeset.ex", crudish);
+    expect(changeset).toContain("def document_update_changeset(");
+    expect(changeset).not.toContain("__require_keys");
+    expect(changeset).not.toContain("__clear_absent");
   });
 });

@@ -8,6 +8,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { mergePatchFields } from "../../../ir/util/merge-patch.js";
 import {
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
@@ -401,9 +402,13 @@ export function emitOperationCommandAndHandler(
   idClass: string = `${agg.name}Id`,
 ): void {
   {
+    // A merge-patch update (RS-47) also carries the keys its body held; the
+    // handler passes the stored value for every other one.
+    const patch = mergePatchFields(op);
     const params = [
       `${idClass} Id`,
       ...op.params.map((p) => `${renderCsType(p.type)} ${upperFirst(p.name)}`),
+      ...(patch ? ["IReadOnlySet<string> PatchedKeys"] : []),
     ].join(", ");
     // Exception-less return-typed op (exception-less.md): the command carries
     // the Domain union as its result (`ICommand<Union>`), the handler returns it
@@ -452,7 +457,11 @@ export function emitOperationCommandAndHandler(
     // The handler evaluates the gate, so it needs the accessor injected even
     // when the remaining body takes no principal.
     const gateUsesUser = operationGatesUseCurrentUser(op);
-    const baseCallArgs = op.params.map((p) => `command.${upperFirst(p.name)}`);
+    const baseCallArgs = op.params.map((p) =>
+      patch
+        ? `(command.PatchedKeys.Contains(${JSON.stringify(p.name)}) ? command.${upperFirst(p.name)} : aggregate.${upperFirst(p.name)})`
+        : `command.${upperFirst(p.name)}`,
+    );
     const callArgs = (usesUser ? [...baseCallArgs, "_currentUser.User"] : baseCallArgs).join(", ");
     const userExtraDeps =
       usesUser || gateUsesUser ? [{ type: "ICurrentUserAccessor", field: "_currentUser" }] : [];

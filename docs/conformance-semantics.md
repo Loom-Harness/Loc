@@ -854,12 +854,14 @@ the conforming backends, and the fix that established it.
   (`tenancy-owned` `$.tenantId`). Tier: **behavioral**.
 
 ### RS-26 · An omitted UPDATE field is a client error, never a silent default
-- **Guarantee.** A field omitted from a full-replacement `PUT` is **rejected** as
-  missing required input. It is not silently set to a zero value, and the create
-  default is **not** re-applied.
-- **Trigger.** `active: bool = true`; a PUT body omitting `active`.
-- **Observable.** `PUT` without `"active"` is rejected — it does **not** store
-  `active=false`.
+- **Guarantee.** A field omitted from an operation body is **never** silently
+  set to a zero value, and the create default is **not** re-applied. On a
+  command it is **rejected** as missing required input. The generated `update`
+  is a merge patch instead ([RS-47](#rs-47--the-generated-update-body-is-a-json-merge-patch-an-absent-key-keeps-the-stored-value-null-clears-a-t-field)):
+  there the omitted field keeps its stored value — still not a default.
+- **Trigger.** `active: bool = true`; an operation body omitting `active`.
+- **Observable.** A command without `"active"` is rejected; the merge-patch
+  `update` without it keeps the stored value. Neither stores `active=false`.
 - **Relation to [RS-6](#rs-6--boolean-create-defaults-materialize-at-the-wire-boundary).**
   The exact inverse, and the half that eats data. RS-6 says an omitted *create*
   bool materializes its declared default. A default is a **construction** rule,
@@ -1913,7 +1915,9 @@ nothing and the test passes vacuously.
   parameters that receives an empty body (≡ `{}`) or a `{}` missing one answers
   422 with one `errors[]` entry per absent key —
   `{ "pointer": "/reason", "message": "reason is required" }` — before the
-  row is loaded, on operations, workflows and `route`d handlers. Elixir used to hand
+  row is loaded, on operations, workflows and `route`d handlers. (The generated
+  `update` takes a merge patch, RS-47: `{}` is a valid no-op there, and only an
+  explicit `null` on a required field earns this entry.) Elixir used to hand
   the nil to the operation body and answer **500**; the `require_command_params`
   controller plug refuses it first. The sentence was each framework's own
   (node `Invalid input: expected string, received undefined`, python `Field
@@ -2199,3 +2203,90 @@ nothing and the test passes vacuously.
 - **Provenance.** #3593 item 6. Tier: **behavioral**:
   `test/behavioral/wire-golden/concurrency-two-writers.json`, diffed by every
   wire-gated leg.
+
+### RS-47 · The generated `update` body is a JSON Merge Patch: an absent key keeps the stored value, `null` clears a `T?` field
+- **Guarantee.** The body of an aggregate's `update` operation that only assigns
+  each parameter to the same-named field (`with crudish` writes one) is a
+  [RFC 7396](https://www.rfc-editor.org/rfc/rfc7396) merge patch on every
+  backend:
+  - a key the body leaves out keeps the stored value;
+  - `null` clears an optional (`T?`) field;
+  - `null` on a required field is refused at the wire with the missing-field
+    entry, `{ "pointer": "/title", "message": "title is required" }`, before the
+    row loads (422, `Validation failed`);
+  - any other value sets the field.
+
+  The handler loads the row, passes the stored value for every absent key and
+  calls the operation as before, so its gates, invariants, lifecycle stamps and
+  `If-Match` check (RS-46) run unchanged. An empty patch `{}` is a valid no-op
+  that still counts as a persisted mutation (RS-20: the version moves). No key
+  of the request schema is `required`; only a `T?` member is nullable.
+- **Rules over a patch.** A wire rule (an invariant or precondition the request
+  schema checks, `ruleStage`) is judged at the schema stage only when the patch
+  carries every member it reads (`ruleMembers`, `src/ir/util/merge-patch.ts`).
+  A patch that leaves one out passes the schema, and the domain floor judges the
+  MERGED state — the RS-15 422 with the rule's `errors[]` entry. When the
+  schema stage refuses, the domain floor never runs.
+- **Trigger.** `test/fixtures/corpus/merge-patch-update.ddd`:
+
+  ```ddd
+  aggregate Memo with crudish {
+    title: string
+    note: string?
+    pages: int
+    minPages: int = 0
+    invariant pages >= 0 message "Pages cannot be negative"
+    invariant minPages <= pages message "A memo has at least its minimum pages"
+  }
+  ```
+
+  `update(m, { title: "Renamed" })` keeps `note` and `pages`;
+  `{ note: null }` clears `note`; `{ title: null }` is a 422; `{ pages: -1 }` is
+  the wire 422 (`/pages`); `{ minPages: 5 }` against a stored `pages: 3` is the
+  domain-floor 422.
+- **Where it lives.** One IR predicate decides which operation is a merge patch
+  and which members a rule reads (`mergePatchFields` / `ruleMembers`,
+  `src/ir/util/merge-patch.ts`); each backend reads it:
+
+  ```ts
+  // node — http/memo.routes.ts
+  const UpdateMemoRequest = z.object({
+    title: z.string().refine((s: string) => !s.includes("\u0000")).optional(),
+    note: z.string().nullish(),
+    // …
+  }).openapi("UpdateMemoRequest")
+    .refine((data: any) => data.minPages === undefined || data.pages === undefined || (data.minPages <= data.pages), { /* … */ });
+  aggregate.update((body.title === undefined ? aggregate.title : body.title), (body.note === undefined ? aggregate.note : (body.note == null ? null : body.note)), /* … */);
+  ```
+  ```python
+  # python — app/http/memo_routes.py: absence is `model_fields_set`
+  found.update((body.title if body.title is not None else found.title), (body.note if "note" in body.model_fields_set else found.note), ...)
+  ```
+
+  .NET's `Update<Agg>Request` and java's are classes whose setters record the
+  keys the body carried (`PatchedKeys()` / `has(key)`), because a JSON
+  deserializer calls a setter only for a key that is present, `null` included;
+  the .NET handler and the java service pass the stored value for every other
+  key. Elixir's update changeset is already a merge — `cast/3` leaves an absent
+  key's stored value — so it drops the full-replacement presence and clearing
+  checks, refuses a required `null` in the `refuse_null_patch_params` plug, and
+  re-stages each messaged rule by the keys the patch carried
+  (`validate_patch_invariants/2`).
+- **Masked fields.** A caller who cannot read a `mask unless` field no longer
+  has to send it, so an update no longer wipes what the caller could not see
+  (#3600). A caller who sends one still writes it — the write side is not
+  masked (`docs/auth.md`).
+- **Relation to [RS-26](#rs-26--an-omitted-update-field-is-a-client-error-never-a-silent-default).**
+  RS-26's half that still holds is "never a silent default": an absent key is
+  not the declared default, not a zero value and not `null`; it is the stored
+  value. Every operation that is not a merge-patch `update` stays a command with
+  positional parameters, and RS-26 applies to it unchanged.
+- **The split when ruled.** All five backends read the body as a full
+  replacement: an `update` omitting `note` cleared it, and one omitting a
+  required field was a 422 (#4109).
+- **Conforms.** node, dotnet, java, python, elixir.
+- **Provenance.** #4109 (owner ruling: the generated update is a JSON Merge
+  Patch, D-ABSENCE-MODEL); #3600. Tier: **behavioral** —
+  `test/behavioral/wire-golden/merge-patch-update.json`, diffed by every
+  wire-gated leg; the per-backend emission is pinned by
+  `test/generator/merge-patch-update.test.ts`.

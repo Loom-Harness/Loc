@@ -15,6 +15,7 @@ import {
   deriveAggregateOperations,
   isAllFind,
 } from "../../../ir/util/api-surface.js";
+import { mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
@@ -22,6 +23,7 @@ import { findUnionSpec, unionMembers } from "../../_payload/union-wire.js";
 import {
   collectWireUsings,
   csIdValueClrType,
+  isWireValueType,
   wireToCommandArgument,
   wireType,
 } from "../dto-mapping.js";
@@ -77,12 +79,14 @@ export function buildOperationSpec(
     // URL segment from routeSlug (D-URLSTYLE); name stays the verb
     // for the C# action method + command type.
     routeSlug: op.routeSlug,
-    cmdArgs: op.params.map((p) =>
-      wireToCommandArgument(`request.${upperFirst(p.name)}`, p.type, ctx, {
-        ns,
-        pointer: `/${p.name}`,
-      }),
-    ),
+    cmdArgs:
+      mergePatchCmdArgs(op, ctx, ns) ??
+      op.params.map((p) =>
+        wireToCommandArgument(`request.${upperFirst(p.name)}`, p.type, ctx, {
+          ns,
+          pointer: `/${p.name}`,
+        }),
+      ),
     // Wire-shape key set for --trace's wire_in line.  Param names
     // are lowerCamel in the IR — same form the JSON wire uses
     // (default ASP.NET JsonNamingPolicy.CamelCase).
@@ -108,6 +112,31 @@ export function buildOperationSpec(
     // `[ProducesResponseType(typeof(<Wire>), 200)]` + `return Ok(result)` path.
     returnScalar: buildReturnScalarSpec(op, ctx),
   };
+}
+
+/** A merge-patch update's command arguments (RS-47): every request property
+ *  is nullable, so a REQUIRED field's absent key binds a placeholder the
+ *  handler never reads — it passes the stored value for every key outside
+ *  `PatchedKeys()`, the trailing argument.  An optional field converts exactly
+ *  as before (`null` is a value the patch may carry).  `undefined` for any
+ *  other operation. */
+function mergePatchCmdArgs(
+  op: OperationIR,
+  ctx: EnrichedBoundedContextIR,
+  ns: string,
+): string[] | undefined {
+  const fields = mergePatchFields(op);
+  if (!fields) return undefined;
+  return [
+    ...fields.map((f) => {
+      const expr = `request.${upperFirst(f.name)}`;
+      const site = { ns, pointer: `/${f.name}` };
+      if (f.nullable) return wireToCommandArgument(expr, f.type, ctx, site);
+      const present = isWireValueType(f.type) ? `${expr}!.Value` : `${expr}!`;
+      return `(${expr} is null ? default! : ${wireToCommandArgument(present, f.type, ctx, site)})`;
+    }),
+    "request.PatchedKeys()",
+  ];
 }
 
 /** Wire type for a SCALAR operation return (`operation describe(): string` —
