@@ -1004,6 +1004,33 @@ defp serialize(record) do
 end
 ```
 
+#### Masked fields and the generated `update`
+
+The write side is not masked: a masked field is an ordinary update input. The
+generated `update` (`with crudish`) is a JSON Merge Patch
+([RS-47](conformance-semantics.md#rs-47--the-generated-update-body-is-a-json-merge-patch-an-absent-key-keeps-the-stored-value-null-clears-a-t-field)),
+so a caller who reads the field as `null` leaves it out of the patch and the
+stored value stays — an update no longer wipes what the caller could not see.
+
+```ddd
+aggregate Employee with crudish {
+  name: string
+  salary: decimal mask unless currentUser.permissions.contains(permissions.unmask)
+}
+```
+
+```ts
+// generated (Hono) — http/employee.routes.ts: an absent key passes the stored value
+aggregate.update((body.name === undefined ? aggregate.name : body.name), (body.salary === undefined ? aggregate.salary : body.salary));
+```
+
+Two edges are deliberate. A caller who does **send** a masked field still
+writes it, whether or not it can read it back — gate that with a `requires` on
+the operation, as below. And a client that echoes a whole read body back as its
+patch sends the masked field as `null`: on an optional field that clears it, and
+on a required one it is refused (422, `"salary is required"`). Send only the
+keys you mean to change.
+
 **Status (M-T3.2 item 6).** Grammar + IR + printer + wire contract + validation,
 plus read redaction on **all five backends** (node, .NET, Python, Java, Elixir),
 have shipped — a `mask unless` field now redacts fail-closed on every backend.

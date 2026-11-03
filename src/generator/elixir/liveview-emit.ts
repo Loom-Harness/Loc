@@ -58,6 +58,7 @@ import {
 } from "../_frontend/e2e-harness.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
+import { componentKeyPrefix, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { opUsesCurrentUser } from "./domain/predicates.js";
 import {
   type ActionBinding,
@@ -71,7 +72,7 @@ import {
   type UploadBinding,
   walkBodyToHeex,
 } from "./heex-walker.js";
-import { heexI18nEnabled } from "./i18n.js";
+import { heexI18nEnabled, pgettextCall } from "./i18n.js";
 import { buildPlaywrightPageObject, pageObjectPathFor } from "./page-objects-emit.js";
 import { exprUsesBind, REALTIME_TOPIC, renderMessageExprElixir } from "./realtime-liveview.js";
 import { renderExpr as renderDomainExpr } from "./render-expr.js";
@@ -363,7 +364,7 @@ export function emitLiveViewPages(args: {
       partContextModule,
       contextModuleByAggName,
       contextByAggName,
-      i18nEnabled ? `component.${c.name}` : undefined,
+      i18nEnabled ? componentKeyPrefix(ui, c) : undefined,
       c.name,
     );
     componentInfo.set(c.name, {
@@ -876,7 +877,7 @@ function renderLiveView(a: RenderArgs): {
     // i18n key prefix — `page.<Name>` matches the catalog (the scaffold's
     // role-scoped `page.name`, not the router emit name); undefined when the ui
     // has no extractable strings (byte-identical to pre-i18n).
-    a.i18nEnabled ? `page.${page.name}` : undefined,
+    a.i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
     undefined,
     a.refLabelBatchAggs,
   );
@@ -929,6 +930,7 @@ function renderLiveView(a: RenderArgs): {
     liftedState,
     a.refLabelAggs,
     walked.refLabelBindings,
+    a.i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
   );
   const handleParams = renderHandleParams(
     page,
@@ -1429,6 +1431,9 @@ function renderMount(
   /** Targets whose `IdLink`s read `@<x>_labels` — seeded `%{}` here so the
    *  template resolves before (or without) a load filling it. */
   refLabelBindings: readonly string[] = [],
+  /** i18n key prefix (`page.<Name>`) — set only when the UI has extractable
+   *  strings; the page `title:` keys against it. */
+  i18nPrefix?: string,
 ): string {
   // `if connected?(socket), do: subscribe` — only the live (websocket-
   // connected) mount subscribes; the initial static render skips it.  Prepended
@@ -1437,6 +1442,18 @@ function renderMount(
     ? `    if connected?(socket), do: Phoenix.PubSub.subscribe(${realtimeAppModule}.PubSub, ${JSON.stringify(REALTIME_TOPIC)})\n`
     : "";
   const assigns: string[] = [];
+  // Per-page document title: the root layout reads `@page_title` (falling back
+  // to the app name).  Only a plain literal can be set here — `mount` runs
+  // before route params and loaded records exist, so an interpolated title has
+  // nothing to read.  Under i18n it translates through the catalog key
+  // `collectUiMessages` wrote.
+  const pageTitle = page.title;
+  if (pageTitle && pageTitle.kind === "literal" && pageTitle.lit === "string") {
+    const rendered = i18nPrefix
+      ? pgettextCall(messageKey(i18nPrefix, "title", pageTitle.value), pageTitle.value)
+      : elixirString(pageTitle.value);
+    assigns.push(`      |> assign(:page_title, ${rendered})`);
+  }
   for (const f of page.state) {
     // The field's declared `= <init>`, else the type-aware default from the
     // walker — single source of truth so `state.field` defaults match across
@@ -2388,7 +2405,7 @@ function renderUiComponents(args: {
         partContextModule,
         contextModuleByAggName,
         args.bcByAggregate,
-        args.i18nEnabled ? `component.${c.name}` : undefined,
+        args.i18nEnabled ? componentKeyPrefix(ui, c) : undefined,
         c.name,
       );
       // Lifted state arrives as an attr of the same namespaced name the host

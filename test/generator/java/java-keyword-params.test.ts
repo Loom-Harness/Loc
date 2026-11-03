@@ -196,7 +196,7 @@ describe("java — reserved-word param / binding names: declaration and use agre
   it("the JPA retrieval delegate passes the mangled param", async () => {
     const r = await file(SOURCE, "OrderRepositoryImpl.java");
     expect(r).toContain("public List<Order> runByReg(String case_) {");
-    expect(r).toContain("return jpa.runByReg(case_, Pageable.unpaged());");
+    expect(r).toContain("var result = jpa.runByReg(case_, Pageable.unpaged());");
   });
 
   it("workflow request components and spine bindings mangle", async () => {

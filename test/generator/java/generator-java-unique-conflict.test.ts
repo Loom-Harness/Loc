@@ -48,4 +48,16 @@ describe("java generator — unique breach maps to 409", () => {
       'CatalogLog.event("disallowed", "warn", "message", "A resource with these values already exists.", "status", 409);',
     );
   });
+
+  it("answers 409 only for 23505; every other SQLState takes the catch-all", async () => {
+    const advice = (await generateSystemFiles(SRC)).get(`${ROOT}/api/ApiExceptionAdvice.java`)!;
+    const handler = advice.slice(advice.indexOf("onConflict("));
+    const guard = handler.indexOf(
+      'if (!"23505".equals(sqlState(e))) return onUnhandled(e, request);',
+    );
+    const conflict = handler.indexOf("return respond(problem(409");
+    expect(guard).toBeGreaterThan(-1);
+    // The guard precedes the 409, so a 23514 check violation never reaches it.
+    expect(conflict).toBeGreaterThan(guard);
+  });
 });

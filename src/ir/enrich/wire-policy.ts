@@ -537,7 +537,12 @@ export function ingressFor(primitive: WirePrimitive): WireIngress {
  *
  *  A backend whose schema layer cannot express a `schema`-stage rule must
  *  still refuse it as `field-invalid` (a hand-written arm), never fall back to
- *  the domain floor. */
+ *  the domain floor.
+ *
+ *  On a merge-patch `update` (RS-47) every member is optional, so a `schema`
+ *  rule is judged there only when the patch carries every member it reads
+ *  (`ruleMembers`, `src/ir/util/merge-patch.ts`); a patch that leaves one out
+ *  defers it to the domain floor over the merged state. */
 export function ruleStage(
   rule: InvariantIR,
   available: ReadonlySet<string>,

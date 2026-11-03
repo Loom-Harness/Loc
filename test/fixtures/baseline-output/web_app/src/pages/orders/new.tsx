@@ -18,11 +18,11 @@ export default function OrderNew() {
   return (
     <Stack gap="md" data-testid="orders-new-page">
       <Breadcrumbs>
-        <Anchor component={RouterLink} to="/">{t("page.New.anchor.n0mxf2", "Home")}</Anchor>
-        <Anchor component={RouterLink} to="/orders">{t("page.New.anchor.xf3i18", "Orders")}</Anchor>
-        <Text>{t("page.New.text.2ludo1", "New")}</Text>
+        <Anchor component={RouterLink} to="/">{t("WebApp.page.New.anchor.n0mxf2", "Home")}</Anchor>
+        <Anchor component={RouterLink} to="/orders">{t("Orders.Order.name.other", "Orders")}</Anchor>
+        <Text>{t("WebApp.page.New.text.2ludo1", "New")}</Text>
       </Breadcrumbs>
-      <Title order={2}>{t("page.New.heading.9g1249", "Create order")}</Title>
+      <Title order={2}>{t("WebApp.page.New.heading.9g1249", "Create order")}</Title>
       <Card withBorder padding="md">
         <form onSubmit={handleSubmit(async (vals) => {
                   try {
@@ -39,20 +39,20 @@ export default function OrderNew() {
                   }
                 })} data-testid="orders-new">
           <Stack gap="md">
-            <TextInput label="Customer Id" {...register("customerId")} data-testid="orders-new-input-customerId" error={errors.customerId?.message} />
+            <TextInput label={ t("Orders.Order.field.customerId", "Customer Id") } {...register("customerId")} data-testid="orders-new-input-customerId" error={errors.customerId?.message} />
     
             <Controller
               control={control}
               name="status"
               render={({ field, fieldState }) => (
-                <Select label="Status" data-testid="orders-new-input-status" data={ ["Draft","Confirmed","Shipped","Cancelled"] } allowDeselect={false} value={field.value as string} onChange={(v) => field.onChange(v)} error={fieldState.error?.message} />
+                <Select label={ t("Orders.Order.field.status", "Status") } data-testid="orders-new-input-status" data={ (["Draft","Confirmed","Shipped","Cancelled"]).map((v) => ({ value: v, label: (((v: string | null | undefined): string => v == null ? "" : ({ "Draft": t("Orders.OrderStatus.value.Draft", "Draft"), "Confirmed": t("Orders.OrderStatus.value.Confirmed", "Confirmed"), "Shipped": t("Orders.OrderStatus.value.Shipped", "Shipped"), "Cancelled": t("Orders.OrderStatus.value.Cancelled", "Cancelled") } as Record<string, string>)[v] ?? v))(v) })) } allowDeselect={false} value={field.value as string} onChange={(v) => field.onChange(v)} error={fieldState.error?.message} />
               )}
             />
     
-            <TextInput label="Placed At" {...register("placedAt")} data-testid="orders-new-input-placedAt" type="datetime-local" error={errors.placedAt?.message} />
+            <TextInput label={ t("Orders.Order.field.placedAt", "Placed At") } {...register("placedAt")} data-testid="orders-new-input-placedAt" type="datetime-local" error={errors.placedAt?.message} />
     
             <Group justify="flex-end" gap="xs" mt="md">
-              <Button type="submit" loading={ create.isPending } data-testid="orders-new-submit">Create</Button>
+              <Button type="submit" loading={ create.isPending } data-testid="orders-new-submit">{t("Orders.Order.op.create", "Create")}</Button>
             </Group>
           </Stack>
         </form>

@@ -183,9 +183,10 @@ export function isRequiredCreateInput(f: RequirableInput): boolean {
  *  of default does.
  *
  *  A default — explicit `= value` or the language-defined implicit `bool` one —
- *  is a CONSTRUCTION rule, and Loom's update contract is full-replacement (the
- *  PUT carries every field), so there is nothing to construct and "absent" can
- *  only mean "a required field is missing".  That is RS-26
+ *  is a CONSTRUCTION rule, and a command-shaped update replaces every field, so
+ *  there is nothing to construct and "absent" can only mean "a required field
+ *  is missing".  (The merge-patch `update`, RS-47, reads an absent key as the
+ *  stored value instead — still never a default.)  That is RS-26
  *  (`test/conformance/semantics-rules.ts`), and it is why this function must
  *  NOT consult `hasImplicitDefault` — a create-input predicate.
  *
@@ -226,8 +227,8 @@ export function isRequiredUpdateInput(f: RequirableInput): boolean {
  *  `valueobject`) with a narrower one (`Leg[]` vs `string[]`), and "absent
  *  means empty" is no less true of `tags: string[]`.
  *
- *  CREATE-side only.  {@link isRequiredUpdateInput} must not consult this —
- *  Loom's update contract is full-replacement, so an absent collection there
+ *  CREATE-side only.  {@link isRequiredUpdateInput} must not consult this — a
+ *  command-shaped update replaces every field, so an absent collection there
  *  means "a required field is missing", not "empty" (RS-26). */
 function hasImplicitDefault(t: TypeIR): boolean {
   const base = t.kind === "optional" ? t.inner : t;

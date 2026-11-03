@@ -181,7 +181,7 @@ describe("feliz create forms", () => {
     // The submit is disabled until the form validates (both fields non-empty);
     // it carries the `<plural>-new-submit` testid the page object clicks.
     expect(app).toContain(
-      'Html.button [ prop.custom("data-testid", "products-new-submit"); prop.className "btn btn-primary"; prop.disabled (not (Validation.productCreateFormValid model.ProductCreateForm)); prop.onClick (fun _ -> dispatch SubmitProductCreateForm); prop.text "Create Product" ]',
+      'Html.button [ prop.custom("data-testid", "products-new-submit"); prop.className "btn btn-primary"; prop.disabled (not (Validation.productCreateFormValid model.ProductCreateForm)); prop.onClick (fun _ -> dispatch SubmitProductCreateForm); prop.text (I18n.t "Cat.Product.op.create" "Create") ]',
     );
     // The form container carries the New-page root testid the page object waits for.
     expect(app).toContain('Html.div [ prop.custom("data-testid", "products-new"); prop.className');
@@ -393,7 +393,11 @@ describe("feliz create forms", () => {
     );
     expect(app).toContain('prop.ariaDescribedBy "ProductCreateForm-status-error"');
     expect(app).toContain(
-      'prop.children [ Html.option [ prop.value "active"; prop.text "active" ]; Html.option [ prop.value "inactive"; prop.text "inactive" ]; Html.option [ prop.value "archived"; prop.text "archived" ] ] ]',
+      'prop.children [ Html.option [ prop.value "active"; prop.text (I18n.t "Cat.Status.value.active" "Active") ]; Html.option [ prop.value "inactive"; prop.text (I18n.t "Cat.Status.value.inactive" "Inactive") ]; Html.option [ prop.value "archived"; prop.text (I18n.t "Cat.Status.value.archived" "Archived") ] ] ]',
+    );
+    // Each input carries its identity-keyed label above it.
+    expect(app).toContain(
+      'Html.label [ prop.className "label-text font-semibold"; prop.text (I18n.t "Cat.Product.field.status" "Status") ]',
     );
     // Required enum defaults to its FIRST value (select always has a selection).
     expect(app).toContain('status = "active"');
@@ -401,7 +405,7 @@ describe("feliz create forms", () => {
     expect(app).toContain("IsNullOrWhiteSpace form.status");
     // Optional enum → a LEADING blank option, starts "", encodes null, exempt.
     expect(app).toContain(
-      'Html.select [ prop.custom("data-testid", "products-new-input-tier"); prop.className "select select-bordered w-full"; prop.value model.ProductCreateForm.tier; prop.onChange (fun (v: string) -> dispatch (SetProductCreateFormTier v)); prop.children [ Html.option [ prop.value ""; prop.text "" ]; Html.option [ prop.value "free"; prop.text "free" ]; Html.option [ prop.value "pro"; prop.text "pro" ] ] ]',
+      'Html.select [ prop.custom("data-testid", "products-new-input-tier"); prop.className "select select-bordered w-full"; prop.value model.ProductCreateForm.tier; prop.onChange (fun (v: string) -> dispatch (SetProductCreateFormTier v)); prop.children [ Html.option [ prop.value ""; prop.text "" ]; Html.option [ prop.value "free"; prop.text (I18n.t "Cat.Tier.value.free" "Free") ]; Html.option [ prop.value "pro"; prop.text (I18n.t "Cat.Tier.value.pro" "Pro") ] ] ]',
     );
     expect(app).toContain('tier = ""');
     expect(app).toContain(

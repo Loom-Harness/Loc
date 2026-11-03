@@ -3,8 +3,8 @@
           name="{{path}}"
           render={({ field, fieldState }) => (
             <FormControl fullWidth size="small" error={!!fieldState.error}>
-              <InputLabel>{{label}}</InputLabel>
-              <Select label="{{label}}" data-testid="{{testId}}" value={field.value as string ?? ""} onChange={(e) => field.onChange(e.target.value)}>
+              <InputLabel>{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</InputLabel>
+              <Select {{#if labelExpr}}label={ {{{labelExpr}}} }{{else}}label="{{label}}"{{/if}} data-testid="{{testId}}" value={field.value as string ?? ""} onChange={(e) => field.onChange(e.target.value)}>
                 {({{{optionsExpr}}}).map((__o) => (
                   <MenuItem key={__o.id} value={__o.id} data-testid={`{{testId}}-option-${__o.id}`}>{__o["{{displayField}}"]}</MenuItem>
                 ))}

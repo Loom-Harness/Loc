@@ -59,7 +59,7 @@ A multi-verb **steward** group:
 
 | Verb | Role |
 |---|---|
-| `ddd i18n init` | scaffold `<repo>/locales/` + `.loom/source.lock.json` |
+| `ddd i18n init` | scaffold `<repo>/locales/<locale>/<ns>.json` + `.loom/source.lock/<ns>.json` |
 | `ddd i18n sync` | three-way merge (BASE = source.lock, OURS = translator file, THEIRS = current source) → updated locale files + refreshed lock |
 
 Both write under the author-owned `<repo>/locales/` tree (never under

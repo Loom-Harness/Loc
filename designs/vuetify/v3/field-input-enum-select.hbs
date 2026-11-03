@@ -1,2 +1,2 @@
-<v-select label="{{label}}" data-testid="{{testId}}" :items='{{{enumValuesJson}}}' v-model="form.values.{{path}}" :error-messages='form.errors["{{path}}"]' />
+<v-select {{#if labelExpr}}:label='{{{labelExpr}}}'{{else}}label="{{label}}"{{/if}} data-testid="{{testId}}" :items='{{#if enumLabelFn}}({{{enumValuesJson}}}).map((v) => ({ value: v, title: ({{{enumLabelFn}}})(v) })){{else}}{{{enumValuesJson}}}{{/if}}' v-model="form.values.{{path}}" :error-messages='form.errors["{{path}}"]' />
 

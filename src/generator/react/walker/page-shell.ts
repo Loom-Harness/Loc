@@ -38,7 +38,8 @@ import {
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import { ROUTER_PACKAGE } from "../../_packs/stack-runtime.js";
-import { chromeMessage, opDialogChrome } from "../../_walker/i18n-chrome.js";
+import { chromeMessage, opDialogChrome, sentenceChromeName } from "../../_walker/i18n-chrome.js";
+import { localizedPageTitle } from "../../_walker/i18n-emit.js";
 import { storeHookName, storeMemberLocal } from "../../_walker/js-target-helpers.js";
 import {
   addImportToMap,
@@ -411,8 +412,9 @@ export function renderCustomLayoutPage(
       collectedTestids: new Set(),
       usesCodeBlock: false,
       usesFileUpload: false,
+      i18nPrefix,
     };
-    const titleExpr = emitExpr(title, titleCtx);
+    const titleExpr = localizedPageTitle(title, titleCtx);
     // emitExpr may have added to usedParams; reflect title's state
     // usage separately so the shell knows whether to import useState.
     usesStateForTitle = titleCtx.usesState && !usesState;
@@ -820,7 +822,7 @@ function renderFormOpWiring(
     opPascal,
     opCamel: escapeTsIdent(lowerFirst(op.name)),
     idExpr,
-    humanOp: humanize(op.name),
+    humanOp: state.opLabel?.markup ?? humanize(op.name),
     // The dialog title: the authored `Modal { title: … }` (already translated,
     // the `modalTitle` catalog slot) when present, else the humanized op name —
     // which is what every pack hardcoded before the slot was honoured.  Two
@@ -832,12 +834,16 @@ function renderFormOpWiring(
     // actually USED (an unused entry is the same dead-catalog bug as an
     // unrendered slot, seen from the other side).  Neither ever equals
     // `humanOp`.
+    successMessage:
+      state.successMessage ??
+      JSON.stringify(chromeMessage(sentenceChromeName("operationSucceeded", op.name))),
     cancelLabel: state.cancelLabel ?? chromeMessage(opDialogChrome(humanize(op.name)).dismiss),
     closeLabelExpr:
       state.closeLabelExpr ??
       JSON.stringify(chromeMessage(opDialogChrome(humanize(op.name)).close)),
-    modalTitle: state.modalTitle || humanize(op.name),
-    modalTitleExpr: state.modalTitleExpr ?? JSON.stringify(humanize(op.name)),
+    modalTitle: state.modalTitle || state.opLabel?.markup || humanize(op.name),
+    modalTitleExpr:
+      state.modalTitleExpr ?? state.opLabel?.expr ?? JSON.stringify(humanize(op.name)),
     slug: routeSegmentFor(agg.name),
     srcImportPrefix,
     fieldArrays,

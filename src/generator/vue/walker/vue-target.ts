@@ -83,6 +83,9 @@ function quoteAttrExpr(expr: string, prefer: '"' | "'" = '"'): string {
  *  generator-core slice on) the shared markup walker. */
 export const vueTarget: WalkerTarget = {
   framework: "vue",
+  // The vue packs read the identity-keyed form label / enum option / submit
+  // tokens (`_walker/model-text-sites.ts`).
+  modelTextImplicitSites: true,
 
   // The chart component takes a FLAT point list, so the `x:`/`y:` accessors are
   // applied here rather than passed along as key names — the same split

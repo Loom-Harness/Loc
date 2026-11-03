@@ -53,6 +53,11 @@ system DevPlatform {
         fontFamily: "Inter, system-ui, sans-serif"
     }
 
+    // The language this model's text is written in (BCP-47); defaults to "en".
+    i18n {
+        source: "en"
+    }
+
     // Strongly-typed JWT claim shape; `currentUser` types against this.
     user {
         id: guid

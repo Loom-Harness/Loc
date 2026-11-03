@@ -24,14 +24,12 @@ import {
   chromeKey,
 } from "../../src/generator/_walker/i18n-chrome.js";
 import {
-  localizedChromeIcuExpr,
   localizedChromeIcuText,
   localizedChromeIcuValue,
 } from "../../src/generator/_walker/i18n-emit.js";
 import type { WalkContext } from "../../src/generator/_walker/walker-core.js";
 import { angularTarget } from "../../src/generator/angular/walker/angular-target.js";
 import { felizTarget } from "../../src/generator/feliz/feliz-target.js";
-import { flutterTarget } from "../../src/generator/flutter/flutter-target.js";
 import { tsxTarget } from "../../src/generator/react/walker/tsx-target.js";
 import { svelteTarget } from "../../src/generator/svelte/walker/svelte-target.js";
 import { vueTarget } from "../../src/generator/vue/walker/vue-target.js";
@@ -671,20 +669,20 @@ describe("pack-chrome i18n — select placeholder", () => {
   });
 
   it("emitter-built form chrome reaches the catalog when a page uses it", async () => {
-    // `Delete <Agg>` and its `window.confirm` prompt are built in the EMITTER
-    // from the aggregate name, so neither the content-hash extraction pass
-    // (literals in the .ddd body) nor the pack-chrome `.hbs` slice ever saw
-    // them — they shipped untranslated on every frontend.  They ride
-    // `FORM_CHROME`, so they are merged for an app that is ALREADY i18n-enabled
-    // rather than flipping i18n on for a form-only page.
+    // `Delete order` and its `window.confirm` prompt are built in the EMITTER,
+    // so neither the content-hash extraction pass (literals in the .ddd body)
+    // nor the pack-chrome `.hbs` slice ever saw them.  Each is a whole sentence
+    // for the aggregate the `DestroyForm` names, merged for an app that is
+    // ALREADY i18n-enabled rather than flipping i18n on for a form-only page.
     const files = await generateSystemFiles(
       SYSTEM("react", "shadcn", `Stack { Heading { "Welcome" }, DestroyForm { of: Order } }`),
     );
     const catalog = catalogOf(files);
-    expect(catalog[chromeKey("deleteEntity")]).toBe(CHROME_MESSAGES[chromeKey("deleteEntity")]);
-    expect(catalog[chromeKey("deleteConfirm")]).toBe(CHROME_MESSAGES[chromeKey("deleteConfirm")]);
+    expect(catalog[chromeKey("deleteEntity.Order")]).toBe("Delete Order");
+    expect(catalog[chromeKey("deleteConfirm.Order")]).toBe("Delete this order?");
+    expect(catalog[chromeKey("deleteConfirm")]).toBeUndefined();
     const page = [...files].find(([p]) => p.endsWith("home.tsx"))![1];
-    expect(page).toContain('t("chrome.deleteConfirm"');
+    expect(page).toContain('t("chrome.deleteConfirm.Order", "Delete this order?")');
   });
 });
 
@@ -830,52 +828,15 @@ describe("pack-chrome i18n — the Table pager", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Per-column control ARIA — holed chrome in ATTRIBUTE position
+// Per-column control names
 // ---------------------------------------------------------------------------
 //
-// "Sort by {column}" / "Filter by {column}" are the counter's problem one step
-// harder: an ICU message whose i18n-off form is a CONCATENATION, and which lands
-// in an attribute rather than in text.  The counter's off-path could reuse
-// `renderInterpolation` (markup text position); an attribute has no such seam,
-// and the raw spelling diverges four ways — a JS template literal on
-// React/Svelte/Vue, `'…' + String(…)` on Angular (whose template grammar has no
-// template literals), F# `+` on Feliz, Dart `${…}` interpolation on Flutter.
-//
-// Hence `renderStringConcat`: literal + expression pieces → one target-native
-// string expression, with the JS template literal as the default so the three
-// targets that already spelled it that way implement nothing.
-//
-// Unlike the pager the keys are contributed EXACTLY (`gridHasSortableColumn` /
-// `gridHasFilterableColumn`), not merged: both predicates are fully readable off
-// the call node, so no over-merge is needed.
-
-describe("renderStringConcat — the i18n-off spelling, per target", () => {
-  // The exact strings the packs and child renderers carried before this slice.
-  // Asserting against them is the byte-identity proof: the off-path is
-  // unreachable through the generator (a `DataGrid` always enables i18n, so its
-  // aria always binds), which is precisely why the seam needs pinning here.
-  const PARTS = [
-    { text: "Sort by " },
-    { expr: "String(h.column.columnDef.header ?? h.id)" },
-  ] as const;
-  const jsForm = "`Sort by ${String(h.column.columnDef.header ?? h.id)}`";
-
-  it.each([
-    ["react", tsxTarget, jsForm],
-    ["svelte", svelteTarget, jsForm],
-    ["vue", vueTarget, jsForm],
-    ["angular", angularTarget, "'Sort by ' + String(h.column.columnDef.header ?? h.id)"],
-    ["feliz", felizTarget, '("Sort by " + String(h.column.columnDef.header ?? h.id))'],
-    ["flutter", flutterTarget, "'Sort by ${String(h.column.columnDef.header ?? h.id)}'"],
-  ])("%s", (_name, target, expected) => {
-    // An unset seam IS the contract for the three JS-template-literal targets,
-    // so the default is exercised through the same helper the emitters use.
-    const ctx = { target, i18nPrefix: undefined } as unknown as WalkContext;
-    expect(localizedChromeIcuExpr(ctx, "sortBy", [{ name: "column", expr: PARTS[1].expr }])).toBe(
-      expected,
-    );
-  });
-});
+// A column's sort button is named by its own content (the header text), and its
+// filter input by the whole word "Filter": neither inserts the header into a
+// "Sort by {column}" frame, which cannot be right where the language declines
+// the noun.  The column is carried by the table structure — the input sits in
+// its header cell.  The filter key is contributed EXACTLY (`gridHasFilterable
+// Column`), readable off the call node.
 
 describe("pack-chrome i18n — per-column control ARIA", () => {
   /** A grid with row selection on — the checkbox column's two names.
@@ -939,37 +900,30 @@ describe("pack-chrome i18n — per-column control ARIA", () => {
     ["vue", "vuetify", "src/components/OrdersDataGrid.vue"],
     ["svelte", "flowbite", "src/lib/components/OrdersDataGrid.svelte"],
     ["angular", "angularMaterial", "src/app/components/orders-data-grid.component.ts"],
-  ])("%s/%s fills both control names from the column header", async (platform, design, file) => {
-    // That each control's `t()` call is BOUND is the i18n round-trip gate's
+  ])("%s/%s names the filter input with the whole word, and the sort button by its header", async (platform, design, file) => {
+    // That the control's `t()` call is BOUND is the i18n round-trip gate's
     // `unbound` direction (its probe grid is sortable and filterable).
     const files = await generateSystemFiles(SYSTEM(platform, design, ARIA_GRID(true, true)));
     const child = gridChildOf(files, file);
-    expect(child).toContain(`"chrome.filterBy", "Filter by {column}", { column: `);
-    // The hole is the COLUMN's own header, so the label still says WHICH column.
-    expect(child).toContain("String(h.column.columnDef.header ?? h.id)");
-    // No raw sentence left behind on either control.
-    expect(child).not.toContain("Sort by ${");
-    expect(child).not.toContain("'Filter by ' +");
+    expect(child).toContain(`"chrome.filter", "Filter"`);
+    // No sentence frame around the header, on either control.
+    expect(child).not.toContain("Sort by");
+    expect(child).not.toContain("Filter by");
+    expect(child).not.toContain("{column}");
     const catalog = catalogOf(files);
-    expect(catalog["chrome.sortBy"]).toBe("Sort by {column}");
-    expect(catalog["chrome.filterBy"]).toBe("Filter by {column}");
+    expect(catalog["chrome.filter"]).toBe("Filter");
+    expect(catalog["chrome.sortBy"]).toBeUndefined();
+    expect(catalog["chrome.filterBy"]).toBeUndefined();
   });
 
-  it("Feliz: F# values through the seam's WITH-VALUES arm", async () => {
+  it("Feliz: the filter input is named by the whole word, as an F# value", async () => {
     const app = gridChildOf(
       await generateSystemFiles(SYSTEM("feliz", "", ARIA_GRID(true, true))),
       "App.fs",
     );
-    expect(app).toContain(
-      `prop.ariaLabel (I18n.tf "chrome.sortBy" "Sort by {column}" ` +
-        `[ "column", box (loomText (h?column?columnDef?header)) ])`,
-    );
-    expect(app).toContain(
-      `prop.ariaLabel (I18n.tf "chrome.filterBy" "Filter by {column}" ` +
-        `[ "column", box (loomText (h?column?columnDef?header)) ])`,
-    );
-    expect(app).not.toContain(`("Sort by " + loomText`);
-    expect(app).not.toContain(`("Filter by " + loomText`);
+    expect(app).toContain(`prop.ariaLabel (I18n.t "chrome.filter" "Filter")`);
+    expect(app).not.toContain("Sort by");
+    expect(app).not.toContain("Filter by");
   });
 
   it("React stops shadowing the translator with the TanStack table", async () => {
@@ -1003,32 +957,24 @@ describe("pack-chrome i18n — per-column control ARIA", () => {
     expect(catalog["chrome.selectRow"]).toBeUndefined();
   });
 
-  it("each key is contributed by its OWN predicate, not by the grid as a whole", async () => {
-    // `sortable:` and `filterable:` are independent, so one gate would be wrong
-    // in both directions.  A sort-only grid renders a sort button and no filter
-    // input; the catalog has to say exactly that.
+  it("the filter key is contributed by its OWN predicate, not by the grid as a whole", async () => {
+    // `filterable:` is per column: a sort-only grid renders no filter input, and
+    // the catalog has to say exactly that.
     const sortOnly = catalogOf(
       await generateSystemFiles(SYSTEM("react", "mantine", ARIA_GRID(true, false))),
     );
-    expect(sortOnly["chrome.sortBy"]).toBe("Sort by {column}");
-    expect(sortOnly["chrome.filterBy"]).toBeUndefined();
+    expect(sortOnly["chrome.filter"]).toBeUndefined();
 
     const filterOnly = catalogOf(
       await generateSystemFiles(SYSTEM("react", "mantine", ARIA_GRID(false, true))),
     );
-    expect(filterOnly["chrome.filterBy"]).toBe("Filter by {column}");
+    expect(filterOnly["chrome.filter"]).toBe("Filter");
 
     const neither = catalogOf(
       await generateSystemFiles(SYSTEM("react", "mantine", ARIA_GRID(false, false))),
     );
-    expect(neither["chrome.filterBy"]).toBeUndefined();
+    expect(neither["chrome.filter"]).toBeUndefined();
     // …but the pager is unconditional, so its keys are still there.
     expect(neither["chrome.previous"]).toBe("Previous");
-    // `chrome.sortBy` is deliberately NOT asserted absent here.  The GRID
-    // contributes it exactly (the sort-only case above proves that), but
-    // `Table`'s sortable header needs it too and cannot be gated on the call
-    // node — so it also rides `TABLE_CONTROLS_CHROME`, merged into every
-    // i18n-enabled app.  `filterBy` has no such second home, which is why it
-    // stays the honest witness that the two predicates are independent.
   });
 });

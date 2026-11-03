@@ -115,7 +115,6 @@ import {
   deriveAggregateOperations,
   explicitStaticSubpaths,
   findValidatesRequest,
-  isAllFind,
   relativeOpPath,
   servedOperations,
   staticSubpathMethods,
@@ -124,6 +123,7 @@ import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-li
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { isMergePatchUpdate, ruleMembers } from "../../../ir/util/merge-patch.js";
 import {
   callerGates,
   lifecycleGates,
@@ -157,7 +157,7 @@ import type {
 } from "../../../ir/validate/invariant-classify.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
-import { escapeTargetMember } from "../../../util/target-identifiers.js";
+import { escapeTargetFieldMember, escapeTargetMember } from "../../../util/target-identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Hono routes file with OpenAPI annotations.
@@ -832,11 +832,19 @@ export function buildRoutesFile(
     // shared minter owner-qualifies both halves when — and only when — they
     // genuinely collide (F-026).
     const reqName = reqNameFor({ kind: "operation", aggregate: agg.name, operation: op.name });
+    const mergePatch = isMergePatchUpdate(op);
     lines.push(
       ...emitWireSchema(
         `const ${reqName}`,
         reqName,
-        op.params.map((p) => ({ name: p.name, base: zodFor(p.type) })),
+        // A merge-patch update (RS-47) takes every key as optional; `null`
+        // stays legal only where the type is `T?`, whose `zodFor` is already
+        // `.nullish()`.
+        op.params.map((p) => ({
+          name: p.name,
+          base: zodFor(p.type),
+          optional: mergePatch && p.type.kind !== "optional",
+        })),
         // Field-level invariants (SYS-1): the update/mutating-op request DTO
         // gets the SAME wire constraints as create, not just the op's own
         // preconditions.  The `available = op.params` set below drops any
@@ -846,6 +854,7 @@ export function buildRoutesFile(
         [...agg.invariants, ...preconditionsAsInvariants(op)],
         new Set(op.params.map((p) => p.name)),
         "exact",
+        mergePatch,
       ),
     );
   }
@@ -1207,19 +1216,6 @@ export function buildRoutesFile(
     }
   }
 
-  // Named find queries with STATIC paths (`find byHolder(...)` → GET
-  // /by_holder) must register BEFORE the `GET /{id}` param route: Hono
-  // matches in registration order, and `@hono/zod-openapi` validates the
-  // `/{id}` param as `UuidString`, so a static segment registered
-  // after `/{id}` is shadowed — `GET /by_holder` would match `/{id}` first
-  // and 422 on the non-UUID segment.  The auto-`all` find stays at the root
-  // (`GET /`, no conflict) and is emitted with the rest below.
-  for (const [findIR, entry] of derivedFindByIR) {
-    if (isAllFind(entry)) continue;
-    lines.push(...emitFindRoute(agg, findIR!, ctx, entry, emitTrace).map((l) => `  ${l}`));
-    lines.push("");
-  }
-
   // Entity history — `GET /{id}/history` (docs/audit.md).  Two segments, so it
   // cannot be shadowed by the `/{id}` param route below the way a static
   // one-segment find can; registered here anyway to keep the reads together.
@@ -1478,10 +1474,8 @@ export function buildRoutesFile(
   }
 
   // The auto-included `all` find (`GET /`, root path — no conflict with
-  // `/{id}`).  Named static-path finds were emitted ABOVE, before the
-  // `GET /{id}` param route, so they win Hono's registration-order match.
+  // `/{id}`).
   for (const [findIR, entry] of derivedFindByIR) {
-    if (!isAllFind(entry)) continue;
     lines.push(...emitFindRoute(agg, findIR!, ctx, entry, emitTrace).map((l) => `  ${l}`));
     lines.push("");
   }
@@ -1971,6 +1965,7 @@ function auditProvTxLines(args: {
   errorTags?: readonly string[];
 }): string[] {
   const { agg, op, ctx, audit, prov, usingMikro, check, mutation } = args;
+  const answer = hostReturnProjection(agg, op, "__result", "repoTx", "aggregate");
   const out: string[] = [];
   if (audit) {
     // Actor = the principal's declared shape (`auditActor`, null when no
@@ -2042,10 +2037,35 @@ function auditProvTxLines(args: {
     );
     out.push(`      }`);
   }
-  if (args.capture) out.push(`      return __result;`);
+  if (args.capture) out.push(`      return ${answer};`);
   out.push(`    });`);
   out.push(`    await __deferred.flush();`);
   return out;
+}
+
+/** The 200 body of an operation whose result is (or has an arm that is) its
+ *  own aggregate.  The domain method hands back `this` (tagged for a union
+ *  arm), whose private fields are not the wire; the route answers the
+ *  aggregate's projection through the repository's `toWire`, as every CRUD
+ *  read does.  Any other result is answered as returned. */
+function hostReturnProjection(
+  agg: AggregateIR,
+  op: OperationIR,
+  result: string,
+  repo: string,
+  aggregate: string,
+): string {
+  const rt = op.returnType;
+  const isHost = (t: TypeIR) => t.kind === "entity" && t.name === agg.name;
+  // Read back after the save: the saved row carries the version the save
+  // advanced to, which the in-memory aggregate does not.
+  const saved = `${repo}.toWire(await ${repo}.getById(${aggregate}.id))`;
+  if (rt && isHost(rt)) return saved;
+  if (rt?.kind === "union" && rt.variants.some(isHost)) {
+    const tag = JSON.stringify(agg.name);
+    return `(${result}.type === ${tag} ? { type: ${tag} as const, ...(${saved} as Record<string, unknown>) } : ${result})`;
+  }
+  return result;
 }
 
 function emitOperationRoute(
@@ -2155,7 +2175,17 @@ function emitOperationRoute(
       `    const currentUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
     );
   }
-  const baseCallArgs = op.params.map((p) => wireToDomainExpr(`body.${p.name}`, p.type, ctx));
+  // A merge-patch update (RS-47) passes the stored value for every key the
+  // body leaves out, so the operation runs on the merged state.
+  const mergePatch = isMergePatchUpdate(op);
+  const baseCallArgs = op.params.map((p) => {
+    const value = wireToDomainExpr(`body.${p.name}`, p.type, ctx);
+    // The stored value is read through the field's getter, whose spelling
+    // escapes a name the class reserves (`constructor` → `constructor_`).
+    return mergePatch
+      ? `(body.${p.name} === undefined ? aggregate.${escapeTargetFieldMember("ts", p.name)} : ${value})`
+      : value;
+  });
   const callArgs = (usesUser ? [...baseCallArgs, "currentUser"] : baseCallArgs).join(", ");
 
   // The mutation block — extern dispatch or the direct method call —
@@ -2342,9 +2372,14 @@ function emitReturningOperationRoute(
     op.returnType?.kind === "primitive" &&
     (op.returnType as { name?: string }).name === "money";
   if (!(audit || prov)) out.push(checkedSaveLine(operationVersionCheck(agg, op), "repo", "    "));
+  // An operation answering its own aggregate (`return this`) answers the
+  // aggregate's wire projection; the audited path projected it inside the
+  // transaction already.
   const successResult = scalarMoneyReturn
     ? `result === null ? null : ${numericEncode(TS_NUMERIC, "money", "dto-map", "result")}`
-    : "result";
+    : audit || prov
+      ? "result"
+      : hostReturnProjection(agg, op, "result", "repo", "aggregate");
   // A `money` field of a payload success variant rides as the fixed-scale
   // string (RS-12) — the tagged dict holds the decimal.js value.
   for (const arm of u ? unionMoneyArms(u.variants, ctx) : []) {
@@ -2357,7 +2392,14 @@ function emitReturningOperationRoute(
     out.push(`      return c.json({ ...result, ${enc.join(", ")} }, 200);`);
     out.push(`    }`);
   }
-  out.push(`    return c.json(${successResult}, 200);`);
+  // The projected aggregate is typed `unknown` by `toWire`; it IS the declared
+  // 200 body.
+  const answersHost = hostReturnProjection(agg, op, "result", "repo", "aggregate") !== "result";
+  out.push(
+    answersHost
+      ? `    return c.json(${successResult} as unknown as z.infer<typeof ${successSchema}>, 200);`
+      : `    return c.json(${successResult}, 200);`,
+  );
   out.push(`  },`);
   out.push(`);`);
   return out;
@@ -2823,9 +2865,11 @@ export function zodFor(t: TypeIR, context: "create-body" | "body" | "query" = "b
     // `isRequiredCreateInput` and have already dropped it, which shows up as
     // `required-only-honoApi=[<field>]` in the 5-way parity diff.
     //
-    // Scoped to `create-body` for the same reason the bool arm below is: an
-    // operation body (`update` included) is full-replacement, so an absent
+    // Scoped to `create-body` for the same reason the bool arm below is: a
+    // command body requires every non-nullable parameter, so an absent
     // collection there is a missing required field, not an empty one (RS-26).
+    // The merge-patch `update` makes the key optional instead, and an absent
+    // one keeps the stored value (RS-47).
     return context === "create-body" ? `${arr}.default([])` : arr;
   }
   switch (info.refKind) {
@@ -2944,7 +2988,7 @@ function isResponsePayloadName(ctx: BoundedContextIR, name: string): boolean {
   return ctx.payloads.some((p) => p.kind === "response" && p.name === name);
 }
 
-function zodForResponseInner(t: TypeIR): string {
+export function zodForResponseInner(t: TypeIR): string {
   const info = wireTypeInfo(t, "response");
   if (info.isNullable) return `${zodForResponseInner(peelNullable(t))}.nullish()`;
   if (info.isCollection) return `z.array(${zodForResponseInner(peelCollection(t))})`;
@@ -3079,6 +3123,10 @@ export function emitWireSchema(
   // body scan); a caller without that stays "server-only" and leaves the rule
   // to the domain's exact check.
   decimal: RefineDecimalMode = "server-only",
+  // A merge-patch body (RS-47): each rule is judged only when the body carries
+  // every member it reads — `ruleMembers` — and the domain floor judges the
+  // merged state otherwise.
+  mergePatch = false,
 ): string[] {
   const ctx: ClassifyContext = { available };
   const chainByField = new Map<string, SingleFieldPattern[]>();
@@ -3094,7 +3142,9 @@ export function emitWireSchema(
     }
   }
   const refines = remaining
-    .map((inv) => refineClauseFor(inv, ctx, decimal))
+    .map((inv) =>
+      refineClauseFor(inv, ctx, decimal, mergePatch ? ruleMembers(inv, available) : undefined),
+    )
     .filter((s): s is string => s !== null);
 
   const out: string[] = [];

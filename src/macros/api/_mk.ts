@@ -52,6 +52,7 @@ import type {
   MatchExpr,
   MemberSuffix,
   MenuMetaEntry,
+  ModelText,
   NamedType,
   NameRef,
   NotFoundStmt,
@@ -293,6 +294,10 @@ export function mkBoolLit(shape: AstLiteral<BoolLit>): BoolLit {
 
 export function mkNowExpr(shape: AstLiteral<NowExpr>): NowExpr {
   return mkAst<NowExpr>(shape);
+}
+
+export function mkModelText(shape: AstLiteral<ModelText>): ModelText {
+  return mkAst<ModelText>(shape);
 }
 
 export function mkIntLit(shape: AstLiteral<IntLit>): IntLit {

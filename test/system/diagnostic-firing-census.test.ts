@@ -552,6 +552,17 @@ system S {
   deployable two { platform: node, contexts: [B], port: 3001 }
 }
 migration "m" { A.Note -> B.Note }`,
+  // `label(…)` / `plural(…)` model text (i18n identity keys): a path naming no
+  // model element, a plural of a member, a call outside every page/component
+  // body, and a call spliced into a template.
+  "loom.model-text-unresolved": uiPage(`Text { label(Item.nope) }`),
+  "loom.model-text-plural-member": uiPage(`Text { plural(Item.sku) }`),
+  "loom.model-text-outside-ui": repoOnly(`    aggregate Item with crudish {
+      sku: string
+      derived caption: string = label(Item)
+    }
+    repository Items for Item`),
+  "loom.model-text-in-template": uiPage("Text { `All {plural(Item)}` }"),
   // A construct its target's capability table refuses: `DataGrid` on Flutter
   // (no JS runtime, so no TanStack row model).
   "loom.target-unsupported": `
@@ -1221,7 +1232,7 @@ system S {
   "loom.variant-match-placement": repoOnly(`    aggregate Order with crudish {
       code: string
       note: string?
-      function label(): string {
+      function noteLabel(): string {
         match note {
           string s => { let shown = s }
           else => { let shown = code }
@@ -1951,6 +1962,15 @@ system P {
     }`),
   // `let r = o.hold()` whose result can be an error, never matched: nothing may
   // save the tentative change.
+  // `create(…): W` answers the workflow's instance state, but W has no
+  // correlation field, so no instance is persisted.
+  "loom.workflow-return-this-uncorrelated": repoOnly(`    error Declined { reason: string }
+    workflow W {
+      create(n: int): W or Declined {
+        if n > 0 { notFound }
+        return this
+      }
+    }`),
   "loom.workflow-mutation-result-unmatched": repoOnly(`    error Held { reason: string }
     aggregate Order with crudish {
       name: string
@@ -2602,6 +2622,8 @@ system S {
   "loom.duplicate-theme-block": systemScope(
     '  theme { primary: "#3b82f6" }\n  theme { neutral: "#64748b" }',
   ),
+  "loom.i18n-source-invalid": systemScope('  i18n { source: "not a tag" }'),
+  "loom.i18n-duplicate": systemScope('  i18n { source: "en" }\n  i18n { source: "de" }'),
   "loom.audited-no-command": aggShape("audited", "      name: string"),
   "loom.duplicate-entity-part": aggShape(
     "",
@@ -3082,6 +3104,23 @@ system P {
   deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
 }`,
 
+  // A workflow `create` answering `T or E` in a context an elixir deployable
+  // hosts.
+  "loom.elixir-entry-result-unsupported": `
+system P {
+  subdomain D { context C {
+    error Declined { reason: string }
+    workflow W {
+      create(n: int): int or Declined {
+        return Declined { reason: "no" }
+      }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
+}`,
+
   // A `let`-bound mutating call in a workflow an elixir deployable emits.
   "loom.elixir-bound-mutating-call-unsupported": `
 system P {
@@ -3500,8 +3539,7 @@ system P {
 
   // --- the frontend body vocabulary (ui-body-vocabulary-checks.ts) ----------
   // Each validated clean and then crashed `generate system`: the shared JS
-  // walker (`this`, a write to a non-state name), the Feliz find-read builder
-  // (arity), the Feliz MVU renderer (a block lambda in an action).
+  // walker (`this`, a write to a non-state name), the Feliz MVU renderer (a block lambda in an action).
   "loom.ui-assign-not-state": uiPages(
     "",
     `    page Home {

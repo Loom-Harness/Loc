@@ -1,5 +1,5 @@
 <div data-testid="{{testId}}" class="space-y-3 rounded-lg border bg-muted/30 p-4">
-          <p class="text-sm font-medium">{{label}}</p>
+          <p class="text-sm font-medium">{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</p>
           <div class="space-y-3">
             {{{innerHtml}}}
           </div>

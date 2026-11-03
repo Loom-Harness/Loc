@@ -46,11 +46,6 @@ import type {
   TypeIR,
   UiIR,
 } from "../../types/loom-ir.js";
-import {
-  felizFindArgRefResolvable,
-  felizFindParamSupported,
-  felizFindReturnDecodable,
-} from "../../util/feliz-find-read.js";
 import { resolveAggregateRead } from "../../util/page-read.js";
 import { typeLabel } from "../../util/type-label.js";
 import {
@@ -76,10 +71,7 @@ export type UiBodyFeature =
   | "nested-async-effect"
   | "store-async-effect"
   | "async-effect-with-siblings"
-  | "string-regex-match"
-  | "find-read-composite-param"
-  | "find-read-non-aggregate-return"
-  | "find-read-unbound-arg";
+  | "string-regex-match";
 
 const JS_FRONTENDS = ["react", "vue", "svelte", "angular"] as const;
 
@@ -102,16 +94,11 @@ export const UI_BODY_FEATURE_RENDERERS: Readonly<Record<UiBodyFeature, ReadonlyS
   // No frontend has a regex arm: the JS walkers and Dart emit `s.matches(…)`
   // verbatim (no such method) and Feliz has no arm.
   "string-regex-match": new Set(["phoenixLiveView"]),
-  // (The native `.filter(…)` once had a row here.  Since M-T5.47's single
-  // typing pass every receiver a page can hold — `state`, a row lambda, a
-  // QueryView data set — is an AST-typed array, whose member surface is the
-  // collection-op catalogue, so `.filter` is refused upstream with
-  // `loom.unknown-member` on every frontend; `.where(…)` renders on all.)
-  // Feliz builds a find request in `init` as a query string and decodes the
-  // aggregate's own record (`ir/util/feliz-find-read.ts`).
-  "find-read-composite-param": new Set([...JS_FRONTENDS, "flutter", "phoenixLiveView"]),
-  "find-read-non-aggregate-return": new Set([...JS_FRONTENDS, "flutter", "phoenixLiveView"]),
-  "find-read-unbound-arg": new Set([...JS_FRONTENDS, "flutter", "phoenixLiveView"]),
+  // (The native `.filter(…)` has no row: every receiver a page can hold —
+  // `state`, a row lambda, a QueryView data set — is an AST-typed array, whose
+  // member surface is the collection-op catalogue, so `.filter` is refused
+  // upstream with `loom.unknown-member` on every frontend; `.where(…)` renders
+  // on all.)
 };
 
 /** How each feature reads in a diagnostic: the shape, why the missing
@@ -148,22 +135,6 @@ const FEATURE_TEXT: Readonly<Record<UiBodyFeature, { label: string; why: string;
       why: "its page renderer has no regex arm (it would emit a call to a method the language does not have)",
       hint: "Validate the pattern on the backend — a field rule or an operation `precondition` — and show its error.",
     },
-    "find-read-composite-param": {
-      label: "a read of a find with a non-scalar parameter",
-      why: "it sends a find's arguments as a query string, which can carry only scalars, ids and enums",
-      hint: "Give the find scalar parameters.",
-    },
-    "find-read-non-aggregate-return": {
-      label: "a read of a find that does not return its aggregate",
-      why: "it decodes a find's response as the aggregate's own record (`T`, `T?`, `T[]` or `T paged`)",
-      hint: "Declare the find to return the aggregate, or read the value through a projection.",
-    },
-    "find-read-unbound-arg": {
-      label:
-        "a find read whose argument is not a `state` cell, store field, literal or the route `id`",
-      why: "it issues the request from `init`, where a row binding, page param or `derived` is not in scope",
-      hint: "Copy the value into a `state` field and pass that.",
-    },
   };
 
 /** One place a feature is used. */
@@ -173,11 +144,7 @@ export interface UiBodyFeatureUse {
 }
 
 /** Every vocabulary feature a ui's bodies use, deduped by (where, feature). */
-function uiBodyFeaturesUsed(
-  ui: UiIR,
-  findsByAggregate: ReadonlyMap<string, ReadonlyMap<string, FindIR>>,
-  aggNames: ReadonlySet<string>,
-): UiBodyFeatureUse[] {
+function uiBodyFeaturesUsed(ui: UiIR): UiBodyFeatureUse[] {
   const out: UiBodyFeatureUse[] = [];
   const seen = new Set<string>();
   const add = (feature: UiBodyFeature, where: string): void => {
@@ -186,8 +153,6 @@ function uiBodyFeaturesUsed(
     seen.add(key);
     out.push({ feature, where });
   };
-  const apiParamNames = new Set(ui.apiParams.map((p) => p.name));
-
   const actionFeatures = (
     actions: readonly ActionIR[],
     hostWhere: string,
@@ -239,27 +204,6 @@ function uiBodyFeaturesUsed(
     for (const s of stmts) walkStmtExprsDeep(s, visit);
   };
 
-  const findReadFeatures = (host: PageIR | ComponentIR, where: string): void => {
-    const stateNames = new Set(host.state.map((s) => s.name));
-    walkExprDeep(host.body, (e) => {
-      const read = findReadOf(e, apiParamNames, aggNames, findsByAggregate);
-      if (!read) return;
-      if (read.find.params.some((p) => !felizFindParamSupported(p.type))) {
-        add("find-read-composite-param", where);
-      }
-      if (!felizFindReturnDecodable(read.find, read.aggregate)) {
-        add("find-read-non-aggregate-return", where);
-      }
-      for (const arg of read.args) {
-        walkExprDeep(arg, (x) => {
-          if (x.kind === "ref" && !felizFindArgRefResolvable(x, stateNames)) {
-            add("find-read-unbound-arg", where);
-          }
-        });
-      }
-    });
-  };
-
   for (const page of ui.pages) {
     const where = `page '${page.name}'`;
     actionFeatures(page.actions, where, "page");
@@ -268,7 +212,6 @@ function uiBodyFeaturesUsed(
       page.actions.flatMap((a) => a.body),
       where,
     );
-    findReadFeatures(page, where);
   }
   for (const comp of ui.components) {
     const where = `component '${comp.name}'`;
@@ -278,7 +221,6 @@ function uiBodyFeaturesUsed(
       comp.actions.flatMap((a) => a.body),
       where,
     );
-    findReadFeatures(comp, where);
   }
   for (const store of ui.stores) {
     const where = `store '${store.name}'`;
@@ -340,15 +282,13 @@ function aggregateNames(sys: SystemIR): Set<string> {
 /** `loom.ui-body-feature-unsupported` — a feature a mounted ui uses that the
  *  hosting frontend does not render (per `UI_BODY_FEATURE_RENDERERS`). */
 export function validateUiBodyVocabulary(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  const finds = findsIndex(sys);
-  const aggNames = aggregateNames(sys);
   const usesByUi = new Map<string, UiBodyFeatureUse[]>();
   const reported = new Set<string>();
   for (const d of sys.deployables) {
     for (const { ui, fw } of mountedUis(sys, d)) {
       let uses = usesByUi.get(ui.name);
       if (!uses) {
-        uses = uiBodyFeaturesUsed(ui, finds, aggNames);
+        uses = uiBodyFeaturesUsed(ui);
         usesByUi.set(ui.name, uses);
       }
       for (const { feature, where } of uses) {
@@ -677,6 +617,7 @@ function receiverTrust(e: ExprIR, scope: ReadonlyMap<string, Trust>): Trust {
     case "list":
     case "convert":
     case "i18nFormat":
+    case "modelText":
     case "duration":
       return "ast";
     case "binary":

@@ -39,6 +39,7 @@ import {
   servedOperations,
 } from "../../../ir/util/api-surface.js";
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import { isMergePatchUpdate, mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { createBodyStatements, lifecycleGates } from "../../../ir/util/op-gates.js";
 import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
@@ -71,7 +72,7 @@ import {
 } from "./denial.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced, renderEsController } from "./eventsourced-emit.js";
-import { findRoutes, renderFindActions } from "./find-controller.js";
+import { renderPageParamHelper } from "./find-controller.js";
 import { effectiveGate, renderGateCondition } from "./gate.js";
 import { isAbstractBase, isTphBase } from "./inheritance-emit.js";
 import {
@@ -282,7 +283,6 @@ export function emitVanillaApiControllers(
         action: ":index",
       });
     }
-    routes.push(...findRoutes(agg, ctx, allOps));
     const getByIdEntry = derivedOps.find((o) => o.kind === "getById");
     if (getByIdEntry) routes.push(routeOf(getByIdEntry, ":show"));
     else if (polyRouted && isTphBase(agg, ctx.aggregates)) {
@@ -418,11 +418,7 @@ function renderController(
   const pagedListArgs = readOnly
     ? `${PAGE_CALL_ARGS.join(", ")}, current_user`
     : `${PAGE_CALL_ARGS.join(", ")}, Map.get(params, "sort", "id"), Map.get(params, "dir", "asc")${listPrincipal ? ", current_user" : ""}`;
-  // The LIST read's authorization gate — 403 before the query, the same
-  // contract `renderFindActions` gives every NAMED find.  `index` is emitted
-  // here, outside that loop (the list endpoint has its own paged shape), which
-  // is how its `requires` came to be dropped on this backend while every named
-  // find's was honoured.
+  // The LIST read's authorization gate — 403 before the query.
   const indexGate = effectiveGate(listAllFind?.requires);
   const indexGateUsesUser = !!indexGate && exprUsesCurrentUser(indexGate);
   // `current_user` may already be bound by `cuBind` (principal-scoped reads);
@@ -711,8 +707,7 @@ ${cuBind}    case ${ctxModule}.${cmdGet}(id${getActor}) do
     })
     .join("\n");
 
-  // `GET /<plural>/<find>` actions for the aggregate's custom finds.
-  const findActions = renderFindActions(appModule, ctxModule, agg, ctx);
+  const findActions = renderPageParamHelper(agg, ctx);
 
   // Audited lifecycle actions — the create/destroy handler stages an audit row
   // INSIDE a forced `Repo.transaction` so it commits atomically with the
@@ -1005,7 +1000,7 @@ defmodule ${appModule}Web.${aggPascal}Controller do
 ${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
-${renderRequiredParamsPlug(new Map([...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), requiredWireParams(op.params)])))}${renderStrictParamsPlug(new Map([["create", strictIngressFields(createInputFields(agg))], ...[...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), strictIngressFields(op.params)] as const)]))}
+${renderRequiredParamsPlug(new Map([...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), isMergePatchUpdate(op) ? [] : requiredWireParams(op.params)])))}${renderPatchNullPlug(agg.operations.find((o) => o.name === "update"))}${renderStrictParamsPlug(new Map([["create", strictIngressFields(createInputFields(agg))], ...[...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), strictIngressFields(op.params)] as const)]))}
 ${indexAction}
 
 ${showAction}${historyAction}
@@ -1039,5 +1034,30 @@ ${((): string => {
   return `${serialize}${nested}${refIdsHelper}`;
 })()}${historyMapper}
 end
+`;
+}
+
+/** The merge-patch update's null refusal (RS-47): any key may be left out, but
+ *  `null` removes a field, which a REQUIRED one refuses with the 422 a missing
+ *  required key earns — checked before the action loads anything, like
+ *  `require_command_params`.  Empty unless `update` is a merge patch with a
+ *  required member. */
+function renderPatchNullPlug(op: OperationIR | undefined): string {
+  const required = (op ? (mergePatchFields(op) ?? []) : []).filter((f) => !f.nullable);
+  if (required.length === 0) return "";
+  return `
+  @patch_required ~w(${required.map((f) => f.name).join(" ")})
+  plug :refuse_null_patch_params when action in [:update]
+
+  # The update body is a merge patch: a key may be left out (the stored value
+  # stays), but \`null\` removes a field, and a required one cannot go.
+  defp refuse_null_patch_params(conn, _opts) do
+    carried = Enum.filter(@patch_required, &Map.has_key?(conn.params, &1))
+
+    case ProblemDetails.missing_params(conn.params, carried) do
+      [] -> conn
+      missing -> halt(ProblemDetails.missing_params_response(conn, missing))
+    end
+  end
 `;
 }

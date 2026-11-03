@@ -7,6 +7,12 @@ import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
 import {
+  discriminatedUnionZod,
+  opUnionResponses,
+  type UnionMemberField,
+  unionMemberObjects,
+} from "../../../generator/_payload/union-wire.js";
+import {
   recordPayloadOf,
   workflowParamPayloads,
 } from "../../../generator/_payload/workflow-param-payloads.js";
@@ -37,6 +43,7 @@ import { renderTsStatements } from "../../../generator/typescript/render-stmt.js
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
 import {
+  errorVariantResponse,
   notFoundStmtDetail,
   reasonPhrase,
   wireFixedDetail,
@@ -69,6 +76,11 @@ import {
   readPortsForOperation,
 } from "../../../ir/util/domain-service-read-ports.js";
 import {
+  type EntryResult,
+  type EntryResultLeaf,
+  entryErrorTags,
+} from "../../../ir/util/entry-result.js";
+import {
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
@@ -94,7 +106,11 @@ import {
   walkWorkflowStmtsDeep,
   workflowEmits,
 } from "../../../ir/util/walk.js";
-import { commandCreateResult, emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
+import {
+  commandCreateEntryResult,
+  commandCreateResult,
+  emitsCommandRoute,
+} from "../../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
 import {
   LOOM_OUTBOX_ORIGIN_KEY,
@@ -116,6 +132,7 @@ import {
   wireToDomainExpr,
   zodFor,
   zodForResponse,
+  zodForResponseInner,
 } from "./routes-builder.js";
 
 /** The `db` handle's TS type in an emitted workflow function signature —
@@ -284,6 +301,34 @@ export function buildWorkflowsFile(
   for (const wf of ctx.workflows) {
     if (!wf.instanceWireShape) continue;
     body.push(...emitInstanceResponseSchemas(wf));
+  }
+  // The OpenAPI split of each expected-failure create result (`T or E`): the
+  // 200 body is the success arms, and each error arm publishes its problem
+  // body — the components an operation route's union declares.
+  {
+    const seen = new Set<string>();
+    const fieldZod = (f: UnionMemberField): string =>
+      f.isId ? "z.string()" : zodForResponse(f.type, f.optional);
+    for (const wf of ctx.workflows) {
+      const r = commandCreateResult(wf);
+      if (r?.type.kind !== "union" || !commandCreateEntryResult(wf, ctx)) continue;
+      const split = opUnionResponses(r.type.variants, ctx);
+      if (!seen.has(split.successName)) {
+        seen.add(split.successName);
+        const members = unionMemberObjects(split.success, fieldZod, zodForResponseInner);
+        body.push(
+          `const ${split.successName} = ${discriminatedUnionZod(members)}.openapi("${split.successName}");`,
+        );
+      }
+      for (const arm of split.errors) {
+        if (seen.has(arm.problemName)) continue;
+        seen.add(arm.problemName);
+        const fields = arm.fields.map((f) => `${f.name}: ${fieldZod(f)}`).join(", ");
+        body.push(
+          `const ${arm.problemName} = ProblemDetails.extend({ ${fields} }).openapi("${arm.problemName}");`,
+        );
+      }
+    }
   }
   // RFC 7807 ProblemDetails (with §3.2 `errors[]` extension for validation
   // failures) lives in `http/problem-details.ts` — imported at the top of
@@ -915,8 +960,27 @@ function emitWorkflowRoute(
   // `create(…): T { … return <expr> }` — the route answers 200 with the value
   // (the commandHandler twin); no declared result keeps the 204, byte-identical.
   const result = commandCreateResult(wf);
+  // An expected-failure result (`T or E`): 200 declares the success arms and
+  // each error arm's status its problem body, as on an operation route.
+  const er = commandCreateEntryResult(wf, ctx);
+  const split =
+    er && result?.type.kind === "union" ? opUnionResponses(result.type.variants, ctx) : null;
+  const responsesAt = out.length;
   out.push(`    responses: {`);
-  if (result) {
+  if (result && split) {
+    out.push(
+      `      200: { description: "OK", content: { "application/json": { schema: ${split.successName} } } },`,
+    );
+    for (const s of split.errorStatuses) {
+      out.push(
+        `      ${s.status}: { description: ${JSON.stringify(reasonPhrase(s.status))}, content: { "application/problem+json": { schema: z.union([ProblemDetails, ${s.arms.map((a) => a.problemName).join(", ")}]) } } },`,
+      );
+    }
+  } else if (result && workflowSelfResult(wf)) {
+    out.push(
+      `      200: { description: "OK", content: { "application/json": { schema: ${upperFirst(wf.name)}InstanceResponse } } },`,
+    );
+  } else if (result) {
     out.push(
       `      200: { description: "OK", content: { "application/json": { schema: ${zodForResponse(result.type, false)} } } },`,
     );
@@ -977,6 +1041,21 @@ function emitWorkflowRoute(
     );
   }
   out.push(`    },`);
+  // A status an error arm answers is declared once, with the arm's problem body.
+  if (split) {
+    const armStatuses = new Set(split.errorStatuses.map((s) => `${s.status}:`));
+    const seen = new Set<string>();
+    const resp = out.splice(responsesAt);
+    out.push(
+      ...resp.filter((l) => {
+        const key = l.trim().split(" ")[0]!;
+        if (!armStatuses.has(key)) return true;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }),
+    );
+  }
   out.push(`  }),`);
   out.push(`  async (httpCtx) => {`);
   // A foreign Content-Type SKIPS hono's zod body validator, leaving `body`
@@ -1090,14 +1169,26 @@ function emitWorkflowRoute(
   // a transactional workflow's value is read inside the tx and sent after
   // commit.  `!`: assigned in a callback TS's flow analysis cannot see into.
   if (result) {
-    out.push(`    let workflowResult!: ${workflowResultTsType(result.type)};`);
+    out.push(
+      `    let workflowResult!: ${er ? "{ type: string } & Record<string, unknown>" : workflowSelfResult(wf) ? "unknown" : workflowResultTsType(result.type)};`,
+    );
   }
+  const renderValue = (e: ExprIR) =>
+    renderExprWithParams(e, paramExprs, wfThis, readPortResolver(ctx));
+  const selfRow = rawRowWireExpr("state", rawInstantFields(wf.instanceWireShape));
   const resultAssign = (ind: string): string[] =>
-    result
+    er
       ? [
-          `${ind}workflowResult = ${renderExprWithParams(result.value, paramExprs, wfThis, readPortResolver(ctx))};`,
+          ...entryResultLines(er, renderValue, repoVarByAgg, selfRow, ind),
+          // An error rolls the whole command back: leave the transaction by
+          // throwing the request's rollback marker.
+          `${ind}if (${entryErrorTest(er)}) throw __rollback;`,
         ]
-      : [];
+      : result
+        ? [
+            `${ind}workflowResult = ${workflowSelfResult(wf) ? selfRow : renderValue(result.value)};`,
+          ]
+        : [];
   if (wrapsFrame) {
     out.push(`    await runInChildContext(async () => {`);
   }
@@ -1142,7 +1233,10 @@ function emitWorkflowRoute(
       : [];
   const stateSave = (handle: string, ind: string): string[] =>
     corrParam ? [`${ind}await save${upperFirst(wf.name)}(${handle}, state);`] : [];
-  if (wf.transactional) {
+  // An expected-failure result runs in one transaction whether or not the
+  // workflow is `transactional`: an error answer rolls everything back.
+  if (er) out.push(`${bi}const __rollback = new Error("expected failure");`);
+  if (wf.transactional || er) {
     // The adapter's transaction seam (shared with the audited / provenanced
     // routes): drizzle `db.transaction`, mikroorm `db.transactional` — an
     // EntityManager has no `transaction` (TS2551).  The isolation option is
@@ -1163,6 +1257,7 @@ function emitWorkflowRoute(
     // delegated straight through, so the outbox row still commits with `tx`.
     const deferIt = reposNeeded.length > 0;
     if (deferIt) out.push(`${bi}const __deferred = deferredDispatcher(events);`);
+    if (er) out.push(`${bi}try {`);
     out.push(`${bi}await ${txWrapperCall(usingMikro)}`);
     for (const r of reposNeeded) {
       out.push(
@@ -1184,7 +1279,20 @@ function emitWorkflowRoute(
     out.push(...renderProvFlush(provSaves, `${bi}  `, "tx"));
     out.push(...resultAssign(`${bi}  `));
     out.push(`${bi}}${txOpts});`);
-    if (deferIt) out.push(`${bi}await __deferred.flush();`);
+    if (er) {
+      out.push(`${bi}} catch (err) {`);
+      out.push(`${bi}  if (err !== __rollback) throw err;`);
+      out.push(`${bi}}`);
+    }
+    // A rolled-back command announces nothing: the buffered aggregate events
+    // are dropped with it (and the workflow's own emits, below).
+    if (deferIt) {
+      out.push(
+        er
+          ? `${bi}if (!(${entryErrorTest(er)})) await __deferred.flush();`
+          : `${bi}await __deferred.flush();`,
+      );
+    }
   } else {
     for (const r of reposNeeded) {
       out.push(`${bi}const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(db, events);`);
@@ -1207,6 +1315,7 @@ function emitWorkflowRoute(
   if (wrapsFrame) {
     out.push(`    });`);
   }
+  if (er) out.push(...entryErrorAnswer(er, ctx, "    "));
   if (hasEmit) {
     out.push(`    for (const ev of workflowEvents) await events.dispatch(ev);`);
   }
@@ -1214,13 +1323,133 @@ function emitWorkflowRoute(
   // error short-circuit before reaching here, so the line fires only when the
   // body ran to its terminal 204.
   out.push(`    ${renderHonoStoreLogCall("workflowCompleted", `workflow: "${wf.name}"`)}`);
+  const answered =
+    split && result
+      ? `workflowResult as unknown as z.infer<typeof ${split.successName}>`
+      : result && workflowSelfResult(wf)
+        ? `workflowResult as z.infer<typeof ${upperFirst(wf.name)}InstanceResponse>`
+        : "workflowResult";
   out.push(
-    result
-      ? `    return httpCtx.json(workflowResult, 200);`
-      : `    return httpCtx.body(null, 204);`,
+    result ? `    return httpCtx.json(${answered}, 200);` : `    return httpCtx.body(null, 204);`,
   );
   out.push(`  },`);
   out.push(`);`);
+  return out;
+}
+
+/** True when the routed create answers the workflow itself (`create(…):
+ *  <Wf> { …; return this }`) — its instance state, not a scalar. */
+function workflowSelfResult(wf: WorkflowIR): boolean {
+  const r = commandCreateResult(wf);
+  return r?.type.kind === "entity" && r.type.name === wf.name;
+}
+
+/** The TS test that the answered `workflowResult` is an `error` variant. */
+function entryErrorTest(er: EntryResult, v = "workflowResult"): string {
+  return entryErrorTags(er)
+    .map((t) => `${v}.type === ${JSON.stringify(t)}`)
+    .join(" || ");
+}
+
+/** One answered value, tagged with the declared variant it produces: a scalar
+ *  wraps `value`, a payload / error spreads its fields, an aggregate spreads
+ *  its wire projection (`toWire`, read after the body's saves), and the
+ *  workflow itself spreads its saved instance row. */
+function taggedEntryValue(
+  leaf: EntryResultLeaf,
+  rendered: string,
+  repoVarByAgg: ReadonlyMap<string, string>,
+  selfRow: string,
+): string {
+  const tag = JSON.stringify(leaf.arm.tag);
+  switch (leaf.arm.kind) {
+    case "value":
+      return `{ type: ${tag}, value: ${rendered} }`;
+    case "payload":
+    case "error":
+      return `{ type: ${tag}, ...(${rendered}) }`;
+    case "aggregate": {
+      const repo = repoVarByAgg.get(leaf.arm.name) ?? `${lowerFirst(plural(leaf.arm.name))}`;
+      // Read back after the body's saves: the saved row carries the version
+      // the save advanced to, which the in-memory aggregate does not.
+      return `{ type: ${tag}, ...(${repo}.toWire(await ${repo}.getById(${rendered}.id)) as Record<string, unknown>) }`;
+    }
+    case "workflow":
+      return `{ type: ${tag}, ...(${selfRow} as Record<string, unknown>) }`;
+  }
+}
+
+/** Assign `workflowResult` from an expected-failure result's leaves: the tail
+ *  value, or a re-dispatch on the terminal `match`'s subject whose arms bind
+ *  as the statement `match`'s did and answer that arm's value.  A `notFound`
+ *  arm has no value (it answered already), so it has no case. */
+export function entryResultLines(
+  er: EntryResult,
+  render: (e: ExprIR) => string,
+  repoVarByAgg: ReadonlyMap<string, string>,
+  selfRow: string,
+  ind: string,
+  target = "workflowResult",
+): string[] {
+  const assign = (leaf: EntryResultLeaf, pad: string) =>
+    `${pad}${target} = ${taggedEntryValue(leaf, render(leaf.value), repoVarByAgg, selfRow)};`;
+  const m = er.match;
+  if (!m?.subject) return er.leaves.map((l) => assign(l, ind));
+  const subject = render(m.subject);
+  const out: string[] = [];
+  if (m.subjectShape === "absence") {
+    const present = er.leaves.find(
+      (l) => l.subjectArm && l.subjectArm.varType.kind !== "none" && !l.subjectArm.isError,
+    );
+    const absent = er.leaves.find((l) => l !== present);
+    out.push(`${ind}if (${subject} != null) {`);
+    if (present) out.push(assign(present, `${ind}  `));
+    if (absent) out.push(`${ind}} else {`, assign(absent, `${ind}  `));
+    out.push(`${ind}}`);
+    return out;
+  }
+  out.push(`${ind}switch (${subject}.type) {`);
+  for (const leaf of er.leaves) {
+    const arm = leaf.subjectArm;
+    if (!arm) {
+      out.push(`${ind}  default: {`, assign(leaf, `${ind}    `), `${ind}    break;`, `${ind}  }`);
+      continue;
+    }
+    const scalar = isScalarVariant(arm.varType);
+    out.push(
+      `${ind}  case ${JSON.stringify(variantTag(arm.varType))}: {`,
+      ...(arm.binding
+        ? [`${ind}    const ${arm.binding} = ${scalar ? `${subject}.value` : subject};`]
+        : []),
+      assign(leaf, `${ind}    `),
+      `${ind}    break;`,
+      `${ind}  }`,
+    );
+  }
+  out.push(`${ind}}`);
+  return out;
+}
+
+/** After a rolled-back command: answer the error variant at its mapped status
+ *  as problem+json, its fields beside the RFC 7807 members — the operation
+ *  route's translation. */
+export function entryErrorAnswer(
+  er: EntryResult,
+  ctx: BoundedContextIR,
+  ind: string,
+  v = "workflowResult",
+  c = "httpCtx",
+): string[] {
+  const out: string[] = [];
+  for (const tag of entryErrorTags(er)) {
+    const r = errorVariantResponse(tag, ctx.errorStatusOverrides);
+    const d = errorVariantResponse(tag);
+    out.push(`${ind}if (${v}.type === ${JSON.stringify(tag)}) {`);
+    out.push(
+      `${ind}  return ${c}.json({ ...${v}, type: ${JSON.stringify(d.type)}, title: ${JSON.stringify(d.title)}, status: ${r.status}, detail: ${JSON.stringify(d.detail)}, instance: ${c}.req.path }, ${r.status}, { "content-type": "application/problem+json" });`,
+    );
+    out.push(`${ind}}`);
+  }
   return out;
 }
 
@@ -2672,10 +2901,10 @@ export function honoWorkflowStmtTarget(
       const lookup =
         st.op === "bound"
           ? args.join(", ")
-          : st.op === "load-optional"
-            ? `await ${repoVar}.findById(${args.join(", ")})`
-            : st.findMethod
-              ? `await ${repoVar}.${st.findMethod}(${args.join(", ")})`
+          : st.findMethod
+            ? `await ${repoVar}.${st.findMethod}(${args.join(", ")})`
+            : st.op === "load-optional"
+              ? `await ${repoVar}.findById(${args.join(", ")})`
               : firstRowOf(st.repoName, st.retrievalName, args);
       const thenSaves = st.savesInThen.map(
         (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,

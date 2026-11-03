@@ -41,6 +41,7 @@ import {
 import { canonicalCreate, canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
 import { disallowedDetail } from "../../ir/util/denial-detail.js";
+import { mergePatchFields } from "../../ir/util/merge-patch.js";
 import {
   lifecycleGates,
   lifecycleGatesReadRow,
@@ -200,7 +201,6 @@ export function buildPyRoutesFile(
   const derivedOps = servedOperations(deriveAggregateOperations(agg, repo, apiStatusContext(ctx)));
   const createOp = derivedOps.find((o) => o.kind === "create");
   const allOp = derivedOps.find((o) => isAllFind(o));
-  const declaredFindOps = derivedOps.filter((o) => o.kind === "find" && !isAllFind(o));
   const getByIdOp = derivedOps.find((o) => o.kind === "getById");
   const destroyOp = derivedOps.find((o) => o.kind === "destroy");
   const opEntries = derivedOps.filter((o) => o.kind === "operation");
@@ -288,9 +288,6 @@ export function buildPyRoutesFile(
       : `    return ${repoClassRef(agg.name)}(session, ${H.NoopDomainEventDispatcher}())`,
     createOp ? ["", "", createRoute(agg, ctx, createOp)] : null,
     allOp ? ["", "", allRoute(agg, repo, allOp)] : null,
-    // Finds register before /{id}: Starlette matches in declaration
-    // order, so the static find paths must win over the id pattern.
-    ...declaredFindOps.flatMap((e) => ["", "", findRoute(agg, e.find!, ctx, e)]),
     getByIdOp ? ["", "", byIdRoute(agg, getByIdOp)] : null,
     // Entity history (docs/audit.md) — two path segments, so no collision with
     // the `/{id}` pattern above.  Driven by the enrichment-derived `historyFind`
@@ -600,19 +597,22 @@ function opRequestModel(
   const available = new Set(op.params.map((p) => p.name));
   const invariants: InvariantIR[] = [...agg.invariants, ...preconditionsAsInvariants(op)];
   const constraints = createFieldConstraints(invariants, available);
+  // A merge-patch update (RS-47): every key is optional — an absent one keeps
+  // the stored value, which the route reads off `model_fields_set`.
+  const patch = mergePatchFields(op);
   return lines(
     `class ${cls}(${H.BaseModel}):`,
     op.params.length > 0
       ? op.params.map((p) =>
           withFieldConstraint(
             p.name,
-            requestFieldDecl(p.type, false, ctx, undefined, "operation"),
+            requestFieldDecl(p.type, patch !== null, ctx, undefined, "operation"),
             constraints.get(p.name),
           ),
         )
       : ["    pass"],
     createFieldMessageValidator(invariants, available),
-    createModelValidator(invariants, available, cls),
+    createModelValidator(invariants, available, cls, patch ?? undefined),
     "",
     "",
   );
@@ -1190,7 +1190,7 @@ function unionMoneyReturn(variants: TypeIR[], ctx: EnrichedBoundedContextIR): st
  *  money → its canonical decimal string (`money_str`), datetime → ISO-8601
  *  (`iso`), every other scalar rides as-is.  Optionals guard `None` so a
  *  `T?` return doesn't feed `None` into the string helper. */
-function pyScalarReturnToWire(expr: string, t: TypeIR): string {
+export function pyScalarReturnToWire(expr: string, t: TypeIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
   if (
     inner.kind === "primitive" &&
@@ -1205,6 +1205,24 @@ function pyScalarReturnToWire(expr: string, t: TypeIR): string {
     return t.kind === "optional" ? `${wire} if ${expr} is not None else None` : wire;
   }
   return expr;
+}
+
+/** The success answer of a union-returning operation route.  The aggregate's
+ *  own arm (`return this`) carries only its tag from the domain method; the
+ *  route answers the aggregate's wire projection under that tag. */
+function hostArmReturn(agg: EnrichedAggregateIR, op: OperationIR): string[] {
+  const rt = op.returnType;
+  const host =
+    rt?.kind === "union" && rt.variants.some((v) => v.kind === "entity" && v.name === agg.name);
+  if (!host) return ["    return result"];
+  const tag = JSON.stringify(agg.name);
+  // Read back after the save: the saved row carries the version the save
+  // advanced to.
+  return [
+    `    if result["type"] == ${tag}:`,
+    `        return {"type": ${tag}, **repo.to_wire(await repo.get_by_id(found.id))}`,
+    "    return result",
+  ];
 }
 
 function operationRoute(
@@ -1265,7 +1283,7 @@ function operationRoute(
       op.audited ? "    __after = repo.to_wire(found)" : null,
       ...(op.audited ? auditRecordCall(agg, op) : []),
       ...unionMoneyReturn(op.returnType.variants, ctx),
-      "    return result",
+      ...hostArmReturn(agg, op),
     );
   }
   // currentUser-gated ops read the actor the auth middleware stashed on
@@ -1284,8 +1302,21 @@ function operationRoute(
     ...(needsRequest ? [PY_REQUEST_PARAM] : []),
     "session: SessionDep",
   ].join(", ");
+  // A merge-patch update (RS-47) passes the stored value for every key the
+  // body left out.  A required field's `None` can only mean absent (the model
+  // refused an explicit null); an optional one asks `model_fields_set`.
+  const patch = mergePatchFields(op);
   const callArgs = [
-    ...op.params.map((p) => pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx)),
+    ...op.params.map((p) => {
+      const attr = `body.${pythonWireIdent(p.name)}`;
+      const value = pyWireToDomain(attr, p.type, ctx);
+      if (!patch) return value;
+      const present =
+        p.type.kind === "optional"
+          ? `${JSON.stringify(pythonWireIdent(p.name))} in body.model_fields_set`
+          : `${attr} is not None`;
+      return `(${value} if ${present} else found.${pythonIdent(p.name)})`;
+    }),
   ];
   if (usesUser) callArgs.push("current_user");
   const vsave = versionedSave(agg);
@@ -1295,10 +1326,14 @@ function operationRoute(
   // it to wire, and answer 200 with the value declared as `response_model` (so
   // it lands in the OpenAPI spec), instead of the 204 that discarded it.
   if (op.returnType) {
+    // An operation answering its own aggregate (`return this`) answers the
+    // aggregate's wire projection, as the GET route does.
+    const hostReturn = op.returnType.kind === "entity" && op.returnType.name === agg.name;
     const wireType = responsePyType(op.returnType, ctx);
+    const annotation = hostReturn ? "dict[str, object]" : wireType;
     return lines(
       `@router.post("${relativeOpPath(apiOp)}", response_model=${wireType}, operation_id="${camelId(opOperation(agg.name, op.name))}"${derivedResponsesKwarg(apiOp)})`,
-      `async def ${snake(op.name)}_${snake(agg.name)}(${opSig}) -> ${wireType}:`,
+      `async def ${snake(op.name)}_${snake(agg.name)}(${opSig}) -> ${annotation}:`,
       usesUser || gateUsesUser || stampUpdateUsesUser ? PY_USER_BIND : null,
       "    repo = _repo(session)",
       `    found = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
@@ -1307,13 +1342,17 @@ function operationRoute(
       ...requiresGate(op, ctx),
       ...whenGate(agg, op),
       op.audited ? "    __before = repo.to_wire(found)" : null,
-      `    result = found.${pythonIdent(op.name)}(${callArgs.join(", ")})`,
+      hostReturn
+        ? `    found.${pythonIdent(op.name)}(${callArgs.join(", ")})`
+        : `    result = found.${pythonIdent(op.name)}(${callArgs.join(", ")})`,
       hasStamp(agg, "update") ? stampCall(agg, "update", "found") : null,
       ...vsave.ifMatch,
       vsave.save,
       op.audited ? "    __after = repo.to_wire(found)" : null,
       ...(op.audited ? auditRecordCall(agg, op) : []),
-      `    return ${pyScalarReturnToWire("result", op.returnType)}`,
+      hostReturn
+        ? "    return repo.to_wire(await repo.get_by_id(found.id))"
+        : `    return ${pyScalarReturnToWire("result", op.returnType)}`,
     );
   }
   return lines(
@@ -1346,7 +1385,7 @@ export function pyQueryParam(name: string, type: string): string {
   return `${pythonWireIdent(name)}: ${H.Annotated}[${type}, ${H.Query}(alias=${JSON.stringify(name)})]`;
 }
 
-function findRoute(
+function _findRoute(
   agg: EnrichedAggregateIR,
   find: import("../../ir/types/loom-ir.js").FindIR,
   ctx: EnrichedBoundedContextIR,

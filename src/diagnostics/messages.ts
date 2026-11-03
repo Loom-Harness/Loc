@@ -258,12 +258,13 @@ export const DIAGNOSTIC_MESSAGES = {
   // src/language/validators/bypass-placement.ts
   // ----------------------------------------------------------------------
   "loom.ignoring-clause-placement": (p: { clause: unknown }) =>
-    `'${p.clause}' sits in a position that DROPS it. A capability-filter bypass has five homes: ` +
-    "a repository 'find … ignoring …', a query-time projection's 'where' slot (before 'join' / " +
-    "'group by' / 'select'), an inline read bound by a 'let' ('let xs = Repo.all(C) " +
-    "ignoring …'), an 'if let' source ('if let o = Repo.find(C) ignoring …' / 'Repo.findBy(…) " +
-    "ignoring …'), or a single-row read in a domainService operation ('Repo.find(id) " +
-    "ignoring … == null'). Written on any other expression it parses, binds to that expression, and is " +
+    `'${p.clause}' sits in a position that DROPS it. A capability-filter bypass has four homes: ` +
+    "a query-time projection's 'where' slot (before 'join' / 'group by' / 'select'), an inline " +
+    "read bound by a 'let' ('let xs = Repo.all(C) ignoring …' / 'let o = Repo.find(C) ignoring …'), " +
+    "an 'if let' source ('if let o = Repo.find(C) ignoring …' / 'Repo.findBy(…) ignoring …'), or a " +
+    "single-row read in a domainService operation ('Repo.find(id) ignoring … == null'); in a " +
+    "context 'test' body, 'let o = Agg.find(id) ignoring …'. Written on any other expression it " +
+    "parses, binds to that expression, and is " +
     "never read back — the read still applies every filter you asked it to skip. Move the clause " +
     "to the read it is meant to widen.",
 
@@ -393,6 +394,12 @@ export const DIAGNOSTIC_MESSAGES = {
   // rule, not two.
   "loom.duplicate-theme-block#system-scope": (p: { name: unknown }) =>
     `system '${p.name}' declares more than one 'theme { ... }' block; keep just the first.`,
+
+  "loom.i18n-source-invalid": (p: { source: unknown }) =>
+    `'${p.source}' is not a valid BCP-47 language tag for 'i18n { source: … }'. ` +
+    'Use a tag such as "en", "de" or "pt-BR".',
+  "loom.i18n-duplicate": (p: { name: unknown }) =>
+    `system '${p.name}' declares more than one 'i18n { ... }' block; keep just the first.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/criterion.ts
@@ -714,7 +721,7 @@ export const DIAGNOSTIC_MESSAGES = {
     "implementing aggregate's type). Use a concrete `<Aggregate> id` here.",
   "loom.generic-position": (p: { ctors: unknown }) =>
     `A generic carrier ('${p.ctors}') is a transport shape — it may only appear as a ` +
-    `repository find return type or a payload field, not in this position.`,
+    `query-handler return type or a payload field, not in this position.`,
   "loom.generic-arg-not-carrier#nested-generic-carriers": (p: {
     ctors: unknown;
     ctors2: unknown;
@@ -743,6 +750,27 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.user-visible-concat": (p: { type: unknown }) =>
     `String concatenation in a user-visible '${p.type}' slot won't translate to languages with different word order, plural rules, or formatting. ` +
     'Use a backtick template interpolation — e.g. `Order {order.id}` rather than "Order " + order.id.',
+
+  // ----------------------------------------------------------------------
+  // src/language/validators/model-text.ts
+  // ----------------------------------------------------------------------
+  "loom.model-text-unresolved": (p: { call: unknown; path: unknown }) =>
+    `'${p.call}(${p.path})' does not name a model element. ` +
+    "Write `[Context.]Type[.member]`, where Type is an aggregate, entity part, value object, enum, workflow or declared error, " +
+    "and member is one of its fields, operations, inputs or enum values.",
+  "loom.model-text-unresolved#ambiguous": (p: { call: unknown; path: unknown }) =>
+    `'${p.call}(${p.path})' is ambiguous: the type is declared in more than one context. ` +
+    "Qualify it with the context name, e.g. `label(Sales.Customer)`.",
+  "loom.model-text-plural-member": (p: { path: unknown }) =>
+    `'plural(${p.path})' has no plural form: only an aggregate, entity part, value object or workflow has one. ` +
+    "Use `label(…)` for a field, operation, enum value or error.",
+  "loom.model-text-outside-ui": (p: { call: unknown }) =>
+    `'${p.call}(…)' returns translated text for a user to read, so it is allowed only in a page or component body. ` +
+    "Domain code, filters and criteria work with values, not display text.",
+  "loom.model-text-in-template": (p: { call: unknown }) =>
+    `'${p.call}(…)' cannot be spliced into a template or a '+' concatenation: a placeholder carries data, never words, ` +
+    "because a translated noun cannot be dropped into a fixed sentence frame. " +
+    'Write the whole sentence as one literal instead (e.g. "Delete this task?").',
 
   // ----------------------------------------------------------------------
   // src/language/validators/inheritance.ts
@@ -1254,10 +1282,20 @@ export const DIAGNOSTIC_MESSAGES = {
     `body. The result is answered after every step (and the transaction) completes, so an earlier or ` +
     `nested 'return' would not stop the steps after it.`,
   "loom.workflow-return-not-last#match-arm": (p: { workflow: unknown; create: unknown }) =>
-    `Workflow '${p.workflow}': 'return' in '${p.create}' sits inside a 'match' arm.  An arm runs ` +
-    `statements; the result is answered once, after every step (and the transaction) completes. ` +
-    `Compute the result with the value form — 'let r = match x { A a => …, B b => … }' — and end ` +
+    `Workflow '${p.workflow}': 'return' in '${p.create}' sits inside a 'match' arm.  An arm may ` +
+    `end in 'return' only when the 'match' is the body's last statement, every arm ends in ` +
+    `'return' or 'notFound', and the result declares an expected failure ('T or E').  Otherwise ` +
+    `compute the result with the value form — 'let r = match x { A a => …, B b => … }' — and end ` +
     `the body with 'return r'.`,
+  "loom.workflow-return-not-last#arm-local-let": (p: {
+    workflow: unknown;
+    create: unknown;
+    name: unknown;
+  }) =>
+    `Workflow '${p.workflow}': the 'return' of a 'match' arm in '${p.create}' reads '${p.name}', ` +
+    `a 'let' declared inside the arm.  The result is answered once, after the 'match', where ` +
+    `only the arm's binding and the lets declared before the 'match' are in scope.  Compute the ` +
+    `value in the 'return' itself, or declare the 'let' before the 'match'.`,
   "loom.workflow-return-untyped": (p: { workflow: unknown; create: unknown }) =>
     `Workflow '${p.workflow}': '${p.create}' ends in 'return' but declares no result type. ` +
     `Annotate it — 'create(…): T { … return <expr> }' — so the route publishes what it answers.`,
@@ -1277,9 +1315,20 @@ export const DIAGNOSTIC_MESSAGES = {
     declared: unknown;
   }) =>
     `Workflow '${p.workflow}': '${p.create}' declares result type '${p.declared}', which a workflow ` +
-    `route cannot answer yet. Supported: an 'X id', 'string', 'int', 'long' or 'bool'. Return the ` +
-    `new aggregate's id and read it back through its own GET route, or use a 'commandHandler', ` +
-    `whose result projects through the aggregate's wire shape.`,
+    `route cannot answer yet. Supported: an 'X id', 'string', 'int', 'long' or 'bool', a payload ` +
+    `record, an aggregate (answered as its response), the workflow itself ('return this', its ` +
+    `instance state), or a union of these with at least one 'error' variant.  A value-object, ` +
+    `money, decimal or date/time result is not answered yet — return it inside a payload.`,
+  "loom.workflow-return-type-unsupported#handler": (p: { label: unknown; declared: unknown }) =>
+    `${p.label} declares result '${p.declared}', which its route cannot answer yet.  An expected-` +
+    `failure result's success variants may be an 'X id', 'string', 'int', 'long' or 'bool', a ` +
+    `payload record or an aggregate (answered as its response).  A value-object, money, decimal ` +
+    `or date/time variant is not answered yet — return it inside a payload.`,
+  "loom.workflow-return-this-uncorrelated": (p: { workflow: unknown; create: unknown }) =>
+    `Workflow '${p.workflow}': '${p.create}' answers the workflow itself ('${p.workflow}', ` +
+    `'return this'), but the workflow is not correlated — it declares no id-shaped state field, ` +
+    `so it persists no instance for the answer to read.  Declare a correlation field ` +
+    `('orderId: Order id') and assign it from a parameter, or answer another value.`,
   "loom.workflow-return-event-sourced": (p: { workflow: unknown; create: unknown }) =>
     `Workflow '${p.workflow}' is 'eventSourced', so '${p.create}' may only emit events and cannot ` +
     `declare a result. Drop the ': T' and the 'return', or read the outcome back through the ` +
@@ -1612,7 +1661,7 @@ export const DIAGNOSTIC_MESSAGES = {
     variants: unknown;
     first: unknown;
   }) =>
-    `'${p.receiver}.${p.member}' reads through an 'or'-union value (${p.variants}) — it holds ONE of those variants, so the read is an unguarded dereference (a compile error on node/.NET, a 500 on java/python/elixir). Discriminate it first: 'match ${p.receiver} { ${p.first} x => x.${p.member}, else => … }' — or declare the find ': ${p.first}' to answer 404 when the row is absent.`,
+    `'${p.receiver}.${p.member}' reads through an 'or'-union value (${p.variants}) — it holds ONE of those variants, so the read is an unguarded dereference (a compile error on node/.NET, a 500 on java/python/elixir). Discriminate it first: 'match ${p.receiver} { ${p.first} x => x.${p.member}, else => … }'.`,
   "loom.union-read-undiscriminated#op-call": (p: {
     receiver: unknown;
     op: unknown;
@@ -1791,10 +1840,16 @@ export const DIAGNOSTIC_MESSAGES = {
     `End each branch with \`return <value>\` (an \`if\` needs an \`else\` that returns too).`,
 
   "loom.handler-return-not-last#match-arm": (p: { label: unknown }) =>
-    `${p.label}: 'return' sits inside a 'match' arm.  An arm runs statements; a handler answers ` +
-    `once, after its body has run, so a 'return' in an arm would not stop the statements after ` +
-    `the 'match'.  Compute the answer with the value form — 'let r = match x { A a => …, ` +
+    `${p.label}: 'return' sits inside a 'match' arm.  A handler answers once, after its body has ` +
+    `run, so an arm may end in 'return' only when the 'match' is the body's last statement, every ` +
+    `arm ends in 'return' or 'notFound', and the result declares an expected failure ('T or E').  ` +
+    `Otherwise compute the answer with the value form — 'let r = match x { A a => …, ` +
     `B b => … }' — and end the body with 'return r'.`,
+  "loom.handler-return-not-last#arm-local-let": (p: { label: unknown; name: unknown }) =>
+    `${p.label}: the 'return' of a 'match' arm reads '${p.name}', a 'let' declared inside the arm.  ` +
+    `The handler answers once, after the 'match', where only the arm's binding and the lets ` +
+    `declared before the 'match' are in scope.  Compute the value in the 'return' itself, or ` +
+    `declare the 'let' before the 'match'.`,
   "loom.handler-return-not-last": (p: { label: unknown }) =>
     `${p.label}: 'return' must be the last top-level statement of the body, or the whole ` +
     `then-branch of a final 'if let … { return x } else { … notFound }'. A handler answers ` +
@@ -2033,9 +2088,11 @@ export const DIAGNOSTIC_MESSAGES = {
   // src/language/validators/unions.ts
   // ----------------------------------------------------------------------
   "loom.union-position":
-    `An inline 'or' union is a transport shape — it may only appear as a repository find ` +
-    `return type or an operation return, not in this position. Name it ` +
-    `with 'payload X = A | B' to use it elsewhere.`,
+    `An inline 'or' union is a transport shape — it may appear only as an operation's or a ` +
+    `domainService operation's return type, or, with at least one 'error' variant, as the ` +
+    `result of a workflow 'create', a 'commandHandler' or a 'queryHandler' ` +
+    `('create(…): Receipt or PaymentDeclined'), where the error answers its mapped status. ` +
+    `Not in this position.`,
   "loom.union-position#payload-field":
     `An inline 'or' union cannot be a payload field: the tagged union wire is emitted only ` +
     `at the top of an operation or find return, and no backend renders one nested inside a ` +
@@ -4339,11 +4396,11 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.ui-read-unresolved": (p: { aggregate: unknown; operation: unknown; known: unknown }) =>
     `reads \`${p.aggregate}.${p.operation}\`, which '${p.aggregate}' does not expose.  A page ` +
     `read names one of: \`all\` (the auto-\`findAll\`), \`byId\`, \`history\` on an audited ` +
-    `aggregate, or a \`find\` declared on its repository.  ${p.known}  Left to codegen this ` +
+    `aggregate, or a paged read a \`queryHandler\` runs.  ${p.known}  Left to codegen this ` +
     `does not fail loudly — it fails DIFFERENTLY on each frontend: the JSX and Feliz/Flutter ` +
     `clients import a hook that was never emitted (a build error), while Phoenix LiveView ` +
     `substitutes the UNFILTERED \`list_<agg>s()\` and renders every row of the table with no ` +
-    `error at all.  Declare the find on the repository, or name one that exists.`,
+    `error at all.  Name a read that exists.`,
   "loom.ui-read-unresolved#unrouted": (p: {
     aggregate: unknown;
     operation: unknown;
@@ -4353,10 +4410,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `reads \`${p.aggregate}.${p.operation}\`, the paged find a paged \`queryHandler\` runs — ` +
     `but deployable '${p.deployable}' renders this page with ${p.framework}, which reaches the ` +
     `read over HTTP, and its backend serves no \`GET\` route for that handler.  The find has ` +
-    `no derived \`/<plural>/<find>\` route of its own, so the client would call a path that ` +
+    `no route of its own, so the client would call a path that ` +
     `404s.  Expose it: add \`scaffoldPagedApi(of: <read>)\` (or a \`route GET … -> <handler>\` ` +
     `with no path tokens) to an api the backend \`serves:\`.  (Feliz and Flutter do not ` +
-    `reach these reads yet; read the aggregate's \`all\` or a declared \`find\` there.)`,
+    `reach these reads yet; read the aggregate's \`all\` there.)`,
   "loom.ui-read-unresolved#unbound": (p: {
     primitive: unknown;
     spelling: unknown;
@@ -5281,6 +5338,21 @@ export const DIAGNOSTIC_MESSAGES = {
     `the change at the end of each arm that is not an error and drops it in an error arm.`,
   // `let r = a.withdraw(x)` / `let r = Transfer.run(…)` in a body the Phoenix
   // backend emits — the bound form of a mutating call is not rendered there.
+  "loom.elixir-entry-result-unsupported": (p: { where: unknown; deployable: unknown }) =>
+    `${p.where} declares an expected-failure result ('T or E'), and the Phoenix/Elixir ` +
+    `deployable '${p.deployable}' hosts its context.  The Phoenix workflow and handler emitters ` +
+    `have no tagged result yet, nor the rollback that undoes the whole command when the answer ` +
+    `is an error.  Drop the error variant (answer the failure with 'notFound', or from an ` +
+    `operation route), or host this context on a node / dotnet / java / python backend.`,
+  "loom.elixir-entry-result-unsupported#workflow-state": (p: {
+    where: unknown;
+    deployable: unknown;
+  }) =>
+    `${p.where} answers the workflow itself ('return this'), and the Phoenix/Elixir deployable ` +
+    `'${p.deployable}' hosts its context.  The Phoenix command route has no instance-state ` +
+    `answer yet.  Answer the correlation id and read the instance through ` +
+    `'GET /workflows/<name>/instances/{id}', or host this context on a node / dotnet / java / ` +
+    `python backend.`,
   "loom.elixir-bound-mutating-call-unsupported": (p: {
     where: unknown;
     name: unknown;
@@ -5424,8 +5496,6 @@ export const DIAGNOSTIC_MESSAGES = {
     repoName: unknown;
   }) =>
     `workflow '${p.name}': '${p.repoName}.all(...)' references unknown repository '${p.repoName}'.`,
-  "loom.findall-unknown-criterion": (p: { name: unknown; repoName: unknown; critName: unknown }) =>
-    `workflow '${p.name}': criterion query on '${p.repoName}' references unknown criterion '${p.critName}'.`,
   "loom.findall-criterion-mismatch": (p: {
     name: unknown;
     critName: unknown;
@@ -5449,7 +5519,7 @@ export const DIAGNOSTIC_MESSAGES = {
     repoName: unknown;
     retrievalName: unknown;
   }) =>
-    `workflow '${p.name}': '${p.repoName}.all(${p.retrievalName}(...))' references unknown retrieval '${p.retrievalName}'.`,
+    `workflow '${p.name}': '${p.repoName}.all(${p.retrievalName}(...))' names no criterion or retrieval '${p.retrievalName}' in this context.`,
   "loom.workflow-run-retrieval-mismatch": (p: {
     name: unknown;
     retrievalName: unknown;
@@ -5482,9 +5552,9 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `workflow '${p.name}': in the 'match' arm '${p.var}', '${p.target}.${p.op}(...)' references unknown binding '${p.target}'.`,
   "loom.iflet-bad-source": (p: { name: unknown; var: unknown }) =>
-    `workflow '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)' or a declared optional find 'Repo.<find>(args)' (one returning 'T?').`,
+    `workflow '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)', 'Repo.find(id)' or 'Repo.findBy(…)' (a read that answers 'T?').`,
   "loom.iflet-bad-source#handler": (p: { kind: unknown; name: unknown; var: unknown }) =>
-    `${p.kind} '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)' or a declared optional find 'Repo.<find>(args)' (one returning 'T?').`,
+    `${p.kind} '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)', 'Repo.find(id)' or 'Repo.findBy(…)' (a read that answers 'T?').`,
   "loom.workflow-unknown-binding": (p: { name: unknown; target: unknown; op: unknown }) =>
     `workflow '${p.name}': '${p.target}.${p.op}(...)' references unknown let-binding '${p.target}', or '${p.target}' isn't bound to an aggregate.`,
   "loom.workflow-unknown-operation": (p: {

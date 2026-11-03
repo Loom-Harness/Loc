@@ -102,6 +102,7 @@ import {
   isMatchExpr,
   isMatchStmt,
   isMemberSuffix,
+  isModelText,
   isNamedType,
   isNameRef,
   isNowExpr,
@@ -575,6 +576,7 @@ export class Elaborator {
       if (isEntityPart(decl)) return Ty.record({ of: "part", ref: decl });
       if (isEventDecl(decl)) return Ty.record({ of: "event", ref: decl });
       if (isPayloadDecl(decl)) return Ty.record({ of: "payload", ref: decl });
+      if (isWorkflow(decl)) return Ty.record({ of: "workflow", ref: decl });
       return Ty.unknown("unresolved-type");
     }
     return Ty.unknown("unresolved-type");
@@ -612,6 +614,8 @@ export class Elaborator {
     if (isBoolLit(e)) return Ty.prim("bool");
     if (isNullLit(e)) return Ty.opt(Ty.never);
     if (isNowExpr(e)) return Ty.prim("datetime");
+    // `label(…)` / `plural(…)` — the translated text of a model element.
+    if (isModelText(e)) return Ty.prim("string");
     if (isPrimitiveConversion(e)) {
       this.synth(e.value, scope);
       return Ty.prim(e.target as PrimitiveName);

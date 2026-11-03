@@ -28,6 +28,7 @@ import { claimFromOriginString } from "../../_auth/origin-claim.js";
 import { JAVA_IMPORTS } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { javaIntOutOfRange } from "../codec-spelling.js";
 import { jid } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
@@ -999,7 +1000,7 @@ const JAVA_TYPED_CLAIM_HELPERS: readonly string[] = [
   ``,
   `    private static Integer asInt(Object v) {`,
   `        Long n = asLong(v);`,
-  `        return n == null || n < Integer.MIN_VALUE || n > Integer.MAX_VALUE ? null : n.intValue();`,
+  `        return n == null || ${javaIntOutOfRange("n")} ? null : n.intValue();`,
   `    }`,
   ``,
   `    private static ${J.BigDecimal} asDecimal(Object v) {`,

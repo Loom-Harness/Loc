@@ -13,7 +13,7 @@
 import type { AggregateIR, WorkflowStmtIR } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
-import { snake } from "../../util/naming.js";
+import { pythonIdent, snake } from "../../util/naming.js";
 import { pyRef } from "../_imports/python.js";
 
 export type StampEvent = "create" | "update";
@@ -101,7 +101,7 @@ export function pyStampedSaveLines(
   aggregates: readonly (Stamped & { name: string })[],
 ): string[] {
   const v = snake(save.name);
-  const persist = `${indent}await ${snake(save.repoName)}.save(${v})`;
+  const persist = `${indent}await ${pythonIdent(save.repoName)}.save(${v})`;
   const agg = aggregates.find((a) => a.name === save.aggName);
   const event: StampEvent = created.has(save.name) ? "create" : "update";
   if (!agg || !hasStamp(agg, event)) return [persist];

@@ -46,7 +46,11 @@ import {
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../../ir/util/walk.js";
-import { commandCreateResult, emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
+import {
+  commandCreateEntryResult,
+  commandCreateResult,
+  emitsCommandRoute,
+} from "../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { escapeCsharpIdent, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
@@ -80,6 +84,15 @@ import {
 import { dotnetNotFoundThrow } from "./emit/common.js";
 import { dapperWorkflowStateColumns } from "./emit/dapper-workflow.js";
 import type { OpFragment } from "./emit/entity.js";
+import {
+  entryControllerAnswer,
+  entryErrorStatuses,
+  entryErrorTestCs,
+  entryResultCsLines,
+  entryResultNs,
+  entryUnionName,
+  renderEntryUnionFile,
+} from "./entry-result-emit.js";
 import { csFindMethodName } from "./find-method-name.js";
 import { csReadOwnParams } from "./local-names.js";
 import type { CsRenderContext } from "./render-expr.js";
@@ -199,6 +212,12 @@ export function emitWorkflows(
     const requestContent = renderRequestDto(wf, ctx, ns);
     out.set(requestPath, requestContent);
     sourcemap?.file(requestPath, requestContent, wf.origin, construct);
+    // An expected-failure result's wire union (`Application.EntryResults`).
+    const routed = commandCreateResult(wf);
+    if (routed?.type.kind === "union" && commandCreateEntryResult(wf, ctx)) {
+      const f = renderEntryUnionFile(routed.type, ctx, ns);
+      if (!out.has(f.path)) out.set(f.path, f.content);
+    }
     const commandPath = `Application/Workflows/${upperFirst(wf.name)}Command.cs`;
     const commandContent = renderCommand(wf, ns);
     out.set(commandPath, commandContent);
@@ -1287,7 +1306,7 @@ function renderCommand(wf: WorkflowIR, ns: string): string {
   // `create(…): T` — the command carries its result type (`ICommand<T>`), the
   // commandHandler shape; a result-less workflow keeps the unit `ICommand`.
   const result = commandCreateResult(wf);
-  const iface = result ? `ICommand<${renderCsType(result.type)}>` : "ICommand";
+  const iface = result ? `ICommand<${workflowResultCs(wf, result.type, ns)}>` : "ICommand";
   return `// Auto-generated.
 using Mediator;
 using ${ns}.Domain.Ids;
@@ -1372,7 +1391,11 @@ function renderHandler(
   // `create(…): T { … return <expr> }` — the handler returns the value instead
   // of `Unit` (the route answers 200 with it).
   const result = commandCreateResult(wf);
-  const resultCs = result ? renderCsType(result.type) : "Unit";
+  const resultCs = result ? workflowResultCs(wf, result.type, ns) : "Unit";
+  // An expected-failure result (`T or E`) runs in one transaction whether or
+  // not the workflow is `transactional`; an error answer rolls it back.
+  const er = commandCreateEntryResult(wf, ctx);
+  const inTx = wf.transactional || er !== undefined;
   // F58 — a state-bearing workflow's COMMAND handler must load-or-allocate the
   // same saga row `renderEventReactorHandler` does and render the body against
   // it.  Without this the body's own-state writes rendered `this.<Field>` on a
@@ -1413,7 +1436,7 @@ function renderHandler(
     ctorParamPairs.push("IDomainEventDispatcher events");
     ctorAssigns.push("_events = events");
   }
-  if (wf.transactional) {
+  if (inTx) {
     // Commit boundary via the domain `IUnitOfWork` port —
     // NOT the concrete `AppDbContext`.  The EF adapter opens the transaction on
     // the SAME scoped DbContext the repositories share, so `repo.SaveAsync`
@@ -1594,9 +1617,7 @@ function renderHandler(
     // already-rendered (pre-transform) chunks.  A per-line map distributes
     // over any sub-array, so re-indenting just the statement chunks is
     // equivalent to re-indenting them as part of the larger `stmtLines`.
-    const finalChunks = wf.transactional
-      ? stmtChunks.map((ls) => ls.map((l) => "    " + l))
-      : stmtChunks;
+    const finalChunks = inTx ? stmtChunks.map((ls) => ls.map((l) => "    " + l)) : stmtChunks;
     const chunkTexts = finalChunks.map((ls) => ls.join("\n"));
     if (chunkTexts.length > 0) {
       opFragments.push({
@@ -1615,7 +1636,22 @@ function renderHandler(
   // The result is read where the body's locals are in scope — inside the `try`
   // of a transactional workflow, so it is the value the commit made durable —
   // and returned after the commit and the event drain.
-  if (result) stmtLines.push(`        workflowResult = ${renderArg(result.value)};`);
+  if (er && result?.type.kind === "union") {
+    stmtLines.push(
+      ...entryResultCsLines(er, result.type, renderArg, ctx, ns, INDENT, "workflowResult", wfThis),
+    );
+  } else if (result && result.type.kind === "entity" && result.type.name === wf.name) {
+    // `create(…): <Wf> { …; return this }` — the saved instance state.
+    stmtLines.push(
+      `        workflowResult = new ${upperFirst(wf.name)}InstanceResponse(${(
+        wf.instanceWireShape ?? []
+      )
+        .map((f) => projectToResponse(`${wfThis}.${upperFirst(f.name)}`, f.type, ctx))
+        .join(", ")});`,
+    );
+  } else if (result) {
+    stmtLines.push(`        workflowResult = ${renderArg(result.value)};`);
+  }
 
   // `workflow_started` at handler entry (before any tx begins); `workflow_completed`
   // on the success tail (after emits dispatch, before returning Unit) — a thrown
@@ -1634,10 +1670,11 @@ function renderHandler(
   // byte-identical to where the declaration used to lead `stmtLines`.
   if (usage.hasEmit) body += "        var _workflowEvents = new List<IDomainEvent>();\n";
   if (result) body += `        ${resultCs} workflowResult = default!;\n`;
-  if (wf.transactional) {
-    const beginCall = effectiveIsolation
-      ? `_uow.BeginTransactionAsync(IsolationLevel.${csIsolationLevel(effectiveIsolation)}, cancellationToken)`
-      : `_uow.BeginTransactionAsync(cancellationToken)`;
+  if (inTx) {
+    const beginCall =
+      wf.transactional && effectiveIsolation
+        ? `_uow.BeginTransactionAsync(IsolationLevel.${csIsolationLevel(effectiveIsolation)}, cancellationToken)`
+        : `_uow.BeginTransactionAsync(cancellationToken)`;
     // Aggregate events raised by the body's saves buffer in this scope and
     // dispatch only after CommitAsync (banking-eval B-04); a rollback
     // disposes the scope unflushed.  See `DomainEventDeferral` (common.ts).
@@ -1648,13 +1685,21 @@ function renderHandler(
       `        {\n` +
       stmtLines.map((l) => "    " + l).join("\n") +
       "\n" +
-      `            await tx.CommitAsync(cancellationToken);\n` +
+      (er && result
+        ? `            if (${entryErrorTestCs(er, result.type, ns, "workflowResult")}) await tx.RollbackAsync(cancellationToken);\n` +
+          `            else await tx.CommitAsync(cancellationToken);\n`
+        : `            await tx.CommitAsync(cancellationToken);\n`) +
       `        }\n` +
       `        catch\n` +
       `        {\n` +
       `            await tx.RollbackAsync(cancellationToken);\n` +
       `            throw;\n` +
       `        }\n` +
+      // A rolled-back command announces nothing: the deferral is disposed
+      // unflushed and the workflow's own emits are dropped.
+      (er && result
+        ? `        if (${entryErrorTestCs(er, result.type, ns, "workflowResult")}) return workflowResult;\n`
+        : "") +
       `        await __deferral.FlushAsync(cancellationToken);\n`;
   } else {
     body += stmtLines.join("\n") + "\n";
@@ -1911,9 +1956,10 @@ export function csWorkflowStmtTarget(
       // (`load-optional`) binds it.  A user find (`locate`, `byHandle`) is
       // emitted WITHOUT an `Async` suffix (matching the CQRS query handler's
       // `_repo.<Find>(...)` call convention), so don't append one or the
-      // method won't resolve (CS1061).
+      // method won't resolve (CS1061).  A widened by-id read (`find(id)
+      // ignoring …`) calls its own method under that convention.
       const methodName =
-        st.op === "load" || st.op === "load-optional"
+        (st.op === "load" || st.op === "load-optional") && !st.bypassRead
           ? "GetByIdAsync"
           : csFindMethodName(st.method);
       const call = `await ${fieldName}.${methodName}(${callArgs})`;
@@ -2112,10 +2158,10 @@ export function csWorkflowStmtTarget(
       const lookup =
         st.op === "bound"
           ? [`${indent}var ${st.var} = ${st.retrievalArgs.map(renderArg).join(", ")};`]
-          : st.op === "load-optional"
-            ? byName("GetByIdAsync")
-            : st.findMethod
-              ? byName(csFindMethodName(st.findMethod))
+          : st.findMethod
+            ? byName(csFindMethodName(st.findMethod))
+            : st.op === "load-optional"
+              ? byName("GetByIdAsync")
               : firstRowLines(
                   indent,
                   st.var,
@@ -2401,6 +2447,24 @@ export function renderExprWithEventParam(
   return renderCsExpr(rewritten, { thisName, resourceClasses });
 }
 
+/** True when a create's declared result is its own workflow (`return this`). */
+function workflowSelf(wf: WorkflowIR, t: import("../../ir/types/loom-ir.js").TypeIR): boolean {
+  return t.kind === "entity" && t.name === wf.name;
+}
+
+/** The C# type a workflow command answers: the entry-result union for `T or
+ *  E`, the instance response for the workflow itself, else the domain type. */
+function workflowResultCs(
+  wf: WorkflowIR,
+  t: import("../../ir/types/loom-ir.js").TypeIR,
+  ns: string,
+): string {
+  if (t.kind === "union") return `global::${entryResultNs(ns)}.${entryUnionName(t)}`;
+  if (workflowSelf(wf, t))
+    return `global::${ns}.Application.Workflows.${upperFirst(wf.name)}InstanceResponse`;
+  return renderCsType(t);
+}
+
 /** The CLR type a workflow route's declared result crosses the wire as — an
  *  id's raw value type, else the scalar itself.  Only the kinds phase ④ admits
  *  (`loom.workflow-return-type-unsupported`) reach here. */
@@ -2457,19 +2521,43 @@ function renderController(
     // (`.Value`, a Guid/int/long/string), the same JSON token the aggregate's
     // own `id` field carries on the wire, not the strongly-typed id record.
     const result = commandCreateResult(wf);
+    const er = commandCreateEntryResult(wf, ctx);
     const success = result
-      ? `    [ProducesResponseType(typeof(${workflowResultWireCs(result.type)}), 200)]\n`
+      ? `    [ProducesResponseType(typeof(${er || workflowSelf(wf, result.type) ? workflowResultCs(wf, result.type, ns) : workflowResultWireCs(result.type)}), 200)]\n`
       : // Explicit success (NoContent → 204) so the added error
         // [ProducesResponseType] doesn't suppress Swashbuckle's 2xx inference.
         `    [ProducesResponseType(204)]\n`;
-    const send = result
-      ? `        var result = await _mediator.Send(cmd);\n` +
-        `        return Ok(result${result.type.kind === "id" ? ".Value" : ""});\n`
-      : `        await _mediator.Send(cmd);\n` + `        return NoContent();\n`;
+    // An expected-failure result answers each error arm at its mapped status.
+    const declared = new Set(
+      errorStatuses(
+        "workflow",
+        workflowIsGuarded(wf),
+        wireStatusResolver(ctx.structuralErrorStatuses),
+        {
+          readsAggregate: workflowCanAnswerNotFound(wf),
+        },
+      ),
+    );
+    const armAttrs = er
+      ? entryErrorStatuses(er, ctx)
+          .filter((st) => !declared.has(st))
+          .map((st) => `    [ProducesResponseType(typeof(ProblemDetails), ${st})]\n`)
+          .join("")
+      : "";
+    const send =
+      result && er && result.type.kind === "union"
+        ? `        var result = await _mediator.Send(cmd);\n` +
+          entryControllerAnswer(er, result.type, ctx, ns, "result", "        ").join("\n") +
+          "\n"
+        : result
+          ? `        var result = await _mediator.Send(cmd);\n` +
+            `        return Ok(result${result.type.kind === "id" ? ".Value" : ""});\n`
+          : `        await _mediator.Send(cmd);\n` + `        return NoContent();\n`;
     blocks.push(
       `    [HttpPost("${snake(wf.name)}")]\n` +
         success +
         errorAttrs +
+        armAttrs +
         `    public async Task<IActionResult> ${upperFirst(camelId(opWorkflow(wf.name)))}([FromBody] ${upperFirst(wf.name)}Request request)\n` +
         `    {\n` +
         `        var cmd = new ${upperFirst(wf.name)}Command(\n            ${cmdArgs});\n` +

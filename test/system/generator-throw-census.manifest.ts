@@ -124,18 +124,24 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/_expr/target.ts
   "src/generator/_expr/target.ts#renderExprWith": {
-    invariant:
-      "action-ref is lowered only when env.actions/env.stores are set (page/component/store lowering), and those bodies are rendered only by the frontend walkers (walker-core.ts:2200, heex-walker-core.ts:780), never by the backend renderExprWith callers (domain bodies, requires gates). (src/ir/lower/lower-expr.ts:2455, src/ir/lower/lower-expr.ts:744, src/ir/lower/lower-ui.ts:134/374)",
+    guardedBy: ["loom.model-text-outside-ui"],
+  },
+  "src/generator/_expr/target.ts#renderExprWithMarks": {
+    guardedBy: ["loom.model-text-outside-ui"],
   },
   "src/generator/_expr/target.ts#renderExprWith$2": {
     invariant:
+      "action-ref is lowered only when env.actions/env.stores are set (page/component/store lowering), and those bodies are rendered only by the frontend walkers (walker-core.ts:2200, heex-walker-core.ts:780), never by the backend renderExprWith callers (domain bodies, requires gates). (src/ir/lower/lower-expr.ts:2455, src/ir/lower/lower-expr.ts:744, src/ir/lower/lower-ui.ts:134/374)",
+  },
+  "src/generator/_expr/target.ts#renderExprWith$3": {
+    invariant:
       "authz-filter is built only by enrichment (tenant-stance.ts:349/451, enrichments.ts:588/682) into contextFilters/writeScopeFilter, and every backend filter translator special-cases it (isDenyFilter/isDeepScopeFilter; in-app path _expr/authz-filter-inapp.ts). Empirically: the 90-fixture corpus with `deny on <every aggregate>` and `deny write` injected into every context, generated on node, node{mikroorm}, dotnet, dotnet{dapper}, python, java and elixir, never reached this throw. The document-shape crossing (policy-document.ddd) was the historical leak and is fixed. (src/ir/util/tenant-stance.ts:349,451; src/generator/_expr/authz-filter-inapp.ts)",
   },
-  "src/generator/_expr/target.ts#renderExprWithMarks": {
+  "src/generator/_expr/target.ts#renderExprWithMarks$2": {
     invariant:
       "Only caller is the TS aggregate op-body loop (domain statements); action-ref is lowered only in UI bodies (env.actions/env.stores). (src/generator/typescript/render-stmt.ts:161; src/ir/lower/lower-expr.ts:2455)",
   },
-  "src/generator/_expr/target.ts#renderExprWithMarks$2": {
+  "src/generator/_expr/target.ts#renderExprWithMarks$3": {
     invariant:
       "Only caller renders aggregate op-body statements, which never contain the enrichment-only authz-filter sentinel (built at tenant-stance.ts:349/451 into filters only). (src/generator/typescript/render-stmt.ts:161)",
   },
@@ -921,27 +927,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
   "src/generator/feliz/wire.ts#collectBodyReads": {
     guardedBy: ["loom.ui-read-unresolved", "loom.ui-api-operation-unknown"],
-    note: "A QueryView read naming anything other than all/byId/history/a declared find is refused (tried create/delete/undeclared names).",
-  },
-  // The four Feliz find-read sites: every find a page can read is a
-  // synthesized paged `findAllBy<Criterion>`, and `loom.ui-read-unresolved`
-  // (#unrouted) refuses each such read on Feliz, which has no route to reach
-  // it — so none of the four is reachable.
-  "src/generator/feliz/wire.ts#felizFindRead": {
-    guardedBy: ["loom.ui-read-unresolved"],
-    note: "Every synthesized-find read on feliz is refused by ui-read-unresolved#unrouted (ui-checks.ts: feliz hosts carry no paged-find routes).",
-  },
-  "src/generator/feliz/wire.ts#felizFindRead$2": {
-    guardedBy: ["loom.ui-read-unresolved"],
-    note: "Same guard as felizFindRead; the target-neutral loom.ui-find-call-arity also refuses the arity case first-hand.",
-  },
-  "src/generator/feliz/wire.ts#findParamQueryValue": {
-    guardedBy: ["loom.ui-read-unresolved"],
-    note: "Same guard as felizFindRead; feature find-read-composite-param (omits feliz) also refuses a list param.",
-  },
-  "src/generator/feliz/wire.ts#walk": {
-    guardedBy: ["loom.ui-read-unresolved"],
-    note: "Same guard as felizFindRead; feature find-read-unbound-arg (omits feliz) also refuses a row-bound arg.",
+    note: "A QueryView read naming anything other than all/byId/history is refused (tried create/delete/undeclared names).",
   },
 
   // src/generator/flutter/auth-gate.ts
@@ -1310,6 +1296,35 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
   },
 
+  // src/generator/java/codec-spelling.ts
+  "src/generator/java/codec-spelling.ts#javaJsonSqlType": {
+    invariant:
+      "The Codec fact stores the `json` scalar in a `json` column (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#javaMoneyColumnLabel": {
+    invariant:
+      "The Codec fact's money column is the bounded `decimal` NUMERIC(19,4) (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#javaIntOutOfRange": {
+    invariant:
+      "The Codec fact's int range is the JVM int (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#instantUnit": {
+    invariant:
+      "The Codec fact's datetime wire form carries exactly three fraction digits and truncates at ingress (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#javaInstantWire": {
+    invariant:
+      "The Codec fact's datetime wire form drops the fraction on a whole second (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#assertCalendarDate": {
+    invariant:
+      "The Codec fact's date wire form is `calendar-date` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#javaEnvelopeInstant": {
+    invariant:
+      "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
   // src/generator/elixir/vanilla/codec-spelling-ex.ts
   "src/generator/elixir/vanilla/codec-spelling-ex.ts#exPgInstantType": {
     invariant:

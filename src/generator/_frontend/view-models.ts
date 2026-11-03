@@ -216,6 +216,14 @@ export interface FormFieldVM {
   /** Humanised label, derived from the leaf path segment so nested
    *  value-object fields render as "Amount" not "price.amount". */
   label: string;
+  /** The model-identity catalog key of {@link label}
+   *  (`Projects.Task.field.title`, `src/util/model-text-key.ts`) when the field
+   *  is a declared field of a model type; absent for a form input that names
+   *  no model fact (an operation parameter with no same-named field). */
+  labelKey?: string;
+  /** For an enum select: the identity key of each of `enumValuesJson`'s
+   *  values, in the same order (`Projects.Status.value.Draft`). */
+  enumValueKeys?: string[];
   /** Stable testid for Playwright drivers. */
   testId: string;
   /** RHF errors expression — `errors.customerId?.message` or
@@ -253,8 +261,9 @@ export interface FormFieldVM {
    *  `rowFields` as repeatable rows (React `useFieldArray`, Feliz MVU list …);
    *  a pack that doesn't yet ignores it and keeps the disabled stub. */
   rowFields?: FormFieldVM[];
-  /** Humanised singular label for one row (`Line item`) — the add-button text. */
-  elementLabel?: string;
+  /** The row element's DSL name (`LineItem`) — the subject of the add-button's
+   *  whole-sentence label (`chrome.addItem.<name>`). */
+  elementName?: string;
   /** Pascal-cased array name (`Items`) — for the hoisted `useFieldArray` var
    *  names a dynamic-row template references (`appendItems` / `removeItems`). */
   arrayPascal?: string;

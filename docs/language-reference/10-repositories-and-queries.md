@@ -202,7 +202,7 @@ end
 
 ## The queryable subset
 
-A `criterion` body (and a `retrieval` `where`, a `projection` `where`, a capability `filter`) is **not** a general expression — it must lower to SQL. The oracle `firstNonQueryableNode` admits exactly: comparisons (`== != < <= > >=`), `&& || !`, parenthesised groups, `this.<column>` (or the projection alias `o.<column>`) and one-level `this.<vo>.<sub>` flattened value-object refs, `currentUser.<field>`, parameter refs, literals and enum values, a named `criterion` reference, membership over a reference collection (`this.<refColl>.contains(x)` — an `EXISTS` subquery), and the bool-returning queryable intrinsics with the **column as receiver** (`this.path.startsWith(p)` → a prefix filter). Everything richer is rejected — lambdas, collection projections (`.count` / `.first`), arithmetic, value-object construction, calls, ternaries, `match`, conversions, and column-vs-column comparisons.
+A `criterion` body (and a `retrieval` `where`, a `projection` `where`, a capability `filter`) is **not** a general expression — it must lower to SQL. The oracle `firstNonQueryableNode` admits exactly: comparisons (`== != < <= > >=`), `&& || !`, parenthesised groups, `this.<column>` (or the projection alias `o.<column>`) and one-level `this.<vo>.<sub>` flattened value-object refs (a whole value object — `this.<vo> == v`, `this.<vo> == null` — is refused: it is stored as its fields, not one column), `currentUser.<field>`, parameter refs, literals and enum values, a named `criterion` reference, membership over a reference collection (`this.<refColl>.contains(x)` — an `EXISTS` subquery), and the bool-returning queryable intrinsics with the **column as receiver** (`this.path.startsWith(p)` → a prefix filter). Everything richer is rejected — lambdas, collection projections (`.count` / `.first`), arithmetic, value-object construction, calls, ternaries, `match`, conversions, and column-vs-column comparisons.
 
 ```ddd
 // rejected: `.count` on a list is a projection needing a subquery
@@ -504,7 +504,7 @@ end
 ```
 ::: end
 
-The inline twin inside a handler / workflow body is `Repo.all(<Criterion>(args), page: { offset: 0, limit: N })` (optionally `… ignoring …`, see below): the criterion must exist on that aggregate with the right arity (`loom.findall-unknown-criterion` / `-criterion-mismatch` / `-criterion-arity`), and in a workflow body the `page:` bound is mandatory — an unbounded list read is `loom.findall-no-page`.
+The inline twin inside a handler / workflow body is `Repo.all(<Criterion>(args), page: { offset: 0, limit: N })` (optionally `… ignoring …`, see below): the criterion must exist on that aggregate with the right arity (`loom.findall-criterion-mismatch` / `-criterion-arity`; an undeclared name is `loom.workflow-run-unknown-retrieval`), and in a workflow body the `page:` bound is mandatory — an unbounded list read is `loom.findall-no-page`.
 
 A read position (an api `GET`/`HEAD` route, a `queryHandler`, a `reading` service) may not reach the mutating repository face — a read-method route bound to a mutating `commandHandler` is `loom.read-context-repo-write`. Domain-service reads have their own rules (`loom.domain-service-read-unsupported`, `-cross-context-read` — [chapter 23](23-domain-services-and-seeds.md)), and a repository read inside a test `expect(...)` must be `let`-bound first (`loom.integration-find-must-bind` — [chapter 18](18-testing.md)).
 
@@ -524,9 +524,25 @@ The per-backend output of a widened read is under [Widened single-row reads](#wi
 | Position | Spelling |
 |---|---|
 | a query-time projection's `where` slot — **before** `join` / `group by` / `select` | `from Order as o ignoring softDeletable  group by …` |
-| an inline read bound by a `let` (`findAll`, `run`, `getBy`, `findBy`) | `let xs = Orders.all(Big()) ignoring *` |
-| an `if let` source (`find(<Criterion>)`, `findBy`) | `if let o = Orders.find(ByRef(r)) ignoring softDeletable { … }` |
-| a single-row read in a `domainService` operation (`find(<Criterion>)`, `findById`, `getBy`, `findBy`) | `return Orders.find(id) ignoring * != null` |
+| an inline list read bound by a `let` (`all(<Criterion | Retrieval>)`), or a natural-key `getBy` / `findBy` | `let xs = Orders.all(Big()) ignoring *` |
+| in a workflow, reactor or handler body: a `let` or an `if let` over `find(<Criterion>)`, `find(id)` or `findBy` | `let o = Orders.find(ByRef(r)) ignoring softDeletable` · `if let o = Orders.find(id) ignoring * { … }` |
+| an `if let` source over `findBy`, anywhere | `if let p = Products.findBy(sku: s) ignoring * { … }` |
+| a single-row read in a `domainService` operation (`find(<Criterion>)`, `find(id)`, `getBy`, `findBy`) | `return Orders.find(id) ignoring * != null` |
+| a context integration `test`: a `let` over `find(id)` | `let o = Order.find(id) ignoring softDeletable` |
+
+A widened list read runs a retrieval of its own, named for its stance (`findAllBy<C>Ignoring<Caps>`, or `<Retrieval>Ignoring<Caps>` for a declared one), derived in enrichment with the stance on it, so the shared retrieval every other caller runs keeps its filters:
+
+```ts
+// node — let xs = Orders.all(Big()) ignoring softDeletable
+async runFindAllByBigIgnoringSoftDeletable(page?: { offset?: number; limit?: number }): Promise<Order[]> {
+  let query = this.db.select().from(schema.orders).where(bigCriterion()).orderBy(asc(schema.orders.id)).$dynamic();
+```
+
+```python
+# python — the same read
+async def run_find_all_by_big_ignoring_soft_deletable(self, offset: int | None = None, limit: int | None = None) -> list[Order]:
+    query = select(OrderRow).where((OrderRow.total > 10)).execution_options(loom_ignoring=frozenset({"softDeletable"}))
+```
 
 ### Widened single-row reads
 

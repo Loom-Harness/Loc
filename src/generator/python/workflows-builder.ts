@@ -33,10 +33,15 @@ import {
   walkWorkflowStmtsDeep,
   workflowEmits,
 } from "../../ir/util/walk.js";
-import { commandCreateResult, commandWorkflowsOf } from "../../ir/util/workflow-command-route.js";
+import {
+  commandCreateEntryResult,
+  commandCreateResult,
+  commandWorkflowsOf,
+} from "../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import {
+  plural,
   pythonIdent,
   pythonWireIdent,
   snake,
@@ -64,6 +69,11 @@ import { allocateKwargs, zeroFor } from "./dispatch-builder.js";
 import type { OpFragment } from "./emit/aggregate.js";
 import { responsePyType } from "./emit/http-models.js";
 import { withFieldConstraint } from "./emit/wire-constraints.js";
+import {
+  entryErrorPyLines,
+  entryErrorStatusesPy,
+  entryResultPyLines,
+} from "./entry-result-emit.js";
 import { PY_NUMERIC } from "./numeric-codec.js";
 import { PY } from "./py-symbols.js";
 import {
@@ -397,7 +407,7 @@ export function pyReadPortResolver(
     const svc = ctx.domainServices.find((s) => s.name === service);
     const operation = svc?.operations.find((o) => o.name === op);
     if (!operation) return [];
-    return readPortsForOperation(operation).map((p) => snake(p.repo));
+    return readPortsForOperation(operation).map((p) => pythonIdent(p.repo));
   };
 }
 
@@ -621,20 +631,32 @@ function workflowRoute(
   // currentUser-referencing one binds the actor off the request scope
   // before any rendered statement mentions the bare `current_user`.
   const usesUser = workflowUsesCurrentUser(wf) || callsUserGatedOp(wf.statements, ctx);
+  const needsRequest = usesUser || commandCreateEntryResult(wf, ctx) !== undefined;
   const sig = [
     pyCommandBodyParam(`${upperFirst(wf.name)}Request`, wf.params),
-    ...(usesUser ? [PY_REQUEST_PARAM] : []),
+    ...(needsRequest ? [PY_REQUEST_PARAM] : []),
     "session: SessionDep",
   ].join(", ");
   // `create(…): T { … return <expr> }` — 200 with the value; FastAPI publishes
   // the 200 schema from the return annotation (the response-direction wire type
   // the aggregate DTOs use: an id is its `str`).  No result keeps the 204.
   const result = commandCreateResult(wf);
+  // An expected-failure result (`T or E`): the tagged dict at 200 (its schema
+  // is injected by `install_openapi`), each error arm at its mapped status.
+  const er = commandCreateEntryResult(wf, ctx);
+  const selfResult = result?.type.kind === "entity" && result.type.name === wf.name;
+  const returnAnnotation = er
+    ? `dict[str, object] | ${H.JSONResponse}`
+    : selfResult
+      ? "dict[str, object]"
+      : result
+        ? responsePyType(result.type, ctx)
+        : H.Response;
   const out: string[] = [
-    `@router.post("/${snake(wf.name)}", status_code=${result ? 200 : 204}, operation_id="${camelId(opWorkflow(wf.name))}"${errorResponsesKwarg(
+    `@router.post("/${snake(wf.name)}", ${er ? "response_model=None, " : selfResult ? `response_model=${upperFirst(wf.name)}InstanceResponse, ` : ""}status_code=${result ? 200 : 204}, operation_id="${camelId(opWorkflow(wf.name))}"${errorResponsesKwarg(
       "workflow",
       workflowIsGuarded(wf),
-      [],
+      er ? entryErrorStatusesPy(er, ctx) : [],
       conflictResolver(ctx),
       {
         readsAggregate: workflowCanAnswerNotFound(wf),
@@ -643,7 +665,7 @@ function workflowRoute(
     // A route-invoked workflow runs in a child frame under the request root, so
     // its audit / provenance rows are distinguishable from a direct operation's.
     `@${IN_CHILD_CONTEXT}`,
-    `async def ${snake(wf.name)}_workflow(${sig}) -> ${result ? responsePyType(result.type, ctx) : H.Response}:`,
+    `async def ${snake(wf.name)}_workflow(${sig}) -> ${returnAnnotation}:`,
     ...(usesUser ? [PY_USER_BIND] : []),
     // Workflow narrative — `workflow_started` at the route entry; shared catalog
     // identity (field `workflow`) across every backend.
@@ -745,7 +767,7 @@ function workflowRoute(
   const repos = mergeReadPortRepos(reposFor(wf), wf, ctx);
   for (const r of repos) {
     out.push(
-      `        ${snake(r.repoName)} = ${repoClassRef(r.aggName)}(session, ${dispatcherExpr})`,
+      `        ${pythonIdent(r.repoName)} = ${repoClassRef(r.aggName)}(session, ${dispatcherExpr})`,
     );
   }
   const hasEmit = workflowEmits(wf.statements).length > 0;
@@ -793,10 +815,34 @@ function workflowRoute(
   // Persist the saga row (a fresh allocation, or a `this.<stateField>` write) so
   // a later `on` reactor for the same key routes instead of dropping the event.
   if (corrParam) out.push("        await session.flush()");
-  if (result) {
+  const resultCtx = {
+    thisName: corrParam ? "state" : "self",
+    readPortArgs: pyReadPortResolver(ctx),
+  };
+  if (er && result?.type.kind === "union") {
     out.push(
-      `        workflow_result = ${renderPyExpr(result.value, { thisName: corrParam ? "state" : "self", readPortArgs: pyReadPortResolver(ctx) })}`,
+      ...entryResultPyLines(
+        er,
+        result.type,
+        (e) => renderPyExpr(e, resultCtx),
+        ctx,
+        "        ",
+        "workflow_result",
+        (agg) => snake(repos.find((r) => r.aggName === agg)?.repoName ?? plural(agg)),
+        (f) => instanceFieldValue("state", f),
+        wf.instanceWireShape ?? [],
+      ),
+      // The 4xx answer is what rolls the request's transaction back.
+      ...entryErrorPyLines(er, ctx, "workflow_result", H.JSONResponse, "        "),
     );
+  } else if (selfResult) {
+    out.push(
+      `        workflow_result: dict[str, object] = {${(wf.instanceWireShape ?? [])
+        .map((f) => `"${f.name}": ${instanceFieldValue("state", f)}`)
+        .join(", ")}}`,
+    );
+  } else if (result) {
+    out.push(`        workflow_result = ${renderPyExpr(result.value, resultCtx)}`);
   }
   if (hasEmit) {
     out.push(`        dispatcher = ${dispatcherExpr}`);
@@ -984,7 +1030,7 @@ export function pyWorkflowStmtTarget(
    *  single-result read behind `Repo.find(<Criterion>)` in a `let` and an
    *  `if let`. */
   const runFirstRow = (repoName: string, retrievalName: string, args: readonly ExprIR[]): string =>
-    `await ${snake(repoName)}.run_${snake(retrievalName)}(${[...args.map((a) => renderPyExpr(a, rctx)), "limit=1"].join(", ")})`;
+    `await ${pythonIdent(repoName)}.run_${snake(retrievalName)}(${[...args.map((a) => renderPyExpr(a, rctx)), "limit=1"].join(", ")})`;
   return {
     indentUnit: "    ",
     precondition: (st, i) => [
@@ -1018,7 +1064,7 @@ export function pyWorkflowStmtTarget(
         return [`${i}${hits} = ${run}`, `${i}${v} = ${hits}[0] if ${hits} else None`];
       }
       const args = st.args.map((a) => renderPyExpr(a, rctx)).join(", ");
-      const call = `await ${snake(st.repoName)}.${snake(st.method)}(${args})`;
+      const call = `await ${pythonIdent(st.repoName)}.${snake(st.method)}(${args})`;
       // A load nothing reads, mutates or saves is an existence check: keep the
       // awaited call (a missing id still raises → 404) but drop the dead
       // binding, or ruff rejects the unused local (F841).  `usedLets` here is
@@ -1032,7 +1078,7 @@ export function pyWorkflowStmtTarget(
         ...(st.page?.offset ? [`offset=${renderPyExpr(st.page.offset, rctx)}`] : []),
         ...(st.page?.limit ? [`limit=${renderPyExpr(st.page.limit, rctx)}`] : []),
       ].join(", ");
-      const call = `await ${snake(st.repoName)}.run_${snake(st.retrievalName)}(${args})`;
+      const call = `await ${pythonIdent(st.repoName)}.run_${snake(st.retrievalName)}(${args})`;
       // A `run` retrieval is a read (no exit-save), so a binding never read is
       // dead — keep the (still-awaited) call but drop the assignment, or ruff
       // rejects the unused local (F841).  Mirrors the `exprLet` arm.
@@ -1099,8 +1145,8 @@ export function pyWorkflowStmtTarget(
     repoDelete: (st, i) => {
       // `<Repo>.delete(o)` → `await <repo>.delete(<entity>.id)`.  The generated
       // repository's `delete(id)` takes the aggregate's id token, so append
-      // `.id`.  Repo var mirrors the repo-let arm (`snake(repoName)`).
-      return [`${i}await ${snake(st.repoName)}.delete(${renderPyExpr(st.entity, rctx)}.id)`];
+      // `.id`.  Repo var mirrors the repo-let arm (`pythonIdent(repoName)`).
+      return [`${i}await ${pythonIdent(st.repoName)}.delete(${renderPyExpr(st.entity, rctx)}.id)`];
     },
     forEach: (st, i, body) => {
       const saves = st.savesPerIteration.flatMap((s) => saveLines(s, `${i}    `));
@@ -1124,15 +1170,15 @@ export function pyWorkflowStmtTarget(
       // answer the row or `None`, so they bind directly; a `bound` source
       // narrows an optional binding already in scope.
       const byName = (method: string): string[] => [
-        `${i}${v} = await ${snake(st.repoName)}.${snake(method)}(${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")})`,
+        `${i}${v} = await ${pythonIdent(st.repoName)}.${snake(method)}(${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")})`,
       ];
       const lookup =
         st.op === "bound"
           ? [`${i}${v} = ${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")}`]
-          : st.op === "load-optional"
-            ? byName("findById")
-            : st.findMethod
-              ? byName(st.findMethod)
+          : st.findMethod
+            ? byName(st.findMethod)
+            : st.op === "load-optional"
+              ? byName("findById")
               : [
                   `${i}${hits} = ${runFirstRow(st.repoName, st.retrievalName, st.retrievalArgs)}`,
                   `${i}${v} = ${hits}[0] if ${hits} else None`,

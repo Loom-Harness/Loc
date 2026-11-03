@@ -2,13 +2,13 @@
 
 The outermost shells: a `system` groups `subdomain`s and `context`s (the pure domain) and then describes how to *ship* that domain as one or more `deployable`s — each pinned to a backend or frontend platform, bound to its contexts and data sources, and composed into a single `docker compose` stack. Reach for this chapter when you're deciding what runs where, on which stack, behind which UI, and how the pieces wire together.
 
-> **Grammar:** `System`, `SystemMember`, `Subdomain`, `BoundedContext`, `Deployable`, `UiSugarBinding` / `UiComposeBinding`, `Platform`, `Framework`, `DesignPack`, `ThemeBlock`, `TenancyDecl` · **Validators:** `checkDeployable` / `checkDeployablePlatform` / `checkDeployableRealizationAxes` (`src/language/validators/deployable.ts`) — `loom.ui-binding-unmountable-platform`, `loom.ui-framework-unhostable`, `loom.<framework>-deployable-missing-ui`, `loom.platform-knob-out-of-menu`, `loom.platform-knob-style-layout-mismatch`; `loom.top-level-domain-needs-single-system`, `loom.duplicate-theme-block` (`composition.ts`); `checkTheme` + `loom.a11y-theme-contrast` (`ui.ts`, `a11y.ts`); `loom.duplicate-host-port`, `loom.duplicate-service-slug`, `loom.channelsource-unbound`, `loom.deployable-channel-unrelated`, `loom.file-field-needs-object-storage` (`src/ir/validate/checks/system-checks.ts`); `loom.tenancy-*` (`tenancy.ts`) · **Docs:** [`../architecture.md`](../architecture.md), [`../platforms.md`](../platforms.md), [`../design-packs.md`](../design-packs.md), [`../tenancy.md`](../tenancy.md), [`../channels.md`](../channels.md)
+> **Grammar:** `System`, `SystemMember`, `Subdomain`, `BoundedContext`, `Deployable`, `UiSugarBinding` / `UiComposeBinding`, `Platform`, `Framework`, `DesignPack`, `ThemeBlock`, `I18nBlock`, `TenancyDecl` · **Validators:** `checkDeployable` / `checkDeployablePlatform` / `checkDeployableRealizationAxes` (`src/language/validators/deployable.ts`) — `loom.ui-binding-unmountable-platform`, `loom.ui-framework-unhostable`, `loom.<framework>-deployable-missing-ui`, `loom.platform-knob-out-of-menu`, `loom.platform-knob-style-layout-mismatch`; `loom.top-level-domain-needs-single-system`, `loom.duplicate-theme-block` (`composition.ts`); `checkTheme` + `loom.a11y-theme-contrast` (`ui.ts`, `a11y.ts`); `checkI18nBlock` — `loom.i18n-source-invalid`, `loom.i18n-duplicate` (`ui.ts`, `ddd-validator.ts`); `loom.duplicate-host-port`, `loom.duplicate-service-slug`, `loom.channelsource-unbound`, `loom.deployable-channel-unrelated`, `loom.file-field-needs-object-storage` (`src/ir/validate/checks/system-checks.ts`); `loom.tenancy-*` (`tenancy.ts`) · **Docs:** [`../architecture.md`](../architecture.md), [`../platforms.md`](../platforms.md), [`../design-packs.md`](../design-packs.md), [`../tenancy.md`](../tenancy.md), [`../channels.md`](../channels.md)
 
 Everything below was generated from one scratch system (`system Shop` — one `Orders` context served by five backend deployables, one per platform, plus a React, a Feliz and a Flutter frontend) via `node bin/cli.js generate system shop.ddd -o out`. The compose stanzas and directory trees are excerpted verbatim from that run.
 
 ## `system`
 
-`'system' name=ID '{' members* '}'` — the top-level deployment grouping. Its member vocabulary (`SystemMember`) is: `subdomain`, `context`, `deployable`, `storage`, `resource`, `channelSource`, `timerSource`, `api`, `ui`, `layout`, `theme`, `user`, `auth`, `tenancy by …`, `capability`, a top-level `function`, and `test e2e`. Most of these are *also* admissible at file top level and fold into the project's single `system`; the exceptions that only parse **inside** `system { … }` are `tenancy by …` (see [Tenancy](#tenancy-by-userclaim-of-registry)) and `timerSource`.
+`'system' name=ID '{' members* '}'` — the top-level deployment grouping. Its member vocabulary (`SystemMember`) is: `subdomain`, `context`, `deployable`, `storage`, `resource`, `channelSource`, `timerSource`, `api`, `ui`, `layout`, `theme`, `i18n`, `user`, `auth`, `tenancy by …`, `capability`, a top-level `function`, and `test e2e`. Most of these are *also* admissible at file top level and fold into the project's single `system`; the exceptions that only parse **inside** `system { … }` are `tenancy by …` (see [Tenancy](#tenancy-by-userclaim-of-registry)) and `timerSource`.
 
 ```ddd
 system Shop {
@@ -555,6 +555,45 @@ body {
 ::: end
 
 The Phoenix `theme.css` carries the same ramp as CSS custom properties (`--color-brand-0 … --color-brand-9`, `--color-primary: var(--color-brand-6)`, a `--color-neutral-*` ramp). The shade ramp is *derived* from the single `primary` hex — your colour lands at shade 6 (the `primaryShade.light` index), with lighter tints above and darker shades below. Omit `theme` entirely and the pack's built-in defaults apply (indigo `#4f46e5`, `md`, Inter).
+
+## `i18n`
+
+```
+I18nBlock: 'i18n' '{' ('source' ':' source=STRING ','?)? '}'
+```
+
+Declares the language the `.ddd` text is written in, as a BCP-47 tag. At most one per system (`loom.i18n-duplicate`); a tag `Intl.getCanonicalLocales` rejects is `loom.i18n-source-invalid`. Absent, the source language is `en` and the generated output is unchanged.
+
+```ddd
+system Shop {
+  i18n { source: "de" }
+  …
+}
+```
+
+The source language names the source catalog (`.loom/messages.de.json`, each frontend's `src/locales/de.json`), the runtime fallback every `t()` lookup lands on, the `<html lang>` of the generated shells, and — on Phoenix — the `.po` tree (`priv/gettext/de/`), gettext's default locale and the CLDR backend's locale. The translator tree's `locales/de/<ns>.json` files then hold *overrides* of the source text rather than translations (see [`../tools.md`](../tools.md#i18n-translator-workflow-ddd-i18n)).
+
+### Model text: `label(…)` and `plural(…)`
+
+```
+ModelText: kind=('label' | 'plural') '(' path+=NameRefIdent ('.' path+=MemberName)* ')';
+```
+
+Text a user sees about a MODEL element is keyed by the element, not by the page that shows it, so a word on six pages is one catalog entry. The path is `[Ctx.]Type[.member]`; the context qualifier is needed only when two contexts declare the type.
+
+| Call | Catalog key | English default |
+|---|---|---|
+| `label(Task)` | `Projects.Task.name.one` | `Task` |
+| `plural(Task)` | `Projects.Task.name.other` | `Tasks` |
+| `label(Task.title)` | `Projects.Task.field.title` | `Title` |
+| `label(Task.complete)` | `Projects.Task.op.complete` | `Complete` |
+| `label(Status.Draft)` | `Projects.Status.value.Draft` (a root-level enum: `_system.Status.value.Draft`) | `Draft` |
+
+```ddd
+Heading { plural(Task) }    // React: {t("Projects.Task.name.other", "Tasks")}
+```
+
+The calls are admitted only in page and component bodies (`loom.model-text-outside-ui`) and never inside a backtick template or a `+` chain (`loom.model-text-in-template`) — a placeholder carries data, never words. `plural()` takes a type, not a member, an enum or an error (`loom.model-text-plural-member`); a path naming nothing, or a type two contexts declare left unqualified, is `loom.model-text-unresolved`. `label` and `plural` are soft keywords: a field, parameter or containment may still be called `label`, but a `function` or `operation` may not.
 
 ## `tenancy by user.<claim> of <Registry>`
 

@@ -51,6 +51,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.param-default-unsupported": "06-behavior-and-statements.md#parameter-defaults",
   "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
+  "loom.i18n-source-invalid": "02-systems-and-topology.md#i18n",
+  "loom.i18n-duplicate": "02-systems-and-topology.md#i18n",
   "loom.unconstructible-server-field":
     "03-domain-modeling.md#a-server-owned-field-must-have-a-value",
   "loom.ambiguous-enum-value": "03-domain-modeling.md#bare-values-across-two-enums",
@@ -274,6 +276,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-return-type-mismatch": "13-workflows.md#returning-a-result",
   "loom.workflow-return-type-unsupported": "13-workflows.md#returning-a-result",
   "loom.workflow-return-event-sourced": "13-workflows.md#returning-a-result",
+  "loom.workflow-return-this-uncorrelated": "13-workflows.md#returning-a-result",
   "loom.canonical-create-duplicate-workflow": "13-workflows.md#create--starters",
   "loom.create-field-id-target": "04-type-system.md#x-id--cross-aggregate-references",
   "loom.create-name-conflict-workflow": "13-workflows.md#create--starters",
@@ -299,6 +302,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-mutation-unsaved": "13-workflows.md#body-vocabulary",
   "loom.workflow-mutation-result-unmatched": "13-workflows.md#matching-a-mutating-calls-result",
   "loom.elixir-bound-mutating-call-unsupported": "13-workflows.md#matching-a-mutating-calls-result",
+  "loom.elixir-entry-result-unsupported": "13-workflows.md#expected-failures",
   "loom.create-args": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.create-record-form": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.channel-key-missing-field": "14-apis-storage-resources-channels.md#channel--channelsource",
@@ -367,6 +371,10 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.design-pack-retired": "02-systems-and-topology.md#design-packs",
   "loom.design-pack-version-unknown": "02-systems-and-topology.md#design-packs",
   "loom.design-pack-format-mismatch": "02-systems-and-topology.md#design-packs",
+  "loom.model-text-unresolved": "02-systems-and-topology.md#model-text-label-and-plural",
+  "loom.model-text-plural-member": "02-systems-and-topology.md#model-text-label-and-plural",
+  "loom.model-text-outside-ui": "02-systems-and-topology.md#model-text-label-and-plural",
+  "loom.model-text-in-template": "02-systems-and-topology.md#model-text-label-and-plural",
   // --- src/language/validators/datasource.ts (M-T9.56 drain) --------------
   "loom.resource-kind-storage-mismatch":
     "14-apis-storage-resources-channels.md#the-kind--storage-matrix",

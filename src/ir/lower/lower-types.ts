@@ -513,6 +513,9 @@ function lowerBase(t: TypeRef | TypeAtom, env?: Env): TypeIR {
       if (isEventDecl(target) || isPayloadDecl(target)) {
         return { kind: "entity", name: target.name };
       }
+      // A workflow `create` naming its own workflow as its result
+      // (`create(…): Fulfillment`) — the workflow's state record.
+      if (isWorkflow(target)) return { kind: "entity", name: target.name };
     }
     // Macro-emitted reference without a `$refNode` — Langium's default
     // Linker skips it silently (same hazard the IdType branch handles

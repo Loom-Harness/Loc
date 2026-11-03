@@ -75,6 +75,10 @@ const PINNED: Record<string, Pin> = {
     discipline: "per-run-reset",
     reason: "`lowerModel` calls `setAmbientEnumIndex` before lowering any body (lower.ts:271).",
   },
+  "src/ir/lower/lower-expr.ts:modelTextIndex": {
+    discipline: "per-run-reset",
+    reason: "`lowerProject` calls `setModelTextIndex` before lowering any body.",
+  },
   "src/ir/lower/lower-expr.ts:topLevelFnIndex": {
     discipline: "per-run-reset",
     reason: "`lowerModel` calls `setTopLevelFnIndex` before lowering any body (lower.ts:293).",
@@ -129,6 +133,11 @@ const PINNED: Record<string, Pin> = {
     reason:
       "Late-bound `printStmt` reference, installed once to break the " +
       "print-expr / print-stmt import cycle.  Never reassigned per call.",
+  },
+  "src/generator/_walker/source-text.ts:active": {
+    discipline: "scoped-restore",
+    reason:
+      "`withSourceOverrides` saves the previous override set and restores it in a `finally`; `sourceText` only reads it.",
   },
   "src/language/print/print-expr.ts:currentCol": {
     discipline: "scoped-restore",

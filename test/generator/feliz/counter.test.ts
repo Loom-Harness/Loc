@@ -69,7 +69,7 @@ describe("feliz Counter", () => {
     // The heading is a user-visible slot — translated through the generated
     // `I18n` module (M-T1.11), keyed to the catalog.
     expect(app).toMatch(
-      /Html\.h1 \[ prop\.className "text-3xl font-bold"; prop\.children \[ Html\.text \(\(I18n\.t "page\.\w+\.heading\.\w+" "Counter"\)\) \] \]/,
+      /Html\.h1 \[ prop\.className "text-3xl font-bold"; prop\.children \[ Html\.text \(\(I18n\.t "\w+\.page\.\w+\.heading\.\w+" "Counter"\)\) \] \]/,
     );
     // Button props (label + onClick as props, never mixed with children).
     expect(app).toContain("prop.onClick (fun _ -> inc())");

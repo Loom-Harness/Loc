@@ -54,7 +54,7 @@ describe("Field + Toggle with bind: state binding", () => {
     // useState declaration emitted (bind: triggered usesState).
     expect(content).toMatch(/const \[name, setName\] = useState<string>\(""\);/);
     expect(content).toMatch(
-      /<TextInput label=\{t\("page\.\w+\.inputLabel\.\w+", "Your name"\)\} value=\{name\} onChange=\{\(e\) => setName\(e\.currentTarget\.value\)\} \/>/,
+      /<TextInput label=\{t\("\w+\.page\.\w+\.inputLabel\.\w+", "Your name"\)\} value=\{name\} onChange=\{\(e\) => setName\(e\.currentTarget\.value\)\} \/>/,
     );
   });
 
@@ -82,7 +82,7 @@ describe("Field + Toggle with bind: state binding", () => {
     expect(content).toMatch(/import \{ Switch \} from "@mantine\/core";/);
     expect(content).toMatch(/const \[active, setActive\] = useState<boolean>\(false\);/);
     expect(content).toMatch(
-      /<Switch label=\{t\("page\.\w+\.inputLabel\.\w+", "Active"\)\} checked=\{active\} onChange=\{\(e\) => setActive\(e\.currentTarget\.checked\)\} \/>/,
+      /<Switch label=\{t\("\w+\.page\.\w+\.inputLabel\.\w+", "Active"\)\} checked=\{active\} onChange=\{\(e\) => setActive\(e\.currentTarget\.checked\)\} \/>/,
     );
   });
 
@@ -152,7 +152,9 @@ describe("Field + Toggle with bind: state binding", () => {
     `);
     const content = files.get("web/src/pages/x.tsx")!;
     // No controlled-input wiring — just label.
-    expect(content).toMatch(/<TextInput label=\{t\("page\.\w+\.inputLabel\.\w+", "Bare"\)\} \/>/);
+    expect(content).toMatch(
+      /<TextInput label=\{t\("\w+\.page\.\w+\.inputLabel\.\w+", "Bare"\)\} \/>/,
+    );
     expect(content).not.toMatch(/onChange=/);
     expect(content).not.toMatch(/useState/);
   });
@@ -226,7 +228,7 @@ describe("Field + Toggle with bind: state binding", () => {
     // `loom.user-visible-concat` — and lands as one ICU message with the hole
     // bound, rather than a concatenation no locale could reorder.
     expect(content).toMatch(
-      /<TextInput label=\{t\("page\.X\.inputLabel\.\w+", "\{kind\}:", \{ kind: kind \}\)\} value=\{v\}/,
+      /<TextInput label=\{t\("\w+\.page\.X\.inputLabel\.\w+", "\{kind\}:", \{ kind: kind \}\)\} value=\{v\}/,
     );
   });
 });

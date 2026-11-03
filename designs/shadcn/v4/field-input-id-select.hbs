@@ -3,7 +3,7 @@
           name="{{path}}"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{{label}}</FormLabel>
+              <FormLabel>{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</FormLabel>
               <Select onValueChange={field.onChange} value={(field.value as string) ?? ""}>
                 <FormControl>
                   <SelectTrigger data-testid="{{testId}}">

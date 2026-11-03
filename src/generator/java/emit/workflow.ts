@@ -30,7 +30,10 @@ import {
   walkWorkflowStmtsDeep,
   workflowEmits,
 } from "../../../ir/util/walk.js";
-import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
+import {
+  commandCreateEntryResult,
+  commandCreateResult,
+} from "../../../ir/util/workflow-command-route.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
 import { workflowPreconditionThrowArgs } from "../../_i18n/domain-floor.js";
@@ -65,8 +68,16 @@ import { voRecord } from "./dto.js";
 import { EMPTY_COMMAND_BODY_PARAM } from "./empty-body-filter.js";
 import type { OpFragment } from "./entity.js";
 import {
+  entryControllerJava,
+  entryErrorTestJava,
+  entryResultJavaLines,
+  entryUnionFiles,
+  entryUnionJava,
+} from "./entry-result.js";
+import {
   bearsNestedRecord,
   collectWireToDomainImports,
+  domainToWire,
   referencedValueObjects,
   wireJavaType,
   wireToDomain,
@@ -81,6 +92,12 @@ const ISOLATION = javaRef("org.springframework.transaction.annotation", "Isolati
 const MEDIA_TYPE = javaRef("org.springframework.http", "MediaType");
 const RESPONSE_ENTITY = javaRef("org.springframework.http", "ResponseEntity");
 const JSON_MAPPER = javaRef("tools.jackson.databind.json", "JsonMapper");
+const PROBLEM_DETAIL = javaRef("org.springframework.http", "ProblemDetail");
+const URI_REF = javaRef("java.net", "URI");
+const TX_ASPECT = javaRef(
+  "org.springframework.transaction.interceptor",
+  "TransactionAspectSupport",
+);
 
 /** Render a variant-`match` whose scrutinee is a UNION-FIND binding: the
  *  repository returns the bare success aggregate (null on absence — no union
@@ -415,14 +432,15 @@ export function javaWorkflowStmtTarget(
       // where `orderId` is an `OrderId`, which does not compile.
       // The two optional reads that do not answer `T`-or-null directly: a
       // criterion read runs the shared retrieval for one row (the `if let`
-      // lookup), and `findById` answers `Optional<T>`.
+      // lookup), and `findById` answers `Optional<T>`.  A widened read
+      // (`… ignoring …`) calls its own method, which answers `T`-or-null.
       if (s.op === "select-one" && s.retrievalName) {
         const rendered = s.args.map((a) => renderJavaExpr(a, renderCtx));
         return [
           `${indent}var ${bound(s.name)} = ${firstRowOf(repoField(s.aggName), s.retrievalName, rendered)};`,
         ];
       }
-      if (s.op === "load-optional") {
+      if (s.op === "load-optional" && !s.bypassRead) {
         return [
           `${indent}var ${bound(s.name)} = ${repoField(s.aggName)}.findById(${args}).orElse(null);`,
         ];
@@ -558,10 +576,10 @@ export function javaWorkflowStmtTarget(
       const lookup =
         s.op === "bound"
           ? args.join(", ")
-          : s.op === "load-optional"
-            ? `${repoField(s.aggName)}.findById(${args.join(", ")}).orElse(null)`
-            : s.findMethod
-              ? `${repoField(s.aggName)}.${s.findMethod}(${args.join(", ")})`
+          : s.findMethod
+            ? `${repoField(s.aggName)}.${s.findMethod}(${args.join(", ")})`
+            : s.op === "load-optional"
+              ? `${repoField(s.aggName)}.findById(${args.join(", ")}).orElse(null)`
               : firstRowOf(repoField(s.aggName), s.retrievalName, args);
       const inner = `${indent}    `;
       const thenSaves = s.savesInThen.flatMap((sv) => saveLines(inner, sv));
@@ -1290,16 +1308,64 @@ export function renderJavaWorkflows(
     // (an id's raw `value()`), read inside the class-level `@Transactional`
     // boundary and handed back after it commits.  No result keeps `void`.
     const result = commandCreateResult(wf);
-    const resultLines = result
-      ? [
-          `            var workflowResult = ${renderJavaExpr(result.value, wfRenderCtx)}${result.type.kind === "id" ? ".value()" : ""};`,
-        ]
-      : [];
+    const er = commandCreateEntryResult(wf, ctx);
+    const selfResult = result?.type.kind === "entity" && result.type.name === wf.name;
+    const resultLines =
+      er && result?.type.kind === "union"
+        ? [
+            `            ${entryUnionJava(result.type)} workflowResult = null;`,
+            ...entryResultJavaLines(
+              er,
+              result.type,
+              (e) => renderJavaExpr(e, bodyRenderCtx),
+              (n) => boundLocal(bodyRenderCtx, n),
+              (u, tag) => {
+                const pkg = bodyRenderCtx.unionPkgOf?.(u);
+                return pkg ? javaRef(pkg, `${u}_${tag}`) : `${u}_${tag}`;
+              },
+              ctx,
+              "            ",
+              "workflowResult",
+            ),
+            // An error answer rolls the whole command back: every write it made
+            // is discarded at the `@Transactional` boundary, and the events it
+            // published reach no AFTER_COMMIT listener.
+            `            if (${entryErrorTestJava(er, result.type, "workflowResult")}) {`,
+            `                ${TX_ASPECT}.currentTransactionStatus().setRollbackOnly();`,
+            `                return workflowResult;`,
+            `            }`,
+          ]
+        : selfResult
+          ? [
+              `            var workflowResult = new ${upperFirst(wf.name)}InstanceResponse(${(
+                wf.instanceWireShape ?? []
+              )
+                .map((f) => domainToWire(f.type, `state.${jid(f.name)}()`))
+                .join(", ")});`,
+            ]
+          : result
+            ? [
+                `            var workflowResult = ${renderJavaExpr(result.value, wfRenderCtx)}${result.type.kind === "id" ? ".value()" : ""};`,
+              ]
+            : [];
+    if (er && result?.type.kind === "union") {
+      for (const f of entryUnionFiles(result.type, ctx, wctx.pkg, wctx.basePkg)) {
+        out.set(f.name, { category: "request-dto", content: f.content });
+      }
+    }
+    const resultJava =
+      er && result?.type.kind === "union"
+        ? entryUnionJava(result.type)
+        : selfResult
+          ? `${upperFirst(wf.name)}InstanceResponse`
+          : result
+            ? workflowResultWireRef(result.type)
+            : "void";
     methods.push(
       ...(isolation
         ? [`    @Transactional(isolation = ${ISOLATION}.${javaIsolation(isolation)})`]
         : []),
-      `    public ${result ? workflowResultWireRef(result.type) : "void"} ${lowerFirst(wf.name)}(${wf.params.length > 0 ? `${reqType} request` : ""}) {`,
+      `    public ${resultJava} ${lowerFirst(wf.name)}(${wf.params.length > 0 ? `${reqType} request` : ""}) {`,
       // A workflow is a per-dispatch boundary: run it in a child execution frame
       // (fresh scope_id, parent_id ← the request's root scope) so its audit /
       // provenance rows record their call-structure position.
@@ -1588,6 +1654,31 @@ export function renderJavaWorkflows(
         `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
         `    public void ${lowerFirst(wf.name)}(${sig}) {`,
         `        ${call};`,
+        `    }`,
+        ``,
+      ];
+    }
+    const er = commandCreateEntryResult(wf, ctx);
+    if (er && result.type.kind === "union") {
+      return [
+        `    @PostMapping("/${snake(wf.name)}")`,
+        `    public ${RESPONSE_ENTITY}<?> ${lowerFirst(wf.name)}(${sig}) {`,
+        `        var result = ${call};`,
+        ...entryControllerJava(er, result.type, ctx, "result", "        ", {
+          problemDetail: PROBLEM_DETAIL,
+          uri: URI_REF,
+          mediaType: MEDIA_TYPE,
+          responseEntity: RESPONSE_ENTITY,
+        }),
+        `    }`,
+        ``,
+      ];
+    }
+    if (result.type.kind === "entity" && result.type.name === wf.name) {
+      return [
+        `    @PostMapping("/${snake(wf.name)}")`,
+        `    public ${upperFirst(wf.name)}InstanceResponse ${lowerFirst(wf.name)}(${sig}) {`,
+        `        return ${call};`,
         `    }`,
         ``,
       ];

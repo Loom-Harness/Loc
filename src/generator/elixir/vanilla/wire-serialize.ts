@@ -160,6 +160,7 @@ function derivedRenderable(
     // real gap here, and it is an honest one (the wire carries a raw value, not
     // a formatted message).  Named rather than left to a `default:` so a new
     // `ExprIR` kind is a decision taken against `render-expr.ts`'s vocabulary.
+    case "modelText":
     case "authz-filter":
     case "i18nFormat":
       return false;

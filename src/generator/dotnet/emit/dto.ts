@@ -9,7 +9,9 @@ import { noNulCharUsing } from "../dto-mapping.js";
 export function renderRequestDtos(args: {
   ns: string;
   aggName: string;
-  records: Array<{ name: string; params: string }>;
+  /** `decl`, when present, is the whole type declaration (a merge-patch
+   *  request class) and replaces the positional record. */
+  records: Array<{ name: string; params: string; decl?: string }>;
   /** Extra `using` namespaces — e.g. `Domain.Common` when a request carries a
    *  `File` field's `FileRef` create-input param (M-T1.2). */
   extraUsings?: string[];
@@ -32,12 +34,14 @@ function renderDtoFile(
   args: {
     ns: string;
     aggName: string;
-    records: Array<{ name: string; params: string }>;
+    records: Array<{ name: string; params: string; decl?: string }>;
     extraUsings?: string[];
   },
   group: "Requests" | "Responses",
 ): string {
-  const recs = args.records.map((r) => `public sealed record ${r.name}(${r.params});\n\n`).join("");
+  const recs = args.records
+    .map((r) => `${r.decl ?? `public sealed record ${r.name}(${r.params});`}\n\n`)
+    .join("");
   const extra = (args.extraUsings ?? []).map((u) => `using ${u};\n`).join("");
   // `[property: JsonRequired]` (RS-26, operation-request params) is the only
   // System.Text.Json attribute a DTO record carries, so the using is gated on

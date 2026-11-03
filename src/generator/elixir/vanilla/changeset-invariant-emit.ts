@@ -35,6 +35,7 @@ import {
   unreadableCollections,
   unrenderableInvariants,
 } from "../../../ir/util/changeset-invariant-carrier.js";
+import { ruleMembers } from "../../../ir/util/merge-patch.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { pickErrorPath, singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../../util/message-code.js";
@@ -297,4 +298,56 @@ ${normBlock}${checks.join("\n\n")}
  *  operation-persist pipe runs it instead of `validate_invariants/1`. */
 export function aggregateHasDomainFloorCodes(agg: Pick<AggregateIR, "invariants">): boolean {
   return residualInvariants(agg).some((inv) => inv.message);
+}
+
+/** The merge-patch update's invariant pass (RS-47) — `validate_invariants/1`
+ *  over the merged struct, with each MESSAGED error re-staged by what the patch
+ *  carried: a rule whose every member the patch carried stays on the wire rung
+ *  (the other four backends judge it in their request validator), and one over
+ *  a member the patch left out moves to the DOMAIN FLOOR, which is where they
+ *  judge the merged state.  `attrs` is the snake-keyed patch.  Empty string when
+ *  no residual rule carries a message. */
+export function renderPatchInvariantFn(
+  agg: Pick<AggregateIR, "invariants" | "fields" | "operations">,
+): string {
+  const messaged = residualInvariants(agg).filter((inv) => inv.message);
+  if (messaged.length === 0) return "";
+  const update = (agg.operations ?? []).find((op) => op.name === "update");
+  const available = new Set((update?.params ?? []).map((p) => p.name));
+  const fallbackField = agg.fields?.[0]?.name ?? "id";
+  const seen = new Set<string>();
+  const clauses: string[] = [];
+  for (const inv of messaged) {
+    const field = snake(pickErrorPath(inv) ?? fallbackField);
+    const msg = elixirString(inv.message!.text);
+    const key = `${field}\u0000${msg}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const members = ruleMembers(inv, available).map((m) => JSON.stringify(snake(m)));
+    clauses.push(`  defp __patch_members(:${field}, ${msg}), do: [${members.join(", ")}]`);
+  }
+  return `  @doc "The merge-patch update's invariants — a rule over a key the patch did not carry is judged on the merged state at the domain floor."
+  def validate_patch_invariants(changeset, attrs) do
+    before = length(changeset.errors)
+    checked = validate_invariants(changeset)
+    {added, kept} = Enum.split(checked.errors, length(checked.errors) - before)
+    staged = Enum.map(added, &__patch_stage(&1, attrs))
+    {floor, wire} = Enum.split_with(staged, fn {_, {_, opts}} -> Keyword.get(opts, :loom_domain_floor, false) end)
+
+    # The wire rung refuses first: the domain floor never runs on a refused patch.
+    if wire == [] and kept == [],
+      do: %{checked | errors: floor},
+      else: %{checked | errors: wire ++ kept}
+  end
+
+  defp __patch_stage({field, {msg, opts}} = error, attrs) do
+    carried = Enum.all?(__patch_members(field, msg), &Map.has_key?(attrs, &1))
+
+    if carried or not Keyword.has_key?(opts, :loom_code),
+      do: error,
+      else: {field, {msg, Keyword.put(opts, :loom_domain_floor, true)}}
+  end
+
+${clauses.join("\n")}
+  defp __patch_members(_field, _msg), do: []`;
 }

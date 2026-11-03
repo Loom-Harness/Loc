@@ -39,13 +39,13 @@ import {
   type ApiOperationIR,
   apiStatusContext,
   deriveAggregateOperations,
-  isAllFind,
   relativeOpPath,
 } from "../../../ir/util/api-surface.js";
 import { AUDIT_ENTRY_TYPE, auditEntryWireShape } from "../../../ir/util/audit-history.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { foreignValueTypeSeeds, foreignValueTypes } from "../../../ir/util/foreign-event-types.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
+import { isMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import { errorStatuses, type OpErrorKind, PROBLEM_JSON } from "../../../ir/util/openapi-errors.js";
 import {
   camelId,
@@ -965,58 +965,6 @@ ${pagingQueryParams()}
         );
       }
     }
-    for (const entry of derivedOps.filter((o) => o.kind === "find" && !isAllFind(o))) {
-      const find = entry.find!;
-      // A paged explicit find (`find x(): T paged`) shares the `<Agg>Paged`
-      // envelope and gains the page/pageSize/sort/dir controls, mirroring the
-      // paged auto-findAll above (and the Hono/.NET/Java/Python emitters).
-      const findPaged = pagedReturn(find.returnType);
-      const isArrayReturn = find.returnType.kind === "array";
-      const findRespMod = findPaged
-        ? `${schemasModule}.${findPaged.name}`
-        : isArrayReturn
-          ? listRespMod
-          : respMod;
-      // Filter params cross as query parameters — Hono/.NET declare them,
-      // so Phoenix must too (name + type + required), or the parity gate's
-      // query-param dimension diffs `phoenix=[]`.  Required mirrors Hono's
-      // `zodFor`: a nullable param is optional, everything else required.
-      const queryParamLines = find.params.map(
-        (p) =>
-          `            %OpenApiSpex.Parameter{name: :${p.name}, in: :query, required: ${
-            wireTypeInfo(p.type, "request").isNullable ? "false" : "true"
-          }, schema: ${openApiType(p.type, schemasModule)}}`,
-      );
-      // Paged finds append the shared page/pageSize/sort/dir controls after
-      // the declared params.
-      if (findPaged) queryParamLines.push(pagingQueryParams());
-      const queryParams = queryParamLines.join(",\n");
-      const queryParamsBlock =
-        queryParamLines.length > 0 ? `\n          parameters: [\n${queryParams}\n          ],` : "";
-      pathEntries.push(
-        `      "${specPath(entry)}" => %OpenApiSpex.PathItem{
-        get: %OpenApiSpex.Operation{
-          summary: "${find.name} on ${agg.name}",
-          operationId: "${camelId(opFind(agg.name, find.name))}",
-          tags: ["${aggSlug}"],${queryParamsBlock}
-          responses: %{
-            200 => %OpenApiSpex.Response{
-              description: "OK",
-              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${findRespMod}}}
-            }${
-              // The declared set is the DERIVED one, so it carries the 403 a
-              // gated union find answers and the resolved union-absent
-              // status.
-              statusResponseEntries(
-                withResolvedNotFound(entry.errorStatuses, notFoundStatus),
-                schemasModule,
-              )
-            }
-          }
-        }
-      }`,
-      );
-    }
   }
 
   // Explicit routes, grouped per path so two methods on one path share a
@@ -1875,11 +1823,13 @@ function renderOperationRequestSchema(
   // `zodFor` (nullable → `.nullish()` → optional in OpenAPI); hardcoding
   // `false` here made Phoenix mark those params required and tripped the
   // parity gate's required-set dimension (UpdateProjectRequest drift).
+  // A merge-patch update (RS-47) requires no key.
+  const patch = isMergePatchUpdate(op);
   const fields: Array<{ name: string; type: TypeIR; optional: boolean }> = op.params.map(
     (p: ParamIR) => ({
       name: p.name,
       type: p.type,
-      optional: wireTypeInfo(p.type, "request").isNullable,
+      optional: patch || wireTypeInfo(p.type, "request").isNullable,
     }),
   );
   return renderSchemaModule(

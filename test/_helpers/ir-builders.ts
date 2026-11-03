@@ -133,6 +133,7 @@ export const systemIR = (over: Partial<SystemIR> = {}): SystemIR => ({
   subdomains: [],
   deployables: [],
   e2eTests: [],
+  i18n: { source: "en" },
   uis: [],
   apis: [],
   storages: [],

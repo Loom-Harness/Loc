@@ -29,9 +29,15 @@ import {
   relativeOpPath,
 } from "../../../ir/util/api-surface.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
+import { entryResult } from "../../../ir/util/entry-result.js";
 import { normalizeHandlerReturn } from "../../../ir/util/handler-contracts.js";
+import { isMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import { errorStatuses, PROBLEM_JSON, PROBLEM_SCHEMA } from "../../../ir/util/openapi-errors.js";
 import { routedParamSource } from "../../../ir/util/routed-handler.js";
+import {
+  commandCreateEntryResult,
+  commandCreateResult,
+} from "../../../ir/util/workflow-command-route.js";
 import { lines } from "../../../util/code-builder.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, snake, upperFirst } from "../../../util/naming.js";
@@ -40,13 +46,13 @@ import { requestComponentNamerFor } from "../../_openapi/request-component-names
 import {
   errorArmProblemJsonSchema,
   errorStatusJsonSchema,
-  findUnionSpec,
+  type OpUnionResponses,
   opUnionResponses,
   unionMembersJsonSchema,
 } from "../../_payload/union-wire.js";
 import { workflowParamPayloads } from "../../_payload/workflow-param-payloads.js";
 import { javaRequestComponentOwners } from "../request-component-owners.js";
-import { isPagedAutoAll, isPagedFind } from "./repository.js";
+import { isPagedAutoAll } from "./repository.js";
 import { returnUnionSpec } from "./unions.js";
 
 // ---------------------------------------------------------------------------
@@ -194,6 +200,35 @@ export function buildJavaOpenApiContract(
   // Operation-return union components — name → raw oneOf JSON (parsed by the
   // emitted customizer via Json.mapper), see the op union branch below.
   const unions = new Map<string, string>();
+
+  // An expected-failure entry point (`T or E`): its 200 carries the success
+  // arms and each error arm's status ProblemDetails or the arm's problem body,
+  // exactly as an operation's union splits.
+  const pinEntrySplit = (
+    variants: TypeIR[],
+    ctx: EnrichedBoundedContextIR,
+    method: string,
+    path: string,
+  ): OpUnionResponses => {
+    const split = opUnionResponses(variants, ctx);
+    const ref = (n: string): string => `#/components/schemas/${n}`;
+    unions.set(split.successName, JSON.stringify(unionMembersJsonSchema(split.success)));
+    for (const arm of split.errors) {
+      unions.set(
+        arm.problemName,
+        JSON.stringify(errorArmProblemJsonSchema(arm, ref(PROBLEM_SCHEMA))),
+      );
+    }
+    for (const e of split.errorStatuses) {
+      errorSchemas.push({
+        method,
+        path,
+        status: e.status,
+        schemaJson: JSON.stringify(errorStatusJsonSchema(e.arms, PROBLEM_SCHEMA, ref)),
+      });
+    }
+    return split;
+  };
   const errorSchemas: Contract["errorSchemas"] = [];
   // schema-name → required-field set (collected as a set, sorted at the end).
   const required = new Map<string, string[]>();
@@ -306,7 +341,8 @@ export function buildJavaOpenApiContract(
           emptyRequests.push({ path: pathOf(opEntry), schema: reqName });
           setRequired(reqName, []);
         } else {
-          setRequired(reqName, requiredParams(op.params));
+          // A merge-patch update (RS-47) requires no key.
+          setRequired(reqName, isMergePatchUpdate(op) ? [] : requiredParams(op.params));
         }
       }
 
@@ -417,54 +453,6 @@ export function buildJavaOpenApiContract(
           });
         }
       }
-
-      // Declared finds — GET /<plural>/<find_snake>.  A synthesized find
-      // (paged-run queryHandler support) is not auto-exposed, so it documents
-      // no path here — the queryHandler's own route carries the OpenAPI entry.
-      for (const entry of derivedOps.filter((o) => o.kind === "find" && !isAllFind(o))) {
-        const f = entry.find!;
-        const findPath = pathOf(entry);
-        const findErrors = err([...entry.errorStatuses]);
-        const spec = ctx ? findUnionSpec(f.returnType, agg.name, ctx) : null;
-        if (spec) {
-          // Union find: 200 is the SUCCESS variant directly (`<Agg>Response`);
-          // the union controller returns `ResponseEntity<?>` so springdoc
-          // infers nothing, hence the explicit ref.  The declared set (gated
-          // 403 + the httpStatus-resolved absent status) is the derived one.
-          routes.push({
-            method: "get",
-            path: findPath,
-            successRef: `${agg.name}Response`,
-            errors: findErrors,
-          });
-          continue;
-        }
-        if (isPagedFind(f)) {
-          // F2-W-07 — the controller returns the concrete `<Agg>Paged` record
-          // (not the raw `Paged<T>` generic springdoc would have named
-          // `Paged<Agg>Response`), so the envelope's required set must be
-          // registered here too and not only under `isPagedAutoAll`: a
-          // document / embedded / event-sourced aggregate has a NON-paged
-          // auto-findAll and can still declare a paged find.  `setRequired` is
-          // a map write, so the auto-all case re-registering it is a no-op.
-          setRequired(`${agg.name}Paged`, ["items", "page", "pageSize", "total", "totalPages"]);
-          routes.push({ method: "get", path: findPath, errors: findErrors });
-          continue;
-        }
-        if (f.returnType.kind === "array") {
-          // List find → reuse the aggregate's list wrapper, registering it (a
-          // paged auto-findAll leaves it unregistered, so the route can't rely
-          // on that).  `wrappers.set` is idempotent for the non-paged case.
-          wrappers.set(listWrapper, `${agg.name}Response`);
-          routes.push({ method: "get", path: findPath, listWrapper, errors: findErrors });
-        } else {
-          // Optional find → 404 (+403 when gated).  A GENUINELY-single find
-          // (bare `T`, not `T option`) does NOT declare the optional
-          // convention's 404 — the derivation classifies it `findSingle`,
-          // matching what the controller answers.
-          routes.push({ method: "get", path: findPath, errors: findErrors });
-        }
-      }
     }
 
     // Workflows — POST /workflows/<snake(name)>.
@@ -494,14 +482,24 @@ export function buildJavaOpenApiContract(
         setRequired(`${T}InstanceResponse`, requiredWireFields(wf.instanceWireShape));
       }
       if (!workflowEmitsCommandRoute(wf)) continue;
+      const wfPath = `${routePrefix}/workflows/${snake(wf.name)}`;
+      const wfResult = commandCreateResult(wf);
+      const wfSplit =
+        wfResult?.type.kind === "union" && commandCreateEntryResult(wf, ctx)
+          ? pinEntrySplit(wfResult.type.variants, ctx, "post", wfPath)
+          : undefined;
       routes.push({
         method: "post",
-        path: `${routePrefix}/workflows/${snake(wf.name)}`,
-        errors: err(
-          errorStatuses("workflow", workflowIsGuarded(wf), resolveStatus, {
-            readsAggregate: workflowCanAnswerNotFound(wf),
-          }),
-        ),
+        path: wfPath,
+        ...(wfSplit ? { successRef: wfSplit.successName } : {}),
+        errors: err([
+          ...new Set([
+            ...errorStatuses("workflow", workflowIsGuarded(wf), resolveStatus, {
+              readsAggregate: workflowCanAnswerNotFound(wf),
+            }),
+            ...(wfSplit?.errorStatuses.map((e) => e.status) ?? []),
+          ]),
+        ]),
         // Workflow command operationId carries a `Workflow` suffix on the other
         // backends (`registerProjectWorkflow`); springdoc derives the bare name.
         operationId: `${lowerFirst(wf.name)}Workflow`,
@@ -589,7 +587,15 @@ export function buildJavaOpenApiContract(
     ];
     const ret = normalizeHandlerReturn(h.returnType, ctx);
     let successRef: string | undefined;
-    if (ret && !h.extern && !paged) {
+    const hSplit =
+      !h.extern && h.returnType?.kind === "union" && entryResult(h, ctx)
+        ? pinEntrySplit(h.returnType.variants, ctx, r.method.toLowerCase(), explicitRoutePath(r))
+        : undefined;
+    if (hSplit) {
+      successRef = hSplit.successName;
+      for (const e of hSplit.errorStatuses)
+        if (!statuses.includes(e.status)) statuses.push(e.status);
+    } else if (ret && !h.extern && !paged) {
       const info = wireTypeInfo(ret, "response");
       const owning =
         info.refKind === "entity" && !info.isCollection

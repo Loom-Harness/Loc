@@ -144,9 +144,9 @@ system Shop {
     const fs = await appFs(
       SYS(`Stack { Heading { "Orders" }, Text { status } }`, "state { status: string }"),
     );
-    expect(fs).toMatch(/I18n\.t "page\.Home\.heading\.\w+" "Orders"/);
+    expect(fs).toMatch(/I18n\.t "Web\.page\.Home\.heading\.\w+" "Orders"/);
     // `status` is page state — interpolated from the Model, never a t() call.
-    expect(fs).not.toContain('I18n.t "page.Home.text');
+    expect(fs).not.toContain('I18n.t "Web.page.Home.text');
     expect(fs).toContain("model.Status");
   });
 
@@ -174,7 +174,7 @@ system Shop {
     expect(fs).not.toContain('Html.text "(I18n.t');
     expect(fs).not.toContain('Html.text "Html.text');
     for (const role of ["badge", "button", "anchor", "alert", "alertTitle"]) {
-      expect(fs).toContain(`I18n.t "page.Home.${role}.`);
+      expect(fs).toContain(`I18n.t "Web.page.Home.${role}.`);
     }
   });
 

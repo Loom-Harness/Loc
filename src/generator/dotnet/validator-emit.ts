@@ -7,6 +7,7 @@ import type {
   TypeIR,
   ValueObjectIR,
 } from "../../ir/types/loom-ir.js";
+import { isMergePatchUpdate, ruleMembers } from "../../ir/util/merge-patch.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import {
   type ClassifyContext,
@@ -105,6 +106,7 @@ export function renderOperationValidator(
     // fails FluentValidation (400 ProblemDetails) instead of the domain floor.
     invariants: [...agg.invariants, ...preconditions],
     available: new Set(op.params.map((p) => p.name)),
+    mergePatch: isMergePatchUpdate(op),
   });
 }
 
@@ -127,6 +129,10 @@ function buildFluentRules(
   /** Project root namespace, for the `usings` half of the return — see
    *  `RULE_COUNT_ONLY_NS` for the callers that have none. */
   ns: string,
+  /** A merge-patch update's command (RS-47): each rule runs only when the body
+   *  carried every member it reads (`PatchedKeys`); otherwise the domain floor
+   *  judges the merged state. */
+  mergePatch = false,
 ): { ruleLines: string[]; usings: Set<string> } {
   const ctx: ClassifyContext = { available };
   const ruleLines: string[] = [];
@@ -148,9 +154,11 @@ function buildFluentRules(
       remaining.push(inv);
     }
   }
+  const carried = (m: string): string => `x.PatchedKeys.Contains(${JSON.stringify(m)})`;
   for (const [field, patterns] of chainsByField) {
     let line = `        RuleFor(x => x.${upperFirst(field)})`;
     for (const p of patterns) line += chainSingleFieldFluent(p, field);
+    if (mergePatch) line += `.When(x => ${carried(field)})`;
     ruleLines.push(`${line};`);
   }
   // Tracks namespaces this validator's `.Must(x => …)` predicates
@@ -164,9 +172,14 @@ function buildFluentRules(
     collectCsExprUsings(inv.expr, usings, ns);
     if (inv.guard) collectCsExprUsings(inv.guard, usings, ns);
     const predicate = renderFluentPredicate(inv.expr);
-    const guarded = inv.guard
+    const ruled = inv.guard
       ? `!(${renderFluentPredicate(inv.guard)}) || (${predicate})`
       : predicate;
+    const members = mergePatch ? ruleMembers(inv, available) : [];
+    const guarded =
+      members.length > 0
+        ? `${members.map((m) => `!${carried(m)}`).join(" || ")} || (${ruled})`
+        : ruled;
     const path = pickErrorPath(inv);
     const message = csStringLiteral(
       inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
@@ -192,9 +205,10 @@ function renderValidatorFile(args: {
   commandName: string;
   invariants: InvariantIR[];
   available: ReadonlySet<string>;
+  mergePatch?: boolean;
 }): ValidatorEmission {
   const { ns, aggName, commandName, invariants, available } = args;
-  const { ruleLines, usings } = buildFluentRules(invariants, available, ns);
+  const { ruleLines, usings } = buildFluentRules(invariants, available, ns, args.mergePatch);
 
   if (ruleLines.length === 0) {
     return { content: null, nonEmpty: false };
@@ -268,6 +282,9 @@ export function voHasWireRules(vo: ValueObjectIR): boolean {
 function voRequestFields(
   params: { name: string; type: TypeIR; default?: ExprIR }[],
   voByName: ReadonlyMap<string, ValueObjectIR>,
+  /** A merge-patch update request: every member is nullable on the request
+   *  class (an absent key keeps the stored value), so every VO rule narrows. */
+  patch = false,
 ): { field: string; voClass: string; each: boolean; nullable: boolean }[] {
   const out: { field: string; voClass: string; each: boolean; nullable: boolean }[] = [];
   for (const p of params) {
@@ -287,7 +304,7 @@ function voRequestFields(
       // hits the identical CS8620 under `/warnaserror`.  (Only the scalar
       // `RuleFor` arm reads this: `RuleForEach` over a nullable list binds
       // `IEnumerable<T>` and compiles as is.)
-      nullable: p.type.kind === "optional" || isNullableWireDefault(p.default),
+      nullable: patch || p.type.kind === "optional" || isNullableWireDefault(p.default),
     });
   }
   return out;
@@ -306,10 +323,16 @@ function voRequestFields(
  *  and got a validator against it anyway.  Both halves are `emitsRestCreate`
  *  now, and the params follow the same event-sourced create-action override
  *  the record uses, so the rules can only name fields the record declares. */
-function requestParamSets(
-  agg: AggregateIR,
-): { name: string; params: { name: string; type: TypeIR; default?: ExprIR }[] }[] {
-  const sets: { name: string; params: { name: string; type: TypeIR; default?: ExprIR }[] }[] = [];
+function requestParamSets(agg: AggregateIR): {
+  name: string;
+  params: { name: string; type: TypeIR; default?: ExprIR }[];
+  patch?: boolean;
+}[] {
+  const sets: {
+    name: string;
+    params: { name: string; type: TypeIR; default?: ExprIR }[];
+    patch?: boolean;
+  }[] = [];
   if (emitsRestCreate(agg)) {
     // Event sourcing (appliers A2.2b): the create record is built from the
     // single `create` action's params, not the field set.
@@ -330,6 +353,7 @@ function requestParamSets(
     sets.push({
       name: `${upperFirst(op.name)}${agg.name}Request`,
       params: op.params.map((p) => ({ name: p.name, type: p.type })),
+      patch: isMergePatchUpdate(op),
     });
   }
   return sets;
@@ -392,7 +416,7 @@ export function renderRequestValidators(
 
   // 2) A `<Request>Validator` per request that SetValidator-refs its VO fields.
   for (const set of requestParamSets(agg)) {
-    const fields = voRequestFields(set.params, voByName);
+    const fields = voRequestFields(set.params, voByName, set.patch);
     if (fields.length === 0) continue;
     const rules = fields.map((f) => {
       const prop = upperFirst(f.field);
@@ -539,6 +563,7 @@ function renderFluentPredicate(e: ExprIR): string {
     case "match":
     case "list":
     case "action-ref":
+    case "modelText":
     case "authz-filter":
       // `classifyForWire` excludes these — reaching the renderer is a
       // bug upstream.  Emit a syntactically-valid placeholder so a

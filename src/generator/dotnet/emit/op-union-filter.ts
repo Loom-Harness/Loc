@@ -18,11 +18,17 @@
 // Emitted (and registered in Program.cs) only when some operation has an error
 // arm, so every other project is unchanged.  The runtime wire is untouched.
 
-import type { BoundedContextIR } from "../../../ir/types/loom-ir.js";
+import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { deriveContextOperations } from "../../../ir/util/api-surface.js";
+import { entryResult } from "../../../ir/util/entry-result.js";
 import { PROBLEM_JSON, PROBLEM_SCHEMA } from "../../../ir/util/openapi-errors.js";
+import { camelId, opWorkflow } from "../../../ir/util/openapi-ids.js";
+import {
+  commandCreateEntryResult,
+  commandCreateResult,
+} from "../../../ir/util/workflow-command-route.js";
 import { lines } from "../../../util/code-builder.js";
-import { upperFirst } from "../../../util/naming.js";
+import { lowerFirst, upperFirst } from "../../../util/naming.js";
 import {
   errorArmProblemJsonSchema,
   errorStatusJsonSchema,
@@ -72,6 +78,41 @@ function planFor(contexts: readonly BoundedContextIR[]): OpUnionFilterPlan {
         errors: s.errorStatuses.map((e) => ({
           status: e.status,
           schema: errorStatusJsonSchema(e.arms, PROBLEM_SCHEMA, ref),
+        })),
+      });
+    }
+  }
+  // The routed command entry points whose result is an expected failure
+  // (`T or E`): a workflow's command route and each routed handler.  Their
+  // unions split exactly as an operation's.
+  for (const ctx of contexts) {
+    const entries: { id: string; type: TypeIR }[] = [];
+    for (const wf of ctx.workflows) {
+      const r = commandCreateResult(wf);
+      if (r?.type.kind === "union" && commandCreateEntryResult(wf, ctx)) {
+        entries.push({ id: camelId(opWorkflow(wf.name)), type: r.type });
+      }
+    }
+    for (const h of [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])]) {
+      if (!h.extern && h.returnType?.kind === "union" && entryResult(h, ctx)) {
+        entries.push({ id: lowerFirst(h.name), type: h.returnType });
+      }
+    }
+    for (const e of entries) {
+      if (e.type.kind !== "union") continue;
+      const s = opUnionResponses(e.type.variants, ctx);
+      if (s.errors.length === 0) continue;
+      split.add(s.unionName);
+      components.set(s.successName, unionMembersJsonSchema(s.success));
+      for (const arm of s.errors) {
+        components.set(arm.problemName, errorArmProblemJsonSchema(arm, ref(PROBLEM_SCHEMA)));
+      }
+      routes.push({
+        operationId: e.id,
+        successName: s.successName,
+        errors: s.errorStatuses.map((es) => ({
+          status: es.status,
+          schema: errorStatusJsonSchema(es.arms, PROBLEM_SCHEMA, ref),
         })),
       });
     }

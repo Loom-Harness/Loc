@@ -24,7 +24,6 @@ import {
   clientFinds,
   dualTypeAliases,
   emitOperationUnionResponse,
-  findHookPath,
   historyHookName,
   typeReachesMoney,
 } from "../_frontend/api-module.js";
@@ -359,6 +358,8 @@ export function buildSvelteApiModule(
   if (repo) {
     for (const find of repo.finds) {
       if (find.name === "all") continue;
+      const findRoute = servedFindRoute(agg.name, find, findRoutes);
+      if (!findRoute) continue;
       const findSnake = snake(find.name);
       const paged = pagedReturn(find.returnType);
       const union = unionForFind(find.returnType, ctx);
@@ -398,9 +399,7 @@ export function buildSvelteApiModule(
       lines.push(
         `      const qs = new URLSearchParams(Object.entries(query()).map(([k, v]) => [k, String(v)])).toString();`,
       );
-      lines.push(
-        `      const r = await api.get(\`${findHookPath(tag, find, servedFindRoute(agg.name, find, findRoutes))}\${qs ? "?" + qs : ""}\`);`,
-      );
+      lines.push(`      const r = await api.get(\`${findRoute.path}\${qs ? "?" + qs : ""}\`);`);
       lines.push(`      return ${responseSchema}.parse(r);`);
       lines.push(`    },`);
       lines.push(`  }));`);

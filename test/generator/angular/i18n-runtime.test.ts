@@ -73,7 +73,7 @@ describe("Angular i18n runtime", () => {
     const home = homeOf(files);
     expect(home).toMatch(/\{\{ t\("[^"]*", "Orders"\) \}\}/); // literal heading translated
     // `status` is a page-scope ref — interpolated, never a t() call.
-    expect(home).not.toContain('t("page.Home.text');
+    expect(home).not.toContain('t("Web.page.Home.text');
   });
 
   it("does not emit the runtime for a string-less app", async () => {
@@ -187,7 +187,7 @@ describe("Angular i18n runtime", () => {
     // The binding survives, delimited by `"` with the expression's own `"`
     // entity-escaped — and the apostrophe is left intact inside it.
     expect(home).toMatch(
-      /\[attr\.aria-label\]="t\(&quot;page\.Home\.iconLabel\.\w+&quot;, &quot;Bob's badge&quot;\)"/,
+      /\[attr\.aria-label\]="t\(&quot;Web\.page\.Home\.iconLabel\.\w+&quot;, &quot;Bob's badge&quot;\)"/,
     );
     // …and the catalog still carries the untouched source string.
     const catalog = [...files].find(([p]) => p.endsWith(".loom/messages.en.json"))![1];

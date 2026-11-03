@@ -15,8 +15,8 @@
 // text (a bare `ref`, `{count}` alone) has nothing to translate and is skipped.
 //
 // KEYS — D-I18N-KEY (PINNED).  Inline literals are content-hashed:
-// `page.<Page>.<role>.<hash>` / `component.<Comp>.<role>.<hash>` /
-// `menu.<role>.<hash>`.  `role` (the slot the text sits in) is part of the key
+// `<Ui>.page.<Page>.<role>.<hash>` / `<Ui>.component.<Comp>.<role>.<hash>` /
+// `<Ui>.menu.<role>.<hash>`.  `role` (the slot the text sits in) is part of the key
 // so two different-role occurrences of the same string in one page don't
 // collide; the content hash makes the key reorder-invariant and re-key on a
 // rephrase.  Named `text { }` entries (stable keys) are a later slice.
@@ -55,6 +55,31 @@ export interface MessageEntry {
 export function literalString(e: ExprIR | undefined): string | undefined {
   if (e && e.kind === "literal" && e.lit === "string") return e.value;
   return undefined;
+}
+
+/** The key prefix of a page's inline strings: `<Ui>.page.<Page>`.  The ui name
+ *  leads every authored key, so the translator tree can file a ui's strings
+ *  under that ui's namespace (`src/i18n/namespace.ts`). */
+export function pageKeyPrefix(ui: { name: string }, page: { name: string }): string {
+  return `${ui.name}.page.${page.name}`;
+}
+
+/** The key prefix of a component's inline strings: `<Ui>.component.<Comp>`. */
+export function componentKeyPrefix(ui: { name: string }, component: { name: string }): string {
+  return `${ui.name}.component.${component.name}`;
+}
+
+/** The key prefix of the ui-level `menu { … }` chrome: `<Ui>.menu`. */
+export function menuKeyPrefix(ui: { name: string }): string {
+  return `${ui.name}.menu`;
+}
+
+/** The key prefix of a component rendered inline within a body keyed under
+ *  `parentPrefix` — the parent's leading ui segment with the component's own
+ *  name. */
+export function inlineComponentKeyPrefix(parentPrefix: string, componentName: string): string {
+  const ui = parentPrefix.slice(0, parentPrefix.indexOf("."));
+  return `${ui}.component.${componentName}`;
 }
 
 /** The catalog key for an inline literal: `<prefix>.<role>.<hash>`.
@@ -185,6 +210,12 @@ export function icuFromConcat(expr: ExprIR | undefined): IcuMessage | undefined 
  *  keyed under `<prefix>` (e.g. `page.OrderList` / `component.OrderCard`). */
 function collectBody(body: ExprIR | undefined, prefix: string, out: MessageEntry[]): void {
   walkExprDeep(body, (e) => {
+    // `label(…)` / `plural(…)` — keyed by model identity, with no page prefix,
+    // so every page naming the same fact shares one catalog entry.
+    if (e.kind === "modelText") {
+      out.push({ key: e.key, message: e.defaultText });
+      return;
+    }
     if (e.kind !== "call") return;
     // Pack-chrome: a primitive that renders design-pack-baked user-visible text
     // (a `Loader()`'s `aria-label="Loading"`, a `DataGrid()`'s pager) contributes
@@ -225,11 +256,17 @@ export function collectUiMessages(ui: UiIR): MessageEntry[] {
   const out: MessageEntry[] = [];
 
   for (const page of ui.pages) {
-    const prefix = `page.${page.name}`;
+    const prefix = pageKeyPrefix(ui, page);
     // Page title (`page X { title: "…" }`) — only when it is a plain literal
-    // (a title that interpolates state/params is dynamic, not extractable).
+    // (a title that interpolates state/params is dynamic, not extractable: the
+    // LiveView target sets its title in `mount`, before route params and loaded
+    // records exist, so it cannot format ICU holes).  `localizedPageTitle`
+    // (`i18n-emit.ts`) reads the literal back under the same `title` role.
     const title = literalString(page.title);
     if (title !== undefined) out.push({ key: messageKey(prefix, "title", title), message: title });
+    if (page.title?.kind === "modelText") {
+      out.push({ key: page.title.key, message: page.title.defaultText });
+    }
     collectBody(page.body, prefix, out);
 
     // Per-page sidebar chrome — `menu { section: "…", label: "…" }` metadata.
@@ -238,6 +275,10 @@ export function collectUiMessages(ui: UiIR): MessageEntry[] {
     for (const entry of page.menuMeta?.entries ?? []) {
       if (entry.name !== "section" && entry.name !== "label") continue;
       if (ui.menu && (entry.name === "section" || !explicitMenuReadsPageLabel(page, ui))) continue;
+      if (entry.value.kind === "modelText") {
+        out.push({ key: entry.value.key, message: entry.value.defaultText });
+        continue;
+      }
       const message = literalString(entry.value);
       if (message === undefined) continue;
       out.push({ key: messageKey(prefix, `menu.${entry.name}`, message), message });
@@ -245,22 +286,25 @@ export function collectUiMessages(ui: UiIR): MessageEntry[] {
   }
 
   for (const component of ui.components) {
-    collectBody(component.body, `component.${component.name}`, out);
+    collectBody(component.body, componentKeyPrefix(ui, component), out);
   }
 
   // UI-level `menu { section "…" { link "L" -> "url" } }` chrome.
   for (const section of ui.menu?.sections ?? []) {
     if (section.label) {
-      out.push({ key: messageKey("menu", "section", section.label), message: section.label });
+      out.push({
+        key: messageKey(menuKeyPrefix(ui), "section", section.label),
+        message: section.label,
+      });
     }
     for (const link of section.links) {
       if (link.kind === "external" && link.label) {
-        out.push({ key: messageKey("menu", "link", link.label), message: link.label });
+        out.push({ key: messageKey(menuKeyPrefix(ui), "link", link.label), message: link.label });
       } else if (link.kind === "page") {
         const label = link.props.find((p) => p.name === "label");
         const message = literalString(label?.value);
         if (message !== undefined) {
-          out.push({ key: messageKey("menu", "link", message), message });
+          out.push({ key: messageKey(menuKeyPrefix(ui), "link", message), message });
         }
       }
     }

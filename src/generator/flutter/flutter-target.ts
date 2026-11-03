@@ -487,7 +487,7 @@ export const flutterTarget: WalkerTarget = {
       `: const SizedBox.shrink()`;
     return (
       `InkWell(onTap: ${onTap}, child: Semantics(button: true, ` +
-      `label: ${spec.sortByLabel ?? dartString(`Sort by ${header}`)}, child: Row(mainAxisSize: MainAxisSize.min, ` +
+      `child: Row(mainAxisSize: MainAxisSize.min, ` +
       // The caption is a user-visible slot (`columnHeader`): under i18n it
       // arrives as a Dart translation EXPRESSION, otherwise as raw text this
       // spells as a string literal — byte-identical to before.
@@ -1143,18 +1143,6 @@ export const flutterTarget: WalkerTarget = {
   // VALUE (`localizedNamedValue`, D-I18N-ATTR) is spelled with i18n off.
   // The same single-quoted escaping the translation runtime uses for its keys.
   renderStringLiteral: dartStringLit,
-  // A holed message as ONE Dart string with `${…}` interpolation, not a `+`
-  // chain — that is how Dart spells this, and how the sortable header's
-  // `'Sort by $header'` was already written.
-  renderStringConcat: (parts) =>
-    `'${parts
-      .map((p) =>
-        "expr" in p
-          ? `\${${p.expr}}`
-          : p.text.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\$/g, "\\$"),
-      )
-      .join("")}'`,
-
   // A call into the generated Dart translation runtime (M-T1.11).  The JS
   // frontends' `t(key, default, { name: expr })` is close but not Dart — the
   // values bag is a typed map literal, and the strings are single-quoted with
@@ -1168,6 +1156,16 @@ export const flutterTarget: WalkerTarget = {
     }
     return `t(${args.join(", ")})`;
   },
+  // Implicit model-text sites (form labels, enum options, submit buttons, the
+  // `EnumBadge` value) are keyed by identity through `renderTranslate`.
+  modelTextImplicitSites: true,
+  // An `EnumBadge`'s value → label lookup: a map literal over the wire value,
+  // the raw value when no entry matches.  The immediately-applied function takes
+  // a NULLABLE `Object?` so a nullable and a non-null subject both analyze clean.
+  renderEnumLabelLookup: (entries, subject) =>
+    `((Object? v) => <String, String>{${entries
+      .map((e) => `${dartStringLit(e.value)}: ${e.label}`)
+      .join(", ")}}[v?.toString()] ?? v?.toString() ?? '')(${subject})`,
   // A conditional child → a ternary over two widgets (a single child expression,
   // valid anywhere a widget is expected).
   renderConditionalChild: (cond, thenS, elseS, _depth) => `(${cond} ? ${thenS} : ${elseS})`,

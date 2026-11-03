@@ -53,7 +53,12 @@ import {
   domainServicesCalled,
   isReadingServiceOp,
 } from "../../ir/util/domain-service-read-ports.js";
-import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
+import { entryResult } from "../../ir/util/entry-result.js";
+import {
+  normalizeHandlerReturn,
+  requestRecordFor,
+  routedAbsenceAnswers404,
+} from "../../ir/util/handler-contracts.js";
 import {
   pagedRunFindName,
   pagedRunGates,
@@ -69,7 +74,14 @@ import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { javaRef } from "../_imports/java.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
-import { javaPagedQueryParams } from "./emit/common.js";
+import { JAVA_FIND_ABSENCE_THROW, javaPagedQueryParams } from "./emit/common.js";
+import {
+  entryControllerJava,
+  entryErrorTestJava,
+  entryResultJavaLines,
+  entryUnionFiles,
+  entryUnionJava,
+} from "./emit/entry-result.js";
 import { domainToWire, javaIdValueType } from "./emit/wire.js";
 import {
   boundLocal,
@@ -482,7 +494,32 @@ function renderHandlerClass(
     (s) => `        ${repoField(s.aggName)}.save(${boundLocal(renderCtx, s.name)});`,
   );
   const returnLines: string[] = [];
-  if (h.returnValue) {
+  // An expected-failure result (`T or E`): the wire union, and an error answer
+  // marks the transaction rollback-only, discarding every write the command
+  // made.
+  const er = entryResult(h, ctx);
+  if (er && h.returnType?.kind === "union") {
+    returnLines.push(
+      `        ${entryUnionJava(h.returnType)} handlerResult = null;`,
+      ...entryResultJavaLines(
+        er,
+        h.returnType,
+        (e) => renderJavaExpr(e, renderCtx),
+        (n) => boundLocal(renderCtx, n),
+        (u, tag) => {
+          const pkg = renderCtx.unionPkgOf?.(u);
+          return pkg ? `${pkg}.${u}_${tag}` : `${u}_${tag}`;
+        },
+        ctx,
+        "        ",
+        "handlerResult",
+      ),
+      `        if (${entryErrorTestJava(er, h.returnType, "handlerResult")}) {`,
+      `            org.springframework.transaction.interceptor.TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();`,
+      `        }`,
+      `        return handlerResult;`,
+    );
+  } else if (h.returnValue) {
     returnLines.push(`        return ${renderJavaExpr(h.returnValue, renderCtx)};`);
   }
 
@@ -493,7 +530,12 @@ function renderHandlerClass(
   // `Order`/`Order[]` (an id / scalar / plain-entity / void return passes
   // through unchanged, keeping the flat-param handlers byte-identical).
   const internalRet = normalizeHandlerReturn(h.returnType, ctx);
-  const retType = internalRet ? renderJavaType(internalRet) : "void";
+  const retType =
+    er && h.returnType?.kind === "union"
+      ? entryUnionJava(h.returnType)
+      : internalRet
+        ? renderJavaType(internalRet)
+        : "void";
   const params = flat.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`).join(", ");
 
   const fields = [
@@ -630,6 +672,11 @@ export function emitExplicitHandlers(
         content: renderPagedRunHandlerClass(h, basePkg, appPkg, ctx, entityPkgOf, repoPkgOf),
       });
       return;
+    }
+    if (h.returnType?.kind === "union" && entryResult(h, ctx)) {
+      for (const f of entryUnionFiles(h.returnType, ctx, appPkg, basePkg)) {
+        if (!files.some((x) => x.name === f.name)) files.push(f);
+      }
     }
     files.push({
       name: `${h.name}Handler.java`,
@@ -871,6 +918,9 @@ export function emitExplicitRouteController(
   // Set when any route binds an enum-typed path / query param — the action
   // signature names the domain enum, so the header imports its package.
   let usesEnumParam = false;
+  // Set when a route answers a `T?` miss as the find-absence 404 — the action
+  // throws `AggregateNotFoundException`, so the header imports it.
+  let usesNotFound = false;
   for (const r of routes) {
     const ctx = byName.get(r.target.context);
     if (!ctx) continue;
@@ -986,21 +1036,41 @@ export function emitExplicitRouteController(
     // Every other type (int, bool, BigDecimal, a response DTO) already routes to
     // Jackson, which is why only this arm needs it.
     if (isBareString) usesJsonString = true;
-    const callLines = retType
-      ? isBareString
+    // A `T?` entity return answers its miss as the find-absence 404.
+    const absentIs404 = routedAbsenceAnswers404(h, ctx);
+    if (absentIs404) usesNotFound = true;
+    const absentGuard = absentIs404
+      ? [`        if (result == null) throw ${JAVA_FIND_ABSENCE_THROW};`]
+      : [];
+    const hEr = h.extern ? undefined : entryResult(h, ctx);
+    const callLines =
+      hEr && h.returnType?.kind === "union"
         ? [
             `        var result = ${field}.handle(${callArgs});`,
-            `        return ResponseEntity.ok().contentType(${javaRef("org.springframework.http", "MediaType")}.APPLICATION_JSON)`,
-            `            .body(JSON.writeValueAsString(${projectReturn(retType, ctx, responsePkgOf, responsePkgs)}));`,
+            ...entryControllerJava(hEr, h.returnType, ctx, "result", "        ", {
+              problemDetail: javaRef("org.springframework.http", "ProblemDetail"),
+              uri: javaRef("java.net", "URI"),
+              mediaType: javaRef("org.springframework.http", "MediaType"),
+              responseEntity: "ResponseEntity",
+            }),
           ]
-        : [
-            `        var result = ${field}.handle(${callArgs});`,
-            `        return ResponseEntity.ok(${projectReturn(retType, ctx, responsePkgOf, responsePkgs)});`,
-          ]
-      : [
-          `        ${field}.handle(${callArgs});`,
-          `        return ResponseEntity.noContent().build();`,
-        ];
+        : retType
+          ? isBareString
+            ? [
+                `        var result = ${field}.handle(${callArgs});`,
+                ...absentGuard,
+                `        return ResponseEntity.ok().contentType(${javaRef("org.springframework.http", "MediaType")}.APPLICATION_JSON)`,
+                `            .body(JSON.writeValueAsString(${projectReturn(retType, ctx, responsePkgOf, responsePkgs)}));`,
+              ]
+            : [
+                `        var result = ${field}.handle(${callArgs});`,
+                ...absentGuard,
+                `        return ResponseEntity.ok(${projectReturn(retType, ctx, responsePkgOf, responsePkgs)});`,
+              ]
+          : [
+              `        ${field}.handle(${callArgs});`,
+              `        return ResponseEntity.noContent().build();`,
+            ];
     actions.push(
       `    @${annot}("${explicitRoutePath(r)}")`,
       `    public ResponseEntity<?> ${lowerFirst(h.name)}(${actionParams}) {`,
@@ -1035,6 +1105,7 @@ export function emitExplicitRouteController(
       `import ${basePkg}.domain.ids.*;`,
       // Paged-run queryHandler routes return the `Paged<>` envelope.
       usesPaged ? `import ${basePkg}.domain.common.Paged;` : null,
+      usesNotFound ? `import ${basePkg}.domain.common.AggregateNotFoundException;` : null,
       // Body records reference domain value objects / enums by their wildcard
       // packages (Money, etc.), and an enum path / query param names its enum
       // in the action signature; each is pulled in only when used, so a header

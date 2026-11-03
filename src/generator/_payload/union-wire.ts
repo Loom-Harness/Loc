@@ -75,6 +75,10 @@ function recordFields(v: TypeIR, ctx: BoundedContextIR): UnionMemberField[] | nu
         isId: false,
       }));
     }
+    // A workflow `create`'s own workflow (`return this`): its instance state,
+    // in the wire shape the instance-read route serves.
+    const wf = ctx.workflows.find((w) => w.name === v.name);
+    if (wf?.instanceWireShape) return wireToMembers(wf.instanceWireShape);
     return null;
   }
   if (v.kind === "valueobject") {

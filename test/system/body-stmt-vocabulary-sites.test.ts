@@ -120,11 +120,11 @@ system WF {
     aggregate Thing with crudish { name: string }
     repository Things for Thing {}
     workflow make {
-      function label(n: int): string {
+      function caption(n: int): string {
         if n > 0 { return "pos" }
         return "neg"
       }
-      create(n: int) { let t = Thing.create(name: label(n)) }
+      create(n: int) { let t = Thing.create(name: caption(n)) }
     }
   } }
   api XApi from S

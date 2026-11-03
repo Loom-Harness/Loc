@@ -224,6 +224,11 @@ function exprCases(): Record<ExprIR["kind"], () => ExprCase> {
         stmtChildren: [],
       };
     },
+    modelText: () => ({
+      node: { kind: "modelText", key: "Projects.Task.name.one", defaultText: "Task" },
+      exprChildren: [],
+      stmtChildren: [],
+    }),
   };
 }
 
