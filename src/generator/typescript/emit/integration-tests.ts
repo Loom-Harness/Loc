@@ -31,6 +31,7 @@ import type {
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { repoVerbMethod, repoVerbOpAt } from "../../../util/repository-contract.js";
 import { renderTsExpr } from "../render-expr.js";
+import { T } from "../ts-symbols.js";
 import { renderCreateInput, renderExplicitMatcher, testBodyValueImports } from "./tests.js";
 
 /** A repository find on `agg` named `name`, or undefined. */
@@ -173,7 +174,7 @@ function renderStmt(
     case "principal":
       // A body `as { … }` line: rebind the ambient frame's principal.
       if (!user) return [];
-      return [`await actAsUser(${renderPrincipalClaims(s.principal, user)});`];
+      return [`await ${T.actAsUser}(${renderPrincipalClaims(s.principal, user)});`];
     default:
       // let / expression / expect(-throws) are the surviving integration shapes;
       // anything else is an IR-validator gap.
@@ -203,8 +204,8 @@ function renderPrincipalClaims(p: TestPrincipalIR | undefined, user: readonly Fi
       )}`,
   );
   return overrides.length > 0
-    ? `{ ...devStubClaims(), ${overrides.join(", ")} }`
-    : "devStubClaims()";
+    ? `{ ...${T.devStubClaims}(), ${overrides.join(", ")} }`
+    : `${T.devStubClaims}()`;
 }
 
 function renderTest(
@@ -226,7 +227,7 @@ function renderTest(
   // by the test's `as { … }` claims.
   return [
     `  it(${JSON.stringify(t.name)}, () =>`,
-    `    runAsUser(${renderPrincipalClaims(t.principal, user)}, async () => {`,
+    `    ${T.runAsUser}(${renderPrincipalClaims(t.principal, user)}, async () => {`,
     ...body.map((l) => `      ${l}`),
     "    }));",
   ];
@@ -286,13 +287,6 @@ export function renderContextIntegrationTest(
     `import { migrate } from ${JSON.stringify(opts.migrator ?? "drizzle-orm/node-postgres/migrator")};`,
   );
   lines.push(`import * as schema from "../db/schema";`);
-  if (opts.user) {
-    lines.push(`import { devStubClaims } from "../auth/dev-stub";`);
-    const switches = ctx.tests.some((t) => t.statements.some((s) => s.kind === "principal"));
-    lines.push(
-      `import { ${switches ? "actAsUser, runAsUser" : "runAsUser"} } from "../auth/middleware";`,
-    );
-  }
   if (cascade) {
     lines.push(`import { createInProcessDispatcher } from "../http/workflows";`);
   } else {

@@ -36,7 +36,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The value shape a claim of this field type takes, or undefined when a test
  *  principal cannot set it. */
-export function principalClaimShape(f: FieldIR): "string" | "uuid" | "stringList" | undefined {
+function principalClaimShape(f: FieldIR): "string" | "uuid" | "stringList" | undefined {
   const t = f.type.kind === "optional" ? f.type.inner : f.type;
   if (t.kind === "primitive" && t.name === "string") return "string";
   if (t.kind === "primitive" && t.name === "guid") return "uuid";
@@ -130,7 +130,7 @@ export function validateTestPrincipals(loom: LoomModel, diags: LoomDiagnostic[])
 }
 
 /** A test's head clause, then every `as { … }` body line, in source order. */
-export function principalsOf(t: {
+function principalsOf(t: {
   principal?: TestPrincipalIR;
   statements: readonly TestStmtIR[];
 }): TestPrincipalIR[] {

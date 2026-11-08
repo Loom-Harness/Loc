@@ -30,6 +30,7 @@ import { bindingsAssertedAbsent } from "../../../ir/util/test-null-subjects.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
+import { javaRef } from "../../_imports/java.js";
 import { jid } from "../java-ident.js";
 import { packagePath } from "../naming.js";
 import { type JavaRenderContext, renderJavaExpr } from "../render-expr.js";
@@ -110,16 +111,22 @@ function renderClaimValue(field: FieldIR | undefined, value: string | readonly s
 
 /** `CurrentUserAccessor.actAs(new User(…))` — the dev-stub identity, by
  *  position, with the test's `as { … }` claims replaced. */
-function renderActAs(p: TestPrincipalIR | undefined, user: readonly FieldIR[]): string {
+function renderActAs(
+  p: TestPrincipalIR | undefined,
+  user: readonly FieldIR[],
+  basePkg: string,
+): string {
   const args = user.map((f) => {
     const claim = p?.claims.find((c) => c.name === f.name);
     return claim ? renderClaimValue(f, claim.value) : stubUserValue(f.type);
   });
-  return `CurrentUserAccessor.actAs(new User(${args.join(", ")}));`;
+  const auth = `${basePkg}.auth`;
+  return `${javaRef(auth, "CurrentUserAccessor")}.actAs(new ${javaRef(auth, "User")}(${args.join(", ")}));`;
 }
 
 interface PrincipalScope {
   user: readonly FieldIR[] | undefined;
+  basePkg: string;
   /** Bindings the test asserts null — their read is not unwrapped to a throw. */
   absent: Set<string>;
 }
@@ -174,7 +181,7 @@ function renderStmt(
     }
     case "principal":
       // A body `as { … }` line: rebind the thread's ambient principal.
-      return scope.user ? [`${I}${renderActAs(s.principal, scope.user)}`] : [];
+      return scope.user ? [`${I}${renderActAs(s.principal, scope.user, scope.basePkg)}`] : [];
     default:
       throw new Error(`unsupported integration-test statement '${s.kind}'`);
   }
@@ -184,6 +191,7 @@ function renderTest(
   t: TestIR,
   ctx: BoundedContextIR,
   user: readonly FieldIR[] | undefined,
+  basePkg: string,
 ): string[] {
   const methodName =
     t.name
@@ -192,12 +200,12 @@ function renderTest(
       .replace(/^([0-9])/, "_$1") || "test";
   // Locals are declared under their source name here (`var ${s.name}`).
   const rctx = testBodyRenderContext(t, (name) => name);
-  const scope: PrincipalScope = { user, absent: bindingsAssertedAbsent(t.statements) };
+  const scope: PrincipalScope = { user, basePkg, absent: bindingsAssertedAbsent(t.statements) };
   // Under auth every principal reader reads the thread's ambient principal,
   // so the test binds one first: the dev-stub identity with the test's
   // `as { … }` claims.
   const body = [
-    ...(user ? [`        ${renderActAs(t.principal, user)}`] : []),
+    ...(user ? [`        ${renderActAs(t.principal, user, basePkg)}`] : []),
     ...t.statements.flatMap((s, i) => renderStmt(s, ctx, rctx, i, scope)),
   ];
   return [
@@ -226,7 +234,7 @@ export function renderJavaContextIntegrationTest(
 ): { path: string; content: string } | null {
   if (ctx.tests.length === 0) return null;
 
-  const methods = ctx.tests.flatMap((t) => renderTest(t, ctx, userFields));
+  const methods = ctx.tests.flatMap((t) => renderTest(t, ctx, userFields, basePkg));
   while (methods[methods.length - 1] === "") methods.pop();
   const bodyStr = methods.join("\n");
 
@@ -251,7 +259,6 @@ export function renderJavaContextIntegrationTest(
     `import static org.junit.jupiter.api.Assertions.*;`,
     ``,
     `import java.net.URI;`,
-    userFields ? `import org.junit.jupiter.api.AfterEach;` : null,
     `import org.junit.jupiter.api.DisplayName;`,
     `import org.junit.jupiter.api.Test;`,
     `import org.springframework.beans.factory.annotation.Autowired;`,
@@ -262,8 +269,6 @@ export function renderJavaContextIntegrationTest(
     // The same domain wildcards the unit-test emitter imports: a test body
     // constructs value objects (`new Berth(...)`) and names enum constants
     // (`Size.Large`), and both packages always exist.
-    userFields ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
-    userFields ? `import ${basePkg}.auth.User;` : null,
     `import ${basePkg}.domain.common.*;`,
     `import ${basePkg}.domain.enums.*;`,
     `import ${basePkg}.domain.ids.*;`,
@@ -292,9 +297,9 @@ export function renderJavaContextIntegrationTest(
     ...(userFields
       ? [
           `    /** The thread's principal must not outlive its test. */`,
-          `    @AfterEach`,
+          `    @${javaRef("org.junit.jupiter.api", "AfterEach")}`,
           `    void clearPrincipal() {`,
-          `        CurrentUserAccessor.actAs(null);`,
+          `        ${javaRef(`${basePkg}.auth`, "CurrentUserAccessor")}.actAs(null);`,
           `    }`,
           ``,
         ]
