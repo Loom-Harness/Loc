@@ -14,6 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 function wrap(body: string): string {
   return `
@@ -146,7 +147,7 @@ describe("vanilla exception-less returning op — collection mutations + call", 
     expect(fn).toMatch(/record = %\{record \| tags: \(record\.tags \|\| \[\]\) \+\+ \[t\]\}/);
     expect(fn).toMatch(/record = %\{record \| tags: List\.delete\(record\.tags \|\| \[\], t\)\}/);
     // `total := total + 1` scalar arithmetic (`+=` is collection-only).
-    expect(fn).toMatch(/record = %\{record \| total: record\.total \+ 1\}/);
+    expect(uncheckedInt(fn)).toMatch(/record = %\{record \| total: record\.total \+ 1\}/);
     // `recompute()` bare call → a real call to the emitted aggregate
     // `function` (§11b), discarding the result (`_ = recompute(record)`).
     expect(fn).toMatch(/_ = recompute\(record\)/);

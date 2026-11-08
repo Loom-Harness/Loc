@@ -455,9 +455,10 @@ export const messages = {
     name: unknown;
   }) =>
     `Deployable '${p.dep}' (platform ${p.family}) hosts event-sourced aggregate ` +
-    `'${p.ctxName}.${p.name}' with a lifecycle stamp — stamps mutate state fields, but an ` +
+    `'${p.ctxName}.${p.name}' with a lifecycle stamp (a \`stamp onCreate\` / \`onUpdate\` ` +
+    `assignment such as \`createdAt := now()\`) — stamps mutate state fields, but an ` +
     `event-sourced aggregate's state is folded from its event stream. ` +
-    `Record the timestamp in an event instead, or drop persistedAs: eventLog.`,
+    `Record the value in an event instead, or drop persistedAs: eventLog.`,
   "loom.stamp-reads-aggregate-unsupported": (p: {
     dep: unknown;
     family: unknown;

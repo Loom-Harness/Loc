@@ -25,13 +25,15 @@ import type {
   PayloadDecl,
   Property,
 } from "../../../language/generated/ast.js";
-import { isAggregate, isContainment, isEntityPart } from "../../../language/generated/ast.js";
+import { isAggregate, isEntityPart } from "../../../language/generated/ast.js";
 import {
   apiReadFields,
   apiReadFieldsOf,
   cloneTypeRef,
   command,
+  containmentOf,
   createInputProperties,
+  entityPartNames,
   field,
   idRef,
   query,
@@ -96,27 +98,33 @@ function contractForTarget(t: HandlerTarget): ContractRecord {
 }
 
 /** A `<Part>Response` record for every entity part reachable through `agg`'s
- * containment closure (BFS over containments; parts are aggregate-local, so all
- * referenced parts live in `agg.members`).  Deduplicated within the aggregate;
+ * containment closure (BFS over containments — explicit `contains` and inferred
+ * entity-typed properties alike; parts are aggregate-local, so all referenced
+ * parts live in `agg.members`).  Deduplicated within the aggregate;
  * `contractRecords` dedups again across the context. */
 function partResponses(agg: Aggregate): ContractRecord[] {
   const partsByName = new Map<string, EntityPart>();
   for (const m of agg.members ?? []) {
     if (isEntityPart(m)) partsByName.set(m.name, m);
   }
+  const partNames = entityPartNames(agg);
+  const containedPart = (m: unknown): EntityPart | undefined => {
+    const c = containmentOf(m, partNames);
+    return c ? partsByName.get(c.part) : undefined;
+  };
   const out: ContractRecord[] = [];
   const visited = new Set<string>();
   const visit = (part: EntityPart): void => {
     if (visited.has(part.name)) return;
     visited.add(part.name);
-    out.push(response(`${part.name}Response`, apiReadFieldsOf(part.members)));
-    for (const c of part.members.filter(isContainment)) {
-      const child = partsByName.get(c.partType.$refText);
+    out.push(response(`${part.name}Response`, apiReadFieldsOf(part.members, [], partNames)));
+    for (const m of part.members) {
+      const child = containedPart(m);
       if (child) visit(child);
     }
   };
-  for (const c of (agg.members ?? []).filter(isContainment)) {
-    const child = partsByName.get(c.partType.$refText);
+  for (const m of agg.members ?? []) {
+    const child = containedPart(m);
     if (child) visit(child);
   }
   return out;

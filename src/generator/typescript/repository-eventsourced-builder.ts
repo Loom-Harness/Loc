@@ -1,3 +1,7 @@
+import {
+  type StreamTenantMetadataField,
+  streamTenancyFor,
+} from "../../ir/enrich/stream-tenancy.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
@@ -11,6 +15,7 @@ import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../util/naming.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
+import { stampImportLine, stampInsertCall } from "./emit/audit-stamp.js";
 import { eventLogRunMethods } from "./in-memory-run.js";
 import {
   blobGetByIdLines,
@@ -24,10 +29,15 @@ import {
   serializeField,
   tsParamType,
 } from "./repository-document-builder.js";
+import {
+  aggregateHasStreamScope,
+  drizzleStreamScopeCall,
+  drizzleStreamScopeRef,
+} from "./repository-find-predicate.js";
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "./repository-wire-builder.js";
-import { TT } from "./ts-symbols.js";
+import { T, TT } from "./ts-symbols.js";
 
 // ---------------------------------------------------------------------------
 // Event-sourced (`persistedAs: eventLog`) repository for the Hono/Drizzle
@@ -71,7 +81,24 @@ export function buildEventSourcedRepositoryFile(
     .map((ap) => ctx.events.find((e) => e.name === ap.event))
     .filter((e): e is EventIR => e != null);
 
-  const findMethods = (repo?.finds ?? []).map((find) => eventSourcedFindMethod(agg, find, ctx));
+  // Stream tenancy (`stream-tenancy.ts`): a `tenantOwned` stream carries its
+  // tenant as stored-event metadata.  Every load is scoped by the read-scope
+  // fact's tenancy restrictions, lowered over the log's metadata columns.
+  // Every load is scoped by the generated `<agg>StreamScope` helper
+  // (`db/read-scopes.ts`), rendered from the fact's tenancy restrictions.
+  const tenancy = streamTenancyFor(agg, ctx.aggregates);
+  const scoped = aggregateHasStreamScope(agg, ctx);
+  const streamScope = drizzleStreamScopeCall(agg, ctx);
+  const metaOf = (row: string): string =>
+    `{ ${(tenancy?.metadata ?? []).map((m) => `${m.field}: ${row}.${m.field}`).join(", ")} }`;
+  const findMethods = (repo?.finds ?? []).map((find) =>
+    eventSourcedFindMethod(
+      agg,
+      find,
+      ctx,
+      scoped ? drizzleStreamScopeCall(agg, ctx, find) : undefined,
+    ),
+  );
   const runMethods = eventLogRunMethods(agg, ctx);
 
   const bodyStr = lines(
@@ -92,14 +119,25 @@ export function buildEventSourcedRepositoryFile(
     `    const rows = await this.db`,
     `      .select()`,
     `      .from(schema.${table})`,
-    `      .where(and(eq(schema.${table}.streamType, "${streamType}"), eq(schema.${table}.streamId, id as string)))`,
+    `      .where(and(eq(schema.${table}.streamType, "${streamType}"), eq(schema.${table}.streamId, id as string)${scoped ? `, ${streamScope}` : ""}))`,
     `      .orderBy(schema.${table}.version);`,
     `    ${renderHonoStoreLogCall("aggregateLoaded", `aggregate: "${agg.name}", id: id as string, found: rows.length > 0`)}`,
     `    if (rows.length === 0) return null;`,
-    `    return ${agg.name}._fromEvents(`,
-    `      id,`,
-    `      rows.map((r) => rowToEvent({ type: r.type, data: r.data })),`,
-    `    );`,
+    ...(tenancy
+      ? [
+          `    const inst = ${agg.name}._fromEvents(`,
+          `      id,`,
+          `      rows.map((r) => rowToEvent({ type: r.type, data: r.data })),`,
+          `    );`,
+          `    inst._adoptStreamTenant(${metaOf("rows[0]")});`,
+          `    return inst;`,
+        ]
+      : [
+          `    return ${agg.name}._fromEvents(`,
+          `      id,`,
+          `      rows.map((r) => rowToEvent({ type: r.type, data: r.data })),`,
+          `    );`,
+        ]),
     `  }`,
     "",
     // Command load — carries the write-scope check when the write scope is
@@ -124,12 +162,24 @@ export function buildEventSourcedRepositoryFile(
     // handle loaded before another append commit a decision taken on its
     // stale fold.
     `      let version = aggregate._streamVersion;`,
+    // A new stream is stamped with the principal's tenant (the capability's
+    // `onCreate` stamp); every later append carries the loaded stream's tenant
+    // forward — never the caller's.
+    ...(tenancy
+      ? [
+          `      const meta = aggregate._streamVersion === 0`,
+          `        ? ${stampInsertCall(agg, metaOf("aggregate"))}`,
+          `        : ${metaOf("aggregate")};`,
+          `      aggregate._adoptStreamTenant(meta);`,
+        ]
+      : []),
     `      const rows = pending.map((event) => ({`,
     `        streamType: "${streamType}",`,
     `        streamId: aggregate.id as string,`,
     `        version: ++version,`,
     `        type: event.type,`,
     `        data: eventToData(event),`,
+    ...(tenancy ? [`        ...meta,`] : []),
     `      }));`,
     // The `(stream_id, version)` PK IS this stream's optimistic-concurrency
     // control: an append from a handle folded at a version some other append
@@ -152,26 +202,75 @@ export function buildEventSourcedRepositoryFile(
     `      aggregate._streamVersion = version;`,
     `    }`,
     `    ${renderHonoStoreLogCall("repositorySave", `aggregate: "${agg.name}", id: aggregate.id as string`)}`,
-    `    for (const event of pending) {`,
-    `      ${renderHonoStoreLogCall("eventDispatched", `event_type: event.type, aggregate: "${agg.name}", id: aggregate.id as string`)}`,
-    `      await this.events.dispatch(event);`,
-    `    }`,
+    ...(tenancy
+      ? [
+          // The events' origin is their STREAM's tenant (`eventTenantMetadataFor`):
+          // the outbox capture and the CloudEvents envelope (`tenantid` /
+          // `loomorgpath`) read the ambient origin, so when the raising
+          // principal's tenant is not the stream's (a `policy`-widened subtree
+          // append) the dispatch runs in the stream tenant's frame.  The common
+          // case — same tenant — keeps the request's own frame.
+          `    const dispatchAll = async (): Promise<void> => {`,
+          `      for (const event of pending) {`,
+          `        ${renderHonoStoreLogCall("eventDispatched", `event_type: event.type, aggregate: "${agg.name}", id: aggregate.id as string`)}`,
+          `        await this.events.dispatch(event);`,
+          `      }`,
+          `    };`,
+          `    const origin = ${T.currentEventOrigin}();`,
+          `    if ((origin?.tenant ?? null) === aggregate.tenantId) {`,
+          `      await dispatchAll();`,
+          `    } else {`,
+          `      await ${T.runAsEventOrigin}({ tenant: aggregate.tenantId, orgPath: aggregate.dataKey, causedBy: origin?.causedBy ?? null }, dispatchAll);`,
+          `    }`,
+        ]
+      : [
+          `    for (const event of pending) {`,
+          `      ${renderHonoStoreLogCall("eventDispatched", `event_type: event.type, aggregate: "${agg.name}", id: aggregate.id as string`)}`,
+          `      await this.events.dispatch(event);`,
+          `    }`,
+        ]),
     `  }`,
     "",
-    `  private async _loadAll(): Promise<${agg.name}[]> {`,
-    `    const rows = await this.db`,
-    `      .select()`,
-    `      .from(schema.${table})`,
-    `      .where(eq(schema.${table}.streamType, "${streamType}"))`,
-    `      .orderBy(schema.${table}.streamId, schema.${table}.version);`,
-    `    const byStream = new Map<string, Events.DomainEvent[]>();`,
-    `    for (const r of rows) {`,
-    `      const list = byStream.get(r.streamId) ?? [];`,
-    `      list.push(rowToEvent({ type: r.type, data: r.data }));`,
-    `      byStream.set(r.streamId, list);`,
-    `    }`,
-    `    return [...byStream.entries()].map(([id, evs]) => ${agg.name}._fromEvents(${idVar}(id), evs));`,
-    `  }`,
+    ...(tenancy
+      ? [
+          // A find whose `ignoring` drops the tenancy restriction passes its
+          // own scope — `null` when it drops all of it (an explicit
+          // `undefined` would re-trigger the default).
+          `  private async _loadAll(${scoped ? `scope: ReturnType<typeof ${drizzleStreamScopeRef(agg)}> | null = ${streamScope} ?? null` : ""}): Promise<${agg.name}[]> {`,
+          `    const rows = await this.db`,
+          `      .select()`,
+          `      .from(schema.${table})`,
+          `      .where(and(eq(schema.${table}.streamType, "${streamType}")${scoped ? ", scope ?? undefined" : ""}))`,
+          `      .orderBy(schema.${table}.streamId, schema.${table}.version);`,
+          `    const byStream = new Map<string, { meta: ${tenantMetaType(tenancy.metadata)}; events: Events.DomainEvent[] }>();`,
+          `    for (const r of rows) {`,
+          `      const stream = byStream.get(r.streamId) ?? { meta: ${metaOf("r")}, events: [] };`,
+          `      stream.events.push(rowToEvent({ type: r.type, data: r.data }));`,
+          `      byStream.set(r.streamId, stream);`,
+          `    }`,
+          `    return [...byStream.entries()].map(([id, stream]) => {`,
+          `      const inst = ${agg.name}._fromEvents(${idVar}(id), stream.events);`,
+          `      inst._adoptStreamTenant(stream.meta);`,
+          `      return inst;`,
+          `    });`,
+          `  }`,
+        ]
+      : [
+          `  private async _loadAll(): Promise<${agg.name}[]> {`,
+          `    const rows = await this.db`,
+          `      .select()`,
+          `      .from(schema.${table})`,
+          `      .where(eq(schema.${table}.streamType, "${streamType}"))`,
+          `      .orderBy(schema.${table}.streamId, schema.${table}.version);`,
+          `    const byStream = new Map<string, Events.DomainEvent[]>();`,
+          `    for (const r of rows) {`,
+          `      const list = byStream.get(r.streamId) ?? [];`,
+          `      list.push(rowToEvent({ type: r.type, data: r.data }));`,
+          `      byStream.set(r.streamId, list);`,
+          `    }`,
+          `    return [...byStream.entries()].map(([id, evs]) => ${agg.name}._fromEvents(${idVar}(id), evs));`,
+          `  }`,
+        ]),
     "",
     ...findMethods.flatMap((m) => [m, ""]),
     ...runMethods.flatMap((m) => [m, ""]),
@@ -225,6 +324,7 @@ export function buildEventSourcedRepositoryFile(
     repoPortImportLine(agg.name),
     `import type { NodePgDatabase } from "drizzle-orm/node-postgres";`,
     `import { and, eq } from "drizzle-orm";`,
+    tenancy && stampImportLine(agg, { update: false }),
     `import * as schema from "../schema";`,
     repoUsesUser && `import type { User } from "../../auth/user-types";`,
     `import { ${domainImports} } from "../../domain/${lowerFirst(agg.name)}";`,
@@ -233,8 +333,7 @@ export function buildEventSourcedRepositoryFile(
     `import type * as Events from "../../domain/events";`,
     // A principal-referencing WRITE scope binds the ambient accessor in the
     // `getById` command load — key the import off the emitted body (F2-ADP-5).
-    /\brequireCurrentUser\(/.test(bodyScan) &&
-      `import { requireCurrentUser } from "../../auth/middleware";`,
+    authImportLine(bodyScan),
     `import { AggregateNotFoundError, ConcurrencyError } from "../../domain/errors";`,
     `import type { DomainEventDispatcher } from "../../domain/events";`,
     `import { requestLog } from "../../obs/als";`,
@@ -246,13 +345,36 @@ export function buildEventSourcedRepositoryFile(
   );
 }
 
+/** The ambient principal accessor of a write scope / stream scope, imported
+ *  when the emitted body calls it. */
+function authImportLine(bodyScan: string): string | false {
+  return (
+    /\brequireCurrentUser\(/.test(bodyScan) &&
+    `import { requireCurrentUser } from "../../auth/middleware";`
+  );
+}
+
 // --- finds (in-memory over the folded streams) ----------------------------
+
+function tenantMetaType(metadata: readonly StreamTenantMetadataField[]): string {
+  return `{ ${metadata.map((m) => `${m.field}: string | null`).join("; ")} }`;
+}
 
 function eventSourcedFindMethod(
   agg: EnrichedAggregateIR,
   find: FindIR,
   ctx: EnrichedBoundedContextIR,
+  /** The find's stream-scope call when the stream is scoped. */
+  scope?: string,
 ): string {
+  // The parameter default already is the unbypassed scope.
+  const load = `await this._loadAll(${
+    scope === undefined || scope === drizzleStreamScopeCall(agg, ctx)
+      ? ""
+      : scope === "undefined"
+        ? "null"
+        : scope
+  })`;
   const usesUser = findUsesCurrentUser(find);
   const baseParams = find.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
   const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
@@ -278,7 +400,7 @@ function eventSourcedFindMethod(
     const L = inMemoryPagedLocals(find.params);
     return lines(
       `  async ${find.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
-      `    const all = await this._loadAll();`,
+      `    const all = ${load};`,
       `    const ${L.matched} = ${pred ? `all.filter(${pred})` : "all"};`,
       ...inMemoryPagedTailLines(agg, L, find.name),
       `  }`,
@@ -286,7 +408,7 @@ function eventSourcedFindMethod(
   }
   return lines(
     `  async ${find.name}(${params}): Promise<${ret}> {`,
-    `    const all = await this._loadAll();`,
+    `    const all = ${load};`,
     `    const result = ${selector};`,
     `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: ${rowsExpr}`)}`,
     `    return result;`,

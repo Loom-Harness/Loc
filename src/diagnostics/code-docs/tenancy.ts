@@ -12,7 +12,9 @@ export const anchors: Readonly<Record<string, string>> = {
     "02-systems-and-topology.md#organizationcontext--the-operating-scope",
 
   // --- src/language/validators/statements.ts (M-T9.56 drain) ---------------
-  "loom.tenancy-folded-projection-unscoped":
+  "loom.tenancy-folded-projection-mixed":
+    "10-repositories-and-queries.md#folded--keyed-by--one-event",
+  "loom.tenancy-projection-over-scoped-fold":
     "10-repositories-and-queries.md#folded--keyed-by--one-event",
   "loom.tenancy-filter-bypass":
     "11-capabilities-filters-stamps.md#ignoring--bypassing-a-filter-at-a-read-site",

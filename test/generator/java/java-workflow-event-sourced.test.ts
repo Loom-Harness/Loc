@@ -11,6 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const SRC = `system S { subdomain O { context O {
   aggregate Order { status: string  operation place() { status := "P"  emit OrderPlaced { order: id } } }
@@ -54,7 +55,7 @@ describe("java event-sourced workflows", () => {
     expect(s).not.toContain("@EmbeddedId");
     // The applier folds against `this` (the fold-target instance), like an aggregate.
     expect(s).toContain("private void _applyPaymentRegistered(PaymentRegistered pr) {");
-    expect(s).toContain("this.total = this.total + pr.amount();");
+    expect(uncheckedInt(s)).toContain("this.total = this.total + pr.amount();");
     expect(s).toContain("void _apply(DomainEvent ev) {");
     expect(s).toContain(
       "public static TallyState _fromEvents(OrderId orderId, List<DomainEvent> events) {",

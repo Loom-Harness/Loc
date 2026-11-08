@@ -6,6 +6,7 @@
 // helpers, and the fold-load / append-own-events dispatch seam.
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const SRC = `system S { subdomain O { context O {
   aggregate Order { status: string  operation place() { status := "P"  emit OrderPlaced { order: id } } }
@@ -53,7 +54,7 @@ describe("hono event-sourced workflows", () => {
     expect(wf).toContain("type TallyState = {");
     expect(wf).toContain("function applyTally(state: TallyState, ev: Events.DomainEvent): void {");
     // The applier folds against the plain `state` record (not `this._field`).
-    expect(wf).toContain("state.total = state.total + pr.amount;");
+    expect(uncheckedInt(wf)).toContain("state.total = state.total + pr.amount;");
     expect(wf).toContain(
       "function foldTally(key: string, events: Events.DomainEvent[]): TallyState {",
     );

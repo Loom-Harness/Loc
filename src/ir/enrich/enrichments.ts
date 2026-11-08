@@ -87,8 +87,10 @@ import {
 import { type BypassRead, synthesizeBypassReadFinds } from "./bypass-read-finds.js";
 import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
+import { foldTenancyVerdict } from "./fold-tenancy.js";
 import { inheritBaseCapabilities } from "./inherited-capabilities.js";
 import { type KeyLookupRead, synthesizeKeyLookupFinds } from "./key-lookup-finds.js";
+import { applyMaskFindGates, applyMaskHandlerGates, applyMaskWriteGates } from "./mask-taint.js";
 import { applyHandlerReadGates, applyPolicyReadGates } from "./policy-read-gates.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
@@ -276,6 +278,7 @@ function enrichSystem(
   // declaration.  See `applyRegistrySelfScope` below.
   const subdomainsScoped = subdomainsWithSiblings
     .map((m) => applyRegistrySelfScope(m, sys))
+    .map((m) => applyFoldTenancy(m, sys))
     .map((m) => applyPolicyReadLevels(m, sys))
     .map((m) => applyPolicyWriteLevels(m, sys))
     // DENY WINS: runs AFTER the allow read/write-level passes, so an
@@ -472,6 +475,24 @@ function assignMigrationsOwner(
 //
 // Idempotent: the origin marker makes a second enrichment pass a no-op.
 // ---------------------------------------------------------------------------
+
+/** Record the principal claim a tenant-scoped folded projection's rows are
+ *  scoped by (`ProjectionIR.foldTenantClaim`).  The verdict reads the producers
+ *  of the folded events across the whole system, which a backend emitting one
+ *  context cannot see — see `fold-tenancy.ts`. */
+function applyFoldTenancy(m: EnrichedSubdomainIR, sys: SystemIR): EnrichedSubdomainIR {
+  const tenancy = sys.tenancy;
+  if (!tenancy) return m;
+  return {
+    ...m,
+    contexts: m.contexts.map((c) => ({
+      ...c,
+      projections: c.projections.map((p) =>
+        foldTenancyVerdict(p, sys) === "scoped" ? { ...p, foldTenantClaim: tenancy.claimField } : p,
+      ),
+    })),
+  };
+}
 
 function applyRegistrySelfScope(m: EnrichedSubdomainIR, sys: SystemIR): EnrichedSubdomainIR {
   const tenancy = sys.tenancy;
@@ -880,35 +901,42 @@ export function enrichContext(
       ...(inherited.length > 0 ? { uniqueKeys: [...inherited, ...own] } : {}),
     };
   });
-  const aggregates = withInheritance.map((a) => enrichAggregate(a, valueObjects, urlStyle));
+  // A `mask unless` field's write sinks inherit its predicate as a hoisted
+  // gate (`mask-taint.ts`).
+  const aggregates = withInheritance.map((a) =>
+    applyMaskWriteGates(enrichAggregate(a, valueObjects, urlStyle)),
+  );
   // paged-run (paged-queryHandler): a paged `queryHandler` over
   // `Repo.all(<Criterion>)` needs the #1904 paged FIND repo-method synthesized
   // onto its aggregate's repository so the Hono handler can call it.  Layered
   // on top of the auto-`findAll` repositories; the synthesized find is flagged
   // so the aggregate router does NOT auto-expose it (the queryHandler's own
   // route is the exposure).
-  const repositories = synthesizeBypassReadFinds(
-    synthesizeKeyLookupFinds(
-      synthesizePagedQueryHandlerFinds(
-        // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
-        // find's gate + `ignoring` stance, so the implicit `all` must exist first.
-        // `applyPolicyReadGates` sits between them: it puts the
-        // `policy { read X requires … }` gate on the injected `all`, which
-        // history then copies.
-        ensureHistoryFind(
-          aggregates,
-          applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
+  const repositories = applyMaskFindGates(
+    synthesizeBypassReadFinds(
+      synthesizeKeyLookupFinds(
+        synthesizePagedQueryHandlerFinds(
+          // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
+          // find's gate + `ignoring` stance, so the implicit `all` must exist first.
+          // `applyPolicyReadGates` sits between them: it puts the
+          // `policy { read X requires … }` gate on the injected `all`, which
+          // history then copies.
+          ensureHistoryFind(
+            aggregates,
+            applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
+          ),
+          ctx.queryHandlers,
+          ctx.criteria,
+          ctx.retrievals,
         ),
-        ctx.queryHandlers,
-        ctx.criteria,
-        ctx.retrievals,
+        aggregates,
+        keyLookupReads(ctx),
       ),
       aggregates,
-      keyLookupReads(ctx),
+      ctx.criteria,
+      bypassReads(ctx),
     ),
     aggregates,
-    ctx.criteria,
-    bypassReads(ctx),
   );
   // P2 (payload-transport-layer.md): give every concrete aggregate's wire
   // shape a named, referenceable `<Agg>Wire` payload.  Purely additive IR
@@ -970,8 +998,17 @@ export function enrichContext(
     ctx.commandHandlers,
   );
   const projections = ctx.projections.map((p) => enrichProjection(p, aggregates));
-  const queryHandlers = applyHandlerReadGates(ctx.queryHandlers, ctx.policyReadGates);
-  const commandHandlers = applyHandlerReadGates(ctx.commandHandlers, ctx.policyReadGates);
+  // A handler read that filters on a masked field inherits the mask as a
+  // leading read gate, like the `policy { read … }` gate beside it.
+  const maskScope = { aggregates, repositories, criteria: ctx.criteria, retrievals };
+  const queryHandlers = applyMaskHandlerGates(
+    applyHandlerReadGates(ctx.queryHandlers, ctx.policyReadGates),
+    maskScope,
+  );
+  const commandHandlers = applyMaskHandlerGates(
+    applyHandlerReadGates(ctx.commandHandlers, ctx.policyReadGates),
+    maskScope,
+  );
   return {
     ...ctx,
     ...(queryHandlers ? { queryHandlers } : {}),
