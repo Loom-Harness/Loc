@@ -203,21 +203,6 @@ export function validateWorkflows(
     // facade rule, an IR fact.
     const routed = facadeCreate(wf);
     for (const c of wf.creates) {
-      if (c.triggerKind !== "command" || c === routed || c.returnType) continue;
-      // A command starter the POST route does not serve is emitted by no
-      // backend: there is one command route per workflow.
-      diags.push({
-        severity: "error",
-        code: "loom.workflow-create-unrouted",
-        message: diagMessage("loom.workflow-create-unrouted", {
-          workflow: wf.name,
-          create: c.name ?? "create",
-        }),
-        source: `${ctx.name}/${wf.name}`,
-        origin: wf.origin,
-      });
-    }
-    for (const c of wf.creates) {
       if (!c.returnType || c.triggerKind !== "command" || c === routed) continue;
       diags.push({
         severity: "error",

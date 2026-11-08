@@ -3596,11 +3596,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `broker via channelSource '${p.csNames}' on another deployable — but '${p.name}' ` +
     `doesn't list the binding. Once traffic rides the broker this consumer would ` +
     `silently receive nothing. Add \`channels: [${p.csNames}]\` to '${p.name}'.`,
-  "loom.workflow-create-unrouted": (p: { workflow: unknown; create: unknown }) =>
-    `workflow '${p.workflow}': command starter '${p.create}' is never served — a workflow has one ` +
-    `command route (its unnamed \`create(...)\`, else its first create), and no backend ` +
-    `emits a second command entry. Move the logic into a context-level \`commandHandler\`, ` +
-    `or merge it into the workflow's single command create.`,
   "loom.channel-consumer-unwired#unbound": (p: {
     name: unknown;
     chName: unknown;

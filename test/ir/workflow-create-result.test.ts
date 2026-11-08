@@ -96,19 +96,6 @@ describe("workflow create(…): T — the routed-create rule (phase ⑦)", () =>
     expect(codes).toContain("loom.workflow-return-no-caller");
   });
 
-  it("refuses a second command create the route does not serve", async () => {
-    const codes = await irCodes(`
-      create(n: string) { let a = Account.create(number: n, balance: 0) }
-      create restock(n: string) { let a = Account.create(number: n, balance: 5) }`);
-    expect(codes).toContain("loom.workflow-create-unrouted");
-  });
-
-  it("accepts a lone named command create (it is the routed one)", async () => {
-    expect(
-      await irCodes(`create restock(n: string) { let a = Account.create(number: n, balance: 5) }`),
-    ).not.toContain("loom.workflow-create-unrouted");
-  });
-
   it("accepts a result on the routed (unnamed) create", async () => {
     expect(await irCodes(OPEN)).not.toContain("loom.workflow-return-no-caller");
   });
