@@ -522,7 +522,11 @@ system M {
 }
 `,
   "field:valueobject-collection@entity-part": (platform) =>
-    resourceWitness(platform, "storage pg { type: postgres }", "resource st { for: Main, kind: state, use: pg }").replace(
+    resourceWitness(
+      platform,
+      "storage pg { type: postgres }",
+      "resource st { for: Main, kind: state, use: pg }",
+    ).replace(
       "aggregate Thing with crudish { label: string }",
       `valueobject Tag { v: string }
       aggregate Thing with crudish {
@@ -532,7 +536,11 @@ system M {
       }`,
     ),
   "invariant:nested-valueobject@valueobject": (platform) =>
-    resourceWitness(platform, "storage pg { type: postgres }", "resource st { for: Main, kind: state, use: pg }").replace(
+    resourceWitness(
+      platform,
+      "storage pg { type: postgres }",
+      "resource st { for: Main, kind: state, use: pg }",
+    ).replace(
       "aggregate Thing with crudish { label: string }",
       `valueobject Amount { value: int  invariant value >= 0 }
       valueobject Discount { cap: Amount }
