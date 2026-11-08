@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { parseString } from "../../_helpers/parse.js";
 
 const ctx = (body: string) => `
+  system S { user { role: string } }
   context Sales {
     enum OrderStatus { Draft, Confirmed, Closed }
     aggregate Customer { active: bool  region: string }

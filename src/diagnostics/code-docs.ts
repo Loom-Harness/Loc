@@ -73,6 +73,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   // --- src/language/validators/structural.ts (M-T9.56 drain) --------------
   "loom.audited-no-command": "22-macros.md#audit--the-built-in-capability-auditable",
   "loom.scaffold-aggregate-unserved": "22-macros.md#scaffold-family--application--transport",
+  "loom.macro-synthesised": "22-macros.md#errors-inside-synthesised-code",
   "loom.duplicate-entity-part": "03-domain-modeling.md#entity-parts--contains",
   "loom.valueobject-contains-entity": "03-domain-modeling.md#valueobject",
   "loom.containment-optional-collection": "03-domain-modeling.md#entity-parts--contains",

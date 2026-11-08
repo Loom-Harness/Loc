@@ -138,6 +138,13 @@ export interface LoomEditorProps {
   /** Line ranges to tint.  `band` is the subtle colour-map overlay, `flash`
    *  the reverse direction's "this generated line came from here". */
   highlights?: readonly SourceHighlight[];
+  /** Changes when the active file's content was replaced from OUTSIDE the
+   *  editor (a history restore, another tab's write).  The editor then
+   *  reseeds its model from `initialValue` IN PLACE — same editor, same DOM,
+   *  scroll and caret kept — rather than being remounted, which blanked the
+   *  pane and threw the view back to line 1.  A change whose `initialValue`
+   *  already equals the model's text is a no-op. */
+  contentEpoch?: number;
 }
 
 export function LoomEditor(props: LoomEditorProps): JSX.Element {
@@ -175,6 +182,9 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
   const onHoverLineRef = useRef(props.onHoverLine);
   onHoverLineRef.current = props.onHoverLine;
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  // Set by the create effect: replace the model's text with an external
+  // value without echoing it back through `onChange`.
+  const reseedRef = useRef<((text: string) => void) | null>(null);
   const decorationsRef = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
   installCorrespondenceStyles();
   const isMobileRef = useRef(props.isMobile ?? false);
@@ -303,6 +313,15 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
       revealLatestEdit(editor, model, e.changes);
     });
 
+    reseedRef.current = (text: string): void => {
+      if (model.getValue() === text) return;
+      const view = editor.saveViewState();
+      suppressDispatch = true;
+      model.pushEditOperations(null, [{ range: model.getFullModelRange(), text }], () => null);
+      suppressDispatch = false;
+      if (view) editor.restoreViewState(view);
+    };
+
     const revealRange = (r: EditorRange): void => {
       const range = new monaco.Range(r.startLineNumber, r.startColumn, r.endLineNumber, r.endColumn);
       editor.setSelection(range);
@@ -413,6 +432,7 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
 
     return () => {
       if (handleRef.current) handleRef.current.current = null;
+      reseedRef.current = null;
       codeActionSub.dispose();
       delete (window as unknown as { __loomSetSource?: unknown }).__loomSetSource;
       delete (window as unknown as { __loomGetSource?: unknown }).__loomGetSource;
@@ -427,6 +447,15 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
       // across example-switch remounts.
     };
   }, [status]);
+
+  // External content replacement (see `contentEpoch`).  The first run is the
+  // mount, which the create effect has already seeded.
+  const seenEpochRef = useRef(props.contentEpoch);
+  useEffect(() => {
+    if (seenEpochRef.current === props.contentEpoch) return;
+    seenEpochRef.current = props.contentEpoch;
+    reseedRef.current?.(initialValueRef.current);
+  }, [props.contentEpoch]);
 
   // Correspondence tinting.  A decorations COLLECTION (not `deltaDecorations`)
   // so the set is replaced atomically and disposes with the editor; the effect

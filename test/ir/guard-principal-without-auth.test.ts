@@ -13,16 +13,14 @@
 // with a free identifier.  Python, .NET and Java emit the structurally
 // identical unbound read.
 //
-// The two variants below are NOT redundant.  With no auth anywhere, lowering
-// has nothing to resolve `currentUser` against and the ref lands as
-// `refKind: "unknown"`; with a system `user {}` present but the deployable
-// opting out, it resolves to `current-user`.  A check written against
-// `exprUsesCurrentUser` (which tests the refKind) sees only the second — i.e.
-// it reports the harmless variant and misses the one that does not compile.
+// The variants below are NOT redundant: a system that declares its principal
+// (`user {}`) but no `auth` at all, and one whose `auth` this deployable opts
+// out of.  A system with no `user {}` block never reaches this check: the
+// claim read itself is refused at the AST layer (`loom.unknown-user-claim`).
 
 import { describe, expect, it } from "vitest";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
-import { buildLoomModel } from "../_helpers/index.js";
+import { buildLoomModel, parseString } from "../_helpers/index.js";
 
 const CODE = "loom.guard-principal-without-auth";
 
@@ -38,7 +36,8 @@ const AGG = `
 
 const sys = (opts: { authBlock?: boolean; depAuth?: boolean; agg?: string }): string => `
 system P {
-  ${opts.authBlock ? `user { role: string }\n  auth { oidc { issuer: "https://idp.example.com"  clientId: "app" } }` : ""}
+  user { role: string }
+  ${opts.authBlock ? `auth { oidc { issuer: "https://idp.example.com"  clientId: "app" } }` : ""}
   subdomain D {
     context C {
 ${opts.agg ?? AGG}
@@ -59,8 +58,15 @@ async function codesFor(src: string): Promise<string[]> {
 }
 
 describe("validator — a principal guard on a deployable with no auth", () => {
-  it("rejects it when the system declares no auth at all (the unresolved-ref variant)", async () => {
+  it("rejects it when the system declares no auth at all", async () => {
     expect(await codesFor(sys({}))).toContain(CODE);
+  });
+
+  it("with no `user {}` block the claim read is refused before this check", async () => {
+    const { diagnostics } = await parseString(sys({}).replace("user { role: string }", ""), {
+      validate: true,
+    });
+    expect(diagnostics.map((d) => d.code)).toContain("loom.unknown-user-claim");
   });
 
   it("rejects it when the system HAS auth but this deployable opts out", async () => {
@@ -81,6 +87,7 @@ describe("validator — a principal guard on a deployable with no auth", () => {
   it("covers a read gate, not just an operation", async () => {
     const codes = await codesFor(`
 system P {
+  user { role: string }
   subdomain D {
     context C {
       aggregate Doc { title: string }

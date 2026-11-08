@@ -214,6 +214,14 @@ const DELIBERATELY_INVALID = [
   "test/fixtures/eval-models/eval-clinica/repro/r02-overlap.ddd",
   "test/fixtures/eval-models/eval-clinica/repro/r02-overlap-system.ddd",
   "test/fixtures/eval-models/eval-clinica/repro/r18-recursive-containment-crash.ddd",
+  // Probes that read `currentUser.id` in a bare context with no `user { }`
+  // block: the principal declares no claim, so the read is refused
+  // (`loom.unknown-user-claim`).  Typed, each also compares a `Member id` /
+  // `Patient` field with the principal's id — a mismatch the untyped read hid.
+  "test/fixtures/eval-models/eval-clinica/repro/r05-criterion-join.ddd",
+  "test/fixtures/eval-models/eval/probe/feed-a.ddd",
+  "test/fixtures/eval-models/eval/probe/visibility2.ddd",
+  "test/fixtures/eval-models/eval/probe/visibility3.ddd",
   // `test/fixtures/eval-models/eval/repro/broken/` — the error-QUALITY corpus of the FieldOps
   // evaluation: ten models each carrying exactly one ordinary mistake, used to
   // score what the toolchain says back.  Being refused is the whole point, so
