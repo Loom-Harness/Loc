@@ -24,6 +24,7 @@ import { escapeTsIdent, snake } from "../../../util/naming.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { renderPrincipalTest } from "../../_expr/principal-term.js";
 import { SQL_LIKE_ESCAPE_CLAUSE, tsSubtreeLikePattern } from "../../_expr/subtree-like.js";
+import { QueryEmissionRefusal, refuseOutOfVocabulary } from "../../_expr/target.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { TS_INTRINSIC_RENDERERS } from "../render-expr.js";
 import { documentWriteScopeBody, writeScopeDeniesAll } from "../repository-document-builder.js";
@@ -31,8 +32,10 @@ import { GUID_CLAIM_RE_LITERAL } from "../repository-find-predicate.js";
 import { tsNotFoundThrow } from "../wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
-// find `where` → MikroORM FilterQuery object literal. Minimal subset; throws on
-// anything unsupported so the caller can emit a runtime-throwing stub body.
+// find `where` → MikroORM FilterQuery object literal.  Every predicate the IR
+// validator admits renders; a shape outside the subset is a validator gap and
+// fails generation as `loom.query-emission-invalid` (`mikroFilterOrRefuse`),
+// never as a method that compiles and throws on its first call.
 // ---------------------------------------------------------------------------
 
 /**
@@ -653,6 +656,24 @@ function authzFilterEntry(e: Extract<ExprIR, { kind: "authz-filter" }>, acc: str
  *  lowering would be a second set of bugs.  Throws on a predicate outside the
  *  FilterQuery subset, which the caller turns into the adapter's usual
  *  runtime-throwing stub. */
+
+/** {@link whereToMikroFilter} for a repository method's predicate: a shape the
+ *  FilterQuery subset cannot spell is refused as `loom.query-emission-invalid`
+ *  (mode `mikroorm-filter`), failing generation the way Dapper's `whereToSql`
+ *  does, instead of emitting a stub that throws at run time. */
+export function mikroFilterOrRefuse(
+  e: ExprIR,
+  acc: string,
+  assocs: readonly AssociationIR[],
+): string {
+  try {
+    return whereToMikroFilter(e, acc, assocs);
+  } catch (err) {
+    if (err instanceof QueryEmissionRefusal) throw err;
+    const why = err instanceof Error ? err.message : String(err);
+    return refuseOutOfVocabulary("mikroorm-filter", `predicate (${why})`);
+  }
+}
 
 export function whereToMikroFilter(
   e: ExprIR,
