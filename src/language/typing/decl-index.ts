@@ -11,10 +11,13 @@
 // document's root (and its `system`), then any other document of the unit.
 
 import { type AstNode, AstUtils } from "langium";
-import { lowerFirst, plural } from "../../util/naming.js";
+import { lowerFirst, plural, snake } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import type {
   Aggregate,
+  Api,
   BoundedContext,
+  CommandHandler,
   Criterion,
   DomainService,
   EntityPart,
@@ -25,6 +28,7 @@ import type {
   PayloadDecl,
   PolicyDecl,
   Projection,
+  QueryHandler,
   Repository,
   Resource,
   Retrieval,
@@ -34,7 +38,9 @@ import type {
 } from "../generated/ast.js";
 import {
   isAggregate,
+  isApi,
   isBoundedContext,
+  isCommandHandler,
   isCriterion,
   isDomainService,
   isEntityPart,
@@ -45,6 +51,7 @@ import {
   isPayloadDecl,
   isPolicyDecl,
   isProjection,
+  isQueryHandler,
   isRepository,
   isResource,
   isRetrieval,
@@ -97,6 +104,8 @@ export class DeclIndex {
   private readonly enumValueOwners = new Map<string, EnumDecl[]>();
   readonly users: UserBlock[] = [];
   readonly resources: Resource[] = [];
+  readonly apis: Api[] = [];
+  readonly contexts: BoundedContext[] = [];
 
   /** Declarations of the rest of the project's import closure — consulted by
    *  `find` only when this unit declares no candidate, so a local name always
@@ -135,9 +144,12 @@ export class DeclIndex {
     for (const n of members) {
       if (isSystem(n)) this.collect(n.members);
       else if (isSubdomain(n)) this.collect(n.contexts);
-      else if (isBoundedContext(n)) this.collect(n.members);
-      else if (isUserBlock(n)) this.users.push(n);
+      else if (isBoundedContext(n)) {
+        this.contexts.push(n);
+        this.collect(n.members);
+      } else if (isUserBlock(n)) this.users.push(n);
       else if (isResource(n)) this.resources.push(n);
+      else if (isApi(n)) this.apis.push(n);
       else if (isAggregate(n)) {
         this.add(n.name, n);
         for (const p of n.members) if (isEntityPart(p)) this.add(p.name, p);
@@ -201,23 +213,74 @@ export class DeclIndex {
     return this.composedIndex ? [...own, ...this.composedIndex.findAll(kind, name)] : own;
   }
 
-  /** The aggregate / projection a `test e2e` `api.<handle>` names — the
-   *  handle is the lower-camel plural (`orders` → `Order`). */
-  byApiHandle(handle: string): Aggregate | Projection | undefined {
-    if (!this.apiHandles) {
-      this.apiHandles = new Map();
+  /** What a `test e2e` `api.<slug>` may name, by the spellings the generated
+   *  client accepts (`e2e-render.ts`): an aggregate as `lowerFirst(name)`,
+   *  its route segment or `lowerFirst(plural(name))`; a projection or a
+   *  workflow as `lowerFirst(name)` or `snake(name)`.  The caller applies the
+   *  client's precedence. */
+  e2eHandle(slug: string): {
+    aggregate?: Aggregate;
+    projection?: Projection;
+    workflow?: Workflow;
+  } {
+    if (!this.e2eHandles) {
+      const m = new Map<
+        string,
+        { aggregate?: Aggregate; projection?: Projection; workflow?: Workflow }
+      >();
+      const put = (keys: string[], k: "aggregate" | "projection" | "workflow", n: never) => {
+        for (const key of keys) {
+          const e = m.get(key) ?? {};
+          if (!e[k]) e[k] = n;
+          m.set(key, e);
+        }
+      };
       for (const list of this.byName.values()) {
         for (const n of list) {
-          if (isAggregate(n) || isProjection(n)) {
-            const key = lowerFirst(plural(n.name));
-            if (!this.apiHandles.has(key)) this.apiHandles.set(key, n);
-          }
+          if (isAggregate(n))
+            put(
+              [lowerFirst(n.name), routeSegmentFor(n.name), lowerFirst(plural(n.name))],
+              "aggregate",
+              n as never,
+            );
+          else if (isProjection(n))
+            put([lowerFirst(n.name), snake(n.name)], "projection", n as never);
+          else if (isWorkflow(n)) put([lowerFirst(n.name), snake(n.name)], "workflow", n as never);
         }
       }
+      this.e2eHandles = m;
     }
-    return this.apiHandles.get(handle);
+    return this.e2eHandles.get(slug) ?? {};
   }
-  private apiHandles: Map<string, Aggregate | Projection> | undefined;
+  private e2eHandles:
+    | Map<string, { aggregate?: Aggregate; projection?: Projection; workflow?: Workflow }>
+    | undefined;
+
+  /** The handler a `test e2e` `api.<contextSlug>.<handlerSlug>` names: one a
+   *  `route … -> <Ctx>.<Handler>` binds (a handler with no route has no HTTP
+   *  surface), each name spelled as declared, `lowerFirst` or `snake`. */
+  routedHandler(
+    contextSlug: string,
+    handlerSlug: string,
+  ): CommandHandler | QueryHandler | undefined {
+    const spells = (name: string, slug: string) =>
+      name === slug || lowerFirst(name) === slug || snake(name) === slug;
+    for (const api of this.apis) {
+      for (const route of api.routes) {
+        // A macro-spliced route (`scaffoldGetApi`) carries a never-linked
+        // `{ $refText }` reference: resolve it by name.
+        const ctxName = route.target.context.$refText;
+        const ctx = route.target.context.ref ?? this.contexts.find((c) => c.name === ctxName);
+        if (!ctx || !spells(ctx.name, contextSlug)) continue;
+        const h = ctx.members.find(
+          (m): m is CommandHandler | QueryHandler =>
+            (isCommandHandler(m) || isQueryHandler(m)) && m.name === route.target.handler,
+        );
+        if (h && spells(h.name, handlerSlug)) return h;
+      }
+    }
+    return undefined;
+  }
 
   /** The enums declaring a value named `name`, nearest level first: the
    *  enclosing context's enums shadow the rest as a level. */

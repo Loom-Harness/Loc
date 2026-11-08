@@ -36,14 +36,20 @@
 // ---------------------------------------------------------------------------
 
 import {
+  type AstNode,
   type Cancellation,
   DefaultDocumentValidator,
+  type DiagnosticInfo,
+  GrammarUtils,
   type LangiumCoreServices,
   type LangiumDocument,
   type ParseResult,
   type ValidationOptions,
+  type ValidationSeverity,
 } from "langium";
 import type { Diagnostic } from "vscode-languageserver-types";
+import { diagMessage } from "../diagnostics/messages.js";
+import { macroCallSiteOf } from "./macro-origin.js";
 import { misplacedDeclaration } from "./misplaced-declaration.js";
 import {
   accessModifierAfterDefault,
@@ -82,6 +88,31 @@ export class DddDocumentValidator extends DefaultDocumentValidator {
         ...options,
       },
       cancelToken,
+    );
+  }
+
+  /** A diagnostic raised on a macro-synthesised node lands on the `with X(...)`
+   *  clause that produced it, and says which macro wrote the code.  Such a
+   *  node has no `$cstNode` of its own (the factories build it in memory), so
+   *  Langium's range lookup would otherwise fall back to 1:1 — a position the
+   *  user cannot act on, in text they never wrote.  The diagnostic keeps its
+   *  own code; only the range and the attribution change.  Every AST-phase
+   *  diagnostic (validators, type system, linking) is built here, so the
+   *  redirect needs no per-check cooperation. */
+  protected override toDiagnostic<N extends AstNode>(
+    severity: ValidationSeverity,
+    message: string,
+    info: DiagnosticInfo<N, string>,
+  ): Diagnostic {
+    if (info.range || info.node.$cstNode) return super.toDiagnostic(severity, message, info);
+    const site = macroCallSiteOf(info.node);
+    const callCst = site?.callNode.$cstNode;
+    if (!site || !callCst) return super.toDiagnostic(severity, message, info);
+    const nameCst = GrammarUtils.findNodeForProperty(callCst, "name") ?? callCst;
+    return super.toDiagnostic(
+      severity,
+      diagMessage("loom.macro-synthesised", { message, macro: site.macroName }),
+      { ...info, range: nameCst.range },
     );
   }
 

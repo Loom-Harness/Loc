@@ -25,8 +25,9 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
-const sys = (workflow: string) => `
+const sys = (workflow: string, user = "") => `
 system WF {
+  ${user}
   subdomain S {
     context C {
       aggregate Order with crudish {
@@ -143,7 +144,10 @@ describe("a workflow request missing a referenced param", () => {
     // so the generated app did not build at all, which took the whole
     // compose-boot parity job down with it.  Elixir's answer is a bodiless
     // header carrying the default, with the clauses declaring none.
-    const wfu = await elixirFile(sys(WITH_USER), "/workflows/place_order.ex");
+    const wfu = await elixirFile(
+      sys(WITH_USER, "user { sub: string }"),
+      "/workflows/place_order.ex",
+    );
     expect(wfu).toContain("def run(params, current_user \\\\ nil)\n");
     expect(wfu).toContain(
       'def run(params, current_user) when is_map(params) and is_map_key(params, "name")',

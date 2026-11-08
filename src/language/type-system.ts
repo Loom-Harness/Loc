@@ -356,7 +356,8 @@ export function suffixType(suffix: PostfixSuffix): Ty {
  *  nothing at request time.  So the membership judgement has to be made here,
  *  at the only layer that still has a CST node to point at.
  *
- *  Valid members = the declared `UserField`s PLUS the two derived tenancy
+ *  Valid members = the declared `UserField`s (none without a `user { }`
+ *  block) PLUS the two derived tenancy
  *  members (`orgPath` / `rootOrg`), which are computed per-request from the
  *  tenancy claim rather than declared in `user { }`.  Referencing either
  *  WITHOUT a `tenancy by` line is already its own diagnostic
@@ -364,10 +365,12 @@ export function suffixType(suffix: PostfixSuffix): Ty {
  *  accepted here unconditionally — never double-reported. */
 export function absentUserClaim(recvType: Ty, name: string): string[] | undefined {
   const t = recvType.kind === "optional" ? recvType.inner : recvType;
-  if (t.kind !== "record" || t.shape.of !== "principal" || !t.shape.ref) return undefined;
+  if (t.kind !== "record" || t.shape.of !== "principal") return undefined;
   if (name === PRINCIPAL_ORG_PATH || name === PRINCIPAL_ROOT_ORG) return undefined;
   if (name === PRINCIPAL_IS_SYSTEM) return undefined;
+  // No `user { }` block: the principal declares no claim at all.
   const user = t.shape.ref;
+  if (!user) return [];
   if (user.fields.some((f) => f.name === name)) return undefined;
   return user.fields.map((f) => f.name);
 }

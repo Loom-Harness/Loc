@@ -750,10 +750,6 @@ const SELECTS_FROM_COMPLETE_SET = {
     "the kind tests only pick which already-enumerated node to act on; the enumeration is a deep walk (walk*Deep / forEachModelExpr) or a deliberately top-level statement list, so no child is skipped here",
 } as const;
 
-/** Debt the independent-if detector surfaced: a traversal or renderer that
- *  silently skips kinds.  Each names the issue that owns the fix. */
-const IF_RUN_GAP_REVIEW = "2027-02-28";
-
 const WAIVERS: Record<string, Waiver> = {
   "src/ir/util/ui-gate.ts#firstNonUiGateNode": UI_GATE_CLOSED_SUBSET,
   "src/ir/util/ui-gate.ts#printGateExpr": UI_GATE_CLOSED_SUBSET,
@@ -811,8 +807,7 @@ const WAIVERS: Record<string, Waiver> = {
   // `walkWorkflowStmtExprsDeep`, `walkExprChildren`, and `mapExprChildren` for
   // an IR→IR rewrite).  Their `deferred` rows are emitters that silently drop
   // or abort on a statement kind another backend renders — rendering work, not
-  // a walk migration.  The `deferred` if-run rows further down are real
-  // traversal or renderer gaps, each owned by the issue its reason names.
+  // a walk migration.
 
   // --- already delegates to a sanctioned walker for recursion --------------
   "src/generator/java/explicit-handlers-emit.ts#reposUsed": DELEGATES_TO_SANCTIONED_WALKER,
@@ -972,12 +967,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/ir/validate/checks/shared.ts#firstColumnVsColumn": {
     standing:
       "runs only on a predicate `firstNonQueryablePredicate` already admitted, so it walks just the boolean spine (binary / paren / unary); every compound kind that could hide a comparison has been refused by the exhaustive `firstNonQueryableNode` first",
-  },
-  // Debt: each is a real gap, owned by the issue in its reason.
-  "src/generator/dotnet/workflow-emit.ts#rec": {
-    deferred:
-      "#4575: the param rewrite skips list / convert / match / … children, leaving an undeclared identifier in the C#",
-    reviewUntil: IF_RUN_GAP_REVIEW,
   },
 };
 
