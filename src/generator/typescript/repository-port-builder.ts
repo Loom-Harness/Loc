@@ -27,6 +27,7 @@ import type { EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst } from "../../util/naming.js";
+import { tsImportSlot } from "../_imports/ts.js";
 
 /** Pooled port file — a raw `out.set` domain-layer sibling of
  *  `domain/ids.ts`, so it is NOT relocated by the layout adapter (importers
@@ -105,7 +106,6 @@ export function renderRepositoryPortsFile(
   const scan = allMembers.replace(/"(?:\\.|[^"\\])*"/g, '""').replace(/'(?:\\.|[^'\\])*'/g, "''");
   const referenced = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
 
-  const usesIds = /\bIds\.\w/.test(scan);
   const usesUser = referenced("User");
   // A `find` whose parameter or result is `money` / `decimal` spells `Decimal`
   // in its signature (the concrete repository imports decimal.js for it); the
@@ -128,7 +128,7 @@ export function renderRepositoryPortsFile(
     lines(
       "// Auto-generated.  Do not edit by hand.",
       "// Domain-owned repository ports (hexagonal architecture — audit S7).",
-      usesIds ? 'import type * as Ids from "./ids";' : null,
+      tsImportSlot("~/domain/ids"),
       usesDecimal ? 'import type Decimal from "decimal.js";' : null,
       usesUser ? 'import type { User } from "../auth/user-types";' : null,
       voEnumNames.length > 0

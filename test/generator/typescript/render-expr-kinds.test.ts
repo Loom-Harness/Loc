@@ -8,6 +8,7 @@
 // with no IO or class instantiation.
 
 import { describe, expect, it } from "vitest";
+import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
 import { renderTsExpr, renderTsType } from "../../../src/generator/typescript/render-expr.js";
 import type { ExprIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
 import type { ExprOf } from "../../_helpers/ir-builders.js";
@@ -833,11 +834,13 @@ describe("ts renderTsExpr — lambda, new, list, object", () => {
 
   it("renders entity-part constructor with id + parentId boilerplate", () => {
     expect(
-      renderTsExpr({
-        kind: "new",
-        partName: "LineItem",
-        fields: [{ name: "sku", value: litStr("ABC") }],
-      }),
+      spellMarkers(
+        renderTsExpr({
+          kind: "new",
+          partName: "LineItem",
+          fields: [{ name: "sku", value: litStr("ABC") }],
+        }),
+      ),
     ).toBe('LineItem._create({ id: Ids.newLineItemId(), parentId: this._id, sku: "ABC" })');
   });
 

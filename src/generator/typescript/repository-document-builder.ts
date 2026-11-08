@@ -49,6 +49,7 @@ import {
   savedVersionOnInsert,
   savedVersionOnUpdate,
 } from "./saved-version.js";
+import { T, TT } from "./ts-symbols.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
@@ -76,7 +77,7 @@ export function buildDocumentRepositoryFile(
   _emitTrace = false,
 ): string {
   const tableName = lowerFirst(plural(agg.name));
-  const idVar = `Ids.${agg.name}Id`;
+  const idVar = `${TT.Ids}.${agg.name}Id`;
   // `toWireMasked(root, currentUser: User | null)` NAMES `User`, so the mask
   // is a second reason this file needs the import — exactly as on the
   // relational builder (repository-builder.ts).  Masking is a WIRE-PROJECTION
@@ -666,8 +667,8 @@ export function entityFromDocFn(
   // route feeds `aggregate.version` when there's no `If-Match`) 409s on the
   // next update.  Parity with the python document repo (`_x_from_doc(raw, version)`).
   const versionedRoot = isRoot && rowVersionGuarded(entity as EnrichedAggregateIR);
-  const entries: string[] = [`id: Ids.${entity.name}Id(d.id)`];
-  if (!isRoot) entries.push(`parentId: Ids.${rootName}Id(d.parentId)`);
+  const entries: string[] = [`id: ${T.Ids}.${entity.name}Id(d.id)`];
+  if (!isRoot) entries.push(`parentId: ${T.Ids}.${rootName}Id(d.parentId)`);
   for (const f of entity.fields) {
     if (versionedRoot && f.name === "version") {
       entries.push(`version: version`);
@@ -772,7 +773,7 @@ export function deserializeField(
     if (t.name === "decimal") return numericEncode(TS_NUMERIC, "decimal", "repo-read", accessor);
     return accessor;
   }
-  if (t.kind === "id") return `Ids.${t.targetName}Id(${accessor})`;
+  if (t.kind === "id") return `${T.Ids}.${t.targetName}Id(${accessor})`;
   if (t.kind === "enum") return `${accessor} as ${t.name}`;
   if (t.kind === "valueobject") {
     const vo = findValueObjectInScope(ctx, t.name);
@@ -781,7 +782,7 @@ export function deserializeField(
   }
   if (t.kind === "array") {
     if (t.element.kind === "id") {
-      return `(${accessor} ?? []).map((s: string) => Ids.${t.element.targetName}Id(s))`;
+      return `(${accessor} ?? []).map((s: string) => ${T.Ids}.${t.element.targetName}Id(s))`;
     }
     return `(${accessor} ?? []).map((x) => ${deserializeField(t.element, "x", ctx)})`;
   }
@@ -819,7 +820,7 @@ export function tsParamType(t: TypeIR): string {
   // A collection keeps its element type (`string[]`, `Ids.XId[]`); the shared
   // TS type renderer owns the element mapping.
   if (t.kind === "array") return renderTsType(t);
-  if (t.kind === "id") return `Ids.${t.targetName}Id`;
+  if (t.kind === "id") return `${TT.Ids}.${t.targetName}Id`;
   if (t.kind === "enum") return t.name;
   if (t.kind === "primitive") {
     switch (t.name) {

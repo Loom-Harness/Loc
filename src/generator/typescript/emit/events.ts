@@ -1,6 +1,7 @@
 import { eventLogCarriesTenant } from "../../../ir/enrich/stream-tenancy.js";
 import type { BoundedContextIR, EventIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { tsImportSlot } from "../../_imports/ts.js";
 import { renderTsType } from "../render-expr.js";
 import { T } from "../ts-symbols.js";
 
@@ -12,12 +13,10 @@ import { T } from "../ts-symbols.js";
 export function renderEvents(ctx: BoundedContextIR): string {
   const voImports = new Set<string>();
   const enumImports = new Set<string>();
-  let usesIds = false;
   let usesDecimal = false;
   const visit = (t: TypeIR): void => {
     if (t.kind === "valueobject") voImports.add(t.name);
     if (t.kind === "enum") enumImports.add(t.name);
-    if (t.kind === "id") usesIds = true;
     // The `money` primitive renders as decimal.js `Decimal` — needs an import.
     if (t.kind === "primitive" && t.name === "money") usesDecimal = true;
     if (t.kind === "array") visit(t.element);
@@ -37,7 +36,7 @@ export function renderEvents(ctx: BoundedContextIR): string {
     lines(
       "// Auto-generated.",
       usesDecimal ? 'import Decimal from "decimal.js";' : null,
-      usesIds ? 'import type * as Ids from "./ids";' : null,
+      tsImportSlot("~/domain/ids"),
       voList.length > 0 ? `import type { ${voList.join(", ")} } from "./value-objects";` : null,
       enumList.length > 0 ? `import type { ${enumList.join(", ")} } from "./value-objects";` : null,
       ...ctx.events.flatMap(renderEvent),
