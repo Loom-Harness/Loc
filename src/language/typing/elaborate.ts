@@ -33,11 +33,7 @@ import {
   PRINCIPAL_ORG_PATH,
   PRINCIPAL_ROOT_ORG,
 } from "../../util/principal.js";
-import {
-  isRepoVerbAt,
-  repositoryVerb,
-  retiredRepoVerb,
-} from "../../util/repository-contract.js";
+import { isRepoVerbAt, repositoryVerb, retiredRepoVerb } from "../../util/repository-contract.js";
 import { findVerb } from "../../util/resource-verbs.js";
 import { durationUnitOf } from "../../util/temporal.js";
 import { isValueObjectEqualsIntrinsic } from "../../util/value-object-intrinsics.js";

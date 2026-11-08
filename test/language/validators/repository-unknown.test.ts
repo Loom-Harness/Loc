@@ -23,7 +23,7 @@ async function errors(src: string): Promise<{ code: string; message: string }[]>
   const { diagnostics } = await parseString(src);
   return diagnostics
     .filter((d) => d.severity === 1)
-    .map((d) => ({ code: String(d.code), message: d.message }));
+    .map((d) => ({ code: String(d.code), message: String(d.message) }));
 }
 
 describe("loom.repository-unknown", () => {
@@ -123,9 +123,18 @@ describe("`Agg.all()` in a context test is the list read", () => {
   });
 
   const read: Record<string, [string, string]> = {
-    node: ["test/c.integration.test.ts", `const seen = (await repos.note.all(1, 1000, "id", "asc")).items;`],
-    python: ["tests/test_c_integration.py", `seen = (await note_repo.all(1, 1000, "id", "asc")).items`],
-    dotnet: ["CIntegrationTests.cs", `var seen = (await noteRepo.All(1, 1000, "id", "asc")).Items;`],
+    node: [
+      "test/c.integration.test.ts",
+      `const seen = (await repos.note.all(1, 1000, "id", "asc")).items;`,
+    ],
+    python: [
+      "tests/test_c_integration.py",
+      `seen = (await note_repo.all(1, 1000, "id", "asc")).items`,
+    ],
+    dotnet: [
+      "CIntegrationTests.cs",
+      `var seen = (await noteRepo.All(1, 1000, "id", "asc")).Items;`,
+    ],
     java: ["CIntegrationTests.java", "var seen = noteRepository.findAll();"],
     elixir: ["test/c_integration_test.exs", "{:ok, %{items: seen}} = D.C.list_notes()"],
   };

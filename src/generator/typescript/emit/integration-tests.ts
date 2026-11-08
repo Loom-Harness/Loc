@@ -18,6 +18,7 @@
 // `expect(...)`, so the `await` stays a statement-level concern and the assertion
 // expressions render synchronously.
 
+import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -28,7 +29,6 @@ import type {
   TestPrincipalIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
-import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { repoVerbMethod, repoVerbOpAt } from "../../../util/repository-contract.js";
 import { renderTsExpr } from "../render-expr.js";
