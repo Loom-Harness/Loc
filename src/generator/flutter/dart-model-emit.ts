@@ -404,6 +404,18 @@ export function renderDartUnion(name: string, variants: TypeIR[], ctx: BoundedCo
   return lines(base, ...members.flatMap((m) => ["", renderUnionVariant(name, m)]));
 }
 
+/** A transport contract record the app never decodes into or encodes from by
+ *  class: a `command` / `query` request record (requests are built per route),
+ *  or a `response <X>Response` record that mirrors an aggregate / part `X`
+ *  (decoded through `X`'s own wire class, which this library already emits).
+ *  Every exposed context carries these records, so they are not models. */
+function isTransportContract(p: PayloadIR, ctx: BoundedContextIR): boolean {
+  if (p.kind === "command" || p.kind === "query") return true;
+  if (p.kind !== "response" || !p.name.endsWith("Response")) return false;
+  const x = p.name.slice(0, -"Response".length);
+  return ctx.aggregates.some((a) => a.name === x || a.parts.some((part) => part.name === x));
+}
+
 /** Emit every Dart wire model a system's contexts declare — value objects,
  *  events, record payloads, aggregates and their entity parts — deduped by
  *  class name, concatenated into one Dart library body.  The integrator wires
@@ -546,6 +558,7 @@ export function renderDartModels(
     for (const vo of ctx.valueObjects) addRecord(dartRecordForValueObject(vo));
     for (const ev of ctx.events) addRecord(dartRecordForEvent(ev));
     for (const p of ctx.payloads) {
+      if (isTransportContract(p, ctx)) continue;
       if (p.variants) addUnion(p, ctx);
       else addRecord(dartRecordForPayload(p));
     }

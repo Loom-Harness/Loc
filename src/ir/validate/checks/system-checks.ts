@@ -46,7 +46,6 @@ export {
 } from "./resource-capability-checks.js";
 export {
   backendPlatformsHostingEachContext,
-  maskLaunderingEvents,
   validateAuditedOperationSupport,
   validateEventSourcedStorage,
   validateFieldMask,

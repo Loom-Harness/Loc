@@ -124,6 +124,7 @@ import {
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
+import { declaredResponseFor } from "../../../ir/util/declared-response.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { isMergePatchUpdate, ruleMembers } from "../../../ir/util/merge-patch.js";
 import {
@@ -2627,7 +2628,7 @@ function emitResponseDtoSchema(
   // leading `id: z.string()` is re-prepended, mirroring the synthetic wire-shape
   // id row `responseRecordParams` / this walk would emit.
   const declaredResponse = isAgg
-    ? ctx.payloads.find((p) => p.kind === "response" && p.name === name)
+    ? declaredResponseFor(ctx.payloads, ent as EnrichedAggregateIR)
     : undefined;
   if (declaredResponse) {
     lines.push(`  id: z.string(),`);

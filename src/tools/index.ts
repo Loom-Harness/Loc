@@ -16,6 +16,8 @@ export {
   type ToolResultBlock,
   type ToolSpec,
   type ToolUseBlock,
+  toolDispatcher,
   toolSpecs,
+  withHostTools,
 } from "./agent-loop.js";
 export { callTool, TOOLS, TOOLS_BY_NAME, type ToolDef } from "./catalog.js";

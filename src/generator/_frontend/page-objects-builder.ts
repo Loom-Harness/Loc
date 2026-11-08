@@ -1,5 +1,6 @@
 import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
 import type { AggregateIR, BoundedContextIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { operationFormParams } from "../../ir/util/op-gates.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { lowerFirst, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
@@ -202,7 +203,8 @@ export function buildPageObjectModule(
       );
       lines.push(`    await this.page.getByTestId("${slug}-op-${op.name}").click();`);
       lines.push(`    await this.page.getByTestId("${slug}-op-${op.name}-form").waitFor();`);
-      for (const p of op.params) {
+      // The form leaves the masked merge-patch keys out (`operationFormParams`).
+      for (const p of operationFormParams(op)) {
         lines.push(
           ...fillBlock(
             "input",

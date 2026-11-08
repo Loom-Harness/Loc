@@ -344,3 +344,24 @@ export function operationActionGates(op: OperationIR): ExprIR[] {
 export function maskWritePresenceParam(op: OperationIR, g: RequiresStmtIR): string | undefined {
   return g.maskWriteOf !== undefined && isMergePatchUpdate(op) ? g.maskWriteOf : undefined;
 }
+
+/** The params of `op` a caller may leave out because a mask write gate guards
+ *  them — on a merge-patch update, the masked fields (`maskWritePresenceParam`).
+ *  A generated client form omits these inputs: a caller who cannot read the
+ *  field has no value to show, and sending the key at all is refused (403),
+ *  while an absent key keeps the stored value.  Empty for any other op. */
+export function maskedPatchParams(op: OperationIR): Set<string> {
+  const out = new Set<string>();
+  for (const g of operationGates(op)) {
+    const p = maskWritePresenceParam(op, g);
+    if (p !== undefined) out.add(p);
+  }
+  return out;
+}
+
+/** The params a generated client form for `op` asks for — every param but the
+ *  masked merge-patch keys (`maskedPatchParams`), which the form leaves out. */
+export function operationFormParams(op: OperationIR): ParamIR[] {
+  const masked = maskedPatchParams(op);
+  return masked.size === 0 ? op.params : op.params.filter((p) => !masked.has(p.name));
+}

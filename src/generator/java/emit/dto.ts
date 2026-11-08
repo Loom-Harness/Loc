@@ -18,6 +18,7 @@ import type {
   TypeIR,
   WireField,
 } from "../../../ir/types/loom-ir.js";
+import { declaredResponseFor } from "../../../ir/util/declared-response.js";
 import { type MergePatchField, mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
@@ -324,9 +325,7 @@ export function renderDtoFiles(
   }
 
   // --- aggregate response ----------------------------------------------------------
-  const declaredRootResponse = payloads.find(
-    (p) => p.kind === "response" && p.name === `${agg.name}Response`,
-  );
+  const declaredRootResponse = declaredResponseFor(payloads, agg);
   out.push(
     wireRecord(
       agg,
@@ -700,7 +699,18 @@ function payloadFieldJavaType(f: FieldIR, payloads: readonly PayloadIR[]): strin
     if (t.kind === "array") return `${J.List}<${base.name}>`;
     return base.name;
   }
+  if (optionalResponsePart(t, payloads) && t.kind === "optional" && t.inner.kind === "entity")
+    return t.inner.name;
   return wireJavaType(t, "Response");
+}
+
+/** The contained PART behind an optional single containment of a declared
+ *  record (`optional<MemoResponse>` → the `Memo` entity), or undefined. */
+function optionalResponsePart(t: TypeIR, payloads: readonly PayloadIR[]): TypeIR | undefined {
+  if (t.kind !== "optional" || t.inner.kind !== "entity") return undefined;
+  const name = t.inner.name;
+  if (!isResponsePayloadName(payloads, name) || !name.endsWith("Response")) return undefined;
+  return { ...t.inner, name: name.slice(0, -"Response".length) };
 }
 
 /** The `from(<domain>)` mapper argument for a DECLARED `response` field.  A
@@ -716,6 +726,11 @@ function payloadFieldToWire(f: FieldIR, payloads: readonly PayloadIR[]): string 
     if (t.kind === "array") return `${accessorExpr}.stream().map(${base.name}::from).toList()`;
     return `${accessorExpr} == null ? null : ${base.name}.from(${accessorExpr})`;
   }
+  // An OPTIONAL single containment (`note: MemoResponse?`) projects exactly as
+  // the derived `Memo` + optional row does, so map it through the part's
+  // domain type rather than re-suffixing the record name.
+  const part = optionalResponsePart(t, payloads);
+  if (part) return domainToWire({ kind: "optional", inner: part }, accessorExpr);
   return domainToWire(t, accessorExpr);
 }
 

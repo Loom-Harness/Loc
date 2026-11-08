@@ -47,15 +47,18 @@ import {
   MigrationChainError,
   parseChain,
   parseForkedChain,
-  recordGeneration,
   serializeEntry,
 } from "../../../src/system/migration-chain.js";
 import {
   evolveSystem,
-  pendingMigrations,
+  migrationStatus,
+  recordPendingMigrations,
   wireChangeEntity,
 } from "../../../src/system/migration-diff.js";
-import { MigrationDestructiveError } from "../../../src/system/migrations-builder.js";
+import {
+  MigrationDestructiveError,
+  MigrationShapeChangeError,
+} from "../../../src/system/migrations-builder.js";
 import { serviceSlug } from "../../../src/util/service-slug.js";
 import type { SnapshotStore } from "../../../src/system/snapshot.js";
 import { MemoryVfs } from "../vfs/memory-vfs.js";
@@ -300,8 +303,8 @@ export async function runEvolution(params: EvolutionParams): Promise<EvolutionRe
 }
 
 /** Record the live edit's schema changes as the next entries of the chain
- *  its tree carries — the playground's `ddd migrate add`, on the same pure
- *  cores (`pendingMigrations` + `recordGeneration`).  Returns the new chain
+ *  its tree carries — the playground's `ddd migrate add`, on the CLI's core
+ *  (`recordPendingMigrations`).  Returns the new chain
  *  files for the caller to write; never throws on a refusal (an invalid or
  *  forked chain, a destructive change not allowed, a bad or taken name). */
 export async function recordMigration(
@@ -309,20 +312,19 @@ export async function recordMigration(
 ): Promise<RecordMigrationResult> {
   const loaded = await loadEvolutionTree(params.current, { validate: true });
   if ("error" in loaded) return { ok: false, diagnostics: loaded.error };
-  const refuse = (message: string): RecordMigrationResult => ({
+  const refuse = (message: string, code?: string): RecordMigrationResult => ({
     ok: false,
     diagnostics: [
       ...loaded.diagnostics,
-      { severity: "error", message, source: "loom-migrations" },
+      { severity: "error", message, source: "loom-migrations", ...(code ? { code } : {}) },
     ],
   });
-  if (loaded.loom.systems.length === 0) return refuse(diagMessage("loom.no-system"));
+  if (loaded.loom.systems.length === 0) {
+    return refuse(diagMessage("loom.no-system"), "loom.no-system");
+  }
   try {
     const chain = loaded.chainFiles ? parseChain(loaded.chainFiles) : EMPTY_CHAIN;
-    const deltas = pendingMigrations(loaded.loom, chain, {
-      allowDestructive: params.allowDestructive,
-    });
-    const entries = recordGeneration(chain, deltas, {
+    const entries = recordPendingMigrations(loaded.loom, chain, {
       name: params.name,
       now: params.now,
       allowDestructive: params.allowDestructive,
@@ -337,7 +339,11 @@ export async function recordMigration(
     if (err instanceof MigrationChainError) {
       return { ok: false, diagnostics: [...loaded.diagnostics, chainDiag(err)] };
     }
-    if (err instanceof MigrationDestructiveError) return refuse(err.message);
+    // The destructive gate's refusal keeps its own code, so a caller can tell
+    // "needs the acknowledgement" from any other refusal.
+    if (err instanceof MigrationDestructiveError || err instanceof MigrationShapeChangeError) {
+      return refuse(err.message, err.code);
+    }
     return { ok: false, diagnostics: [...loaded.diagnostics, migrationDiag(err)] };
   }
 }
@@ -363,19 +369,17 @@ export async function migrationPlan(params: MigrationPlanParams): Promise<Migrat
     if (!(err instanceof MigrationChainError)) throw err;
     return { ok: false, diagnostics: [...loaded.diagnostics, chainDiag(err)] };
   }
-  const heads = headSnapshots(chain);
+  // `ddd migrate status`'s core: the steps recording would write, per module,
+  // with the destructive gate's verdict.
   const modules: string[] = [];
   let steps = 0;
   let destructive = false;
   try {
-    for (const sys of loaded.loom.systems) {
-      const evo = evolveSystem(loaded.loom, sys, null, heads);
-      if (evo.destructive.size > 0) destructive = true;
-      for (const d of evo.deltas) {
-        if (d.steps.length === 0) continue;
-        modules.push(d.module);
-        steps += d.steps.length;
-      }
+    for (const m of migrationStatus(loaded.loom, chain).modules) {
+      if (m.unrecordedSteps === 0) continue;
+      modules.push(m.module);
+      steps += m.unrecordedSteps;
+      if (m.destructive) destructive = true;
     }
   } catch (err) {
     return { ok: false, diagnostics: [...loaded.diagnostics, migrationDiag(err)] };

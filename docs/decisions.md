@@ -1864,7 +1864,12 @@ LSP `WorkspaceEdit`, never applied to disk** (consistent with pure tools).
 playground's Migrations dock shows a human): `loom_snapshot` `{source}→SnapshotReport`
 (the `ddd snapshot` provenance capture, returned as data — **no file emission**)
 and `loom_diff` `{source,baseline?}→DiffReport` (the schema-migration + wire-
-contract delta a change implies, with the destructive/breaking gate surfaced).
+contract delta a change implies, with the destructive/breaking gate surfaced),
+plus `loom_migration_status` `{source,migrations?}` and `loom_migration_record`
+`{source,migrations?,name,allowDestructive?}` — `ddd migrate status` / `add` as
+data, the record RETURNING the new chain files.  Applying a migration to a
+database has a side effect, so it is a host tool, never a catalog one: the
+playground's chat adds `loom_migration_apply` over its runtime database.
 Folded from the superseded `language-services-and-agent-tools` proposal; the
 navigational verbs gate on fixing the LSP providers' real bugs (operation
 rename) first. `loom_read_model` / `loom_list_primitives` / `loom_snapshot` /
@@ -4566,6 +4571,22 @@ corpus node (M-T5.40 rows A1/A2/B3/C closed) **and** the implicit
 for the paths that actually ship. Until both hold, retirement trades a pure
 function for a source of truth that is absent 100 % of the time and wrong 20 %
 of the rest.
+
+**Both conditions now hold.**
+- **Records match the derived shape.** Every row in classes A, B3 and C of
+  `test/system/wire-contract-divergence.test.ts` is closed. The rows that
+  remain are the representational `<Part>Response` naming (B1, B2), which
+  every emitter un-suffixes.
+- **Records exist for every shipped context.** Every context exposed by an
+  implicit `api X from <Subdomain>` or by a deployable's `contexts: [...]`
+  now carries the `scaffoldHandlers` contract records. The census reads the
+  corpus as written and finds no uncontracted node.
+
+One gap is still open, and the census pins it exactly: a record field cannot
+carry `mask unless`. So `declaredResponseFor`
+(`src/ir/util/declared-response.ts`) keeps masked aggregates on the derived
+shape. The decision is open for re-review: what is left is moving consumers
+onto the records and retiring `.loom/wire-spec.json`.
 
 **Affects.** `src/ir/enrich/wire-projection.ts`; `src/system/wire-spec.ts`;
 `src/macros/api/factories.ts` + `src/macros/stdlib/scaffold/_contracts-shared.ts`

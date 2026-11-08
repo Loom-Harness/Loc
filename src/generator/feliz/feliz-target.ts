@@ -9,6 +9,7 @@
 
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type { BoundedContextIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { operationFormParams } from "../../ir/util/op-gates.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
@@ -903,7 +904,7 @@ export const felizTarget: WalkerTarget = {
     // op page-object method waits for / clicks.
     const base = stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-op-${op.name}`;
     const src: FormTextSource = {
-      inputs: op.params,
+      inputs: operationFormParams(op),
       ownerOf: (name) => paramLabelOwner(agg, name),
       bc: ctx.bcByAggregate.get(aggName),
     };

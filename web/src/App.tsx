@@ -25,6 +25,7 @@ import { buildDiagnosticsToLsp } from "./lsp/build-diagnostics";
 // demands a 128 MB contiguous heap, and on iOS the main thread and every worker
 // share one process memory budget.  See M-T8.15.
 import type { AgentMessage } from "./agent/demo";
+import type { ApplyOutcome } from "./agent/host-tools";
 // `agent/plan` and `agent/turn` are safe to import EAGERLY: both are pure and
 // their only imports are `import type` (the diagnostics contract, the bubble
 // shape), so nothing of `src/api` / Langium follows them into the entry chunk.
@@ -58,6 +59,7 @@ import type {
   Complete,
   Message as AgentTranscriptMessage,
   TokenUsage,
+  ToolDef,
 } from "../../src/tools/index.js";
 import type { Outline, ValidateReport } from "../../src/diagnostics/contract.js";
 import { examples, defaultExample, type LoomExample } from "./examples";
@@ -369,6 +371,8 @@ export default function App(): JSX.Element {
   const planRejectionRef = useRef<string | null>(null);
   // The in-flight workspace write of an agent-applied source (slice 4).
   const agentWriteRef = useRef<Promise<void> | null>(null);
+  // How the last boot ended — what the agent's `loom_migration_apply` reports.
+  const bootOutcomeRef = useRef<ApplyOutcome | null>(null);
   // One-line feedback after a Restore from a chat message — which point it
   // landed on, or why it could not.
   const [agentRestoreNote, setAgentRestoreNote] = useState<string | null>(null);
@@ -1544,7 +1548,14 @@ export default function App(): JSX.Element {
   ): Promise<boolean> {
     const engine = engineRef.current;
     const client = buildClientRef.current;
-    if (!engine || !client) return false;
+    if (!engine || !client) {
+      bootOutcomeRef.current = {
+        kind: "failed",
+        stage: "boot",
+        message: "The runtime is not ready yet.",
+      };
+      return false;
+    }
     markPhase("boot:start");
     dispatch({ type: "BOOT_START" });
     // Reset spec-driven state — a fresh boot may serve a different
@@ -1565,10 +1576,9 @@ export default function App(): JSX.Element {
       if (planned.ok) publishMigrationCheck(planned.plan);
       if (!planned.ok) {
         const errors = planned.diagnostics.filter((d) => d.severity === "error");
-        dispatch({
-          type: "BOOT_FAIL",
-          message: `The migration chain could not be read, so the database was left as it is:\n${errors.map((d) => d.message).join("\n")}`,
-        });
+        const message = `The migration chain could not be read, so the database was left as it is:\n${errors.map((d) => d.message).join("\n")}`;
+        bootOutcomeRef.current = { kind: "failed", stage: "boot", message };
+        dispatch({ type: "BOOT_FAIL", message });
         clearPhase();
         return false;
       }
@@ -1618,15 +1628,18 @@ export default function App(): JSX.Element {
       });
       const res = await engine.boot(plan.plan, { fresh: opts?.fresh });
       if (res.ok) {
+        // A boot that starts the app has brought the database to the
+        // chain's head.
+        const head =
+          planned.plan.kind === "chain" ? (planned.plan.units.at(-1)?.id ?? null) : null;
+        bootOutcomeRef.current = { kind: "booted", applied: res.applied, head };
         dispatch({
           type: "BOOT_OK",
           ddl: res.ddl,
           persistent: res.persistent,
           applied: res.applied,
           backends: res.backends,
-          // A boot that starts the app has brought the database to the
-          // chain's head.
-          head: planned.plan.kind === "chain" ? (planned.plan.units.at(-1)?.id ?? null) : null,
+          head,
         });
         // House-keep OPFS: this boot's island is now most-recently-used;
         // drop stale islands from sources the user has moved on from so
@@ -1639,6 +1652,9 @@ export default function App(): JSX.Element {
         await loadOpenApiSpec(engine);
         return true;
       }
+      bootOutcomeRef.current = res.pending
+        ? { kind: "pending", migration: res.pending, message: res.message }
+        : { kind: "failed", stage: "boot", message: res.message };
       dispatch(
         res.pending
           ? { type: "BOOT_PENDING", migration: res.pending, message: res.message }
@@ -1647,10 +1663,9 @@ export default function App(): JSX.Element {
       clearPhase();
       return false;
     } catch (err) {
-      dispatch({
-        type: "BOOT_FAIL",
-        message: err instanceof Error ? err.message : String(err),
-      });
+      const message = err instanceof Error ? err.message : String(err);
+      bootOutcomeRef.current = { kind: "failed", stage: "boot", message };
+      dispatch({ type: "BOOT_FAIL", message });
       clearPhase();
       return false;
     }
@@ -1797,19 +1812,46 @@ export default function App(): JSX.Element {
   // Preview (or Backend when there's no React deployable to render).
   // On any failure the user is left on their current tab; the
   // Problems tab carries a red-dot indicator for errors.
-  function runFull(): Promise<void> {
-    return trackGenerate(runFullInner());
+  async function runFull(): Promise<void> {
+    await trackGenerate(runFullInner());
   }
 
   // Apply the recorded migrations — the migration badge's action.  The same
   // cascade as Run, so the backend that boots is generated from the current
   // model, and its boot applies the recorded entries the database lacks.  It
   // stays on the current tab.
-  function runApplyMigrations(): Promise<void> {
+  function runApplyMigrations(): Promise<RunStop> {
     return trackGenerate(runFullInner({ navigate: false }));
   }
 
-  async function runFullInner({ navigate = true }: { navigate?: boolean } = {}): Promise<void> {
+  // The agent's `loom_migration_apply`: the badge's Apply, reported back as
+  // how it ended.
+  async function agentApplyMigrations(): Promise<ApplyOutcome> {
+    bootOutcomeRef.current = null;
+    const stop = await runApplyMigrations();
+    if (stop === "generate") {
+      return {
+        kind: "failed",
+        stage: "generate",
+        message: "The generate failed; the Problems tab (and loom_validate) has its diagnostics.",
+      };
+    }
+    if (stop === "bundle") {
+      return {
+        kind: "failed",
+        stage: "bundle",
+        message: "The backend bundle failed; the Problems tab has its errors.",
+      };
+    }
+    return (
+      bootOutcomeRef.current ?? { kind: "failed", stage: "boot", message: "The boot did not run." }
+    );
+  }
+
+  /** Where a Run cascade stopped: the step that failed, or `done`. */
+  type RunStop = "generate" | "bundle" | "boot" | "done";
+
+  async function runFullInner({ navigate = true }: { navigate?: boolean } = {}): Promise<RunStop> {
     // Phase markers bracket the whole cascade.  They are the ONLY record that
     // survives a renderer kill — no error fires, no `pagehide`, so the ring's
     // async capture never runs.  `runBundleStep`/`runBootStep` narrow the
@@ -1820,7 +1862,7 @@ export default function App(): JSX.Element {
     const epoch = generationEpochRef.current;
     const cycle = await runGenerateStep();
     const gen = cycle?.result;
-    if (!gen?.ok || gen.files.length === 0) return;
+    if (!gen?.ok || gen.files.length === 0) return "generate";
     // Intentional run → version the output and bundle the merged tree
     // (reflects hand edits to generated code).
     let bundleGen: GenerateOk = gen;
@@ -1828,7 +1870,7 @@ export default function App(): JSX.Element {
     if (merged) bundleGen = { ...gen, files: merged };
     publishBundleInput(epoch, bundleGen);
     const bundleRes = await runBundleStep(bundleGen);
-    if (!bundleRes?.backends) return;
+    if (!bundleRes?.backends) return "bundle";
     // MOBILE: hand the memory back before booting.  The bundler worker has
     // done its job for this Run and is still holding an esbuild context plus
     // the whole installed npm VFS (~8.8k files); PGlite's real startup —
@@ -1840,12 +1882,41 @@ export default function App(): JSX.Element {
     // install cache.  A slower second Run beats a first Run that never ends.
     if (!isDesktop) engineRef.current?.releaseBundler?.();
     const booted = await runBootStep(bundleRes.backends);
-    if (!booted) return;
+    if (!booted) return "boot";
     // React frontend present and successfully bundled → Preview is
     // the natural destination.  Otherwise the user gets the Backend
     // tab so they can poke endpoints against the live runtime.
     if (navigate) setActiveTab(bundleRes.react?.ok ? "preview" : "backend");
     clearPhase();
+    return "done";
+  }
+
+  // The agent's tool set: the catalog with the playground's migration tools
+  // layered on, so status / record / apply act on the workspace and record
+  // through the same `recordMigration` the Migrations tab and the strip badge
+  // use.  Loaded behind the dynamic boundary, like every other `src/tools`
+  // value import.
+  async function agentToolSet(): Promise<ToolDef[]> {
+    const [{ migrationHostTools }, { withHostTools }] = await Promise.all([
+      import("./agent/host-tools"),
+      import("../../src/tools/index.js"),
+    ]);
+    return withHostTools(
+      migrationHostTools({
+        workspaceSource: () => sourceRef.current,
+        chainFiles: async () => {
+          const entryPath = sourcesRef.current.controller.snapshot().activePath;
+          const files = (await readWorkspaceChain(entryPath)).filter(
+            (f): f is VfsEntry & { kind: "file" } => f.kind === "file",
+          );
+          return files.length > 0
+            ? files.map((f) => ({ name: f.path.slice(f.path.lastIndexOf("/") + 1), content: f.content }))
+            : undefined;
+        },
+        recordMigration,
+        applyMigrations: agentApplyMigrations,
+      }),
+    );
   }
 
   async function runWipe(): Promise<void> {
@@ -2297,11 +2368,16 @@ export default function App(): JSX.Element {
     setAgentExtras([]);
     setAgentRunning(true);
     try {
-      const { runAgentDemo: playAgentDemo } = await import("./agent/demo");
+      const [{ runAgentDemo: playAgentDemo }, { toolDispatcher }, tools] = await Promise.all([
+        import("./agent/demo"),
+        import("../../src/tools/index.js"),
+        agentToolSet(),
+      ]);
       await playAgentDemo({
         setMessages: setAgentMessages,
         applySource: applyAgentSource,
         triggerGenerate: () => void runGenerate(true),
+        callTool: toolDispatcher(tools),
         signal: agentSignalRef.current,
       });
     } finally {
@@ -2567,11 +2643,12 @@ export default function App(): JSX.Element {
     let generatePromise: Promise<void> | null = null;
     let usage: TokenUsage | undefined;
     try {
-      const [{ runLiveAgent }, { buildSystemPrompt }, { createOpenAiCompatibleComplete }] =
+      const [{ runLiveAgent }, { buildSystemPrompt }, { createOpenAiCompatibleComplete }, tools] =
         await Promise.all([
           import("./agent/live"),
           import("./agent/system-prompt"),
           import("./agent/openai-transport"),
+          agentToolSet(),
         ]);
       // Built here rather than above the `try` so the transport module joins
       // its siblings behind the dynamic boundary: it too has a value import of
@@ -2590,7 +2667,8 @@ export default function App(): JSX.Element {
         prompt,
         currentSource: sourceRef.current,
         history: agentTranscriptRef.current,
-        system: buildSystemPrompt(),
+        system: buildSystemPrompt(tools),
+        tools,
         setMessages: setAgentMessages,
         applySource: applyAgentSource,
         // Plan-first is the owner default; the toggle turns the gate off
