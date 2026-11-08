@@ -7,8 +7,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // ---------------------------------------------------------------------------
 // A .NET root namespace equal to a hosted type name (claims eval, P12).
 //
-// The root namespace is the deployable's Pascal name (system mode) or the
-// context's name (legacy `generate dotnet`).  `deployable pay` hosting
+// The root namespace is the deployable's Pascal name.  `deployable pay` hosting
 // `aggregate Pay` emitted `namespace Pay.…;` everywhere, so a bare `Pay`
 // resolved to the NAMESPACE before the `using Pay.Domain.Pays;` import:
 //
@@ -97,10 +96,8 @@ describe("dotnet — root namespace equal to a hosted type (CS0118)", () => {
     );
   });
 
-  // The legacy `generate dotnet` entry (root namespace = the context name, so
-  // `context Pay { aggregate Pay }` hit the same CS0118) calls this same helper;
-  // it is pinned here rather than through the legacy entry, whose callers the
-  // M-T9.49 ratchet only lets shrink.  Its compile leg ran in docker (see PR).
+  // The helper itself, pinned directly: the exact-match rule and the
+  // repeat-until-free loop are reachable here without a fixture per case.
   it("the shared helper: suffix only on an exact declared-type match, repeated until free", () => {
     const ctx = (names: { aggs?: string[]; vos?: string[]; enums?: string[] }) =>
       ({

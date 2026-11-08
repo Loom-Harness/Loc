@@ -447,9 +447,8 @@ export function emitDispatchHandlers(
    *  matches the schema + aggregate repository.  For a single-context system it
    *  returns `ctx.name`. */
   ownerOf: OwnerOf,
-  /** Source-map recorder — threaded ONLY from the system-mode
-   *  `dotnet/index.ts` entry point; the legacy single-context path stays
-   *  unmapped by design (undefined here), so its output is untouched.  Each
+  /** Source-map recorder — present only under `--sourcemap`; undefined
+   *  leaves the output untouched.  Each
    *  dispatch-handler file is per-subscription and single-workflow-attributable,
    *  so it gets a whole-file region (like `emitWorkflows`) PLUS statement
    *  sub-regions layered on top. */

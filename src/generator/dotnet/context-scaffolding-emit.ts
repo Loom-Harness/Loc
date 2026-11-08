@@ -27,8 +27,6 @@ import {
   renderCanonicalInstantConverter,
   renderCommon,
   renderEnum,
-  renderEvent,
-  renderIDomainEvent,
   renderId,
   renderInProcessDispatcher,
   renderInt32RangeConverter,
@@ -114,18 +112,6 @@ export function emitValueObjects(
   );
   for (const vo of ctx.valueObjects) {
     out.set(`Domain/ValueObjects/${vo.name}.cs`, renderValueObject(vo, ns));
-  }
-}
-
-export function emitEvents(
-  ctx: BoundedContextIR,
-  ns: string,
-  out: Map<string, string>,
-  hasSubscriptions = false,
-): void {
-  out.set("Domain/Events/IDomainEvent.cs", renderIDomainEvent(ns, hasSubscriptions));
-  for (const ev of ctx.events) {
-    out.set(`Domain/Events/${ev.name}.cs`, renderEvent(ev, ns));
   }
 }
 

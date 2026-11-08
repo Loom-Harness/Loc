@@ -1,7 +1,7 @@
 name: TypeScript (Hono) build verification
 
 # Compiles a TypeScript / Hono project generated from each test-fixture
-# `.ddd` by `ddd generate ts`, then runs `tsc --noEmit` (type-check) +
+# `.ddd` (as a node deployable, via `ddd generate system`), then runs `tsc --noEmit` (type-check) +
 # `npm run build` (tsup bundle).  Catches Hono-generator drift that
 # string-match unit tests can't see (missing imports, type-incompatible
 # repository signatures, Zod schema shape drift, tsup-incompatible
@@ -67,6 +67,8 @@ on:
       - 'package.json'
       - '.github/workflows/hono-build.yml'
       - 'test/e2e/generated-build.test.ts'
+      - 'test/e2e/support/backend-project.ts'
+      - 'test/_helpers/backend-system.ts'
       - 'test/e2e/fixtures/ts-build/**'
   workflow_dispatch:
   merge_group:

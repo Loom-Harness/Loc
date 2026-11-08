@@ -76,9 +76,8 @@ export function renderAuditableInterceptor(
   // Principal stamps reach into the ambient RequestContext for the verified
   // User; the namespaces (and the special rendering) only apply when the
   // principal id property is known — i.e. the deployable carries auth.  Without
-  // it a principal stamp is rejected upstream (loom.stamp-principal-without-auth);
-  // the legacy single-context generator path has no auth wiring, so it falls
-  // back to the plain expr render (unchanged) rather than a dangling reference.
+  // it a principal stamp is rejected upstream (loom.stamp-principal-without-auth),
+  // so the plain expr render is the fallback rather than a dangling reference.
   const usesPrincipal =
     !!actorIdProp &&
     stamping.some(({ rules }) =>

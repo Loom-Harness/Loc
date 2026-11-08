@@ -73,6 +73,7 @@ import {
 } from "./heex-walker-core.js";
 import { formChromeAttr, pgettextCall } from "./i18n.js";
 import { renderLocaleSelect } from "./locale.js";
+import { updateSeamGates } from "./vanilla/gate.js";
 import { liveViewCallsOp, servesCanProbe } from "./vanilla/op-form.js";
 // ---------------------------------------------------------------------------
 // Scaffold expander primitive renderers.
@@ -314,25 +315,36 @@ ${heading}${childrenHeex}
     Boolean(ctx.i18nPrefix),
   );
 
+  // A merge-patch `update` input for a `mask unless` field renders only for a
+  // caller who can read it: the form would otherwise pre-fill the clear value
+  // off the Ecto struct, and submitting the key is refused by the mask write
+  // gate.  Left out, the key is absent and the stored value stays.
+  const maskedInput = (name: string): string | undefined => {
+    const gate = op ? updateSeamGates(op).find((g) => g.maskWriteOf === name) : undefined;
+    if (!gate) return undefined;
+    if (!ctx.authEnabled) return "false";
+    return `@current_user != nil and (${renderExpr(gate.expr, { ...ctx, position: "template" })})`;
+  };
   const inputs =
     params.length > 0
-      ? params.map(
-          (p) =>
-            `    ${renderFieldInputForField(
-              p,
-              formAssign,
-              ctx.enumsByName,
-              ctx.idOptionsBindings,
-              ctx.valueObjectsByName,
-              "@",
-              undefined,
-              {
-                ctx,
-                home: homeOf(ctx, ofName),
-                owner: agg ? paramLabelOwner(agg, p.name) : undefined,
-              },
-            )}`,
-        )
+      ? params.map((p) => {
+          const gated = maskedInput(p.name);
+          const input = `    ${renderFieldInputForField(
+            p,
+            formAssign,
+            ctx.enumsByName,
+            ctx.idOptionsBindings,
+            ctx.valueObjectsByName,
+            "@",
+            undefined,
+            {
+              ctx,
+              home: homeOf(ctx, ofName),
+              owner: agg ? paramLabelOwner(agg, p.name) : undefined,
+            },
+          )}`;
+          return gated ? `    <%= if ${gated} do %>${input.trim()}<% end %>` : input;
+        })
       : [`    <%!-- ${opSnake} has no parameters --%>`];
 
   // A `when`-gated op: the trigger (and the modal's submit) render `disabled`

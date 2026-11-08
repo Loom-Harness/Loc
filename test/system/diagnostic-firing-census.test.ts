@@ -4502,6 +4502,9 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // through the tool catalog and asserts each code.
   "loom.diff-baseline-invalid": "test/tools/catalog.test.ts",
   "loom.migration-chain-invalid": "test/tools/catalog.test.ts",
+  // `loom_migration_record`'s name refusal judges the record call's `name`
+  // against the chain — an input `validate()` never sees.
+  "loom.migration-name-invalid": "test/tools/catalog.test.ts",
   "loom.macro-threw": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-non-ast-result": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-escapes-host": "test/macro/misbehaving-macro-diagnostics.test.ts",

@@ -5941,6 +5941,15 @@ export const DIAGNOSTIC_MESSAGES = {
     "Source has no `system` block — schema migrations and the wire contract are derived per system, so there is nothing to evolve yet.",
 
   // ----------------------------------------------------------------------
+  // src/api/migrate.ts
+  // ----------------------------------------------------------------------
+  /** `loom_migration_record`'s name refusal: the name is not kebab-case, or
+   *  the module already has a migration by that name.  The CLI prints the
+   *  same detail for `ddd migrate add`. */
+  "loom.migration-name-invalid": (p: { detail: unknown }) =>
+    `The migration cannot be recorded under that name: ${p.detail}`,
+
+  // ----------------------------------------------------------------------
   // src/api/index.ts
   // ----------------------------------------------------------------------
   "loom.ir-internal#generation": (p: { err: unknown }) =>

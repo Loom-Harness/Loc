@@ -89,7 +89,7 @@ import {
 } from "../../../generator/typescript/repository-port-builder.js";
 import { TsOutputMap } from "../../../generator/typescript/ts-output.js";
 import { T, TT } from "../../../generator/typescript/ts-symbols.js";
-import { deriveEventSubscriptions, enrichLoomModel } from "../../../ir/enrich/enrichments.js";
+import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { anyRouteReadsIfMatch } from "../../../ir/enrich/version-check.js";
 import {
@@ -106,7 +106,6 @@ import {
   wireStatus,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
-import { lowerModel } from "../../../ir/lower/lower.js";
 import {
   type BoundedContextIR,
   contextUsesMoney,
@@ -132,7 +131,6 @@ import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import {
   foreignValueTypeSeeds,
   foreignValueTypes,
-  NO_FOREIGN_VALUE_TYPES,
   resolveForeignEvents,
   valueObjectFieldTypes,
   withForeignValueTypes,
@@ -158,7 +156,6 @@ import {
 } from "../../../ir/util/resolve-datasource.js";
 import { hierarchyRegistry } from "../../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
-import type { Model } from "../../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 // Hono-framework builders now live in this package (P2b) — siblings.
@@ -179,7 +176,6 @@ import { emitObservabilityFiles } from "./observability-builder.js";
 import { buildProjectionsFile } from "./projection-builder.js";
 import { buildQueryProjectionsFile } from "./projection-query-routes-builder.js";
 import { buildRealtimeFile } from "./realtime-builder.js";
-import { buildRoutesFile } from "./routes-builder.js";
 import { anyTimerUsesCron, renderTimerScheduler } from "./scheduler-builder.js";
 import { buildWorkflowsFile } from "./workflow-builder.js";
 
@@ -818,51 +814,29 @@ export interface ProvLineage {
 `;
 
 /**
- * Legacy entry: lowers the whole model and emits one project from all
- * top-level bounded contexts.  Used by `ddd generate ts <file> -o <dir>`.
- */
-export function generateTypeScript(
-  model: Model,
-  pins: BackendPins,
-  options: { emitTrace?: boolean } = {},
-): Map<string, string> {
-  // Lowering produces a faithful AST projection; enrichment populates
-  // wireShape, the implicit `findAll` find, and react `moduleNames`
-  // inheritance.  Every backend consumes the enriched IR, never the
-  // raw lowered output.
-  const loom = enrichLoomModel(lowerModel(model));
-  return generateTypeScriptForContexts(loom.contexts, pins, undefined, options);
-}
-
-/**
- * System-mode entry: emits one project from a pre-filtered list of
- * contexts.  Used by the deployable orchestrator to scope the output
- * to a single deployable's modules.
- *
- * `system` (when present) carries the system-wide user-claim shape +
- * the deployable's auth setting.  When the deployable opts in via
- * `auth: required` AND the system declares a user block, the
- * generator emits the auth/* package + mounts the middleware in
- * http/index.ts.  Loose top-level contexts (no enclosing system)
- * skip the auth path entirely.
- */
 /** Does this deployable OWN at least one timerSource?  Ownership is derived (the
  *  subdomain's `migrationsOwner`), and it decides two things that must agree: the
  *  `scheduler.ts` emit and — on mikroorm — the `loom_timer_runs` watermark
  *  ENTITY, without which `schema.update()` drops the table on the second boot.
  *  Shared so the two cannot drift. */
-function ownsTimers(system: { deployable: DeployableIR; sys: SystemIR } | undefined): boolean {
-  if (!system) return false;
+function ownsTimers(system: { deployable: DeployableIR; sys: SystemIR }): boolean {
   return (system.sys.timerSources ?? []).some((ts) => {
     const sub = system.sys.subdomains.find((s) => s.contexts.some((c) => c.name === ts.context));
     return sub?.migrationsOwner === system.deployable.name;
   });
 }
 
+/**
+ * The Hono backend entry: emits one deployable's project from its hosted
+ * contexts.  `system` carries the deployable and its system — the user-claim
+ * shape and auth setting (an `auth: required` deployable in a system with a
+ * `user` block gets the auth/* package + middleware), the migrations and the
+ * resolved style / layout adapters.
+ */
 export function generateTypeScriptForContexts(
   contexts: EnrichedBoundedContextIR[],
   pins: BackendPins,
-  system?: {
+  system: {
     deployable: DeployableIR;
     sys: SystemIR;
     migrations?: MigrationsIR[];
@@ -874,12 +848,12 @@ export function generateTypeScriptForContexts(
   const emitTrace = !!options.emitTrace;
   const sourcemap = options.sourcemap;
   const out = new TsOutputMap("platform/hono/v4/emit");
-  const authRequired = !!(system?.deployable.auth?.required && system.sys.user);
+  const authRequired = !!(system.deployable.auth?.required && system.sys.user);
   // OIDC turnkey auth (D-AUTH-OIDC): present when the system declares an
   // `auth { oidc { … } }` block AND this deployable opts in.  Drives the
   // generated verifier + `/auth/*` handshake + the `jose` dep, replacing
   // the hand-registered dev stub.
-  const oidcAuth = authRequired ? system?.sys.auth : undefined;
+  const oidcAuth = authRequired ? system.sys.auth : undefined;
   // Emission is forced by presence: any written `provenanced` field turns
   // on the lineage types + co-located `<field>_provenance` columns + the
   // `provenance_records` history table.  Threaded as a flag (rather than
@@ -913,7 +887,7 @@ export function generateTypeScriptForContexts(
   // Persistence-neutral since M-T6.23: `http/channels.ts` (the driver,
   // producer tee and consumer loop) reads no `db` at all, and the outbox relay
   // it publishes drained rows through now emits on both adapters.
-  const channelBindings = system ? brokerChannelBindings(system.deployable, system.sys) : [];
+  const channelBindings = brokerChannelBindings(system.deployable, system.sys);
   // Durable broker-bound events (M-T4.4): carried by a wired
   // `queue`/`work` (or future `log`) channel — the producer path for these
   // rides the outbox relay (design §5), never the inline tee.
@@ -958,25 +932,21 @@ export function generateTypeScriptForContexts(
   // vocabulary with it, which is what made `channels-e2e-kafka (node)` red on
   // every push to `main` between #2944 and this change.
   const knownEventNames = new Set(mergedBase.events.map((e) => e.name));
-  const foreignConsumedEvents = system
-    ? resolveForeignEvents(
-        [...mergedSubscriptions.map((s) => s.event), ...channelBindings.flatMap((b) => b.events)],
-        knownEventNames,
-        system.sys,
-      )
-    : [];
+  const foreignConsumedEvents = resolveForeignEvents(
+    [...mergedSubscriptions.map((s) => s.event), ...channelBindings.flatMap((b) => b.events)],
+    knownEventNames,
+    system.sys,
+  );
   // …and the value objects / enums those foreign events' fields — or the
   // hosted contexts' own declarations (D15: a sibling-context enum / VO) —
   // reach, which the deployable does not host: `domain/value-objects.ts` must
   // DECLARE them, because `domain/events.ts` and the aggregate modules import
   // them from it (eval item 11).
-  const foreignValues = system
-    ? foreignValueTypes(
-        foreignValueTypeSeeds(foreignConsumedEvents, contexts),
-        system.sys,
-        mergedBase,
-      )
-    : NO_FOREIGN_VALUE_TYPES;
+  const foreignValues = foreignValueTypes(
+    foreignValueTypeSeeds(foreignConsumedEvents, contexts),
+    system.sys,
+    mergedBase,
+  );
   const merged: EnrichedBoundedContextIR = {
     ...withForeignValueTypes(mergedBase, foreignValues),
     events: [...mergedBase.events, ...foreignConsumedEvents],
@@ -997,7 +967,7 @@ export function generateTypeScriptForContexts(
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
     ...valueObjectFieldTypes(foreignValues.valueObjects),
     ...hostedContextIdTypeSources([merged]),
-    ...userClaimIdTypeSources(system?.sys.user),
+    ...userClaimIdTypeSources(system.sys.user),
   ]);
   out.set("domain/ids.ts", renderIds(merged, foreignIdNames));
   out.set("domain/value-objects.ts", renderEnumsAndValueObjects(merged));
@@ -1041,35 +1011,29 @@ export function generateTypeScriptForContexts(
   // `<schema>.table(...)` / `tablePrefix` routing in `renderSchema`.
   // Returns `undefined` for systems without a matching binding, which
   // falls back to the existing plain `pgTable(...)` shape.
-  const resolveDataSource = system
-    ? (agg: import("../../../ir/types/loom-ir.js").AggregateIR) => {
-        const owningCtx = contexts.find((c) => c.aggregates.some((a) => a.name === agg.name));
-        return owningCtx
-          ? resolveDataSourceConfig(
-              agg as import("../../../ir/types/loom-ir.js").EnrichedAggregateIR,
-              owningCtx,
-              system.sys,
-            )
-          : undefined;
-      }
-    : undefined;
+  const resolveDataSource = (agg: import("../../../ir/types/loom-ir.js").AggregateIR) => {
+    const owningCtx = contexts.find((c) => c.aggregates.some((a) => a.name === agg.name));
+    return owningCtx
+      ? resolveDataSourceConfig(
+          agg as import("../../../ir/types/loom-ir.js").EnrichedAggregateIR,
+          owningCtx,
+          system.sys,
+        )
+      : undefined;
+  };
   // Per-workflow saga-table schema — resolved from the workflow's OWNING
   // context (map-back by name, mirroring `resolveDataSource`), so its
   // correlation-state / event-log table lands in the same schema as that
   // context's aggregate tables instead of `public`.
-  const resolveWorkflowSchema = system
-    ? (wf: import("../../../ir/types/loom-ir.js").WorkflowIR) => {
-        const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
-        return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
-      }
-    : undefined;
+  const resolveWorkflowSchema = (wf: import("../../../ir/types/loom-ir.js").WorkflowIR) => {
+    const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
+    return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
+  };
   // Per-projection read-model-table schema — same owning-context map-back.
-  const resolveProjectionSchema = system
-    ? (proj: import("../../../ir/types/loom-ir.js").ProjectionIR) => {
-        const owningCtx = contexts.find((c) => c.projections.some((p) => p.name === proj.name));
-        return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
-      }
-    : undefined;
+  const resolveProjectionSchema = (proj: import("../../../ir/types/loom-ir.js").ProjectionIR) => {
+    const owningCtx = contexts.find((c) => c.projections.some((p) => p.name === proj.name));
+    return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
+  };
   // Per-stream OWNING-context name — maps an event-sourced aggregate / workflow
   // to the context that declares it, so the merged multi-context schema names
   // each `<ctx>_events` log after its owner (matching the per-aggregate
@@ -1086,9 +1050,9 @@ export function generateTypeScriptForContexts(
   // (schema owned by `orm.schema.update()` at startup).  The validator
   // gates mikroorm to the supported subset, so the drizzle-only branches below
   // stay byte-identical for the default `drizzle`.
-  const usingMikro = system?.deployable.persistence === "mikroorm";
+  const usingMikro = system.deployable.persistence === "mikroorm";
   const mikroShapeOf = (agg: import("../../../ir/types/loom-ir.js").EnrichedAggregateIR) =>
-    effectiveSavingShape(agg, resolveDataSource?.(agg));
+    effectiveSavingShape(agg, resolveDataSource(agg));
   const mikroForeignKeys =
     usingMikro &&
     mikroForeignKeyDdl(merged.aggregates, merged, mikroShapeOf, resolveStreamContext).length > 0;
@@ -1132,12 +1096,10 @@ export function generateTypeScriptForContexts(
   // the router emitted a bare `salesFiles$put(...)` → TS2304 in the generated
   // project.  One map, both call sites, so they cannot drift.
   const resourceSourceTypes = new Map<string, string>();
-  if (system) {
-    const storeType = new Map(system.sys.storages.map((s) => [s.name, s.type] as const));
-    for (const r of system.sys.dataSources) {
-      const st = storeType.get(r.storageName);
-      if (st) resourceSourceTypes.set(r.name, st);
-    }
+  const storeType = new Map(system.sys.storages.map((s) => [s.name, s.type] as const));
+  for (const r of system.sys.dataSources) {
+    const st = storeType.get(r.storageName);
+    if (st) resourceSourceTypes.set(r.name, st);
   }
   if (
     merged.workflows.length > 0 ||
@@ -1188,26 +1150,24 @@ export function generateTypeScriptForContexts(
   // to a hosted commandHandler / queryHandler.  A no-op (byte-identical) when
   // the deployable serves no api with explicit routes.
   const explicitRouters: { fn: string; module: string; mountPath: string }[] = [];
-  if (system) {
-    for (const apiName of system.deployable.serves) {
-      const api = system.sys.apis.find((a) => a.name === apiName);
-      if (!api || api.routes.length === 0) continue;
-      const content = buildExplicitRoutesFile(
-        api.name,
-        api.routes,
-        contexts,
-        resourceSourceTypes,
-        usingMikro,
-      );
-      if (!content) continue;
-      const slug = lowerFirst(api.name);
-      out.set(`http/${slug}-routes.ts`, content);
-      explicitRouters.push({
-        fn: `${slug}Routes`,
-        module: `~/http/${slug}-routes`,
-        mountPath: API_BASE_PATH,
-      });
-    }
+  for (const apiName of system.deployable.serves) {
+    const api = system.sys.apis.find((a) => a.name === apiName);
+    if (!api || api.routes.length === 0) continue;
+    const content = buildExplicitRoutesFile(
+      api.name,
+      api.routes,
+      contexts,
+      resourceSourceTypes,
+      usingMikro,
+    );
+    if (!content) continue;
+    const slug = lowerFirst(api.name);
+    out.set(`http/${slug}-routes.ts`, content);
+    explicitRouters.push({
+      fn: `${slug}Routes`,
+      module: `~/http/${slug}-routes`,
+      mountPath: API_BASE_PATH,
+    });
   }
   // File upload/download wiring (M-T1.2): when this deployable hosts a
   // File-bearing aggregate AND binds an objectStore, `createApp` mounts the
@@ -1215,19 +1175,17 @@ export function generateTypeScriptForContexts(
   // (`loom.file-field-needs-object-storage`) guarantees the binding exists, so
   // a missing objectStore here means simply no File field — emit nothing.
   let fileUpload: { resource: string; sourceType: string } | undefined;
-  if (system) {
-    const hasFileField = contexts.some((ctx) =>
-      ctx.aggregates.some((agg) => aggregateHasFileField(agg)),
+  const hasFileField = contexts.some((ctx) =>
+    ctx.aggregates.some((agg) => aggregateHasFileField(agg)),
+  );
+  if (hasFileField) {
+    const wired = new Set(system.deployable.dataSourceNames);
+    const storeType = new Map(system.sys.storages.map((s) => [s.name, s.type] as const));
+    const objStore = system.sys.dataSources.find(
+      (r) => wired.has(r.name) && r.kind === "objectStore",
     );
-    if (hasFileField) {
-      const wired = new Set(system.deployable.dataSourceNames);
-      const storeType = new Map(system.sys.storages.map((s) => [s.name, s.type] as const));
-      const objStore = system.sys.dataSources.find(
-        (r) => wired.has(r.name) && r.kind === "objectStore",
-      );
-      const st = objStore ? storeType.get(objStore.storageName) : undefined;
-      if (objStore && st) fileUpload = { resource: objStore.name, sourceType: st };
-    }
+    const st = objStore ? storeType.get(objStore.storageName) : undefined;
+    if (objStore && st) fileUpload = { resource: objStore.name, sourceType: st };
   }
   out.set(
     "http/index.ts",
@@ -1250,7 +1208,7 @@ export function generateTypeScriptForContexts(
   // module reads no `db` at all — `realtimeTee(inner)` decorates a dispatcher and
   // `realtimeRoutes()` takes no handle — so the wire is adapter-independent.
   {
-    const realtimeFile = buildRealtimeFile(merged, system?.sys);
+    const realtimeFile = buildRealtimeFile(merged, system.sys);
     if (realtimeFile) out.set("http/realtime.ts", realtimeFile);
   }
 
@@ -1260,24 +1218,22 @@ export function generateTypeScriptForContexts(
   // module, repository, extern handler, tests) still write inline
   // paths; future slices can move them under the persistence adapter +
   // additional layout categories.
-  const emitCtx: EmitCtx | undefined = system
-    ? {
-        deployable: system.deployable,
-        contexts,
-        sys: system.sys,
-        migrations: system.migrations,
-        emitTrace,
-        styleAdapter: system.styleAdapter,
-        layoutAdapter: system.layoutAdapter,
-      }
-    : undefined;
+  const emitCtx: EmitCtx = {
+    deployable: system.deployable,
+    contexts,
+    sys: system.sys,
+    migrations: system.migrations,
+    emitTrace,
+    styleAdapter: system.styleAdapter,
+    layoutAdapter: system.layoutAdapter,
+  };
   // Per-aggregate placement (D-REALIZATION-AXES `directoryLayout:`): every
   // per-aggregate file routes through the deployable's RESOLVED layout adapter,
-  // byLayer fallback in the legacy single-context path.  byLayer reproduces the
-  // historical inline paths byte-for-byte; byFeature rehomes them under
+  // byLayer when none was resolved.  byLayer keeps the inline paths;
+  // byFeature rehomes them under
   // `features/<agg>/`.  Relocated files are recorded in `moved` (byLayer →
   // final) so a single post-emit pass can rewrite their relative imports.
-  const layout = emitCtx?.layoutAdapter ?? byLayerLayoutAdapter;
+  const layout = emitCtx.layoutAdapter ?? byLayerLayoutAdapter;
   const moved = new Map<string, string>();
   const placeArtifact = (
     artifact: HonoArtifact,
@@ -1370,7 +1326,7 @@ export function generateTypeScriptForContexts(
       // round-trip via `_create`; `embedded` → queryable root columns +
       // containments in jsonb columns; `relational` (default) → the
       // normalised table-per-entity hydrate.
-      const shape = effectiveSavingShape(agg, resolveDataSource?.(agg));
+      const shape = effectiveSavingShape(agg, resolveDataSource(agg));
       const repoContent = usingMikro
         ? // mikroorm: event-sourced aggregates use the EntityManager event
           // store (appliers, MikroORM edition); `shape: document` folds the
@@ -1410,33 +1366,13 @@ export function generateTypeScriptForContexts(
       // Derive this aggregate's repository PORT from the concrete just emitted
       // (audit S7) — pooled into `domain/repository-ports.ts` below.
       portSpecs.push({ aggName: agg.name, members: portMembersFromSource(repoContent) });
-      // Routes file — adapter-dispatched in system mode (the layered
-      // StyleAdapter re-derives audit / provenance gates from
-      // ctx.contexts so the output matches `buildRoutesFile(...,
-      // emitAudit, emitProvenance, emitTrace)` byte-for-byte); direct
-      // call in legacy single-context mode.
-      if (emitCtx) {
-        // Resolved style / layout selection (D-REALIZATION-AXES) when
-        // threaded in; sibling default otherwise.  Size-1 menus → same
-        // object → byte-identical.
-        const style = emitCtx.styleAdapter ?? layeredStyleAdapter;
-        const artifacts = style.emitForAggregate?.(agg, emitCtx) ?? [];
-        for (const artifact of artifacts) {
-          placeArtifact(artifact as HonoArtifact, agg.origin, construct);
-        }
-      } else {
-        const routesPath = `http/${lowerFirst(agg.name)}.routes.ts`;
-        const routesContent = buildRoutesFile(
-          agg,
-          repo,
-          ctx,
-          emitAudit,
-          emitProvenance,
-          emitTrace,
-          usingMikro,
-        );
-        out.set(routesPath, routesContent);
-        sourcemap?.file(routesPath, out.get(routesPath)!, agg.origin, construct);
+      // Routes file — dispatched through the deployable's resolved style
+      // adapter (the layered StyleAdapter by default; size-1 menu, so the
+      // same object).
+      const style = emitCtx.styleAdapter ?? layeredStyleAdapter;
+      const artifacts = style.emitForAggregate?.(agg, emitCtx) ?? [];
+      for (const artifact of artifacts) {
+        placeArtifact(artifact as HonoArtifact, agg.origin, construct);
       }
       const testsFile = renderTestsFile(agg, ctx);
       if (testsFile) {
@@ -1465,11 +1401,9 @@ export function generateTypeScriptForContexts(
         out.get("http/workflows.ts") ?? "",
       ),
       // The project's own runner whenever it ships one (see `hasMigrations`).
-      ...(!usingMikro && (system?.migrations?.length ?? 0) > 0
-        ? { migrator: "../db/migrate" }
-        : {}),
+      ...(!usingMikro && (system.migrations?.length ?? 0) > 0 ? { migrator: "../db/migrate" } : {}),
       // The auth layer is emitted below under the same condition.
-      ...(authRequired && system?.sys?.user ? { user: system.sys.user.fields } : {}),
+      ...(authRequired && system.sys.user ? { user: system.sys.user.fields } : {}),
     });
     if (integrationTests) {
       out.set(`test/${lowerFirst(ctx.name)}.integration.test.ts`, integrationTests);
@@ -1550,12 +1484,12 @@ export function generateTypeScriptForContexts(
     }
   }
 
-  if (authRequired && system?.sys) {
+  if (authRequired) {
     emitAuthFiles(system.sys, out);
   }
   // The OTel `service.name` resource attribute default — the deployable's
   // name (compose/k8s override it via OTEL_SERVICE_NAME per service).
-  emitObservabilityFiles(out, system?.deployable.name ?? "api");
+  emitObservabilityFiles(out, system.deployable.name);
   // Persist-time audit-stamp helper (node-persist-time-auditing): emitted once
   // per project when any served aggregate carries lifecycle stamps, so the
   // backend `save()` can stamp the audit columns from the ambient request
@@ -1580,20 +1514,19 @@ export function generateTypeScriptForContexts(
   // The audit row's `actor` projection — one copy for every audit write site
   // (routes and workflow bodies alike).
   if (emitAudit) {
-    out.set("audit/actor.ts", renderAuditActorModule(authRequired ? system?.sys.user : undefined));
+    out.set("audit/actor.ts", renderAuditActorModule(authRequired ? system.sys.user : undefined));
   }
   // Per-module Postgres migrations + Drizzle journal — emitted whenever
-  // the system orchestrator hands us a migrations slice.  Empty slice
-  // (non-system entry points) → no-op.
+  // the system orchestrator hands us a migrations slice.  Empty slice → no-op.
   // mikroorm owns its schema via `orm.schema.update()` at startup, so it
   // emits no drizzle migration files and `hasMigrations` stays false (which
   // suppresses the boot-time `migrate(...)` call in index.ts).
-  const hasMigrations = !usingMikro && !!(system?.migrations && system.migrations.length > 0);
+  const hasMigrations = !usingMikro && !!(system.migrations && system.migrations.length > 0);
   // The co-located `<field>_provenance` columns are ordinary MigrationsIR
   // columns (`withLineageColumns` in migrations-builder.ts), so they ride the
   // chain's own generations like any other column.
   if (hasMigrations) {
-    emitTypescriptMigrations(system?.migrations ?? [], out);
+    emitTypescriptMigrations(system.migrations ?? [], out);
   }
   // First-boot seed data (database-seeding.md) — emits `db/seed.ts`
   // when the served contexts declare any `seed` block.  Through the domain
@@ -1629,44 +1562,41 @@ export function generateTypeScriptForContexts(
   // consumption surface.
   const resourceDeps: Record<string, string> = {};
   const resourceImports: string[] = [];
-  if (system) {
-    const wired = new Set(system.deployable.dataSourceNames);
-    const storeType = new Map(system.sys.storages.map((s) => [s.name, s.type] as const));
-    const bySourceType = new Map<string, DataSourceIR[]>();
-    for (const r of system.sys.dataSources) {
-      if (!wired.has(r.name)) continue;
-      if (r.kind !== "objectStore" && r.kind !== "queue" && r.kind !== "api" && r.kind !== "mailer")
-        continue;
-      const st = storeType.get(r.storageName);
-      if (!st) continue;
-      const group = bySourceType.get(st);
-      if (group) group.push(r);
-      else bySourceType.set(st, [r]);
-    }
-    const resourceCtx: EmitCtx = {
-      deployable: system.deployable,
-      contexts,
-      sys: system.sys,
-    };
-    for (const [sourceType, group] of bySourceType) {
-      const adapter = resourceAdapterFor(sourceType);
-      if (!adapter) continue;
-      out.set(
-        `resources/${sourceType}.ts`,
-        `${adapter.emitClientModule(group, system.sys.storages, resourceCtx).join("\n")}\n`,
-      );
-      Object.assign(resourceDeps, adapter.emitProjectDeps(resourceCtx));
-      resourceImports.push(`import "./resources/${sourceType}";`);
-    }
-    // Typed in-system api clients (M-T4.8).  Emitted alongside the
-    // sourceType-keyed adapters above, NOT through them: an api-bound resource
-    // has no `storage`, so `storeType.get(r.storageName)` misses by design and
-    // the loop above skips it.
-    const apiBindings = apiResourceBindings(system.deployable, system.sys);
-    const apiClient = emitApiClientModule(apiBindings, system.sys);
-    if (apiClient.length > 0) {
-      out.set("resources/api-clients.ts", `${apiClient.join("\n")}\n`);
-    }
+  const wired = new Set(system.deployable.dataSourceNames);
+  const bySourceType = new Map<string, DataSourceIR[]>();
+  for (const r of system.sys.dataSources) {
+    if (!wired.has(r.name)) continue;
+    if (r.kind !== "objectStore" && r.kind !== "queue" && r.kind !== "api" && r.kind !== "mailer")
+      continue;
+    const st = storeType.get(r.storageName);
+    if (!st) continue;
+    const group = bySourceType.get(st);
+    if (group) group.push(r);
+    else bySourceType.set(st, [r]);
+  }
+  const resourceCtx: EmitCtx = {
+    deployable: system.deployable,
+    contexts,
+    sys: system.sys,
+  };
+  for (const [sourceType, group] of bySourceType) {
+    const adapter = resourceAdapterFor(sourceType);
+    if (!adapter) continue;
+    out.set(
+      `resources/${sourceType}.ts`,
+      `${adapter.emitClientModule(group, system.sys.storages, resourceCtx).join("\n")}\n`,
+    );
+    Object.assign(resourceDeps, adapter.emitProjectDeps(resourceCtx));
+    resourceImports.push(`import "./resources/${sourceType}";`);
+  }
+  // Typed in-system api clients (M-T4.8).  Emitted alongside the
+  // sourceType-keyed adapters above, NOT through them: an api-bound resource
+  // has no `storage`, so `storeType.get(r.storageName)` misses by design and
+  // the loop above skips it.
+  const apiBindings = apiResourceBindings(system.deployable, system.sys);
+  const apiClient = emitApiClientModule(apiBindings, system.sys);
+  if (apiClient.length > 0) {
+    out.set("resources/api-clients.ts", `${apiClient.join("\n")}\n`);
   }
 
   // TimerSource scheduling (scheduling.md, M-T4.1).  A timer's emit owner is
@@ -1674,14 +1604,10 @@ export function generateTypeScriptForContexts(
   // for-event's context (single-fire lock owner == DB owner).  Filter the
   // system's timers to the ones THIS deployable owns; a timer-free deployable
   // stays byte-identical (no scheduler.ts, no import, no dep, no boot block).
-  const ownedTimers: TimerSourceIR[] = system
-    ? (system.sys.timerSources ?? []).filter((ts) => {
-        const sub = system.sys.subdomains.find((s) =>
-          s.contexts.some((c) => c.name === ts.context),
-        );
-        return sub?.migrationsOwner === system.deployable.name;
-      })
-    : [];
+  const ownedTimers: TimerSourceIR[] = (system.sys.timerSources ?? []).filter((ts) => {
+    const sub = system.sys.subdomains.find((s) => s.contexts.some((c) => c.name === ts.context));
+    return sub?.migrationsOwner === system.deployable.name;
+  });
   // Invariant the watermark entity relies on: `ownsTimers` (used above, before
   // the entity file is rendered) must agree with this filter.
   if (ownedTimers.length > 0 !== ownsTimers(system)) {
@@ -1767,7 +1693,7 @@ export function generateTypeScriptForContexts(
   out.set("vitest.config.ts", renderVitestConfig(projectImportsDecimalJs));
   const entryConfig: ProjectEntryConfig = {
     runMigrationsAtBoot: hasMigrations,
-    userShape: authRequired ? system?.sys.user : undefined,
+    userShape: authRequired ? system.sys.user : undefined,
     resourceImports,
     runSeedsAtBoot: hasSeeds,
     usingMikro,
@@ -1793,7 +1719,7 @@ export function generateTypeScriptForContexts(
     // tenancy.  The aggregate name (not the drizzle table var) is what
     // crosses the seam: each branch needs a different spelling of it (the
     // `orgs` schema var vs the `OrgRow` entity class).
-    orgPathRegistryAgg: authRequired && system ? hierarchyRegistry(system.sys)?.name : undefined,
+    orgPathRegistryAgg: authRequired ? hierarchyRegistry(system.sys)?.name : undefined,
     // Timer scheduler (scheduling.md): boot wires startTimerScheduler
     // into the same in-process dispatcher the outbox relay uses.
     hasTimers,
@@ -1804,7 +1730,7 @@ export function generateTypeScriptForContexts(
     hasChannelConsumers,
     // A native run (`npm run dev`) listens on the deployable's declared
     // port; the image sets PORT to its container port.
-    nativePort: system?.deployable.port ?? 3000,
+    nativePort: system.deployable.port,
     mikroForeignKeys,
   };
   out.set("boot.ts", renderProjectBootTs(entryConfig));

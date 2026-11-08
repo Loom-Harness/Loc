@@ -115,18 +115,23 @@ context Orders {
 
 ## Top-level declarations
 
-A file is one or more **bounded contexts** (legacy, single-deployable
-mode) or one or more **systems** (deployment-plan mode):
+A project declares its bounded contexts and the **system** that deploys
+them.  A context may sit at the file root — it is re-parented into the
+system — or inside a `subdomain`:
 
 ```ddd
-// Legacy: bare context — generates a single project of the platform
-// chosen at the CLI (`generate ts` / `generate dotnet`).
+// One project: a root-level context, folded into the project's system.
 context Sales {
     // declarations...
 }
+system Shop {
+    storage db { type: postgres }
+    resource salesState { for: Sales, kind: state, use: db }
+    deployable sales { platform: node, contexts: [Sales], dataSources: [salesState] }
+}
 
-// System: groups subdomains and deployables.  `generate system` emits
-// every deployable as its own project plus a docker-compose.yml.
+// Another project: subdomains and several deployables.  `generate system`
+// emits every deployable as its own project plus a docker-compose.yml.
 system Acme {
     subdomain Catalog { context Products { … } }
     subdomain Sales   { context Orders   { … } }
@@ -144,8 +149,8 @@ system Acme {
 }
 ```
 
-The two forms can coexist in one file but typically you'd use one or
-the other.
+A source with contexts but no deployable parses and validates but
+generates nothing — code is emitted per deployable.
 
 What may sit at the **file root** (grammar `ModelMember`): `system`,
 `subdomain`, `context`, the ambient shared-kernel types (`valueobject`,
@@ -225,8 +230,6 @@ Rules:
   project.  A context-local VO / enum that shadows a root-level one
   is a hard error.
 - `generate system <main.ddd>` is the multi-file-aware entry point.
-  Legacy `generate ts` / `generate dotnet` keep their single-file
-  semantics.
 
 See [`tools.md`](tools.md) for the CLI side; the original design
 rationale (stages, work items, deferred cross-context features) is

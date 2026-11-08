@@ -28,8 +28,6 @@ makes the shorthand real for a shell session.)
 ```bash
 ddd new <name> [--platform …] [--template …]      # scaffold a starter project
 ddd parse <file.ddd>                              # parse + validate (AST + IR), multi-file aware
-ddd generate ts <file.ddd> -o <outdir>            # emit a single TypeScript project (legacy)
-ddd generate dotnet <file.ddd> -o <outdir>        # emit a single .NET project (legacy)
 ddd generate system <file.ddd> -o <outdir>        # emit every deployable + docker-compose.yml
 ddd migrate add <name> <file.ddd>                 # record schema changes in migrations/ (see Migrations workflow)
 ddd migrate status <file.ddd> [--json]            # each module's recorded head and its unrecorded changes
@@ -132,10 +130,8 @@ build output into a tree whose identity files are yours (M-FT.13, finding
 G9). It does not emit the project tree; the README walks you
 through `ddd generate system main.ddd -o .` and `docker compose up`.
 
-`generate ts` / `generate dotnet` work on **legacy** sources (bare
-`context` declarations) and produce a single project for the chosen
-platform.  `generate system` works on sources that declare one or more
-`system { … }` blocks and produces a multi-project tree:
+`generate system` works on a source that declares a `system { … }` with at
+least one deployable and produces a multi-project tree:
 
 ```
 <outdir>/
@@ -155,8 +151,28 @@ project from the merged model.  See
 for the language surface; the original design rationale is preserved
 at [`plans/multi-file-source.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-file-source.md).
 
-`generate ts` / `generate dotnet` remain single-file: they read just
-the file you point them at, no import-graph walking.
+A source with contexts but no deployable generates nothing: the run fails
+with a hint showing the `system` to add — platform and database are the
+author's choice, so there is no implicit default deployable:
+
+```ddd
+// The lines the hint adds:
+system SalesSystem {
+  storage db { type: postgres }
+  resource salesState { for: Sales, kind: state, use: db }
+  deployable sales { platform: node, contexts: [Sales], dataSources: [salesState] }
+}
+
+// The existing source, unchanged:
+context Sales {
+  aggregate Order {
+    total: int
+  }
+}
+```
+
+A root-level `context` is re-parented into the system, so these lines go
+beside the existing source unchanged.
 
 Each deployable's folder name is a lowercase slug derived from the
 deployable's name (e.g. `catalogWeb` → `catalog_web`); inside the
@@ -166,7 +182,7 @@ project the .NET namespace and `.csproj` keep the capitalised form.
 
 | Flag | Applies to | Effect |
 | --- | --- | --- |
-| `-o, --out <dir>` | every `generate`, `verify`, `snapshot` | Output directory.  Created if missing.  Required on `generate system`, `generate ts`, `generate dotnet`, and `snapshot`; optional on `verify` (defaults to the `.ddd` file's directory). |
+| `-o, --out <dir>` | every `generate`, `verify`, `snapshot` | Output directory.  Created if missing.  Required on `generate system` (unless `--json`) and `snapshot`; optional on `verify` (defaults to the `.ddd` file's directory). |
 | `-w, --watch` | every `generate` | Re-run the generator whenever the source `.ddd` file changes (see [Watch mode](#watch-mode) below). |
 | `--dry-run` | every `generate`, `snapshot` | List every path that would be written (plus any paths skipped via `.loomignore`).  Writes nothing. |
 | `--trace` | every `generate` | Emit trace-level domain instrumentation (`value_computed`, `precondition_evaluated`, …) into the generated project.  Off by default — see [`observability.md`](observability.md). |
@@ -454,7 +470,7 @@ Useful during model design — every save of the `.ddd` file triggers a
 regen:
 
 ```bash
-ddd generate ts examples/sales.ddd -o ./out --watch
+ddd generate system examples/sales.ddd -o ./out --watch
 ```
 
 Implementation note: `fs.watch` with a 100ms debounce.  No fancy

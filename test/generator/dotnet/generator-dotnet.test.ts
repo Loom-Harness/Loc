@@ -5,7 +5,11 @@ import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
-import { generateBackendFiles, generateSystemFiles } from "../../_helpers/generate.js";
+import {
+  generateBackendFiles,
+  generateBackendFromSource,
+  generateSystemFiles,
+} from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
@@ -13,16 +17,17 @@ const repoRoot = path.resolve(here, "..", "..", "..");
 const SALES = readFileSync(path.join(repoRoot, "examples/sales.ddd"), "utf8");
 
 /**
- * The .NET project for `examples/sales.ddd` (bare `context Sales`), hosted on
- * one deployable `app` — so the project is `App.csproj` and the root namespace
- * `App`.  Memoised per trace flag: every test reads the same emission.
+ * The .NET project for `examples/sales.ddd`, its one deployable `sales`
+ * re-targeted at dotnet — so the project is `Sales.csproj` and the root
+ * namespace `Sales`.  Memoised per trace flag: every test reads the same
+ * emission.
  */
 const salesCache = new Map<boolean, Promise<Map<string, string>>>();
 function salesFiles(options: { emitTrace?: boolean } = {}): Promise<Map<string, string>> {
   const key = !!options.emitTrace;
   let hit = salesCache.get(key);
   if (!hit) {
-    hit = generateBackendFiles(SALES, "dotnet", { emitTrace: key });
+    hit = generateBackendFromSource(SALES, "dotnet", { emitTrace: key });
     salesCache.set(key, hit);
   }
   return hit;
@@ -47,7 +52,7 @@ describe(".NET generator", () => {
     expect(keys).toContain("Application/Orders/Queries/GetOrderByIdQuery.cs");
     expect(keys).toContain("Api/OrdersController.cs");
     expect(keys).toContain("Program.cs");
-    expect(keys).toContain("App.csproj");
+    expect(keys).toContain("Sales.csproj");
   });
 
   it("adds per-file `using` directives only where the namespace is actually used", async () => {
@@ -83,7 +88,7 @@ describe(".NET generator", () => {
     const program = files.get("Program.cs")!;
     expect(program).toContain("app.MapMetrics();");
     expect(program).toMatch(/^using Prometheus;/m);
-    expect(files.get("App.csproj")!).toContain('Include="prometheus-net.AspNetCore"');
+    expect(files.get("Sales.csproj")!).toContain('Include="prometheus-net.AspNetCore"');
     // Recorded at the request_end seam in the request-logging middleware.
     const mw = files.get("Middleware/RequestLoggingMiddleware.cs")!;
     expect(mw).toContain("Observability.HttpMetrics.Record(");
@@ -103,17 +108,17 @@ describe(".NET generator", () => {
 
   it("emits xUnit test class + test project when `test` blocks are declared", async () => {
     const files = await salesFiles();
-    const tests = files.get("Tests/App.Tests/Orders/OrderTests.cs")!;
+    const tests = files.get("Tests/Sales.Tests/Orders/OrderTests.cs")!;
     expect(tests).toMatch(/using Xunit;/);
     expect(tests).toMatch(/\[Fact\(DisplayName = "money literal builds"\)\]/);
     // sales.ddd's only `toThrow()` is a Money literal: a value object's
     // invariant throws `ValueObjectInvariantException`, and xUnit's
     // `Assert.Throws<T>` matches the exact type.
     expect(tests).toMatch(/Assert\.Throws<ValueObjectInvariantException>/);
-    const testCsproj = files.get("Tests/App.Tests/App.Tests.csproj")!;
+    const testCsproj = files.get("Tests/Sales.Tests/Sales.Tests.csproj")!;
     expect(testCsproj).toMatch(/Microsoft\.NET\.Test\.Sdk/);
     expect(testCsproj).toMatch(/<PackageReference Include="xunit"/);
-    expect(testCsproj).toMatch(/<ProjectReference Include="\.\.\/\.\.\/App\.csproj" \/>/);
+    expect(testCsproj).toMatch(/<ProjectReference Include="\.\.\/\.\.\/Sales\.csproj" \/>/);
   });
 
   it("emits Dockerfile + .dockerignore", async () => {
@@ -121,14 +126,14 @@ describe(".NET generator", () => {
     const dockerfile = files.get("Dockerfile")!;
     expect(dockerfile).toMatch(/FROM mcr\.microsoft\.com\/dotnet\/sdk:10\.0 AS build/);
     expect(dockerfile).toMatch(/FROM mcr\.microsoft\.com\/dotnet\/aspnet:10\.0 AS runtime/);
-    expect(dockerfile).toMatch(/ENTRYPOINT \["dotnet", "App\.dll"\]/);
+    expect(dockerfile).toMatch(/ENTRYPOINT \["dotnet", "Sales\.dll"\]/);
     const dockerignore = files.get(".dockerignore")!;
     expect(dockerignore).toMatch(/\*\*\/bin/);
   });
 
   it("wires Swashbuckle so the spec is exposed at the aligned /openapi.json", async () => {
     const files = await salesFiles();
-    const csproj = files.get("App.csproj")!;
+    const csproj = files.get("Sales.csproj")!;
     expect(csproj).toMatch(/<PackageReference Include="Swashbuckle\.AspNetCore"/);
     const program = files.get("Program.cs")!;
     expect(program).toMatch(/AddSwaggerGen/);
