@@ -31,6 +31,11 @@ export function typeToString(t: Ty): string {
         switch (t.shape.of) {
           case "principal":
             return "currentUser";
+          case "wire":
+          case "tagged":
+            return typeToString(t.shape.ref);
+          case "created":
+            return `{ id } of ${t.shape.ref.name}`;
           default:
             return t.shape.ref.name;
         }

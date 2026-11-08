@@ -63,6 +63,7 @@ import type {
   TypeRef,
   ValueObject,
   Workflow,
+  WorkflowCreateDecl,
 } from "../generated/ast.js";
 import {
   isActionDecl,
@@ -148,7 +149,7 @@ import type { DeclIndex } from "./decl-index.js";
 import { primitiveFieldType } from "./primitive-fields.js";
 import { astProjectionReadShape } from "./projection-shape.js";
 import { qualifiedOutOfScopePolicyCall } from "./qualified-policy.js";
-import { isPrim, mergeTags, PAGED_META, type RecordShape, Ty, withTags } from "./ty.js";
+import { isPrim, mergeTags, PAGED_META, type RecordShape, Ty, wireOf, withTags } from "./ty.js";
 
 // ---------------------------------------------------------------------------
 // Scope model (design §D4): one persistent chain, built by the walk.
@@ -1100,26 +1101,68 @@ export class Elaborator {
   /** A `test e2e` `api.<handle>.<verb>(…)` call: the generated test client's
    *  CRUD verbs over the aggregate (or projection) the handle names. */
 
-  private e2eApiCall(handle: string, verb: string, _scope: Scope, _node: AstNode): Ty | undefined {
-    const target = this.index.byApiHandle(handle);
-    if (!target) return undefined;
-    // A projection read rides its wire shape (an enum column is its string
-    // value), which is not the declared row — not modelled yet.
-    if (isProjection(target)) return Ty.unknown("no-rule");
-    const row = Ty.record({ of: "aggregate", ref: target });
-    if (verb === "create" || verb === "update" || verb === "getById") return row;
-    if (verb === "destroy") return Ty.never;
-    if (verb === "all" || verb === "list") {
-      const paged =
-        target.persistedAs !== "eventLog" &&
-        (target.shape ?? "relational") === "relational" &&
-        !target.superType;
-      return paged ? { kind: "generic", ctor: "paged", arg: row } : Ty.array(row);
+  /** A `test e2e` `api.<handle>.<verb>(…)` call: what the generated client
+   *  hands back, resolved in the client's own precedence (`e2e-render.ts`) —
+   *  a projection read, an aggregate's route, a workflow accessor, then a
+   *  routed handler.  The values are what the backend SENDS (`wireOf`): the
+   *  create `{ id }` envelope (RS-13), records read member by member as JSON,
+   *  an `or`-union result tagged. */
+  private e2eApiCall(handle: string, verb: string, scope: Scope, _node: AstNode): Ty | undefined {
+    const named = this.index.e2eHandle(handle);
+    if (named.projection && (verb === "list" || verb === "byKey")) {
+      const p = named.projection;
+      const row = Ty.record({ of: "projection", ref: p });
+      if (verb === "byKey") return wireOf(row);
+      return wireOf(astProjectionReadShape(p) === "one" ? row : Ty.array(row));
     }
-    // A find / operation answers its WIRE shape through the generated client —
-    // an absence union unwrapped to the row, a primitive in a `{ value }`
-    // envelope — which is not its declared domain type.  Not modelled yet.
-    return Ty.unknown("no-rule");
+    const target = named.aggregate;
+    if (target) {
+      const row = Ty.record({ of: "aggregate", ref: target });
+      if (verb === "create") return Ty.record({ of: "created", ref: target });
+      if (verb === "getById") return wireOf(row);
+      if (verb === "all" || verb === "list") {
+        const paged =
+          target.persistedAs !== "eventLog" &&
+          (target.shape ?? "relational") === "relational" &&
+          !target.superType;
+        return wireOf(paged ? { kind: "generic", ctor: "paged", arg: row } : Ty.array(row));
+      }
+      if (verb === "destroy") return Ty.never;
+      // A public operation: no declared result answers 204 with no body.
+      for (const o of ownerChain(target)) {
+        for (const m of o.members as AstNode[]) {
+          if (!isOperation(m) || m.name !== verb || m.private) continue;
+          return m.returnType ? this.e2eResult(this.resolveType(m.returnType, scope)) : Ty.never;
+        }
+      }
+      return Ty.unknown("no-rule");
+    }
+    const wf = named.workflow;
+    if (wf) {
+      const row = Ty.record({ of: "workflow", ref: wf });
+      if (verb === "instance") return wireOf(row);
+      if (verb === "instances") return wireOf(Ty.array(row));
+      if (verb === "run") {
+        const result = wf.members.find(
+          (m): m is WorkflowCreateDecl => isWorkflowCreateDecl(m) && m.returnType !== undefined,
+        )?.returnType;
+        return result ? this.e2eResult(this.resolveType(result, scope)) : Ty.unknown("no-rule");
+      }
+      return undefined;
+    }
+    const handler = this.index.routedHandler(handle, verb);
+    if (handler) {
+      return handler.returnType
+        ? this.e2eResult(this.resolveType(handler.returnType, scope))
+        : Ty.never;
+    }
+    return undefined;
+  }
+
+  /** A declared result as the client receives it: an `or`-union tagged, any
+   *  other value as its JSON. */
+  private e2eResult(t: Ty): Ty {
+    return t.kind === "union" ? Ty.record({ of: "tagged", ref: t }) : wireOf(t);
   }
 
   /** The response of the operation `opId` an api exposes — the operation set
@@ -1566,6 +1609,28 @@ export class Elaborator {
           }
         }
         return Ty.unknown("unresolved-member");
+      }
+      case "wire": {
+        // A wire value carries data only: no operation is callable on it.
+        if (ms.call) return Ty.unknown("unresolved-member");
+        const t = this.afterSuffixInner(shape.ref, ms, scope);
+        return t.kind === "unknown" ? t : wireOf(t);
+      }
+      case "created":
+        return name === "id" && !ms.call ? Ty.prim("string") : Ty.unknown("unresolved-member");
+      case "tagged": {
+        if (ms.call) return Ty.unknown("unresolved-member");
+        if (name === "type") return Ty.prim("string");
+        const variants = shape.ref.kind === "union" ? shape.ref.variants : [shape.ref];
+        const found: Ty[] = [];
+        for (const v of variants) {
+          if (v.kind === "record" || v.kind === "valueobject") {
+            const t = this.afterSuffixInner(v, ms, scope);
+            if (t.kind !== "unknown") found.push(wireOf(t));
+          } else if (name === "value" && v.kind !== "none") found.push(wireOf(v));
+        }
+        if (found.length === 0) return Ty.unknown("unresolved-member");
+        return found.reduce((a, b) => join(a, b) ?? a);
       }
       default: {
         const _exhaustive: never = shape;
