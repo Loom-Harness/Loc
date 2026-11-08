@@ -14,6 +14,7 @@ import { LoomRuntimeClient } from "../runtime/client.js";
 import type {
   BootResult,
   DispatchResult,
+  MigrationPlan,
   QueryResult,
   SerializedRequest,
   WipeResult,
@@ -122,7 +123,7 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
   private readonly injectedRun?: EsbuildRun;
   private vfsBundler: VfsBundlerClient | null = null;
   private lastBoot:
-    | { bundleCode: string; dataDir?: string; persistent: boolean }
+    | { bundleCode: string; migrations: MigrationPlan; dataDir?: string; persistent: boolean }
     | null = null;
 
   constructor(
@@ -252,11 +253,12 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
   // PGlite+Hono runtime client.
   async boot(
     bundleCode: string,
+    migrations: MigrationPlan,
     dataDir?: string,
     opts?: { fresh?: boolean },
   ): Promise<BootResult> {
-    const res = await this.rt().boot({ bundleCode, dataDir, fresh: opts?.fresh });
-    if (res.ok) this.lastBoot = { bundleCode, dataDir, persistent: res.persistent };
+    const res = await this.rt().boot({ bundleCode, migrations, dataDir, fresh: opts?.fresh });
+    if (res.ok) this.lastBoot = { bundleCode, migrations, dataDir, persistent: res.persistent };
     return res;
   }
   dispatch(req: SerializedRequest): Promise<DispatchResult> {
@@ -303,10 +305,14 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     if (snap.engineId !== this.capabilities.id || snap.version !== 1) {
       return false;
     }
-    const blob = snap.blob as { bundleCode: string; dataDir?: string } | null;
-    if (!blob?.bundleCode) return false;
+    const blob = snap.blob as {
+      bundleCode: string;
+      migrations?: MigrationPlan;
+      dataDir?: string;
+    } | null;
+    if (!blob?.bundleCode || !blob.migrations) return false;
     this.rt().respawn(true);
-    const res = await this.boot(blob.bundleCode, blob.dataDir);
+    const res = await this.boot(blob.bundleCode, blob.migrations, blob.dataDir);
     return res.ok;
   }
   dispose(): void {
