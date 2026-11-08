@@ -59,6 +59,7 @@ import {
   MigrationDestructiveError,
   MigrationShapeChangeError,
 } from "../../../src/system/migrations-builder.js";
+import { serviceSlug } from "../../../src/util/service-slug.js";
 import type { SnapshotStore } from "../../../src/system/snapshot.js";
 import { MemoryVfs } from "../vfs/memory-vfs.js";
 import { chainDir, readChainFiles } from "./chain-files.js";
@@ -74,6 +75,7 @@ import type {
   MigrationPlanResult,
   MigrationView,
   RecordMigrationParams,
+  StoragePlan,
   RecordMigrationResult,
   SchemaTableView,
   WireChangeView,
@@ -358,7 +360,7 @@ export async function migrationPlan(params: MigrationPlanParams): Promise<Migrat
   const loaded = await loadEvolutionTree(params.current, { validate: true });
   if ("error" in loaded) return { ok: false, diagnostics: loaded.error };
   if (loaded.loom.systems.length === 0) {
-    return { ok: true, plan: { kind: "unversioned" }, diagnostics: loaded.diagnostics };
+    return { ok: true, plan: { kind: "unversioned" }, storages: [], diagnostics: loaded.diagnostics };
   }
   let chain: MigrationChain;
   try {
@@ -384,7 +386,26 @@ export async function migrationPlan(params: MigrationPlanParams): Promise<Migrat
   }
   const unrecorded: UnrecordedChanges | null =
     steps > 0 ? { initial: chain.entries.length === 0, modules, steps, destructive } : null;
-  const units: MigrationUnitPlan[] = migrationUnits(chainMigrations(chain)).map((u) => {
+  const all = chainMigrations(chain);
+  const storages: StoragePlan[] = [];
+  for (const sys of loaded.loom.systems) {
+    for (const s of storageGroups(sys, serviceSlug)) {
+      const units = unitPlans(all.filter((m) => s.modules.has(m.module)));
+      storages.push({ key: s.key, deployables: s.deployables, plan: { kind: "chain", units, unrecorded } });
+    }
+  }
+  return {
+    ok: true,
+    plan: { kind: "chain", units: unitPlans(all), unrecorded },
+    storages,
+    diagnostics: loaded.diagnostics,
+  };
+}
+
+/** The chain's generations rendered to the migration files the generated
+ *  Hono backend carries. */
+function unitPlans(migrations: ReturnType<typeof chainMigrations>): MigrationUnitPlan[] {
+  return migrationUnits(migrations).map((u) => {
     const transactional = !u.sql.startsWith(NO_TRANSACTION_MARKER);
     const body = transactional ? u.sql : u.sql.slice(NO_TRANSACTION_MARKER.length);
     return {
@@ -396,11 +417,37 @@ export async function migrationPlan(params: MigrationPlanParams): Promise<Migrat
         .filter((stmt) => stmt.length > 0),
     };
   });
-  return {
-    ok: true,
-    plan: { kind: "chain", units, unrecorded },
-    diagnostics: loaded.diagnostics,
-  };
+}
+
+type SystemOf = EnrichedLoomModel["systems"][number];
+
+/** The playground's databases for one system: the Node deployables grouped by
+ *  the postgres `storage` their data sources bind, each group carrying the
+ *  modules (subdomains) its deployables host — the same rule that decides
+ *  which migrations a generated backend carries.  A Node deployable bound to
+ *  no postgres storage gets a database of its own. */
+export function storageGroups(
+  sys: SystemOf,
+  slugOf: (deployableName: string) => string,
+): Array<{ key: string; deployables: string[]; modules: Set<string> }> {
+  const postgres = new Set(sys.storages.filter((st) => st.type === "postgres").map((st) => st.name));
+  const groups = new Map<string, { key: string; deployables: string[]; modules: Set<string> }>();
+  for (const d of sys.deployables) {
+    if (d.platform !== "node") continue;
+    const slug = slugOf(d.name);
+    const bound = d.dataSourceNames
+      .map((n) => sys.dataSources.find((ds) => ds.name === n)?.storageName ?? "")
+      .find((st) => postgres.has(st));
+    const key = bound ?? `deployable:${slug}`;
+    const group = groups.get(key) ?? { key, deployables: [], modules: new Set<string>() };
+    group.deployables.push(slug);
+    const hosted = new Set(d.contextNames);
+    for (const sd of sys.subdomains) {
+      if (sd.contexts.some((c) => hosted.has(c.name))) group.modules.add(sd.name);
+    }
+    groups.set(key, group);
+  }
+  return [...groups.values()];
 }
 
 /** The bare table a migration step targets, or `undefined` for the ops that

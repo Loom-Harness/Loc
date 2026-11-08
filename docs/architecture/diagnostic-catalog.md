@@ -10,8 +10,10 @@
 > `loom.unknown` by `src/api/report.ts` on the way to the user — were
 > measured and ratcheted in Wave C1 and drained to zero in Wave C4
 > (M-T9.56). The wording of every code lives in
-> `src/diagnostics/messages.ts`; its language-reference anchor lives in
-> `src/diagnostics/code-docs.ts`; a minimal `.ddd` that makes it fire
+> `src/diagnostics/messages/<family>.ts` (merged by
+> `src/diagnostics/messages.ts`; the family is the one whose `segments`
+> owns the code's first segment); its language-reference anchor lives in
+> the same family under `src/diagnostics/code-docs/`; a minimal `.ddd` that makes it fire
 > lives in `test/system/diagnostic-firing-census.test.ts`. A new code
 > owes all three.
 

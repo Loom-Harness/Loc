@@ -287,7 +287,22 @@ export interface MigrationPlanParams {
 export interface MigrationPlanOk {
   ok: true;
   plan: MigrationPlan;
+  /** One database per `storage` the system's Node deployables bind, each with
+   *  the units of the modules those deployables host — the union of their
+   *  schemas.  Empty for a source without a system (one database, `plan`). */
+  storages: StoragePlan[];
   diagnostics: BuildDiagnostic[];
+}
+
+/** One playground database: a `storage` (or, for a Node deployable bound to
+ *  no postgres storage, that deployable's own database) and the deployables
+ *  that read and write it. */
+export interface StoragePlan {
+  /** The storage's name, or `deployable:<slug>` for a deployable's own. */
+  key: string;
+  /** Slugs (generated folder names) of the Node deployables bound to it. */
+  deployables: string[];
+  plan: MigrationPlan;
 }
 
 export type MigrationPlanResult = MigrationPlanOk | EvolutionFail;

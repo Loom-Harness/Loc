@@ -180,7 +180,11 @@ export type BackendConstruct =
   | "field:valueobject-collection@entity-part"
   /** A value object with a field of a value-object type that declares an
    *  invariant. */
-  | "invariant:nested-valueobject@valueobject";
+  | "invariant:nested-valueobject@valueobject"
+  /** An event carrying a value read from a `mask unless` field, on a channel. */
+  | "emit:masked-value@channel-event"
+  /** A unique key over a `mask unless` field. */
+  | "unique:masked-field@aggregate";
 
 /** Every refusable UI construct, in a stable order (the table test iterates it). */
 export const UI_CONSTRUCTS: readonly RefusableUiConstruct[] = [
@@ -237,6 +241,8 @@ export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "criterion:reads-masked-field@context",
   "field:valueobject-collection@entity-part",
   "invariant:nested-valueobject@valueobject",
+  "emit:masked-value@channel-event",
+  "unique:masked-field@aggregate",
 ];
 
 /** The refusal a UI construct gets on a framework NO target renders (an
@@ -544,6 +550,8 @@ const COMMON_PAIRS: Pick<
   | "criterion:reads-masked-field@context"
   | "field:valueobject-collection@entity-part"
   | "invariant:nested-valueobject@valueobject"
+  | "emit:masked-value@channel-event"
+  | "unique:masked-field@aggregate"
 > = {
   // No fixture runs an event-sourced save through a durable channel.
   "publish:event-sourced@broker-channel": refused("feature-composition-unwitnessed"),
@@ -564,6 +572,11 @@ const COMMON_PAIRS: Pick<
   "criterion:reads-masked-field@context": SUPPORTED,
   "field:valueobject-collection@entity-part": owned("loom.collection-field-unpersisted"),
   "invariant:nested-valueobject@valueobject": SUPPORTED,
+  // A channel subscriber holds no principal to evaluate the mask against.
+  "emit:masked-value@channel-event": owned("loom.field-mask-event-channel"),
+  // A duplicate-key rejection tells an unprivileged writer the value exists;
+  // the check passes a create gated on the mask's own predicate.
+  "unique:masked-field@aggregate": owned("loom.field-mask-unique-oracle"),
 };
 
 /** The table for a static-bundle backend: it renders no ui framework. */

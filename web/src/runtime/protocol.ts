@@ -3,10 +3,11 @@
 import type { LogLine } from "../util/log-line.js";
 
 //
-// The runtime worker is long-lived: once booted it holds a PGlite
-// instance, the bootstrapped Hono `app`, and the migration plan that
-// built the schema.  Each `dispatch` request transports a serialised
-// Request → the worker reconstructs it, calls `app.fetch`, and
+// One runtime worker per Node deployable.  Once booted it holds the
+// deployable's imported bundle, the bootstrapped Hono `app`, and a
+// `PGliteWorker` connection to its storage (the database itself runs in the
+// infra worker — see infra-protocol.ts).  Each `dispatch` request transports a
+// serialised Request → the worker reconstructs it, calls `app.fetch`, and
 // returns a serialised Response.
 
 export interface SerializedRequest {
@@ -98,22 +99,55 @@ export type BlockingMigrationState = Extract<
   { kind: "unrecorded" | "unknown-database" }
 >;
 
-export interface BootRequest {
+/** A deployable worker's first boot step: import the bundle. */
+export interface LoadRequest {
   /** ESM bundle source produced by the bundler worker. */
   bundleCode: string;
-  /** The migrations the boot may apply. */
-  migrations: MigrationPlan;
+  /** Also derive the schema from the bundle's Drizzle tables — the schema of
+   *  a source without a system, which its storage then applies. */
+  synthDdl: boolean;
+}
+
+export type LoadResult = { ok: true; ddl?: string } | { ok: false; message: string };
+
+/** A deployable worker's second boot step: connect to the storage the infra
+ *  worker opened (its `channel`) and start the app on it. */
+export interface StartRequest {
+  channel: string;
+}
+
+export type StartResult = { ok: true } | { ok: false; message: string };
+
+/** One storage of a boot: where its database lives and what the boot may do
+ *  to it. */
+export interface StorageBootPlan {
+  /** `StoragePlan.key` — the storage's name, or `deployable:<slug>`. */
+  key: string;
   /** PGlite data-dir.  Default `:memory:` (wiped on close).  Pass
-   *  `opfs-ahp://<some-name>` for OPFS-backed persistence — data
-   *  survives page reloads.  The playground keys the island by workspace,
+   *  `opfs-ahp://<some-name>` for OPFS-backed persistence — data survives
+   *  page reloads.  The playground keys the island by workspace (and storage),
    *  so a schema edit reopens the same database and migrates it. */
   dataDir?: string;
-  /** Explicit reset: drop every user schema and the `__loom` bookkeeping
-   *  right after opening PGlite, before migrating.  The recovery path for a
-   *  database the chain cannot describe, or one that fails every boot — the
-   *  normal Reset needs a booted instance, which such a boot never
-   *  produces. */
-  fresh?: boolean;
+  /** The migrations the boot may apply.  `unversioned`: the schema is the
+   *  Drizzle DDL of the storage's (single) deployable. */
+  migrations: MigrationPlan;
+}
+
+/** Everything a boot brings up: every storage, then every Node deployable on
+ *  the storage it binds. */
+export interface BootPlan {
+  storages: StorageBootPlan[];
+  /** In order of preference: the first one is the default dispatch target
+   *  (the backend the frontend talks to). */
+  backends: Array<{ slug: string; bundleCode: string; storage: string }>;
+}
+
+/** What one storage's boot did. */
+export interface StorageBootInfo {
+  key: string;
+  persistent: boolean;
+  applied: string[];
+  ddl: string;
 }
 
 export interface BootOk {
@@ -133,6 +167,10 @@ export interface BootOk {
   /** Ids of the migration units this boot applied, in order; empty when the
    *  database was already at the chain's head. */
   applied: string[];
+  /** Per storage, in plan order. */
+  storages: StorageBootInfo[];
+  /** Slugs of the deployables now serving, in plan order. */
+  backends: string[];
 }
 
 export interface BootFail {
@@ -186,11 +224,10 @@ export interface WipeResult {
 }
 
 export type RuntimeRpcRequest =
-  | { id: number; method: "boot"; params: BootRequest }
+  | { id: number; method: "load"; params: LoadRequest }
+  | { id: number; method: "start"; params: StartRequest }
   | { id: number; method: "dispatch"; params: SerializedRequest }
-  | { id: number; method: "query"; params: { sql: string } }
-  | { id: number; method: "reset"; params: Record<string, never> }
-  | { id: number; method: "wipe"; params: Record<string, never> };
+  | { id: number; method: "reset"; params: Record<string, never> };
 
 /** Fire-and-forget progress note pushed by the worker DURING an RPC (it
  *  carries no `id` and expects no reply, so the client tells it apart from a
@@ -215,6 +252,7 @@ export interface RuntimeProgress {
     | "ddl-meta"
     | "ddl-drop"
     | "ddl-apply"
+    | "storage-connect"
     | "create-app";
   /** Optional scale note (e.g. `"182 stmts, 61KB"`).  The phase says where it
    *  died; this says how much work it was carrying, which is the difference
@@ -224,7 +262,7 @@ export interface RuntimeProgress {
 
 export interface RuntimeRpcResponse {
   id: number;
-  result?: BootResult | DispatchResult | QueryResult | WipeResult | { ok: true };
+  result?: LoadResult | StartResult | DispatchResult | { ok: true };
   error?: { message: string };
   /** `console.*` (and any thrown stack) captured in the worker while
    *  this RPC ran — surfaced as the playground's "Backend" log stream.
