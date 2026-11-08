@@ -94,6 +94,7 @@ import { type KeyLookupRead, synthesizeKeyLookupFinds } from "./key-lookup-finds
 import {
   applyMaskFindGates,
   applyMaskHandlerGates,
+  applyMaskWorkflowGates,
   applyMaskWriteGates,
   fieldRedactedInInspect,
 } from "./mask-taint.js";
@@ -1006,7 +1007,13 @@ export function enrichContext(
   const projections = ctx.projections.map((p) => enrichProjection(p, aggregates));
   // A handler read that filters on a masked field inherits the mask as a
   // leading read gate, like the `policy { read … }` gate beside it.
-  const maskScope = { aggregates, repositories, criteria: ctx.criteria, retrievals };
+  const maskScope = {
+    aggregates,
+    repositories,
+    criteria: ctx.criteria,
+    retrievals,
+    domainServices: ctx.domainServices,
+  };
   const queryHandlers = applyMaskHandlerGates(
     applyHandlerReadGates(ctx.queryHandlers, ctx.policyReadGates),
     maskScope,
@@ -1024,7 +1031,7 @@ export function enrichContext(
     aggregates,
     repositories,
     payloads,
-    workflows,
+    workflows: applyMaskWorkflowGates(workflows, maskScope),
     projections,
     retrievals,
     eventSubscriptions,

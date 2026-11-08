@@ -1056,7 +1056,7 @@ Phase ⑥ computes that once (`src/ir/enrich/mask-taint.ts`), and each sink eith
 | Sink | What happens |
 | --- | --- |
 | a `derived` that reads a masked field (directly or through another derived) | redacts under the conjunction of the masks it reads — it is on the wire with `maskUnless`, so every backend's masked serializer nulls it |
-| a read whose predicate reads a masked field — a `criterion` behind `scaffoldGet` / a `queryHandler`'s `Repo.find(C)` / `Repo.all(C)` / a retrieval | inherits the mask as a leading `requires` (403), evaluated before the query: a 200-or-404 on a guessed value would be an existence oracle |
+| a read whose predicate reads a masked field — a `criterion` behind `scaffoldGet` / a `queryHandler`'s, `commandHandler`'s or workflow `create`'s `Repo.find(C)` / `Repo.all(C)` / a retrieval, the same reads inside a `reading` domain service the body calls, or a capability `filter` the read runs under | inherits the mask as a leading `requires` (403), evaluated before the query: a 200-or-404 on a guessed value would be an existence oracle.  Several masked fields in one predicate require all their masks (AND); a gate the body already leads with is not repeated |
 | an operation that writes a caller-supplied value into a masked field (the generic `update` among them) | inherits the mask as a hoisted `requires` (403); on a merge-patch update it runs only when the body carries the masked key |
 | a `create` | not a sink: a new row has no stored value to overwrite |
 | the synthesized `inspect` — what `toString()` / `Inspect`, and so every log line and exception, print | redacts the field as `<redacted>`, like a `sensitive` one |
@@ -1066,6 +1066,29 @@ Phase ⑥ computes that once (`src/ir/enrich/mask-taint.ts`), and each sink eith
 Every inherited gate is the mask predicate alone.  It reads only `currentUser`
 (`loom.field-mask-not-current-user`), never the row or the value the caller
 sent, so a right guess at the hidden value and a wrong one get the same answer.
+
+```ddd
+aggregate Driver with crudish {
+  name: string
+  ssn: string mask unless currentUser.role == "hr"
+}
+repository Drivers for Driver
+criterion BySsn(s: string) of Driver = this.ssn == s
+queryHandler GetDriverBySsn(s: string): Driver {
+  if let d = Drivers.find(BySsn(s)) { return d } else { notFound }
+}
+workflow CheckSsn {
+  create(s: string) { let d = Drivers.find(BySsn(s)) }
+}
+```
+
+```ts
+// generated (Hono) — the handler route and the workflow's create route each lead
+// with the inherited gate: a non-hr caller gets 403 before the query runs,
+// never a 200-or-404.
+if (!(currentUser.role === "hr")) throw new ForbiddenError("Forbidden: mask unless — the read filters Driver on a masked field");
+const d = (await drivers.runFindAllByBySsn(s, { limit: 1 }))[0] ?? null;
+```
 
 ```ddd
 aggregate Employee with crudish {
