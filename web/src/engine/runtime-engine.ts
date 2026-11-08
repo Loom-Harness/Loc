@@ -21,9 +21,9 @@
 import type { VirtualFile } from "../build/protocol.js";
 import type { BundleResult } from "../bundle/protocol.js";
 import type {
+  BootPlan,
   BootResult,
   DispatchResult,
-  MigrationPlan,
   QueryResult,
   SerializedRequest,
   WipeResult,
@@ -55,11 +55,12 @@ export interface PrepareInput {
   /** Packages the prepared build may import (P6 populates this;
    *  P0/P1 pass an empty set). */
   dependencies: DependencySet;
-  /** Backend (Hono) entry path.  Required — callers analyse the
-   *  generated tree and only invoke `prepare` once a bundlable
-   *  backend exists; the "nothing to bundle" wording stays in the
-   *  caller because it needs the unsupported-deployable list. */
-  honoEntry: string;
+  /** Backend (Hono) entry paths, one per Node deployable, the default
+   *  dispatch target first.  Non-empty — callers analyse the generated tree
+   *  and only invoke `prepare` once a bundlable backend exists; the "nothing
+   *  to bundle" wording stays in the caller because it needs the
+   *  unsupported-deployable list. */
+  backendEntries: string[];
   /** React deployable entry, when the system emits a frontend. */
   reactEntry?: string;
   /** Opt-in: bundle the Hono backend with an inline Source Map v3 that
@@ -72,12 +73,20 @@ export interface PrepareInput {
   sourcemap?: boolean;
 }
 
-/** What `prepare` yields — the same per-kind bundle pair the pipeline
- *  state stores and the preview consumes today.  Keeping this as the
- *  protocol `BundleResult` (carrying `code`/`css`/`versions`) is what
- *  makes P1 lossless. */
+/** One Node deployable's bundle. */
+export interface BackendBundle {
+  /** The deployable's slug — its generated folder (`""` in single-context
+   *  mode, where the backend sits at the root). */
+  slug: string;
+  entry: string;
+  bundle: BundleResult;
+}
+
+/** What `prepare` yields — one bundle per Node deployable (the default
+ *  dispatch target first) plus the frontend's, as the pipeline state stores
+ *  them and the preview consumes them. */
 export interface PreparedBuild {
-  hono: BundleResult;
+  backends: BackendBundle[];
   react: BundleResult | null;
 }
 
@@ -85,7 +94,7 @@ export interface PreparedBuild {
  *  depends on this, not the whole engine, so the bridge is engine-
  *  agnostic. */
 export interface RuntimeDispatcher {
-  dispatch(req: SerializedRequest): Promise<DispatchResult>;
+  dispatch(req: SerializedRequest, target?: string): Promise<DispatchResult>;
 }
 
 /** Opaque, structured-clone-serialisable engine state for the
@@ -121,28 +130,26 @@ export interface RuntimeEngine extends RuntimeDispatcher {
    *  Pure w.r.t. the engine's running state. */
   prepare(input: PrepareInput): Promise<PreparedBuild>;
 
-  /** Bring the backend up from prepared bundle code, migrating its
-   *  database by `migrations` (the recorded chain, rendered by the build
-   *  worker).  `dataDir` follows the existing PGlite convention
-   *  (`:memory:` / `opfs-ahp://…`); engines without a DB ignore both.
-   *  `opts.fresh` is the explicit reset: it drops the persistent DB's
+  /** Bring the system up: open every storage of `plan`, migrate each (the
+   *  recorded chain for its modules, rendered by the build worker), then
+   *  start every backend on the storage it binds.  Each storage's `dataDir`
+   *  follows the PGlite convention (`:memory:` / `opfs-ahp://…`).
+   *  `opts.fresh` is the explicit reset: it drops each persistent DB's
    *  stored data before migrating. */
-  boot(
-    bundleCode: string,
-    migrations: MigrationPlan,
-    dataDir?: string,
-    opts?: { fresh?: boolean },
-  ): Promise<BootResult>;
+  boot(plan: BootPlan, opts?: { fresh?: boolean }): Promise<BootResult>;
 
-  /** Serve one backend HTTP request against the booted instance. */
-  dispatch(req: SerializedRequest): Promise<DispatchResult>;
+  /** Serve one backend HTTP request — on `target` (a deployable slug), or
+   *  on the plan's first backend. */
+  dispatch(req: SerializedRequest, target?: string): Promise<DispatchResult>;
 
-  /** Run one SQL statement against the booted database (Database
-   *  console).  Engines without a DB reject with a clear message. */
-  query(sql: string): Promise<QueryResult>;
+  /** Run one SQL statement against a booted storage (Database console) —
+   *  `storage` (a `StorageBootPlan.key`), or the first one.  Engines without
+   *  a DB reject with a clear message. */
+  query(sql: string, storage?: string): Promise<QueryResult>;
 
-  /** Drop user data, re-apply idempotent schema. */
-  wipe(): Promise<WipeResult>;
+  /** Drop user data and re-apply the schema — of `storage`, or of every
+   *  storage. */
+  wipe(storage?: string): Promise<WipeResult>;
 
   /** Clear any booted state without tearing the engine down — used
    *  when the edited source changes (new example).  Mirrors
