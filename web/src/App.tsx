@@ -62,6 +62,7 @@ import type {
 import type { Outline, ValidateReport } from "../../src/diagnostics/contract.js";
 import { examples, defaultExample, type LoomExample } from "./examples";
 import { LoomBuildClient } from "./build/client";
+import { BuildWorkerRespawnedError, onOneWorker } from "./build/respawn";
 import type {
   EvolutionResult,
   GenerateOk,
@@ -795,7 +796,14 @@ export default function App(): JSX.Element {
         const content = await store.readFile(path);
         if (content != null) entries.push({ kind: "file", path, content });
       }
-      if (!cancelled && entries.length > 0) await client.vfsWrite(entries);
+      if (cancelled || entries.length === 0) return;
+      try {
+        await client.vfsWrite(entries);
+      } catch (err) {
+        // A respawn reseeds the fresh worker from the `/workspace` snapshot,
+        // design packs included, so this write has nothing left to do.
+        if (!(err instanceof BuildWorkerRespawnedError)) throw err;
+      }
     })();
     return () => {
       cancelled = true;
@@ -1299,19 +1307,48 @@ export default function App(): JSX.Element {
     const stale = [...pushedChainPathsRef.current].filter(
       (p) => !chain.some((e) => e.path === p),
     );
-    if (stale.length > 0) await client.vfsDelete(stale);
     pushedChainPathsRef.current = new Set(chain.map((e) => e.path));
     entries.push(...chain);
-    await client.vfsWrite(entries);
+    // The writes and the generate that reads them must reach ONE worker.  A
+    // respawn (a workspace switch, or the tab returning from the background)
+    // replaces the worker with one that holds only the `/workspace` seed —
+    // not the editor's live text, not the files just written — so a generate
+    // that lands there reports errors the source does not have.
+    // `onOneWorker` re-runs the sequence on the new worker, or drops it when
+    // the user has left this project.
+    //
     // The flag-OFF generate — unchanged from before this feature existed,
     // so it's what drives the Files pane / persist, and byte-identical
     // output falls out of that by construction rather than needing a
     // strip step to reproduce it.  See `strip-sourcemap.ts`'s module doc
     // for why a single-generate-then-strip design was rejected.
-    const result = await client.generateFromPath(entryPath);
+    let result: GenerateResult | null;
+    try {
+      result = await onOneWorker(
+        client,
+        async () => {
+          if (stale.length > 0) await client.vfsDelete(stale);
+          await client.vfsWrite(entries);
+          return client.generateFromPath(entryPath);
+        },
+        () => epoch !== generationEpochRef.current,
+      );
+    } catch (err) {
+      if (!(err instanceof BuildWorkerRespawnedError)) throw err;
+      result = {
+        ok: false,
+        diagnostics: [
+          {
+            severity: "error",
+            message: "The build worker kept restarting during Generate. Click Generate again.",
+          },
+        ],
+      };
+    }
     // Superseded by a newer project — drop the result so it neither
     // repaints the file view nor drives the live-mode bundle/boot cascade.
-    if (epoch !== generationEpochRef.current) return null;
+    if (result === null || epoch !== generationEpochRef.current) return null;
+    const writesGeneration = client.generation;
     dispatch({ type: "GENERATE_DONE", result });
     // A FLOOR, not the intended input: the flag-off tree, published in the
     // same turn as the dispatch that enables the Bundle button.  `runBundle`
@@ -1342,7 +1379,13 @@ export default function App(): JSX.Element {
     if (result.ok) {
       try {
         const mapped = await client.generateFromPath(entryPath, { sourcemap: true });
-        if (epoch === generationEpochRef.current && mapped.ok) {
+        // Same worker as the writes, or the map-carrying tree was built from
+        // the respawn seed rather than this cycle's sources: drop it.
+        if (
+          epoch === generationEpochRef.current &&
+          client.generation === writesGeneration &&
+          mapped.ok
+        ) {
           // Inline the `.ts → .ddd` sidecar maps into the `.ts` files: the
           // in-browser bundler is esbuild-WASM, which can't read `.ts.map`
           // sidecars (no filesystem), so without this the boot bundle's map

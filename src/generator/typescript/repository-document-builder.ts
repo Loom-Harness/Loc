@@ -29,7 +29,7 @@ import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { runBypassesByRetrieval } from "../_persistence/run-bypass.js";
 import { drizzleImportLine } from "./drizzle-imports.js";
 import { aggregateIsAudited, stampImportLine, stampInsertCall } from "./emit/audit-stamp.js";
-import { inMemoryRunMethod } from "./in-memory-run.js";
+import { inMemoryRunMethod, type RunLocals } from "./in-memory-run.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "./paged-locals.js";
 import { synthProjectionFinds } from "./projection-finds.js";
@@ -43,6 +43,12 @@ import {
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "./repository-wire-builder.js";
+import {
+  applySavedVersion,
+  savedVersionDecl,
+  savedVersionOnInsert,
+  savedVersionOnUpdate,
+} from "./saved-version.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
@@ -120,9 +126,9 @@ export function buildDocumentRepositoryFile(
   // find paths above.
   const capRec = documentCapabilityBody(agg, ctx, "rec");
   const capX = documentCapabilityBody(agg, ctx, "x");
-  const runMethods = documentRunMethods(agg, ctx, (all) => [
-    `    const rows = await this.db.select().from(schema.${tableName}).orderBy(schema.${tableName}.id);`,
-    `    const ${all} = rows.map((r) => ${fromDocOf("r")});`,
+  const runMethods = documentRunMethods(agg, ctx, ({ all, rows }) => [
+    `    const ${rows} = await this.db.select().from(schema.${tableName}).orderBy(schema.${tableName}.id);`,
+    `    const ${all} = ${rows}.map((r) => ${fromDocOf("r")});`,
   ]);
 
   const bodyStr = lines(
@@ -173,7 +179,9 @@ export function buildDocumentRepositoryFile(
       ? `  async save(aggregate: ${agg.name}, expectedVersion?: number): Promise<void> {`
       : `  async save(aggregate: ${agg.name}): Promise<void> {`,
     `    const data = ${lowerFirst(agg.name)}ToDoc(aggregate);`,
-    ...(versioned ? [`    const expected = expectedVersion ?? aggregate.version;`] : []),
+    ...(versioned
+      ? [`    const expected = expectedVersion ?? aggregate.version;`, savedVersionDecl("    ")]
+      : []),
     `    const existing = await this.db.select({ version: schema.${tableName}.version }).from(schema.${tableName}).where(eq(schema.${tableName}.id, aggregate.id));`,
     `    if (existing.length === 0) {`,
     // The `onCreate` stamps (`auditable`, `tenantOwned`'s tenantId/dataKey, a
@@ -195,16 +203,19 @@ export function buildDocumentRepositoryFile(
     // read filter is correct, and `"" === currentUser.tenantId` is false, so a
     // 201 create was followed by a 404 on every read, update and destroy.
     `      await this.db.insert(schema.${tableName}).values({ id: aggregate.id as string, ${audited ? `data: ${stampInsertCall(agg, "data")}` : "data"}, version: 1 });`,
+    versioned && savedVersionOnInsert("      "),
     `    } else {`,
     ...(versioned
       ? [
           `      const updated = await this.db.update(schema.${tableName}).set({ data, version: expected + 1 }).where(and(eq(schema.${tableName}.id, aggregate.id), eq(schema.${tableName}.version, expected))).returning({ id: schema.${tableName}.id });`,
           `      if (updated.length === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+          savedVersionOnUpdate("      "),
         ]
       : [
           `      await this.db.update(schema.${tableName}).set({ data, version: existing[0]!.version + 1 }).where(eq(schema.${tableName}.id, aggregate.id));`,
         ]),
     `    }`,
+    versioned && applySavedVersion("    "),
     `    ${renderHonoStoreLogCall("repositorySave", `aggregate: "${agg.name}", id: aggregate.id as string`)}`,
     `    for (const event of aggregate.pullEvents()) {`,
     `      ${renderHonoStoreLogCall("eventDispatched", `event_type: (event as { type: string }).type, aggregate: "${agg.name}", id: aggregate.id as string`)}`,
@@ -317,7 +328,7 @@ export function buildDocumentRepositoryFile(
 export function documentRunMethods(
   agg: EnrichedAggregateIR,
   ctx: EnrichedBoundedContextIR,
-  loadLines: (all: string) => readonly string[],
+  loadLines: (names: RunLocals) => readonly string[],
 ): string[] {
   const bypasses = runBypassesByRetrieval(ctx, agg.name);
   return aggregateRetrievals(agg, ctx).map((r) =>

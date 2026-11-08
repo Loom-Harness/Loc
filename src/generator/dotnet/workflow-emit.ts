@@ -101,7 +101,7 @@ import {
   renderEntryUnionFile,
 } from "./entry-result-emit.js";
 import { csFindMethodName } from "./find-method-name.js";
-import { csReadOwnParams } from "./local-names.js";
+import { csFilterBypassArg, csReadOwnParams } from "./local-names.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "./render-expr.js";
 import { collectCsStmtUsings, renderCsStatements } from "./render-stmt.js";
@@ -2127,21 +2127,11 @@ export function csWorkflowStmtTarget(
         args.push(`(${off}, ${lim})`);
       }
       // Inline `ignoring` clause (named-filter-bypass.md §11) → the retrieval
-      // method's DOMAIN `bypass` arg (audit S7).  `ignoring *` →
-      // `FilterBypass.BypassAll()`; `ignoring <Cap>` → `FilterBypass.Bypass(<cap
-      // names>)` — the DSL capability names, NOT EF filter names; the repository
-      // adapter translates them (see `emit/repository.ts`).  `FilterBypass`
+      // method's DOMAIN `bypass` arg (`csFilterBypassArg`).  `FilterBypass`
       // resolves via the handler file's `using <ns>.Domain.Common;` preamble.
       const own = runOwnParams(st.retrievalName);
-      const bypassArgs: string[] = [];
-      if (st.bypassAll) {
-        bypassArgs.push(`${own.bypass}: FilterBypass.BypassAll()`);
-      } else if ((st.bypassCaps?.length ?? 0) > 0) {
-        const caps = st.bypassCaps ?? [];
-        bypassArgs.push(
-          `${own.bypass}: FilterBypass.Bypass(${caps.map((c) => JSON.stringify(c)).join(", ")})`,
-        );
-      }
+      const bypassArg = csFilterBypassArg(own.bypass, st);
+      const bypassArgs: string[] = bypassArg ? [bypassArg] : [];
       // `cancellationToken` is passed NAMED: the run method has an optional
       // `page` param before it (and the optional `ignore*` params after), so a
       // positional token would bind to `page`.  Named, it skips the defaults.

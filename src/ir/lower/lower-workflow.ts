@@ -1,3 +1,4 @@
+import { AstUtils } from "langium";
 import { factoryRecordFields } from "../../language/factory-call.js";
 import type {
   Aggregate,
@@ -73,6 +74,7 @@ import {
   type SaveResolver,
 } from "../util/domain-service-tier.js";
 import { lowerCallableParams } from "./callable-params.js";
+import { type HoistableRead, hoistableReads, hoistableReadsInExpr } from "./hoist-reads.js";
 import { resolveBypass } from "./lower-capabilities.js";
 import {
   ambientResourceKind,
@@ -452,7 +454,12 @@ function lowerEntryBody(
   const statements: WorkflowStmtIR[] = [];
   let returnValue: ExprIR | undefined;
   let returnTags: string[] | undefined;
-  let inner = env;
+  let inner = withBodyNames(env, body);
+  const queryNames = queryNamesOf(env.ctx);
+  // A repository read in the answered value runs, like any other, as a `let`
+  // ahead of the answer.
+  const hoistAnswer = (value: Expression, at: Env): Env =>
+    hoistReads(hoistableReadsInExpr(value, reposByName, queryNames), at, maps, statements);
   const variants =
     declared?.kind === "union" &&
     declared.variants.some((v) => isErrorVariantTag(variantTag(v), env))
@@ -464,6 +471,7 @@ function lowerEntryBody(
     variants ? resultVariantTag(inferExprType(value, at), variants) : undefined;
   for (const s of body) {
     if (isReturnStmt(s)) {
+      inner = hoistAnswer(s.value, inner);
       const t = variants ? inferExprType(s.value, inner) : undefined;
       const value = lowerExpr(s.value, inner);
       if (variants && t?.kind === "union" && value.kind === "ref") {
@@ -480,9 +488,13 @@ function lowerEntryBody(
       continue;
     }
     const l = lowerWorkflowStatement(s, inner, aggsByName, reposByName, repoForAgg, saveResolver);
+    if (l.pre) statements.push(...l.pre);
     if (guard && s === guard.ifLet && l.stmt?.kind === "if-let") {
       statements.push({ ...l.stmt, thenBody: [], savesInThen: [] });
-      const bound = withLocal(inner, l.stmt.var, "let", { kind: "entity", name: l.stmt.aggName });
+      const bound = hoistAnswer(
+        guard.ret.value,
+        withLocal(l.envAfter, l.stmt.var, "let", { kind: "entity", name: l.stmt.aggName }),
+      );
       returnValue = lowerExpr(guard.ret.value, bound);
       const tag = tagOf(guard.ret.value, bound);
       if (tag) returnTags = [tag];
@@ -622,7 +634,10 @@ function lowerOn(
   saveResolver?: SaveResolver,
 ): OnIR {
   const eventName = o.event.ref?.name ?? o.event.$refText;
-  const inner = withLocal(baseEnv, o.param, "param", { kind: "entity", name: eventName });
+  const inner = withBodyNames(
+    withLocal(baseEnv, o.param, "param", { kind: "entity", name: eventName }),
+    o.body,
+  );
   const correlation = o.correlation ? lowerExpr(o.correlation, inner) : undefined;
   const { statements } = lowerWorkflowStatements(
     o.body,
@@ -659,6 +674,9 @@ interface LoweredWorkflowStmt {
   /** `null` for a statement phase ④ refuses and the IR has no form for (an
    *  explicit `Repo.save(x)`): it contributes nothing to the body. */
   stmt: WorkflowStmtIR | null;
+  /** The `let`s of the repository reads hoisted out of the statement's
+   *  expressions, which run before it. */
+  pre?: WorkflowStmtIR[];
   envAfter: Env;
   binding?: { name: string; aggName: string; repoName: string };
 }
@@ -685,6 +703,7 @@ function lowerWorkflowStatements(
       repoForAgg,
       saveResolver,
     );
+    if (lowered.pre) into.push(...lowered.pre);
     if (lowered.stmt) into.push(lowered.stmt);
     walkEnv = lowered.envAfter;
   }
@@ -704,19 +723,91 @@ function lowerWorkflowStatement(
   repoForAgg: Map<string, string>,
   saveResolver?: SaveResolver,
 ): LoweredWorkflowStmt {
+  const pre: WorkflowStmtIR[] = [];
+  const hoisted = hoistReads(
+    hoistableReads(stmt, reposByName, queryNamesOf(env.ctx)),
+    env,
+    { aggsByName, reposByName, repoForAgg, saveResolver },
+    pre,
+  );
   const lowered = lowerWorkflowStatementInner(
     stmt,
-    env,
+    hoisted,
     aggsByName,
     reposByName,
     repoForAgg,
     saveResolver,
   );
-  if (!lowered.stmt) return lowered;
+  const withPre = pre.length > 0 ? { pre } : {};
+  if (!lowered.stmt) return { ...lowered, ...withPre };
   return {
     ...lowered,
+    ...withPre,
     stmt: { ...lowered.stmt, origin: lowered.stmt.origin ?? originFor(stmt) },
   };
+}
+
+type BodyMaps = {
+  aggsByName: Map<string, Aggregate>;
+  reposByName: Map<string, Repository>;
+  repoForAgg: Map<string, string>;
+  saveResolver?: SaveResolver;
+};
+
+/** Bind each read in `reads` to a fresh local, in order, through the `let`
+ *  lowering (`hoist-reads.ts`): the `let` statements go to `into`, and the
+ *  returned env lowers each source chain as its local. */
+function hoistReads(
+  reads: readonly HoistableRead[],
+  env: Env,
+  maps: BodyMaps,
+  into: WorkflowStmtIR[],
+): Env {
+  let at = env;
+  for (const h of reads) {
+    const repoName = isNameRef(h.read.head) ? h.read.head.name : "Repo";
+    const name = freshBodyName(`read${upperFirst(repoName)}`, at);
+    const letNode = {
+      $type: "LetStmt",
+      $container: h.chain.$container,
+      name,
+      expr: h.read,
+    } as unknown as LetStmt;
+    const l = lowerWorkflowStatementInner(
+      letNode,
+      at,
+      maps.aggsByName,
+      maps.reposByName,
+      maps.repoForAgg,
+      maps.saveResolver,
+    );
+    if (l.stmt) into.push({ ...l.stmt, origin: originFor(h.chain) });
+    at = { ...l.envAfter, hoistedReads: new Map([...(at.hoistedReads ?? []), [h.chain, name]]) };
+  }
+  return at;
+}
+
+/** `base`, or `base2`, `base3`, … — the first name no local in scope and no
+ *  other declaration of the same body uses. */
+function freshBodyName(base: string, env: Env): string {
+  const used = env.bodyNames;
+  let name = base;
+  for (let i = 2; env.locals.has(name) || used?.has(name); i++) name = `${base}${i}`;
+  used?.add(name);
+  return name;
+}
+
+/** The shared name set of a workflow / handler body (`Env.bodyNames`), seeded
+ *  with every local the body declares at any depth. */
+function withBodyNames(env: Env, body: readonly Statement[]): Env {
+  const names = new Set<string>();
+  for (const s of body) {
+    for (const n of [s, ...AstUtils.streamAllContents(s)]) {
+      if (isLetStmt(n)) names.add(n.name);
+      else if (isForStmt(n) || isIfLetStmt(n)) names.add(n.var);
+    }
+  }
+  return { ...env, bodyNames: names };
 }
 
 function lowerWorkflowStatementInner(

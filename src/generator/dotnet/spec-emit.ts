@@ -1,3 +1,4 @@
+import { readSortFor } from "../../ir/enrich/read-scope.js";
 // spec-emit — reified retrievals as Ardalis `Specification<T>` objects (the
 // query *bundle*: where + sort). The headline reified-criteria payoff on
 // .NET: a `retrieval` becomes a constructed Specification consumed by the
@@ -174,7 +175,6 @@ function renderSpec(
 /** The specification of a retrieval whose `where` the repository applies —
  *  the sort alone, so it takes no parameters. */
 function renderSortOnlySpec(r: RetrievalIR, agg: EnrichedAggregateIR, ns: string): string {
-  const sort = orderByChain(r);
   return lines(
     "// Auto-generated.",
     "using Ardalis.Specification;",
@@ -187,19 +187,22 @@ function renderSortOnlySpec(r: RetrievalIR, agg: EnrichedAggregateIR, ns: string
     "{",
     `    public ${specClassName(r.name)}()`,
     "    {",
-    sort ? `        Query${sort};` : null,
+    `        Query${orderByChain(r)};`,
     "    }",
     "}",
   );
 }
 
 /** `.OrderBy(x => x.A).ThenByDescending(x => x.B)` for a retrieval's sort
- *  terms (empty when unsorted) — Ardalis's builder mirrors LINQ's names, so
+ *  terms plus the `id` tie-break, or `.OrderBy(x => x.Id)` when unsorted
+ *  (`readSortFor`) — Ardalis's builder mirrors LINQ's names, so
  *  this is the same chain `find-emit.ts:orderByClauseFor` produces. Only the
  *  first path segment is used (a direct column), matching validateRetrievals. */
 function orderByChain(r: RetrievalIR): string {
-  if (r.sort.length === 0) return "";
-  return r.sort
+  // The lambda parameter yields to a same-named retrieval param, as the
+  // `where` lambda does (a param `x` would otherwise be shadowed).
+  const x = csLocalNamer(r.params.map((p) => p.name))("x");
+  return readSortFor(r.sort)
     .map((s, i) => {
       const col = upperFirst(s.path[0]!.name);
       const method =
@@ -210,7 +213,7 @@ function orderByChain(r: RetrievalIR): string {
           : s.direction === "desc"
             ? "ThenByDescending"
             : "ThenBy";
-      return `.${method}(x => x.${col})`;
+      return `.${method}(${x} => ${x}.${col})`;
     })
     .join("");
 }

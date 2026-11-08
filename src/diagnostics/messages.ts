@@ -329,6 +329,16 @@ export const DIAGNOSTIC_MESSAGES = {
     `join table is derived only for an aggregate root's own 'X id[]' fields, so no backend would ` +
     `store these ids.  Move '${p.field}' onto the aggregate root, or make the part hold a single ` +
     `'X id' and contain one part per referenced id.`,
+  "loom.collection-field-unpersisted#part-value-collection": (p: {
+    ownerName: unknown;
+    field: unknown;
+    hosts: unknown;
+  }) =>
+    `entity part '${p.ownerName}' field '${p.field}' is a value-object collection ('<VO>[]'), but ` +
+    `this context's persistence adapters are ${p.hosts}, and only a context hosted solely on JPA ` +
+    `(java, a child table), Dapper or MikroORM (a jsonb column) stores a part's value-object ` +
+    `collection; the others would lose it.  Move '${p.field}' onto the aggregate root, or model each element as a ` +
+    `contained entity part.`,
   "loom.collection-field-unpersisted#state-value-collection": (p: {
     owner: unknown;
     ownerName: unknown;
@@ -1641,6 +1651,21 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.applier-impure-call": (p: { owner: unknown; event: unknown; stmtName: unknown }) =>
     `${p.owner} apply(${p.event}) calls '${p.stmtName}'. ` +
     `Applier bodies must be deterministic, replayable folds — assignments and 'let' only, no side-effecting calls.`,
+  "loom.applier-impure-call#expression": (p: { owner: unknown; event: unknown; what: unknown }) =>
+    `${p.owner} apply(${p.event}) evaluates '${p.what}'. ` +
+    `An applier is a replayable fold of the event into state: a repository read, an aggregate create ` +
+    `or a resource call gives a different result on every replay. ` +
+    `Do the read or create in the command that decides the event and carry what it needs on the event.`,
+  "loom.loop-gate-not-implied": (p: {
+    where: unknown;
+    loopVar: unknown;
+    source: unknown;
+    op: unknown;
+    gate: unknown;
+  }) =>
+    `${p.where} calls '${p.op}' on every '${p.loopVar}' in '${p.source}', but the read's predicate does not ` +
+    `include the operation's gate '${p.gate}' — every row that fails it aborts the loop with 409 Disallowed. ` +
+    `Add the gate's conjuncts to the criterion or retrieval the read runs (\`… && ${p.gate}\`).`,
   "loom.applier-guard": (p: { owner: unknown; event: unknown; kind: unknown }) =>
     `${p.owner} apply(${p.event}) contains a '${p.kind}' statement. ` +
     `Guards belong in the command that decides the event; by the time it is applied the decision is already made.`,
@@ -5524,11 +5549,12 @@ export const DIAGNOSTIC_MESSAGES = {
     call: unknown;
     binding: unknown;
   }) =>
-    `${p.where} reaches repository '${p.repoName}' INLINE, inside an expression. A workflow or ` +
-    `handler wires up a repository only for a read bound to its own 'let' statement, so an inline read ` +
-    `is dropped from codegen: no repository is ever instantiated, and every backend renders ` +
-    `'${p.repoName}' as a bare name nothing binds. Bind the read first, then reference the ` +
-    `binding: 'let ${p.binding} = ${p.call}'.`,
+    `${p.where} reads repository '${p.repoName}' where the read runs only on some paths — ` +
+    `inside a lambda, on the right of '&&' / '||' / '??', in a '?:' branch or in a 'match' arm. ` +
+    `A read inside an expression runs as a 'let' ahead of its statement, and moving this one ` +
+    `there would run it where the source does not (a 'get' throws on a miss), so it is left ` +
+    `unbound and every backend renders '${p.repoName}' as a bare name nothing binds. Bind the ` +
+    `read before the statement and reference the binding: 'let ${p.binding} = ${p.call}'.`,
   "loom.handler-unknown-name": (p: {
     handler: unknown;
     where: unknown;

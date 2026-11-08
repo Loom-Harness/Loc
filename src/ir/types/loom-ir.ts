@@ -4124,6 +4124,12 @@ export type ExprIR =
          *  filters (`ignoring …`): `method` names the read's own method and
          *  there is no `retrievalName`. */
         bypassRead?: BypassReadIR;
+        /** The `ignoring` stance of a widened list read (`all(<Ref>) ignoring
+         *  …`): `retrievalName` then names the read's own retrieval
+         *  (`widenedRetrievalName`), which enrichment derives with this
+         *  stance on it. */
+        bypassAll?: boolean;
+        bypassCaps?: string[];
       };
       /** Populated when `callKind === "store-action"` (Stage 5) — the resolved
        *  store + action a `<Store>.<action>(…)` call dispatches to.  Structured

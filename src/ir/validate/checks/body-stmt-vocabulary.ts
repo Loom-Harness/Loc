@@ -109,6 +109,33 @@ function branchStmtsDeep(s: StmtIR, out: StmtIR[]): void {
   );
 }
 
+/** The impure EXPRESSIONS an applier body holds, in source order: a
+ *  repository read (`Owners.get(e.ref)` — a fold replays the stream, so a value
+ *  read from current storage differs between the first apply and every
+ *  replay), a factory create (`Owner.create(…)` — a new aggregate per replay),
+ *  and a resource or remote-api operation (I/O).  A statement kind is not
+ *  enough: these sit in the VALUE of a `let`, an `if` condition or an
+ *  assignment, all of which the vocabulary admits.  Deep, lambda blocks
+ *  included. */
+function applierImpureExprs(ctx: BoundedContextIR, statements: readonly StmtIR[]): string[] {
+  const repos = new Set(ctx.repositories.map((r) => r.name));
+  const aggs = new Set(ctx.aggregates.map((a) => a.name));
+  const out: string[] = [];
+  const visit = (e: ExprIR): void => {
+    if (e.kind === "method-call" && e.receiver.kind === "ref" && e.receiver.refKind === "unknown") {
+      const recv = e.receiver.name;
+      if (repos.has(recv)) out.push(`${recv}.${e.member}(…)`);
+      else if (aggs.has(recv) && e.member === "create") out.push(`${recv}.create(…)`);
+    } else if (e.kind === "call") {
+      if (e.callKind === "repo-read" && e.repoRead) out.push(`${e.repoRead.repo}.${e.name}(…)`);
+      else if (e.callKind === "resource-op" || e.callKind === "remote-api-op")
+        out.push(`${e.name}(…)`);
+    }
+  };
+  for (const st of statements) walkStmtExprsDeep(st, visit);
+  return out;
+}
+
 /** Rule 4 of the event-sourcing discipline, for BOTH applier owners: an
  *  applier body is a pure fold.  Deep, so a refused kind inside a branch is
  *  caught exactly like one at the top of the body. */
@@ -128,6 +155,19 @@ export function validateApplierBodies(ctx: BoundedContextIR, diags: LoomDiagnost
       const own: StmtIR[] = [];
       for (const top of ap.statements) branchStmtsDeep(top, own);
       const ownSet = new Set(own);
+      for (const what of new Set(applierImpureExprs(ctx, ap.statements))) {
+        diags.push({
+          severity: "error",
+          code: "loom.applier-impure-call",
+          message: diagMessage("loom.applier-impure-call#expression", {
+            owner,
+            event: ap.event,
+            what,
+          }),
+          source,
+          origin,
+        });
+      }
       for (const stmt of deep) {
         const r = applierRefusal(stmt);
         const refusal = r === "vocabulary" && !ownSet.has(stmt) ? null : r;

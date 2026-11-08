@@ -640,10 +640,14 @@ export function buildJavaOpenApiContract(
 
 /** The required-field list for a response/wire component: the id row (always
  *  present → required) plus every non-optional declared/containment/derived
- *  field.  Mirrors the Hono response zod (`z.string()` for id; `.nullish()`
- *  only for optional fields). */
+ *  field.  A `mask unless` field is redacted to null for a caller who fails
+ *  the predicate, so — like an optional field — it is nullable and not
+ *  required.  Mirrors the Hono response zod (`z.string()` for id; `.nullish()`
+ *  for optional and masked fields). */
 function requiredWireFields(fields: readonly WireField[]): string[] {
-  return fields.filter((w) => w.source === "id" || !w.optional).map((w) => w.name);
+  return fields
+    .filter((w) => w.source === "id" || (!w.optional && w.maskUnless === undefined))
+    .map((w) => w.name);
 }
 
 /** Required params for an OPERATION request DTO: every param that is not

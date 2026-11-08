@@ -68,9 +68,25 @@ export function renderValueObject(vo: ValueObjectIR, ns: string): string {
   // A field spelled like a static receiver (`Math`, `Regex`, the `System`
   // root, …) shadows it inside the record — see bcl-collision.ts.
   const renderCtx = { thisName: "this", memberScope: csMemberScope(typeMemberNames(vo), ns) };
-  const propLines = vo.fields.map(
-    (f) => `    public ${renderCsType(f.type)} ${upperFirst(f.name)} { get; init; }`,
-  );
+  // An enum leaf serialises as its member NAME, not System.Text.Json's default
+  // ordinal.  The Dapper adapter stores a value object as ONE jsonb column
+  // written with default options, and a criterion comparing the leaf
+  // (`this.meta.kind == k`) reads `meta->>'Kind'` against the enum's text — the
+  // spelling every enum column, parameter and literal already uses.  The
+  // attribute rides the property, so it holds for every serializer of the value
+  // object (a document snapshot, an outbox payload) and matches the wire's
+  // global `JsonStringEnumConverter`; a stored ordinal still reads back.
+  const propLines = vo.fields.flatMap((f) => {
+    const leaf = f.type.kind === "optional" ? f.type.inner : f.type;
+    return [
+      ...(leaf.kind === "enum"
+        ? [
+            `    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<${renderCsType(leaf)}>))]`,
+          ]
+        : []),
+      `    public ${renderCsType(f.type)} ${upperFirst(f.name)} { get; init; }`,
+    ];
+  });
   // A field spelled with a capital (`Guid: string`) would give a constructor
   // parameter identical to its property — `Guid = Guid;` assigns the parameter
   // to itself (CS1717 + CS8618) — so such a parameter is renamed (`guid`).

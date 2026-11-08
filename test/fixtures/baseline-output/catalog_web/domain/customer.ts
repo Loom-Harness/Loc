@@ -43,6 +43,9 @@ export class Customer {
     return out;
   }
 
+  /** @internal Repository save only: reflect the persisted version counter onto this instance. */
+  _applyVersion(next: number): void { this._version = next; }
+
   private _assertInvariants(): void {
     if (!(this._username !== this._email)) throw new DomainError("Business rule violated", "invariant");
     if (!(/^[a-z][a-z0-9_]*$/.test(this._username))) throw new DomainError("Business rule violated", "invariant");

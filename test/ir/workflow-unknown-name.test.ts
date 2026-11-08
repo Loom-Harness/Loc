@@ -90,7 +90,7 @@ describe("loom.workflow-unknown-name (IR, phase ⑦)", () => {
   });
 
   it("leaves an inline repository read to its own, more specific gate", async () => {
-    const ds = await diags("", 'precondition Ps.get(p).name != ""');
+    const ds = await diags("", 'precondition false || Ps.get(p).name != ""');
     const codes = ds.map((d) => d.code);
     expect(codes).toContain("loom.workflow-inline-repository-call");
     expect(codes).not.toContain(CODE);

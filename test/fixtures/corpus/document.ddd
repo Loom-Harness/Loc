@@ -40,6 +40,21 @@ system DocSys {
         operation shelve() { archived := true }
       }
       repository Drafts for Draft { }
+
+      // A value-object collection NESTED inside a value object.  A relational
+      // aggregate refuses it (a value object flattens into scalar columns), but
+      // a document stores the whole tree as one jsonb blob, so the nested
+      // array is just a JSON array inside it — on the list field, and below a
+      // single value object.
+      valueobject Threshold { minValue: int }
+      valueobject Rule { ruleKey: string  thresholds: Threshold[] }
+      valueobject RuleBox { label: string  primary: Rule }
+      aggregate Policy shape: document, with crudish {
+        name: string
+        rules: Rule[]
+        box: RuleBox
+      }
+      repository Policies for Policy { }
       criterion DraftsByTitle(t: string) of Draft = this.title == t
       queryHandler ListDraftsByTitle(t: string): Draft paged {
         let r = Drafts.all(DraftsByTitle(t))
@@ -126,5 +141,22 @@ system DocSys {
     expect(api.drafts.getById(live).title).toBe("Plan v2")
     api.drafts.destroy(live)
     expect(api.drafts.all().length).toBe(0)
+
+    // ── a value-object collection nested inside a value object ─────────────
+    let pol = api.policies.create({ name: "P1", rules: [{ ruleKey: "r1", thresholds: [{ minValue: 3 }, { minValue: 7 }] }], box: { label: "b", primary: { ruleKey: "r2", thresholds: [{ minValue: 11 }] } } })
+    let readPol = api.policies.getById(pol)
+    expect(readPol.rules.length).toBe(1)
+    expect(readPol.rules.first().ruleKey).toBe("r1")
+    expect(readPol.rules.first().thresholds.length).toBe(2)
+    expect(readPol.rules.first().thresholds.first().minValue).toBe(3)
+    expect(readPol.box.primary.thresholds.first().minValue).toBe(11)
+    api.policies.update(pol, { name: "P2", rules: [], box: { label: "c", primary: { ruleKey: "r3", thresholds: [] } } })
+    let updatedPol = api.policies.getById(pol)
+    expect(updatedPol.rules.length).toBe(0)
+    expect(updatedPol.box.primary.ruleKey).toBe("r3")
+    expect(updatedPol.box.primary.thresholds.length).toBe(0)
+    expect(api.policies.all().length).toBe(1)
+    api.policies.destroy(pol)
+    expect(api.policies.all().length).toBe(0)
   }
 }
