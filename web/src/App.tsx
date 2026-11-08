@@ -284,9 +284,9 @@ export default function App(): JSX.Element {
 
   // Editor's seed value for the active file — the precedence rule (and
   // why `persistedSource` may only be consulted pre-hydration) lives in
-  // `workspace/initial-source.ts`.  The editor remounts via
-  // `key={…activePath}:{sourceEpoch}` when either changes, picking up
-  // this freshly-computed value each time.
+  // `workspace/initial-source.ts`.  The editor remounts on an active-path
+  // change and reseeds in place on a `sourceEpoch` change, picking up this
+  // freshly-computed value each time.
   const initialSource = useMemo(
     () =>
       pickInitialSource({

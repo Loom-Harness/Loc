@@ -20,7 +20,7 @@
 
 import type { Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
-import { prependMarker, waitForPlaygroundReady } from "./_helpers";
+import { prependMarker, readEditorSource, waitForPlaygroundReady } from "./_helpers";
 
 /** Wipe the playground's IndexedDB so each test starts clean (mirrors
  *  workspace-persistence.spec.ts / workspace-history.spec.ts). */
@@ -98,9 +98,9 @@ test("second tab opens read-only, can take over, and both tabs stay live", async
   // 5. B is genuinely the writer now, and A follows it.
   const markerB = `// tab-b-${Date.now()}`;
   await typeMarker(b, markerB);
-  await expect(a.locator(".monaco-editor").first()).toContainText(markerB, {
-    timeout: 20_000,
-  });
+  // Read A's model, not its rendered lines: A's editor reseeds in place and
+  // keeps its scroll, so the new first line need not be on screen.
+  await expect.poll(() => readEditorSource(a), { timeout: 20_000 }).toContain(markerB);
 
   // …and it is durable, not just on-screen: a fresh load of the workspace
   // sees B's edit rather than A's stale buffer written back over it.
