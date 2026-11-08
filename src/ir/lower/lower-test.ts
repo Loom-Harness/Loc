@@ -20,19 +20,30 @@ import {
   isDomainService,
   isExpectStmt,
   isLetStmt,
+  isListLit,
   isMemberSuffix,
   isPostfixChain,
+  isStringLit,
   isTestBlock,
+  isTestPrincipal,
   isValueObject,
   type LetStmt,
   type Model,
   type Statement,
   type TestBlock,
+  type TestPrincipal,
   type ValueObject,
 } from "../../language/generated/ast.js";
 import { classifyRepoArg, queryNamesOf } from "../../language/repo-query-arg.js";
 import { bypassReadMethodName } from "../../util/repository-contract.js";
-import type { BypassReadIR, ExprIR, TestIR, TestStmtIR } from "../types/loom-ir.js";
+import type {
+  BypassReadIR,
+  ExprIR,
+  TestIR,
+  TestPrincipalClaimIR,
+  TestPrincipalIR,
+  TestStmtIR,
+} from "../types/loom-ir.js";
 import type { OriginRef } from "../types/origin.js";
 import { resolveBypass } from "./lower-capabilities.js";
 import { lowerExpr } from "./lower-expr.js";
@@ -94,18 +105,41 @@ export function lowerTest(block: TestBlock, env: Env): TestIR {
   for (const s of block.body) {
     if (isExpectStmt(s)) {
       statements.push(expectStmtIR(lowerExpr(s.expr, inner), cstText(s.expr), originFor(s)));
+    } else if (isTestPrincipal(s)) {
+      statements.push({ kind: "principal", principal: lowerTestPrincipal(s)! });
     } else {
       const r = lowerStatement(s as Statement, inner);
       statements.push(isLetStmt(s) ? widenByIdRead(r.stmt, s, inner) : r.stmt);
       inner = r.envAfter;
     }
   }
+  const principal = lowerTestPrincipal(block.principal);
   return {
     name: block.name,
     statements,
     verifiesTestCase: block.verifies?.ref?.name,
     origin: originFor(block),
+    ...(principal ? { principal } : {}),
   };
+}
+
+/** Lower an `as { … }` clause to its claim map.  A value that is not a string
+ *  literal or a list of string literals is `loom.test-principal-value` at AST
+ *  validation, so it is dropped here rather than guessed at. */
+export function lowerTestPrincipal(node: TestPrincipal | undefined): TestPrincipalIR | undefined {
+  if (!node) return undefined;
+  const claims: TestPrincipalClaimIR[] = [];
+  for (const c of node.claims) {
+    const v = c.value;
+    let value: string | string[] | undefined;
+    if (isStringLit(v)) value = v.value;
+    else if (isListLit(v) && v.elements.every(isStringLit)) {
+      value = v.elements.map((e) => (isStringLit(e) ? e.value : ""));
+    }
+    if (value === undefined) continue;
+    claims.push({ name: c.name, value, origin: originFor(c) });
+  }
+  return { claims, origin: originFor(node) };
 }
 
 /** A context integration test's `let o = Order.find(id) ignoring …`: the read

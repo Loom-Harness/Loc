@@ -81,6 +81,7 @@ import {
 import {
   walkExprDeep,
   walkStmtExprsDeep,
+  walkTestStmtExprsDeep,
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../util/walk.js";
@@ -1076,8 +1077,7 @@ function bypassReads(ctx: BoundedContextIR): BypassRead[] {
   };
   for (const t of ctx.tests ?? []) {
     for (const st of t.statements) {
-      if (st.kind === "expect" || st.kind === "expect-throws") walkExprDeep(st.expr, noteTestExpr);
-      else walkStmtExprsDeep(st, noteTestExpr);
+      walkTestStmtExprsDeep(st, noteTestExpr);
     }
   }
   return out;
