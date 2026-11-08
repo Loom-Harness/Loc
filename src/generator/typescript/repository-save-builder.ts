@@ -20,6 +20,7 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, upperFirst } from "../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { aggregateIsAudited, stampInsertCall, stampUpdateCall } from "./emit/audit-stamp.js";
@@ -187,24 +188,24 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
   // means another request won the race in between — `ConcurrencyError`,
   // mapped to 409 by the shared `onError` arm.
   if (rowVersionGuarded(agg)) {
-    const baseEntries = rootEntries(agg, "aggregate", ctx, new Set(["version"]));
+    const baseEntries = rootEntries(agg, "aggregate", ctx, new Set([ROW_VERSION_FIELD]));
     const insertRow = projectionObject("aggregate", [
       ...baseEntries,
-      { fieldName: "version", expr: "1" },
+      { fieldName: ROW_VERSION_FIELD, expr: "1" },
     ]);
     const updateRow = projectionObject("aggregate", [
       ...baseEntries,
-      { fieldName: "version", expr: "expected + 1" },
+      { fieldName: ROW_VERSION_FIELD, expr: "expected + 1" },
     ]);
     const insertValues = audited ? stampInsertCall(agg, insertRow) : insertRow;
     const updateSet = audited ? stampUpdateCall(agg, updateRow) : updateRow;
     return [
-      `      const expected = expectedVersion ?? aggregate.version;`,
+      `      const expected = expectedVersion ?? aggregate.${ROW_VERSION_FIELD};`,
       `      const existingRow = await tx.select({ id: schema.${tableName}.id }).from(schema.${tableName}).where(eq(schema.${tableName}.id, aggregate.id));`,
       `      if (existingRow.length === 0) {`,
       `        await tx.insert(schema.${tableName}).values(${insertValues});`,
       `      } else {`,
-      `        const updated = await tx.update(schema.${tableName}).set(${updateSet}).where(and(eq(schema.${tableName}.id, aggregate.id), eq(schema.${tableName}.version, expected)${kindPred ? `, ${kindPred}` : ""})).returning({ id: schema.${tableName}.id });`,
+      `        const updated = await tx.update(schema.${tableName}).set(${updateSet}).where(and(eq(schema.${tableName}.id, aggregate.id), eq(schema.${tableName}.${ROW_VERSION_FIELD}, expected)${kindPred ? `, ${kindPred}` : ""})).returning({ id: schema.${tableName}.id });`,
       `        if (updated.length === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
       `      }`,
       ...containBlocks,

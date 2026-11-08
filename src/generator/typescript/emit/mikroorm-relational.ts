@@ -27,6 +27,7 @@ import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
 import { joinColumnName } from "../emit.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
@@ -661,7 +662,7 @@ export function renderMikroRepository(
   // back to the just-loaded `aggregate.version`.
   const versioned = rowVersionGuarded(agg);
   const nonVersionEntries = scalarFields
-    .filter((f) => f.name !== "version")
+    .filter((f) => f.name !== ROW_VERSION_FIELD)
     .flatMap((f) => projectFieldEntries(f, "aggregate", ctx));
   const insertProjection = projectionObject("aggregate", [
     { fieldName: "id", expr: "aggregate.id as string" },
@@ -669,7 +670,7 @@ export function renderMikroRepository(
     ...nonVersionEntries,
     ...valueCollEntries,
     ...provEntries,
-    { fieldName: "version", expr: "1" },
+    { fieldName: ROW_VERSION_FIELD, expr: "1" },
   ]);
   // The UPDATE never writes `kind`: the row's discriminator is fixed at insert,
   // and the statement runs through the concrete's Row, which scopes it to that
@@ -678,12 +679,12 @@ export function renderMikroRepository(
     ...nonVersionEntries,
     ...valueCollEntries,
     ...provEntries,
-    { fieldName: "version", expr: "expected + 1" },
+    { fieldName: ROW_VERSION_FIELD, expr: "expected + 1" },
   ]);
   const insertValues = audited ? stampInsertCall(agg, insertProjection) : insertProjection;
   const updateSet = audited ? stampUpdateCall(agg, updateData) : updateData;
   const versionedSaveLines = [
-    `    const expected = expectedVersion ?? aggregate.version;`,
+    `    const expected = expectedVersion ?? aggregate.${ROW_VERSION_FIELD};`,
     // The save's statements are scoped by the row's id (and version) alone, so
     // they bypass the read scope: an aggregate the caller loaded `ignoring` a
     // filter must still be savable, and a soft-deleted row must still be found
@@ -696,7 +697,7 @@ export function renderMikroRepository(
     `    if (existing === null) {`,
     `      await em.insert(${row}, ${insertValues});`,
     `    } else {`,
-    `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, version: expected }, ${updateSet}, { filters: false });`,
+    `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, ${ROW_VERSION_FIELD}: expected }, ${updateSet}, { filters: false });`,
     `      if (affected === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
     `    }`,
   ];

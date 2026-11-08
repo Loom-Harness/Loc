@@ -26,8 +26,8 @@
       "body": {
         "id": "<volatile:key>",
         "orderRef": "<uuid>",
-        "status": "Tracked",
-        "version": 2
+        "rowVersion": 2,
+        "status": "Tracked"
       }
     },
     {
@@ -38,8 +38,8 @@
       "body": {
         "id": "<volatile:key>",
         "orderRef": "<uuid>",
-        "status": "Tracked",
-        "version": 2
+        "rowVersion": 2,
+        "status": "Tracked"
       }
     },
     {
@@ -67,8 +67,8 @@
       "body": {
         "customerId": "<volatile:key>",
         "id": "<volatile:key>",
-        "status": "Placed",
-        "version": 3
+        "rowVersion": 3,
+        "status": "Placed"
       }
     },
     {
@@ -81,8 +81,8 @@
           {
             "customerId": "<volatile:key>",
             "id": "<volatile:key>",
-            "status": "Placed",
-            "version": 3
+            "rowVersion": 3,
+            "status": "Placed"
           }
         ],
         "page": 1,
@@ -101,8 +101,8 @@
           {
             "id": "<volatile:key>",
             "orderRef": "<uuid>",
-            "status": "Tracked",
-            "version": 2
+            "rowVersion": 2,
+            "status": "Tracked"
           }
         ],
         "page": 1,
@@ -126,8 +126,8 @@
       "body": {
         "id": "<volatile:key>",
         "orderRef": "<uuid>",
-        "status": "Tracked",
-        "version": 3
+        "rowVersion": 3,
+        "status": "Tracked"
       }
     },
     {
@@ -169,8 +169,8 @@
           {
             "customerId": "<volatile:key>",
             "id": "<volatile:key>",
-            "status": "Placed",
-            "version": 3
+            "rowVersion": 3,
+            "status": "Placed"
           }
         ],
         "page": 1,

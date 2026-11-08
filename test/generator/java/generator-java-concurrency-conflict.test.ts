@@ -66,16 +66,16 @@ describe("java generator — versioned optimistic-concurrency", () => {
     // The NEGATIVE is the whole point: `@Version` would hand the counter back to
     // Hibernate's dirty check and re-open RS-20's three divergences.
     expect(entity).not.toContain("@Version");
-    expect(entity).toContain('@Column(name = "version", updatable = false)');
-    expect(entity).toContain("int version;");
+    expect(entity).toContain('@Column(name = "row_version", updatable = false)');
+    expect(entity).toContain("int rowVersion;");
     // …and the persist site needs a way to write the counter back onto the live
     // instance (the response DTO is projected off it), across packages —
     // `directoryLayout` can split entity and repository impl.
     expect(entity).toContain("public void _applyVersion(int next) {");
-    expect(entity).toContain("this.version = next;");
+    expect(entity).toContain("this.rowVersion = next;");
     // The create factory seeds the counter; a create matches no row, so this is
     // the value the insert carries.
-    expect(entity).toContain("e.version = 1;");
+    expect(entity).toContain("e.rowVersion = 1;");
   });
 
   it("Spring Data repository declares the GUARDED version bump", async () => {
@@ -88,7 +88,7 @@ describe("java generator — versioned optimistic-concurrency", () => {
     // clearAutomatically = false keeps the managed instance the impl mutates.
     expect(jpa).toContain("@Modifying(flushAutomatically = true, clearAutomatically = false)");
     expect(jpa).toContain(
-      '@Query("update Customer e set e.version = e.version + 1 where e.id = :id and e.version = :expected")',
+      '@Query("update Customer e set e.rowVersion = e.rowVersion + 1 where e.id = :id and e.rowVersion = :expected")',
     );
     expect(jpa).toContain(
       'int bumpVersion(@Param("id") CustomerId id, @Param("expected") int expected);',
@@ -106,7 +106,7 @@ describe("java generator — versioned optimistic-concurrency", () => {
     // A @Modifying query needs an active transaction of its own when the caller
     // (seed / bootstrap) has none.
     expect(impl).toContain("@Transactional");
-    expect(impl).toContain("var __expectedVersion = aggregate.version();");
+    expect(impl).toContain("var __expectedVersion = aggregate.rowVersion();");
     expect(impl).toContain("if (jpa.bumpVersion(aggregate.id(), __expectedVersion) == 1) {");
     expect(impl).toContain("aggregate._applyVersion(__expectedVersion + 1);");
     // Zero rows + the row EXISTS = another writer moved it inside our load→save
@@ -167,7 +167,7 @@ describe("java generator — versioned optimistic-concurrency", () => {
       "public void update(CustomerId id, UpdateCustomerRequest request, Integer ifMatch) {",
     );
     expect(service).toContain(
-      "if (ifMatch != null && aggregate.version() != ifMatch) throw new ObjectOptimisticLockingFailureException(Customer.class, id.value());",
+      "if (ifMatch != null && aggregate.rowVersion() != ifMatch) throw new ObjectOptimisticLockingFailureException(Customer.class, id.value());",
     );
   });
 
@@ -254,20 +254,20 @@ describe("java generator — versioned optimistic-concurrency", () => {
       );
       expect(base).not.toContain("@Version");
       expect(base).toMatch(
-        /@Column\(name = "version", updatable = false\)\s*\n\s*protected int version;/,
+        /@Column\(name = "row_version", updatable = false\)\s*\n\s*protected int rowVersion;/,
       );
       expect(base).toContain("public void _applyVersion(int next) {");
-      expect(base).toContain("this.version = next;");
+      expect(base).toContain("this.rowVersion = next;");
       // The concrete redeclares neither the field nor the mutator.
       const concrete = files.get(`${ROOT}/features/cars/Car.java`)!;
       expect(concrete, "Car.java missing").toBeTruthy();
-      expect(concrete).not.toContain("int version;");
+      expect(concrete).not.toContain("int rowVersion;");
       expect(concrete).not.toContain("@Version");
       expect(concrete).not.toContain("_applyVersion");
       // …and the concrete's repository drives the bump through the shared id.
       const jpa = files.get(`${ROOT}/features/cars/CarJpaRepository.java`)!;
       expect(jpa).toContain(
-        '@Query("update Car e set e.version = e.version + 1 where e.id = :id and e.version = :expected")',
+        '@Query("update Car e set e.rowVersion = e.rowVersion + 1 where e.id = :id and e.rowVersion = :expected")',
       );
       // TPH shares the base's identity; a TPC concrete owns its own typed id.
       expect(jpa).toContain(
@@ -283,7 +283,7 @@ describe("java generator — versioned optimistic-concurrency", () => {
     const service = files.get(`${feature}/CustomerService.java`)!;
     const advice = files.get(`${ROOT}/api/ApiExceptionAdvice.java`)!;
     expect(entity).not.toContain("@Version");
-    expect(entity).toContain("int version;");
+    expect(entity).toContain("int rowVersion;");
     expect(entity).toContain("_applyVersion");
     expect(jpa).toContain("bumpVersion");
     expect(service).toContain("ObjectOptimisticLockingFailureException");

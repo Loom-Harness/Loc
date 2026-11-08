@@ -93,10 +93,12 @@ describe("conditional requests — ETag out, If-Match in", () => {
     const files = await emit(SRC(", versioned"));
     const routes = fileEndingWith(files, "http/order.routes.ts");
     // The read hands the client a tag...
-    expect(routes).toContain('c.header("etag", versionETag(found.version));');
+    expect(routes).toContain('c.header("etag", versionETag(found.rowVersion));');
     // ...and the write parses the header it gets back through the shared
     // helper, NOT `Number(...)` on a quoted string.
-    expect(routes).toContain("const expectedVersion = parseIfMatch(ifMatch, aggregate.version);");
+    expect(routes).toContain(
+      "const expectedVersion = parseIfMatch(ifMatch, aggregate.rowVersion);",
+    );
     expect(routes).not.toContain("Number(ifMatch)");
     // Both helpers are imported (the import list is patched by usage).
     expect(routes).toMatch(/import \{[^}]*\bparseIfMatch\b[^}]*\} from "\.\/problem-details";/);

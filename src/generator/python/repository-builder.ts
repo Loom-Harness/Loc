@@ -20,6 +20,7 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { findRaisesNotFound } from "../../ir/util/key-lookup.js";
 import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
+import { ROW_VERSION_COLUMN } from "../../util/row-version.js";
 import { pyConflictRaise, pyNotFoundRaise } from "./wire-policy-py.js";
 
 /** The minimal read shape the query-time projection reuse feeds
@@ -1371,11 +1372,11 @@ function saveMethod(
     // fresh INSERT never conflicts, so create/seed writes are unaffected.
     const setEntries = rootPairs
       .map(([k]) => k)
-      .filter((k) => k !== "id" && k !== "version")
+      .filter((k) => k !== "id" && k !== ROW_VERSION_COLUMN)
       .map((k) => `"${k}": root[${JSON.stringify(k)}]`);
-    setEntries.push(`"version": ${root}.version + 1`);
+    setEntries.push(`"${ROW_VERSION_COLUMN}": ${root}.${ROW_VERSION_COLUMN} + 1`);
     out.push(
-      `        _expected = ${aggVar}.version if expected_version is None else expected_version`,
+      `        _expected = ${aggVar}.${ROW_VERSION_COLUMN} if expected_version is None else expected_version`,
     );
     out.push("        _guarded = await self._session.execute(");
     out.push(`            ${R.insert}(${root})`);
@@ -1385,8 +1386,8 @@ function saveMethod(
     out.push(`                set_={${setEntries.join(", ")}},`);
     out.push(
       kindGuard
-        ? `                where=${R.and_}(${root}.version == _expected, ${kindGuard}),`
-        : `                where=${root}.version == _expected,`,
+        ? `                where=${R.and_}(${root}.${ROW_VERSION_COLUMN} == _expected, ${kindGuard}),`
+        : `                where=${root}.${ROW_VERSION_COLUMN} == _expected,`,
     );
     out.push("            )");
     out.push(`            .returning(${root}.id)`);

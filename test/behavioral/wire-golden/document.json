@@ -25,6 +25,7 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
+        "rowVersion": 2,
         "sections": [
           {
             "body": "B",
@@ -34,7 +35,6 @@
         ],
         "stage": "Pending",
         "title": "T1",
-        "version": 2,
         "viewCount": 0
       }
     },
@@ -52,6 +52,7 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
+        "rowVersion": 3,
         "sections": [
           {
             "body": "B",
@@ -61,7 +62,6 @@
         ],
         "stage": "Published",
         "title": "T2",
-        "version": 3,
         "viewCount": 5
       }
     },
@@ -79,6 +79,7 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
+        "rowVersion": 4,
         "sections": [
           {
             "body": "B",
@@ -88,7 +89,6 @@
         ],
         "stage": "Published",
         "title": "T2",
-        "version": 4,
         "viewCount": 6
       }
     },
@@ -101,6 +101,7 @@
         "items": [
           {
             "id": "<volatile:key>",
+            "rowVersion": 4,
             "sections": [
               {
                 "body": "B",
@@ -110,7 +111,6 @@
             ],
             "stage": "Published",
             "title": "T2",
-            "version": 4,
             "viewCount": 6
           }
         ],
@@ -128,6 +128,7 @@
       "body": [
         {
           "id": "<volatile:key>",
+          "rowVersion": 4,
           "sections": [
             {
               "body": "B",
@@ -137,7 +138,6 @@
           ],
           "stage": "Published",
           "title": "T2",
-          "version": 4,
           "viewCount": 6
         }
       ]
@@ -215,8 +215,8 @@
       "body": {
         "archived": false,
         "id": "<volatile:key>",
-        "title": "Plan",
-        "version": 1
+        "rowVersion": 1,
+        "title": "Plan"
       }
     },
     {
@@ -241,8 +241,8 @@
         {
           "archived": false,
           "id": "<volatile:key>",
-          "title": "Plan",
-          "version": 1
+          "rowVersion": 1,
+          "title": "Plan"
         }
       ]
     },
@@ -256,8 +256,8 @@
           {
             "archived": false,
             "id": "<volatile:key>",
-            "title": "Plan",
-            "version": 1
+            "rowVersion": 1,
+            "title": "Plan"
           }
         ],
         "page": 1,
@@ -281,8 +281,8 @@
       "body": {
         "archived": false,
         "id": "<volatile:key>",
-        "title": "Plan v2",
-        "version": 2
+        "rowVersion": 2,
+        "title": "Plan v2"
       }
     },
     {

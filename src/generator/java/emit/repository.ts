@@ -12,6 +12,7 @@ import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import {
@@ -461,13 +462,6 @@ export function renderJavaRepositoryInterface(
   );
 }
 
-/** The `versioned` capability's synthetic counter field (`version: int token`).
- *  Read off the aggregate rather than hard-coded so the JPQL bump, the entity
- *  mutator and the impl's guard can never drift apart. */
-export function versionFieldName(agg: EnrichedAggregateIR): string {
-  return agg.fields.find((f) => f.access === "token")?.name ?? "version";
-}
-
 export function renderJavaSpringDataRepository(
   agg: EnrichedAggregateIR,
   repo: RepositoryIR | undefined,
@@ -582,7 +576,7 @@ export function renderJavaSpringDataRepository(
   // command, and zero rows == another writer moved the row (→ 409).
   const versionBump: string[] = [];
   if (rowVersionGuarded(agg)) {
-    const vf = versionFieldName(agg);
+    const vf = ROW_VERSION_FIELD;
     versionBump.push(
       // `flushAutomatically` writes the command's pending field/child changes
       // BEFORE the bump (so they carry the pre-bump version, matching the row);
@@ -633,7 +627,7 @@ export function renderJavaRepositoryImpl(
   const requestContext = javaRef(`${ctx.basePkg}.config`, "RequestContext");
   const provenance = !!ctx.provenance;
   const versioned = rowVersionGuarded(agg);
-  const versionField = versionFieldName(agg);
+  const versionField = ROW_VERSION_FIELD;
   // Selective bypass: a find / retrieval read that `ignoring`s a capability
   // runs with that capability's Hibernate named filters DISABLED — tenancy's
   // included.  The impl wraps the delegate body with

@@ -32,7 +32,7 @@
         "id": "<volatile:key>",
         "name": "Hall",
         "openedAt": "<timestamp>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -47,7 +47,7 @@
         "id": "<volatile:key>",
         "name": "Annex",
         "openedAt": "<timestamp>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -76,9 +76,9 @@
       "body": {
         "id": "<volatile:key>",
         "label": "A",
+        "rowVersion": 1,
         "startsAt": "<timestamp>",
-        "venueId": "<volatile:key>",
-        "version": 1
+        "venueId": "<volatile:key>"
       }
     },
     {
@@ -89,9 +89,9 @@
       "body": {
         "id": "<volatile:key>",
         "label": "B",
+        "rowVersion": 1,
         "startsAt": "<timestamp>",
-        "venueId": "<volatile:key>",
-        "version": 1
+        "venueId": "<volatile:key>"
       }
     },
     {
@@ -109,9 +109,9 @@
       "body": {
         "id": "<volatile:key>",
         "label": "A",
+        "rowVersion": 2,
         "startsAt": "<timestamp>",
-        "venueId": "<volatile:key>",
-        "version": 2
+        "venueId": "<volatile:key>"
       }
     },
     {
@@ -124,16 +124,16 @@
           {
             "id": "<volatile:key>",
             "label": "A",
+            "rowVersion": 2,
             "startsAt": "<timestamp>",
-            "venueId": "<volatile:key>",
-            "version": 2
+            "venueId": "<volatile:key>"
           },
           {
             "id": "<volatile:key>",
             "label": "B",
+            "rowVersion": 1,
             "startsAt": "<timestamp>",
-            "venueId": "<volatile:key>",
-            "version": 1
+            "venueId": "<volatile:key>"
           }
         ],
         "page": 1,
@@ -189,7 +189,7 @@
             "id": "<volatile:key>",
             "name": "Hall",
             "openedAt": "<timestamp>",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -230,7 +230,7 @@
         "id": "<volatile:key>",
         "name": "Hall",
         "openedAt": "<timestamp>",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -248,9 +248,9 @@
       "body": {
         "id": "<volatile:key>",
         "label": "B",
+        "rowVersion": 2,
         "startsAt": "<timestamp>",
-        "venueId": "<volatile:key>",
-        "version": 2
+        "venueId": "<volatile:key>"
       }
     },
     {

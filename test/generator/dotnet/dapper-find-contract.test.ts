@@ -51,7 +51,7 @@ describe("dapper repository — single-row contract", () => {
     expect(handler).toContain("var p = __pHits.Count > 0 ? __pHits[0] : null;");
     // …and the retrieval pushes that limit into the SQL.
     expect(impl).toContain(
-      'var sql = "SELECT id, sku, name, version FROM products WHERE (sku = @sku)";',
+      'var sql = "SELECT id, sku, name, row_version FROM products WHERE (sku = @sku)";',
     );
     expect(impl).toContain(
       'if (pg.limit is { } lim) { sql += " LIMIT @__lim"; p.Add("__lim", lim); }',
@@ -62,7 +62,7 @@ describe("dapper repository — single-row contract", () => {
       ...impl.matchAll(/QuerySingleOrDefaultAsync<Row>\(new CommandDefinition\("([^"]*)"/g),
     ];
     expect(strict.map((m) => m[1])).toEqual([
-      "SELECT id, sku, name, version FROM products WHERE id = @id",
+      "SELECT id, sku, name, row_version FROM products WHERE id = @id",
     ]);
   });
 });

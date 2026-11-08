@@ -10,6 +10,7 @@ import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../util/row-version.js";
 import { PY_IMPORTS } from "../_imports/python.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
 import { writeScopePredicate } from "./find-predicate.js";
@@ -233,18 +234,18 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
     // INSERT never conflicts, so create/seed writes are unaffected.
     const setEntries = pairs
       .map(([k]) => k)
-      .filter((k) => k !== "id" && k !== "version")
+      .filter((k) => k !== "id" && k !== ROW_VERSION_COLUMN)
       .map((k) => `"${k}": root[${JSON.stringify(k)}]`);
-    setEntries.push(`"version": ${row}.version + 1`);
+    setEntries.push(`"${ROW_VERSION_COLUMN}": ${row}.${ROW_VERSION_COLUMN} + 1`);
     out.push(
-      "        _expected = aggregate.version if expected_version is None else expected_version",
+      `        _expected = aggregate.${ROW_VERSION_COLUMN} if expected_version is None else expected_version`,
       "        _guarded = await self._session.execute(",
       `            ${R.insert}(${row})`,
       "            .values(**root)",
       "            .on_conflict_do_update(",
       '                index_elements=["id"],',
       `                set_={${setEntries.join(", ")}},`,
-      `                where=${row}.version == _expected,`,
+      `                where=${row}.${ROW_VERSION_COLUMN} == _expected,`,
       "            )",
       `            .returning(${row}.id)`,
       "        )",

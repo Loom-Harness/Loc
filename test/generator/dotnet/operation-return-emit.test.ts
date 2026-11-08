@@ -80,7 +80,7 @@ describe("dotnet — exception-less operation returns (A3)", () => {
     // `Ok(object)` left DeclaredType null, so the tag vanished from the wire.
     expect(c).toMatch(/case \S+\.OrderOrNotFound_Order v:/);
     expect(c).toMatch(
-      /return new ObjectResult\(\(\S+\.OrderOrNotFound\)new \S+\.OrderOrNotFound_Order\(v\.Id, v\.Code, v\.Version\)\) \{ StatusCode = 200, DeclaredType = typeof\(\S+\.OrderOrNotFound\) \};/,
+      /return new ObjectResult\(\(\S+\.OrderOrNotFound\)new \S+\.OrderOrNotFound_Order\(v\.Id, v\.Code, v.RowVersion\)\) \{ StatusCode = 200, DeclaredType = typeof\(\S+\.OrderOrNotFound\) \};/,
     );
     expect(c).toMatch(/\[ProducesResponseType\(typeof\(\S+\.OrderOrNotFound\), 200\)\]/);
   });

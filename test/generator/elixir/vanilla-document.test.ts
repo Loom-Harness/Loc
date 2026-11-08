@@ -57,13 +57,13 @@ function file(files: Map<string, string>, suffix: string): string {
 }
 
 describe("vanilla shape: document persistence (DEBT-07)", () => {
-  it("emits an (id, data, version) schema, not flattened columns", async () => {
+  it("emits an (id, data, row_version) schema, not flattened columns", async () => {
     const schema = file(await generateSystemFiles(DOC), "/carts/cart.ex");
     // Route A: the blob is a TYPED `embeds_one :data, <Agg>.Data` embedded schema
     // (still one jsonb `data` column via the unchanged migration), not a flattened
     // relational table nor a bare `field :data, :map`.
     expect(schema).toContain("embeds_one :data, Api.Carts.Cart.Data, on_replace: :update");
-    expect(schema).toContain("field :version, :integer, default: 1");
+    expect(schema).toContain("field :row_version, :integer, default: 1");
     // The ROOT schema carries no flattened relational table (`schema "carts"` holds
     // only the embed + version + timestamps).
     expect(schema).not.toContain("has_many");
@@ -83,7 +83,7 @@ describe("vanilla shape: document persistence (DEBT-07)", () => {
     // `validate_required(:version)` while create (which never supplies it) would
     // fail with a 422 carrying an empty top-level `errors` array.
     const dataEmbed = schema.slice(schema.indexOf("defmodule Api.Carts.Cart.Data do"));
-    expect(dataEmbed).not.toContain("field :version");
+    expect(dataEmbed).not.toContain("field :row_version");
   });
 
   it("validates through the embedded Data changeset (cast + required + invariants)", async () => {
@@ -105,7 +105,7 @@ describe("vanilla shape: document persistence (DEBT-07)", () => {
     expect(cs).toContain(
       "|> cast_embed(:data, with: &Api.Carts.Cart.Data.changeset/2, required: true)",
     );
-    expect(cs).toContain("|> put_change(:version, version)");
+    expect(cs).toContain("|> put_change(:row_version, version)");
   });
 
   it("the document update guards the write with the client's expected version", async () => {
@@ -120,11 +120,13 @@ describe("vanilla shape: document persistence (DEBT-07)", () => {
     expect(repo).toContain(
       "def update(%Api.Carts.Cart{} = record, attrs, expected_version \\\\ nil)",
     );
-    expect(repo).toContain("record = %{record | version: expected_version || record.version}");
     expect(repo).toContain(
-      "|> Api.Carts.CartChangeset.document_update_changeset(attrs, record.version)",
+      "record = %{record | row_version: expected_version || record.row_version}",
     );
-    expect(repo).toContain("|> Ecto.Changeset.optimistic_lock(:version)");
+    expect(repo).toContain(
+      "|> Api.Carts.CartChangeset.document_update_changeset(attrs, record.row_version)",
+    );
+    expect(repo).toContain("|> Ecto.Changeset.optimistic_lock(:row_version)");
     expect(repo).toContain("Ecto.StaleEntryError -> {:error, :conflict}");
     expect(repo).not.toContain("Map.merge(record.data");
     // Same fn names as the relational repo (so context defdelegates are unchanged).
@@ -132,10 +134,10 @@ describe("vanilla shape: document persistence (DEBT-07)", () => {
     expect(repo).toContain("def find_by_id(id)");
   });
 
-  it("emits the canonical (id, data, version) document migration", async () => {
+  it("emits the canonical (id, data, row_version) document migration", async () => {
     const mig = file(await generateSystemFiles(DOC), "_create_carts.exs");
     expect(mig).toContain("add :data, :map");
-    expect(mig).toContain("add :version, :integer");
+    expect(mig).toContain("add :row_version, :integer");
     expect(mig).not.toContain("add :reference");
   });
 
@@ -228,7 +230,7 @@ describe("vanilla shape: document scalar finds + named ops (Route A slice 2 — 
     expect(ctx).toContain("with :ok <- ensure(record.item_count >= 0, {:precondition_failed, ");
     expect(ctx).not.toContain("raise(ArgumentError");
     expect(ctx).toContain("record = %{record | item_count: record.item_count + 1}");
-    expect(ctx).toContain("|> Ecto.Changeset.optimistic_lock(:version)");
+    expect(ctx).toContain("|> Ecto.Changeset.optimistic_lock(:row_version)");
     expect(ctx).toContain("|> Ecto.Changeset.put_embed(:data, Map.from_struct(record))");
     expect(ctx).toContain("|> Api.Carts.CartRepository.persist_change()");
     // An enum assign uses the stored string form (struct field stays `:string`).
@@ -324,7 +326,7 @@ describe("vanilla shape: document non-scalar residual (DEBT-07 follow-up)", () =
     expect(ctx).toContain("|> Ecto.Changeset.put_embed(:data, Map.from_struct(record))");
     expect(ctx).toContain("case Api.Carts.CartRepository.persist_change(changeset) do");
     expect(ctx).toContain(
-      '{:ok, saved} -> {:ok, %{"id" => saved.id, "subtotal" => saved.data.subtotal, "itemCount" => saved.data.item_count, "version" => saved.version}}',
+      '{:ok, saved} -> {:ok, %{"id" => saved.id, "subtotal" => saved.data.subtotal, "itemCount" => saved.data.item_count, "rowVersion" => saved.row_version}}',
     );
     expect(ctx).toContain("{:error, changeset} -> {:error, changeset}");
   });
@@ -478,11 +480,11 @@ system Shop {
   it("persists a MUTATING fall-through success + projects off the saved embed", async () => {
     const bump = op(file(await generateSystemFiles(DOC_RET), "/shop.ex"), "bump_fall_cart");
     expect(bump).toContain("record = %{record | total: record.total + 1}");
-    expect(bump).toContain("|> Ecto.Changeset.optimistic_lock(:version)");
+    expect(bump).toContain("|> Ecto.Changeset.optimistic_lock(:row_version)");
     expect(bump).toContain("|> Ecto.Changeset.put_embed(:data, Map.from_struct(record))");
     expect(bump).toContain("case Api.Shop.CartRepository.persist_change(changeset) do");
     expect(bump).toContain(
-      '{:ok, saved} -> {:ok, %{"id" => saved.id, "total" => saved.data.total, "version" => saved.version}}',
+      '{:ok, saved} -> {:ok, %{"id" => saved.id, "total" => saved.data.total, "rowVersion" => saved.row_version}}',
     );
     expect(bump).toContain("{:error, changeset} -> {:error, changeset}");
   });
@@ -493,7 +495,7 @@ system Shop {
     // the aggregate-success projection off the saved embed (no inline in-memory return).
     expect(bump).toContain("|> Ecto.Changeset.put_embed(:data, Map.from_struct(record))");
     expect(bump).toContain(
-      '{:ok, saved} -> {:ok, %{"id" => saved.id, "total" => saved.data.total, "version" => saved.version}}',
+      '{:ok, saved} -> {:ok, %{"id" => saved.id, "total" => saved.data.total, "rowVersion" => saved.row_version}}',
     );
   });
 
@@ -542,7 +544,7 @@ system Shop {
     // Post-commit success projects the aggregate wire off the saved embed.
     expect(body).toContain("case tx_result do");
     expect(body).toContain(
-      '{:ok, saved} -> {:ok, %{"id" => saved.id, "total" => saved.data.total, "version" => saved.version}}',
+      '{:ok, saved} -> {:ok, %{"id" => saved.id, "total" => saved.data.total, "rowVersion" => saved.row_version}}',
     );
     expect(body).toContain("{:error, reason} -> {:error, reason}");
     // Guard precedes the transaction (a denial writes nothing + records no audit).

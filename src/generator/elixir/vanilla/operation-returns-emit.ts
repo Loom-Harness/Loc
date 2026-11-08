@@ -38,6 +38,7 @@ import {
   snake,
   upperFirst,
 } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { type SourceMapSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
@@ -937,7 +938,7 @@ export function renderReturningOpFunction(
   // `Ecto.StaleEntryError` (rescued to `{:error, :conflict}` → 409 in
   // `persist_change/1`) instead of silently overwriting the other writer.
   const versionLock = savesLockVersion(agg)
-    ? "\n      |> Ecto.Changeset.optimistic_lock(:version)"
+    ? `\n      |> Ecto.Changeset.optimistic_lock(:${ROW_VERSION_COLUMN})`
     : "";
   // The persisted changeset is built with `change(%{}) |> force_change`, which
   // runs no validator — re-run the aggregate's invariants on it (both halves,

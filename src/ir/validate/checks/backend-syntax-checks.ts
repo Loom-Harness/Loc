@@ -433,9 +433,9 @@ function csMemberPositions(agg: AggregateIR): [string, string, string, string | 
  *  and the `PullEvents()` drain.  A `.ddd` member whose C# name equals one of
  *  them is a second declaration of the same name in one class body — CS0102
  *  (or CS0111 for a same-signature method) — whatever its kind or type, so no
- *  Color-Color exemption applies.  `Id`, `Version` and `Create` are not here:
- *  `id` / `create` are keywords, and a declared `version` IS the generated
- *  concurrency property. */
+ *  Color-Color exemption applies.  `Id`, `RowVersion` and `Create` are not here:
+ *  `id` / `create` are keywords, and a declared `rowVersion` is refused by
+ *  `loom.version-field-collision` before it reaches the backend. */
 const CS_GENERATED_ROOT_MEMBERS: ReadonlySet<string> = new Set([
   "Inspect",
   "ToString",

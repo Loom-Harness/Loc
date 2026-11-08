@@ -20,8 +20,8 @@
         "code": "O-1",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "total": "5.0000",
-        "version": 1
+        "rowVersion": 1,
+        "total": "5.0000"
       }
     },
     {
@@ -33,8 +33,8 @@
         "code": "O-1",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "total": "5.0000",
-        "version": 1
+        "rowVersion": 1,
+        "total": "5.0000"
       }
     },
     {
@@ -46,8 +46,8 @@
         "code": "O-1",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "total": "5.0000",
-        "version": 1
+        "rowVersion": 1,
+        "total": "5.0000"
       }
     },
     {
@@ -66,8 +66,8 @@
         "code": "O-2",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "total": "6.0000",
-        "version": 2
+        "rowVersion": 2,
+        "total": "6.0000"
       }
     },
     {
@@ -112,8 +112,8 @@
         "code": "O-2",
         "deletedAt": "<timestamp>",
         "id": "<volatile:key>",
-        "total": "6.0000",
-        "version": 3
+        "rowVersion": 3,
+        "total": "6.0000"
       }
     },
     {
@@ -173,7 +173,7 @@
         "body": "N-1",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -377,8 +377,8 @@
         "code": "LADDER-O1",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "total": "1.0000",
-        "version": 1
+        "rowVersion": 1,
+        "total": "1.0000"
       }
     },
     {
@@ -403,8 +403,8 @@
         "code": "LADDER-O1",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "total": "1.0000",
-        "version": 1
+        "rowVersion": 1,
+        "total": "1.0000"
       }
     },
     {
@@ -427,22 +427,22 @@
             "code": "LADDER-O",
             "deletedAt": null,
             "id": "<volatile:key>",
-            "total": "1.0000",
-            "version": 1
+            "rowVersion": 1,
+            "total": "1.0000"
           },
           {
             "code": "LADDER-O1",
             "deletedAt": null,
             "id": "<volatile:key>",
-            "total": "1.0000",
-            "version": 1
+            "rowVersion": 1,
+            "total": "1.0000"
           },
           {
             "code": "LADDER-O2",
             "deletedAt": null,
             "id": "<volatile:key>",
-            "total": "1.0000",
-            "version": 1
+            "rowVersion": 1,
+            "total": "1.0000"
           }
         ],
         "page": 1,
@@ -475,22 +475,22 @@
             "code": "LADDER-O",
             "deletedAt": null,
             "id": "<volatile:key>",
-            "total": "1.0000",
-            "version": 1
+            "rowVersion": 1,
+            "total": "1.0000"
           },
           {
             "code": "LADDER-O1",
             "deletedAt": null,
             "id": "<volatile:key>",
-            "total": "1.0000",
-            "version": 1
+            "rowVersion": 1,
+            "total": "1.0000"
           },
           {
             "code": "LADDER-O2",
             "deletedAt": null,
             "id": "<volatile:key>",
-            "total": "1.0000",
-            "version": 1
+            "rowVersion": 1,
+            "total": "1.0000"
           }
         ],
         "page": 1,
@@ -517,8 +517,8 @@
         "code": "LADDER-O3",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "total": "1.0000",
-        "version": 1
+        "rowVersion": 1,
+        "total": "1.0000"
       }
     },
     {
@@ -543,8 +543,8 @@
         "code": "LADDER-O3",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "total": "1.0000",
-        "version": 1
+        "rowVersion": 1,
+        "total": "1.0000"
       }
     },
     {
@@ -565,8 +565,8 @@
         "code": "LADDER-O4",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "total": "1.0000",
-        "version": 1
+        "rowVersion": 1,
+        "total": "1.0000"
       }
     },
     {
@@ -578,8 +578,8 @@
         "code": "LADDER-O4",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "total": "1.0000",
-        "version": 1
+        "rowVersion": 1,
+        "total": "1.0000"
       }
     },
     {
@@ -591,8 +591,8 @@
         "code": "LADDER-O4",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "total": "1.0000",
-        "version": 1
+        "rowVersion": 1,
+        "total": "1.0000"
       }
     },
     {
@@ -613,8 +613,8 @@
         "code": "LADDER-O5",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "total": "1.0000",
-        "version": 1
+        "rowVersion": 1,
+        "total": "1.0000"
       }
     },
     {
@@ -626,8 +626,8 @@
         "code": "LADDER-O5",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "total": "1.0000",
-        "version": 1
+        "rowVersion": 1,
+        "total": "1.0000"
       }
     },
     {
@@ -639,8 +639,8 @@
         "code": "LADDER-O5",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "total": "1.0000",
-        "version": 1
+        "rowVersion": 1,
+        "total": "1.0000"
       }
     },
     {
@@ -661,7 +661,7 @@
         "body": "LADDER-N1",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -686,7 +686,7 @@
         "body": "LADDER-N1",
         "deletedAt": null,
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -708,13 +708,13 @@
           "body": "LADDER-N1",
           "deletedAt": null,
           "id": "<volatile:key>",
-          "version": 1
+          "rowVersion": 1
         },
         {
           "body": "LADDER-N2",
           "deletedAt": null,
           "id": "<volatile:key>",
-          "version": 1
+          "rowVersion": 1
         }
       ]
     },
@@ -735,13 +735,13 @@
           "body": "LADDER-N1",
           "deletedAt": null,
           "id": "<volatile:key>",
-          "version": 1
+          "rowVersion": 1
         },
         {
           "body": "LADDER-N2",
           "deletedAt": null,
           "id": "<volatile:key>",
-          "version": 1
+          "rowVersion": 1
         }
       ]
     }

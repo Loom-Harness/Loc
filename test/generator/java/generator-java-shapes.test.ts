@@ -45,7 +45,7 @@ describe("java generator — shape: document", () => {
       ".withVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY)",
     );
     expect(impl).toContain(
-      '"insert into cms.articles (id, data, version) values (?, ?::jsonb, 1) "',
+      '"insert into cms.articles (id, data, row_version) values (?, ?::jsonb, 1) "',
     );
     // RS-14: `versioned` is default-on, so the upsert writes the incremented
     // counter back INTO the blob (`data.version`) as well as the column — the
@@ -53,11 +53,11 @@ describe("java generator — shape: document", () => {
     // bumping only the column left it frozen at its created value forever.
     expect(impl).toContain('+ "on conflict (id) do update set "');
     expect(impl).toContain(
-      `+ "data = jsonb_set(excluded.data, '{version}', to_jsonb(articles.version + 1)), "`,
+      `+ "data = jsonb_set(excluded.data, '{rowVersion}', to_jsonb(articles.row_version + 1)), "`,
     );
     // M-T6.95: the update arm is guarded on the handle's loaded version.
-    expect(impl).toContain('+ "version = articles.version + 1 "');
-    expect(impl).toContain('+ "where articles.version = ? returning version",');
+    expect(impl).toContain('+ "row_version = articles.row_version + 1 "');
+    expect(impl).toContain('+ "where articles.row_version = ? returning row_version",');
     expect(impl).toContain(
       "throw new ObjectOptimisticLockingFailureException(Article.class, aggregate.id().value());",
     );

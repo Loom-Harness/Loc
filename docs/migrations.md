@@ -330,7 +330,7 @@ such flag.
   | Capability | NOT NULL column | Existing rows | On a populated table |
   |---|---|---|---|
   | `softDeletable` | `is_deleted` | `false`, unambiguously (no row was ever soft-deleted before the capability) | added `DEFAULT false`, the default dropped in the same migration, as a field default (above). No flag, no block |
-  | `versioned` | `version` | `1` | a real `DEFAULT 1` column, never blocking |
+  | `versioned` | `row_version` | `1` | a real `DEFAULT 1` column, never blocking |
   | `tenantOwned` | `tenant_id` | unknown: which tenant owns a pre-tenancy row is a business fact, and a wrong guess leaks it | **refused**, with a line naming the capability and why |
   | `auditable` | `created_at`/`updated_at`/`created_by`/`updated_by` | unknown: the real creation time and author are lost | **refused**, same |
 
@@ -1323,9 +1323,10 @@ table.
 default — the macro layer splices the `versioned` capability into each one that
 is not event-sourced (`persistedAs: eventLog`, whose `(stream_id, version)`
 stream already is its concurrency control) — so a plain aggregate gains a
-`version INTEGER NOT NULL DEFAULT 1` state column; writing `with versioned` is
+`row_version INTEGER NOT NULL DEFAULT 1` state column (the `rowVersion`
+member; `version` stays free for domain data); writing `with versioned` is
 redundant. Every backend's save path emits
-a guarded `UPDATE … WHERE id = $1 AND version = $2` (bumping `version`) and returns
+a guarded `UPDATE … WHERE id = $1 AND row_version = $2` (bumping `row_version`) and returns
 HTTP **409** when zero rows match — a lost-update guard. See
 [`capabilities.md`](capabilities.md).
 

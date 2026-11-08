@@ -55,14 +55,14 @@ system Coll {
     expect(Object.keys(spec.aggregates).sort()).toEqual(["Billing.Order", "Sales.Order"]);
     expect(Object.keys(spec.aggregates["Sales.Order"]!.properties).sort()).toEqual([
       "id",
+      "rowVersion",
       "total",
-      "version",
     ]);
     expect(Object.keys(spec.aggregates["Billing.Order"]!.properties).sort()).toEqual([
       "amount",
       "id",
       "note",
-      "version",
+      "rowVersion",
     ]);
   });
 

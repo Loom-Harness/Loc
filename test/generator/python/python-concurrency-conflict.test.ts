@@ -56,11 +56,11 @@ describe("python generator — versioned optimistic-concurrency", () => {
       "async def save(self, aggregate: Customer, expected_version: int | None = None) -> None:",
     );
     expect(repo).toContain(
-      "_expected = aggregate.version if expected_version is None else expected_version",
+      "_expected = aggregate.row_version if expected_version is None else expected_version",
     );
     // Guarded update: bump the version, gated on the expected value, returning id.
-    expect(repo).toContain("CustomerRow.version + 1");
-    expect(repo).toContain("where=CustomerRow.version == _expected");
+    expect(repo).toContain("CustomerRow.row_version + 1");
+    expect(repo).toContain("where=CustomerRow.row_version == _expected");
     expect(repo).toContain(".returning(CustomerRow.id)");
     expect(repo).toContain(
       'raise ConcurrencyError(f"Customer {aggregate.id} was modified by another request")',
@@ -106,7 +106,7 @@ describe("python generator — versioned optimistic-concurrency", () => {
     // Read model carries the token.
     // `Int32`: a declared `int` carries its int4 bound + published format
     // through the shared alias (F11). The version token is one.
-    expect(routes).toContain("version: Int32");
+    expect(routes).toContain("rowVersion: Int32");
   });
 
   it("an aggregate WITHOUT `with versioned` gets the same guarded upsert — versioning is default-on (M-T3.4)", async () => {
@@ -119,7 +119,7 @@ describe("python generator — versioned optimistic-concurrency", () => {
     expect(repo).toContain(
       "async def save(self, aggregate: Customer, expected_version: int | None = None) -> None:",
     );
-    expect(repo).toContain("where=CustomerRow.version == _expected");
+    expect(repo).toContain("where=CustomerRow.row_version == _expected");
     expect(repo).toContain(
       'raise ConcurrencyError(f"Customer {aggregate.id} was modified by another request")',
     );

@@ -54,6 +54,7 @@ import { lines } from "../../../util/code-builder.js";
 import { rewrite } from "../../../util/emission-sink.js";
 import { intrinsicFor, intrinsicKey } from "../../../util/intrinsics.js";
 import { escapeCsharpIdent, plural, snake, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN, ROW_VERSION_PASCAL } from "../../../util/row-version.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
 import { renderPrincipalTest } from "../../_expr/principal-term.js";
@@ -1410,7 +1411,7 @@ export function renderDapperRepository(
   // unchanged.  A non-versioned aggregate keeps the blind upsert below
   // (byte-identical).
   const versioned = rowVersionGuarded(agg);
-  const versionCol = "version";
+  const versionCol = ROW_VERSION_COLUMN;
   const upsertSetNoVersion = cols
     .filter((c) => c.col !== "id" && c.col !== versionCol && !onCreateCols.has(c.col))
     .map((c) => `${sqlIdent(c.col)} = excluded.${sqlIdent(c.col)}`)
@@ -1452,14 +1453,14 @@ export function renderDapperRepository(
     ? [
         `        ${dapperOpenConn(ns)}`,
         `        ${DAPPER_BEGIN_TX}`,
-        "        var __expected = expectedVersion ?? aggregate.Version;",
+        `        var __expected = expectedVersion ?? aggregate.${ROW_VERSION_PASCAL};`,
         `        var __written = await conn.ExecuteScalarAsync<int?>(new CommandDefinition(${csSqlLiteral(`INSERT INTO ${table} (${insertColList}) VALUES (${versionedInsertValsTph}) ON CONFLICT (id) DO UPDATE SET ${versionedSetClause} WHERE ${table}.${versionCol} = @ExpectedVersion${tph ? ` AND ${scope.writeKindOn(table)}` : ""} RETURNING ${versionCol}`)}, new { ${saveParams}, ExpectedVersion = __expected }, transaction: __tx, cancellationToken: cancellationToken));`,
         `        if (__written is null) throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
         // The aggregate now carries the version it was stored at, so a response
         // projected after the save reads it, as on the EF path, where the change
         // tracker writes the bumped token back.  `Version` has a private setter,
         // reached through the declaring type's property.
-        `        typeof(${agg.name}).GetProperty("Version")!.DeclaringType!.GetProperty("Version")!.SetValue(aggregate, __written.Value);`,
+        `        typeof(${agg.name}).GetProperty("${ROW_VERSION_PASCAL}")!.DeclaringType!.GetProperty("${ROW_VERSION_PASCAL}")!.SetValue(aggregate, __written.Value);`,
       ]
     : [
         `        ${dapperOpenConn(ns)}`,
@@ -2251,7 +2252,7 @@ export function renderDapperDocumentRepository(
   // its next Save sends `ExpectedVersion = 0`, the CAS `WHERE version = 0`
   // misses the row (column is `1`), and every second write 409s.
   const deserSnap = versioned
-    ? `System.Text.Json.JsonSerializer.Deserialize<${snap}>(__d.data, __json)! with { Version = __d.version }`
+    ? `System.Text.Json.JsonSerializer.Deserialize<${snap}>(__d.data, __json)! with { ${ROW_VERSION_PASCAL} = __d.${ROW_VERSION_COLUMN} }`
     : `System.Text.Json.JsonSerializer.Deserialize<${snap}>(__d.data, __json)!`;
   const deser = `${agg.name}.FromSnapshot(${deserSnap})`;
 
@@ -2351,15 +2352,15 @@ export function renderDapperDocumentRepository(
   const saveLines = versioned
     ? [
         ...savePrelude,
-        "        var __expected = expectedVersion ?? aggregate.Version;",
-        `        var __affected = await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (id, data, version) VALUES (@id, CAST(@data AS jsonb), 1) ON CONFLICT (id) DO UPDATE SET data = excluded.data, version = ${table}.version + 1 WHERE ${table}.version = @ExpectedVersion", new { id = aggregate.Id.Value, data = __data, ExpectedVersion = __expected }, ${audit.txArg}cancellationToken: cancellationToken));`,
+        `        var __expected = expectedVersion ?? aggregate.${ROW_VERSION_PASCAL};`,
+        `        var __affected = await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (id, data, ${ROW_VERSION_COLUMN}) VALUES (@id, CAST(@data AS jsonb), 1) ON CONFLICT (id) DO UPDATE SET data = excluded.data, ${ROW_VERSION_COLUMN} = ${table}.${ROW_VERSION_COLUMN} + 1 WHERE ${table}.${ROW_VERSION_COLUMN} = @ExpectedVersion", new { id = aggregate.Id.Value, data = __data, ExpectedVersion = __expected }, ${audit.txArg}cancellationToken: cancellationToken));`,
         `        if (__affected == 0) throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
         ...audit.flush,
         audit.commit,
       ].filter((l): l is string => l !== null)
     : [
         ...savePrelude,
-        `        await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (id, data, version) VALUES (@id, CAST(@data AS jsonb), 1) ON CONFLICT (id) DO UPDATE SET data = excluded.data, version = ${table}.version + 1", new { id = aggregate.Id.Value, data = __data }, ${audit.txArg}cancellationToken: cancellationToken));`,
+        `        await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (id, data, ${ROW_VERSION_COLUMN}) VALUES (@id, CAST(@data AS jsonb), 1) ON CONFLICT (id) DO UPDATE SET data = excluded.data, ${ROW_VERSION_COLUMN} = ${table}.${ROW_VERSION_COLUMN} + 1", new { id = aggregate.Id.Value, data = __data }, ${audit.txArg}cancellationToken: cancellationToken));`,
         ...audit.flush,
         audit.commit,
       ].filter((l): l is string => l !== null);
@@ -2387,7 +2388,7 @@ export function renderDapperDocumentRepository(
       // that one was reached, so dapper kept answering heap order while EF did
       // not.  It is the same read on the same table, so it gets the same
       // ordering.  Id is the primary key, so this is an index scan.
-      `var __rows = await ${conn}.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} ORDER BY id", cancellationToken: ${ct}));`,
+      `var __rows = await ${conn}.QueryAsync<Row>(new CommandDefinition("SELECT id, data, ${ROW_VERSION_COLUMN} FROM ${table} ORDER BY id", cancellationToken: ${ct}));`,
       // The capability filter narrows the visible set BEFORE the find's own
       // predicate runs, so a find never returns a capability-hidden (foreign
       // tenant, soft-deleted) document.
@@ -2470,13 +2471,13 @@ export function renderDapperDocumentRepository(
       "    {",
       `        public ${idCs} id { get; set; }${idCs === "string" ? " = default!;" : ""}`,
       "        public string data { get; set; } = default!;",
-      "        public int version { get; set; }",
+      `        public int ${ROW_VERSION_COLUMN} { get; set; }`,
       "    }",
       "",
       `    public async Task<${agg.name}?> GetByIdAsync(${agg.name}Id id, CancellationToken cancellationToken = default)`,
       "    {",
       `        ${dapperOpenConn(ns)}`,
-      `        var __d = await conn.QuerySingleOrDefaultAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} WHERE id = @id", new { id = id.Value }, cancellationToken: cancellationToken));`,
+      `        var __d = await conn.QuerySingleOrDefaultAsync<Row>(new CommandDefinition("SELECT id, data, ${ROW_VERSION_COLUMN} FROM ${table} WHERE id = @id", new { id = id.Value }, cancellationToken: cancellationToken));`,
       // With a capability filter, a row OUTSIDE the caller's scope reads as
       // missing (→ 404), matching what the relational adapter's spliced WHERE
       // does to the same lookup.
@@ -2494,7 +2495,7 @@ export function renderDapperDocumentRepository(
       "    {",
       `        if (ids.Count == 0) return Array.Empty<${agg.name}>();`,
       `        ${dapperOpenConn(ns)}`,
-      `        var __rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} WHERE id = ANY(@ids)", new { ids = ids.Select(x => x.Value).ToArray() }, cancellationToken: cancellationToken));`,
+      `        var __rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT id, data, ${ROW_VERSION_COLUMN} FROM ${table} WHERE id = ANY(@ids)", new { ids = ids.Select(x => x.Value).ToArray() }, cancellationToken: cancellationToken));`,
       `        return __rows.Select(__d => ${deser})${capFilter}.ToList();`,
       "    }",
       ...capMethod,
