@@ -24,6 +24,9 @@ export interface LogLine {
    *  event name + request_id + payload fields as a richer rendering
    *  rather than dumping the JSON blob into `text`. */
   structured?: StructuredLogPayload;
+  /** The deployable (slug) whose runtime worker produced the line; absent for
+   *  lines with no such origin (the preview app's console). */
+  source?: string;
 }
 
 /** Shape of a pino log object emitted by the generated Hono backend.

@@ -28,6 +28,9 @@ export interface LoomRuntimeClientOptions {
   /** A request this deployable's code sent to another deployable's compose
    *  address.  The engine owns every worker, so it answers. */
   onHttpCall?: (host: string, request: SerializedRequest) => Promise<DispatchResult>;
+  /** The deployable this worker runs; stamped on every captured line so the
+   *  Output panel can tell the backends of one system apart. */
+  source?: string;
 }
 
 export class LoomRuntimeClient {
@@ -40,12 +43,14 @@ export class LoomRuntimeClient {
   private readonly onRespawn?: () => void;
   private readonly onLog?: (lines: LogLine[]) => void;
   private readonly onHttpCall?: LoomRuntimeClientOptions["onHttpCall"];
+  private readonly source?: string;
   private disposed = false;
 
   constructor(opts: LoomRuntimeClientOptions = {}) {
     this.onRespawn = opts.onRespawn;
     this.onLog = opts.onLog;
     this.onHttpCall = opts.onHttpCall;
+    this.source = opts.source;
     this.spawn();
   }
 
@@ -70,7 +75,10 @@ export class LoomRuntimeClient {
         return;
       }
       const msg = ev.data;
-      if (msg.logs && msg.logs.length > 0) this.onLog?.(msg.logs);
+      if (msg.logs && msg.logs.length > 0) {
+        const source = this.source;
+        this.onLog?.(source ? msg.logs.map((l) => ({ ...l, source })) : msg.logs);
+      }
       const slot = this.pending.get(msg.id);
       if (!slot) return;
       this.pending.delete(msg.id);

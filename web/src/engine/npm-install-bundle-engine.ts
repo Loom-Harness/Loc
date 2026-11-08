@@ -17,6 +17,7 @@ import type { StorageSchemaPlan } from "../runtime/infra-protocol.js";
 import type { BrokerInspectResult } from "../runtime/infra/broker-protocol.js";
 import type {
   BootFail,
+  BootFailAt,
   BootPlan,
   BootResult,
   DispatchResult,
@@ -167,6 +168,7 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     if (!rt) {
       rt = new LoomRuntimeClient({
         onLog: this.onLog,
+        source: slug || undefined,
         // Backend→backend HTTP: a deployable's request to another's compose
         // address runs through that deployable's app, in its own worker.
         onHttpCall: (host, request) => this.dispatch(request, host),
@@ -371,6 +373,7 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       applied: storages.flatMap((s) => s.applied),
       storages,
       backends: plan.backends.map((b) => b.slug),
+      deployables: plan.backends.map((b) => ({ slug: b.slug, storage: b.storage })),
     };
   }
 
@@ -407,7 +410,12 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
   private failed(fail: BootFail, slug?: string | null, storage?: string | null): BootFail {
     const where =
       slug && this.runtimes.size > 1 ? `${slug}: ` : storage ? `storage ${storage}: ` : "";
-    return { ...fail, message: `${where}${fail.message}` };
+    const at: BootFailAt | undefined = slug
+      ? { deployable: slug }
+      : storage
+        ? { storage }
+        : undefined;
+    return { ...fail, message: `${where}${fail.message}`, ...(at ? { at } : {}) };
   }
 
   private target(target?: string): LoomRuntimeClient | null {

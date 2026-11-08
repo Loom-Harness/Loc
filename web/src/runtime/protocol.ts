@@ -157,6 +157,18 @@ export interface BootPlan {
   }>;
 }
 
+/** A serving deployable and the `StorageBootPlan.key` it reads and writes. */
+export interface DeployableBootInfo {
+  slug: string;
+  storage: string;
+}
+
+/** Where a failed boot stopped, when it stopped at one deployable or storage. */
+export interface BootFailAt {
+  deployable?: string;
+  storage?: string;
+}
+
 /** What one storage's boot did. */
 export interface StorageBootInfo {
   key: string;
@@ -186,6 +198,8 @@ export interface BootOk {
   storages: StorageBootInfo[];
   /** Slugs of the deployables now serving, in plan order. */
   backends: string[];
+  /** Each serving deployable and the storage it binds, in plan order. */
+  deployables: DeployableBootInfo[];
 }
 
 export interface BootFail {
@@ -195,6 +209,9 @@ export interface BootFail {
    *  schema and the recorded chain cannot bring it there.  The database is
    *  left as it was and the app is not started. */
   pending?: BlockingMigrationState;
+  /** The deployable or storage the boot stopped at; absent when it failed
+   *  before any (or the system has one of each). */
+  at?: BootFailAt;
 }
 
 export type BootResult = BootOk | BootFail;
