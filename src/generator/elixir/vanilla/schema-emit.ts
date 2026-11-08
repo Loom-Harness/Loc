@@ -165,6 +165,7 @@ export function emitVanillaSchemas(
           relational,
           agg,
           voColumnsOf(ctx),
+          ctx,
         ),
       );
     }
@@ -213,14 +214,34 @@ function renderPartSchema(
   // part-in-part FK lines up with the shared migration's `tableForPart` DDL.
   agg?: AggregateIR,
   voColumns?: VoColumns,
+  ctx?: BoundedContextIR,
 ): string {
   const moduleName = `${appModule}.${ctxModule}.${upperFirst(part.name)}`;
+  // A part's own value-object collections.  On a relational owner each is a
+  // `has_many` onto its child schema over the part's id-less child table
+  // (`rule_conditions`, FK `rule_id`), cast through `cast_assoc` with each
+  // element's position stamped as its `ordinal`.  On an embedded owner the part
+  // is itself inline jsonb, so the list is an `{:array, :map}` field beside its
+  // scalars.
+  const valueRows = relational && ctx ? valueCollectionsWithVo(part, ctx) : [];
+  const valueRowFields = new Set(valueRows.map(({ vc }) => vc.fieldName));
+  const valueRowLines = valueRows.map(({ vc }) => {
+    const childMod = valueCollectionModule(appModule, ctx!, vc);
+    return `    has_many :${snake(vc.fieldName)}, ${childMod}, foreign_key: :${vc.parentFk}, on_replace: :delete, preload_order: [asc: :ordinal]`;
+  });
+  const inlineValueLines = relational
+    ? []
+    : part.fields
+        .filter((f) => isValueCollectionType(f.type))
+        .map((f) => `    field :${snake(f.name)}, ${mapTypeToEcto(f.type, enumsByName)}`);
   // A part's `createdAt` / `updatedAt` are ordinary declared columns: nothing
   // stamps a part (the audit lifecycle stamps the root only), the shared
   // migration emits them as plain columns, and the wire list below names them —
   // so they are schema fields the changeset casts, unlike the root's.
-  const fieldLines = part.fields
-    .map((f) => renderFieldLine(f, enumsByName, PART_SYSTEM_FIELDS, voColumns))
+  const fieldLines = [
+    ...part.fields.map((f) => renderFieldLine(f, enumsByName, PART_SYSTEM_FIELDS, voColumns)),
+    ...inlineValueLines,
+  ]
     .filter(Boolean)
     .join("\n");
   // Part-in-part containment.  On a relational owner it is a `has_many`/`has_one`
@@ -246,19 +267,34 @@ function renderPartSchema(
     ? `    belongs_to :${snake(ownerName)}, ${appModule}.${ctxModule}.${upperFirst(ownerName)}, foreign_key: :${snake(ownerName)}_id, type: :binary_id`
     : "";
   const timestampsLine = relational ? `    timestamps(type: ${exFrameworkTimestampType()})` : "";
-  const schemaBody = [fieldLines, containLines, belongsToLine, timestampsLine]
+  const schemaBody = [
+    fieldLines,
+    containLines,
+    valueRowLines.join("\n"),
+    belongsToLine,
+    timestampsLine,
+  ]
     .filter(Boolean)
     .join("\n");
   // Cast list: scalar columns only.  A nested containment round-trips via
   // `cast_assoc` on a relational owner (its own child rows) or `cast_embed` on an
   // embedded owner (inline jsonb).
   const castCols = part.fields
-    .filter((f) => !PART_SYSTEM_FIELDS.has(f.name) && mapTypeToEcto(f.type, enumsByName))
+    .filter(
+      (f) =>
+        !PART_SYSTEM_FIELDS.has(f.name) &&
+        !valueRowFields.has(f.name) &&
+        mapTypeToEcto(f.type, enumsByName),
+    )
     .map((f) => `:${snake(f.name)}`);
   const castAssocVerb = relational ? "cast_assoc" : "cast_embed";
-  const castEmbeds = (part.contains ?? [])
-    .map((c) => `    |> ${castAssocVerb}(:${snake(c.name)})`)
-    .join("\n");
+  const castEmbeds = [
+    ...(part.contains ?? []).map((c) => `    |> ${castAssocVerb}(:${snake(c.name)})`),
+    ...valueRows.map(
+      ({ vc }) =>
+        `    |> cast_assoc(:${snake(vc.fieldName)}, with: &${valueCollectionModule(appModule, ctx!, vc)}.changeset/2)`,
+    ),
+  ].join("\n");
   // Wire shape: id, scalar fields, then containment names (the
   // `@derive Jason.Encoder` atom list).
   const wireAtoms = [
@@ -310,16 +346,49 @@ ${schemaBody}
 
   @doc false
   def changeset(struct, attrs) do
-    attrs = __normalize_keys(attrs)
+    attrs = __normalize_keys(attrs)${valueRows.length > 0 ? `\n    attrs = __stamp_ordinals(attrs, [${valueRows.map(({ vc }) => `:${snake(vc.fieldName)}`).join(", ")}])` : ""}
 
     struct
     |> cast(attrs, [${castCols.join(", ")}])${castBlock ? `\n${castBlock}` : ""}
   end
 ${invariantFn ? `\n${invariantFn}\n` : ""}
-${NORMALIZE_KEYS_DEFP}
+${NORMALIZE_KEYS_DEFP}${valueRows.length > 0 ? `\n\n${STAMP_ORDINALS_DEFP}` : ""}
 end
 `;
 }
+
+/** Stamp each value-collection element with its list position (the child
+ *  row's `ordinal`) before `cast_assoc`.  Runs after `__normalize_keys/1`, so a
+ *  field is looked up by its string key (controller) or atom key (op body);
+ *  the ordinal takes the element's own key type, since `cast` rejects a map
+ *  mixing both.  An element that is already a struct (a loaded row) is left
+ *  alone — its `ordinal` is set. */
+const STAMP_ORDINALS_DEFP = `  defp __stamp_ordinals(attrs, fields) when is_map(attrs) do
+    Enum.reduce(fields, attrs, fn field, acc ->
+      key = if Map.has_key?(acc, Atom.to_string(field)), do: Atom.to_string(field), else: field
+
+      case Map.fetch(acc, key) do
+        {:ok, items} when is_list(items) ->
+          stamped =
+            items
+            |> Enum.with_index()
+            |> Enum.map(fn
+              {%{__struct__: _} = item, _i} -> item
+              {%{} = item, i} ->
+                ordinal = if Enum.any?(Map.keys(item), &is_atom/1), do: :ordinal, else: "ordinal"
+                Map.put(item, ordinal, i)
+
+              {item, _i} -> item
+            end)
+
+          Map.put(acc, key, stamped)
+
+        _ -> acc
+      end
+    end)
+  end
+
+  defp __stamp_ordinals(attrs, _fields), do: attrs`;
 
 const SYSTEM_FIELDS: ReadonlySet<string> = new Set(["id", "createdAt", "updatedAt"]);
 /** A part's only system field is its `id` — see `renderPartSchema`. */

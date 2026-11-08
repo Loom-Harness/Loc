@@ -109,7 +109,7 @@ import { emitsRestDelete } from "./rest-surface.js";
 import { emitsRetrievalModule } from "./retrieval-emit.js";
 import { usesRelationalContainments } from "./schema-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
-import { valueRowFieldsOf } from "./value-collection-schema-emit.js";
+import { valueCollectionsWithVo, valueRowFieldsOf } from "./value-collection-schema-emit.js";
 import { savesLockVersion } from "./version-check-ex.js";
 
 // ---------------------------------------------------------------------------
@@ -1074,7 +1074,7 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   // mutated part-struct list to `put_assoc`-ready maps (the persist tail calls it);
   // see its emit for why a bare struct doesn't insert.
   const putAssocPartsHelper = contextMutatesRelationalContainment(ctx, sys)
-    ? `\n${renderPutAssocPartsHelper()}\n`
+    ? `\n${renderPutAssocPartsHelper(partValueRowFields(appModule, ctx, sys))}\n`
     : "";
 
   // Shared `:utc_datetime` truncation helper — emitted once per context module
@@ -1109,7 +1109,9 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   // Value-object-collection row helper (M-T6.94) — emitted iff a rendered op
   // block calls it (derive, don't stamp: the same call-site gate as
   // `__truncate_dt/1` below).
-  const putValueRowsHelper = blocks.join("\n").includes("__put_value_rows(")
+  const putValueRowsHelper = [blocks.join("\n"), putAssocPartsHelper].some((s) =>
+    s.includes("__put_value_rows("),
+  )
     ? `\n${renderPutValueRowsHelper()}\n`
     : "";
 
@@ -1347,7 +1349,27 @@ function renderTruncateDtHelper(): string {
  *  inserts and one WITH an `id` is kept/updated.  Dropping `__meta__` /
  *  timestamps / the unloaded `belongs_to` / nil fields keeps existing rows on
  *  their PK and lets new ones insert cleanly (`on_replace: :delete` rewrites). */
-function renderPutAssocPartsHelper(): string {
+/** Every relational entity part's value-object collection fields, as
+ *  `[partModule, fieldAtom]` pairs — the part fields `__put_assoc_parts/1`
+ *  writes as fresh, ordinal-stamped child rows rather than nested parts. */
+function partValueRowFields(
+  appModule: string,
+  ctx: BoundedContextIR,
+  sys?: SystemIR,
+): [string, string][] {
+  return ctx.aggregates.flatMap((agg) =>
+    isEventSourced(agg) || !usesRelationalContainments(agg, ctx, sys)
+      ? []
+      : agg.parts.flatMap((part) =>
+          valueCollectionsWithVo(part, ctx).map(({ vc }): [string, string] => [
+            `${appModule}.${upperFirst(ctx.name)}.${upperFirst(part.name)}`,
+            snake(vc.fieldName),
+          ]),
+        ),
+  );
+}
+
+function renderPutAssocPartsHelper(partValueFields: [string, string][] = []): string {
   // Two call shapes reach this helper (see `contextMutatesRelationalContainment`):
   //   - COLLECTION (`has_many`): `record.<field>` is a LIST — the op body rebound
   //     it to `(record.<field> || []) ++ [<new part struct>]`.
@@ -1376,10 +1398,20 @@ function renderPutAssocPartsHelper(): string {
     |> Enum.reject(fn {_k, v} ->
       match?(%Ecto.Association.NotLoaded{}, v) or is_nil(v)
     end)
-    |> Map.new(fn {k, v} -> {k, __put_assoc_nested(v)} end)
+    |> Map.new(fn {k, v} -> {k, ${partValueFields.length > 0 ? "__put_assoc_field(part.__struct__, k, v)" : "__put_assoc_nested(v)"}} end)
   end
 
-  defp __put_assoc_parts(other), do: other
+  defp __put_assoc_parts(other), do: other${
+    partValueFields.length > 0
+      ? `
+
+  # A part's own value-object collection is rewritten as fresh child rows, each
+  # stamped with its position: a value object has no identity to keep, and
+  # \`on_replace: :delete\` drops the rows the part held.
+${partValueFields.map(([mod, f]) => `  defp __put_assoc_field(${mod}, :${f}, v), do: __put_value_rows(v)`).join("\n")}
+  defp __put_assoc_field(_part, _k, v), do: __put_assoc_nested(v)`
+      : ""
+  }
 
   # A NESTED part (\`Line.notes\`) is normalised the same way.  Left a loaded
   # struct, Ecto reads it as an existing row of whatever parent it is cast

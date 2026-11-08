@@ -48,7 +48,7 @@
     {
       "seq": 3,
       "method": "POST",
-      "path": "/api/rule_sets/{id}/retune",
+      "path": "/api/rule_sets/{id}/add_rule",
       "status": 204,
       "body": ""
     },
@@ -65,12 +65,30 @@
           {
             "conditions": [
               {
-                "attr": "income",
-                "min": 0
+                "attr": "age",
+                "min": 18
+              },
+              {
+                "attr": "tail",
+                "min": 19
               }
             ],
             "id": "<volatile:key>",
             "key": "k"
+          },
+          {
+            "conditions": [
+              {
+                "attr": "income",
+                "min": 0
+              },
+              {
+                "attr": "tail",
+                "min": 1
+              }
+            ],
+            "id": "<volatile:key>",
+            "key": "k2"
           }
         ]
       }
@@ -89,12 +107,30 @@
             {
               "conditions": [
                 {
-                  "attr": "income",
-                  "min": 0
+                  "attr": "age",
+                  "min": 18
+                },
+                {
+                  "attr": "tail",
+                  "min": 19
                 }
               ],
               "id": "<volatile:key>",
               "key": "k"
+            },
+            {
+              "conditions": [
+                {
+                  "attr": "income",
+                  "min": 0
+                },
+                {
+                  "attr": "tail",
+                  "min": 1
+                }
+              ],
+              "id": "<volatile:key>",
+              "key": "k2"
             }
           ]
         }
@@ -120,12 +156,30 @@
           {
             "conditions": [
               {
-                "attr": "income",
-                "min": 0
+                "attr": "age",
+                "min": 18
+              },
+              {
+                "attr": "tail",
+                "min": 19
               }
             ],
             "id": "<volatile:key>",
             "key": "k"
+          },
+          {
+            "conditions": [
+              {
+                "attr": "income",
+                "min": 0
+              },
+              {
+                "attr": "tail",
+                "min": 1
+              }
+            ],
+            "id": "<volatile:key>",
+            "key": "k2"
           }
         ]
       }

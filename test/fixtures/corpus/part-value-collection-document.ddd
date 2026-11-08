@@ -3,8 +3,8 @@
 //
 // The whole aggregate persists as one jsonb document, so the part's list is a
 // JSON array inside its rule's entry — no child table.  Every backend's
-// document embed declares the part's list, so it survives the write and comes
-// back in declared order.
+// document embed declares the part's list, so it survives the write, comes back
+// in declared order, and survives a later write that re-saves the loaded part.
 system PartValueCollectionDocument {
   subdomain Pricing {
     context Matching {
@@ -19,11 +19,6 @@ system PartValueCollectionDocument {
 
         operation addRule(key: string, attr: string, min: int) {
           rules += Rule { key: key, conditions: [Cond { attr: attr, min: min }, Cond { attr: "tail", min: min + 1 }] }
-        }
-        operation retune(key: string, attr: string) {
-          let old = rules.where(r => r.key == key).first()
-          rules -= old
-          rules += Rule { key: key, conditions: [Cond { attr: attr, min: 0 }] }
         }
 
         test "a rule carries its conditions" {
@@ -48,7 +43,7 @@ system PartValueCollectionDocument {
     port: 4000
   }
 
-  test e2e "a part's value-object collection round-trips in order" against d {
+  test e2e "a part's value-object collection round-trips in the document" against d {
     let s = api.ruleSets.create({ name: "s" })
     api.ruleSets.addRule(s, { key: "k", attr: "age", min: 18 })
     let read = api.ruleSets.getById(s)
@@ -57,23 +52,23 @@ system PartValueCollectionDocument {
     expect(read.rules.first().conditions.first().attr).toBe("age")
     expect(read.rules.first().conditions.first().min).toBe(18)
 
-    // A rebuilt rule replaces its conditions wholesale.
-    api.ruleSets.retune(s, { key: "k", attr: "income" })
-    let retuned = api.ruleSets.getById(s)
-    expect(retuned.rules.length).toBe(1)
-    expect(retuned.rules.first().conditions.length).toBe(1)
-    expect(retuned.rules.first().conditions.first().attr).toBe("income")
+    // A second rule re-saves the loaded first one: its conditions survive.
+    api.ruleSets.addRule(s, { key: "k2", attr: "income", min: 0 })
+    let grown = api.ruleSets.getById(s)
+    expect(grown.rules.length).toBe(2)
+    expect(grown.rules.first().conditions.length).toBe(2)
+    expect(grown.rules.first().conditions.first().attr).toBe("age")
 
     // The list read rehydrates every document.
     let listed = api.ruleSets.all()
     expect(listed.length).toBe(1)
-    expect(listed.first().rules.first().conditions.length).toBe(1)
+    expect(listed.first().rules.first().conditions.length).toBe(2)
 
-    // The canonical update leaves the rule and its conditions in place.
+    // The canonical update leaves the rules and their conditions in place.
     api.ruleSets.update(s, { name: "s2" })
     let updated = api.ruleSets.getById(s)
     expect(updated.name).toBe("s2")
-    expect(updated.rules.first().conditions.first().attr).toBe("income")
+    expect(updated.rules.first().conditions.first().min).toBe(18)
 
     api.ruleSets.destroy(s)
     let empty = api.ruleSets.all()
