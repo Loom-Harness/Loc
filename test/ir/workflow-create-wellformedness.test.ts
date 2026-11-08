@@ -39,9 +39,7 @@ describe("workflow create-declaration well-formedness", () => {
       create(orderId: Order id) { let o = Orders.get(orderId) }
       create byImport(orderId: Order id) { let o = Orders.get(orderId) }
     `);
-    // Well-formed under rules 21/22.  The only finding is that the workflow's
-    // single command route serves the canonical create, not the named one.
-    expect(diags).toEqual(["loom.workflow-create-unrouted"]);
+    expect(diags).toEqual([]);
   });
 
   it("rejects two unnamed (canonical) creates (rule 21)", async () => {

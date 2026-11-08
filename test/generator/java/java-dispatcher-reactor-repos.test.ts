@@ -114,7 +114,7 @@ describe("java dispatcher injects the repositories its reactor bodies use", () =
     const d = await dispatcher(
       FANOUT.replace(
         "on(e: PostPublished) by e.post {",
-        "create onPublish(e: PostPublished) by e.post {",
+        "create bootstrap(p: Post id) { let sp = Posts.get(p) }\n    create onPublish(e: PostPublished) by e.post {",
       ),
     );
     expect(d).toContain("private final FollowRepository followsRepository;");

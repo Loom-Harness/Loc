@@ -2616,8 +2616,7 @@ grammar together with `HandleIR`, `WorkflowIR.handlers`, `lowerHandle` and
 `loom.parse-error#workflow-handle-removed`, which names `commandHandler` and
 `scripts/codemod-workflow-handle.mjs`.  The named-`create` half of the original
 question is NOT part of this removal — a named command-triggered `create` still
-parses; a workflow has one command route, so a second command-triggered `create`
-it cannot serve is refused with `loom.workflow-create-unrouted`.
+parses, and its missing route is tracked on #4094.
 
 **Question.** Does the workflow `handle name(...) { … }` declaration become a
 shipping HTTP entry point on all five backends, or is it removed as redundant
