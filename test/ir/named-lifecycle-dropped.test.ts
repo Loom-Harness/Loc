@@ -25,6 +25,7 @@ const CODE = "loom.named-lifecycle-dropped";
 
 const wrap = (agg: string): string => `
 system P {
+  user { role: string }
   subdomain D {
     context Orders {
       event Opened { order: Order id  owner: string }

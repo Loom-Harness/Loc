@@ -9,6 +9,7 @@ import { parseString } from "../../_helpers/parse.js";
 describe("parsing — criterion declaration", () => {
   it("parses parameterless, parameterised, block, and bool-candidate forms", async () => {
     const { model, errors } = await parseString(`
+      system S { user { role: string } }
       context Sales {
         enum OrderStatus { Draft, Confirmed, Closed }
         aggregate Customer { active: bool  region: string }
