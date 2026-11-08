@@ -589,6 +589,13 @@ function emitRouteHandler(
   const head = out;
   out = [];
   const [handle, dispatcher] = inTx ? ["tx", "__deferred"] : ["db", "events"];
+  // An `emit` collects onto `workflowEvents`, dispatched once the body (and,
+  // in a transaction, its commit) has succeeded — the workflow route's sink.
+  const hasEmit = workflowEmits(h.statements).length > 0;
+  if (hasEmit) head.push(`    const workflowEvents: Events.DomainEvent[] = [];`);
+  const dispatchEmits = hasEmit
+    ? [`    for (const ev of workflowEvents) await events.dispatch(ev);`]
+    : [];
   for (const r of repos) {
     out.push(
       `    const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(${handle}, ${dispatcher});`,
@@ -650,8 +657,10 @@ function emitRouteHandler(
           ? `${wireRespH(retMasked, retRepoVar!, projected)} as z.infer<typeof ${typedResponseName}>`
           : `${wireRespH(retMasked, retRepoVar!, projected)}`
       : `${retExpr} as unknown`;
+    if (!inTx) out.push(...dispatchEmits);
     out.push(`    return httpCtx.json(${payload}, 200);`);
   } else {
+    if (!inTx) out.push(...dispatchEmits);
     out.push(`    return httpCtx.body(null, 204);`);
   }
   if (inTx) {
@@ -660,6 +669,7 @@ function emitRouteHandler(
     for (const l of out) head.push(l === "" ? l : `  ${l}`);
     head.push(`    });`);
     head.push(`    await __deferred.flush();`);
+    head.push(...dispatchEmits);
     head.push(`    return __response;`);
   } else {
     head.push(...out);

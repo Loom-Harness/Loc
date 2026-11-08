@@ -67,7 +67,11 @@ import {
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
 import { routedParamSource } from "../../ir/util/routed-handler.js";
-import { walkWorkflowStmtChildren, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import {
+  walkWorkflowStmtChildren,
+  walkWorkflowStmtsDeep,
+  workflowEmits,
+} from "../../ir/util/walk.js";
 import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { walkExpr } from "../../ir/validate/checks/shared.js";
 import { lines } from "../../util/code-builder.js";
@@ -116,6 +120,7 @@ type Handler = CommandHandlerIR | QueryHandlerIR;
 
 // Symbols beyond the shared HTTP set, as `ref()` markers (M-T9.84).
 const ANY = pyRef("typing", "Any");
+const DOMAIN_EVENT = pyRef("app.domain.events", "DomainEvent");
 /** A handler's application function (`from app.application.<snake> import <snake>`). */
 const handlerFnRef = (name: string): string => pyRef(`app.application.${snake(name)}`, snake(name));
 /** An extern handler's user impl function. */
@@ -494,6 +499,17 @@ function renderHandlerModule(
     "    ",
   ).flat();
   const saveLines = h.savesAtExit.flatMap((s) => renderSave(s, "    "));
+  // An `emit` collects onto `workflow_events`, dispatched once the body and
+  // its saves have run — the workflow route's event sink.
+  const hasEmit = workflowEmits(h.statements).length > 0;
+  const emitSinkLines = hasEmit ? [`    workflow_events: list[${DOMAIN_EVENT}] = []`] : [];
+  const emitDispatchLines = hasEmit
+    ? [
+        `    dispatcher = ${dispatcherExpr}`,
+        "    for ev in workflow_events:",
+        "        await dispatcher.dispatch(ev)",
+      ]
+    : [];
   // A `T?` entity return answers its miss as the find-absence 404: bind the
   // value once, refuse None, project the binding (`to_wire(None)` would raise).
   const absentIs404 = !!projectRepoHandle && routedAbsenceAnswers404(h, ctx);
@@ -535,7 +551,15 @@ function renderHandlerModule(
         ? [`    return ${returnExpr}`]
         : [];
 
-  const bodyLines = [...repoLines, ...stmtLines, ...saveLines, ...absentLines, ...returnLines];
+  const bodyLines = [
+    ...repoLines,
+    ...emitSinkLines,
+    ...stmtLines,
+    ...saveLines,
+    ...emitDispatchLines,
+    ...absentLines,
+    ...returnLines,
+  ];
   const body = bodyLines.length > 0 ? bodyLines.join("\n") : "    pass";
 
   const def = `async def ${fnName}(${params}) -> ${ret}:\n${body}\n`;
