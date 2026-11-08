@@ -206,7 +206,7 @@ export interface PartCollectionsStored {
  *  shared migration creates — any mix of them agrees on one schema.  Dapper and
  *  MikroORM keep the list in a jsonb column of their own instead, so each is
  *  accepted only as a context's sole adapter. */
-const PART_VALUES_IN_CHILD_TABLE: ReadonlySet<string> = new Set(["jpa", "drizzle", "python"]);
+const PART_VALUES_IN_CHILD_TABLE: ReadonlySet<string> = new Set(["jpa", "drizzle", "python", "efcore"]);
 
 const NOTHING_HOSTED: PartCollectionsStored = { references: false, values: true, hosts: [] };
 

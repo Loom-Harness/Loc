@@ -164,7 +164,7 @@ system S {
     .join("\n  ")}
 }`;
 
-    for (const platform of ["dotnet", "elixir"]) {
+    for (const platform of ["elixir"]) {
       it(`is refused on ${platform}`, async () => {
         expect(await errorCodes(partSys([platform]))).toContain(
           "loom.collection-field-unpersisted",
@@ -176,6 +176,7 @@ system S {
       "java",
       "node",
       "python",
+      "dotnet",
       "dotnet { persistence: dapper }",
       "node { persistence: mikroorm }",
     ]) {
