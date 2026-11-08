@@ -82,7 +82,7 @@
         "id": "<volatile:key>",
         "name": "Saw",
         "price": "9.9900",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -318,7 +318,7 @@
         "ratio": 9.25,
         "seats": 10,
         "title": "short",
-        "version": 1,
+        "rowVersion": 1,
         "weight": 0.75
       }
     },
@@ -337,7 +337,7 @@
       "body": {
         "id": "<volatile:key>",
         "name": "Hand tools",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -350,7 +350,7 @@
           {
             "id": "<volatile:key>",
             "name": "Hand tools",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -378,7 +378,7 @@
             "id": "<volatile:key>",
             "name": "Saw",
             "price": "8.9900",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -430,7 +430,7 @@
             "ratio": 1.5,
             "seats": 9,
             "title": "t",
-            "version": 2,
+            "rowVersion": 2,
             "weight": 1.5
           }
         ],
