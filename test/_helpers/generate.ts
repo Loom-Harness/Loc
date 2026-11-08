@@ -338,6 +338,10 @@ export async function generateBackendFiles(
   platform: "node" | "dotnet",
   options: GenerateSystemOptions = {},
 ): Promise<Map<string, string>> {
+  // A leading `user { … }` block is the system's principal: hoisted out of
+  // the subdomain the contexts are spliced into.
+  const userBlock = /^\s*user\s*\{[^{}]*\}/.exec(contexts)?.[0];
+  if (userBlock) contexts = contexts.slice(userBlock.length);
   const names = [...contexts.matchAll(/\bcontext\s+([A-Z]\w*)\b[^{}]*\{/g)].map((m) => m[1]!);
   if (names.length === 0) {
     throw new Error("generateBackendFiles: the fixture declares no `context Name { … }` block");
@@ -350,6 +354,7 @@ export async function generateBackendFiles(
   const dataSources = names.flatMap((c) => [`${c}State`, ...(eventLog ? [`${c}Log`] : [])]);
   const source = [
     "system Fixture {",
+    ...(userBlock ? [`  ${userBlock.trim()}`] : []),
     "  subdomain Fixture {",
     contexts,
     "  }",

@@ -28,6 +28,7 @@ const CODE = "loom.sensitive-wire-unsupported";
 
 const sys = (fields: string) => `
 system Payroll {
+  user { role: string }
   subdomain HR {
     context People {
       aggregate Person with crudish {

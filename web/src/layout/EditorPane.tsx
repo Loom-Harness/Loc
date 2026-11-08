@@ -111,13 +111,17 @@ export function EditorPane({ ctx, border = "none" }: Props): JSX.Element | null 
     />
   );
 
-  // `key` semantics are identical on both editors: remount on a project
-  // change so the editor reseeds from `initialSource` — the active workspace
-  // (switch), whether its content has finished loading, the last-imported
-  // example, the active file path, and `sourceEpoch`, which covers the
-  // changes identity alone can't see (a history restore or another writer
-  // replacing the active file's CONTENT under the same path).
-  const remountKey = `${workspace.activeId}:${workspace.loaded ? 1 : 0}:${exampleId}:${sourceEpoch}:${activeSourcePath}`;
+  // Remount on a DOCUMENT change so the editor reseeds from `initialSource`:
+  // the active workspace (switch), whether its content has finished loading,
+  // the last-imported example, and the active file path.
+  //
+  // `sourceEpoch` (the active file's content replaced under the same path — a
+  // history restore, another tab's write) is deliberately NOT in Monaco's key:
+  // a remount blanks the pane and resets scroll and caret, and the epoch can
+  // move while the user is working in the editor.  `LoomEditor` reseeds in
+  // place on `contentEpoch` instead.  `PlainEditor` has no in-place reseed, so
+  // the mobile key keeps the epoch.
+  const documentKey = `${workspace.activeId}:${workspace.loaded ? 1 : 0}:${exampleId}:${activeSourcePath}`;
 
   const editor = (
     <Box style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
@@ -130,7 +134,8 @@ export function EditorPane({ ctx, border = "none" }: Props): JSX.Element | null 
           }
         >
           <LazyLoomEditor
-            key={remountKey}
+            key={documentKey}
+            contentEpoch={sourceEpoch}
             client={lspClient}
             initialValue={initialSource}
             isMobile={false}
@@ -155,7 +160,7 @@ export function EditorPane({ ctx, border = "none" }: Props): JSX.Element | null 
         // this surface come from `generate` (the build worker already computes
         // them) rather than from a live LSP — see M-T8.15.
         <PlainEditor
-          key={remountKey}
+          key={`${documentKey}:${sourceEpoch}`}
           initialValue={initialSource}
           handleRef={editorHandleRef}
           onChange={(v) => onSourceChange(v, "editor")}

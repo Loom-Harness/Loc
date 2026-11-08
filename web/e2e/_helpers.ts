@@ -334,3 +334,66 @@ export async function waitForBundle(page: Page, timeout = 600_000): Promise<void
     throw new Error(`In-browser bundle failed (${await failed.innerText()}).\n${detail}`.trim());
   }
 }
+
+// Workspace-switch helpers (`workspace-switch-lsp`, `examples-sweep`): open an example in a NEW workspace,
+// then prove the language server's verdict on it is clean and Generate works.
+
+/** Open `label` in a new workspace (+ → Choose example → Create).  `label` is
+ *  matched exactly — several example labels share a prefix ("Acme"). */
+export async function openExampleWorkspace(page: Page, label: string): Promise<void> {
+  await page.getByTestId("workspace-new").click();
+  await page.getByRole("textbox", { name: "Choose example" }).click();
+  await page.getByRole("option", { name: label, exact: true }).first().click();
+  await clickWorkspaceCreate(page);
+}
+
+/** Show the Problems stream in the Output dock. */
+export async function openProblems(page: Page): Promise<void> {
+  await page.getByTestId("devtools-tab-output").click();
+  const select = page.getByTestId("output-stream-select");
+  if ((await select.inputValue().catch(() => "")) !== "Problems") {
+    await select.click();
+    await page.getByRole("option", { name: "Problems" }).click();
+  }
+}
+
+/** Generate the open workspace and require it to succeed. */
+export async function generateOk(page: Page, label: string): Promise<void> {
+  const generate = page.getByTestId("btn-generate");
+  // Opening a workspace schedules an auto-generate; the button is disabled
+  // while it runs, so let it settle before judging whether Generate is
+  // actionable.
+  await expect(generate).not.toHaveAttribute("data-state", "running", { timeout: 120_000 });
+  await expect(generate, `Generate is not actionable for "${label}"`).toBeEnabled({
+    timeout: 60_000,
+  });
+  await generate.click();
+  await expect(generate, `Generate did not succeed for "${label}"`).toHaveAttribute(
+    "data-state",
+    "ok",
+    { timeout: 120_000 },
+  );
+  await expect(page.getByTestId("pipeline-count-generate")).toHaveText(/^\d+ files?$/);
+  await expect(page.getByText(/Generation failed/)).toHaveCount(0);
+}
+
+/** The language server's verdict on the open workspace is clean: `0 errors`
+ *  on the Validate segment and nothing in Problems.
+ *
+ *  The count reads `0 errors` the instant a workspace opens — the diagnostics
+ *  slot is reset before the server has looked at the new documents — so one
+ *  sample proves nothing.  Callers run this after Generate, which takes
+ *  longer than the server's validation pass, and the verdict must then HOLD
+ *  over a window: a leaked declaration shows up as errors once validation
+ *  lands and stays. */
+export async function expectCleanValidation(page: Page, label: string): Promise<void> {
+  const count = page.getByTestId("pipeline-count-validate");
+  const empty = page.getByTestId("problems-empty");
+  for (let i = 0; i < 6; i++) {
+    await expect(count, `"${label}" should validate clean in the playground`).toHaveText(
+      "0 errors",
+    );
+    await expect(empty, `Problems should be empty for "${label}"`).toBeVisible();
+    await page.waitForTimeout(500);
+  }
+}

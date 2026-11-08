@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
+  user { name: string  role: string }
   context Sales {
     aggregate Customer {
       active: bool

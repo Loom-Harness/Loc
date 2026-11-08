@@ -42,7 +42,7 @@ import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
 import { BACKEND_PINS as HONO_PINS } from "../../../src/platform/hono/v5/pins.js";
 import { fnv1a32 } from "../util/hash.js";
 import { MemoryVfs } from "../vfs/memory-vfs.js";
-import { loadProjectFromVfs } from "./project-loader.js";
+import { loadProjectFromVfs, retainOnlyDocuments } from "./project-loader.js";
 import { seedBuiltinPacks } from "./template-bundled.js";
 import { setWorkerVfs } from "./worker-vfs.js";
 import type {
@@ -85,6 +85,7 @@ async function parse(
   const existing = documents.all.find((d) => d.uri.toString() === DOC_URI.toString());
   if (existing) documents.deleteDocument(existing.uri);
   const doc = documents.createDocument(DOC_URI, text);
+  retainOnlyDocuments(services.shared, [doc]);
   await builder.build([doc], { validation: true });
   const diagnostics = collectDiagnostics([doc]);
   // Keyed the same way the CLI keys it (`doc.uri.path`) — this is what

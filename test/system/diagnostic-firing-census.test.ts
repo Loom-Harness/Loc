@@ -4365,6 +4365,10 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   "loom.macro-threw": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-non-ast-result": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-escapes-host": "test/macro/misbehaving-macro-diagnostics.test.ts",
+  // The attribution wrapped around any AST diagnostic raised on macro-
+  // synthesised code.  No stdlib macro synthesises an ill-typed body, so the
+  // pointed-at file registers one that does and asserts the wrapped message.
+  "loom.macro-synthesised": "test/macro/macro-synthesised-diagnostic-range.test.ts",
   // The body-walker GIVE-UP codes (M-T9.55).  Reachable from ordinary `.ddd`
   // source — `Stack { CreateForm { } }` reaches one — but never out of
   // `validate()`: they are attached in phase 8 by `giveUp()` and rendered into
