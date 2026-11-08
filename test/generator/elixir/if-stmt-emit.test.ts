@@ -173,7 +173,7 @@ describe("phoenix generator — an `if` that decides per path renders one body p
     expect(await errorsOf(src)).toEqual([]);
     const ctx = bySuffix(await generateSystemFiles(src), "lib/api/tracker.ex");
     const fn = ctx.slice(ctx.indexOf("def promote_task("));
-    const body = fn.slice(0, fn.indexOf("\n  end\n"));
+    const body = uncheckedInt(fn.slice(0, fn.indexOf("\n  end\n")));
     // The `if` is the body's tail: the early-return path answers without
     // touching the score, and only the other path writes and persists it.
     expect(body).toMatch(/\n\s+if bonus > 0 do\n/);

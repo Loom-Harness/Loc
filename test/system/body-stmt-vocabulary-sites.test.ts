@@ -184,7 +184,7 @@ system WF {
   it("elixir fold-stmt-emit#renderFoldStatement: an `if` in a workflow applier rebinds the folded state", async () => {
     expect(await errorCodes(sweep("elixir", FOLD))).toEqual([]);
     const ex = allElixir(await generateSystemFiles(sweep("elixir", FOLD)));
-    expect(ex).toMatch(
+    expect(uncheckedInt(ex)).toMatch(
       /state = if r\.n > 0 do\n\s+state = %\{state \| count: state\.count \+ r\.n\}\n\s+state\n\s+else\n\s+state = %\{state \| count: 0\}\n\s+state\n\s+end/,
     );
   });
