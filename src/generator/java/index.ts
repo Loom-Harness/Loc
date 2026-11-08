@@ -569,6 +569,7 @@ function emitProjectFromContexts(
       contexts
         .flatMap((c) => c.aggregates)
         .map((a): readonly [string, string] => [routeSegmentFor(a.name), a.name]),
+      contexts.some((c) => anyRouteReadsIfMatch(c.aggregates)),
     ),
   );
   // F18 — a wrong verb on a static sub-path (`DELETE /api/customers/by_email`)

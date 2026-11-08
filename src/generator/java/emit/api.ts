@@ -782,6 +782,11 @@ export function renderApiExceptionAdvice(
    *  off the request path and answers the same `<Aggregate> is still
    *  referenced…` sentence every other backend does. */
   referencedSubjects: ReadonlyArray<readonly [string, string]> = [],
+  /** True when some route binds the `If-Match` header — the same gate that
+   *  emits `api/IfMatch.java`, so the malformed-header arm never names a class
+   *  the project lacks (an event-sourced aggregate is versioned yet binds no
+   *  `If-Match`). */
+  readsIfMatch = false,
 ): string {
   // A 403 never echoes the gate: the `requires` source is the model's
   // internals, so the body is the constant detail plus the `problem.forbidden`
@@ -1050,13 +1055,15 @@ export function renderApiExceptionAdvice(
       `    }`,
       ``,
     ],
-    hasVersioned && [
+    readsIfMatch && [
       `    @ExceptionHandler(IfMatch.Malformed.class)`,
       `    public ResponseEntity<ProblemDetail> onMalformedIfMatch(IfMatch.Malformed e, WebRequest request) {`,
       `        CatalogLog.event(${javaLogEvent("clientError")}, "error", e.getMessage(), "status", ${wireStatus("malformed-if-match")});`,
       `        return respond(problem(${wireStatus("malformed-if-match")}, ${title("malformed-if-match")}, e.getMessage(), ${code("malformed-if-match")}, request), ${wireStatus("malformed-if-match")});`,
       `    }`,
       ``,
+    ],
+    hasVersioned && [
       `    @ExceptionHandler(org.springframework.orm.ObjectOptimisticLockingFailureException.class)`,
       `    public ResponseEntity<ProblemDetail> onConcurrencyConflict(${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")} e, WebRequest request) {`,
       `        // A \`versioned\` aggregate's optimistic-lock check failed — either the`,
