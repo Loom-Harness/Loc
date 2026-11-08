@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/index.js";
 import { corpusSourceFor } from "../../fixtures/corpus/harness.js";
 
 // ---------------------------------------------------------------------------
@@ -90,9 +89,7 @@ async function nodeEntries(
   name: string,
   persistence: Persistence,
 ): Promise<Map<string, { index: string; boot: string }>> {
-  const { model, errors } = await parseString(sourceFor(name, persistence));
-  expect(errors, `${name} (${persistence}) must parse cleanly`).toEqual([]);
-  const files = generateSystems(model).files;
+  const files = await generateSystemFiles(sourceFor(name, persistence));
   const out = new Map<string, { index: string; boot: string }>();
   for (const [p, content] of files) {
     const m = /^([^/]+)\/boot\.ts$/.exec(p);
