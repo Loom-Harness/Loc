@@ -504,15 +504,27 @@ await items.save(i);
 
 Every `Repo` above is a repository of the workflow's **own context**. Naming another context's repository is `loom.workflow-cross-context-repository` — lowering resolves reads against the enclosing context alone, so the name never becomes a load and every backend renders a dangling receiver. Cross at the other context's public surface instead (a `resource { kind: api }` call, or a local projection folded over its published events); see [`../workflow.md`](../workflow.md#repositories-are-context-local--loomworkflow-cross-context-repository).
 
-**A repository read is a STATEMENT, never a sub-expression.** Every repository form above is spelled `let x = Repo.…` — that binding is what makes the backend instantiate the repository. The same call written inline inside another expression is rejected with `loom.workflow-inline-repository-call`:
+**A repository read inside an expression runs as a `let` ahead of its statement.** Every repository form above is spelled `let x = Repo.…`, and that binding is what the backend instantiates the repository for. The same read written inside another expression — a `return` value, a `precondition`, an `emit` field, a `for` iterable, another read's argument — is lowered as exactly that binding, hoisted ahead of the statement, in evaluation order. This holds in workflow bodies and in `commandHandler` / `queryHandler` bodies alike:
 
 ```ddd
-// rejected — `Assets` is reached inline, so no repository is ever instantiated
-precondition tech.skills.contains(Assets.get(job.assetId).requiredSkill)
+queryHandler CountBig(n: int): int { return Items.all(Big(n)).count }
+```
+
+```ts
+// node — the read is the hoisted `let`, the answer reads off it
+const readItems = await items.runFindAllByBig(n);
+return httpCtx.json(readItems.length as unknown, 200);
+```
+
+A read the statement evaluates only on some paths — inside a lambda, on the right of `&&` / `||` / `??`, in a `?:` branch or in a `match` arm — is not hoisted, because running it ahead of the statement would run it where the source does not (a `get` throws on a miss). It is rejected with `loom.workflow-inline-repository-call`:
+
+```ddd
+// rejected — the read runs only when `job.skill` is not empty
+precondition job.skill == "" || tech.skills.contains(Assets.get(job.assetId).requiredSkill)
 
 // correct — bind the read first, then reference the binding
 let asset = Assets.get(job.assetId)
-precondition tech.skills.contains(asset.requiredSkill)
+precondition job.skill == "" || tech.skills.contains(asset.requiredSkill)
 ```
 
 ### Matching a mutating call's result

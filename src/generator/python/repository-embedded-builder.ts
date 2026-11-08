@@ -13,6 +13,7 @@ import { pythonIdent, snake } from "../../util/naming.js";
 import { PY_IMPORTS } from "../_imports/python.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
 import { writeScopePredicate } from "./find-predicate.js";
+import { pyGuardedSaveTail } from "./guarded-save-py.js";
 import { isRefCollectionField, isValueCollectionField, rowClassName } from "./py-columns.js";
 import { PY, pyIdType } from "./py-symbols.js";
 import {
@@ -229,7 +230,7 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
     // Guarded upsert (optimistic concurrency, default-on `versioned`): an
     // INSERT-conflict only overwrites when the stored `version` still equals
     // the caller's expected value, bumping it by one; a stale write matches no
-    // row, so `RETURNING id` comes back empty → ConcurrencyError → 409.  A fresh
+    // row, so `RETURNING version` comes back empty → ConcurrencyError → 409.  A fresh
     // INSERT never conflicts, so create/seed writes are unaffected.
     const setEntries = pairs
       .map(([k]) => k)
@@ -246,10 +247,11 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
       `                set_={${setEntries.join(", ")}},`,
       `                where=${row}.version == _expected,`,
       "            )",
-      `            .returning(${row}.id)`,
-      "        )",
-      "        if _guarded.first() is None:",
-      `            ${pyConflictRaise(R.ConcurrencyError, agg.name, "aggregate.id")}`,
+      ...pyGuardedSaveTail(
+        row,
+        "aggregate",
+        pyConflictRaise(R.ConcurrencyError, agg.name, "aggregate.id"),
+      ),
     );
   } else {
     out.push(

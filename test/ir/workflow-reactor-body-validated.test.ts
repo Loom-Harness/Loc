@@ -6,13 +6,14 @@
 // `on(e: Event)` reactor body, and every non-primary `create`
 // body bypassed the entire workflow-body check set.
 //
-// The construct that exposed it is a notification fan-out:
-//
-//   for f in Follows.all(FollowersOf(e.author)) { let n = Note.create({ … }) }
-//
-// In a `create` body that is rejected by `loom.workflow-foreach-source` ("must
-// iterate a `let xs = Repo.all(...)` result").  In a reactor body it validated
-// CLEAN and reached codegen, where each backend failed differently:
+// The construct that exposed it is a `for` over something that is not an
+// aggregate array — at the time, a notification fan-out iterating an inline
+// read, `for f in Follows.all(FollowersOf(e.author)) { … }` (an inline read is
+// now hoisted into a `let`, `src/ir/lower/hoist-reads.ts`, so that spelling
+// is supported; the cases below iterate a non-array instead).  In a `create`
+// body that is rejected by `loom.workflow-foreach-source` ("must iterate a
+// `let xs = Repo.all(...)` result").  In a reactor body it validated CLEAN and
+// reached codegen, where each backend failed differently:
 //
 //   * elixir  — `dispatch-emit` threw `unsupported reactor statement kind
 //               'for-each'`, aborting the whole `generate system` run (so every
@@ -70,15 +71,29 @@ const INLINE_FOR = `      for f in Follows.all(FollowersOf(e.author)) {
         let n = Note.create(member: f.follower, post: e.post)
       }`;
 
+/** A `for` over a value that is no aggregate array (an event field). */
+const BAD_FOR = `      for f in e.author {
+        let n = Note.create(member: e.author, post: e.post)
+      }`;
+
 const LET_FOR = `      let fs = Follows.all(FollowersOf(e.author), page: { offset: 0, limit: 50 })
       for f in fs {
         let n = Note.create(member: f.follower, post: e.post)
       }`;
 
 describe("workflow reactor / handler bodies are validated (not just the create facade)", () => {
-  it("rejects an inline `for x in Repo.all(...)` inside an `on` REACTOR body", async () => {
+  it("accepts an inline `for x in Repo.all(...)` inside an `on` REACTOR body (hoisted)", async () => {
     const diags = await irDiagnostics(
       model(`    on(e: PostPublished) by e.post {\n${INLINE_FOR}\n    }`),
+    );
+    expect(
+      diags.filter((d) => d.severity === "error").map((d) => `${d.code}: ${d.message}`),
+    ).toEqual([]);
+  });
+
+  it("rejects a `for` over a non-array inside an `on` REACTOR body", async () => {
+    const diags = await irDiagnostics(
+      model(`    on(e: PostPublished) by e.post {\n${BAD_FOR}\n    }`),
     );
     const hit = diags.find((d) => d.code === "loom.workflow-foreach-source");
     expect(
@@ -108,7 +123,7 @@ describe("workflow reactor / handler bodies are validated (not just the create f
     // facade — it must still be checked EXACTLY once.
     const diags = await irDiagnostics(
       model(
-        `    create(postId: Post id, author: Member id) {\n${INLINE_FOR.replace(
+        `    create(postId: Post id, author: Member id) {\n${BAD_FOR.replaceAll(
           "e.author",
           "author",
         ).replace("e.post", "postId")}\n    }`,

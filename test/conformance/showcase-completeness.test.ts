@@ -168,6 +168,26 @@ const ALLOWLIST = new Set<string>([
   // into showcase.ddd deletes this entry — the ratchet below fails on a stale
   // entry, so it cannot be forgotten.
   "IfStmt",
+  // A storage `connection:` clause parses but no emitter reads it
+  // (`loom.reserved-not-emitted`), and no registered sourceType declares an int
+  // or bool `config:` key (`loom.config-key-unknown`) — each is a warning on
+  // any model that writes it, and showcase.ddd is pinned warning-free
+  // (examples-zero-warnings.test.ts).  Parse coverage lives in
+  // test/language/parsing/storage-instance-connection.test.ts.  Remove the
+  // connection entries when the clause is wired.
+  "EnvConnectionSource",
+  "LiteralConnectionSource",
+  "SecretConnectionSource",
+  "ServiceConnectionSource",
+  "IntConfigValue",
+  "BoolConfigValue",
+  // A `channelSource` is a warning (`loom.channelsource-unbound`) until a
+  // deployable lists it under `channels:`, which provisions a broker and an
+  // outbox relay — on one backend of the shared parity fixture that perturbs
+  // every conformance dimension, the blast-radius reason `Projection` gives
+  // above.  Covered by test/fixtures/corpus/channels-broker*.ddd and
+  // examples/timers.ddd.
+  "ChannelSource",
 ]);
 
 async function buildShowcase(): Promise<LangiumDocument<Model>> {

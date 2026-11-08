@@ -85,17 +85,109 @@ system S {
     expect(codes).toContain("loom.collection-field-unpersisted");
   });
 
-  it("keeps the supported positions silent (root `X id[]`, root and part `<VO>[]`)", async () => {
+  // A document aggregate stores the whole tree as one jsonb blob — nothing
+  // flattens into columns, so a collection nested in a value object is just a
+  // JSON array inside it.  Decided by the header shape and by a binding's.
+  it("accepts a collection nested inside a value object on a `shape: document` aggregate", async () => {
+    const codes = await errorCodes(
+      sys(`valueobject Bag { labels: Label[] }
+      valueobject Shelf { bags: Bag[] }
+      aggregate Order shape: document with crudish { code: string  bag: Bag  shelves: Shelf[] }`),
+    );
+    expect(codes).not.toContain("loom.collection-field-unpersisted");
+  });
+
+  it("accepts the nested collection when the BINDING makes the aggregate a document", async () => {
+    const codes = await errorCodes(
+      sys(`valueobject Bag { labels: Label[] }
+      aggregate Order with crudish { code: string  bag: Bag }`).replace(
+        "resource st { for: C, kind: state, use: pg }",
+        "resource st { for: C, kind: state, use: pg, shape: document }",
+      ),
+    );
+    expect(codes).not.toContain("loom.collection-field-unpersisted");
+  });
+
+  it("still refuses a nested REFERENCE collection on a `shape: document` aggregate", async () => {
+    const codes = await errorCodes(
+      sys(`valueobject Pin { tags: Tag id[] }
+      valueobject Board { pins: Pin[] }
+      aggregate Order shape: document with crudish { code: string  board: Board }`),
+    );
+    expect(codes).toContain("loom.collection-field-unpersisted");
+  });
+
+  it("still refuses the nested collection on a `shape: embedded` aggregate's own columns", async () => {
+    const codes = await errorCodes(
+      sys(`valueobject Bag { labels: Label[] }
+      aggregate Order shape: embedded with crudish { code: string  bag: Bag }`),
+    );
+    expect(codes).toContain("loom.collection-field-unpersisted");
+  });
+
+  it("keeps the supported positions silent (root `X id[]`, root `<VO>[]`)", async () => {
     const codes = await errorCodes(
       sys(`aggregate Order with crudish {
         code: string
         tags: Tag id[]
         labels: Label[]
         contains lines: Line[]
-        entity Line { qty: int  notes: Label[] }
+        entity Line { qty: int }
       }`),
     );
     expect(codes).not.toContain("loom.collection-field-unpersisted");
+  });
+
+  // A part's `<VO>[]`: the migration creates its child table, but only JPA
+  // reads and writes it; Dapper and MikroORM store it as a jsonb column their
+  // own schema declares.  Every other host would lose it, so the position is refused
+  // unless every database-backed host of the context stores it.
+  describe("a value-object collection on an entity part", () => {
+    const partSys = (platforms: string[]): string => `
+system S {
+  subdomain Sd { context C {
+    valueobject Label { text: string }
+    aggregate Order with crudish {
+      code: string
+      contains lines: Line[]
+      entity Line { qty: int  notes: Label[] }
+    }
+  } }
+  api A from Sd
+  ${STORAGE}
+  ${platforms
+    .map(
+      (p, i) =>
+        `deployable d${i} { platform: ${p}, contexts: [C], dataSources: [st], serves: A, port: ${4000 + i} }`,
+    )
+    .join("\n  ")}
+}`;
+
+    for (const platform of ["node", "dotnet", "python", "elixir"]) {
+      it(`is refused on ${platform}`, async () => {
+        expect(await errorCodes(partSys([platform]))).toContain(
+          "loom.collection-field-unpersisted",
+        );
+      });
+    }
+
+    for (const platform of [
+      "java",
+      "dotnet { persistence: dapper }",
+      "node { persistence: mikroorm }",
+    ]) {
+      it(`is stored, so accepted, on ${platform}`, async () => {
+        expect(await errorCodes(partSys([platform]))).not.toContain(
+          "loom.collection-field-unpersisted",
+        );
+      });
+    }
+
+    it("is refused when java shares the context with a host that would lose it", async () => {
+      expect(await errorCodes(partSys(["java", "node"]))).toContain(
+        "loom.collection-field-unpersisted",
+      );
+    });
   });
 });
 

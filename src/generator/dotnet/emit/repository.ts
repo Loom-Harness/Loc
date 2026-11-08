@@ -15,7 +15,6 @@ import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
-import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { csNsRef, csUsing } from "../../_imports/dotnet.js";
@@ -33,6 +32,7 @@ import {
 } from "../render-expr.js";
 import { retrievalRepositoryWhere, retrievalWhereInRepository } from "../spec-emit.js";
 import { csSentence } from "../wire-policy-cs.js";
+import { documentFindCapFilter } from "./document-cap-filter.js";
 import { bypassableFilterNames, hasNonBypassableFilter, queryFilterNames } from "./efcore.js";
 import { csClaimStampsFor } from "./entity.js";
 import {
@@ -241,15 +241,17 @@ export function renderRepositoryImpl(
   // A find returning aggregates hydrates their reference collections (`X id[]`
   // join rows) the way `GetByIdAsync` / `FindManyByIdsAsync` do.  Without it the
   // collection stayed null on every find — the paged `all` included — and the
-  // query handler's `d.Tags.Select(…)` threw (500).  Found by M-T6.94's corpus
-  // case.  Emitted only when a find needs it, so the helper is never unused.
+  // query handler's `d.Tags.Select(…)` threw (500).  A criterion runner
+  // (`Run<Retrieval>Async`) returns aggregates too, so it hydrates the same
+  // way.  Emitted only when a read needs it, so the helper is never unused.
   const findsHydrate =
     associations.length > 0 &&
-    finds.some(
-      (f) =>
-        !!pagedReturn(f.returnType) ||
-        hydrateFindResultLine(f.returnType, agg.name, "r").length > 0,
-    );
+    ((options?.retrievals ?? []).length > 0 ||
+      finds.some(
+        (f) =>
+          !!pagedReturn(f.returnType) ||
+          hydrateFindResultLine(f.returnType, agg.name, "r").length > 0,
+      ));
   const saveDiffSyncLines = buildSaveDiffSyncLines(associations);
   // Optimistic concurrency (`versioned`): on an UPDATE (the entity is tracked,
   // not freshly added), guard the write on the loaded version — overridden by
@@ -475,6 +477,9 @@ export function renderRepositoryImpl(
       `        var ${L("__q")} = _db.${readSet}.AsQueryable();`,
       ...bypassBody(L("__q"), own.bypass),
       `        var ${L("result")} = await ${L("__q")}${applySpec}.ApplyPaging(${own.page}).ToListAsync(${own.ct});`,
+      ...(associations.length > 0
+        ? [`        await HydrateReferenceCollectionsAsync(${L("result")}, ${own.ct});`]
+        : []),
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "find", valueExpr: `"Run${upperFirst(r.name)}"` },
@@ -905,39 +910,6 @@ function buildSaveDiffSyncLines(associations: AssociationIR[]): string[] {
 // shape — a silent cross-tenant read.  node/java/python filter document reads
 // in-app the same way.
 // ---------------------------------------------------------------------------
-/** The in-app capability-filter suffix a document-store FIND applies to its
- *  rehydrated rows, honouring the find's `ignoring` clause (C2, M-T6.75).
- *  No clause → the shared `_CapabilityVisible` (every filter).  A bypass keeps
- *  only the filters it does not name — same selection rule as
- *  `bypassedFilterNames` on the relational path: `ignoring *` drops every
- *  bypassable filter, `ignoring A` drops the filters whose contributing
- *  capability is `A`, and a deny sentinel is never dropped. */
-function docFindCapFilter(
-  agg: EnrichedAggregateIR,
-  f: { bypassAll?: boolean; bypassCaps?: string[] },
-  capPredicate: string | null,
-): string {
-  if (!capPredicate) return "";
-  const filters = agg.contextFilters ?? [];
-  const origins = agg.contextFilterOrigins ?? [];
-  const caps = new Set(f.bypassCaps ?? []);
-  if (!f.bypassAll && caps.size === 0) return ".Where(_CapabilityVisible)";
-  const kept = filters.filter((p, i) => {
-    if (isDenyFilter(p)) return true;
-    if (f.bypassAll) return false;
-    const origin = origins[i];
-    return !(origin != null && caps.has(origin));
-  });
-  if (kept.length === filters.length) return ".Where(_CapabilityVisible)";
-  if (kept.length === 0) return "";
-  const pred = kept
-    .map(
-      (p) => `(${renderCsExpr(p, { thisName: "x", agg, currentUserExpr: AMBIENT_CURRENT_USER })})`,
-    )
-    .join(" && ");
-  return `.Where(x => ${pred})`;
-}
-
 export function renderDocumentRepositoryImpl(
   agg: EnrichedAggregateIR,
   repo: RepositoryIR | undefined,
@@ -989,6 +961,10 @@ export function renderDocumentRepositoryImpl(
   // while a method body `=> false;` is clean.  Principal claims resolve through
   // the ambient accessor, re-read per call, exactly like the reified retrieval
   // spec and the Dapper adapter's non-EF reads.
+  const docFilterTerms = (agg.contextFilters ?? []).map((predicate, i) => {
+    const capability = agg.contextFilterOrigins?.[i];
+    return capability != null ? { predicate, capability } : { predicate };
+  });
   const capPredicate =
     (agg.contextFilters ?? []).length > 0
       ? (agg.contextFilters ?? [])
@@ -1062,7 +1038,7 @@ export function renderDocumentRepositoryImpl(
     // inline, so the root reads (`GetByIdAsync` / `FindManyByIdsAsync`) keep
     // every filter whatever a find bypasses.  A deny sentinel is never
     // bypassable (deny wins over `ignoring *`).
-    const loadAll = `var __all = (await _db.${setName}.OrderBy(__d => __d.Id).ToListAsync(${ct})).Select(__d => ${deser})${docFindCapFilter(agg, f, capPredicate)};`;
+    const loadAll = `var __all = (await _db.${setName}.OrderBy(__d => __d.Id).ToListAsync(${ct})).Select(__d => ${deser})${documentFindCapFilter(agg, docFilterTerms, f)};`;
     // `find … paged` over a document carrier — see `inMemoryPagedFindLines`.
     if (pagedReturn(f.returnType)) {
       return inMemoryPagedFindLines(agg, f, { loadAll, filter, usesUser });

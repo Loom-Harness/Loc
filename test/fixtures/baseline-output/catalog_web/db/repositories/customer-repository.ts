@@ -53,17 +53,21 @@ export class CustomerRepository implements CustomerRepositoryPort {
   async save(aggregate: Customer, expectedVersion?: number): Promise<void> {
     const pendingEvents = aggregate.pullEvents();
     let dispatchAfterCommit = pendingEvents;
+    let savedVersion = aggregate.version;
     await this.db.transaction(async (tx) => {
       const expected = expectedVersion ?? aggregate.version;
       const existingRow = await tx.select({ id: schema.customers.id }).from(schema.customers).where(eq(schema.customers.id, aggregate.id));
       if (existingRow.length === 0) {
         await tx.insert(schema.customers).values({ id: aggregate.id as string, username: aggregate.username, email: aggregate.email, age: aggregate.age, version: 1 });
+        savedVersion = 1;
       } else {
         const updated = await tx.update(schema.customers).set({ id: aggregate.id as string, username: aggregate.username, email: aggregate.email, age: aggregate.age, version: expected + 1 }).where(and(eq(schema.customers.id, aggregate.id), eq(schema.customers.version, expected))).returning({ id: schema.customers.id });
         if (updated.length === 0) throw new ConcurrencyError("Customer", aggregate.id as string);
+        savedVersion = expected + 1;
       }
       dispatchAfterCommit = (await this.events.recordDurable?.(pendingEvents, tx)) ?? pendingEvents;
     });
+    aggregate._applyVersion(savedVersion);
     requestLog().debug({ event: "repository_save", aggregate: "Customer", id: aggregate.id as string });
 
     for (const event of dispatchAfterCommit) {

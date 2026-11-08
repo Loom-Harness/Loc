@@ -1304,11 +1304,18 @@ function renderProperties(
   return { propsLines, requiredAtoms };
 }
 
-/** Convert WireField[] to the uniform shape renderProperties expects. */
+/** Convert WireField[] to the uniform shape renderProperties expects.  A
+ *  `mask unless` field is redacted to null for a caller who fails the
+ *  predicate, so — like an optional field — it is not required (the same
+ *  required set every other backend serves). */
 function wireFieldsToProps(
   fields: WireField[],
 ): Array<{ name: string; type: TypeIR; optional: boolean }> {
-  return fields.map((f) => ({ name: f.name, type: f.type, optional: f.optional }));
+  return fields.map((f) => ({
+    name: f.name,
+    type: f.type,
+    optional: f.optional || f.maskUnless !== undefined,
+  }));
 }
 
 /** Property keys that break the `Jason.Encoder` derive `OpenApiSpex.schema`

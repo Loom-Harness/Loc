@@ -312,6 +312,20 @@ export function readOrderFor(declared?: readonly SortTermIR[]): ReadOrderTerm[] 
   return defaultSortOrder(declared) ?? [{ field: "id", direction: "asc" }];
 }
 
+/** `readOrderFor` in `SortTermIR` form, for the emitters that render a
+ *  retrieval's `sort:` through their own sort-path renderer: the declared terms
+ *  with an `id asc` term appended unless one already sorts by `id`.  An
+ *  unsorted retrieval — a criterion `find(C)` taking the first match, or
+ *  `all(C)` — therefore reads in `id` order on every backend instead of the
+ *  database's physical order, so every backend answers the same first row. */
+export function readSortFor(declared?: readonly SortTermIR[]): SortTermIR[] {
+  const terms = [...(declared ?? [])];
+  if (!terms.some((t) => t.path.length === 1 && t.path[0]!.name === "id")) {
+    terms.push({ path: [{ name: "id", collection: false }], direction: "asc" });
+  }
+  return terms;
+}
+
 // ---------------------------------------------------------------------------
 // The polymorphic base read — `find all <Base>` as ONE native query.
 //

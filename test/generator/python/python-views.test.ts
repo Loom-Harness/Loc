@@ -30,7 +30,7 @@ describe("python retrievals", () => {
       "async def run_by_status_sorted(self, s: OrderStatus, offset: int | None = None, limit: int | None = None) -> list[Order]:",
     );
     expect(repo).toContain(
-      "query = select(OrderRow).where((OrderRow.status == s)).order_by(OrderRow.placed_at.desc())",
+      "query = select(OrderRow).where((OrderRow.status == s)).order_by(OrderRow.placed_at.desc(), OrderRow.id.asc())",
     );
     expect(repo).toContain("query = query.offset(offset)");
     expect(repo).toContain("query = query.limit(limit)");

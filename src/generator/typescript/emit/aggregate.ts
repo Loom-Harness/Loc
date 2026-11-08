@@ -1,6 +1,7 @@
 import { unionMembers } from "../../../generator/_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../../generator/_trace/sourcemap.js";
 import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
+import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import {
   createInputFields,
   createOmissionValue,
@@ -114,6 +115,9 @@ interface EntityShape {
    *  `create(...)` factory — construct an empty shell, run the body so it
    *  emits-and-folds the creation event (appliers A2.2). */
   creates?: OperationIR[];
+  /** The `token` field a row-version-guarded root's save advances
+   *  (`rowVersionGuarded`) — drives `_applyVersion`.  Absent otherwise. */
+  versionField?: string;
 }
 
 export function renderAggregate(
@@ -289,6 +293,9 @@ function rootShape(a: AggregateIR): EntityShape {
     eventSourced: a.persistedAs === "eventLog",
     streamTenant: isTenantScopedStream(a),
     creates: a.creates,
+    versionField: rowVersionGuarded(a)
+      ? a.fields.find((f) => f.access === "token")?.name
+      : undefined,
   };
 }
 
@@ -1057,6 +1064,20 @@ function renderEntity(
         ]
       : [];
 
+  // The repository's guarded save writes `expected + 1` to the row; it then
+  // reflects that counter onto the saved instance through this mutator, so a
+  // handle read after its save (`a.version`, the audited `after` snapshot, the
+  // response DTO) carries the version the row now holds, not the one it was
+  // loaded at — and the same handle saved again is checked against the right
+  // version.
+  const applyVersion = e.versionField
+    ? [
+        "  /** @internal Repository save only: reflect the persisted version counter onto this instance. */",
+        `  _applyVersion(next: number): void { this._${e.versionField} = next; }`,
+        "",
+      ]
+    : [];
+
   // Event-sourcing fold (appliers A2): one `_apply<Event>` method per
   // applier (body rendered at the natural method-body depth), a `_apply`
   // dispatcher that switches on `ev.type`, and a `_fromEvents` rehydrator
@@ -1118,6 +1139,7 @@ function renderEntity(
     ...provDrain,
     ...pullEvents,
     ...streamVersionField,
+    ...applyVersion,
     ...appliersBlock,
     // Under --trace, the helper takes an `__op` string param threaded by
     // each call site (ctor → "<init>", per-op → op name, extern public

@@ -51,7 +51,7 @@ system Todo {
       aggregate Project with crudish, tenantOwned, auditable, softDeletable, softDelete {
         name: string
         description: string?
-        archived: bool
+        archived: bool immutable
 
         invariant name.length > 0
         derived display: string = name
@@ -72,7 +72,7 @@ system Todo {
       aggregate Task with crudish, tenantOwned, auditable, softDeletable, softDelete, versioned {
         project: Project id
         title: string
-        status: Status
+        status: Status immutable
         priority: Priority
         due: datetime?
 

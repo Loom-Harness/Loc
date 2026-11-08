@@ -133,7 +133,7 @@ describe("mikroorm repositories — reads state only their own where", () => {
     );
     // …while the plain criterion read states no switch at all.
     expect(cars).toMatch(
-      /async runFindAllByByPlate\([^)]*\)[^{]*\{\n[^\n]*\n\s+const rows = await em\.find\(CarRow, \{ plate: p \}, \{ limit: page\?\.limit, offset: page\?\.offset \}\);/,
+      /async runFindAllByByPlate\([^)]*\)[^{]*\{\n[^\n]*\n\s+const rows = await em\.find\(CarRow, \{ plate: p \}, \{ limit: page\?\.limit, offset: page\?\.offset, orderBy: \{ id: "asc" \} \}\);/,
     );
   });
 

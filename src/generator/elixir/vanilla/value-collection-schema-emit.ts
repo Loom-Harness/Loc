@@ -2,6 +2,7 @@ import type {
   AggregateIR,
   BoundedContextIR,
   EnumIR,
+  SystemIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
@@ -10,6 +11,7 @@ import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.
 import { snake, upperFirst } from "../../../util/naming.js";
 import { ectoValidator, messageCodeTagging } from "./changeset-validators.js";
 import { exEctoIdType, exEctoScalarType } from "./codec-spelling-ex.js";
+import { isVanillaDocAgg } from "./document-emit.js";
 import { NORMALIZE_KEYS_DEFP } from "./key-normalize.js";
 
 // ---------------------------------------------------------------------------
@@ -74,6 +76,7 @@ export function emitVanillaValueCollectionSchemas(
   appModule: string,
   ctx: BoundedContextIR,
   out: Map<string, string>,
+  sys?: SystemIR,
 ): void {
   const appSnake = appModule.replace(/([A-Z])/g, (_, c, i) => (i ? "_" : "") + c.toLowerCase());
   const ctxSnake = snake(ctx.name);
@@ -89,6 +92,10 @@ export function emitVanillaValueCollectionSchemas(
     // appends one), which the ES controller's `serialize_<vo>/1` projects — no
     // child schema needed.
     if (agg.persistedAs === "eventLog") continue;
+    // A document aggregate keeps its value-object arrays inside the jsonb
+    // `data` embed (`{:array, :map}`); the migration creates no child table
+    // for it, so there is no table for a child schema to map.
+    if (isVanillaDocAgg(agg, ctx, sys)) continue;
     for (const { vc, vo } of valueCollectionsWithVo(agg, ctx)) {
       out.set(
         `lib/${appSnake}/${ctxSnake}/${vc.childTable}.ex`,
