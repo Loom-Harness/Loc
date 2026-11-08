@@ -85,6 +85,11 @@ test("two deployables, two storages: pickers, status rows and tagged logs", asyn
     await pick(page, "req-target", "storefront");
     await expect(page.getByTestId("req-target-caption")).toContainText("Sends to storefront · storage replica");
     await expect(page.getByTestId("req-target-caption")).not.toContainText("default");
+    // The endpoint list is re-read from the picked deployable's own spec.
+    await expect(page.getByTestId("req-endpoint")).toHaveValue("");
+    await page.getByTestId("req-endpoint").click();
+    await expect(page.getByRole("option", { name: /^GET \/(api\/)?products$/ })).toBeVisible();
+    await page.keyboard.press("Escape");
   });
 
   await test.step("Requests to each deployable tag the Output log with it", async () => {

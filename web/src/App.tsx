@@ -1569,14 +1569,12 @@ export default function App(): JSX.Element {
   // Best-effort: fetch the booted backend's OpenAPI document and turn it
   // into the endpoint list that drives the Backend console's picker.  On
   // any failure we clear the spec so the panel falls back to manual mode.
-  async function loadOpenApiSpec(engine: RuntimeEngine): Promise<void> {
+  async function loadOpenApiSpec(engine: RuntimeEngine, target?: string): Promise<void> {
     try {
-      const res = await engine.dispatch({
-        url: "http://localhost/openapi.json",
-        method: "GET",
-        headers: {},
-        body: null,
-      });
+      const res = await engine.dispatch(
+        { url: "http://localhost/openapi.json", method: "GET", headers: {}, body: null },
+        target,
+      );
       if (res.ok && res.response.status < 400 && res.response.body) {
         const doc = JSON.parse(res.response.body) as OpenApiDoc;
         setOpenApiSpec(doc);
@@ -1589,6 +1587,17 @@ export default function App(): JSX.Element {
     setOpenApiSpec(null);
     setApiEndpoints([]);
   }
+
+  // Several deployables serve different routes: the endpoint picker follows
+  // the deployable the console targets, not the first one booted.
+  const specTarget = bootedBackends.length > 1 ? (reqTarget && bootedBackends.includes(reqTarget) ? reqTarget : bootedBackends[0]) : undefined;
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine || specTarget === undefined) return;
+    setSelectedOpId(null);
+    void loadOpenApiSpec(engine, specTarget);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadOpenApiSpec only reads setters
+  }, [specTarget]);
 
   async function runBootStep(
     backends: BootableBackend[],
