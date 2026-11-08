@@ -3684,7 +3684,7 @@ export function renderValidation(forms: FormRecord[]): string {
       const body = allTerms.length > 0 ? allTerms.join(" && ") : "true";
       const errorFns = validated.flatMap((fld) => [
         "",
-        `  let ${fieldErrorFn(f.formType, fld.wireName)} (form: ${f.formType}) : (string * string) option =`,
+        `  let ${fieldErrorFn(f.formType, fld.wireName)} (form: ${f.formType}) : (string * string * (string * obj) list) option =`,
         fieldErrorBody(fld, fld.rules ?? []),
       ]);
       return [
@@ -3734,42 +3734,50 @@ function fieldErrorBody(fld: FelizFormField, rules: readonly FelizFieldRule[] = 
   // empty" or "this is not a number".  (Each rule's own predicate is
   // blank-/unparseable-tolerant for the same reason, so the order is belt and
   // braces rather than the only guard.)
-  // Each rung is `(condition, catalog code, English)`: the view renders the
-  // message through `I18n.t code english` when it renders.
-  const rungs: [string, string, string][] = [
+  // Each rung is `(condition, catalog code, English, params)`: the view
+  // renders the message through `I18n.tf code english params` when it renders.
+  type Rung = [string, string, string, Readonly<Record<string, number>>];
+  const rungs: Rung[] = [
     // An OPTIONAL field has no "Required" rung — blank is a legitimate
     // omission — but an optional NUMERIC's text still has to parse.
-    ...(fld.required ? ([[empty, "field.missing", "Required"]] as [string, string, string][]) : []),
+    ...(fld.required ? ([[empty, "field.missing", "Required", {}]] as Rung[]) : []),
     ...(parses
       ? ([
           [
             `not (${parses})`,
             "field.type-mismatch",
             NUMERIC_MESSAGE[fld.numeric as "integral" | "fractional"],
+            {},
           ],
-        ] as [string, string, string][])
+        ] as Rung[])
       : []),
-    ...rules.map((r) => [r.violated, r.code, r.message] as [string, string, string]),
+    ...rules.map((r) => [r.violated, r.code, r.message, r.params] as Rung),
   ];
   // Only reachable with an empty `rungs` for a field that is in the validated
   // set for no reason at all — keep the historical spelling rather than emit
   // `None` with no test.
   if (rungs.length === 0)
-    return `    if ${empty} then Some ("field.missing", "Required") else None`;
+    return `    if ${empty} then Some ("field.missing", "Required", []) else None`;
   // RULE-FREE forms stay BYTE-IDENTICAL to the pre-M-T1.16 emission, so this
   // feature is provably additive: an optional numeric's historical spelling is
   // the positive `if <parses> then None else <bad>`, which the generic
   // negated chain below would otherwise re-spell.
   if (rules.length === 0 && !fld.required && parses) {
-    return `    if ${parses} then None else Some ("field.type-mismatch", "${NUMERIC_MESSAGE[fld.numeric as "integral" | "fractional"]}")`;
+    return `    if ${parses} then None else Some ("field.type-mismatch", "${NUMERIC_MESSAGE[fld.numeric as "integral" | "fractional"]}", [])`;
   }
   const chain = rungs
     .map(
-      ([cond, code, msg], i) =>
-        `${i === 0 ? "if" : "elif"} ${cond} then Some (${fsString(code)}, ${fsString(msg)})`,
+      ([cond, code, msg, params], i) =>
+        `${i === 0 ? "if" : "elif"} ${cond} then Some (${fsString(code)}, ${fsString(msg)}, ${fsParams(params)})`,
     )
     .join(" ");
   return `    ${chain} else None`;
+}
+
+/** An F# `(string * obj) list` of a rung's params (`[]` for none). */
+function fsParams(params: Readonly<Record<string, number>>): string {
+  const entries = Object.entries(params).map(([k, v]) => `(${fsString(k)}, box ${v})`);
+  return entries.length > 0 ? `[ ${entries.join("; ")} ]` : "[]";
 }
 
 /** True when a form has any field that shows an inline error — the gate for
@@ -3823,11 +3831,14 @@ export function renderViewModule(
   // (the codebase's convention for repeated view logic) instead of inlined at
   // every input.  Shows the message only for a touched field, else nothing.
   const fieldError = [
-    "  let fieldError (touched: Set<string>) (name: string) (fieldId: string) (err: (string * string) option) : ReactElement =",
+    "  let fieldError (touched: Set<string>) (name: string) (fieldId: string) (err: (string * string * (string * obj) list) option) : ReactElement =",
     "    match (Set.contains name touched, err) with",
     // The error carries the id the input's `aria-describedby` references, so a
     // screen reader announces the message with the field (a11y).
-    `    | true, Some (code, e) -> Html.p [ prop.id fieldId; prop.className "text-error text-sm mt-1"; prop.text (${i18n ? "I18n.t code e" : "e"}) ]`,
+    // A rung that names values (a limit's bound) ICU-formats them; the others
+    // look the text up as-is, so a catalog text with a hole they cannot fill
+    // still renders.
+    `    | true, Some (code, e, ps) -> Html.p [ prop.id fieldId; prop.className "text-error text-sm mt-1"; prop.text (${i18n ? "if List.isEmpty ps then I18n.t code e else I18n.tf code e ps" : "e"}) ]`,
     "    | _ -> Html.none",
   ];
   // A rejected submit's messages (`ServerErrors`): one at the field its JSON

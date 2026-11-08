@@ -154,7 +154,7 @@ export function createForm<S extends z.ZodType>(
           next[path] ??= {
             code: issueCatalogCode(issue as { code?: string; params?: { loomCode?: string } }),
             message: issue.message,
-            params: issue.params,
+            params: issueCatalogParams(issue),
           };
         }
         errorEntries = next;

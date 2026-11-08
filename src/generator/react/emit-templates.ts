@@ -152,11 +152,12 @@ import { zodResolver as baseZodResolver } from "@hookform/resolvers/zod";
 
 interface LoomIssue {
   path: PropertyKey[];
-  params?: { loomCode?: string };
+  params?: { loomCode?: string; loomValues?: Record<string, unknown> };
 }
 
-/** The stock zodResolver, plus each Loom issue's catalog code on its field
- *  error (\`loomCode\`), so the error localizes when the form RENDERS
+/** The stock zodResolver, plus each Loom issue's catalog code (\`loomCode\`)
+ *  and a field limit's bound (\`loomValues\`) on its field error, so the
+ *  error localizes when the form RENDERS
  *  (\`fieldErrorText\`) rather than when the schema was built. */
 export const zodResolver = ((schema: any, schemaOptions?: any, resolverOptions?: any) => {
   const resolve = baseZodResolver(schema, schemaOptions, resolverOptions);
@@ -169,7 +170,10 @@ export const zodResolver = ((schema: any, schemaOptions?: any, resolverOptions?:
       if (!code) continue;
       let node: any = result.errors;
       for (const seg of issue.path) node = node?.[seg as string];
-      if (node && typeof node === "object" && node.loomCode === undefined) node.loomCode = code;
+      if (node && typeof node === "object" && node.loomCode === undefined) {
+        node.loomCode = code;
+        if (issue.params?.loomValues) node.loomValues = issue.params.loomValues;
+      }
     }
     return result;
   };
@@ -193,6 +197,8 @@ interface LoomFieldError {
   type?: string | number;
   message?: string;
   loomCode?: string;
+  /** A field limit's bound (\`{ min: 1 }\`), the values its text names. */
+  loomValues?: Record<string, unknown>;
 }
 
 /** The zod issue codes that mean the value has the wrong type or shape. */
@@ -207,7 +213,11 @@ export function fieldErrorText(error: unknown): string | undefined {
   if (!e?.message) return undefined;
   if (e.type === "server") return e.message;
   const code = e.loomCode ?? (TYPE_MISMATCH.has(String(e.type)) ? "field.type-mismatch" : "field.rule");
-  return t(code, e.message);
+  try {
+    return t(code, e.message, e.loomValues as Parameters<typeof t>[2]);
+  } catch {
+    return e.message;
+  }
 }
 `;
 }

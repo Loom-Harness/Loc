@@ -122,7 +122,7 @@ function toTypedSchema<T>(
         meta[path] ??= {
           code: issueCatalogCode(issue as { code?: string; params?: { loomCode?: string } }),
           message: issue.message,
-          params: issue.params,
+          params: issueCatalogParams(issue),
         };
       }
       return {

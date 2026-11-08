@@ -316,8 +316,11 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "field.rule",
+            "code": "field.min",
             "message": "Amount must be at least 1",
+            "params": {
+              "min": 1
+            },
             "pointer": "/amount"
           }
         ],
@@ -337,7 +340,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "field.rule",
+            "code": "field.pattern",
             "message": "Code is not in the expected format",
             "pointer": "/code"
           }

@@ -552,7 +552,7 @@ function valueAt(input: unknown, path: ReadonlyArray<PropertyKey>): unknown {
 
 /** The \`errors[].code\` of an issue — the catalog key a client localizes it
  *  by: the code a Loom check attached, else the field reason read off what
- *  zod found.  A native-chain bound or pattern is an unnamed rule. */
+ *  zod found.  A declared field limit carries its own (\`field.min\`, …). */
 function issueCode(issue: ZodIssueLike): string {
   if (issue.params?.loomCode) return issue.params.loomCode;
   if (issue.message === ${JSON.stringify(fieldFixedMessage("malformed-id"))}) return ${JSON.stringify(fieldCode("malformed-id"))};

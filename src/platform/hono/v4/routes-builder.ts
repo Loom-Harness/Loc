@@ -47,7 +47,7 @@ import {
 } from "../../../generator/typescript/wire-policy-ts.js";
 import {
   chainSingleFieldNative,
-  openapiLengthMeta,
+  openapiLimitMeta,
   orderSingleFieldPatterns,
   type RefineDecimalMode,
   refineClauseFor,
@@ -3168,15 +3168,12 @@ export function emitWireSchema(
       else if (declaresMax) schema = schema.replace(INT32_MAX_CALL, "");
       for (const p of orderSingleFieldPatterns(patterns))
         schema = chainSingleFieldNative(schema, p, f.name);
-      // A `len-*` bound is CHECKED as a code-point refine, which zod cannot
-      // describe to the OpenAPI emitter — re-declare it so `/openapi.json`
-      // still publishes the `minLength`/`maxLength` it always did (and now
-      // publishes a bound the server actually enforces, per code-point.ts).
-      const lengths = openapiLengthMeta(patterns);
-      if (lengths) {
-        const entries = Object.entries(lengths).map(([k, v]) => `${k}: ${v}`);
-        schema = `${schema}.openapi({ ${entries.join(", ")} })`;
-      }
+      // Every limit is CHECKED as a refine carrying its catalog code, which
+      // zod cannot describe to the OpenAPI emitter — re-declare the bounds so
+      // `/openapi.json` still publishes the `minimum`/`maxLength`/`pattern`
+      // the native checks did (a length in code points, per code-point.ts).
+      const meta = openapiLimitMeta(patterns);
+      if (meta) schema = `${schema}.openapi({ ${meta.join(", ")} })`;
     }
     // The NUL guard goes on LAST of the checks, after any declared regex or
     // length bound, matching `orderSingleFieldPatterns`.  zod 4 (the Hono

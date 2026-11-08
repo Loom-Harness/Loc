@@ -14,6 +14,13 @@
 // so the booted golden compare gates it too.  The harness FAILS a `pending`
 // row whose backend already emits the codes (flip it), and a backend missing
 // from the table.
+//
+// `fieldLimits` is the same switch for the declared-field-limit codes
+// (`field.min` … `field.pattern`, `FIELD_LIMIT_REASONS` in
+// `src/ir/enrich/wire-policy.ts`), which a backend answers by calling the
+// shared `fieldLimitChecks` at its native-constraint site.  A backend whose
+// `status` is `done` but whose `fieldLimits` is `pending` is gated on every
+// other code, and waived on exactly a field-limit entry's `code` / `params`.
 // ---------------------------------------------------------------------------
 
 export type ErrorCodeStatus = "done" | { readonly pending: string };
@@ -24,17 +31,52 @@ export interface ErrorCodeRow {
   /** The booted wire legs (`test/behavioral/run*.mjs`) that run this backend. */
   readonly wireLegs: readonly string[];
   readonly status: ErrorCodeStatus;
+  /** Whether its native field constraints answer their own `field.<limit>`
+   *  code with the bound in `params`, rather than the generic `field.rule`. */
+  readonly fieldLimits: ErrorCodeStatus;
 }
 
+/** The pending marker of a backend whose field limits still answer `field.rule`. */
+const LIMITS_PENDING = { pending: "#4473 field-limit codes" } as const;
+
 export const ERROR_CODE_ROWS: readonly ErrorCodeRow[] = [
-  { platform: "node", wireLegs: ["node", "mikroorm"], status: "done" },
-  { platform: "dotnet", wireLegs: ["dotnet", "dapper"], status: { pending: "#4473 fan-out" } },
-  { platform: "python", wireLegs: ["python"], status: { pending: "#4473 fan-out" } },
-  { platform: "java", wireLegs: ["java"], status: { pending: "#4473 fan-out" } },
-  { platform: "elixir", wireLegs: ["elixir"], status: { pending: "#4473 fan-out" } },
+  { platform: "node", wireLegs: ["node", "mikroorm"], status: "done", fieldLimits: "done" },
+  {
+    platform: "dotnet",
+    wireLegs: ["dotnet", "dapper"],
+    status: { pending: "#4473 fan-out" },
+    fieldLimits: LIMITS_PENDING,
+  },
+  {
+    platform: "python",
+    wireLegs: ["python"],
+    status: { pending: "#4473 fan-out" },
+    fieldLimits: LIMITS_PENDING,
+  },
+  {
+    platform: "java",
+    wireLegs: ["java"],
+    status: { pending: "#4473 fan-out" },
+    fieldLimits: LIMITS_PENDING,
+  },
+  {
+    platform: "elixir",
+    wireLegs: ["elixir"],
+    status: { pending: "#4473 fan-out" },
+    fieldLimits: LIMITS_PENDING,
+  },
 ];
 
 /** The wire legs whose backend still answers without `code` / `params`. */
 export function pendingErrorCodeLegs(): string[] {
   return ERROR_CODE_ROWS.filter((r) => r.status !== "done").flatMap((r) => r.wireLegs);
+}
+
+/** The wire legs whose backend answers every other code but still answers a
+ *  declared field limit with `field.rule` and no `params`.  (A leg whose
+ *  `status` is pending is already waived on every code.) */
+export function pendingFieldLimitLegs(): string[] {
+  return ERROR_CODE_ROWS.filter((r) => r.status === "done" && r.fieldLimits !== "done").flatMap(
+    (r) => r.wireLegs,
+  );
 }

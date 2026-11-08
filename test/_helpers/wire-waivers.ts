@@ -46,7 +46,8 @@
 // of its own with a named exit.
 // ---------------------------------------------------------------------------
 
-import { pendingErrorCodeLegs } from "./error-code-rows.js";
+import { FIELD_LIMIT_REASONS, fieldCode } from "../../src/ir/enrich/wire-policy.js";
+import { pendingErrorCodeLegs, pendingFieldLimitLegs } from "./error-code-rows.js";
 import type { WireWaiver } from "./wire-record.js";
 
 /** A wire error code: `problem.<class>`, `field.<reason>`, a named rule's
@@ -76,6 +77,32 @@ const PENDING_ERROR_CODES: readonly WireWaiver[] =
         },
       ];
 
+/** A declared field limit's code (`field.min` … `field.pattern`). */
+const FIELD_LIMIT_CODE = `^(${FIELD_LIMIT_REASONS.map((r) => fieldCode(r).replace(".", "\\.")).join("|")})$`;
+
+/** #4473 — a backend that answers every other code but whose `fieldLimits` row
+ *  is still `pending` answers a declared field limit with `field.rule` and no
+ *  bound.  Exactly a field-limit entry's `code` and the `errors[]` `params`;
+ *  flipping the row deletes its legs here. */
+const PENDING_FIELD_LIMITS: readonly WireWaiver[] =
+  pendingFieldLimitLegs().length === 0
+    ? []
+    : [
+        {
+          backends: pendingFieldLimitLegs(),
+          path: "**.code",
+          kinds: ["value"],
+          goldenValues: FIELD_LIMIT_CODE,
+          reason: "#4473 — this backend's native field constraints still answer `field.rule`",
+        },
+        {
+          backends: pendingFieldLimitLegs(),
+          path: "$.errors[*].params",
+          kinds: ["key-set", "value"],
+          reason: "#4473 — this backend's native field constraints do not yet carry their bound",
+        },
+      ];
+
 // 2026-10-11 — #3224 armed `transactional-workflow-event-rollback` on the
 // Dapper and python legs, the first golden to record an optimistic-concurrency
 // 409 off a non-node backend.  Status, `title` and `type` agree; only the `detail`
@@ -84,6 +111,7 @@ const PENDING_ERROR_CODES: readonly WireWaiver[] =
 // `elixir` joined with M-T6.92, which turned its 500 into the same 409.
 export const WIRE_WAIVERS: readonly WireWaiver[] = [
   ...PENDING_ERROR_CODES,
+  ...PENDING_FIELD_LIMITS,
   // elixir's workflow / explicit-route dispatcher receives the bare
   // `{:error, :conflict}` (no aggregate, no row), so its 409 `detail` is the
   // generic sentence.  Status, `title` and `type` agree; every other backend

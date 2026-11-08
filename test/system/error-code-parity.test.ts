@@ -15,12 +15,18 @@
 // must flip its row, which also drops its wire waivers); a `done` row must
 // carry them all.  The census at the bottom fails a backend with no row, so a
 // row cannot be dropped silently.
+//
+// The declared-field-limit codes (`field.min` … `field.pattern`) are a second
+// column, `fieldLimits`: a backend whose limits are `pending` is held to every
+// OTHER code, must still lack every limit code (a backend that started
+// answering them flips the column), and a `done` one must spell them all.
 // ---------------------------------------------------------------------------
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { WIRE_ERROR_MESSAGES } from "../../src/generator/_i18n/wire-error-text.js";
+import { FIELD_LIMIT_REASONS, fieldCode, fieldParams } from "../../src/ir/enrich/wire-policy.js";
 import { allPlatforms } from "../../src/platform/registry.js";
 import { ERROR_CODE_ROWS, type ErrorCodeRow } from "../_helpers/error-code-rows.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
@@ -30,8 +36,10 @@ const CORPUS = join(__dirname, "../fixtures/corpus");
 /** Corpus fixtures that, together, reach every error path: field reasons and
  *  named + unnamed rules (validation-messages, wire-ingress), the state gate,
  *  declared error variants, version and unique conflicts, a `requires` denial,
- *  an `extern` stub's 501, and authentication. */
+ *  an `extern` stub's 501, authentication, and every side of a declared field
+ *  limit (error-codes). */
 const FIXTURES = [
+  "error-codes",
   "validation-messages",
   "wire-ingress",
   "state-gate",
@@ -46,9 +54,7 @@ const FIXTURES = [
 /** Codes no fixture above reaches on a backend that otherwise carries them
  *  all.  Ratchets: a listed code that IS emitted fails, so a new fixture that
  *  reaches one deletes it here. */
-const NOT_REACHED: Readonly<Record<string, string>> = {
-  "problem.dangling-reference": "no fixture above writes a reference to an absent row",
-};
+const NOT_REACHED: Readonly<Record<string, string>> = {};
 
 /** A declared error variant's code (`operation-returns` declares `NotFound`
  *  in context `Orders`), so the harness also pins the `<Ctx>.<Error>.message`
@@ -77,6 +83,9 @@ const BACKEND_FACTS: Readonly<
 
 /** Every `problem.*` / `field.*` code a client can be answered with. */
 const ALL_CODES = Object.keys(WIRE_ERROR_MESSAGES).sort();
+
+/** The declared-field-limit codes — the `fieldLimits` column. */
+const FIELD_LIMIT_CODES = FIELD_LIMIT_REASONS.map(fieldCode).sort();
 
 /** The backend half of each fixture's emitted tree, as path → text. */
 async function backendFiles(platform: string): Promise<Map<string, string>> {
@@ -115,13 +124,27 @@ describe("error-code parity — one row per backend (error-code-rows.ts)", () =>
           return files;
         };
 
+        const limitsDone = row.fieldLimits === "done";
+        const expected = ALL_CODES.filter((c) => limitsDone || !FIELD_LIMIT_CODES.includes(c));
+
         it("spells every problem.* / field.* code its error paths answer", async () => {
           const spelled = spelledCodes(await load());
-          const missing = ALL_CODES.filter((c) => !spelled.has(c) && !(c in NOT_REACHED));
+          const missing = expected.filter((c) => !spelled.has(c) && !(c in NOT_REACHED));
           expect(missing, "codes the emitted backend never answers with").toEqual([]);
           const stale = Object.keys(NOT_REACHED).filter((c) => spelled.has(c));
           expect(stale, "NOT_REACHED entries a fixture now reaches — delete them").toEqual([]);
         }, 120_000);
+
+        if (row.fieldLimits !== "done") {
+          const pending = row.fieldLimits.pending;
+          it(`field limits are pending (${pending}) — and still answer no field-limit code`, async () => {
+            const all = spelledCodes(await load());
+            expect(
+              FIELD_LIMIT_CODES.filter((c) => all.has(c)),
+              `${row.platform} now answers field-limit codes — flip its fieldLimits to "done" in test/_helpers/error-code-rows.ts`,
+            ).toEqual([]);
+          }, 120_000);
+        }
 
         it("answers a declared error variant with its <Ctx>.<Error>.message code", async () => {
           const all = [...(await load()).values()].join("\n");
@@ -155,6 +178,10 @@ describe("error-code parity — one row per backend (error-code-rows.ts)", () =>
           `${row.platform} now answers with codes — flip its row to "done" in test/_helpers/error-code-rows.ts`,
         ).toEqual([]);
       }, 120_000);
+      it(`${row.platform}: its field limits are pending too until its codes land`, () => {
+        // A backend cannot answer the limit codes before the codes themselves.
+        expect(row.fieldLimits).not.toBe("done");
+      });
     }
   }
 });
@@ -168,6 +195,28 @@ describe("error-code parity — census", () => {
     const rows = ERROR_CODE_ROWS.map((r) => r.platform as string).sort();
     expect(rows).toEqual([...new Set(rows)]);
     expect(rows).toEqual(backends);
+  });
+
+  it("every field-limit reason has catalog English", () => {
+    for (const code of FIELD_LIMIT_CODES) expect(WIRE_ERROR_MESSAGES[code]).toBeDefined();
+  });
+
+  it("the node wire golden answers every field-limit code with its bound", () => {
+    // The booted answer key a pending backend is compared against once it
+    // flips: every limit code is in it, each with the params its reason names.
+    const golden = JSON.parse(
+      readFileSync(join(__dirname, "../behavioral/wire-golden/error-codes.json"), "utf8"),
+    ) as {
+      entries: { body?: { errors?: { code?: string; params?: Record<string, unknown> }[] } }[];
+    };
+    const seen = new Map<string, string[]>();
+    for (const e of golden.entries)
+      for (const err of e.body?.errors ?? [])
+        if (err.code) seen.set(err.code, Object.keys(err.params ?? {}).sort());
+    for (const reason of FIELD_LIMIT_REASONS) {
+      expect(seen.has(fieldCode(reason)), `${fieldCode(reason)} not in the golden`).toBe(true);
+      expect(seen.get(fieldCode(reason))).toEqual([...fieldParams(reason)].sort());
+    }
   });
 
   it("every row has its backend facts", () => {

@@ -55,6 +55,18 @@ const FIELD_TEXT: Readonly<Record<FieldRejectionReason, string>> = {
   // Also the text of an unnamed single-field rule (`rule-text.ts`).
   rule: "Invalid value",
   "type-mismatch": "Invalid value",
+  // A declared field limit, one side per code (`fieldLimitChecks`).
+  min: "Must be at least {min}",
+  max: "Must be at most {max}",
+  "greater-than": "Must be greater than {min}",
+  "less-than": "Must be less than {max}",
+  "min-length":
+    "{min, plural, one {Must be at least # character} other {Must be at least # characters}}",
+  "max-length":
+    "{max, plural, one {Must be at most # character} other {Must be at most # characters}}",
+  length:
+    "{length, plural, one {Must be exactly # character} other {Must be exactly # characters}}",
+  pattern: "Not in the expected format",
 };
 
 /** Every `problem.<class>` / `field.<reason>` key → its English. */

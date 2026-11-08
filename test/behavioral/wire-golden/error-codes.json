@@ -109,12 +109,228 @@
     {
       "seq": 7,
       "method": "POST",
+      "path": "/api/tickets",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.min",
+            "message": "Priority must be at least 1",
+            "params": {
+              "min": 1
+            },
+            "pointer": "/priority"
+          }
+        ],
+        "instance": "/api/tickets",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.max",
+            "message": "Seats must be at most 10",
+            "params": {
+              "max": 10
+            },
+            "pointer": "/seats"
+          }
+        ],
+        "instance": "/api/tickets",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.greater-than",
+            "message": "Weight must be greater than 0.5",
+            "params": {
+              "min": 0.5
+            },
+            "pointer": "/weight"
+          }
+        ],
+        "instance": "/api/tickets",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.less-than",
+            "message": "Ratio must be less than 9.5",
+            "params": {
+              "max": 9.5
+            },
+            "pointer": "/ratio"
+          }
+        ],
+        "instance": "/api/tickets",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.min-length",
+            "message": "Code must be at least 2 characters",
+            "params": {
+              "min": 2
+            },
+            "pointer": "/code"
+          }
+        ],
+        "instance": "/api/tickets",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.max-length",
+            "message": "Title must be at most 5 characters",
+            "params": {
+              "max": 5
+            },
+            "pointer": "/title"
+          }
+        ],
+        "instance": "/api/tickets",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.length",
+            "message": "Pin must be exactly 4 characters",
+            "params": {
+              "length": 4
+            },
+            "pointer": "/pin"
+          }
+        ],
+        "instance": "/api/tickets",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.pattern",
+            "message": "Email is not in the expected format",
+            "pointer": "/email"
+          }
+        ],
+        "instance": "/api/tickets",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 200,
+      "body": {
+        "code": "ab",
+        "email": "a@b",
+        "id": "<volatile:key>",
+        "pin": "1234",
+        "priority": 1,
+        "ratio": 9.25,
+        "seats": 10,
+        "title": "short",
+        "version": 1,
+        "weight": 0.75
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
       "path": "/api/categories/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 8,
+      "seq": 18,
       "method": "GET",
       "path": "/api/categories/{id}",
       "status": 200,
@@ -125,7 +341,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 19,
       "method": "GET",
       "path": "/api/categories",
       "status": 200,
@@ -144,14 +360,14 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 20,
       "method": "POST",
       "path": "/api/products/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 11,
+      "seq": 21,
       "method": "GET",
       "path": "/api/products",
       "status": 200,
@@ -172,14 +388,14 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 22,
       "method": "DELETE",
       "path": "/api/products/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 13,
+      "seq": 23,
       "method": "GET",
       "path": "/api/products",
       "status": 200,
@@ -192,7 +408,60 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 24,
+      "method": "POST",
+      "path": "/api/tickets/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 25,
+      "method": "GET",
+      "path": "/api/tickets",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "code": "xyz",
+            "email": "c@d",
+            "id": "<volatile:key>",
+            "pin": "4321",
+            "priority": 2,
+            "ratio": 1.5,
+            "seats": 9,
+            "title": "t",
+            "version": 2,
+            "weight": 1.5
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 26,
+      "method": "DELETE",
+      "path": "/api/tickets/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/api/tickets",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 28,
       "method": "PATCH",
       "path": "/api/categories",
       "status": 405,
@@ -206,7 +475,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 29,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -220,7 +489,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 30,
       "method": "POST",
       "path": "/api/categories",
       "status": 400,
@@ -234,7 +503,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 31,
       "method": "POST",
       "path": "/api/categories/{id}/update",
       "status": 404,

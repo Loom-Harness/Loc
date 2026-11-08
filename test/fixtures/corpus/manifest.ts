@@ -1018,7 +1018,7 @@ export const CORPUS: readonly CorpusFeature[] = [
   {
     id: "error-codes",
     title:
-      "every refusal carries its catalog `code` — the refusals no other booted fixture asks for: an out-of-range money, an `extern` stub's 501, a still-referenced delete",
+      "every refusal carries its catalog `code` — the refusals no other booted fixture asks for: an out-of-range money, an `extern` stub's 501, a still-referenced delete, and each side of a declared field limit (`field.min` … `field.pattern`, its bound in `params`)",
     doc: "language",
     // The backends whose `test/_helpers/error-code-rows.ts` row is `done`; a
     // fan-out backend joins when it flips its row.

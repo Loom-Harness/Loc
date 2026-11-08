@@ -53,7 +53,7 @@ import {
   UNIQUE_CONFLICT_DETAIL,
   UNSUPPORTED_MEDIA_TYPE_DETAIL,
 } from "../util/openapi-errors.js";
-import { classifyForWire } from "../validate/invariant-classify.js";
+import { classifyForWire, type SingleFieldPattern } from "../validate/invariant-classify.js";
 
 // ---------------------------------------------------------------------------
 // Stages — where a check runs
@@ -455,6 +455,13 @@ const FIELD_PARAMS: Readonly<Partial<Record<FieldRejectionReason, readonly strin
   "integer-range": ["min", "max"],
   "money-grammar": ["value"],
   "money-range": ["value"],
+  min: ["min"],
+  "greater-than": ["min"],
+  max: ["max"],
+  "less-than": ["max"],
+  "min-length": ["min"],
+  "max-length": ["max"],
+  length: ["length"],
 };
 
 /** The `params` an `integer-range` refusal carries: the int32 bounds. */
@@ -493,7 +500,11 @@ export function errorVariantCode(ctx: string | undefined, name: string): string 
  *   - `type-mismatch`  — the JSON value has the wrong type (`"5"` for an `int`,
  *                        `12.5` for a `money`).  Not yet one sentence: each
  *                        framework's own text, so the golden compares status
- *                        and pointer only. */
+ *                        and pointer only.
+ *   - a {@link FieldLimitReason} — one side of a field's declared limit (an
+ *                        unnamed single-field `check` / `invariant` /
+ *                        `precondition` the wire absorbs as a native bound),
+ *                        the bound in `params`.  See `fieldLimitChecks`. */
 export type FieldRejectionReason =
   | "missing"
   | "malformed-id"
@@ -501,7 +512,91 @@ export type FieldRejectionReason =
   | "money-grammar"
   | "money-range"
   | "rule"
-  | "type-mismatch";
+  | "type-mismatch"
+  | FieldLimitReason;
+
+/** One side of a declared field limit — the reasons a native field constraint
+ *  answers, each with its bound in `params`.
+ *
+ *   - `min` / `max`                {min} / {max}  — an inclusive numeric bound.
+ *   - `greater-than` / `less-than` {min} / {max}  — an exclusive one (a strict
+ *                                  bound on a non-integer field; on an `int`,
+ *                                  `> 0` folds to `min 1`).
+ *   - `min-length` / `max-length`  {min} / {max}  — a string length, counted in
+ *                                  code points.
+ *   - `length`                     {length}       — an exact string length.
+ *   - `pattern`                    (none)         — a `matches("…")` regex.
+ *
+ *  A two-sided limit (`n >= 1 && n <= 10`, a length range) is TWO checks, one
+ *  per side, so the code names the side the value broke, and each backend's
+ *  native validator (pydantic `ge`/`le`, Bean Validation `@Min`/`@Max`, Ecto
+ *  `validate_number`) maps onto it without a combined form.  An unnamed rule
+ *  of any other shape keeps the generic `rule`; a specific message for one
+ *  needs a named rule. */
+export type FieldLimitReason =
+  | "min"
+  | "max"
+  | "greater-than"
+  | "less-than"
+  | "min-length"
+  | "max-length"
+  | "length"
+  | "pattern";
+
+/** Every field-limit reason, in a stable order. */
+export const FIELD_LIMIT_REASONS: readonly FieldLimitReason[] = [
+  "min",
+  "max",
+  "greater-than",
+  "less-than",
+  "min-length",
+  "max-length",
+  "length",
+  "pattern",
+];
+
+/** One check a field limit implies: the reason a value failing it answers,
+ *  the `params` its `errors[]` entry carries, and the bound or regex it tests.
+ *  A backend renders the comparison from `reason` + `bound` (or `regex`) and
+ *  never re-reads the pattern. */
+export interface FieldLimitCheck {
+  reason: FieldLimitReason;
+  params: Readonly<Record<string, number>>;
+  /** The number a numeric / length check compares against. */
+  bound?: number;
+  /** The `matches("…")` source, on a `pattern` check. */
+  regex?: string;
+}
+
+/** The checks a recognised single-field constraint implies, one per side —
+ *  THE constraint → reason mapping every backend's wire validator and every
+ *  client form validator reads, so a bound refuses with the same code and
+ *  params everywhere. */
+export function fieldLimitChecks(pattern: SingleFieldPattern): FieldLimitCheck[] {
+  const one = (reason: FieldLimitReason, param: string, n: number): FieldLimitCheck => ({
+    reason,
+    params: { [param]: n },
+    bound: n,
+  });
+  switch (pattern.kind) {
+    case "min":
+      return [one(pattern.exclusive ? "greater-than" : "min", "min", pattern.n)];
+    case "max":
+      return [one(pattern.exclusive ? "less-than" : "max", "max", pattern.n)];
+    case "between":
+      return [one("min", "min", pattern.lo), one("max", "max", pattern.hi)];
+    case "len-min":
+      return [one("min-length", "min", pattern.n)];
+    case "len-max":
+      return [one("max-length", "max", pattern.n)];
+    case "len-eq":
+      return [one("length", "length", pattern.n)];
+    case "len-range":
+      return [one("min-length", "min", pattern.lo), one("max-length", "max", pattern.hi)];
+    case "regex":
+      return [{ reason: "pattern", params: {}, regex: pattern.pattern }];
+  }
+}
 
 /** The refusal message every backend renders for an out-of-range money value —
  *  shaped like the grammar refusal so a client sees one family of messages. */
@@ -514,12 +609,16 @@ export const MONEY_RANGE_MESSAGE = "Money out of range";
  *                        the pointer (`/lines/0/qty` → `qty`).
  *   - `value-sentence` — `<prefix>: <JSON of the refused value>`.
  *   - `carried`        — the rule's own text.
+ *   - `limit`          — the whole limit's field-named sentence
+ *                        (`singleFieldMessage`: "Priority must be at least
+ *                        1"), the same on both sides of a two-sided limit.
  *   - `framework`      — not ruled yet; the framework's text. */
 export type FieldMessage =
   | { kind: "fixed"; text: string }
   | { kind: "field-sentence"; suffix: string }
   | { kind: "value-sentence"; prefix: string }
   | { kind: "carried" }
+  | { kind: "limit" }
   | { kind: "framework" };
 
 export const FIELD_REASONS: Readonly<Record<FieldRejectionReason, FieldMessage>> = {
@@ -530,6 +629,14 @@ export const FIELD_REASONS: Readonly<Record<FieldRejectionReason, FieldMessage>>
   "money-range": { kind: "value-sentence", prefix: MONEY_RANGE_MESSAGE },
   rule: { kind: "carried" },
   "type-mismatch": { kind: "framework" },
+  min: { kind: "limit" },
+  max: { kind: "limit" },
+  "greater-than": { kind: "limit" },
+  "less-than": { kind: "limit" },
+  "min-length": { kind: "limit" },
+  "max-length": { kind: "limit" },
+  length: { kind: "limit" },
+  pattern: { kind: "limit" },
 };
 
 /** The fixed message of a reason that has one. */
