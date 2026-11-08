@@ -44,6 +44,18 @@ Heavy work runs in Web Workers, not on the UI thread:
   infrastructure `docker-compose.yml` runs beside the services: one PGlite
   per `storage`, each in a nested storage host worker.
 
+**Backend → backend HTTP.** A deployable's generated api client reads
+`process.env.<X>_URL`, which compose sets to `http://<slug>:<port>`. Each
+runtime worker boots with its own compose service's `environment:` as
+`process.env` (`composeServiceEnv`; set before the bundle is imported, and per
+worker so two deployables never see each other's values), and its `fetch` is
+wrapped (`runtime/service-fetch.ts`): a request to a booted deployable's
+hostname is posted to the main thread, which dispatches it into that
+deployable's worker and posts the response back; any other URL reaches the
+network. Routing is by hostname (a compose service name is unique; the container
+port means nothing in the browser). The frontend's own calls already go to its
+`targets:` backend.
+
 ## The four capabilities
 
 The landing page advertises "typed editor + visual system builder + live

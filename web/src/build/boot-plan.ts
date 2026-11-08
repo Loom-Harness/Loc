@@ -37,6 +37,8 @@ export function bootPlan(
   plan: MigrationPlan,
   storages: readonly StoragePlan[],
   placement: (storageKey: string) => { dataDir: string; island: string | null },
+  /** The process env of a deployable's compose service. */
+  envOf?: (slug: string) => Record<string, string>,
 ): { plan: BootPlan; islands: string[] } {
   const groups: StoragePlan[] =
     storages.length > 0
@@ -59,6 +61,7 @@ export function bootPlan(
       slug: b.slug,
       bundleCode: b.bundle.code,
       storage: storageOf(b.slug),
+      ...(envOf ? { env: envOf(b.slug) } : {}),
     })),
   };
   return { plan: out, islands };
