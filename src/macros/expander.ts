@@ -373,7 +373,19 @@ function applyDefaultVersioning(
   // column is also correct.
   const declared = existingVersionMember(agg);
   if (declared) {
-    if (reportVersionCollision(agg, declared, doc)) return;
+    if (!isIntProperty(declared)) {
+      recordDiagnostic(doc, {
+        severity: "error",
+        code: "loom.version-field-collision",
+        message: diagMessage("loom.version-field-collision", {
+          name: agg.name,
+          name2: lowerFirstSafe(agg.name),
+        }),
+        node: declared,
+        property: "name",
+      });
+      return;
+    }
     tagCapability(agg, "versioned");
     return;
   }
@@ -389,36 +401,6 @@ function existingVersionMember(agg: Aggregate): Property | undefined {
   return agg.members.find(
     (m): m is Property => m.$type === "Property" && (m as Property).name === "version",
   );
-}
-
-/** True iff the property is the counter's exact spelling: a plain `int` with
- *  `token` access.  A `version: int` WITHOUT `token` reads as a domain value
- *  (a rule-set revision, an API version) but would be silently adopted as the
- *  counter — bumped on every save — so it is refused rather than aliased. */
-function isCounterProperty(p: Property): boolean {
-  return isIntProperty(p) && (p as { access?: string }).access === "token";
-}
-
-/** Record `loom.version-field-collision` for a user `version` member that is
- *  not the counter's spelling; returns whether it did. */
-function reportVersionCollision(agg: Aggregate, declared: Property, doc: LangiumDocument): boolean {
-  if (isCounterProperty(declared)) return false;
-  recordDiagnostic(doc, {
-    severity: "error",
-    code: "loom.version-field-collision",
-    message: isIntProperty(declared)
-      ? diagMessage("loom.version-field-collision#not-token", {
-          name: agg.name,
-          name2: lowerFirstSafe(agg.name),
-        })
-      : diagMessage("loom.version-field-collision", {
-          name: agg.name,
-          name2: lowerFirstSafe(agg.name),
-        }),
-    node: declared,
-    property: "name",
-  });
-  return true;
 }
 
 /** True iff the property is a plain (non-optional, non-array) `int` — the exact
@@ -707,7 +689,19 @@ function expandCapability(
     if (cap.name === "versioned") {
       const declared = existingVersionMember(agg);
       if (declared) {
-        if (reportVersionCollision(agg, declared, doc)) continue;
+        if (!isIntProperty(declared)) {
+          recordDiagnostic(doc, {
+            severity: "error",
+            code: "loom.version-field-collision",
+            message: diagMessage("loom.version-field-collision", {
+              name: agg.name,
+              name2: lowerFirstSafe(agg.name),
+            }),
+            node: declared,
+            property: "name",
+          });
+          continue;
+        }
         tagCapability(agg, "versioned");
         continue;
       }

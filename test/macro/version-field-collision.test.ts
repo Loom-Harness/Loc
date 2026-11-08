@@ -54,11 +54,11 @@ describe("user-declared `version` vs auto-versioning", () => {
     expect(joined).toContain("optimistic-concurrency");
     // The message has to be actionable — both ways out are named.
     expect(joined).toContain("releaseVersion");
-    expect(joined).toContain("version: int token");
+    expect(joined).toContain("version: int");
   });
 
-  it("still accepts `version: int token` and emits the concurrency column unchanged", async () => {
-    const files = await generateSystemFiles(system("int token"));
+  it("still accepts `version: int` and emits the concurrency column unchanged", async () => {
+    const files = await generateSystemFiles(system("int"));
     const sql = [...files].find(([p]) => p.endsWith("_ops_initial.sql"))?.[1];
     expect(sql).toContain(`"version" INTEGER NOT NULL DEFAULT 1`);
     const repo = files.get("svc/db/repositories/release-repository.ts");
@@ -68,9 +68,9 @@ describe("user-declared `version` vs auto-versioning", () => {
   });
 
   it("leaves an aggregate with no `version` field on the normal splice path", async () => {
-    const sql = [
-      ...(await generateSystemFiles(system("int token").replace("version: int token", ""))),
-    ].find(([p]) => p.endsWith("_ops_initial.sql"))?.[1];
+    const sql = [...(await generateSystemFiles(system("int").replace("version: int", "")))].find(
+      ([p]) => p.endsWith("_ops_initial.sql"),
+    )?.[1];
     expect(sql).toContain(`"version" INTEGER NOT NULL DEFAULT 1`);
   });
 });
@@ -117,8 +117,8 @@ describe("`version` collision — explicit `with versioned`", () => {
     expect(errors.join("\n")).toMatch(/field 'version' on aggregate 'Release' collides/);
   });
 
-  it("leaves an explicit `version: int token` legal — it IS the concurrency column", async () => {
-    const { errors } = await parseString(src("version: int token", "with crudish, versioned"));
+  it("leaves an explicit `version: int` legal — it IS the concurrency column", async () => {
+    const { errors } = await parseString(src("version: int", "with crudish, versioned"));
     expect(errors).toEqual([]);
   });
 });

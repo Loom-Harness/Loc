@@ -382,15 +382,16 @@ describe("scaffold list/detail — the optimistic-concurrency counter stays off 
   // expander splices `version: int token = 1`.  That counter is transport-only
   // (read for the update's If-Match precondition, never edited), so a "Version"
   // list column / detail row is noise.  The drop keys on the capability fact
-  // (aggregate tagged `versioned` + the field's `token` access), not the name.
-  // A user's own `version` must be that counter (`version: int token`); a plain
-  // `version: int` is refused (`loom.version-field-collision`), so no editable
-  // `version` column can reach a page.
+  // (aggregate tagged `versioned` + the field's `token` access), not the name —
+  // a user's own editable `version: int` (which the expander keeps in place of
+  // the splice) is ordinary data and still renders.
   const src = `
     system S {
       context C {
         aggregate Task { title: string }
         repository Tasks for Task { }
+        aggregate Release { name: string  version: int }
+        repository Releases for Release { }
       }
     }
   `;
@@ -407,6 +408,14 @@ describe("scaffold list/detail — the optimistic-concurrency counter stays off 
     expect(details).toContain("KeyValueRow(label(Task.title)");
     expect(details).not.toContain("Version");
     expect(details).not.toContain("version");
+  });
+
+  it("keeps a user-declared editable `version` field", async () => {
+    const { model, errors } = await parseString(src);
+    expect(errors).toEqual([]);
+    const release = findNode(model, "Aggregate", "Release");
+    expect(scalarColumnsForAggregate(release).map((c) => c.name)).toEqual(["name", "version"]);
+    expect(printExpr(scaffoldDetails(release))).toContain("KeyValueRow(label(Release.version)");
   });
 });
 

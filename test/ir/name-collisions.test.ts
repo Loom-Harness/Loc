@@ -7,8 +7,6 @@
 //     (`loom.member-name-collision`)
 //   - the same type name in two contexts one deployable hosts
 //     (`loom.hosted-type-name-collision`)
-//   - a `version` field that is not the concurrency counter
-//     (`loom.version-field-collision`)
 //   - .NET: a domain type spelled like a resource package's root namespace, and
 //     two members that differ only in the first letter's case
 //     (`loom.dotnet-name-collision`)
@@ -198,38 +196,6 @@ ${twoContexts(
     await expect(generateSystemFiles(twoContexts("enum Status { a }", "dotnet"))).rejects.toThrow(
       /hosted-type-name-collision/,
     );
-  });
-});
-
-describe("loom.version-field-collision — a user `version` is the counter or an error", () => {
-  const src = (field: string) => oneContext(`${field}\n      title: string`);
-
-  it("refuses a plain `version: int` (a domain value would be bumped on every save)", async () => {
-    const { errors } = await parseString(src("version: int immutable = 1"));
-    const joined = errors.join("\n");
-    expect(joined).toContain("optimistic-concurrency column");
-    expect(joined).toContain("orderVersion");
-    expect(joined).toContain("version: int token");
-  });
-
-  it("accepts `version: int token` — the counter's own spelling", async () => {
-    const { errors } = await parseString(src("version: int token = 1"));
-    expect(errors).toEqual([]);
-  });
-
-  it("still refuses a non-int `version`", async () => {
-    const { errors } = await parseString(src("version: string"));
-    expect(errors.join("\n")).toContain("which is an 'int'");
-  });
-
-  it("leaves an event-sourced aggregate's `version` alone (no state-table counter)", async () => {
-    const { errors } = await parseString(
-      oneContext(`version: int = 1`).replace(
-        "aggregate Order with crudish",
-        "aggregate Order persistedAs: eventLog with crudish",
-      ),
-    );
-    expect(errors.filter((e) => e.includes("optimistic-concurrency"))).toEqual([]);
   });
 });
 

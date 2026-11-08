@@ -5779,11 +5779,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `Unknown capability '${p.cap}' in 'implements'.`,
   "loom.version-field-collision": (p: { name: unknown; name2: unknown }) =>
     `field 'version' on aggregate '${p.name}' collides with Loom's optimistic-concurrency column, which is an 'int'. ` +
-    `Rename this field (e.g. '${p.name2}Version'), or declare it 'version: int token' if you meant the concurrency counter.`,
-  "loom.version-field-collision#not-token": (p: { name: unknown; name2: unknown }) =>
-    `field 'version' on aggregate '${p.name}' is Loom's optimistic-concurrency column: every state aggregate carries one ` +
-    `and each save bumps it, so a domain value stored there (a revision number, an API version) drifts. ` +
-    `Rename this field (e.g. '${p.name2}Version'), or declare it 'version: int token' if you meant the concurrency counter.`,
+    `Rename this field (e.g. '${p.name2}Version'), or declare it 'version: int' if you meant the concurrency counter.`,
   "loom.softdelete-field-collision": (p: { name: unknown; name2: unknown }) =>
     `field 'isDeleted' on aggregate '${p.name}' collides with the 'softDeletable' capability's flag, which is a 'bool' ` +
     `(the spliced 'filter !this.isDeleted' reads it). Rename this field (e.g. '${p.name2}Deleted'), or declare it ` +
