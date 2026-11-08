@@ -37,6 +37,7 @@ import { repositoryVerb } from "../../util/repository-contract.js";
 import { findVerb } from "../../util/resource-verbs.js";
 import { durationUnitOf } from "../../util/temporal.js";
 import { isValueObjectEqualsIntrinsic } from "../../util/value-object-intrinsics.js";
+import { walkerPrimitiveArgValues } from "../../util/walker-primitive-arg-values.js";
 import { isWalkerPrimitive } from "../../util/walker-primitive-names.js";
 import type {
   Aggregate,
@@ -130,6 +131,7 @@ import {
   isStatement,
   isStore,
   isStringLit,
+  isSystem,
   isTemplateStr,
   isTernaryExpr,
   isTestE2E,
@@ -152,6 +154,8 @@ import { isPrim, mergeTags, PAGED_META, type RecordShape, Ty, withTags } from ".
 // Scope model (design §D4): one persistent chain, built by the walk.
 // ---------------------------------------------------------------------------
 
+/** The effect calls a ui body may make in value position. */
+const UI_EFFECTS: ReadonlySet<string> = new Set(["toast", "navigate"]);
 export type BindingKind =
   | "param"
   | "let"
@@ -768,8 +772,27 @@ export class Elaborator {
     return (
       this.apiParamNamed(name, node) ||
       this.componentNamed(name, node) ||
+      this.pageNamed(name, node) ||
       this.storeNamed(name, node) !== undefined
     );
+  }
+
+  /** A page of the enclosing `ui` (`navigate(Home)` names it). */
+  private pageNamed(name: string, node: AstNode): boolean {
+    for (let c: AstNode | undefined = node; c; c = c.$container) {
+      if (isUi(c)) return c.members.some((m) => isPage(m) && m.name === name);
+    }
+    return false;
+  }
+
+  /** A walker-primitive named argument whose bare value is a SYMBOL, not a
+   *  value: a word of the argument's closed vocabulary (`variant: primary`)
+   *  is that string; `OperationForm`'s `op:` names an operation of its `of:`
+   *  aggregate. */
+  private symbolArg(primitive: string, arg: string, value: string): Ty | undefined {
+    if (walkerPrimitiveArgValues(primitive, arg)?.includes(value)) return Ty.prim("string");
+    if (primitive === "OperationForm" && arg === "op") return Ty.unknown("not-a-value");
+    return undefined;
   }
 
   /** A bare name resolved against the enclosing owner's members (inherited
@@ -972,6 +995,21 @@ export class Elaborator {
     }
     void at;
     for (const entry of entries) {
+      const symbol =
+        entry.name && isNameRef(entry.value)
+          ? this.symbolArg(name, entry.name, entry.value.name)
+          : undefined;
+      if (symbol) {
+        this.types.set(entry.value, symbol);
+        continue;
+      }
+      // A click handler is an action; the DSL does not model the click event,
+      // so the lambda's own parameter (if written) stays untyped.
+      if (entry.name === "onClick" && isLambda(entry.value)) {
+        this.synthLambda(entry.value, body, undefined);
+        this.types.set(entry.value, { kind: "action" });
+        continue;
+      }
       if (queryResult && entry.name === "data" && isLambda(entry.value))
         this.synthLambda(entry.value, body, queryResult);
       else this.synth(entry.value, body);
@@ -1036,7 +1074,17 @@ export class Elaborator {
         if (i !== segs.length - 1) return undefined;
         const shape = astProjectionReadShape(proj);
         if (!shape) return undefined;
-        const row = Ty.record({ of: "projection", ref: proj });
+        // A shorthand read (no declared fields, no `select`, no `group by`)
+        // answers the filtered SOURCE rows in the source aggregate's shape.
+        const src = proj.source?.ref;
+        const shorthand =
+          isAggregate(src) &&
+          proj.groupBys.length === 0 &&
+          proj.selects.length === 0 &&
+          !proj.members.some(isProperty);
+        const row = shorthand
+          ? Ty.record({ of: "aggregate", ref: src })
+          : Ty.record({ of: "projection", ref: proj });
         return shape === "many" ? Ty.array(row) : row;
       }
       const wf = this.index.find("workflow", m, of);
@@ -1290,10 +1338,15 @@ export class Elaborator {
   }
 
   private permissionsVisible(node: AstNode): boolean {
+    const declares = (n: AstNode): boolean => {
+      const perms = (n as { permissions?: unknown[] }).permissions;
+      return Array.isArray(perms) && perms.length > 0;
+    };
     for (let c: AstNode | undefined = node; c; c = c.$container) {
-      const perms = (c as { permissions?: unknown[] }).permissions;
-      if (Array.isArray(perms) && perms.length > 0) return true;
+      if (declares(c)) return true;
       if ((c as { $type?: string }).$type === "Module") return true;
+      // A `ui` sits beside the subdomains: it gates on any subdomain's catalogue.
+      if (isSystem(c)) return c.members.some(declares);
     }
     return false;
   }
@@ -1355,6 +1408,8 @@ export class Elaborator {
     // A walker primitive / user component invoked in call form builds a ui element.
     if (scope.frame.ui && (isWalkerPrimitive(name) || this.componentNamed(name, node)))
       return { kind: "slot" };
+    // The ui effects (`then: toast("…")`, `then: navigate(Home)`) yield nothing.
+    if (scope.frame.ui && UI_EFFECTS.has(name)) return Ty.never;
     return Ty.unknown("unresolved-name");
   }
 

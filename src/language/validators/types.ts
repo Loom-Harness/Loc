@@ -312,12 +312,18 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
         // reported exactly once.
         const claims = ms.$cstNode ? absentUserClaim(recvType, ms.member) : undefined;
         if (claims) {
+          const declared =
+            recvType.kind === "record" &&
+            recvType.shape.of === "principal" &&
+            recvType.shape.ref !== undefined;
           accept(
             "error",
-            diagMessage("loom.unknown-user-claim", {
-              member: ms.member,
-              claims: claims.length ? claims.join(", ") : "(none)",
-            }),
+            declared
+              ? diagMessage("loom.unknown-user-claim", {
+                  member: ms.member,
+                  claims: claims.length ? claims.join(", ") : "(none)",
+                })
+              : diagMessage("loom.unknown-user-claim#no-user-block", { member: ms.member }),
             { node: ms, property: "member", code: "loom.unknown-user-claim" },
           );
           break;

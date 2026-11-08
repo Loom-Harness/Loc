@@ -1970,6 +1970,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `Extract the logic into a pure 'function' and call that from both places.`,
   "loom.unknown-user-claim": (p: { member: unknown; claims: unknown }) =>
     `'${p.member}' is not a claim on the principal. 'currentUser' carries exactly the fields declared in the system's 'user { }' block (${p.claims}), plus the derived 'orgPath' / 'rootOrg' under 'tenancy by'. Declare it ('${p.member}: <type>' inside 'user { }') or fix the spelling — an undeclared claim reaches the generated backend verbatim, whose 'UserClaims' shape is built from that same block, and breaks its own compile.`,
+  "loom.unknown-user-claim#no-user-block": (p: { member: unknown }) =>
+    `'currentUser.${p.member}' reads a claim, but the system declares no 'user { }' block, so the principal carries none. Declare it ('user { ${p.member}: <type> }', with 'auth' on the deployable that serves it); without a declaration the claim has no type, and its generated read is a guess.`,
   "loom.unknown-primitive-member": (p: { member: unknown; prim: unknown; known: unknown }) =>
     `'${p.member}' is not a member of '${p.prim}'. '${p.prim}' is a PRIMITIVE value, not a record — it has no fields.${p.known} An invented member is not caught anywhere downstream: it reaches the generated code verbatim, where node/.NET/Java fail their own compile and python/elixir do not — so an invariant written over one silently never fires.`,
   "loom.unknown-primitive-member#money": (p: { member: unknown; known: unknown }) =>
@@ -5752,6 +5754,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `Macro '${p.childName}' (invoked from '${p.name}') threw: ${p.message}`,
   "loom.macro-threw#direct": (p: { name: unknown; message: unknown }) =>
     `Macro '${p.name}' threw during expansion: ${p.message}`,
+  // Not a diagnostic of its own: the attribution any AST-phase diagnostic on a
+  // macro-synthesised node is wrapped in (`DddDocumentValidator.toDiagnostic`),
+  // which keeps that diagnostic's code and moves it onto the `with` clause.
+  "loom.macro-synthesised": (p: { message: unknown; macro: unknown }) =>
+    `${String(p.message).replace(/\.\s*$/, "")} (in code synthesised by '${p.macro}')`,
   "loom.capability-host-invalid": (p: { name: unknown; hostKind: unknown }) =>
     `Capability '${p.name}' can only be applied to an aggregate or context (got '${p.hostKind}').  ` +
     "A capability is a pure mixin over domain state, not a UI or API concern.",

@@ -145,7 +145,13 @@ export const DddSharedModule: Module<LangiumSharedServices, PartialLangiumShared
   },
 };
 
-export function createDddServices(context: DefaultSharedModuleContext): {
+/** `hostShared` lets a host replace shared services that depend on where its
+ *  documents live — the browser server passes `EditorOwnedDocumentsModule`,
+ *  because with no filesystem a closed document no longer exists. */
+export function createDddServices(
+  context: DefaultSharedModuleContext,
+  hostShared: Module<LangiumSharedServices, PartialLangiumSharedServices> = {},
+): {
   shared: LangiumSharedServices;
   Ddd: DddServices;
 } {
@@ -153,6 +159,7 @@ export function createDddServices(context: DefaultSharedModuleContext): {
     createDefaultSharedModule(context),
     DddGeneratedSharedModule,
     DddSharedModule,
+    hostShared,
   );
   const Ddd = inject(createDefaultModule({ shared }), DddGeneratedModule, DddModule);
   shared.ServiceRegistry.register(Ddd);
