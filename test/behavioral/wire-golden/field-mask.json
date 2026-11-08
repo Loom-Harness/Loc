@@ -96,7 +96,8 @@
       "path": "/api/employees/by_national_id?nid=NID-1",
       "status": 403,
       "body": {
-        "detail": "Forbidden: mask unless — the read filters Employee on a masked field",
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
         "instance": "/api/employees/by_national_id",
         "status": 403,
         "title": "Forbidden",
@@ -109,7 +110,8 @@
       "path": "/api/employees/by_national_id?nid=NID-WRONG",
       "status": 403,
       "body": {
-        "detail": "Forbidden: mask unless — the read filters Employee on a masked field",
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
         "instance": "/api/employees/by_national_id",
         "status": 403,
         "title": "Forbidden",
@@ -122,7 +124,8 @@
       "path": "/api/employees/{id}/update",
       "status": 403,
       "body": {
-        "detail": "Forbidden: mask unless — only a caller who can read Employee.salary may change it",
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
         "instance": "/api/employees/{id}/update",
         "status": 403,
         "title": "Forbidden",
@@ -135,7 +138,8 @@
       "path": "/api/employees/{id}/update",
       "status": 403,
       "body": {
-        "detail": "Forbidden: mask unless — only a caller who can read Employee.salary may change it",
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
         "instance": "/api/employees/{id}/update",
         "status": 403,
         "title": "Forbidden",
@@ -148,7 +152,8 @@
       "path": "/api/employees/{id}/update",
       "status": 403,
       "body": {
-        "detail": "Forbidden: mask unless — only a caller who can read Employee.nationalId may change it",
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
         "instance": "/api/employees/{id}/update",
         "status": 403,
         "title": "Forbidden",
@@ -161,7 +166,8 @@
       "path": "/api/employees/{id}/update",
       "status": 403,
       "body": {
-        "detail": "Forbidden: mask unless — only a caller who can read Employee.nationalId may change it",
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
         "instance": "/api/employees/{id}/update",
         "status": 403,
         "title": "Forbidden",
@@ -475,7 +481,8 @@
       "path": "/api/employees/{id}/update",
       "status": 403,
       "body": {
-        "detail": "Forbidden: mask unless — only a caller who can read Employee.salary may change it",
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
         "instance": "/api/employees/{id}/update",
         "status": 403,
         "title": "Forbidden",
@@ -488,7 +495,8 @@
       "path": "/api/employees/{id}/update",
       "status": 403,
       "body": {
-        "detail": "Forbidden: mask unless — only a caller who can read Employee.salary may change it",
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
         "instance": "/api/employees/{id}/update",
         "status": 403,
         "title": "Forbidden",
@@ -515,7 +523,8 @@
       "path": "/api/employees/by_national_id?nid=NID-L",
       "status": 403,
       "body": {
-        "detail": "Forbidden: mask unless — the read filters Employee on a masked field",
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
         "instance": "/api/employees/by_national_id",
         "status": 403,
         "title": "Forbidden",
@@ -528,7 +537,8 @@
       "path": "/api/employees/by_national_id?nid=NID-L",
       "status": 403,
       "body": {
-        "detail": "Forbidden: mask unless — the read filters Employee on a masked field",
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
         "instance": "/api/employees/by_national_id",
         "status": 403,
         "title": "Forbidden",
