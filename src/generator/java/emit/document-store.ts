@@ -5,7 +5,6 @@ import {
   exprUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { tableNameFor } from "../../../util/storage-names.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
@@ -44,12 +43,13 @@ import { javaBlobWriteGuardLines, writeScopeUsesPrincipal } from "./write-scope.
 
 export function renderJavaDocumentRepositoryImpl(
   agg: EnrichedAggregateIR,
+  /** The aggregate's table (`aggregateTableName`). */
+  bare: string,
   repo: RepositoryIR | undefined,
   ctx: JavaRepoCtx,
   idClass: string,
   schema: string | undefined,
 ): string {
-  const bare = tableNameFor(agg.name);
   const table = schema ? `${schema}.${bare}` : bare;
   const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
 

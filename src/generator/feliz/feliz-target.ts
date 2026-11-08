@@ -706,6 +706,13 @@ export const felizTarget: WalkerTarget = {
     return `Html.span [ prop.children [ ${match} ] ]`;
   },
 
+  // `LocaleSwitcher {}` → the generated `I18n` module's language picker (a native
+  // `select` over the shipped locales).  Its change handler calls
+  // `I18n.setLocale`, whose `LocaleChanged` subscription message re-renders the
+  // view, so the call needs neither `model` nor `dispatch` and works the same in
+  // a page, a walked component or a shell slot.
+  renderLocaleSwitcher: () => "I18n.localeSwitcher ()",
+
   // `Timeline(of: <entries>)` → the entity audit trail (docs/audit.md) as a
   // native ordered list, mirroring the React renderer semantically: per entry an
   // action span, a `<time>` (the ISO `at`, verbatim — like the Angular arm), the

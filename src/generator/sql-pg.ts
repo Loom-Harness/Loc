@@ -10,7 +10,6 @@ import type {
 } from "../ir/types/migrations-ir.js";
 import { snake } from "../util/naming.js";
 
-import { tableNameFor } from "../util/storage-names.js";
 // ---------------------------------------------------------------------------
 // Postgres SQL renderer shared by the TS/Hono and .NET/EF migration emitters.
 //
@@ -394,15 +393,16 @@ function ident(name: string): string {
  *  (src/language/validators/seed.ts) rejects that crossing upstream; teaching
  *  this renderer the document shape is the alternative, and is not done. */
 export function renderSeedRowInsert(
-  aggregate: string,
+  /** The row's table (`Entry.table`). */
+  table: string,
   fields: { name: string; value: ExprIR }[],
   schema?: string,
 ): string {
-  const bare = qIdent(tableNameFor(aggregate));
-  const table = schema ? `${qIdent(schema)}.${bare}` : bare;
+  const bare = qIdent(table);
+  const target = schema ? `${qIdent(schema)}.${bare}` : bare;
   const cols = fields.map((f) => qIdent(snake(f.name))).join(", ");
   const vals = fields.map((f) => seedSqlLiteral(f.value)).join(", ");
-  return `INSERT INTO ${table} (${cols}) VALUES (${vals})`;
+  return `INSERT INTO ${target} (${cols}) VALUES (${vals})`;
 }
 
 /** Double-quoted identifier — matches the lowercase tables the migrations

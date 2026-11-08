@@ -25,7 +25,7 @@ import type {
   UserIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
-import { sourceLocaleOf } from "../../ir/types/loom-ir.js";
+import { DEFAULT_SOURCE_LOCALE, sourceLocaleOf } from "../../ir/types/loom-ir.js";
 import { backendServesRealtime } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesDataGrid } from "../../ir/util/data-grid.js";
@@ -48,6 +48,7 @@ import {
   E2E_TSCONFIG_JSON,
   PLAYWRIGHT_CONFIG_TS,
 } from "../_frontend/e2e-harness.js";
+import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
 import { deriveSidebarFromUi, type NavSectionVM } from "../_frontend/menu-emitter.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -84,7 +85,12 @@ import {
   usesRouteIdFn,
 } from "./fs-expr.js";
 import { fsIdent } from "./fs-ident.js";
-import { FELIZ_INTL_MESSAGEFORMAT, felizI18nEnabled, renderFelizI18nModule } from "./i18n.js";
+import {
+  FELIZ_INTL_MESSAGEFORMAT,
+  felizI18nEnabled,
+  felizLocaleSwitchable,
+  renderFelizI18nModule,
+} from "./i18n.js";
 import { felizPack } from "./pack.js";
 import {
   felizRealtimeRefetchAggregates,
@@ -217,6 +223,11 @@ export interface GenerateFelizOptions {
    *  pages are recorded as `fragment()` REGIONS inside that file, anchored by
    *  each view function's own text.  See `_trace/sourcemap.ts`. */
   sourcemap?: SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag — see `PlatformSurface.emitProject`'s `translations`.  Each is
+   *  compiled into the `I18n` module beside the source catalog, under the SAME
+   *  gate as it.  Absent / empty is the normal case. */
+  translations?: TranslationCatalogs;
 }
 
 /** Indent every line of `block` by `n` spaces. */
@@ -799,6 +810,9 @@ function renderNavbar(
   i18nEnabled = false,
   pageGate = false,
   menu?: readonly NavSectionVM[],
+  /** Two or more locales ship: the bar carries the language picker, and a bar
+   *  with no links still renders for it. */
+  localeSwitcher = false,
 ): string {
   // ONE line per entry, guard included: F# keys a newline-separated list
   // element by its first-token column, so a multi-line guard here would
@@ -828,12 +842,13 @@ function renderNavbar(
             ),
       ),
     ]);
-    if (entries.length === 0) return "";
+    if (entries.length === 0 && !localeSwitcher) return "";
   } else {
     const navPages = pages.filter((p) => !hasRouteParam(p));
-    if (navPages.length < 2) return "";
-    // PATH href (History API routing), not a `#/…` hash link.
-    entries = navPages.map((p) =>
+    if (navPages.length < 2 && !localeSwitcher) return "";
+    // PATH href (History API routing), not a `#/…` hash link.  A lone page
+    // renders no link list at all: the bar then exists only for the picker.
+    entries = (navPages.length < 2 ? [] : navPages).map((p) =>
       guard(
         p,
         `Html.li [ prop.children [ Html.a [ prop.href "${p.route ?? "/"}"; prop.text "${humanizeLabel(p.name)}" ] ] ]`,
@@ -852,11 +867,20 @@ function renderNavbar(
     '      Html.div [ prop.className "flex-1"; prop.children [',
     `        Html.a [ prop.className "btn btn-ghost text-xl"; prop.href "/"; prop.text "${humanizeLabel(brand)}" ]`,
     "      ] ]",
-    '      Html.div [ prop.className "flex-none"; prop.children [',
-    '        Html.ul [ prop.className "menu menu-horizontal px-1"; prop.children [',
-    items,
-    "        ] ]",
-    "      ] ]",
+    ...(entries.length > 0
+      ? [
+          '      Html.div [ prop.className "flex-none"; prop.children [',
+          '        Html.ul [ prop.className "menu menu-horizontal px-1"; prop.children [',
+          items,
+          "        ] ]",
+          "      ] ]",
+        ]
+      : []),
+    ...(localeSwitcher
+      ? [
+          '      Html.div [ prop.className "flex-none px-1"; prop.children [ I18n.localeSwitcher () ] ]',
+        ]
+      : []),
     "    ] ]",
   ].join("\n");
 }
@@ -882,13 +906,14 @@ function renderRootView(
   /** The ui's explicit `menu { }`, derived — the navbar renders it instead of
    *  the top-level page list. */
   menu?: readonly NavSectionVM[],
+  localeSwitcher = false,
 ): string {
   const arms = pages.map((p) => {
     const names = routeParamNames(p);
     const args = names.length > 0 ? ` ${names.map(fsIdent).join(" ")}` : "";
     return `        | ${pageCase(p, nameCtx)}${caseArgs(names)} -> ${pageViewFn(p, nameCtx)} model dispatch${args}`;
   });
-  const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate, menu);
+  const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate, menu, localeSwitcher);
   const router = [
     "    React.router [",
     // PATH-based routing (History API), NOT hash (`#/…`) — the generated SPA
@@ -1329,6 +1354,8 @@ function renderAppFs(
   onPageView?: (page: PageIR, viewText: string) => void,
   /** The system's source language — the catalog the `I18n` module falls back to. */
   sourceLocale?: string,
+  /** Translated catalogs — what makes a second locale resolvable. */
+  translations?: TranslationCatalogs,
 ): string {
   const pages = ui.pages;
   if (pages.length === 0) {
@@ -1341,6 +1368,14 @@ function renderAppFs(
   // of the JS frontends' `src/i18n.ts` shim.  Empty catalog → no module, the
   // walks pass no prefix, and the file is byte-identical to pre-i18n.
   const i18nEnabled = felizI18nEnabled(ui);
+  // Two or more locales ship: the Model carries the active `Locale`, `Msg` a
+  // `LocaleChanged` case (dispatched by the listener `init` registers whenever
+  // `I18n.setLocale` runs), and the navbar the language picker.
+  const localeSwitchable = felizLocaleSwitchable(
+    ui,
+    translations,
+    sourceLocale ?? DEFAULT_SOURCE_LOCALE,
+  );
   const aggregatesByName = new Map<string, AggregateIR>();
   for (const c of contexts) for (const a of c.aggregates) aggregatesByName.set(a.name, a);
   // Aggregate-qualified page-name context (`classifyPage` inputs) — the scaffold
@@ -1536,7 +1571,7 @@ function renderAppFs(
   const persistedStores = felizPersistedStores(ui);
   const storeUrlArm = storeUrlUpdateArm(persistedStores);
   const storeUrlSub = renderStoreUrlSub(persistedStores);
-  const model = renderModel(state, reads, routed, formRecords, authUi, pageGate);
+  const model = renderModel(state, reads, routed, formRecords, authUi, pageGate, localeSwitchable);
   // A component `state {}` cell seeded from a component param: `init` has no
   // props, so the agreeing call-site constant substitutes in — or the component
   // defers (`component-state-init.ts`).
@@ -1551,6 +1586,7 @@ function renderAppFs(
     storePersistInitOverrides(persistedStores),
     componentInits.paramValues,
     i18nEnabled,
+    localeSwitchable,
   );
   const msg = renderMsg(
     msgActions,
@@ -1567,6 +1603,7 @@ function renderAppFs(
     boundState,
     fileUploads,
     storeUrlArm ? STORE_URL_MSG : undefined,
+    localeSwitchable,
   );
   const update = renderUpdate(
     actions,
@@ -1589,6 +1626,7 @@ function renderAppFs(
     // against — its MVU arm lives in `update-emit.ts`, outside every page view.
     new Map(pages.filter((p) => p.route).map((p) => [p.name, p.route!])),
     i18nEnabled,
+    localeSwitchable,
   );
   const wire = hasWire
     ? renderWireTypes(
@@ -1704,6 +1742,7 @@ function renderAppFs(
           i18nEnabled,
           pageGate,
           ui.menu ? deriveSidebarFromUi(ui, nameCtx) : undefined,
+          localeSwitchable,
         ),
       ]
     : [
@@ -1820,7 +1859,10 @@ function renderAppFs(
     // else: F# is order-sensitive and every page view below calls into it, while
     // the module itself references nothing.
     i18nEnabled ? "" : false,
-    i18nEnabled ? renderFelizI18nModule(ui, sourceLocale, contexts) : false,
+    i18nEnabled ? renderFelizI18nModule(ui, sourceLocale, contexts, translations) : false,
+    // The Fable.SimpleHttp requests below carry `Accept-Language`.
+    i18nEnabled && hasHttp ? "" : false,
+    i18nEnabled && hasHttp ? FELIZ_HTTP_LOCALE : false,
     usesPageTitle ? "" : false,
     usesPageTitle ? SET_DOCUMENT_TITLE_DECL : false,
     // Auth session gate — SessionState (gates the Model) + the Auth probe module.
@@ -1911,6 +1953,7 @@ function renderAppFs(
     persistedStores.length > 0 ? renderUpdateWithPersist() : false,
     storeUrlSub ? "" : false,
     storeUrlSub || undefined,
+
     // Realtime subscription module (channels.md Part I) — references `Msg`,
     // `Api`, and the reads' `Loaded` cases, so it sits after `update`.
     hasRealtime ? "" : false,
@@ -1970,20 +2013,49 @@ function renderAppFs(
     // URL mirror — in place of `update`.
     `Program.mkProgram init ${persistedStores.length > 0 ? "updateWithPersist" : "update"} safeView`,
     '|> Program.withErrorHandler (fun (msg, ex) -> Fable.Core.JS.console.error ($"Unhandled error in {msg}:", ex))',
-    // `Sub<'msg>` is a LIST of (id, start) pairs, so two subscriptions compose by
+    // `Sub<'msg>` is a LIST of (id, start) pairs, so subscriptions compose by
     // concatenation — `withSubscription` itself takes only one.
-    hasRealtime && storeUrlSub
-      ? "|> Program.withSubscription (fun m -> realtimeSub m @ storeUrlSub m)"
-      : hasRealtime
-        ? "|> Program.withSubscription realtimeSub"
-        : storeUrlSub
-          ? "|> Program.withSubscription storeUrlSub"
-          : false,
+    programSubscription([hasRealtime && "realtimeSub", storeUrlSub && "storeUrlSub"]),
     '|> Program.withReactSynchronous "root"',
     "|> Program.run",
     "",
   );
 }
+
+/** `|> Program.withSubscription …` for the named `Sub<Msg>` producers: the one
+ *  producer itself, or their concatenation; `false` when there are none. */
+function programSubscription(producers: readonly (string | false | undefined)[]): string | false {
+  const names = producers.filter((n): n is string => typeof n === "string");
+  if (names.length === 0) return false;
+  if (names.length === 1) return `|> Program.withSubscription ${names[0]}`;
+  return `|> Program.withSubscription (fun m -> ${names.map((n) => `${n} m`).join(" @ ")})`;
+}
+
+/** Fable.SimpleHttp's `Http`, shadowed so every request carries the active
+ *  locale.  The `Api` and `Auth` modules keep their ordinary `Http.request …
+ *  |> Http.send` / `Http.get` spelling; each `Http.request` (and so each
+ *  `Http.get`) stamps `Accept-Language: <active locale>` when it is CALLED, so
+ *  the backend negotiates its own locale from the language the UI shows now.
+ *  Every function the generated modules use is re-bound here; the rest of
+ *  Fable.SimpleHttp (`Headers`, `BodyContent`, `GET`/`POST`/`DELETE`) is
+ *  untouched. */
+const FELIZ_HTTP_LOCALE = lines(
+  "/// Fable.SimpleHttp's `Http`, with `Accept-Language: <active locale>` on every",
+  "/// request — the backend answers in the language the UI is showing.",
+  "module Http =",
+  "  let request (url: string) =",
+  "    Fable.SimpleHttp.Http.request url",
+  '    |> Fable.SimpleHttp.Http.header (Headers.create "Accept-Language" (I18n.getLocale ()))',
+  "  let method m req = Fable.SimpleHttp.Http.method m req",
+  "  let content c req = Fable.SimpleHttp.Http.content c req",
+  "  let header h req = Fable.SimpleHttp.Http.header h req",
+  "  let send req = Fable.SimpleHttp.Http.send req",
+  "  let get (url: string) : Async<int * string> =",
+  "    async {",
+  "      let! response = request url |> method GET |> send",
+  "      return response.statusCode, response.responseText",
+  "    }",
+);
 
 // The wire layer pulls in two more packages (proposal §10 known-good pins):
 // Fable.SimpleHttp for the fetch, Thoth.Json for the decoders.  A read-free
@@ -2298,6 +2370,7 @@ export function generateFelizForContexts(
     realtimeStreamCredential(deployable, target, sys.user),
     options.sourcemap ? (page, text) => pageViews.push({ page, text }) : undefined,
     sourceLocaleOf(sys),
+    options.translations,
   );
   out.set("src/App.fs", appFs);
   if (options.sourcemap) {

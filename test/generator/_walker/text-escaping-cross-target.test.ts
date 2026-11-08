@@ -182,6 +182,8 @@ const NON_TEXT_PRIMITIVES: Record<string, string> = {
   Tab: "sub-element of Tabs",
   Divider: "rule/separator — optional label handled separately",
   Loader: "spinner — no text",
+  LocaleSwitcher:
+    "language picker — option labels are generate-time locale names, no caller text literal",
   Skeleton: "placeholder — no text",
   Button: "action label handled via control/label seam",
   Action: "action primitive — no body text literal",

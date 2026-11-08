@@ -2128,6 +2128,9 @@ export const DIAGNOSTIC_MESSAGES = {
     `context '${p.name}': ${p.kind} '${p.hName}' has a parameter named 'id', which is ` +
     `reserved — a bare 'id' in a handler body resolves to the current entity's implicit id, ` +
     `not the parameter. Rename it (e.g. 'orderId').`,
+  "loom.envelope-removed":
+    "`T envelope` is removed: it meant exactly `T` (a single value), so the carrier added nothing. " +
+    "Write `T` instead — the quick fix drops the `envelope`.",
   "loom.option-deprecated":
     "`T option` is deprecated: it means `T?`, the one way to say a value may be missing. " +
     "Write `T?` instead — the quick fix rewrites it.",
@@ -2753,6 +2756,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `field '${p.name}' (${p.k}) cannot be URL-synced — ` +
     `\`persist: url\` fields must be scalar (string/number/bool/enum/id). ` +
     `Use \`persist: local\` for structural state.`,
+  "loom.store-init-not-constant": (p: { name: unknown; kind: unknown }) =>
+    `field '${p.name}': its initializer is not a constant (a \`${p.kind}\` expression).  ` +
+    `A store field is initialised once, when the store is created, so its default ` +
+    `may use only literals, lists, operators, \`? :\`, enum values and \`string(…)\` — ` +
+    `set anything else from a store action instead.`,
   "loom.store-action-view-effect": (p: { where: unknown; name: unknown; sName: unknown }) =>
     `action '${p.name}': \`${p.sName}(…)\` is a view-scoped effect — ` +
     `a store has no router/socket to ${p.sName} on.  Move it to the calling page's ` +

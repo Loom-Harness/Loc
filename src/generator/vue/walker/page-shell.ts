@@ -714,12 +714,12 @@ export function renderVuePage(input: VuePageShellInput): string {
   // The i18n `t` helper (M-T1.11) — the shared walker seam records
   // `import { t } from "../i18n"` into `result.imports`, a relative specifier
   // the pass-through loop below drops.  Fold it into `apiImports` so the
-  // `adjustDepth` pass rewrites `../i18n` → `../../i18n` for a nested page.
+  // `adjustDepth` pass rewrites `../lib/locale` → `../../lib/locale` for a nested page.
   const i18nNames = result.imports.get("../i18n");
   if (i18nNames && i18nNames.size > 0) {
-    const set = apiImports.get("../i18n") ?? new Set<string>();
+    const set = apiImports.get("../lib/locale") ?? new Set<string>();
     for (const n of i18nNames) set.add(n);
-    apiImports.set("../i18n", set);
+    apiImports.set("../lib/locale", set);
   }
   // Same fold for the `toast(<msg>)` page effect, recorded above as the
   // one-level `../lib/toast`: the pass-through loop below drops every relative
@@ -773,6 +773,12 @@ export function renderVuePage(input: VuePageShellInput): string {
   if (result.tsx.includes("<LoomRefLabel")) {
     script.push(
       `import LoomRefLabel from "${adjustDepth("../components/LoomRefLabel.vue", input)}";`,
+    );
+  }
+  // The language picker — same marker discipline (`vue/locale-switcher.ts`).
+  if (result.tsx.includes("<LocaleSwitcher")) {
+    script.push(
+      `import LocaleSwitcher from "${adjustDepth("../components/LocaleSwitcher.vue", input)}";`,
     );
   }
   for (const line of storeWiring.imports) script.push(line);
@@ -1500,18 +1506,21 @@ export function renderVueComponentFile(
   if (result.tsx.includes("<LoomRefLabel")) {
     script.push(`import LoomRefLabel from "./LoomRefLabel.vue";`);
   }
+  if (result.tsx.includes("<LocaleSwitcher")) {
+    script.push(`import LocaleSwitcher from "./LocaleSwitcher.vue";`);
+  }
   if (usesFormToast) {
     script.push(`import { pushToast } from "../lib/toast";`);
   }
   // The i18n `t` helper (M-T1.11) — folded out of `result.imports` (a relative
   // specifier the pass-through loop drops) into the api-import block.  A
   // component always sits at `src/components/<Name>.vue`, one hop from `src/`,
-  // so `../i18n` needs no depth adjustment.
+  // so `../lib/locale` needs no depth adjustment.
   const i18nNames = result.imports.get("../i18n");
   if (i18nNames && i18nNames.size > 0) {
-    const set = apiImports.get("../i18n") ?? new Set<string>();
+    const set = apiImports.get("../lib/locale") ?? new Set<string>();
     for (const n of i18nNames) set.add(n);
-    apiImports.set("../i18n", set);
+    apiImports.set("../lib/locale", set);
   }
   // Same fold for the `toast(<msg>)` page effect, recorded above as the
   // one-level `../lib/toast`: the pass-through loop below drops every relative

@@ -147,7 +147,7 @@ describe("Flutter i18n runtime", () => {
     expect(i18n).toContain("MessageFormat(icu.message, locale: locale).format(icu.values)");
     expect(i18n).not.toContain("MessageFormat(message, locale: locale).format(values)");
     // …and formatting needs the formatters, so the import comes along.
-    expect(i18n).toContain("import 'package:intl/intl.dart';");
+    expect(i18n).toContain("import 'package:intl/intl.dart' hide TextDirection;");
     // The fallback stays for a message MessageFormat genuinely rejects —
     // degrading beats crashing a build().
     expect(i18n).toContain("return _substitute(message, values);");

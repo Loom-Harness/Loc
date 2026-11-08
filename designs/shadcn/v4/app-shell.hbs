@@ -156,6 +156,7 @@ function AppShellLayout() {
           <span className="text-lg font-semibold tracking-tight">{{systemNameHuman}}</span>
         </RouterLink>
 {{#if authUi}}        <Button variant="outline" size="sm" className="ml-auto" onClick={signOut} data-testid="sign-out">{{{chrome "signOut"}}}</Button>
+{{/if}}{{#if localeSwitcherJsx}}        <div className="{{#if authUi}}ml-3{{else}}ml-auto{{/if}}">{{{localeSwitcherJsx}}}</div>
 {{/if}}      </header>
       <div className="flex flex-1">
         <nav
@@ -205,7 +206,8 @@ function {{name}}Layout() {
 }
 
 {{/each}}export default function App() {
-  return (
+{{#if useLocaleStatement}}  {{{useLocaleStatement}}}
+{{/if}}  return (
 {{#if hasRealtimeHandlers}}    <>
       <RealtimeHandlers />
 {{/if}}    <React.Suspense fallback={<RouteLoading />}>

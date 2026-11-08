@@ -965,7 +965,7 @@ opts out of redaction by writing their own debug form.
 ```
 TypeRef       = TypeAtom ('or' TypeAtom)*                  // anonymous union
 TypeAtom      = BaseType GenericCtor* ('[]')? ('?')?
-GenericCtor   = 'paged' | 'envelope' | 'option'             // ML-postfix carriers
+GenericCtor   = 'paged' | 'option' | 'envelope'             // ML-postfix carriers ('envelope' is refused)
 BaseType      = PrimitiveType | SlotType | ActionType | SelfType | IdType | NamedType
 IdType        = Identifier 'id'                // cross-aggregate FK
 NamedType     = Identifier                     // bare name
@@ -980,8 +980,8 @@ ActionType    = 'action' ('(' TypeRef ')')?    // callback-shaped param marker �
 // `docs/language-reference/05-expressions.md` § Money literals vs money(x).
 ```
 
-The postfix carriers fold left (`string envelope paged` is
-`paged(envelope(string))`) and bind tighter than `or`, as do `[]` / `?`:
+The postfix carriers fold left (`string option paged` is
+`paged(string?)`) and bind tighter than `or`, as do `[]` / `?`:
 `string or int option` is `string or (int option)`.  `A or B` and the named
 `payload U = A | B` form are the discriminated-union surface (tagged `type`
 on the wire) — see [`payloads.md`](payloads.md).  `File` is the uploaded-file
@@ -2184,7 +2184,7 @@ validator raises is in it).  By family, with the doc that explains each:
 | `loom.migration-*`, `loom.rename-*`, `loom.backfill-*`, `loom.unique-*` | `migration { … }` ledger steps, destructive / rebaseline gating, `unique (…)` | [`migrations.md`](migrations.md) |
 | `loom.handler-*`, `loom.command-handler-*`, `loom.query-handler-*`, `loom.route-handler-unresolved`, `loom.extern-*` | `commandHandler` / `queryHandler` contracts, `api` routes, extern pairing | [`extern.md`](extern.md), [`architecture.md`](architecture.md) |
 | `loom.criterion-*`, `loom.retrieval-*`, `loom.find-*`, `loom.findall-*`, `loom.list-find-removed` | Criteria purity / arity / aliasing, retrievals, the queryable subset | [`criterion.md`](criterion.md) |
-| `loom.union-*`, `loom.payload-*`, `loom.generic-*`, `loom.match-*` | `A or B` unions, payload records, `paged` / `envelope` / `option` carriers, `match` exhaustiveness and subjects | [`payloads.md`](payloads.md) |
+| `loom.union-*`, `loom.payload-*`, `loom.generic-*`, `loom.match-*` | `A or B` unions, payload records, `paged` / `option` carriers, `match` exhaustiveness and subjects | [`payloads.md`](payloads.md) |
 | `loom.channel*`, `loom.reactor-*`, `loom.relay-*`, `loom.timer-*` | Channels, channelSources, reactors, timers | [`channels.md`](channels.md) |
 | `loom.resource-*`, `loom.datasource-*`, `loom.file-*`, `loom.config-*`, `loom.index-suggestion` | Resource bindings, storage kinds, `File` fields, vendor config, index advice | [`resources.md`](resources.md) |
 | `loom.seed-*` | Seed rows vs abstract / event-sourced / tenant-owned aggregates, `raw` columns | [`language-reference/23-domain-services-and-seeds.md`](language-reference/23-domain-services-and-seeds.md) |

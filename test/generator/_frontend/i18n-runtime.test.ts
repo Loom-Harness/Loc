@@ -242,7 +242,7 @@ describe("renderI18nModule", () => {
   });
 
   it("falls back to the per-call default, so an unresolvable key still renders", () => {
-    expect(shim).toContain("messages[key] ?? defaultMessage");
+    expect(shim).toContain("catalogs[current]?.[key] ?? defaultMessage");
   });
 
   it("skips the ICU parse entirely for a value-less message", () => {

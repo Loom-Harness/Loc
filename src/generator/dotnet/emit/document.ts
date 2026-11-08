@@ -7,7 +7,6 @@ import type {
 import { directParentName } from "../../../ir/util/containment-parent.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
 import { csJsonSqlType } from "../codec-spelling.js";
 import { csValueTypeForId, renderCsType } from "../render-expr.js";
 
@@ -91,9 +90,10 @@ export function renderDocumentPoco(agg: EnrichedAggregateIR, ns: string): string
 export function renderDocumentConfiguration(
   agg: EnrichedAggregateIR,
   ns: string,
-  options: { schema?: string; tablePrefix?: string } = {},
+  /** `table` is the aggregate's table (`aggregateTableName`). */
+  options: { table: string; schema?: string; tablePrefix?: string },
 ): string {
-  const baseTable = tableNameFor(agg.name);
+  const baseTable = options.table;
   const tableName = options.tablePrefix ? `${options.tablePrefix}${baseTable}` : baseTable;
   const tableArgs = options.schema ? `"${tableName}", "${options.schema}"` : `"${tableName}"`;
   return (
