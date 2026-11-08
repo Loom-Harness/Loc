@@ -81,7 +81,7 @@ export function renderVanillaProblemDetailsModule(
   /** Some operation persist asserts a message-less invariant
    *  (`assert_op_invariants/1`), tagging the violation `loom_invariant`.  It
    *  answers the DOMAIN-FLOOR rung the other four backends' operation throw
-   *  answers — this status + title, `Invariant violated: <rule>` as `detail`,
+   *  answers — this status + title, the rule's generic sentence as `detail`,
    *  no `errors[]` — not the request changeset's "Validation failed".
    *  `undefined` ⇒ byte-identical. */
   opInvariants?: { status: number; title: string },
@@ -233,7 +233,7 @@ export function renderVanillaProblemDetailsModule(
 ${baseBody422.replace(/^/gm, "    ")}
 
       detail ->
-        problem_response(conn, ${opInvariants.status}, ${elixirString(opInvariants.title)}, detail)
+        problem_response(conn, ${opInvariants.status}, ${elixirString(opInvariants.title)}, detail, ${exCode("domain-floor")})
     end`
     : baseBody422;
   const opInvariantFn = opInvariants

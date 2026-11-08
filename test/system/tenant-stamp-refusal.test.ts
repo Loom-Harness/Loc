@@ -114,7 +114,9 @@ describe("a missing tenancy claim refuses the write (F-018)", () => {
     // it exists to replace — the exact half-fix this assertion exists to catch.
     const ctrl = await file("controllers/widget_controller.ex");
     expect(ctrl).toContain("{:error, {:forbidden, detail}} ->");
-    expect(ctrl).toContain('ProblemDetails.problem_response(conn, 403, "Forbidden", detail)');
+    expect(ctrl).toContain(
+      'ProblemDetails.problem_response(conn, 403, "Forbidden", detail, "problem.forbidden")',
+    );
   });
 
   it("every backend names the missing claim in its message", async () => {

@@ -384,7 +384,7 @@ export function opAssertedInvariants(agg: AggregateIR): InvariantIR[] {
 /** `assert_op_invariants/1` — the operation persist's invariant floor.  Node,
  *  .NET, Java and Python assert every invariant after an operation body and
  *  throw the FIRST violated one in declaration order as a domain error, answered
- *  as 422 "Unprocessable Entity" with `Invariant violated: <rule>` as `detail`
+ *  as 422 "Unprocessable Entity" with the rule's generic sentence (never its source) as `detail`
  *  and no `errors[]`.  The elixir persist is a changeset, so the first violation
  *  is added as one error tagged `loom_invariant`; `ProblemDetails` answers that
  *  tag with the same body.  Empty when the aggregate has no such rule. */
@@ -402,10 +402,10 @@ export function renderOpInvariantAssertFn(agg: AggregateIR, contextModule: strin
       ? `(${renderExpr(inv.guard, rc)}) && !(${renderExpr(inv.expr, rc)})`
       : `!(${renderExpr(inv.expr, rc)})`;
     const field = snake(pickErrorPath(inv) ?? fallbackField);
-    const msg = elixirString(`Invariant violated: ${inv.source}`);
+    const msg = elixirString(ruleText(inv));
     return `      ${violated} ->\n        add_error(changeset, :${field}, ${msg}, loom_invariant: true)`;
   });
-  return `  @doc "Re-assert the aggregate's message-less invariants after an operation body — the first violated one is the operation's domain error (422, \`Invariant violated: <rule>\`), as on the other four backends."
+  return `  @doc "Re-assert the aggregate's message-less invariants after an operation body — the first violated one is the operation's domain error (422, the rule's generic sentence), as on the other four backends."
   def assert_op_invariants(changeset) do
     data = apply_changes(changeset)
 

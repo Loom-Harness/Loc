@@ -777,6 +777,11 @@ export function renderApiExceptionAdvice(
    *  `onDomain` handler then answers a `DomainException` carrying a rule code
    *  with the same errors[] entry (M-T1.11 (c)).  False ⇒ byte-identical. */
   domainFloorCodes = false,
+  /** The aggregates a still-referenced DELETE can name, as `[route segment,
+   *  aggregate name]`.  The advice is app-global, so it reads the aggregate
+   *  off the request path and answers the same `<Aggregate> is still
+   *  referenced…` sentence every other backend does. */
+  referencedSubjects: ReadonlyArray<readonly [string, string]> = [],
 ): string {
   // A 403 never echoes the gate: the `requires` source is the model's
   // internals, so the body is the constant detail plus the `problem.forbidden`
@@ -807,9 +812,11 @@ export function renderApiExceptionAdvice(
     javaLit(wireTitle(cls, structuralErrorStatuses));
   const fixed = (cls: WireRejectionClass): string => javaLit(wireFixedDetail(cls));
   const fieldInvalid = wireStatus("field-invalid");
-  // The advice does not know which aggregate a restrict violation concerns, so
-  // the subject is the generic "This resource".
-  const referencedDetail = javaLit(wireSentenceFor("referenced-in-use", "This resource"));
+  // The aggregate a restrict violation concerns is read off the request path
+  // (`/api/<route>/{id}`) at runtime; the generic subject is only the fallback
+  // for a path no route segment names.
+  const referencedFallback = javaLit(wireSentenceFor("referenced-in-use", "This resource"));
+  const referencedDetail = "referencedDetail(request)";
   const danglingDetail = fixed("dangling-reference");
   const uniqueDetail = fixed("unique-conflict");
   const fieldInvalidProblem = `problem(${fieldInvalid}, ${title("field-invalid")}, ${fixed("field-invalid")}, ${code("field-invalid")}, request)`;
@@ -829,8 +836,6 @@ export function renderApiExceptionAdvice(
     // project that can do neither stays byte-identical.
     // The optimistic-lock → 409 handler (+ its import) is emitted only when some
     // aggregate is `versioned` — a version-free project stays byte-identical.
-    // MessageSource + the request locale (M-T1.11) — only when this project ships
-    // a message bundle, so a message-less app's imports are unchanged.
     `import org.springframework.http.HttpStatus;`,
     `import org.springframework.http.MediaType;`,
     `import org.springframework.http.ProblemDetail;`,
@@ -1425,6 +1430,27 @@ export function renderApiExceptionAdvice(
         ]
       : null,
 
+    hasReferencedDelete && [
+      ``,
+      `    private static final java.util.Map<String, String> REFERENCED_DETAIL = java.util.Map.ofEntries(`,
+      ...referencedSubjects.map(
+        ([seg, name], i) =>
+          `        java.util.Map.entry(${javaLit(seg)}, ${javaLit(wireSentenceFor("referenced-in-use", name))})${i < referencedSubjects.length - 1 ? "," : ""}`,
+      ),
+      `    );`,
+      ``,
+      `    /** The "<Aggregate> is still referenced" sentence of the aggregate the`,
+      `     *  request path names. */`,
+      `    private static String referencedDetail(WebRequest request) {`,
+      `        if (request instanceof org.springframework.web.context.request.ServletWebRequest sw) {`,
+      `            for (var seg : sw.getRequest().getRequestURI().split("/")) {`,
+      `                var d = REFERENCED_DETAIL.get(seg);`,
+      `                if (d != null) return d;`,
+      `            }`,
+      `        }`,
+      `        return ${referencedFallback};`,
+      `    }`,
+    ],
     // The SQLState reader is emitted only alongside the DataIntegrityViolation
     // handler that calls it, so a project with neither integrity arm stays
     // byte-identical.

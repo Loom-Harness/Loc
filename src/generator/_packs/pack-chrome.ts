@@ -403,6 +403,11 @@ export function chromeHelpers(
      *  (`loom_params`) filled into `{name}` holes.  The argument is the pack's
      *  web module, whose `Gettext` backend resolves the code. */
     translateError(webModule: unknown) {
+      if (format !== "heex") {
+        throw new Error(
+          `pack-chrome: {{translateError}} is a HEEx-pack helper; pack ${family} has format ${format}.`,
+        );
+      }
       return new Handlebars.SafeString(
         i18n ? localizedTranslateError(String(webModule)) : PLAIN_TRANSLATE_ERROR,
       );

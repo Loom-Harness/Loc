@@ -461,9 +461,31 @@ ${messagedFieldLines.join("\n")}
 
   defp __loom_int32_range(_field, _value), do: []`
       : "";
+  // A body `X id` is a `:binary_id` column, and `Ecto.Type.cast(:binary_id, ...)`
+  // accepts ANY binary, so a non-uuid reaches the insert and `dump` raises
+  // `Ecto.ChangeError` — a 500 for a client fault.  The same check the
+  // path-id and op-param edges make (36 characters that cast), refused with the
+  // fact's `malformed-id` message at the field's pointer.
+  const idColumns = allFields
+    .filter((f) => (f.type.kind === "optional" ? f.type.inner : f.type).kind === "id")
+    .map((f) => snake(f.name));
+  const idLines = idColumns.map((f) => `    |> validate_change(:${f}, &__loom_uuid/2)`);
+  const idHelper =
+    idColumns.length > 0
+      ? `
+
+  defp __loom_uuid(field, value) do
+    if is_binary(value) and byte_size(value) == 36 and match?({:ok, _}, Ecto.UUID.cast(value)),
+      do: [],
+      else: [{field, {${exFieldMessage("malformed-id")}, [loom_code: ${exFieldCode("malformed-id")}]}}]
+  end`
+      : "";
   const validatorBlock =
-    validatorLines.length > 0 || moneyRangeLines.length > 0 || int32RangeLines.length > 0
-      ? `\n${[...validatorLines, ...moneyRangeLines, ...int32RangeLines].join("\n")}`
+    validatorLines.length > 0 ||
+    moneyRangeLines.length > 0 ||
+    int32RangeLines.length > 0 ||
+    idLines.length > 0
+      ? `\n${[...validatorLines, ...moneyRangeLines, ...int32RangeLines, ...idLines].join("\n")}`
       : "";
 
   // Containments round-trip via `cast_embed` (embedded jsonb) or `cast_assoc`
@@ -1020,7 +1042,7 @@ defmodule ${changesetMod} do
     ${voKeyNormalizeLine}${valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : ""}struct
     |> ${castLines("@all_fields", "@string_fields")}${createIngressLine}${defaultBlock}
     |> ${requireLines("@required_fields", "@required_strings")}${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}
-  end${updateChangesetBlock}${invariantFnBlock}${opAssertFn ? `\n\n${opAssertFn}` : ""}${fieldInvariantFn}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${int32RangeHelper}${voShapeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
+  end${updateChangesetBlock}${invariantFnBlock}${opAssertFn ? `\n\n${opAssertFn}` : ""}${fieldInvariantFn}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${int32RangeHelper}${idHelper}${voShapeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
 
 ${actionHelpers}
 end

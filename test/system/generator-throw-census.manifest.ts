@@ -275,6 +275,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     mission: "#3915",
     reviewUntil: "2027-01-31",
   },
+  "src/generator/_packs/pack-chrome.ts#translateError": {
+    deferred:
+      'A custom NON-heex pack whose template calls {{translateError "..."}} (only the two shipped HEEx packs do; the built-in JS packs never reference it). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked); the error message names the pack and its format. A config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
+    mission: "#3915",
+    reviewUntil: "2027-01-31",
+  },
   "src/generator/_packs/pack-chrome.ts#declared": {
     guardedBy: ["loom.design-pack-invalid"],
     note: "Every literal chrome role a template uses is checked against pack.json's chrome map (pack-defects.ts kind chrome-role-undeclared) by the phase-⑦ inspection; built-in packs are inspected clean by test/generator/_packs/pack-defects.test.ts.",

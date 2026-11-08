@@ -84,15 +84,11 @@ const PENDING_ERROR_CODES: readonly WireWaiver[] =
 // `elixir` joined with M-T6.92, which turned its 500 into the same 409.
 export const WIRE_WAIVERS: readonly WireWaiver[] = [
   ...PENDING_ERROR_CODES,
-  // #4650 — a `requires` denial never echoes the gate's `.ddd` source: java and
-  // elixir answer the constant `Forbidden` plus `problem.forbidden` under every
-  // verifier and log the gate.  The node golden still carries the dev-stub echo
-  // (`Forbidden: <source>`) until the Hono emitter drops it; this waiver goes
-  // with that change.
-  // #4473 — an `extern` stub's 501 detail names the file the author fills in,
-  // which is a per-backend path (node `src/domain/product.ts`, java
-  // `ProductExtern.ship(...)`, elixir `lib/<app>/<ctx>/product_extern_impl.ex`).
-  // Status, title, type and `code` agree.
+  // An unfilled extern stub's 501 detail is the stub's own message, which every
+  // backend (node, dotnet, python included) writes with a per-backend file path.
+  // The paths cannot agree; the real defect (a file path in a response) is
+  // shared by all five and is a wire-policy change (`carried` -> fixed), not a
+  // java/elixir one.
   {
     backends: ["java", "elixir"],
     cases: ["error-codes"],
@@ -101,32 +97,7 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
     kinds: ["value"],
     values: { golden: "^extern operation", actual: "^extern operation" },
     reason:
-      "#4473 — the 501 detail of an unfilled extern stub names a per-backend file path; the code and status agree",
-  },
-  // #4473 — java's integrity handler cannot name the aggregate a restrict
-  // violation concerns (the SQLException carries a table, not an aggregate), so
-  // its 409 detail says `This resource`; node names the aggregate.
-  {
-    backends: ["java"],
-    cases: ["error-codes"],
-    request: "DELETE /api/categories/{id}",
-    path: "$.detail",
-    kinds: ["value"],
-    values: {
-      golden: "^Category is still referenced",
-      actual: "^This resource is still referenced",
-    },
-    reason:
-      "#4473 — java's referenced-in-use 409 detail is the generic `This resource` sentence (the advice does not know the aggregate); the code and status agree",
-  },
-  {
-    backends: ["java", "elixir"],
-    cases: ["auth-simple", "lifecycle-guard", "read-gates", "audit-history-guarded"],
-    path: "$.detail",
-    kinds: ["value"],
-    values: { golden: "^Forbidden: ", actual: "^Forbidden$" },
-    reason:
-      "#4650 — java and elixir never echo a `requires` gate's source in the 403 detail; the node oracle still does under the dev-stub verifier",
+      "#4473 — every backend's 501 detail for an unfilled extern stub carries its own implementation file path (node leaks `src/domain/product.ts` too); ends when the shared policy makes the detail fixed",
   },
   // elixir's workflow / explicit-route dispatcher receives the bare
   // `{:error, :conflict}` (no aggregate, no row), so its 409 `detail` is the

@@ -72,6 +72,7 @@ import {
   denialResponse,
   denialTerm,
   disallowedTerm,
+  exRuleParams,
 } from "./denial.js";
 import { renderPageParamHelper } from "./find-controller.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
@@ -161,10 +162,11 @@ export function esInvariantChecks(agg: AggregateIR, rc: RenderCtx): EsInvariantC
     const rule = renderExpr(inv.expr, ctx);
     const predicate = inv.guard ? `not (${renderExpr(inv.guard, ctx)}) or (${rule})` : rule;
     const message = ruleText(inv);
+    const params = inv.message ? exRuleParams(inv, (e) => renderExpr(e, ctx)) : undefined;
     const term = inv.message
       ? `{:precondition_failed, %{detail: ${elixirString(message)}, code: ${elixirString(
           inv.message.key,
-        )}, pointer: ${elixirString(domainFloorPointer(inv))}}}`
+        )}, pointer: ${elixirString(domainFloorPointer(inv))}${params ? `, params: ${params}` : ""}}}`
       : `{:precondition_failed, ${elixirString(message)}}`;
     return { predicate, term, message };
   });
