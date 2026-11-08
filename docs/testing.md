@@ -59,10 +59,20 @@ Walk these in order; stop at the first match.
    + a negative validator test where relevant. After a grammar edit,
    re-run `langium:generate` and commit the output.
 
-2. **A backend/frontend now *emits* something new or different** →
-   fast vitest suite, one **generator test per affected target**
-   (`test/generator/<platform>/`), string-matching the emitted source.
-   This is the default home for generator changes — it's fast and exact.
+2. **A backend/frontend now *emits* something new or different** → first
+   ask what the claim is about.
+   - **What the code *does*** (a status, a value, a persisted row, rendered
+     text) → step 4. Use one corpus fixture with a `test e2e` block and a
+     wire golden, which runs on every backend. Don't write per-target
+     string copies of it.
+   - **What no compile or booted tier can observe** (absence, "does not
+     emit X"; import hygiene; spelling with no wire effect; wiring nothing
+     boots) → a fast vitest **generator test** (`test/generator/<platform>/`),
+     string-matching the emitted source. Say in the test which of these it
+     is. `test/system/string-tier-ratchet.test.ts` caps this tier per
+     target. Raising a ceiling needs a reason in the PR body for why the
+     claim can't be a corpus fixture.
+
    If the emitted shape is captured in a baseline fixture
    (`test/fixtures/baseline-output/`, regenerated via
    `scripts/capture-baseline-fixture.mjs`), regenerate it.
@@ -80,9 +90,10 @@ Walk these in order; stop at the first match.
      or aggregate `test` to the `.ddd`).
    - a React page/form round-trip → **behavioral ui** (add a
      `test e2e … against <react>`; the corpus case needs `"ui": true`).
-   - cross-backend behaviour (.NET/Java/Phoenix/Python) → it rides the
-     **conformance-full** docker leg; keep the assertion in the emitted
-     `test e2e` so every backend runs it.
+   - cross-backend behaviour (.NET/Java/Phoenix/Python) → add the
+     `test e2e` block to a corpus fixture with a node-minted wire golden
+     (`test/behavioral/wire-golden/README.md`). Every backend's per-PR
+     `behavioral-e2e*` leg replays it and diffs against the golden.
 
 5. **Cross-backend contract (OpenAPI / wire shape)** → **conformance
    parity** (per-PR). It's mostly automatic from `wireShape`; a new
