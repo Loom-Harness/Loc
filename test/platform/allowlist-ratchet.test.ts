@@ -403,7 +403,10 @@ const REGISTERED: Ratchet[] = [
     // `T envelope` find, which no longer exists, so its corpus case went too.
     // 17 → 18: `factory-param-local-collision`, a compile-tier row (a .NET
     // factory local re-declaring a create param, CS0136).
-    max: 18,
+    // 18 → 19: `tenancy-registry-split`, a compile-tier row (the orgPath
+    // registry lookup emitted on a deployable without the registry table) that
+    // is also two deployables; the cross-deployable resolution it refuses is #4806.
+    max: 19,
   },
 ];
 
