@@ -52,6 +52,8 @@ const ROOT_FLOOR: Record<string, number> = {
 
 /** IR fields no target reads, by design.  Each says why that is benign. */
 const NO_READER_ALLOWED: Readonly<Record<string, string>> = {
+  sensitivity:
+    "consumed in the IR by `fieldRedactedInInspect` (src/ir/enrich/mask-taint.ts): `synthesizeInspect` redacts the leaf for every target, and Phoenix's Inspect-impl gate calls the same predicate",
   timezone:
     "has a RESERVED_SURFACES row (`timer-source-timezone`), so the author is told no target honours it",
 };
