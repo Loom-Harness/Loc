@@ -26,6 +26,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 import { corpusSourceFor } from "../../fixtures/corpus/harness.js";
 
 const SRC = corpusSourceFor("part-rules-private-op", "vanilla");
@@ -108,7 +109,7 @@ describe("elixir vanilla — part rules, guarded invariants, private-op calls (M
       const facade = (await files()).get("d/lib/d/billing.ex")!;
       expect(facade).toContain("defp __op_recompute(record) do");
       const helper = fnBody(facade, "__op_recompute");
-      expect(helper).toContain("record = %{record | total: record.tax_rate * 2}");
+      expect(uncheckedInt(helper)).toContain("record = %{record | total: record.tax_rate * 2}");
     });
 
     it("the CALLER's persist tail writes the column the CALLEE assigned", async () => {

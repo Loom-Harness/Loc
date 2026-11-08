@@ -27,7 +27,7 @@
         "id": "<volatile:key>",
         "label": "a",
         "qty": 2,
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -65,7 +65,7 @@
         "id": "<volatile:key>",
         "label": "a",
         "qty": 2,
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -79,7 +79,7 @@
             "id": "<volatile:key>",
             "label": "a",
             "qty": 2,
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,

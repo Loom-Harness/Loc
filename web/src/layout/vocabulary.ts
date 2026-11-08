@@ -116,10 +116,50 @@ export const BLOCKER = {
     `Fix the ${countOf(errors, "error")} in your source first (${PANE.output} → ${STREAM.problems}).`,
   bundle: `${STAGE.generate} first — ${STAGE.bundle} compiles the generated backend and frontend.`,
   boot: `${nextStep("boot", true)} — ${STAGE.boot} runs the bundled backend on an in-browser Postgres.`,
+  /** Boot while the workspace records no migration: the database is created
+   *  from the recorded chain, so there is nothing to boot yet. */
+  bootInitial:
+    "Record the initial migration first, then apply it — the database is created from recorded migrations, and none are recorded yet. Use “Record migration…” beside Boot.",
 } as const;
 
 /** The boot segment's count when the last boot stopped on a migration. */
 export const BOOT_PENDING_COUNT = RUNTIME_STATUS.migrationRequired;
+
+/** The pipeline strip's migration badge and the Record migration dialog —
+ *  `ddd migrate status` / `ddd migrate add` in the playground's words:
+ *  **unrecorded** is a change `migrate status` lists, **Record** is
+ *  `migrate add`, **Apply** boots, which applies the recorded entries. */
+export const PENDING_MIGRATION = {
+  required: RUNTIME_STATUS.migrationRequired,
+  recorded: "migration recorded",
+  initial: "initial schema",
+  unrecorded: (steps: number): string => countOf(steps, "unrecorded change"),
+  notApplied: (units: number): string => `${countOf(units, "migration")} not applied`,
+  destructive: "destructive",
+  record: "Record migration…",
+  apply: "Apply",
+  /** Tooltip / sentence per state. */
+  initialHint: (modules: string[]): string =>
+    `The database is created from recorded migrations, and none are recorded yet. Record the initial migration — every table of ${modules.length === 1 ? "module" : "modules"} ${modules.join(", ")} — then apply it.`,
+  unrecordedHint: (steps: number, modules: string[], destructive: boolean): string =>
+    `${countOf(steps, "schema change")} in ${modules.length === 1 ? "module" : "modules"} ${modules.join(", ")} ${steps === 1 ? "is" : "are"} not recorded in migrations/ (what ddd migrate status lists). Record ${steps === 1 ? "it" : "them"}, then apply.${destructive ? " One of them is destructive and needs the --allow-destructive acknowledgement." : ""}`,
+  notAppliedHint: (units: string[]): string =>
+    `Recorded, not applied: the running database has not applied ${units.join(", ")}. Apply regenerates, bundles and boots, which applies ${units.length === 1 ? "it" : "them"} and keeps the rows.`,
+  /** The Record dialog. */
+  dialogTitleInitial: "Record the initial migration",
+  dialogTitle: "Record migration",
+  dialogLoading: "Deriving the migration the chain would record…",
+  dialogInitialSummary: (tables: number, modules: string[]): string =>
+    `Starts migrations/ with each module's Initial migration: creates ${countOf(tables, "table")} in ${modules.length === 1 ? "module" : "modules"} ${modules.join(", ")}.`,
+  dialogSummary: (steps: number, modules: string[]): string =>
+    `Records ${countOf(steps, "step")} in ${modules.length === 1 ? "module" : "modules"} ${modules.join(", ")} as the chain's next entry.`,
+  dialogNothing: "Nothing to record — the chain records the model.",
+  dialogTablesHeading: "Tables",
+  dialogApplyNext: "Recorded. Apply boots the backend, which applies it to the database.",
+  cancel: "Close",
+  /** Problems pane notice. */
+  problemsNotice: (label: string): string => `Migration required — ${label}. Boot leaves the database as it is until it is recorded.`,
+} as const;
 
 // ---------------------------------------------------------------------------
 // M-T8.18 — Problems as a teaching surface, the palette, help, first run.

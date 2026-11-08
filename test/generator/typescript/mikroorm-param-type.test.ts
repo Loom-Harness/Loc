@@ -2,8 +2,12 @@
 // parameter's element type instead of collapsing it to a scalar `string`.
 
 import { describe, expect, it } from "vitest";
-import { tsParamType } from "../../../src/generator/typescript/emit/mikroorm-shared.js";
+import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
+import { tsParamType as rawParamType } from "../../../src/generator/typescript/emit/mikroorm-shared.js";
 import type { TypeIR } from "../../../src/ir/types/loom-ir.js";
+
+/** The spelled type: `Ids` is an import marker until the module is finalized. */
+const tsParamType = (t: TypeIR): string => spellMarkers(rawParamType(t));
 
 const str: TypeIR = { kind: "primitive", name: "string" };
 const id: TypeIR = { kind: "id", targetName: "Tag" } as TypeIR;

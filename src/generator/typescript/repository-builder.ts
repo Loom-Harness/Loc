@@ -31,6 +31,7 @@ import { collectEnums, collectValueObjects } from "./repository-imports-builder.
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { saveMethod } from "./repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "./repository-wire-builder.js";
+import { TT } from "./ts-symbols.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
@@ -290,7 +291,7 @@ function getByIdMethod(
 ): string {
   const tableName = repoTableName(agg, ctx);
   return lines(
-    `  async getById(id: Ids.${agg.name}Id): Promise<${agg.name}> {`,
+    `  async getById(id: ${TT.Ids}.${agg.name}Id): Promise<${agg.name}> {`,
     ...writeScopeGuardLines(agg, tableName, ctx, drizzleOps),
     `    const found = await this.findById(id);`,
     `    if (!found) ${tsNotFoundThrow(agg.name, "id")}`,
@@ -317,7 +318,7 @@ function deleteMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): 
   // Non-TPH aggregates get `null` here, so their emission is byte-identical.
   const filter = withKind(`eq(schema.${tableName}.id, id)`, kindPredicate(agg, ctx));
   return lines(
-    `  async delete(id: Ids.${agg.name}Id): Promise<void> {`,
+    `  async delete(id: ${TT.Ids}.${agg.name}Id): Promise<void> {`,
     `    await this.db.delete(schema.${tableName}).where(${filter});`,
     `  }`,
   );

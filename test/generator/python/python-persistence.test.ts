@@ -135,10 +135,10 @@ describe("python repository emission", () => {
     expect(repo).toContain("insert(OrderRow)");
     expect(repo).toContain(".values(**root)");
     expect(repo).toContain(
-      'set_={"status": root["status"], "placed_at": root["placed_at"], "unit_budget": root["unit_budget"], "version": OrderRow.version + 1},',
+      'set_={"status": root["status"], "placed_at": root["placed_at"], "unit_budget": root["unit_budget"], "row_version": OrderRow.row_version + 1},',
     );
-    expect(repo).toContain("where=OrderRow.version == _expected,");
-    expect(repo).toContain(".returning(OrderRow.version)");
+    expect(repo).toContain("where=OrderRow.row_version == _expected,");
+    expect(repo).toContain(".returning(OrderRow.row_version)");
     expect(repo).toContain("lines_stale = [__id for __id in lines_existing");
     expect(repo).toContain("delete(OrderLineRow).where(OrderLineRow.id.in_(lines_stale))");
     // Set semantics: the join row is just its (owner, target) PK — no ordinal.

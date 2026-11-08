@@ -3,6 +3,7 @@ import {
   serverSourcedDefaultFields,
 } from "../../../generator/_frontend/server-default.js";
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
+import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
@@ -25,7 +26,7 @@ import {
   PG_REFERENCED_IN_USE_SQLSTATES,
   PG_UNIQUE_VIOLATION,
 } from "../../../generator/_persistence/pg-sqlstate.js";
-import { tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
+import { FILE_REF_ZOD, tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
 import {
   historyMapperArgs,
   historyMapperName,
@@ -40,6 +41,7 @@ import {
   aggHasFieldMask,
   canonicalIsoExpr,
 } from "../../../generator/typescript/repository-wire-builder.js";
+import { T } from "../../../generator/typescript/ts-symbols.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
 import {
@@ -129,6 +131,7 @@ import {
   lifecycleGates,
   lifecycleGatesReadRow,
   lifecycleGatesUseCurrentUser,
+  maskWritePresenceParam,
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
@@ -156,6 +159,7 @@ import type {
   SingleFieldPattern,
 } from "../../../ir/validate/invariant-classify.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { escapeTargetFieldMember, escapeTargetMember } from "../../../util/target-identifiers.js";
 
@@ -308,7 +312,7 @@ function emitHistoryRoute(
   }
   // (2) above — capability scoping rides the entity read, because the audit
   // table has no tenant column of its own to filter on.
-  out.push(`    const __target = await repo.findById(Ids.${agg.name}Id(id));`);
+  out.push(`    const __target = await repo.findById(${T.Ids}.${agg.name}Id(id));`);
   // RS-27, same site class as the getById route above: history is a by-id read,
   // so its 404 carries the same sentence.  python's history route reaches the
   // message by CALLING `repo.get_by_id` for exactly this reachability probe
@@ -566,7 +570,7 @@ export function buildRoutesFile(
       ? `import { ${agg.name}Repository } from "../db/repositories/${lowerFirst(agg.name)}-repository";`
       : `import type { ${agg.name}Repository } from "../db/repositories/${lowerFirst(agg.name)}-repository";`,
   );
-  lines.push(`import * as Ids from "../domain/ids";`);
+  lines.push(tsImportSlot("~/domain/ids"));
   // `ConcurrencyError` only when this aggregate is `versioned` OR event-sourced — a
   // non-versioned aggregate's route file stays byte-identical.  `NotImplementedError`
   // rides the same rule on `extern` operations: only their scaffold-once stub
@@ -1261,7 +1265,7 @@ export function buildRoutesFile(
         `      if (!(${renderTsExpr(byIdFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind.name}`)});`,
       );
     }
-    lines.push(`      const found = await repo.findById(Ids.${agg.name}Id(id));`);
+    lines.push(`      const found = await repo.findById(${T.Ids}.${agg.name}Id(id));`);
     // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
     // every backend, and this route was the one place Hono answered a machine
     // token instead.  The cause is structural, not cosmetic: the route reads
@@ -1288,7 +1292,7 @@ export function buildRoutesFile(
     // contract divergence.  Declaring it belongs with emitting it on the other
     // four backends, in one change.
     if (readsIfMatch(operationVersionCheck(agg))) {
-      lines.push(`      c.header("etag", versionETag(found.version));`);
+      lines.push(`      c.header("etag", versionETag(found.${ROW_VERSION_FIELD}));`);
     }
     if (emitTrace) {
       // toWire isn't trivial — bind once so it's not run twice between
@@ -1352,8 +1356,8 @@ export function buildRoutesFile(
       const readsRow = lifecycleGatesReadRow(canonicalDestroy(agg));
       lines.push(
         readsRow || destroyIfMatch
-          ? `      const __loaded = await repo.getById(Ids.${agg.name}Id(id));`
-          : `      await repo.getById(Ids.${agg.name}Id(id));`,
+          ? `      const __loaded = await repo.getById(${T.Ids}.${agg.name}Id(id));`
+          : `      await repo.getById(${T.Ids}.${agg.name}Id(id));`,
       );
       if (lifecycleGatesUseCurrentUser(canonicalDestroy(agg))) {
         lines.push(currentUserBindLine("      "));
@@ -1368,8 +1372,8 @@ export function buildRoutesFile(
       // AggregateNotFoundError (→ 404) when absent.
       lines.push(
         destroyIfMatch
-          ? `      const __loaded = await repo.getById(Ids.${agg.name}Id(id));`
-          : `      await repo.getById(Ids.${agg.name}Id(id));`,
+          ? `      const __loaded = await repo.getById(${T.Ids}.${agg.name}Id(id));`
+          : `      await repo.getById(${T.Ids}.${agg.name}Id(id));`,
       );
       if (destroyIfMatch) lines.push(...destroyIfMatchLines(agg, "__loaded", "      "));
     }
@@ -1387,7 +1391,7 @@ export function buildRoutesFile(
       lines.push(`        await ${txWrapperCall(usingMikro)}`);
       lines.push(`          const repoTx = new ${agg.name}Repository(tx, __deferred);`);
       // getById throws AggregateNotFoundError (→ 404) when absent.
-      lines.push(`          const loaded = await repoTx.getById(Ids.${agg.name}Id(id));`);
+      lines.push(`          const loaded = await repoTx.getById(${T.Ids}.${agg.name}Id(id));`);
       if (destroyIfMatch && destroyGates.length === 0)
         lines.push(...destroyIfMatchLines(agg, "loaded", "          "));
       lines.push(`          const before = repoTx.toWire(loaded);`);
@@ -1409,11 +1413,11 @@ export function buildRoutesFile(
       lines.push(
         `          ${renderHonoLogCall("auditRecorded", `action: "destroy", target: "${agg.name}", actor`)}`,
       );
-      lines.push(`          await repoTx.delete(Ids.${agg.name}Id(id));`);
+      lines.push(`          await repoTx.delete(${T.Ids}.${agg.name}Id(id));`);
       lines.push(`        });`);
       lines.push(`        await __deferred.flush();`);
     } else {
-      lines.push(`        await repo.delete(Ids.${agg.name}Id(id));`);
+      lines.push(`        await repo.delete(${T.Ids}.${agg.name}Id(id));`);
     }
     lines.push(`      } catch (err) {`);
     // The row is still referenced.  Map to a 409 problem locally so the shared
@@ -1807,7 +1811,11 @@ function requiresGateLines(
           return p ? wireToDomainExpr(`body.${p.name}`, p.type, ctx) : undefined;
         }),
     });
-    return `${pad}if (!(${pred})) throw new ForbiddenError(${JSON.stringify(
+    // A merge-patch update's mask write gate runs only when the body carries
+    // the masked key (an absent key keeps the stored value).
+    const present = maskWritePresenceParam(op, g);
+    const cond = present ? `body.${present} !== undefined && !(${pred})` : `!(${pred})`;
+    return `${pad}if (${cond}) throw new ForbiddenError(${JSON.stringify(
       `Forbidden: ${g.source}`,
     )});`;
   });
@@ -1890,7 +1898,7 @@ function emitCanOpRoute(
   out.push(`  }),`);
   out.push(`  async (c) => {`);
   out.push(`    const { id } = c.req.valid("param");`);
-  out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
+  out.push(`    const aggregate = await repo.getById(${T.Ids}.${agg.name}Id(id));`);
   out.push(`    return c.json({ allowed: ${pred} }, 200);`);
   out.push(`  },`);
   out.push(`);`);
@@ -1910,7 +1918,7 @@ function expectedVersionLines(check: VersionCheck, pad: string, loadedVar = "agg
   if (!readsIfMatch(check)) return [];
   return [
     `${pad}const ifMatch = c.req.header("if-match");`,
-    `${pad}const expectedVersion = parseIfMatch(ifMatch, ${loadedVar}.version);`,
+    `${pad}const expectedVersion = parseIfMatch(ifMatch, ${loadedVar}.${ROW_VERSION_FIELD});`,
   ];
 }
 
@@ -1921,7 +1929,7 @@ function expectedVersionLines(check: VersionCheck, pad: string, loadedVar = "agg
 function destroyIfMatchLines(agg: AggregateIR, loadedVar: string, pad: string): string[] {
   return [
     ...expectedVersionLines(destroyVersionCheck(agg), pad, loadedVar),
-    `${pad}if (expectedVersion !== ${loadedVar}.version) throw new ConcurrencyError("${agg.name}", id);`,
+    `${pad}if (expectedVersion !== ${loadedVar}.${ROW_VERSION_FIELD}) throw new ConcurrencyError("${agg.name}", id);`,
   ];
 }
 
@@ -1980,7 +1988,7 @@ function auditProvTxLines(args: {
   out.push(`    const __deferred = deferredDispatcher(events);`);
   out.push(`    ${args.capture ? "const result = await" : "await"} ${txWrapperCall(usingMikro)}`);
   out.push(`      const repoTx = new ${agg.name}Repository(tx, __deferred);`);
-  out.push(`      const aggregate = await repoTx.getById(Ids.${agg.name}Id(id));`);
+  out.push(`      const aggregate = await repoTx.getById(${T.Ids}.${agg.name}Id(id));`);
   out.push(...expectedVersionLines(check, "      "));
   out.push(...requiresGateLines(op, "      ", ctx));
   out.push(...whenGateLine(agg, op, "      "));
@@ -2199,7 +2207,7 @@ function emitOperationRoute(
   ];
 
   if (!audit && !prov) {
-    out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
+    out.push(`    const aggregate = await repo.getById(${T.Ids}.${agg.name}Id(id));`);
     out.push(...expectedVersionLines(check, "    "));
     out.push(...requiresGateLines(op, "    ", ctx));
     out.push(...whenGateLine(agg, op, "    "));
@@ -2339,7 +2347,7 @@ function emitReturningOperationRoute(
     );
   } else {
     const check = operationVersionCheck(agg, op);
-    out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
+    out.push(`    const aggregate = await repo.getById(${T.Ids}.${agg.name}Id(id));`);
     out.push(...expectedVersionLines(check, "    "));
     out.push(...requiresGateLines(op, "    ", ctx));
     out.push(...whenGateLine(agg, op, "    "));
@@ -2817,7 +2825,7 @@ const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
   date: BODY_DATE,
   guid: "z.string()",
   json: "z.unknown()",
-  File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
+  File: FILE_REF_ZOD,
 };
 
 export const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
@@ -2831,7 +2839,7 @@ export const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
   date: BODY_DATE,
   guid: "z.string()",
   json: "z.unknown()",
-  File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
+  File: FILE_REF_ZOD,
 };
 
 const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
@@ -2845,7 +2853,7 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
   date: "z.string()",
   guid: "z.string()",
   json: "z.unknown()",
-  File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
+  File: FILE_REF_ZOD,
 };
 
 export function zodFor(t: TypeIR, context: "create-body" | "body" | "query" = "body"): string {
@@ -3240,7 +3248,7 @@ export function wireToDomainExpr(expr: string, t: TypeIR, ctx?: BoundedContextIR
     case "primitive":
       return expr;
     case "id":
-      return `Ids.${info.idTarget}Id(${expr})`;
+      return `${T.Ids}.${info.idTarget}Id(${expr})`;
     case "enum":
       return expr;
     case "valueObject": {

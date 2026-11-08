@@ -2,6 +2,7 @@ import type { WireDecodeTarget } from "../_channels/wire-codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { renderTsType } from "./render-expr.js";
+import { TT } from "./ts-symbols.js";
 
 // ---------------------------------------------------------------------------
 // TypeScript's `WireDecodeTarget` (F-019) — the ONE place the node/Hono
@@ -65,7 +66,7 @@ export const TS_WIRE_DECODE: WireDecodeTarget = {
   // Ids are BRANDED strings (`string & { __brand: "JobId" }`): runtime-
   // identical to their wire form, so this is a type-level narrow only — but
   // it has to be spelled, or the branded field would not accept a bare string.
-  id: (e, targetName) => `${e} as Ids.${targetName}Id`,
+  id: (e, targetName) => `${e} as ${TT.Ids}.${targetName}Id`,
   enumValue: (e, name) => `${e} as ${name}`,
   // A collection decodes ELEMENT-WISE — the element may itself be a
   // `datetime`, which is the same bug one level down.

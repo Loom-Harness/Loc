@@ -28,7 +28,7 @@
         "escalated": true,
         "id": "<volatile:key>",
         "open": true,
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -123,7 +123,7 @@
             "escalated": true,
             "id": "<volatile:key>",
             "open": false,
-            "version": 6
+            "rowVersion": 6
           }
         ],
         "page": 1,

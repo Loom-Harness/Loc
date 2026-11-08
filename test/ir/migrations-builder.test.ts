@@ -70,7 +70,7 @@ describe("schemaFromModule", () => {
   it("places id first, then declared fields in source order", async () => {
     const { module } = await loadShop();
     const orders = schemaFromModule(module).tables.find((t) => t.name === "orders")!;
-    expect(orders.columns.map((c) => c.name)).toEqual(["id", "customer", "total", "version"]);
+    expect(orders.columns.map((c) => c.name)).toEqual(["id", "customer", "total", "row_version"]);
     expect(orders.primaryKey).toEqual(["id"]);
   });
 
@@ -1170,16 +1170,16 @@ describe("schemaFromModule — document shape", () => {
     return loom.systems[0]!.subdomains[0]!;
   }
 
-  it("collapses a shape: document aggregate to (id, data, version) with no part table", async () => {
+  it("collapses a shape: document aggregate to (id, data, row_version) with no part table", async () => {
     const module = await loadDoc();
     const snap = schemaFromModule(module);
     // Cart is a document → one `carts` table, no `cart_lines` part table.
     // Customer stays relational.
     expect(snap.tables.map((t) => t.name)).toEqual(["carts", "customers"]);
     const carts = snap.tables.find((t) => t.name === "carts")!;
-    expect(carts.columns.map((c) => c.name)).toEqual(["id", "data", "version"]);
+    expect(carts.columns.map((c) => c.name)).toEqual(["id", "data", "row_version"]);
     expect(carts.columns.find((c) => c.name === "data")!.type).toEqual({ kind: "json" });
-    expect(carts.columns.find((c) => c.name === "version")!.type).toEqual({ kind: "int" });
+    expect(carts.columns.find((c) => c.name === "row_version")!.type).toEqual({ kind: "int" });
     expect(carts.primaryKey).toEqual(["id"]);
     // No FK to customers — the `Customer id` reference rides inside `data`.
     expect(carts.foreignKeys).toEqual([]);
@@ -1189,7 +1189,7 @@ describe("schemaFromModule — document shape", () => {
   it("leaves relational siblings untouched", async () => {
     const module = await loadDoc();
     const customers = schemaFromModule(module).tables.find((t) => t.name === "customers")!;
-    expect(customers.columns.map((c) => c.name)).toEqual(["id", "name", "version"]);
+    expect(customers.columns.map((c) => c.name)).toEqual(["id", "name", "row_version"]);
   });
 });
 
@@ -1224,7 +1224,7 @@ system Shop {
       "id",
       "customer",
       "total",
-      "version",
+      "row_version",
       "lines",
     ]);
     expect(carts.columns.find((c) => c.name === "lines")!.type).toEqual({ kind: "json" });
@@ -1254,7 +1254,7 @@ system Shop {
     const sales = migs.find((mi) => mi.module === "Sales")!;
     const carts = sales.next.tables.find((t) => t.name === "carts")!;
     // Binding override wins → document shape despite shape: relational header.
-    expect(carts.columns.map((c) => c.name)).toEqual(["id", "data", "version"]);
+    expect(carts.columns.map((c) => c.name)).toEqual(["id", "data", "row_version"]);
   });
 });
 
@@ -2173,7 +2173,7 @@ system Fleet {
     expect(mig.steps.some((s) => s.op === "createTable")).toBe(false);
   });
 
-  it("document root: renames the (id, data, version) table, non-destructive", async () => {
+  it("document root: renames the (id, data, row_version) table, non-destructive", async () => {
     const DOC = (name: string) => `
 system Shop {
   subdomain Sales {
@@ -2730,7 +2730,7 @@ system P {
       (s) => s.op === "createTable" && s.table.name === "orders",
     ) as Extract<MigrationStep, { op: "createTable" }>;
     // It IS on the shape — otherwise the assertions below pass for the wrong reason.
-    expect(orders.table.columns.map((c) => c.name)).toEqual(["id", "note", "lines", "version"]);
+    expect(orders.table.columns.map((c) => c.name)).toEqual(["id", "note", "lines", "row_version"]);
     expect(renderPgStep(orders)).not.toContain('"lines"');
     expect(renderEctoStep(orders).join("\n")).not.toContain("lines");
   });

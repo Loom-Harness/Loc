@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GenerateOk } from "../../web/src/build/protocol.js";
 import type { BundleOk } from "../../web/src/bundle/protocol.js";
+import { describePendingMigration } from "../../web/src/layout/pending-migration.js";
 import { deriveStages, nextStage, type StageInputs } from "../../web/src/layout/pipeline-stages.js";
 import { initialPipelineState, type PipelineState } from "../../web/src/pipeline/state.js";
 
@@ -44,6 +45,7 @@ function inputs(
     ddl: null,
     bootErrorMessage: null,
     bootPending: null,
+    pendingMigration: null,
     ...rest,
     pipeline: { ...initialPipelineState, ...pipeline },
   };
@@ -160,5 +162,76 @@ describe("deriveStages", () => {
       byId(inputs({ isDesktop: false, generateResult: generated, generateSuccess: generated }))
         .validate.state,
     ).toBe("ok");
+  });
+});
+
+describe("the migration badge", () => {
+  const bundled = inputs({
+    generateSuccess: generated,
+    generateResult: generated,
+    honoBundleResult: hono,
+    honoBundle: hono,
+  });
+  const initial = {
+    kind: "unrecorded" as const,
+    initial: true,
+    modules: ["Sales", "Billing", "Shipping"],
+    steps: 14,
+    destructive: false,
+  };
+
+  it("an unrecorded initial migration blocks Boot with the record-first blocker", () => {
+    const boot = byId({ ...bundled, pendingMigration: initial }).boot;
+    expect(boot).toMatchObject({ state: "blocked", enabled: false, count: "migration required" });
+    expect(boot.blocker).toMatch(/^Record the initial migration first, then apply it/);
+    // An incremental unrecorded change leaves Boot to report it.
+    expect(
+      byId({ ...bundled, pendingMigration: { ...initial, initial: false, steps: 1 } }).boot,
+    ).toMatchObject({ state: "idle", enabled: true });
+    expect(byId({ ...bundled, pendingMigration: { kind: "up-to-date" } }).boot.state).toBe("idle");
+  });
+
+  it("reads the initial schema as one line whatever its size, and offers Record", () => {
+    expect(describePendingMigration(initial)).toMatchObject({
+      kind: "unrecorded",
+      title: "migration required",
+      detail: "initial schema",
+      destructive: false,
+      action: "record",
+    });
+    expect(describePendingMigration(initial)?.hint).toContain("modules Sales, Billing, Shipping");
+  });
+
+  it("counts unrecorded changes in the CLI's words and flags a destructive one", () => {
+    const view = describePendingMigration({
+      ...initial,
+      initial: false,
+      steps: 3,
+      modules: ["Sales"],
+      destructive: true,
+    });
+    expect(view).toMatchObject({
+      detail: "3 unrecorded changes",
+      destructive: true,
+      action: "record",
+    });
+    expect(view?.hint).toMatch(/not recorded in migrations\/ \(what ddd migrate status lists\)/);
+    expect(view?.hint).toContain("--allow-destructive");
+    expect(describePendingMigration({ ...initial, initial: false, steps: 1 })?.detail).toBe(
+      "1 unrecorded change",
+    );
+  });
+
+  it("recorded, not applied offers Apply; up to date and unknown show nothing", () => {
+    expect(
+      describePendingMigration({ kind: "recorded-not-applied", units: ["v2_sales_add_phone"] }),
+    ).toMatchObject({
+      kind: "recorded-not-applied",
+      title: "migration recorded",
+      detail: "1 migration not applied",
+      action: "apply",
+    });
+    expect(describePendingMigration({ kind: "up-to-date" })).toBeNull();
+    expect(describePendingMigration(null)).toBeNull();
   });
 });

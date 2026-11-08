@@ -1,3 +1,4 @@
+import { ROW_VERSION_COLUMN } from "../../util/row-version.js";
 // The tail of a row-version-guarded python save — the one shape the
 // relational, embedded and document repositories share.
 //
@@ -14,11 +15,11 @@
  *  opened by the caller (after its `.on_conflict_do_update(...)` clause). */
 export function pyGuardedSaveTail(row: string, aggVar: string, conflictRaise: string): string[] {
   return [
-    `            .returning(${row}.version)`,
+    `            .returning(${row}.${ROW_VERSION_COLUMN})`,
     "        )",
     "        _saved_version = _guarded.scalar_one_or_none()",
     "        if _saved_version is None:",
     `            ${conflictRaise}`,
-    `        ${aggVar}._version = _saved_version`,
+    `        ${aggVar}._${ROW_VERSION_COLUMN} = _saved_version`,
   ];
 }

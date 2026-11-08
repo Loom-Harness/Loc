@@ -45,7 +45,7 @@ describe("Hono/Drizzle document-persistence emission (normalised(false))", () =>
     const schema = files.get("db/schema.ts")!;
     expect(schema).toContain('export const carts = pgTable("carts", {');
     expect(schema).toContain('data: jsonb("data").notNull(),');
-    expect(schema).toContain('version: integer("version").notNull(),');
+    expect(schema).toContain('rowVersion: integer("row_version").notNull(),');
     // No normalised cart_items part table.
     expect(schema).not.toContain('pgTable("cart_items"');
     // Sibling normalised aggregate keeps its column-per-field table.
@@ -58,9 +58,9 @@ describe("Hono/Drizzle document-persistence emission (normalised(false))", () =>
     // Versioned root: fromDoc takes the authoritative `version` COLUMN, not the
     // stale blob copy — so `aggregate.version` is correct after a load and the
     // CAS save doesn't 409 on the next update.
-    expect(repo).toContain("return cartFromDoc(row.data as CartDoc, row.version);");
-    expect(repo).toContain("function cartFromDoc(d: CartDoc, version: number): Cart {");
-    expect(repo).toContain("version: version");
+    expect(repo).toContain("return cartFromDoc(row.data as CartDoc, row.rowVersion);");
+    expect(repo).toContain("function cartFromDoc(d: CartDoc, rowVersion: number): Cart {");
+    expect(repo).toContain("rowVersion: rowVersion");
     expect(repo).toContain("Cart._rehydrate({");
     expect(repo).toContain("items: (d.items ?? []).map((x) => cartItemFromDoc(x))");
     expect(repo).toContain(
@@ -71,15 +71,15 @@ describe("Hono/Drizzle document-persistence emission (normalised(false))", () =>
     // ConcurrencyError — matching the relational repo, so `repo.save(agg,
     // expectedVersion)` from the versioned `update` route type-checks.
     expect(repo).toContain("async save(aggregate: Cart, expectedVersion?: number)");
-    expect(repo).toContain("const expected = expectedVersion ?? aggregate.version;");
-    expect(repo).toContain("version: expected + 1");
+    expect(repo).toContain("const expected = expectedVersion ?? aggregate.rowVersion;");
+    expect(repo).toContain("rowVersion: expected + 1");
     expect(repo).toContain('throw new ConcurrencyError("Cart", aggregate.id as string)');
   });
 
   it("reads evaluate in-memory over rehydrated documents", () => {
     const repo = files.get("db/repositories/cart-repository.ts")!;
     expect(repo).toContain(
-      "const all = rows.map((r) => cartFromDoc(r.data as CartDoc, r.version));",
+      "const all = rows.map((r) => cartFromDoc(r.data as CartDoc, r.rowVersion));",
     );
     // No Drizzle column predicate against the document table.
     expect(repo).not.toContain("schema.carts.customerId");
@@ -122,7 +122,7 @@ describe("Hono/Drizzle document-persistence emission (normalised(false))", () =>
     expect(repo).toContain("async save(aggregate: Wishlist, expectedVersion?: number)");
     expect(repo).toContain("items: aggregate.items.map((e) => wishItemToDoc(e))");
     expect(repo).toContain(
-      ".where(and(eq(schema.wishlists.id, aggregate.id), eq(schema.wishlists.version, expected)))",
+      ".where(and(eq(schema.wishlists.id, aggregate.id), eq(schema.wishlists.rowVersion, expected)))",
     );
     expect(repo).toContain('throw new ConcurrencyError("Wishlist", aggregate.id as string)');
     expect(repo).not.toContain("FromDoc(row.data");
@@ -251,7 +251,7 @@ describe("document save() applies the onCreate stamps", () => {
     // passed on `data: data` — the byte-different form an unaudited
     // aggregate must not emit.
     expect(src).toContain(
-      "insert(schema.carts).values({ id: aggregate.id as string, data, version: 1 })",
+      "insert(schema.carts).values({ id: aggregate.id as string, data, rowVersion: 1 })",
     );
   });
 });

@@ -58,11 +58,11 @@ describe("python shape: embedded", () => {
       "async def save(self, aggregate: Order, expected_version: int | None = None) -> None:",
     );
     expect(repo).toContain(
-      "_expected = aggregate.version if expected_version is None else expected_version",
+      "_expected = aggregate.row_version if expected_version is None else expected_version",
     );
     expect(repo).toContain('index_elements=["id"],');
-    expect(repo).toContain('"version": OrderRow.version + 1');
-    expect(repo).toContain("where=OrderRow.version == _expected,");
+    expect(repo).toContain('"row_version": OrderRow.row_version + 1');
+    expect(repo).toContain("where=OrderRow.row_version == _expected,");
     expect(repo).toContain("if _saved_version is None:");
     // async hydrate from row columns + jsonb children.
     expect(repo).toContain("async def _hydrate(self, row: OrderRow) -> Order:");

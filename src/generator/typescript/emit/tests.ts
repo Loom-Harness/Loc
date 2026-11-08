@@ -18,6 +18,7 @@ import {
 } from "../../../ir/util/reachable-types.js";
 import { bodyTypeOf } from "../../../util/expr-body-type.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { tsImportSlot } from "../../_imports/ts.js";
 import {
   coerceMatcherExpected,
   coerceTestArgs,
@@ -26,12 +27,13 @@ import {
 } from "../../_test/arg-coercion.js";
 import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
 import { renderTsExpr } from "../render-expr.js";
+import { T } from "../ts-symbols.js";
 
 /** TypeScript leaves for the shared test-literal coercion rule
  *  (`_test/arg-coercion.ts`).  `Ids.<X>Id(…)` is the brand constructor the
  *  generator already emits into `domain/ids.ts`; `datetime` is a `Date`. */
 const TS_TEST_LITERAL: TestLiteralTarget = {
-  id: (rendered, targetName) => `Ids.${targetName}Id(${rendered})`,
+  id: (rendered, targetName) => `${T.Ids}.${targetName}Id(${rendered})`,
   datetime: (rendered) => `new Date(${rendered})`,
   // A `date` is its ISO text on this backend — the literal already is one.
   date: (rendered) => rendered,
@@ -120,7 +122,7 @@ export function testBodyValueImports(
   if (enumNames.length > 0) {
     domain.push(`import { ${enumNames.join(", ")} } from "${domainDir}/value-objects";`);
   }
-  if (/\bIds\.\w/.test(bodyStr)) domain.push(`import * as Ids from "${domainDir}/ids";`);
+  domain.push(tsImportSlot("~/domain/ids"));
   const decimal = /\bnew Decimal\(/.test(bodyStr) ? [`import Decimal from "decimal.js";`] : [];
   return { decimal, domain };
 }

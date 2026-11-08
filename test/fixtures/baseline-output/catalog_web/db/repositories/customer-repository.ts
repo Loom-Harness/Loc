@@ -31,7 +31,7 @@ export class CustomerRepository implements CustomerRepositoryPort {
         return null;
       }
       const root = rootRows[0]!;
-      const loaded = Customer._rehydrate({ id: Ids.CustomerId(root.id), username: root.username, email: root.email, age: root.age, version: root.version });
+      const loaded = Customer._rehydrate({ id: Ids.CustomerId(root.id), username: root.username, email: root.email, age: root.age, rowVersion: root.rowVersion });
       requestLog().debug({ event: "aggregate_loaded", aggregate: "Customer", id: id as string, found: true });
       return loaded;
     });
@@ -47,21 +47,21 @@ export class CustomerRepository implements CustomerRepositoryPort {
     if (ids.length === 0) return [];
     const rootRows = await this.db.select().from(schema.customers).where(inArray(schema.customers.id, ids)).orderBy(asc(schema.customers.id));
     if (rootRows.length === 0) return [];
-    return rootRows.map((root) => Customer._rehydrate({ id: Ids.CustomerId(root.id), username: root.username, email: root.email, age: root.age, version: root.version }));
+    return rootRows.map((root) => Customer._rehydrate({ id: Ids.CustomerId(root.id), username: root.username, email: root.email, age: root.age, rowVersion: root.rowVersion }));
   }
 
   async save(aggregate: Customer, expectedVersion?: number): Promise<void> {
     const pendingEvents = aggregate.pullEvents();
     let dispatchAfterCommit = pendingEvents;
-    let savedVersion = aggregate.version;
+    let savedVersion = aggregate.rowVersion;
     await this.db.transaction(async (tx) => {
-      const expected = expectedVersion ?? aggregate.version;
+      const expected = expectedVersion ?? aggregate.rowVersion;
       const existingRow = await tx.select({ id: schema.customers.id }).from(schema.customers).where(eq(schema.customers.id, aggregate.id));
       if (existingRow.length === 0) {
-        await tx.insert(schema.customers).values({ id: aggregate.id as string, username: aggregate.username, email: aggregate.email, age: aggregate.age, version: 1 });
+        await tx.insert(schema.customers).values({ id: aggregate.id as string, username: aggregate.username, email: aggregate.email, age: aggregate.age, rowVersion: 1 });
         savedVersion = 1;
       } else {
-        const updated = await tx.update(schema.customers).set({ id: aggregate.id as string, username: aggregate.username, email: aggregate.email, age: aggregate.age, version: expected + 1 }).where(and(eq(schema.customers.id, aggregate.id), eq(schema.customers.version, expected))).returning({ id: schema.customers.id });
+        const updated = await tx.update(schema.customers).set({ id: aggregate.id as string, username: aggregate.username, email: aggregate.email, age: aggregate.age, rowVersion: expected + 1 }).where(and(eq(schema.customers.id, aggregate.id), eq(schema.customers.rowVersion, expected))).returning({ id: schema.customers.id });
         if (updated.length === 0) throw new ConcurrencyError("Customer", aggregate.id as string);
         savedVersion = expected + 1;
       }
@@ -93,13 +93,13 @@ export class CustomerRepository implements CustomerRepositoryPort {
       requestLog().debug({ event: "find_executed", aggregate: "Customer", find: "all", rows: 0 });
       return { items: [], page, pageSize, total, totalPages };
     }
-    const items = rootRows.map((root) => Customer._rehydrate({ id: Ids.CustomerId(root.id), username: root.username, email: root.email, age: root.age, version: root.version }));
+    const items = rootRows.map((root) => Customer._rehydrate({ id: Ids.CustomerId(root.id), username: root.username, email: root.email, age: root.age, rowVersion: root.rowVersion }));
     requestLog().debug({ event: "find_executed", aggregate: "Customer", find: "all", rows: items.length });
     return { items, page, pageSize, total, totalPages };
   }
 
   toWire(root: Customer): unknown {
-    return { id: root.id as string, username: root.username, email: root.email, age: root.age, version: root.version, display: root.display };
+    return { id: root.id as string, username: root.username, email: root.email, age: root.age, rowVersion: root.rowVersion, display: root.display };
   }
 
 }

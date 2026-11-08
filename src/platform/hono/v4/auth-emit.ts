@@ -102,10 +102,11 @@ export function emitAuthFiles(
  *  optional base64-JSON `x-loom-dev-claims` override merged over it. */
 function renderDevStubVerifier(user: UserIR, oidc: boolean): string {
   const usage = oidc
-    ? ` *  PREVIEW-ONLY under this system's \`auth { oidc }\` block: \`index.ts\` registers
- *  the OIDC verifier and never calls this, so a running server ignores
- *  \`x-loom-dev-claims\`.  The Loom playground preview registers it instead,
- *  because no identity provider is reachable from its browser worker.  Locally,
+    ? ` *  PREVIEW-ONLY under this system's \`auth { oidc }\` block: \`bootApp\` registers
+ *  the OIDC verifier and calls this only under \`verifier: "dev-stub"\`, which
+ *  \`index.ts\` never passes, so a running server ignores \`x-loom-dev-claims\`.
+ *  The Loom playground preview passes it, because no identity provider is
+ *  reachable from its browser worker.  Locally,
  *  sign in through the compose stack's bundled dev IdP.`
     : ` *  Dev-only: the Loom playground (or curl) can override the claims by sending a
  *  base64-encoded JSON object in \`x-loom-dev-claims\`; absent the header the

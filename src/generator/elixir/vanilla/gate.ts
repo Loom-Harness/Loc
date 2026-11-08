@@ -1,4 +1,6 @@
-import type { ExprIR } from "../../../ir/types/loom-ir.js";
+import type { ExprIR, OperationIR } from "../../../ir/types/loom-ir.js";
+import { mergePatchFields } from "../../../ir/util/merge-patch.js";
+import { operationGates, type RequiresStmtIR } from "../../../ir/util/op-gates.js";
 import { isAlwaysDenyGate } from "../../../ir/util/read-gates.js";
 
 /** `requires true` is the language's documented "intentionally public" escape
@@ -43,4 +45,14 @@ const ELIXIR_ALWAYS_DENY = "Enum.member?([], :default_deny)";
  *  author-written gate, {@link ELIXIR_ALWAYS_DENY} for the synthesised deny. */
 export function renderGateCondition(gate: ExprIR, render: (g: ExprIR) => string): string {
   return isAlwaysDenyGate(gate) ? ELIXIR_ALWAYS_DENY : render(gate);
+}
+
+/** The hoisted gates the generic merge-patch `update` seam evaluates — the
+ *  `mask unless` write gates (`src/ir/enrich/mask-taint.ts`).  Shared by the
+ *  context seam, the REST action and the LiveView edit form, so the seam's
+ *  arity (it takes `current_user` when gated) cannot drift between them.
+ *  Empty for any other operation. */
+export function updateSeamGates(op: OperationIR | undefined): RequiresStmtIR[] {
+  if (op?.name !== "update" || !mergePatchFields(op)) return [];
+  return operationGates(op).filter((g) => g.maskWriteOf !== undefined);
 }

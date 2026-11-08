@@ -28,8 +28,8 @@
         "discount": 0,
         "discountReason": "none",
         "id": "<volatile:key>",
-        "status": "open",
-        "version": 1
+        "rowVersion": 1,
+        "status": "open"
       }
     },
     {
@@ -49,8 +49,8 @@
         "discount": 15,
         "discountReason": "loyalty",
         "id": "<volatile:key>",
-        "status": "open",
-        "version": 2
+        "rowVersion": 2,
+        "status": "open"
       }
     },
     {
@@ -70,8 +70,8 @@
         "discount": 20,
         "discountReason": "again",
         "id": "<volatile:key>",
-        "status": "open",
-        "version": 3
+        "rowVersion": 3,
+        "status": "open"
       }
     },
     {
@@ -98,8 +98,8 @@
         "discount": 20,
         "discountReason": "again",
         "id": "<volatile:key>",
-        "status": "cancelled",
-        "version": 4
+        "rowVersion": 4,
+        "status": "cancelled"
       }
     },
     {
@@ -200,8 +200,8 @@
         "discount": 3,
         "discountReason": "derived",
         "id": "<volatile:key>",
-        "status": "open",
-        "version": 2
+        "rowVersion": 2,
+        "status": "open"
       }
     },
     {
@@ -235,8 +235,8 @@
         "discount": 3,
         "discountReason": "derived",
         "id": "<volatile:key>",
-        "status": "reopened",
-        "version": 4
+        "rowVersion": 4,
+        "status": "reopened"
       }
     },
     {
@@ -251,8 +251,8 @@
             "discount": 3,
             "discountReason": "derived",
             "id": "<volatile:key>",
-            "status": "reopened",
-            "version": 4
+            "rowVersion": 4,
+            "status": "reopened"
           }
         ],
         "page": 1,

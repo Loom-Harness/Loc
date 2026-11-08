@@ -104,7 +104,7 @@ describe("TPH write paths carry the kind discriminator (Hono/Drizzle)", () => {
     const car = files.get("db/repositories/car-repository.ts") ?? "";
     const update = car.split("\n").find((l) => l.includes("tx.update(schema.vehicles)")) ?? "";
     expect(update, "guarded update emitted").not.toEqual("");
-    expect(update).toContain("eq(schema.vehicles.version, expected)");
+    expect(update).toContain("eq(schema.vehicles.rowVersion, expected)");
     expect(update).toContain("carScope({ write: true })");
     // Zero rows matched -> the same ConcurrencyError a lost race raises, rather
     // than a silent overwrite.
@@ -130,7 +130,7 @@ describe("TPH write paths carry the kind discriminator (Hono/Drizzle)", () => {
     expect(del).toContain("where(eq(schema.bikes.id, id))");
     expect(del).not.toContain("and(");
     const update = bike.split("\n").find((l) => l.includes("tx.update(schema.bikes)")) ?? "";
-    expect(update).toContain("eq(schema.bikes.version, expected)");
+    expect(update).toContain("eq(schema.bikes.rowVersion, expected)");
     expect(update).not.toContain("kind");
   });
 });

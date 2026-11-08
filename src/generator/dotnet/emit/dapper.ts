@@ -1,3 +1,6 @@
+import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
+import type { AggPool } from "../../../ir/util/inheritance.js";
+import { streamOriginFrameLines, streamScopePredicate, streamScopeWhere } from "./event-store.js";
 // ---------------------------------------------------------------------------
 // dapper — minimal-real persistence emitters for the .NET backend
 // (D-REALIZATION-AXES).  An ALTERNATE persistence implementation
@@ -55,6 +58,7 @@ import { lines } from "../../../util/code-builder.js";
 import { rewrite } from "../../../util/emission-sink.js";
 import { intrinsicFor, intrinsicKey } from "../../../util/intrinsics.js";
 import { escapeCsharpIdent, plural, snake, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN, ROW_VERSION_PASCAL } from "../../../util/row-version.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
 import { renderPrincipalTest } from "../../_expr/principal-term.js";
@@ -1408,7 +1412,7 @@ export function renderDapperRepository(
   // unchanged.  A non-versioned aggregate keeps the blind upsert below
   // (byte-identical).
   const versioned = rowVersionGuarded(agg);
-  const versionCol = "version";
+  const versionCol = ROW_VERSION_COLUMN;
   const upsertSetNoVersion = cols
     .filter((c) => c.col !== "id" && c.col !== versionCol && !onCreateCols.has(c.col))
     .map((c) => `${sqlIdent(c.col)} = excluded.${sqlIdent(c.col)}`)
@@ -1450,14 +1454,14 @@ export function renderDapperRepository(
     ? [
         `        ${dapperOpenConn(ns)}`,
         `        ${DAPPER_BEGIN_TX}`,
-        "        var __expected = expectedVersion ?? aggregate.Version;",
+        `        var __expected = expectedVersion ?? aggregate.${ROW_VERSION_PASCAL};`,
         `        var __written = await conn.ExecuteScalarAsync<int?>(new CommandDefinition(${csSqlLiteral(`INSERT INTO ${table} (${insertColList}) VALUES (${versionedInsertValsTph}) ON CONFLICT (id) DO UPDATE SET ${versionedSetClause} WHERE ${table}.${versionCol} = @ExpectedVersion${tph ? ` AND ${scope.writeKindOn(table)}` : ""} RETURNING ${versionCol}`)}, new { ${saveParams}, ExpectedVersion = __expected }, transaction: __tx, cancellationToken: cancellationToken));`,
         `        if (__written is null) throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
         // The aggregate now carries the version it was stored at, so a response
         // projected after the save reads it, as on the EF path, where the change
         // tracker writes the bumped token back.  `Version` has a private setter,
         // reached through the declaring type's property.
-        `        typeof(${agg.name}).GetProperty("Version")!.DeclaringType!.GetProperty("Version")!.SetValue(aggregate, __written.Value);`,
+        `        typeof(${agg.name}).GetProperty("${ROW_VERSION_PASCAL}")!.DeclaringType!.GetProperty("${ROW_VERSION_PASCAL}")!.SetValue(aggregate, __written.Value);`,
       ]
     : [
         `        ${dapperOpenConn(ns)}`,
@@ -2237,7 +2241,7 @@ export function renderDapperDocumentRepository(
   // its next Save sends `ExpectedVersion = 0`, the CAS `WHERE version = 0`
   // misses the row (column is `1`), and every second write 409s.
   const deserSnap = versioned
-    ? `System.Text.Json.JsonSerializer.Deserialize<${snap}>(__d.data, __json)! with { Version = __d.version }`
+    ? `System.Text.Json.JsonSerializer.Deserialize<${snap}>(__d.data, __json)! with { ${ROW_VERSION_PASCAL} = __d.${ROW_VERSION_COLUMN} }`
     : `System.Text.Json.JsonSerializer.Deserialize<${snap}>(__d.data, __json)!`;
   const deser = `${agg.name}.FromSnapshot(${deserSnap})`;
 
@@ -2338,15 +2342,15 @@ export function renderDapperDocumentRepository(
   const saveLines = versioned
     ? [
         ...savePrelude,
-        "        var __expected = expectedVersion ?? aggregate.Version;",
-        `        var __affected = await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (id, data, version) VALUES (@id, CAST(@data AS jsonb), 1) ON CONFLICT (id) DO UPDATE SET data = excluded.data, version = ${table}.version + 1 WHERE ${table}.version = @ExpectedVersion", new { id = aggregate.Id.Value, data = __data, ExpectedVersion = __expected }, ${audit.txArg}cancellationToken: cancellationToken));`,
+        `        var __expected = expectedVersion ?? aggregate.${ROW_VERSION_PASCAL};`,
+        `        var __affected = await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (id, data, ${ROW_VERSION_COLUMN}) VALUES (@id, CAST(@data AS jsonb), 1) ON CONFLICT (id) DO UPDATE SET data = excluded.data, ${ROW_VERSION_COLUMN} = ${table}.${ROW_VERSION_COLUMN} + 1 WHERE ${table}.${ROW_VERSION_COLUMN} = @ExpectedVersion", new { id = aggregate.Id.Value, data = __data, ExpectedVersion = __expected }, ${audit.txArg}cancellationToken: cancellationToken));`,
         `        if (__affected == 0) throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
         ...audit.flush,
         audit.commit,
       ].filter((l): l is string => l !== null)
     : [
         ...savePrelude,
-        `        await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (id, data, version) VALUES (@id, CAST(@data AS jsonb), 1) ON CONFLICT (id) DO UPDATE SET data = excluded.data, version = ${table}.version + 1", new { id = aggregate.Id.Value, data = __data }, ${audit.txArg}cancellationToken: cancellationToken));`,
+        `        await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (id, data, ${ROW_VERSION_COLUMN}) VALUES (@id, CAST(@data AS jsonb), 1) ON CONFLICT (id) DO UPDATE SET data = excluded.data, ${ROW_VERSION_COLUMN} = ${table}.${ROW_VERSION_COLUMN} + 1", new { id = aggregate.Id.Value, data = __data }, ${audit.txArg}cancellationToken: cancellationToken));`,
         ...audit.flush,
         audit.commit,
       ].filter((l): l is string => l !== null);
@@ -2374,7 +2378,7 @@ export function renderDapperDocumentRepository(
       // that one was reached, so dapper kept answering heap order while EF did
       // not.  It is the same read on the same table, so it gets the same
       // ordering.  Id is the primary key, so this is an index scan.
-      `var __rows = await ${conn}.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} ORDER BY id", cancellationToken: ${ct}));`,
+      `var __rows = await ${conn}.QueryAsync<Row>(new CommandDefinition("SELECT id, data, ${ROW_VERSION_COLUMN} FROM ${table} ORDER BY id", cancellationToken: ${ct}));`,
       // The capability filter narrows the visible set BEFORE the find's own
       // predicate runs, so a find never returns a capability-hidden (foreign
       // tenant, soft-deleted) document.
@@ -2459,13 +2463,13 @@ export function renderDapperDocumentRepository(
       "    {",
       `        public ${idCs} id { get; set; }${idCs === "string" ? " = default!;" : ""}`,
       "        public string data { get; set; } = default!;",
-      "        public int version { get; set; }",
+      `        public int ${ROW_VERSION_COLUMN} { get; set; }`,
       "    }",
       "",
       `    public async Task<${agg.name}?> GetByIdAsync(${agg.name}Id id, CancellationToken cancellationToken = default)`,
       "    {",
       `        ${dapperOpenConn(ns)}`,
-      `        var __d = await conn.QuerySingleOrDefaultAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} WHERE id = @id", new { id = id.Value }, cancellationToken: cancellationToken));`,
+      `        var __d = await conn.QuerySingleOrDefaultAsync<Row>(new CommandDefinition("SELECT id, data, ${ROW_VERSION_COLUMN} FROM ${table} WHERE id = @id", new { id = id.Value }, cancellationToken: cancellationToken));`,
       // With a capability filter, a row OUTSIDE the caller's scope reads as
       // missing (→ 404), matching what the relational adapter's spliced WHERE
       // does to the same lookup.
@@ -2483,7 +2487,7 @@ export function renderDapperDocumentRepository(
       "    {",
       `        if (ids.Count == 0) return Array.Empty<${agg.name}>();`,
       `        ${dapperOpenConn(ns)}`,
-      `        var __rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} WHERE id = ANY(@ids)", new { ids = ids.Select(x => x.Value).ToArray() }, cancellationToken: cancellationToken));`,
+      `        var __rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT id, data, ${ROW_VERSION_COLUMN} FROM ${table} WHERE id = ANY(@ids)", new { ids = ids.Select(x => x.Value).ToArray() }, cancellationToken: cancellationToken));`,
       `        return __rows.Select(__d => ${deser})${capFilter}.ToList();`,
       "    }",
       ...capMethod,
@@ -2525,6 +2529,8 @@ export function renderDapperEventSourcedRepository(
   ctxName: string,
   /** As `renderDapperDocumentRepository`'s. */
   extraUsings: readonly string[] = [],
+  /** The context's aggregates — the pool the stream-tenancy fact resolves in. */
+  pool: AggPool = [],
 ): string {
   // BCL type-name collision (#3024) — the dapper adapter is a SECOND repository
   // emitter beside the EF one, with its own using block and its own non-generic
@@ -2537,6 +2543,13 @@ export function renderDapperEventSourcedRepository(
   const domainAliases = collidingNamesOfAggregate(agg).map(
     (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
   );
+  // Stream tenancy (stream-tenancy.ts): the tenant is metadata of the stored
+  // events, adopted onto the folded instance; reads apply the fact's tenancy
+  // restrictions in-app over it.
+  const tenancy = streamTenancyFor(agg, pool);
+  const defaultScope = streamScopePredicate(agg, pool);
+  const metaCols = (tenancy?.metadata ?? []).map((m) => m.column);
+  const metaSel = metaCols.map((c) => `, ${c}`).join("");
   // The single per-context event log (event-log-architecture.md): every load /
   // append / fold scopes to `stream_type = @st` (this aggregate's name) so a
   // sibling stream sharing the `<ctx>_events` table is never folded in.
@@ -2594,7 +2607,7 @@ export function renderDapperEventSourcedRepository(
     const f = domainFindShape(raw, agg.name);
     const body = findBodies.find((b) => b.name === f.name);
     // In-memory over the folded streams: a criterion's query face compiles to a `Func`.
-    const filter = inMemoryFilter(body?.filterClause ?? "");
+    const filter = inMemoryFilter(body?.filterClause ?? "") + streamScopeWhere(agg, pool, f);
     // ES finds load every stream in-memory, so strip the async EF terminal
     // (the projection clause passes the method's own token, `ct`).
     const { ct } = csReadOwnParams(f.params.map((p) => p.name));
@@ -2663,16 +2676,29 @@ export function renderDapperEventSourcedRepository(
       "        public string stream_id { get; set; } = default!;",
       "        public string type { get; set; } = default!;",
       "        public string data { get; set; } = default!;",
+      ...metaCols.map((c) => `        public string? ${c} { get; set; }`),
       "    }",
       "",
       `    public async Task<${agg.name}?> GetByIdAsync(${agg.name}Id id, CancellationToken cancellationToken = default)`,
       "    {",
       "        var __sid = id.Value.ToString();",
       `        ${dapperOpenConn(ns)}`,
-      `        var __rows = (await conn.QueryAsync<EvRow>(new CommandDefinition("SELECT stream_id, type, data FROM ${table} WHERE stream_type = @st AND stream_id = @sid ORDER BY version", new { st = "${streamType}", sid = __sid }, cancellationToken: cancellationToken))).ToList();`,
+      `        var __rows = (await conn.QueryAsync<EvRow>(new CommandDefinition("SELECT stream_id, type, data${metaSel} FROM ${table} WHERE stream_type = @st AND stream_id = @sid ORDER BY version", new { st = "${streamType}", sid = __sid }, cancellationToken: cancellationToken))).ToList();`,
       "        if (__rows.Count == 0) return null;",
-      `        return ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`,
+      ...(tenancy
+        ? [
+            // A foreign tenant's stream reads as absent (404): no existence leak.
+            `        var __inst = ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`,
+            `        __inst._AdoptStreamTenant(${metaCols.map((c) => `__rows[0].${c}`).join(", ")});`,
+            ...(defaultScope
+              ? [`        return _TenantVisible(__inst) ? __inst : null;`]
+              : [`        return __inst;`]),
+          ]
+        : [`        return ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`]),
       "    }",
+      ...(defaultScope
+        ? ["", `    private static bool _TenantVisible(${agg.name} x) => ${defaultScope};`]
+        : []),
       ...writeScopeMethod,
       "",
       `    public async Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${agg.name}Id> ids, CancellationToken cancellationToken = default)`,
@@ -2708,13 +2734,16 @@ export function renderDapperEventSourcedRepository(
       // (SQLSTATE 23505) — the RS-40 409, the same exception the guarded
       // relational / document upserts raise.
       "            var __version = aggregate._StreamVersion;",
+      // A NEW stream is stamped from the principal; later appends carry the
+      // loaded stream's tenant forward.
+      ...(tenancy ? ["            if (__version == 0) aggregate._StampOnCreate();"] : []),
       "            foreach (var __ev in __pending)",
       "            {",
       "                __version++;",
       "                var __data = System.Text.Json.JsonSerializer.Serialize((object)__ev, __json);",
       "                try",
       "                {",
-      `                    await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at) VALUES (@st, @sid, @version, @type, CAST(@data AS jsonb), now())", new { st = "${streamType}", sid = __sid, version = __version, type = __ev.GetType().Name, data = __data }, ${audit.txArg}cancellationToken: cancellationToken));`,
+      `                    await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at${metaSel}) VALUES (@st, @sid, @version, @type, CAST(@data AS jsonb), now()${metaCols.map((c) => `, @${c}`).join("")})", new { st = "${streamType}", sid = __sid, version = __version, type = __ev.GetType().Name, data = __data${(tenancy?.metadata ?? []).map((m) => `, ${m.column} = aggregate.${upperFirst(m.field)}`).join("")} }, ${audit.txArg}cancellationToken: cancellationToken));`,
       "                }",
       '                catch (Npgsql.PostgresException __ex) when (__ex.SqlState == "23505")',
       "                {",
@@ -2725,16 +2754,28 @@ export function renderDapperEventSourcedRepository(
       "        }",
       ...audit.flush,
       audit.commit,
+      ...(tenancy ? streamOriginFrameLines(ns, "        ") : []),
       "        foreach (var ev in __pending) await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
       "    }",
       "",
       `    private async Task<List<${agg.name}>> _LoadAllAsync(CancellationToken cancellationToken)`,
       "    {",
       `        ${dapperOpenConn(ns)}`,
-      `        var __rows = (await conn.QueryAsync<EvRow>(new CommandDefinition("SELECT stream_id, type, data FROM ${table} WHERE stream_type = @st ORDER BY stream_id, version", new { st = "${streamType}" }, cancellationToken: cancellationToken))).ToList();`,
+      `        var __rows = (await conn.QueryAsync<EvRow>(new CommandDefinition("SELECT stream_id, type, data${metaSel} FROM ${table} WHERE stream_type = @st ORDER BY stream_id, version", new { st = "${streamType}" }, cancellationToken: cancellationToken))).ToList();`,
       `        return __rows`,
       "            .GroupBy(__r => __r.stream_id)",
-      `            .Select(__g => ${agg.name}._FromEvents(new ${agg.name}Id(${parseId}), __g.Select(RowToEvent).ToList()))`,
+      ...(tenancy
+        ? [
+            "            .Select(__g =>",
+            "            {",
+            `                var __inst = ${agg.name}._FromEvents(new ${agg.name}Id(${parseId}), __g.Select(RowToEvent).ToList());`,
+            `                __inst._AdoptStreamTenant(${metaCols.map((c) => `__g.First().${c}`).join(", ")});`,
+            "                return __inst;",
+            "            })",
+          ]
+        : [
+            `            .Select(__g => ${agg.name}._FromEvents(new ${agg.name}Id(${parseId}), __g.Select(RowToEvent).ToList()))`,
+          ]),
       "            .ToList();",
       "    }",
       "",

@@ -38,15 +38,15 @@
             "code": "O-1",
             "id": "<volatile:key>",
             "open": true,
-            "total": "10.0000",
-            "version": 1
+            "rowVersion": 1,
+            "total": "10.0000"
           },
           {
             "code": "O-2",
             "id": "<volatile:key>",
             "open": false,
-            "total": "30.0000",
-            "version": 2
+            "rowVersion": 2,
+            "total": "30.0000"
           }
         ],
         "page": 1,
@@ -99,8 +99,8 @@
         "code": "O-1",
         "id": "<volatile:key>",
         "open": false,
-        "total": "10.0000",
-        "version": 2
+        "rowVersion": 2,
+        "total": "10.0000"
       }
     },
     {
@@ -119,8 +119,8 @@
         "code": "O-1b",
         "id": "<volatile:key>",
         "open": true,
-        "total": "10.0000",
-        "version": 3
+        "rowVersion": 3,
+        "total": "10.0000"
       }
     },
     {
@@ -154,8 +154,8 @@
             "code": "O-2",
             "id": "<volatile:key>",
             "open": false,
-            "total": "30.0000",
-            "version": 2
+            "rowVersion": 2,
+            "total": "30.0000"
           }
         ],
         "page": 1,
@@ -305,15 +305,15 @@
             "code": "O-2",
             "id": "<volatile:key>",
             "open": false,
-            "total": "30.0000",
-            "version": 2
+            "rowVersion": 2,
+            "total": "30.0000"
           },
           {
             "code": "ladder",
             "id": "<volatile:key>",
             "open": false,
-            "total": "10.0000",
-            "version": 2
+            "rowVersion": 2,
+            "total": "10.0000"
           }
         ],
         "page": 1,
@@ -420,8 +420,8 @@
         "code": "ladder",
         "id": "<volatile:key>",
         "open": false,
-        "total": "10.0000",
-        "version": 2
+        "rowVersion": 2,
+        "total": "10.0000"
       }
     }
   ]

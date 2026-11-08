@@ -84,6 +84,7 @@ import { buildRepositoryFile } from "../../../generator/typescript/repository-bu
 import { buildDocumentRepositoryFile } from "../../../generator/typescript/repository-document-builder.js";
 import { buildEmbeddedRepositoryFile } from "../../../generator/typescript/repository-embedded-builder.js";
 import { buildEventSourcedRepositoryFile } from "../../../generator/typescript/repository-eventsourced-builder.js";
+import { aggregateHasStreamScope } from "../../../generator/typescript/repository-find-predicate.js";
 import {
   PORT_POOL_PATH,
   portMembersFromSource,
@@ -91,7 +92,7 @@ import {
   renderRepositoryPortsFile,
 } from "../../../generator/typescript/repository-port-builder.js";
 import { TsOutputMap } from "../../../generator/typescript/ts-output.js";
-import { T } from "../../../generator/typescript/ts-symbols.js";
+import { T, TT } from "../../../generator/typescript/ts-symbols.js";
 import { deriveEventSubscriptions, enrichLoomModel } from "../../../ir/enrich/enrichments.js";
 import {
   brokerBoundChannelsCarrying,
@@ -1343,6 +1344,11 @@ export function generateTypeScriptForContexts(
       ) {
         scopeSpecs.push({ agg, ctx });
       }
+      // A tenant-scoped event stream scopes its SQL stream loads through its
+      // own helper, over the event log's tenant metadata (`stream-tenancy.ts`).
+      if (!usingMikro && agg.persistedAs === "eventLog" && aggregateHasStreamScope(agg, ctx)) {
+        scopeSpecs.push({ agg, ctx, stream: true });
+      }
       // Derive this aggregate's repository PORT from the concrete just emitted
       // (audit S7) — pooled into `domain/repository-ports.ts` below.
       portSpecs.push({ aggName: agg.name, members: portMembersFromSource(repoContent) });
@@ -1708,68 +1714,76 @@ export function generateTypeScriptForContexts(
   // decides what runs and the set of tests `npm test` executes is unchanged.
   // The single job of this file is to stop the upward search.
   out.set("vitest.config.ts", renderVitestConfig(projectImportsDecimalJs));
-  out.set(
-    "index.ts",
-    renderProjectIndexTs(
-      hasMigrations,
-      authRequired ? system?.sys.user : undefined,
-      resourceImports,
-      hasSeeds,
-      usingMikro,
-      // Outbox relay (dispatch-delivery-semantics.md): started at boot when
-      // any context carries a durable channel AND the in-process dispatcher
-      // is wired (subscriptions exist).  Persistence-neutral — the mikro
-      // adapter emits the same relay over the EntityManager.
+  const entryConfig: ProjectEntryConfig = {
+    runMigrationsAtBoot: hasMigrations,
+    userShape: authRequired ? system?.sys.user : undefined,
+    resourceImports,
+    runSeedsAtBoot: hasSeeds,
+    usingMikro,
+    // Outbox relay (dispatch-delivery-semantics.md): started at boot when
+    // any context carries a durable channel AND the in-process dispatcher
+    // is wired (subscriptions exist).  Persistence-neutral — the mikro
+    // adapter emits the same relay over the EntityManager.
+    outboxRelay:
       contexts.some((c) => c.eventSubscriptions.length > 0 && durableEventTypes(c).size > 0) ||
-        // A durable-broker producer relays even without local subscribers:
-        // the drained rows publish to the broker (M-T4.4).
-        (durableBrokerEvents.size > 0 && durableEventTypes(merged).size > 0),
-      // Realtime tee: the relay's inner dispatcher rides through it so
-      // relayed (durable) events reach the SSE wire too.  Persistence-neutral
-      // since M-T6.23.
-      contexts.some((c) => realtimeEventTypes(c).size > 0),
-      // OIDC turnkey auth: register the generated verifier instead of the
-      // dev stub.
-      !!oidcAuth,
-      // Hierarchy (multi-tenancy): the tenant-registry AGGREGATE name when
-      // it opts into `tenantRegistry` — boot registers the `orgPath` resolver
-      // (`SELECT data_key … WHERE id = <claim>`) that the auth middleware calls
-      // per request, on both persistence adapters.  `undefined` for flat
-      // tenancy.  The aggregate name (not the drizzle table var) is what
-      // crosses the seam: each branch needs a different spelling of it (the
-      // `orgs` schema var vs the `OrgRow` entity class).
+      // A durable-broker producer relays even without local subscribers:
+      // the drained rows publish to the broker.
+      (durableBrokerEvents.size > 0 && durableEventTypes(merged).size > 0),
+    // Realtime tee: the relay's inner dispatcher rides through it so
+    // relayed (durable) events reach the SSE wire too.  Persistence-neutral.
+    hasRealtime: contexts.some((c) => realtimeEventTypes(c).size > 0),
+    // OIDC turnkey auth: register the generated verifier instead of the
+    // dev stub.
+    oidc: !!oidcAuth,
+    // Hierarchy (multi-tenancy): the tenant-registry AGGREGATE name when
+    // it opts into `tenantRegistry` — boot registers the `orgPath` resolver
+    // (`SELECT data_key … WHERE id = <claim>`) that the auth middleware calls
+    // per request, on both persistence adapters.  `undefined` for flat
+    // tenancy.  The aggregate name (not the drizzle table var) is what
+    // crosses the seam: each branch needs a different spelling of it (the
+    // `orgs` schema var vs the `OrgRow` entity class).
+    // Only a deployable hosting the registry's context has its table; phase ⑦
+    // refuses any other that reads the path.
+    orgPathRegistryAgg:
       authRequired && system
         ? hostedHierarchyRegistry(system.sys, system.deployable.contextNames)?.name
         : undefined,
-      // Timer scheduler (scheduling.md, M-T4.1): boot wires startTimerScheduler
-      // into the same in-process dispatcher the outbox relay uses.
-      hasTimers,
-      // Broker transport (M-T4.4): boot creates the redis transports,
-      // wraps the app dispatcher in the publish tee, and starts the consumer
-      // loop feeding the in-process dispatcher.
-      hasChannels,
-      hasChannelConsumers,
-      // A native run (`npm run dev`) listens on the deployable's declared
-      // port; the image sets PORT to its container port.
-      system?.deployable.port ?? 3000,
-      timerTicksOverBroker,
-      // `http/workflows.ts` exports `createInProcessDispatcher` only when a
-      // hosted context reacts to an event; a timer owner whose only consumer
-      // sits on another deployable has none, and boot takes the Noop instead.
-      /^export function createInProcessDispatcher\(/m.test(out.get("http/workflows.ts") ?? ""),
+    // Timer scheduler (scheduling.md): boot wires startTimerScheduler
+    // into the same in-process dispatcher the outbox relay uses.
+    hasTimers,
+    // Broker transport: boot creates the broker transports, wraps the app
+    // dispatcher in the publish tee, and starts the consumer loop feeding
+    // the in-process dispatcher.
+    hasChannels,
+    hasChannelConsumers,
+    // A native run (`npm run dev`) listens on the deployable's declared
+    // port; the image sets PORT to its container port.
+    nativePort: system?.deployable.port ?? 3000,
+    timerTicksOverBroker,
+    // `http/workflows.ts` exports `createInProcessDispatcher` only when a
+    // hosted context reacts to an event; a timer owner whose only consumer
+    // sits on another deployable has none, and boot takes the Noop instead.
+    inProcessDispatcherEmitted: /^export function createInProcessDispatcher\(/m.test(
+      out.get("http/workflows.ts") ?? "",
     ),
-  );
+  };
+  out.set("boot.ts", renderProjectBootTs(entryConfig));
+  out.set("index.ts", renderProjectIndexTs(entryConfig));
   // Exact-`decimal` arithmetic precision: configured once at boot (and in the
   // vitest setup) so every module's `Decimal` sees it.
   if (projectImportsDecimalJs) {
     out.set(DECIMAL_SETUP_PATH, DECIMAL_SETUP_TS);
-    out.replace(
-      "index.ts",
-      (out.get("index.ts") as string).replace(
-        "// Auto-generated.\n",
-        `// Auto-generated.\nimport "./${DECIMAL_SETUP_PATH.replace(/\.ts$/, "")}";\n`,
-      ),
-    );
+    // Both entry modules import it: the deployed server loads index.ts, the
+    // browser playground loads boot.ts without it.
+    for (const entry of ["index.ts", "boot.ts"]) {
+      out.replace(
+        entry,
+        (out.get(entry) as string).replace(
+          "// Auto-generated.\n",
+          `// Auto-generated.\nimport "./${DECIMAL_SETUP_PATH.replace(/\.ts$/, "")}";\n`,
+        ),
+      );
+    }
   }
   if (!usingMikro) out.set("drizzle.config.ts", DRIZZLE_CONFIG);
   out.set("Dockerfile", renderDockerfileTs(hasMigrations));
@@ -2113,16 +2127,6 @@ export default defineConfig({
  *  migration whose SQL fails logs `migration_failed` — carrying every link of
  *  that chain with the driver's Postgres `code`/`detail`/`constraint` — and
  *  aborts boot at once. */
-/** The specifier order of the boot module's multi-name imports. */
-const SLOT_ORDER: Record<string, readonly string[]> = {
-  "~/http/channels": [
-    "channelPublishTee",
-    "createChannelTransports",
-    "startChannelConsumers",
-    "closeChannelTransports",
-  ],
-};
-
 function renderHonoBootMigrate(): string {
   const { maxAttempts, baseDelayMs, maxDelayMs } = BOOT_DB_RETRY;
   return lines(
@@ -2197,57 +2201,80 @@ function renderHonoBootMigrate(): string {
   );
 }
 
-function renderProjectIndexTs(
-  runMigrationsAtBoot: boolean,
-  userShape?: UserIR,
-  resourceImports: readonly string[] = [],
-  runSeedsAtBoot = false,
-  usingMikro = false,
-  outboxRelay = false,
-  hasRealtime = false,
-  oidc = false,
-  orgPathRegistryAgg?: string,
-  hasTimers = false,
-  hasChannels = false,
-  hasChannelConsumers = false,
-  nativePort = 3000,
-  timerTicksOverBroker = false,
-  inProcessDispatcherEmitted = true,
-): string {
-  // Side-effect imports for the resource-client modules (objectStore /
-  // queue / api) so their clients instantiate at boot.  Empty for
-  // deployables with no such resources — byte-identical to before.
-  const resourceImportBlock = resourceImports.length > 0 ? `${resourceImports.join("\n")}\n` : "";
-  // `db/migrate.ts` — Drizzle's migrator plus the non-transactional files a
-  // `CREATE INDEX CONCURRENTLY` needs (`emitTypescriptMigrations`).
-  const migImport = `${tsImportSlot("~/db/migrate")}\n`;
-  const seedImport = `${tsImportSlot("~/db/seed")}\n`;
+/** What the deployable's start-up sequence wires — the inputs of both
+ *  `boot.ts` (the sequence itself) and `index.ts` (the server around it). */
+interface ProjectEntryConfig {
+  readonly runMigrationsAtBoot: boolean;
+  readonly userShape?: UserIR;
+  readonly resourceImports: readonly string[];
+  readonly runSeedsAtBoot: boolean;
+  readonly usingMikro: boolean;
+  readonly outboxRelay: boolean;
+  readonly hasRealtime: boolean;
+  readonly oidc: boolean;
+  readonly orgPathRegistryAgg?: string;
+  readonly hasTimers: boolean;
+  readonly hasChannels: boolean;
+  readonly hasChannelConsumers: boolean;
+  readonly nativePort: number;
+  /** A timer tick carried by a channel this deployable binds to a broker is
+   *  published through the tee, so a consumer on another deployable sees it. */
+  readonly timerTicksOverBroker: boolean;
+  readonly inProcessDispatcherEmitted: boolean;
+}
+
+/** Indent every non-empty line of `text` by two spaces. */
+function indentBlock(text: string): string {
+  return text.replace(/^(?=.)/gm, "  ");
+}
+
+/**
+ * `boot.ts` — the deployable's whole start-up sequence as one function,
+ * `bootApp(db, opts) → { app, stop }`: first-boot seeds, the user verifier,
+ * the tenant-registry `orgPath` resolver, the event dispatchers, the channel
+ * transports + publish tee + consumer loop, the outbox relay and the timer
+ * scheduler.  Two hosts run it: the generated `index.ts` (pool, migrations,
+ * `serve`, shutdown around it) and the browser playground's runtime worker
+ * (PGlite, no `serve`).  One function is what keeps the two from drifting —
+ * `test/generator/typescript/boot-entry-census.test.ts` fails when `index.ts`
+ * grows start-up logic outside it.
+ *
+ * `opts` carries the browser's answers, each defaulting to the deployed
+ * behaviour: `verifier: "dev-stub"` (no IdP is reachable from the preview),
+ * `infra: "in-process"` (no broker and no second Postgres connection — the
+ * brokers become one in-memory transport and `cron:` timers run in-process),
+ * and `channelTransport` (the seam an emulated broker plugs into).
+ */
+function renderProjectBootTs(cfg: ProjectEntryConfig): string {
+  const {
+    userShape,
+    runSeedsAtBoot,
+    usingMikro,
+    outboxRelay,
+    hasRealtime,
+    oidc,
+    orgPathRegistryAgg,
+    hasTimers,
+    hasChannels,
+    hasChannelConsumers,
+    timerTicksOverBroker,
+    inProcessDispatcherEmitted,
+  } = cfg;
   const seedCall = runSeedsAtBoot
     ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the __loom_seed marker; idempotent across boots.\nawait ${T.runSeeds}(db);\n`
     : "";
-  const migCall = runMigrationsAtBoot ? renderHonoBootMigrate() : "";
   // createApp() calls assertUserVerifierRegistered() when auth is required.
   // With an `auth { oidc }` block (D-AUTH-OIDC) we register the generated
-  // OIDC verifier; otherwise we emit a permissive dev stub so the stack
-  // boots out of the box (replace in production with a real verifier).
-  // The in-process dispatcher is constructed once and shared by the outbox
-  // relay and/or the timer scheduler (scheduling.md, M-T4.1).
-  const needsDispatcher = outboxRelay || hasTimers || hasChannels;
-  // `createInProcessDispatcher` exists in http/workflows.ts only when the
-  // deployable has channel-routed workflow subscriptions.  A pure-producer
-  // deployable (wires a broker channel, hosts no reactors) falls back to the
-  // always-exported Noop as the tee's inner dispatcher.
-  const withInProcess =
-    (outboxRelay || hasTimers || hasChannelConsumers) && inProcessDispatcherEmitted;
-  // The dispatcher `createApp` gets on the request path — the isolating twin
-  // when there are reactors to isolate (H-28), else the shared instance.
-  const requestEventsVar = withInProcess ? "requestEvents" : "inProcessEvents";
-  const authStubImport = `${tsImportSlot("~/auth/oidc")}\n${tsImportSlot("~/auth/dev-stub")}\n`;
+  // OIDC verifier — unless the host asks for the dev stub (the playground,
+  // which reaches no IdP); otherwise we register a permissive dev stub so the
+  // stack boots out of the box (replace in production with a real verifier).
+  const devStubDoc = `// Dev-stub verifier (auth/dev-stub.ts) — accepts every request as a\n// built-in identity filling every field the \`user { … }\` block declares.\n// Dev-only: the Loom playground (or curl) can override the claims by\n// sending a base64-encoded JSON object in \`x-loom-dev-claims\`; absent the\n// header the built-in identity is used.  REPLACE for production by calling\n// registerUserVerifier(...) with a real JWT-decoding implementation.\n`;
+  const devStubRegistration = `${T.registerDevStubVerifier}();\n${T.baseLogger}.warn({ event: "auth_dev_stub_registered" });\n`;
   const authStubCall = !userShape
     ? ""
     : oidc
-      ? `\n// OIDC verifier — validates the IdP's tokens against its\n// JWKS and maps claims onto the typed User.  Configure the issuer /\n// client via the env vars the \`auth { oidc }\` block referenced.\n${T.registerOidcVerifier}();\nbaseLogger.info({ event: "auth_oidc_verifier_registered" });\n`
-      : `\n// Dev-stub verifier (auth/dev-stub.ts) — accepts every request as a\n// built-in identity filling every field the \`user { … }\` block declares.\n// Dev-only: the Loom playground (or curl) can override the claims by\n// sending a base64-encoded JSON object in \`x-loom-dev-claims\`; absent the\n// header the built-in identity is used.  REPLACE for production by calling\n// registerUserVerifier(...) with a real JWT-decoding implementation.\n${T.registerDevStubVerifier}();\nbaseLogger.warn({ event: "auth_dev_stub_registered" });\n`;
+      ? `\n// OIDC verifier — validates the IdP's tokens against its\n// JWKS and maps claims onto the typed User.  Configure the issuer /\n// client via the env vars the \`auth { oidc }\` block referenced.\n// \`verifier: "dev-stub"\` registers the dev stub instead: the browser\n// playground reaches no IdP.\nif (opts.verifier === "dev-stub") {\n${indentBlock(devStubRegistration)}} else {\n  ${T.registerOidcVerifier}();\n  ${T.baseLogger}.info({ event: "auth_oidc_verifier_registered" });\n}\n`
+      : `\n${devStubDoc}${devStubRegistration}`;
   // Tenant-registry orgPath resolver (multi-tenancy) — wired on BOTH
   // persistence paths.  The auth middleware calls it per request; here we bind
   // it to the db with a `SELECT data_key … WHERE id = <claim>`.
@@ -2268,62 +2295,28 @@ function renderProjectIndexTs(
   // cannot drift apart.
   const orgPathRegistryTable = orgPathRegistryAgg && lowerFirst(plural(orgPathRegistryAgg));
   const orgPathRegistryRow = orgPathRegistryAgg && `${orgPathRegistryAgg}Row`;
-  const wireOrgPath = !!orgPathRegistryAgg;
-  const orgPathImport = `${tsImportSlot("drizzle-orm")}\n${tsImportSlot("~/auth/middleware")}\n${tsImportSlot("~/db/entities")}\n`;
   const orgPathRow = orgPathRegistryRow && ref(tsNamed("~/db/entities", orgPathRegistryRow));
   const orgPathDoc = `\n// Register the tenant-registry \`orgPath\` resolver (multi-tenancy):\n// currentUser.orgPath = the caller org's materialized \`data_key\`, memoized\n// per request in the auth middleware; a missing row / dataKey falls back to\n// the claim (root-segment path) — fail-safe, never null/crash.\n`;
-  const orgPathRegistration = !wireOrgPath
+  const orgPathRegistration = !orgPathRegistryAgg
     ? ""
     : usingMikro
       ? `${orgPathDoc}${T.registerOrgPathResolver}(async (claim) => {\n  const row = await db.fork().findOne(${orgPathRow}, { id: claim }, { filters: false });\n  return row?.dataKey ?? null;\n});\n`
-      : `${orgPathDoc}${T.registerOrgPathResolver}(async (claim) => {\n  const rows = await db\n    .select({ dataKey: schema.${orgPathRegistryTable}.dataKey })\n    .from(schema.${orgPathRegistryTable})\n    .where(${T.eq}(schema.${orgPathRegistryTable}.id, claim))\n    .limit(1);\n  return rows[0]?.dataKey ?? null;\n});\n`;
-  // Event-dispatch / relay / scheduler imports — SHARED by both persistence
-  // branches — the mikro adapter emits the outbox relay too, so this block
-  // cannot live inside the drizzle arm.  Empty when nothing needs the
-  // in-process dispatcher.
-  // Event-dispatch / relay / scheduler / broker imports — SHARED by both
-  // persistence branches; each is written only when the wiring below uses it.
-  const dispatcherImports = `${[
-    "~/domain/events",
-    "~/http/workflows",
-    "~/http/realtime",
-    "~/scheduler",
-    "~/http/channels",
-  ]
-    .map((m) => `${tsImportSlot(m, { order: SLOT_ORDER[m] })}\n`)
-    .join("")}`;
-  // Persistence wiring (D-REALIZATION-AXES `persistence:`) — drizzle (pg pool +
-  // boot-time migrate) vs mikroorm (MikroORM.init + schema:update at startup).
-  // The drizzle import header is kept byte-identical to the pre-mikroorm shape.
-  const importHeader = usingMikro
-    ? `import { serve } from "@hono/node-server";
-import { createApp } from "./http/index";
-${MIKRO_INDEX_IMPORTS.join("\n")}
-${dispatcherImports}${seedImport}${authStubImport}${orgPathImport}import { baseLogger } from "./obs/log";
-import { shutdownTracing } from "./obs/tracing";`
-    : `import { drizzle } from "drizzle-orm/node-postgres";
-import pg from "pg";
-import { serve } from "@hono/node-server";
-import * as schema from "./db/schema";
-import { createApp } from "./http/index";
-${dispatcherImports}${migImport}${seedImport}${authStubImport}${orgPathImport}import { baseLogger } from "./obs/log";
-import { shutdownTracing } from "./obs/tracing";`;
-  const connectionBlock = usingMikro
-    ? `// Persistence connection — owned by the mikroorm PersistenceAdapter\n// (MikroORM.init → dev schema bootstrap → EntityManager as \`db\`).\n${mikroConnectionSetup().join("\n")}`
-    : `// Persistence connection — owned by the drizzle PersistenceAdapter\n// (DATABASE_URL guard → pg pool → pool-error logging → drizzle db).\n${DRIZZLE_CONNECTION_SETUP.join("\n")}`;
-  // mikroorm bootstraps its schema inside the connection block (schema.update),
-  // so it never emits the drizzle boot-time migrate call.
-  const effectiveMigCall = usingMikro ? "" : migCall;
-  return `// Auto-generated.
-${importHeader}
-${resourceImportBlock}
-${connectionBlock}
-
-const port = Number(process.env.PORT ?? ${nativePort});
-baseLogger.info({ event: "server_starting", port, env: process.env.NODE_ENV ?? "development" });
-${effectiveMigCall}${seedCall}${authStubCall}${orgPathRegistration}${
-  needsDispatcher
-    ? `${
+      : `${orgPathDoc}${T.registerOrgPathResolver}(async (claim) => {\n  const rows = await db\n    .select({ dataKey: ${T.schema}.${orgPathRegistryTable}.dataKey })\n    .from(${T.schema}.${orgPathRegistryTable})\n    .where(${T.eq}(${T.schema}.${orgPathRegistryTable}.id, claim))\n    .limit(1);\n  return rows[0]?.dataKey ?? null;\n});\n`;
+  // The in-process dispatcher is constructed once and shared by the outbox
+  // relay and/or the timer scheduler (scheduling.md).
+  const needsDispatcher = outboxRelay || hasTimers || hasChannels;
+  // `createInProcessDispatcher` exists in http/workflows.ts only when the
+  // deployable has channel-routed workflow subscriptions.  A pure-producer
+  // deployable (wires a broker channel, hosts no reactors) falls back to the
+  // always-exported Noop as the tee's inner dispatcher.
+  const withInProcess =
+    (outboxRelay || hasTimers || hasChannelConsumers) && inProcessDispatcherEmitted;
+  // The dispatcher `createApp` gets on the request path — the isolating twin
+  // when there are reactors to isolate, else the shared instance.
+  const requestEventsVar = withInProcess ? "requestEvents" : "inProcessEvents";
+  const wiring = !needsDispatcher
+    ? "const app = createApp(db);\n"
+    : `${
         outboxRelay
           ? `// Transactional outbox (dispatch-delivery-semantics.md): durable events
 // (channels with retention: log | work) are recorded in __loom_outbox by
@@ -2357,12 +2350,17 @@ const requestEvents = ${
     : ""
 }${
   hasChannels
-    ? `// Broker transport (channels.md): one shared redis connection set
-// per LOOM_CHANNEL_*_URL.  The publish tee routes broker-bound events to
-// the broker (co-located consumers receive them via the subscription, not
-// a local shortcut); the consumer loop feeds received envelopes into the
-// same in-process dispatcher local reactors use.
-const channelTransports = ${T.createChannelTransports}();
+    ? `// Broker transport (channels.md): one shared connection set per
+// LOOM_CHANNEL_*_URL.  The publish tee routes broker-bound events to the
+// broker (co-located consumers receive them via the subscription, not a
+// local shortcut); the consumer loop feeds received envelopes into the same
+// in-process dispatcher local reactors use.  \`infra: "in-process"\` puts
+// every binding on one in-memory transport instead — the browser has no
+// broker — and \`channelTransport\` plugs any other transport into the seam.
+const inProcessBroker = opts.infra === "in-process" ? ${T.createInProcessTransport}() : undefined;
+const channelTransports = ${T.createChannelTransports}(
+  opts.channelTransport ?? (inProcessBroker && (() => inProcessBroker)),
+);
 `
     : ""
 }const app = ${
@@ -2378,10 +2376,10 @@ const channelTransports = ${T.createChannelTransports}();
       };
 ${
   hasChannelConsumers
-    ? // Awaited BEFORE `serve()`: the port opens — and /ready answers 200 —
-      // only once every binding is subscribed.  An envelope published into
-      // the gap is dropped by the broker on an ephemeral channel and never
-      // redelivered (java: #2350, elixir/dotnet/python: #2386).
+    ? // Awaited before `bootApp` resolves, so before `serve()`: the port
+      // opens — and /ready answers 200 — only once every binding is
+      // subscribed.  An envelope published into the gap is dropped by the
+      // broker on an ephemeral channel and never redelivered.
       `const stopChannelConsumers = await ${T.startChannelConsumers}(channelTransports, inProcessEvents);\n`
     : ""
 }${
@@ -2399,44 +2397,136 @@ const stopOutboxRelay = ${T.startOutboxRelay}(db, ${T.channelPublishTee}(channel
   hasTimers
     ? `// Timer sources (scheduling.md): infrastructure fires tick events on a
 // wall-clock cadence.  cron: timers run on pg-boss (durable, retried,
-// single-fire across replicas); every: timers run in-process.
+// single-fire across replicas); every: timers run in-process under an
+// advisory lock.  \`infra: "in-process"\` runs both in this process alone:
+// no pg-boss (it opens its own Postgres connection) and no lock.
 const stopTimers = await ${T.startTimerScheduler}(db, ${
         timerTicksOverBroker
           ? `${T.channelPublishTee}(channelTransports, inProcessEvents)`
           : "inProcessEvents"
-      });
+      }, { infra: opts.infra });
 `
     : ""
-}`
-    : `const app = createApp(db);
-`
-}const server = serve({ fetch: app.fetch, port });
+}`;
+  // Teardown, in the order the deployed server always ran it: the relay, the
+  // timers, then the consumers (which close the transports they share with
+  // the publisher) — or the transports alone for a producer-only deployable.
+  const stopLines = [
+    outboxRelay ? "stopOutboxRelay();" : null,
+    hasTimers ? "await stopTimers();" : null,
+    hasChannelConsumers
+      ? "await stopChannelConsumers();"
+      : hasChannels
+        ? `await ${T.closeChannelTransports}(channelTransports);`
+        : null,
+  ].filter((l): l is string => l !== null);
+  const stopBody =
+    stopLines.length === 0
+      ? "  async stop() {},\n"
+      : `  async stop() {\n${stopLines.map((l) => `    ${l}\n`).join("")}  },\n`;
+  const preamble = `${seedCall}${authStubCall}${orgPathRegistration}`.replace(/^\n/, "");
+  const body = `${preamble}${preamble ? "\n" : ""}${wiring}return {\n  app,\n${stopBody}};\n`;
+  // A deployable that wires nothing option-driven (no auth, no channels, no
+  // timers) never reads `opts`.
+  const optsParam = /\bopts\./.test(body) ? "opts" : "_opts";
+  return `// Auto-generated.
+// The deployable's start-up sequence.  The deployed server (index.ts) runs it
+// between migrations and \`serve()\`; the browser playground's runtime worker
+// runs the same function against PGlite.  Start-up wiring belongs here, never
+// in index.ts, so the two hosts cannot drift apart.
+import { createApp } from "./http/index";
+
+/** How the host wants the app booted.  Every option defaults to the deployed
+ *  behaviour; the browser playground sets them because it has no IdP, no
+ *  broker and no second Postgres connection. */
+export interface BootOptions {
+  /** \`"configured"\` (default): the verifier the model declares — OIDC for an
+   *  \`auth { oidc }\` block, otherwise the dev stub.  \`"dev-stub"\`: always the
+   *  dev stub. */
+  verifier?: "configured" | "dev-stub";
+  /** \`"external"\` (default): broker drivers from LOOM_CHANNEL_*_URL and
+   *  pg-boss for \`cron:\` timers.  \`"in-process"\`: one in-memory transport for
+   *  every channel binding and an in-process \`cron:\` loop — no durability,
+   *  no retry, no cross-replica single-fire. */
+  infra?: "external" | "in-process";${
+    hasChannels
+      ? `
+  /** The transport behind each channel binding, overriding both of the above
+   *  (an emulated broker plugs in here). */
+  channelTransport?: (binding: ${TT.ChannelBinding}) => ${TT.ChannelTransport};`
+      : ""
+  }
+}
+
+/** The booted app and the teardown of everything boot started. */
+export interface BootedApp {
+  app: ReturnType<typeof createApp>;
+  /** Stop the relay, the timers and the channel consumers / transports. */
+  stop(): Promise<void>;
+}
+
+export async function bootApp(
+  db: Parameters<typeof createApp>[0],
+  ${optsParam}: BootOptions = {},
+): Promise<BootedApp> {
+${indentBlock(body)}}
+`;
+}
+
+/** `index.ts` — the deployed server around `bootApp`: the database
+ *  connection, migrations, `serve()` and graceful shutdown.  Nothing else:
+ *  start-up wiring lives in `boot.ts`, which the playground runs too. */
+function renderProjectIndexTs(cfg: ProjectEntryConfig): string {
+  const { runMigrationsAtBoot, resourceImports, usingMikro, nativePort } = cfg;
+  // Side-effect imports for the resource-client modules (objectStore /
+  // queue / api) so their clients instantiate at boot.  Empty for
+  // deployables with no such resources.
+  const resourceImportBlock = resourceImports.length > 0 ? `${resourceImports.join("\n")}\n` : "";
+  // `db/migrate.ts` — Drizzle's migrator plus the non-transactional files a
+  // `CREATE INDEX CONCURRENTLY` needs (`emitTypescriptMigrations`).
+  const migImport = `${tsImportSlot("~/db/migrate")}\n`;
+  // mikroorm bootstraps its schema inside the connection block (schema.update),
+  // so it never emits the drizzle boot-time migrate call.
+  const migCall = runMigrationsAtBoot && !usingMikro ? renderHonoBootMigrate() : "";
+  // Persistence wiring (D-REALIZATION-AXES `persistence:`) — drizzle (pg pool +
+  // boot-time migrate) vs mikroorm (MikroORM.init + schema:update at startup).
+  const importHeader = usingMikro
+    ? `import { serve } from "@hono/node-server";
+import { bootApp } from "./boot";
+${MIKRO_INDEX_IMPORTS.join("\n")}
+import { baseLogger } from "./obs/log";
+import { shutdownTracing } from "./obs/tracing";`
+    : `import { drizzle } from "drizzle-orm/node-postgres";
+import pg from "pg";
+import { serve } from "@hono/node-server";
+import * as schema from "./db/schema";
+import { bootApp } from "./boot";
+${migImport}import { baseLogger } from "./obs/log";
+import { shutdownTracing } from "./obs/tracing";`;
+  const connectionBlock = usingMikro
+    ? `// Persistence connection — owned by the mikroorm PersistenceAdapter\n// (MikroORM.init → dev schema bootstrap → EntityManager as \`db\`).\n${mikroConnectionSetup().join("\n")}`
+    : `// Persistence connection — owned by the drizzle PersistenceAdapter\n// (DATABASE_URL guard → pg pool → pool-error logging → drizzle db).\n${DRIZZLE_CONNECTION_SETUP.join("\n")}`;
+  return `// Auto-generated.
+${importHeader}
+${resourceImportBlock}
+${connectionBlock}
+
+const port = Number(process.env.PORT ?? ${nativePort});
+baseLogger.info({ event: "server_starting", port, env: process.env.NODE_ENV ?? "development" });
+${migCall}
+// Start-up sequence (boot.ts): seeds, verifier, dispatchers, channel
+// consumers, outbox relay, timers — resolved before the port opens.
+const { app, stop } = await bootApp(db);
+const server = serve({ fetch: app.fetch, port });
 baseLogger.info({ event: "server_listening", port });
 
-// Graceful shutdown — close the HTTP server (stops accepting,
-// drains in-flight), then close the pg pool.  Without this SIGTERM
-// drops in-flight work and leaves pg connections lingering.  Both
+// Graceful shutdown — stop what boot started, close the HTTP server (stops
+// accepting, drains in-flight), then close the database.  Without this
+// SIGTERM drops in-flight work and leaves connections lingering.  Both
 // SIGTERM (orchestrator) and SIGINT (Ctrl-C) are handled.
 async function shutdown(signal: string): Promise<void> {
-  baseLogger.info({ event: "server_shutdown", signal });${
-    outboxRelay
-      ? `
-  stopOutboxRelay();`
-      : ""
-  }${
-    hasTimers
-      ? `
-  await stopTimers();`
-      : ""
-  }${
-    hasChannelConsumers
-      ? `
-  await stopChannelConsumers();`
-      : hasChannels
-        ? `
-  await ${T.closeChannelTransports}(channelTransports);`
-        : ""
-  }
+  baseLogger.info({ event: "server_shutdown", signal });
+  await stop();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   baseLogger.info({ event: "server_drained" });
   // Flush buffered OTel spans to the collector before exit (no-op when no

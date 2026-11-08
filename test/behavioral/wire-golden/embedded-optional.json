@@ -34,7 +34,7 @@
           }
         ],
         "note": null,
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -60,7 +60,7 @@
           }
         ],
         "note": null,
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -80,7 +80,7 @@
             }
           ],
           "note": null,
-          "version": 3
+          "rowVersion": 3
         }
       ]
     },
