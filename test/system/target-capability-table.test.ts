@@ -120,6 +120,12 @@ const UI_WITNESSES: Readonly<Record<RefusableUiConstruct, (framework: string) =>
       }`,
       body: `Button { "go", onClick: go }`,
     }),
+  "return:payload-or-error@api-client": (fw) =>
+    ownedWitness(fw, {
+      contextExtra: `response Snap { note: string }
+      error Bad { resource: string }`,
+      aggBody: `operation snap(): Snap or Bad { return Snap { note: "a" } }`,
+    }),
 };
 
 // --- owned-construct witnesses -------------------------------------------------
@@ -397,6 +403,175 @@ system W {
   "storage:clickhouse@declaration": (platform) => unboundStorageWitness(platform, "clickhouse"),
   "storage:bigquery@declaration": (platform) => unboundStorageWitness(platform, "bigquery"),
   "storage:nats@declaration": (platform) => unboundStorageWitness(platform, "nats"),
+  "publish:event-sourced@broker-channel": (platform) => `
+system Bk {
+  subdomain Core {
+    context Bookings {
+      event Booked { booking: Booking id, who: string }
+      aggregate Booking persistedAs: eventLog {
+        who: string
+        create book(who: string) { emit Booked { booking: id, who: who } }
+        apply(e: Booked) { who := e.who }
+      }
+      repository Bookings for Booking
+      channel Lifecycle { carries: Booked  delivery: queue  retention: work }
+    }
+  }
+  api BApi from Core
+  storage pg { type: postgres }
+  storage bus { type: rabbitmq }
+  resource log { for: Bookings, kind: eventLog, use: pg }
+  channelSource lifecycleBus { for: Lifecycle, use: bus }
+  deployable d { platform: ${platform} contexts: [Bookings] dataSources: [log] channels: [lifecycleBus] serves: BApi port: 4000 }
+}
+`,
+  "tenancy:remote-registry@deployable": (platform) => `
+system H {
+  user { id: string  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Net { context Orgs {
+    aggregate Org with crudish { name: string  implements tenantRegistry
+      operation setPath(p: string) { dataKey := p } }
+    repository Orgs for Org { } } }
+  subdomain Shop { context Sales {
+    aggregate Sale with tenantOwned, crudish { label: string }
+    repository Sales for Sale { }
+    policy { allow deep on Sale } } }
+  api NetApi from Net
+  api ShopApi from Shop
+  storage pg { type: postgres }
+  resource orgState { for: Orgs, kind: state, use: pg }
+  resource saleState { for: Sales, kind: state, use: pg }
+  deployable netSvc { platform: ${platform} contexts: [Orgs] dataSources: [orgState] serves: NetApi auth: required port: 3000 }
+  deployable shopSvc { platform: ${platform} contexts: [Sales] dataSources: [saleState] serves: ShopApi auth: required port: 3001 }
+}
+`,
+  "call:auth-required-api@resource": (platform) => `
+system S {
+  user { id: string  role: string }
+  subdomain Net { context Orgs { aggregate Org with crudish { name: string }  repository Orgs for Org { } } }
+  subdomain Shop { context Sales {
+    aggregate Sale with crudish { label: string }
+    repository Sales for Sale { }
+    workflow record { create(org: Org id, label: string) {
+      let o = orgs.getOrgById(org)
+      let s = Sale.create(label: o.name + ":" + label) } } } }
+  api NetApi from Net
+  api ShopApi from Shop
+  storage pg { type: postgres }
+  resource orgState { for: Orgs, kind: state, use: pg }
+  resource saleState { for: Sales, kind: state, use: pg }
+  resource orgs { for: Sales, kind: api, use: NetApi }
+  deployable netSvc { platform: ${platform} contexts: [Orgs] dataSources: [orgState] serves: NetApi auth: required port: 3000 }
+  deployable shopSvc { platform: ${platform} contexts: [Sales] dataSources: [saleState, orgs] serves: ShopApi port: 3001 }
+}
+`,
+  "timer:broker-channel@deployable": (platform) => `
+system T {
+  subdomain Up { context Clock {
+    aggregate Run with crudish { label: string }
+    repository Runs for Run { }
+    event Tick { run: Run id, at: datetime }
+    channel Ticks { carries: Tick  delivery: queue  retention: work } } }
+  subdomain Down { context Billing {
+    aggregate Cut with crudish { at: datetime }
+    repository Cuts for Cut { }
+    workflow OnTick { run: Run id
+      create(t: Tick) by t.run { let c = Cut.create(at: t.at) } } } }
+  api ClockApi from Up
+  api BillApi from Down
+  storage pg { type: postgres }
+  storage bus { type: kafka }
+  resource clockState { for: Clock, kind: state, use: pg }
+  resource billState { for: Billing, kind: state, use: pg }
+  channelSource tb { for: Ticks, use: bus }
+  timerSource t { for: Tick, every: 30s }
+  deployable up { platform: ${platform} contexts: [Clock] dataSources: [clockState] serves: ClockApi port: 4000 channels: [tb] }
+  deployable down { platform: ${platform} contexts: [Billing] dataSources: [billState] serves: BillApi port: 4001 channels: [tb] }
+}
+`,
+  "read:wide-stance@tph-subtype": (platform) => `
+system F2 {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Books {
+      abstract aggregate Asset inheritanceUsing: sharedTable with tenantOwned { label: string }
+      aggregate Car extends Asset with tenantOwned, crudish { wheels: int }
+      aggregate Org with crudish { name: string  implements tenantRegistry  operation setPath(p: string) { dataKey := p } }
+      repository Cars for Car { }
+      repository Orgs for Org { }
+      policy { allow deep on Car }
+    }
+  }
+  api BooksApi from Core
+  storage primary { type: postgres }
+  resource booksState { for: Books, kind: state, use: primary }
+  deployable d { platform: ${platform}  contexts: [Books]  dataSources: [booksState]  serves: BooksApi  port: 4000  auth: required }
+}
+`,
+  "derived:reads-masked-field@aggregate": (platform) => `
+system F5 {
+  user { id: guid  permissions: string[] }
+  subdomain Core {
+    permissions { pii }
+    context Books {
+      aggregate Driver with crudish {
+        name: string
+        ssn: string mask unless currentUser.permissions.contains(permissions.pii)
+        derived display: string = name + " / " + ssn
+      }
+      repository Drivers for Driver { }
+    }
+  }
+  api BooksApi from Core
+  storage primary { type: postgres }
+  resource booksState { for: Books, kind: state, use: primary }
+  deployable d { platform: ${platform}  contexts: [Books]  dataSources: [booksState]  serves: BooksApi  port: 4000  auth: required }
+}
+`,
+  "criterion:reads-masked-field@context": (platform) => `
+system M {
+  user { id: guid  role: string }
+  subdomain Core { context C {
+    aggregate Driver with crudish { name: string  ssn: string mask unless currentUser.role == "hr" }
+    repository Drivers for Driver
+    criterion BySsn(s: string) of Driver = this.ssn == s
+    queryHandler GetDriverBySsn(s: string): Driver {
+      if let d = Drivers.find(BySsn(s)) { return d } else { notFound }
+    }
+  } }
+  api A from Core
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: ${platform} contexts: [C] dataSources: [st] serves: A port: 4000 auth: required }
+}
+`,
+  "field:valueobject-collection@entity-part": (platform) =>
+    resourceWitness(
+      platform,
+      "storage pg { type: postgres }",
+      "resource st { for: Main, kind: state, use: pg }",
+    ).replace(
+      "aggregate Thing with crudish { label: string }",
+      `valueobject Tag { v: string }
+      aggregate Thing with crudish {
+        label: string
+        contains lines: Line[]
+        entity Line { qty: int  tags: Tag[] }
+      }`,
+    ),
+  "invariant:nested-valueobject@valueobject": (platform) =>
+    resourceWitness(
+      platform,
+      "storage pg { type: postgres }",
+      "resource st { for: Main, kind: state, use: pg }",
+    ).replace(
+      "aggregate Thing with crudish { label: string }",
+      `valueobject Amount { value: int  invariant value >= 0 }
+      valueobject Discount { cap: Amount }
+      aggregate Thing with crudish { label: string  discount: Discount }`,
+    ),
 };
 
 // --- the cells ---------------------------------------------------------------
@@ -548,8 +723,13 @@ describe("loom.target-unsupported — the check reads the table, and every detec
     it(`${c}: refusing it on node makes its witness fire`, async () => {
       const model = enrichLoomModel(lowerModel(await parseValid(BACKEND_WITNESSES[c]("node"))));
       const sys = model.systems[0]!;
-      const ctx = sys.subdomains[0]!.contexts[0]!;
-      expect(BACKEND_DETECTORS[c](ctx, sys).length, `${c}'s detector misses its witness`).toBe(1);
+      const contexts = sys.subdomains.flatMap((sd) => sd.contexts);
+      const uses = sys.deployables.flatMap((d) =>
+        contexts
+          .filter((ctx) => d.contextNames.includes(ctx.name))
+          .flatMap((ctx) => BACKEND_DETECTORS[c](ctx, sys, d)),
+      );
+      expect(uses.length, `${c}'s detector misses its witness`).toBe(1);
       const diags: Parameters<typeof validateTargetCapabilities>[1] = [];
       validateTargetCapabilities(sys, diags, {
         ui: () => ({ verdict: "supported" }),
@@ -565,6 +745,7 @@ describe("loom.target-unsupported — the check reads the table, and every detec
       const verdicts = [
         ...Object.values(table.ui?.constructs ?? {}),
         ...Object.values(table.backend ?? {}),
+        ...Object.values(table.compositions ?? {}),
       ];
       for (const v of verdicts) if (v.verdict === "refused") used.add(v.slug);
     }

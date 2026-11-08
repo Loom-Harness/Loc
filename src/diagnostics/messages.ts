@@ -3314,6 +3314,18 @@ export const DIAGNOSTIC_MESSAGES = {
     target: unknown;
   }) =>
     `${p.what} — a resource knob that deployable '${p.dName}' (backend '${p.target}') can't realize: no emitter reads \`ttl\`, \`keyPrefix\`, \`every\`, \`retain\` or \`readonly\` (each gates an adapter that does not exist: a cache, a snapshot policy, a replica-aware connection), so the value would be accepted and change nothing. Drop the knob.`,
+  "loom.target-unsupported#feature-composition-broken": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what} — deployable '${p.dName}' (backend '${p.target}') generates code for this combination that compiles but does not behave as either feature promises. Drop one of the two features on this aggregate, or host it on a backend that supports the pair.`,
+  "loom.target-unsupported#feature-composition-unwitnessed": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what} — no behavioural test proves this combination on deployable '${p.dName}' (backend '${p.target}'), so the generated code may compile and still misbehave. Drop one of the two features on this aggregate until the pair is supported.`,
   "loom.target-unsupported#storage-type-unbound": (p: {
     what: unknown;
     dName: unknown;
