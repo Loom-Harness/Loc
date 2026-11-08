@@ -9,6 +9,7 @@ import {
   renderRawInstantHelper,
 } from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
+import { T as TS } from "../../../generator/typescript/ts-symbols.js";
 import { isFlattenedValueObject, voLeaves } from "../../../generator/typescript/vo-flatten.js";
 import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
 import {
@@ -42,15 +43,15 @@ import { emitWireSchema, zodFor, zodForResponse } from "./routes-builder.js";
 function drizzleFoldScope(t: FoldTenancy | undefined, table: string): string | null {
   if (!t) return null;
   const terms = foldFloorTerms(t).map(
-    (f) => `eq(${table}.${f.field}, String(requireCurrentUser().${f.claim}))`,
+    (f) => `${TS.eq}(${table}.${f.field}, String(${TS.requireCurrentUser}().${f.claim}))`,
   );
-  return terms.length === 1 ? terms[0]! : `and(${terms.join(", ")})`;
+  return terms.length === 1 ? terms[0]! : `${TS.and}(${terms.join(", ")})`;
 }
 
 /** The same scope as MikroORM filter-object entries. */
 function mikroFoldScope(t: FoldTenancy | undefined): string[] {
   if (!t) return [];
-  return foldFloorTerms(t).map((f) => `${f.field}: String(requireCurrentUser().${f.claim})`);
+  return foldFloorTerms(t).map((f) => `${f.field}: String(${TS.requireCurrentUser}().${f.claim})`);
 }
 
 /** The `db` handle's TS type in an emitted projection function signature —
@@ -170,9 +171,6 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
         `import { ${folded.map(mikroProjectionRowClass).join(", ")} } from "../db/entities";`,
       ]
     : [
-        /\band\(/.test(bodyText)
-          ? 'import { and, eq } from "drizzle-orm";'
-          : 'import { eq } from "drizzle-orm";',
         'import type { NodePgDatabase } from "drizzle-orm/node-postgres";',
         'import * as schema from "../db/schema";',
       ];
@@ -183,7 +181,6 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
       'import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";',
       ...persistenceImports,
       'import { type DomainEventDispatcher } from "../domain/events";',
-      authImportLine(bodyText),
       // The `Events.<Name>` namespace is referenced only by fold handlers and
       // the tee's `switch`.  With no CARRIED fold the tee is the identity
       // decorator, so nothing names it — and an unused import is an error under
@@ -212,15 +209,6 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
       .filter((l) => l !== null)
       .join("\n") + "\n"
   );
-}
-
-/** The ambient-principal / event-origin accessors a scoped fold's handlers and
- *  routes call, imported only when the body names them. */
-function authImportLine(bodyText: string): string | null {
-  const names = ["currentEventOrigin", "requireCurrentUser"].filter((n) =>
-    new RegExp(`\\b${n}\\(`).test(bodyText),
-  );
-  return names.length > 0 ? `import { ${names.join(", ")} } from "../auth/middleware";` : null;
 }
 
 /** Type seeds this file names a `<Vo>Schema` / `<Enum>Schema` for: the folded
@@ -303,8 +291,8 @@ function emitStateHelpers(p: ProjectionIR, usingMikro = false): string[] {
   }
   const table = `schema.${lowerFirst(plural(p.name))}`;
   const where = tenantCol
-    ? `and(eq(${table}.${corr}, key), eq(${table}.${tenantCol}, tenant))`
-    : `eq(${table}.${corr}, key)`;
+    ? `${TS.and}(${TS.eq}(${table}.${corr}, key), ${TS.eq}(${table}.${tenantCol}, tenant))`
+    : `${TS.eq}(${table}.${corr}, key)`;
   const target = tenantCol ? `[${table}.${tenantCol}, ${table}.${corr}]` : `${table}.${corr}`;
   return [
     `type ${T}State = typeof ${table}.$inferInsert;`,
@@ -365,7 +353,7 @@ function emitFoldHandler(
     `): Promise<void> {`,
     ...(cols
       ? [
-          `  const __origin = currentEventOrigin();`,
+          `  const __origin = ${TS.currentEventOrigin}();`,
           `  const __tenant = __origin?.tenant;`,
           `  if (__tenant == null) return;`,
         ]
@@ -725,8 +713,8 @@ function emitProjectionRoutes(
       );
     } else {
       const byKey = drizzleScope
-        ? `and(eq(${table}.${corr}, key), ${drizzleScope})`
-        : `eq(${table}.${corr}, key)`;
+        ? `${TS.and}(${TS.eq}(${table}.${corr}, key), ${drizzleScope})`
+        : `${TS.eq}(${table}.${corr}, key)`;
       out.push(`      const rows = await db.select().from(${table}).where(${byKey}).limit(1);`);
       out.push(`      const row = rows[0];`);
     }

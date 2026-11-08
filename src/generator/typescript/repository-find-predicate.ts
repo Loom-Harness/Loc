@@ -49,6 +49,8 @@ import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
 import { renderPrincipalTest } from "../_expr/principal-term.js";
 import { SQL_LIKE_ESCAPE_CLAUSE, tsSubtreeLikePattern } from "../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
+import { ref } from "../_imports/symbol.js";
+import { tsNamed } from "../_imports/ts.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
 import { TS_INTRINSIC_RENDERERS } from "./render-expr.js";
 import { associationsOf } from "./repository-associations-builder.js";
@@ -857,18 +859,16 @@ export function drizzleStreamScopeCall(
   if (!aggregateHasStreamScope(agg, ctx)) return "undefined";
   const kept = streamTenancyFor(agg, ctx.aggregates, { ignoring })?.restrictions ?? [];
   if (kept.length === 0) return "undefined";
-  const fn = drizzleStreamScopeFnName(agg);
+  const fn = drizzleStreamScopeRef(agg);
   return ignoring && (ignoring.bypassAll || (ignoring.bypassCaps?.length ?? 0) > 0)
     ? `${fn}({ ignoring: ${ignoring.bypassAll ? '"*"' : JSON.stringify([...new Set(ignoring.bypassCaps)])} })`
     : `${fn}()`;
 }
 
-/** The import of `agg`'s stream-scope helper into its repository, derived from
- *  the rendered body (`bodyScan`: string contents blanked). */
-export function streamScopeImportLine(agg: { name: string }, bodyScan: string): string | false {
-  const fn = drizzleStreamScopeFnName(agg);
-  const line = `import { ${fn} } from "${READ_SCOPES_MODULE}";`;
-  return new RegExp(`\\b${fn}\\(`).test(bodyScan) ? line : false;
+/** A reference to `agg`'s stream-scope helper from its repository: the marker
+ *  derives the import of the generated `db/read-scopes` module. */
+export function drizzleStreamScopeRef(agg: { name: string }): string {
+  return ref(tsNamed("~/db/read-scopes", drizzleStreamScopeFnName(agg)));
 }
 
 /** The lowered conjuncts of `agg`'s stream scope, bypass not applied. */

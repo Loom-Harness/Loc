@@ -2,6 +2,7 @@ import { eventLogCarriesTenant } from "../../../ir/enrich/stream-tenancy.js";
 import type { BoundedContextIR, EventIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { renderTsType } from "../render-expr.js";
+import { T } from "../ts-symbols.js";
 
 // ---------------------------------------------------------------------------
 // `events.ts` — one interface per event (with a tagged `type` literal),
@@ -35,7 +36,6 @@ export function renderEvents(ctx: BoundedContextIR): string {
   return (
     lines(
       "// Auto-generated.",
-      keepFrame ? 'import { AsyncLocalStorage } from "node:async_hooks";' : null,
       usesDecimal ? 'import Decimal from "decimal.js";' : null,
       usesIds ? 'import type * as Ids from "./ids";' : null,
       voList.length > 0 ? `import type { ${voList.join(", ")} } from "./value-objects";` : null,
@@ -97,10 +97,10 @@ export function renderEvents(ctx: BoundedContextIR): string {
         ? [
             "  // Each event keeps the async context it was raised in: its event origin",
             "  // (the stream tenant's frame) is the one the dispatch must run in.",
-            "  const buffered: { event: DomainEvent; frame: ReturnType<typeof AsyncLocalStorage.snapshot> }[] = [];",
+            `  const buffered: { event: DomainEvent; frame: ReturnType<typeof ${T.AsyncLocalStorage}.snapshot> }[] = [];`,
             "  return {",
             "    async dispatch(event: DomainEvent): Promise<void> {",
-            "      buffered.push({ event, frame: AsyncLocalStorage.snapshot() });",
+            `      buffered.push({ event, frame: ${T.AsyncLocalStorage}.snapshot() });`,
             "    },",
           ]
         : [

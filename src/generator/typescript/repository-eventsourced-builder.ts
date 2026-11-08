@@ -32,12 +32,12 @@ import {
 import {
   aggregateHasStreamScope,
   drizzleStreamScopeCall,
-  drizzleStreamScopeFnName,
-  streamScopeImportLine,
+  drizzleStreamScopeRef,
 } from "./repository-find-predicate.js";
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "./repository-wire-builder.js";
+import { T } from "./ts-symbols.js";
 
 // ---------------------------------------------------------------------------
 // Event-sourced (`persistedAs: eventLog`) repository for the Hono/Drizzle
@@ -216,11 +216,11 @@ export function buildEventSourcedRepositoryFile(
           `        await this.events.dispatch(event);`,
           `      }`,
           `    };`,
-          `    const origin = currentEventOrigin();`,
+          `    const origin = ${T.currentEventOrigin}();`,
           `    if ((origin?.tenant ?? null) === aggregate.tenantId) {`,
           `      await dispatchAll();`,
           `    } else {`,
-          `      await runAsEventOrigin({ tenant: aggregate.tenantId, orgPath: aggregate.dataKey, causedBy: origin?.causedBy ?? null }, dispatchAll);`,
+          `      await ${T.runAsEventOrigin}({ tenant: aggregate.tenantId, orgPath: aggregate.dataKey, causedBy: origin?.causedBy ?? null }, dispatchAll);`,
           `    }`,
         ]
       : [
@@ -236,7 +236,7 @@ export function buildEventSourcedRepositoryFile(
           // A find whose `ignoring` drops the tenancy restriction passes its
           // own scope — `null` when it drops all of it (an explicit
           // `undefined` would re-trigger the default).
-          `  private async _loadAll(${scoped ? `scope: ReturnType<typeof ${drizzleStreamScopeFnName(agg)}> | null = ${streamScope} ?? null` : ""}): Promise<${agg.name}[]> {`,
+          `  private async _loadAll(${scoped ? `scope: ReturnType<typeof ${drizzleStreamScopeRef(agg)}> | null = ${streamScope} ?? null` : ""}): Promise<${agg.name}[]> {`,
           `    const rows = await this.db`,
           `      .select()`,
           `      .from(schema.${table})`,
@@ -324,7 +324,6 @@ export function buildEventSourcedRepositoryFile(
     repoPortImportLine(agg.name),
     `import type { NodePgDatabase } from "drizzle-orm/node-postgres";`,
     `import { and, eq } from "drizzle-orm";`,
-    streamScopeImportLine(agg, bodyScan),
     tenancy && stampImportLine(agg, { update: false }),
     `import * as schema from "../schema";`,
     repoUsesUser && `import type { User } from "../../auth/user-types";`,
@@ -346,14 +345,13 @@ export function buildEventSourcedRepositoryFile(
   );
 }
 
-/** The `auth/middleware` import, keyed off the emitted body: the ambient
- *  principal accessor of a write scope / stream scope, and the event-origin
- *  helpers of a tenant-scoped stream's dispatch. */
+/** The ambient principal accessor of a write scope / stream scope, imported
+ *  when the emitted body calls it. */
 function authImportLine(bodyScan: string): string | false {
-  const names = ["currentEventOrigin", "requireCurrentUser", "runAsEventOrigin"].filter((n) =>
-    new RegExp(`\\b${n}\\(`).test(bodyScan),
+  return (
+    /\brequireCurrentUser\(/.test(bodyScan) &&
+    `import { requireCurrentUser } from "../../auth/middleware";`
   );
-  return names.length > 0 && `import { ${names.join(", ")} } from "../../auth/middleware";`;
 }
 
 // --- finds (in-memory over the folded streams) ----------------------------
