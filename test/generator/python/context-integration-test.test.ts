@@ -41,10 +41,19 @@ describe("Python: context integration test emission (Phase 3b)", () => {
     const f = find(files, "tests/test_ordering_integration.py");
     expect(f, "test_ordering_integration.py").toBeDefined();
     // Provisioning-agnostic boot: reads LOOM_PG_URL, migrates, per-test session.
-    expect(f).toContain('os.environ.get("LOOM_PG_URL"');
+    expect(f).toContain('"LOOM_PG_URL", "postgresql+asyncpg://');
     expect(f).toContain("await run_migrations(engine)");
     expect(f).toContain("from app.domain.events import NoopDomainEventDispatcher");
     expect(f).toContain("order_repo = OrderRepository(session, events)");
+  });
+
+  // The generated project formats at `line-length = 100` (its pyproject), and
+  // `ruff format --check` rewraps any line past it — the boot fixture's
+  // `LOOM_PG_URL` default read was one.
+  it("stays within the project's ruff line length", async () => {
+    const f = (await gen(SRC)).get("api/tests/test_ordering_integration.py") ?? "";
+    const long = f.split("\n").filter((l) => l.length > 100);
+    expect(long).toEqual([]);
   });
 
   it("renders create→save, find→await (nullable asserted), and the assertion", async () => {

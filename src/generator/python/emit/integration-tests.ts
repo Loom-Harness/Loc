@@ -345,8 +345,12 @@ export function renderPyContextIntegrationTest(
   }
   out.push("@pytest.fixture");
   out.push("async def session() -> AsyncIterator[AsyncSession]:");
+  // Wrapped as `ruff format` wraps it: on one line the call is 106 columns,
+  // past the project's `line-length = 100`.
   out.push(
-    '    url = os.environ.get("LOOM_PG_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/postgres")',
+    "    url = os.environ.get(",
+    '        "LOOM_PG_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/postgres"',
+    "    )",
   );
   out.push("    engine = create_async_engine(url)");
   out.push("    await run_migrations(engine)");
