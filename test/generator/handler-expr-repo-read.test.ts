@@ -27,7 +27,7 @@ system S {
     criterion Big(n: int) of Item = this.qty > n
     queryHandler GetItemBySku(sku: string): Item { return Items.getBy(sku: sku) }
     queryHandler GetItem(itemId: Item id): Item { return Items.get(itemId) }
-    queryHandler AllItems(): Item[] { return Items.all() }
+    queryHandler AllItems(): Item[] { return Items.all(Big(0)) }
     queryHandler CountBig(n: int): int { return Items.all(Big(n)).count }
     queryHandler SkuOf(itemId: Item id): string { return Items.get(itemId).sku }
     commandHandler Touch(itemId: Item id) {

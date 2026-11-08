@@ -5705,6 +5705,8 @@ export const DIAGNOSTIC_MESSAGES = {
     method: unknown;
   }) =>
     `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns an array; a 'let' over a repository read binds a single row (or none, as 'T?').  Iterate the rows with 'for x in ${p.repoName}.all(…) { … }', or use get.`,
+  "loom.workflow-load-array-unsupported#handler": (p: { repoName: unknown }) =>
+    `'${p.repoName}.all()' in a handler body reads the whole table, and no repository emits an unbounded load to run it (the implicit 'all()' is paged).  Read the rows with '${p.repoName}.all(<Criterion>(…))'.`,
   "loom.workflow-run-unknown-repository#workflow-a-criterion-query": (p: {
     name: unknown;
     repoName: unknown;

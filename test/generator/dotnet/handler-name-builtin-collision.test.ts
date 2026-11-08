@@ -28,8 +28,9 @@ system S {
       operation bump(by: int) { n := n + by }
     }
     repository Orders for Order { }
+    criterion NonNegative of Order = this.n >= 0
     queryHandler GetOrderById(orderId: Order id): Order { let o = Orders.get(orderId) return o }
-    queryHandler All(): Order[] { let r = Orders.all() return r }
+    queryHandler All(): Order[] { let r = Orders.all(NonNegative()) return r }
     commandHandler Bump(orderId: Order id, by: int, extra: string) { let o = Orders.get(orderId)  o.bump(by) }
     commandHandler Update(orderId: Order id) { let o = Orders.get(orderId)  o.bump(1) }
     commandHandler DestroyOrder(orderId: Order id, why: string) { let o = Orders.get(orderId)  Orders.remove(o) }

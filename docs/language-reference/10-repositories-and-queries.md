@@ -19,7 +19,7 @@ A `repository` binds reads to one aggregate: `repository Name for Agg`, with an 
 | `Repo.find(<Criterion>(args))` | the first row a criterion matches, in id order | `T?` |
 | `Repo.all(<Criterion>(args), sort: […], page: {…})` | every row a criterion matches, in `sort:` order (paged with `page:` / by a paged `queryHandler`) | `T[]` |
 | `Repo.all(<Retrieval>(args), page: {…})` | every row a retrieval selects, in its declared order | `T[]` |
-| `Repo.all()` | every row | `T[]` |
+| `Repo.all()` | every row — the paged list route and a `test e2e` read; a `let` over it in a body is refused (`loom.workflow-load-array-unsupported`), read the rows with `Repo.all(<Criterion>(args))` | `T[]` |
 | `Repo.remove(x)` | — deletes `x` (a write; it yields nothing) | — |
 
 A `T?` read is an `if let` source, and a plain `let` binds it as `T?`. A trailing `ignoring …` widens one call past the capability filters (see [`ignoring`](#ignoring--capability-filter-bypass)). A name no verb spells — `Orders.byCode(c)` — is refused (`loom.workflow-unknown-repository-method` in a workflow, an unresolved member elsewhere).
