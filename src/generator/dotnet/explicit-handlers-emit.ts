@@ -804,16 +804,12 @@ export function emitExplicitHandlers(
     }
     emitEntryUnion(h, ctx, ns, out);
     const agg = primaryAgg(h);
-    const home = handlerHome(ns, agg, "Command").dir;
+    const slice = handlerSlice(h, ctx, ns, "Command", out);
+    supersede(out, slice.record, renderRecord(slice.typed, ns, ctx, agg, "Command"));
     supersede(
       out,
-      `${home}/${upperFirst(h.name)}Command.cs`,
-      renderRecord(h, ns, ctx, agg, "Command"),
-    );
-    supersede(
-      out,
-      `${home}/${upperFirst(h.name)}Handler.cs`,
-      renderHandlerClass(h, ns, ctx, agg, "Command", resourceClasses),
+      slice.handler,
+      renderHandlerClass(slice.typed, ns, ctx, agg, "Command", resourceClasses),
     );
   }
   for (const h of ctx.queryHandlers ?? []) {
@@ -821,31 +817,92 @@ export function emitExplicitHandlers(
       emitExternHandler(h, ns, "Query", out);
       continue;
     }
+    const slice = handlerSlice(h, ctx, ns, "Query", out);
     // paged-run queryHandler: a dedicated Query + Handler over the synthesized
     // paged FIND (the generic `paged` carrier can't flow through the Mediator
     // record's `IQuery<renderCsType(...)>` return).
     if (h.returnType && pagedReturn(h.returnType)) {
       const pagedAgg = pagedRunStmt(h, ctx).aggName;
-      out.set(
-        `Application/${plural(pagedAgg)}/Queries/${upperFirst(h.name)}Query.cs`,
-        renderPagedQueryRecord(h, ns, ctx, pagedAgg),
-      );
-      out.set(
-        `Application/${plural(pagedAgg)}/Queries/${upperFirst(h.name)}Handler.cs`,
-        renderPagedQueryHandlerClass(h, ns, ctx, pagedAgg),
-      );
+      supersede(out, slice.record, renderPagedQueryRecord(slice.typed, ns, ctx, pagedAgg));
+      supersede(out, slice.handler, renderPagedQueryHandlerClass(slice.typed, ns, ctx, pagedAgg));
       continue;
     }
     emitEntryUnion(h, ctx, ns, out);
     const agg = primaryAgg(h);
-    const home = handlerHome(ns, agg, "Query").dir;
-    supersede(out, `${home}/${upperFirst(h.name)}Query.cs`, renderRecord(h, ns, ctx, agg, "Query"));
+    supersede(out, slice.record, renderRecord(slice.typed, ns, ctx, agg, "Query"));
     supersede(
       out,
-      `${home}/${upperFirst(h.name)}Handler.cs`,
-      renderHandlerClass(h, ns, ctx, agg, "Query", resourceClasses),
+      slice.handler,
+      renderHandlerClass(slice.typed, ns, ctx, agg, "Query", resourceClasses),
     );
   }
+}
+
+/** Where a (non-extern) handler's record + handler class live, and the
+ *  handler as its C# types are named (`typed.name` is the type stem).
+ *
+ *  The stem is the handler's own name, so `commandHandler CreateOrder` lands
+ *  on the path of the aggregate's auto `create` slice
+ *  (`Application/Orders/Commands/CreateOrderCommand.cs`) and supersedes it —
+ *  the auto controller's `new CreateOrderCommand(...)` binds either record,
+ *  since the two take the same parameter types and answer the same result.  A
+ *  handler whose record does NOT stand in for the auto slice on that path —
+ *  `queryHandler All(): Order[]` against the paged list's
+ *  `AllQuery(int Page, int PageSize, string Sort, string Dir)`, or
+ *  `queryHandler GetOrderById(orderId: Order id): Order` against the by-id
+ *  read's `IQuery<OrderResponse?>` — would leave the auto controller sending a
+ *  record that no longer exists (CS1729), so its types take the `<Name>Entry`
+ *  stem and both slices stand.
+ *
+ *  Pure over `out`: the controller emitter asks again after the handlers are
+ *  written and gets the same answer — the path then holds this handler's own
+ *  record (superseded) or the auto slice's (escaped). */
+function handlerSlice(
+  h: Handler,
+  ctx: EnrichedBoundedContextIR,
+  ns: string,
+  kind: "Command" | "Query",
+  out: ReadonlyMap<string, string>,
+): { record: string; handler: string; typed: Handler } {
+  const paged = kind === "Query" && h.returnType !== undefined && pagedReturn(h.returnType);
+  const home = paged
+    ? `Application/${plural(pagedRunStmt(h, ctx).aggName)}/Queries`
+    : handlerHome(ns, primaryAgg(h), kind).dir;
+  const render = (named: Handler): string =>
+    paged
+      ? renderPagedQueryRecord(named, ns, ctx, pagedRunStmt(h, ctx).aggName)
+      : renderRecord(named, ns, ctx, primaryAgg(h), kind);
+  const existing = out.get(`${home}/${upperFirst(h.name)}${kind}.cs`);
+  const shape = existing === undefined ? undefined : recordShape(existing);
+  const standsIn =
+    existing === undefined || (shape !== undefined && shape === recordShape(render(h)));
+  const name = standsIn ? h.name : `${h.name}Entry`;
+  return {
+    record: `${home}/${upperFirst(name)}${kind}.cs`,
+    handler: `${home}/${upperFirst(name)}Handler.cs`,
+    typed: name === h.name ? h : { ...h, name },
+  };
+}
+
+/** A Mediator record's positional parameter TYPES and the interface it
+ *  implements — what decides whether one record can stand in for another
+ *  under `new <Name>(…)`.  `undefined` for a file holding no such record. */
+function recordShape(file: string): string | undefined {
+  const m = /public sealed record \w+\(([^)]*)\)\s*:\s*([^;{]+)/.exec(file);
+  if (!m) return undefined;
+  const types: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of `${m[1]!},`) {
+    if (ch === "<") depth++;
+    else if (ch === ">") depth--;
+    if (ch === "," && depth === 0) {
+      const param = cur.trim();
+      if (param) types.push(param.slice(0, param.lastIndexOf(" ")));
+      cur = "";
+    } else cur += ch;
+  }
+  return `${types.join(",")}:${m[2]!.trim()}`;
 }
 
 /** An expected-failure handler's wire union (`Application.EntryResults`). */
@@ -1018,7 +1075,7 @@ export function emitExplicitRouteController(
         `    [HttpGet("${explicitRoutePath(r)}")]\n` +
           routedResponseDecls("    [ProducesResponseType(200)]", false, ctx) +
           `    public async Task<IActionResult> ${upperFirst(h.name)}(${actionParams})\n` +
-          `    {\n        var ${RESULT_LOCAL} = await _mediator.Send(new ${upperFirst(h.name)}Query(${queryArgs}));\n        return Ok(${RESULT_LOCAL});\n    }`,
+          `    {\n        var ${RESULT_LOCAL} = await _mediator.Send(new ${upperFirst(handlerSlice(h, ctx, ns, "Query", out).typed.name)}Query(${queryArgs}));\n        return Ok(${RESULT_LOCAL});\n    }`,
       );
       continue;
     }
@@ -1069,7 +1126,7 @@ export function emitExplicitRouteController(
       .map((p) => urlArg.get(p.name)?.commandArg ?? `body.${upperFirst(p.name)}`)
       .join(", ");
 
-    const rec = `${upperFirst(h.name)}${kind}`;
+    const rec = `${upperFirst(h.extern ? h.name : handlerSlice(h, ctx, ns, kind, out).typed.name)}${kind}`;
     const attr = HTTP_ATTR[r.method] ?? "HttpGet";
     // A query always returns; a command returns only with an explicit type.  A
     // scaffolded read declares `<Agg>Response` — normalise to the entity the

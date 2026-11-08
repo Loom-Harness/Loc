@@ -527,7 +527,7 @@ The per-backend output of a widened read is under [Widened single-row reads](#wi
 | an inline list read bound by a `let` (`all(<Criterion | Retrieval>)`), or a natural-key `getBy` / `findBy` | `let xs = Orders.all(Big()) ignoring *` |
 | in a workflow, reactor or handler body: a `let` or an `if let` over `find(<Criterion>)`, `find(id)` or `findBy` | `let o = Orders.find(ByRef(r)) ignoring softDeletable` · `if let o = Orders.find(id) ignoring * { … }` |
 | an `if let` source over `findBy`, anywhere | `if let p = Products.findBy(sku: s) ignoring * { … }` |
-| a single-row read in a `domainService` operation (`find(<Criterion>)`, `find(id)`, `getBy`, `findBy`) | `return Orders.find(id) ignoring * != null` |
+| a read in a `domainService` operation, in any expression position (`find(<Criterion>)`, `find(id)`, `getBy`, `findBy`, `all(<Criterion | Retrieval>)`) | `return Orders.find(id) ignoring * != null` · `return (Orders.all(Big()) ignoring *).count` |
 | a context integration `test`: a `let` over `find(id)` | `let o = Order.find(id) ignoring softDeletable` |
 
 A widened list read runs a retrieval of its own, named for its stance (`findAllBy<C>Ignoring<Caps>`, or `<Retrieval>Ignoring<Caps>` for a declared one), derived in enrichment with the stance on it, so the shared retrieval every other caller runs keeps its filters:

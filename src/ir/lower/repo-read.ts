@@ -40,6 +40,7 @@ import {
   repositoryVerb,
   repoVerbMethod,
   resolveKeyTuple,
+  widenedRetrievalName,
 } from "../../util/repository-contract.js";
 import type { BypassReadIR, KeyLookupIR, TypeIR } from "../types/loom-ir.js";
 
@@ -317,8 +318,9 @@ export interface RepoReadMatch {
    *  silently dropped and the read returns every row (data-exposure).  Drives
    *  the synthesis of the `findAllBy<Criterion>` retrieval the backend renders. */
   criterionName?: string;
-  /** For `all(<Retrieval>)` — the referenced retrieval.  Empty for a
-   *  criterion read, whose predicate rides `criterionName` instead. */
+  /** For `all(<Retrieval>)` — the referenced retrieval.  Empty for a plain
+   *  criterion read, whose predicate rides `criterionName` instead.  A widened
+   *  list read (`listBypass`) names its own retrieval here, criterion or not. */
   retrievalName?: string;
   /** For a natural-key read — the tuple and `ignoring` stance `method`
    *  names. */
@@ -326,6 +328,9 @@ export interface RepoReadMatch {
   /** For a widened `find(C)` / `find(id)` read — the source and stance
    *  `method` names. */
   bypassRead?: BypassReadIR;
+  /** For a widened `all(<Ref>) ignoring …` read — the stance its own
+   *  retrieval (`retrievalName`, named by `widenedRetrievalName`) carries. */
+  listBypass?: { bypassAll?: boolean; bypassCaps?: string[] };
 }
 
 /** Recognise ANY repository read in an expression position, collapsing the
@@ -376,16 +381,31 @@ export function matchRepoRead(
       bypassRead: byId.bypassRead,
     };
   const all = matchAllCall(expr, reposByName, names);
-  if (all)
+  if (all) {
+    // A widened list read (`all(<Ref>) ignoring …`) runs a retrieval of its
+    // own, named for its stance, exactly as the workflow `repo-run` arm does —
+    // the shared retrieval every other caller runs keeps its filters.
+    const stance: { bypassAll?: boolean; bypassCaps?: string[] } = isPostfixChain(expr)
+      ? chainBypass(expr)
+      : {};
+    const widened = stance.bypassAll || stance.bypassCaps;
     return {
       op: "select-many",
       repo: all.repo,
       method: all.anon ? "findAll" : "run",
       args: all.anon ? all.anon.criterionArgs : all.retrievalArgs,
-      ...(all.anon
-        ? { criterionName: all.anon.criterionName }
-        : { retrievalName: all.retrievalName }),
+      ...(all.anon ? { criterionName: all.anon.criterionName } : {}),
+      ...(all.anon && !widened
+        ? {}
+        : {
+            retrievalName: widenedRetrievalName(
+              all.anon ? `findAllBy${all.anon.criterionName}` : all.retrievalName,
+              stance,
+            ),
+          }),
+      ...(widened ? { listBypass: stance } : {}),
     };
+  }
   const repo = matchRepoCall(expr, reposByName);
   if (repo && !isRepoWriteName(repo.verb)) {
     // A read name that is no contract verb rides `unknown-read`: its

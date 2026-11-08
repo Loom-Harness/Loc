@@ -264,7 +264,7 @@ test runs against whichever runtime you point it at.
 
 | Example | Highlights |
 | --- | --- |
-| [`sales.ddd`](examples/sales.ddd) | DDD basics &mdash; `Order` aggregate with `OrderLine` parts, `Money` value object, `OrderStatus` enum, `OrderConfirmed` event, repository with `byCustomer` find, test blocks. |
+| [`sales.ddd`](examples/sales.ddd) | DDD basics &mdash; `Order` aggregate with `OrderLine` parts, `Money` value object, `OrderStatus` enum, `OrderConfirmed` event, `Orders` repository with an `OrdersByCustomer` criterion, test blocks. |
 | [`banking.ddd`](examples/banking.ddd) | Optional fields, multiple aggregates with cross-references via `X id`, richer `where`-filter on a repository find. |
 | [`inventory.ddd`](examples/inventory.ddd) | Nested parts, explicit `ids guid` override on an aggregate. |
 | [`money-primitive.ddd`](examples/money-primitive.ddd) | The `Money` primitive and how decimal arithmetic is preserved across backends. |

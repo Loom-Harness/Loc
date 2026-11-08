@@ -29,7 +29,7 @@ describe("java generator — tenancy on a reified criterion retrieval", () => {
     const files = await generateSystemFiles(SRC);
     const impl = files.get(`${ROOT}/features/accounts/AccountRepositoryImpl.java`)!;
     expect(impl).toContain(
-      'jpa.findAll(AccountCriteria.HighBalance(min), Sort.by(Sort.Order.desc("balance")))',
+      'jpa.findAll(AccountCriteria.HighBalance(min), Sort.by(Sort.Order.desc("balance"), Sort.Order.asc("id")))',
     );
     expect(impl).not.toContain("CurrentUserAccessor");
     const entity = files.get(`${ROOT}/features/accounts/Account.java`)!;

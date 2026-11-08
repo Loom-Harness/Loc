@@ -222,9 +222,22 @@ describe("loom.ignoring-clause-placement — the bypass clause only where it is 
       expect(codesOf((await parseString(src)).diagnostics)).toContain(CODE);
     });
 
-    it("errors on `findAll(C) … ignoring` in a domain-service expression — the service read drops it", async () => {
+    it("accepts `all(C) … ignoring` in a domain-service expression and `let` — it runs its own retrieval", async () => {
+      expect(
+        await errorsOf(
+          singleRow("", "return (Orders.all(Big(min)) ignoring softDeletable).count > 0"),
+        ),
+      ).toEqual([]);
+      expect(
+        await errorsOf(
+          singleRow("", "let xs = Orders.all(Big(min)) ignoring *\n return xs.count > 0"),
+        ),
+      ).toEqual([]);
+    });
+
+    it("errors on a bare `all() … ignoring` in a domain service — the whole-collection read carries no stance", async () => {
       const { diagnostics } = await parseString(
-        singleRow("", "return (Orders.all(Big(min)) ignoring softDeletable).count > 0"),
+        singleRow("", "return (Orders.all() ignoring softDeletable).count > 0"),
       );
       expect(codesOf(diagnostics)).toContain(CODE);
     });

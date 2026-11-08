@@ -22,14 +22,15 @@ export function isRefCollection(t: TypeIR): boolean {
 }
 
 /** Bulk-load lines for every association into `<field>ByOwner`
- * maps keyed by the owner id.  Assumes a `rootIds: string[]` of owner
- * ids is in scope.  Used by the array-returning load paths
+ * maps keyed by the owner id.  Assumes a `string[]` of owner ids named
+ * `ids` is in scope.  Used by the array-returning load paths
  * (`findManyByIds`, array `find`s); `findById` loads singular lists
  * inline instead. */
 export function associationMapLines(
   agg: EnrichedAggregateIR,
   dbExpr: string,
   indent: string,
+  ids = "rootIds",
 ): string[] {
   return associationsOf(agg).flatMap((assoc) => {
     const joinConst = joinTableConstName(assoc);
@@ -38,7 +39,7 @@ export function associationMapLines(
     const rows = `${assoc.fieldName}JoinRows`;
     const map = `${assoc.fieldName}ByOwner`;
     return [
-      `${indent}const ${rows} = await ${dbExpr}.select({ o: schema.${joinConst}.${ownerCol}, t: schema.${joinConst}.${targetCol} }).from(schema.${joinConst}).where(inArray(schema.${joinConst}.${ownerCol}, rootIds)).orderBy(schema.${joinConst}.${ownerCol}, schema.${joinConst}.${targetCol});`,
+      `${indent}const ${rows} = await ${dbExpr}.select({ o: schema.${joinConst}.${ownerCol}, t: schema.${joinConst}.${targetCol} }).from(schema.${joinConst}).where(inArray(schema.${joinConst}.${ownerCol}, ${ids})).orderBy(schema.${joinConst}.${ownerCol}, schema.${joinConst}.${targetCol});`,
       `${indent}const ${map} = new Map<string, Ids.${assoc.targetAgg}Id[]>();`,
       `${indent}for (const r of ${rows}) {`,
       `${indent}  const list = ${map}.get(r.o) ?? [];`,

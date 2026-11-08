@@ -1086,6 +1086,20 @@ system UpdateGate {
 }`,
   // A `softDeletable` aggregate that keeps `crudish`'s canonical destroy —
   // `DELETE /{id}` is a hard delete, documented but rarely what was meant.
+  "loom.loop-gate-not-implied": repoOnly(`    enum Status { Open, Resolved, Closed }
+    aggregate Ticket with crudish {
+      status: Status immutable
+      age: int
+      operation close() when status == Resolved { status := Closed }
+    }
+    repository Tickets for Ticket
+    criterion Stale() of Ticket = this.age > 30
+    workflow Sweep {
+      create(n: int) {
+        let ts = Tickets.all(Stale(), page: { offset: n, limit: 100 })
+        for t in ts { t.close() }
+      }
+    }`),
   "loom.crudish-hard-delete": `
 system HardDelete {
   subdomain Core { context Ledger {
@@ -2079,7 +2093,7 @@ system S {
     workflow W {
       create(tid: Thing id) {
         let t = Things.get(tid)
-        precondition t.name == Others.get(t.otherId).label
+        precondition t.name == "" || t.name == Others.get(t.otherId).label
       }
     }`),
   // A name that binds to nothing inside a `commandHandler` body — the handler
