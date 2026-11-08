@@ -2,7 +2,7 @@
 
 In-language tests live beside the domain they exercise. A `test "…" { }` block on an aggregate, value object or domain service is an **executable unit test** of pure domain logic; the same block nested directly in a `context` (or hoisted anywhere with `for <Context>`) is an **in-process integration test** over the wired repositories; a `test e2e "…" against <Deployable> { }` drives a *running* deployable end-to-end. One `expect(<actual>).<matcher>(…)` assertion vocabulary serves all three, and the e2e **surface is chosen automatically from the target deployable's platform** — a backend target lowers to a vitest+fetch suite, a frontend target to a Playwright spec over generated page objects. Reach for it when you want the spec generated and traced alongside the code it covers.
 
-> **Grammar:** `TestBlock` (`test … [for <Subject>] [verifies TC] { }`), `TestSubject` (`Aggregate | ValueObject | DomainService | BoundedContext`), `TestE2E` (`test e2e … against … [verifies TC]`), `TestStatement`, `ExpectStmt` · **Matchers:** [`src/util/intrinsic-matchers.ts`](../../src/util/intrinsic-matchers.ts) · **Validators:** `loom.test-needs-target`, `loom.test-redundant-for`, `loom.context-test-unsupported` ([`src/language/validators/test-placement.ts`](../../src/language/validators/test-placement.ts)); `loom.aggregate-test-context`, `loom.integration-find-must-bind`, `loom.e2e-unsupported-statement`, `loom.e2e-unresolved-ref`, `loom.e2e-unresolved-call`, `loom.e2e-unknown-{aggregate,method,workflow}` ([`src/ir/validate/checks/test-checks.ts`](../../src/ir/validate/checks/test-checks.ts)); `expect`/matcher arity ([`src/language/validators/match.ts`](../../src/language/validators/match.ts)) · **Docs:** [`../testing.md`](../testing.md), [`../traceability.md`](../traceability.md), [`../conformance.md`](../conformance.md), [`../old/proposals/test-placement.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/test-placement.md)
+> **Grammar:** `TestBlock` (`test … [for <Subject>] [verifies TC] [as { … }] { }`), `TestSubject` (`Aggregate | ValueObject | DomainService | BoundedContext`), `TestE2E` (`test e2e … against … [verifies TC] [as { … }]`), `TestPrincipal` (`as { claim: value, … }` — a head clause or a body line), `TestStatement`, `ExpectStmt` · **Matchers:** [`src/util/intrinsic-matchers.ts`](../../src/util/intrinsic-matchers.ts) · **Validators:** `loom.test-needs-target`, `loom.test-redundant-for`, `loom.context-test-unsupported`, `loom.test-principal-{placement,value,duplicate-claim}` ([`src/language/validators/test-placement.ts`](../../src/language/validators/test-placement.ts)); `loom.test-principal-{no-user,unknown-claim,claim-type}`, `loom.e2e-principal-{claim-not-carried,oidc,ui}` ([`src/ir/validate/checks/test-principal-checks.ts`](../../src/ir/validate/checks/test-principal-checks.ts)); `loom.aggregate-test-context`, `loom.integration-find-must-bind`, `loom.e2e-unsupported-statement`, `loom.e2e-unresolved-ref`, `loom.e2e-unresolved-call`, `loom.e2e-unknown-{aggregate,method,workflow}` ([`src/ir/validate/checks/test-checks.ts`](../../src/ir/validate/checks/test-checks.ts)); `expect`/matcher arity ([`src/language/validators/match.ts`](../../src/language/validators/match.ts)) · **Docs:** [`../testing.md`](../testing.md), [`../traceability.md`](../traceability.md), [`../conformance.md`](../conformance.md), [`../old/proposals/test-placement.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/test-placement.md)
 
 > **Output sourcing.** Every fragment below is generated from one scratch `SalesSystem` (`node bin/cli.js generate system tests.ddd -o out`, 2026-09-03): a `Sales` context with a `Money` value object, `Product` / `Order` aggregates, a `Pricing` domain service, one hoisted and one context-level `test`, and two `test e2e` blocks — one `against api` (node), one `against webApp` (react); a second `dotnet` deployable supplies the xUnit tabs.
 
@@ -175,6 +175,104 @@ describe("Sales (integration)", () => {
 
 > A repository call spelled the workflow way (`Orders.save(o)` / `Orders.get(…)`) is **not** part of this vocabulary and is refused with `loom.integration-repository-call` — use `<Agg>.findById` and let the factory save.
 
+### Running as a principal
+
+Under an `auth: required` deployable the repositories read the request principal — a `tenantOwned` aggregate is stamped and scoped by its tenant claim, a gate or a `currentUser`-reading stamp reads its claims. A context integration test therefore always runs as one: the **dev-stub principal** the HTTP tier's dev mode grants (one value per `user { … }` field: `"admin"` strings, the zero UUID, empty lists), with any claims the test sets in an `as { … }` clause. The same clause on a line of its own switches the principal for the statements after it — which is how one test shows that a second tenant cannot read what the first wrote:
+
+```ddd
+system P {
+  user { id: guid  tenantId: string  roles: string[] }
+  tenancy by user.tenantId of Org
+  subdomain S { context C {
+    aggregate Org with crudish { name: string }
+    aggregate Note with tenantOwned, crudish { text: string }
+    repository Notes for Note { }
+
+    test "a note reads back" {                       // the dev-stub principal
+      let n = Note.create(text: "hi")
+      let r = Note.get(n.id)
+      expect(r.text).toBe("hi")
+    }
+    test "beta cannot read acme's note" as { tenantId: "acme", roles: ["agent"] } {
+      let n = Note.create(text: "acme only")
+      as { tenantId: "beta" }                        // the lines below run as beta
+      let r = Note.find(n.id)
+      expect(r).toBeNull()
+    }
+  } }
+  …
+  deployable d { platform: node  contexts: [C]  dataSources: [st]  serves: A  port: 4000  auth: required }
+}
+```
+
+Each backend binds the principal through the seam its own auth middleware binds a request's, so tenant stamps, scope filters and gates see it exactly as they would over HTTP:
+
+```ts
+// node — test/c.integration.test.ts: runAsUser opens an ambient request frame, built from the
+// claims the way auth/middleware.ts builds a request's; devStubClaims() is the dev stub's identity
+it("beta cannot read acme's note", () =>
+  runAsUser({ ...devStubClaims(), tenantId: "acme", roles: ["agent"] }, async () => {
+    const n = Note.create({ text: "acme only" });
+    await repos.note.save(n);
+    await actAsUser({ ...devStubClaims(), tenantId: "beta" });
+    const r = (await repos.note.findById(n.id))!;
+    expect(r).toBeNull();
+  }));
+```
+
+```python
+# python — tests/test_c_integration.py: the ContextVar the auth middleware sets per request
+_DEV_USER = User(id="00000000-0000-0000-0000-000000000000", tenant_id="admin", roles=[])
+
+def _act_as(**claims: Any) -> None:
+    current_user_var.set(replace(_DEV_USER, **claims))
+
+async def test_beta_cannot_read_acme_s_note(session: AsyncSession) -> None:
+    …
+    _act_as(tenant_id="acme", roles=["agent"])
+    n = Note.create(text="acme only")
+    if (__principal := ambient_principal()) is not None:
+        n._stamp_on_create(__principal)
+    await note_repo.save(n)
+    await session.flush()
+    _act_as(tenant_id="beta")
+    r = await note_repo.find_by_id(n.id)
+    assert r is None
+```
+
+```csharp
+// .NET — a RequestContext frame + the accessor AppDbContext's tenancy filters read
+using var __principal = ActAs(DevUser() with { TenantId = "acme", Roles = new System.Collections.Generic.List<string> { "agent" } });
+var opts = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(ConnString()).AddInterceptors(new AuditableInterceptor()).Options;
+await using var db = new AppDbContext(opts, new HttpContextCurrentUserAccessor());
+…
+using var __principal1 = ActAs(DevUser() with { TenantId = "beta" });
+var r = await noteRepo.GetByIdAsync(n.Id);
+r.Should().BeNull();
+```
+
+```java
+// java — the thread's CurrentUserAccessor principal (cleared @AfterEach)
+CurrentUserAccessor.actAs(new User(new UUID(0L, 0L), "acme", java.util.List.of("agent")));
+var n = Note.create("acme only");
+noteRepository.save(n);
+CurrentUserAccessor.actAs(new User(new UUID(0L, 0L), "beta", List.of()));
+var r = noteRepository.findById(n.id()).orElse(null);
+assertNull(r);
+```
+
+```elixir
+# elixir — the actor every scoped context function takes
+current_user = DWeb.Auth.as_principal(Map.merge(dev_claims(), %{tenant_id: "acme", roles: ["agent"]}))
+Process.put(:loom_current_user, current_user)
+{:ok, n} = D.C.create_note(%{text: "acme only"}, current_user)
+current_user = DWeb.Auth.as_principal(Map.merge(dev_claims(), %{tenant_id: "beta"}))
+…
+assert is_nil(r)
+```
+
+A claim names a field of the system's `user { … }` block (`loom.test-principal-unknown-claim`; no block at all is `loom.test-principal-no-user`) and takes fixed data of its type — a string literal for a `string`, `guid` or `<Agg> id` claim (a UUID for the last two), a list of string literals for a `string[]` one (`loom.test-principal-claim-type`; anything but a literal is `loom.test-principal-value`, a claim set twice `loom.test-principal-duplicate-claim`). Only the context rung takes a principal — on an aggregate, value-object or domain-service unit test the clause is `loom.test-principal-placement`. Without `auth: required` nothing reads a principal and none is bound.
+
 ## `test e2e "…" against <Deployable>` — a live end-to-end test
 
 `test e2e name=STRING 'against' deployable=[Deployable] ('verifies' TraceId)? { … }` is a system-level test (declared in the `system` body, not inside an aggregate) that drives a deployment. The body talks to the deployable through a **magic dispatcher** — `api.<aggregate>.<verb>(…)` against a backend, `ui.<aggregate>.<verb>(…)` against a frontend — plus `let` and `expect`. Domain mutations and guards are rejected (`loom.e2e-unsupported-statement`); an e2e body resolves no domain names, so a bare enum value (`st: On` instead of `"On"`) is `loom.e2e-unresolved-ref` and an unknown function `loom.e2e-unresolved-call` (the conversions `money(…)`, `decimal(…)`, `string(…)`, `int(…)` are built in); an unknown aggregate / verb / workflow is caught against the deployable's hosted contexts (`loom.e2e-unknown-aggregate` — whose message names the deployable's workflows as well as its aggregates, `loom.e2e-unknown-method` — which also covers a folded projection's `byKey` / `list` and a workflow's three verbs, `loom.e2e-unknown-workflow`).
@@ -245,7 +343,50 @@ await __postIfMatch(`${base}/api/notes/${n.id}/update`, ({ text: "second" }), re
 // …which sends  if-match: "<version>"  — the quoted entity-tag every backend parses
 ```
 
-The stale write answers 409 with the `detail` `"Note <id> was modified by another request"` on every backend ([RS-40](../conformance-semantics.md)). Any other shape — another key, a fourth argument, or `ifMatch` on an operation other than a versioned `update` (the one route all five backends read the header on) — is `loom.e2e-call-options`, rather than being dropped. A workflow call takes the same option as its second argument — `api.renameBoth.run({ … }, { ifMatch: v })` — to send a header the workflow's saves must ignore: a body is not a request about one row, so each row it loaded is checked against the version its own handle loaded. The suite reads its base URL from `E2E_<DEPLOYABLE>_BASE` (defaulting to the compose port) and forwards a principal when the target is `auth: required` — `E2E_BEARER_TOKEN` (OIDC) or `E2E_DEV_CLAIMS` (base64-JSON into `x-loom-dev-claims`).
+The stale write answers 409 with the `detail` `"Note <id> was modified by another request"` on every backend ([RS-40](../conformance-semantics.md)). Any other shape — another key, a fourth argument, or `ifMatch` on an operation other than a versioned `update` (the one route all five backends read the header on) — is `loom.e2e-call-options`, rather than being dropped. A workflow call takes the same option as its second argument — `api.renameBoth.run({ … }, { ifMatch: v })` — to send a header the workflow's saves must ignore: a body is not a request about one row, so each row it loaded is checked against the version its own handle loaded. The suite reads its base URL from `E2E_<DEPLOYABLE>_BASE` (defaulting to the compose port) and forwards a principal when the target is `auth: required` — `E2E_BEARER_TOKEN` (OIDC) or `E2E_DEV_CLAIMS` (base64-JSON into `x-loom-dev-claims`), unless the block declares its own (below).
+
+**A block's own principal — `as { … }`.** A `test e2e` block takes the same clause as a context test, as a head clause and as a body line, so a model-level test can assert what a *second* principal is refused or shown:
+
+```ddd
+aggregate Ticket with crudish {
+  title: string
+  note: string mask unless currentUser.roles.contains("admin")
+  status: string immutable
+  operation close() requires currentUser.role == "agent" { status := "closed" }
+}
+
+test e2e "a viewer sees the note redacted and cannot close" against d as { role: "agent", roles: ["admin"] } {
+  let t = api.tickets.create({ title: "printer", note: "pw", status: "open" })
+  as { role: "viewer", roles: [] }
+  let r = api.tickets.getById(t)
+  expect(r.note).toBeNull()                 // mask unless → redacted for the viewer
+  expect(api.tickets.close(t)).toThrow(403) // requires → refused for the viewer
+}
+```
+
+```ts
+// e2e/H.e2e.test.ts — the claims ride the dev-stub header of every request below
+let __principal: Record<string, unknown> | null = null;
+function __authHeaders(): Record<string, string> {
+  …
+  const claims = __principal !== null ? JSON.stringify(__principal) : process.env.E2E_DEV_CLAIMS;
+  if (claims) headers["x-loom-dev-claims"] = Buffer.from(claims).toString("base64");
+  return headers;
+}
+
+it("a viewer sees the note redacted and cannot close against d", async () => {
+  const base = ENDPOINTS.d;
+  __principal = { role: "agent", roles: ["admin"] };
+  await __resetState(base);
+  const t = await __post(`${base}/api/tickets`, ({ title: "printer", note: "pw", status: "open" }));
+  __principal = { role: "viewer", roles: [] };
+  const r = await __get(`${base}/api/tickets/${t.id}`);
+  expect(r.note).toBeNull();
+  await expect(async () => { await __post(`${base}/api/tickets/${t.id}/close`, {}); }).rejects.toThrow(/→ 403\b/);
+});
+```
+
+Every dev-stub verifier merges the header over its built-in identity, so the clause sets only the claims it names. The header carries non-optional `string` and `string[]` claims only, so any other claim in an e2e principal is `loom.e2e-principal-claim-not-carried`; a system with `auth { oidc }` verifies bearer tokens and ignores the header (`loom.e2e-principal-oidc` — pass `E2E_BEARER_TOKEN` instead); and a `ui` (Playwright) block signs in once per suite, so it takes no per-block principal (`loom.e2e-principal-ui`). A block with no clause in a suite that uses one runs as the env principal.
 
 ```ts
 // e2e/SalesSystem.e2e.test.ts — emitted once at the output root

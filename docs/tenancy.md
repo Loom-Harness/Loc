@@ -326,6 +326,23 @@ read DTOs by default. `dataKey` is the exception: it is dropped from
 Cross-tenant reads of another tenant's row return **404** (existence hidden),
 falling out of the filter semantics: the row simply isn't found.
 
+The isolation is assertable from the model: a context integration test switches
+tenant mid-body with an `as { … }` line, and the read comes back empty.
+
+```ddd
+test "beta cannot read acme's note" as { tenantId: "acme" } {
+  let n = Note.create(text: "acme only")
+  as { tenantId: "beta" }
+  let r = Note.find(n.id)
+  expect(r).toBeNull()
+}
+```
+
+Each backend runs it under the principal its auth middleware would bind
+(`runAsUser` / `current_user_var` / a `RequestContext` frame /
+`CurrentUserAccessor.actAs` / the threaded actor) — see the
+[testing reference](language-reference/18-testing.md#running-as-a-principal).
+
 ## Reactors and timers — the system principal's tenant
 
 An event reactor runs as the **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)), and filters and
