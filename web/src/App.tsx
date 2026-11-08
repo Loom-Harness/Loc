@@ -79,7 +79,7 @@ import { utcVersionNow } from "../../src/system/migration-chain.js";
 import { inlineSourcemapArtifacts, overlaySourcemapArtifacts } from "./build/strip-sourcemap";
 import { type Band, correspondenceAt, sourceBands, sourceSpanFor } from "./build/correspondence";
 import { diffGenerated, type OutputDiff } from "./build/output-diff";
-import { analyzeDeployables } from "./build/deployables";
+import { analyzeDeployables, composeServiceEnv } from "./build/deployables";
 import { type BootableBackend, bootableBackends, bootPlan } from "./build/boot-plan";
 import { resolveTestId } from "./build/select-target";
 import type { BundleOk } from "./bundle/protocol";
@@ -1660,6 +1660,9 @@ export default function App(): JSX.Element {
             ? fnv1a32(`${workspace.activeId}\u0000${current.entryPath}\u0000${storageKey}`)
             : islandKey;
         return { dataDir: `opfs-ahp://loom-${island}`, island };
+      }, (slug) => {
+        const compose = lastGeneratedFilesRef.current.find((f) => f.path === "docker-compose.yml");
+        return compose ? composeServiceEnv(compose.content, slug) : {};
       });
       const res = await engine.boot(plan.plan, { fresh: opts?.fresh });
       if (res.ok) {

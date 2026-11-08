@@ -5,6 +5,7 @@ import storefrontSystemSource from "./storefront-system.ddd?raw";
 import storefrontDotnetSource from "./storefront-dotnet.ddd?raw";
 import storefrontElixirSource from "./storefront-elixir.ddd?raw";
 import salesSystemSource from "./sales-system.ddd?raw";
+import crossDeployableSystemSource from "./cross-deployable-system.ddd?raw";
 import sharedStorageSystemSource from "./shared-storage-system.ddd?raw";
 import brokerChannelsSystemSource from "./broker-channels-system.ddd?raw";
 import bankingSystemSource from "./banking-system.ddd?raw";
@@ -293,6 +294,13 @@ export const examples: LoomExample[] = [
     source: brokerChannelsSystemSource,
     blurb:
       "Two Node backends on one channel of each broker kind, emulated in the browser: redis broadcast, a rabbitmq work queue with a dead-letter queue, a kafka log a returning consumer replays.",
+  },
+  {
+    id: "cross-deployable-system",
+    label: "Cross-deployable call (two Hono backends)",
+    source: crossDeployableSystemSource,
+    blurb:
+      "`shippingSvc` calls `ordersSvc` over a typed `api` resource: the derived `ORDERS_URL` address is routed to the other backend's in-browser app.",
   },
   {
     id: "banking-system",

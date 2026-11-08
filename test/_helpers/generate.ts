@@ -1,4 +1,6 @@
-import { generateDotnet as generateDotnetProject } from "../../src/generator/dotnet/index.js";
+import { readFileSync } from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel, mergeLoomModels } from "../../src/ir/lower/lower.js";
 import type { EnrichedLoomModel } from "../../src/ir/types/loom-ir.js";
@@ -18,20 +20,17 @@ import {
   type MigrationChain,
   recordGeneration,
 } from "../../src/system/migration-chain.js";
+import { type BackendPlatform, backendSystemFor } from "./backend-system.js";
 import { extractErrors, parseString } from "./parse.js";
 
 export { HONO_PINS };
 
 /**
  * Phases ⑤/⑥/⑦ over an already-parsed AST Model — lower, merge, enrich, then
- * the IR verifier and `validateLoomModel`.  Synchronous, so it can ride the
- * synchronous legacy `generate` helpers as well as the async ones.
- *
- * This is the shared body of the phase-⑤-and-later half of `assertGeneratable`;
- * both it and the legacy `generateDotnet` wrapper call it, so the two paths
- * cannot drift.
+ * the IR verifier and `validateLoomModel`.  The phase-⑤-and-later half of
+ * `assertGeneratable`.
  */
-export function assertModelVerifies(model: Model, context = ".ddd fixture"): void {
+function assertModelVerifies(model: Model, context = ".ddd fixture"): void {
   // Phases ⑤/⑥ — the IR the backends will consume must hold its own contract
   // before phase ⑦ is asked whether the MODEL is valid.  Ordered first because
   // the two answer different questions and a violation here invalidates the
@@ -53,24 +52,6 @@ export function assertModelVerifies(model: Model, context = ".ddd fixture"): voi
     );
   }
 }
-
-/**
- * Generate the single-context .NET project file map from an AST Model.
- *
- * A legacy path kept only for the callers
- * `test/system/legacy-generate-path-ratchet.test.ts` still pins — new tests use
- * `generateBackendFiles(contexts, "dotnet")`.  `assertModelVerifies` runs first,
- * so phases ⑤/⑥/⑦ hold; phases ① and ④ are the CALLER's, because this takes a
- * `Model`, not a source string — which is what the ratchet's `parseString`
- * column pins.
- */
-export const generateDotnet = (
-  model: Model,
-  options: { emitTrace?: boolean } = {},
-): Map<string, string> => {
-  assertModelVerifies(model);
-  return generateDotnetProject(model, options);
-};
 
 /**
  * The phases a `.ddd` fixture must survive before any test may assert on what
@@ -318,11 +299,8 @@ export async function generateSystemFilesFromLoom(
 
 /**
  * Emit ONE backend's project for a fixture written as bare `context { … }`
- * blocks — the replacement for the legacy single-context `generateDotnet`
- * wrapper, through the orchestrator the CLI runs.
+ * blocks, through the orchestrator the CLI runs.
  *
- * The legacy wrappers emitted from the model's LOOSE contexts, so a fixture
- * could stay a context and nothing else.  The product never emits that way:
  * `ddd generate system` needs a `system` that hosts each context on a backend
  * deployable bound to a datasource.  This wraps the contexts in the smallest
  * such system — one subdomain, one api, one postgres `state` resource per
@@ -331,7 +309,7 @@ export async function generateSystemFilesFromLoom(
  * exactly as `generateSystemFiles` does.
  *
  * The returned map is the deployable's project with the `<deployable>/` prefix
- * stripped, so a key reads the same as the legacy project-relative path.
+ * stripped, so a key is project-relative.
  */
 export async function generateBackendFiles(
   contexts: string,
@@ -373,6 +351,60 @@ export async function generateBackendFiles(
   const out = new Map<string, string>();
   for (const [k, v] of files) if (k.startsWith("app/")) out.set(k.slice(4), v);
   return out;
+}
+
+/**
+ * One backend project's file map, keyed relative to its project dir, from a
+ * `.ddd` source with ONE backend deployable — or from a bare-context source,
+ * which gets a `platform` deployable over its root contexts
+ * (`withBackendSystem`).  A source that declares its system has its
+ * `platform: node|dotnet` clause re-targeted at `platform`.  Emits through
+ * `generateSystemFiles`, so phases ①/④/⑤/⑥/⑦ are asserted.
+ */
+export async function generateBackendFromSource(
+  source: string,
+  platform: BackendPlatform,
+  options: GenerateSystemOptions = {},
+): Promise<Map<string, string>> {
+  const { source: wrapped, deployable } = backendSystemFor(source, platform);
+  const files = await generateSystemFiles(wrapped, options);
+  const prefix = `${deployable}/`;
+  const out = new Map<string, string>();
+  for (const [k, v] of files) if (k.startsWith(prefix)) out.set(k.slice(prefix.length), v);
+  if (out.size === 0) throw new Error(`generateBackendFromSource: nothing emitted under ${prefix}`);
+  return out;
+}
+
+/**
+ * A repo fixture's backend project, whatever its shape: a source that
+ * declares its system goes through `generateBackendFromSource` (its one
+ * deployable re-targeted at `platform`), a bare-context one through
+ * `generateBackendFiles` (deployable `app`, so the .NET namespace is `App`).
+ */
+export async function generateFixtureBackend(
+  source: string,
+  platform: BackendPlatform,
+  options: GenerateSystemOptions = {},
+): Promise<Map<string, string>> {
+  return /^\s*system\s+[A-Z]\w*/m.test(source)
+    ? generateBackendFromSource(source, platform, options)
+    : generateBackendFiles(source, platform, options);
+}
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+/** `generateBackendFromSource` over a repo-relative `.ddd` file (an
+ *  `examples/` source, say).  The file must not `import` others. */
+export async function generateBackendFromFile(
+  file: string,
+  platform: BackendPlatform,
+  options: GenerateSystemOptions = {},
+): Promise<Map<string, string>> {
+  return generateBackendFromSource(
+    readFileSync(path.join(repoRoot, file), "utf8"),
+    platform,
+    options,
+  );
 }
 
 /** Re-exported — full multi-deployable system emission orchestrator. */

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
-import { generateBackendFiles } from "../../_helpers/generate.js";
+import { generateFixtureBackend } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // .NET document-persistence emission (`normalised(false)`).
@@ -26,7 +26,7 @@ const repoRoot = path.resolve(here, "..", "..", "..");
 
 /** The `.NET` project for a bare-context example, hosted on one deployable. */
 function generateExample(file: string): Promise<Map<string, string>> {
-  return generateBackendFiles(readFileSync(path.join(repoRoot, file), "utf8"), "dotnet");
+  return generateFixtureBackend(readFileSync(path.join(repoRoot, file), "utf8"), "dotnet");
 }
 
 describe(".NET document-persistence emission (normalised(false))", () => {

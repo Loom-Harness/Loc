@@ -164,7 +164,12 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
   private rt(slug: string): LoomRuntimeClient {
     let rt = this.runtimes.get(slug);
     if (!rt) {
-      rt = new LoomRuntimeClient({ onLog: this.onLog });
+      rt = new LoomRuntimeClient({
+        onLog: this.onLog,
+        // Backend→backend HTTP: a deployable's request to another's compose
+        // address runs through that deployable's app, in its own worker.
+        onHttpCall: (host, request) => this.dispatch(request, host),
+      });
       this.runtimes.set(slug, rt);
     }
     return rt;
@@ -306,7 +311,12 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       const st = plan.storages.find((s) => s.key === b.storage);
       if (!st) return this.failed({ ok: false, message: `Deployable "${b.slug}" binds no booted storage.` });
       const wantsDdl = st.migrations.kind === "unversioned" && !synthDdl.has(st.key);
-      const res = await this.rt(b.slug).load({ bundleCode: b.bundleCode, synthDdl: wantsDdl });
+      const res = await this.rt(b.slug).load({
+        bundleCode: b.bundleCode,
+        synthDdl: wantsDdl,
+        env: b.env,
+        serviceHosts: plan.backends.map((o) => o.slug).filter((h) => h !== b.slug),
+      });
       if (!res.ok) return this.failed(res, b.slug);
       if (wantsDdl) synthDdl.set(st.key, res.ddl ?? "");
     }
@@ -370,7 +380,12 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     const channel = b ? this.storageChannels.get(b.storage) : undefined;
     if (!b || !this.infra || channel === undefined) return { ok: false, message: `No booted deployable "${slug}".` };
     const rt = this.rt(slug);
-    const loaded = await rt.load({ bundleCode: b.bundleCode, synthDdl: false });
+    const loaded = await rt.load({
+      bundleCode: b.bundleCode,
+      synthDdl: false,
+      env: b.env,
+      serviceHosts: (this.booted?.backends ?? []).map((o) => o.slug).filter((h) => h !== slug),
+    });
     if (!loaded.ok) return loaded;
     return rt.start(channel, await this.infra.connect(slug));
   }

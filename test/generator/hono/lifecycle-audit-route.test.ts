@@ -12,16 +12,10 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
-// `audited` is a HOSTED capability, and this fixture used to be a bare loose
-// context emitted through the legacy `generateHono` path (M-T9.48).  Once that
-// path asserts phase ⑦, the fixture fails: `validateAuditedOperationSupport`
-// refuses an audited lifecycle action that no audit-capable backend deployable
-// hosts, and the legacy path CANNOT host one — declaring a `system` re-parents
-// every loose context into it, emptying the `loom.contexts` list that
-// `generateTypeScript` emits from.  So the fixture moves to the system
-// orchestrator, which is where a hosted capability can actually be expressed.
-// Verified before the move: `ddd parse` on the bare context exits 1 with
-// `loom.audited-backend-unsupported`.
+// `audited` is a HOSTED capability: `validateAuditedOperationSupport` refuses
+// an audited lifecycle action that no audit-capable backend deployable hosts
+// (`loom.audited-backend-unsupported`), so the fixture declares the system
+// deployable that hosts it.
 const SRC = `
   system Sys {
     subdomain Billing {

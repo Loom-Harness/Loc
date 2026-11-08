@@ -1,6 +1,6 @@
 // F6d — Hono orchestrator rewire — proves that the hono system orchestrator
 // dispatches per-aggregate routes emission through the layered
-// StyleAdapter + byLayer LayoutAdapter when running in system mode.
+// StyleAdapter + byLayer LayoutAdapter.
 // The byte-identical guarantee comes from the existing TypeScript
 // generator fixture suite (test/generator/typescript/*) + the
 // page-emitter byte-equivalence fixture suite (which captures the
@@ -9,10 +9,7 @@
 import { describe, expect, it, vi } from "vitest";
 import * as byLayerModule from "../../src/platform/hono/v4/adapters/by-layer-layout.js";
 import * as layeredStyleModule from "../../src/platform/hono/v4/adapters/layered-style.js";
-import { generateTypeScript } from "../../src/platform/hono/v4/emit.js";
-import { BACKEND_PINS } from "../../src/platform/hono/v5/pins.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
-import { parseValid } from "../_helpers/parse.js";
 
 const SYSTEM_SRC = `
 system Sys {
@@ -34,18 +31,6 @@ system Sys {
     dataSources: [ordersState]
     port: 3000
   }
-}
-`;
-
-// Legacy single-context source — no `system` declaration.  Triggers
-// the orchestrator's non-system path which keeps the direct
-// `buildRoutesFile` call.
-const LEGACY_SRC = `
-context Orders {
-  aggregate Order {
-    name: string
-  }
-  repository Orders for Order {}
 }
 `;
 
@@ -77,21 +62,6 @@ describe("F6d — hono orchestrator rewire (system mode)", () => {
       expect(httpRoutesCalls.length).toBeGreaterThan(0);
     } finally {
       layoutSpy.mockRestore();
-    }
-  });
-});
-
-describe("F6d — hono orchestrator (legacy single-context mode)", () => {
-  it("keeps the direct buildRoutesFile path when no system is in scope", async () => {
-    const spy = vi.spyOn(layeredStyleModule.layeredStyleAdapter, "emitForAggregate");
-    try {
-      const files = generateTypeScript(await parseValid(LEGACY_SRC), BACKEND_PINS);
-      // The adapter was NOT invoked — legacy path stays inline.
-      expect(spy).not.toHaveBeenCalled();
-      // The legacy path still produces the routes file.
-      expect(files.has("http/order.routes.ts")).toBe(true);
-    } finally {
-      spy.mockRestore();
     }
   });
 });

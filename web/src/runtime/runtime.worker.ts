@@ -10,9 +10,12 @@ import { installConsoleTee, setLogSink } from "./console-tee.js";
 import { errText } from "./migrate.js";
 import { BrokerClient, type ChannelBindingLike, type ChannelTransport } from "./broker-facade.js";
 import { InfraPort } from "./infra-port.js";
+import { serviceFetch } from "./service-fetch.js";
 import { StorageHostHandle } from "./storage-client.js";
 import type {
   DispatchResult,
+  HttpCall,
+  HttpReply,
   LoadResult,
   RuntimeProgress,
   RuntimeRpcRequest,
@@ -93,6 +96,34 @@ interface Started {
   infra: InfraPort | null;
 }
 
+/** The network `fetch`, kept before `load` wraps it. */
+const realFetch: typeof fetch = globalThis.fetch.bind(globalThis);
+
+/** Backend→backend calls awaiting the main thread's `httpReply`. */
+const pendingHttp = new Map<number, (r: DispatchResult) => void>();
+let nextHttpCall = 1;
+
+/** Hand a request for another deployable to the main thread, which owns every
+ *  worker and runs it through that deployable's app. */
+function forwardHttp(host: string, request: SerializedRequest): Promise<DispatchResult> {
+  return new Promise((resolve) => {
+    const httpCall = nextHttpCall++;
+    pendingHttp.set(httpCall, resolve);
+    self.postMessage({ httpCall, host, request } satisfies HttpCall);
+  });
+}
+
+/** Give the bundle this deployable's env and its route to the others, before
+ *  it is imported: the generated clients read `process.env.<X>_URL` and call
+ *  `fetch` while the module's top level runs.  A worker is one deployable, so
+ *  the env is per deployable by construction.  The postprocess shim in the
+ *  bundle fills in the rest of `process` around this `env`. */
+function installEnv(env: Record<string, string> | undefined, hosts: readonly string[]): void {
+  const g = globalThis as unknown as { process?: { env?: Record<string, string> } };
+  g.process = { ...(g.process ?? {}), env: { ...(env ?? {}) } };
+  globalThis.fetch = serviceFetch(new Set(hosts), forwardHttp, realFetch);
+}
+
 let loaded: Loaded | null = null;
 let started: Started | null = null;
 
@@ -130,8 +161,14 @@ async function tearDown(): Promise<void> {
 /** Import the deployable's bundle.  `synthDdl` also derives the schema from
  *  its Drizzle tables — the schema of a source without a system, which the
  *  storage then applies. */
-async function load(bundleCode: string, synthDdl: boolean): Promise<LoadResult> {
+async function load(
+  bundleCode: string,
+  synthDdl: boolean,
+  env?: Record<string, string>,
+  serviceHosts: readonly string[] = [],
+): Promise<LoadResult> {
   await tearDown();
+  installEnv(env, serviceHosts);
   progress("import-bundle");
   const blob = new Blob([bundleCode], { type: "application/javascript" });
   const url = URL.createObjectURL(blob);
@@ -259,6 +296,14 @@ async function reset(): Promise<{ ok: true }> {
 
 self.onmessage = async (ev: MessageEvent<RuntimeRpcRequest>) => {
   const req = ev.data;
+  // An answer, not an RPC: settle the call and leave the log sink alone —
+  // a dispatch is awaiting it.
+  if (req.method === "httpReply") {
+    const reply: HttpReply = req.params;
+    pendingHttp.get(reply.httpCall)?.(reply.result);
+    pendingHttp.delete(reply.httpCall);
+    return;
+  }
   const response: RuntimeRpcResponse = { id: req.id };
   const logs: LogLine[] = [];
   // Route this RPC's console output (incl. the bundle's pino lines) into
@@ -267,7 +312,7 @@ self.onmessage = async (ev: MessageEvent<RuntimeRpcRequest>) => {
   try {
     switch (req.method) {
       case "load":
-        response.result = await load(req.params.bundleCode, req.params.synthDdl);
+        response.result = await load(req.params.bundleCode, req.params.synthDdl, req.params.env, req.params.serviceHosts);
         break;
       case "start":
         response.result = await start(req.params.channel, ev.ports[0]);
