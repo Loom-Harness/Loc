@@ -4179,6 +4179,17 @@ export const DIAGNOSTIC_MESSAGES = {
     `deployable hosts this context, so read-mask redaction is not emitted and the field would ` +
     `ship unredacted. Host the context on a backend deployable, or drop the \`mask unless\` ` +
     `clause (authorization.md §5).`,
+  "loom.field-mask-event-channel": (p: { event: unknown; channel: unknown; field: unknown }) =>
+    `event '${p.event}' carries the \`mask unless\` field '${p.field}' and is published on ` +
+    `channel '${p.channel}' — a channel message is delivered to every subscriber unredacted (no ` +
+    `principal is in scope on the consuming side), so the masked value would leave the read ` +
+    `boundary. Emit a redacted or derived value instead (an id, a bucket, a boolean), or take the ` +
+    `event off the channel.`,
+  "loom.field-mask-unique-oracle": (p: { name: unknown; field: unknown }) =>
+    `aggregate '${p.name}' declares a \`unique\` key on the \`mask unless\` field '${p.field}', ` +
+    `so its create answers 409 when a guessed value already exists — an existence oracle on a ` +
+    `value the caller cannot read. Gate the create with a \`requires\` that includes the mask ` +
+    `predicate, or drop the field from the key.`,
   "loom.field-mask-projection-source": (p: { name: unknown; src: unknown; via?: unknown }) =>
     `projection '${p.name}' ${p.via === "join" ? `joins` : `sources from`} aggregate '${p.src}', ` +
     `which has a \`mask unless\` field — query-time projection responses are not yet read-masked, ` +

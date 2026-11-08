@@ -11,6 +11,7 @@ import type {
   RepositoryIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
+import { declaredResponseFor } from "../../../ir/util/declared-response.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import { type MergePatchField, mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
@@ -65,9 +66,7 @@ export function emitResponseDtos(
   // re-deriving from `wireShape` — byte-identical for the scaffolded form,
   // authoritative for a hand-declared divergent one.  Non-scaffolded
   // aggregates have no declared record and keep the wireShape path.
-  const declaredResponse = ctx.payloads.find(
-    (p) => p.kind === "response" && p.name === `${agg.name}Response`,
-  );
+  const declaredResponse = declaredResponseFor(ctx.payloads, agg);
   records.push({
     name: `${agg.name}Response`,
     params: declaredResponse

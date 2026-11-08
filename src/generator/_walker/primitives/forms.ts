@@ -9,6 +9,7 @@
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import { operationFormParams } from "../../../ir/util/op-gates.js";
 import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import {
   escapeTsIdent,
@@ -372,7 +373,10 @@ function emitFormOfOperationByName(
       `OperationForm(of: ${aggName}, op: ${opName}): no public operation '${opName}' on ${aggName}`,
     );
   }
-  const fields = op.params;
+  // A masked field a merge-patch update guards is left off the form: the
+  // caller may be unable to read it, and sending its key is refused (403);
+  // left out, the stored value stays (`maskedPatchParams`).
+  const fields = operationFormParams(op);
   const fieldsForHelpers = fields.map((f) => ({ ...f, optional: false }));
   const testidNamespace =
     stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-op-${op.name}`;
@@ -912,7 +916,10 @@ function emitFormOfOperation(
     : routeIdExpr(ctx);
   // Op params carry no `optional` flag — adapt for form-helpers
   // exactly as the workflow-form variant does.
-  const fields = op.params;
+  // A masked field a merge-patch update guards is left off the form: the
+  // caller may be unable to read it, and sending its key is refused (403);
+  // left out, the stored value stays (`maskedPatchParams`).
+  const fields = operationFormParams(op);
   const fieldsForHelpers = fields.map((f) => ({ ...f, optional: false }));
   // A `this.<field>` param default can seed `defaultValues` from the loaded
   // record — but only when the active pack threads a `record` prop into the

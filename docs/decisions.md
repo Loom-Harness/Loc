@@ -4567,6 +4567,22 @@ for the paths that actually ship. Until both hold, retirement trades a pure
 function for a source of truth that is absent 100 % of the time and wrong 20 %
 of the rest.
 
+**Both conditions now hold.**
+- **Records match the derived shape.** Every row in classes A, B3 and C of
+  `test/system/wire-contract-divergence.test.ts` is closed. The rows that
+  remain are the representational `<Part>Response` naming (B1, B2), which
+  every emitter un-suffixes.
+- **Records exist for every shipped context.** Every context exposed by an
+  implicit `api X from <Subdomain>` or by a deployable's `contexts: [...]`
+  now carries the `scaffoldHandlers` contract records. The census reads the
+  corpus as written and finds no uncontracted node.
+
+One gap is still open, and the census pins it exactly: a record field cannot
+carry `mask unless`. So `declaredResponseFor`
+(`src/ir/util/declared-response.ts`) keeps masked aggregates on the derived
+shape. The decision is open for re-review: what is left is moving consumers
+onto the records and retiring `.loom/wire-spec.json`.
+
 **Affects.** `src/ir/enrich/wire-projection.ts`; `src/system/wire-spec.ts`;
 `src/macros/api/factories.ts` + `src/macros/stdlib/scaffold/_contracts-shared.ts`
 (`apiReadFields`); the response-DTO emitters on all five backends; missions

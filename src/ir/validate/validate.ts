@@ -29,6 +29,7 @@ import { validateHostedTypeNames } from "./checks/hosted-type-name-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
 import { validateLoopGateImplication } from "./checks/loop-gate-implication-checks.js";
+import { validateMaskSinks } from "./checks/mask-sink-checks.js";
 import { validateMemberResolution } from "./checks/member-resolution-checks.js";
 import {
   validateMigrationAdapterSupport,
@@ -420,6 +421,7 @@ export function validateLoomModel(
     validateEventSourcedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateProvenancedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateFieldMask(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
+    validateMaskSinks(c, diags);
     validateAuditedOperationSupport(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
   }
   validateExprIntegrity(loom, diags);
