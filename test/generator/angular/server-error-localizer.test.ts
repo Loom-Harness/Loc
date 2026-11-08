@@ -98,10 +98,7 @@ describe("Angular — server errors and client rules localize by catalog code", 
     const files = await generateSystemFiles(
       errorCodeSystem("angular")
         .replace("invariant qtyPositive: qty > 0", "invariant qty > 0 && qty <= 9")
-        .replace(
-          'invariant skuShape: sku.length >= 3 message "Sku is too short"',
-          "invariant sku.length >= 3",
-        ),
+        .replace("invariant skuShape: sku.length >= 3", "invariant sku.length >= 3"),
     );
     const pages = [...files].filter(([p]) => p.startsWith("web/src/app/") && p.endsWith(".ts"));
     const text = pages.map(([, s]) => s).join("\n");

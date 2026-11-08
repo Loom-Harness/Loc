@@ -18,7 +18,7 @@ system Shop {
     context Sales {
       aggregate Order with crudish {
         code: string
-        invariant code.length > 0 message "Order code is required"
+        invariant orderCodeRequired: code.length > 0
       }
       repository Orders for Order { }
     }

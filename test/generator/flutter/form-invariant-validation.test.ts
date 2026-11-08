@@ -111,12 +111,12 @@ describe("flutter forms — invariant-derived client validation (M-T1.16)", () =
     );
   });
 
-  it("a regex rides a Dart RAW string, and an AUTHORED message wins", async () => {
+  it("a regex rides a Dart RAW string, and a NAMED rule answers its own text", async () => {
     const src = await formsDart();
     expect(src).toContain(
-      "if (!RegExp(r'^[^@]+@[^@]+$').hasMatch(s)) { return t('C.Ticket.rule.emailLookLikeAddress', 'Email must look like an address'); }",
+      "if (!RegExp(r'^[^@]+@[^@]+$').hasMatch(s)) { return t('C.Ticket.rule.emailAddress', 'Email address'); }",
     );
-    // Not the derived fallback — the author wrote a message.
+    // Not the derived fallback — the rule is named.
     expect(src).not.toContain("Email is not in the expected format");
   });
 

@@ -25,7 +25,7 @@ export const errorCodeSystem = (platform: ErrorCodePlatform, scaffold = true): s
           sku: string
           qty: int
           invariant qtyPositive: qty > 0
-          invariant skuShape: sku.length >= 3 message "Sku is too short"
+          invariant skuShape: sku.length >= 3
         }
         repository Orders for Order { }
       }

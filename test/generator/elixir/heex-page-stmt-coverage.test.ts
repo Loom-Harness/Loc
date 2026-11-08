@@ -109,7 +109,7 @@ describe("HEEx page statement coverage (Bucket E2)", () => {
       `Stack { Button { "go", onClick: act } }`,
       `action act() { requires count > 0 }`,
     );
-    expect(heex).toContain('put_flash(socket, :error, "Forbidden: count > 0")');
+    expect(heex).toContain('put_flash(socket, :error, "Forbidden")');
     expect(heex).not.toMatch(/# TODO/);
   });
 

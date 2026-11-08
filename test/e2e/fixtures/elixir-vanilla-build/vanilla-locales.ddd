@@ -15,7 +15,7 @@ system VanillaLocales {
       aggregate Order with crudish {
         code: string
         total: money
-        invariant code.length > 0 message "Order code is required"
+        invariant orderCodeRequired: code.length > 0
       }
       repository Orders for Order { }
     }
