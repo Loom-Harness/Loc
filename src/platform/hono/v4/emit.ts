@@ -95,6 +95,7 @@ import { T } from "../../../generator/typescript/ts-symbols.js";
 import { deriveEventSubscriptions, enrichLoomModel } from "../../../ir/enrich/enrichments.js";
 import {
   brokerBoundChannelsCarrying,
+  forwardsCallerCredential,
   hostedHierarchyRegistry,
 } from "../../../ir/enrich/hosting-facts.js";
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
@@ -1181,6 +1182,7 @@ export function generateTypeScriptForContexts(
       // deployable with no local reactor (M-T4.4): the relay
       // publishes them on drain.
       forceOutbox: durableBrokerEvents.size > 0 && durableEventTypes(merged).size > 0,
+      forwardCallerCredential: !!system && forwardsCallerCredential(system.deployable, system.sys),
     }),
   );
   // Realtime SSE wire (channels.md Part I): any `delivery: broadcast`

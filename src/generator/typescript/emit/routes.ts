@@ -165,6 +165,10 @@ export function renderHttpIndex(
      *  channel — the outbox must capture them even when this deployable hosts
      *  no reactor (a pure producer), so the relay can publish on drain. */
     forceOutbox?: boolean;
+    /** A typed in-system call to an `auth: required` callee forwards the
+     *  caller's credential, so the request's credential is captured right
+     *  after the auth middleware.  Absent → byte-identical output. */
+    forwardCallerCredential?: boolean;
   },
 ): string {
   const authRequired = !!options?.authRequired;
@@ -316,7 +320,11 @@ export function renderHttpIndex(
   const authVerifyAssert = authRequired
     ? `  ${T.assertUserVerifierRegistered}();\n  ${renderHonoBaseLogCall("authEnabled", "required: true")}`
     : null;
-  const authMount = authRequired ? `  app.use("*", ${T.authMiddleware});` : null;
+  const authMount = authRequired
+    ? options?.forwardCallerCredential
+      ? `  app.use("*", ${T.authMiddleware});\n  app.use("*", ${ref(tsNamed("~/resources/api-clients", "forwardCallerCredential"))});`
+      : `  app.use("*", ${T.authMiddleware});`
+    : null;
   // The dev-only reset re-applies seed data after truncating (it takes the
   // `__loom_seed` marker with it), so it needs `runSeeds` when — and only
   // when — this deployable has any.  Read off the SAME `ctx.seeds` gate the

@@ -960,6 +960,10 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // throws on a second backend).  A reasoned permanent entry for THIS tier;
   // promoting `api-call-e2e` into the queue is packet 3e's row.
   "api-call",
+  // TWO DEPLOYABLES, as `api-call` above, with auth required on both: the
+  // runtime half (the callee stamping the forwarded principal) is
+  // `api-call-e2e`, whose fixture requires auth on both sides.
+  "api-call-auth",
   // BROKER SIDECAR — true of the FIXTURE's declared transport (redis/rabbitmq/
   // kafka) and NOT true of the three routes, which is the distinction this
   // reason was missing (wave-3 row 3.3 fleet re-derived it).  The behavioural

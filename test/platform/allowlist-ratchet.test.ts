@@ -406,7 +406,10 @@ const REGISTERED: Ratchet[] = [
     // 18 → 19: `tenancy-registry-split`, a compile-tier row (the orgPath
     // registry lookup emitted on a deployable without the registry table) that
     // is also two deployables; the cross-deployable resolution it refuses is #4806.
-    max: 19,
+    // 19 → 20: `api-call-auth`, a second-deployable row: the forwarded
+    // credential only means something when both services boot, which
+    // `api-call-e2e` does (its fixture requires auth on both sides).
+    max: 20,
   },
 ];
 

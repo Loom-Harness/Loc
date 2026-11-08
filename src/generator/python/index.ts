@@ -1,4 +1,7 @@
-import { hostedHierarchyRegistry } from "../../ir/enrich/hosting-facts.js";
+import {
+  forwardsCallerCredential,
+  hostedHierarchyRegistry,
+} from "../../ir/enrich/hosting-facts.js";
 import { registryTableName } from "../../ir/enrich/storage-names.js";
 import {
   fieldFixedMessage,
@@ -578,6 +581,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       hasRealtime,
       hasFileRoutes,
       contextStaticSubpathRoutes(args.contexts),
+      forwardsCallerCredential(args.deployable, args.sys),
     ),
   );
   if (hasEmbeddedSpa) {
@@ -1280,6 +1284,7 @@ const M = {
   Request: pyRef("fastapi", "Request"),
   FileResponse: pyRef("fastapi.responses", "FileResponse"),
   AuthMiddleware: pyRef("app.auth.middleware", "AuthMiddleware"),
+  ForwardCallerCredential: pyRef("app.resources.api_clients", "ForwardCallerCredential"),
   auth_router: pyRef("app.auth.routes", "router", "auth_router"),
   User: pyRef("app.auth.user", "User"),
   assert_user_verifier_registered: pyRef("app.auth.verifier", "assert_user_verifier_registered"),
@@ -1326,6 +1331,9 @@ function renderMain(
   // ABSOLUTE path — the guard below needs the whole path because it sits in
   // the application pipeline, not in a per-aggregate router.
   staticSubpaths: Record<string, string[]> = {},
+  // A typed call to an `auth: required` callee forwards the caller's
+  // credential, captured per request by this middleware.
+  forwardCallerCredential = false,
 ): string {
   // Every router mounts under the shared API base path (`/api/*`) so the
   // SPA's root path namespace stays free for client-side routing.
@@ -1524,6 +1532,7 @@ function renderMain(
     // added BEFORE CORS to keep CORS outermost (auth after CORS — the
     // same ordering the Hono/.NET pipelines mount).
     authRequired ? `app.add_middleware(${M.AuthMiddleware})` : null,
+    forwardCallerCredential ? `app.add_middleware(${M.ForwardCallerCredential})` : null,
     `# ${hasStaticSubpathGuard ? "Just outside the sub-path guard" : "Innermost (added first)"}: owns the per-request DB transaction and commits`,
     "# it BEFORE the response starts, so a client's read-after-create can't race",
     "# the commit (a FastAPI yield-dependency commit runs after the response is",

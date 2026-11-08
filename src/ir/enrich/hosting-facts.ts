@@ -29,8 +29,11 @@ import type {
   SystemIR,
   TimerSourceIR,
 } from "../types/loom-ir.js";
+import { apiResourceBindings } from "../util/api-resource-binding.js";
 import { forEachContextExpr } from "../util/model-exprs.js";
+import { reactorBodies } from "../util/system-principal.js";
 import { hasTenantOwned, hierarchyRegistry } from "../util/tenant-stance.js";
+import { walkWorkflowStmtExprsDeep } from "../util/walk.js";
 
 type HostingSys = Pick<SystemIR, "tenancy" | "subdomains" | "deployables">;
 
@@ -180,4 +183,91 @@ export function timerTickEndpoints(
   const carried = eventIsChannelCarried(sys, ts.event);
   const reachable = consumers.filter((d) => d.name === producer || carried);
   return { producer, consumers, reachable };
+}
+
+// ── Cross-deployable typed api calls ────────────────────────────────────────
+
+/** Whose credential a typed `kind: api` call carries to the deployable that
+ *  serves the api.  An `auth: required` callee gets the CALLER's own
+ *  credential, forwarded unchanged (`docs/auth.md` § "Calls between
+ *  deployables"); an open callee gets none, so its client stays as it was.  A
+ *  service credential for callers with no request principal is #4804. */
+export type ApiCallPrincipal = "none" | "forward-caller";
+
+export function apiCallPrincipal(server: Pick<DeployableIR, "auth">): ApiCallPrincipal {
+  return server.auth?.required ? "forward-caller" : "none";
+}
+
+/** Does this deployable forward its caller's credential on any typed api call?
+ *  The per-backend emitters key the inbound-credential capture on this, so a
+ *  deployable whose callees are all open emits nothing new. */
+export function forwardsCallerCredential(
+  dep: DeployableIR,
+  sys: Parameters<typeof apiResourceBindings>[1],
+): boolean {
+  return apiResourceBindings(dep, sys).some((b) => apiCallPrincipal(b.server) === "forward-caller");
+}
+
+/** Typed calls to an `auth: required` callee that have no caller credential to
+ *  forward: a call from an event reactor (an event-triggered `create … by`, an
+ *  `on(e)`, including one a timer tick or a broker consumer drives), and any
+ *  binding on a deployable that authenticates no one. */
+export function principalLessApiCalls(sys: Parameters<typeof apiResourceBindings>[1]): {
+  deployable: DeployableIR;
+  resource: string;
+  server: string;
+  site: string;
+  why: "reactor" | "anonymous-caller";
+}[] {
+  const out: {
+    deployable: DeployableIR;
+    resource: string;
+    server: string;
+    site: string;
+    why: "reactor" | "anonymous-caller";
+  }[] = [];
+  const ctxByName = new Map<string, BoundedContextIR>();
+  for (const sub of sys.subdomains) for (const c of sub.contexts) ctxByName.set(c.name, c);
+  for (const dep of sys.deployables) {
+    if (!platformOwnsBackend(dep.platform)) continue;
+    const guarded = new Map<string, string>();
+    for (const b of apiResourceBindings(dep, sys)) {
+      if (apiCallPrincipal(b.server) !== "forward-caller") continue;
+      guarded.set(b.resource.name, b.server.name);
+      if (!dep.auth?.required) {
+        out.push({
+          deployable: dep,
+          resource: b.resource.name,
+          server: b.server.name,
+          site: dep.name,
+          why: "anonymous-caller",
+        });
+      }
+    }
+    if (guarded.size === 0 || !dep.auth?.required) continue;
+    for (const name of dep.contextNames) {
+      const ctx = ctxByName.get(name);
+      for (const wf of ctx?.workflows ?? []) {
+        for (const body of reactorBodies(wf)) {
+          const seen = new Set<string>();
+          for (const st of body.statements) {
+            walkWorkflowStmtExprsDeep(st, (e) => {
+              if (e.kind !== "call" || e.callKind !== "remote-api-op" || !e.remoteApiOp) return;
+              const server = guarded.get(e.remoteApiOp.resourceName);
+              if (!server || seen.has(e.remoteApiOp.resourceName)) return;
+              seen.add(e.remoteApiOp.resourceName);
+              out.push({
+                deployable: dep,
+                resource: e.remoteApiOp.resourceName,
+                server,
+                site: body.label,
+                why: "reactor",
+              });
+            });
+          }
+        }
+      }
+    }
+  }
+  return out;
 }

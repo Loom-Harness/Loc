@@ -4781,6 +4781,27 @@ export const DIAGNOSTIC_MESSAGES = {
     `system '${p.name}' has ${p.length} aggregates implementing 'tenantRegistry' ` +
     `(${p.registries}); the tenant registry is singular — ` +
     `keep it on exactly one aggregate (the '${p.registryName}' named in 'tenancy by … of').`,
+  "loom.api-call-principal-unsupported#reactor": (p: {
+    name: unknown;
+    resource: unknown;
+    server: unknown;
+    site: unknown;
+  }) =>
+    `'${p.site}' on deployable '${p.name}' calls '${p.resource}', which '${p.server}' serves with ` +
+    `'auth: required'.  A typed call forwards the caller's own credential, and an event ` +
+    `reactor (an event-triggered 'create … by' or an 'on(…)', including one a timer tick or a ` +
+    `broker consumer drives) has none, so the call would answer 401.  Make the call from a ` +
+    `command workflow or handler, or drop 'auth: required' on '${p.server}'.  A service ` +
+    `credential for reactor callers is tracked in #4804.`,
+  "loom.api-call-principal-unsupported#anonymous-caller": (p: {
+    name: unknown;
+    resource: unknown;
+    server: unknown;
+  }) =>
+    `deployable '${p.name}' binds '${p.resource}' to an api that '${p.server}' serves with ` +
+    `'auth: required', but '${p.name}' authenticates no one, so it has no caller credential ` +
+    `to forward and every call would answer 401.  Add 'auth: required' to '${p.name}', or drop ` +
+    `it on '${p.server}'.  A service credential for such callers is tracked in #4804.`,
   "loom.tenancy-registry-remote-unsupported": (p: {
     name: unknown;
     context: unknown;

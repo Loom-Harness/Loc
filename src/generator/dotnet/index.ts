@@ -1,5 +1,8 @@
 import { deriveEventSubscriptions, enrichLoomModel } from "../../ir/enrich/enrichments.js";
-import { hostedHierarchyRegistry } from "../../ir/enrich/hosting-facts.js";
+import {
+  forwardsCallerCredential,
+  hostedHierarchyRegistry,
+} from "../../ir/enrich/hosting-facts.js";
 import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { lowerModel } from "../../ir/lower/lower.js";
@@ -1222,6 +1225,8 @@ function emitProjectFromContexts(
       system?.sys &&
       hostedHierarchyRegistry(system.sys, system.deployable.contextNames)
     ),
+    forwardCallerCredential:
+      authRequired && !!system && forwardsCallerCredential(system.deployable, system.sys),
   });
   emitTestProject(merged, ns, out, resourceEmission.nugetDeps);
   // Fullstack mode — generate the React project under ClientApp/.
@@ -2051,6 +2056,8 @@ function emitProject(
      *  `IOrgPathResolver` → `EfOrgPathResolver` for the per-request
      *  `currentUser.orgPath` registry `data_key` read. */
     orgPathResolver?: boolean;
+    /** Typed calls to an `auth: required` callee forward the caller's credential. */
+    forwardCallerCredential?: boolean;
     /** TimerSource scheduling (scheduling.md, M-T4.1): the owned timers this
      *  deployable emits `<Pascal>TimerService` BackgroundServices for.  Drives
      *  the `AddHostedService<…>()` registrations (Program.cs) and — when any
@@ -2115,6 +2122,7 @@ function emitProject(
       fileUpload: options?.fileUpload,
       oidc: !!options?.oidc,
       orgPathResolver: !!options?.orgPathResolver,
+      forwardCallerCredential: !!options?.forwardCallerCredential,
       hasProvenance: !!options?.hasProvenance,
       timerServices: timerServiceFqns(timers, ns),
       hangfireCronTimers: anyTimerUsesCron(timers),

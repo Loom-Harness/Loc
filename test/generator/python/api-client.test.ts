@@ -220,6 +220,21 @@ describe("Python typed in-system api client", () => {
     expect(await client()).not.toContain("file_ref");
   });
 
+  it("reads a multi-word response field through its camelCase wire alias", async () => {
+    const src = system("string").replace(
+      "aggregate Order with crudish { code: string  status: string }",
+      "aggregate Order with crudish { code: string  status: string  placedOn: datetime }",
+    );
+    const py = (await emit(src)).get("shipping_svc/app/resources/api_clients.py") ?? "";
+    expect(py).toMatch(/^ {4}placed_on: datetime = Field\(alias="placedOn"\)$/m);
+    expect(py).toMatch(/^ {4}code: str$/m);
+    expect(py).toMatch(/^from pydantic import BaseModel, Field$/m);
+  });
+
+  it("imports no Field where every response field is one word", async () => {
+    expect(await client()).toMatch(/^from pydantic import BaseModel$/m);
+  });
+
   it("emits no client module for a deployable that binds no api", async () => {
     const files = await emit(system("string"));
     expect(files.has("orders_svc/app/resources/api_clients.py")).toBe(false);

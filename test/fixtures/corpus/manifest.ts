@@ -818,6 +818,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     // against what actually lands on disk.
     deployables: ["orders_svc", "shipping_svc"],
   },
+  {
+    id: "api-call-auth",
+    title: "typed in-system api call to an `auth: required` callee — the caller's credential is forwarded",
+    doc: "auth",
+    backends: ALL,
+    note: "Two deployables, both `auth: required`: each backend's client copies the inbound bearer token (or the dev-stub claims header) from its request-scoped carrier onto every call.  The runtime half is `api-call-e2e`, whose fixture requires auth on both sides.",
+    deployables: ["orders_svc", "shipping_svc"],
+  },
   { id: "provenance", title: "provenanced stored fields — per-write-site rule snapshots", doc: "provenance", backends: ALL },
   {
     id: "provenance-money",

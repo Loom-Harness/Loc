@@ -61,6 +61,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.containment-cycle": "03-domain-modeling.md#entity-parts--contains",
   "loom.tenant-registry-not-constructible":
     "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
+  "loom.api-call-principal-unsupported": "../auth.md#calling-an-api-that-requires-auth",
   "loom.tenancy-registry-remote-unsupported":
     "02-systems-and-topology.md#a-registry-and-the-deployables-that-read-it",
   "loom.org-context-surface": "02-systems-and-topology.md#organizationcontext--the-operating-scope",

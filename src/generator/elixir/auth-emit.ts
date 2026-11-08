@@ -1,4 +1,7 @@
-import { hostedHierarchyRegistry } from "../../ir/enrich/hosting-facts.js";
+import {
+  forwardsCallerCredential,
+  hostedHierarchyRegistry,
+} from "../../ir/enrich/hosting-facts.js";
 import type {
   AuthIR,
   AuthValueIR,
@@ -109,6 +112,10 @@ export function emitAuth(args: AuthEmitArgs): AuthEmitResult {
   // table; any other keeps the claim-copy (phase ⑦ refuses it when something it
   // hosts reads the path).
   const registry = hostedHierarchyRegistry(sys, deployable.contextNames);
+  // A typed call to an auth-required api forwards the caller's credential.
+  // The request process keeps it beside the principal; a LiveView process
+  // reads it from the Phoenix session the browser pipeline seeded.
+  const forwardCaller = forwardsCallerCredential(deployable, sys);
   const orgPathRegistry =
     registry && sys.tenancy
       ? orgPathRegistryRef(sys, appModule, sys.tenancy.registryName)
@@ -127,15 +134,16 @@ export function emitAuth(args: AuthEmitArgs): AuthEmitResult {
       // 3+5) — only where something reads the operating scope; the phase-⑦
       // `loom.org-context-gate-unmet` makes that imply a hierarchy registry.
       !!orgPathRegistry && systemReadsOrgContext(sys),
+      forwardCaller,
     ),
   );
-  files.set(`lib/${appName}_web/live_auth.ex`, renderLiveAuth(webModule, auth));
+  files.set(`lib/${appName}_web/live_auth.ex`, renderLiveAuth(webModule, auth, forwardCaller));
   // OIDC only: the :browser-pipeline plug that seeds the Phoenix session's
   // `current_user` from the verified session cookie so LiveAuth can gate
   // LiveViews (the `auth: ui` frontend guard).  The dev stub needs none —
   // LiveAuth's dev_user fallback grants LiveViews out of the box.
   if (auth) {
-    files.set(`lib/${appName}_web/browser_auth.ex`, renderBrowserAuth(webModule));
+    files.set(`lib/${appName}_web/browser_auth.ex`, renderBrowserAuth(webModule, forwardCaller));
     // OIDC verifier engine (D-AUTH-OIDC): the Joken.Config token config and the
     // joken_jwks strategy the plug's `verify_token/1` delegates to — the
     // idiomatic library JWKS client the other four backends get out of the box.
@@ -210,6 +218,7 @@ function renderAuthPlug(
   orgPathRegistry?: OrgPathRegistryRef,
   hasFieldMask = false,
   orgContext = false,
+  forwardCaller = false,
 ): string {
   const buildUserBody = renderBuildUser(user, auth);
   const idKey = actorIdKey(user);
@@ -421,7 +430,14 @@ ${
           # the ORIGIN of any event this request raises — the reactor that
           # handles it runs as the system principal in this principal's tenant.
           Process.put(:loom_current_user, user)
-          assign(conn, :current_user, user)
+${
+  forwardCaller
+    ? `          # The caller's credential, for a typed call to an api that requires
+          # auth: the callee authenticates this same principal.
+          Process.put(:loom_caller_credential, caller_credential(conn))
+`
+    : ""
+}          assign(conn, :current_user, user)
 `;
   const authedBody = orgContext
     ? `          case org_context_gate(user, get_req_header(conn, "${ORG_CONTEXT_HEADER}")) do
@@ -622,7 +638,7 @@ ${authedBody}
   defp bypass_path?("/health"), do: true
   defp bypass_path?("/ready"), do: true
 ${handshakeBypass}  defp bypass_path?(_), do: false
-${extractTokenDef}
+${extractTokenDef}${forwardCaller ? CALLER_CREDENTIAL_DEF : ""}
   # Sends a proper 401 body + halts — without send_resp/3 the underlying
   # adapter raises Plug.Conn.NotSentError and the response surfaces as a 500.
   defp send_unauthorized(conn) do
@@ -1547,7 +1563,11 @@ end
 // Mirrors Auth but reads from the session instead of an Authorization header.
 // ---------------------------------------------------------------------------
 
-function renderLiveAuth(webModule: string, auth: AuthIR | undefined): string {
+function renderLiveAuth(
+  webModule: string,
+  auth: AuthIR | undefined,
+  forwardCaller = false,
+): string {
   // DEV STUB: no /auth/callback handshake seeds the browser session in dev, so
   // fall back to the same built-in admin the :api plug grants every request —
   // LiveViews (the sidebar + every gated page) render out of the box instead
@@ -1592,7 +1612,14 @@ defmodule ${webModule}.LiveAuth do
         # too, so a scoped read (\`Repo.prepare_query/3\`) that is not handed
         # the actor explicitly reads under this user rather than raising.
         Process.put(:loom_current_user, user)
-        {:cont, assign(socket, :current_user, user)}
+${
+  forwardCaller
+    ? `        # A typed call made from this LiveView forwards the credential the
+        # browser pipeline kept in the session.
+        Process.put(:loom_caller_credential, Map.get(session, "loom_caller_credential", []))
+`
+    : ""
+}        {:cont, assign(socket, :current_user, user)}
 
       _ ->
         {:halt, Phoenix.LiveView.redirect(socket, to: "${loginRedirect}")}
@@ -1623,7 +1650,7 @@ end
 // session untouched, and LiveAuth bounces the LiveView to the login handshake.
 // ---------------------------------------------------------------------------
 
-function renderBrowserAuth(webModule: string): string {
+function renderBrowserAuth(webModule: string, forwardCaller = false): string {
   return `# Auto-generated.
 defmodule ${webModule}.BrowserAuth do
   @moduledoc """
@@ -1644,9 +1671,45 @@ defmodule ${webModule}.BrowserAuth do
   def call(conn, _opts) do
     case ${webModule}.Auth.session_user(conn) do
       nil -> conn
-      user -> put_session(conn, "current_user", user)
-    end
+${
+  forwardCaller
+    ? `      user ->
+        conn
+        |> put_session("current_user", user)
+        |> put_session("loom_caller_credential", ${webModule}.Auth.caller_credential(conn))
+    end`
+    : `      user -> put_session(conn, "current_user", user)
+    end`
+}
   end
 end
 `;
 }
+
+/** The caller's credential as outbound headers: the bearer token the plug
+ *  accepted (an `Authorization` header, or the HttpOnly `session` cookie) and
+ *  the dev-stub `x-loom-dev-claims` override.  Public so `BrowserAuth` can keep
+ *  it in the Phoenix session for a LiveView process. */
+const CALLER_CREDENTIAL_DEF = `
+  @doc false
+  def caller_credential(conn) do
+    bearer =
+      case get_req_header(conn, "authorization") do
+        [value | _] when value != "" ->
+          [{"authorization", value}]
+
+        _ ->
+          conn = fetch_cookies(conn)
+
+          case conn.cookies["session"] do
+            token when is_binary(token) and token != "" -> [{"authorization", "Bearer " <> token}]
+            _ -> []
+          end
+      end
+
+    case get_req_header(conn, "x-loom-dev-claims") do
+      [claims | _] when claims != "" -> bearer ++ [{"x-loom-dev-claims", claims}]
+      _ -> bearer
+    end
+  end
+`;

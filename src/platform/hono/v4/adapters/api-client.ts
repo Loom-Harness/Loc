@@ -23,6 +23,7 @@
 // ---------------------------------------------------------------------------
 
 import { zodForResponse } from "../../../../generator/_frontend/zod-schemas.js";
+import { apiCallPrincipal } from "../../../../ir/enrich/hosting-facts.js";
 import { forApiRead, wireFieldsForAggregate } from "../../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../../../ir/types/loom-ir.js";
 import {
@@ -119,8 +120,16 @@ export function emitApiClientModule(
 ): string[] {
   if (bindings.length === 0) return [];
   const out: string[] = [];
+  // A callee that requires auth receives the caller's own credential, captured
+  // per request by `forwardCallerCredential` (mounted after the auth
+  // middleware) and replayed on every call to it.  A deployable whose callees
+  // are all open captures nothing.
+  const forwarding = bindings.some((b) => apiCallPrincipal(b.server) === "forward-caller");
+  if (forwarding) out.push(`import { AsyncLocalStorage } from "node:async_hooks";`);
+  if (forwarding) out.push(`import { createMiddleware } from "hono/factory";`);
   out.push(`import { z } from "zod";`);
   out.push(``);
+  if (forwarding) out.push(...callerCredentialCapture());
   out.push(`/** Raised when an in-system call answers with a status the callee's`);
   out.push(` *  contract doesn't describe as a success.  Carries the status so a`);
   out.push(` *  caller can branch on it rather than string-matching a message. */`);
@@ -225,6 +234,7 @@ export function emitApiClientModule(
           `  if (${escapeTsIdent(q.name)} !== undefined) url.searchParams.set(${JSON.stringify(q.name)}, String(${escapeTsIdent(q.name)}));`,
         );
       }
+      const forward = apiCallPrincipal(b.server) === "forward-caller";
       out.push(`  const res = await fetch(url, {`);
       out.push(`    method: ${JSON.stringify(op.method.toUpperCase())},`);
       if (bodyParams.length > 0) {
@@ -232,8 +242,14 @@ export function emitApiClientModule(
           ? escapeTsIdent(bodyParams[0]?.name ?? "body")
           : // Shorthand keeps the wire key; an escaped binding spells it out.
             `{ ${bodyParams.map((p) => (escapeTsIdent(p.name) === p.name ? p.name : `${p.name}: ${escapeTsIdent(p.name)}`)).join(", ")} }`;
-        out.push(`    headers: { "content-type": "application/json" },`);
+        out.push(
+          forward
+            ? `    headers: { ...callerCredentialHeaders(), "content-type": "application/json" },`
+            : `    headers: { "content-type": "application/json" },`,
+        );
         out.push(`    body: JSON.stringify(${payload}),`);
+      } else if (forward) {
+        out.push(`    headers: callerCredentialHeaders(),`);
       }
       out.push(`  });`);
       if (absentAgg) {
@@ -261,4 +277,43 @@ export function emitApiClientModule(
     }
   }
   return out;
+}
+
+/** The per-request capture of the caller's credential: the bearer token the
+ *  auth middleware accepted (an `Authorization` header, or the HttpOnly
+ *  `session` cookie the OIDC handshake sets) and, under the dev-stub verifier,
+ *  the `x-loom-dev-claims` override.  Read back by every call to a callee that
+ *  requires auth. */
+function callerCredentialCapture(): string[] {
+  return [
+    `const callerCredential = new AsyncLocalStorage<Record<string, string>>();`,
+    ``,
+    `function sessionCookie(cookies: string | undefined): string | null {`,
+    `  for (const pair of (cookies ?? "").split(";")) {`,
+    `    const eq = pair.indexOf("=");`,
+    `    if (eq < 0 || pair.slice(0, eq).trim() !== "session") continue;`,
+    `    const value = decodeURIComponent(pair.slice(eq + 1).trim());`,
+    `    return value.length > 0 ? value : null;`,
+    `  }`,
+    `  return null;`,
+    `}`,
+    ``,
+    `/** Captures the inbound caller's credential for the in-system calls this`,
+    ` *  request makes.  Mounted after the auth middleware. */`,
+    `export const forwardCallerCredential = createMiddleware(async (c, next) => {`,
+    `  const headers: Record<string, string> = {};`,
+    `  const authorization = c.req.header("authorization");`,
+    `  const session = authorization ? null : sessionCookie(c.req.header("cookie"));`,
+    `  if (authorization) headers.authorization = authorization;`,
+    "  else if (session) headers.authorization = `Bearer ${session}`;",
+    `  const devClaims = c.req.header("x-loom-dev-claims");`,
+    `  if (devClaims) headers["x-loom-dev-claims"] = devClaims;`,
+    `  await callerCredential.run(headers, next);`,
+    `});`,
+    ``,
+    `function callerCredentialHeaders(): Record<string, string> {`,
+    `  return callerCredential.getStore() ?? {};`,
+    `}`,
+    ``,
+  ];
 }

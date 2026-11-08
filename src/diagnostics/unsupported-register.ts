@@ -175,6 +175,19 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: false,
   },
   {
+    code: "loom.api-call-principal-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/resource-capability-checks.ts:311",
+    what:
+      "a typed call to an api whose server requires auth, made with no request principal " +
+      "to forward: from an event reactor (an event-triggered create, an `on(…)`, a timer " +
+      "tick or a broker consumer), or from a deployable that authenticates no one.  Every " +
+      "backend forwards only the caller's own credential; a service credential is not " +
+      "emitted yet.",
+    mission: "#4804",
+    verified: false,
+  },
+  {
     code: "loom.tenancy-registry-remote-unsupported",
     kind: "scope",
     site: "src/ir/validate/checks/tenancy-checks.ts:535",
