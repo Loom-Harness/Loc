@@ -286,7 +286,11 @@ function expandModel(model: Model, doc: LangiumDocument, shared?: LangiumSharedS
     for (const call of (node as { withClause?: { calls?: MacroCall[] } }).withClause?.calls ?? []) {
       if (isLateCall(call)) expandOneCall(call, node as never, kind, doc, inv, buildRef);
     }
-    if (kind === "context") spliceImplicitApiContracts(node as BoundedContext, inv);
+    // A recovered AST (the document has a syntax error) can lack a member's
+    // type, so no contract is derived from it; the syntax error is reported.
+    if (kind === "context" && !hasSyntaxErrors(doc)) {
+      spliceImplicitApiContracts(node as BoundedContext, inv);
+    }
   }
   void isSystem; // imported for symmetry with future system-level macros
   // ALWAYS-ON, after `with` expansion so scaffold-generated pages are seen too
@@ -319,6 +323,10 @@ function spliceImplicitApiContracts(ctx: BoundedContext, inv: Inventory): void {
   const records = contractRecords(ctx);
   if (records.length === 0) return;
   spliceIntoTarget(ctx, records);
+}
+
+function hasSyntaxErrors(doc: LangiumDocument): boolean {
+  return doc.parseResult.lexerErrors.length > 0 || doc.parseResult.parserErrors.length > 0;
 }
 
 /** True iff the call names a registered `late` macro (see

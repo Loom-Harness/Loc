@@ -185,7 +185,8 @@ const UNCONTRACTED: string[] = [];
 /** Aggregates whose record exists but which the response emitters still render
  *  from the derived shape: a record field cannot carry `mask unless`, so
  *  `declaredResponseFor` keeps a masked aggregate on the derived path (which
- *  does carry the predicate).  Pinned exactly so the gap stays visible. */
+ *  does carry the predicate).  Pinned exactly so the gap stays visible; it
+ *  closes when records carry `mask unless` (#4816) and this list empties. */
 const DERIVED_FALLBACK = [
   "audit-history-guarded.ddd Staff.Employee",
   "audit-history-guarded.ddd Staff.Payslip",

@@ -62,7 +62,9 @@ describe("declared <Agg>Response record paths", () => {
       const form = withHandlers ? "with scaffoldHandlers" : "as written";
       it(`masked fields stay nullable on ${platform} (${form})`, async () => {
         const files = await generateSystemFiles(fixture("field-mask.ddd", platform, withHandlers));
-        MASKED_NULLABLE[platform]([...files.values()].join("\n"));
+        const all = [...files.values()].join("\n");
+        expect(all).toContain("EmployeeResponse");
+        MASKED_NULLABLE[platform](all);
       }, 600_000);
       it(`an optional containment is not double-suffixed on ${platform} (${form})`, async () => {
         const files = await generateSystemFiles(
