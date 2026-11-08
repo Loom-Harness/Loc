@@ -41,6 +41,7 @@ const TS_SYM = {
   startChannelConsumers: tsNamed("~/http/channels", "startChannelConsumers"),
   closeChannelTransports: tsNamed("~/http/channels", "closeChannelTransports"),
   createInProcessTransport: tsNamed("~/http/channels", "createInProcessTransport"),
+  baseLogger: tsNamed("~/obs/log", "baseLogger"),
   ChannelTransport: tsNamed("~/http/channels", "ChannelTransport"),
   ChannelBinding: tsNamed("~/http/channels", "ChannelBinding"),
   DomainEventDispatcher: tsNamed("~/domain/events", "DomainEventDispatcher"),

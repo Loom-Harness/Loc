@@ -2233,11 +2233,11 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
   // which reaches no IdP); otherwise we register a permissive dev stub so the
   // stack boots out of the box (replace in production with a real verifier).
   const devStubDoc = `// Dev-stub verifier (auth/dev-stub.ts) — accepts every request as a\n// built-in identity filling every field the \`user { … }\` block declares.\n// Dev-only: the Loom playground (or curl) can override the claims by\n// sending a base64-encoded JSON object in \`x-loom-dev-claims\`; absent the\n// header the built-in identity is used.  REPLACE for production by calling\n// registerUserVerifier(...) with a real JWT-decoding implementation.\n`;
-  const devStubRegistration = `${T.registerDevStubVerifier}();\nbaseLogger.warn({ event: "auth_dev_stub_registered" });\n`;
+  const devStubRegistration = `${T.registerDevStubVerifier}();\n${T.baseLogger}.warn({ event: "auth_dev_stub_registered" });\n`;
   const authStubCall = !userShape
     ? ""
     : oidc
-      ? `\n// OIDC verifier — validates the IdP's tokens against its\n// JWKS and maps claims onto the typed User.  Configure the issuer /\n// client via the env vars the \`auth { oidc }\` block referenced.\n// \`verifier: "dev-stub"\` registers the dev stub instead: the browser\n// playground reaches no IdP.\nif (opts.verifier === "dev-stub") {\n${indentBlock(devStubRegistration)}} else {\n  ${T.registerOidcVerifier}();\n  baseLogger.info({ event: "auth_oidc_verifier_registered" });\n}\n`
+      ? `\n// OIDC verifier — validates the IdP's tokens against its\n// JWKS and maps claims onto the typed User.  Configure the issuer /\n// client via the env vars the \`auth { oidc }\` block referenced.\n// \`verifier: "dev-stub"\` registers the dev stub instead: the browser\n// playground reaches no IdP.\nif (opts.verifier === "dev-stub") {\n${indentBlock(devStubRegistration)}} else {\n  ${T.registerOidcVerifier}();\n  ${T.baseLogger}.info({ event: "auth_oidc_verifier_registered" });\n}\n`
       : `\n${devStubDoc}${devStubRegistration}`;
   // Tenant-registry orgPath resolver (multi-tenancy) — wired on BOTH
   // persistence paths.  The auth middleware calls it per request; here we bind
@@ -2385,9 +2385,8 @@ const stopTimers = await ${T.startTimerScheduler}(db, inProcessEvents, { infra: 
       : `  async stop() {\n${stopLines.map((l) => `    ${l}\n`).join("")}  },\n`;
   const preamble = `${seedCall}${authStubCall}${orgPathRegistration}`.replace(/^\n/, "");
   const body = `${preamble}${preamble ? "\n" : ""}${wiring}return {\n  app,\n${stopBody}};\n`;
-  // Only what the body reads: a deployable that wires nothing option-driven
-  // (no auth, no channels, no timers) neither logs here nor reads \`opts\`.
-  const loggerImport = /\bbaseLogger\./.test(body) ? 'import { baseLogger } from "./obs/log";\n' : "";
+  // A deployable that wires nothing option-driven (no auth, no channels, no
+  // timers) never reads `opts`.
   const optsParam = /\bopts\./.test(body) ? "opts" : "_opts";
   return `// Auto-generated.
 // The deployable's start-up sequence.  The deployed server (index.ts) runs it
@@ -2395,7 +2394,7 @@ const stopTimers = await ${T.startTimerScheduler}(db, inProcessEvents, { infra: 
 // runs the same function against PGlite.  Start-up wiring belongs here, never
 // in index.ts, so the two hosts cannot drift apart.
 import { createApp } from "./http/index";
-${loggerImport}
+
 /** How the host wants the app booted.  Every option defaults to the deployed
  *  behaviour; the browser playground sets them because it has no IdP, no
  *  broker and no second Postgres connection. */
