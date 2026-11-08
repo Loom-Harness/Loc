@@ -1,7 +1,7 @@
 // Transactional-outbox tier (dispatch-delivery-semantics.md): a channel with
 // `retention: log | work` makes its carried events durable — createApp's
 // default dispatcher records them in `__loom_outbox` (instead of dispatching
-// inline) and index.ts starts a polling relay that drains undispatched rows
+// inline) and boot.ts starts a polling relay that drains undispatched rows
 // through the in-process dispatcher (at-least-once; dead-letter after N
 // attempts via the `event_dead_lettered` catalog event).  An `ephemeral`
 // channel keeps the at-most-once inline path byte-identically.
@@ -69,7 +69,7 @@ describe("transactional outbox emission (retention: log)", () => {
     expect(idx).toContain(
       "events: DomainEventDispatcher = createOutboxDispatcher(db, realtimeTee(createInProcessDispatcher(db, { isolateReactorFailures: true }))),",
     );
-    const boot = files.get("index.ts") ?? "";
+    const boot = files.get("boot.ts") ?? "";
     expect(boot).toContain("const inProcessEvents = realtimeTee(createInProcessDispatcher(db));");
     expect(boot).toContain("const stopOutboxRelay = startOutboxRelay(db, inProcessEvents);");
     expect(boot).toContain("stopOutboxRelay();");
@@ -82,7 +82,7 @@ describe("transactional outbox emission (retention: log)", () => {
     expect(files.get("http/index.ts") ?? "").toContain(
       "events: DomainEventDispatcher = realtimeTee(createInProcessDispatcher(db, { isolateReactorFailures: true })),",
     );
-    expect(files.get("index.ts") ?? "").not.toContain("startOutboxRelay");
+    expect(files.get("boot.ts") ?? "").not.toContain("startOutboxRelay");
   });
 });
 

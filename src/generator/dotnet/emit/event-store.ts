@@ -19,10 +19,63 @@
 // EF's default PascalCase → Postgres case-folding; mirrors the value-object
 // `HasColumnName` fix).
 
+import { STREAM_TENANT_METADATA, streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
 import type { EnrichedAggregateIR } from "../../../ir/types/loom-ir.js";
+import type { AggPool } from "../../../ir/util/inheritance.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { csJsonSqlType } from "../codec-spelling.js";
+import { AMBIENT_CURRENT_USER, renderCsExpr } from "../render-expr.js";
+
+/** A read's `ignoring` clause (`ignoring <Cap>` / `ignoring *`). */
+export interface StreamScopeBypass {
+  bypassAll?: boolean;
+  bypassCaps?: readonly string[];
+}
+
+/** The in-app tenancy predicate of a tenant-scoped event stream (stream-tenancy.ts),
+ *  over the folded aggregate `x` — the fact's tenancy restrictions the read's
+ *  `ignoring` clause does not drop, conjoined.  A stream's tenant is metadata of
+ *  its stored events, adopted onto the folded instance, so the same predicate a
+ *  `tenantOwned` table filters by applies to it.  Null when the stream is not
+ *  tenant-scoped or the read drops every restriction. */
+export function streamScopePredicate(
+  agg: EnrichedAggregateIR,
+  pool: AggPool,
+  bypass?: StreamScopeBypass,
+): string | null {
+  const kept = streamTenancyFor(agg, pool, { ignoring: bypass })?.restrictions ?? [];
+  if (kept.length === 0) return null;
+  return kept
+    .map(
+      (r) =>
+        `(${renderCsExpr(r.predicate!, { thisName: "x", agg, currentUserExpr: AMBIENT_CURRENT_USER })})`,
+    )
+    .join(" && ");
+}
+
+/** The `.Where(...)` suffix a find applies for its tenancy scope ("" when unscoped). */
+export function streamScopeWhere(
+  agg: EnrichedAggregateIR,
+  pool: AggPool,
+  bypass?: StreamScopeBypass,
+): string {
+  const pred = streamScopePredicate(agg, pool, bypass);
+  return pred ? `.Where(x => ${pred})` : "";
+}
+
+/** The event-origin frame for the dispatch of a tenant-scoped stream's events:
+ *  the stream's tenant, entered only when it differs from the raising principal's
+ *  (the common case keeps the request's own frame).  The outbox capture and the
+ *  CloudEvents envelope (`tenantid` / `loomorgpath`) read the ambient origin. */
+export function streamOriginFrameLines(ns: string, indent: string): string[] {
+  return [
+    `${indent}var __ambientOrigin = global::${ns}.Auth.User.CurrentEventOrigin();`,
+    `${indent}using var __streamOrigin = __ambientOrigin?.Tenant == aggregate.TenantId`,
+    `${indent}    ? null`,
+    `${indent}    : global::${ns}.Auth.User.EnterEventOrigin(new global::${ns}.Auth.EventOrigin(aggregate.TenantId, aggregate.DataKey, __ambientOrigin?.CausedBy));`,
+  ];
+}
 
 /** The persistence record (POCO) class name for a context's event log —
  *  `<Ctx>EventRecord`.  ONE per bounded context (not one shared type): EF Core
@@ -46,7 +99,12 @@ export function eventDbSetName(ctxName: string): string {
  *  writes it).  It implements the domain-side `IWorkflowEventRow` marker (audit
  *  so the generic `IWorkflowEventStore<<Ctx>EventRecord>` port
  *  adapter can read the stream key; get/set satisfies the get-only members. */
-export function renderEventRecordPoco(ns: string, ctxName: string): string {
+export function renderEventRecordPoco(
+  ns: string,
+  ctxName: string,
+  /** The log carries the stream tenant metadata columns (`eventLogCarriesTenant`). */
+  carriesTenant = false,
+): string {
   const cls = eventRecordClass(ctxName);
   const marker = ` : global::${ns}.Domain.Common.IWorkflowEventRow`;
   return (
@@ -72,6 +130,13 @@ export function renderEventRecordPoco(ns: string, ctxName: string): string {
       "    public string Type { get; set; } = default!;",
       '    public string Data { get; set; } = "{}";',
       "    public DateTime OccurredAt { get; set; }",
+      // Stream tenant metadata (`stream-tenancy.ts`) — null on every other
+      // stream's rows.
+      ...(carriesTenant
+        ? STREAM_TENANT_METADATA.map(
+            (m) => `    public string? ${upperFirst(m.field)} { get; set; }`,
+          )
+        : []),
       "}",
     ) + "\n"
   );
@@ -85,6 +150,7 @@ export function renderEventRecordConfiguration(
   ctxName: string,
   ns: string,
   schema?: string,
+  carriesTenant = false,
 ): string {
   const cls = `${upperFirst(ctxName)}EventRecordConfiguration`;
   const record = eventRecordClass(ctxName);
@@ -117,6 +183,12 @@ export function renderEventRecordConfiguration(
       '        builder.Property(x => x.Type).HasColumnName("type");',
       `        builder.Property(x => x.Data).HasColumnName("data").HasColumnType("${csJsonSqlType()}");`,
       '        builder.Property(x => x.OccurredAt).HasColumnName("occurred_at");',
+      ...(carriesTenant
+        ? STREAM_TENANT_METADATA.map(
+            (m) =>
+              `        builder.Property(x => x.${upperFirst(m.field)}).HasColumnName("${m.column}");`,
+          )
+        : []),
       "    }",
       "}",
     ) + "\n"

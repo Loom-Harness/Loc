@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { serve } from "@hono/node-server";
 import * as schema from "./db/schema";
-import { createApp } from "./http/index";
+import { bootApp } from "./boot";
 import { migrate } from "./db/migrate";
 import { baseLogger } from "./obs/log";
 import { shutdownTracing } from "./obs/tracing";
@@ -100,16 +100,20 @@ for (let attempt = 1, maxAttempts = 10; ; attempt++) {
     throw err;
   }
 }
-const app = createApp(db);
+
+// Start-up sequence (boot.ts): seeds, verifier, dispatchers, channel
+// consumers, outbox relay, timers — resolved before the port opens.
+const { app, stop } = await bootApp(db);
 const server = serve({ fetch: app.fetch, port });
 baseLogger.info({ event: "server_listening", port });
 
-// Graceful shutdown — close the HTTP server (stops accepting,
-// drains in-flight), then close the pg pool.  Without this SIGTERM
-// drops in-flight work and leaves pg connections lingering.  Both
+// Graceful shutdown — stop what boot started, close the HTTP server (stops
+// accepting, drains in-flight), then close the database.  Without this
+// SIGTERM drops in-flight work and leaves connections lingering.  Both
 // SIGTERM (orchestrator) and SIGINT (Ctrl-C) are handled.
 async function shutdown(signal: string): Promise<void> {
   baseLogger.info({ event: "server_shutdown", signal });
+  await stop();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   baseLogger.info({ event: "server_drained" });
   // Flush buffered OTel spans to the collector before exit (no-op when no

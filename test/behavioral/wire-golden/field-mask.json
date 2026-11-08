@@ -23,8 +23,8 @@
         "name": "Ada",
         "nationalId": null,
         "reviews": [],
-        "salary": null,
-        "version": 1
+        "rowVersion": 1,
+        "salary": null
       }
     },
     {
@@ -46,8 +46,8 @@
         "name": "Ada",
         "nationalId": null,
         "reviews": [],
-        "salary": null,
-        "version": 2
+        "rowVersion": 2,
+        "salary": null
       }
     },
     {
@@ -64,8 +64,8 @@
             "name": "Ada",
             "nationalId": null,
             "reviews": [],
-            "salary": null,
-            "version": 2
+            "rowVersion": 2,
+            "salary": null
           }
         ],
         "page": 1,
@@ -86,8 +86,8 @@
         "name": "Ada",
         "nationalId": null,
         "reviews": [],
-        "salary": null,
-        "version": 2
+        "rowVersion": 2,
+        "salary": null
       }
     },
     {
@@ -187,8 +187,8 @@
         "name": "Ada L",
         "nationalId": null,
         "reviews": [],
-        "salary": null,
-        "version": 3
+        "rowVersion": 3,
+        "salary": null
       }
     },
     {
@@ -395,8 +395,8 @@
         "name": "Ladder",
         "nationalId": null,
         "reviews": [],
-        "salary": null,
-        "version": 1
+        "rowVersion": 1,
+        "salary": null
       }
     },
     {
@@ -411,8 +411,8 @@
         "name": "Ladder",
         "nationalId": null,
         "reviews": [],
-        "salary": null,
-        "version": 1
+        "rowVersion": 1,
+        "salary": null
       }
     },
     {
@@ -429,8 +429,8 @@
             "name": "Ladder",
             "nationalId": null,
             "reviews": [],
-            "salary": null,
-            "version": 1
+            "rowVersion": 1,
+            "salary": null
           }
         ],
         "page": 1,
@@ -453,8 +453,8 @@
             "name": "Ladder",
             "nationalId": null,
             "reviews": [],
-            "salary": null,
-            "version": 1
+            "rowVersion": 1,
+            "salary": null
           }
         ],
         "page": 1,

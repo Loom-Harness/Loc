@@ -127,7 +127,7 @@ describe("document onCreate stamps — node/mikroorm (the SIXTH emission site)",
     // The whole blob is rewritten on update, so a strip would delete the tenant.
     expect(repo).not.toContain("stampUpdate");
     expect(repo).toMatch(
-      /nativeUpdate\(ThingRow, \{ id: aggregate\.id as string, version: expected \}, \{ data,/,
+      /nativeUpdate\(ThingRow, \{ id: aggregate\.id as string, rowVersion: expected \}, \{ data,/,
     );
   });
 });

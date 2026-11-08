@@ -55,8 +55,8 @@
       "body": {
         "id": "<volatile:key>",
         "path": "root",
-        "title": "the root",
-        "version": 1
+        "rowVersion": 1,
+        "title": "the root"
       }
     },
     {
@@ -69,32 +69,32 @@
           {
             "id": "<volatile:key>",
             "path": "root",
-            "title": "the root",
-            "version": 1
+            "rowVersion": 1,
+            "title": "the root"
           },
           {
             "id": "<volatile:key>",
             "path": "root.a",
-            "title": "child a",
-            "version": 1
+            "rowVersion": 1,
+            "title": "child a"
           },
           {
             "id": "<volatile:key>",
             "path": "root.a.b",
-            "title": "grandchild",
-            "version": 1
+            "rowVersion": 1,
+            "title": "grandchild"
           },
           {
             "id": "<volatile:key>",
             "path": "root_a",
-            "title": "delimiter trap",
-            "version": 1
+            "rowVersion": 1,
+            "title": "delimiter trap"
           },
           {
             "id": "<volatile:key>",
             "path": "root%pct",
-            "title": "wildcard trap",
-            "version": 1
+            "rowVersion": 1,
+            "title": "wildcard trap"
           }
         ],
         "page": 1,
@@ -112,14 +112,14 @@
         {
           "id": "<volatile:key>",
           "path": "root.a",
-          "title": "child a",
-          "version": 1
+          "rowVersion": 1,
+          "title": "child a"
         },
         {
           "id": "<volatile:key>",
           "path": "root.a.b",
-          "title": "grandchild",
-          "version": 1
+          "rowVersion": 1,
+          "title": "grandchild"
         }
       ]
     },
@@ -132,8 +132,8 @@
         {
           "id": "<volatile:key>",
           "path": "root%pct",
-          "title": "wildcard trap",
-          "version": 1
+          "rowVersion": 1,
+          "title": "wildcard trap"
         }
       ]
     },
@@ -146,32 +146,32 @@
         {
           "id": "<volatile:key>",
           "path": "root",
-          "title": "the root",
-          "version": 1
+          "rowVersion": 1,
+          "title": "the root"
         },
         {
           "id": "<volatile:key>",
           "path": "root.a",
-          "title": "child a",
-          "version": 1
+          "rowVersion": 1,
+          "title": "child a"
         },
         {
           "id": "<volatile:key>",
           "path": "root.a.b",
-          "title": "grandchild",
-          "version": 1
+          "rowVersion": 1,
+          "title": "grandchild"
         },
         {
           "id": "<volatile:key>",
           "path": "root_a",
-          "title": "delimiter trap",
-          "version": 1
+          "rowVersion": 1,
+          "title": "delimiter trap"
         },
         {
           "id": "<volatile:key>",
           "path": "root%pct",
-          "title": "wildcard trap",
-          "version": 1
+          "rowVersion": 1,
+          "title": "wildcard trap"
         }
       ]
     },
@@ -184,8 +184,8 @@
         {
           "id": "<volatile:key>",
           "path": "root.a.b",
-          "title": "grandchild",
-          "version": 1
+          "rowVersion": 1,
+          "title": "grandchild"
         }
       ]
     },
@@ -204,8 +204,8 @@
       "body": {
         "id": "<volatile:key>",
         "path": "root",
-        "title": "renamed root",
-        "version": 2
+        "rowVersion": 2,
+        "title": "renamed root"
       }
     },
     {
@@ -224,26 +224,26 @@
         {
           "id": "<volatile:key>",
           "path": "root",
-          "title": "renamed root",
-          "version": 2
+          "rowVersion": 2,
+          "title": "renamed root"
         },
         {
           "id": "<volatile:key>",
           "path": "root.a",
-          "title": "child a",
-          "version": 1
+          "rowVersion": 1,
+          "title": "child a"
         },
         {
           "id": "<volatile:key>",
           "path": "root.a.b",
-          "title": "grandchild",
-          "version": 1
+          "rowVersion": 1,
+          "title": "grandchild"
         },
         {
           "id": "<volatile:key>",
           "path": "root%pct",
-          "title": "wildcard trap",
-          "version": 1
+          "rowVersion": 1,
+          "title": "wildcard trap"
         }
       ]
     },
@@ -273,26 +273,26 @@
           {
             "id": "<volatile:key>",
             "path": "root",
-            "title": "renamed root",
-            "version": 2
+            "rowVersion": 2,
+            "title": "renamed root"
           },
           {
             "id": "<volatile:key>",
             "path": "root.a",
-            "title": "child a",
-            "version": 1
+            "rowVersion": 1,
+            "title": "child a"
           },
           {
             "id": "<volatile:key>",
             "path": "root.a.b",
-            "title": "grandchild",
-            "version": 1
+            "rowVersion": 1,
+            "title": "grandchild"
           },
           {
             "id": "<volatile:key>",
             "path": "root%pct",
-            "title": "wildcard trap",
-            "version": 1
+            "rowVersion": 1,
+            "title": "wildcard trap"
           }
         ],
         "page": 1,

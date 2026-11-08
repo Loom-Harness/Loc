@@ -19,7 +19,7 @@
       "body": {
         "code": "C1",
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -50,7 +50,7 @@
       "body": {
         "code": "C2",
         "id": "<volatile:key>",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -61,7 +61,7 @@
       "body": {
         "code": "C2",
         "id": "<volatile:key>",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -87,7 +87,7 @@
           {
             "code": "C2",
             "id": "<volatile:key>",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -132,8 +132,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "sku": "S1",
-        "version": 1
+        "rowVersion": 1,
+        "sku": "S1"
       }
     },
     {
@@ -163,8 +163,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "sku": "S2",
-        "version": 2
+        "rowVersion": 2,
+        "sku": "S2"
       }
     },
     {
@@ -174,8 +174,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "sku": "S2",
-        "version": 2
+        "rowVersion": 2,
+        "sku": "S2"
       }
     },
     {
@@ -200,8 +200,8 @@
         "items": [
           {
             "id": "<volatile:key>",
-            "sku": "S2",
-            "version": 2
+            "rowVersion": 2,
+            "sku": "S2"
           }
         ],
         "page": 1,

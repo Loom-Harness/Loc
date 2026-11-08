@@ -44,7 +44,7 @@ describe(".NET generator — versioned optimistic-concurrency", () => {
     )!;
     expect(cfg, "CustomerConfiguration.cs missing").toBeTruthy();
     expect(cfg).toContain(
-      'builder.Property(x => x.Version).HasColumnName("version").IsConcurrencyToken();',
+      'builder.Property(x => x.RowVersion).HasColumnName("row_version").IsConcurrencyToken();',
     );
   });
 
@@ -52,7 +52,7 @@ describe(".NET generator — versioned optimistic-concurrency", () => {
     const repo = (await generateSystemFiles(dotnetSystem("with versioned"))).get(
       "api/Infrastructure/Repositories/CustomerRepository.cs",
     )!;
-    expect(repo).toContain("var __version = entry.Property(x => x.Version);");
+    expect(repo).toContain("var __version = entry.Property(x => x.RowVersion);");
     expect(repo).toContain("var __expected = expectedVersion;");
     expect(repo).toContain("if (__expected.HasValue) __version.OriginalValue = __expected.Value;");
     expect(repo).toContain("__version.CurrentValue = __version.OriginalValue + 1;");
@@ -115,7 +115,7 @@ describe(".NET generator — versioned optimistic-concurrency", () => {
     const repo = files.get("api/Infrastructure/Repositories/CustomerRepository.cs")!;
     const filter = files.get("api/Api/DomainExceptionFilter.cs")!;
     expect(cfg).toContain(
-      'builder.Property(x => x.Version).HasColumnName("version").IsConcurrencyToken();',
+      'builder.Property(x => x.RowVersion).HasColumnName("row_version").IsConcurrencyToken();',
     );
     expect(repo).toContain("var __expected = expectedVersion;");
     expect(repo).toContain("if (__expected.HasValue) __version.OriginalValue = __expected.Value;");

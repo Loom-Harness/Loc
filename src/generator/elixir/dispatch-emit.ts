@@ -1,4 +1,5 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
+import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
 import type {
   ChannelIR,
   CreateIR,
@@ -845,12 +846,24 @@ function renderProjectionFoldHandler(
     changeEntries.length > 0
       ? `Ecto.Changeset.change(state, %{${changeEntries.join(", ")}})`
       : `Ecto.Changeset.change(state)`;
+  // A tenant-scoped fold (`fold-tenancy.ts`) reads the event's tenant from its
+  // metadata — the dispatching process's event origin — keys the row by it and
+  // stamps it on allocation.  An event with no tenant has no tenant's row.
+  const tenancy = foldTenancyFor(proj);
+  const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
+  const tenantCol = cols ? snake(cols.tenant.field) : "";
+  const lookup = cols
+    ? `${appModule}.Repo.get_by(${rowMod}, ${snake(corr)}: key, ${tenantCol}: tenant)`
+    : `${appModule}.Repo.get(${rowMod}, key)`;
+  const seed = cols
+    ? `${snake(corr)}: key, ${tenantCol}: tenant, ${snake(cols.dataKey.field)}: Map.get(origin, "orgPath") || tenant`
+    : `${snake(corr)}: key`;
   const body = [
     `    key = ${keyExpr}`,
     "",
     `    state =`,
-    `      case ${appModule}.Repo.get(${rowMod}, key) do`,
-    `        nil -> %${rowMod}{${snake(corr)}: key}`,
+    `      case ${lookup} do`,
+    `        nil -> %${rowMod}{${seed}}`,
     `        existing -> existing`,
     `      end`,
     "",
@@ -858,13 +871,28 @@ function renderProjectionFoldHandler(
     `    {:ok, _} = ${appModule}.Repo.insert_or_update(${changeset})`,
     `    :ok`,
   ];
+  const event = `%${contextModule}.Events.${upperFirst(on.event)}{} = event`;
+  const handle = cols
+    ? `  def handle(${event}) do
+    origin = ${appModule}Web.Auth.current_event_origin() || %{}
+
+    case Map.get(origin, "tenant") do
+      nil -> :ok
+      tenant -> fold(event, tenant, origin)
+    end
+  end
+
+  defp fold(event, tenant, origin) do
+${body.join("\n")}
+  end`
+    : `  def handle(${event}) do
+${body.join("\n")}
+  end`;
   return `# Auto-generated.
 defmodule ${projectionHandlerModule(contextModule, proj, on)} do
   @moduledoc "Projection fold for ${upperFirst(on.event)} → ${upperFirst(proj.name)}."
 
-  def handle(%${contextModule}.Events.${upperFirst(on.event)}{} = event) do
-${body.join("\n")}
-  end
+${handle}
 end
 `;
 }

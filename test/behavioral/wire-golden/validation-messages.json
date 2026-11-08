@@ -103,10 +103,10 @@
             "name": "Widget",
             "quantity": 2,
             "reorderLevel": 1,
+            "rowVersion": 1,
             "sku": {
               "code": "WID"
-            },
-            "version": 1
+            }
           }
         ],
         "page": 1,
@@ -125,10 +125,10 @@
         "name": "Widget",
         "quantity": 2,
         "reorderLevel": 1,
+        "rowVersion": 1,
         "sku": {
           "code": "WID"
-        },
-        "version": 1
+        }
       }
     },
     {
@@ -148,10 +148,10 @@
         "name": "Widget",
         "quantity": 5,
         "reorderLevel": 1,
+        "rowVersion": 2,
         "sku": {
           "code": "WID"
-        },
-        "version": 2
+        }
       }
     },
     {
@@ -171,10 +171,10 @@
         "name": "Widget",
         "quantity": 4,
         "reorderLevel": 1,
+        "rowVersion": 3,
         "sku": {
           "code": "WID"
-        },
-        "version": 3
+        }
       }
     },
     {
@@ -189,10 +189,10 @@
             "name": "Widget",
             "quantity": 4,
             "reorderLevel": 1,
+            "rowVersion": 3,
             "sku": {
               "code": "WID"
-            },
-            "version": 3
+            }
           }
         ],
         "page": 1,
@@ -212,10 +212,10 @@
           "name": "Widget",
           "quantity": 4,
           "reorderLevel": 1,
+          "rowVersion": 3,
           "sku": {
             "code": "WID"
-          },
-          "version": 3
+          }
         }
       ]
     },
@@ -276,10 +276,10 @@
         "name": "😀😀😀😀😀😀😀😀😀",
         "quantity": 4,
         "reorderLevel": 1,
+        "rowVersion": 4,
         "sku": {
           "code": "WID"
-        },
-        "version": 4
+        }
       }
     },
     {

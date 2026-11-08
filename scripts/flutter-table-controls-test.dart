@@ -34,7 +34,7 @@ void main() {
           // (`'1.0000'` — the fixed-scale decimal every backend serves), not a
           // number: money is `NUMERIC(19,4)` and a Dart `double` cannot hold
           // that range exactly (M-T1.21).
-          items: <Product>[Product(id: 'p1', name: 'alpha', price: '1.0000', version: 1)],
+          items: <Product>[Product(id: 'p1', name: 'alpha', price: '1.0000', rowVersion: 1)],
           page: 1,
           pageSize: 1,
           total: 5,

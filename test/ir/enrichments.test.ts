@@ -31,7 +31,7 @@ describe("enrichment — wireShape", () => {
       "id",
       "property",
       "property",
-      "property", // version — default-on optimistic concurrency (M-T3.4)
+      "property", // rowVersion — default-on optimistic concurrency (M-T3.4)
       "containment",
       "derived",
     ]);
@@ -39,7 +39,7 @@ describe("enrichment — wireShape", () => {
       "id",
       "customerId",
       "total",
-      "version",
+      "rowVersion",
       "lines",
       "lineCount",
     ]);

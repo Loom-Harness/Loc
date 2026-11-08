@@ -21,7 +21,7 @@
         "email": "a@x.com",
         "id": "<volatile:key>",
         "name": "Acme",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -41,7 +41,7 @@
         "email": "a@x.com",
         "id": "<volatile:key>",
         "name": "Acme",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -61,7 +61,7 @@
         "email": "a@x.com",
         "id": "<volatile:key>",
         "name": "Acme",
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -74,7 +74,7 @@
         "email": "a@x.com",
         "id": "<volatile:key>",
         "name": "Acme",
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -88,7 +88,7 @@
           "email": "a@x.com",
           "id": "<volatile:key>",
           "name": "Acme",
-          "version": 3
+          "rowVersion": 3
         }
       ]
     },

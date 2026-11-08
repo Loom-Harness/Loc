@@ -32,7 +32,7 @@ export const CustomerResponse = z.object({
   username: z.string(),
   email: z.string(),
   age: z.number().int(),
-  version: z.number().int(),
+  rowVersion: z.number().int(),
   display: z.string(),
 });
 export type CustomerResponse = z.infer<typeof CustomerResponse>;
@@ -90,7 +90,7 @@ export function useUpdateCustomer(id: string) {
   return useMutation({
     mutationFn: async (input: UpdateCustomerRequest) => {
       const loaded = qc.getQueryData<CustomerResponse>(["customers", id]);
-      await api.post(`/customers/${seg(id)}/update`, input, ifMatch(loaded?.version));
+      await api.post(`/customers/${seg(id)}/update`, input, ifMatch(loaded?.rowVersion));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["customers", id] });

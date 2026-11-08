@@ -80,13 +80,13 @@ system UnionMatchArms {
     expect(api.tickets.close(u, { kind: "reject", notes: "no part" })).toThrow(422)
     let untouched = api.tickets.getById(u)
     expect(untouched.closed).toBe(false)
-    expect(untouched.version).toBe(1)
+    expect(untouched.rowVersion).toBe(1)
     let closed = api.tickets.close(u, { kind: "replace", notes: "seat" })
     expect(closed.type).toBe("Replaced")
     expect(closed.part).toBe("seat")
     let committed = api.tickets.getById(u)
     expect(committed.closed).toBe(true)
-    expect(committed.version).toBe(2)
+    expect(committed.rowVersion).toBe(2)
 
     // The remaining generated routes.  `t` goes first: no read records its
     // `version`, which only the non-mutating calls above moved.

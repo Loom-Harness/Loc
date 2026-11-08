@@ -10,6 +10,7 @@ import type { EnrichedAggregateIR, RepositoryIR, TypeIR } from "../../../ir/type
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { renderTsType } from "../render-expr.js";
 import { aggHasFieldMask } from "../repository-wire-builder.js";
+import { TT } from "../ts-symbols.js";
 
 /**
  * The `User` type-only import a `mask unless` aggregate's repository needs.
@@ -56,7 +57,7 @@ export function tsParamType(t: TypeIR): string {
   // A collection keeps its element type (`string[]`, `Ids.XId[]`); the shared
   // TS type renderer owns the element mapping.
   if (inner.kind === "array") return renderTsType(inner);
-  if (inner.kind === "id") return `Ids.${inner.targetName}Id`;
+  if (inner.kind === "id") return `${TT.Ids}.${inner.targetName}Id`;
   if (inner.kind === "enum") return inner.name;
   if (inner.kind === "primitive") {
     switch (inner.name) {
