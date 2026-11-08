@@ -1,4 +1,4 @@
-import type { EnrichedBoundedContextIR, SystemIR } from "../../ir/types/loom-ir.js";
+import type { EnrichedBoundedContextIR, FieldIR, SystemIR } from "../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { voHasConstraints } from "./vanilla/changeset-validators.js";
 import { pureCoreShape } from "./vanilla/domain-core-emit.js";
@@ -29,6 +29,8 @@ export function emitAggregateTests(
   appModule: string,
   out: Map<string, string>,
   sys?: SystemIR,
+  /** The `user { … }` fields when the deployable emits the auth plug. */
+  principalUser?: readonly FieldIR[],
 ): boolean {
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
   // Which pure core each aggregate gets (`domain-core-emit.ts`) — a test body
@@ -86,7 +88,8 @@ export function emitAggregateTests(
   // Context INTEGRATION test (test-placement.md) — an ExUnit module
   // that persists→reads through the context module against the live Ecto repo
   // (Sandbox-isolated).  Emitted only when the context declares integration tests.
-  const integration = renderVanillaContextIntegrationTest(ctx, appModule);
+  // The auth plug ships when the deployable requires auth (`emitAuth`).
+  const integration = renderVanillaContextIntegrationTest(ctx, appModule, principalUser);
   if (integration) {
     out.set(`test/${snake(ctx.name)}_integration_test.exs`, integration);
     emitted = true;
