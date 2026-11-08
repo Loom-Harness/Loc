@@ -15,7 +15,12 @@
 
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
-import { revealTreeRow, selectExample, waitForPlaygroundReady } from "./_helpers";
+import {
+  readEditorSource,
+  revealTreeRow,
+  selectExample,
+  waitForPlaygroundReady,
+} from "./_helpers";
 
 /** Wipe the playground's IndexedDB so each test starts clean (mirrors
  *  workspace-persistence.spec.ts / workspace-history.spec.ts). */
@@ -67,6 +72,34 @@ async function retypeEditor(page: Page, text: string): Promise<void> {
   await page.keyboard.type(text);
 }
 
+/** Wait until `fileName` DURABLY holds what `page`'s editor shows.
+ *
+ *  A second tab on the same workspace is the observable: it reads the store
+ *  from IndexedDB (LightningFS hands it the store only after this tab has
+ *  flushed its file listing and released the lock), and the tab bus refreshes
+ *  it whenever this tab's writes land.  So it shows the text exactly when a
+ *  reload would.  Each keystroke is its own queued store write, and under
+ *  load that queue drains seconds after the editor shows the text — a fixed
+ *  sleep then reloads mid-queue and loses the tail of the edit, or the whole
+ *  file while its listing is still unflushed. */
+async function expectPersisted(page: Page, fileName: string): Promise<void> {
+  const text = await readEditorSource(page);
+  const probe = await page.context().newPage();
+  try {
+    await probe.goto("/");
+    await waitForPlaygroundReady(probe);
+    const tree = await userCodeTree(probe);
+    const row = tree.getByText(fileName, { exact: true });
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await row.click();
+    await expect
+      .poll(() => readEditorSource(probe), { timeout: 60_000, message: `${fileName} on disk` })
+      .toBe(text);
+  } finally {
+    await probe.close();
+  }
+}
+
 const EXAMPLE = /Multi-file project \(root-level shared types\)/;
 
 test("a file added in the tree persists, survives reload, and reaches Generate", async ({
@@ -93,8 +126,9 @@ test("a file added in the tree persists, survives reload, and reaches Generate",
   // --- type into it -----------------------------------------------------
   await retypeEditor(page, "enum Grade { A, B, C }");
   await expect(editor).toContainText("enum Grade", { timeout: 10_000 });
-  // Past the autosave debounce so the git store has the content.
-  await page.waitForTimeout(1500);
+  // The reload below proves the store kept it, so it waits for the store to
+  // have it.
+  await expectPersisted(page, "grade.ddd");
 
   // --- survives a reload ------------------------------------------------
   await page.goto("/"); // hash-free, so IDB (not `#s=`) wins the seed race
