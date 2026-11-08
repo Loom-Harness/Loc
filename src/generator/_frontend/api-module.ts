@@ -35,6 +35,7 @@ import {
 import { AUDIT_HISTORY_FIND } from "../../ir/util/audit-history.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
+import { maskedPatchParams } from "../../ir/util/op-gates.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
@@ -253,7 +254,7 @@ export function buildApiModule(
     lines.push(
       ...emitObjectWithRefines(
         `${upperFirst(op.name)}${agg.name}Request`,
-        op.params.map((p) => ({ name: p.name, base: zodForRequest(p.type) })),
+        opRequestFields(op),
         opInvariants,
         new Set(op.params.map((p) => p.name)),
       ),
@@ -910,6 +911,17 @@ export function dualTypeAliases(name: string): string[] {
     `/** Post-parse payload shape (z.output) — money fields are Decimal. */`,
     `export type ${name}Payload = z.output<typeof ${name}Request>;`,
   ];
+}
+
+/** The `<Op><Agg>Request` zod members — one per op param.  A masked
+ *  merge-patch key (`maskedPatchParams`) is optional: the generated form
+ *  leaves it out, and an absent key keeps the stored value. */
+export function opRequestFields(op: OperationIR): { name: string; base: string }[] {
+  const masked = maskedPatchParams(op);
+  return op.params.map((p) => ({
+    name: p.name,
+    base: masked.has(p.name) ? `${zodForRequest(p.type)}.optional()` : zodForRequest(p.type),
+  }));
 }
 
 function zodForRequest(t: TypeIR): string {
