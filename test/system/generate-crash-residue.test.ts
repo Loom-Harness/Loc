@@ -117,6 +117,27 @@ system S {
     expect(codes).toContain("loom.collection-field-unpersisted");
   });
 
+  it("gives the document reason (no join table), not the column-flattening one, on a `shape: document` aggregate", async () => {
+    const src = sys(`valueobject Pin { tags: Tag id[] }
+      aggregate Order shape: document with crudish { code: string  pin: Pin }`);
+    const { model } = await parseString(src);
+    const diag = validateLoomModel(enrichLoomModel(lowerModel(model))).find(
+      (d) => d.code === "loom.collection-field-unpersisted",
+    );
+    expect(diag?.message).toContain("join table");
+    expect(diag?.message).not.toContain("flattens into scalar");
+  });
+
+  it("keeps the column-flattening reason on a relational aggregate", async () => {
+    const src = sys(`valueobject Pin { tags: Tag id[] }
+      aggregate Order with crudish { code: string  pin: Pin }`);
+    const { model } = await parseString(src);
+    const diag = validateLoomModel(enrichLoomModel(lowerModel(model))).find(
+      (d) => d.code === "loom.collection-field-unpersisted",
+    );
+    expect(diag?.message).toContain("flattens into scalar");
+  });
+
   it("still refuses the nested collection on a `shape: embedded` aggregate's own columns", async () => {
     const codes = await errorCodes(
       sys(`valueobject Bag { labels: Label[] }

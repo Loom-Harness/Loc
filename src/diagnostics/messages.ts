@@ -348,6 +348,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `flattens into scalar '<field>_<sub>' columns, and such a collection has no column shape, so ` +
     `no backend would store it.  Declare the collection directly on the aggregate (or entity ` +
     `part) instead of inside '${p.voName}'.`,
+  "loom.collection-field-unpersisted#nested-in-value-object-document": (p: {
+    owner: unknown;
+    ownerName: unknown;
+    field: unknown;
+    voName: unknown;
+    path: unknown;
+  }) =>
+    `${p.owner} '${p.ownerName}' field '${p.field}' persists value object '${p.voName}', which holds ` +
+    `a collection of references ('${p.path}').  A 'shape: document' aggregate stores the value ` +
+    `object inside its jsonb document, but a reference collection persists only as a join table, ` +
+    `and no join table is derived for a collection nested inside a value object, so no backend ` +
+    `would store it.  Declare the 'X id[]' directly on the aggregate instead of inside ` +
+    `'${p.voName}'.`,
   "loom.channel-key-missing-field": (p: { name: unknown; key: unknown; evName: unknown }) =>
     `channel '${p.name}' key '${p.key}' is not a field of carried event '${p.evName}'.`,
   "loom.channelsource-transport-invalid": (p: {

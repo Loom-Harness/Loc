@@ -585,7 +585,7 @@ A collection of references (`X id[]`) or of value objects (`Money[]`) needs a ta
 | aggregate root field | join table | id-less child table |
 | entity part field | — refused (except under `persistence: mikroorm`, which folds it into jsonb) | id-less child table on java; one jsonb column under `persistence: dapper` / `mikroorm`; refused on every other host |
 | projection / workflow state field | one `jsonb` id-array column | — refused |
-| inside a persisted value object | — refused | — refused (accepted on a `shape: document` aggregate, whose jsonb blob holds it as a JSON array) |
+| inside a persisted value object | — refused (on a `shape: document` aggregate too: a reference collection persists only as a join table, and none is derived inside a value object) | — refused (accepted on a `shape: document` aggregate, whose jsonb blob holds it as a JSON array) |
 
 `X id[]?` is refused everywhere: a reference collection is a set, and the empty set already means "none". Each refusal is `loom.collection-field-unpersisted`:
 
