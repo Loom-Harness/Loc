@@ -48,7 +48,7 @@ describe("HEEx — mask unless on LiveView pages (#3720)", () => {
     expect(detail).toContain(`(if ${PRED}, do: @data.insurance_no, else: nil)`);
     // No bare read of the clear value survives anywhere on either page.
     for (const page of [list, detail]) {
-      expect(page.replaceAll(/\(if [^]*?, else: nil\)/g, "")).not.toMatch(
+      expect(page.replaceAll(/\(if [\s\S]*?, else: nil\)/g, "")).not.toMatch(
         /(?:o|@data)\.insurance_no\b/,
       );
     }
