@@ -184,7 +184,7 @@ jobs:
                   invariant name.length >= 2 && name.length <= 60
                   invariant price >= 1
                   invariant unitPrice > 0
-                  invariant name.matches("^[A-Za-z0-9 ]+$") message "Name may only contain letters, digits and spaces"
+                  invariant nameMayOnlyContainLettersDigitsAndSpaces: name.matches("^[A-Za-z0-9 ]+$")
                 }
                 repository Categories for Category { }
                 repository Products for Product { }
