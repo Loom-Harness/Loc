@@ -911,7 +911,8 @@ export function contextFilterPredicate(
 
 /** Lower an aggregate's `writeScopeFilter` (authorization — the
  *  WRITE-ladder guard) to a single Drizzle predicate string, or null when the
- *  aggregate has no write-scope narrowing.  Renders `currentUser.<field>`
+ *  aggregate has no write-scope narrowing.  Throws a `QueryEmissionRefusal`
+ *  when a declared scope is not lowerable.  Renders `currentUser.<field>`
  *  against the ambient `requireCurrentUser()` accessor, exactly like the read
  *  capability filter.  Adds the Drizzle ops it uses to `ops`. */
 export function writeScopePredicate(
@@ -924,7 +925,9 @@ export function writeScopePredicate(
   const l = lowerToDrizzle(agg.writeScopeFilter, tableName, ctx, {
     principalAccessor: "requireCurrentUser()",
   });
-  if (!l) return null;
+  // A declared write scope that cannot be lowered is a coded refusal: returning
+  // null would drop the guard and leave every mutation unscoped (fail-open).
+  if (!l) refuseOutOfVocabulary("drizzle-predicate", `write restriction on '${agg.name}'`);
   for (const op of l.ops) ops.add(op);
   return l.expr;
 }
