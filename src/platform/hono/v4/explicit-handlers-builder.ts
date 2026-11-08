@@ -124,6 +124,7 @@ import {
   zodForResponseInner,
 } from "./routes-builder.js";
 import {
+  auditAfterSaveLines,
   collectReposForWorkflow,
   entryErrorAnswer,
   entryResultLines,
@@ -717,16 +718,17 @@ function entryHandlerBody(
     );
   }
   const readPortArgs = readPortResolver(ctx);
-  out.push(
-    ...renderWorkflowStmtChunks(
-      h.statements,
-      honoWorkflowStmtTarget(ctx, paramExprs, "this", { dbHandle: "tx", repoVarByAgg }),
-      "        ",
-    ).flat(),
-  );
+  const body = renderWorkflowStmtChunks(
+    h.statements,
+    honoWorkflowStmtTarget(ctx, paramExprs, "this", { dbHandle: "tx", repoVarByAgg }),
+    "        ",
+  ).flat();
+  const audits = auditAfterSaveLines(body, "        ");
+  out.push(...audits.head, ...body);
   for (const save of h.savesAtExit) {
     out.push(`        await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
   }
+  out.push(...audits.tail);
   const errorTest = entryErrorTags(er)
     .map((t) => `handlerResult.type === ${JSON.stringify(t)}`)
     .join(" || ");
