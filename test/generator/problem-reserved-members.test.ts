@@ -38,7 +38,8 @@ describe("problem body reserved members", () => {
     const model = await buildLoomModel(SOURCE);
     const ctx = model.systems[0]!.subdomains[0]!.contexts[0]!;
     const op = ctx.aggregates[0]!.operations.find((o) => o.name === "reject")!;
-    const split = opUnionResponses((op.returnType as { variants: never[] }).variants, ctx as never);
+    if (op.returnType?.kind !== "union") throw new Error("reject() must return a union");
+    const split = opUnionResponses(op.returnType.variants, ctx);
     const rejected = split.errors.find((e) => e.tag === "Rejected")!;
     expect(rejected.fields.map((f) => f.name)).toEqual(["reason"]);
   });
