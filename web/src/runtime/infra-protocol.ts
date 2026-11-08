@@ -2,8 +2,7 @@
 // browser twin of the non-application services in `docker-compose.yml`.
 //
 //   main thread ──► infra worker ──► storage host worker (one per storage)
-//                    ├─ broker state (infra/broker-model.ts)
-//                    └─ further services (infra/services.ts)
+//                    └─ registered services (infra/services.ts)
 //   deployable worker ── InfraPort (MessagePort) ──► infra worker
 //
 // Deployable workers reach a storage directly: each opens a `PGliteWorker`

@@ -43,9 +43,12 @@ Heavy work runs in Web Workers, not on the UI thread:
 - an **infra worker** (`src/runtime/infra.worker.ts`) — the shared
   infrastructure `docker-compose.yml` runs beside the services: one PGlite
   per `storage`, each in a nested storage host worker, and the services
-  registered in `src/runtime/infra/services.ts` (the message broker). A
-  deployable reaches a storage through `PGliteWorker` and every other service
-  through its `InfraPort`, a `MessagePort` the engine hands it at boot.
+  registered in `src/runtime/infra/services.ts` (the message broker). A deployable reaches a
+  storage through `PGliteWorker` and every other service through its
+  `InfraPort`, a `MessagePort` the engine hands it at boot (routing:
+  `src/runtime/infra/router.ts`; a service implements
+  `src/runtime/infra/service.ts` and adds its ops to `InfraServiceOps` in
+  `src/runtime/infra-protocol.ts`).
 
 ## The four capabilities
 

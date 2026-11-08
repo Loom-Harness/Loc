@@ -2,12 +2,12 @@
 // The playground's shared infrastructure — what `docker-compose.yml` runs
 // beside the application services: one database per `storage`, each in its
 // own storage host worker (`storage-host.worker.ts`), and the services of
-// `infra/services.ts` (the message broker, …).
+// `infra/services.ts`.
 //
 // Deployable workers hold no infrastructure state: they reach a storage
 // through the `channel` its `open` returns, and every other service through
-// their `InfraPort` — the `MessagePort` the `connect` op hands over.  See
-// `infra-protocol.ts`.
+// their `InfraPort` — the `MessagePort` the `connect` op hands over (routing:
+// `infra/router.ts`).  See `infra-protocol.ts`.
 
 import type {
   HostControl,
@@ -17,12 +17,11 @@ import type {
   HostResponse,
   InfraProgress,
   InfraRequest,
-  InfraResponse,
   StorageOp,
   StorageOpenResult,
 } from "./infra-protocol.js";
+import { InfraRouter } from "./infra/router.js";
 import { createServices } from "./infra/services.js";
-import type { InfraPush } from "./infra/service.js";
 import { errText } from "./migrate.js";
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -109,7 +108,7 @@ function host(key: string): StorageHost {
   return h;
 }
 
-async function storage(req: StorageOp): Promise<InfraResponse["result"]> {
+async function storage(req: StorageOp): Promise<unknown> {
   switch (req.op) {
     case "open": {
       const { key, dataDir, fresh } = req.params;
@@ -147,69 +146,13 @@ async function storage(req: StorageOp): Promise<InfraResponse["result"]> {
   }
 }
 
-/** Connected deployables, by slug: the infra end of each one's `InfraPort`. */
-const clients = new Map<string, MessagePort>();
-
-const services = createServices({
-  push(client: string, message: InfraPush) {
-    clients.get(client)?.postMessage(message);
+const router = new InfraRouter({
+  createServices,
+  storage,
+  async closeStorages() {
+    await Promise.all([...storages.values()].map((h) => h.close()));
+    storages.clear();
   },
 });
 
-function disconnect(client: string): void {
-  const port = clients.get(client);
-  if (!port) return;
-  clients.delete(client);
-  port.close();
-  for (const svc of services.values()) svc.disconnect?.(client);
-}
-
-async function handle(req: InfraRequest, client: string | null, ports: readonly MessagePort[]): Promise<unknown> {
-  if (req.service === "storage") {
-    if (client !== null) throw new Error("A deployable reaches its storage through PGliteWorker, not the infra port.");
-    return storage(req);
-  }
-  if (req.service === "infra") {
-    if (client !== null) throw new Error(`infra.${req.op} is for the main thread only.`);
-    switch (req.op) {
-      case "reset":
-        for (const slug of [...clients.keys()]) disconnect(slug);
-        await Promise.all([...storages.values()].map((h) => h.close()));
-        storages.clear();
-        for (const svc of services.values()) await svc.reset();
-        return { ok: true };
-      case "connect": {
-        const port = ports[0];
-        if (!port) throw new Error("infra.connect needs a transferred MessagePort.");
-        const slug = req.params.client;
-        disconnect(slug);
-        clients.set(slug, port);
-        port.onmessage = (msg: MessageEvent<InfraRequest>) => void serve(msg.data, slug, [], port);
-        return { ok: true };
-      }
-      case "disconnect":
-        disconnect(req.params.client);
-        return { ok: true };
-    }
-  }
-  const svc = services.get(req.service);
-  if (!svc) throw new Error(`Unknown infra service "${(req as { service: string }).service}".`);
-  return svc.handle(req, { client });
-}
-
-async function serve(
-  req: InfraRequest,
-  client: string | null,
-  ports: readonly MessagePort[],
-  reply: { postMessage(msg: InfraResponse): void },
-): Promise<void> {
-  const response: InfraResponse = { id: req.id };
-  try {
-    response.result = await handle(req, client, ports);
-  } catch (err) {
-    response.error = { message: errText(err) };
-  }
-  reply.postMessage(response);
-}
-
-self.onmessage = (ev: MessageEvent<InfraRequest>) => void serve(ev.data, null, ev.ports, self);
+self.onmessage = (ev: MessageEvent<InfraRequest>) => void router.serve(ev.data, null, ev.ports, self);
