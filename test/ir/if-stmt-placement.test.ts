@@ -1,20 +1,14 @@
-// M-FT.11 — the two placement gates on the `if` statement.
+// M-FT.11 — where the `if` statement may be written.
 //
-// `if … { } else { }` renders on the four backends that share the
-// `_stmt/target.ts` spine (node / dotnet / java / python, pinned by
-// `test/generator/if-statement-render.test.ts`).  The two surfaces that do NOT
-// render it must say so with a `loom.*` code, because both alternatives are the
-// failure shape this repo treats as worst:
+// In a domain body it is valid on every backend: lowering rewrites an early
+// `return` into branch-total form and every backend renders the result, so a
+// model's validity does not depend on the target.  A ui body is the one place
+// it does not render — every frontend expresses a condition as a VALUE — and
+// that refusal is target-neutral too (`loom.if-stmt-page-body-unsupported`).
 //
-//   - elixir would DROP the branch silently (a Phoenix body threads its result
-//     through a rebound `record`; an Elixir `if` block's bindings do not escape
-//     the block, so `if c { x := 1 }` compiles and does nothing), and
-//   - a frontend would CRASH codegen (every walker fails fast on a statement
-//     kind it has no arm for).
-//
-// So both gates are proved twice: the offending shape errors, and the same
-// model on a rendering backend does NOT (the gate is placement-specific, not a
-// blanket ban on the statement).
+// The ui gate is proved twice: the offending shape errors, and the same model
+// without the statement does NOT (the gate is placement-specific, not a
+// blanket ban).
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -52,16 +46,9 @@ const IF_BODY = `        if n > 0 {
         } else {
           count := 2
         }`;
-const NO_IF_BODY = `        count := n`;
 
-// M-T6.59 NARROWED THIS GATE.  The `if` STATEMENT itself now RENDERS on elixir
-// (a value-producing `record = if … do … record else … record end`,
-// `src/generator/elixir/vanilla/if-stmt-emit.ts`), so the blanket refusal is
-// gone.  What survives are three sub-shapes the vanilla body renderers cannot
-// express, each with its own `#slug` message — and the gate is proved BOTH
-// ways: the sub-shape errors, the renderable shape does not.
-/** A RETURNING operation body — `return` only parses with a value, so the
- *  `#return-in-branch` sub-shape needs its own one-context system. */
+/** A RETURNING operation body with an early `return` from a branch — `return`
+ *  only parses with a value, so it needs its own one-context system. */
 const returningSys = (platform: string): string => `system S {
   subdomain M { context C {
     aggregate Task {
@@ -85,59 +72,29 @@ const GUARD_IN_BRANCH = `        if n > 0 {
           precondition count > 0
           count := 1
         }`;
-
-describe("loom.elixir-if-stmt-unsupported", () => {
-  it("does NOT fire for a plain assigning `if` — elixir renders it (M-T6.59)", async () => {
-    expect(await codes(backendSys("elixir", IF_BODY))).not.toContain(
-      "loom.elixir-if-stmt-unsupported",
-    );
-  });
-
-  it("does NOT fire on the four backends that render the statement", async () => {
-    for (const p of ["node", "dotnet", "java", "python"]) {
-      expect(await codes(backendSys(p, IF_BODY)), `platform ${p}`).not.toContain(
-        "loom.elixir-if-stmt-unsupported",
-      );
-    }
-  });
-
-  it("does NOT fire on elixir when the body has no `if` (placement gate, not a ban)", async () => {
-    expect(await codes(backendSys("elixir", NO_IF_BODY))).not.toContain(
-      "loom.elixir-if-stmt-unsupported",
-    );
-  });
-
-  it("does NOT fire for an `if` NESTED inside another branch — both render", async () => {
-    const nested = `        if n > 0 {
+const NESTED = `        if n > 0 {
           if n > 5 {
             count := 1
           }
         }`;
-    expect(await codes(backendSys("elixir", nested))).not.toContain(
-      "loom.elixir-if-stmt-unsupported",
-    );
-  });
 
-  it("refuses a `return` inside a branch of an operation body (#return-in-branch)", async () => {
-    expect(await codes(returningSys("elixir"))).toContain("loom.elixir-if-stmt-unsupported");
-  });
+const errors = async (src: string): Promise<string[]> => {
+  const { model, errors: parseErrors } = await parseString(src);
+  if (parseErrors.length) throw new Error(`unexpected parse errors:\n${parseErrors.join("\n")}`);
+  return validateLoomModel(enrichLoomModel(lowerModel(model)))
+    .filter((d) => d.severity === "error")
+    .map((d) => d.code ?? d.message);
+};
 
-  it("refuses a `precondition` nested in a branch (#guard-in-branch)", async () => {
-    expect(await codes(backendSys("elixir", GUARD_IN_BRANCH))).toContain(
-      "loom.elixir-if-stmt-unsupported",
-    );
-  });
-
-  it("does NOT refuse either sub-shape on the four rendering backends", async () => {
-    for (const p of ["node", "dotnet", "java", "python"]) {
-      expect(await codes(backendSys(p, GUARD_IN_BRANCH)), `platform ${p}`).not.toContain(
-        "loom.elixir-if-stmt-unsupported",
-      );
-      expect(await codes(returningSys(p)), `platform ${p}`).not.toContain(
-        "loom.elixir-if-stmt-unsupported",
-      );
-    }
-  });
+describe("the `if` statement in a domain body is valid on every backend", () => {
+  for (const p of ["node", "dotnet", "java", "python", "elixir"]) {
+    it(`admits a plain, a nested, a guarding and an early-returning \`if\` on ${p}`, async () => {
+      expect(await errors(backendSys(p, IF_BODY))).toEqual([]);
+      expect(await errors(backendSys(p, NESTED))).toEqual([]);
+      expect(await errors(backendSys(p, GUARD_IN_BRANCH))).toEqual([]);
+      expect(await errors(returningSys(p))).toEqual([]);
+    });
+  }
 });
 
 const uiSys = (framework: string, webPlatform: string, action: string): string => `system S {

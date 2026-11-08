@@ -697,17 +697,14 @@ the conforming backends, and the fix that established it.
   so there was no later seam that *could* have added it. Fixed at the producer,
   from the `variantTag` / `variantShape` the IR already carries on the `return`
   statement (the same two fields the TS backend reads).
-- **Two shapes remain unimplemented everywhere.** The **aggregate** success
-  variant — `operation adjust(): Item or NotFound` falling through, or ending in
-  `return this` — has **no conforming oracle**. Node's emitted domain method for
-  the fall-through has no `return` at all (the route `c.json`s `undefined`), and
-  its `return this` renders `{ type, ...this }`, which spreads the domain
-  class's *private* `_`-prefixed fields. Vanilla is deliberately left untagged
-  there rather than guessing at a contract no shipped backend implements. The
-  `Conforms` line below is therefore scoped to the shapes that have an oracle:
-  scalar, record literal, and `none`.
+- **The aggregate success variant.** `operation withdraw(): Account or
+  Insufficient` ending in `return this` answers the aggregate's wire projection
+  tagged with its name — `{"type":"Account", "id":…, …}` — recorded by the
+  `op-return-this` golden and booted on all five backends (elixir tags it in
+  the persisted success arm). The fall-through form (no `return` at all) still
+  has no conforming oracle: node's emitted method has no `return`.
 - **Conforms.** node, dotnet, java, python, elixir — for the scalar / record /
-  `none` variants. The aggregate variant is an open gap on all five.
+  `none` variants and the aggregate `return this` arm.
 - **Provenance.** Found 2026-07-31 by the M-T9.11 gate on `operation-returns`
   (dotnet leg); violated again 2026-08-01 on the elixir leg's first real boot.
   Tier: **behavioral**.

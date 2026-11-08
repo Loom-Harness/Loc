@@ -98,7 +98,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.e2e-unknown-workflow",
   "loom.e2e-unresolved-call",
   "loom.e2e-unresolved-ref",
-  "loom.elixir-if-stmt-unsupported",
   "loom.emitted-event-no-applier",
   "loom.emitted-event-unhandled",
   "loom.enum-shadows-root",

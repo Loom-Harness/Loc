@@ -82,6 +82,7 @@ import { collidingFacadeFunctions, renderAggregateFunctions } from "./function-e
 import { isAbstractBase } from "./inheritance-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { paramGuardClause } from "./op-param-guards.js";
+import { isOpTree, opPaths, renderOpTree } from "./op-tree.js";
 import {
   collectOpGuardClauses,
   isReturningOperation,
@@ -1145,9 +1146,7 @@ function contextEmitsEvent(ctx: BoundedContextIR): boolean {
   return ctx.aggregates.some(
     (agg) =>
       !isEventSourced(agg) &&
-      ((agg.operations ?? []).some(
-        (op) => !CRUD_RESERVED_NAMES.has(op.name) && op.statements.some((s) => s.kind === "emit"),
-      ) ||
+      ((agg.operations ?? []).some((op) => !CRUD_RESERVED_NAMES.has(op.name) && opEmitsEvent(op)) ||
         createBodyStatements(agg).some((s) => s.kind === "emit")),
   );
 }
@@ -1556,66 +1555,6 @@ function renderNamedOpFunction(
         `    ${elixirLocal(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}`,
     );
 
-  // S5a: a body that `emit`s a domain event is restructured to persist-then-
-  // dispatch — the `emit`s are hoisted out of the interleaved body and fanned
-  // out (Dispatcher + broadcast) AFTER `persist_change` commits, so no phantom
-  // event fires on a failed write and each event reaches the context Dispatcher
-  // (saga seam), not just the subscriber-less raw broadcast.  A named op always
-  // persists, so the `{:ok, saved}` seam always exists.
-  const emits = opEmitsEvent(op);
-  const hasDispatcher = contextHasDispatcher(ctx as EnrichedBoundedContextIR, extraChannels);
-  // Transactional outbox (dispatch-delivery-semantics.md §1, docs/channels.md):
-  // when one of the emitted events is DURABLE, `<App>.Channels.dispatch/2` does
-  // not fan out — it INSERTs an `__loom_outbox` row, and that row has to commit
-  // with the aggregate change.  So the persist + emit pair is wrapped in one
-  // `Repo.transaction`; the emit lines then sit two columns deeper.  An
-  // ephemeral-only (or channel-less) op keeps the post-commit fan-out and its
-  // byte-identical layout.
-  const txWrapEmits = emits && opEmitsDurableEvent(op, channels);
-  const dispatchLines =
-    emits && !txWrapEmits
-      ? renderEmitDispatchLines(
-          op,
-          rc,
-          hasDispatcher,
-          "        ",
-          `${ctx.name}.${agg.name}.${op.name}`,
-          opFragments,
-          channels,
-        )
-      : [];
-  // Durable emit: the phases straddle the transaction — event binds ahead of it
-  // (keeping `loom_event_<i>` in scope on both sides), the `__loom_outbox`
-  // INSERT inside it, the PubSub broadcast only after it commits.  Broadcasting
-  // inside the tx let SSE / LiveView subscribers observe an event whose write
-  // then rolled back.
-  const durableEmit = txWrapEmits
-    ? renderDurableEmitDispatchParts(
-        op,
-        rc,
-        hasDispatcher,
-        { bind: "    ", dispatch: "          ", broadcast: "        " },
-        `${ctx.name}.${agg.name}.${op.name}`,
-        opFragments,
-        channels,
-      )
-    : { bind: [], dispatch: [], broadcast: [] };
-
-  // Render the body (guards / assigns / let) — shared with the returning-op
-  // path; a non-returning body never carries a `return` arm.  The statement index
-  // disambiguates per-write provenance temp vars.  When emitting, the `emit`s are
-  // rendered post-commit (below), not inline.  `bodyStmts` is kept alongside
-  // `bodyLines` (rather than only the mapped-over result) so a source-map
-  // collector can zip the two SAME-length, SAME-order arrays back together via
-  // `statementSubRegions` — a hoisted `emit` is deliberately excluded from
-  // both, matching the "regular body" scope this milestone covers (see
-  // `OpFragment` in operation-returns-emit.ts).
-  // The `when` state gate + `requires`/`precondition` guards are hoisted into a
-  // leading `with :ok <- ensure(...)` chain so an expected denial returns a typed
-  // tuple (`{:error, :disallowed}` 409 / `{:error, :forbidden}` 403 /
-  // `{:error, :precondition_failed}` 422) BEFORE the mutation/persist runs, instead
-  // of raising an ArgumentError (→ 500).  Exclude the guard STATEMENTS from the
-  // in-body statements (the `when` gate is a predicate field, not a statement).
   const guardClauses = [
     // Wire-format guards lead, so a malformed param is refused before the body
     // mutates anything (M-T6.48).  Their presence alone moves this op onto the
@@ -1626,41 +1565,6 @@ function renderNamedOpFunction(
       .filter((c): c is string => c != null),
     ...collectOpGuardClauses(agg.name, op, rc),
   ];
-  const bodyStmts = op.statements.filter((s) => {
-    if (s.kind === "requires" || s.kind === "precondition") return false;
-    if (emits && s.kind === "emit") return false;
-    return true;
-  });
-  const bodyLines = bodyStmts.map((s, i) => renderReturningStmt(s, ctx, rc, i));
-  if (opFragments && bodyLines.length > 0) {
-    opFragments.push({
-      fragmentText: bodyLines.join("\n"),
-      subRegions: [
-        // F-021 — see `declarationSubRegion`.
-        ...declarationSubRegion(op.origin, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
-        ...statementSubRegions(bodyStmts, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
-      ],
-    });
-  }
-
-  // Persist the fields the body assigned (deduped, declaration order) + the
-  // co-located `<field>_provenance` backing columns — shared with the
-  // returning-op persist tail.  A reference collection (`X id[]` → `many_to_many`)
-  // resolves its mutated id list back to target structs and `put_assoc`s them;
-  // see `persistPutBodies`.  Re-indented per persist path (4-space for the plain
-  // pipe, 6-space inside the `changeset =` assignment).
-  const putBodies = persistPutBodies(
-    op,
-    agg,
-    facadeMod.split(".")[0]!,
-    facadeMod.split(".").slice(1).join("."),
-    relationalContainments,
-    ctx.aggregates,
-    valueRowFieldsOf(agg, ctx),
-  );
-  const putBlock = putBodies.map((b) => `\n    |> ${b}`).join("");
-  const putBlock6 = putBodies.map((b) => `\n      |> ${b}`).join("");
-
   // An op that rewrites a relation-backed field — a containment (embedded
   // `embeds_*` OR relational `has_*` child table) or a value-object collection —
   // rebinds `record.<field>` in the body, then persists via `put_embed` /
@@ -1672,96 +1576,199 @@ function renderNamedOpFunction(
   // struct `record_before` so the relation diff sees the real before/after;
   // scalar columns still `force_change` regardless of the base.  See
   // `opRewritesRelation`.  Byte-identical for every other op.
-  const rewritesRelation = opRewritesRelation(op, agg);
+  const rewritesRelation = opPaths(op).some((p) => opRewritesRelation(p, agg));
   const persistBase = rewritesRelation ? "record_before" : "record";
   const captureBase = rewritesRelation ? "    record_before = record\n" : "";
 
-  // Optimistic concurrency on the NAMED-OPERATION write path (M-T6.27).
-  //
-  // History: RS-14 first gave this path a PLAIN version bump
-  // (`change(%{version: version + 1})`) so the wire value advanced — but a
-  // plain bump carries no CAS filter, so two writers racing an operation both
-  // landed and the second silently overwrote the first (a lost update the
-  // other four backends answer with 409).  The bump now comes from
-  // `optimistic_lock(:version)`, which bumps by exactly 1 (RS-14's wire values
-  // are unchanged) AND filters the UPDATE on the version the row was loaded
-  // with — a stale write raises `Ecto.StaleEntryError`, rescued to
-  // `{:error, :conflict}` in `persist_change/1` (→ 409 at the controller),
-  // the same protocol the generic PATCH seam has always used.
-  const opVersioned = savesLockVersion(agg);
-  const opLockPipe6 = opVersioned ? "\n      |> Ecto.Changeset.optimistic_lock(:version)" : "";
-  const opLockPipe = opVersioned ? "\n    |> Ecto.Changeset.optimistic_lock(:version)" : "";
+  // One linear body + its persist tail.  For a body that branches per path
+  // (`op-tree.ts`) this runs once per leaf, over that path as its own linear
+  // operation: `segment` names the statements the leaf renders as body lines
+  // (the rest of the path already ran above it), and `indexBase` keeps the
+  // per-statement temporaries distinct along the path.  A linear body is its
+  // own single leaf.
+  const leafParts = (
+    op: OperationIR,
+    segment?: ReadonlySet<StmtIR>,
+    indexBase = 0,
+  ): { bodyLines: string[]; persist: string } => {
+    // S5a: a body that `emit`s a domain event is restructured to persist-then-
+    // dispatch — the `emit`s are hoisted out of the interleaved body and fanned
+    // out (Dispatcher + broadcast) AFTER `persist_change` commits, so no phantom
+    // event fires on a failed write and each event reaches the context Dispatcher
+    // (saga seam), not just the subscriber-less raw broadcast.  A named op always
+    // persists, so the `{:ok, saved}` seam always exists.
+    const emits = opEmitsEvent(op);
+    const hasDispatcher = contextHasDispatcher(ctx as EnrichedBoundedContextIR, extraChannels);
+    // Transactional outbox (dispatch-delivery-semantics.md §1, docs/channels.md):
+    // when one of the emitted events is DURABLE, `<App>.Channels.dispatch/2` does
+    // not fan out — it INSERTs an `__loom_outbox` row, and that row has to commit
+    // with the aggregate change.  So the persist + emit pair is wrapped in one
+    // `Repo.transaction`; the emit lines then sit two columns deeper.  An
+    // ephemeral-only (or channel-less) op keeps the post-commit fan-out and its
+    // byte-identical layout.
+    const txWrapEmits = emits && opEmitsDurableEvent(op, channels);
+    const dispatchLines =
+      emits && !txWrapEmits
+        ? renderEmitDispatchLines(
+            op,
+            rc,
+            hasDispatcher,
+            "        ",
+            `${ctx.name}.${agg.name}.${op.name}`,
+            opFragments,
+            channels,
+          )
+        : [];
+    // Durable emit: the phases straddle the transaction — event binds ahead of it
+    // (keeping `loom_event_<i>` in scope on both sides), the `__loom_outbox`
+    // INSERT inside it, the PubSub broadcast only after it commits.  Broadcasting
+    // inside the tx let SSE / LiveView subscribers observe an event whose write
+    // then rolled back.
+    const durableEmit = txWrapEmits
+      ? renderDurableEmitDispatchParts(
+          op,
+          rc,
+          hasDispatcher,
+          { bind: "    ", dispatch: "          ", broadcast: "        " },
+          `${ctx.name}.${agg.name}.${op.name}`,
+          opFragments,
+          channels,
+        )
+      : { bind: [], dispatch: [], broadcast: [] };
 
-  // Operation persistence re-runs the aggregate's invariants: the plain
-  // `change(%{})` + `force_change` path bypasses every changeset validator, so a
-  // `qty := n` could break `invariant qty >= 0` and a `handle := …` could break
-  // `handle != email`.  Both halves of the floor run before the write — the
-  // single-field `validate_field_invariants/1` and the residual
-  // `validate_invariants/1` (`validate_domain_floor/1` when a named rule
-  // carries a wire code, so its violation answers the domain-floor 422 with its
-  // errors[] entry) — and an unmet one returns `{:error, changeset}` (422)
-  // instead of committing.
-  const changesetMod = `${aggModule}Changeset`;
-  const invPipe = opPersistInvariantPipes(agg, ctx, changesetMod, 4);
-  const invPipe6 = opPersistInvariantPipes(agg, ctx, changesetMod, 6);
-  // M-T5.1 — a value object this op's body BUILT (`qty := Qty { value: n }`)
-  // is persisted through `force_change`, which runs no validator; re-run its
-  // constructor so a refused value answers the domain-floor 422 with an
-  // `errors[]` entry instead of committing.  Only when THIS op assigns such a
-  // field (the changeset module emits the function for the aggregate-level
-  // union of the same derivation), so every other op is byte-identical.
-  const opAssigned = opAssignedFields(op);
-  const bodyVoPipeOn = aggregateBodyValueObjectFields(agg, ctx.valueObjects).some((f) =>
-    opAssigned.has(f.field),
-  );
-  const bodyVoPipe = bodyVoPipeOn ? `\n    |> ${changesetMod}.validate_body_value_objects()` : "";
-  const bodyVoPipe6 = bodyVoPipeOn
-    ? `\n      |> ${changesetMod}.validate_body_value_objects()`
-    : "";
+    // Render the body (guards / assigns / let) — shared with the returning-op
+    // path; a non-returning body never carries a `return` arm.  The statement index
+    // disambiguates per-write provenance temp vars.  When emitting, the `emit`s are
+    // rendered post-commit (below), not inline.  `bodyStmts` is kept alongside
+    // `bodyLines` (rather than only the mapped-over result) so a source-map
+    // collector can zip the two SAME-length, SAME-order arrays back together via
+    // `statementSubRegions` — a hoisted `emit` is deliberately excluded from
+    // both, matching the "regular body" scope this milestone covers (see
+    // `OpFragment` in operation-returns-emit.ts).
+    // The `when` state gate + `requires`/`precondition` guards are hoisted into a
+    // leading `with :ok <- ensure(...)` chain so an expected denial returns a typed
+    // tuple (`{:error, :disallowed}` 409 / `{:error, :forbidden}` 403 /
+    // `{:error, :precondition_failed}` 422) BEFORE the mutation/persist runs, instead
+    // of raising an ArgumentError (→ 500).  Exclude the guard STATEMENTS from the
+    // in-body statements (the `when` gate is a predicate field, not a statement).
+    const bodyStmts = op.statements.filter((s) => {
+      if (segment && !segment.has(s)) return false;
+      if (s.kind === "requires" || s.kind === "precondition") return false;
+      if (emits && s.kind === "emit") return false;
+      return true;
+    });
+    const bodyLines = bodyStmts.map((s, i) => renderReturningStmt(s, ctx, rc, indexBase + i));
+    if (opFragments && bodyLines.length > 0) {
+      opFragments.push({
+        fragmentText: bodyLines.join("\n"),
+        subRegions: [
+          // F-021 — see `declarationSubRegion`.
+          ...declarationSubRegion(op.origin, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
+          ...statementSubRegions(bodyStmts, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
+        ],
+      });
+    }
 
-  const prelude = [...paramBinds, ...bodyLines].join("\n");
-  const preludeBlock = prelude
-    ? `${beforeBind}${captureBase}${prelude}\n`
-    : `${beforeBind}${captureBase}`;
-
-  // Persist tail.  Without provenance or audit: the plain changeset pipe.  With
-  // either: build the changeset, then run the save + (history flush and/or audit
-  // record) in ONE shared transaction so the derived rows commit atomically with
-  // the aggregate update.
-  const appModule = facadeMod.split(".")[0]!;
-  const aggPascalName = upperFirst(agg.name);
-  const txTail: string[] = [];
-  if (hasProv) txTail.push(`          ${appModule}.Provenance.flush(${appModule}.Repo)`);
-  if (hasAudit) {
-    txTail.push(
-      auditRecordCall({
-        appModule,
-        operationId: `${op.name}${aggPascalName}`,
-        action: op.name,
-        targetType: aggPascalName,
-        targetId: "saved.id",
-        before: "audit_before",
-        after: wireSnapshot("saved", false, appModule),
-        indent: "          ",
-      }),
+    // Persist the fields the body assigned (deduped, declaration order) + the
+    // co-located `<field>_provenance` backing columns — shared with the
+    // returning-op persist tail.  A reference collection (`X id[]` → `many_to_many`)
+    // resolves its mutated id list back to target structs and `put_assoc`s them;
+    // see `persistPutBodies`.  Re-indented per persist path (4-space for the plain
+    // pipe, 6-space inside the `changeset =` assignment).
+    const putBodies = persistPutBodies(
+      op,
+      agg,
+      facadeMod.split(".")[0]!,
+      facadeMod.split(".").slice(1).join("."),
+      relationalContainments,
+      ctx.aggregates,
+      valueRowFieldsOf(agg, ctx),
     );
-  }
-  const dispatchBlock = dispatchLines.join("\n");
-  let persist: string;
-  if (txWrapEmits) {
-    // Durable emit: the outbox INSERT rides `Repo.transaction` together with
-    // the persist (+ any prov/audit rows), so "aggregate saved" and "event
-    // owed" commit or roll back as one.
+    const putBlock = putBodies.map((b) => `\n    |> ${b}`).join("");
+    const putBlock6 = putBodies.map((b) => `\n      |> ${b}`).join("");
+
+    // Optimistic concurrency on the NAMED-OPERATION write path (M-T6.27).
     //
-    // The PubSub BROADCAST does not ride it.  That is the SSE / LiveView wire,
-    // and a broadcast inside the tx is observable before the commit — a
-    // rollback then leaves subscribers holding an event whose write never
-    // happened.  So: bind the event structs first, INSERT inside, broadcast in
-    // the post-commit `{:ok, saved}` arm (the ordering the non-durable branches
-    // below already use).  `Repo.transaction`'s result is unwrapped through
-    // `tx_result` so the outer `{:ok, saved}` / `{:error, reason}` shape is
-    // unchanged.
-    persist = `${durableEmit.bind.length > 0 ? `${durableEmit.bind.join("\n")}\n\n` : ""}    changeset =
+    // History: RS-14 first gave this path a PLAIN version bump
+    // (`change(%{version: version + 1})`) so the wire value advanced — but a
+    // plain bump carries no CAS filter, so two writers racing an operation both
+    // landed and the second silently overwrote the first (a lost update the
+    // other four backends answer with 409).  The bump now comes from
+    // `optimistic_lock(:version)`, which bumps by exactly 1 (RS-14's wire values
+    // are unchanged) AND filters the UPDATE on the version the row was loaded
+    // with — a stale write raises `Ecto.StaleEntryError`, rescued to
+    // `{:error, :conflict}` in `persist_change/1` (→ 409 at the controller),
+    // the same protocol the generic PATCH seam has always used.
+    const opVersioned = savesLockVersion(agg);
+    const opLockPipe6 = opVersioned ? "\n      |> Ecto.Changeset.optimistic_lock(:version)" : "";
+    const opLockPipe = opVersioned ? "\n    |> Ecto.Changeset.optimistic_lock(:version)" : "";
+
+    // Operation persistence re-runs the aggregate's invariants: the plain
+    // `change(%{})` + `force_change` path bypasses every changeset validator, so a
+    // `qty := n` could break `invariant qty >= 0` and a `handle := …` could break
+    // `handle != email`.  Both halves of the floor run before the write — the
+    // single-field `validate_field_invariants/1` and the residual
+    // `validate_invariants/1` (`validate_domain_floor/1` when a named rule
+    // carries a wire code, so its violation answers the domain-floor 422 with its
+    // errors[] entry) — and an unmet one returns `{:error, changeset}` (422)
+    // instead of committing.
+    const changesetMod = `${aggModule}Changeset`;
+    const invPipe = opPersistInvariantPipes(agg, ctx, changesetMod, 4);
+    const invPipe6 = opPersistInvariantPipes(agg, ctx, changesetMod, 6);
+    // M-T5.1 — a value object this op's body BUILT (`qty := Qty { value: n }`)
+    // is persisted through `force_change`, which runs no validator; re-run its
+    // constructor so a refused value answers the domain-floor 422 with an
+    // `errors[]` entry instead of committing.  Only when THIS op assigns such a
+    // field (the changeset module emits the function for the aggregate-level
+    // union of the same derivation), so every other op is byte-identical.
+    const opAssigned = opAssignedFields(op);
+    const bodyVoPipeOn = aggregateBodyValueObjectFields(agg, ctx.valueObjects).some((f) =>
+      opAssigned.has(f.field),
+    );
+    const bodyVoPipe = bodyVoPipeOn ? `\n    |> ${changesetMod}.validate_body_value_objects()` : "";
+    const bodyVoPipe6 = bodyVoPipeOn
+      ? `\n      |> ${changesetMod}.validate_body_value_objects()`
+      : "";
+
+    // Persist tail.  Without provenance or audit: the plain changeset pipe.  With
+    // either: build the changeset, then run the save + (history flush and/or audit
+    // record) in ONE shared transaction so the derived rows commit atomically with
+    // the aggregate update.
+    const appModule = facadeMod.split(".")[0]!;
+    const aggPascalName = upperFirst(agg.name);
+    const txTail: string[] = [];
+    if (opHasProvSite(op))
+      txTail.push(`          ${appModule}.Provenance.flush(${appModule}.Repo)`);
+    if (hasAudit) {
+      txTail.push(
+        auditRecordCall({
+          appModule,
+          operationId: `${op.name}${aggPascalName}`,
+          action: op.name,
+          targetType: aggPascalName,
+          targetId: "saved.id",
+          before: "audit_before",
+          after: wireSnapshot("saved", false, appModule),
+          indent: "          ",
+        }),
+      );
+    }
+    const dispatchBlock = dispatchLines.join("\n");
+    let persist: string;
+    if (txWrapEmits) {
+      // Durable emit: the outbox INSERT rides `Repo.transaction` together with
+      // the persist (+ any prov/audit rows), so "aggregate saved" and "event
+      // owed" commit or roll back as one.
+      //
+      // The PubSub BROADCAST does not ride it.  That is the SSE / LiveView wire,
+      // and a broadcast inside the tx is observable before the commit — a
+      // rollback then leaves subscribers holding an event whose write never
+      // happened.  So: bind the event structs first, INSERT inside, broadcast in
+      // the post-commit `{:ok, saved}` arm (the ordering the non-durable branches
+      // below already use).  `Repo.transaction`'s result is unwrapped through
+      // `tx_result` so the outer `{:ok, saved}` / `{:error, reason}` shape is
+      // unchanged.
+      persist = `${durableEmit.bind.length > 0 ? `${durableEmit.bind.join("\n")}\n\n` : ""}    changeset =
       ${persistBase}
       |> Ecto.Changeset.change(%{})${putBlock6}${bodyVoPipe6}${opLockPipe6}${invPipe6}
 
@@ -1785,12 +1792,12 @@ ${durableEmit.broadcast.join("\n")}
       {:error, reason} ->
         {:error, reason}
     end`;
-  } else if (hasProv || hasAudit) {
-    persist = emits
-      ? // Emit + prov/audit: commit the state change (+ derived rows) in the
-        // transaction, then dispatch AFTER commit (outside the tx fn) so a
-        // rollback drops the events too.
-        `    changeset =
+    } else if (opHasProvSite(op) || hasAudit) {
+      persist = emits
+        ? // Emit + prov/audit: commit the state change (+ derived rows) in the
+          // transaction, then dispatch AFTER commit (outside the tx fn) so a
+          // rollback drops the events too.
+          `    changeset =
       ${persistBase}
       |> Ecto.Changeset.change(%{})${putBlock6}${bodyVoPipe6}${opLockPipe6}${invPipe6}
 
@@ -1814,7 +1821,7 @@ ${dispatchBlock}
       {:error, reason} ->
         {:error, reason}
     end`
-      : `    changeset =
+        : `    changeset =
       ${persistBase}
       |> Ecto.Changeset.change(%{})${putBlock6}${bodyVoPipe6}${opLockPipe6}${invPipe6}
 
@@ -1828,12 +1835,12 @@ ${txTail.join("\n")}
           ${appModule}.Repo.rollback(reason)
       end
     end)`;
-  } else {
-    persist = emits
-      ? // Emit, no prov/audit: persist then dispatch after `{:ok, saved}`, so a
-        // failed write cannot fire a phantom event, and the event reaches the
-        // context Dispatcher (saga seam) + the raw broadcast.
-        `    changeset =
+    } else {
+      persist = emits
+        ? // Emit, no prov/audit: persist then dispatch after `{:ok, saved}`, so a
+          // failed write cannot fire a phantom event, and the event reaches the
+          // context Dispatcher (saga seam) + the raw broadcast.
+          `    changeset =
       ${persistBase}
       |> Ecto.Changeset.change(%{})${putBlock6}${bodyVoPipe6}${opLockPipe6}${invPipe6}
 
@@ -1845,10 +1852,33 @@ ${dispatchBlock}
       {:error, reason} ->
         {:error, reason}
     end`
-      : `    ${persistBase}
+        : `    ${persistBase}
     |> Ecto.Changeset.change(%{})${putBlock}${bodyVoPipe}${opLockPipe}${invPipe}
     |> ${repoMod}.persist_change()`;
-  }
+    }
+    return { bodyLines, persist };
+  };
+  const linear = isOpTree(op.statements) ? undefined : leafParts(op);
+  const innerLines = linear
+    ? [...linear.bodyLines, linear.persist]
+    : renderOpTree(op.statements, {
+        renderStmt: (s, i) => renderReturningStmt(s, ctx, rc, i),
+        renderCond: (e) => renderExpr(e, rc),
+        guardClauses: (guards) =>
+          guards.map((g) => renderOpGuardClause(g, rc, new Set(op.params.map((p) => p.name)))),
+        renderLeaf: (path, segment) => {
+          const parts = leafParts(
+            { ...op, statements: path },
+            new Set(segment),
+            path.length - segment.length,
+          );
+          return [...parts.bodyLines, parts.persist];
+        },
+      });
+  const prelude = [...paramBinds, ...innerLines].join("\n");
+  const preludeBlock = prelude
+    ? `${beforeBind}${captureBase}${prelude}`
+    : `${beforeBind}${captureBase}`;
 
   // A guarded op hoists its guards into a leading `with ensure(...)` chain: param
   // binds stay before the `with`, and the body + persist tail move inside the
@@ -1860,9 +1890,9 @@ ${dispatchBlock}
     guardClauses.length > 0
       ? `${beforeBind}${captureBase}${paramBinds.length > 0 ? `${paramBinds.join("\n")}\n` : ""}${wrapOpBodyWithGuards(
           guardClauses,
-          [...bodyLines, persist],
+          innerLines,
         ).join("\n")}`
-      : `${preludeBlock}${persist}`;
+      : preludeBlock;
 
   return `  @doc "Named operation \`${op.name}\` on \`${aggPascal}\` — runs the body, persists the assigned fields."
   @spec ${opSnake}_${aggSnake}(${aggModule}.t(), map()) ::

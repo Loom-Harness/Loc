@@ -54,8 +54,8 @@ describe("python event sourcing", () => {
     // ES create: empty shell + emit-only _init that records AND folds.
     expect(acct).toContain('def create(cls, *, owner: str) -> "Account":');
     expect(acct).toContain("inst._init(owner)");
-    expect(acct).toContain("self._events.append(__ev)");
-    expect(acct).toContain("self._apply(__ev)");
+    expect(acct).toContain("self._events.append(__ev_opened)");
+    expect(acct).toContain("self._apply(__ev_opened)");
   });
 
   it("the repository folds on load and appends gap-free versions on save", async () => {

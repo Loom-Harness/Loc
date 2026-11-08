@@ -69,7 +69,11 @@ export const STREAM = {
 } as const;
 
 /** Runtime status badge text (`backend-status`). */
-export const RUNTIME_STATUS = { booted: "booted", offline: "offline" } as const;
+export const RUNTIME_STATUS = {
+  booted: "booted",
+  offline: "offline",
+  migrationRequired: "migration required",
+} as const;
 
 /** Pluralised count — `1 error`, `3 errors`, `0 files`. */
 export function countOf(n: number, noun: string, plural = `${noun}s`): string {
@@ -113,6 +117,9 @@ export const BLOCKER = {
   bundle: `${STAGE.generate} first — ${STAGE.bundle} compiles the generated backend and frontend.`,
   boot: `${nextStep("boot", true)} — ${STAGE.boot} runs the bundled backend on an in-browser Postgres.`,
 } as const;
+
+/** The boot segment's count when the last boot stopped on a migration. */
+export const BOOT_PENDING_COUNT = RUNTIME_STATUS.migrationRequired;
 
 // ---------------------------------------------------------------------------
 // M-T8.18 — Problems as a teaching surface, the palette, help, first run.

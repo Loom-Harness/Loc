@@ -19,6 +19,7 @@ import { expect, test } from "@playwright/test";
 import {
   browserCanReachNetwork,
   fatalConsoleErrors,
+  recordInitialMigration,
   selectExample,
   waitForBundle,
   waitForPlaygroundReady,
@@ -53,6 +54,9 @@ test("shadcn design pack → generate → bundle → boot → preview boots", as
     // `loader-fs.js`.  Without the Vite-glob shim, the worker would
     // crash on first Generate with "node:fs externalised".  No
     // network access required.
+    // The database is created only from recorded migrations — record the
+    // example's initial migration before the first Boot.
+    await recordInitialMigration(page);
     await page.getByTestId("btn-generate").click();
     await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
   });

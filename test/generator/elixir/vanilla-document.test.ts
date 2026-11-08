@@ -497,12 +497,12 @@ system Shop {
     );
   });
 
-  it("leaves a NON-mutating returning op in-memory (no persist, byte-identical)", async () => {
+  it("persists a NON-mutating returning op's version bump on a versioned aggregate", async () => {
     const peek = op(file(await generateSystemFiles(DOC_RET), "/shop.ex"), "peek_cart");
-    // A pure read commits nothing — no changeset / put_embed / persist_change.
-    expect(peek).not.toContain("put_embed");
-    expect(peek).not.toContain("persist_change");
-    expect(peek).toContain("{:ok, record}");
+    // node / .NET / java / python save after every successful command, so the
+    // `versioned` counter advances even when no field was written.
+    expect(peek).toContain("persist_change(changeset)");
+    expect(peek).toContain("Ecto.Changeset.optimistic_lock(:version)");
   });
 });
 

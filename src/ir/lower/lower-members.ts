@@ -54,6 +54,7 @@ import type {
 } from "../types/loom-ir.js";
 import { mutatedParamNames, type SaveResolver } from "../util/domain-service-tier.js";
 import { isGuardedCall } from "../util/effects.js";
+import { normalizeEarlyReturns } from "../util/if-normal-form.js";
 import { lowerCallableParams } from "./callable-params.js";
 import { lowerExpr, lowerExprInContext, retargetEnumValue } from "./lower-expr.js";
 import { lowerStatement } from "./lower-stmt.js";
@@ -289,7 +290,8 @@ export function lowerFunction(f: FunctionDecl, outer: Env): FunctionIR {
       stmts.push(result.stmt);
       bodyEnv = result.envAfter;
     }
-    body = { stmts };
+    // An early `return` reaches every backend in branch-total form.
+    body = { stmts: normalizeEarlyReturns(stmts) };
   }
   return {
     name: f.name,
@@ -433,7 +435,9 @@ function lowerActionBody(spec: ActionSpec, env: Env): OperationIR {
     canonical: spec.canonical,
     visibility: spec.visibility,
     params,
-    statements: stmts,
+    // An early `return` reaches every backend in branch-total form: the
+    // statements after an `if` that returns move into its other branch.
+    statements: normalizeEarlyReturns(stmts),
     extern: spec.extern,
     audited: spec.audited,
     returnType: spec.returnType,

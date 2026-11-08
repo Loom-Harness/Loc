@@ -6,7 +6,6 @@ import type {
   StmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
-import { elixirIfRefusal } from "../../../ir/validate/checks/if-stmt-checks.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { exprUsesParam, exprUsesReceiver } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr, renderTypespec } from "../render-expr.js";
@@ -52,17 +51,6 @@ export function bodyUsesReceiver(body: FunctionBodyIR): boolean {
  *  expression form, or the rendered pure block for the block form. */
 export function renderFunctionBodyLines(body: FunctionBodyIR, rc: RenderCtx): string[] {
   if ("expr" in body) return [`    ${renderExpr(body.expr, rc)}`];
-  // M-T6.59 — assert the `if` sub-shapes a tail-value body cannot express with
-  // the SAME predicate the phase-⑦ gate uses, so a bypassed validator fails
-  // loudly instead of emitting a body that drops an early exit.
-  const ifRefusal = elixirIfRefusal(body.stmts, "value");
-  if (ifRefusal) {
-    throw new Error(
-      `platform: elixir — an 'if' statement with a ${ifRefusal} reached the vanilla ` +
-        "aggregate-function emitter; it is refused at validation " +
-        `(loom.elixir-if-stmt-unsupported#${ifRefusal}).`,
-    );
-  }
   return renderPureBlock(body.stmts, rc);
 }
 
@@ -84,21 +72,20 @@ function renderPureBlock(stmts: StmtIR[], rc: RenderCtx): string[] {
         lines.push(guardRaiseLine(s, renderExpr(s.expr, rc), appModuleOf(rc.contextModule)));
         break;
       case "return":
-        // A `function` yields its value directly (no `{:ok, …}` wrap).  The
-        // last statement's value is the function's result; an earlier `return`
-        // simply binds the value as the trailing expression of that point —
-        // pure bodies don't branch, so the final return wins.
+        // A `function` yields its value directly (no `{:ok, …}` wrap).  A
+        // `return` is always the last statement of its block (lowering's
+        // branch-total form), so its value is the block's value.
         lines.push(`    ${renderExpr(s.value, rc)}`);
         break;
       case "expression":
         lines.push(`    ${renderExpr(s.expr, rc)}`);
         break;
       case "if":
-        // M-T6.59 — a pure `function` body is a TAIL-VALUE body: its value is
-        // its last expression, so a tail `if` whose branches `return` renders
-        // exactly as the function's result.  The sub-shapes that cannot render
-        // (a non-tail `return`, a nested guard) are refused at phase ⑦ by
-        // `loom.elixir-if-stmt-unsupported` and re-asserted by the caller.
+        // A pure `function` body is a TAIL-VALUE body: its value is its last
+        // expression.  Lowering puts every `return` in tail position of its
+        // block (branch-total form), so a tail `if` whose branches `return`
+        // renders exactly as the function's result, and a guard in a branch
+        // raises in place exactly as a top-level one does.
         lines.push(
           renderElixirIfStmt(s, {
             indent: "    ",

@@ -38,6 +38,7 @@ import {
 } from "../../../ir/enrich/wire-policy.js";
 import type { ExprIR, StmtIR, WorkflowStmtIR } from "../../../ir/types/loom-ir.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { branchesContain } from "../../../ir/util/if-normal-form.js";
 import { ruleParamRefs } from "../../../ir/util/rule-params.js";
 import { pickErrorPath, singleFieldShape } from "../../../ir/validate/invariant-classify.js";
 import { elixirString } from "../../../util/naming.js";
@@ -391,7 +392,7 @@ function codedPreconditionTerm(
  *  non-operation call site: lifecycle gates, workflows, dispatch handlers) means
  *  "no request body to point into", so the answer is always false and those
  *  paths stay byte-identical. */
-function deniesAtWire(s: GuardStmt, available: ReadonlySet<string> | undefined): boolean {
+export function deniesAtWire(s: GuardStmt, available: ReadonlySet<string> | undefined): boolean {
   if (available === undefined) return false;
   if (s.kind !== "precondition") return false;
   return ruleStage({ expr: s.expr, source: s.source, message: s.message }, available) === "schema";
@@ -476,8 +477,11 @@ export function opHasWireDenial(op: {
   params: readonly { name: string }[];
 }): boolean {
   const available = new Set(op.params.map((p) => p.name));
-  return op.statements.some(
-    (s) => (s.kind === "requires" || s.kind === "precondition") && deniesAtWire(s, available),
+  return op.statements.some((s) =>
+    branchesContain(
+      s,
+      (n) => (n.kind === "requires" || n.kind === "precondition") && deniesAtWire(n, available),
+    ),
   );
 }
 
