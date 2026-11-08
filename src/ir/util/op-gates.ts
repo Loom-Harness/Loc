@@ -34,6 +34,7 @@ import {
   type WorkflowStmtIR,
 } from "../types/loom-ir.js";
 import { canonicalCreate, canonicalDestroy } from "./canonical-lifecycle.js";
+import { isMergePatchUpdate } from "./merge-patch.js";
 import {
   walkExprDeep,
   walkStmtExprsDeep,
@@ -321,4 +322,25 @@ export function createBodyParams(agg: {
     });
   }
   return (canonicalCreate(agg)?.params ?? []).filter((p) => read.has(p.name));
+}
+
+/** The `requires` predicates that decide whether a caller may issue `op` AT
+ *  ALL — what a frontend mirrors to hide an action trigger.  A mask WRITE gate
+ *  (`maskWriteOf`, `src/ir/enrich/mask-taint.ts`) decides only whether this
+ *  caller may change one masked field, which a caller who leaves it as stored
+ *  always may, so it never hides the trigger. */
+export function operationActionGates(op: OperationIR): ExprIR[] {
+  return op.statements
+    .filter((s): s is RequiresStmtIR => s.kind === "requires" && s.maskWriteOf === undefined)
+    .map((s) => s.expr);
+}
+
+/** The request key whose PRESENCE conditions mask write gate `g` on `op`, or
+ *  undefined when the gate applies unconditionally.  A merge-patch update
+ *  writes a field only when the body carries its key (an absent key keeps the
+ *  stored value), so its route evaluates the gate only then; every other
+ *  operation always writes, so its mask gate always runs.  The key is the
+ *  param name, which on a merge-patch update is the field's name. */
+export function maskWritePresenceParam(op: OperationIR, g: RequiresStmtIR): string | undefined {
+  return g.maskWriteOf !== undefined && isMergePatchUpdate(op) ? g.maskWriteOf : undefined;
 }

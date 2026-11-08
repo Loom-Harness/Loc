@@ -131,6 +131,7 @@ import {
   lifecycleGates,
   lifecycleGatesReadRow,
   lifecycleGatesUseCurrentUser,
+  maskWritePresenceParam,
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
@@ -1810,7 +1811,11 @@ function requiresGateLines(
           return p ? wireToDomainExpr(`body.${p.name}`, p.type, ctx) : undefined;
         }),
     });
-    return `${pad}if (!(${pred})) throw new ForbiddenError(${JSON.stringify(
+    // A merge-patch update's mask write gate runs only when the body carries
+    // the masked key (an absent key keeps the stored value).
+    const present = maskWritePresenceParam(op, g);
+    const cond = present ? `body.${present} !== undefined && !(${pred})` : `!(${pred})`;
+    return `${pad}if (${cond}) throw new ForbiddenError(${JSON.stringify(
       `Forbidden: ${g.source}`,
     )});`;
   });
