@@ -323,6 +323,9 @@ export function lowerOperation(op: Operation, outer: Env): OperationIR {
   // a param reference rather than letting it lower as a free name.
   if (op.when) {
     ir.when = lowerExpr(op.when, env);
+    // The predicate as the author wrote it, for diagnostics that name the
+    // gate.  Source text is an input the IR cannot re-derive.
+    ir.whenSource = cstText(op.when).replace(/\s+/g, " ").trim();
   }
   // `requires Expr` — the authorization gate (authorization.md §11.3).  A
   // header `requires` is semantically a relocated first-body `requires`

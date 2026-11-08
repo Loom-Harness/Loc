@@ -498,6 +498,10 @@ export interface OperationIR {
    * functions inline like any boolean position.  Emitted by every
    * backend. */
   when?: ExprIR;
+  /** The `when` predicate's `.ddd` source text (whitespace-collapsed), named
+   *  by compile-time diagnostics such as `loom.loop-gate-not-implied`.  Never
+   *  on the wire: the 409 detail is constant.  Absent when `when` is. */
+  whenSource?: string;
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely
    * derived nodes. */
