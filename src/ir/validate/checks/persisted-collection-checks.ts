@@ -32,13 +32,13 @@
 //                            folds a part's collections into jsonb columns, so
 //                            a context hosted ONLY on mikroorm keeps it.
 //   #part-value-collection   `<VO>[]` on an entity part — the migration
-//                            creates the part's child table, but only JPA
-//                            reads and writes it; drizzle, EF, SQLAlchemy and
-//                            Ecto map a column on the part row that does not
-//                            exist, or drop the values on save.  Dapper and
-//                            MikroORM each store the list as a jsonb column
-//                            their own schema declares.  So a context hosted
-//                            ONLY on one of jpa / dapper / mikroorm keeps it;
+//                            creates the part's child table, and the adapters
+//                            in PART_VALUES_IN_CHILD_TABLE read and write it;
+//                            the others map a column on the part row that
+//                            does not exist, or drop the values on save.
+//                            Dapper and MikroORM each store the list as a
+//                            jsonb column their own schema declares, so a
+//                            context hosted ONLY on one of them keeps it too;
 //                            a context no database-backed host serves
 //                            persists nothing and is not refused.
 //   #state-value-collection  `<VO>[]` on a projection / workflow state row —
@@ -202,6 +202,12 @@ export interface PartCollectionsStored {
   hosts: string[];
 }
 
+/** The adapters that read and write a part's `<VO>[]` in the child table the
+ *  shared migration creates — any mix of them agrees on one schema.  Dapper and
+ *  MikroORM keep the list in a jsonb column of their own instead, so each is
+ *  accepted only as a context's sole adapter. */
+const PART_VALUES_IN_CHILD_TABLE: ReadonlySet<string> = new Set(["jpa", "drizzle"]);
+
 const NOTHING_HOSTED: PartCollectionsStored = { references: false, values: true, hosts: [] };
 
 /** The persistence adapter a database-backed deployable runs: its
@@ -230,7 +236,10 @@ export function partCollectionsStored(loom: EnrichedLoomModel): Map<string, Part
     const only = (a: string): boolean => set.size === 1 && set.has(a);
     out.set(cn, {
       references: only("mikroorm"),
-      values: only("jpa") || only("dapper") || only("mikroorm"),
+      values:
+        [...set].every((a) => PART_VALUES_IN_CHILD_TABLE.has(a)) ||
+        only("dapper") ||
+        only("mikroorm"),
       hosts: [...set].sort(),
     });
   }

@@ -138,10 +138,11 @@ system S {
     expect(codes).not.toContain("loom.collection-field-unpersisted");
   });
 
-  // A part's `<VO>[]`: the migration creates its child table, but only JPA
-  // reads and writes it; Dapper and MikroORM store it as a jsonb column their
-  // own schema declares.  Every other host would lose it, so the position is refused
-  // unless every database-backed host of the context stores it.
+  // A part's `<VO>[]`: the migration creates its child table, which the
+  // child-table adapters read and write; Dapper and MikroORM store it as a
+  // jsonb column their own schema declares.  Every other host would lose it, so
+  // the position is refused unless every database-backed host of the context
+  // stores it.
   describe("a value-object collection on an entity part", () => {
     const partSys = (platforms: string[]): string => `
 system S {
@@ -163,7 +164,7 @@ system S {
     .join("\n  ")}
 }`;
 
-    for (const platform of ["node", "dotnet", "python", "elixir"]) {
+    for (const platform of ["dotnet", "python", "elixir"]) {
       it(`is refused on ${platform}`, async () => {
         expect(await errorCodes(partSys([platform]))).toContain(
           "loom.collection-field-unpersisted",
@@ -173,6 +174,7 @@ system S {
 
     for (const platform of [
       "java",
+      "node",
       "dotnet { persistence: dapper }",
       "node { persistence: mikroorm }",
     ]) {
@@ -183,8 +185,14 @@ system S {
       });
     }
 
-    it("is refused when java shares the context with a host that would lose it", async () => {
-      expect(await errorCodes(partSys(["java", "node"]))).toContain(
+    it("is accepted when child-table adapters share the context", async () => {
+      expect(await errorCodes(partSys(["java", "node"]))).not.toContain(
+        "loom.collection-field-unpersisted",
+      );
+    });
+
+    it("is refused when a jsonb-column adapter shares the context with a child-table one", async () => {
+      expect(await errorCodes(partSys(["java", "node { persistence: mikroorm }"]))).toContain(
         "loom.collection-field-unpersisted",
       );
     });
