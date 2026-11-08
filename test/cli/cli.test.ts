@@ -52,20 +52,22 @@ describe("CLI", () => {
     // Real run first, so the tree is up to date.
     const real = runCli(["generate", "ts", example, "-o", tmp]);
     expect(real.status).toBe(0);
-    // 33 project files + `.loom/manifest.json` (the emitted-path record the
+    // 34 project files + `.loom/manifest.json` (the emitted-path record the
     // next run prunes against — see `src/system/manifest.ts`).  No `LICENSE`:
     // the licence moved to `ddd new`, the command that OWNS the project shell
-    // (see test/system/generation-defaults.test.ts § G9).  The 33rd project
-    // file is `vitest.config.ts` — the project ships `"test": "vitest run"`,
+    // (see test/system/generation-defaults.test.ts § G9).  The example uses
+    // money, so the project ships `lib/decimal-setup.ts` (decimal.js at 28
+    // significant digits, matching .NET/Python).  Another project file
+    // is `vitest.config.ts` — the project ships `"test": "vitest run"`,
     // and without a config of its own vitest walks up out of the generated
     // tree and runs the ANCESTOR repo's include globs (Wave 4 F-004).
-    expect(real.stdout).toMatch(/Wrote 34 file\(s\)/);
+    expect(real.stdout).toMatch(/Wrote 35 file\(s\)/);
 
     // A dry run over the up-to-date tree must classify everything as
     // unchanged — 0 would-writes, matching what a real re-run does.
     const dry = runCli(["generate", "ts", example, "-o", tmp, "--dry-run"]);
     expect(dry.status).toBe(0);
-    expect(dry.stdout).toMatch(/Would write 0 file\(s\) in [^,]+, unchanged: 34/);
+    expect(dry.stdout).toMatch(/Would write 0 file\(s\) in [^,]+, unchanged: 35/);
     fs.rmSync(tmp, { recursive: true });
   });
 
@@ -119,7 +121,7 @@ describe("CLI", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loom-inc-"));
     const first = runCli(["generate", "ts", example, "-o", tmp]);
     expect(first.status).toBe(0);
-    expect(first.stdout).toMatch(/Wrote 34 file\(s\)/);
+    expect(first.stdout).toMatch(/Wrote 35 file\(s\)/);
     // Capture mtimes after the first run so we can verify the second
     // run doesn't re-touch anything.
     const sample = path.join(tmp, "domain", "order.ts");
@@ -127,7 +129,7 @@ describe("CLI", () => {
 
     const second = runCli(["generate", "ts", example, "-o", tmp]);
     expect(second.status).toBe(0);
-    expect(second.stdout).toMatch(/Wrote 0 file\(s\) in [^,]+, unchanged: 34/);
+    expect(second.stdout).toMatch(/Wrote 0 file\(s\) in [^,]+, unchanged: 35/);
     const mtimeAfter = fs.statSync(sample).mtimeMs;
     expect(mtimeAfter).toBe(mtimeBefore);
     fs.rmSync(tmp, { recursive: true });
@@ -158,7 +160,7 @@ describe("CLI", () => {
     // the digest this path recorded in `.loom/manifest.json` no longer matches
     // what is on disk, which is exactly the case the count exists to surface.
     expect(result.stdout).toMatch(
-      /Wrote 1 file\(s\) in [^,]+, 1 of which had local modifications \(pinnable via \.loomignore\), unchanged: 33/,
+      /Wrote 1 file\(s\) in [^,]+, 1 of which had local modifications \(pinnable via \.loomignore\), unchanged: 34/,
     );
     expect(fs.statSync(idsPath).mtimeMs).toBeGreaterThan(idsMtimeBefore);
     expect(fs.statSync(orderPath).mtimeMs).toBe(orderMtimeBefore);

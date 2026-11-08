@@ -61,7 +61,7 @@ async function file(platform: string, suffix: string, audience = DECLARED): Prom
 }
 
 /** `src` contains `guard`, and it comes before `later` (the verification call). */
-function guardBefore(src: string, guard: string, later: string): void {
+function expectGuardBefore(src: string, guard: string, later: string): void {
   expect(src).toContain(guard);
   expect(src).toContain(later);
   expect(src.indexOf(guard)).toBeLessThan(src.indexOf(later));
@@ -110,7 +110,7 @@ describe("OIDC audience — declared: an empty value rejects every token (fail c
   it("node: refuses before jwtVerify (jose skips aud for an empty option)", async () => {
     const src = await file("node", "auth/oidc.ts");
     expect(src).toContain("const VERIFY_OPTIONS = { issuer: ISSUER, audience: AUDIENCE };");
-    guardBefore(
+    expectGuardBefore(
       src,
       `if (!AUDIENCE) {\n    requestLog().debug({ event: "auth_token_rejected", reason: "${UNSET}" });\n    return null;\n  }`,
       "await jwtVerify(",
@@ -119,7 +119,7 @@ describe("OIDC audience — declared: an empty value rejects every token (fail c
 
   it("dotnet: rejects before token validation", async () => {
     const src = await file("dotnet", "Auth/OidcUserVerifier.cs");
-    guardBefore(
+    expectGuardBefore(
       src,
       `if (string.IsNullOrEmpty(Audience))\n        {\n            return Rejected("${UNSET}");\n        }`,
       "Handler.ValidateTokenAsync(",
@@ -128,7 +128,7 @@ describe("OIDC audience — declared: an empty value rejects every token (fail c
 
   it("java: rejects before the Nimbus processor runs", async () => {
     const src = await file("java", "auth/OidcUserVerifier.java");
-    guardBefore(
+    expectGuardBefore(
       src,
       `if (AUDIENCE == null || AUDIENCE.isEmpty()) {\n            CatalogLog.event("auth_token_rejected", "debug", "reason", "${UNSET}");\n            return null;\n        }`,
       "processor().process(",
@@ -137,8 +137,8 @@ describe("OIDC audience — declared: an empty value rejects every token (fail c
 
   it("python: rejects when the audience folded to None", async () => {
     const src = await file("python", "app/auth/oidc.py");
-    guardBefore(src, "    if _AUDIENCE is None:\n", "jwt.decode(");
-    guardBefore(src, `reason="${UNSET}",\n        )\n        return None`, "jwt.decode(");
+    expectGuardBefore(src, "    if _AUDIENCE is None:\n", "jwt.decode(");
+    expectGuardBefore(src, `reason="${UNSET}",\n        )\n        return None`, "jwt.decode(");
   });
 
   it("elixir: the first `with` step rejects an empty audience()", async () => {
