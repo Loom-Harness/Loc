@@ -83,8 +83,7 @@ system Denials {
  *  are the contract — a backend that paraphrases one of them fails here.  An
  *  UNNAMED precondition tripped at the domain floor answers the text of the
  *  floor's own code, `problem.domain-floor` (`floorRuleText`), never its
- *  source; java and elixir still answer the single-field `field.rule` text
- *  until their domain floor follows (#4473).  The `requires` detail
+ *  source.  The `requires` detail
  *  still names its predicate.  The predicates deliberately contain no STRING
  *  literal: each backend escapes quotes differently inside its own emitted
  *  string literal, which would make the expectation about escaping rather than
@@ -93,8 +92,8 @@ const PRECONDITION_DETAIL: Readonly<Record<string, string>> = {
   node: "Business rule violated",
   dotnet: "Business rule violated",
   python: "Business rule violated",
-  java: "Invalid value",
-  elixir: "Invalid value",
+  java: "Business rule violated",
+  elixir: "Business rule violated",
 };
 const FORBIDDEN_DETAIL = "Forbidden: currentUser.level > 2";
 /** …and when the author writes `message "…"`, THAT is the detail — the derived
@@ -301,7 +300,7 @@ const CODED_ERROR_SURFACE: Record<string, string> = {
   java: "public DomainException(String message, Kind kind, String ruleCode, String pointer)",
   python: "        code: str | None = None,",
   elixir:
-    "def problem_response(conn, _status, _title, %{detail: detail, code: code, pointer: pointer})",
+    "def problem_response(conn, _status, _title, %{detail: detail, code: code, pointer: pointer} = rule, _class_code)",
 };
 
 describe("B-02 — a workflow / commandHandler precondition keeps its authored message", () => {

@@ -40,7 +40,7 @@ import { walkExprDeep } from "../../../ir/util/walk.js";
 import { pickErrorPath, singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { elixirString, snake } from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
-import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
+import { floorRuleText, ruleCode, ruleText } from "../../_i18n/rule-text.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { exRuleParams } from "./denial.js";
 
@@ -402,7 +402,7 @@ export function renderOpInvariantAssertFn(agg: AggregateIR, contextModule: strin
       ? `(${renderExpr(inv.guard, rc)}) && !(${renderExpr(inv.expr, rc)})`
       : `!(${renderExpr(inv.expr, rc)})`;
     const field = snake(pickErrorPath(inv) ?? fallbackField);
-    const msg = elixirString(ruleText(inv));
+    const msg = elixirString(floorRuleText(inv));
     return `      ${violated} ->\n        add_error(changeset, :${field}, ${msg}, loom_invariant: true)`;
   });
   return `  @doc "Re-assert the aggregate's message-less invariants after an operation body — the first violated one is the operation's domain error (422, the rule's generic sentence), as on the other four backends."

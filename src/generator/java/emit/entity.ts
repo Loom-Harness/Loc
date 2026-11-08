@@ -30,7 +30,7 @@ import { lines } from "../../../util/code-builder.js";
 import { factoryLocal, snake } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
-import { ruleText } from "../../_i18n/rule-text.js";
+import { floorRuleText } from "../../_i18n/rule-text.js";
 import { javaOnDemandRef, javaRef } from "../../_imports/java.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
@@ -899,7 +899,7 @@ export function renderJavaEntity(
     // A NAMED rule carries its wire code + pointer THROUGH the throw; an
     // unnamed one keeps the text-only throw with the generic text.
     const code = domainFloorCode(inv.message);
-    const text = JSON.stringify(ruleText(inv));
+    const text = JSON.stringify(floorRuleText(inv));
     const thrown = code
       ? `throw new DomainException(${text}, DomainException.Kind.INVARIANT, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}${javaRuleParamsTail(inv, (e) => renderJavaExpr(e, renderCtx))})`
       : `throw new DomainException(${text}, DomainException.Kind.INVARIANT)`;

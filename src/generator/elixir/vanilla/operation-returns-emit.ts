@@ -66,6 +66,7 @@ import {
   guardErrorModule,
   guardRaiseLine,
   opHasWireDenial,
+  wireLimitSides,
   wireValidationResponse,
 } from "./denial.js";
 import { renderElixirIfStmt } from "./if-stmt-emit.js";
@@ -444,7 +445,15 @@ export function collectOpGuardClauses(aggName: string, op: OperationIR, rc: Rend
   const wireAvailable = new Set(op.params.map((p) => p.name));
   for (const s of op.statements) {
     if (s.kind === "requires" || s.kind === "precondition") {
-      clauses.push(renderOpGuardClause(s, rc, wireAvailable));
+      // A declared field limit denies one side at a time, each under its own
+      // `field.<limit>` code.
+      const sides = wireLimitSides(s, wireAvailable);
+      if (sides) {
+        for (const side of sides)
+          clauses.push(`:ok <- ensure(${renderExpr(side.expr, rc)}, ${side.term})`);
+      } else {
+        clauses.push(renderOpGuardClause(s, rc, wireAvailable));
+      }
     }
   }
   return clauses;

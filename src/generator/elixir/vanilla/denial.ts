@@ -32,14 +32,21 @@
 // structural-conflict rungs use, so a remap moves the runtime arm and
 // the OpenAPI declaration together and no rung is silently un-overridable.
 
-import { notFoundStmtDetail, ruleStage, wireSentence } from "../../../ir/enrich/wire-policy.js";
+import {
+  type FieldLimitCheck,
+  fieldCode,
+  fieldLimitChecks,
+  notFoundStmtDetail,
+  ruleStage,
+  wireSentence,
+} from "../../../ir/enrich/wire-policy.js";
 import type { ExprIR, StmtIR, WorkflowStmtIR } from "../../../ir/types/loom-ir.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { ruleParamRefs } from "../../../ir/util/rule-params.js";
 import { pickErrorPath, singleFieldShape } from "../../../ir/validate/invariant-classify.js";
 import { elixirString } from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
-import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
+import { floorRuleText, ruleCode, ruleText } from "../../_i18n/rule-text.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import {
   type DenialRung,
@@ -135,7 +142,7 @@ export function internalFallbackResponse(): string {
  *  logging this message. */
 export function denialMessage(s: GuardStmt): string {
   if (s.kind === "requires") return `Forbidden: ${s.source}`;
-  return ruleText(s);
+  return floorRuleText(s);
 }
 
 /** An Elixir map literal carrying the VALUES of the identifiers `rule` reads
@@ -419,6 +426,44 @@ export function wireValidationTerm(s: GuardStmt, renderRef?: (e: ExprIR) => stri
     ...(authored && exRuleParams(s, renderRef) ? [`params: ${exRuleParams(s, renderRef)}`] : []),
   ].join(", ");
   return `{:validation_failed, [%{${entry}}]}`;
+}
+
+/** A message-less wire-rung precondition that is a declared field limit, as
+ *  one `{expr, term}` per side (`fieldLimitChecks`): the side's own predicate
+ *  (a conjunct of the precondition) and the `{:validation_failed, …}` term
+ *  carrying its `field.<limit>` code and bound.  A two-sided limit is the two
+ *  `&&` conjuncts `singleFieldShape` folded, in the same order (min side
+ *  first).  `null` when the guard is not such a limit, so the caller keeps its
+ *  one `ensure`. */
+export function wireLimitSides(
+  s: GuardStmt,
+  available: ReadonlySet<string> | undefined,
+): { expr: ExprIR; term: string }[] | null {
+  if (s.kind !== "precondition" || s.message || !deniesAtWire(s, available)) return null;
+  const single = singleFieldShape({ expr: s.expr, source: s.source });
+  if (!single) return null;
+  const checks = fieldLimitChecks(single.pattern);
+  const strip = (e: ExprIR): ExprIR => (e.kind === "paren" ? strip(e.inner) : e);
+  const top = strip(s.expr);
+  const sides =
+    checks.length === 1
+      ? [s.expr]
+      : top.kind === "binary" && top.op === "&&"
+        ? [top.left, top.right]
+        : null;
+  if (!sides || sides.length !== checks.length) return null;
+  const pointer = `/${rfc6901(single.field)}`;
+  const text = singleFieldMessage(single.field, single.pattern);
+  return checks.map((check, i) => ({
+    expr: sides[i] as ExprIR,
+    term: limitTerm(pointer, text, check),
+  }));
+}
+
+function limitTerm(pointer: string, text: string, check: FieldLimitCheck): string {
+  const entries = Object.entries(check.params).map(([k, v]) => `${k}: ${v}`);
+  const params = entries.length > 0 ? `, params: %{${entries.join(", ")}}` : "";
+  return `{:validation_failed, [%{pointer: ${JSON.stringify(pointer)}, message: ${elixirString(text)}, code: ${elixirString(fieldCode(check.reason))}${params}}]}`;
 }
 
 /** RFC 6901 segment escaping (`~` → `~0`, `/` → `~1`) — the same escaping the

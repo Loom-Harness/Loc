@@ -1,3 +1,8 @@
+import {
+  type FieldLimitCheck,
+  fieldCode,
+  fieldLimitChecks,
+} from "../../../ir/enrich/wire-policy.js";
 import type { EnumIR, StmtIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { ruleParams } from "../../../ir/util/rule-params.js";
 import {
@@ -57,9 +62,50 @@ ${branches}
     end)`;
 }
 
+/** One side of a declared field limit as a `validate_change/3` closure whose
+ *  error carries its catalog code and bound (`loom_code` / `loom_params`, read
+ *  by the 422 handler's `error_code` / `put_params`).  Ecto's own
+ *  `validate_number` / `validate_format` refuse unknown options and attach
+ *  none of their own, so the check is hand-rolled — numbers compared through
+ *  `Decimal` (the field's cast value is an integer, a float or a Decimal),
+ *  lengths in code points like `lengthValidator`. */
+function limitValidator(field: string, check: FieldLimitCheck, text: string): string {
+  const n = check.bound ?? 0;
+  const bound = `Decimal.new(${elixirString(String(n))})`;
+  const cmp = `Decimal.compare(elem(Decimal.cast(value), 1), ${bound})`;
+  const count = "length(String.to_charlist(value))";
+  const ok: Record<FieldLimitCheck["reason"], string> = {
+    min: `${cmp} != :lt`,
+    "greater-than": `${cmp} == :gt`,
+    max: `${cmp} != :gt`,
+    "less-than": `${cmp} == :lt`,
+    "min-length": `${count} >= ${n}`,
+    "max-length": `${count} <= ${n}`,
+    length: `${count} == ${n}`,
+    pattern: `value =~ ~r/${elixirRegexBody(check.regex ?? "")}/`,
+  };
+  const validation =
+    check.reason === "pattern" ? "format" : check.reason.includes("length") ? "length" : "number";
+  const entries = Object.entries(check.params).map(([k, v]) => `${k}: ${v}`);
+  const params = entries.length > 0 ? `, loom_params: %{${entries.join(", ")}}` : "";
+  return `    |> validate_change(:${field}, fn _, value ->
+      if ${ok[check.reason]},
+        do: [],
+        else: [{:${field}, {${elixirString(text)}, validation: :${validation}, loom_code: ${elixirString(fieldCode(check.reason))}${params}}}]
+    end)`;
+}
+
 /** Map a recognised single-field invariant pattern to the idiomatic Ecto
- *  changeset validator pipe line (4-space-indented, ready for a `|>` pipe). */
+ *  changeset validator pipe line (4-space-indented, ready for a `|>` pipe).
+ *  A message-less pattern is a declared field limit: one `limitValidator` per
+ *  side (`fieldLimitChecks`), each answering its own `field.<limit>` code. */
 export function ectoValidator(field: string, p: SingleFieldPattern, message?: string): string {
+  if (message === undefined) {
+    const text = singleFieldMessage(field, p);
+    return fieldLimitChecks(p)
+      .map((check) => limitValidator(field, check, text))
+      .join("\n");
+  }
   // An author `message "..."` rides along as Ecto's own `message:` option, so a
   // messaged single-field rule keeps its native `validate_*` enforcement AND
   // surfaces the author text (VOs have no residual carrier to route to). A

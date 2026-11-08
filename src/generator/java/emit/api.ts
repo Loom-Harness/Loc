@@ -904,12 +904,12 @@ export function renderApiExceptionAdvice(
     `        return ${javaLit(fieldCode("rule"))};`,
     `    }`,
     ``,
-    // A named rule's values ride \`rejectValue\`'s arguments as alternating
-    // name, value; Bean Validation's own arguments lead with a resolvable, so
-    // they are never read as pairs.
+    // A named rule's values, and a field limit's bound, ride \`rejectValue\`'s
+    // arguments as alternating name, value; Bean Validation's own arguments
+    // lead with a resolvable, so they are never read as pairs.
     `    private static java.util.Map<String, Object> ruleParams(${javaRef("org.springframework.validation", "FieldError")} err, String code) {`,
     `        var args = err.getArguments();`,
-    `        if (!code.contains(".rule.") || args == null || args.length == 0 || !(args[0] instanceof String)) return null;`,
+    `        if (!(code.contains(".rule.") || code.startsWith("field.")) || args == null || args.length == 0 || !(args[0] instanceof String)) return null;`,
     `        var out = new java.util.LinkedHashMap<String, Object>();`,
     `        for (int i = 0; i + 1 < args.length; i += 2) out.put((String) args[i], args[i + 1]);`,
     `        return out;`,

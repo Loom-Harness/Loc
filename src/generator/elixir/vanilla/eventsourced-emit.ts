@@ -56,7 +56,7 @@ import {
   upperFirst,
 } from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
-import { ruleText } from "../../_i18n/rule-text.js";
+import { floorRuleText } from "../../_i18n/rule-text.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
@@ -160,7 +160,7 @@ export function esInvariantChecks(agg: AggregateIR, rc: RenderCtx): EsInvariantC
   return esEnforcedInvariants(agg).map((inv) => {
     const rule = renderExpr(inv.expr, ctx);
     const predicate = inv.guard ? `not (${renderExpr(inv.guard, ctx)}) or (${rule})` : rule;
-    const message = ruleText(inv);
+    const message = floorRuleText(inv);
     const params = inv.message ? exRuleParams(inv, (e) => renderExpr(e, ctx)) : undefined;
     const term = inv.message
       ? `{:precondition_failed, %{detail: ${elixirString(message)}, code: ${elixirString(

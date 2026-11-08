@@ -1,4 +1,8 @@
-import { missingFieldMessage } from "../../../ir/enrich/wire-policy.js";
+import {
+  fieldCode,
+  fieldLimitChecks,
+  missingFieldMessage,
+} from "../../../ir/enrich/wire-policy.js";
 import {
   createInputFields,
   emitsRestCreate,
@@ -670,6 +674,54 @@ function patternCheck(
   // record's own boxing decision (`wireComponentNullable`).
   const nullSkip = (cond: string): string => (nullable ? `${local} == null || ${cond}` : cond);
   const fail = (cond: string): string => reject(field, code, message, nullSkip(cond), args);
+  const regexName = (source: string): string => {
+    let name = regexFields.get(source);
+    if (!name) {
+      name = `MATCHES_PATTERN_${regexFields.size}`;
+      regexFields.set(source, name);
+    }
+    return name;
+  };
+  // An UNNAMED rule is a declared field limit: one check per side
+  // (`fieldLimitChecks`), each refused under its own `field.<limit>` code with
+  // its bound as the `rejectValue` arguments (name, value pairs — the advice's
+  // `ruleParams` reads them as the wire `params`).  A named rule keeps its one
+  // check under its identity key.
+  if (code === fieldCode("rule")) {
+    return fieldLimitChecks(pattern).map((check) => {
+      const n = check.bound ?? 0;
+      const bound = Object.entries(check.params)
+        .map(([k, v]) => `${JSON.stringify(k)}, ${v}`)
+        .join(", ");
+      const limit = (cond: string): string =>
+        reject(field, fieldCode(check.reason), message, nullSkip(cond), bound || undefined);
+      switch (check.reason) {
+        case "min":
+          return limit(cmp(">=", n));
+        case "greater-than":
+          return limit(cmp(">", n));
+        case "max":
+          return limit(cmp("<=", n));
+        case "less-than":
+          return limit(cmp("<", n));
+        // CODE POINTS, not `String.length()`'s UTF-16 code units — the same
+        // count the emitted OpenAPI publishes as `minLength`/`maxLength`
+        // (src/generator/_expr/code-point.ts).
+        case "min-length":
+          return limit(`${javaCodePointLength(local)} >= ${n}`);
+        case "max-length":
+          return limit(`${javaCodePointLength(local)} <= ${n}`);
+        case "length":
+          return limit(`${javaCodePointLength(local)} == ${n}`);
+        case "pattern":
+          return limit(`${regexName(check.regex ?? "")}.matcher(${local}).find()`);
+        default: {
+          const unknown: never = check.reason;
+          return unknown;
+        }
+      }
+    });
+  }
   switch (pattern.kind) {
     case "min":
       // Exclusive (`weight > 0.5` on a decimal/money field) → strict `>`; the
@@ -694,13 +746,7 @@ function patternCheck(
           `${javaCodePointLength(local)} >= ${pattern.lo} && ${javaCodePointLength(local)} <= ${pattern.hi}`,
         ),
       ];
-    case "regex": {
-      let name = regexFields.get(pattern.pattern);
-      if (!name) {
-        name = `MATCHES_PATTERN_${regexFields.size}`;
-        regexFields.set(pattern.pattern, name);
-      }
-      return [fail(`${name}.matcher(${local}).find()`)];
-    }
+    case "regex":
+      return [fail(`${regexName(pattern.pattern)}.matcher(${local}).find()`)];
   }
 }

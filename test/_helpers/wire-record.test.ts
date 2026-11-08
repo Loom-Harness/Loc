@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { pendingErrorCodeLegs, pendingFieldLimitLegs } from "./error-code-rows.js";
 import {
   applyWaivers,
   decimalEqual,
@@ -29,15 +30,19 @@ describe("the #4473 pending-backend waivers cover the error codes and nothing el
     actual: undefined as never,
   });
 
-  it("waive a missing wire code / params on a pending leg, never on node", () => {
+  it("waive a missing wire code / params only on a leg still pending — none is", () => {
     const missing = [
       div("$.code", "problem.field-invalid"),
       div("$.errors[0].code", "field.missing"),
       div("$.errors[0].params", { qty: -1 }),
       div("$.code", "Sales.OutOfStock.message"),
     ];
-    expect(applyWaivers(missing, "java", "c", WIRE_WAIVERS).gating).toEqual([]);
-    expect(applyWaivers(missing, "node", "c", WIRE_WAIVERS).gating).toHaveLength(4);
+    // Every backend answers the codes and the field-limit codes, so no leg is
+    // waived on them: a missing code gates everywhere.
+    expect(pendingErrorCodeLegs()).toEqual([]);
+    expect(pendingFieldLimitLegs()).toEqual([]);
+    for (const leg of ["node", "mikroorm", "dotnet", "dapper", "python", "java", "elixir"])
+      expect(applyWaivers(missing, leg, "c", WIRE_WAIVERS).gating, leg).toHaveLength(4);
   });
 
   it("do not cover a domain field that happens to be named `code`", () => {
