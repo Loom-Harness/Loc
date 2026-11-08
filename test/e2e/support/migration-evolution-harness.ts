@@ -779,7 +779,7 @@ export async function runValueCollectionEvolutionGate(): Promise<void> {
         `FROM information_schema.columns ` +
         `WHERE table_schema = 'ord' AND table_name = 'orders'`,
     );
-    expect(cols).toBe("id,note,version");
+    expect(cols).toBe("id,note,row_version");
 
     // (e) The seeded row survived, and a NEW row still inserts — the assertion
     // the whole finding is about.
