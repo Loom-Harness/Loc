@@ -5,8 +5,9 @@ import { loomQuickFixes, type LoomQuickFix } from "../editor/fix-hint-actions";
 import { modelUriFor } from "../lsp/workspace-lsp-sync";
 import type { Diagnostic } from "../lsp/protocol";
 import type { LayoutCtx } from "./ctx";
+import { describePendingMigration } from "./pending-migration";
 import { inDocumentOrder, toEditorRange } from "./problem-nav";
-import { FREE_ACTION, PROBLEMS } from "./vocabulary";
+import { FREE_ACTION, PENDING_MIGRATION, PROBLEMS } from "./vocabulary";
 
 // The Problems stream as a teaching surface (M-T8.18 slice 1, audit H7).
 //
@@ -19,11 +20,22 @@ import { FREE_ACTION, PROBLEMS } from "./vocabulary";
 // agent*, which opens the Agent tab with the diagnostic in the composer.
 // Clicking a row reveals it in Source.  Errors / Warnings chips filter the
 // list; `F8` / `Shift+F8` (installed at App level) step through it.
+//
+// Unrecorded schema changes are not a source diagnostic: they are the
+// pipeline's pending-migration state, shown here as one notice row that
+// opens the same Record migration dialog as the strip's badge.
 
 interface Props {
   ctx: Pick<
     LayoutCtx,
-    "diagnostics" | "getSource" | "activeSourcePath" | "editorHandleRef" | "revealSourceRange" | "askAgent"
+    | "diagnostics"
+    | "getSource"
+    | "activeSourcePath"
+    | "editorHandleRef"
+    | "revealSourceRange"
+    | "askAgent"
+    | "pendingMigration"
+    | "setRecordMigrationOpen"
   >;
 }
 
@@ -57,11 +69,15 @@ export function ProblemsPanel({ ctx }: Props): JSX.Element {
     };
   }, [diagnostics, getSource, activeSourcePath]);
 
+  const notice = <MigrationNotice ctx={ctx} />;
   if (diagnostics.length === 0) {
     return (
-      <Text c="dimmed" size="sm" p="sm" data-testid="problems-empty">
-        {PROBLEMS.empty}
-      </Text>
+      <>
+        {notice}
+        <Text c="dimmed" size="sm" p="sm" data-testid="problems-empty">
+          {PROBLEMS.empty}
+        </Text>
+      </>
     );
   }
 
@@ -70,6 +86,7 @@ export function ProblemsPanel({ ctx }: Props): JSX.Element {
 
   return (
     <Stack gap={4} p="xs" data-testid="problems-list">
+      {notice}
       <Group gap={6}>
         <Chip
           size="xs"
@@ -109,6 +126,36 @@ export function ProblemsPanel({ ctx }: Props): JSX.Element {
         ))
       )}
     </Stack>
+  );
+}
+
+/** The unrecorded-changes notice — the pending-migration state, linked to
+ *  the Record migration dialog.  Nothing when the chain records the model. */
+function MigrationNotice({ ctx }: Props): JSX.Element | null {
+  const view = describePendingMigration(ctx.pendingMigration);
+  if (!view || view.action !== "record") return null;
+  return (
+    <Group
+      gap={8}
+      wrap="nowrap"
+      px={4}
+      py={2}
+      data-testid="problems-migration-notice"
+      style={{ borderLeft: "3px solid var(--mantine-color-yellow-6)" }}
+    >
+      <Text size="xs" style={{ flex: 1 }}>
+        {PENDING_MIGRATION.problemsNotice(view.detail)}
+      </Text>
+      <Button
+        size="compact-xs"
+        variant="light"
+        color="yellow"
+        onClick={() => ctx.setRecordMigrationOpen(true)}
+        data-testid="problems-record-migration"
+      >
+        {PENDING_MIGRATION.record}
+      </Button>
+    </Group>
   );
 }
 

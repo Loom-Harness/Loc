@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { initialPipelineState, pipelineReducer } from "../../web/src/pipeline/reducer.js";
-import { bootError, bootedDDL, bootPending } from "../../web/src/pipeline/state.js";
+import {
+  bootError,
+  bootedDDL,
+  bootPending,
+  type PipelineState,
+  pendingMigration,
+} from "../../web/src/pipeline/state.js";
 
 // ---------------------------------------------------------------------------
 // Pipeline reducer — invariants the playground UI depends on.
@@ -58,6 +64,7 @@ function bootedState(persistent: boolean) {
     persistent,
     applied: [],
     backends: ["api"],
+    head: null,
   });
   s = pipelineReducer(s, { type: "DISPATCH_START" });
   s = pipelineReducer(s, { type: "DISPATCH_DONE", result: SAMPLE_DISPATCH });
@@ -152,5 +159,144 @@ describe("pipelineReducer — RUNTIME_LOST", () => {
     if (after.boot.kind === "fail") {
       expect(after.boot.message).not.toMatch(/will be restored/i);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The pending-migration state — the strip's badge.  It is derived from the
+// last chain check (re-run on every source change) and the database head the
+// last boot reported, never stored, so a regenerate cannot strand it.
+// ---------------------------------------------------------------------------
+
+describe("pendingMigration", () => {
+  const UNRECORDED = { initial: false, modules: ["Sales"], steps: 1, destructive: false };
+  const check = (units: string[], unrecorded: typeof UNRECORDED | null = null): PipelineState =>
+    pipelineReducer(initialPipelineState, {
+      type: "MIGRATION_CHECKED",
+      check: { kind: "chain", units, unrecorded },
+    });
+  const boot = (s: PipelineState, head: string | null): PipelineState =>
+    pipelineReducer(pipelineReducer(s, { type: "BOOT_START" }), {
+      type: "BOOT_OK",
+      ddl: "",
+      persistent: true,
+      applied: [],
+      head,
+    });
+
+  it("is unknown until a check finishes, and for a source without a system", () => {
+    expect(pendingMigration(initialPipelineState)).toBeNull();
+    const s = pipelineReducer(initialPipelineState, {
+      type: "MIGRATION_CHECKED",
+      check: { kind: "unversioned" },
+    });
+    expect(pendingMigration(s)).toBeNull();
+  });
+
+  it("an example with no chain reads unrecorded, initial — before any generate or boot", () => {
+    const s = check([], { ...UNRECORDED, initial: true, modules: ["Sales", "Billing"], steps: 9 });
+    expect(pendingMigration(s)).toEqual({
+      kind: "unrecorded",
+      initial: true,
+      modules: ["Sales", "Billing"],
+      steps: 9,
+      destructive: false,
+    });
+  });
+
+  it("unrecorded changes win over the database's head, destructive flag included", () => {
+    let s = boot(check(["v1_sales_initial"]), "v1_sales_initial");
+    s = pipelineReducer(s, {
+      type: "MIGRATION_CHECKED",
+      check: {
+        kind: "chain",
+        units: ["v1_sales_initial"],
+        unrecorded: { ...UNRECORDED, destructive: true },
+      },
+    });
+    expect(pendingMigration(s)).toMatchObject({ kind: "unrecorded", steps: 1, destructive: true });
+  });
+
+  it("recorded, not applied: the chain moved past the head the last boot reached — and a boot to the head clears it", () => {
+    let s = boot(check(["v1_sales_initial"]), "v1_sales_initial");
+    expect(pendingMigration(s)).toEqual({ kind: "up-to-date" });
+    s = pipelineReducer(s, {
+      type: "MIGRATION_CHECKED",
+      check: { kind: "chain", units: ["v1_sales_initial", "v2_sales_add_phone"], unrecorded: null },
+    });
+    expect(pendingMigration(s)).toEqual({
+      kind: "recorded-not-applied",
+      units: ["v2_sales_add_phone"],
+    });
+    // A regenerate clears the boot slot but not what the database is at.
+    s = pipelineReducer(s, { type: "GENERATE_START" });
+    expect(pendingMigration(s)).toEqual({
+      kind: "recorded-not-applied",
+      units: ["v2_sales_add_phone"],
+    });
+    s = boot(s, "v2_sales_add_phone");
+    expect(pendingMigration(s)).toEqual({ kind: "up-to-date" });
+  });
+
+  it("a boot that stopped on unrecorded changes records the head it read; recording them leaves them to apply", () => {
+    let s = check([], { ...UNRECORDED, initial: true });
+    s = pipelineReducer(s, { type: "BOOT_START" });
+    s = pipelineReducer(s, {
+      type: "BOOT_PENDING",
+      migration: { kind: "unrecorded", head: null, ...UNRECORDED, initial: true },
+      message: "Migration required",
+    });
+    s = pipelineReducer(s, {
+      type: "MIGRATION_CHECKED",
+      check: { kind: "chain", units: ["v1_sales_initial"], unrecorded: null },
+    });
+    expect(pendingMigration(s)).toEqual({
+      kind: "recorded-not-applied",
+      units: ["v1_sales_initial"],
+    });
+  });
+
+  it("a re-check that confirms the slot keeps the state object, so the app does not re-render", () => {
+    const s = check(["v1_sales_initial"], UNRECORDED);
+    const same = pipelineReducer(s, {
+      type: "MIGRATION_CHECKED",
+      check: { kind: "chain", units: ["v1_sales_initial"], unrecorded: { ...UNRECORDED } },
+    });
+    expect(same).toBe(s);
+    const moved = pipelineReducer(s, {
+      type: "MIGRATION_CHECKED",
+      check: {
+        kind: "chain",
+        units: ["v1_sales_initial"],
+        unrecorded: { ...UNRECORDED, steps: 2 },
+      },
+    });
+    expect(moved).not.toBe(s);
+    expect(pendingMigration(moved)).toMatchObject({ kind: "unrecorded", steps: 2 });
+  });
+
+  it("not booted this session: a chain that records the model is up to date (Boot applies it)", () => {
+    expect(pendingMigration(check(["v1_sales_initial"]))).toEqual({ kind: "up-to-date" });
+  });
+
+  it("an in-memory database lost with its worker forgets its head; a persisted one keeps it", () => {
+    const persisted = pipelineReducer(boot(check(["a", "b"]), "a"), { type: "RUNTIME_LOST" });
+    expect(pendingMigration(persisted)).toEqual({ kind: "recorded-not-applied", units: ["b"] });
+    let mem = pipelineReducer(check(["a", "b"]), { type: "BOOT_START" });
+    mem = pipelineReducer(mem, {
+      type: "BOOT_OK",
+      ddl: "",
+      persistent: false,
+      applied: [],
+      head: "a",
+    });
+    mem = pipelineReducer(mem, { type: "RUNTIME_LOST" });
+    expect(pendingMigration(mem)).toEqual({ kind: "up-to-date" });
+  });
+
+  it("RESET (a project switch) forgets the check and the database", () => {
+    const s = pipelineReducer(boot(check(["a"]), "a"), { type: "RESET" });
+    expect(s.migrationCheck).toEqual({ kind: "none" });
+    expect(s.database).toEqual({ kind: "unknown" });
   });
 });

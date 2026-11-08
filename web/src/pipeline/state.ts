@@ -32,6 +32,7 @@ import type {
   BlockingMigrationState,
   DispatchResult,
   SerializedResponse,
+  UnrecordedChanges,
 } from "../runtime/protocol.js";
 
 // ---------------------------------------------------------------------
@@ -61,6 +62,30 @@ export type BootSlot =
   | { kind: "pending"; migration: BlockingMigrationState; message: string }
   | { kind: "fail"; message: string };
 
+/** The recorded migration chain measured against the live source — the
+ *  build worker's `migrate.plan` (`ddd migrate status`), re-run on every
+ *  source change and after every record and boot, independent of the
+ *  generate → bundle → boot cascade. */
+export type MigrationCheckSlot =
+  | { kind: "none" }
+  | {
+      kind: "chain";
+      /** The recorded chain's migration units, root first. */
+      units: string[];
+      /** What `migrate add` would record; `null` when the chain records the
+       *  model. */
+      unrecorded: UnrecordedChanges | null;
+    }
+  /** A source with no system: it records no migrations. */
+  | { kind: "unversioned" };
+
+/** Which recorded unit the runtime's database is at, as far as this session
+ *  has seen.  A boot learns it; regenerating or rebundling does not change
+ *  the database, so only a project switch forgets it. */
+export type DatabaseSlot =
+  | { kind: "unknown" }
+  | { kind: "at"; head: string | null };
+
 export type DispatchSlot =
   | { kind: "none" }
   | { kind: "result"; result: DispatchResult };
@@ -74,6 +99,8 @@ export interface PipelineState {
   bundle: BundleSlot;
   boot: BootSlot;
   dispatch: DispatchSlot;
+  migrationCheck: MigrationCheckSlot;
+  database: DatabaseSlot;
   // Activity flags — true while the corresponding async call is
   // in flight.  Drive button `loading` props.  Folded into the
   // reducer so START/DONE pairs can't get out of sync (which used
@@ -89,6 +116,8 @@ export const initialPipelineState: PipelineState = {
   bundle: { kind: "none" },
   boot: { kind: "none" },
   dispatch: { kind: "none" },
+  migrationCheck: { kind: "none" },
+  database: { kind: "unknown" },
   generating: false,
   bundling: false,
   booting: false,
@@ -111,9 +140,20 @@ export type PipelineAction =
   | { type: "BUNDLE_DONE"; backends: BackendBundle[]; react: BundleResult | null }
   // Boot
   | { type: "BOOT_START" }
-  | { type: "BOOT_OK"; ddl: string; persistent: boolean; applied: string[]; backends: string[] }
+  /** `head`: the chain unit the database is at after this boot (`null` for an
+   *  empty chain or a source without a system). */
+  | {
+      type: "BOOT_OK";
+      ddl: string;
+      persistent: boolean;
+      applied: string[];
+      backends: string[];
+      head: string | null;
+    }
   | { type: "BOOT_PENDING"; migration: BlockingMigrationState; message: string }
   | { type: "BOOT_FAIL"; message: string }
+  // The recorded chain measured against the live source.
+  | { type: "MIGRATION_CHECKED"; check: Exclude<MigrationCheckSlot, { kind: "none" }> }
   // Dispatch (a single HTTP call from the request composer)
   | { type: "DISPATCH_START" }
   | { type: "DISPATCH_DONE"; result: DispatchResult }
@@ -220,6 +260,35 @@ export function bootPending(
   s: PipelineState,
 ): { migration: BlockingMigrationState; message: string } | null {
   return s.boot.kind === "pending" ? { migration: s.boot.migration, message: s.boot.message } : null;
+}
+
+/** Where the workspace's schema stands against its recorded migration chain
+ *  and the runtime's database — what the pipeline strip's migration badge
+ *  shows.  The CLI's words: `unrecorded` is what `ddd migrate status` lists
+ *  and `ddd migrate add` (**Record migration**) records; `recorded-not-applied`
+ *  is recorded units the database this session booted has not applied, which
+ *  a boot (**Apply**) applies. */
+export type PendingMigration =
+  | { kind: "up-to-date" }
+  | ({ kind: "unrecorded" } & UnrecordedChanges)
+  | { kind: "recorded-not-applied"; units: string[] };
+
+/** The pending-migration state, derived from the last chain check and the
+ *  database head the last boot reported.  `null` while nothing is known (no
+ *  check has finished) or the source records no migrations. */
+export function pendingMigration(s: PipelineState): PendingMigration | null {
+  const check = s.migrationCheck;
+  if (check.kind !== "chain") return null;
+  if (check.unrecorded) return { kind: "unrecorded", ...check.unrecorded };
+  // Not booted this session: Boot applies the whole recorded chain, and
+  // nothing says the database is behind it.
+  if (s.database.kind === "unknown") return { kind: "up-to-date" };
+  const head = s.database.head;
+  // A head the chain no longer has reads as nothing applied; the boot then
+  // reports the database it finds.
+  const at = head === null ? 0 : check.units.indexOf(head) + 1;
+  const units = check.units.slice(at);
+  return units.length > 0 ? { kind: "recorded-not-applied", units } : { kind: "up-to-date" };
 }
 
 export function bootError(s: PipelineState): string | null {

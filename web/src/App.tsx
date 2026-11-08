@@ -89,7 +89,7 @@ import {
 } from "./engine";
 import { emptyDependencySet } from "./engine";
 import { recordAndGcOpfs } from "./engine/opfs-gc";
-import type { QueryResult } from "./runtime/protocol";
+import type { MigrationPlan, QueryResult } from "./runtime/protocol";
 import {
   CUSTOM_ENDPOINT,
   buildConcretePath,
@@ -124,6 +124,8 @@ import { buildExportReadme, EXPORT_README_PATH } from "./util/export-readme";
 import { usePersistedState } from "./util/usePersistedState";
 // M-T8.18 — the palette, the shortcut sheet, app-level hotkeys, F8.
 import { CommandPalette, openPalette } from "./layout/CommandPalette";
+import { RecordMigrationDialog } from "./layout/RecordMigrationDialog";
+import { describePendingMigration } from "./layout/pending-migration";
 import { ShortcutSheet } from "./layout/ShortcutSheet";
 import { hotkeyAction, isTextEntry } from "./util/hotkeys";
 import { inDocumentOrder, stepIndex, toEditorRange } from "./layout/problem-nav";
@@ -150,6 +152,7 @@ import {
   honoBundleResult as selHonoBundleResult,
   backendBundlesOk as selBackendBundlesOk,
   combinedBackendBundle,
+  pendingMigration as selPendingMigration,
   reactBundleOk as selReactBundleOk,
 } from "./pipeline/state";
 import { DesktopHeader, MobileHeader } from "./layout/HeaderBar";
@@ -394,6 +397,9 @@ export default function App(): JSX.Element {
   const [evolutionBaselineRef, setEvolutionBaselineRef] = useState("HEAD");
   const [snapshotResult, setSnapshotResult] = useState<SnapshotResult | null>(null);
   const [snapshotRunning, setSnapshotRunning] = useState(false);
+  // The Record migration dialog — opened from the pipeline strip's badge,
+  // the Problems notice and the Runtime tab's pending notice.
+  const [recordMigrationOpen, setRecordMigrationOpen] = useState(false);
   const [liveMode, setLiveMode] = useState(false);
   const liveModeRef = useRef(liveMode);
   liveModeRef.current = liveMode;
@@ -1051,6 +1057,10 @@ export default function App(): JSX.Element {
   // the current file view ("generate ran on the previous files").
   const generationEpochRef = useRef(0);
   const scheduleAutoGenerate = (delayMs = 5000): void => {
+    // Every path that changes the sources lands here, so the migration check
+    // rides it — on its own short debounce, and on mobile too: opening an
+    // example shows "migration required" before anything is generated.
+    scheduleMigrationCheck(isDesktop ? 400 : 1500);
     if (!isDesktop && !hasUserEditedRef.current) return;
     if (autoGenTimerRef.current) clearTimeout(autoGenTimerRef.current);
     autoGenTimerRef.current = setTimeout(() => {
@@ -1069,8 +1079,48 @@ export default function App(): JSX.Element {
     return () => {
       if (hashTimerRef.current) clearTimeout(hashTimerRef.current);
       if (autoGenTimerRef.current) clearTimeout(autoGenTimerRef.current);
+      if (migrationCheckTimerRef.current) clearTimeout(migrationCheckTimerRef.current);
     };
   }, []);
+
+  // The pending-migration check: the live tree measured against the
+  // workspace's recorded chain by the build worker's `migrate.plan` — the
+  // same check Boot runs, so the strip's badge and Boot never disagree.
+  // Debounced per source change; the newest run wins, and a run for a
+  // project the user has left is dropped.
+  const migrationCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const migrationCheckSeqRef = useRef(0);
+  function scheduleMigrationCheck(delayMs = 400): void {
+    if (migrationCheckTimerRef.current) clearTimeout(migrationCheckTimerRef.current);
+    migrationCheckTimerRef.current = setTimeout(() => void runMigrationCheck(), delayMs);
+  }
+
+  async function runMigrationCheck(): Promise<void> {
+    const client = buildClientRef.current;
+    if (!client) return;
+    if (pendingSeedRef.current) await pendingSeedRef.current;
+    const seq = ++migrationCheckSeqRef.current;
+    const epoch = generationEpochRef.current;
+    try {
+      const planned = await client.migrationPlan({ current: await currentEvolutionTree() });
+      if (seq !== migrationCheckSeqRef.current || epoch !== generationEpochRef.current) return;
+      // A source that does not load (mid-edit) says nothing new about the
+      // chain: the last result stands until one that loads.
+      if (planned.ok) publishMigrationCheck(planned.plan);
+    } catch {
+      // The build worker respawned mid-call; the next change re-checks.
+    }
+  }
+
+  function publishMigrationCheck(plan: MigrationPlan): void {
+    dispatch({
+      type: "MIGRATION_CHECKED",
+      check:
+        plan.kind === "chain"
+          ? { kind: "chain", units: plan.units.map((u) => u.id), unrecorded: plan.unrecorded }
+          : { kind: "unversioned" },
+    });
+  }
 
   // Build the smallest legal URL for the current workspace: single-file
   // (`s=`, byte-compatible with pre-Stage-3 shared links) when only main.ddd
@@ -1119,6 +1169,13 @@ export default function App(): JSX.Element {
   const appliedMigrations = selBootApplied(pipeline);
   const bootedBackends = selBootBackends(pipeline);
   const bootPending = selBootPending(pipeline);
+  // Memoised on the two slots it reads: a fresh object per render would make
+  // the `ctx` memo miss on every render.
+  const pendingMigration = useMemo(
+    () => selPendingMigration(pipeline),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pipeline.migrationCheck, pipeline.database],
+  );
   const bootErrorMessage = selBootError(pipeline);
   // Requests served, per operation (M-T8.22) — derived, not stored: the
   // runtime log already carries every `request_end` line and the spec is
@@ -1504,6 +1561,8 @@ export default function App(): JSX.Element {
       // generate is applied without regenerating.
       const current = await currentEvolutionTree();
       const planned = await client.migrationPlan({ current });
+      // The boot's plan is the freshest check there is.
+      if (planned.ok) publishMigrationCheck(planned.plan);
       if (!planned.ok) {
         const errors = planned.diagnostics.filter((d) => d.severity === "error");
         dispatch({
@@ -1565,6 +1624,9 @@ export default function App(): JSX.Element {
           persistent: res.persistent,
           applied: res.applied,
           backends: res.backends,
+          // A boot that starts the app has brought the database to the
+          // chain's head.
+          head: planned.plan.kind === "chain" ? (planned.plan.units.at(-1)?.id ?? null) : null,
         });
         // House-keep OPFS: this boot's island is now most-recently-used;
         // drop stale islands from sources the user has moved on from so
@@ -1739,7 +1801,15 @@ export default function App(): JSX.Element {
     return trackGenerate(runFullInner());
   }
 
-  async function runFullInner(): Promise<void> {
+  // Apply the recorded migrations — the migration badge's action.  The same
+  // cascade as Run, so the backend that boots is generated from the current
+  // model, and its boot applies the recorded entries the database lacks.  It
+  // stays on the current tab.
+  function runApplyMigrations(): Promise<void> {
+    return trackGenerate(runFullInner({ navigate: false }));
+  }
+
+  async function runFullInner({ navigate = true }: { navigate?: boolean } = {}): Promise<void> {
     // Phase markers bracket the whole cascade.  They are the ONLY record that
     // survives a renderer kill — no error fires, no `pagehide`, so the ring's
     // async capture never runs.  `runBundleStep`/`runBootStep` narrow the
@@ -1774,7 +1844,7 @@ export default function App(): JSX.Element {
     // React frontend present and successfully bundled → Preview is
     // the natural destination.  Otherwise the user gets the Backend
     // tab so they can poke endpoints against the live runtime.
-    setActiveTab(bundleRes.react?.ok ? "preview" : "backend");
+    if (navigate) setActiveTab(bundleRes.react?.ok ? "preview" : "backend");
     clearPhase();
   }
 
@@ -2117,9 +2187,19 @@ export default function App(): JSX.Element {
         else sessionChainRef.current.set(f.path, f.content);
       }
       void runEvolutionDiff(evolutionBaselineRef);
+      scheduleMigrationCheck(0);
       void runGenerate();
     }
     return result;
+  }
+
+  // What recording would write: the live tree against the chain's heads
+  // alone.  Without a baseline source the diff's migrations ARE the entries
+  // `recordMigration` writes — each module's Initial when there is no chain.
+  async function previewRecordMigration(): Promise<EvolutionResult | null> {
+    const client = buildClientRef.current;
+    if (!client) return null;
+    return client.evolution({ baseline: null, current: await currentEvolutionTree() });
   }
 
   // Pin `ref` as the evolution baseline, reveal the Migrations dock tab, and
@@ -2828,6 +2908,9 @@ export default function App(): JSX.Element {
     runWipe: (): void => void runWipe(),
     runDispatch: (): void => void runDispatch(),
     runFull: (): void => void runFull(),
+    runApplyMigrations: (): void => void runApplyMigrations(),
+    previewRecordMigration,
+    setRecordMigrationOpen,
     runEvolutionDiff: (ref?: string): void => void runEvolutionDiff(ref),
     pinEvolutionBaseline,
     recordMigration,
@@ -2894,6 +2977,7 @@ export default function App(): JSX.Element {
       persistent,
       appliedMigrations,
       bootPending,
+      pendingMigration,
       bootErrorMessage,
       dispatchSlot,
       files,
@@ -2942,6 +3026,7 @@ export default function App(): JSX.Element {
       evolution,
       evolutionRunning,
       evolutionBaselineRef,
+      recordMigrationOpen,
       snapshotResult,
       snapshotRunning,
       centerView,
@@ -2995,6 +3080,7 @@ export default function App(): JSX.Element {
       persistent,
       appliedMigrations,
       bootPending,
+      pendingMigration,
       bootErrorMessage,
       dispatchSlot,
       files,
@@ -3041,6 +3127,7 @@ export default function App(): JSX.Element {
       evolution,
       evolutionRunning,
       evolutionBaselineRef,
+      recordMigrationOpen,
       snapshotResult,
       snapshotRunning,
       centerView,
@@ -3060,14 +3147,21 @@ export default function App(): JSX.Element {
       // common laptop width); a fixed 48 px header then paints that row
       // over the Explorer / editor.  Give the wrapped layout its own
       // height instead of clipping it.
+      // The migration badge widens the pipeline strip past one row at any
+      // common width, so while it shows the header keeps the two-row height.
       // Mobile: the 48 px row plus the pipeline dots under it.
-      header={{ height: isDesktop ? { base: 88, lg: 48 } : 74 }}
+      header={{
+        height: isDesktop
+          ? { base: 88, lg: describePendingMigration(pendingMigration) ? 88 : 48 }
+          : 74,
+      }}
       footer={{ height: isDesktop ? 28 : 0 }}
       padding={0}
     >
       <ConfirmHost />
       {/* M-T8.18: the ⌘K palette, the `?` sheet, and the F8 announcer. */}
       <CommandPalette ctx={ctx} />
+      <RecordMigrationDialog ctx={ctx} />
       <ShortcutSheet opened={shortcutSheetOpen} onClose={() => setShortcutSheetOpen(false)} />
       <div
         aria-live="polite"
