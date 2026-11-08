@@ -16,7 +16,7 @@ import { mapTypeToEcto } from "../../src/generator/elixir/vanilla/schema-emit.js
 import { renderTsType } from "../../src/generator/typescript/render-expr.js";
 import type { EnrichedBoundedContextIR } from "../../src/ir/types/loom-ir.js";
 import { jsonPropertyForType } from "../../src/system/wire-spec.js";
-import { buildLoomModel } from "../_helpers/index.js";
+import { buildLoomModel, enrichedContexts } from "../_helpers/index.js";
 
 async function webhooksCtx(): Promise<EnrichedBoundedContextIR> {
   const src = fs.readFileSync(
@@ -24,7 +24,7 @@ async function webhooksCtx(): Promise<EnrichedBoundedContextIR> {
     "utf8",
   );
   const loom = await buildLoomModel(src);
-  const ctx = loom.contexts.find((c) => c.name === "Webhooks");
+  const ctx = enrichedContexts(loom).find((c) => c.name === "Webhooks");
   expect(ctx, "Webhooks context").toBeDefined();
   return ctx!;
 }

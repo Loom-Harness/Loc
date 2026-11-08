@@ -97,8 +97,6 @@ Examples are **generated**, never hand-waved. Workflow:
    ```bash
    node bin/cli.js generate system /tmp/feat.ddd -o /tmp/out
    ```
-   For a single backend you can also use `generate ts|dotnet`. For the
-   full multi-deployable tree use `generate system`.
 3. Open the emitted file under `/tmp/out/<deployable>/…`, copy the
    **relevant fragment** (not the whole file), and paste it into the tab.
    Excerpt aggressively — show the lines the feature produces, elide the

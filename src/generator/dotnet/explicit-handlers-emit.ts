@@ -792,8 +792,8 @@ export function emitExplicitHandlers(
   ns: string,
   out: Map<string, string>,
   /** The composed system, for the resource-op → helper-class routing a handler
-   *  body needs.  Absent (legacy single-context `generate dotnet`) ⇒ no
-   *  resources are bound anyway, and the output stays byte-identical. */
+   *  body needs.  Absent ⇒ no resources are bound, and the output stays
+   *  byte-identical. */
   sys?: SystemIR,
 ): void {
   const resourceClasses = buildResourceClasses(sys);

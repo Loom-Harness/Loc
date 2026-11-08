@@ -86,8 +86,8 @@ describe("dotnet — an optional value object is an OWNED type, not a scalar", (
 
   it("the config asks for exactly the columns the migration creates", async () => {
     // Both halves from ONE emission — what makes this a contract rather than
-    // two independent guesses.  The migration is derived in phase ⑨, so this
-    // needs the system pipeline, not `generateDotnet` alone.
+    // two independent guesses.  The migration is derived in phase ⑨, which
+    // only the system pipeline runs.
     const { cfg, migration } = await emission();
     expect(migration).toContain("office_line1");
     expect(migration).toContain("office_city");

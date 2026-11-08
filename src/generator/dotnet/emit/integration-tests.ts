@@ -26,15 +26,20 @@ import type {
   AggregateIR,
   BoundedContextIR,
   ExprIR,
+  FieldIR,
   FindIR,
   TestIR,
+  TestPrincipalIR,
   TestStmtIR,
+  UserIR,
 } from "../../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { bindingsAssertedAbsent } from "../../../ir/util/test-null-subjects.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
 import { csRef, csUsing } from "../../_imports/dotnet.js";
+import { renderCsDevStubUserArgs } from "../auth-emit.js";
 import { CS } from "../cs-symbols.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { renderCsExpr } from "../render-expr.js";
@@ -100,11 +105,45 @@ const aggNamespace = (aggName: string, ns: string): string =>
  *  mutating ops persist via the repository; let-bound finds await a repository
  *  read (nullable → `!`); everything else defers to the shared expression /
  *  matcher renderers. */
+/** One `as { … }` claim value as a C# expression of the claim's declared
+ *  type. */
+function renderClaimValue(field: FieldIR | undefined, value: string | readonly string[]): string {
+  const t = field?.type.kind === "optional" ? field.type.inner : field?.type;
+  if (typeof value !== "string") {
+    return `new System.Collections.Generic.List<string> { ${value.map((v) => JSON.stringify(v)).join(", ")} }`;
+  }
+  if (t?.kind === "id") return `new ${t.targetName}Id(System.Guid.Parse(${JSON.stringify(value)}))`;
+  if (t?.kind === "primitive" && t.name === "guid")
+    return `System.Guid.Parse(${JSON.stringify(value)})`;
+  return JSON.stringify(value);
+}
+
+/** `DevUser()` with the test's `as { … }` claims replaced. */
+function renderPrincipal(p: TestPrincipalIR | undefined, user: UserIR): string {
+  const inits = (p?.claims ?? []).map(
+    (c) =>
+      `${upperFirst(c.name)} = ${renderClaimValue(
+        user.fields.find((f) => f.name === c.name),
+        c.value,
+      )}`,
+  );
+  return inits.length > 0 ? `DevUser() with { ${inits.join(", ")} }` : "DevUser()";
+}
+
+interface PrincipalScope {
+  user: UserIR | undefined;
+  /** Bindings the test asserts null — their read is not narrowed. */
+  absent: Set<string>;
+}
+
+const NO_PRINCIPAL: PrincipalScope = { user: undefined, absent: new Set() };
+
 function renderStmt(
   s: TestStmtIR,
   ctx: BoundedContextIR,
   /** Position in the test body: mints a collision-free local per throw assertion. */
   index = 0,
+  scope: PrincipalScope = NO_PRINCIPAL,
 ): string[] {
   const I = "        ";
   switch (s.kind) {
@@ -119,7 +158,8 @@ function renderStmt(
       }
       const find = findCallOf(s.expr, ctx);
       if (find) {
-        return [`${I}var ${s.name} = ${find.nullable ? `(${find.call})!` : find.call};`];
+        const narrow = find.nullable && !scope.absent.has(s.name);
+        return [`${I}var ${s.name} = ${narrow ? `(${find.call})!` : find.call};`];
       }
       return [`${I}var ${s.name} = ${renderTestExpr(s.expr, ctx)};`];
     }
@@ -155,6 +195,13 @@ function renderStmt(
         `${I}await Assert.ThrowsAsync<DomainException>(async () => { ${body} await Task.CompletedTask; });`,
       ];
     }
+    case "principal":
+      // A body `as { … }` line: enter a frame bound to the new principal.
+      return scope.user
+        ? [
+            `${I}using var __principal${index} = ActAs(${renderPrincipal(s.principal, scope.user)});`,
+          ]
+        : [];
     default:
       throw new Error(`unsupported integration-test statement '${s.kind}'`);
   }
@@ -165,20 +212,31 @@ function renderTest(
   ctx: BoundedContextIR,
   usedAggs: readonly AggregateIR[],
   dapper: boolean,
+  opts: IntegrationAuthOpts,
 ): string[] {
   const methodName = upperFirst(t.name.replace(/[^A-Za-z0-9]+/g, "_")) || "Test";
   const out: string[] = [];
   out.push(`    [Fact(DisplayName = ${JSON.stringify(t.name)})]`);
   out.push(`    public async Task ${methodName}()`);
   out.push("    {");
+  // Under auth every principal reader (the tenancy query filters, the save
+  // interceptor's stamps) reads the ambient request frame, so the test opens
+  // one first: the dev-stub identity with the test's `as { … }` claims.
+  if (opts.user) {
+    out.push(`        using var __principal = ActAs(${renderPrincipal(t.principal, opts.user)});`);
+  }
   if (dapper) {
     out.push(`        await using var db = ${CS.NpgsqlDataSource}.Create(ConnString());`);
     out.push("        await DbSchema.EnsureAsync(db);");
   } else {
     out.push(
-      `        var opts = new DbContextOptionsBuilder<AppDbContext>()${CS.EfCore}.UseNpgsql(ConnString()).Options;`,
+      `        var opts = new DbContextOptionsBuilder<AppDbContext>()${CS.EfCore}.UseNpgsql(ConnString())${opts.interceptor ? ".AddInterceptors(new AuditableInterceptor())" : ""}.Options;`,
     );
-    out.push("        await using var db = new AppDbContext(opts);");
+    // The context's tenancy filters resolve the principal through the
+    // accessor the app injects — the one that reads the ambient frame.
+    out.push(
+      `        await using var db = new AppDbContext(opts${opts.dbContextTakesUser ? ", new HttpContextCurrentUserAccessor()" : ""});`,
+    );
     out.push("        await db.Database.MigrateAsync();");
   }
   out.push("        var events = new NoopDomainEventDispatcher();");
@@ -190,7 +248,8 @@ function renderTest(
       : `db, events, ${csRef("Microsoft.Extensions.Logging.Abstractions", "NullLogger")}<${a.name}Repository>.Instance`;
     out.push(`        var ${repoVar(a.name)} = new ${a.name}Repository(${ctorArgs});`);
   }
-  for (const [i, s] of t.statements.entries()) out.push(...renderStmt(s, ctx, i));
+  const scope: PrincipalScope = { user: opts.user, absent: bindingsAssertedAbsent(t.statements) };
+  for (const [i, s] of t.statements.entries()) out.push(...renderStmt(s, ctx, i, scope));
   out.push("    }");
   return out;
 }
@@ -198,10 +257,22 @@ function renderTest(
 /** Emit `Tests/<ns>.Tests/<Ctx>IntegrationTests.cs` for a context that declares
  *  integration tests, or null when it declares none.  `dapper` selects the
  *  `persistence: dapper` boot (see the file header). */
+export interface IntegrationAuthOpts {
+  /** `AppDbContext`'s constructor takes an `ICurrentUserAccessor` (it carries
+   *  a principal query filter). */
+  dbContextTakesUser?: boolean;
+  /** The project registers `AuditableInterceptor` (it stamps on save). */
+  interceptor?: boolean;
+  /** The system's `user { … }` block when the project emits the auth layer:
+   *  every test then runs inside a request frame bound to a principal. */
+  user?: UserIR;
+}
+
 export function renderContextIntegrationTest(
   ctx: BoundedContextIR,
   ns: string,
   dapper = false,
+  opts: IntegrationAuthOpts = {},
 ): string | null {
   if (ctx.tests.length === 0) return null;
 
@@ -216,7 +287,7 @@ export function renderContextIntegrationTest(
       ctx.repositories.some((r) => r.aggregateName === a.name) &&
       new RegExp(`\\b${a.name}\\b`).test(bodyOnly),
   );
-  const methodBlocks = ctx.tests.map((t) => renderTest(t, ctx, usedAggs, dapper));
+  const methodBlocks = ctx.tests.map((t) => renderTest(t, ctx, usedAggs, dapper, opts));
   // Value objects and enums the bodies construct or name (`new Berth(...)`,
   // `Size.Large`) live in their own namespaces; derive each `using` from the
   // names the rendered bodies spell, so a body that touches neither keeps a
@@ -245,6 +316,7 @@ export function renderContextIntegrationTest(
   for (const nsp of [...new Set(usedAggs.map((a) => aggNamespace(a.name, ns)))].sort()) {
     lines.push(`using ${nsp};`);
   }
+  if (opts.user) lines.push(`using ${ns}.Auth;`);
   lines.push(`using ${ns}.Infrastructure.Persistence;`);
   lines.push(`using ${ns}.Infrastructure.Repositories;`);
   lines.push(`using ${ns}.Infrastructure.Events;`);
@@ -271,6 +343,26 @@ export function renderContextIntegrationTest(
   );
   lines.push("    }");
   lines.push("");
+  if (opts.user) {
+    lines.push(
+      "    /// <summary>The dev-stub identity the app's DevStubUserVerifier grants.</summary>",
+    );
+    lines.push(
+      `    private static User DevUser() => new User(${renderCsDevStubUserArgs(opts.user)});`,
+    );
+    lines.push("");
+    lines.push('    /// <summary>Make <paramref name="user"/> the ambient request principal until');
+    lines.push("    /// disposed — the frame UserMiddleware binds per request.</summary>");
+    lines.push("    private static IDisposable ActAs(User user)");
+    lines.push("    {");
+    lines.push(
+      '        var frame = RequestContext.OpenRoot(Guid.NewGuid().ToString(), "en", DateTimeOffset.UtcNow);',
+    );
+    lines.push("        frame.CurrentUser = user;");
+    lines.push("        return RequestContext.Enter(frame);");
+    lines.push("    }");
+    lines.push("");
+  }
   for (const block of methodBlocks) {
     lines.push(...block);
     lines.push("");

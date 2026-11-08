@@ -499,6 +499,15 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.test-statement-invalid": "18-testing.md#test---an-in-process-unit-test",
   "loom.member-unresolved": "05-expressions.md#member-access--calls",
   "loom.test-redundant-for": "18-testing.md#test---an-in-process-unit-test",
+  "loom.test-principal-placement": "18-testing.md#running-as-a-principal",
+  "loom.test-principal-value": "18-testing.md#running-as-a-principal",
+  "loom.test-principal-duplicate-claim": "18-testing.md#running-as-a-principal",
+  "loom.test-principal-no-user": "18-testing.md#running-as-a-principal",
+  "loom.test-principal-unknown-claim": "18-testing.md#running-as-a-principal",
+  "loom.test-principal-claim-type": "18-testing.md#running-as-a-principal",
+  "loom.e2e-principal-claim-not-carried": "18-testing.md#running-as-a-principal",
+  "loom.e2e-principal-oidc": "18-testing.md#running-as-a-principal",
+  "loom.e2e-principal-ui": "18-testing.md#running-as-a-principal",
   "loom.e2e-unsupported-statement":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-unrouted-verb": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
@@ -564,6 +573,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.migration-chain-invalid":
     "../migrations.md#the-migration-chain--migrations-beside-the-source",
   "loom.diff-baseline-invalid": "../mcp.md#the-loom_-tool-catalog",
+  "loom.migration-name-invalid": "../mcp.md#the-loom_-tool-catalog",
   "loom.migration-unique-on-existing-table":
     "../migrations.md#a-unique-index-on-a-populated-table--loommigration-unique-on-existing-table",
   "loom.migration-enum-narrowed":

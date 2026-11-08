@@ -2,7 +2,7 @@
 // bypass.md §11) on node/Hono.  node honors a bypass by OMITTING the bypassed
 // capability's predicate from the Drizzle `and(...)` chain; `ignoring *` drops
 // every capability predicate.  This pins that the bypass read sites a
-// `generate ts` project emits — the widened single-row criterion reads — type-
+// node project emits — the widened single-row criterion reads — type-
 // check under strict tsc.  `softDeletable` is the built-in prelude capability
 // (adds `isDeleted`/`deletedAt` + a `!this.isDeleted` read filter).
 context Shop {

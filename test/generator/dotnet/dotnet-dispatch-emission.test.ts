@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateBackendFiles, generateSystemFiles } from "../../_helpers/generate.js";
+import { generateFixtureBackend, generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // .NET in-process event dispatch (channels.md) — the .NET mirror of the Hono
@@ -20,7 +20,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..", "..");
 
 function generate(file: string): Promise<Map<string, string>> {
-  return generateBackendFiles(readFileSync(path.join(root, file), "utf8"), "dotnet");
+  return generateFixtureBackend(readFileSync(path.join(root, file), "utf8"), "dotnet");
 }
 
 // `audited` is a HOSTED capability (`loom.audited-backend-unsupported` when no

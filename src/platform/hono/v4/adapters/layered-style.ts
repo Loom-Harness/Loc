@@ -2,7 +2,7 @@
 // layered — the real StyleAdapter for the hono platform.  Wraps the
 // existing per-aggregate routes builder (`buildRoutesFile`) so
 // produced source stays byte-identical with today's
-// `generateTypeScript` output.
+// `generateTypeScriptForContexts` output.
 //
 // Hono ships with a "layered" architectural style: each aggregate's
 // HTTP surface lives in `http/<lowerFirst>.routes.ts`, calling
