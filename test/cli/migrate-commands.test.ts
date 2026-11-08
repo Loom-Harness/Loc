@@ -4,6 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import type { MigrationStatusReport, RecordMigrationReport } from "../../src/api/index.js";
+import { callTool } from "../../src/tools/index.js";
 
 // ---------------------------------------------------------------------------
 // `ddd migrate status` / `remove` / `rebase` over a real `migrations/`
@@ -67,7 +69,78 @@ describe("ddd migrate status", () => {
     expect(status.status).toBe(0);
     const json = JSON.parse(status.out.slice(status.out.indexOf("{")));
     expect(json.modules).toEqual([
-      { module: "Sales", head: { version: json.head, name: "Initial" }, unrecordedSteps: 1 },
+      {
+        module: "Sales",
+        head: { version: json.head, name: "Initial" },
+        unrecordedSteps: 1,
+        destructive: false,
+      },
+    ]);
+  });
+
+  it("flags unrecorded steps the destructive gate refuses", () => {
+    const dir = project("label: string  note: string?");
+    expect(runCli(["migrate", "add", "initial", "app.ddd"], dir).status).toBe(0);
+    fs.writeFileSync(path.join(dir, "app.ddd"), model("label: string"));
+    const status = runCli(["migrate", "status", "app.ddd"], dir);
+    expect(status.out).toMatch(/Sales\s+1 unrecorded step\(s\), destructive/);
+    expect(status.out).toContain("--allow-destructive");
+    const json = JSON.parse(
+      runCli(["migrate", "status", "--json", "app.ddd"], dir).out.replace(/^[^{]*/, ""),
+    );
+    expect(json.modules[0].destructive).toBe(true);
+  });
+});
+
+describe("the migration tools agree with the CLI", () => {
+  const files = (dir: string) =>
+    chainFiles(dir).map((name) => ({
+      name,
+      content: fs.readFileSync(path.join(dir, "migrations", name), "utf8"),
+    }));
+
+  it("loom_migration_status reads a CLI-recorded chain as the CLI does", async () => {
+    const dir = project("label: string");
+    expect(runCli(["migrate", "add", "initial", "app.ddd"], dir).status).toBe(0);
+    const upToDate = (await callTool("loom_migration_status", {
+      source: model("label: string"),
+      migrations: files(dir),
+    })) as MigrationStatusReport;
+    expect(upToDate.ok).toBe(true);
+    expect(upToDate.unrecorded).toBe(false);
+
+    const edited = model("label: string  note: string?");
+    const pending = (await callTool("loom_migration_status", {
+      source: edited,
+      migrations: files(dir),
+    })) as MigrationStatusReport;
+    fs.writeFileSync(path.join(dir, "app.ddd"), edited);
+    const cli = JSON.parse(
+      runCli(["migrate", "status", "--json", "app.ddd"], dir).out.replace(/^[^{]*/, ""),
+    );
+    expect(pending.modules.map(({ destructiveMessage: _, ...m }) => m)).toEqual(cli.modules);
+    expect(pending.head?.version).toBe(cli.head);
+  });
+
+  it("loom_migration_record writes the entry `ddd migrate add` writes", async () => {
+    const dir = project("label: string");
+    expect(runCli(["migrate", "add", "initial", "app.ddd"], dir).status).toBe(0);
+    const chain = files(dir);
+    const edited = model("label: string  note: string?");
+    fs.writeFileSync(path.join(dir, "app.ddd"), edited);
+    expect(runCli(["migrate", "add", "add-note", "app.ddd"], dir).status).toBe(0);
+    const cliEntry = files(dir).find((f) => !chain.some((c) => c.name === f.name))!;
+    const version = cliEntry.name.slice(0, cliEntry.name.indexOf("_"));
+
+    const recorded = (await callTool("loom_migration_record", {
+      source: edited,
+      migrations: chain,
+      name: "add-note",
+      now: version,
+    })) as RecordMigrationReport;
+    expect(recorded.ok).toBe(true);
+    expect(recorded.files).toEqual([
+      { name: cliEntry.name, path: `migrations/${cliEntry.name}`, content: cliEntry.content },
     ]);
   });
 });

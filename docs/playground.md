@@ -182,6 +182,18 @@ regenerates, bundles and boots, and the boot applies the recorded entries the
 database lacks; the badge then clears. The Problems pane shows unrecorded
 changes as one notice row that opens the same dialog.
 
+The Agent tab's chat drives the same flow explicitly. It layers three host
+tools over the catalog (`web/src/agent/host-tools.ts`): `loom_migration_status`
+(the catalog tool, with the workspace's model and chain filled in),
+`loom_migration_record` (records through the tab's path, so the badge and the
+Migrations tab move with it; a destructive change needs `allowDestructive:
+true`) and `loom_migration_apply` (the badge's **Apply**, returning whether
+the boot started the app, stopped on a pending migration, or failed and
+where). The three act on the model the workspace holds: an edit the plan gate
+has not written yet is refused, and the agent records and applies in the next
+turn. The scripted demo checks the status and records the initial migration
+after it generates.
+
 On top of that live runtime, the playground runs the **DSL-emitted test
 suites** — the same files `ddd generate system` writes:
 
