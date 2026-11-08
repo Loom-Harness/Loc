@@ -1036,6 +1036,7 @@ export function generateTypeScriptForContexts(
           // `__loom_outbox` table, on the same condition the drizzle schema
           // emitter uses (any durable channel in the deployable).
           outbox: durableEventTypes(merged).size > 0,
+          resolveStreamContext,
           // Timer-scheduler watermark Row — same condition as `scheduler.ts`
           // below (this deployable OWNS a timerSource).  It has to be an entity
           // on this adapter or `schema.update()` drops it on the second boot.
