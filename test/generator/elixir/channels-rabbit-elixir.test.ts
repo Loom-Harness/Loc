@@ -77,7 +77,7 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
     // The relay half publishes the drained row with ITS id as the envelope
     // id — the consumer-side idempotency key.
     expect(tee).toContain("def publish_from_relay(type, data, event_id) do");
-    expect(tee).toContain("GenServer.call(conn, {:publish, address, json})");
+    expect(tee).toContain("call_broker(conn, {:publish, address, json}, 5_000)");
     const outbox = files.get("sales_api/lib/sales_api/loom_outbox.ex") ?? "";
     expect(outbox).toContain('schema "__loom_outbox"');
     const relay = files.get("sales_api/lib/sales_api/outbox_relay.ex") ?? "";
@@ -154,7 +154,7 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
       '"OrderPlaced" => {"loom.Orders.Lifecycle", "Orders", :loom_channels_0, :redis}',
     );
     expect(tee).not.toContain("@durable_routing");
-    expect(tee).toContain('Redix.command!(conn, ["PUBLISH", address, json])');
+    expect(tee).toContain("redis_publish(conn, address, json)");
     expect(files.has("sales_api/lib/sales_api/loom_outbox.ex")).toBe(false);
     expect(files.has("sales_api/lib/sales_api/channel_broker.ex")).toBe(false);
     const consumer = files.get("ship_api/lib/ship_api/channel_consumer.ex") ?? "";

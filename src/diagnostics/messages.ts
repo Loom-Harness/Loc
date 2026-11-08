@@ -971,6 +971,17 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.policy-out-of-scope": (p: { name: unknown; declaredIn: unknown; usedIn: unknown }) =>
     `policy '${p.name}' is declared in context '${p.declaredIn}'; policies are context-local — ` +
     `redeclare it in '${p.usedIn}' to call it there.`,
+  // The same rule reached through a top-level function: its body is inlined at
+  // each call site, so a policy it names must be declared in the CALLING context.
+  "loom.policy-out-of-scope#via-function": (p: {
+    fn: unknown;
+    name: unknown;
+    declaredIn: unknown;
+    usedIn: unknown;
+  }) =>
+    `function '${p.fn}' calls policy '${p.name}', which is declared in context '${p.declaredIn}'; ` +
+    `policies are context-local and a top-level function is inlined where it is called — ` +
+    `redeclare '${p.name}' in '${p.usedIn}' to call '${p.fn}' there.`,
   "loom.policy-fn-arity": (p: {
     argc: unknown;
     name: unknown;

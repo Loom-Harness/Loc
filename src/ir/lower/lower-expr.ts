@@ -2670,13 +2670,24 @@ export function lowerEmitFields(
   if (ev) {
     for (const f of ev.fields) fieldTypeOf.set(f.name, lowerType(f.type, env));
   }
-  return fields.map((f) => {
+  const provided = fields.map((f) => {
     const target = fieldTypeOf.get(f.name);
     return {
       name: f.name,
       value: target ? lowerExprInContext(f.value, target, env) : lowerExpr(f.value, env),
     };
   });
+  // An optional event field the emit leaves out is an explicit `null`: the
+  // event type declares the field (`T | null`, a required record parameter, a
+  // dataclass field with no default), so a backend that rendered only the
+  // provided fields would emit a constructor call that does not compile (or
+  // raises) and a wire payload without the key.
+  const given = new Set(fields.map((f) => f.name));
+  for (const [name, type] of fieldTypeOf) {
+    if (type.kind === "optional" && !given.has(name))
+      provided.push({ name, value: lit("null", "null") });
+  }
+  return provided;
 }
 
 /** Detect a bare numeric literal AST node and rewrite it to the

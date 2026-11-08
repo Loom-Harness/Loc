@@ -15,13 +15,17 @@
 //     wrong number of arguments.
 //   - loom.policy-fn-cycle       — `policy A(): bool = B()` / `policy B(): bool
 //     = A()` (transitive self-reference).
-//   - loom.policy-out-of-scope   — a `PolicyName(args)` or `Ctx.PolicyName(args)`
-//     call from a context other than the one declaring it (policies are
-//     context-local; ruling D9).
+//   - loom.policy-out-of-scope   — a policy reached from a context other than
+//     the one declaring it (policies are context-local; ruling D9): called
+//     (`PolicyName(args)`), qualified (`Ctx.PolicyName(args)`), referenced
+//     bare (`PolicyName`), or named in the body of a top-level function called
+//     there — in any file of the project.
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import {
+  type BoundedContext,
+  type FunctionDecl,
   isAggregate,
   isBoundedContext,
   isCallSuffix,
@@ -36,8 +40,14 @@ import {
   type NameRef,
   type PolicyDecl,
 } from "../generated/ast.js";
-import { envForNode, outOfScopePolicyCall } from "../type-system.js";
-import { qualifiedOutOfScopePolicyCall } from "../typing/qualified-policy.js";
+import { envForNode, freeCallFunction, outOfScopePolicyCall } from "../type-system.js";
+import type { DeclIndex } from "../typing/decl-index.js";
+import {
+  type OutOfScopePolicy,
+  policyInOtherContext,
+  qualifiedOutOfScopePolicyCall,
+} from "../typing/qualified-policy.js";
+import { typingFor } from "../typing/shared.js";
 
 /** A function-form policy declaration is the one with a `returnType`; a
  *  block-form `policy {}` (read ladder) has none. */
@@ -131,6 +141,7 @@ function checkPolicyFnUseSites(model: Model, accept: ValidationAcceptor): void {
       if (isNameRef(head) && first && isCallSuffix(first) && node.suffixes.length === 1) {
         checkPolicyFnReference(head, first.args.length, accept);
         checkPolicyFnScope(head, accept);
+        checkPolicyViaTopLevelFunction(head, accept);
       }
       if (isNameRef(head) && isMemberSuffix(first) && first.call && node.suffixes.length === 1) {
         checkQualifiedPolicyFnScope(head, first, accept);
@@ -147,6 +158,9 @@ function checkPolicyFnUseSites(model: Model, accept: ValidationAcceptor): void {
         isCallSuffix(parent.suffixes[0]!);
       if (isCallHead) continue;
       checkPolicyFnReference(node, undefined, accept);
+      if (!(parent && isPostfixChain(parent) && parent.head === node)) {
+        checkBarePolicyFnScope(node, accept);
+      }
     }
   }
 }
@@ -173,6 +187,89 @@ function checkPolicyFnScope(ref: NameRef, accept: ValidationAcceptor): void {
   );
 }
 
+/** The bare twin of `checkPolicyFnScope`: a zero-parameter policy referenced
+ *  without parentheses (`requires IsAdmin`) from a context other than its
+ *  declaring one.  The typing pass types the name `bool` (a policy of that
+ *  name exists in the unit) and lowering, finding no policy in the calling
+ *  context to inline, emits the bare name — a reference to nothing on every
+ *  backend.  Claimed only when nothing in scope answers to the name: no
+ *  lexical binding, aggregate member or context enum value, and none of the
+ *  declarations `outOfScopePolicyCall` lets shadow a policy. */
+function checkBarePolicyFnScope(ref: NameRef, accept: ValidationAcceptor): void {
+  if (!AstUtils.getContainerOfType(ref, isBoundedContext)) return;
+  if (shadowsPolicyFnName(ref, ref.name)) return;
+  const env = envForNode(ref);
+  if (env.resolve(ref.name)) return;
+  const hit = outOfScopePolicyCall(ref.name, env);
+  if (!hit) return;
+  accept(
+    "error",
+    diagMessage("loom.policy-out-of-scope", {
+      name: ref.name,
+      declaredIn: hit.declaredIn.name,
+      usedIn: hit.usedIn.name,
+    }),
+    { node: ref, property: "name", code: "loom.policy-out-of-scope" },
+  );
+}
+
+/** A top-level `function` is inlined at each call site, and a policy named in
+ *  its body resolves against the CALLING context.  So `function f(): bool =
+ *  IsAdmin()` is sound when called from the context declaring `IsAdmin`, and
+ *  compiles to a call to nothing when called from any other.  Reported at the
+ *  call site, since the function itself is fine wherever the policy is in
+ *  scope; nested top-level functions are followed. */
+function checkPolicyViaTopLevelFunction(head: NameRef, accept: ValidationAcceptor): void {
+  const usedIn = AstUtils.getContainerOfType(head, isBoundedContext);
+  if (!usedIn) return;
+  const env = envForNode(head);
+  if (env.resolve(head.name)) return;
+  const index = typingFor(head).index;
+  const fn = freeCallFunction(head.name, env) ?? index.find("function", head.name, head);
+  if (!fn || AstUtils.getContainerOfType(fn, isBoundedContext)) return;
+  const hit = policyThroughFunction(fn, usedIn, index, new Set());
+  if (!hit) return;
+  accept(
+    "error",
+    diagMessage("loom.policy-out-of-scope#via-function", {
+      fn: fn.name,
+      name: hit.decl.name,
+      declaredIn: hit.declaredIn.name,
+      usedIn: usedIn.name,
+    }),
+    { node: head, property: "name", code: "loom.policy-out-of-scope" },
+  );
+}
+
+/** The first policy a top-level function's body (or a top-level function it
+ *  calls) names that `usedIn` does not declare but another context does. */
+function policyThroughFunction(
+  fn: FunctionDecl,
+  usedIn: BoundedContext,
+  index: DeclIndex,
+  seen: Set<FunctionDecl>,
+): OutOfScopePolicy | undefined {
+  if (seen.has(fn)) return undefined;
+  seen.add(fn);
+  const roots: AstNode[] = fn.body ? [fn.body] : [...fn.block];
+  for (const root of roots) {
+    for (const n of AstUtils.streamAst(root)) {
+      if (!isNameRef(n) || envForNode(n).resolve(n.name)) continue;
+      const callee = index.find("function", n.name, n);
+      if (callee && !AstUtils.getContainerOfType(callee, isBoundedContext)) {
+        const nested = policyThroughFunction(callee, usedIn, index, seen);
+        if (nested) return nested;
+        continue;
+      }
+      if (callee || index.find("valueobject", n.name, n)) continue;
+      if (usedIn.members.some((m) => isPolicyFn(m) && m.name === n.name)) continue;
+      const hit = policyInOtherContext(index, n.name, usedIn);
+      if (hit) return hit;
+    }
+  }
+  return undefined;
+}
+
 /** The qualified twin of `checkPolicyFnScope`: `Ctx.PolicyName(args)` naming a
  *  policy through another context — the spelling an author tries first when
  *  sharing one.  Skipped when `Ctx` is a value in scope (then it is a member
@@ -183,7 +280,12 @@ function checkQualifiedPolicyFnScope(
   accept: ValidationAcceptor,
 ): void {
   if (envForNode(head).resolve(head.name)) return;
-  const hit = qualifiedOutOfScopePolicyCall(head.name, String(call.member), head);
+  const hit = qualifiedOutOfScopePolicyCall(
+    typingFor(head).index,
+    head.name,
+    String(call.member),
+    head,
+  );
   if (!hit) return;
   accept(
     "error",
