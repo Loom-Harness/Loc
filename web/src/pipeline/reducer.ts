@@ -83,8 +83,14 @@ export function pipelineReducer(
           kind: "ok",
           ddl: action.ddl,
           persistent: action.persistent,
-          migrated: action.migrated,
+          applied: action.applied,
         },
+      };
+    case "BOOT_PENDING":
+      return {
+        ...state,
+        booting: false,
+        boot: { kind: "pending", migration: action.migration, message: action.message },
       };
     case "BOOT_FAIL":
       return {
@@ -116,8 +122,8 @@ export function pipelineReducer(
       //
       // The PGlite database itself may or may not survive depending
       // on how the previous boot landed:
-      //   - `persistent: true`  →  OPFS-backed, keyed by source
-      //     hash.  The fresh worker reattaches the same island on
+      //   - `persistent: true`  →  OPFS-backed, keyed by
+      //     workspace.  The fresh worker reattaches the same island on
       //     the next Boot — rows are preserved.
       //   - `persistent: false` →  in-memory only (Safari private
       //     mode, hostile-storage policies).  The data lived inside

@@ -76,6 +76,7 @@ import { utcVersionNow } from "../../src/system/migration-chain.js";
 import { inlineSourcemapArtifacts, overlaySourcemapArtifacts } from "./build/strip-sourcemap";
 import { type Band, correspondenceAt, sourceBands, sourceSpanFor } from "./build/correspondence";
 import { diffGenerated, type OutputDiff } from "./build/output-diff";
+import { analyzeDeployables } from "./build/deployables";
 import { resolveTestId } from "./build/select-target";
 import type { BundleOk } from "./bundle/protocol";
 import {
@@ -137,7 +138,8 @@ import { useStableFns } from "./util/useStableFns";
 import { initialPipelineState, pipelineReducer } from "./pipeline/reducer";
 import {
   bootError as selBootError,
-  bootMigrated as selBootMigrated,
+  bootApplied as selBootApplied,
+  bootPending as selBootPending,
   bootPersistent as selBootPersistent,
   bootedDDL as selBootedDDL,
   generateOk as selGenerateOk,
@@ -160,8 +162,6 @@ import {
   type MobileTab,
   type ReactBundleStatus,
   type SelectResult,
-  type UnsupportedDeployable,
-  type UnsupportedPlatform,
 } from "./layout/ctx";
 import type { OutputStream } from "./layout/OutputPanel";
 import { useGeneratedConflicts } from "./layout/use-generated-conflicts";
@@ -181,66 +181,6 @@ const EMPTY_FILES: VirtualFile[] = [];
 // Same module-level-constant discipline as EMPTY_FILES: a fresh `[]` per
 // render would defeat the `ctx` memo for every consumer.
 const EMPTY_BANDS: readonly Band[] = [];
-
-/** Per-deployable summary derived from the generated file tree.
- *  The playground only knows how to bundle + boot Hono backends and
- *  React frontends in the browser; .NET (Program.cs/csproj) and
- *  Phoenix LiveView (mix.exs) deployables are surfaced separately so
- *  the UI can say "Files-only" instead of failing with a generic
- *  "no entry found" error. */
-interface DeployableAnalysis {
-  /** Hono entry path (single-context root or system-mode slug folder). */
-  hono: string | null;
-  /** React entry path (always under a system-mode slug folder). */
-  react: string | null;
-  /** Deployables the browser cannot bundle/boot — listed so the UI
-   *  can name them in status messages.  Empty for Hono/React-only
-   *  systems. */
-  unsupported: UnsupportedDeployable[];
-}
-
-function analyzeDeployables(files: VirtualFile[]): DeployableAnalysis {
-  // Legacy single-context mode dumps Hono at the root with no slug —
-  // there are no .NET / Phoenix outputs in that mode, so the
-  // unsupported list is always empty.
-  if (files.some((f) => f.path === "http/index.ts")) {
-    return { hono: "http/index.ts", react: null, unsupported: [] };
-  }
-  let hono: string | null = null;
-  let react: string | null = null;
-  const platformBySlug = new Map<string, UnsupportedPlatform>();
-  const angularSlugs = new Set<string>();
-  for (const f of files) {
-    if (!hono && /^[^/]+\/http\/index\.ts$/.test(f.path)) hono = f.path;
-    if (!react && /^[^/]+\/src\/main\.tsx$/.test(f.path)) react = f.path;
-    const dotnet = f.path.match(/^([^/]+)\/Program\.cs$/);
-    if (dotnet) platformBySlug.set(dotnet[1], "dotnet");
-    const phoenix = f.path.match(/^([^/]+)\/mix\.exs$/);
-    if (phoenix) platformBySlug.set(phoenix[1], "elixir");
-    // Frontend SPAs the preview engine doesn't bundle in-browser yet:
-    // SvelteKit (`svelte.config.js`; its `$app/*` client + file routing
-    // aren't reproduced), Vue (`src/main.ts` — the `.ts` entry, vs
-    // react's `src/main.tsx`; the `.vue` SFC pipeline isn't wired), and
-    // Angular (`angular.json`; its AOT/`ng build` toolchain isn't run
-    // in-browser).  Angular *also* emits `src/main.ts`, so `angular.json`
-    // is the discriminator and takes precedence over the Vue match below
-    // (applied after the loop, order-independent of file iteration).
-    // Surfaced like the backend platforms so Preview explains the grey
-    // rather than showing a silent blank — the full project is in Files.
-    const svelte = f.path.match(/^([^/]+)\/svelte\.config\.js$/);
-    if (svelte) platformBySlug.set(svelte[1], "svelte");
-    const angular = f.path.match(/^([^/]+)\/angular\.json$/);
-    if (angular) angularSlugs.add(angular[1]);
-    const vue = f.path.match(/^([^/]+)\/src\/main\.ts$/);
-    if (vue) platformBySlug.set(vue[1], "vue");
-  }
-  // Angular wins over the shared `src/main.ts` Vue heuristic.
-  for (const slug of angularSlugs) platformBySlug.set(slug, "angular");
-  const unsupported: UnsupportedDeployable[] = [...platformBySlug]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([slug, platform]) => ({ slug, platform }));
-  return { hono, react, unsupported };
-}
 
 /** Convert a workspace-absolute `files` map from a SharedProject
  *  into the workspace-relative shape `LoomExample.files` expects.
@@ -345,9 +285,9 @@ export default function App(): JSX.Element {
 
   // Editor's seed value for the active file — the precedence rule (and
   // why `persistedSource` may only be consulted pre-hydration) lives in
-  // `workspace/initial-source.ts`.  The editor remounts via
-  // `key={…activePath}:{sourceEpoch}` when either changes, picking up
-  // this freshly-computed value each time.
+  // `workspace/initial-source.ts`.  The editor remounts on an active-path
+  // change and reseeds in place on a `sourceEpoch` change, picking up this
+  // freshly-computed value each time.
   const initialSource = useMemo(
     () =>
       pickInitialSource({
@@ -1161,7 +1101,8 @@ export default function App(): JSX.Element {
   const reactBundle = selReactBundleOk(pipeline);
   const ddl = selBootedDDL(pipeline);
   const persistent = selBootPersistent(pipeline);
-  const migrated = selBootMigrated(pipeline);
+  const appliedMigrations = selBootApplied(pipeline);
+  const bootPending = selBootPending(pipeline);
   const bootErrorMessage = selBootError(pipeline);
   // Requests served, per operation (M-T8.22) — derived, not stored: the
   // runtime log already carries every `request_end` line and the spec is
@@ -1288,13 +1229,24 @@ export default function App(): JSX.Element {
    *  one. */
   const pushedChainPathsRef = useRef<Set<string>>(new Set());
 
+  /** The migration chain of a session with no workspace store (storage the
+   *  browser refused): held in memory for the session, so the initial
+   *  migration can still be recorded and the database created. */
+  const sessionChainRef = useRef<Map<string, string>>(new Map());
+
   /** The workspace's committed migration chain beside `entryPath`, read from
-   *  the git store's working tree; empty without a store or a chain. */
+   *  the git store's working tree (the session's chain when there is no
+   *  store); empty without a chain. */
   async function readWorkspaceChain(entryPath: string): Promise<VfsEntry[]> {
     const store = workspace.store;
-    if (!store) return [];
     const dir = chainDir(entryPath);
     const out: VfsEntry[] = [];
+    if (!store) {
+      for (const [path, content] of sessionChainRef.current) {
+        if (isChainFile(dir, path)) out.push({ kind: "file", path, content });
+      }
+      return out;
+    }
     for (const path of await store.list(`${dir}/`)) {
       if (!isChainFile(dir, path)) continue;
       const content = await store.readFile(path);
@@ -1482,7 +1434,8 @@ export default function App(): JSX.Element {
     opts?: { fresh?: boolean },
   ): Promise<boolean> {
     const engine = engineRef.current;
-    if (!engine) return false;
+    const client = buildClientRef.current;
+    if (!engine || !client) return false;
     markPhase("boot:start");
     dispatch({ type: "BOOT_START" });
     // Reset spec-driven state — a fresh boot may serve a different
@@ -1493,7 +1446,25 @@ export default function App(): JSX.Element {
     setApiEndpoints([]);
     setOpenApiSpec(null);
     try {
-      const sourceHash = fnv1a32(sourceRef.current);
+      // What the boot may do to the database: the workspace's recorded chain,
+      // rendered by the build worker, and the model's unrecorded changes.
+      // Read fresh on every boot, so a migration recorded since the last
+      // generate is applied without regenerating.
+      const current = await currentEvolutionTree();
+      const planned = await client.migrationPlan({ current });
+      if (!planned.ok) {
+        const errors = planned.diagnostics.filter((d) => d.severity === "error");
+        dispatch({
+          type: "BOOT_FAIL",
+          message: `The migration chain could not be read, so the database was left as it is:\n${errors.map((d) => d.message).join("\n")}`,
+        });
+        clearPhase();
+        return false;
+      }
+      // The database island is keyed by the workspace and its entry, not by
+      // the source text: a schema edit reopens the same database, and the
+      // recorded migrations evolve it in place.
+      const islandKey = fnv1a32(`${workspace.activeId}\u0000${current.entryPath}`);
       // MOBILE: in-memory, not OPFS.
       //
       // Two field reports in a row died at `boot:ddl-meta` — PGlite's real
@@ -1523,25 +1494,29 @@ export default function App(): JSX.Element {
       // A 128 MB contiguous WASM heap is therefore structural at this
       // version, not a setting — which is also why freeing memory elsewhere
       // (#2420) could not buy enough headroom.
-      const dataDir = isDesktop ? `opfs-ahp://loom-${sourceHash}` : ":memory:";
-      const res = await engine.boot(hono.code, dataDir, { fresh: opts?.fresh });
+      const dataDir = isDesktop ? `opfs-ahp://loom-${islandKey}` : ":memory:";
+      const res = await engine.boot(hono.code, planned.plan, dataDir, { fresh: opts?.fresh });
       if (res.ok) {
         dispatch({
           type: "BOOT_OK",
           ddl: res.ddl,
           persistent: res.persistent,
-          migrated: res.migrated,
+          applied: res.applied,
         });
         // House-keep OPFS: this boot's island is now most-recently-used;
         // drop stale islands from sources the user has moved on from so
         // they don't accumulate toward the storage quota.  Only when the
         // boot is actually OPFS-backed, and never blocking the boot.
-        if (res.persistent) void recordAndGcOpfs(sourceHash);
+        if (res.persistent) void recordAndGcOpfs(islandKey);
         clearPhase();
         await loadOpenApiSpec(engine);
         return true;
       }
-      dispatch({ type: "BOOT_FAIL", message: res.message });
+      dispatch(
+        res.pending
+          ? { type: "BOOT_PENDING", migration: res.pending, message: res.message }
+          : { type: "BOOT_FAIL", message: res.message },
+      );
       clearPhase();
       return false;
     } catch (err) {
@@ -2060,7 +2035,7 @@ export default function App(): JSX.Element {
   ): Promise<RecordMigrationResult | null> {
     const client = buildClientRef.current;
     const store = workspace.store;
-    if (!client || !store) return null;
+    if (!client) return null;
     const current = await currentEvolutionTree();
     const result = await client.recordMigration({
       current,
@@ -2069,7 +2044,10 @@ export default function App(): JSX.Element {
       allowDestructive,
     });
     if (result.ok && result.files.length > 0) {
-      for (const f of result.files) await store.writeFile(f.path, f.content);
+      for (const f of result.files) {
+        if (store) await store.writeFile(f.path, f.content);
+        else sessionChainRef.current.set(f.path, f.content);
+      }
       void runEvolutionDiff(evolutionBaselineRef);
       void runGenerate();
     }
@@ -2846,7 +2824,8 @@ export default function App(): JSX.Element {
       previewProblem,
       ddl,
       persistent,
-      migrated,
+      appliedMigrations,
+      bootPending,
       bootErrorMessage,
       dispatchSlot,
       files,
@@ -2943,7 +2922,8 @@ export default function App(): JSX.Element {
       previewProblem,
       ddl,
       persistent,
-      migrated,
+      appliedMigrations,
+      bootPending,
       bootErrorMessage,
       dispatchSlot,
       files,

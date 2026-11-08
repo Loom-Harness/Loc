@@ -137,6 +137,13 @@ export interface GenerateSystemOptions {
    *  chain yet: every owning module then gets one initial migration derived
    *  from the model, with nothing to drift from.  See docs/migrations.md. */
   migrationChain?: MigrationChain;
+  /** What a model that has moved past `migrationChain`'s head does.
+   *  `"refuse"` (the default, and the CLI's behaviour) throws a
+   *  `MigrationDriftError`.  `"render-chain"` renders the recorded chain as
+   *  it stands, so the migration files lack the unrecorded change: the
+   *  playground uses it because it gates its database on the unrecorded
+   *  change instead of refusing to generate. */
+  unrecordedChanges?: "refuse" | "render-chain";
   /** `--sourcemap` switch — when true, additionally emit
    *  `.loom/sourcemap.json` mapping generated file regions back to the
    *  `.ddd` spans (or macro-call sites) that produced them.  Off by
@@ -220,6 +227,7 @@ export function generateSystemsFromLoom(
         emitTrace: options.emitTrace,
         emitKubernetes: options.emitKubernetes,
         migrationChain: options.migrationChain,
+        unrecordedChanges: options.unrecordedChanges,
         collectMigrationWarnings: migrationWarnings,
         sourcemap: recorder,
         sourceTexts: options.sourceTexts,
@@ -311,6 +319,7 @@ function emitSystem(
     emitTrace?: boolean;
     emitKubernetes?: boolean;
     migrationChain?: MigrationChain;
+    unrecordedChanges?: "refuse" | "render-chain";
     /** Sink for the derivation's non-fatal diagnostics, folded into
      *  `SystemEmission.migrationWarnings`. */
     collectMigrationWarnings?: MigrationWarning[];
@@ -681,6 +690,7 @@ function systemMigrations(
   loom: EnrichedLoomModel,
   options: {
     migrationChain?: MigrationChain;
+    unrecordedChanges?: "refuse" | "render-chain";
     collectMigrationWarnings?: MigrationWarning[];
   },
 ): MigrationsIR[] {
@@ -701,7 +711,9 @@ function systemMigrations(
     allowDestructive: true,
   });
   const drifted = drift.filter((d) => d.steps.length > 0).map((d) => d.module);
-  if (drifted.length > 0) throw new MigrationDriftError(drifted);
+  if (drifted.length > 0 && options.unrecordedChanges !== "render-chain") {
+    throw new MigrationDriftError(drifted);
+  }
   const owned = new Set(sys.subdomains.filter((m) => m.migrationsOwner).map((m) => m.name));
   return chainMigrations(chain).filter((m) => owned.has(m.module));
 }

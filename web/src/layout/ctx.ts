@@ -41,7 +41,11 @@ import type {
   WorkspaceSourcesError,
 } from "../workspace/workspace-sources";
 import type { PipelineState } from "../pipeline/state";
-import type { DispatchResult, QueryResult } from "../runtime/protocol";
+import type {
+  BlockingMigrationState,
+  DispatchResult,
+  QueryResult,
+} from "../runtime/protocol";
 import type { ApiEndpoint } from "../backend/openapi";
 import type { RequestTraces } from "../backend/route-match";
 import type { TestResult } from "../testing/harness";
@@ -100,8 +104,11 @@ export function devClaimsHeader(cfg: AuthStubConfig): string | null {
  *  project (the preview engine bundles only the React SPA shape —
  *  SvelteKit's `$app/*` client, Vue's SFC pipeline, and Angular's
  *  AOT/`ng build` aren't reproduced in-browser yet), so they're
- *  surfaced here exactly like the backend platforms. */
-export type UnsupportedPlatform = "dotnet" | "elixir" | "svelte" | "vue" | "angular";
+ *  surfaced here exactly like the backend platforms.  `hono-extra` is a
+ *  Hono backend beyond the one the runtime boots: the browser runs a single
+ *  backend, so a system with several Hono deployables boots one and lists
+ *  the rest here. */
+export type UnsupportedPlatform = "dotnet" | "elixir" | "svelte" | "vue" | "angular" | "hono-extra";
 export interface UnsupportedDeployable {
   slug: string;
   platform: UnsupportedPlatform;
@@ -366,7 +373,12 @@ export interface LayoutCtx {
   previewProblem: boolean;
   ddl: string | null;
   persistent: boolean;
-  migrated: boolean;
+  /** Migration units the last boot applied, in order. */
+  appliedMigrations: string[];
+  /** Why the last boot did not start the app when the database's migrations
+   *  are the reason: unrecorded model changes, or a database the recorded
+   *  chain does not describe.  The database was left as it is. */
+  bootPending: { migration: BlockingMigrationState; message: string } | null;
   bootErrorMessage: string | null;
   dispatchSlot: DispatchResult | null;
 
@@ -660,6 +672,8 @@ export function unsupportedPlatformLabel(p: UnsupportedPlatform): string {
       return "Vue";
     case "angular":
       return "Angular";
+    case "hono-extra":
+      return "Hono, not booted — the playground runs one backend";
   }
 }
 

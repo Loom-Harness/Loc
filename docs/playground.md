@@ -109,16 +109,34 @@ playground surfaces this explicitly instead of failing silently.
 ### In-browser test runner
 
 The Postgres is **PGlite** — a WebAssembly Postgres — booted inside the
-runtime worker (`src/runtime/runtime.worker.ts`). Because Loom emits a
-Drizzle `pg-core` schema rather than ready SQL, the worker can't run
-Drizzle Kit in a browser; instead `src/runtime/ddl.ts` (`synthDDL`) walks
-the bundled schema's table/enum/index metadata and emits the minimal
-`CREATE SCHEMA` / `CREATE TYPE` / `CREATE TABLE` / `CREATE INDEX` SQL to
-bring a fresh PGlite up to the shape the generated repositories expect. It
-is idempotent (`IF NOT EXISTS`, enum-create wrapped in a duplicate-object
-catch) so it re-applies cleanly against a persistent OPFS-backed PGlite —
-the DB survives reloads, keyed by a hash of the source, with "Reset DB" to
-drop and rebuild.
+runtime worker (`src/runtime/runtime.worker.ts`). Its schema comes only from
+the workspace's **recorded migration chain** (`migrations/*.json`, below), the
+way a deployed backend's does. On every Boot the build worker renders the
+chain to the migration files the generated Hono backend carries in
+`db/migrations/` (`migrationPlan` in `src/build/evolution.ts`, over the same
+`migrationUnits` renderer `ddd generate system` uses), and the runtime applies
+the units after the last one the database applied, which
+`__loom.schema_meta` records as `chain_head` (`src/runtime/migrate.ts`). A
+transactional unit commits with its head update, so a failed unit leaves the
+database at the one before it. The database is an OPFS island keyed by the
+workspace and its entry (in memory on mobile), so it survives reloads and
+schema edits; a recorded change migrates it in place and keeps the rows.
+
+Boot never writes to the database while the model has **unrecorded** schema
+changes: it stops with *migration required* (`backend-status`), names the
+modules and steps, and leaves the database as it is. That includes a workspace
+with no chain, every built-in example among them — no migration is implied, so
+the database is created only once the initial migration is recorded in the
+Migrations tab. A database the chain cannot describe — one at a unit the chain
+no longer has, or one an earlier playground built without migration tracking
+(a `ddl_hash` row) — is reported, not dropped. The only actions that drop the
+user schemas are the explicit ones: **Reset database** (Database sub-view —
+drops every row and rebuilds the schema from every recorded unit) and **Reset
+database & boot** / **Clear stored data & retry** (drop the island's stored
+data, then boot). A source with no `system` block cannot record migrations;
+its schema is synthesised from the bundled Drizzle tables (`src/runtime/ddl.ts`,
+`synthDDL`), applied to an empty database only, and a changed schema is
+reported for an explicit reset.
 
 On top of that live runtime, the playground runs the **DSL-emitted test
 suites** — the same files `ddd generate system` writes:
@@ -180,7 +198,7 @@ The dock's **Runtime** tab has four sub-views once the backend is booted: **API*
 
 The **Migrations** tab compares the live source with a baseline (*Last save* by default, or any commit pinned from History) and draws the schema as a table diagram tinted by the pending migration — added green, changed amber, removed red, untouched dimmed (`web/src/layout/migration-tint.ts` over the evolution worker's `tables` + per-step `table`) — beside the migration SQL. A destructive change renders as the gate `ddd migrate add` raises: the `--allow-destructive` flag and the data it would drop. The comparison runs when the tab opens; **Refresh** re-runs it.
 
-The workspace holds the committed migration chain in the same format the CLI keeps on disk: `migrations/*.json` beside the entry `.ddd` (`/workspace/migrations/` for `main.ddd`, see [migrations.md § The migration chain](migrations.md#the-migration-chain--migrations-beside-the-source)). When the chain exists, generate renders it whole, like `ddd generate system`. A chain that does not read as one list, or a model with schema changes the chain does not record, fails the generate with a diagnostic. The Migrations tab then uses the chain's head as the schema baseline, so the SQL it shows is exactly what `ddd migrate add` would record. The baseline source still drives the wire-contract diff. Every diff passes the model's `migration { … }` intents, so a declared rename shows as a `RENAME COLUMN`, not a drop and add. A status line under the baseline picker gives the chain's entry count, its head, and the unrecorded steps. On two heads it names both files and says to run `ddd migrate rebase` locally. **Record migration** takes a kebab-case name and is the playground's `ddd migrate add`, numbered from the browser's UTC clock. A destructive change also needs its `--allow-destructive` box ticked. Recording writes the new entries into the workspace's working tree like any other edit, then re-runs the diff and the generate. With no chain yet, the first recording starts one with each module's `Initial`. Like `ddd migrate add`, the diff and the record run the IR validator on the live source first: a model it refuses (an `index:` naming a removed field, a missing `dataSources:` binding) shows its diagnostics instead of a migration, because the SQL derived from it would not apply. A baseline pinned from History only has to load. The diff core is `evolveSystem` (`src/system/migration-diff.ts`), which the toolkit's `loom_diff` shares.
+The workspace holds the committed migration chain in the same format the CLI keeps on disk: `migrations/*.json` beside the entry `.ddd` (`/workspace/migrations/` for `main.ddd`, see [migrations.md § The migration chain](migrations.md#the-migration-chain--migrations-beside-the-source)). When the chain exists, generate renders it whole, like `ddd generate system`. A chain that does not read as one list fails the generate with a diagnostic. A model with schema changes the chain does not record still generates — unlike the CLI, which refuses — with a warning: the generated migrations stop at the recorded chain, and Boot leaves the database as it is until the change is recorded. The Migrations tab then uses the chain's head as the schema baseline, so the SQL it shows is exactly what `ddd migrate add` would record. The baseline source still drives the wire-contract diff. Every diff passes the model's `migration { … }` intents, so a declared rename shows as a `RENAME COLUMN`, not a drop and add. A status line under the baseline picker gives the chain's entry count, its head, and the unrecorded steps. On two heads it names both files and says to run `ddd migrate rebase` locally. **Record migration** takes a kebab-case name and is the playground's `ddd migrate add`, numbered from the browser's UTC clock. A destructive change also needs its `--allow-destructive` box ticked. Recording writes the new entries into the workspace's working tree like any other edit, then re-runs the diff and the generate. With no chain yet, the first recording starts one with each module's `Initial`. Like `ddd migrate add`, the diff and the record run the IR validator on the live source first: a model it refuses (an `index:` naming a removed field, a missing `dataSources:` binding) shows its diagnostics instead of a migration, because the SQL derived from it would not apply. A baseline pinned from History only has to load. The diff core is `evolveSystem` (`src/system/migration-diff.ts`), which the toolkit's `loom_diff` shares.
 
 The **Tests** tab's requirement verdicts read *Verified / Failing / Untested / Unverified* with a one-line legend; a discovery failure (in a sandbox with no registry: `Failed to resolve module specifier "uuidv7"`) shows one line of interpretation with the raw text folded behind *Show details*, and discovery reports per-suite progress with a *Cancel*.
 

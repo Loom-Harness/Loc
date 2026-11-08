@@ -128,6 +128,34 @@ describe("deployable channels: wiring (M-T4.4 slice 1)", () => {
     expect(codes).toContain("loom.channel-consumer-unwired");
   });
 
+  it("errors loom.channel-consumer-unwired for a cross-deployable consumer when the system has no channelSource", async () => {
+    const noBinding = wiredSrc("", "")
+      .replace("storage bus { type: redis }", "")
+      .replace("channelSource lifecycleBus { for: Lifecycle, use: bus }", "");
+    expect(await channelCodes(noBinding)).toContain("loom.channel-consumer-unwired");
+  });
+
+  it("is quiet without a channelSource when producer and consumer share a deployable", async () => {
+    const together = `
+      system Acme {
+        subdomain Sales {
+          context Orders {
+            event OrderPlaced { orderId: string }
+            channel Lifecycle { carries: OrderPlaced }
+          }
+          context Shipping {
+            workflow Fulfil {
+              orderId: string
+              on(e: OrderPlaced) { let x = e.orderId }
+            }
+          }
+        }
+        deployable app { platform: node contexts: [Orders, Shipping] port: 3000 }
+      }
+    `;
+    expect(await channelCodes(together)).toEqual([]);
+  });
+
   it("is quiet when producer and consumer both wire the binding", async () => {
     const codes = await channelCodes(
       wiredSrc("channels: [lifecycleBus]", "channels: [lifecycleBus]"),

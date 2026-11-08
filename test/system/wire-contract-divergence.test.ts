@@ -10,20 +10,27 @@
 //              (M-T5.10 PR1 #1900).  Since PR2–PR7 every backend's response-DTO
 //              and schema emitter reads THIS instead.
 //
-// This census injects `with scaffoldHandlers` into every corpus fixture (the
-// only way to materialise the records, since NO tracked `.ddd` outside the five
+// PR1 landed the records as "inert — byte-identical with vs without", and that
+// was true of the fixture it was measured on.  It is not true in general: this
+// census injects `with scaffoldHandlers` into every corpus fixture (the only
+// way to materialise the records, since NO tracked `.ddd` outside the five
 // `scaffold-handlers` compile fixtures uses the macro) and compares the two
-// descriptions node by node.  Where they disagree, the two halves of one HTTP
-// response disagree: the repository serialises the derived shape while the
-// OpenAPI/zod/record DTO declares the record.
+// descriptions node by node.
 //
-// The record walk (`apiReadFields`, `src/macros/api/factories.ts`) mirrors the
-// derived one — inherited fields through the `extends` chain, the
-// `provenanced` flag, and inferred (`contains`-less) containments in the
-// containment slot — so the only rows left are the deliberate B1/B2
-// representation offsets below.  It is a SHRINK-ONLY ratchet on the exact set
-// of diverging nodes, so a new emitter or capability cannot widen the split
-// silently.  Fixing a row means deleting it here.
+// Where they disagree, the two halves of one HTTP response disagree: the
+// repository serialises the derived shape while the OpenAPI/zod/record DTO
+// declares the record.  Measured on `platform: node`:
+//
+//   aggregate Order with softDeletable   →  toWire {id,code,status,deletedAt,version}
+//                                           OrderResponse {id,code,status,version}
+//   aggregate Customer extends Party     →  toWire {id,name,email,tier,version}
+//                                           CustomerResponse {id,tier,version}
+//
+// So this file is NOT a "these should match" assertion — they do not, and
+// closing the gap is M-T5.40's job.  It is a SHRINK-ONLY ratchet on the exact
+// set of diverging nodes, so (a) the retirement mission has a measured
+// denominator instead of an estimate, and (b) a new emitter or capability
+// cannot widen the split silently.  Fixing a row means deleting it here.
 //
 // The baseline is exact per node: a row that stops diverging must be removed,
 // and a node that starts diverging fails.  See
@@ -36,10 +43,9 @@ import {
   forApiRead,
   wireFieldsForAggregate,
   wireFieldsForPart,
-  wireTypeForField,
 } from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
-import type { BoundedContextIR, FieldIR, TypeIR } from "../../src/ir/types/loom-ir.js";
+import type { BoundedContextIR, TypeIR } from "../../src/ir/types/loom-ir.js";
 import { dddSourceOf, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 import { parseString } from "../_helpers/parse.js";
 
@@ -56,6 +62,48 @@ type Divergence =
 /** The exact divergence set, measured 2026-09-22 on the C4 coordinator head.
  *  SHRINK-ONLY: a fix deletes its row. */
 const BASELINE: Record<string, Divergence> = {
+  // ── class A — the record OMITS a field the wire carries ──────────────────
+  // A2. fields inherited from an `abstract aggregate` base.  Enrichment merges
+  //     the extends chain into the concrete; the record's walk does not — the
+  //     coordination note's item 3 (`aggregate-inheritance.md` I2, "the chain
+  //     walk has two consumers"), now measured rather than predicted.
+  "inheritance.ddd Parties.Customer": "missing-in-record",
+  "inheritance.ddd Parties.Vendor": "missing-in-record",
+  "inheritance.ddd Parties.Machine": "missing-in-record",
+  "inheritance.ddd Parties.Vehicle": "missing-in-record",
+  "tph.ddd Fleet.Car": "missing-in-record",
+  "tph.ddd Fleet.Truck": "missing-in-record",
+  "tph-crossings.ddd Depot.Parcel": "missing-in-record",
+  "tph-crossings.ddd Depot.Crate": "missing-in-record",
+  // The #3954 fixtures (#3595): the same A2 class, over both layouts and a
+  // capability on the abstract base (whose fields the record walk also misses).
+  "inheritance-base-reads.ddd Fleet.Car": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Truck": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Crane": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Forklift": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Driver": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Dispatcher": "missing-in-record",
+  "inheritance-read-restrictions.ddd Fleet.Car": "missing-in-record",
+  "inheritance-read-restrictions.ddd Fleet.Truck": "missing-in-record",
+  "inheritance-read-restrictions.ddd Fleet.Driver": "missing-in-record",
+  "inheritance-read-restrictions.ddd Fleet.Dispatcher": "missing-in-record",
+  // One more A2 witness from a NEW fixture, not a regression: the crossed-axes
+  // widening of `vo-cross-context` gives `Shipper extends Party` an inherited
+  // `label`, so enrichment merges it into the concrete's wire shape and the
+  // record's walk does not — identical to the eight inheritance/TPH rows
+  // above, and the same root cause the `loom.create-params-not-wire` warning
+  // reports on that aggregate.  Drains with the A2 class fix, not separately.
+  "vo-cross-context.ddd Billing.Shipper": "missing-in-record",
+  // The same A2 row, witnessed by a NEW fixture (the TPH-concrete projection
+  // source): `AutoClaim`/`PropertyClaim` inherit `reference`/`status` from the
+  // abstract `Claim` exactly as `tph.ddd`'s concretes do.  Drains with A2.
+  "projection-tph-source.ddd Claims.AutoClaim": "missing-in-record",
+  "projection-tph-source.ddd Claims.PropertyClaim": "missing-in-record",
+  // The acronym-names fixture's TPH concretes: the same A2 class, a new-fixture
+  // witness (`title` inherited from `CatalogSKU`), not a regression.
+  "acronym-names.ddd Catalog.PhysicalSKU": "missing-in-record",
+  "acronym-names.ddd Catalog.DigitalSKU": "missing-in-record",
+
   // ── class B — the same field, described differently ─────────────────────
   // B1. a containment names the part's own `<Part>Response` record (context
   //     scope cannot reference a raw entity part), the derived shape names the
@@ -81,13 +129,23 @@ const BASELINE: Record<string, Divergence> = {
   "contained-part-rebuild.ddd Carts.Cart.Line": "containment-response-suffix",
   // (M-T6.90 two-handles fixture — a containment, the same deliberate B1 shape.)
   "workflow-two-handles-containment.ddd Carts.Cart": "containment-response-suffix",
-  // An INFERRED containment (`lines: Line[]`, no `contains`) — the same
-  // deliberate B1 shape as the explicit spelling.
-  "part-rules-private-op.ddd Billing.Invoice": "containment-response-suffix",
   // B2. as B1, plus: an OPTIONAL single containment is `optional<MemoResponse>`
   //     in the record and `Memo` + the `optional` FLAG in the derived shape —
   //     the same fact in two representations.
   "embedded-optional.ddd Shop.Order": "optional-containment-type",
+  // B3. `provenanced<T>` — `wireTypeForField` wraps a provenanced field in the
+  //     carrier for the wire; the record declares the bare `T`, so the
+  //     scaffolded response DTO understates what the serializer emits.
+  "provenance.ddd Ordering.Order": "provenanced-carrier-lost",
+  "provenance-money.ddd Leasing.Lease": "provenanced-carrier-lost",
+  "if-branch-shapes.ddd Orders.Tally": "provenanced-carrier-lost",
+
+  // ── class C — same field set, different ORDER ───────────────────────────
+  // The derived walk is id → properties → containments → derived, and the
+  // `versioned` capability's `version` is a PROPERTY, so it precedes the
+  // containment; the record's walk appends it after.  Order is the wire
+  // contract for every positional DTO (.NET / Java records, F# records).
+  "part-rules-private-op.ddd Billing.Invoice": "field-order",
 };
 
 /** The comparable identity of one wire row.  Deliberately narrow: the two
@@ -96,10 +154,6 @@ const BASELINE: Record<string, Divergence> = {
  *  DTO emitter renders. */
 const key = (w: { name: string; type: TypeIR; optional?: boolean }): string =>
   `${w.name}:${JSON.stringify(w.type)}:${w.optional ? "?" : "!"}`;
-
-/** A record field's row, typed as it ships: a `provenanced` record field is
- *  the `Provenanced<T>` carrier, exactly as the derived shape types it. */
-const recKey = (f: FieldIR): string => key({ ...f, type: wireTypeForField(f) });
 
 function classify(derived: string[], declared: string[]): Divergence | undefined {
   if (JSON.stringify(derived) === JSON.stringify(declared)) return undefined;
@@ -179,7 +233,7 @@ async function census(): Promise<{
           nodes++;
           // The record omits the grammar-reserved `id` row; re-prepend it so the
           // comparison is of the fields the record actually chose to carry.
-          const d = classify(derived, [derived[0], ...rec.fields.map(recKey)]);
+          const d = classify(derived, [derived[0], ...rec.fields.map(key)]);
           if (d) found[`${name} ${ctx.name}.${agg.name}`] = d;
         }
         for (const part of agg.parts) {
@@ -190,7 +244,7 @@ async function census(): Promise<{
           }
           nodes++;
           const pd = forApiRead(wireFieldsForPart(part)).map(key);
-          const d = classify(pd, [pd[0], ...prec.fields.map(recKey)]);
+          const d = classify(pd, [pd[0], ...prec.fields.map(key)]);
           if (d) found[`${name} ${ctx.name}.${agg.name}.${part.name}`] = d;
         }
       }
@@ -203,7 +257,12 @@ async function census(): Promise<{
  *  to the comparison above, so this list is the census's blind spot and is
  *  pinned exactly — a growing blind spot would shrink the divergence count
  *  without anything being fixed. */
-const UNCONTRACTED: string[] = [];
+const UNCONTRACTED = [
+  // `contractRecords` walks the aggregate's containment closure for part
+  // records; this part is reachable only through a PRIVATE operation's rules,
+  // so no `<Part>Response` is minted while the derived walk still wires it.
+  "part-rules-private-op.ddd Billing.Invoice.Line",
+];
 
 describe("wire shape vs. the declared response contract (M-T5.40 census)", () => {
   it("diverges on exactly the baselined nodes — shrink-only", async () => {

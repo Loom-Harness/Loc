@@ -771,7 +771,17 @@ export function renderMikroEntities(
   ctx: EnrichedBoundedContextIR,
   shapeOf: (agg: EnrichedAggregateIR) => "relational" | "embedded" | "document" = (a) =>
     (a.savingShape as "relational" | "embedded" | "document" | undefined) ?? "relational",
-  opts: { audit?: boolean; provenance?: boolean; outbox?: boolean; timerRuns?: boolean } = {},
+  opts: {
+    audit?: boolean;
+    provenance?: boolean;
+    outbox?: boolean;
+    timerRuns?: boolean;
+    /** Maps an event-sourced aggregate / workflow to the context that declares
+     *  it. A multi-context deployable passes one merged context here, and each
+     *  `<Ctx>EventRow` must still be named after its stream's owner — the name
+     *  the event-sourced repository and workflow fold helpers import. */
+    resolveStreamContext?: (streamName: string) => string | undefined;
+  } = {},
 ): string {
   const blocks: string[] = [];
   const schemaNames: string[] = [];
@@ -788,9 +798,13 @@ export function renderMikroEntities(
   // entity at all, and the generated `http/workflows.ts` fell back to the
   // drizzle event store — importing `drizzle-orm`, which a `persistence:
   // mikroorm` project does not install, so the server died at import.
-  const hasEventLog =
-    aggs.some((agg) => agg.persistedAs === "eventLog") ||
-    (ctx.workflows ?? []).some((wf) => wf.eventSourced);
+  const streamOwner = (name: string): string => opts.resolveStreamContext?.(name) ?? ctx.name;
+  const eventLogOwners = [
+    ...new Set([
+      ...aggs.filter((agg) => agg.persistedAs === "eventLog").map((agg) => streamOwner(agg.name)),
+      ...(ctx.workflows ?? []).filter((wf) => wf.eventSourced).map((wf) => streamOwner(wf.name)),
+    ]),
+  ];
   for (const agg of aggs) {
     if (agg.persistedAs === "eventLog") continue;
     // TPH concretes (aggregate-inheritance.md, sharedTable) own no Row — their
@@ -932,8 +946,8 @@ export function renderMikroEntities(
       }
     }
   }
-  if (hasEventLog) {
-    const cls = eventRowClassOf(ctx.name);
+  for (const owner of eventLogOwners) {
+    const cls = eventRowClassOf(owner);
     const schemaName = `${cls}Schema`;
     schemaNames.push(schemaName);
     blocks.push(
@@ -960,7 +974,7 @@ export function renderMikroEntities(
         "",
         `export const ${schemaName} = new EntitySchema<${cls}>({`,
         `  class: ${cls},`,
-        `  tableName: "${snake(ctx.name)}_events",`,
+        `  tableName: "${snake(owner)}_events",`,
         "  properties: {",
         // `seq` — context-global monotonic cursor (bigserial), inert until the
         // replay reader lands; not part of the PK.  Must be a real Postgres

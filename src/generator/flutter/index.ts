@@ -1253,10 +1253,16 @@ function renderConsumerPage(
   const bindings: string[] = [];
   // The verified session FIRST (D-AUTH-OIDC): the page `requires` guard, a
   // `currentUser.<claim>` body read and a gated `Action` button all reference
-  // this local.  Non-null by construction — `AuthGate` wraps the whole
-  // `MaterialApp`, so no page builds without a session.
+  // this local.  `AuthGate` wraps the whole `MaterialApp`, so a page normally
+  // builds with a resolved session; one built outside it (a widget test's bare
+  // `ProviderScope`) sees `null`, which renders `ForbiddenView` instead of
+  // throwing on a null assertion.  The early return promotes the local to
+  // non-null for the rest of the body.
   if (b.pageGate) {
-    bindings.push("    final currentUser = ref.watch(sessionProvider).value!;");
+    bindings.push(
+      "    final currentUser = ref.watch(sessionProvider).value;",
+      "    if (currentUser == null) return const Scaffold(body: ForbiddenView());",
+    );
   }
   // Route args next — a byId read's `ref.watch(<var>Provider(id))`, an
   // async-effect closure and any declared route param all read them.

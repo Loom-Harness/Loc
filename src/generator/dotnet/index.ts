@@ -1138,9 +1138,9 @@ function emitProjectFromContexts(
   // for-event's context (single-fire lock owner == DB owner).  Filter the
   // system's timers to the ones THIS deployable owns; a timer-free deployable
   // stays byte-identical (no TimerScheduler.cs, no registration, no Hangfire dep).
-  // EF-only — the tick's advisory lock rides `AppDbContext.Database`, which the
-  // Dapper path (NpgsqlDataSource, no DbContext) doesn't have; a dapper timer
-  // owner is a follow-up slice.
+  // The `every:` tick's advisory lock rides the persistence adapter's own
+  // connection (`AppDbContext.Database` on EF, `NpgsqlDataSource` on Dapper);
+  // `cron:` jobs need only the dispatcher and Hangfire's own store.
   const ownedTimers: TimerSourceIR[] = system
     ? (system.sys.timerSources ?? []).filter((ts) => {
         const sub = system.sys.subdomains.find((s) =>
@@ -1149,12 +1149,12 @@ function emitProjectFromContexts(
         return sub?.migrationsOwner === system.deployable.name;
       })
     : [];
-  const hasTimers = ownedTimers.length > 0 && !usingDapper;
+  const hasTimers = ownedTimers.length > 0;
   if (hasTimers) {
     const eventByName = new Map<string, EventIR>(merged.events.map((e) => [e.name, e]));
     out.set(
       "Infrastructure/Scheduling/TimerScheduler.cs",
-      renderTimerScheduler(ownedTimers, eventByName, ns),
+      renderTimerScheduler(ownedTimers, eventByName, ns, usingDapper),
     );
   }
   emitProject(merged, ns, out, {

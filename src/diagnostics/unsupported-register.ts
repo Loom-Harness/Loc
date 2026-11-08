@@ -144,16 +144,16 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.elixir-match-stmt-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/elixir-match-stmt-checks.ts:216",
+    site: "src/ir/validate/checks/elixir-match-stmt-checks.ts:294",
     what:
       "FIVE narrow sub-shapes of the statement `match` in a body an elixir deployable emits, " +
-      "`scope` under **D-ELIXIR-IF-BRANCH** like the `if` statement's.  The statement ITSELF " +
+      "`scope` under **D-ELIXIR-IF-BRANCH**.  The statement ITSELF " +
       "renders: an operation rebinds `record` through a value-producing `case` " +
       "(`vanilla/match-stmt-emit.ts`), a domain service's tail `case` is its value, and a " +
       "workflow / handler / reactor body runs it as one `{:ok, _} <- (case … end)` with-clause.  " +
       "What is left: `#return-in-arm`, `#guard-in-arm`, `#arm-statement` and `#event-sourced` " +
-      "(an event-sourced command body or `eventSourced` workflow handler) — the `if` statement's " +
-      "four, for the same body-building reasons — and `#multi-success`: a union subject with two " +
+      "(an event-sourced command body or `eventSourced` workflow handler) — each a change to how " +
+      "a Phoenix body is built — and `#multi-success`: a union subject with two " +
       "success variants, whose `{:ok, value}` tuples carry no tag on Phoenix (the expression " +
       "`match` reads the same untagged tuple), so telling them apart needs the success value " +
       "tagged at every `or`-returning producer",
@@ -296,39 +296,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     what:
       "`persistedAs: eventLog` storage ships on every backend — fires only when no backend " +
       "deployable hosts the context",
-  },
-  {
-    code: "loom.elixir-if-stmt-unsupported",
-    kind: "scope",
-    site: "src/ir/validate/checks/if-stmt-checks.ts:305",
-    what:
-      "FOUR narrow sub-shapes of the `if` STATEMENT in a domain body an elixir deployable emits.  " +
-      "RE-CLASSED `scope` in wave C2 packet 2m under **D-ELIXIR-IF-BRANCH**: each survivor needs a " +
-      "change to HOW a Phoenix body is BUILT (a list-level restructure for the early exit, a " +
-      "non-hoisted guard form, a statement spine for ES commands), and two members of the closed " +
-      "branch vocabulary are not even elixir-local — the conditional `emit` is an event-ORDERING " +
-      "question the S5a persist-then-dispatch restructure cannot answer, and the PROVENANCED " +
-      "write is decided by the TARGET-NEUTRAL `opHasProvSite` (`src/ir/util/prov-id.ts:49`), so " +
-      "deepening it changes all five backends.  M-T6.59 owns that body renderer.  " +
-      "The statement ITSELF now renders (M-T6.59, wave C2 2a): `vanilla/if-stmt-emit.ts` makes it " +
-      "value-producing (`record = if … do … record else record end`) and `opBodyStmtsDeep` makes " +
-      "every persist/containment probe deep-walk the branches, so a branch assignment survives " +
-      "`Repo.update` (boot-proved on real Postgres).  What is left: `#return-in-branch` (an EARLY " +
-      "EXIT — the linear body renderers would have to restructure the statements FOLLOWING the " +
-      "`if` into a `case` arm, a list-level transform that also breaks the same-length " +
-      "`statementSubRegions` sourcemap zip; allowed already in a TAIL-VALUE body, where every " +
-      "`return` is already tail-position), `#guard-in-branch` (the op path hoists top-level " +
-      "`requires`/`precondition` into a `with :ok <- ensure(…)` chain answering 403/422; a nested " +
-      "one would raise → 500, a wire divergence worse than the refusal), and `#event-sourced` (an " +
-      "ES command body is sorted into `with`-clauses / `let`s / one `events = […]` list, not " +
-      "rendered as a statement sequence, so a conditional `emit` has nowhere to go), and " +
-      "`#branch-statement` (the CLOSED branch vocabulary — an `emit` or a " +
-      "PROVENANCED write in a branch: each RENDERS, but the emitters decide an operation's " +
-      "supporting machinery by scanning its TOP-LEVEL statements, so a conditional `emit` gets no " +
-      "`require Logger` and cannot be hoisted past the commit by the S5a restructure, and a nested " +
-      "provenanced write captures lineage in an op the route layer never put in flush mode)",
-    mission: "#3316",
-    verified: true,
   },
   {
     // The TARGET-AGNOSTIC half, promoted out of the Feliz row below in wave C2
@@ -483,7 +450,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // M-T1.20, which already IS the register of frontend refusals accepted in
     // `.ddd`.  Unlike its neighbours there, this one is not per-target: all six
     // refuse it, which is what makes it a surface decision rather than a port.
-    site: "src/ir/validate/checks/if-stmt-checks.ts:423",
+    site: "src/ir/validate/checks/if-stmt-checks.ts:52",
     what:
       "the `if` STATEMENT in a `ui` page / component / store body, on EVERY frontend.  A page body " +
       "is an expression tree — a condition is a VALUE there (`cond ? a : b`, `match`) — and no " +

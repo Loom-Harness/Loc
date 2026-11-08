@@ -44,6 +44,7 @@ import {
 import { collectReachableTypes } from "../../ir/util/reachable-types.js";
 import { resolveWorkflowIsolation } from "../../ir/util/resolve-datasource.js";
 import {
+  mapExprChildren,
   walkExprDeep,
   walkWorkflowStmtChildren,
   walkWorkflowStmtExprsDeep,
@@ -2353,50 +2354,17 @@ export function csWorkflowStmtTarget(
   };
 }
 
-/** Structural ExprIR rewrite: applies `onRef` to every leaf `ref` node
- *  (returning a replacement, or `undefined` to leave it unchanged) and
- *  recurses through every compound node.  Shared by the command-param and
- *  event-param workflow renderers — both want to rename a particular class of
+/** Structural ExprIR rewrite: applies `onRef` to every `ref` node (returning a
+ *  replacement, or `undefined` to leave it unchanged) and rebuilds every other
+ *  node through `mapExprChildren`, so a ref nested in any kind — a conversion,
+ *  a list, a match arm, a block-bodied lambda — is reached.  Shared by the
+ *  command-param and event-param workflow renderers — both rename a class of
  *  `refKind: "param"` ref before handing the tree to `renderCsExpr`. */
 function rewriteExprRefs(
   e: ExprIR,
   onRef: (r: ExprIR & { kind: "ref" }) => ExprIR | undefined,
 ): ExprIR {
-  const rec = (e: ExprIR): ExprIR => {
-    if (e.kind === "ref") return onRef(e) ?? e;
-    if (e.kind === "member") return { ...e, receiver: rec(e.receiver) };
-    if (e.kind === "method-call") {
-      return { ...e, receiver: rec(e.receiver), args: e.args.map(rec) };
-    }
-    if (e.kind === "call") return { ...e, args: e.args.map(rec) };
-    if (e.kind === "lambda") {
-      // Lambda body is optional (block-body lambdas land for page event
-      // handlers).  .NET workflow lowering doesn't see block bodies — those
-      // are React-emitter territory — but stay total: pass through unchanged
-      // when block is set.
-      if (e.body) return { ...e, body: rec(e.body) };
-      return e;
-    }
-    if (e.kind === "binary") return { ...e, left: rec(e.left), right: rec(e.right) };
-    if (e.kind === "unary") return { ...e, operand: rec(e.operand) };
-    if (e.kind === "ternary") {
-      return {
-        ...e,
-        cond: rec(e.cond),
-        // biome-ignore lint/suspicious/noThenProperty: the ternary IR node's branch field is named `then` across the IR
-        then: rec(e.then),
-        otherwise: rec(e.otherwise),
-      };
-    }
-    if (e.kind === "paren") return { ...e, inner: rec(e.inner) };
-    if (e.kind === "new") {
-      return { ...e, fields: e.fields.map((f) => ({ name: f.name, value: rec(f.value) })) };
-    }
-    if (e.kind === "object") {
-      return { ...e, fields: e.fields.map((f) => ({ name: f.name, value: rec(f.value) })) };
-    }
-    return e;
-  };
+  const rec = (e: ExprIR): ExprIR => (e.kind === "ref" ? (onRef(e) ?? e) : mapExprChildren(e, rec));
   return rec(e);
 }
 

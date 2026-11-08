@@ -9,6 +9,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ProvSite, StmtIR, SystemIR } from "../types/loom-ir.js";
+import { branchesContain } from "./if-normal-form.js";
 
 /** FNV-1a 32-bit, rendered as 8 lowercase hex chars.  Deterministic and
  *  pure — adequate for content-addressing source spans, not for crypto. */
@@ -43,11 +44,13 @@ export function stmtHasProv(s: StmtIR): s is ProvStmt {
   return (s.kind === "assign" || s.kind === "add" || s.kind === "remove") && s.prov !== undefined;
 }
 
-/** An operation carries provenance iff any of its statements is an
- *  instrumented write-site.  Drives the per-aggregate "needs a save +
- *  provenance-flush transaction" decision in the routes layer. */
-export function opHasProvSite(op: { statements: StmtIR[] }): boolean {
-  return op.statements.some(stmtHasProv);
+/** An operation carries provenance iff any of its statements — a write in an
+ *  `if` branch or a `match` arm included — is an instrumented write-site.
+ *  Drives the per-aggregate "needs a save + provenance-flush transaction"
+ *  decision in the routes layer: a write that runs only on some paths still
+ *  captures lineage on those paths, which the flush must drain. */
+export function opHasProvSite(op: { statements: readonly StmtIR[] }): boolean {
+  return op.statements.some((s) => branchesContain(s, stmtHasProv));
 }
 
 /** True iff any aggregate operation in the system contains an
@@ -58,7 +61,7 @@ export function hasAnyProvSite(sys: SystemIR): boolean {
     for (const ctx of mod.contexts) {
       for (const agg of ctx.aggregates) {
         for (const op of agg.operations) {
-          if (op.statements.some(stmtHasProv)) return true;
+          if (opHasProvSite(op)) return true;
         }
       }
     }

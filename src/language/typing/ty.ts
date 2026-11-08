@@ -17,11 +17,14 @@ import type {
   SensitivityTags,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
+import { SCALAR_WIRE_JSON } from "../../util/scalar-wire-json.js";
 import type {
   Aggregate,
+  Create,
   EntityPart,
   EnumDecl,
   EventDecl,
+  Operation,
   PayloadDecl,
   Projection,
   Resource,
@@ -29,6 +32,7 @@ import type {
   UserBlock,
   ValueObject,
   Workflow,
+  WorkflowCreateDecl,
 } from "../generated/ast.js";
 
 /** What a `record` type is a record OF. */
@@ -44,7 +48,19 @@ export type RecordShape =
   | { of: "principal"; ref: UserBlock | undefined }
   /** An ambient resource handle (`files`, `jobs`, an api binding). */
   | { of: "resource"; ref: Resource }
-  | { of: "store"; ref: Store };
+  | { of: "store"; ref: Store }
+  /** A record as a `test e2e` client receives it over the wire: `ref`'s
+   *  members, each read as its JSON value (`money` a fixed-scale string, a
+   *  `datetime` an ISO string, an id a uuid string, an enum its value's name). */
+  | { of: "wire"; ref: Ty }
+  /** A `create` answer: the `{ id }` envelope of the created `ref` (RS-13). */
+  | { of: "created"; ref: Aggregate }
+  /** An `or`-union result on the wire: the variant's `type` tag beside its
+   *  fields, a scalar variant's value as `value` (`ref` is the union). */
+  | { of: "tagged"; ref: Ty }
+  /** A `test e2e` request body: the record of `ref`'s params, each as the
+   *  JSON the client sends. */
+  | { of: "request"; ref: Create | Operation | WorkflowCreateDecl };
 
 /** Why a node has no type. Every `unknown` names one, so a census can count
  *  them by cause and #3133's gate can refuse the ones that reach codegen. */
@@ -144,8 +160,48 @@ function recordName(shape: RecordShape): string {
       return PRINCIPAL_SHAPE_NAME;
     case "resource":
       return RESOURCE_HANDLE_SHAPE_NAME;
+    case "wire":
+      if (shape.ref.kind === "record") return recordName(shape.ref.shape);
+      return shape.ref.kind === "valueobject" ? shape.ref.name : "__Wire__";
+    case "created":
+      return `${shape.ref.name}Created`;
+    case "tagged":
+      return "__Tagged__";
+    case "request":
+      return "__Request__";
     default:
       return shape.ref.name;
+  }
+}
+
+/** `t` as a `test e2e` client holds it: the JSON value the backend sends.
+ *  A scalar is its wire kind (`SCALAR_WIRE_JSON`): a JSON string for `money`,
+ *  the calendar / instant types and `guid`; a JSON number keeps its numeric
+ *  type.  An id is its uuid string, an enum its value's name; a record or
+ *  value object is viewed member by member (`{ of: "wire" }`). */
+export function wireOf(t: Ty): Ty {
+  switch (t.kind) {
+    case "primitive": {
+      if (t.name === "duration") return t;
+      return SCALAR_WIRE_JSON[t.name] === "string" ? Ty.prim("string") : t;
+    }
+    case "id":
+    case "enum":
+      return Ty.prim("string");
+    case "valueobject":
+      return Ty.record({ of: "wire", ref: t });
+    case "record":
+      return t.shape.of === "wire" ? t : Ty.record({ of: "wire", ref: t });
+    case "array":
+      return { ...t, element: wireOf(t.element) };
+    case "optional":
+      return Ty.opt(wireOf(t.inner));
+    case "union":
+      return { kind: "union", variants: t.variants.map(wireOf) };
+    case "generic":
+      return { ...t, arg: wireOf(t.arg) };
+    default:
+      return t;
   }
 }
 
@@ -180,6 +236,8 @@ export function toTypeIR(t: Ty): TypeIR {
     case "valueobject":
       return { kind: "valueobject", name: t.name, ...s };
     case "record":
+      // The IR has no wire view: a wire record projects to the record it views.
+      if (t.shape.of === "wire") return toTypeIR(t.shape.ref);
       return { kind: "entity", name: recordName(t.shape), ...s };
     case "array":
       return { kind: "array", element: toTypeIR(t.element), ...s };

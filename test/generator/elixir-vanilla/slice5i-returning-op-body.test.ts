@@ -97,7 +97,7 @@ describe("vanilla — T2.c returning-op body statements", () => {
   it("returns the wire-ready success tuple off the SAVED struct when the body falls through", async () => {
     const ctx = get(await files(), "lib/api/stock.ex");
     expect(ctx).toContain(
-      "{:ok, %{id: saved.id, sku: saved.sku, quantity: saved.quantity, version: saved.version}}",
+      '{:ok, %{type: "Item", id: saved.id, sku: saved.sku, quantity: saved.quantity, version: saved.version}}',
     );
     // A persist validation failure surfaces as {:error, changeset}.
     expect(ctx).toContain("{:error, changeset} ->");
@@ -189,7 +189,7 @@ describe("vanilla — S12 returning-op mutations persist", () => {
     expect(body).toContain("|> Ecto.Changeset.force_change(:quantity, record.quantity)");
     // Success is projected off the SAVED struct, not the in-memory record.
     expect(body).toContain(
-      "{:ok, %{id: saved.id, sku: saved.sku, quantity: saved.quantity, version: saved.version}}",
+      '{:ok, %{type: "Item", id: saved.id, sku: saved.sku, quantity: saved.quantity, version: saved.version}}',
     );
     expect(body).not.toContain("{:ok, %{id: record.id");
     expect(body).toContain("{:error, changeset} ->");
@@ -201,7 +201,7 @@ describe("vanilla — S12 returning-op mutations persist", () => {
     expect(body).toContain("|> Ecto.Changeset.force_change(:quantity, record.quantity)");
     // Normalized onto the fall-through path → wire projected off `saved`.
     expect(body).toContain(
-      "{:ok, %{id: saved.id, sku: saved.sku, quantity: saved.quantity, version: saved.version}}",
+      '{:ok, %{type: "Item", id: saved.id, sku: saved.sku, quantity: saved.quantity, version: saved.version}}',
     );
   });
 
@@ -219,21 +219,19 @@ describe("vanilla — S12 returning-op mutations persist", () => {
     expect(rebindAt).toBeLessThan(returnAt);
   });
 
-  it("a PURE (non-mutating) returning op stays in-memory — NO persist round-trip", async () => {
+  it("a PURE (non-mutating) returning op on a versioned aggregate persists its version bump", async () => {
+    // node / .NET / java / python save after every successful command, so the
+    // `versioned` counter advances even when no field was written.
     const body = fn(get(await files(), "lib/api/stock.ex"), "peek_item");
-    expect(body).toContain("{:ok, record}");
-    expect(body).not.toContain("persist_change");
-    expect(body).not.toContain("changeset");
+    expect(body).toContain("persist_change(changeset)");
+    expect(body).toContain("Ecto.Changeset.optimistic_lock(:version)");
+    expect(body).not.toContain("force_change");
   });
 
   it("the controller gains the 422 validation clause for the now-persisting fall-through op", async () => {
     const ctl = get(await files(), "/controllers/item_controller.ex");
     expect(ctl).toContain("def adjust_item_result(conn, {:error, %Ecto.Changeset{} = changeset})");
-    // The pure op never persists → no changeset clause (would be an unreachable
-    // clause under `--warnings-as-errors`).
-    const peekResult = ctl.slice(ctl.indexOf("def peek_item_result"));
-    expect(peekResult.slice(0, peekResult.indexOf("\n\n  def "))).not.toContain(
-      "%Ecto.Changeset{}",
-    );
+    // The pure op persists its version bump too, so it gains the same clause.
+    expect(ctl).toContain("def peek_item_result(conn, {:error, %Ecto.Changeset{} = changeset})");
   });
 });

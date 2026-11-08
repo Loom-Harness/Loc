@@ -3,8 +3,9 @@
 //   2. Clicking it kicks the pipeline — at minimum Generate runs and
 //      a file becomes selected (files-only check; we don't need the
 //      npm-installed Bundle to verify the Run wiring is intact).
-//   3. After a successful cascade the mobile tab nav lands on
-//      Preview (system-mode source) — this is the part previously
+//   3. After a successful cascade (with the initial migration recorded,
+//      since Boot creates the database only from recorded migrations) the
+//      mobile tab nav lands on Preview (system-mode source) — this is the part previously
 //      broken because the cascade never ran past Generate.
 //
 // Part 3 needs the npm registry + jsdelivr (bundle + PGlite WASM); when those
@@ -12,7 +13,7 @@
 // assertion, same idiom as runtime.spec.ts.
 
 import { expect, test } from "@playwright/test";
-import { browserCanReachNetwork, clickWorkspaceCreate } from "./_helpers";
+import { browserCanReachNetwork, clickWorkspaceCreate, recordInitialMigration } from "./_helpers";
 
 test("mobile Run kicks the pipeline and surfaces files", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -28,6 +29,10 @@ test("mobile Run kicks the pipeline and surfaces files", async ({ page }) => {
   // Auto-Generate fires ~800 ms after the source mirrors land — give
   // it a beat so the Files tab is already populated.
   await page.waitForTimeout(1500);
+
+  // The database is created only from recorded migrations — record the
+  // example's initial migration so the cascade's Boot can create it.
+  await recordInitialMigration(page);
 
   // Run button is present and enabled (no LSP errors on a fresh
   // example).

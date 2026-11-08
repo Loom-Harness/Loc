@@ -409,7 +409,7 @@ function flutterDeferrals(c: ComponentIR, ctx: DeferCtx): ComponentDeferral[] {
     out.push({
       reason:
         "its body reads a `currentUser` claim — the session is bound by the page shell " +
-        "(`final currentUser = ref.watch(sessionProvider).value!`), never by a component",
+        "(`final currentUser = ref.watch(sessionProvider).value`), never by a component",
       emitter: "src/generator/flutter/component-emit.ts `needsPageShell` (`usesCurrentUser`)",
     });
   }

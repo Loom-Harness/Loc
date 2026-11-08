@@ -1900,6 +1900,31 @@ system P {
   "loom.duplicate-repository": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing
     repository Stuff for Thing`),
+  // An operation reusing a field's name: one member namespace per aggregate.
+  "loom.member-name-collision": repoOnly(`    aggregate Thing with crudish {
+      qty: int
+      operation qty(n: int) { qty := n }
+    }
+    repository Things for Thing`),
+  // Two contexts one deployable hosts, each declaring an `Order` aggregate.
+  "loom.hosted-type-name-collision": `
+system S {
+  subdomain D {
+    context Sales {
+      aggregate Order with crudish { qty: int }
+      repository Orders for Order
+    }
+    context Billing {
+      aggregate Order with crudish { amt: int }
+      repository BillingOrders for Order
+    }
+  }
+  api A from D
+  storage pg { type: postgres }
+  resource s { for: Sales, kind: state, use: pg }
+  resource b { for: Billing, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Sales, Billing], dataSources: [s, b], serves: A, port: 4000 }
+}`,
   "loom.duplicate-workflow": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing
     workflow Dup { create(n: string) { precondition n.length > 0 } }
@@ -3135,33 +3160,6 @@ system S {
   }
 }`,
 
-  // M-T6.59 narrowed this code: the `if` STATEMENT itself RENDERS on elixir now
-  // (a value-producing `record = if … do … record else record end`), so the
-  // firing shape is one of the three sub-shapes that still cannot render.  This
-  // is `#guard-in-branch` — a `precondition` nested in a branch, which the op
-  // path cannot hoist into its `with :ok <- ensure(…)` chain, so it would raise
-  // (500) where the other four backends answer a typed 403/422.
-  "loom.elixir-if-stmt-unsupported": `
-system P {
-  subdomain D { context C {
-    aggregate Order with crudish {
-      customerId: string
-      count: int
-      operation bump(n: int) {
-        if n > 0 {
-          precondition count > 0
-          count := 1
-        } else {
-          count := 2
-        }
-      }
-    }
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
-}`,
-
   // A guard inside a statement-`match` arm of an operation an elixir
   // deployable hosts: the statement renders on Phoenix, but a nested guard
   // could not be hoisted into the op's `with :ok <- ensure(…)` chain.
@@ -4387,6 +4385,10 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   "loom.macro-threw": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-non-ast-result": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-escapes-host": "test/macro/misbehaving-macro-diagnostics.test.ts",
+  // The attribution wrapped around any AST diagnostic raised on macro-
+  // synthesised code.  No stdlib macro synthesises an ill-typed body, so the
+  // pointed-at file registers one that does and asserts the wrapped message.
+  "loom.macro-synthesised": "test/macro/macro-synthesised-diagnostic-range.test.ts",
   // The body-walker GIVE-UP codes (M-T9.55).  Reachable from ordinary `.ddd`
   // source — `Stack { CreateForm { } }` reaches one — but never out of
   // `validate()`: they are attached in phase 8 by `giveUp()` and rendered into
