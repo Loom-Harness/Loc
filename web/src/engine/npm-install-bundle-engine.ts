@@ -333,7 +333,9 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
 
     for (const b of plan.backends) {
       const channel = opened.get(b.storage)?.channel ?? "";
-      const res = await this.rt(b.slug).start(channel);
+      // The deployable's line to the infra services (infra/services.ts).
+      const port = await infra.connect(b.slug);
+      const res = await this.rt(b.slug).start(channel, port);
       if (!res.ok) return this.failed(res, b.slug);
     }
 
