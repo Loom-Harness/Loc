@@ -30,7 +30,7 @@ import { renderDockerfile as renderDotnetDockerfile } from "../../src/generator/
 import { renderDockerfile as renderElixirDockerfile } from "../../src/generator/elixir/shell/project.js";
 import { DOCKERFILE as FELIZ_DOCKERFILE } from "../../src/generator/feliz/index.js";
 import { renderDockerfile as renderJavaDockerfile } from "../../src/generator/java/emit/program.js";
-import { DOCKERFILE_TS as HONO_DOCKERFILE } from "../../src/platform/hono/v4/emit.js";
+import { DOCKERFILE_TS as HONO_DOCKERFILE } from "../../src/platform/hono/shared/emit.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** Parse + validate + compose, through the shared helper — which asserts

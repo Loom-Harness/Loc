@@ -11,11 +11,11 @@ import type { EmitCtx } from "../../src/generator/_adapters/index.js";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { EnrichedBoundedContextIR } from "../../src/ir/types/loom-ir.js";
-import { byFeatureLayoutAdapter } from "../../src/platform/hono/v4/adapters/by-feature-layout.js";
+import { byFeatureLayoutAdapter } from "../../src/platform/hono/shared/adapters/by-feature-layout.js";
 import {
   byLayerLayoutAdapter,
   type HonoArtifact,
-} from "../../src/platform/hono/v4/adapters/by-layer-layout.js";
+} from "../../src/platform/hono/shared/adapters/by-layer-layout.js";
 import honoPlatform from "../../src/platform/hono/v5/index.js";
 import { resolveLayout, resolveStyle } from "../../src/platform/resolve-adapters.js";
 import { parseValid } from "../_helpers/parse.js";

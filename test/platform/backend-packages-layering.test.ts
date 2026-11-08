@@ -58,3 +58,63 @@ describe("backend-packages layering — no shared→package edges", () => {
     ).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Inside a versioned backend dir the same rule holds one level down: the
+// version-free `shared/` emitter never imports a version's pin set, and a
+// directory is named after a version only while that version is registered
+// (D-HONO-SHARED) — a retired version's code does not stay behind under its
+// old name.
+// ---------------------------------------------------------------------------
+
+const platformDir = path.join(repoRoot, "src", "platform");
+/** Backend dir name → the `family` its versions register under. */
+const FAMILY_OF_DIR: Readonly<Record<string, string>> = { hono: "node" };
+const VERSION_DIR = /^v\d+$/;
+
+describe("backend-packages layering — versioned backend dirs", () => {
+  const backendDirs = fs
+    .readdirSync(platformDir, { withFileTypes: true })
+    .filter(
+      (e) =>
+        e.isDirectory() &&
+        fs.readdirSync(path.join(platformDir, e.name)).some((n) => VERSION_DIR.test(n)),
+    )
+    .map((e) => e.name);
+
+  it("finds the versioned backend dirs (guard against a vacuous pass)", () => {
+    expect(backendDirs).toContain("hono");
+  });
+
+  it("every `v<N>/` dir is a registered version of its family", async () => {
+    const { defaultBuiltInBackends } = await import("../../src/platform/registry.js");
+    const registered = new Set(
+      defaultBuiltInBackends().map((b) => `${b.manifest.family}@${b.manifest.loomVersion}`),
+    );
+    const stale: string[] = [];
+    for (const dir of backendDirs) {
+      const family = FAMILY_OF_DIR[dir] ?? dir;
+      for (const v of fs.readdirSync(path.join(platformDir, dir))) {
+        if (VERSION_DIR.test(v) && !registered.has(`${family}@${v}`)) stale.push(`${dir}/${v}`);
+      }
+    }
+    expect(
+      stale,
+      "a directory named after an unregistered version — move live code to `shared/`",
+    ).toEqual([]);
+  });
+
+  it("no `shared/` file imports a version dir", () => {
+    const offenders: string[] = [];
+    for (const dir of backendDirs) {
+      const shared = path.join(platformDir, dir, "shared");
+      if (!fs.existsSync(shared)) continue;
+      for (const f of tsFiles(shared)) {
+        if (/(?:from|import\()\s*["'][^"']*\/v\d+\/[^"']*["']/.test(fs.readFileSync(f, "utf-8"))) {
+          offenders.push(path.relative(repoRoot, f));
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});

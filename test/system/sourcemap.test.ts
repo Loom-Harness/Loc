@@ -228,7 +228,7 @@ function stripNodeDebugImportExtensions(content: string): string {
 // Same slice: `package.json` grows a `debug` script and `tsconfig.json`
 // grows `allowImportingTsExtensions` — both ONLY under `sourcemap`.  Both
 // are appended as the LAST key of their object (see
-// src/platform/hono/v4/emit.ts's `projectPackageJson` / `projectTsconfigJson`),
+// src/platform/hono/shared/emit.ts's `projectPackageJson` / `projectTsconfigJson`),
 // so parsing, deleting the key, and re-serializing with the same `null, 2`
 // indent reproduces the flag-off file byte-for-byte (verified against a live
 // generation — a plain regex strip risks the trailing-comma bookkeeping a

@@ -32,7 +32,7 @@
 // …bindings…, …payload… }` — asserting the envelope that comes out.
 
 import { describe, expect, it } from "vitest";
-import { emitObservabilityFiles } from "../../../src/platform/hono/v4/observability-builder.js";
+import { emitObservabilityFiles } from "../../../src/platform/hono/shared/observability-builder.js";
 
 function logTs(): string {
   const out = new Map<string, string>();

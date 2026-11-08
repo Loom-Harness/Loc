@@ -58,7 +58,7 @@ describe("json emission — IR + wire shape", () => {
 
 describe("json emission — Hono Zod schema", () => {
   it("zodFor(json) → 'z.unknown()' (opaque, no coercion)", async () => {
-    const { zodFor } = await import("../../src/platform/hono/v4/routes-builder.js");
+    const { zodFor } = await import("../../src/platform/hono/shared/routes-builder.js");
     expect(zodFor({ kind: "primitive", name: "json" })).toBe("z.unknown()");
   });
 });

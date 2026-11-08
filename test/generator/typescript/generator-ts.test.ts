@@ -1189,7 +1189,7 @@ describe("typescript generator", () => {
       const { lowerModel } = await import("../../../src/ir/lower/lower.js");
       const { enrichLoomModel } = await import("../../../src/ir/enrich/enrichments.js");
       const { generateTypeScriptForContexts } = await import(
-        "../../../src/platform/hono/v4/emit.js"
+        "../../../src/platform/hono/shared/emit.js"
       );
       const loom = enrichLoomModel(lowerModel(doc.parseResult.value as Model));
       const sys = loom.systems[0]!;

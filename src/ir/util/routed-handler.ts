@@ -14,7 +14,7 @@
 // the three call sites only decide what to do with the answer.
 //
 // The binding mirrors what every backend's explicit-route emitter actually
-// reads (`src/platform/hono/v4/explicit-handlers-builder.ts` `emitRouteHandler`,
+// reads (`src/platform/hono/shared/explicit-handlers-builder.ts` `emitRouteHandler`,
 // `src/generator/dotnet/explicit-handlers-emit.ts` `emitExplicitRouteController`,
 // and their python / java / elixir twins): a handler param whose NAME is a
 // `{token}` in the route path binds from the URL; every other param rides the

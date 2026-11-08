@@ -291,7 +291,7 @@ src/
     _walker/       # cross-framework walker registry + WalkerTarget contract
     _expr/ _type/ _workflow/   # shared dispatchers + per-backend leaf tables
     _obs/          # observability catalog + per-backend log renderers
-  platform/        # PlatformSurface registry + version pinning; Hono: shared emitter in platform/hono/v4, registered node@v5 in platform/hono/v5
+  platform/        # PlatformSurface registry + version pinning; Hono: shared emitter in platform/hono/shared, registered node@v5 in platform/hono/v5
   system/          # multi-deployable orchestrator + docker-compose + .loom/ artifact bundle
   verify/          # ddd verify rollup (joins test results onto traceability)
   mcp/ dap-server/ # MCP + DAP stdio-server cores (Node-only islands over src/tools + src/dap)

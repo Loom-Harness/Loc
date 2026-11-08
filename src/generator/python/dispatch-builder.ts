@@ -601,7 +601,7 @@ function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR)
  *
  *  The four pure fold kinds are now rendered here with the read-model's own
  *  nullability, mirroring hono's `renderFoldStatement`
- *  (`src/platform/hono/v4/projection-builder.ts`); every other kind is an
+ *  (`src/platform/hono/shared/projection-builder.ts`); every other kind is an
  *  internal invariant violation, because `checkProjections`
  *  (`src/ir/validate/checks/projection-checks.ts`) rejects it as impure. */
 function renderProjectionFoldStmt(stmt: StmtIR, proj: ProjectionIR, on: ProjectionOnIR): string {

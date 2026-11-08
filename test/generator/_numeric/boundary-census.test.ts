@@ -125,12 +125,12 @@ const BACKENDS: BackendCensus[] = [
           "unit-test money ordering matcher (banking eval B-01): lifts an in-memory domain value into decimal.js for a generated vitest comparison, not a read boundary",
       },
       {
-        file: "src/platform/hono/v4/workflow-eventsourced-builder.ts",
+        file: "src/platform/hono/shared/workflow-eventsourced-builder.ts",
         contains: 'return "new Decimal(0)";',
         reason: "workflow saga-state zero-default construction, not a read boundary",
       },
       {
-        file: "src/platform/hono/v4/projection-builder.ts",
+        file: "src/platform/hono/shared/projection-builder.ts",
         contains: "new Decimal(${cur} ?? 0).${verb}(${value}).toString()",
         reason:
           "projection-state ACCUMULATE (read-modify-WRITE of persisted state) — not one of the five read boundaries; handed off, see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-2-numeric-codec.md",

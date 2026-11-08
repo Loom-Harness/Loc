@@ -1,12 +1,12 @@
 // ---------------------------------------------------------------------------
 // drizzle — the real PersistenceAdapter for the hono platform.  Wraps the
 // existing TypeScript/Hono emit fns (`src/generator/typescript/*` +
-// `src/platform/hono/v4/emit.ts`) so produced source is byte-identical
+// `src/platform/hono/shared/emit.ts`) so produced source is byte-identical
 // with the orchestrator's direct calls.
 //
 // Parallel of the dotnet `efcorePersistenceAdapter` (F5a) — same
 // contract, mapped to the Hono backend's drizzle-orm + pg stack.
-// The orchestrator (`src/platform/hono/v4/emit.ts`) still calls the
+// The orchestrator (`src/platform/hono/shared/emit.ts`) still calls the
 // underlying emit fns directly today; this adapter is the public
 // surface the F5d-equivalent (Hono) rewire will dispatch through.
 // ---------------------------------------------------------------------------
@@ -15,7 +15,7 @@ import type { EmitCtx, Lines, PersistenceAdapter } from "../../../../generator/_
 import { renderSchema } from "../../../../generator/typescript/emit/schema.js";
 import type { EnrichedBoundedContextIR } from "../../../../ir/types/loom-ir.js";
 import { dedupeByName } from "../../../../util/dedupe.js";
-import { BACKEND_PINS } from "../../v5/pins.js";
+import type { BackendPins } from "../emit.js";
 
 /** Find the matching repository declaration across the deployable's
  *  contexts.  Mirrors `findRepoFor` in the dotnet adapter. */
@@ -39,9 +39,9 @@ const splitLines = (s: string): Lines => s.split("\n");
  *  as `"key": "version",` lines so the consumer can merge them into
  *  the JSON literal without parsing.  Drizzle + pg only — `hono`,
  *  `@hono/...`, `zod`, `pino` belong to the framework/style adapters. */
-const persistenceDeps = (): Lines => [
-  `"drizzle-orm": "${BACKEND_PINS.dependencies["drizzle-orm"]}",`,
-  `"pg": "${BACKEND_PINS.dependencies.pg}",`,
+const persistenceDeps = (pins: BackendPins): Lines => [
+  `"drizzle-orm": "${pins.dependencies["drizzle-orm"]}",`,
+  `"pg": "${pins.dependencies.pg}",`,
 ];
 
 /** The server-entry connection block (DATABASE_URL guard → pg pool →
@@ -71,12 +71,26 @@ export const DRIZZLE_CONNECTION_SETUP: Lines = [
   `const db = drizzle(pool, { schema });`,
 ];
 
-const persistenceDevDeps = (): Lines => [
-  `"drizzle-kit": "${BACKEND_PINS.devDependencies["drizzle-kit"]}",`,
-  `"@types/pg": "${BACKEND_PINS.devDependencies["@types/pg"]}",`,
+const persistenceDevDeps = (pins: BackendPins): Lines => [
+  `"drizzle-kit": "${pins.devDependencies["drizzle-kit"]}",`,
+  `"@types/pg": "${pins.devDependencies["@types/pg"]}",`,
 ];
 
-export const drizzlePersistenceAdapter: PersistenceAdapter = {
+const adapterByPins = new WeakMap<BackendPins, PersistenceAdapter>();
+
+/** The drizzle adapter for one registered version's dep pins — the shared
+ *  dir never imports a version's `pins.ts`; the version's surface passes its
+ *  pins in (D-HONO-SHARED).  One adapter object per pin set. */
+export function drizzlePersistenceAdapterFor(pins: BackendPins): PersistenceAdapter {
+  let adapter = adapterByPins.get(pins);
+  if (!adapter) {
+    adapter = makeDrizzlePersistenceAdapter(pins);
+    adapterByPins.set(pins, adapter);
+  }
+  return adapter;
+}
+
+const makeDrizzlePersistenceAdapter = (pins: BackendPins): PersistenceAdapter => ({
   name: "drizzle",
 
   emitProjectDeps(_ctx: EmitCtx): Lines {
@@ -87,9 +101,9 @@ export const drizzlePersistenceAdapter: PersistenceAdapter = {
     // mixed); the F6d-equivalent rewire will collect dep slices from
     // every adapter the deployable resolved and merge them at the
     // package.json render boundary.
-    return [...persistenceDeps(), ...persistenceDevDeps()];
+    return [...persistenceDeps(pins), ...persistenceDevDeps(pins)];
   },
-};
+});
 
 /** Drizzle schema emitter — the deployable's `db/schema.ts` file.  Not
  *  on the formal PersistenceAdapter contract today (the schema is a

@@ -2,7 +2,7 @@
 // byLayer — the real LayoutAdapter for the hono platform.  Captures the
 // path conventions the existing TypeScript/Hono emitter spells out
 // inline at every `out.set(...)` call site.  Today the orchestrator
-// (`src/platform/hono/v4/emit.ts` + sibling `*-emit.ts` /
+// (`src/platform/hono/shared/emit.ts` + sibling `*-emit.ts` /
 // `*-builder.ts`) hard-codes these paths; this adapter exposes them
 // as a single pure `pathFor()` so the eventual rewire (later F6 slice)
 // can drop the inline strings and dispatch through the adapter.

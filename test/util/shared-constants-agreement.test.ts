@@ -313,7 +313,7 @@ describe("(d) principal — the documented root-segment rule", () => {
   it("the Hono emitter emits exactly this rule", () => {
     // Extracted verbatim rather than transliterated: this is the real emitted
     // helper, and a change to it fails here instead of only in a compose e2e.
-    const src = read("src/platform/hono/v4/auth-emit.ts");
+    const src = read("src/platform/hono/shared/auth-emit.ts");
     const start = src.indexOf("function rootOrgOf(orgPath: string): string {");
     expect(start, "rootOrgOf not found in the hono auth emitter").toBeGreaterThanOrEqual(0);
     const body = src.slice(start, src.indexOf("\n}", start) + 2);
@@ -328,7 +328,7 @@ describe("(d) principal — the documented root-segment rule", () => {
     // `:binary.split(path, ".")`).  Pinned as a set so a backend that quietly
     // switches to `lastIndexOf` / an unbounded `split` is caught here.
     const sites: ReadonlyArray<readonly [string, RegExp]> = [
-      ["src/platform/hono/v4/auth-emit.ts", /orgPath\.indexOf\("\."\)/],
+      ["src/platform/hono/shared/auth-emit.ts", /orgPath\.indexOf\("\."\)/],
       ["src/generator/dotnet/auth-emit.ts", /OrgPath\.IndexOf\('\.'\)/],
       ["src/generator/java/emit/auth.ts", /path\.indexOf\('\.'\)/],
       ["src/generator/python/auth-emit.ts", /org_path\.split\("\\?\."?, 1\)\[0\]/],
@@ -346,8 +346,8 @@ describe("(d) principal — the member names every backend spells", () => {
     // strings in each target language's casing), so a rename of the constant
     // would leave the emitters behind silently.  This is that tripwire.
     const camel: ReadonlyArray<readonly [string, string]> = [
-      ["src/platform/hono/v4/auth-emit.ts", PRINCIPAL_ORG_PATH],
-      ["src/platform/hono/v4/auth-emit.ts", PRINCIPAL_ROOT_ORG],
+      ["src/platform/hono/shared/auth-emit.ts", PRINCIPAL_ORG_PATH],
+      ["src/platform/hono/shared/auth-emit.ts", PRINCIPAL_ROOT_ORG],
       ["src/generator/java/emit/auth.ts", PRINCIPAL_ORG_PATH],
       ["src/generator/java/emit/auth.ts", PRINCIPAL_ROOT_ORG],
     ];

@@ -112,7 +112,7 @@
 //
 //  8. MUTATION PROOF (the packet's required shape — the LADDER catches a no-op
 //     `requires`, the e2e does not).  Seeded the #2446 defect in the Hono
-//     create-route emitter: `src/platform/hono/v4/routes-builder.ts`'s
+//     create-route emitter: `src/platform/hono/shared/routes-builder.ts`'s
 //     `lines.push(...lifecycleGateLines(agg.canonicalCreate, "      "))` — the
 //     one line that renders a canonical create's gate — replaced by
 //     `lines.push(...[])`, i.e. a `requires` that parses, lowers, type-checks

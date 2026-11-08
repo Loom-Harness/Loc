@@ -96,7 +96,7 @@ until curl -fsS http://localhost:3000/ready >/dev/null 2>&1; do sleep 2; done
 ```
 - DB URL: `DATABASE_URL=postgres://postgres:postgres@db:5432/<slug>` (node-pg URL).
 - Out-of-band migrate (inside the project): `npm run db:migrate` → `drizzle-kit migrate`.
-- Surface: `src/platform/hono/v5/index.ts` → delegates to `hono/v4/`; routes/health in `src/generator/typescript/emit/`.
+- Surface: `src/platform/hono/v5/index.ts` → delegates to `hono/shared/`; routes/health in `src/generator/typescript/emit/`.
 
 The Hono backend also boots **without docker** on PGlite in-process — that's the
 `test/behavioral/run.mjs` path (api + unit). For a quick TS-only data-path check

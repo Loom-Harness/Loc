@@ -4,13 +4,13 @@
 // A backend package version reuses the shared emitter slices by ordinary
 // import and overrides only what its major change touches.  v5 is purely
 // a pin set fed through the shared `makeHonoPlatform` factory
-// (`../v4/index.ts`, which registers no version of its own).  It is the
+// (`../shared/index.ts`, which registers no version of its own).  It is the
 // only registered `node` version; `node@v4` (zod 3 / TS 5) was retired.
 // ---------------------------------------------------------------------------
 
 import type { LoomBackendManifest } from "../../manifest.js";
 import type { PlatformSurface } from "../../surface.js";
-import { makeHonoPlatform } from "../v4/index.js";
+import { makeHonoPlatform } from "../shared/index.js";
 import { BACKEND_PINS } from "./pins.js";
 
 /** The descriptor the resolver discovers this package by.  `family:

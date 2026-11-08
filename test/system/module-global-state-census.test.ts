@@ -29,7 +29,7 @@
 // The scan uses the TypeScript parser rather than a regex, and that is load-
 // bearing: five of this repo's most convincing-looking grep hits
 // (`nextId` in `svelte/emit-templates.ts`, the four `let`s in
-// `hono/v4/auth-emit.ts`, `subscribers`/`rooms` in `realtime-builder.ts`) live
+// `hono/shared/auth-emit.ts`, `subscribers`/`rooms` in `realtime-builder.ts`) live
 // inside TEMPLATE LITERALS — they are EMITTED code, module-global in the
 // GENERATED project and irrelevant here.  A regex census reports them and
 // buries the real entries in noise.

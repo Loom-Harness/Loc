@@ -1393,7 +1393,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   // src/generator/typescript/emit/channels.ts
   "src/generator/typescript/emit/channels.ts#transportFactoryLine": {
     invariant:
-      "renderChannelsModule is only called when brokerChannelBindings() is non-empty, and every binding's transport is typed BrokerTransport = redis|rabbitmq|kafka (bindings skip any other storage type), so at least one driver is always wired. (src/platform/hono/v4/emit.ts:1431-1434; src/generator/_channels/bindings.ts:22,73)",
+      "renderChannelsModule is only called when brokerChannelBindings() is non-empty, and every binding's transport is typed BrokerTransport = redis|rabbitmq|kafka (bindings skip any other storage type), so at least one driver is always wired. (src/platform/hono/shared/emit.ts:1431-1434; src/generator/_channels/bindings.ts:22,73)",
   },
 
   // src/generator/typescript/emit/integration-tests.ts
@@ -1522,111 +1522,111 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "refineClauseFor/takeSingleFieldChain screen with classifyForWire + refineRenderable before rendering; renderRefineExpr has no other production caller. (src/generator/zod-refine.ts:320, :338-339)",
   },
 
-  // src/platform/hono/v4/adapters/by-feature-layout.ts
-  "src/platform/hono/v4/workflow-builder.ts#workflowResultTsType": {
+  // src/platform/hono/shared/adapters/by-feature-layout.ts
+  "src/platform/hono/shared/workflow-builder.ts#workflowResultTsType": {
     guardedBy: ["loom.workflow-return-type-unsupported"],
     note: "Reached only through commandCreateResult, whose type phase ④ admits only as an `X id` or a string/int/long/bool primitive (isSupportedWorkflowResult, src/language/validators/structural.ts).",
   },
-  "src/platform/hono/v4/adapters/by-feature-layout.ts#pathFor": {
+  "src/platform/hono/shared/adapters/by-feature-layout.ts#pathFor": {
     invariant:
-      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'domain-aggregate'; a missing one is a programmer error in our own emit sites. (src/platform/hono/v4/emit.ts:1082-1095)",
+      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'domain-aggregate'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
   },
-  "src/platform/hono/v4/adapters/by-feature-layout.ts#pathFor$2": {
+  "src/platform/hono/shared/adapters/by-feature-layout.ts#pathFor$2": {
     invariant:
-      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'drizzle-repository'; a missing one is a programmer error in our own emit sites. (src/platform/hono/v4/emit.ts:1082-1095)",
-  },
-
-  // src/platform/hono/v4/adapters/by-layer-layout.ts
-  "src/platform/hono/v4/adapters/by-layer-layout.ts#pathFor": {
-    invariant:
-      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'any'; a missing one is a programmer error in our own emit sites. (src/platform/hono/v4/emit.ts:1082-1095)",
-  },
-  "src/platform/hono/v4/adapters/by-layer-layout.ts#pathForCategory": {
-    invariant:
-      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'domain-aggregate'; a missing one is a programmer error in our own emit sites. (src/platform/hono/v4/emit.ts:1082-1095)",
-  },
-  "src/platform/hono/v4/adapters/by-layer-layout.ts#pathForCategory$2": {
-    invariant:
-      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'domain-aggregate-base'; a missing one is a programmer error in our own emit sites. (src/platform/hono/v4/emit.ts:1082-1095)",
-  },
-  "src/platform/hono/v4/adapters/by-layer-layout.ts#pathForCategory$3": {
-    invariant:
-      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'domain-test'; a missing one is a programmer error in our own emit sites. (src/platform/hono/v4/emit.ts:1082-1095)",
-  },
-  "src/platform/hono/v4/adapters/by-layer-layout.ts#pathForCategory$4": {
-    invariant:
-      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'drizzle-repository'; a missing one is a programmer error in our own emit sites. (src/platform/hono/v4/emit.ts:1082-1095)",
-  },
-  "src/platform/hono/v4/adapters/by-layer-layout.ts#pathForCategory$5": {
-    invariant:
-      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'http-routes'; a missing one is a programmer error in our own emit sites. (src/platform/hono/v4/emit.ts:1082-1095)",
+      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'drizzle-repository'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
   },
 
-  // src/platform/hono/v4/emit.ts
-  "src/platform/hono/v4/emit.ts#generateTypeScriptForContexts": {
+  // src/platform/hono/shared/adapters/by-layer-layout.ts
+  "src/platform/hono/shared/adapters/by-layer-layout.ts#pathFor": {
     invariant:
-      "ownsTimers and the ownedTimers filter apply the identical predicate (timer's context's subdomain migrationsOwner === deployable name) to the same system, so they cannot disagree. (src/platform/hono/v4/emit.ts:638-644; src/platform/hono/v4/emit.ts:1403-1416)",
+      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'any'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
+  },
+  "src/platform/hono/shared/adapters/by-layer-layout.ts#pathForCategory": {
+    invariant:
+      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'domain-aggregate'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
+  },
+  "src/platform/hono/shared/adapters/by-layer-layout.ts#pathForCategory$2": {
+    invariant:
+      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'domain-aggregate-base'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
+  },
+  "src/platform/hono/shared/adapters/by-layer-layout.ts#pathForCategory$3": {
+    invariant:
+      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'domain-test'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
+  },
+  "src/platform/hono/shared/adapters/by-layer-layout.ts#pathForCategory$4": {
+    invariant:
+      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'drizzle-repository'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
+  },
+  "src/platform/hono/shared/adapters/by-layer-layout.ts#pathForCategory$5": {
+    invariant:
+      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'http-routes'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
   },
 
-  // src/platform/hono/v4/projection-builder.ts
-  "src/platform/hono/v4/projection-builder.ts#renderFoldStatement": {
+  // src/platform/hono/shared/emit.ts
+  "src/platform/hono/shared/emit.ts#generateTypeScriptForContexts": {
+    invariant:
+      "ownsTimers and the ownedTimers filter apply the identical predicate (timer's context's subdomain migrationsOwner === deployable name) to the same system, so they cannot disagree. (src/platform/hono/shared/emit.ts:638-644; src/platform/hono/shared/emit.ts:1403-1416)",
+  },
+
+  // src/platform/hono/shared/projection-builder.ts
+  "src/platform/hono/shared/projection-builder.ts#renderFoldStatement": {
     guardedBy: ["loom.projection-fold-impure"],
     note: "foldImpurity is a fail-closed allowlist (assign/add/remove/let) applied to every projection on() statement, so every kind in the throwing arm is rejected as an error.",
   },
 
-  // src/platform/hono/v4/projection-query-routes-builder.ts
-  "src/platform/hono/v4/projection-query-routes-builder.ts#buildQueryProjectionsFile": {
+  // src/platform/hono/shared/projection-query-routes-builder.ts
+  "src/platform/hono/shared/projection-query-routes-builder.ts#buildQueryProjectionsFile": {
     invariant:
       "A projection row `where` Drizzle cannot lower. Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",
   },
-  "src/platform/hono/v4/projection-query-routes-builder.ts#buildQueryProjectionsFile$2": {
+  "src/platform/hono/shared/projection-query-routes-builder.ts#buildQueryProjectionsFile$2": {
     invariant:
       "An aggregation projection `where` Drizzle cannot lower. Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",
   },
-  "src/platform/hono/v4/projection-query-routes-builder.ts#groupKeyExpr": {
+  "src/platform/hono/shared/projection-query-routes-builder.ts#groupKeyExpr": {
     invariant:
       "GROUP_KEY_TRANSFORM_INTRINSIC maps the only transform to 'datetime.startOfDay', which DRIZZLE_INTRINSIC_SQL defines. (src/ir/util/projection-aggregate.ts:135-137; src/generator/typescript/repository-find-predicate.ts:88)",
   },
-  "src/platform/hono/v4/projection-query-routes-builder.ts#groupKeyOrThrow": {
+  "src/platform/hono/shared/projection-query-routes-builder.ts#groupKeyOrThrow": {
     guardedBy: [
       "loom.projection-groupby-key-not-columnar",
       "loom.projection-groupby-select-not-grouped",
     ],
     note: "Every group-by entry must satisfy groupKeyOf (else not-columnar) and every non-aggregate select must match a group key via groupKeyOf (else select-not-grouped); those are exactly the expressions groupKeyOrThrow is called on.",
   },
-  "src/platform/hono/v4/projection-query-routes-builder.ts#mikroGroupKeySql": {
+  "src/platform/hono/shared/projection-query-routes-builder.ts#mikroGroupKeySql": {
     invariant:
-      "GroupKeyTransform is the single literal 'startOfDay', and MIKRO_GROUP_KEY_TRANSFORM_SQL is a Record keyed by that type with a startOfDay entry, so the lookup cannot miss. (src/ir/util/projection-aggregate.ts:111,126; src/platform/hono/v4/projection-query-routes-builder.ts:984-989)",
+      "GroupKeyTransform is the single literal 'startOfDay', and MIKRO_GROUP_KEY_TRANSFORM_SQL is a Record keyed by that type with a startOfDay entry, so the lookup cannot miss. (src/ir/util/projection-aggregate.ts:111,126; src/platform/hono/shared/projection-query-routes-builder.ts:984-989)",
   },
-  "src/platform/hono/v4/projection-query-routes-builder.ts#zodForRow": {
+  "src/platform/hono/shared/projection-query-routes-builder.ts#zodForRow": {
     guardedBy: ["loom.projection-select-duration"],
     note: "A select-only row field takes its select expression's type, and a `duration`-typed select is refused (loom.projection-select-duration); `duration` has no field syntax, so it never reaches a declared row field either.",
   },
-  "src/platform/hono/v4/projection-query-routes-builder.ts#zodForRow$2": {
+  "src/platform/hono/shared/projection-query-routes-builder.ts#zodForRow$2": {
     guardedBy: ["loom.slot-out-of-position", "loom.action-out-of-position"],
     note: "slot/action types only exist on Component params; a declared projection field is refused, and select expressions are candidate-rooted reads that cannot reference a component parameter.",
   },
-  "src/platform/hono/v4/projection-query-routes-builder.ts#zodForRow$3": {
+  "src/platform/hono/shared/projection-query-routes-builder.ts#zodForRow$3": {
     invariant:
       "Declared row fields cannot be generic (loom.generic-position) and select-derived row types come from candidate-rooted column/aggregation expressions, which cannot call a find/queryHandler (the only producers of paged/envelope types). (src/language/validators/generics.ts:86; src/language/ddd.langium:1648-1649)",
   },
-  "src/platform/hono/v4/projection-query-routes-builder.ts#zodForRow$4": {
+  "src/platform/hono/shared/projection-query-routes-builder.ts#zodForRow$4": {
     invariant:
       "Declared row fields cannot be unions/option (loom.union-position, loom.generic-position), and select expressions are column/aggregate reads over the source whose types are declared field types (ternary joins of incompatible types are rejected by the type checker). (src/language/validators/unions.ts:58; src/language/validators/generics.ts:86)",
   },
 
-  // src/platform/hono/v4/routes-builder.ts
-  "src/platform/hono/v4/routes-builder.ts#wireToDomainExpr": {
+  // src/platform/hono/shared/routes-builder.ts
+  "src/platform/hono/shared/routes-builder.ts#wireToDomainExpr": {
     invariant:
-      "Same as zodFor: wireToDomainExpr converts request bodies, whose TypeIRs never contain the response-only synthesized provenanced carrier. (src/language/ddd.langium:2155-2156; src/platform/hono/v4/routes-builder.ts:2466-2469)",
+      "Same as zodFor: wireToDomainExpr converts request bodies, whose TypeIRs never contain the response-only synthesized provenanced carrier. (src/language/ddd.langium:2155-2156; src/platform/hono/shared/routes-builder.ts:2466-2469)",
   },
-  "src/platform/hono/v4/routes-builder.ts#zodFor": {
+  "src/platform/hono/shared/routes-builder.ts#zodFor": {
     invariant:
-      "`provenanced` is not a user-spellable GenericCtor; the carrier is synthesized only on the response side (routes-builder.ts:2468), and zodFor is only fed request-side TypeIRs. (src/language/ddd.langium:2155-2156; src/platform/hono/v4/routes-builder.ts:2466-2469)",
+      "`provenanced` is not a user-spellable GenericCtor; the carrier is synthesized only on the response side (routes-builder.ts:2468), and zodFor is only fed request-side TypeIRs. (src/language/ddd.langium:2155-2156; src/platform/hono/shared/routes-builder.ts:2466-2469)",
   },
 
-  // src/platform/hono/v4/workflow-eventsourced-builder.ts
-  "src/platform/hono/v4/workflow-eventsourced-builder.ts#renderApplierStmt": {
+  // src/platform/hono/shared/workflow-eventsourced-builder.ts
+  "src/platform/hono/shared/workflow-eventsourced-builder.ts#renderApplierStmt": {
     guardedBy: [
       "loom.applier-stmt-invalid",
       "loom.applier-emits",

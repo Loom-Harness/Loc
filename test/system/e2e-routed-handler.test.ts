@@ -25,7 +25,7 @@
 //     string on a GET / DELETE).  That split
 //     is not this file's invention: it mirrors what every backend's
 //     explicit-route emitter reads (`emitRouteHandler` in
-//     `src/platform/hono/v4/explicit-handlers-builder.ts` and its four twins),
+//     `src/platform/hono/shared/explicit-handlers-builder.ts` and its four twins),
 //     which is why the resolution + binding live in ONE place
 //     (`src/ir/util/routed-handler.ts`) consumed by the renderer and both
 //     IR-validate checks.

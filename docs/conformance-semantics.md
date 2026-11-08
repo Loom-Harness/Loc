@@ -1156,7 +1156,7 @@ the conforming backends, and the fix that established it.
   of `corpus/core-domain`, immediately after the caller-census drain added the
   first-ever getById-404 caller: `$.detail` — golden `"not_found"` vs python
   `"Order <uuid> not found"`. Fixed on node
-  (`src/platform/hono/v4/routes-builder.ts`, getById + history) and .NET
+  (`src/platform/hono/shared/routes-builder.ts`, getById + history) and .NET
   (`src/generator/dotnet/emit/api.ts`, throw instead of `NotFound()`); **java
   followed on the behavioural-java leg of PR #2429** (`emit/service.ts`
   `.orElseThrow(...)` + `emit/api.ts` `ResponseEntity.ok(...)`, with the five

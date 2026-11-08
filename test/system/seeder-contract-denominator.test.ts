@@ -31,7 +31,7 @@ import { describe, expect, it } from "vitest";
 const REPO_ROOT = join(import.meta.dirname, "..", "..");
 
 /** Where an emitter could live: the per-platform generators and the versioned
- *  backend packages (hono v4/v5 live under `src/platform/`, not
+ *  backend packages (the hono backend lives under `src/platform/`, not
  *  `src/generator/`). */
 const SCAN_ROOTS = ["src/generator", "src/platform"] as const;
 

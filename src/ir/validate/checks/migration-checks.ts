@@ -234,7 +234,7 @@ function sqlExprFamily(e: ExprIR): string | undefined {
 // schema itself at boot:
 //
 //   - `persistence: mikroorm` — `hasMigrations = !usingMikro`
-//     (`src/platform/hono/v4/emit.ts`, shared by v5); schema comes from
+//     (`src/platform/hono/shared/emit.ts`, shared by v5); schema comes from
 //     `orm.schema.update()`.
 //
 // (`persistence: dapper` was the other one until D-DAPPER-ALTER / M-T2.17: it

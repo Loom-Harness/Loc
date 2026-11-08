@@ -17,7 +17,7 @@ export interface PersistenceAdapter {
   /** Project-level dependency lines spliced into the deployable's
    *  manifest (`<PackageReference …/>` rows for .NET, `dependencies`
    *  entries for Node, `mix.exs` deps for Phoenix).  The one LIVE emit
-   *  method — consumed by the hono v4 backend (`hono/v4/emit.ts`). */
+   *  method — consumed by the hono v4 backend (`hono/shared/emit.ts`). */
   emitProjectDeps(ctx: EmitCtx): Lines;
   // NOTE: this surface deliberately carries NO heavy emit methods
   // (emitConnectionSetup / emitRepository / emitMigrations / emitOutbox) and no

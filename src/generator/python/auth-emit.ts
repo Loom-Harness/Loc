@@ -21,7 +21,7 @@ const SESSION_FACTORY = pyRef("app.db.engine", "session_factory");
 // ---------------------------------------------------------------------------
 // Python-side auth scaffolding emitted per deployable when
 // `auth: required` (and the system declares a `user { ... }` block).
-// Mirrors the Hono trio (auth-emit.ts on hono/v4):
+// Mirrors the Hono trio (auth-emit.ts on hono/shared):
 //
 //   app/auth/user.py       — frozen dataclass User (claim shape; fields
 //                            snake_cased like every domain shape)

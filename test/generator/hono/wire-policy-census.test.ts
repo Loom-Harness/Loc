@@ -20,7 +20,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { ingressFor } from "../../../src/ir/enrich/wire-policy.js";
 import type { WirePrimitive } from "../../../src/ir/types/wire-types.js";
-import { BODY_PRIMITIVE } from "../../../src/platform/hono/v4/routes-builder.js";
+import { BODY_PRIMITIVE } from "../../../src/platform/hono/shared/routes-builder.js";
 
 const ROOT = path.resolve(__dirname, "../../..");
 
@@ -83,7 +83,7 @@ const FORBIDDEN: { what: string; re: RegExp }[] = [
  *  the whole file). */
 const WAIVERS: { file: string; line: string; reason: string }[] = [
   {
-    file: "src/platform/hono/v4/auth-emit.ts",
+    file: "src/platform/hono/shared/auth-emit.ts",
     line: "*",
     reason:
       "the auth surface (OIDC callback/refresh, dev-claims header, org-context switch, 401) is its own contract (docs/auth.md), not a request-input refusal",
@@ -122,8 +122,8 @@ const waived = (rel: string, text: string): boolean =>
 describe("node wire-policy census — source", () => {
   it("covers the Hono builders and the shared TypeScript emitters", () => {
     const files = nodeSources();
-    expect(files).toContain("src/platform/hono/v4/routes-builder.ts");
-    expect(files).toContain("src/platform/hono/v4/emit.ts");
+    expect(files).toContain("src/platform/hono/shared/routes-builder.ts");
+    expect(files).toContain("src/platform/hono/shared/emit.ts");
     expect(files).toContain("src/generator/typescript/emit/routes.ts");
     expect(files.length).toBeGreaterThan(40);
   });

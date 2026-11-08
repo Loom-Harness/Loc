@@ -224,7 +224,7 @@ frame-local must be flow-local.
 
 **Subsume the existing channel — do not add a second.** The Hono backend
 already ships an `AsyncLocalStorage` for the observability request logger
-(`requestLogStore`, `src/platform/hono/v4/observability-builder.ts`) plus
+(`requestLogStore`, `src/platform/hono/shared/observability-builder.ts`) plus
 a `correlationId`/request id bound by the request-id middleware. The
 backbone's whole premise — *one ambient value, every feature reads its
 slice* — makes that the seam to **refactor into** the `RequestContext`

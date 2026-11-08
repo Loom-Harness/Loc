@@ -13,7 +13,7 @@
 // it bundles (tsup strips types without checking them).
 
 import { describe, expect, it } from "vitest";
-import { DOCKERFILE_TS } from "../../../src/platform/hono/v4/emit.js";
+import { DOCKERFILE_TS } from "../../../src/platform/hono/shared/emit.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const src = `
