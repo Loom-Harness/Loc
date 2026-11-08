@@ -35,6 +35,9 @@ export function provableStringType(e: ExprIR): TypeIR | undefined {
       return provableStringType(e.inner);
     case "convert":
       return e.target === "string" ? stringType : undefined;
+    // `label(…)` / `plural(…)` — translated text, always a string.
+    case "modelText":
+      return stringType;
     case "ternary":
       return provableStringType(e.then) && provableStringType(e.otherwise) ? stringType : undefined;
     // NOT provably a string from the node alone.  `undefined` is the
@@ -86,6 +89,8 @@ export function bodyTypeOf(e: ExprIR): TypeIR | undefined {
     // `TypeError`) for `` `on {startAt, date}` ``.
     case "i18nFormat":
       return bodyTypeOf(e.inner);
+    case "modelText":
+      return { kind: "primitive", name: "string" };
     case "convert":
       return { kind: "primitive", name: e.target };
     case "ternary":

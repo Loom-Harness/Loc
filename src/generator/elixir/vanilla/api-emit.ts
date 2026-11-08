@@ -13,7 +13,11 @@
 // byte-identical to the other backends.
 // ---------------------------------------------------------------------------
 
-import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
+import {
+  destroyVersionCheck,
+  operationVersionCheck,
+  readsIfMatch,
+} from "../../../ir/enrich/version-check.js";
 import {
   createInputFields,
   emitsRestCreate as sharedEmitsRestCreate,
@@ -35,10 +39,12 @@ import {
   servedOperations,
 } from "../../../ir/util/api-surface.js";
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import { isMergePatchUpdate, mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { createBodyStatements, lifecycleGates } from "../../../ir/util/op-gates.js";
 import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { elixirOpAction, snake, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
@@ -67,8 +73,8 @@ import {
 } from "./denial.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced, renderEsController } from "./eventsourced-emit.js";
-import { findRoutes, renderFindActions } from "./find-controller.js";
-import { effectiveGate, renderGateCondition } from "./gate.js";
+import { renderPageParamHelper } from "./find-controller.js";
+import { effectiveGate, renderGateCondition, updateSeamGates } from "./gate.js";
 import { isAbstractBase, isTphBase } from "./inheritance-emit.js";
 import {
   guardRescue,
@@ -278,7 +284,6 @@ export function emitVanillaApiControllers(
         action: ":index",
       });
     }
-    routes.push(...findRoutes(agg, ctx, allOps));
     const getByIdEntry = derivedOps.find((o) => o.kind === "getById");
     if (getByIdEntry) routes.push(routeOf(getByIdEntry, ":show"));
     else if (polyRouted && isTphBase(agg, ctx.aggregates)) {
@@ -414,11 +419,7 @@ function renderController(
   const pagedListArgs = readOnly
     ? `${PAGE_CALL_ARGS.join(", ")}, current_user`
     : `${PAGE_CALL_ARGS.join(", ")}, Map.get(params, "sort", "id"), Map.get(params, "dir", "asc")${listPrincipal ? ", current_user" : ""}`;
-  // The LIST read's authorization gate — 403 before the query, the same
-  // contract `renderFindActions` gives every NAMED find.  `index` is emitted
-  // here, outside that loop (the list endpoint has its own paged shape), which
-  // is how its `requires` came to be dropped on this backend while every named
-  // find's was honoured.
+  // The LIST read's authorization gate — 403 before the query.
   const indexGate = effectiveGate(listAllFind?.requires);
   const indexGateUsesUser = !!indexGate && exprUsesCurrentUser(indexGate);
   // `current_user` may already be bound by `cuBind` (principal-scoped reads);
@@ -462,7 +463,6 @@ ${cuBind}${indexCuBind}${indexBody}
   // `by_id` action (`renderFindActions`).
   const byIdFind = byIdRouteFind(
     (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name),
-    agg.idValueType,
   );
   const showGate = effectiveGate(byIdFind?.requires);
   const showCuBind =
@@ -582,9 +582,15 @@ ${cuBind}${showBody}
   // The update action already binds `current_user` when the aggregate has a
   // principal READ filter; bind it here too when only a principal stamp needs
   // it (avoid a double bind when both apply).
+  // A merge-patch `update` with a `mask unless` write gate evaluates it in the
+  // context seam, which then takes the principal and may deny with
+  // `{:forbidden, detail}`.
+  const updateGated = updateSeamGates(agg.operations.find((o) => o.name === "update")).length > 0;
   const updateCuBind =
-    !principal && stampPrincipal ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
-  const updateActor = stampPrincipal ? ", current_user" : "";
+    !principal && (stampPrincipal || updateGated)
+      ? "    current_user = Map.get(conn.assigns, :current_user)\n"
+      : "";
+  const updateActor = stampPrincipal || updateGated ? ", current_user" : "";
 
   // Per-operation member actions.  A returning operation (`: A or B`) translates
   // its tagged result to HTTP (success → 200, error variant → ProblemDetails);
@@ -707,8 +713,7 @@ ${cuBind}    case ${ctxModule}.${cmdGet}(id${getActor}) do
     })
     .join("\n");
 
-  // `GET /<plural>/<find>` actions for the aggregate's custom finds.
-  const findActions = renderFindActions(appModule, ctxModule, agg, ctx);
+  const findActions = renderPageParamHelper(agg, ctx);
 
   // Audited lifecycle actions — the create/destroy handler stages an audit row
   // INSIDE a forced `Repo.transaction` so it commits atomically with the
@@ -838,11 +843,25 @@ ${createCuBind}    case ${ctxModule}.create_${aggSnake}(params${createActor}) do
   // dead code the router never routed to (audit: dead hard-`delete`).  Gated on
   // the SAME `emitsRestDelete` predicate the router (above) and the context /
   // repository seams use.
+  // A `versioned` row's DELETE reads `If-Match` like a named operation
+  // (`destroyVersionCheck`): a stale tag is a 409 before the delete runs; an
+  // absent or unparseable one leaves the loaded version in place.
+  const versionsDestroy = readsIfMatch(destroyVersionCheck(agg));
+  const destroyVersionBind = versionsDestroy && !readOnly ? EXPECTED_VERSION_BIND : "";
+  const destroyVersionClause = versionsDestroy
+    ? `\n         :ok <- if(expected_version in [nil, record.${ROW_VERSION_COLUMN}], do: :ok, else: {:error, :conflict}),`
+    : "";
+  const destroyConflictClause = versionsDestroy
+    ? `
+
+      {:error, :conflict} ->
+        ProblemDetails.conflict_response(conn, "${aggPascal}", id)`
+    : "";
   const deleteAction = !emitsRestDelete(agg)
     ? ""
     : auditDestroy
       ? `  def delete(conn, %{"id" => id}) do
-${cuBind}${destroyCuBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),
+${cuBind}${destroyCuBind}${destroyVersionBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),${destroyVersionClause}
          {:ok, _} <-
            ${appModule}.Repo.transaction(fn ->
 ${auditRecordCall({
@@ -869,19 +888,19 @@ ${auditRecordCall({
       send_resp(conn, 204, "")
     else
       {:error, :not_found} ->
-        ProblemDetails.not_found_response(conn, "${aggPascal}", id)
+        ProblemDetails.not_found_response(conn, "${aggPascal}", id)${destroyConflictClause}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         ProblemDetails.validation_error_response(conn, changeset)${destroyGated ? forbiddenArm("      ") : ""}
     end${fkRestrictRescue}
   end`
       : `  def delete(conn, %{"id" => id}) do
-${cuBind}${destroyCuBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),
+${cuBind}${destroyCuBind}${destroyVersionBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),${destroyVersionClause}
          {:ok, _} <- ${ctxModule}.delete_${aggSnake}(record${destroyActor}) do
       send_resp(conn, 204, "")
     else
       {:error, :not_found} ->
-        ProblemDetails.not_found_response(conn, "${aggPascal}", id)
+        ProblemDetails.not_found_response(conn, "${aggPascal}", id)${destroyConflictClause}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         ProblemDetails.validation_error_response(conn, changeset)${destroyGated ? forbiddenArm("      ") : ""}
@@ -909,7 +928,9 @@ ${cuBind}${destroyCuBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${ge
         ProblemDetails.conflict_response(conn, "${aggPascal}", id)`
     : "";
   const versionHelper =
-    versionsUpdate || memberOps.some((op) => readsIfMatch(operationVersionCheck(agg, op)))
+    versionsUpdate ||
+    (versionsDestroy && !readOnly && emitsRestDelete(agg)) ||
+    memberOps.some((op) => readsIfMatch(operationVersionCheck(agg, op)))
       ? EXPECTED_VERSION_HELPER
       : "";
 
@@ -949,7 +970,7 @@ ${cuBind}${updateCuBind}${versionBind}
         ProblemDetails.not_found_response(conn, "${aggPascal}", id)${conflictClause}
 
       {:error, %Ecto.Changeset{} = changeset} ->
-        ProblemDetails.validation_error_response(conn, changeset)
+        ProblemDetails.validation_error_response(conn, changeset)${updateGated ? forbiddenArm("      ") : ""}
     end
   end`;
   const writeActions = readOnly
@@ -985,7 +1006,7 @@ defmodule ${appModule}Web.${aggPascal}Controller do
 ${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
-${renderRequiredParamsPlug(new Map([...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), requiredWireParams(op.params)])))}${renderStrictParamsPlug(new Map([["create", strictIngressFields(createInputFields(agg))], ...[...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), strictIngressFields(op.params)] as const)]))}
+${renderRequiredParamsPlug(new Map([...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), isMergePatchUpdate(op) ? [] : requiredWireParams(op.params)])))}${renderPatchNullPlug(agg.operations.find((o) => o.name === "update"))}${renderStrictParamsPlug(new Map([["create", strictIngressFields(createInputFields(agg))], ...[...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), strictIngressFields(op.params)] as const)]))}
 ${indexAction}
 
 ${showAction}${historyAction}
@@ -1011,7 +1032,7 @@ ${((): string => {
         // `version` lives on the root row (`field :version`), not the `:data`
         // embed — read it off `row`, not the rehydrated `record`, which does
         // not carry it.
-        versionExpr: "row.version",
+        versionExpr: `row.${ROW_VERSION_COLUMN}`,
         contextModule: facadeMod,
       })
     : renderWireSerialize(agg, ctx, { contextModule: facadeMod });
@@ -1019,5 +1040,30 @@ ${((): string => {
   return `${serialize}${nested}${refIdsHelper}`;
 })()}${historyMapper}
 end
+`;
+}
+
+/** The merge-patch update's null refusal (RS-47): any key may be left out, but
+ *  `null` removes a field, which a REQUIRED one refuses with the 422 a missing
+ *  required key earns — checked before the action loads anything, like
+ *  `require_command_params`.  Empty unless `update` is a merge patch with a
+ *  required member. */
+function renderPatchNullPlug(op: OperationIR | undefined): string {
+  const required = (op ? (mergePatchFields(op) ?? []) : []).filter((f) => !f.nullable);
+  if (required.length === 0) return "";
+  return `
+  @patch_required ~w(${required.map((f) => f.name).join(" ")})
+  plug :refuse_null_patch_params when action in [:update]
+
+  # The update body is a merge patch: a key may be left out (the stored value
+  # stays), but \`null\` removes a field, and a required one cannot go.
+  defp refuse_null_patch_params(conn, _opts) do
+    carried = Enum.filter(@patch_required, &Map.has_key?(conn.params, &1))
+
+    case ProblemDetails.missing_params(conn.params, carried) do
+      [] -> conn
+      missing -> halt(ProblemDetails.missing_params_response(conn, missing))
+    end
+  end
 `;
 }

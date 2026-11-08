@@ -41,6 +41,7 @@ import {
   isMatchExpr,
   isMemberSuffix,
   isModel,
+  isModelText,
   isNameRef,
   isNowExpr,
   isNullLit,
@@ -60,6 +61,7 @@ import {
   isValueObject,
   type TemplateStr,
 } from "../../language/generated/ast.js";
+import { type ModelTextIndex, resolveModelText } from "../../language/model-text.js";
 import { moneyLiteralText } from "../../language/money-literal.js";
 import { queryNamesOf } from "../../language/repo-query-arg.js";
 import { type Ty, type TypingSession, toTypeIR } from "../../language/typing/index.js";
@@ -68,6 +70,7 @@ import { isCollectionOp } from "../../util/collection-ops.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { isIntrinsicMatcher, isThrowKind } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor } from "../../util/intrinsics.js";
+import { modelTextEntry } from "../../util/model-text-key.js";
 import {
   ORG_CONTEXT_ACCESSOR,
   ORG_CONTEXT_ORG_PATH,
@@ -159,6 +162,18 @@ let ambientEnumIndex: ReadonlyMap<string, readonly string[]> = new Map();
 
 export function setAmbientEnumIndex(index: ReadonlyMap<string, readonly string[]>): void {
   ambientEnumIndex = index;
+}
+
+// Project-global `label(…)` / `plural(…)` resolution index — every type a
+// model-text path may name, over every document of the project.  Installed by
+// `lowerProject` before any body is lowered (same posture as
+// `ambientEnumIndex`).  The validator resolves through the SAME
+// `src/language/model-text.ts`, so a path it accepted lowers to the key it
+// checked.
+let modelTextIndex: ModelTextIndex = new Map();
+
+export function setModelTextIndex(index: ModelTextIndex): void {
+  modelTextIndex = index;
 }
 
 // Project-global index of TOP-LEVEL (ambient) helper `function`s, name →
@@ -316,7 +331,14 @@ export function passType(node: AstNode, env?: Env): TypeIR {
  *  per aggregate it lands on). */
 function passSynth(node: AstNode, env: Env | undefined): Ty | undefined {
   const typing = typingFor(node);
-  return (env?.aggregate && typing.synthAtFor(node, env.aggregate)) || typing.synthAt(node);
+  const t = (env?.aggregate && typing.synthAtFor(node, env.aggregate)) || typing.synthAt(node);
+  // A chain built during lowering from another chain's leading suffixes (a
+  // hoisted read, `hoist-reads.ts`) was never typed itself; its type is the
+  // receiver type after its last suffix, which the pass did record.
+  if (!t && isPostfixChain(node) && node.suffixes.length > 0) {
+    return typing.synthAt(node.suffixes[node.suffixes.length - 1]!);
+  }
+  return t;
 }
 
 /** An assignment / call target's receiver chain as the pass typed it:
@@ -338,18 +360,30 @@ export function passTargetSteps(lv: AstNode): TypeIR[] {
  * null spelling (`=== null` / `is null` / `is_nil` / `== nil` / `== null`),
  * and each frontend renders it in a page body the same way.
  *
- * NOTE — the left operand is rendered TWICE (once in the test, once as the
- * value).  That is invisible for the reads `??` is actually written on (a
- * field, a param, a let-binding); it is why an effectful left operand — a
- * repository read, an operation call — should be bound with `let` first.
- * Documented in `docs/language.md`; deliberately not gated, since the IR has
- * no expression-level binding form to lower into.
+ * The `cond.left` and the `otherwise` branch are the SAME node: that identity
+ * is the coalesce marker (`coalesceParts`, src/generator/_expr/coalesce.ts).
+ * Every backend renders the marked shape through `ExprTarget.coalesce`, which
+ * evaluates the left once and the fallback only when the left is null — the
+ * `cond` is never rendered for it.  Frontends that render the ternary
+ * directly (a page body) see the plain `a == null ? b : a` shape.
  */
 function lowerCoalesceChain(chain: BinaryChain, env: Env): ExprIR {
   const operands = [chain.head, ...chain.rest];
-  let acc = lowerExpr(operands[operands.length - 1]!, env);
+  // A bare numeric literal fallback takes the numeric type of the operand it
+  // stands in for (`decimal? ?? 0` is a decimal `0`): both ternary branches must
+  // share one type on the nominally-typed backends (`cond ? 0 : upper` does not
+  // compile when `upper` is a `BigDecimal`).
+  const lowerFallback = (i: number): ExprIR => {
+    const lowered = lowerExpr(operands[i]!, env);
+    const prev = inferExprType(operands[i - 1]!, env);
+    const anchor = prev.kind === "optional" ? prev.inner : prev;
+    return anchor.kind === "primitive"
+      ? (tryPromoteNumericLit(operands[i]!, anchor.name) ?? lowered)
+      : lowered;
+  };
+  let acc = lowerFallback(operands.length - 1);
   for (let i = operands.length - 2; i >= 0; i--) {
-    const left = lowerExpr(operands[i]!, env);
+    const left = i === 0 ? lowerExpr(operands[i]!, env) : lowerFallback(i);
     const leftType = inferExprType(operands[i]!, env);
     acc = {
       kind: "ternary",
@@ -378,6 +412,20 @@ function lowerCoalesceChain(chain: BinaryChain, env: Env): ExprIR {
  *  suffix together form a magic pattern: `permissions.<name>` (rewrites
  *  to a string literal) and `Aggregate.create(...)` (factory call). */
 function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
+  // A repository read hoisted ahead of its workflow / handler statement
+  // (`hoist-reads.ts`): the read is the local that holds its value, and the
+  // suffixes after the read apply to it.
+  const hoisted = env.hoistedReads?.get(chain);
+  if (hoisted) {
+    let recv = resolveNameRef(hoisted, env, chain);
+    let recvType = env.locals.get(hoisted)?.type ?? STRING_T;
+    for (const s of chain.suffixes.slice(1)) {
+      const out = applySuffixToRecv(recv, recvType, s, env);
+      recv = out.recv;
+      recvType = out.recvType;
+    }
+    return recv;
+  }
   // Probe: a repository READ in a `reading` domain-service body
   // (domain-services.md rev. 4) — `Accounts.byHolder(h)` /
   // `Accounts.find/all(...)`.  Fires only when `env.serviceRepos` is
@@ -414,6 +462,7 @@ function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
           ...(read.criterionName ? { synthCriterion: { name: read.criterionName } } : {}),
           ...(read.key ? { key: read.key } : {}),
           ...(read.bypassRead ? { bypassRead: read.bypassRead } : {}),
+          ...read.listBypass,
         },
       };
       return callIR;
@@ -1310,6 +1359,13 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
   if (isBoolLit(expr)) return lit("bool", expr.value);
   if (isNullLit(expr)) return lit("null", "null");
   if (isNowExpr(expr)) return lit("now", "now");
+  if (isModelText(expr)) {
+    const r = resolveModelText(expr.kind ?? "label", expr.path, modelTextIndex);
+    // An unresolved path is already a `loom.model-text-*` error; lower to its
+    // spelling so the rest of the pipeline stays total.
+    if (!r.ok) return lit("string", expr.path.join("."));
+    return { kind: "modelText", ...modelTextEntry(r) };
+  }
   if (isThisRef(expr)) return { kind: "this" };
   // A binding named `id` shadows the implicit aggregate identity (see
   // `hasIdBinding`); otherwise `id` keeps its magic meaning.
@@ -2614,13 +2670,24 @@ export function lowerEmitFields(
   if (ev) {
     for (const f of ev.fields) fieldTypeOf.set(f.name, lowerType(f.type, env));
   }
-  return fields.map((f) => {
+  const provided = fields.map((f) => {
     const target = fieldTypeOf.get(f.name);
     return {
       name: f.name,
       value: target ? lowerExprInContext(f.value, target, env) : lowerExpr(f.value, env),
     };
   });
+  // An optional event field the emit leaves out is an explicit `null`: the
+  // event type declares the field (`T | null`, a required record parameter, a
+  // dataclass field with no default), so a backend that rendered only the
+  // provided fields would emit a constructor call that does not compile (or
+  // raises) and a wire payload without the key.
+  const given = new Set(fields.map((f) => f.name));
+  for (const [name, type] of fieldTypeOf) {
+    if (type.kind === "optional" && !given.has(name))
+      provided.push({ name, value: lit("null", "null") });
+  }
+  return provided;
 }
 
 /** Detect a bare numeric literal AST node and rewrite it to the

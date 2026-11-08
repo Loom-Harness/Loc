@@ -8,25 +8,8 @@
 // the aggregate's children/associations.  The EF path is atomic via SaveChanges
 // and the Hono path via `db.transaction`; this pins the Dapper path to match.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
-
-async function build(source: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const helper = parseHelper(services.Ddd);
-  const doc = await helper(source, { validation: true });
-  const diagErrs = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  if (diagErrs.length) {
-    throw new Error(
-      `parse errors:\n${diagErrs.map((e) => `${e.range.start.line + 1}:${e.range.start.character + 1} ${e.message}`).join("\n")}`,
-    );
-  }
-  return doc.parseResult?.value as Model;
-}
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // A Dapper aggregate that BOTH contains parts (a child table) AND carries an
 // `X id[]` reference collection (a join table) — the two full-list-replace
@@ -60,7 +43,7 @@ system Shop {
 
 describe("Dapper SaveAsync is transactional", () => {
   it("begins a transaction, threads it through every write, and commits before events", async () => {
-    const files = generateSystems(await build(SOURCE)).files;
+    const files = await generateSystemFiles(SOURCE);
     const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
     expect(repo).toBeDefined();
 
@@ -73,14 +56,14 @@ describe("Dapper SaveAsync is transactional", () => {
     // join-table DELETE + INSERT, and the containment DELETE + INSERT.
     expect(save).toContain("DELETE FROM order_tags");
     expect(save).toContain("DELETE FROM line_items");
-    // No save-path ExecuteAsync may omit the transaction.  The cut is the
+    // No save-path Execute*Async may omit the transaction.  The cut is the
     // outbox-capture call (`RecordDurableAsync`), which is the last statement
     // before the commit — `PullEvents` used to mark that boundary, but the
     // transactional-outbox fix moved the drain to just BEFORE the commit so the
     // durable rows can be written on `__tx` (dispatch-delivery-semantics.md §1).
     const cut = save.indexOf("RecordDurableAsync");
     expect(cut).toBeGreaterThan(0);
-    const execCalls = save.slice(0, cut).match(/ExecuteAsync\(/g) ?? [];
+    const execCalls = save.slice(0, cut).match(/Execute\w*Async(<[^>]*>)?\(/g) ?? [];
     const withTx = save.slice(0, cut).match(/transaction: __tx, cancellationToken/g) ?? [];
     expect(execCalls.length).toBeGreaterThan(0);
     expect(withTx.length).toBe(execCalls.length);
@@ -104,7 +87,7 @@ describe("Dapper SaveAsync is transactional", () => {
   // statements, so a crash between them left the root alive with its children
   // already gone.  Same data-loss class, same fix.
   it("DeleteAsync is transactional too when it issues more than one statement", async () => {
-    const files = generateSystems(await build(SOURCE)).files;
+    const files = await generateSystemFiles(SOURCE);
     const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
     const del = repo.slice(repo.indexOf("public async Task DeleteAsync"));
     const body = del.slice(0, del.indexOf("\n    }"));
@@ -124,7 +107,7 @@ describe("Dapper SaveAsync is transactional", () => {
   // Strict additivity: an aggregate with no children and no associations still
   // deletes in ONE statement, so it must not grow a transaction it can't use.
   it("a single-statement delete stays transaction-free", async () => {
-    const files = generateSystems(await build(SOURCE)).files;
+    const files = await generateSystemFiles(SOURCE);
     const repo = files.get("api/Infrastructure/Repositories/TagRepository.cs")!;
     const del = repo.slice(repo.indexOf("public async Task DeleteAsync"));
     const body = del.slice(0, del.indexOf("\n    }"));

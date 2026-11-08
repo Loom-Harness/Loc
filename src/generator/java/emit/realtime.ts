@@ -3,9 +3,9 @@ import { realtimeEventTypes } from "../../../ir/util/channels.js";
 import { type RealtimeRoomPlan, realtimeRoomPlan } from "../../../ir/util/realtime-rooms.js";
 import { lines } from "../../../util/code-builder.js";
 import { numericEncode } from "../../_numeric/target.js";
+import { javaCalendarDateWire, javaInstantWire } from "../codec-spelling.js";
 import { jid } from "../java-ident.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
-import { javaInstantWire } from "./wire.js";
 
 // ---------------------------------------------------------------------------
 // Realtime SSE wire — `<base>/api/RealtimeController.java` (channels.md,
@@ -42,7 +42,7 @@ function javaRealtimeValue(access: string, t: TypeIR): string {
   let base = access;
   if (inner.kind === "id") base = `${access}.value()`;
   else if (inner.kind === "primitive" && inner.name === "datetime") base = javaInstantWire(access);
-  else if (inner.kind === "primitive" && inner.name === "date") base = `${access}.toString()`;
+  else if (inner.kind === "primitive" && inner.name === "date") base = javaCalendarDateWire(access);
   // money pins the FIXED wire scale (RS-12) — a bare `toPlainString()` echoes
   // whatever scale the domain `BigDecimal` happens to carry rather than the
   // canonical 4dp every other read path (REST, channels) now applies (see

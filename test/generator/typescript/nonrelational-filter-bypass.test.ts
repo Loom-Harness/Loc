@@ -99,11 +99,10 @@ describe.each([
     expect(mentionsSoftDeleteFilter(methodBody(file, "all"))).toBe(true);
   });
 
-  // KNOWN DEFECT: on these shapes a plain `Repo.find(C)` read emits no
-  // repository method, while a routed handler still calls
-  // `repo.runFindAllBy<C>(…)` — a generated project that does not compile.
-  // Flip to `it` once the shape's repository emits the criterion read.
-  it.fails("the plain criterion read is emitted and keeps the conjunct", async () => {
+  // A plain `Repo.find(C)` read calls `repo.runFindAllBy<C>(…)` whatever the
+  // saving shape, and that runner keeps the capability conjunct the
+  // `ignoring` reads above drop.
+  it("the plain criterion read is emitted and keeps the conjunct", async () => {
     const file = await repoFile(shape, persistence);
     expect(mentionsSoftDeleteFilter(methodBody(file, "runFindAllByOrdersNormal"))).toBe(true);
   });

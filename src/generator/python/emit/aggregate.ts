@@ -1,4 +1,5 @@
 import type { SourceMapSubRegion } from "../../../generator/_trace/sourcemap.js";
+import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
 import {
   createInputFields,
   createOmissionValue,
@@ -115,6 +116,10 @@ interface EntityShape {
    *  create lifecycle action whose emit-only body drives the
    *  event-sourced factory (appliers A2). */
   eventSourced?: boolean;
+  /** True when the event-sourced stream carries tenant metadata
+   *  (`stream-tenancy.ts`): the repository adopts it onto the folded
+   *  instance's `tenantOwned` fields. */
+  streamTenant?: boolean;
   appliers?: import("../../../ir/types/loom-ir.js").ApplyIR[];
   esCreate?: OperationIR;
   /** The state-based canonical create's rendered body (`createBodyStatements`)
@@ -246,6 +251,7 @@ function rootShape(a: AggregateIR): EntityShape {
     functions: a.functions,
     operations: a.operations,
     eventSourced: a.persistedAs === "eventLog",
+    streamTenant: isTenantScopedStream(a),
     appliers: a.appliers,
     esCreate: a.creates?.[0],
     createBody: createBodyStatements(a),
@@ -729,6 +735,20 @@ function renderEntity(
       // A stream is gap-free from 1, so the folded count IS its head version.
       "        inst._stream_version = len(events)",
       "        return inst",
+      // The stream's tenant is metadata of its stored events, not folded
+      // state: the repository adopts it after the fold (and after stamping a
+      // new stream) so the instance answers like a `tenantOwned` row.
+      ...(e.streamTenant
+        ? [
+            "",
+            `    def _adopt_stream_tenant(self, ${STREAM_TENANT_METADATA.map((m) => `${m.column}: str | None`).join(", ")}) -> None:`,
+            ...STREAM_TENANT_METADATA.map((m) =>
+              m.required
+                ? `        self._${m.column} = ${PY.cast}(str, ${m.column})`
+                : `        self._${m.column} = ${m.column}`,
+            ),
+          ]
+        : []),
     );
     if (e.esCreate) {
       const params = e.esCreate.params.map(
@@ -908,5 +928,8 @@ function shellSeed(f: FieldIR): string {
  *  `dict[str, object]` until then. */
 function renderPyOperationReturnType(t: TypeIR): string {
   if (t.kind === "union") return "dict[str, object]";
+  // An operation returning an entity (its own aggregate, `return this`) names
+  // the class being defined: a forward reference.
+  if (t.kind === "entity") return JSON.stringify(renderPyType(t));
   return renderPyType(t);
 }

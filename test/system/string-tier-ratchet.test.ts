@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 // ---------------------------------------------------------------------------
 // String-tier ratchet (Wave CR1 packet h, audit row P1-2).
@@ -79,7 +80,18 @@ const CEILINGS: Record<string, number> = {
   // widened find(C)/findById read omits exactly the capability predicate it names —
   // an absence in the emitted SQL no compile gate sees; the key-lookup fixture
   // compiles the same reads on all five backends.
-  "(cross-target)": 3300,
+  // 3300 → 3500: the repository-leftovers train pins, per backend, that a routed
+  // `T?` miss answers 404, that every accepted `ignoring` position omits the
+  // predicate it names, and each criterion predicate's emitted shape — emission
+  // details (a missing guard, a dropped bypass) that compile cleanly when wrong.
+  // 3500 → 3700: the #3593 wave-2 train pins, on all five backends, that a
+  // tenant-scoped event stream and a tenant-scoped fold carry the tenant
+  // predicate on every read (an absence no compile gate sees), that integer
+  // arithmetic is wrapped in the RS-48 overflow guard, and that response
+  // records carry inherited / provenanced fields.
+  // main: cross-backend pins for unsorted-read id order, hoisted handler
+  // reads, widened domain-service reads and document nested VO collections.
+  "(cross-target)": 3700,
   _expr: 200,
   _frontend: 400,
   _i18n: 200,
@@ -93,7 +105,13 @@ const CEILINGS: Record<string, number> = {
   _workflow: 200,
   angular: 1000,
   dotnet: 2400, // the EF identity-parity pins assert the emitted C# (tracker fork, 409 path) per leg
-  elixir: 3400, // the Ecto delta-migration pins assert the emitted create/rename/key-move per step; runtime proof is migration-evolution-elixir
+  // The Ecto delta-migration pins assert the emitted create/rename/key-move per
+  // step (runtime proof is migration-evolution-elixir).  The outbox-relay pins
+  // assert the relay, broker publishers and cron scheduler rescue a transient
+  // DB/broker failure (no runtime leg injects an outage).  The #3593 wave-2 pins
+  // assert elixir's event-log and fold-row tenant scope, RS-48 overflow guards
+  // and the union-money arm — per-site predicates that compile cleanly when absent.
+  elixir: 3600,
   "elixir-vanilla": 500,
   feliz: 1500,
   flutter: 1200,
@@ -101,11 +119,14 @@ const CEILINGS: Record<string, number> = {
   hono: 500,
   i18n: 200,
   imports: 200,
-  java: 1900,
+  // 1900 → 2100: java's stream-tenant / fold-tenant scoping and its
+  // `Math.*Exact` overflow guards (#3533, #4594, #3585) — per-site predicates in
+  // emitted JPQL / service code that compile cleanly when missing.
+  java: 2100,
   python: 1800,
   react: 1600,
   svelte: 600,
-  typescript: 1500,
+  typescript: 1700, // the node pins for numeric criterion binding, run-method local renames and post-save version advance assert the emitted TS (the generated-project tsc leg is their runtime proof)
   vue: 700,
   walker: 200,
 };
@@ -143,7 +164,10 @@ describe("string-tier ratchet", () => {
     // under a tenth of that means the measurement went blind, not that the
     // drain went well.
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
-    expect(total).toBeGreaterThan(2_000);
+    // Loose on purpose: this count is meant to fall as string assertions are
+    // replaced by stronger gates, so the floor only catches a scan that lost
+    // most of test/generator.
+    expectReach("string-tier assertions", total, 10000);
     expect(
       "expect(x).not.toContain(y); expect(x).toMatch(/z/);".match(STRING_ASSERTION),
     ).toHaveLength(2);

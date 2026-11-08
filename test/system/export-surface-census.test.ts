@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 // ---------------------------------------------------------------------------
 // Export-surface census (Wave CR1 packet g, audit row P1-4).
@@ -223,9 +224,9 @@ describe("export-surface census (P1-4)", () => {
   };
 
   it("scans the whole src/ tree (guard against a vacuous pass)", () => {
-    expect(srcFiles.length).toBeGreaterThan(800);
-    expect(decls.length).toBeGreaterThan(3000);
-    expect(consumers.length).toBeGreaterThan(2000);
+    expectReach("src files", srcFiles.length, 1039);
+    expectReach("export declarations", decls.length, 4955);
+    expectReach("consumer files", consumers.length, 4989);
   });
 
   it("no export is referenced nowhere at all — not even in its own file", () => {

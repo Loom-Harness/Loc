@@ -9,6 +9,7 @@ import type {
   ExprIR,
   FindIR,
   RepositoryIR,
+  RetrievalIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import {
@@ -21,12 +22,15 @@ import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
+import { runBypassesByRetrieval } from "../_persistence/run-bypass.js";
 import { drizzleImportLine } from "./drizzle-imports.js";
 import { aggregateIsAudited, stampImportLine, stampInsertCall } from "./emit/audit-stamp.js";
+import { inMemoryRunMethod, type RunLocals } from "./in-memory-run.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "./paged-locals.js";
 import { synthProjectionFinds } from "./projection-finds.js";
@@ -40,6 +44,13 @@ import {
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "./repository-wire-builder.js";
+import {
+  applySavedVersion,
+  savedVersionDecl,
+  savedVersionOnInsert,
+  savedVersionOnUpdate,
+} from "./saved-version.js";
+import { T, TT } from "./ts-symbols.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
@@ -67,7 +78,7 @@ export function buildDocumentRepositoryFile(
   _emitTrace = false,
 ): string {
   const tableName = lowerFirst(plural(agg.name));
-  const idVar = `Ids.${agg.name}Id`;
+  const idVar = `${TT.Ids}.${agg.name}Id`;
   // `toWireMasked(root, currentUser: User | null)` NAMES `User`, so the mask
   // is a second reason this file needs the import — exactly as on the
   // relational builder (repository-builder.ts).  Masking is a WIRE-PROJECTION
@@ -95,7 +106,7 @@ export function buildDocumentRepositoryFile(
   // COLUMN (`<rowVar>.version`), not the stale blob copy (see entityFromDocFn).
   const fromDocOf = (rowVar: string): string =>
     versioned
-      ? `${lowerFirst(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc, ${rowVar}.version)`
+      ? `${lowerFirst(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc, ${rowVar}.${ROW_VERSION_FIELD})`
       : `${lowerFirst(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc)`;
 
   // Declared finds PLUS the query-time projections sourced from this aggregate.
@@ -117,6 +128,10 @@ export function buildDocumentRepositoryFile(
   // find paths above.
   const capRec = documentCapabilityBody(agg, ctx, "rec");
   const capX = documentCapabilityBody(agg, ctx, "x");
+  const runMethods = documentRunMethods(agg, ctx, ({ all, rows }) => [
+    `    const ${rows} = await this.db.select().from(schema.${tableName}).orderBy(schema.${tableName}.id);`,
+    `    const ${all} = ${rows}.map((r) => ${fromDocOf("r")});`,
+  ]);
 
   const bodyStr = lines(
     `export class ${agg.name}Repository implements ${repoPortName(agg.name)} {`,
@@ -166,8 +181,13 @@ export function buildDocumentRepositoryFile(
       ? `  async save(aggregate: ${agg.name}, expectedVersion?: number): Promise<void> {`
       : `  async save(aggregate: ${agg.name}): Promise<void> {`,
     `    const data = ${lowerFirst(agg.name)}ToDoc(aggregate);`,
-    ...(versioned ? [`    const expected = expectedVersion ?? aggregate.version;`] : []),
-    `    const existing = await this.db.select({ version: schema.${tableName}.version }).from(schema.${tableName}).where(eq(schema.${tableName}.id, aggregate.id));`,
+    ...(versioned
+      ? [
+          `    const expected = expectedVersion ?? aggregate.${ROW_VERSION_FIELD};`,
+          savedVersionDecl("    "),
+        ]
+      : []),
+    `    const existing = await this.db.select({ ${ROW_VERSION_FIELD}: schema.${tableName}.${ROW_VERSION_FIELD} }).from(schema.${tableName}).where(eq(schema.${tableName}.id, aggregate.id));`,
     `    if (existing.length === 0) {`,
     // The `onCreate` stamps (`auditable`, `tenantOwned`'s tenantId/dataKey, a
     // hand-written `stamp onCreate`) land HERE, on the doc payload, exactly as
@@ -187,17 +207,20 @@ export function buildDocumentRepositoryFile(
     // tenant and was invisible to every principal INCLUDING ITS CREATOR — the
     // read filter is correct, and `"" === currentUser.tenantId` is false, so a
     // 201 create was followed by a 404 on every read, update and destroy.
-    `      await this.db.insert(schema.${tableName}).values({ id: aggregate.id as string, ${audited ? `data: ${stampInsertCall(agg, "data")}` : "data"}, version: 1 });`,
+    `      await this.db.insert(schema.${tableName}).values({ id: aggregate.id as string, ${audited ? `data: ${stampInsertCall(agg, "data")}` : "data"}, ${ROW_VERSION_FIELD}: 1 });`,
+    versioned && savedVersionOnInsert("      "),
     `    } else {`,
     ...(versioned
       ? [
-          `      const updated = await this.db.update(schema.${tableName}).set({ data, version: expected + 1 }).where(and(eq(schema.${tableName}.id, aggregate.id), eq(schema.${tableName}.version, expected))).returning({ id: schema.${tableName}.id });`,
+          `      const updated = await this.db.update(schema.${tableName}).set({ data, ${ROW_VERSION_FIELD}: expected + 1 }).where(and(eq(schema.${tableName}.id, aggregate.id), eq(schema.${tableName}.${ROW_VERSION_FIELD}, expected))).returning({ id: schema.${tableName}.id });`,
           `      if (updated.length === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+          savedVersionOnUpdate("      "),
         ]
       : [
-          `      await this.db.update(schema.${tableName}).set({ data, version: existing[0]!.version + 1 }).where(eq(schema.${tableName}.id, aggregate.id));`,
+          `      await this.db.update(schema.${tableName}).set({ data, ${ROW_VERSION_FIELD}: existing[0]!.${ROW_VERSION_FIELD} + 1 }).where(eq(schema.${tableName}.id, aggregate.id));`,
         ]),
     `    }`,
+    versioned && applySavedVersion("    "),
     `    ${renderHonoStoreLogCall("repositorySave", `aggregate: "${agg.name}", id: aggregate.id as string`)}`,
     `    for (const event of aggregate.pullEvents()) {`,
     `      ${renderHonoStoreLogCall("eventDispatched", `event_type: (event as { type: string }).type, aggregate: "${agg.name}", id: aggregate.id as string`)}`,
@@ -217,6 +240,7 @@ export function buildDocumentRepositoryFile(
         ]
       : []),
     ...findMethods.flatMap((m) => [m, ""]),
+    ...runMethods.flatMap((m) => [m, ""]),
     toWireMethod(agg, ctx),
     "",
     // `mask unless` response redaction.  The routes call
@@ -299,6 +323,37 @@ export function buildDocumentRepositoryFile(
 }
 
 // --- find methods (in-memory over rehydrated documents) -------------------
+
+/** One `run<Retrieval>` per context retrieval over a `shape: document`
+ *  aggregate, on either adapter — `loadLines` is the adapter's id-ordered
+ *  whole-table load binding the rehydrated documents to `all`.  The load is
+ *  RAW: the runner re-applies the capability conjunct itself, minus what the
+ *  retrieval's call sites name in their `ignoring` clauses (one method serves
+ *  every call site, so it takes their union — `run-bypass.ts`). */
+export function documentRunMethods(
+  agg: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+  loadLines: (names: RunLocals) => readonly string[],
+): string[] {
+  const bypasses = runBypassesByRetrieval(ctx, agg.name);
+  return aggregateRetrievals(agg, ctx).map((r) =>
+    inMemoryRunMethod(agg, r, {
+      loadLines,
+      capability: documentCapabilityBody(agg, ctx, "x", bypasses.get(r.name)),
+    }),
+  );
+}
+
+/** The context retrievals whose candidate is `agg` — each is a `run<Name>`
+ *  method on `agg`'s repository, whatever its saving shape. */
+export function aggregateRetrievals(
+  agg: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+): RetrievalIR[] {
+  return (ctx.retrievals ?? []).filter(
+    (r) => r.targetType.kind === "entity" && r.targetType.name === agg.name,
+  );
+}
 
 /** A `shape: document` aggregate stores every field inside the `data` jsonb
  *  column, so a capability `filter` can't be a SQL column predicate — it's
@@ -432,27 +487,9 @@ export function inMemoryPagedTailLines(
   findName: string,
 ): string[] {
   const matchedVar = L.matched;
-  const cmpEntries = sortableFields(agg).map((f) => {
-    const t = wireFieldsForAggregate(agg).find((w) => w.name === f)?.type;
-    const prim = t?.kind === "optional" ? t.inner : t;
-    const name = prim?.kind === "primitive" ? prim.name : undefined;
-    // `Number(...)` covers every ordered scalar this backend represents as a
-    // number-like: int/long/decimal are numbers, money is a decimal.js
-    // `Decimal` (numeric `valueOf`), bool coerces to 0/1, and a `Date` coerces
-    // to its epoch milliseconds.  Everything else (string, enum, json) orders
-    // as text — the same two families the SQL `ORDER BY` collapses to.
-    const numeric =
-      name === "int" ||
-      name === "long" ||
-      name === "decimal" ||
-      name === "money" ||
-      name === "bool" ||
-      name === "datetime";
-    const cmp = numeric
-      ? `Number(a.${f} ?? 0) - Number(b.${f} ?? 0)`
-      : `String(a.${f} ?? "") < String(b.${f} ?? "") ? -1 : String(a.${f} ?? "") > String(b.${f} ?? "") ? 1 : 0`;
-    return `${JSON.stringify(f)}: (a, b) => (${cmp})`;
-  });
+  const cmpEntries = sortableFields(agg).map(
+    (f) => `${JSON.stringify(f)}: (a, b) => (${inMemoryFieldCompare(agg, f)})`,
+  );
   return [
     `    const ${L.__cmps}: Record<string, (a: ${agg.name}, b: ${agg.name}) => number> = { ${cmpEntries.join(", ")} };`,
     `    const ${L.__base} = ${L.__cmps}[sort] ?? ${L.__cmps}["id"]!;`,
@@ -464,6 +501,32 @@ export function inMemoryPagedTailLines(
     `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${findName}", rows: ${L.total}`)}`,
     `    return ${pagedEnvelopeLiteral(L)};`,
   ];
+}
+
+/** The ascending three-way comparison of field `f` between two rehydrated
+ *  aggregates bound to `a` and `b` — the in-memory twin of a SQL `ORDER BY` on
+ *  that column, shared by the paged finds and the criterion runner
+ *  (`in-memory-run.ts`).
+ *
+ *  `Number(...)` covers every ordered scalar this backend represents as a
+ *  number-like: int/long/decimal are numbers, money is a decimal.js `Decimal`
+ *  (numeric `valueOf`), bool coerces to 0/1, and a `Date` coerces to its epoch
+ *  milliseconds.  Everything else (string, enum, json) orders as text — the
+ *  same two families the SQL `ORDER BY` collapses to. */
+export function inMemoryFieldCompare(agg: EnrichedAggregateIR, f: string): string {
+  const t = wireFieldsForAggregate(agg).find((w) => w.name === f)?.type;
+  const prim = t?.kind === "optional" ? t.inner : t;
+  const name = prim?.kind === "primitive" ? prim.name : undefined;
+  const numeric =
+    name === "int" ||
+    name === "long" ||
+    name === "decimal" ||
+    name === "money" ||
+    name === "bool" ||
+    name === "datetime";
+  return numeric
+    ? `Number(a.${f} ?? 0) - Number(b.${f} ?? 0)`
+    : `String(a.${f} ?? "") < String(b.${f} ?? "") ? -1 : String(a.${f} ?? "") > String(b.${f} ?? "") ? 1 : 0`;
 }
 
 /** The locals an in-memory paged find declares (the caller's `matched` list
@@ -525,7 +588,7 @@ function documentFindMethod(
     // everywhere else — caught by the wire golden, not by any assertion.  `id`
     // is the primary key, so this is an index scan, not a sort.
     `    const rows = await this.db.select().from(schema.${tableName}).orderBy(schema.${tableName}.id);`,
-    `    const all = rows.map((r) => ${lowerFirst(agg.name)}FromDoc(r.data as ${agg.name}Doc${rowVersionGuarded(agg) ? ", r.version" : ""}));`,
+    `    const all = rows.map((r) => ${lowerFirst(agg.name)}FromDoc(r.data as ${agg.name}Doc${rowVersionGuarded(agg) ? `, r.${ROW_VERSION_FIELD}` : ""}));`,
   ];
   // `find … paged` — the route is built for the paged contract, so the
   // repository has to answer it (F2-CB-C1).  The match set is the same
@@ -608,11 +671,11 @@ export function entityFromDocFn(
   // route feeds `aggregate.version` when there's no `If-Match`) 409s on the
   // next update.  Parity with the python document repo (`_x_from_doc(raw, version)`).
   const versionedRoot = isRoot && rowVersionGuarded(entity as EnrichedAggregateIR);
-  const entries: string[] = [`id: Ids.${entity.name}Id(d.id)`];
-  if (!isRoot) entries.push(`parentId: Ids.${rootName}Id(d.parentId)`);
+  const entries: string[] = [`id: ${T.Ids}.${entity.name}Id(d.id)`];
+  if (!isRoot) entries.push(`parentId: ${T.Ids}.${rootName}Id(d.parentId)`);
   for (const f of entity.fields) {
-    if (versionedRoot && f.name === "version") {
-      entries.push(`version: version`);
+    if (versionedRoot && f.name === ROW_VERSION_FIELD) {
+      entries.push(`${ROW_VERSION_FIELD}: rowVersion`);
       continue;
     }
     entries.push(`${f.name}: ${deserializeField(f.type, `d.${f.name}`, ctx)}`);
@@ -629,7 +692,7 @@ export function entityFromDocFn(
   }
   return lines(
     versionedRoot
-      ? `function ${fnName}(d: ${entity.name}Doc, version: number): ${entity.name} {`
+      ? `function ${fnName}(d: ${entity.name}Doc, rowVersion: number): ${entity.name} {`
       : `function ${fnName}(d: ${entity.name}Doc): ${entity.name} {`,
     `  return ${entity.name}._rehydrate({ ${entries.join(", ")} });`,
     `}`,
@@ -714,7 +777,7 @@ export function deserializeField(
     if (t.name === "decimal") return numericEncode(TS_NUMERIC, "decimal", "repo-read", accessor);
     return accessor;
   }
-  if (t.kind === "id") return `Ids.${t.targetName}Id(${accessor})`;
+  if (t.kind === "id") return `${T.Ids}.${t.targetName}Id(${accessor})`;
   if (t.kind === "enum") return `${accessor} as ${t.name}`;
   if (t.kind === "valueobject") {
     const vo = findValueObjectInScope(ctx, t.name);
@@ -723,7 +786,7 @@ export function deserializeField(
   }
   if (t.kind === "array") {
     if (t.element.kind === "id") {
-      return `(${accessor} ?? []).map((s: string) => Ids.${t.element.targetName}Id(s))`;
+      return `(${accessor} ?? []).map((s: string) => ${T.Ids}.${t.element.targetName}Id(s))`;
     }
     return `(${accessor} ?? []).map((x) => ${deserializeField(t.element, "x", ctx)})`;
   }
@@ -761,7 +824,7 @@ export function tsParamType(t: TypeIR): string {
   // A collection keeps its element type (`string[]`, `Ids.XId[]`); the shared
   // TS type renderer owns the element mapping.
   if (t.kind === "array") return renderTsType(t);
-  if (t.kind === "id") return `Ids.${t.targetName}Id`;
+  if (t.kind === "id") return `${TT.Ids}.${t.targetName}Id`;
   if (t.kind === "enum") return t.name;
   if (t.kind === "primitive") {
     switch (t.name) {

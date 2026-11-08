@@ -19,7 +19,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { operationVersionCheck, readsIfMatch } from "../../../src/ir/enrich/version-check.js";
+import {
+  destroyVersionCheck,
+  operationVersionCheck,
+  readsIfMatch,
+} from "../../../src/ir/enrich/version-check.js";
 import { plural, upperFirst } from "../../../src/util/naming.js";
 import { buildLoomModel, enrichedContexts } from "../../_helpers/ir.js";
 import { corpusSourceFor, generateCorpusCase } from "../../fixtures/corpus/harness.js";
@@ -95,6 +99,26 @@ describe("dotnet checksVersion census — emitted handlers and saves", () => {
     let checked = 0;
     for (const ctx of enrichedContexts(loom)) {
       for (const agg of ctx.aggregates) {
+        // The canonical DELETE reads `If-Match` exactly where the fact says so:
+        // a stale tag throws the same exception a stale save throws.
+        const destroyHandler = [...files].find(([p]) =>
+          p.endsWith(`/Application/${plural(agg.name)}/Commands/Destroy${agg.name}Handler.cs`),
+        );
+        if (destroyHandler) {
+          const wantsDestroy = readsIfMatch(destroyVersionCheck(agg));
+          expect(
+            destroyHandler[1].includes(AMBIENT),
+            `${agg.name}.destroy checks the If-Match`,
+          ).toBe(wantsDestroy);
+          if (wantsDestroy) {
+            expect(destroyHandler[1], `${agg.name}.destroy`).toMatch(
+              adapter === "dapper"
+                ? /throw new ConcurrencyConflictException\(/
+                : /throw new Microsoft\.EntityFrameworkCore\.DbUpdateConcurrencyException\(/,
+            );
+            ifMatchHandlers.add(destroyHandler[0]);
+          }
+        }
         for (const op of agg.operations) {
           // An explicit `handler` of the same name owns that path instead
           // (its saves are `handle`-checked); only the operation's own

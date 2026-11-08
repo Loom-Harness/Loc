@@ -6,8 +6,7 @@
 // ungated aggregate's read emits no gate.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 function sys(readClause: string): string {
   return `
@@ -29,7 +28,7 @@ function sys(readClause: string): string {
 }
 
 async function routesFile(readClause: string): Promise<string> {
-  const files = (await generateSystems(await parseValid(sys(readClause)))).files;
+  const files = await generateSystemFiles(sys(readClause));
   const path = [...files.keys()].find((k) => k.endsWith("http/api-routes.ts"));
   expect(path, "api-routes.ts not emitted").toBeDefined();
   const rf = files.get(path!)!;
@@ -41,7 +40,7 @@ describe("Hono single-row read requires gate", () => {
   it("emits the 403 gate before the query", async () => {
     const rf = await routesFile('requires currentUser.role == "agent" ');
     expect(rf).toContain(
-      'if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: currentUser.role == \\"agent\\"");',
+      'if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: read Ticket requires currentUser.role == \\"agent\\"");',
     );
     const gateIdx = rf.indexOf("throw new ForbiddenError");
     const queryIdx = rf.indexOf("await tickets.runFindAllByBySubject(s, { limit: 1 })");
@@ -56,7 +55,7 @@ describe("Hono single-row read requires gate", () => {
     const rf = await routesFile('requires currentUser.role == "agent" ');
     expect(rf).toContain('.get("currentUser")');
     expect(rf).toContain(
-      'if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: currentUser.role == \\"agent\\"");',
+      'if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: read Ticket requires currentUser.role == \\"agent\\"");',
     );
     const gateIdx = rf.indexOf("throw new ForbiddenError");
     const queryIdx = rf.indexOf("await tickets.runFindAllByBySubject(s, { limit: 1 })");

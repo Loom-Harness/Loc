@@ -113,3 +113,45 @@ export function dotnetSchemaIdOverrides(files: ReadonlyMap<string, string>): Sch
   // Deterministic order — the emitted dictionary is byte-stable across runs.
   return overrides.sort((a, b) => (a.clrFullName < b.clrFullName ? -1 : 1));
 }
+
+/** One value object's published component: every emitted `<Vo>Request` /
+ *  `<Vo>Response` schema id folds into the single component `name`
+ *  (`ValueObjectSchemaMergeFilter`).  `sources` are the ids Swashbuckle really
+ *  publishes — the short names, or the `CustomSchemaIds` override when a short
+ *  name collided across aggregate namespaces. */
+export interface ValueObjectSchemaMerge {
+  readonly name: string;
+  readonly sources: readonly string[];
+}
+
+/** The value objects whose wire records were emitted, with their schema ids.
+ *  Read off the emitted files (like the overrides) so a VO that no DTO file
+ *  declares yields no entry. */
+export function valueObjectSchemaMerges(
+  voNames: readonly string[],
+  files: ReadonlyMap<string, string>,
+  overrides: readonly SchemaIdOverride[],
+): ValueObjectSchemaMerge[] {
+  const declared = new Set<string>();
+  for (const [filePath, content] of files) {
+    if (!filePath.endsWith(".cs")) continue;
+    const ns = NAMESPACE_RE.exec(content)?.[1];
+    if (!ns || !isWireDtoNamespace(ns)) continue;
+    TYPE_DECL_RE.lastIndex = 0;
+    for (let m = TYPE_DECL_RE.exec(content); m !== null; m = TYPE_DECL_RE.exec(content)) {
+      declared.add(m[1]);
+    }
+  }
+  const merges: ValueObjectSchemaMerge[] = [];
+  for (const name of [...new Set(voNames)].sort()) {
+    const sources = new Set<string>();
+    for (const short of [`${name}Request`, `${name}Response`]) {
+      if (!declared.has(short)) continue;
+      const overridden = overrides.filter((o) => o.clrFullName.endsWith(`.${short}`));
+      if (overridden.length === 0) sources.add(short);
+      for (const o of overridden) sources.add(o.schemaId);
+    }
+    if (sources.size > 0) merges.push({ name, sources: [...sources] });
+  }
+  return merges;
+}

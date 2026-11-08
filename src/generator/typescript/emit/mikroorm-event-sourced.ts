@@ -15,6 +15,7 @@ import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { eventLogRunMethods } from "../in-memory-run.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import {
   deserializeField,
@@ -28,6 +29,7 @@ import {
 } from "../repository-document-builder.js";
 import { repoPortImportLine, repoPortName } from "../repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
+import { T, TT } from "../ts-symbols.js";
 import { eventRowClassOf } from "./mikroorm-entities.js";
 import { mikroBlobGetByIdLines } from "./mikroorm-filter.js";
 import { tsParamType, usesRawFragment } from "./mikroorm-shared.js";
@@ -140,7 +142,7 @@ export function renderMikroEventSourcedRepository(
     "    this.events = events;",
     "  }",
     "",
-    `  async findById(id: Ids.${agg.name}Id): Promise<${agg.name} | null> {`,
+    `  async findById(id: ${TT.Ids}.${agg.name}Id): Promise<${agg.name} | null> {`,
     "    const em = this.em.fork({ keepTransactionContext: true });",
     `    const rows = await em.find(${eventRow}, { streamType: "${streamType}", streamId: id as string }, { orderBy: { version: "ASC" } });`,
     "    if (rows.length === 0) return null;",
@@ -150,9 +152,9 @@ export function renderMikroEventSourcedRepository(
     "    );",
     "  }",
     "",
-    ...mikroBlobGetByIdLines(agg, `Ids.${agg.name}Id`),
+    ...mikroBlobGetByIdLines(agg, `${TT.Ids}.${agg.name}Id`),
     "",
-    `  async findManyByIds(ids: Ids.${agg.name}Id[]): Promise<${agg.name}[]> {`,
+    `  async findManyByIds(ids: ${TT.Ids}.${agg.name}Id[]): Promise<${agg.name}[]> {`,
     "    if (ids.length === 0) return [];",
     `    const out: ${agg.name}[] = [];`,
     "    for (const id of ids) {",
@@ -215,9 +217,10 @@ export function renderMikroEventSourcedRepository(
     "      list.push(rowToEvent({ type: r.type, data: r.data }));",
     "      byStream.set(r.streamId, list);",
     "    }",
-    `    return [...byStream.entries()].map(([id, evs]) => ${agg.name}._fromEvents(Ids.${agg.name}Id(id), evs));`,
+    `    return [...byStream.entries()].map(([id, evs]) => ${agg.name}._fromEvents(${T.Ids}.${agg.name}Id(id), evs));`,
     "  }",
     ...findMethods.flatMap((m) => ["", m]),
+    ...eventLogRunMethods(agg, ctx).flatMap((m) => ["", m]),
     "",
     toWireMethod(agg, ctx),
     // Response-boundary read masking (`mask unless`) — the SAME sibling

@@ -3,6 +3,7 @@ import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
+import { tsImportSlot } from "../../_imports/ts.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
 
@@ -47,10 +48,9 @@ export function renderEnumsAndValueObjects(ctx: BoundedContextIR): string {
   // in the corpus — keeps a byte-identical clean header.
   const body = [...ctx.enums.flatMap(renderEnum), ...ctx.valueObjects.flatMap(renderValueObject)];
   const scan = body.join("\n").replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const usage: TsTypeUsage = { usesIds: false, usesMoney: false };
+  const usage: TsTypeUsage = { usesMoney: false };
   for (const v of ctx.valueObjects) for (const t of renderedTypes(v)) visitTsTypeUsage(t, usage);
   const usesMoney = usage.usesMoney || /\bDecimal\b/.test(scan);
-  const usesIds = usage.usesIds || /\bIds\.\w/.test(scan);
   return (
     lines(
       "// Auto-generated.",
@@ -59,7 +59,7 @@ export function renderEnumsAndValueObjects(ctx: BoundedContextIR): string {
       // the brand constructors alongside the branded types, so this stays
       // correct for the body-scan half — an expression that renders `Ids.x()`
       // needs the runtime binding, which `import type` would erase.
-      usesIds ? 'import * as Ids from "./ids";' : null,
+      tsImportSlot("~/domain/ids"),
       // A value object's invariant raises `ValueObjectInvariantError` (M-T5.1 —
       // a DomainError the routers answer with an errors[] entry); a plain
       // `DomainError` import survives only where the body still spells one.
@@ -75,11 +75,8 @@ export function renderEnumsAndValueObjects(ctx: BoundedContextIR): string {
   );
 }
 
-/** Which of the file's two importable type spellings a rendered `TypeIR`
- *  reaches — decimal.js `Decimal` (`money`) and the `Ids.<Agg>Id` namespace
- *  (an aggregate/entity id reference). */
+/** Whether a rendered `TypeIR` reaches decimal.js `Decimal` (`money`). */
 interface TsTypeUsage {
-  usesIds: boolean;
   usesMoney: boolean;
 }
 
@@ -97,17 +94,12 @@ function* renderedTypes(v: ValueObjectIR): Generator<TypeIR> {
 
 /** Accumulate a rendered type's import needs.  Mirrors the recursion in
  *  `renderTypeWith` (`../_type/target.ts`) over the arms that carry a
- *  sub-type — an id inside `Ship id[]`, `Ship id?`, a generic argument or a
- *  union variant renders `Ids.` just the same.  `enum` / `valueobject` name a
- *  sibling declaration in THIS file, and `entity` / `slot` / `action` / `none`
- *  import nothing. */
+ *  sub-type — `money` inside `money[]`, `money?`, a generic argument or a
+ *  union variant renders `Decimal` just the same. */
 function visitTsTypeUsage(t: TypeIR, acc: TsTypeUsage): void {
   switch (t.kind) {
     case "primitive":
       if (t.name === "money") acc.usesMoney = true;
-      return;
-    case "id":
-      acc.usesIds = true;
       return;
     case "array":
       visitTsTypeUsage(t.element, acc);
@@ -143,8 +135,8 @@ function renderValueObject(v: ValueObjectIR): string[] {
   // parameter properties — the latter is non-erasable sugar the type
   // checker must desugar, which Node's `--experimental-strip-types` /
   // unflagged type stripping (Node 24) rejects outright
-  // (`ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`); see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md
-  // "Non-erasable syntax". Semantically identical output otherwise.
+  // (`ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`); see docs/debugging.md
+  // (the generated TypeScript must stay erasable). Semantically identical output otherwise.
   const fieldDecls = v.fields.map(
     (f) => `  readonly ${escapeTargetFieldMember("ts", f.name)}: ${renderTsType(f.type)};`,
   );

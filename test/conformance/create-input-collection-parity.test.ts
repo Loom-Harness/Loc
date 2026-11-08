@@ -176,16 +176,15 @@ describe("a collection create-input field may be omitted (#2864 G4)", () => {
   // backends are the ones that emit the required-set STATICALLY (node and python
   // derive theirs at runtime from zod / Pydantic), so they are the pair a static
   // gate can compare.
-  it("java and elixir agree on the create required-set, and both keep update intact", async () => {
+  // The update is a merge patch (RS-47): it requires no key on either.
+  it("java and elixir agree on the create required-set, and neither requires an update key", async () => {
     const java = await emitted("java", "OpenApiContractCustomizer.java");
     expect(java).toContain('new RequiredSet("CreateVoyageRequest", List.of("code"))');
-    expect(java).toContain(
-      'new RequiredSet("UpdateVoyageRequest", List.of("code", "legs", "tags"))',
-    );
+    expect(java).toContain('new RequiredSet("UpdateVoyageRequest", List.of())');
 
     const create = await emitted("elixir", "schemas/create_voyage_request.ex");
     expect(create).toContain("required: [:code]");
     const update = await emitted("elixir", "schemas/update_voyage_request.ex");
-    expect(update).toMatch(/required: \[:code, :legs, :tags\]|required: \[:code, :legs/);
+    expect(update).not.toMatch(/required: \[:/);
   });
 });

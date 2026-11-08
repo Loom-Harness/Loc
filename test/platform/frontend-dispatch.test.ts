@@ -5,8 +5,7 @@ import { FRONTEND_GENERATORS } from "../../src/platform/frontend-dispatch.js";
 import { descriptorFor } from "../../src/platform/metadata.js";
 import { platformFor } from "../../src/platform/registry.js";
 import { STATIC_BUNDLE_FRAMEWORKS } from "../../src/platform/surface.js";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // B19 — frontend host dispatch honours the ui's `framework:`.
@@ -74,9 +73,7 @@ describe("B19 — frontend host framework dispatch", () => {
   for (const host of FRONTEND_HOSTS) {
     for (const fw of ["react", "svelte", "vue", "angular"]) {
       it(`${host} host serving a framework:${fw} ui emits a ${fw} project`, async () => {
-        const { model, errors } = await parseString(systemSrc(host, fw));
-        expect(errors).toEqual([]);
-        const files = generateSystems(model).files;
+        const files = await generateSystemFiles(systemSrc(host, fw));
         const webFiles = [...files.keys()].filter((k) => k.startsWith("web/"));
         const marker = FRAMEWORK_MARKER[fw]!;
         expect(webFiles.some((k) => marker.test(k))).toBe(true);

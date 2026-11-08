@@ -6,6 +6,7 @@ import {
   type EnrichedAggregateIR,
   type EnrichedBoundedContextIR,
   type SystemIR,
+  sourceLocaleOf,
   uiUsesMoney,
 } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
@@ -39,6 +40,8 @@ import {
   type TranslationCatalogs,
 } from "../_frontend/i18n-runtime.js";
 import { LIB_SCHEMAS_PROV_TS, PROV_LINEAGE_SCHEMA_BLOCK } from "../_frontend/lib-schemas.js";
+import { localeDir } from "../_frontend/locale-meta.js";
+import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
 import { deriveSidebarFromUi } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { JSX_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
@@ -70,6 +73,12 @@ import {
   SVELTE_LIB_TOAST,
 } from "./emit-templates.js";
 import { emitSvelteNamedLayouts } from "./layouts-emitter.js";
+import {
+  renderSvelteLocaleStore,
+  renderSvelteLocaleSwitcher,
+  SVELTE_LOCALE_STORE_PATH,
+  SVELTE_LOCALE_SWITCHER_PATH,
+} from "./locale-switcher.js";
 import { buildSvelteRealtimeHandlers } from "./realtime-handlers-builder.js";
 import { SVELTE_REF_LABEL, SVELTE_REF_LABEL_PATH } from "./ref-label-runtime.js";
 import {
@@ -78,6 +87,7 @@ import {
   emitSveltePagesForUi,
 } from "./routes-emitter.js";
 import { renderSvelteStoreModule, storeModulePath } from "./store-builder.js";
+import { svelteTarget } from "./walker/svelte-target.js";
 import { allWorkflows, buildWorkflowsApiModule, hasAnyWorkflow } from "./workflow-builder.js";
 
 // ---------------------------------------------------------------------------
@@ -175,26 +185,45 @@ export function generateSvelteForContexts(
   // `$lib/i18n` (see `svelteImportPath`), so it resolves from any route depth.
   // Empty catalog → no runtime, walk sites pass `undefined` and output stays
   // byte-identical to pre-i18n.
-  const i18nEnabled = collectUiMessages(ui).length > 0;
+  const i18nEnabled =
+    collectUiMessages(ui).length > 0 || uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? []);
+  // Two or more locales ship (the source plus a translated catalog): the shell
+  // header carries the `LocaleSwitcher` and the routed tree re-renders on a
+  // switch.  Set where the translated catalogs are emitted, below.
+  let localeSwitchable = false;
   // Pack-DECLARED chrome rides the SAME already-enabled gate (see the React
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
+  const formScope = {
+    contexts,
+    sentences: pack.manifest.sentenceChrome ?? [],
+    implicitModelText: svelteTarget.modelTextImplicitSites === true,
+  };
   if (i18nEnabled) {
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
     // produced (scoped to this ui's keys, `TODO:` values already dropped by
     // the loader).  The shim imports and registers exactly the locales emitted
     // here, so what the translator wrote is what the app can resolve — with no
     // translator tree the list is empty and the shim is byte-identical.
-    out.set("src/lib/locales/en.json", renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)));
+    out.set(
+      `src/lib/locales/${sourceLocaleOf(sys)}.json`,
+      renderLocaleCatalog(ui, packChromeCatalog(pack.manifest), formScope),
+    );
     const translated = renderTranslatedCatalogs(
       ui,
       options.translations,
       packChromeCatalog(pack.manifest),
+      sourceLocaleOf(sys),
+      formScope,
     );
     for (const [locale, content] of translated) {
       out.set(`src/lib/locales/${locale}.json`, content);
     }
-    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()]));
+    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()], sourceLocaleOf(sys)));
+    // The Svelte binding of that store (`locale`, `LocaleSwitcher`).
+    out.set(SVELTE_LOCALE_STORE_PATH, renderSvelteLocaleStore());
+    out.set(SVELTE_LOCALE_SWITCHER_PATH, renderSvelteLocaleSwitcher());
+    localeSwitchable = [...translated.keys()].some((l) => l !== sourceLocaleOf(sys));
   }
 
   // Per-aggregate api modules.
@@ -292,14 +321,20 @@ export function generateSvelteForContexts(
 
   // Shared lib surface.
   const hasDelete = aggregates.some((a) => !!canonicalDestroy(a.agg));
-  out.set("src/lib/api/client.ts", pack.render("api-client", { hasDelete, hasAuthUi: authUi }));
+  out.set(
+    "src/lib/api/client.ts",
+    pack.render("api-client", { hasDelete, hasAuthUi: authUi, i18nEnabled }),
+  );
   if (authUi) {
     out.set("src/lib/auth/session.ts", AUTH_SESSION_TS);
     out.set("src/lib/auth/AuthGate.svelte", AUTH_GATE_SVELTE);
   }
   out.set("src/lib/api/config.ts", pack.render("api-config", { apiBaseUrl }));
   out.set("src/lib/logger.ts", pack.render("logger", {}));
-  out.set("src/lib/format.ts", pack.render("format-helpers", { moneySource: MONEY_TEXT_SOURCE }));
+  out.set(
+    "src/lib/format.ts",
+    pack.render("format-helpers", { moneySource: MONEY_TEXT_SOURCE, i18nEnabled }),
+  );
   // Interactive-table sort helper (M-T1.1) — imported by a page only when it
   // renders a sortable `Table`; emitted unconditionally (like format.ts).
   out.set("src/lib/table-sort.ts", buildTableSortHelper());
@@ -454,6 +489,8 @@ export function generateSvelteForContexts(
       // (flowbite, shadcnSvelte).  Neither Svelte pack renders an error boundary
       // heading, so `chrome.somethingWentWrong` has no Svelte token.
       toggleNavAria: shellChromeAttr("aria-label", "toggleNavigation", i18nEnabled),
+      // The header's language picker (two or more locales ship).
+      localeSwitchable,
     }),
   );
   out.set(
@@ -475,7 +512,16 @@ export function generateSvelteForContexts(
   out.set("src/routes/+layout.ts", SVELTE_LAYOUT_TS);
 
   // Project shell.
-  out.set("src/app.html", pack.render("main", { title: humanize(sys.name) }));
+  out.set(
+    "src/app.html",
+    pack.render("main", {
+      title: humanize(sys.name),
+      lang: sourceLocaleOf(sys),
+      // `dir` only under i18n: the runtime keeps it in step on a switch, and an
+      // app with no locale model keeps its markup byte-identical.
+      ...(i18nEnabled ? { dir: localeDir(sourceLocaleOf(sys)) } : {}),
+    }),
+  );
   out.set("src/app.d.ts", SVELTE_APP_DTS);
   out.set("src/theme.css", pack.render("theme", themeVM(sys)));
   out.set("package.json", pack.render("package-json", { usesMoney, usesCodeBlock }));

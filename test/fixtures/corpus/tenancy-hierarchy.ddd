@@ -14,6 +14,11 @@
 //   - `Account` carries `policy allow deep`   → descendant-or-self subtree.
 //   - `Entry`   carries `policy allow global` → the caller's ROOT-org subtree.
 //   - `Memo`    carries `policy allow local`  → the flat own-org floor (default).
+//   - `Note`    carries `policy deny write`   → read-only (every mutation 404s).
+//   - `touchAccounts` / `touchNotes` mutate every row a criterion read returns:
+//     a row outside the caller's WRITE scope (the own-org write floor under
+//     `allow deep`, or `deny write`) fails the whole workflow with the op
+//     route's 404 and rolls back, whatever loaded it.
 //
 // The deployable platform is substituted per leg (node/python/java/dotnet/elixir).
 system TenantHierarchy {
@@ -27,6 +32,7 @@ system TenantHierarchy {
       aggregate Account with tenantOwned, crudish {
         label: string
         amount: int
+        operation touch() { amount := amount + 1 }
       }
       // global — the caller's ROOT-org subtree (root-org widening, P2.5).
       aggregate Entry with tenantOwned, crudish {
@@ -35,6 +41,12 @@ system TenantHierarchy {
       // local (the default) — only own-org rows (the flat tenant floor).
       aggregate Memo with tenantOwned, crudish {
         label: string
+      }
+      // deny write — readable, never mutated.
+      aggregate Note with tenantOwned, crudish {
+        label: string
+        hits: int
+        operation touch() { hits := hits + 1 }
       }
       // The tenant registry, opted into the tree.  `setPath` writes the managed
       // materialized path (harness seeds deterministic path strings); the plain
@@ -47,6 +59,22 @@ system TenantHierarchy {
       repository Accounts for Account { }
       repository Entries for Entry { }
       repository Memos for Memo { }
+      repository Notes for Note { }
+      criterion AnyAccount of Account = amount >= 0
+      criterion AnyNote of Note = hits >= 0
+      // Bulk mutation over every row the caller can READ.
+      workflow touchAccounts {
+        create() {
+          let rows = Accounts.all(AnyAccount, sort: [label asc], page: { offset: 0, limit: 100 })
+          for a in rows { a.touch() }
+        }
+      }
+      workflow touchNotes {
+        create() {
+          let rows = Notes.all(AnyNote, page: { offset: 0, limit: 100 })
+          for n in rows { n.touch() }
+        }
+      }
       repository Orgs for Org { }
       // The child-signup create factory: load the parent via repo-let, create
       // the child with the immutable `parent` FK, set the child's managed path
@@ -68,6 +96,7 @@ system TenantHierarchy {
         allow deep on Account
         allow global on Entry
         allow local on Memo
+        deny write on Note
       }
     }
   }

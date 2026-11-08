@@ -18,6 +18,8 @@ import type {
   TypeIR,
   WireField,
 } from "../../../ir/types/loom-ir.js";
+import { declaredResponseFor } from "../../../ir/util/declared-response.js";
+import { type MergePatchField, mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
@@ -265,6 +267,22 @@ export function renderDtoFiles(
   // --- per-operation requests (ops with params only) ----------------------------
   for (const op of agg.operations) {
     if (op.params.length === 0) continue;
+    const patch = mergePatchFields(op);
+    if (patch) {
+      const name = `${upperFirst(op.name)}${agg.name}Request`;
+      out.push({
+        name: `${name}.java`,
+        category: "request-dto",
+        content: mergePatchRequestFile(
+          pkg,
+          basePkg,
+          name,
+          patch,
+          reqNameFor({ kind: "operation", aggregate: agg.name, operation: op.name }),
+        ),
+      });
+      continue;
+    }
     const imports = new Set<string>();
     const components = op.params.map((p) => {
       if (isOptionalType(p.type))
@@ -307,9 +325,7 @@ export function renderDtoFiles(
   }
 
   // --- aggregate response ----------------------------------------------------------
-  const declaredRootResponse = payloads.find(
-    (p) => p.kind === "response" && p.name === `${agg.name}Response`,
-  );
+  const declaredRootResponse = declaredResponseFor(payloads, agg);
   out.push(
     wireRecord(
       agg,
@@ -348,7 +364,7 @@ export function renderDtoFiles(
 
   // --- create response (`{ id }`) ---------------------------------------------------
   if (emitsRestCreate(agg)) {
-    const idJava = javaIdValueType(agg.idValueType);
+    const idJava = javaIdValueType();
     const imports = new Set<string>();
     out.push({
       name: `Create${agg.name}Response.java`,
@@ -393,6 +409,76 @@ function nulGuarded(javaType: string, basePkg: string): string {
   const list = [`${J.List}<`, "List<"].find((p) => javaType.startsWith(p));
   const mark = `@${noNulChar(basePkg)} `;
   return list ? javaType.replace(list, `${list}${mark}`) : `${mark}${javaType}`;
+}
+
+/** The merge-patch update request (RS-47): a class, not a record, because the
+ *  question it has to answer is which keys the body CARRIED.  Jackson calls a
+ *  setter only for a key present in the JSON — an explicit `null` included —
+ *  so each setter records its wire key and `has(key)` answers it.  Every
+ *  member is a boxed reference with no `@NotNull`: an absent key keeps the
+ *  stored value.  `null` on a required member is refused by the request's
+ *  validator (`NotNull` → `"<field> is required"`).  Record-style accessors
+ *  keep the validator and service reading `request.<field>()` as for any
+ *  other request; the JavaBeans getters are what `Errors.rejectValue` reads
+ *  the refused value through. */
+function mergePatchRequestFile(
+  pkg: string,
+  basePkg: string,
+  name: string,
+  fields: readonly MergePatchField[],
+  schemaName: string,
+): string {
+  const jsonProperty = javaRef("com.fasterxml.jackson.annotation", "JsonProperty");
+  const members = fields.map((f) => {
+    const boxed = wireJavaType(eff(f.type, true), "Request");
+    const type = bearsWireString(f.type) ? nulGuarded(boxed, basePkg) : boxed;
+    const nested = bearsNestedRecord(f.type) ? `@${VALID} ` : "";
+    return { f, type, plain: boxed, nested, id: jid(f.name) };
+  });
+  // A `File` member is the shared `FileRef` record in domain.common, imported
+  // precisely as `recordFile` does.
+  const usesFileRef = members.some((m) => /\bFileRef\b/.test(m.plain));
+  return lines(
+    `package ${pkg};`,
+    ``,
+    `import ${basePkg}.domain.enums.*;`,
+    `import ${basePkg}.domain.ids.*;`,
+    `import ${basePkg}.domain.valueobjects.*;`,
+    usesFileRef ? `import ${basePkg}.domain.common.FileRef;` : null,
+    ``,
+    schemaName !== name ? `@${SCHEMA}(name = ${JSON.stringify(schemaName)})` : null,
+    `public final class ${name} {`,
+    `    private final ${javaRef("java.util", "Set")}<String> present = new ${javaRef("java.util", "HashSet")}<>();`,
+    ``,
+    ...members.map(
+      (m) =>
+        `    @${jsonProperty}(${JSON.stringify(m.f.name)}) ${m.nested}private ${m.type} ${m.id};`,
+    ),
+    ``,
+    ...members.flatMap((m) => [
+      `    @${jsonProperty}(${JSON.stringify(m.f.name)})`,
+      `    public void set${upperFirst(m.id)}(${m.plain} value) {`,
+      `        this.${m.id} = value;`,
+      `        present.add(${JSON.stringify(m.f.name)});`,
+      `    }`,
+      ``,
+      `    public ${m.plain} ${m.id}() {`,
+      `        return ${m.id};`,
+      `    }`,
+      ``,
+      `    @${jsonProperty}(${JSON.stringify(m.f.name)})`,
+      `    public ${m.plain} get${upperFirst(m.id)}() {`,
+      `        return ${m.id};`,
+      `    }`,
+      ``,
+    ]),
+    `    /** True when the body carried this wire key. */`,
+    `    public boolean has(String key) {`,
+    `        return present.contains(key);`,
+    `    }`,
+    `}`,
+    ``,
+  );
 }
 
 function bearsWireString(t: TypeIR): boolean {
@@ -445,7 +531,9 @@ export function voRecord(
   return {
     name: `${vo}${dir}.java`,
     category: dir === "Request" ? "request-dto" : "response-dto",
-    content: recordFile(pkg, basePkg, `${vo}${dir}`, components, body, imports),
+    // One value object is ONE component on every backend: the Request and
+    // Response records (distinct Java types) publish under the VO's own name.
+    content: recordFile(pkg, basePkg, `${vo}${dir}`, components, body, imports, undefined, vo),
   };
 }
 
@@ -611,7 +699,18 @@ function payloadFieldJavaType(f: FieldIR, payloads: readonly PayloadIR[]): strin
     if (t.kind === "array") return `${J.List}<${base.name}>`;
     return base.name;
   }
+  if (optionalResponsePart(t, payloads) && t.kind === "optional" && t.inner.kind === "entity")
+    return t.inner.name;
   return wireJavaType(t, "Response");
+}
+
+/** The contained PART behind an optional single containment of a declared
+ *  record (`optional<MemoResponse>` → the `Memo` entity), or undefined. */
+function optionalResponsePart(t: TypeIR, payloads: readonly PayloadIR[]): TypeIR | undefined {
+  if (t.kind !== "optional" || t.inner.kind !== "entity") return undefined;
+  const name = t.inner.name;
+  if (!isResponsePayloadName(payloads, name) || !name.endsWith("Response")) return undefined;
+  return { ...t.inner, name: name.slice(0, -"Response".length) };
 }
 
 /** The `from(<domain>)` mapper argument for a DECLARED `response` field.  A
@@ -627,6 +726,11 @@ function payloadFieldToWire(f: FieldIR, payloads: readonly PayloadIR[]): string 
     if (t.kind === "array") return `${accessorExpr}.stream().map(${base.name}::from).toList()`;
     return `${accessorExpr} == null ? null : ${base.name}.from(${accessorExpr})`;
   }
+  // An OPTIONAL single containment (`note: MemoResponse?`) projects exactly as
+  // the derived `Memo` + optional row does, so map it through the part's
+  // domain type rather than re-suffixing the record name.
+  const part = optionalResponsePart(t, payloads);
+  if (part) return domainToWire({ kind: "optional", inner: part }, accessorExpr);
   return domainToWire(t, accessorExpr);
 }
 

@@ -9,6 +9,12 @@
 // -------------------------------------------------------------------------
 
 import type { CodecPrimitive } from "../../../ir/enrich/codec.js";
+import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
+import {
+  aggregateTableName,
+  partTableName,
+  projectionTableName,
+} from "../../../ir/enrich/storage-names.js";
 import type {
   AssociationIR,
   EnrichedAggregateIR,
@@ -21,6 +27,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
+import type { AggPool } from "../../../ir/util/inheritance.js";
 import {
   discriminatorValue,
   isTphBase,
@@ -31,7 +38,7 @@ import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { type MikroScalar, mikroScalar } from "../codec-spelling.js";
 import { joinColumnName, joinTableConstName } from "../emit.js";
 import { isRefCollection } from "../repository-associations-builder.js";
@@ -42,10 +49,6 @@ import {
   tphConcreteAggregates,
 } from "./mikroorm-schema-filters.js";
 import { usesRawFragment } from "./mikroorm-shared.js";
-
-/** Postgres table for an aggregate — lowercase plural (e.g. `orders`). */
-
-const tableOf = (aggName: string): string => tableNameFor(aggName);
 
 /** Row-entity class name for an aggregate (the MikroORM persistence model). */
 
@@ -437,7 +440,7 @@ function renderPartRowEntity(
       "",
       `export const ${schemaName} = new EntitySchema<${cls}>({`,
       `  class: ${cls},`,
-      `  tableName: "${tableNameFor(part.name)}",`,
+      `  tableName: "${partTableName(part)}",`,
       `  properties: {`,
       ...propLines,
       `  },`,
@@ -466,7 +469,13 @@ function documentColumnsOf(): MikroColumn[] {
       primary: false,
       columnType: "jsonb",
     },
-    { prop: "version", mikroType: "number", tsType: "number", nullable: false, primary: false },
+    {
+      prop: ROW_VERSION_FIELD,
+      mikroType: "number",
+      tsType: "number",
+      nullable: false,
+      primary: false,
+    },
   ];
 }
 
@@ -724,11 +733,19 @@ export const mikroProjectionRowClass = (proj: ProjectionIR): string =>
 
 function projectionStateColumns(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): MikroColumn[] {
   const corr = proj.correlationField;
-  return proj.stateFields.flatMap((f): MikroColumn[] =>
+  const cols = proj.stateFields.flatMap((f): MikroColumn[] =>
     f.name === corr
       ? [{ prop: f.name, mikroType: "string", tsType: "string", nullable: false, primary: true }]
       : stateFieldColumns(f, ctx).map((c) => ({ ...c, nullable: true })),
   );
+  // A tenant-scoped fold (`fold-tenancy.ts`): the row carries the tenant
+  // columns and is keyed by `(tenantId, <key>)` — a composite primary key.
+  const tenancy = foldTenancyFor(proj);
+  if (tenancy) {
+    for (const m of tenancy.metadata)
+      cols.push(TEXT(m.field, m.required ? { primary: true } : { nullable: true }));
+  }
+  return cols;
 }
 
 /** The `uniques:` block for each `unique (...)` key the aggregate declares —
@@ -738,10 +755,10 @@ function projectionStateColumns(proj: ProjectionIR, ctx: EnrichedBoundedContextI
  *  a duplicate write commits.  A `softDeletable` key is partial (`WHERE
  *  is_deleted = false`, so a soft-deleted row frees its key), which MikroORM
  *  only expresses as the index's full DDL. */
-function mikroUniquesLines(agg: EnrichedAggregateIR): string[] {
+function mikroUniquesLines(agg: EnrichedAggregateIR, pool: AggPool): string[] {
   const keys = agg.uniqueKeys ?? [];
   if (keys.length === 0) return [];
-  const table = tableOf(agg.name);
+  const table = aggregateTableName(agg, pool);
   const softDeletable = agg.capabilities?.includes("softDeletable") ?? false;
   const entries = keys.map((uk) => {
     const cols = uk.columns.map((c) => snake(c));
@@ -761,7 +778,17 @@ export function renderMikroEntities(
   ctx: EnrichedBoundedContextIR,
   shapeOf: (agg: EnrichedAggregateIR) => "relational" | "embedded" | "document" = (a) =>
     (a.savingShape as "relational" | "embedded" | "document" | undefined) ?? "relational",
-  opts: { audit?: boolean; provenance?: boolean; outbox?: boolean; timerRuns?: boolean } = {},
+  opts: {
+    audit?: boolean;
+    provenance?: boolean;
+    outbox?: boolean;
+    timerRuns?: boolean;
+    /** Maps an event-sourced aggregate / workflow to the context that declares
+     *  it. A multi-context deployable passes one merged context here, and each
+     *  `<Ctx>EventRow` must still be named after its stream's owner — the name
+     *  the event-sourced repository and workflow fold helpers import. */
+    resolveStreamContext?: (streamName: string) => string | undefined;
+  } = {},
 ): string {
   const blocks: string[] = [];
   const schemaNames: string[] = [];
@@ -778,9 +805,13 @@ export function renderMikroEntities(
   // entity at all, and the generated `http/workflows.ts` fell back to the
   // drizzle event store — importing `drizzle-orm`, which a `persistence:
   // mikroorm` project does not install, so the server died at import.
-  const hasEventLog =
-    aggs.some((agg) => agg.persistedAs === "eventLog") ||
-    (ctx.workflows ?? []).some((wf) => wf.eventSourced);
+  const streamOwner = (name: string): string => opts.resolveStreamContext?.(name) ?? ctx.name;
+  const eventLogOwners = [
+    ...new Set([
+      ...aggs.filter((agg) => agg.persistedAs === "eventLog").map((agg) => streamOwner(agg.name)),
+      ...(ctx.workflows ?? []).filter((wf) => wf.eventSourced).map((wf) => streamOwner(wf.name)),
+    ]),
+  ];
   for (const agg of aggs) {
     if (agg.persistedAs === "eventLog") continue;
     // TPH concretes (aggregate-inheritance.md, sharedTable) own no Row — their
@@ -871,13 +902,13 @@ export function renderMikroEntities(
         ...(tph ? [] : [`export class ${cls} {`, ...classFields, `}`, ""]),
         `export const ${schemaName} = new EntitySchema<${cls}>({`,
         `  class: ${cls},`,
-        `  tableName: "${tableOf(agg.name)}",`,
+        `  tableName: "${aggregateTableName(agg, ctx.aggregates)}",`,
         ...stiLines,
         `  properties: {`,
         ...propLines,
         `  },`,
         ...filterLines,
-        ...mikroUniquesLines(agg),
+        ...mikroUniquesLines(agg, ctx.aggregates),
         `});`,
         "",
       ),
@@ -922,8 +953,8 @@ export function renderMikroEntities(
       }
     }
   }
-  if (hasEventLog) {
-    const cls = eventRowClassOf(ctx.name);
+  for (const owner of eventLogOwners) {
+    const cls = eventRowClassOf(owner);
     const schemaName = `${cls}Schema`;
     schemaNames.push(schemaName);
     blocks.push(
@@ -950,7 +981,7 @@ export function renderMikroEntities(
         "",
         `export const ${schemaName} = new EntitySchema<${cls}>({`,
         `  class: ${cls},`,
-        `  tableName: "${snake(ctx.name)}_events",`,
+        `  tableName: "${snake(owner)}_events",`,
         "  properties: {",
         // `seq` — context-global monotonic cursor (bigserial), inert until the
         // replay reader lands; not part of the PK.  Must be a real Postgres
@@ -1002,7 +1033,7 @@ export function renderMikroEntities(
     if (!isMaterializedProjection(proj)) continue;
     const { block, schemaName } = renderRecordRowEntity(
       mikroProjectionRowClass(proj),
-      tableNameFor(proj.name),
+      projectionTableName(proj),
       projectionStateColumns(proj, ctx),
     );
     schemaNames.push(schemaName);

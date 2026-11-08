@@ -14,7 +14,7 @@
         "price": {
           "$ref": "#/valueObjects/Money"
         },
-        "version": {
+        "rowVersion": {
           "type": "integer"
         },
         "display": {
@@ -25,7 +25,7 @@
         "id",
         "sku",
         "price",
-        "version",
+        "rowVersion",
         "display"
       ],
       "additionalProperties": false
@@ -53,7 +53,7 @@
           "type": "string",
           "format": "date-time"
         },
-        "version": {
+        "rowVersion": {
           "type": "integer"
         },
         "lines": {
@@ -68,7 +68,7 @@
         "customerId",
         "status",
         "placedAt",
-        "version",
+        "rowVersion",
         "lines"
       ],
       "additionalProperties": false
@@ -89,7 +89,7 @@
         "age": {
           "type": "integer"
         },
-        "version": {
+        "rowVersion": {
           "type": "integer"
         },
         "display": {
@@ -101,7 +101,7 @@
         "username",
         "email",
         "age",
-        "version",
+        "rowVersion",
         "display"
       ],
       "additionalProperties": false

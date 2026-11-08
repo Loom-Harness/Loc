@@ -54,6 +54,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 import { REPO_ROOT, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 
 /** Files that own a cascade suppression, with the EXACT number of sites each
@@ -115,7 +116,7 @@ describe("unknown-cascade census (M-T5.16 (b))", () => {
   it("every cascade suppression is declared, and none was added silently", () => {
     const scanned = [...validatorFiles(), "src/language/type-system.ts"];
     // Vacuum guard: the scan must reach the files it claims to.
-    expect(scanned.length).toBeGreaterThan(15);
+    expectReach("validator files", scanned.length, 44);
     expect(scanned).toContain("src/language/validators/statements.ts");
 
     const live: Record<string, number> = {};
@@ -159,7 +160,7 @@ describe("unknown-cascade census (M-T5.16 (b))", () => {
     const sources = trackedDddFiles().filter(
       (f) => f.startsWith("examples/") || f.startsWith("web/src/examples/"),
     );
-    expect(sources.length, "the corpus slice is empty").toBeGreaterThan(20);
+    expectReach("corpus sources", sources.length, 76);
 
     let total = 0;
     let unknown = 0;
@@ -188,7 +189,7 @@ describe("unknown-cascade census (M-T5.16 (b))", () => {
       }
     }
 
-    expect(total, "the measurement reached no expression at all").toBeGreaterThan(1000);
+    expectReach("expression nodes", total, 38732);
     const share = unknown / total;
     const report =
       `${unknown} of ${total} expression nodes (${(share * 100).toFixed(2)} %) type as ` +

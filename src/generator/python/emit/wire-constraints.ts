@@ -11,6 +11,7 @@
 // ---------------------------------------------------------------------------
 
 import type { InvariantIR } from "../../../ir/types/loom-ir.js";
+import { type MergePatchField, ruleMembers } from "../../../ir/util/merge-patch.js";
 import {
   classifyForWire,
   pickErrorPath,
@@ -252,12 +253,41 @@ export function createModelValidator(
   invariants: InvariantIR[],
   available: ReadonlySet<string>,
   cls: string,
+  /** A merge-patch update's members (RS-47): an explicit `null` on a required
+   *  one is refused as missing, and each rule runs only when the body carried
+   *  every member it reads — otherwise the domain floor judges the merged
+   *  state.  A required member is carried iff it is not `None` (its null was
+   *  refused first); an optional one asks `model_fields_set`. */
+  mergePatch?: readonly MergePatchField[],
 ): string | null {
   const refines = invariants.filter(
     (inv) =>
       classifyForWire(inv, { available }) && (inv.message != null || !singleFieldConstraints(inv)),
   );
-  if (refines.length === 0) return null;
+  const required = (mergePatch ?? []).filter((f) => !f.nullable);
+  // Every refused null in one 422, in field order — the `errors[]` node sends.
+  const nullRefusals =
+    required.length === 0
+      ? []
+      : [
+          `        missing: list[${INIT_ERROR_DETAILS}] = []`,
+          ...required.flatMap((f) => {
+            const attr = pythonWireIdent(f.name);
+            return [
+              `        if ${JSON.stringify(attr)} in self.model_fields_set and self.${attr} is None:`,
+              `            missing.append(${INIT_ERROR_DETAILS}(type="missing", loc=(${JSON.stringify(f.name)},), input=None))`,
+            ];
+          }),
+          "        if missing:",
+          `            raise ${VALIDATION_ERROR}.from_exception_data(${JSON.stringify(cls)}, missing)`,
+        ];
+  if (refines.length === 0 && nullRefusals.length === 0) return null;
+  const carried = (m: string): string => {
+    const attr = pythonWireIdent(m);
+    return mergePatch?.find((f) => f.name === m)?.nullable
+      ? `${JSON.stringify(attr)} in self.model_fields_set`
+      : `self.${attr} is not None`;
+  };
   const checks = refines.map((inv) => {
     const pred = renderPyExpr(inv.expr, { thisName: "self", wireField: true });
     // The FAILING condition.  A guarded rule keeps the `not (<guard-neg> or
@@ -296,12 +326,15 @@ export function createModelValidator(
     const raise = path
       ? `raise ${VALIDATION_ERROR}.from_exception_data(\n                ${JSON.stringify(cls)},\n                [\n                    ${INIT_ERROR_DETAILS}(\n                        type=${custom},\n                        loc=(${JSON.stringify(path)},),\n                        input=${input},\n                    )\n                ],\n            )`
       : `raise ${custom}`;
-    return lines(`        if ${fails}:`, `            ${raise}`);
+    const members = mergePatch ? ruleMembers(inv, available) : [];
+    const guard = members.map((m) => `${carried(m)} and `).join("");
+    return lines(`        if ${guard}${fails}:`, `            ${raise}`);
   });
   return lines(
     "",
     `    @${MODEL_VALIDATOR}(mode="after")`,
     `    def _check_invariants(self) -> "${cls}":`,
+    ...nullRefusals,
     ...checks,
     "        return self",
   );

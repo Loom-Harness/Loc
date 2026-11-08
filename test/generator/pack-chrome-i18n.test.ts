@@ -6,10 +6,10 @@
 // binds through `t("chrome.loading", "Loading")` keyed to the merged catalog,
 // and stays byte-identical raw text when the app opts out.
 //
-// The loader `aria-label="Loading"` is the first chrome string wired.  It lives
-// in the shadcn-family packs (shadcn / shadcnVue / shadcnSvelte / spartanNg), so
-// these tests pin one pack per frontend to exercise every attribute-binding
-// form (React `{…}`, Vue `:x="…"`, Svelte `{…}`, Angular `[attr.x]="…"`).
+// That every pack on every frontend binds a page-body chrome string (the
+// loader aria, the grid's control names) is the round-trip gate's job
+// (`_walker/i18n-round-trip.test.ts`); this file pins what that gate cannot
+// see — catalog membership rules and the app-shell / hoisted-child wiring.
 //
 // The `DataGrid` pager block at the bottom is the harder case: its markup is
 // rendered into a HOISTED CHILD component, which on three of the four frontends
@@ -24,14 +24,12 @@ import {
   chromeKey,
 } from "../../src/generator/_walker/i18n-chrome.js";
 import {
-  localizedChromeIcuExpr,
   localizedChromeIcuText,
   localizedChromeIcuValue,
 } from "../../src/generator/_walker/i18n-emit.js";
 import type { WalkContext } from "../../src/generator/_walker/walker-core.js";
 import { angularTarget } from "../../src/generator/angular/walker/angular-target.js";
 import { felizTarget } from "../../src/generator/feliz/feliz-target.js";
-import { flutterTarget } from "../../src/generator/flutter/flutter-target.js";
 import { tsxTarget } from "../../src/generator/react/walker/tsx-target.js";
 import { svelteTarget } from "../../src/generator/svelte/walker/svelte-target.js";
 import { vueTarget } from "../../src/generator/vue/walker/vue-target.js";
@@ -93,65 +91,15 @@ function shellOf(files: Map<string, string>, suffix: string): string {
   return entry[1];
 }
 
-// EVERY shell-rendering pack on EVERY frontend, not just each frontend's
-// default.  The skip-link slice wired 13 packs and missed shadcn v3/v4 — they
-// rendered `{{{notFoundText}}}` and `{{{primaryNavAria}}}` but kept the skip
-// link as raw text, so the string sat in the catalog, got translated, and did
-// nothing on those two packs.  It survived four merged slices because every
-// other assertion in this file pins ONE pack per frontend, which makes a
-// template that forgets a token structurally invisible.
-//
-// One assertion covers all four frameworks because the emitted `t(key, default)`
-// call is IDENTICAL everywhere — only the wrapper around it is framework-shaped
-// (React/Svelte `{…}`, Vue `{{ … }}` / `:attr='…'`, Angular `[attr.x]='…'`).
-// So this gate needs no per-framework binding table and cannot drift from one.
-const SHELL_PACKS: ReadonlyArray<[platform: string, design: string, shell: string]> = [
-  ["react", "mantine", "src/App.tsx"],
-  ["react", "shadcn", "src/App.tsx"],
-  ["react", "mui", "src/App.tsx"],
-  ["react", "chakra", "src/App.tsx"],
-  ["vue", "vuetify", "src/App.vue"],
-  ["vue", "shadcnVue", "src/App.vue"],
-  ["svelte", "flowbite", "(app)/+layout.svelte"],
-  ["svelte", "shadcnSvelte", "(app)/+layout.svelte"],
-  ["angular", "angularMaterial", "src/app/app.component.ts"],
-  ["angular", "primeng", "src/app/app.component.ts"],
-  ["angular", "spartanNg", "src/app/app.component.ts"],
-];
-
-describe("pack-chrome i18n — app-shell chrome, every pack on every frontend", () => {
-  it.each(
-    SHELL_PACKS,
-  )("%s/%s renders every shell-chrome token (no raw string left behind)", async (platform, design, shell) => {
-    const files = await generateSystemFiles(SYSTEM(platform, design, `Heading { "Welcome" }`));
-    const on = shellOf(files, shell);
-    for (const [key, english] of Object.entries(APP_SHELL_CHROME)) {
-      // A pack need not SPELL every chrome string — mui renders no nav
-      // landmark label, only chakra says "Open menu", the Angular packs carry
-      // neither error boundary nor burger.  But whatever it DOES spell must be
-      // bound, never raw.  So the invariant is "not raw", not "present": if
-      // the English appears at all, it appears inside a t() call for its key.
-      if (!on.includes(english)) continue;
-      expect(on, `${platform}/${design} left "${english}" unbound`).toContain(
-        `t(${JSON.stringify(key)}, ${JSON.stringify(english)})`,
-      );
-    }
-  });
-});
-
+// That every shell-rendering pack on every frontend binds its shell chrome —
+// skip link, 404, nav landmark + toggle, error boundaries, back-to-home, at
+// every site a key renders — is the round-trip gate's
+// (`_walker/i18n-round-trip.test.ts`).  What stays here is the wiring that gate
+// cannot read: the `t` import each shell module carries, and the i18n-off bytes.
 describe("pack-chrome i18n — React app-shell chrome", () => {
-  it("binds the 404 + skip-link text through t() and imports t into App.tsx", async () => {
+  it("imports t into App.tsx once the shell binds", async () => {
     const files = await generateSystemFiles(SYSTEM("react", "mantine", `Heading { "Welcome" }`));
-    const app = appOf(files);
-    expect(app).toContain(`import { t } from "./i18n"`);
-    expect(app).toContain(`{t("chrome.notFound", "Not found")}`);
-    expect(app).toContain(`{t("chrome.skipToContent", "Skip to content")}`);
-    // Primary-navigation landmark aria binds through t() too (attribute form).
-    expect(app).toContain(`aria-label={t("chrome.primaryNav", "Primary navigation")}`);
-    const catalog = catalogOf(files);
-    expect(catalog["chrome.notFound"]).toBe("Not found");
-    expect(catalog["chrome.skipToContent"]).toBe("Skip to content");
-    expect(catalog["chrome.primaryNav"]).toBe("Primary navigation");
+    expect(appOf(files)).toContain(`import { t } from "./i18n"`);
   });
 
   it("stays byte-identical (raw shell text, no t import) for a string-less app", async () => {
@@ -172,38 +120,6 @@ describe("pack-chrome i18n — React app-shell chrome", () => {
 // navigation" by the shadcn/flowbite family — two keys, because collapsing them
 // onto one canonical English would re-word a pack and break byte-identical.
 describe("pack-chrome i18n — error-boundary heading", () => {
-  it("React (mantine): binds the `title=` ATTRIBUTE through t()", async () => {
-    const files = await generateSystemFiles(SYSTEM("react", "mantine", `Heading { "Welcome" }`));
-    expect(appOf(files)).toContain(
-      `<Alert color="red" title={t("chrome.somethingWentWrong", "Something went wrong")}>`,
-    );
-    expect(catalogOf(files)["chrome.somethingWentWrong"]).toBe("Something went wrong");
-  });
-
-  it("React (shadcn): binds the TEXT position through t()", async () => {
-    const files = await generateSystemFiles(SYSTEM("react", "shadcn", `Heading { "Welcome" }`));
-    expect(appOf(files)).toContain(
-      `<AlertTitle>{t("chrome.somethingWentWrong", "Something went wrong")}</AlertTitle>`,
-    );
-    expect(catalogOf(files)["chrome.somethingWentWrong"]).toBe("Something went wrong");
-  });
-
-  it("Vue (vuetify): binds the `title=` ATTRIBUTE as :title='t(…)'", async () => {
-    const files = await generateSystemFiles(SYSTEM("vue", "vuetify", `Heading { "Welcome" }`));
-    expect(shellOf(files, "src/App.vue")).toContain(
-      `<v-alert type="error" :title='t("chrome.somethingWentWrong", "Something went wrong")' :text="appError.message" />`,
-    );
-    expect(catalogOf(files)["chrome.somethingWentWrong"]).toBe("Something went wrong");
-  });
-
-  it("Vue (shadcnVue): binds the TEXT position as {{ t(…) }}", async () => {
-    const files = await generateSystemFiles(SYSTEM("vue", "shadcnVue", `Heading { "Welcome" }`));
-    expect(shellOf(files, "src/App.vue")).toContain(
-      `<AlertTitle>{{ t("chrome.somethingWentWrong", "Something went wrong") }}</AlertTitle>`,
-    );
-    expect(catalogOf(files)["chrome.somethingWentWrong"]).toBe("Something went wrong");
-  });
-
   it("stays byte-identical (raw heading, both positions) with i18n off", async () => {
     const mantine = await generateSystemFiles(SYSTEM("react", "mantine", `Text { status }`));
     expect(appOf(mantine)).toContain(`<Alert color="red" title="Something went wrong">`);
@@ -221,40 +137,6 @@ describe("pack-chrome i18n — error-boundary heading", () => {
 });
 
 describe("pack-chrome i18n — nav-toggle aria", () => {
-  it("React (chakra): binds `Open menu` — its own key, not the shadcn wording", async () => {
-    const files = await generateSystemFiles(SYSTEM("react", "chakra", `Heading { "Welcome" }`));
-    const app = appOf(files);
-    expect(app).toContain(`aria-label={t("chrome.openMenu", "Open menu")}`);
-    expect(app).not.toContain("Toggle navigation");
-    expect(catalogOf(files)["chrome.openMenu"]).toBe("Open menu");
-  });
-
-  it("React (shadcn): binds `Toggle navigation`", async () => {
-    const files = await generateSystemFiles(SYSTEM("react", "shadcn", `Heading { "Welcome" }`));
-    expect(appOf(files)).toContain(
-      `aria-label={t("chrome.toggleNavigation", "Toggle navigation")}`,
-    );
-    expect(catalogOf(files)["chrome.toggleNavigation"]).toBe("Toggle navigation");
-  });
-
-  it("Vue (shadcnVue): binds as :aria-label='t(…)'", async () => {
-    const files = await generateSystemFiles(SYSTEM("vue", "shadcnVue", `Heading { "Welcome" }`));
-    expect(shellOf(files, "src/App.vue")).toContain(
-      `data-testid="nav-burger" :aria-label='t("chrome.toggleNavigation", "Toggle navigation")'`,
-    );
-    expect(catalogOf(files)["chrome.toggleNavigation"]).toBe("Toggle navigation");
-  });
-
-  it("Svelte (shadcnSvelte): binds as aria-label={t(…)}", async () => {
-    const files = await generateSystemFiles(
-      SYSTEM("svelte", "shadcnSvelte", `Heading { "Welcome" }`),
-    );
-    expect(shellOf(files, "(app)/+layout.svelte")).toContain(
-      `aria-label={t("chrome.toggleNavigation", "Toggle navigation")}`,
-    );
-    expect(catalogOf(files)["chrome.toggleNavigation"]).toBe("Toggle navigation");
-  });
-
   it("stays byte-identical (raw aria, both wordings) with i18n off", async () => {
     const chakra = await generateSystemFiles(SYSTEM("react", "chakra", `Text { status }`));
     expect(appOf(chakra)).toContain(`aria-label="Open menu"`);
@@ -274,44 +156,6 @@ describe("pack-chrome i18n — nav-toggle aria", () => {
 });
 
 describe("pack-chrome i18n — loader aria-label", () => {
-  it("React (shadcn): binds the spinner aria through t() keyed to chrome.loading", async () => {
-    const files = await generateSystemFiles(
-      SYSTEM("react", "shadcn", `Stack { Heading { "Welcome" }, Loader() }`),
-    );
-    const page = pageOf(files, "home.tsx");
-    expect(page).toContain(`role="status" aria-label={t("chrome.loading", "Loading")}`);
-    expect(catalogOf(files)["chrome.loading"]).toBe("Loading");
-  });
-
-  it("Vue (shadcnVue): binds aria as :aria-label='t(…)'", async () => {
-    const files = await generateSystemFiles(
-      SYSTEM("vue", "shadcnVue", `Stack { Heading { "Welcome" }, Loader() }`),
-    );
-    const page = pageOf(files, "home.vue");
-    expect(page).toContain(`role="status" :aria-label='t("chrome.loading", "Loading")'`);
-    expect(catalogOf(files)["chrome.loading"]).toBe("Loading");
-  });
-
-  it("Svelte (shadcnSvelte): binds aria as aria-label={t(…)}", async () => {
-    const files = await generateSystemFiles(
-      SYSTEM("svelte", "shadcnSvelte", `Stack { Heading { "Welcome" }, Loader() }`),
-    );
-    const page = pageOf(files, "(app)/+page.svelte", "+page.svelte");
-    expect(page).toContain(`role="status" aria-label={t("chrome.loading", "Loading")}`);
-    expect(catalogOf(files)["chrome.loading"]).toBe("Loading");
-  });
-
-  it("Angular (spartanNg): binds aria as [attr.aria-label]='t(…)' with t lifted onto the component", async () => {
-    const files = await generateSystemFiles(
-      SYSTEM("angular", "spartanNg", `Stack { Heading { "Welcome" }, Loader() }`),
-    );
-    const page = pageOf(files, "home.component.ts");
-    expect(page).toContain(`role="status" [attr.aria-label]='t("chrome.loading", "Loading")'`);
-    // Angular resolves template refs against the instance — `t` must be a member.
-    expect(page).toContain("protected readonly t = t;");
-    expect(catalogOf(files)["chrome.loading"]).toBe("Loading");
-  });
-
   it("a chrome primitive alone turns i18n on (used-only chrome is translatable)", async () => {
     // `Loader()` renders pack chrome, so even with no AUTHORED string the page is
     // translatable: the extractor yields `chrome.loading`, the runtime ships, and
@@ -419,22 +263,23 @@ describe("pack-chrome i18n — DataGrid pager", () => {
     expect(child).toContain(`{{ t("chrome.previous", "Previous") }}`);
     expect(child).toContain(`{{ t("chrome.next", "Next") }}`);
     expect(child).toContain(`:placeholder='t("chrome.filter", "Filter")'`);
-    // `src/components/` is one hop under `src/`, where the runtime lives — and
-    // unlike a page it never nests, so the specifier needs no depth rewrite.
-    expect(child).toContain(`import { t } from "../i18n";`);
+    // `src/components/` is one hop under `src/`, where the reactive locale
+    // adapter lives (`src/lib/locale.ts`) — and unlike a page it never nests,
+    // so the specifier needs no depth rewrite.
+    expect(child).toContain(`import { t } from "../lib/locale";`);
     expect(files.has("web/src/i18n.ts")).toBe(true);
     expect(catalogOf(files)["chrome.previous"]).toBe("Previous");
   });
 
-  it("Svelte (flowbite): the sibling component imports t from $lib/i18n", async () => {
+  it("Svelte (flowbite): the sibling component imports t from $lib/locale.svelte", async () => {
     const files = await generateSystemFiles(SYSTEM("svelte", "flowbite", GRID_BODY(true)));
     const child = gridChildOf(files, "src/lib/components/OrdersDataGrid.svelte");
     expect(child).toContain(`{t("chrome.previous", "Previous")}`);
     expect(child).toContain(`{t("chrome.next", "Next")}`);
     expect(child).toContain(`placeholder={t("chrome.filter", "Filter")}`);
-    // Depth-agnostic alias — the same specifier the walker's `../i18n` seam
-    // import rewrites to everywhere else on Svelte.
-    expect(child).toContain(`import { t } from "$lib/i18n";`);
+    // Depth-agnostic alias to the reactive locale adapter — the same specifier
+    // every other Svelte `t` import uses.
+    expect(child).toContain(`import { t } from "$lib/locale.svelte";`);
     expect(files.has("web/src/lib/i18n.ts")).toBe(true);
     expect(catalogOf(files)["chrome.next"]).toBe("Next");
   });
@@ -445,7 +290,7 @@ describe("pack-chrome i18n — DataGrid pager", () => {
     expect(child).toContain(`{{ t("chrome.previous", "Previous") }}`);
     expect(child).toContain(`{{ t("chrome.next", "Next") }}`);
     expect(child).toContain(`[placeholder]='t("chrome.filter", "Filter")'`);
-    expect(child).toContain(`import { t } from "../../lib/i18n";`);
+    expect(child).toContain(`import { t } from "../../lib/locale";`);
     // The import alone is not enough — an Angular template evaluates against
     // the component INSTANCE, so a module-scope `t` resolves to nothing.
     expect(child).toContain("protected readonly t = t;");
@@ -549,14 +394,14 @@ describe("pack-chrome i18n — pager position counter (ICU chrome)", () => {
         `{ page: table.getState().pagination.pageIndex + 1, ` +
         `pages: Math.max(table.getPageCount(), 1) }) }}`,
     );
-    expect(child).toContain(`import { t } from "../i18n";`);
+    expect(child).toContain(`import { t } from "../lib/locale";`);
   });
 
   it("Svelte (flowbite): the sibling component interpolates it", async () => {
     const files = await generateSystemFiles(SYSTEM("svelte", "flowbite", GRID_BODY(true)));
     const child = gridChildOf(files, "src/lib/components/OrdersDataGrid.svelte");
     expect(child).toContain(`{t("chrome.pageOf", "Page {page} of {pages}", { page: `);
-    expect(child).toContain(`import { t } from "$lib/i18n";`);
+    expect(child).toContain(`import { t } from "$lib/locale.svelte";`);
   });
 
   it("Angular (angularMaterial): the template evaluates it against the instance", async () => {
@@ -712,37 +557,11 @@ describe("ICU chrome with i18n off — the message re-assembled around its holes
 //     App.tsx, so it can't reuse the app-shell tokens — and its raw string
 //     carries a full stop the in-shell heading doesn't, hence its own key.
 describe("pack-chrome i18n — back-to-home + root error boundary", () => {
-  it("React: one key drives BOTH sites, arrow kept outside the message", async () => {
-    const files = await generateSystemFiles(SYSTEM("react", "mantine", `Heading { "Welcome" }`));
-    const app = appOf(files);
-    // The error boundary's button — bare.
-    expect(app).toContain(`{t("chrome.backToHome", "Back to home")}`);
-    // The 404's anchor — the "← " is decoration OUTSIDE the t() call, so
-    // translators get a clean phrase and RTL/CJK isn't stuck with the glyph.
-    expect(app).toContain(`← {t("chrome.backToHome", "Back to home")}</Anchor>`);
-    expect(catalogOf(files)["chrome.backToHome"]).toBe("Back to home");
-    // One catalog entry, not two.
-    expect(Object.keys(catalogOf(files)).filter((k) => k.startsWith("chrome.backToHome"))).toEqual([
-      "chrome.backToHome",
-    ]);
-  });
-
-  it("Vue: the error boundary's recovery button binds too", async () => {
-    for (const pack of ["vuetify", "shadcnVue"] as const) {
-      const files = await generateSystemFiles(SYSTEM("vue", pack, `Heading { "Welcome" }`));
-      expect(shellOf(files, "src/App.vue")).toContain(
-        `{{ t("chrome.backToHome", "Back to home") }}`,
-      );
-      expect(catalogOf(files)["chrome.backToHome"]).toBe("Back to home");
-    }
-  });
-
-  it("the ROOT ErrorBoundary binds its own key and imports t itself", async () => {
+  it("the ROOT ErrorBoundary imports t itself, under its own key", async () => {
     const files = await generateSystemFiles(SYSTEM("react", "mantine", `Heading { "Welcome" }`));
     const boundary = shellOf(files, "src/ErrorBoundary.tsx");
     // Its own module ⇒ its own gated import (App.tsx's doesn't reach here).
     expect(boundary).toContain(`import { t } from "./i18n";`);
-    expect(boundary).toContain(`{t("chrome.rootErrorTitle", "Something went wrong.")}`);
     expect(catalogOf(files)["chrome.rootErrorTitle"]).toBe("Something went wrong.");
     // Distinct from the IN-SHELL heading, which has no full stop.
     expect(catalogOf(files)["chrome.somethingWentWrong"]).toBe("Something went wrong");
@@ -851,20 +670,20 @@ describe("pack-chrome i18n — select placeholder", () => {
   });
 
   it("emitter-built form chrome reaches the catalog when a page uses it", async () => {
-    // `Delete <Agg>` and its `window.confirm` prompt are built in the EMITTER
-    // from the aggregate name, so neither the content-hash extraction pass
-    // (literals in the .ddd body) nor the pack-chrome `.hbs` slice ever saw
-    // them — they shipped untranslated on every frontend.  They ride
-    // `FORM_CHROME`, so they are merged for an app that is ALREADY i18n-enabled
-    // rather than flipping i18n on for a form-only page.
+    // `Delete order` and its `window.confirm` prompt are built in the EMITTER,
+    // so neither the content-hash extraction pass (literals in the .ddd body)
+    // nor the pack-chrome `.hbs` slice ever saw them.  Each is a whole sentence
+    // for the aggregate the `DestroyForm` names, merged for an app that is
+    // ALREADY i18n-enabled rather than flipping i18n on for a form-only page.
     const files = await generateSystemFiles(
       SYSTEM("react", "shadcn", `Stack { Heading { "Welcome" }, DestroyForm { of: Order } }`),
     );
     const catalog = catalogOf(files);
-    expect(catalog[chromeKey("deleteEntity")]).toBe(CHROME_MESSAGES[chromeKey("deleteEntity")]);
-    expect(catalog[chromeKey("deleteConfirm")]).toBe(CHROME_MESSAGES[chromeKey("deleteConfirm")]);
+    expect(catalog[chromeKey("deleteEntity.Order")]).toBe("Delete Order");
+    expect(catalog[chromeKey("deleteConfirm.Order")]).toBe("Delete this order?");
+    expect(catalog[chromeKey("deleteConfirm")]).toBeUndefined();
     const page = [...files].find(([p]) => p.endsWith("home.tsx"))![1];
-    expect(page).toContain('t("chrome.deleteConfirm"');
+    expect(page).toContain('t("chrome.deleteConfirm.Order", "Delete this order?")');
   });
 });
 
@@ -1010,52 +829,15 @@ describe("pack-chrome i18n — the Table pager", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Per-column control ARIA — holed chrome in ATTRIBUTE position
+// Per-column control names
 // ---------------------------------------------------------------------------
 //
-// "Sort by {column}" / "Filter by {column}" are the counter's problem one step
-// harder: an ICU message whose i18n-off form is a CONCATENATION, and which lands
-// in an attribute rather than in text.  The counter's off-path could reuse
-// `renderInterpolation` (markup text position); an attribute has no such seam,
-// and the raw spelling diverges four ways — a JS template literal on
-// React/Svelte/Vue, `'…' + String(…)` on Angular (whose template grammar has no
-// template literals), F# `+` on Feliz, Dart `${…}` interpolation on Flutter.
-//
-// Hence `renderStringConcat`: literal + expression pieces → one target-native
-// string expression, with the JS template literal as the default so the three
-// targets that already spelled it that way implement nothing.
-//
-// Unlike the pager the keys are contributed EXACTLY (`gridHasSortableColumn` /
-// `gridHasFilterableColumn`), not merged: both predicates are fully readable off
-// the call node, so no over-merge is needed.
-
-describe("renderStringConcat — the i18n-off spelling, per target", () => {
-  // The exact strings the packs and child renderers carried before this slice.
-  // Asserting against them is the byte-identity proof: the off-path is
-  // unreachable through the generator (a `DataGrid` always enables i18n, so its
-  // aria always binds), which is precisely why the seam needs pinning here.
-  const PARTS = [
-    { text: "Sort by " },
-    { expr: "String(h.column.columnDef.header ?? h.id)" },
-  ] as const;
-  const jsForm = "`Sort by ${String(h.column.columnDef.header ?? h.id)}`";
-
-  it.each([
-    ["react", tsxTarget, jsForm],
-    ["svelte", svelteTarget, jsForm],
-    ["vue", vueTarget, jsForm],
-    ["angular", angularTarget, "'Sort by ' + String(h.column.columnDef.header ?? h.id)"],
-    ["feliz", felizTarget, '("Sort by " + String(h.column.columnDef.header ?? h.id))'],
-    ["flutter", flutterTarget, "'Sort by ${String(h.column.columnDef.header ?? h.id)}'"],
-  ])("%s", (_name, target, expected) => {
-    // An unset seam IS the contract for the three JS-template-literal targets,
-    // so the default is exercised through the same helper the emitters use.
-    const ctx = { target, i18nPrefix: undefined } as unknown as WalkContext;
-    expect(localizedChromeIcuExpr(ctx, "sortBy", [{ name: "column", expr: PARTS[1].expr }])).toBe(
-      expected,
-    );
-  });
-});
+// A column's sort button is named by its own content (the header text), and its
+// filter input by the whole word "Filter": neither inserts the header into a
+// "Sort by {column}" frame, which cannot be right where the language declines
+// the noun.  The column is carried by the table structure — the input sits in
+// its header cell.  The filter key is contributed EXACTLY (`gridHasFilterable
+// Column`), readable off the call node.
 
 describe("pack-chrome i18n — per-column control ARIA", () => {
   /** A grid with row selection on — the checkbox column's two names.
@@ -1119,37 +901,30 @@ describe("pack-chrome i18n — per-column control ARIA", () => {
     ["vue", "vuetify", "src/components/OrdersDataGrid.vue"],
     ["svelte", "flowbite", "src/lib/components/OrdersDataGrid.svelte"],
     ["angular", "angularMaterial", "src/app/components/orders-data-grid.component.ts"],
-  ])("%s/%s fills both control names from the column header", async (platform, design, file) => {
-    // That each control's `t()` call is BOUND is the i18n round-trip gate's
+  ])("%s/%s names the filter input with the whole word, and the sort button by its header", async (platform, design, file) => {
+    // That the control's `t()` call is BOUND is the i18n round-trip gate's
     // `unbound` direction (its probe grid is sortable and filterable).
     const files = await generateSystemFiles(SYSTEM(platform, design, ARIA_GRID(true, true)));
     const child = gridChildOf(files, file);
-    expect(child).toContain(`"chrome.filterBy", "Filter by {column}", { column: `);
-    // The hole is the COLUMN's own header, so the label still says WHICH column.
-    expect(child).toContain("String(h.column.columnDef.header ?? h.id)");
-    // No raw sentence left behind on either control.
-    expect(child).not.toContain("Sort by ${");
-    expect(child).not.toContain("'Filter by ' +");
+    expect(child).toContain(`"chrome.filter", "Filter"`);
+    // No sentence frame around the header, on either control.
+    expect(child).not.toContain("Sort by");
+    expect(child).not.toContain("Filter by");
+    expect(child).not.toContain("{column}");
     const catalog = catalogOf(files);
-    expect(catalog["chrome.sortBy"]).toBe("Sort by {column}");
-    expect(catalog["chrome.filterBy"]).toBe("Filter by {column}");
+    expect(catalog["chrome.filter"]).toBe("Filter");
+    expect(catalog["chrome.sortBy"]).toBeUndefined();
+    expect(catalog["chrome.filterBy"]).toBeUndefined();
   });
 
-  it("Feliz: F# values through the seam's WITH-VALUES arm", async () => {
+  it("Feliz: the filter input is named by the whole word, as an F# value", async () => {
     const app = gridChildOf(
       await generateSystemFiles(SYSTEM("feliz", "", ARIA_GRID(true, true))),
       "App.fs",
     );
-    expect(app).toContain(
-      `prop.ariaLabel (I18n.tf "chrome.sortBy" "Sort by {column}" ` +
-        `[ "column", box (loomText (h?column?columnDef?header)) ])`,
-    );
-    expect(app).toContain(
-      `prop.ariaLabel (I18n.tf "chrome.filterBy" "Filter by {column}" ` +
-        `[ "column", box (loomText (h?column?columnDef?header)) ])`,
-    );
-    expect(app).not.toContain(`("Sort by " + loomText`);
-    expect(app).not.toContain(`("Filter by " + loomText`);
+    expect(app).toContain(`prop.ariaLabel (I18n.t "chrome.filter" "Filter")`);
+    expect(app).not.toContain("Sort by");
+    expect(app).not.toContain("Filter by");
   });
 
   it("React stops shadowing the translator with the TanStack table", async () => {
@@ -1183,32 +958,24 @@ describe("pack-chrome i18n — per-column control ARIA", () => {
     expect(catalog["chrome.selectRow"]).toBeUndefined();
   });
 
-  it("each key is contributed by its OWN predicate, not by the grid as a whole", async () => {
-    // `sortable:` and `filterable:` are independent, so one gate would be wrong
-    // in both directions.  A sort-only grid renders a sort button and no filter
-    // input; the catalog has to say exactly that.
+  it("the filter key is contributed by its OWN predicate, not by the grid as a whole", async () => {
+    // `filterable:` is per column: a sort-only grid renders no filter input, and
+    // the catalog has to say exactly that.
     const sortOnly = catalogOf(
       await generateSystemFiles(SYSTEM("react", "mantine", ARIA_GRID(true, false))),
     );
-    expect(sortOnly["chrome.sortBy"]).toBe("Sort by {column}");
-    expect(sortOnly["chrome.filterBy"]).toBeUndefined();
+    expect(sortOnly["chrome.filter"]).toBeUndefined();
 
     const filterOnly = catalogOf(
       await generateSystemFiles(SYSTEM("react", "mantine", ARIA_GRID(false, true))),
     );
-    expect(filterOnly["chrome.filterBy"]).toBe("Filter by {column}");
+    expect(filterOnly["chrome.filter"]).toBe("Filter");
 
     const neither = catalogOf(
       await generateSystemFiles(SYSTEM("react", "mantine", ARIA_GRID(false, false))),
     );
-    expect(neither["chrome.filterBy"]).toBeUndefined();
+    expect(neither["chrome.filter"]).toBeUndefined();
     // …but the pager is unconditional, so its keys are still there.
     expect(neither["chrome.previous"]).toBe("Previous");
-    // `chrome.sortBy` is deliberately NOT asserted absent here.  The GRID
-    // contributes it exactly (the sort-only case above proves that), but
-    // `Table`'s sortable header needs it too and cannot be gated on the call
-    // node — so it also rides `TABLE_CONTROLS_CHROME`, merged into every
-    // i18n-enabled app.  `filterBy` has no such second home, which is why it
-    // stays the honest witness that the two predicates are independent.
   });
 });

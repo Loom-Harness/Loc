@@ -21,16 +21,23 @@
 //
 //     "chrome": {
 //       "removeItem": "Remove",
-//       "addItem":    "Add {item}"
+//       "paginationAria": "Pagination"
 //     }
+//
+// A declared message is a whole sentence: a hole is for DATA only (a number, an
+// id), never for a word a generator fills in.  A message that varies by
+// aggregate, operation or item type ("Add line", "Ship succeeded") is instead
+// generated per subject by the walker and handed to the template as a token
+// (`{{{addItemLabel}}}`, `{{{successMessage}}}`), and the pack lists the bases
+// it reads in `sentenceChrome`.
 //
 // and its templates spell them through four Handlebars helpers this module
 // binds into every `pack.render(...)` (see `loader.ts`):
 //
 //     {{{chrome "removeItem"}}}                  markup TEXT position
-//     {{{chrome "addItem" item=elementLabel}}}   … with ICU hole values
+//     {{{chrome "countOf" count=rowCount}}}      … with ICU data-hole values
 //     {{{chromeAttr "aria-label" "paginationAria"}}}  a whole ATTRIBUTE
-//     {{{chromeValue "operationSucceeded" operation=humanOp}}}  a target VALUE
+//     {{{chromeValue "boolTrue"}}}               a target VALUE
 //     {{{chromeImport "../i18n"}}}               the runtime import, whole-FILE
 //                                                templates only
 //
@@ -67,6 +74,7 @@ import { diagMessage } from "../../diagnostics/messages.js";
 import type { PackFormat } from "../../util/builtin-formats.js";
 import { contentHash } from "../../util/content-hash.js";
 import { chromeKey, chromeMessage } from "../_walker/i18n-chrome.js";
+import { sourceText } from "../_walker/source-text.js";
 import {
   chromeDeclarationDefects,
   describePackDefects,
@@ -265,7 +273,7 @@ export function chromeHelpers(
       // its own (D-I18N-HEEX-ICU routes authored interpolation through
       // `loom_icu`), and no HEEx pack needs a holed chrome string.  Checked at
       // load for every literal role (`pack-defects.ts`, kind
-      // `chrome-hole-heex`), so a `{item}` never reaches a user.
+      // `chrome-hole-heex`), so a `{page}` never reaches a user.
       throw new Error(
         diagMessage("loom.design-pack-invalid#load", {
           pack: family,
@@ -273,7 +281,8 @@ export function chromeHelpers(
         }),
       );
     }
-    return spelling.call(packChromeKey(family, role, message), message, holes);
+    const key = packChromeKey(family, role, message);
+    return spelling.call(key, sourceText(key, message), holes);
   };
 
   return {

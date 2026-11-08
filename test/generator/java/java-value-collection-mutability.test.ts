@@ -58,7 +58,9 @@ describe("java generator — value-object collections arrive mutable", () => {
     expect(update, "no update(...) method emitted").toBeTruthy();
     // The required shape, on both the mandatory and the optional collection.
     expect(update).toContain(
-      'var lineItems = new java.util.ArrayList<>(request.lineItems().stream().map(__x -> toMoney(__x, "/lineItems/0")).toList());',
+      // The update is a merge patch (RS-47): an absent required key reads null
+      // and converts only when carried.
+      'var lineItems = request.lineItems() == null ? null : new java.util.ArrayList<>(request.lineItems().stream().map(__x -> toMoney(__x, "/lineItems/0")).toList());',
     );
     expect(update).toContain(
       'var surcharges = request.surcharges() == null ? null : new java.util.ArrayList<>(request.surcharges().stream().map(__x -> toMoney(__x, "/surcharges/0")).toList());',
@@ -86,6 +88,6 @@ describe("java generator — value-object collections arrive mutable", () => {
     expect(entity).toContain(
       "public void update(String reference, List<Money> lineItems, List<Money> surcharges) {",
     );
-    expect(entity).toContain("this.lineItems = lineItems;");
+    expect(entity).toContain("this.lineItems = new java.util.ArrayList<>(lineItems);");
   });
 });

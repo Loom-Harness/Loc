@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — a value object's OWN `invariant`s are enforced at the WIRE
@@ -38,9 +37,7 @@ system Shop {
 `;
 
 async function wireModels(): Promise<string> {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files.get("d/app/http/wire_models.py")!;
+  return (await generateSystemFiles(FIXTURE)).get("d/app/http/wire_models.py")!;
 }
 
 describe("python VO invariant → 422 at the wire", () => {
@@ -75,7 +72,7 @@ describe("python VO invariant → 422 at the wire", () => {
   });
 
   it("a VO with no invariants stays byte-identical (fields only, BaseModel only)", async () => {
-    const { model } = await parseString(`
+    const files = await generateSystemFiles(`
       system S {
         subdomain Sub {
           context C {
@@ -90,7 +87,7 @@ describe("python VO invariant → 422 at the wire", () => {
         deployable d { platform: python  contexts: [C]  serves: SApi  dataSources: [cState]  port: 4000 }
       }
     `);
-    const wm = generateSystems(model).files.get("d/app/http/wire_models.py")!;
+    const wm = files.get("d/app/http/wire_models.py")!;
     // `StringConstraints`/`WithJsonSchema` ride the always-emitted `UuidStr`
     // alias (schemathesis F2); the VO-driven names stay demand-gated.
     // `Field` is now unconditional: the `Int32` alias uses it, and that alias

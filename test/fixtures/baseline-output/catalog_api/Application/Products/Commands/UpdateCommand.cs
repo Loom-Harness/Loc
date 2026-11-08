@@ -7,4 +7,4 @@ using CatalogApi.Domain.Common;
 
 namespace CatalogApi.Application.Products.Commands;
 
-public sealed record UpdateCommand(ProductId Id, string Sku, Money Price) : ICommand;
+public sealed record UpdateCommand(ProductId Id, string Sku, Money Price, IReadOnlySet<string> PatchedKeys) : ICommand;

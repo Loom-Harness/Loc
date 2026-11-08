@@ -45,7 +45,7 @@
         },
         "id": "<volatile:key>",
         "name": "Ada",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -57,14 +57,14 @@
         "display": "R-1",
         "id": "<volatile:key>",
         "reference": "R-1",
+        "rowVersion": 1,
         "shipTo": {
           "geo": {
             "lat": 48.75,
             "lng": 2.5
           },
           "line1": "2 Ship Rd"
-        },
-        "version": 1
+        }
       }
     },
     {
@@ -75,14 +75,14 @@
       "body": {
         "id": "<volatile:key>",
         "label": "S-1",
+        "rowVersion": 1,
         "ship": {
           "geo": {
             "lat": 40.5,
             "lng": -74.25
           },
           "line1": "3 Dock Ln"
-        },
-        "version": 1
+        }
       }
     },
     {
@@ -101,14 +101,14 @@
         "display": "R-2",
         "id": "<volatile:key>",
         "reference": "R-2",
+        "rowVersion": 2,
         "shipTo": {
           "geo": {
             "lat": 1.5,
             "lng": 3.25
           },
           "line1": "4 New Rd"
-        },
-        "version": 2
+        }
       }
     },
     {
@@ -126,14 +126,14 @@
       "body": {
         "id": "<volatile:key>",
         "label": "S-1",
+        "rowVersion": 2,
         "ship": {
           "geo": {
             "lat": 2.5,
             "lng": 4.75
           },
           "line1": "5 Pier Ave"
-        },
-        "version": 2
+        }
       }
     },
     {
@@ -159,7 +159,7 @@
         },
         "id": "<volatile:key>",
         "name": "Ada L",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -180,7 +180,7 @@
             },
             "id": "<volatile:key>",
             "name": "Ada L",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -200,14 +200,14 @@
             "display": "R-2",
             "id": "<volatile:key>",
             "reference": "R-2",
+            "rowVersion": 2,
             "shipTo": {
               "geo": {
                 "lat": 1.5,
                 "lng": 3.25
               },
               "line1": "4 New Rd"
-            },
-            "version": 2
+            }
           }
         ],
         "page": 1,
@@ -225,14 +225,14 @@
         {
           "id": "<volatile:key>",
           "label": "S-1",
+          "rowVersion": 2,
           "ship": {
             "geo": {
               "lat": 2.5,
               "lng": 4.75
             },
             "line1": "5 Pier Ave"
-          },
-          "version": 2
+          }
         }
       ]
     },
@@ -339,18 +339,12 @@
       "seq": 24,
       "method": "POST",
       "path": "/api/shippers/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "ship is required",
-            "pointer": "/ship"
-          }
-        ],
+        "detail": "Shipper {id} not found",
         "instance": "/api/shippers/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

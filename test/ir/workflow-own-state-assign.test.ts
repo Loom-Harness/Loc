@@ -229,3 +229,34 @@ describe("workflow own-state assignment — validation", () => {
     expect(diags).toContain("loom.workflow-eventsourced-assign");
   });
 });
+
+describe("workflow unrecognised statement nested in a loop", () => {
+  const nested = (inner: string) => `
+    subdomain S { context C {
+      aggregate Item with crudish { n: int  operation bump() { n := n + 1 } }
+      repository Items for Item { }
+      criterion Any of Item = n >= 0
+      workflow W {
+        create() {
+          let xs = Items.all(Any, page: { offset: 0, limit: 10 })
+          for i in xs {
+            ${inner}
+          }
+        }
+      }
+    } }`;
+  const codes = async (source: string) => {
+    const { model } = await parseString(source, { validate: false });
+    return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+  };
+
+  it("flags a statement `if` inside a `for` body", async () => {
+    expect(await codes(nested("if i.n > 0 { i.bump() }"))).toContain(
+      "loom.workflow-unrecognised-statement",
+    );
+  });
+
+  it("accepts a plain op-call inside a `for` body", async () => {
+    expect(await codes(nested("i.bump()"))).not.toContain("loom.workflow-unrecognised-statement");
+  });
+});

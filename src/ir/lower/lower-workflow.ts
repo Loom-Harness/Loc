@@ -1,10 +1,13 @@
+import { AstUtils } from "langium";
 import { factoryRecordFields } from "../../language/factory-call.js";
 import type {
   Aggregate,
   BoundedContext,
   CommandHandler,
   Expression,
+  LetStmt,
   LoadPath,
+  MatchStmt,
   OnDecl,
   QueryHandler,
   Repository,
@@ -26,6 +29,7 @@ import {
   isNameRef,
   isNotFoundStmt,
   isOnDecl,
+  isOperation,
   isPostfixChain,
   isPreconditionStmt,
   isProperty,
@@ -34,12 +38,16 @@ import {
   isReturnStmt,
   isWorkflowCreateDecl,
 } from "../../language/generated/ast.js";
-import { handlerReturnGuard } from "../../language/handler-return.js";
+import { handlerReturnGuard, terminalMatchReturns } from "../../language/handler-return.js";
 import { queryNamesOf } from "../../language/repo-query-arg.js";
 import { upperFirst } from "../../util/naming.js";
-import { namedRepoCallOp, repoVerbEffect } from "../../util/repository-contract.js";
+import {
+  namedRepoCallOp,
+  repoVerbEffect,
+  widenedRetrievalName,
+} from "../../util/repository-contract.js";
 import { findVerb } from "../resource-verbs.js";
-import { variantTag } from "../stdlib/unions.js";
+import { typeKey, variantTag } from "../stdlib/unions.js";
 import type {
   AggregateIR,
   ApplyIR,
@@ -60,8 +68,13 @@ import type {
   WorkflowIR,
   WorkflowStmtIR,
 } from "../types/loom-ir.js";
-import { aggregateOpResolver, type SaveResolver } from "../util/domain-service-tier.js";
+import {
+  aggregateOpResolver,
+  mutatedParamNames,
+  type SaveResolver,
+} from "../util/domain-service-tier.js";
 import { lowerCallableParams } from "./callable-params.js";
+import { type HoistableRead, hoistableReads, hoistableReadsInExpr } from "./hoist-reads.js";
 import { resolveBypass } from "./lower-capabilities.js";
 import {
   ambientResourceKind,
@@ -90,6 +103,7 @@ import {
   bypassReadMethod,
   keyLookupIR,
   matchAllCall,
+  matchByIdBypassCall,
   matchFindCall,
   matchKeyLookupCall,
   matchRepoCall,
@@ -214,7 +228,7 @@ function lowerWorkflowCreate(
 ): CreateIR {
   const boundParams = lowerCallableParams(c.params, baseEnv, { defaults: true });
   const params = boundParams.params;
-  let inner = boundParams.env;
+  const inner = boundParams.env;
   const correlation = c.correlation ? lowerExpr(c.correlation, inner) : undefined;
   // Event-triggered when routed by a `by` clause; capture the sole event param.
   const triggerKind: "event" | "command" = correlation ? "event" : "command";
@@ -240,23 +254,16 @@ function lowerWorkflowCreate(
   // the workflow statement vocabulary has no `return` arm.  Placement (last,
   // top-level) and the annotation pairing are AST-validator rules
   // (`loom.workflow-return-*`), so a return is captured wherever it sits.
-  let returnValue: ExprIR | undefined;
-  for (const s of c.body) {
-    if (isReturnStmt(s)) {
-      returnValue = lowerExpr(s.value, inner);
-      continue;
-    }
-    const lowered = lowerWorkflowStatement(
-      s,
-      inner,
-      aggsByName,
-      reposByName,
-      repoForAgg,
-      saveResolver,
-    );
-    if (lowered.stmt) statements.push(lowered.stmt);
-    inner = lowered.envAfter;
-  }
+  const declared = c.returnType ? lowerType(c.returnType, baseEnv) : undefined;
+  const lowered = lowerEntryBody(
+    c.body,
+    inner,
+    { aggsByName, reposByName, repoForAgg, saveResolver },
+    declared,
+    false,
+  );
+  statements.push(...lowered.statements);
+  const { returnValue, returnTags } = lowered;
   return {
     name: c.name ?? null,
     triggerKind,
@@ -266,8 +273,9 @@ function lowerWorkflowCreate(
     savesAtExit: computeSaves(statements, repoForAgg, undefined, saveResolver),
     ...(eventBinding ? { eventBinding } : {}),
     ...(eventRef ? { eventRef } : {}),
-    ...(c.returnType ? { returnType: lowerType(c.returnType, baseEnv) } : {}),
+    ...(declared ? { returnType: declared } : {}),
     ...(returnValue ? { returnValue } : {}),
+    ...(returnTags ? { returnTags } : {}),
   };
 }
 
@@ -339,21 +347,22 @@ export function lowerCommandHandler(
   // body statement: body statements are `WorkflowStmtIR` and the shared workflow
   // statement renderer has no `return` arm (workflow handles never return a
   // value), so a return left in `statements` lowers to the `__bad__` sentinel.
-  const { statements, returnValue } = lowerHandlerBody(
+  const declared = h.returnType ? lowerType(h.returnType, env) : undefined;
+  const { statements, returnValue, returnTags } = lowerEntryBody(
     h.body,
     inner,
-    aggsByName,
-    reposByName,
-    repoForAgg,
-    saveResolver,
+    { aggsByName, reposByName, repoForAgg, saveResolver },
+    declared,
+    true,
   );
   return {
     name: h.name,
     params,
-    ...(h.returnType ? { returnType: lowerType(h.returnType, env) } : {}),
+    ...(declared ? { returnType: declared } : {}),
     statements,
     savesAtExit: computeSaves(statements, repoForAgg, undefined, saveResolver),
     ...(returnValue ? { returnValue } : {}),
+    ...(returnTags ? { returnTags } : {}),
   };
 }
 
@@ -385,61 +394,227 @@ export function lowerQueryHandler(
       savesAtExit: [],
     };
   }
-  const { statements, returnValue } = lowerHandlerBody(
+  const declared = lowerType(h.returnType, env);
+  const { statements, returnValue, returnTags } = lowerEntryBody(
     h.body,
     inner,
-    aggsByName,
-    reposByName,
-    repoForAgg,
-    saveResolver,
+    { aggsByName, reposByName, repoForAgg, saveResolver },
+    declared,
+    true,
   );
   return {
     name: h.name,
     params,
-    returnType: lowerType(h.returnType, env),
+    returnType: declared,
     statements,
     savesAtExit: computeSaves(statements, repoForAgg, undefined, saveResolver),
     ...(returnValue ? { returnValue } : {}),
+    ...(returnTags ? { returnTags } : {}),
   };
 }
 
-/** Lower a `commandHandler` / `queryHandler` body: every non-return statement
- *  through the shared workflow-statement lowerer, and the terminal `return
- *  <expr>` as a distinct `returnValue` (the workflow statement vocabulary has
- *  no return form).  `loom.handler-return-not-last` keeps every other return
- *  out, with one shape besides a last top-level return: a trailing
- *  `if let x = <lookup> { return <expr> } else { …; notFound }`
- *  (`handlerReturnGuard`).  Its `else` cannot fall through, so it lowers as a
- *  GUARD — an `if-let` with an empty then-branch, after which `x` stays bound
- *  — and its `return` becomes the `returnValue`, read with `x` in scope. */
-function lowerHandlerBody(
+/** Lower a routed entry point's body — a workflow `create`, a `commandHandler`,
+ *  a `queryHandler`: every non-return statement through the shared
+ *  workflow-statement lowerer, and the answered value as a distinct
+ *  `returnValue` (the workflow statement vocabulary has no return form).
+ *
+ *  Three shapes answer a value (the validators refuse every other placement):
+ *   - a last top-level `return <expr>`;
+ *   - a handler's trailing `if let x = <lookup> { return <expr> } else { …;
+ *     notFound }` (`handlerReturnGuard`).  Its `else` cannot fall through, so it
+ *     lowers as a GUARD — an `if-let` with an empty then-branch, after which `x`
+ *     stays bound — and its `return` becomes the `returnValue`;
+ *   - for an expected-failure result (`T or E`), a terminal statement `match`
+ *     whose arms end in `return` or `notFound` (`terminalMatchReturns`).  The
+ *     statement `match` keeps each arm's other statements (and the saves and
+ *     discards its arms carry), and the `returnValue` is a value `match` over
+ *     the same subject whose arms are the arms' returned values — answered
+ *     after the body, which is why an arm's return may not read an arm-local
+ *     `let`.  A `notFound` arm answers nothing, so it has no value arm.
+ *
+ *  For a `T or E` result each answered value is tagged with the declared
+ *  variant it produces (`returnTags`), as an operation's `return` is.  A tail
+ *  `return r` of a value that already has the declared union's type answers
+ *  it as is: it lowers to a value `match` over `r` whose every arm answers its
+ *  own binding. */
+function lowerEntryBody(
   body: readonly Statement[],
   env: Env,
-  aggsByName: Map<string, Aggregate>,
-  reposByName: Map<string, Repository>,
-  repoForAgg: Map<string, string>,
-  saveResolver?: SaveResolver,
-): { statements: WorkflowStmtIR[]; returnValue?: ExprIR } {
+  maps: {
+    aggsByName: Map<string, Aggregate>;
+    reposByName: Map<string, Repository>;
+    repoForAgg: Map<string, string>;
+    saveResolver?: SaveResolver;
+  },
+  declared: TypeIR | undefined,
+  handler: boolean,
+): { statements: WorkflowStmtIR[]; returnValue?: ExprIR; returnTags?: string[] } {
+  const { aggsByName, reposByName, repoForAgg, saveResolver } = maps;
   const statements: WorkflowStmtIR[] = [];
   let returnValue: ExprIR | undefined;
-  let inner = env;
-  const guard = handlerReturnGuard(body);
+  let returnTags: string[] | undefined;
+  let inner = withBodyNames(env, body);
+  const queryNames = queryNamesOf(env.ctx);
+  // A repository read in the answered value runs, like any other, as a `let`
+  // ahead of the answer.
+  const hoistAnswer = (value: Expression, at: Env): Env =>
+    hoistReads(hoistableReadsInExpr(value, reposByName, queryNames), at, maps, statements);
+  const variants =
+    declared?.kind === "union" &&
+    declared.variants.some((v) => isErrorVariantTag(variantTag(v), env))
+      ? declared.variants
+      : undefined;
+  const guard = handler ? handlerReturnGuard(body) : undefined;
+  const armForm = variants ? terminalMatchReturns(body) : undefined;
+  const tagOf = (value: Expression, at: Env): string | undefined =>
+    variants ? resultVariantTag(inferExprType(value, at), variants) : undefined;
   for (const s of body) {
     if (isReturnStmt(s)) {
-      returnValue = lowerExpr(s.value, inner);
+      inner = hoistAnswer(s.value, inner);
+      const t = variants ? inferExprType(s.value, inner) : undefined;
+      const value = lowerExpr(s.value, inner);
+      if (variants && t?.kind === "union" && value.kind === "ref") {
+        // `return r` of a value of the declared union: each arm answers its
+        // own binding.
+        const v = passThroughMatch(value, t, inner);
+        returnValue = v.match;
+        returnTags = v.tags;
+      } else {
+        returnValue = value;
+        const tag = tagOf(s.value, inner);
+        if (tag) returnTags = [tag];
+      }
       continue;
     }
     const l = lowerWorkflowStatement(s, inner, aggsByName, reposByName, repoForAgg, saveResolver);
+    if (l.pre) statements.push(...l.pre);
     if (guard && s === guard.ifLet && l.stmt?.kind === "if-let") {
       statements.push({ ...l.stmt, thenBody: [], savesInThen: [] });
-      const bound = withLocal(inner, l.stmt.var, "let", { kind: "entity", name: l.stmt.aggName });
+      const bound = hoistAnswer(
+        guard.ret.value,
+        withLocal(l.envAfter, l.stmt.var, "let", { kind: "entity", name: l.stmt.aggName }),
+      );
       returnValue = lowerExpr(guard.ret.value, bound);
+      const tag = tagOf(guard.ret.value, bound);
+      if (tag) returnTags = [tag];
+      continue;
+    }
+    if (armForm && s === armForm.match) {
+      if (l.stmt) statements.push(l.stmt);
+      const r = lowerArmResults(armForm.match, inner, tagOf);
+      returnValue = r.match;
+      returnTags = r.tags;
       continue;
     }
     if (l.stmt) statements.push(l.stmt);
     inner = l.envAfter;
   }
-  return { statements, ...(returnValue ? { returnValue } : {}) };
+  return {
+    statements,
+    ...(returnValue ? { returnValue } : {}),
+    ...(returnTags && variants ? { returnTags } : {}),
+  };
+}
+
+/** The declared variant a value of type `t` produces: the variant with the
+ *  same structural key, else (a literal promoted into a wider scalar) the
+ *  first scalar variant of the same primitive family. */
+function resultVariantTag(t: TypeIR, variants: readonly TypeIR[]): string | undefined {
+  const exact = variants.find((v) => typeKey(v) === typeKey(t));
+  if (exact) return variantTag(exact);
+  if (t.kind === "primitive") {
+    const prim = variants.find((v) => v.kind === "primitive");
+    if (prim) return variantTag(prim);
+  }
+  return undefined;
+}
+
+/** The value `match` a terminal statement `match` whose arms `return` answers:
+ *  the same subject, each returning arm's binding narrowed exactly as the value
+ *  form narrows it (`lowerExpr`'s `match`), and the arm's returned value. */
+function lowerArmResults(
+  stmt: MatchStmt,
+  env: Env,
+  tagOf: (value: Expression, at: Env) => string | undefined,
+): { match: ExprIR; tags: string[] } {
+  const subject = lowerExpr(stmt.subject, env);
+  const subjectType = subject.kind === "ref" ? subject.type : inferExprType(stmt.subject, env);
+  const absence =
+    subjectType?.kind === "optional" ||
+    (subject.kind === "ref" && env.locals.get(subject.name)?.absenceUnion === true);
+  const tags: string[] = [];
+  const variantArms: Extract<ExprIR, { kind: "match" }>["variantArms"] = [];
+  for (const arm of stmt.varArms) {
+    const ret = arm.body[arm.body.length - 1];
+    if (!ret || !isReturnStmt(ret)) continue;
+    const varType = lowerAtom(arm.varType, env);
+    const armEnv = !arm.binding
+      ? env
+      : absence && subject.kind === "ref"
+        ? {
+            ...env,
+            refAliases: new Map([
+              ...(env.refAliases ?? []),
+              [arm.binding, { ...subject, type: varType }],
+            ]),
+          }
+        : withLocal(env, arm.binding, "match-binding", varType);
+    variantArms.push({
+      varType,
+      ...(arm.binding ? { binding: arm.binding } : {}),
+      value: lowerExpr(ret.value, armEnv),
+      isError: isErrorVariantTag(variantTag(varType), env),
+    });
+    tags.push(tagOf(ret.value, armEnv) ?? "");
+  }
+  const elseRet = stmt.elseBody[stmt.elseBody.length - 1];
+  const otherwise = elseRet && isReturnStmt(elseRet) ? lowerExpr(elseRet.value, env) : undefined;
+  if (elseRet && isReturnStmt(elseRet)) tags.push(tagOf(elseRet.value, env) ?? "");
+  return {
+    match: {
+      kind: "match",
+      subject,
+      subjectType,
+      ...(absence ? { subjectShape: "absence" as const } : {}),
+      arms: [],
+      variantArms,
+      ...(otherwise ? { otherwise } : {}),
+    },
+    tags,
+  };
+}
+
+/** `return r` where `r` already has the declared union's type: a value
+ *  `match` over `r` whose every arm answers its own binding. */
+function passThroughMatch(
+  subject: Extract<ExprIR, { kind: "ref" }>,
+  t: Extract<TypeIR, { kind: "union" }>,
+  env: Env,
+): { match: ExprIR; tags: string[] } {
+  const absence = env.locals.get(subject.name)?.absenceUnion === true;
+  const variantArms = t.variants.map((varType) => {
+    const binding = `${subject.name}${upperFirst(variantTag(varType))}`;
+    const value: ExprIR = absence
+      ? { ...subject, type: varType }
+      : { kind: "ref", name: binding, refKind: "match-binding", type: varType };
+    return {
+      varType,
+      binding,
+      value,
+      isError: isErrorVariantTag(variantTag(varType), env),
+    };
+  });
+  return {
+    match: {
+      kind: "match",
+      subject,
+      subjectType: t,
+      ...(absence ? { subjectShape: "absence" as const } : {}),
+      arms: [],
+      variantArms,
+    },
+    tags: t.variants.map(variantTag),
+  };
 }
 
 // Lower an `on(e: Event) { … }` reactor member to its IR
@@ -458,7 +633,10 @@ function lowerOn(
   saveResolver?: SaveResolver,
 ): OnIR {
   const eventName = o.event.ref?.name ?? o.event.$refText;
-  const inner = withLocal(baseEnv, o.param, "param", { kind: "entity", name: eventName });
+  const inner = withBodyNames(
+    withLocal(baseEnv, o.param, "param", { kind: "entity", name: eventName }),
+    o.body,
+  );
   const correlation = o.correlation ? lowerExpr(o.correlation, inner) : undefined;
   const { statements } = lowerWorkflowStatements(
     o.body,
@@ -489,10 +667,15 @@ function localOf(
   return { name: source.name, aggName: t.inner.name };
 }
 
+type SaveEntry = { name: string; aggName: string; repoName: string };
+
 interface LoweredWorkflowStmt {
   /** `null` for a statement phase ④ refuses and the IR has no form for (an
    *  explicit `Repo.save(x)`): it contributes nothing to the body. */
   stmt: WorkflowStmtIR | null;
+  /** The `let`s of the repository reads hoisted out of the statement's
+   *  expressions, which run before it. */
+  pre?: WorkflowStmtIR[];
   envAfter: Env;
   binding?: { name: string; aggName: string; repoName: string };
 }
@@ -519,6 +702,7 @@ function lowerWorkflowStatements(
       repoForAgg,
       saveResolver,
     );
+    if (lowered.pre) into.push(...lowered.pre);
     if (lowered.stmt) into.push(lowered.stmt);
     walkEnv = lowered.envAfter;
   }
@@ -538,19 +722,91 @@ function lowerWorkflowStatement(
   repoForAgg: Map<string, string>,
   saveResolver?: SaveResolver,
 ): LoweredWorkflowStmt {
+  const pre: WorkflowStmtIR[] = [];
+  const hoisted = hoistReads(
+    hoistableReads(stmt, reposByName, queryNamesOf(env.ctx)),
+    env,
+    { aggsByName, reposByName, repoForAgg, saveResolver },
+    pre,
+  );
   const lowered = lowerWorkflowStatementInner(
     stmt,
-    env,
+    hoisted,
     aggsByName,
     reposByName,
     repoForAgg,
     saveResolver,
   );
-  if (!lowered.stmt) return lowered;
+  const withPre = pre.length > 0 ? { pre } : {};
+  if (!lowered.stmt) return { ...lowered, ...withPre };
   return {
     ...lowered,
+    ...withPre,
     stmt: { ...lowered.stmt, origin: lowered.stmt.origin ?? originFor(stmt) },
   };
+}
+
+type BodyMaps = {
+  aggsByName: Map<string, Aggregate>;
+  reposByName: Map<string, Repository>;
+  repoForAgg: Map<string, string>;
+  saveResolver?: SaveResolver;
+};
+
+/** Bind each read in `reads` to a fresh local, in order, through the `let`
+ *  lowering (`hoist-reads.ts`): the `let` statements go to `into`, and the
+ *  returned env lowers each source chain as its local. */
+function hoistReads(
+  reads: readonly HoistableRead[],
+  env: Env,
+  maps: BodyMaps,
+  into: WorkflowStmtIR[],
+): Env {
+  let at = env;
+  for (const h of reads) {
+    const repoName = isNameRef(h.read.head) ? h.read.head.name : "Repo";
+    const name = freshBodyName(`read${upperFirst(repoName)}`, at);
+    const letNode = {
+      $type: "LetStmt",
+      $container: h.chain.$container,
+      name,
+      expr: h.read,
+    } as unknown as LetStmt;
+    const l = lowerWorkflowStatementInner(
+      letNode,
+      at,
+      maps.aggsByName,
+      maps.reposByName,
+      maps.repoForAgg,
+      maps.saveResolver,
+    );
+    if (l.stmt) into.push({ ...l.stmt, origin: originFor(h.chain) });
+    at = { ...l.envAfter, hoistedReads: new Map([...(at.hoistedReads ?? []), [h.chain, name]]) };
+  }
+  return at;
+}
+
+/** `base`, or `base2`, `base3`, … — the first name no local in scope and no
+ *  other declaration of the same body uses. */
+function freshBodyName(base: string, env: Env): string {
+  const used = env.bodyNames;
+  let name = base;
+  for (let i = 2; env.locals.has(name) || used?.has(name); i++) name = `${base}${i}`;
+  used?.add(name);
+  return name;
+}
+
+/** The shared name set of a workflow / handler body (`Env.bodyNames`), seeded
+ *  with every local the body declares at any depth. */
+function withBodyNames(env: Env, body: readonly Statement[]): Env {
+  const names = new Set<string>();
+  for (const s of body) {
+    for (const n of [s, ...AstUtils.streamAllContents(s)]) {
+      if (isLetStmt(n)) names.add(n.name);
+      else if (isForStmt(n) || isIfLetStmt(n)) names.add(n.var);
+    }
+  }
+  return { ...env, bodyNames: names };
 }
 
 function lowerWorkflowStatementInner(
@@ -664,6 +920,10 @@ function lowerWorkflowStatementInner(
     // `Repo.find(id)` — the by-id read that answers absence.
     const anyRepoCall = matchRepoCall(stmt.source, reposByName);
     const byIdFind = findCall || keyFind || anyRepoCall?.verb !== "find" ? undefined : anyRepoCall;
+    // `Repo.find(id) ignoring …` calls its own widened method.
+    const byIdWidened = byIdFind
+      ? matchByIdBypassCall(stmt.source, reposByName, queryNames)?.bypassRead
+      : undefined;
     // `if let o = x` over an optional binding already in scope (`let x =
     // Repo.find…`): no read, only the narrowing.
     const boundLocal = findCall || keyFind || byIdFind ? undefined : localOf(stmt.source, env);
@@ -731,6 +991,9 @@ function lowerWorkflowStatementInner(
         ...(findCall?.bypassRead
           ? { findMethod: bypassReadMethod(findCall.bypassRead), bypassRead: findCall.bypassRead }
           : {}),
+        ...(byIdWidened
+          ? { findMethod: bypassReadMethod(byIdWidened), bypassRead: byIdWidened }
+          : {}),
         thenBody,
         ...(elseBody.length > 0 ? { elseBody } : {}),
         savesInThen,
@@ -753,9 +1016,25 @@ function lowerWorkflowStatementInner(
     const absenceSubject =
       subjectType?.kind === "optional" ||
       (subject.kind === "ref" && env.locals.get(subject.name)?.absenceUnion === true);
+    // An arm's trailing `return` (a terminal match of a `T or E` entry point)
+    // is the answered value, lowered apart by `lowerEntryBody`.
     const lowerBranch = (body: readonly Statement[], branchEnv: Env) =>
-      lowerWorkflowStatements(body, branchEnv, aggsByName, reposByName, repoForAgg, saveResolver)
-        .statements;
+      lowerWorkflowStatements(
+        isReturnStmt(body[body.length - 1]) ? body.slice(0, -1) : body,
+        branchEnv,
+        aggsByName,
+        reposByName,
+        repoForAgg,
+        saveResolver,
+      ).statements;
+    // A subject bound to an error-carrying mutating call's result: the call's
+    // mutations commit only where the result is not an error, so each such arm
+    // saves them at its end and an error arm saves nothing for them.
+    const guard = subject.kind === "ref" ? env.locals.get(subject.name)?.resultGuard : undefined;
+    const withGuardSaves = (saves: SaveEntry[]): SaveEntry[] => [
+      ...saves,
+      ...(guard?.saves ?? []).filter((g) => !saves.some((sv) => sv.name === g.name)),
+    ];
     const arms = stmt.varArms.map((arm) => {
       const varType = lowerAtom(arm.varType, env);
       const armEnv = !arm.binding
@@ -770,12 +1049,15 @@ function lowerWorkflowStatementInner(
               repoName: repoForAgg.get(varType.name) ?? plural(varType.name),
             }
           : undefined;
+      const isError = isErrorVariantTag(variantTag(varType), env);
+      const savesInArm = computeSaves(body, repoForAgg, binder, saveResolver);
       return {
         varType,
         ...(arm.binding ? { binding: arm.binding } : {}),
-        isError: isErrorVariantTag(variantTag(varType), env),
+        isError,
         body,
-        savesInArm: computeSaves(body, repoForAgg, binder, saveResolver),
+        savesInArm: isError ? savesInArm : withGuardSaves(savesInArm),
+        ...(isError && guard && guard.saves.length > 0 ? { discardsInArm: guard.saves } : {}),
       };
     });
     // On a `T?` subject over an aggregate the `else` runs on a miss of that
@@ -790,6 +1072,25 @@ function lowerWorkflowStatementInner(
           s.kind === "not-found" && missed ? { ...s, subject: missed } : s,
         )
       : undefined;
+    const savesInElse = computeSaves(elseBody ?? [], repoForAgg, undefined, saveResolver);
+    // The `else` of a guarded match commits only when every variant it covers
+    // is a success; one that covers an error saves nothing for the call (an
+    // `else` covering both is refused by `loom.workflow-mutation-result-unmatched`).
+    const armTags = new Set(arms.map((a) => variantTag(a.varType)));
+    const elseCovers =
+      subjectType?.kind === "union"
+        ? subjectType.variants.map(variantTag).filter((tag) => !armTags.has(tag))
+        : [];
+    const elseCommitsGuard =
+      guard !== undefined &&
+      elseBody !== undefined &&
+      elseCovers.length > 0 &&
+      elseCovers.every((tag) => !guard.errorVariants.includes(tag));
+    const elseDropsGuard =
+      guard !== undefined &&
+      guard.saves.length > 0 &&
+      elseBody !== undefined &&
+      elseCovers.some((tag) => guard.errorVariants.includes(tag));
     return {
       stmt: {
         kind: "variant-match",
@@ -798,7 +1099,8 @@ function lowerWorkflowStatementInner(
         ...(absenceSubject ? { subjectShape: "absence" as const } : {}),
         arms,
         ...(elseBody ? { elseBody } : {}),
-        savesInElse: computeSaves(elseBody ?? [], repoForAgg, undefined, saveResolver),
+        savesInElse: elseCommitsGuard ? withGuardSaves(savesInElse) : savesInElse,
+        ...(elseDropsGuard ? { discardsInElse: guard.saves } : {}),
       },
       envAfter: env,
     };
@@ -877,9 +1179,16 @@ function lowerWorkflowStatementInner(
       const hasShaping = sortTerms.length > 0 || loadPaths.length > 0;
       const loadPlan: LoadPlanIR =
         loadPaths.length > 0 ? { kind: "explicit", paths: loadPaths } : { kind: "whole" };
-      const retrievalName = anon
-        ? `findAllBy${anon.criterionName}${hasShaping ? shapeSuffix(sortTerms, loadPaths) : ""}`
-        : runCall.retrievalName;
+      // A widened read (`… ignoring …`) runs a retrieval of its own, named for
+      // its stance, so the shared retrieval every other caller runs keeps its
+      // filters; enrichment derives it (`synthesizeFindAllRetrievals` /
+      // `synthesizeWidenedRetrievals`) with the stance on it.
+      const retrievalName = widenedRetrievalName(
+        anon
+          ? `findAllBy${anon.criterionName}${hasShaping ? shapeSuffix(sortTerms, loadPaths) : ""}`
+          : runCall.retrievalName,
+        bypass,
+      );
       const retrievalArgs = anon ? anon.criterionArgs : runCall.retrievalArgs;
       return {
         stmt: {
@@ -912,6 +1221,10 @@ function lowerWorkflowStatementInner(
     if (findOneCall) {
       const aggName = findOneCall.repo.aggregate?.ref?.name ?? "Unknown";
       const returnType: TypeIR = { kind: "optional", inner: { kind: "entity", name: aggName } };
+      // A widened read (`… ignoring …`) calls its own method, exactly as the
+      // `if let` over the same source does; the plain read runs the shared
+      // retrieval.
+      const widened = findOneCall.bypassRead;
       return {
         stmt: {
           kind: "repo-let",
@@ -919,10 +1232,12 @@ function lowerWorkflowStatementInner(
           repoName: findOneCall.repo.name,
           aggName,
           op: "select-one",
-          method: "find",
+          method: widened ? bypassReadMethod(widened) : "find",
           args: findOneCall.criterionArgs.map((a) => lowerExpr(a, env)),
           returnType,
-          retrievalName: `findAllBy${findOneCall.criterionName}`,
+          ...(widened
+            ? { bypassRead: widened }
+            : { retrievalName: `findAllBy${findOneCall.criterionName}` }),
           synthCriterion: { name: findOneCall.criterionName },
         },
         envAfter: withLocal(env, stmt.name, "let", returnType),
@@ -950,6 +1265,28 @@ function lowerWorkflowStatementInner(
         },
         envAfter: withLocal(env, stmt.name, "let", returnType),
         binding: { name: stmt.name, aggName, repoName: keyCall.repo.name },
+      };
+    }
+    // repo-let over a widened by-id read: `let o = Repo.find(id) ignoring …`
+    // binds `T?` through the read's own method, as the `if let` source does.
+    const byIdWidened = matchByIdBypassCall(expr, reposByName, queryNames);
+    if (byIdWidened) {
+      const aggName = byIdWidened.repo.aggregate?.ref?.name ?? "Unknown";
+      const returnType: TypeIR = { kind: "optional", inner: { kind: "entity", name: aggName } };
+      return {
+        stmt: {
+          kind: "repo-let",
+          name: stmt.name,
+          repoName: byIdWidened.repo.name,
+          aggName,
+          op: "load-optional",
+          method: bypassReadMethod(byIdWidened.bypassRead),
+          args: byIdWidened.args.map((a) => lowerExpr(a, env)),
+          returnType,
+          bypassRead: byIdWidened.bypassRead,
+        },
+        envAfter: withLocal(env, stmt.name, "let", returnType, { absenceUnion: true }),
+        binding: { name: stmt.name, aggName, repoName: byIdWidened.repo.name },
       };
     }
     // repo-let: `Repo.method(args)`
@@ -990,6 +1327,13 @@ function lowerWorkflowStatementInner(
         binding: { name: stmt.name, aggName, repoName: repo.name },
       };
     }
+    // A mutating call bound with `let`: `let r = a.withdraw(x)` (an operation
+    // of the aggregate a local holds) or `let r = Transfer.run(…)` (a
+    // `mutating` domain-service operation).  Lowered to the call statement it
+    // is, carrying the binding, so it mutates — and saves — exactly what the
+    // bare statement does.
+    const boundCall = lowerBoundMutatingCall(stmt, env, aggsByName, repoForAgg, saveResolver);
+    if (boundCall) return boundCall;
     // expr-let: scalar / generic expression.  A declared type is the binding's
     // type, and the value lowers against it (literal promotion).
     const t = stmt.type ? lowerType(stmt.type, env) : inferExprType(stmt.expr, env);
@@ -1218,6 +1562,87 @@ function lowerWorkflowStatementInner(
       expr: { kind: "ref", name: "unknown", refKind: "unknown" },
     },
     envAfter: env,
+  };
+}
+
+/** `let r = a.op(args)` over an operation of the aggregate local `a` holds →
+ *  an `op-call` with a `result`; `let r = Svc.op(args)` over a `mutating`
+ *  domain-service operation → a `domain-service-call` with a `result`.
+ *  Anything else is not a bound mutating call (undefined).
+ *
+ *  When the result type is a union with `error` variants the binding carries a
+ *  `resultGuard`: the aggregates the call mutates, which a later statement
+ *  `match` over the binding saves in its non-error arms (and which
+ *  `computeSaves` leaves out of every exit save). */
+function lowerBoundMutatingCall(
+  stmt: LetStmt,
+  env: Env,
+  aggsByName: Map<string, Aggregate>,
+  repoForAgg: Map<string, string>,
+  saveResolver: SaveResolver | undefined,
+): LoweredWorkflowStmt | undefined {
+  const expr = stmt.expr;
+  if (!expr || !isPostfixChain(expr) || expr.suffixes.length !== 1) return undefined;
+  const suffix = expr.suffixes[0]!;
+  if (!isMemberSuffix(suffix) || !suffix.call || !isNameRef(expr.head)) return undefined;
+  const head = expr.head.name;
+  const opName = suffix.member;
+  const saveOf = (name: string, aggName: string) => ({
+    name,
+    aggName,
+    repoName: repoForAgg.get(aggName) ?? plural(aggName),
+  });
+  const resultOf = (mutated: { name: string; aggName: string; repoName: string }[]) => {
+    const type = stmt.type ? lowerType(stmt.type, env) : inferExprType(expr, env);
+    const errorVariants =
+      type.kind === "union"
+        ? type.variants.map(variantTag).filter((tag) => isErrorVariantTag(tag, env))
+        : [];
+    const resultGuard = errorVariants.length > 0 ? { saves: mutated, errorVariants } : undefined;
+    return {
+      result: { name: stmt.name, type, errorVariants },
+      envAfter: withLocal(env, stmt.name, "let", type, resultGuard ? { resultGuard } : {}),
+    };
+  };
+  if (env.locals.has(head)) {
+    const aggName = aggNameForLocal(env, head);
+    const agg = aggName ? aggsByName.get(aggName) : undefined;
+    if (!aggName || !agg?.members.some((m) => isOperation(m) && m.name === opName)) {
+      return undefined;
+    }
+    const lowered = lowerExpr(expr, env);
+    if (lowered.kind !== "method-call") return undefined;
+    const { result, envAfter } = resultOf([saveOf(head, aggName)]);
+    return {
+      stmt: { kind: "op-call", target: head, aggName, op: opName, args: lowered.args, result },
+      envAfter,
+    };
+  }
+  const svc = findDomainServiceByName(env, head);
+  const svcOp = svc ? saveResolver?.resolveServiceOp(svc.name, opName) : undefined;
+  if (!svc || !svcOp || !saveResolver) return undefined;
+  const mutatedParams = mutatedParamNames(svcOp, saveResolver.resolveAggOp);
+  if (mutatedParams.size === 0) return undefined;
+  const call = lowerExpr(expr, env);
+  if (call.kind !== "call" || call.callKind !== "domain-service") return undefined;
+  const callArgs = call.args;
+  const mutated: { name: string; aggName: string; repoName: string }[] = [];
+  svcOp.params.forEach((p, i) => {
+    const arg = callArgs[i];
+    if (mutatedParams.has(p.name) && p.type.kind === "entity" && arg?.kind === "ref") {
+      mutated.push(saveOf(arg.name, p.type.name));
+    }
+  });
+  const { result, envAfter } = resultOf(mutated);
+  return {
+    stmt: {
+      kind: "domain-service-call",
+      service: svc.name,
+      op: opName,
+      call,
+      result,
+    },
+    envAfter,
   };
 }
 

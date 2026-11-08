@@ -102,12 +102,11 @@ defmodule ${appModule}.Audit.History do
   Every audit row for one entity, oldest first — a timeline reads forwards, and
   \`at\` plus the \`(target_type, target_id)\` index make it the natural scan order.
 
-  The \`audit_id\` tiebreak is load-bearing on THIS backend and on no other: the
-  \`at\` column is written through Ecto's \`:utc_datetime\`, which truncates to the
-  second, so two commands on the same entity inside one second tie on \`at\` alone
-  and the row order would be whatever the planner felt like.  \`audit_id\` is a
-  UUIDv7 — time-ordered by construction — so it breaks the tie in commit order
-  rather than arbitrarily.
+  The \`audit_id\` tiebreak keeps the order total: \`at\` is stored at the
+  millisecond, so two commands on the same entity inside one millisecond tie on
+  \`at\` alone and the row order would be whatever the planner felt like.
+  \`audit_id\` is a UUIDv7 — time-ordered by construction — so it breaks the tie
+  in commit order rather than arbitrarily.
   """
   @spec for_target(module(), String.t(), String.t()) :: [Record.t()]
   def for_target(repo, target_type, target_id) do

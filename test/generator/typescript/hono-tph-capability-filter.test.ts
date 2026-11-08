@@ -24,16 +24,11 @@ import { describe, expect, it } from "vitest";
 import { scopeFn } from "../../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-// These fixtures used to ride the legacy `generateHono` helper on a BARE loose
-// context.  Once that path asserts phase ⑦ (M-T9.48) the shape is refused, and
-// correctly: TPH is a HOSTED capability — `validateInheritanceStorage` reports
-// `loom.tph-backend-unsupported` ("no TPH-capable backend deployable hosts this
-// context") — and the legacy path cannot host anything, because declaring a
-// `system` re-parents every loose context into it and empties the
-// `loom.contexts` list `generateTypeScript` emits from.  So the fixture grows
-// the deployable it always implied and emits through the orchestrator instead.
-// The map is re-keyed to drop the deployable directory, so every assertion
-// below reads the same path it did before.
+// TPH is a HOSTED capability — `validateInheritanceStorage` reports
+// `loom.tph-backend-unsupported` when no TPH-capable backend deployable hosts
+// the context — so the fixture declares the deployable and emits through the
+// system orchestrator.  The map is re-keyed to drop the deployable directory,
+// so every assertion below reads a project-relative path.
 async function gen(contextSrc: string): Promise<Map<string, string>> {
   const files = await generateSystemFiles(`
     system Fleets {

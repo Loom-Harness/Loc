@@ -62,7 +62,10 @@ describe("flutter nested value-object form fields", () => {
     expect(src).toContain("_addrGeoLatController.dispose();");
     expect(src).toContain("_addrGeoLngController.dispose();");
     // The label carries the path, so the form is readable.
-    expect(src).toContain("labelText: 'addr geo lat'");
+    // (each segment its own identity key: `Place.addr`, `Addr.geo`, `Geo.lat`)
+    expect(src).toContain(
+      "labelText: [t('C.Place.field.addr', 'Addr'), t('C.Addr.field.geo', 'Geo'), t('C.Geo.field.lat', 'Lat')].join(' ')",
+    );
     // And the drop marker the old emitter produced is GONE.
     expect(src).not.toContain("TODO(flutter form-field)");
   });

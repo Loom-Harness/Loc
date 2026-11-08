@@ -26,13 +26,21 @@
 // entry per chrome string as the pack-chrome slices land.
 // ---------------------------------------------------------------------------
 
-import type { ExprIR } from "../../ir/types/loom-ir.js";
+import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import type {
+  AggregateIR,
+  BoundedContextIR,
+  ExprIR,
+  TypeIR,
+  UiIR,
+  WorkflowIR,
+} from "../../ir/types/loom-ir.js";
+import { walkExprDeep } from "../../ir/util/walk.js";
+import { humanize } from "../../util/naming.js";
 import type { MessageEntry } from "./i18n-extract.js";
-import {
-  gridHasFilterableColumn,
-  gridHasSelection,
-  gridHasSortableColumn,
-} from "./primitives/data-grid-shape.js";
+import { implicitModelTextEntries } from "./model-text-sites.js";
+import { gridHasFilterableColumn, gridHasSelection } from "./primitives/data-grid-shape.js";
+import { sourceText } from "./source-text.js";
 
 /** Stable key for a pack-chrome string: `chrome.<name>`. */
 export function chromeKey(name: string): string {
@@ -61,12 +69,11 @@ export const CHROME_MESSAGES: Record<string, string> = {
   // reason `openMenu` and `toggleNavigation` stayed apart.  "Next" IS shared,
   // because both spell it identically.
   [chromeKey("prev")]: "Prev",
-  // The per-column control ARIA — a grid's sort button and filter input each
-  // need an accessible name that says WHICH column, so both are ICU messages
-  // with a `{column}` hole rather than a bare "Sort"/"Filter".  Holed chrome in
-  // ATTRIBUTE position; see `localizedChromeIcuAria`.
-  [chromeKey("sortBy")]: "Sort by {column}",
-  [chromeKey("filterBy")]: "Filter by {column}",
+  // The per-column sort button takes its accessible name from its own content
+  // (the column header), and the per-column filter input is named by
+  // `filter`: neither inserts the header into a sentence frame, because a
+  // translated noun cannot be dropped into a fixed phrase in a language with
+  // case or gender agreement.
   // The row-selection checkboxes' accessible names.  A checkbox has no visible
   // label — its whole accessible name IS this string — so an untranslated one
   // leaves a screen-reader user with an unlabelled control at every locale but
@@ -83,11 +90,7 @@ export const CHROME_MESSAGES: Record<string, string> = {
   [chromeKey("selectPlaceholder")]: "Select…",
   // Emitter-built chrome — user-visible English constructed in the WALKER (not
   // in a pack template), so neither the extraction pass nor the pack-chrome
-  // `.hbs` slice ever saw it.  `{entity}` is the humanized aggregate name: a
-  // DSL identifier, so it stays as authored while the sentence around it
-  // translates (the alternative is leaving the whole sentence English).
-  [chromeKey("deleteEntity")]: "Delete {entity}",
-  [chromeKey("deleteConfirm")]: "Delete this {entity}?",
+  // `.hbs` slice ever saw it.
   [chromeKey("cancel")]: "Cancel",
   // The op dialog's dismiss label when the operation itself is named "Cancel",
   // and its close icon's name ("Close dialog" when the operation is named
@@ -143,9 +146,173 @@ export function opDialogChrome(submitLabel: string): OpDialogChrome {
  *  "undefined" — the emitted default MUST equal the catalog entry, so the two
  *  read the same table instead of repeating the English by hand. */
 export function chromeMessage(name: string): string {
-  const message = CHROME_MESSAGES[chromeKey(name)];
+  const message = CHROME_MESSAGES[chromeKey(name)] ?? sentenceChromeMessage(name);
   if (message === undefined) throw new Error(`i18n-chrome: unknown chrome string "${name}"`);
-  return message;
+  return sourceText(chromeKey(name), message);
+}
+
+// ---------------------------------------------------------------------------
+// Per-subject whole sentences.
+//
+// The unit of translation is a whole sentence.  "Delete this {entity}?" filled
+// with an aggregate name at runtime cannot be right in a language with gender
+// or case agreement ("Supprimer cette tâche ?" vs "Supprimer ce projet ?"), so
+// a message that varies by aggregate, operation or item type is generated as
+// one complete sentence PER SUBJECT, where the subject is known at generate
+// time, and carries no hole for a word.  Data holes (`{page}`, `{count}`) are
+// the only placeholders a chrome message may have.
+//
+// A sentence's chrome name is `<base>.<subject>` (`deleteConfirm.Task`), so its
+// catalog key is `chrome.deleteConfirm.Task`; every `localizedPageChrome*`
+// helper accepts such a name unchanged.
+// ---------------------------------------------------------------------------
+
+/** The sentence builders, by base name.  The subject is the DSL identifier the
+ *  sentence is about: an aggregate (`deleteEntity`, `deleteConfirm`), a value
+ *  object that is an array element (`addItem`), or an operation
+ *  (`operationSucceeded`). */
+export const SENTENCE_CHROME: Record<string, (subject: string) => string> = {
+  deleteEntity: (aggregate) => `Delete ${humanize(aggregate)}`,
+  deleteConfirm: (aggregate) => `Delete this ${humanize(aggregate).toLowerCase()}?`,
+  addItem: (element) => `Add ${humanize(element)}`,
+  operationSucceeded: (operation) => `${humanize(operation)} succeeded`,
+};
+
+/** The chrome name of the `base` sentence about `subject`. */
+export function sentenceChromeName(base: string, subject: string): string {
+  return `${base}.${subject}`;
+}
+
+function sentenceChromeMessage(name: string): string | undefined {
+  const dot = name.indexOf(".");
+  if (dot < 0) return undefined;
+  return SENTENCE_CHROME[name.slice(0, dot)]?.(name.slice(dot + 1));
+}
+
+/** The sentence chrome names a `DestroyForm` call contributes: the button
+ *  label and the confirm prompt for the aggregate it names. */
+function destroyFormSentences(call: ExprIR & { kind: "call" }): readonly string[] {
+  const names = call.argNames ?? [];
+  const idx = names.indexOf("of");
+  const target = idx >= 0 ? call.args[idx] : undefined;
+  if (target?.kind !== "ref") return [];
+  return [
+    sentenceChromeName("deleteEntity", target.name),
+    sentenceChromeName("deleteConfirm", target.name),
+  ];
+}
+
+/** Every value-object name used as an array ELEMENT in `t` — the types a
+ *  dynamic-row form field renders an "Add <item>" button for. */
+function arrayElementValueObjects(t: TypeIR | undefined, out: Set<string>): void {
+  if (!t) return;
+  if (t.kind === "optional") {
+    arrayElementValueObjects(t.inner, out);
+    return;
+  }
+  if (t.kind !== "array") return;
+  let el = t.element;
+  while (el.kind === "optional") el = el.inner;
+  if (el.kind === "valueobject") out.add(el.name);
+  else arrayElementValueObjects(el, out);
+}
+
+/** What the model-dependent sentences of a UI's FORMS are enumerated against.
+ *
+ *  `contexts` resolve the aggregates, operations and workflows a form call
+ *  names; `sentences` are the sentence bases (`operationSucceeded`, `addItem`)
+ *  the active design pack actually renders — its manifest's `sentenceChrome`.
+ *  A pack that renders neither contributes no such key, so no catalog carries a
+ *  sentence nothing reads. */
+export interface FormSentenceScope {
+  readonly contexts: readonly BoundedContextIR[];
+  readonly sentences: readonly string[];
+  /** The rendering target keys its IMPLICIT model-text sites by identity
+   *  (`WalkerTarget.modelTextImplicitSites`), so their keys belong in the
+   *  catalog; unset ⇒ those sites render English and carry no key. */
+  readonly implicitModelText?: boolean;
+  /** The rendering target's create form also shows OPTIONAL inputs (HEEx has
+   *  no update flow to defer them to), so their labels are catalogued too. */
+  readonly optionalCreateInputs?: boolean;
+}
+
+/** The `X[]`-of-value-object field types a form over `params` repeats. */
+function arrayElements(params: readonly { type: TypeIR }[], out: Set<string>): void {
+  for (const p of params) arrayElementValueObjects(p.type, out);
+}
+
+/** Resolve a form call's `of:` aggregate name (a ref, or a string literal). */
+function ofName(call: ExprIR & { kind: "call" }, argName: string): string | undefined {
+  const names = call.argNames ?? [];
+  const idx = names.indexOf(argName);
+  const arg = idx >= 0 ? call.args[idx] : undefined;
+  if (arg?.kind === "ref") return arg.name;
+  if (arg?.kind === "literal" && arg.lit === "string") return arg.value;
+  return undefined;
+}
+
+/** The model-derived sentences a UI renders, as chrome names, read off the form
+ *  calls in its page and component bodies:
+ *
+ *   - `DestroyForm(of: Agg)` → the delete button + confirm prompt for `Agg`;
+ *   - with `scope`, `OperationForm` of op `o` → `operationSucceeded.o`, and each
+ *     value object a `CreateForm` / `OperationForm` / `WorkflowForm` field
+ *     repeats → `addItem.<ValueObject>`, for the bases the pack renders.
+ *
+ *  Exact per call, so a UI that renders no such form carries no such key. */
+export function sentenceChromeNamesForUi(ui: UiIR, scope?: FormSentenceScope): string[] {
+  const names = new Set<string>();
+  const wants = (base: string) => scope?.sentences.includes(base) === true;
+  const aggregates = new Map<string, AggregateIR>();
+  const workflows = new Map<string, WorkflowIR>();
+  for (const bc of scope?.contexts ?? []) {
+    for (const agg of bc.aggregates) aggregates.set(agg.name, agg);
+    for (const wf of bc.workflows) workflows.set(wf.name, wf);
+  }
+  const elements = new Set<string>();
+
+  const visit = (body: ExprIR | undefined) =>
+    walkExprDeep(body, (e) => {
+      if (e.kind !== "call") return;
+      if (e.name === "DestroyForm") {
+        for (const n of destroyFormSentences(e)) names.add(n);
+      } else if (e.name === "OperationForm") {
+        const opArg = (e.argNames ?? []).indexOf("op");
+        const named = opArg >= 0 ? e.args[opArg] : undefined;
+        const positional = e.args.find((_, i) => !(e.argNames ?? [])[i]);
+        const opName =
+          named?.kind === "ref"
+            ? named.name
+            : positional?.kind === "member"
+              ? positional.member
+              : "";
+        if (opName === "") return;
+        if (wants("operationSucceeded"))
+          names.add(sentenceChromeName("operationSucceeded", opName));
+        if (wants("addItem")) {
+          const owner = ofName(e, "of");
+          for (const agg of owner ? [aggregates.get(owner)] : aggregates.values()) {
+            for (const op of agg?.operations ?? []) {
+              if (op.name === opName) arrayElements(op.params, elements);
+            }
+          }
+        }
+      } else if (e.name === "CreateForm" && wants("addItem")) {
+        const agg = aggregates.get(ofName(e, "of") ?? "");
+        if (agg)
+          arrayElements(
+            createInputFields(agg).filter((f) => !f.optional),
+            elements,
+          );
+      } else if (e.name === "WorkflowForm" && wants("addItem")) {
+        const wf = workflows.get(ofName(e, "runs") ?? "");
+        if (wf) arrayElements(wf.params, elements);
+      }
+    });
+  for (const page of ui.pages) visit(page.body);
+  for (const component of ui.components) visit(component.body);
+  for (const el of elements) names.add(sentenceChromeName("addItem", el));
+  return [...names].sort();
 }
 
 /** One catalog entry for a chrome name. */
@@ -177,16 +344,13 @@ export const CHROME_BY_PRIMITIVE: Record<string, ChromeContribution> = {
     entry("previous"),
     entry("next"),
     entry("pageOf"),
-    // Both per-column control names are contributed EXACTLY, not merged: each
-    // rides a predicate that is fully readable off the call node, so the key is
-    // present in precisely the grids that render the control.  `sortable:` and
-    // `filterable:` are independent, hence two gates rather than one.
-    ...(gridHasSortableColumn(call) ? [entry("sortBy")] : []),
     // Exact for the same reason the two above are: `selection:` naming a
     // non-state field is a validation ERROR, so its presence on the call node
     // settles whether the checkbox column renders.
     ...(gridHasSelection(call) ? [entry("selectAllRows"), entry("selectRow")] : []),
-    ...(gridHasFilterableColumn(call) ? [entry("filter"), entry("filterBy")] : []),
+    // Exact: the filter input (and its accessible name) renders iff a column
+    // asked to be filtered.
+    ...(gridHasFilterableColumn(call) ? [entry("filter")] : []),
   ],
   // A `SelectField` ALWAYS renders the picker, so this is exact — the primitive
   // is the only thing that renders `primitive-select-field`.
@@ -266,14 +430,12 @@ export const APP_SHELL_CHROME: Record<string, string> = {
  *  one phrase, while a missing one is a binding no locale can ever reach. */
 export const FORM_CHROME: Record<string, string> = {
   [chromeKey("selectPlaceholder")]: "Select…",
-  // The destroy button's label, its `window.confirm` prompt, and the op
-  // dialog's dismiss label and close-icon name (`opDialogChrome`) — all built in the EMITTER from model data, so neither the
-  // content-hash extraction pass nor the pack-chrome `.hbs` slice ever saw
-  // them.  They sit here rather than in `CHROME_BY_PRIMITIVE` for the same
+  // The op dialog's dismiss label and close-icon name (`opDialogChrome`) —
+  // built in the EMITTER, so neither the content-hash extraction pass nor the
+  // pack-chrome `.hbs` slice ever saw them.  (The destroy button's label and
+  // prompt are per-aggregate whole sentences — see {@link SENTENCE_CHROME}.)  They sit here rather than in `CHROME_BY_PRIMITIVE` for the same
   // reason `selectPlaceholder` does: `DestroyForm`/`Modal` are form primitives,
   // and a form must not FLIP i18n on for an app with no authored strings.
-  [chromeKey("deleteEntity")]: "Delete {entity}",
-  [chromeKey("deleteConfirm")]: "Delete this {entity}?",
   [chromeKey("cancel")]: "Cancel",
   [chromeKey("goBack")]: "Go back",
   [chromeKey("close")]: "Close",
@@ -284,7 +446,7 @@ export const FORM_CHROME: Record<string, string> = {
 };
 
 /** Chrome a `Table`'s CONTROLS render — the pager's "Prev" / "Next" / position
- *  counter, plus the sortable header's accessible name.
+ *  counter,
  *
  *  Merged-when-already-enabled rather than contributed off the `Table` call
  *  node, for the same reason `FORM_CHROME` is: the pager is CONDITIONAL, and
@@ -300,14 +462,6 @@ export const TABLE_CONTROLS_CHROME: Record<string, string> = {
   [chromeKey("prev")]: "Prev",
   [chromeKey("next")]: "Next",
   [chromeKey("pageOf")]: "Page {page} of {pages}",
-  // Only FLUTTER's sortable header carries a name of its own: a Dart widget has
-  // no implicit accessible name, so it wraps the header in `Semantics(label:
-  // 'Sort by …')`, where the four JSX targets and Feliz render a real `<button>`
-  // whose CONTENT names it.  Merged rather than contributed for the same reason
-  // as the pager — the sortable header rides `serverControls` too.  (The GRID's
-  // sort button contributes `sortBy` exactly, off its own call node; this is the
-  // TABLE's separate, unmergeable half.)
-  [chromeKey("sortBy")]: "Sort by {column}",
 };
 
 /** Every chrome table merged into a catalog ONLY when the UI is already
@@ -317,6 +471,29 @@ export const TABLE_CONTROLS_CHROME: Record<string, string> = {
  *  editing this function instead of by remembering both callers
  *  (`system/i18n-catalog.ts` for `.loom/messages.en.json`, and
  *  `_frontend/i18n-runtime.ts` for each app's `locales/en.json`). */
-export function chromeMergedWhenEnabled(): Record<string, string> {
-  return { ...APP_SHELL_CHROME, ...FORM_CHROME, ...TABLE_CONTROLS_CHROME };
+export function chromeMergedWhenEnabled(
+  ui?: UiIR,
+  scope?: FormSentenceScope,
+): Record<string, string> {
+  const out: Record<string, string> = {
+    ...APP_SHELL_CHROME,
+    ...FORM_CHROME,
+    ...TABLE_CONTROLS_CHROME,
+  };
+  if (ui) {
+    for (const name of sentenceChromeNamesForUi(ui, scope)) {
+      out[chromeKey(name)] = chromeMessage(name);
+    }
+    // The implicit model-text sites (form labels, enum options, submit
+    // buttons) — identity-keyed, and like the form chrome above never the
+    // reason a UI turns translatable.
+    if (scope?.implicitModelText) {
+      for (const { key, message } of implicitModelTextEntries(ui, scope.contexts, {
+        optionalCreateInputs: scope.optionalCreateInputs === true,
+      })) {
+        out[key] = message;
+      }
+    }
+  }
+  return out;
 }

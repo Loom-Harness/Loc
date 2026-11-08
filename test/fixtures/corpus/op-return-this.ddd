@@ -1,0 +1,73 @@
+// An operation that answers its own aggregate.  `bump` returns `this`, and
+// `withdraw`'s success arm is the aggregate itself.  The route answers the
+// aggregate's wire projection — the same `AccountResponse` fields a GET reads
+// (`id`, `owner`, `balance`, `version`), tagged `type: "Account"` for the union
+// arm — never the domain object's own representation.
+//
+// `withdraw` returns early from an `if` branch; lowering moves the statements
+// after it into the other branch, so every backend renders a tail `return`.
+system OpReturnThis {
+  subdomain Banking {
+    context Ledger {
+      error Insufficient { available: int }
+
+      aggregate Account with crudish {
+        owner: string
+        balance: int
+        operation bump(): Account {
+          balance := balance + 1
+          return this
+        }
+        operation withdraw(amt: int): Account or Insufficient {
+          if amt > balance {
+            return Insufficient { available: balance }
+          }
+          balance := balance - amt
+          return this
+        }
+      }
+      repository Accounts for Account
+    }
+  }
+  api BankApi from Banking {
+    httpStatus Insufficient -> 409
+  }
+  storage primary { type: postgres }
+  resource ledgerState { for: Ledger, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ledger]
+    dataSources: [ledgerState]
+    serves: BankApi
+    port: 4000
+  }
+
+  test e2e "an operation returning its aggregate answers the aggregate's wire shape" against d {
+    let a = api.accounts.create({ owner: "ann", balance: 100 })
+
+    // `return this` answers AccountResponse.
+    let b = api.accounts.bump(a)
+    expect(b.id).toBe(a.id)
+    expect(b.owner).toBe("ann")
+    expect(b.balance).toBe(101)
+
+    // The aggregate arm of a union answers AccountResponse tagged `Account`.
+    let w = api.accounts.withdraw(a, { amt: 10 })
+    expect(w.type).toBe("Account")
+    expect(w.id).toBe(a.id)
+    expect(w.owner).toBe("ann")
+    expect(w.balance).toBe(91)
+
+    // The error arm answers its mapped status and leaves no trace.
+    expect(api.accounts.withdraw(a, { amt: 500 })).toThrow(409)
+    expect(api.accounts.getById(a).balance).toBe(91)
+
+    // The remaining generated routes.
+    api.accounts.update(a, { owner: "bea", balance: 91 })
+    expect(api.accounts.getById(a).owner).toBe("bea")
+    let listed = api.accounts.all()
+    expect(listed.items.length).toBe(1)
+    api.accounts.destroy(a)
+    expect(api.accounts.getById(a)).toThrow(404)
+  }
+}

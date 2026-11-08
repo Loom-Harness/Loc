@@ -101,16 +101,16 @@
             "customerId": "<volatile:key>",
             "display": "O-1",
             "id": "<volatile:key>",
-            "total": "10.0000",
-            "version": 2
+            "rowVersion": 2,
+            "total": "10.0000"
           },
           {
             "code": "O-2",
             "customerId": "<volatile:key>",
             "display": "O-2",
             "id": "<volatile:key>",
-            "total": "20.0000",
-            "version": 1
+            "rowVersion": 1,
+            "total": "20.0000"
           }
         ],
         "page": 1,
@@ -129,8 +129,8 @@
         "customerId": "<volatile:key>",
         "display": "O-2",
         "id": "<volatile:key>",
-        "total": "20.0000",
-        "version": 1
+        "rowVersion": 1,
+        "total": "20.0000"
       }
     },
     {
@@ -143,14 +143,14 @@
           {
             "id": "<volatile:key>",
             "name": "Acme",
-            "tier": "gold",
-            "version": 1
+            "rowVersion": 1,
+            "tier": "gold"
           },
           {
             "id": "<volatile:key>",
             "name": "Globex",
-            "tier": "silver",
-            "version": 1
+            "rowVersion": 1,
+            "tier": "silver"
           }
         ],
         "page": 1,
@@ -167,8 +167,8 @@
       "body": {
         "id": "<volatile:key>",
         "name": "Acme",
-        "tier": "gold",
-        "version": 1
+        "rowVersion": 1,
+        "tier": "gold"
       }
     },
     {
@@ -186,8 +186,8 @@
       "body": {
         "id": "<volatile:key>",
         "name": "Acme Corp",
-        "tier": "gold",
-        "version": 2
+        "rowVersion": 2,
+        "tier": "gold"
       }
     },
     {

@@ -1,6 +1,9 @@
+import { moneyWire } from "../../ir/enrich/codec.js";
 import type { NumericTarget } from "../_numeric/target.js";
-import { MONEY_WIRE_SCALE } from "../money-scale.js";
 import { J } from "./java-symbols.js";
+
+/** Fractional digits a money wire string carries — the `Codec` fact's scale. */
+const moneyScale = (): number => moneyWire().scale;
 
 // ---------------------------------------------------------------------------
 // Java's `NumericTarget` (M-T9.36) — the ONE place `.setScale(4,
@@ -20,7 +23,7 @@ export const JAVA_NUMERIC: NumericTarget = {
     // canonical `NUMERIC(19,4)` scale for a wire value byte-consistent with
     // the other backends.
     "dto-map": (e) =>
-      `${e}.setScale(${MONEY_WIRE_SCALE}, java.math.RoundingMode.HALF_UP).toPlainString()`,
+      `${e}.setScale(${moneyScale()}, java.math.RoundingMode.HALF_UP).toPlainString()`,
     // Inbound wire string → domain `BigDecimal` (`wireToDomain`).
     "find-param": (e) => `new ${J.BigDecimal}(${e})`,
     // JPQL hands back an aggregate result whose runtime type is
@@ -28,7 +31,7 @@ export const JAVA_NUMERIC: NumericTarget = {
     // another), so re-wrap through `.toString()` before pinning the fixed
     // scale — the same #2549 rule `dto-map` applies on a per-row read.
     "projection-read": (e) =>
-      `new java.math.BigDecimal(${e}.toString()).setScale(${MONEY_WIRE_SCALE}, java.math.RoundingMode.HALF_UP).toPlainString()`,
+      `new java.math.BigDecimal(${e}.toString()).setScale(${moneyScale()}, java.math.RoundingMode.HALF_UP).toPlainString()`,
   },
   decimal: {
     // decimal → the response's `double` component (RS-24 / M-T6.46).  The
@@ -83,5 +86,5 @@ export const JAVA_NUMERIC: NumericTarget = {
  *  difference the byte-identical refactor gate must preserve exactly (see
  *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-2-numeric-codec.md). */
 export function javaMoneyProjectionKeyEncode(read: string): string {
-  return `new ${J.BigDecimal}(${read}.toString()).setScale(${MONEY_WIRE_SCALE}, java.math.RoundingMode.HALF_UP).toPlainString()`;
+  return `new ${J.BigDecimal}(${read}.toString()).setScale(${moneyScale()}, java.math.RoundingMode.HALF_UP).toPlainString()`;
 }

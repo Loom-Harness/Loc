@@ -115,18 +115,23 @@ context Orders {
 
 ## Top-level declarations
 
-A file is one or more **bounded contexts** (legacy, single-deployable
-mode) or one or more **systems** (deployment-plan mode):
+A project declares its bounded contexts and the **system** that deploys
+them.  A context may sit at the file root — it is re-parented into the
+system — or inside a `subdomain`:
 
 ```ddd
-// Legacy: bare context — generates a single project of the platform
-// chosen at the CLI (`generate ts` / `generate dotnet`).
+// One project: a root-level context, folded into the project's system.
 context Sales {
     // declarations...
 }
+system Shop {
+    storage db { type: postgres }
+    resource salesState { for: Sales, kind: state, use: db }
+    deployable sales { platform: node, contexts: [Sales], dataSources: [salesState] }
+}
 
-// System: groups subdomains and deployables.  `generate system` emits
-// every deployable as its own project plus a docker-compose.yml.
+// Another project: subdomains and several deployables.  `generate system`
+// emits every deployable as its own project plus a docker-compose.yml.
 system Acme {
     subdomain Catalog { context Products { … } }
     subdomain Sales   { context Orders   { … } }
@@ -144,8 +149,8 @@ system Acme {
 }
 ```
 
-The two forms can coexist in one file but typically you'd use one or
-the other.
+A source with contexts but no deployable parses and validates but
+generates nothing — code is emitted per deployable.
 
 What may sit at the **file root** (grammar `ModelMember`): `system`,
 `subdomain`, `context`, the ambient shared-kernel types (`valueobject`,
@@ -225,8 +230,6 @@ Rules:
   project.  A context-local VO / enum that shadows a root-level one
   is a hard error.
 - `generate system <main.ddd>` is the multi-file-aware entry point.
-  Legacy `generate ts` / `generate dotnet` keep their single-file
-  semantics.
 
 See [`tools.md`](tools.md) for the CLI side; the original design
 rationale (stages, work items, deferred cross-context features) is
@@ -341,7 +344,7 @@ order:
 | `payload Name { … }` / `command` / `query` / `response` / `error` / `payload U = A \| B` | Transport records and discriminated unions — the workflow / handler command surface and `or`-union return arms.  See [`payloads.md`](payloads.md). |
 | `repository Name for Aggregate { find … }` | Repository declaration with optional find queries (see [Repositories](#repositories)). |
 | `criterion Name(params) of Aggregate = Expr` / `retrieval Name of Aggregate { where: Expr sort: [field desc, other asc] }` | Reusable, SQL-inlinable predicate specifications and the named list-read shapes `Repo.all(...)` consumes.  A retrieval also has a one-line form, `retrieval Name of Aggregate = Expr`.  **The block's clauses are NOT comma-separated** — `where:` / `sort:` follow one another directly (a newline between them is the readable spelling); only the items *inside* `sort: [...]` take commas.  The grammar also admits a `loads: [path, …]` clause, but declaring one is rejected today (`loom.retrieval-loads-unsupported` — a retrieval loads the whole aggregate).  See [`criterion.md`](criterion.md). |
-| `projection Name[(params)] [keyed by <field>] [requires Expr] { <fields> from <Source> [as x] [where …] [ignoring …] [join Agg as a on …] [group by …] select f = …, … }` / `projection Name keyed by k { <fields> on(e: Event) [by e.key] { … } }` | A read model: **query-time** (a `select` over an aggregate / projection / workflow source — optional `where`, `join`, `group by`, whole-table aggregation, paged reads) or **folded** (`on(e: Event)` arms folding a stream into a keyed row).  Exposed as `GET /projections/<name>` and readable from pages.  ~50 `loom.projection-*` gates; see [`language-reference/10-repositories-and-queries.md`](language-reference/10-repositories-and-queries.md) and [`scaffold-macros.md`](scaffold-macros.md) (`scaffoldDashboard`). |
+| `projection Name[(params)] [keyed by <field>] [requires Expr] { <fields> from <Source> [as x] [where …] [ignoring …] [join Agg as a on …] [group by …] select f = …, … }` / `projection Name keyed by k { <fields> on(e: Event) [by e.key] { … } }` | A read model: **query-time** (a `select` over an aggregate / projection / workflow source — optional `where`, `join`, `group by`, whole-table aggregation, paged reads) or **folded** (`on(e: Event)` arms folding a stream into a keyed row).  Exposed as `GET /projections/<name>` and readable from pages.  The `from` source may be declared in another context of the subdomain; the read applies that source's own scope (tenant floor, capability filters).  Under `tenancy by` a fold over `tenantOwned` producers' events stamps, keys and scopes its rows by the event's tenant ([`tenancy.md`](tenancy.md#folded-projections--rows-carry-the-events-tenant)).  ~50 `loom.projection-*` gates; see [`language-reference/10-repositories-and-queries.md`](language-reference/10-repositories-and-queries.md) and [`scaffold-macros.md`](scaffold-macros.md) (`scaffoldDashboard`). |
 | `workflow Name { create(...)[: T] …, on(e: Event) …, function … }` | Context-level orchestration across aggregates, with `create` starters, `on` reactors and workflow-local state (a named command entry is a context-level `commandHandler` — there is no workflow `handle`).  A command-triggered `create(…): T { … return <expr> }` answers its `POST` with 200 + the value (an `X id` / `string` / `int` / `long` / `bool`); without `: T` it stays 204.  See [`workflow.md`](workflow.md#returning-a-result--createt). |
 | `[extern] commandHandler Name(cmd: Cmd)[: Response] { … }` / `[extern] queryHandler Name(q: Query): Response { … }` | Application-layer handlers — a single-aggregate `handle` lifted out of a workflow (load → mutate → save → `return`), routable from an `api { … }` body.  `queryHandler` must not save (`loom.query-handler-saves`); `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`).  An `extern` handler is bodyless (`;`) — see [`extern.md`](extern.md). |
 | `domainService Name { operation calc(...): T { … } }` | A stateless, pure cross-aggregate calculator.  See [`domain-services.md`](domain-services.md). |
@@ -351,7 +354,7 @@ order:
 | `test "name" for <Aggregate\|ValueObject\|DomainService\|Context> { … }` | A unit test hoisted beside its subject (`for` names the home; a test nested inside its subject needs no `for` — `loom.test-redundant-for` / `loom.test-needs-target`). |
 | `policy [Name] { allow [write] local\|deep\|global on Aggregate … }` | Read/write-scope ladder for `tenantOwned` aggregates under a tenant hierarchy — widens the tenant floor to the caller's org subtree (`deep`) or root-org subtree (`global`); the optional `write` verb gates instance mutations. The name is optional; one rule per aggregate. See [tenancy.md](tenancy.md) → "The `policy {}` read ladder". |
 | `policy [Name] { deny [write] on Aggregate … }` | **Deny-wins carve-out** (Phase 4): removes access to an aggregate. `deny on X` denies READ (X becomes invisible → empty / 404; writes fail too since the write load reuses the read filter); `deny write on X` denies WRITE only (reads stay, mutations 404). All-or-nothing at the aggregate (no level word); applied after the `allow` passes, so deny wins. Not restricted to `tenantOwned`. Diagnostics: `loom.policy-deny-unknown-aggregate`, `loom.policy-deny-duplicate`, `loom.policy-deny-shadows-allow` (warning). See [auth.md](auth.md) → "Deny carve-outs". |
-| `policy [Name] { read Aggregate requires Expr … }` | **Read gate**: who may read the aggregate at all — every read of it (list, by-id, each find's route, audit history, the scaffolded List page) answers 403 before the load unless `Expr` holds. `currentUser` and constants only. Diagnostics: `loom.policy-read-gate-not-current-user`, `loom.policy-duplicate-target`, `loom.policy-unknown-aggregate`. See [auth.md](auth.md) → "Read gates". |
+| `policy [Name] { read Aggregate requires Expr … }` | **Read gate**: who may read the aggregate at all — every read of it (list, by-id, each find's route, audit history, the scaffolded List page, any routed handler whose body reads it) answers 403 before the load unless `Expr` holds. `currentUser` and constants only. Diagnostics: `loom.policy-read-gate-not-current-user`, `loom.policy-duplicate-target`, `loom.policy-unknown-aggregate`. See [auth.md](auth.md) → "Read gates". |
 | `policy Name(params): bool ( = Expr \| { Expr } )` | **Named policy function** (P3.2): a reusable boolean authorization predicate (sees `currentUser` + its own parameters).  It is **context-level**, not ambient: a policy declared in one context does not resolve from another (a call there reports `loom.policy-out-of-scope`: *policy X is declared in context A; policies are context-local — redeclare it in B*), so a gate shared across contexts is declared in each, referenced from a `requires PolicyName(args)` gate and inlined there like a `criterion … of bool`. Parentheses are required (they distinguish it from the `policy {}` block form). See [auth.md](auth.md) → "Named policy functions". |
 
 ### Identity and `X id`
@@ -366,6 +369,12 @@ Cross-aggregate references are written as `Other id`:
 ```
 customerId: Customer id
 ```
+
+`X id` must name something with an identity — an aggregate (abstract bases
+included) or an entity part.  A value object, enum, event, payload record or
+workflow has no id, so `origin: Point id` over `valueobject Point` is
+`loom.id-target-not-identity`; hold the value directly (`origin: Point`)
+instead.
 
 The underlying value type is always `guid`, and there is **no `ids` clause** —
 `ids int|long|string` were removed (no backend implemented id generation for a
@@ -727,7 +736,7 @@ the implicit `editable`) form this matrix:
 | `editable` *(default)* | ✓ | ✓ | ✓ | ✓ |
 | `immutable` | ✓ | ✓ | ✗ (server rejects) — *wire only; a domain operation may still assign it* | ✓ |
 | `managed` | ✓ | ✗ (server owns it) | ✗ | ✓ |
-| `token` | ✓ | ✗ | ✗ body — sent as an optimistic-concurrency *precondition* (like `id`/`version`) | ✓ |
+| `token` | ✓ | ✗ | ✗ body — sent as an optimistic-concurrency *precondition* (like `id`/`rowVersion`) | ✓ |
 | `internal` | ✗ (never exposed via API) | ✗ | ✗ | ✓ (the UI may read it) |
 | `secret` | ✗ (never disclosed) | ✓ | ✓ (write-only) | ✗ |
 
@@ -903,7 +912,7 @@ aggregate User {
   email: string                            // editable (default)
   createdAt: datetime managed              // server stamps it
   passwordHash: string secret              // accepted on create + update; never sent back
-  version: int token                       // round-tripped for optimistic concurrency
+  revision: int token                      // round-tripped as a precondition, never client-edited
   isDeleted: bool internal                 // hidden from clients; UI may read
   slug: string immutable                   // off the update input; a domain operation may still assign it
 }
@@ -959,7 +968,7 @@ opts out of redaction by writing their own debug form.
 ```
 TypeRef       = TypeAtom ('or' TypeAtom)*                  // anonymous union
 TypeAtom      = BaseType GenericCtor* ('[]')? ('?')?
-GenericCtor   = 'paged' | 'envelope' | 'option'             // ML-postfix carriers
+GenericCtor   = 'paged' | 'option' | 'envelope'             // ML-postfix carriers ('envelope' is refused)
 BaseType      = PrimitiveType | SlotType | ActionType | SelfType | IdType | NamedType
 IdType        = Identifier 'id'                // cross-aggregate FK
 NamedType     = Identifier                     // bare name
@@ -974,8 +983,8 @@ ActionType    = 'action' ('(' TypeRef ')')?    // callback-shaped param marker �
 // `docs/language-reference/05-expressions.md` § Money literals vs money(x).
 ```
 
-The postfix carriers fold left (`string envelope paged` is
-`paged(envelope(string))`) and bind tighter than `or`, as do `[]` / `?`:
+The postfix carriers fold left (`string option paged` is
+`paged(string?)`) and bind tighter than `or`, as do `[]` / `?`:
 `string or int option` is `string or (int option)`.  `A or B` and the named
 `payload U = A | B` form are the discriminated-union surface (tagged `type`
 on the wire) — see [`payloads.md`](payloads.md).  `File` is the uploaded-file
@@ -1265,7 +1274,7 @@ Pragmatic core, similar to a subset of TypeScript / C# expressions.
 | `a + b`, `a - b`, `a * b`, `a / b`, `a % b` | Arithmetic. |
 | `a < b`, `a <= b`, `a > b`, `a >= b`, `a == b`, `a != b` | Comparison. |
 | `a && b`, `a \|\| b` | Logical. |
-| `a ?? b` | Nullish coalescing — `a` unless it is null, else `b`.  Binds LOOSER than `\|\|` and TIGHTER than `? :`, and is RIGHT-associative (`a ?? b ?? c` is `a ?? (b ?? c)`).  Pure sugar: it lowers to `a == null ? b : a`, so it works on every backend and every frontend the ternary does.  NOTE the left operand is evaluated TWICE (once in the test, once as the value) — bind an effectful one with `let` first. |
+| `a ?? b` | Nullish coalescing — `a` unless it is null, else `b`.  Binds LOOSER than `\|\|` and TIGHTER than `? :`, and is RIGHT-associative (`a ?? b ?? c` is `a ?? (b ?? c)`).  Pure sugar: it lowers to `a == null ? b : a`, so it works on every backend and every frontend the ternary does. The left operand is evaluated ONCE and the right only when the left is null on every backend (TS `(a ?? b)`, C# `(a ?? b)`, Java `Optional.ofNullable(a).orElseGet(() -> b)`, Python `[c if c is not None else b for c in (a,)][0]`, Elixir `case a do nil -> b; c -> c end`). |
 | `cond ? a : b` | Ternary (`loom.ternary-condition` / `loom.ternary-branches`). A direct null test on `cond` narrows the proven branch — see [Null narrowing](#null-narrowing). |
 | `match { cond => value, …, else => value }` | Predicate-arms expression — the first true arm wins; `else` is the fallthrough. |
 | `match subject { Variant [b] => value, …, else => value }` | Variant match over an `A or B` union or a `T?` scrutinee (a presence check), optionally binding the narrowed variant.  The subject must be a simple ref / member read, not a call — except `match await <call> { … }` in a page `action`, which awaits a remote command and matches its Result ([`actions.md`](actions.md)). |
@@ -1485,7 +1494,7 @@ decimal`.
 | `match subject { Variant [b] => { … }, else => { … } }` | Statement-form variant match — arms run statements (state writes, `navigate(...)`) rather than yield a value.  In a page `action`, `match await Agg.op(...) { Ok r => …, Err e => … }` is how a remote command is awaited and its Result handled — a remote mutating call *without* the marker is `loom.missing-effect-marker`; `loom.match-await*` gates the awaited call's shape ([`actions.md`](actions.md)). |
 | `let xs = Repo.all(R(args))` then `for x in xs { … }` | **Workflow / handler bodies only** — iterate an aggregate array, saving each element's mutations per iteration ([`workflow.md`](workflow.md)).  The iterable must be a `let`-bound `Repo.all(...)` result; iterating the call inline (`for x in Repo.all(...)`) is refused with `loom.workflow-foreach-source`. |
 | `if let x = Repo.find(C(args)) { … } else { … }` | **Workflow / handler bodies only** — bind an optional repository result (`find(C)`, `findById`, `findBy`, a `T?` find, or an optional `let` binding) and branch on presence. |
-| `if Expression { … } else { … }` | Boolean branch; `else` is optional and `else if` chains.  The condition is a full boolean expression EXCEPT that a `{`-opening form (a part / value-object construction, an object literal, a `match`) must be parenthesised — otherwise it would claim the `if`'s own body block.  **Rendered on node / dotnet / java / python.**  Refused with `loom.elixir-if-stmt-unsupported` when an elixir deployable hosts the context (a Phoenix body threads its result through a rebound `record`, and an Elixir `if` block's bindings do not escape it), and with `loom.if-stmt-page-body-unsupported` in a `ui` body — a page expresses a condition as a VALUE (`cond ? a : b` or `match`). |
+| `if Expression { … } else { … }` | Boolean branch; `else` is optional and `else if` chains.  The condition is a full boolean expression EXCEPT that a `{`-opening form (a part / value-object construction, an object literal, a `match`) must be parenthesised — otherwise it would claim the `if`'s own body block.  **Rendered on all five backends** in every domain body.  A `return` inside a branch is an early exit: lowering moves the statements after the `if` into the branch that does not return, so every backend receives each `return` as the last statement of its block.  Refused with `loom.if-stmt-page-body-unsupported` in a `ui` body — a page expresses a condition as a VALUE (`cond ? a : b` or `match`). |
 
 ```ddd
 operation finish(fallback: string) {
@@ -2178,7 +2187,7 @@ validator raises is in it).  By family, with the doc that explains each:
 | `loom.migration-*`, `loom.rename-*`, `loom.backfill-*`, `loom.unique-*` | `migration { … }` ledger steps, destructive / rebaseline gating, `unique (…)` | [`migrations.md`](migrations.md) |
 | `loom.handler-*`, `loom.command-handler-*`, `loom.query-handler-*`, `loom.route-handler-unresolved`, `loom.extern-*` | `commandHandler` / `queryHandler` contracts, `api` routes, extern pairing | [`extern.md`](extern.md), [`architecture.md`](architecture.md) |
 | `loom.criterion-*`, `loom.retrieval-*`, `loom.find-*`, `loom.findall-*`, `loom.list-find-removed` | Criteria purity / arity / aliasing, retrievals, the queryable subset | [`criterion.md`](criterion.md) |
-| `loom.union-*`, `loom.payload-*`, `loom.generic-*`, `loom.match-*` | `A or B` unions, payload records, `paged` / `envelope` / `option` carriers, `match` exhaustiveness and subjects | [`payloads.md`](payloads.md) |
+| `loom.union-*`, `loom.payload-*`, `loom.generic-*`, `loom.match-*` | `A or B` unions, payload records, `paged` / `option` carriers, `match` exhaustiveness and subjects | [`payloads.md`](payloads.md) |
 | `loom.channel*`, `loom.reactor-*`, `loom.relay-*`, `loom.timer-*` | Channels, channelSources, reactors, timers | [`channels.md`](channels.md) |
 | `loom.resource-*`, `loom.datasource-*`, `loom.file-*`, `loom.config-*`, `loom.index-suggestion` | Resource bindings, storage kinds, `File` fields, vendor config, index advice | [`resources.md`](resources.md) |
 | `loom.seed-*` | Seed rows vs abstract / event-sourced / tenant-owned aggregates, `raw` columns | [`language-reference/23-domain-services-and-seeds.md`](language-reference/23-domain-services-and-seeds.md) |

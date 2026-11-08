@@ -30,6 +30,7 @@ import { PAGED_DEFAULT_PAGE, PAGED_DEFAULT_PAGE_SIZE } from "../../../ir/stdlib/
 import type { AggregateIR, BoundedContextIR, SystemIR } from "../../../ir/types/loom-ir.js";
 import { isTphBase, tpcConcretesOf, tphConcretesOf } from "../../../ir/util/inheritance.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { aggregateUsesPrincipalContextFilter } from "./capability-filter.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { readPreloadRels } from "./read-preload.js";
@@ -281,7 +282,7 @@ export function renderPolymorphicSerialize(
           headVar: "row",
           bind: "    record = row.data",
           idExpr: "row.id",
-          versionExpr: "row.version",
+          versionExpr: `row.${ROW_VERSION_COLUMN}`,
           contextModule,
           nameSuffix: suffix,
         })

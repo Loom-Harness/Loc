@@ -27,10 +27,10 @@
         "patient": "p-1",
         "priority": 3,
         "room": "A1",
+        "rowVersion": 1,
         "status": "Requested",
         "tags": [],
-        "urgent": false,
-        "version": 1
+        "urgent": false
       }
     },
     {
@@ -56,10 +56,10 @@
         "patient": "p-1",
         "priority": 3,
         "room": "A1",
+        "rowVersion": 2,
         "status": "Confirmed",
         "tags": [],
-        "urgent": false,
-        "version": 2
+        "urgent": false
       }
     },
     {
@@ -93,10 +93,10 @@
             "patient": "p-1",
             "priority": 3,
             "room": "A1",
+            "rowVersion": 2,
             "status": "Confirmed",
             "tags": [],
-            "urgent": false,
-            "version": 2
+            "urgent": false
           }
         ],
         "page": 1,

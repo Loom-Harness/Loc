@@ -50,16 +50,16 @@ describe("angular explicit menu block", () => {
     // recorded for it (A13b) — a RAW `>Main<` here would mean the
     // `menu.section.*` / `menu.link.*` entries are dead again.
     expect(shell).toMatch(
-      /<h3 matSubheader class="loom-nav-section">\{\{ t\("menu\.section\.\w+", "Main"\) \}\}<\/h3>/,
+      /<h3 matSubheader class="loom-nav-section">\{\{ t\("WebApp\.menu\.section\.\w+", "Main"\) \}\}<\/h3>/,
     );
     expect(shell).not.toContain("Shop</h3>");
     // Internal link: the menu's `label:` override + a routerLink to the route.
     expect(shell).toMatch(
-      /<a mat-list-item routerLink="\/" routerLinkActive="loom-active" data-testid="nav-home">\{\{ t\("menu\.link\.\w+", "Dashboard"\) \}\}<\/a>/,
+      /<a mat-list-item routerLink="\/" routerLinkActive="loom-active" data-testid="nav-home">\{\{ t\("WebApp\.menu\.link\.\w+", "Dashboard"\) \}\}<\/a>/,
     );
     // External link renders as a real anchor (target/_blank), not a routerLink.
     expect(shell).toMatch(
-      /<a mat-list-item href="https:\/\/loom\.dev\/docs" target="_blank" rel="noopener" data-testid="nav-ext-docs">\{\{ t\("menu\.link\.\w+", "Docs"\) \}\}<\/a>/,
+      /<a mat-list-item href="https:\/\/loom\.dev\/docs" target="_blank" rel="noopener" data-testid="nav-ext-docs">\{\{ t\("WebApp\.menu\.link\.\w+", "Docs"\) \}\}<\/a>/,
     );
   });
 

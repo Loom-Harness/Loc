@@ -111,6 +111,50 @@ ${purge}
     }`;
 }
 
+/** The relays' `ExecuteAsync` poll loop (EF and Dapper share it): a failing
+ *  purge/drain (a transient Postgres error — e.g. 57P01 during a restart) is
+ *  logged as `outbox_relay_error` and retried after a capped exponential
+ *  backoff instead of escaping the BackgroundService, where the host's default
+ *  `StopHost` behaviour would take the whole API process down.  Only
+ *  cancellation of the stopping token ends the loop. */
+export function outboxExecuteLoop(): string {
+  const relayFailed = renderDotnetLogCall("outboxRelayError", [
+    { name: "error", valueExpr: "ex.Message" },
+  ]);
+  return `    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        var failures = 0;
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var delay = Interval;
+            try
+            {
+                await MaybePurgeAsync(stoppingToken);
+                await DrainAsync(stoppingToken);
+                failures = 0;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                ${relayFailed}
+                failures++;
+                delay = TimeSpan.FromSeconds(Math.Min(30, 1 << Math.Min(failures, 5)));
+            }
+            try
+            {
+                await Task.Delay(delay, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+    }`;
+}
+
 /** The relays' dead-letter line: one `event_dead_lettered` warning per row,
  *  carrying the row id an operator replays it by. */
 export function outboxDeadLetteredLog(row: { id: string; type: string; attempts: string }): string {
@@ -339,22 +383,7 @@ ${outboxRetentionMembers(`            await using var scope = _scopes.CreateAsyn
         _log = log;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            try
-            {
-                await MaybePurgeAsync(stoppingToken);
-                await DrainAsync(stoppingToken);
-                await Task.Delay(Interval, stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-        }
-    }
+${outboxExecuteLoop()}
 
     private async Task DrainAsync(CancellationToken cancellationToken)
     {

@@ -5,10 +5,11 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CORPUS_DEPLOYABLE, materializeCorpusFixture } from "../fixtures/corpus/harness.js";
+import { generateBackendProject } from "./support/backend-project.js";
 
 // ---------------------------------------------------------------------------
-// Generator regression test: emit each example via `ddd generate dotnet`,
-// run `dotnet restore`, then `dotnet build /warnaserror`.  Catches
+// Generator regression test: emit each example as a dotnet deployable via
+// `ddd generate system`, run `dotnet restore`, then `dotnet build /warnaserror`.  Catches
 // generator drift that breaks the generated C# (missing usings, bad
 // EF Core configuration, signature mismatches against Mediator /
 // FluentValidation / Swashbuckle) without running the full docker
@@ -88,8 +89,12 @@ function runEmittedUnitTests(proj: string): UnitTestCounts | null {
     fs.rmSync(trxDir, { recursive: true, force: true });
     let runError: unknown = null;
     try {
+      // Unit tests only: a context `test` lowers to a `<Ctx>IntegrationTests`
+      // class that needs a live Postgres, which this compile leg does not
+      // start. Those classes still COMPILE above under /warnaserror; they RUN
+      // against a database in `context-integration-e2e.yml`.
       execSync(
-        `dotnet test "${csproj}" --no-build --nologo --logger "trx;LogFileName=unit.trx" --results-directory "${trxDir}"`,
+        `dotnet test "${csproj}" --no-build --nologo --filter "FullyQualifiedName!~IntegrationTests" --logger "trx;LogFileName=unit.trx" --results-directory "${trxDir}"`,
         { cwd: proj, stdio: "inherit", timeout: 300_000 },
       );
     } catch (e) {
@@ -184,13 +189,10 @@ describe.skipIf(!ENABLED)(
       // (`addComment` -> `comment`) makes this cell fail with
       // `CS0119: 'Issue.Comment(string, string)' is a method` — verified.
       "test/e2e/fixtures/dotnet-build/name-collision-neighbours.ddd",
-    ])("%s — `ddd generate dotnet` output restores + builds", (example) => {
-      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-"));
+    ])("%s — the dotnet deployable restores + builds", (example) => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-"));
       try {
-        execSync(`node ${cli} generate dotnet ${example} -o ${outDir}`, {
-          stdio: "inherit",
-          cwd: repoRoot,
-        });
+        const outDir = generateBackendProject(repoRoot, example, "dotnet", tmpDir);
         execSync(`dotnet restore --nologo`, {
           cwd: outDir,
           stdio: "inherit",
@@ -215,7 +217,7 @@ describe.skipIf(!ENABLED)(
         runEmittedUnitTests(outDir);
       } finally {
         try {
-          fs.rmSync(outDir, { recursive: true, force: true });
+          fs.rmSync(tmpDir, { recursive: true, force: true });
         } catch {
           /* ignore */
         }
@@ -289,8 +291,7 @@ describe.skipIf(!ENABLED)(
 
     // Fullstack embed — Angular arm.  A `platform: dotnet` deployable hosting a
     // `framework: angular` ui embeds the Angular SPA under ClientApp/ (parity
-    // with the react/vue/svelte arms).  `generate dotnet` above is legacy
-    // single-project mode (no embed), so this must go through `generate system`.
+    // with the react/vue/svelte arms).
     // Angular's `ng build` nests the browser bundle under `dist/browser/`, so
     // the multi-stage Dockerfile COPY differs from the vite `dist/` (react/vue)
     // and SvelteKit `build/` arms.  We assert the embed shape, then build the
@@ -383,7 +384,7 @@ describe.skipIf(!ENABLED)(
     }, 600_000);
 
     // D-REALIZATION-AXES Phase 5c: `persistence: dapper` is a SYSTEM-MODE
-    // selection, so `generate dotnet` above never sees it.  Generate the SYSTEM
+    // selection, so the default-adapter cells above never see it.  Generate the SYSTEM
     // and build the dapper deployable's project under /warnaserror — proving the
     // generated Dapper repositories / DbSchema / Npgsql wiring compile.
     it("system `persistence: dapper` (dotnet) — repositories + schema build under /warnaserror", () => {
@@ -879,7 +880,7 @@ describe.skipIf(!ENABLED)(
 
     // The "tech showcase" system (`examples/showcase.ddd`) exercises the whole
     // language surface across multiple contexts, but it's multi-context — the
-    // single-context `generate dotnet` cases above can't reach it, and no other
+    // single-context cells above can't reach it, and no other
     // gate compiles its .NET backend.  Generate the SYSTEM and build the
     // `dotnet_api` deployable's project under /warnaserror so the showcase's
     // generated .NET code is actually compiled (the blind spot that hid the
@@ -918,7 +919,7 @@ describe.skipIf(!ENABLED)(
     }, 600_000);
 
     // D-REALIZATION-AXES Phase 5a/5b/5e: `directoryLayout: byFeature` is a
-    // SYSTEM-MODE selection, so `generate dotnet` above never sees it.  Generate
+    // SYSTEM-MODE selection, so the default-layout cells above never see it.  Generate
     // the SYSTEM and build the byFeature deployable's project under /warnaserror
     // — proving the Features/<Plural>/ relocation + the namespace-by-feature
     // rewrite (namespace decls, usings, DI/DbContext qualified references)

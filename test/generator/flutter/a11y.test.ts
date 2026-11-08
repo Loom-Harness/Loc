@@ -55,7 +55,7 @@ describe("flutter a11y — derived Semantics emission", () => {
     // The heading text rides the translation runtime (M-T1.11); the Semantics
     // wrapper is what this asserts.
     expect(dart).toMatch(
-      /Semantics\(header: true, child: DefaultTextStyle\.merge\(style: .+?, child: Text\(t\('page\.Screen\.heading\.\w+', 'Products'\)\)\)/,
+      /Semantics\(header: true, child: DefaultTextStyle\.merge\(style: .+?, child: Text\(t\('\w+\.page\.Screen\.heading\.\w+', 'Products'\)\)\)/,
     );
   });
 
@@ -66,7 +66,7 @@ describe("flutter a11y — derived Semantics emission", () => {
 
   it("Loader carries a 'Loading' status label + liveRegion", async () => {
     const dart = await pageDart(`Loader {}`);
-    expect(dart).toContain("Semantics(label: 'Loading', liveRegion: true");
+    expect(dart).toContain("Semantics(label: t('chrome.loading', 'Loading'), liveRegion: true");
     expect(dart).toContain("CircularProgressIndicator()");
   });
 
@@ -81,7 +81,7 @@ describe("flutter a11y — derived Semantics emission", () => {
     // An authored name is a user-visible slot, so it rides the translation
     // runtime (M-T1.11); the un-named default below stays a plain literal.
     expect(dart).toMatch(
-      /Semantics\(container: true, label: t\('page\.Screen\.toolbarAria\.\w+', 'Order actions'\), child: Row\(/,
+      /Semantics\(container: true, label: t\('\w+\.page\.Screen\.toolbarAria\.\w+', 'Order actions'\), child: Row\(/,
     );
   });
 });
@@ -117,13 +117,13 @@ describe("flutter a11y — author-hint facts (Image / Avatar / Icon / Button)", 
     // makes the ui translatable and the `semanticLabel:` binds through `t()`
     // instead of baking the English in.
     const dart = await pageDart(`Icon { name: "check", label: "Done" }`);
-    expect(dart).toMatch(/semanticLabel: t\('page\.\w+\.iconLabel\.\w+', 'Done'\)/);
+    expect(dart).toMatch(/semanticLabel: t\('\w+\.page\.\w+\.iconLabel\.\w+', 'Done'\)/);
   });
 
   it("a Button label: becomes a Semantics accessible name", async () => {
     const dart = await pageDart(`Button { "Refresh", label: "Refresh products" }`);
     expect(dart).toMatch(
-      /Semantics\(label: t\('page\.Screen\.buttonAria\.\w+', 'Refresh products'\), child/,
+      /Semantics\(label: t\('\w+\.page\.Screen\.buttonAria\.\w+', 'Refresh products'\), child/,
     );
   });
 });

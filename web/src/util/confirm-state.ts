@@ -97,7 +97,7 @@ export const confirmSites = {
   resetDatabase(): ConfirmSpec {
     return {
       shape: "inline",
-      consequence: "Drops every row and re-applies the schema.",
+      consequence: "Drops every row and rebuilds the schema from the recorded migrations.",
       confirmLabel: "Yes, clear all rows",
     };
   },

@@ -14,7 +14,7 @@
 //   3. API call lowering — React-Query hook hoisting
 //      vs LiveView's direct context-function call
 //   4. Helper imports — `import { fn } from "..."` vs Elixir `alias`
-//   5. `match { ... }` — chained ternary vs HEEx `<%= case ... %>`
+//   5. `match { ... }` — chained ternary vs HEEx `<%= cond do ... %>`
 //   6. Cross-page navigation — `useNavigate()` vs `push_navigate(socket, to: ...)`
 //
 // `WalkerTarget` is the contract every framework-specific walker
@@ -39,42 +39,27 @@
 // conformance test.
 //
 // SCOPE.  The contract covers the CROSS-FRAMEWORK seams a new frontend
-// must implement to reuse the shared walker core.  It began at 13
-// methods (9 lowering seams + 4 markup seams) for the React/HEEx pair;
-// it is now ~70 members, grown by the Vue / Svelte / Angular / Feliz /
-// Flutter ports and by later features (stores, variant-match, the
-// interactive-table and i18n seams).  Most later additions are OPTIONAL
-// so a not-yet-ported frontend still typechecks and fails LOUD at the
-// unimplemented seam rather than silently dropping the construct.  Do
-// not read a count into this header — count the interface.
+// must implement to reuse the shared walker core: the lowering seams above,
+// the markup seams (comments, conditional children, the style attribute,
+// text escaping — where Svelte, Angular, F# and Dart diverge from JSX), and
+// the feature seams for stores, variant-match, collection ops and their
+// lambdas (`renderCollectionOp` / `exprLambda`), event and named handlers
+// (`renderEventHandler` / `renderNamedHandler`), user components
+// (`renderUserComponent`), the interactive table and i18n.  Most seams are
+// OPTIONAL, so a frontend that has not ported one still typechecks and fails
+// LOUD at the unimplemented seam rather than silently dropping the construct.
+// Count the interface, not this header.
 //
-// The markup seams (renderComment /
-// renderConditionalChild / renderStyleAttr / escapeText) joined for
-// the Svelte port: Svelte 5 shares JSX's `{expr}` interpolation and
-// `<Comp x={y}/>` invocation syntax (those stay hardcoded in the
-// shared walker), but diverges on comments (`<!-- -->` vs
-// `{/* */}`), conditional CHILD rendering (`{#if}` blocks vs
-// ternaries returning markup), the style attribute (CSS string vs
-// JSX object), and text escaping.  Out of scope deliberately:
+// Out of scope deliberately:
 //
-//   - Position-dependent `this`/`id` rendering — HEEx oddity; JSX
-//     frameworks render identically in template + handler.
-//   - Toast / put_flash — framework-private rendering surface.
-//   - User-component invocation — handled inline per framework
-//     (JSX <Comp /> vs LiveView functional component).
-//   - Collection-op rendering (`xs.map(...)`, `xs.sum(...)`) —
-//     React uses native JS collection methods; HEEx uses Enum.*
-//     idioms.  No shared lowering, no contract.
-//   - Lambda hoisting — JSX inlines lambdas; HEEx hoists to
-//     handle_event clauses.  Framework-shaped.
+//   - Position-dependent `this` rendering (`@record` in template position,
+//     `socket.assigns.record` in a handler) — a HEEx oddity its own engine
+//     handles; the JSX-family frameworks render `this` the same everywhere.
+//   - Toast / put_flash — a framework-private rendering surface.
 //
-// Adding any of the above to `WalkerTarget` would extend interface
-// surface for zero new-frontend benefit (the 4 deferred items
-// outside HEEx are all framework-private rendering details, not
-// shared lowering decisions).  Honours the retro's "backends stay
-// idiomatic" principle: shared semantics live in the IR + walker
-// core; framework-flavoured emission stays in framework-flavoured
-// code.
+// Adding either to `WalkerTarget` would extend the interface for no
+// new-frontend benefit: shared semantics live in the IR + walker core, and
+// framework-flavoured emission stays in framework-flavoured code.
 // ---------------------------------------------------------------------------
 
 import type { ExprIR, LiteralKind, StateFieldIR, TypeIR } from "../../ir/types/loom-ir.js";
@@ -157,16 +142,6 @@ export interface SortableHeaderSpec {
   sortKey: StateRef;
   /** Page-state field holding the active direction (`"asc"` / `"desc"`). */
   sortDir: StateRef;
-  /** The header's accessible NAME as a target-native expression, or `undefined`
-   *  with i18n off — the same `undefined`-means-keep-your-own-sentence
-   *  contract {@link PagerChrome.pageOfValue} uses.
-   *
-   *  Only FLUTTER reads it: a Dart widget has no implicit accessible name, so it
-   *  wraps the header in `Semantics(label: 'Sort by <header>')`, where the four
-   *  JSX targets and Feliz render a real `<button>` whose CONTENT names it.  The
-   *  hole is the header TEXT, which is static here — known at emit time, unlike
-   *  the grid's, which is read off the TanStack column at runtime. */
-  sortByLabel?: string;
 }
 
 /** What a target needs to sort a `Table`'s rows client-side (the
@@ -318,7 +293,7 @@ export interface PagerSpec {
  *  FUNCTION of its two holes rather than a finished string, because only the
  *  target knows how to spell the page read (`page` vs `page()` vs `model.Page`)
  *  and, on Feliz, binds the page count to a local first. */
-/** One piece of a {@link WalkerTarget.renderStringConcat} assembly: either raw
+/** One piece of an ICU message cut at its holes: either raw
  *  source-language TEXT (unescaped — the target escapes it for its own string
  *  body) or an already-rendered EXPRESSION whose value is spliced in. */
 export type StringPart = { readonly text: string } | { readonly expr: string };
@@ -471,15 +446,6 @@ export interface DataGridSpec {
    *  props instead of markup (Feliz's `prop.ariaLabel`). */
   selectAllRowsAriaValue: string;
   selectRowAriaValue: string;
-  /** The sortable header button's accessible name — a complete
-   *  `aria-label` attribute fragment, no leading space, already resolved
-   *  against this walk's i18n decision (`localizedChromeIcuAria`).
-   *
-   *  On DataGrid the sort button is emitted by the TARGET, not the pack, on
-   *  every frontend except React — so unlike the pager labels this one cannot
-   *  ride the pack render context alone.  React's packs read the matching
-   *  `{{{sortByAria}}}` token instead; both come from one `chrome.sortBy`. */
-  sortByAria: string;
   /** Render the active design pack's grid body (`primitive-data-grid`).
    *
    *  A callback rather than a rendered string because the extra template
@@ -1005,27 +971,6 @@ export interface WalkerTarget {
    *  JSON-quoted default — keeps them byte-identical. */
   renderStringLiteral?(text: string): string;
 
-  /** OPTIONAL — a string built from alternating LITERAL and EXPRESSION pieces,
-   *  in the target's own expression language.
-   *
-   *  The third of the trio.  `renderStringLiteral` spells a constant,
-   *  `renderInterpolation` splices an expression into markup TEXT position — but
-   *  a holed message in an ATTRIBUTE (`aria-label="Sort by <column>"`) is
-   *  neither: it is one string EXPRESSION assembled from both.  Without a seam
-   *  for it, the i18n-off form of such a message could only be spelled by
-   *  whichever pack template happened to contain it, which leaves those labels
-   *  untranslatable.
-   *
-   *  The default is a JS template literal (`` `a${e}b` ``), so the three targets
-   *  that spell these labels that way — React, Svelte, Vue — need not implement
-   *  it.  Angular overrides because
-   *  its template grammar has no template literals; Feliz and Flutter override
-   *  because their markup is not JS at all.
-   *
-   *  Literal pieces arrive UNESCAPED — a target escapes them for its own string
-   *  body, exactly as `renderStringLiteral` does. */
-  renderStringConcat?(parts: ReadonlyArray<StringPart>): string;
-
   /** OPTIONAL — the SPELLING of a call into the generated translation runtime
    *  The four JS frontends share one `t(key, default, values?)`
    *  shim, so an omitted seam yields exactly that JavaScript call and those
@@ -1116,6 +1061,27 @@ export interface WalkerTarget {
    *  whereas a pack template only interpolates, so the walker has to hand it
    *  something already correct for the host language. */
   emptyChild?: string;
+
+  /** True when this target's pack templates consume the identity-keyed tokens
+   *  of the IMPLICIT model-text sites — a form field's label (`labelExpr`), an
+   *  enum select's option labels (`enumLabelFn`), a submit button
+   *  (`submitLabel` / `humanOp` as markup), an `EnumBadge`'s value label
+   *  (`src/generator/_walker/model-text-sites.ts`).  Unset ⇒ those sites keep
+   *  their humanized English, byte-identical.  A target flips it on once its
+   *  packs read the tokens. */
+  modelTextImplicitSites?: true;
+
+  /** The label of an enum value as one expression, for a target whose language
+   *  cannot spell the default typed lookup (a JS arrow function with a `Record`
+   *  assertion — `model-text-sites.ts`'s `enumLabelFn`): an Angular template,
+   *  or a non-JavaScript target (F#, Dart).  `entries` pair each wire value
+   *  with its translation-call expression; `valueExpr` is the rendered value.
+   *  Returns an expression of the target language yielding the label (the raw
+   *  value when no entry matches).  Unset ⇒ the typed lookup. */
+  renderEnumLabelLookup?(
+    entries: ReadonlyArray<{ value: string; label: string }>,
+    valueExpr: string,
+  ): string;
 
   /** Render the `style: { … }` named arg as a markup attribute
    *  fragment (leading space included; empty string for no entries).
@@ -1407,6 +1373,16 @@ export interface WalkerTarget {
    *  `emitTimeline`'s per-framework branch; Feliz/Flutter fork here when they
    *  port it, and everything else falls through to a visible comment. */
   renderTimeline?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
+
+  /** REQUIRED — the markup for `LocaleSwitcher {}`, the language picker.  The
+   *  shared `emitLocaleSwitcher` returns it verbatim, so every target names its
+   *  own binding into the generated locale runtime and none can fall through to
+   *  a placeholder: React imports its `LocaleSwitcher` component, Vue and Svelte
+   *  render the `<LocaleSwitcher />` marker tag the page shell imports, Angular
+   *  renders `<loom-locale-switcher />`, Feliz calls `I18n.localeSwitcher ()`,
+   *  and Flutter builds `const LocaleSwitcher()`.  HEEx renders through its own
+   *  walker and never reaches this seam. */
+  renderLocaleSwitcher(call: ExprIR, ctx: WalkContext, depth: number): string;
 
   /** OPTIONAL — whole-primitive override for `DestroyForm(of: <Agg>)`.  The
    *  shared `emitDestroyForm` delegates here first; a non-null return is used

@@ -4,11 +4,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "vitest";
+import { generateBackendProject } from "./support/backend-project.js";
 
 // ---------------------------------------------------------------------------
 // Generated .NET project is `dotnet format`-clean.  Mirrors
 // `generated-dotnet-build.test.ts` (the compile gate) — emit each
-// example via `ddd generate dotnet`, then run
+// example as a dotnet deployable via `ddd generate system`, then run
 // `dotnet format --verify-no-changes` which exits non-zero if any
 // file would be modified by the SDK formatter.
 //
@@ -26,7 +27,6 @@ import { describe, it } from "vitest";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
-const cli = path.join(repoRoot, "bin", "cli.js");
 
 const ENABLED = process.env.LOOM_DOTNET_FORMAT === "1";
 
@@ -42,12 +42,9 @@ describe.skipIf(!ENABLED)(
       "examples/document.ddd",
       "examples/seeding.ddd",
     ])("%s — `dotnet format --verify-no-changes` exits 0", (example) => {
-      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-fmt-"));
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-fmt-"));
       try {
-        execSync(`node ${cli} generate dotnet ${example} -o ${outDir}`, {
-          stdio: "inherit",
-          cwd: repoRoot,
-        });
+        const outDir = generateBackendProject(repoRoot, example, "dotnet", tmpDir);
         // `dotnet restore` is needed because `dotnet format` resolves
         // analyzers + project references against the restored graph.
         execSync(`dotnet restore --nologo`, {
@@ -66,7 +63,7 @@ describe.skipIf(!ENABLED)(
         });
       } finally {
         try {
-          fs.rmSync(outDir, { recursive: true, force: true });
+          fs.rmSync(tmpDir, { recursive: true, force: true });
         } catch {
           /* ignore */
         }

@@ -13,5 +13,22 @@ public sealed record MoneyRequest([property: JsonRequired] [Required] decimal Am
 
 public sealed record CreateProductRequest([NoNulChar] [Required(AllowEmptyStrings = true)] string Sku, [Required] MoneyRequest Price);
 
-public sealed record UpdateProductRequest([property: JsonRequired] [NoNulChar] [Required(AllowEmptyStrings = true)] string Sku, [property: JsonRequired] [Required] MoneyRequest Price);
+public sealed class UpdateProductRequest : IValidatableObject
+{
+    private readonly HashSet<string> _present = new();
+
+    /// <summary>The wire keys the body carried.</summary>
+    public IReadOnlySet<string> PatchedKeys() => _present;
+
+    private string? _sku;
+    [NoNulChar] public string? Sku { get => _sku; init { _sku = value; _present.Add("sku"); } }
+    private MoneyRequest? _price;
+    public MoneyRequest? Price { get => _price; init { _price = value; _present.Add("price"); } }
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (_present.Contains("sku") && _sku is null) yield return new ValidationResult("The Sku field is required.", new[] { nameof(Sku) });
+        if (_present.Contains("price") && _price is null) yield return new ValidationResult("The Price field is required.", new[] { nameof(Price) });
+    }
+}
 

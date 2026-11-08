@@ -2,7 +2,7 @@
 // drizzle — the real PersistenceAdapter for the hono platform.  Wraps the
 // existing TypeScript/Hono emit fns (`src/generator/typescript/*` +
 // `src/platform/hono/v4/emit.ts`) so produced source is byte-identical
-// with today's `generateTypeScript` output.
+// with the orchestrator's direct calls.
 //
 // Parallel of the dotnet `efcorePersistenceAdapter` (F5a) — same
 // contract, mapped to the Hono backend's drizzle-orm + pg stack.

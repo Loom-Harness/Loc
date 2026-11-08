@@ -174,6 +174,11 @@ public static class ValidationProblem
             error.Exception?.Message ?? error.ErrorMessage;
         static bool IsTypeMismatch(ModelError error) =>
             MismatchText(error).StartsWith("The JSON value could not be converted", StringComparison.Ordinal);
+        // An id (a Guid on the wire) that is not a uuid is the same field
+        // refusal with the fact's malformed-id sentence: System.Text.Json
+        // names the target type in its text.
+        static bool IsMalformedId(ModelError error) =>
+            MismatchText(error).Contains("System.Guid", StringComparison.Ordinal);
         var mismatched = context.ModelState
             .Where(entry => entry.Value is not null && entry.Value.Errors.Any(IsTypeMismatch))
             .ToArray();
@@ -191,7 +196,9 @@ public static class ValidationProblem
                 .Select(entry => new Dictionary<string, object>
                 {
                     ["pointer"] = PointerOf(entry.Key.TrimStart('$').TrimStart('.')),
-                    ["message"] = "Invalid value",
+                    ["message"] = entry.Value!.Errors.Any(IsMalformedId)
+                        ? "Expected UUID."
+                        : "Invalid value",
                 })
                 .ToArray();
             return new ObjectResult(mismatchProblem)

@@ -1,12 +1,14 @@
 // ---------------------------------------------------------------------------
 // HEEx walker core.
 //
-// Sibling of src/generator/react/body-walker.ts but emits HEEx for the
-// Phoenix LiveView platform.  Same input (`PageIR.body` expression IR),
-// different output language.  Follows the repo's existing per-platform
-// renderer pattern (cf. dotnet/render-expr.ts vs typescript/render-expr.ts
-// — neither delegates through a common interface; they coexist as
-// siblings).
+// Renders a page body (`PageIR.body` expression IR) as HEEx for the Phoenix
+// LiveView platform.  It is a separate engine from the shared walker core
+// (`src/generator/_walker/walker-core.ts`, `walkBody`) because LiveView's
+// output topology differs: lambdas hoist to `handle_event/3` clauses, lists
+// render as `for` comprehensions, and conditional children are `if` blocks.
+// Its expression leaves still ride the shared dispatcher —
+// `renderExprWith(…, HEEX_TARGET)` — so it carries no expression switch of its
+// own.
 //
 // What this walker produces, per page:
 //
@@ -14,17 +16,14 @@
 //   - A list of `handle_event/3` clauses derived from operation actions
 //     and block-body lambdas (`onSubmit`, `Action(op).then`).
 //
-// What this walker DOES NOT cover in v0:
-//
-//   - Full closed-primitive library (Form/Dashboard/Review/
-//     Tabs/Grid/Card/Toolbar/Heading/Text/Badge/Stat/
-//     Empty/Field/Toggle/Select/Fieldset/Action/Button).  v0 supports
-//     the structural set (Stack/Heading/Text/Card/Toolbar/Empty/
-//     Badge/Action/Button); the rest emit a HEEx comment with the
-//     primitive name so the gap is visible in generated output.
-//   - Field input mapping beyond the basics — page-new / page-detail
-//     templates handle the heavy lifting; this walker only renders
-//     custom-page bodies (PageIR.body without archetype).
+// Coverage.  Every page renders through here, scaffolded ones included (the
+// scaffold macros give each page its full body).  Every primitive that has a
+// TSX renderer has a HEEx renderer too, except `DataGrid`, which LiveView
+// refuses (a compile-time diagnostic, not a blank region);
+// `test/generator/elixir/heex-parity.test.ts` pins that set.  A construct the
+// walker still cannot render (a missing or unreadable primitive argument, an
+// unreachable reference) emits a `loom:unrendered [<code>]` HEEx comment via
+// `giveUpText`, naming the catalogued `loom.*` code.
 //
 // State seam:
 //   - Template position: `state.step`  → `@step`
@@ -41,6 +40,7 @@
 // hoisting, LiveView reads inline.
 // ---------------------------------------------------------------------------
 
+import { maskedReadPredicates } from "../../ir/enrich/mask-taint.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -59,6 +59,7 @@ import type {
 import { type EnrichedAggregateIR, exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
 import { hostStatefulComponents } from "../../ir/util/heex-component-host-state.js";
+import { operationActionGates } from "../../ir/util/op-gates.js";
 import {
   listShapedProjectionNames,
   readableProjectionNames,
@@ -69,12 +70,15 @@ import { elixirString, humanize, snake, upperFirst } from "../../util/naming.js"
 import { USER_VISIBLE_SLOTS } from "../../util/user-visible-slots.js";
 import { type ExprCtxBase, type ExprTarget, renderExprWith } from "../_expr/target.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
+import type { LocaleEntry } from "../_frontend/locale-meta.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
 import { giveUpText } from "../_walker/give-up.js";
-import { icuFromConcat, messageKey } from "../_walker/i18n-extract.js";
+import { icuFromConcat, inlineComponentKeyPrefix, messageKey } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
+import { sourceText } from "../_walker/source-text.js";
+import { modelTextExpr } from "./heex-model-text.js";
 import { heexTarget, renderHeexStoreActionCall, renderHeexStoreFieldRead } from "./heex-target.js";
-import { elixirI18nString } from "./i18n.js";
+import { pgettextCall } from "./i18n.js";
 import {
   ELIXIR_CTX_FREE_LEAVES,
   ELIXIR_INTRINSIC_RENDERERS,
@@ -541,6 +545,9 @@ export interface WalkContext {
    *  The HEEx engine is a FORK of the shared walker, so this mirrors
    *  `_walker/walker-core.ts`'s `i18nPrefix` rather than sharing it. */
   i18nPrefix?: string;
+  /** The locales the app ships, with their generate-time endonyms — read by
+   *  `LocaleSwitcher`.  Undefined means the system has a single locale. */
+  locales?: readonly LocaleEntry[];
 }
 
 // ---------------------------------------------------------------------------
@@ -590,6 +597,8 @@ export function walkBodyToHeex(
   stateOwner: string | undefined = undefined,
   /** See `WalkContext.refLabelTargets` — passed for page bodies only. */
   refLabelTargets: ReadonlySet<string> | undefined = undefined,
+  /** See `WalkContext.locales`. */
+  locales: readonly LocaleEntry[] | undefined = undefined,
 ): WalkResult {
   const stateNames = new Set<string>(page.state.map((f) => snake(f.name)));
   const stateFields = new Map<string, StateFieldIR>(page.state.map((f) => [snake(f.name), f]));
@@ -648,6 +657,7 @@ export function walkBodyToHeex(
     partContextModule,
     contextModuleByAggName,
     i18nPrefix,
+    locales,
   };
 
   seedHoistedHandlers(ctx, page, body);
@@ -813,6 +823,9 @@ const HEEX_NODE_RENDERERS: {
   // never a page-body expression.  Reaching the HEEx page renderer means it
   // leaked from a filter position; throw rather than emit invalid markup.
   "authz-filter": rejectAuthzFilter,
+  // `label(…)` / `plural(…)` — the identity-keyed gettext call under i18n, else
+  // the English default as a string literal.
+  modelText: (e, ctx) => modelTextExpr(ctx, e.key, e.defaultText),
 };
 
 function rejectAuthzFilter(): never {
@@ -934,7 +947,37 @@ function renderRef(expr: Extract<ExprIR, { kind: "ref" }>, ctx: WalkContext): st
   }
 }
 
+/** A member read off a loaded aggregate record, redacted under the field's
+ *  `mask unless` predicate (the visibility taint, `src/ir/enrich/mask-taint.ts`).
+ *  LiveView renders straight off the Ecto struct, which holds the clear value,
+ *  so the page applies the same predicate the JSON serializer does — against
+ *  `@current_user`, nil-guarded (fail-closed); without auth there is no
+ *  principal and the value never renders. */
 function renderMember(expr: Extract<ExprIR, { kind: "member" }>, ctx: WalkContext): string {
+  const value = renderMemberValue(expr, ctx);
+  const mask = maskOfMember(expr, ctx);
+  if (!mask) return value;
+  if (!ctx.authEnabled) return "nil";
+  const cu = ctx.position === "template" ? "@current_user" : "socket.assigns.current_user";
+  return `(if ${cu} != nil and (${renderExpr(mask, ctx)}), do: ${value}, else: nil)`;
+}
+
+/** The `mask unless` predicate a member read inherits — the receiver is a
+ *  loaded aggregate record and the member is a masked field, or a derived
+ *  computed from one. */
+function maskOfMember(
+  expr: Extract<ExprIR, { kind: "member" }>,
+  ctx: WalkContext,
+): ExprIR | undefined {
+  let t = expr.receiverType;
+  while (t?.kind === "optional") t = t.inner;
+  if (t?.kind !== "entity") return undefined;
+  const agg = ctx.aggregatesByName.get(t.name);
+  if (!agg?.fields.some((f) => f.maskUnless)) return undefined;
+  return maskedReadPredicates(agg).get(expr.member);
+}
+
+function renderMemberValue(expr: Extract<ExprIR, { kind: "member" }>, ctx: WalkContext): string {
   // Map well-known property accesses to their Elixir analogs.
   if (expr.member === "length" || expr.member === "count") {
     return `Enum.count(${renderExpr(expr.receiver, ctx)})`;
@@ -965,13 +1008,34 @@ function renderMember(expr: Extract<ExprIR, { kind: "member" }>, ctx: WalkContex
   // the record the page holds.
   const derived = derivedOfReceiver(expr, ctx);
   if (derived) {
+    const isDoc = derived.agg.savingShape === "document";
     return `(${renderDomainExpr(derived.expr, {
-      thisName: renderExpr(expr.receiver, ctx),
+      thisName: isDoc ? `${renderExpr(expr.receiver, ctx)}.data` : renderExpr(expr.receiver, ctx),
+      ...(isDoc ? { docStruct: true } : {}),
       contextModule: ctx.contextModuleByAggName.get(derived.agg.name) ?? ctx.appModule,
       agg: derived.agg as EnrichedAggregateIR,
     })})`;
   }
+  // A `shape: document` aggregate keeps its fields on the embedded `data`
+  // struct (`record.data.code`); only `id` / `version` / the timestamps sit on
+  // the record itself.
+  if (documentFieldOfReceiver(expr, ctx)) {
+    return `${renderExpr(expr.receiver, ctx)}.data.${snake(expr.member)}`;
+  }
   return `${renderExpr(expr.receiver, ctx)}.${snake(expr.member)}`;
+}
+
+/** True when a member read names a declared FIELD of a loaded `shape: document`
+ *  aggregate (stored under the record's embedded `data`, not on the record). */
+function documentFieldOfReceiver(
+  expr: Extract<ExprIR, { kind: "member" }>,
+  ctx: WalkContext,
+): boolean {
+  let t = expr.receiverType;
+  while (t?.kind === "optional") t = t.inner;
+  if (t?.kind !== "entity") return false;
+  const agg = ctx.aggregatesByName.get(t.name);
+  return agg?.savingShape === "document" && agg.fields.some((f) => f.name === expr.member);
 }
 
 /** The aggregate `derived` a member read names, when its receiver is a loaded
@@ -1116,7 +1180,7 @@ function renderInlinedComponent(
     stateFields: new Map(comp.state.map((f) => [snake(f.name), f] as const)),
     stateOwner: comp.name,
     instanceTypes,
-    i18nPrefix: ctx.i18nPrefix ? `component.${comp.name}` : undefined,
+    i18nPrefix: ctx.i18nPrefix ? inlineComponentKeyPrefix(ctx.i18nPrefix, comp.name) : undefined,
     inlineParams: params,
     inlineSlot: () => children.map((c) => renderChild(c, ctx)).join(""),
     varRemapping: undefined,
@@ -1279,7 +1343,7 @@ export function gateActionButton(
   ctx: WalkContext,
 ): string {
   if (!ctx.authEnabled) return button;
-  const gates = op.statements.filter((s) => s.kind === "requires").map((s) => s.expr);
+  const gates = operationActionGates(op);
   if (gates.length === 0) return button;
   // Classify with the JS gate-expr (currentUser-only ⇒ non-null); gate only
   // when EVERY predicate is currentUser-only.  The rendered Elixir gate is
@@ -2151,12 +2215,12 @@ function heexTranslateCall(
   if (!ctx.i18nPrefix || !role) return undefined;
   if (arg.kind === "literal" && arg.lit === "string") {
     const key = messageKey(ctx.i18nPrefix, role, arg.value);
-    return `pgettext(${elixirI18nString(key)}, ${elixirI18nString(arg.value)})`;
+    return pgettextCall(key, arg.value);
   }
   const icu = icuFromConcat(arg);
   if (!icu) return undefined;
   const key = messageKey(ctx.i18nPrefix, role, icu.positional);
-  const message = `pgettext(${elixirI18nString(key)}, ${elixirI18nString(icu.display)})`;
+  const message = pgettextCall(key, icu.display);
   // The bindings are a keyword list — the Elixir spelling of the JS runtime's
   // `{ code: code }` values object.  Values are the PEELED raw expressions
   // (a Decimal, a Date), not their stringified form, so the formatter can
@@ -2196,7 +2260,16 @@ export function namedRole(primitive: string, name: string): string | undefined {
   return USER_VISIBLE_SLOTS[primitive]?.find((s) => s.kind === "named" && s.name === name)?.role;
 }
 
+/** A `label(…)` / `plural(…)` in a markup position: `<%= pgettext(<identity
+ *  key>, <English>) %>` under i18n, else the escaped English default. */
+function modelTextMarkup(e: Extract<ExprIR, { kind: "modelText" }>, ctx: WalkContext): string {
+  return ctx.i18nPrefix
+    ? `<%= ${pgettextCall(e.key, e.defaultText)} %>`
+    : escapeHeexText(sourceText(e.key, e.defaultText));
+}
+
 export function renderChild(child: ExprIR, ctx: WalkContext, role?: string): string {
+  if (child.kind === "modelText") return modelTextMarkup(child, ctx);
   const localized = localizedHeex(child, ctx, role);
   if (localized !== undefined) return localized;
   // If the child is itself a primitive call that returns HEEx markup,
@@ -2218,6 +2291,7 @@ export function renderChild(child: ExprIR, ctx: WalkContext, role?: string): str
 }
 
 export function renderInTemplate(arg: ExprIR, ctx: WalkContext, role?: string): string {
+  if (arg.kind === "modelText") return modelTextMarkup(arg, ctx);
   const localized = localizedHeex(arg, ctx, role);
   if (localized !== undefined) return localized;
   if (arg.kind === "literal" && arg.lit === "string") return escapeHeexText(arg.value);
@@ -2262,6 +2336,7 @@ export function renderAttrValue(
   if (arg.kind === "literal" && arg.lit === "string") {
     return `"${escapeHeexAttr(arg.value)}"`;
   }
+  if (arg.kind === "modelText") return `"${escapeHeexAttr(arg.defaultText)}"`;
   if (isStatic && arg.kind === "literal") {
     return `"${escapeHeexAttr(arg.value)}"`;
   }

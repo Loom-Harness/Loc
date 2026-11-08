@@ -42,6 +42,7 @@
 // reads those as literals.
 
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 import { type InlineDoc, inlineDddDocuments as inlineDocuments } from "../_helpers/ddd-corpus.js";
 import { parseRawResult } from "../_helpers/parse.js";
 
@@ -164,8 +165,8 @@ describe("inline `.ddd` source census — the documents that live in `.ts` files
   it("finds the whole population (the scanner must not silently shrink)", () => {
     // Guards the scanner: a broken `git ls-files`, a TypeScript API change or a
     // too-strict filter would make the assertion below pass vacuously.
-    expect(docs.length).toBeGreaterThan(1500);
-    expect(new Set(docs.map((d) => d.file)).size).toBeGreaterThan(600);
+    expectReach("inline .ddd documents", docs.length, 2193);
+    expectReach("test files with inline .ddd", new Set(docs.map((d) => d.file)).size, 1020);
   });
 
   it("parses every inline `.ddd` document with zero parser errors", () => {

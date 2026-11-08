@@ -1,33 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseString } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
-// M-T9.24 G2 — a user-declared `version` field collided with auto-versioning.
+// `version` is ordinary domain data; the concurrency counter is `rowVersion`.
 //
-// `applyDefaultVersioning` splices the `versioned` capability (`version:
-// int = 1`) into every non-eventLog aggregate.  `mergeScopedMembers` drops the
-// injected member on a name collision — but the aggregate was still TAGGED
-// `versioned`, so every downstream consumer treated the user's column as the
-// optimistic-concurrency counter.  For `version: string` that is a boot-break:
-//
-//   CREATE TABLE "ops"."releases" ( … "version" TEXT NOT NULL DEFAULT 1, … )
-//
-// which Postgres rejects outright — the stack never starts.  The Hono
-// repository also inserted `version: 1` (a number) into the text column and
-// computed `expected + 1` on a string.  Both reproduced with the CLI.
-//
-// `version: int` IS structurally the field the capability would have spliced,
-// so that spelling keeps working unchanged — the splice is skipped (it would
-// have been dropped anyway) and the capability tag still applies.
+// `applyDefaultVersioning` splices the `versioned` capability (`rowVersion:
+// int token = 1`, column `row_version`) into every non-eventLog aggregate.  The
+// counter used to be named `version`, so a domain field of that name silently
+// shared the concurrency column: an `int` one drifted on every save (a rule
+// set's `version: int immutable = 1` read back as 3 after a few edits), and a
+// `string` one emitted `"version" TEXT NOT NULL DEFAULT 1`, which Postgres
+// rejects.  Now `version` is plain data of any type, and only a field that
+// lands on the counter's own member or column is refused — except the exact
+// `rowVersion: int` the capability itself splices, which is what the
+// structural printer / "unfold macro" ejects for an expanded aggregate and so
+// has to re-parse.
 // ---------------------------------------------------------------------------
 
-const system = (versionType: string) => `
-system G2Probe {
+const system = (field: string) => `
+system Probe {
   subdomain Ops {
     context Ops {
       aggregate Release with crudish {
-        version: ${versionType}
+        ${field}
         notes: string
       }
       repository Releases for Release { }
@@ -46,54 +42,54 @@ system G2Probe {
 }
 `;
 
-describe("user-declared `version` vs auto-versioning", () => {
-  it("rejects a non-int `version` field instead of emitting an unbootable schema", async () => {
-    const { errors } = await parseString(system("string"));
-    const joined = errors.join("\n");
-    expect(joined).toContain("'version'");
-    expect(joined).toContain("optimistic-concurrency");
-    // The message has to be actionable — both ways out are named.
-    expect(joined).toContain("releaseVersion");
-    expect(joined).toContain("version: int");
-  });
+describe("a user `version` field is plain data", () => {
+  for (const type of ["int immutable = 1", "string", "decimal"]) {
+    it(`accepts \`version: ${type}\` and keeps the counter on its own column`, async () => {
+      const files = await generateSystemFiles(system(`version: ${type}`));
+      const sql = [...files].find(([p]) => p.endsWith("_ops_initial.sql"))?.[1] ?? "";
+      expect(sql).toContain(`"row_version" INTEGER NOT NULL DEFAULT 1`);
+      expect(sql).not.toContain(`"version" INTEGER NOT NULL DEFAULT 1`);
+      const repo = files.get("svc/db/repositories/release-repository.ts") ?? "";
+      // The read/compare/bump names the counter, never the user's field.
+      expect(repo).toContain("const expected = expectedVersion ?? aggregate.rowVersion;");
+      expect(repo).toContain("rowVersion: expected + 1");
+      expect(repo).not.toMatch(/\bversion: expected/);
+    });
+  }
 
-  it("still accepts `version: int` and emits the concurrency column unchanged", async () => {
-    const { model, errors } = await parseString(system("int"));
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
-    const sql = [...files].find(([p]) => p.endsWith("_ops_initial.sql"))?.[1];
-    expect(sql).toContain(`"version" INTEGER NOT NULL DEFAULT 1`);
-    const repo = files.get("svc/db/repositories/release-repository.ts");
-    // The optimistic-concurrency read/compare/bump is still wired.
-    expect(repo).toContain("const expected = expectedVersion ?? aggregate.version;");
-    expect(repo).toContain("version: expected + 1");
-  });
-
-  it("leaves an aggregate with no `version` field on the normal splice path", async () => {
-    const { model, errors } = await parseString(system("int").replace("version: int", ""));
-    expect(errors).toEqual([]);
-    const sql = [...generateSystems(model).files].find(([p]) =>
-      p.endsWith("_ops_initial.sql"),
-    )?.[1];
-    expect(sql).toContain(`"version" INTEGER NOT NULL DEFAULT 1`);
+  it("leaves an aggregate with no such field on the normal splice path", async () => {
+    const files = await generateSystemFiles(system(""));
+    const sql = [...files].find(([p]) => p.endsWith("_ops_initial.sql"))?.[1] ?? "";
+    expect(sql).toContain(`"row_version" INTEGER NOT NULL DEFAULT 1`);
+    expect(sql).not.toMatch(/"version"/);
   });
 });
 
-// --- the EXPLICIT application path (G2 follow-up) ---------------------------
-//
-// `applyDefaultVersioning` returns early when the aggregate already carries the
-// `versioned` tag, so its guard never saw an aggregate that asked for the
-// capability by name.  `aggregate X with versioned { version: string }` — and
-// the context-level `with versioned` fan-out — therefore still produced
-// `"version" TEXT NOT NULL DEFAULT 1`, the DDL Postgres rejects at CREATE
-// TABLE.  The same rule now runs where the splice actually happens.
+describe("loom.version-field-collision — a field on the counter's member or column", () => {
+  for (const field of [
+    "rowVersion: string",
+    "rowVersion: int?",
+    "row_version: int",
+    "RowVersion: int",
+  ]) {
+    it(`refuses \`${field}\` (default-on versioning)`, async () => {
+      const { errors } = await parseString(system(field));
+      const name = field.split(":")[0];
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toContain(
+        `field '${name}' on aggregate 'Release' collides with Loom's optimistic-concurrency counter 'rowVersion' (column 'row_version')`,
+      );
+      // Actionable: it names both ways out.
+      expect(errors[0]).toContain("'version' is an ordinary field name");
+      expect(errors[0]).toContain("declare it 'rowVersion: int'");
+    });
+  }
 
-describe("`version` collision — explicit `with versioned`", () => {
-  const src = (versionField: string, caps: string) => `
+  const src = (field: string, caps: string) => `
     system S {
       subdomain Sub { context Ops {
         aggregate Release ${caps} {
-          ${versionField}
+          ${field}
           name: string
         }
         repository Releases for Release { }
@@ -101,28 +97,42 @@ describe("`version` collision — explicit `with versioned`", () => {
     }
   `;
 
-  it("rejects a non-int `version` when the capability was asked for by name", async () => {
-    const { errors } = await parseString(src("version: string", "with crudish, versioned"));
-    expect(errors.join("\n")).toMatch(/field 'version' on aggregate 'Release' collides/);
+  it("refuses it when the capability was asked for by name — once, not twice", async () => {
+    const { errors } = await parseString(src("rowVersion: string", "with crudish, versioned"));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/field 'rowVersion' on aggregate 'Release' collides/);
   });
 
-  it("rejects it through a context-level application too", async () => {
+  it("refuses it through a context-level application too", async () => {
     const { errors } = await parseString(`
       system S {
         subdomain Sub { context Ops with versioned {
           aggregate Release with crudish {
-            version: string
+            rowVersion: string
             name: string
           }
           repository Releases for Release { }
         } }
       }
     `);
-    expect(errors.join("\n")).toMatch(/field 'version' on aggregate 'Release' collides/);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/field 'rowVersion' on aggregate 'Release' collides/);
   });
 
-  it("leaves an explicit `version: int` legal — it IS the concurrency column", async () => {
-    const { errors } = await parseString(src("version: int", "with crudish, versioned"));
+  it("accepts the exact spliced shape `rowVersion: int` — what unfold ejects — as the counter", async () => {
+    const files = await generateSystemFiles(system("rowVersion: int"));
+    const sql = [...files].find(([p]) => p.endsWith("_ops_initial.sql"))?.[1] ?? "";
+    expect(sql).toContain(`"row_version" INTEGER NOT NULL DEFAULT 1`);
+    const repo = files.get("svc/db/repositories/release-repository.ts") ?? "";
+    expect(repo).toContain("rowVersion: expected + 1");
+    const { errors } = await parseString(src("rowVersion: int", "with crudish, versioned"));
+    expect(errors).toEqual([]);
+  });
+
+  it("does not fire on an event-sourced aggregate, which carries no counter", async () => {
+    // AST-phase errors only (`parseString`); the IR-phase "no backend hosts
+    // this event-sourced context" refusal is unrelated to the counter.
+    const { errors } = await parseString(src("rowVersion: int", "persistedAs: eventLog"));
     expect(errors).toEqual([]);
   });
 });

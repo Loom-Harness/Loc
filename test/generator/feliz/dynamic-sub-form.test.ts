@@ -91,7 +91,9 @@ describe("feliz dynamic sub-form rows (array-of-value-object)", () => {
       "prop.value row.sku; prop.onChange (fun (v: string) -> dispatch (SetOrderCreateFormItemsSku (i, v)))",
     );
     // Numeric sub-field carries the number input type.
-    expect(app).toContain('prop.type\'.number; prop.placeholder "qty"; prop.value row.qty');
+    expect(app).toContain(
+      'prop.type\'.number; prop.placeholder (I18n.t "Ordering.LineItem.field.qty" "Qty"); prop.value row.qty',
+    );
     // Add / per-row Remove controls.
     expect(app).toContain("dispatch (RemoveOrderCreateFormItems i)");
     expect(app).toContain('dispatch AddOrderCreateFormItems); prop.text "Add Line Item"');

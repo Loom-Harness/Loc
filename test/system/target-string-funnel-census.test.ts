@@ -48,11 +48,14 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 const REPO_ROOT = join(import.meta.dirname, "..", "..");
 
 const ROOTS = ["elixir", "flutter", "feliz"] as const;
 type Root = (typeof ROOTS)[number];
+/** Per-root interpolation-site floors (~90% of today's count). */
+const SITE_FLOOR: Record<Root, number> = { elixir: 168, flutter: 68, feliz: 80 };
 
 // ---------------------------------------------------------------------------
 // Site collection
@@ -445,17 +448,15 @@ const REVIEWED_SAFE: readonly Waiver[] = [
 /** Live bypasses, per file, with EXACT counts (shrink-only — a fix lowers or
  *  deletes its row, and a new one fails).
  *
- *  `src/generator/elixir/**` DELIBERATELY HAS NO ROW: it is this packet's
+ *  `src/generator/elixir/**` DELIBERATELY HAS NO ROW: it is the
  *  enforced-clean root, asserted separately below so the property is stated
  *  rather than implied by an absent key.
  *
- *  Everything here is handed off in
- *  `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c4-4a-wave2.md` — the packet's fence
- *  admits the scan on these two roots, not the emitter change. The flutter
- *  rows are mostly calls to one of the FOUR divergent local `dartStr`
- *  copies (one of which is the identity function), which is the `exStr`
- *  class again and why they are counted as bypasses rather than trusted by
- *  name. */
+ *  Every row here is debt, meant to reach zero by routing flutter/feliz
+ *  through one escape funnel per language as Elixir does.  The flutter rows
+ *  are mostly calls to one of the FOUR divergent local `dartStr` copies (one
+ *  of which is the identity function), which is why they are counted as
+ *  bypasses rather than trusted by name. */
 const BYPASS_BASELINE: Readonly<Record<string, number>> = {
   "src/generator/feliz/feliz-target.ts": 4,
   "src/generator/feliz/pack.ts": 1,
@@ -488,15 +489,13 @@ function describeSite(s: Site): string {
 describe("target-string funnel census", () => {
   it("reaches its subject — sites collected in every root, sigils included", () => {
     for (const root of ROOTS) {
-      expect(
+      expectReach(
+        `interpolation sites under src/generator/${root}/`,
         SITES.filter((s) => s.root === root).length,
-        `no interpolation site collected under src/generator/${root}/ — the detector reaches nothing`,
-      ).toBeGreaterThan(0);
+        SITE_FLOOR[root],
+      );
     }
-    expect(
-      SITES.filter((s) => s.shape === "sigil").length,
-      "no `~r/…${…}…/` site found — the sigil half of the detector reaches nothing",
-    ).toBeGreaterThan(0);
+    expectReach("`~r/…${…}…/` sigil sites", SITES.filter((s) => s.shape === "sigil").length, 2);
   });
 
   it("every `~r/…/` sigil interpolation reaches `elixirRegexBody`", () => {

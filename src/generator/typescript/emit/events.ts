@@ -1,6 +1,9 @@
+import { eventLogCarriesTenant } from "../../../ir/enrich/stream-tenancy.js";
 import type { BoundedContextIR, EventIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { tsImportSlot } from "../../_imports/ts.js";
 import { renderTsType } from "../render-expr.js";
+import { T } from "../ts-symbols.js";
 
 // ---------------------------------------------------------------------------
 // `events.ts` — one interface per event (with a tagged `type` literal),
@@ -10,12 +13,10 @@ import { renderTsType } from "../render-expr.js";
 export function renderEvents(ctx: BoundedContextIR): string {
   const voImports = new Set<string>();
   const enumImports = new Set<string>();
-  let usesIds = false;
   let usesDecimal = false;
   const visit = (t: TypeIR): void => {
     if (t.kind === "valueobject") voImports.add(t.name);
     if (t.kind === "enum") enumImports.add(t.name);
-    if (t.kind === "id") usesIds = true;
     // The `money` primitive renders as decimal.js `Decimal` — needs an import.
     if (t.kind === "primitive" && t.name === "money") usesDecimal = true;
     if (t.kind === "array") visit(t.element);
@@ -23,6 +24,11 @@ export function renderEvents(ctx: BoundedContextIR): string {
   };
   for (const ev of ctx.events) for (const f of ev.fields) visit(f.type);
 
+  // Some stream is tenant-scoped (`stream-tenancy.ts`): an append may raise
+  // inside its stream tenant's event-origin frame, which has closed by the time
+  // a deferred buffer flushes — so each buffered event keeps its raising async
+  // context and is dispatched back inside it.
+  const keepFrame = eventLogCarriesTenant(ctx);
   const voList = [...voImports];
   const enumList = [...enumImports];
 
@@ -30,7 +36,7 @@ export function renderEvents(ctx: BoundedContextIR): string {
     lines(
       "// Auto-generated.",
       usesDecimal ? 'import Decimal from "decimal.js";' : null,
-      usesIds ? 'import type * as Ids from "./ids";' : null,
+      tsImportSlot("~/domain/ids"),
       voList.length > 0 ? `import type { ${voList.join(", ")} } from "./value-objects";` : null,
       enumList.length > 0 ? `import type { ${enumList.join(", ")} } from "./value-objects";` : null,
       ...ctx.events.flatMap(renderEvent),
@@ -86,17 +92,31 @@ export function renderEvents(ctx: BoundedContextIR): string {
       "export function deferredDispatcher(",
       "  inner: DomainEventDispatcher,",
       "): DomainEventDispatcher & { flush(): Promise<void> } {",
-      "  const buffered: DomainEvent[] = [];",
-      "  return {",
-      "    async dispatch(event: DomainEvent): Promise<void> {",
-      "      buffered.push(event);",
-      "    },",
+      ...(keepFrame
+        ? [
+            "  // Each event keeps the async context it was raised in: its event origin",
+            "  // (the stream tenant's frame) is the one the dispatch must run in.",
+            `  const buffered: { event: DomainEvent; frame: ReturnType<typeof ${T.AsyncLocalStorage}.snapshot> }[] = [];`,
+            "  return {",
+            "    async dispatch(event: DomainEvent): Promise<void> {",
+            `      buffered.push({ event, frame: ${T.AsyncLocalStorage}.snapshot() });`,
+            "    },",
+          ]
+        : [
+            "  const buffered: DomainEvent[] = [];",
+            "  return {",
+            "    async dispatch(event: DomainEvent): Promise<void> {",
+            "      buffered.push(event);",
+            "    },",
+          ]),
       "    // Durable capture still belongs INSIDE the transaction — that is the",
       "    // whole point of the outbox row committing atomically with the write —",
       "    // so it is delegated straight through rather than buffered.",
       "    recordDurable: inner.recordDurable?.bind(inner),",
       "    async flush(): Promise<void> {",
-      "      for (const event of buffered.splice(0)) await inner.dispatch(event);",
+      keepFrame
+        ? "      for (const { event, frame } of buffered.splice(0)) await frame(() => inner.dispatch(event));"
+        : "      for (const event of buffered.splice(0)) await inner.dispatch(event);",
       "    },",
       "  };",
       "}",

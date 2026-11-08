@@ -12,7 +12,7 @@ system S {
     aggregate Order with crudish {
       code: string
       note: string?
-      operation label(): string { return match note { string s => s, else => "none" } }
+      operation caption(): string { return match note { string s => s, else => "none" } }
     }
     repository Orders for Order { }
   } }

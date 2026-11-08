@@ -74,6 +74,8 @@ const NO_TEXT: Readonly<Record<string, string>> = {
     "the anchor's text is the file's own `.key` (wire DATA, never authored) and the null arm is a typographic em-dash — no prose of its own",
   "id-link.ts":
     "the null-guard wrapper around `IdLink` — the link's text is the referenced id (wire DATA) and the absent arm is the same typographic em-dash `file-link.ts` uses; the link MARKUP itself comes from the pack template, not from here",
+  "locale-switcher.ts":
+    "emits only the `<LocaleSwitcher />` reference; the option labels are each locale's own name, computed when the app is generated and carried in the runtime's `LOCALES` table — a locale name is never translated into the active language",
   "for.ts":
     "`For(empty:)` is authored MARKUP walked in the parent context, so its own primitives localize; `For` contributes no text itself",
 };

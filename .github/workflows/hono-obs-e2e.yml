@@ -5,9 +5,8 @@ name: Hono observability events (runtime e2e)
 #   server_starting → server_listening → request_start → request_end →
 #   server_shutdown
 #
-# Lighter than the .NET / Phoenix sibling jobs — Hono runs in pure Node
-# and the pg pool is lazy, so the suite needs no docker / no postgres
-# sidecar.  Cost is dominated by the `npm install` of the generated
+# Hono runs in pure Node; boot applies the schema migrations, so the suite
+# starts a throwaway postgres container (docker on the runner).  Cost is dominated by the `npm install` of the generated
 # project's deps (~60-90s with cache, ~3-4min cold).
 #
 # TIER: per-PR, path-scoped, binding through `pr-gate` — with `push: main`
@@ -87,6 +86,7 @@ on:
       - 'src/generator/_type/**'
       - 'src/generator/_workflow/**'
       - 'test/e2e/observability-events.test.ts'
+      - 'test/e2e/support/backend-project.ts'
       - '.github/workflows/hono-obs-e2e.yml'
 permissions:
   contents: read

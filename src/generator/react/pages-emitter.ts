@@ -45,6 +45,7 @@ import { requestNamesForContexts } from "../_frontend/request-names.js";
 import { buildWorkflowPageObject } from "../_frontend/workflows-module.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
+import { componentKeyPrefix, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { isWalkableLayoutBody, walkBodyToTsx } from "./body-walker.js";
 import {
   buildExternFunctionShim,
@@ -317,7 +318,7 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
       // Named, typed component event handlers (Proposal A Stage 1).
       c.actions,
       // i18n key prefix — `component.<Name>` matches the catalog.
-      ctx.i18nEnabled ? `component.${c.name}` : undefined,
+      ctx.i18nEnabled ? componentKeyPrefix(ui, c) : undefined,
     );
     out.set(componentPath, componentContent);
     ctx.sourcemap?.file(componentPath, componentContent, c.origin, componentConstruct);
@@ -378,7 +379,7 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
         page.actions,
         // i18n key prefix — `page.<Name>` matches the catalog (the scaffold's
         // role-scoped `page.name`, e.g. `List`, not the emit name `OrderList`).
-        ctx.i18nEnabled ? `page.${page.name}` : undefined,
+        ctx.i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
       );
       out.set(emitPath, pageContent);
       ctx.sourcemap?.file(emitPath, pageContent, page.origin, pageConstructId(ui.name, page));

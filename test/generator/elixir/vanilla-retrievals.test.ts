@@ -111,7 +111,7 @@ describe("vanilla — retrieval modules under lib/<app>/<ctx>/retrievals/", () =
   it("renders the sort clause as `order_by(query, [record], [<dir>: record.<field>])`", async () => {
     const files = await load();
     const body = files.get([...files.keys()].find((k) => k.endsWith("/retrievals/by_status.ex"))!)!;
-    expect(body).toContain("order_by(query, [record], [desc: record.placed_at])");
+    expect(body).toContain("order_by(query, [record], [desc: record.placed_at, asc: record.id])");
   });
 
   it("a retrieval with no params still takes a default opts arg", async () => {
@@ -122,12 +122,12 @@ describe("vanilla — retrieval modules under lib/<app>/<ctx>/retrievals/", () =
     expect(body).toContain("def run(opts \\\\ [])");
   });
 
-  it("a retrieval with no sort omits the order_by line", async () => {
+  it("a retrieval with no sort still orders by id — never the database's physical order", async () => {
     const files = await load();
     const body = files.get(
       [...files.keys()].find((k) => k.endsWith("/retrievals/all_pending.ex"))!,
     )!;
-    expect(body).not.toContain("order_by(");
+    expect(body).toContain("query = order_by(query, [record], [asc: record.id])");
   });
 
   it("returns `{:ok, Repo.all(query)}` (the contract that repo-run lowering will consume)", async () => {

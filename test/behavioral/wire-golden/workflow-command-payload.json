@@ -58,7 +58,7 @@
             "id": "<volatile:key>",
             "note": "handle with care",
             "priority": 2,
-            "version": 1
+            "rowVersion": 1
           },
           {
             "amount": "10.0000",
@@ -67,7 +67,7 @@
             "id": "<volatile:key>",
             "note": null,
             "priority": 5,
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -88,7 +88,7 @@
         "id": "<volatile:key>",
         "note": "handle with care",
         "priority": 2,
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -110,7 +110,7 @@
         "id": "<volatile:key>",
         "note": "dried",
         "priority": 5,
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -121,7 +121,7 @@
       "body": {
         "code": "CRG-1",
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -141,7 +141,7 @@
           {
             "code": "CRG-2",
             "id": "<volatile:key>",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -171,7 +171,7 @@
         "id": "<volatile:key>",
         "note": null,
         "priority": 9,
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -258,18 +258,12 @@
       "seq": 21,
       "method": "POST",
       "path": "/api/cargos/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "code is required",
-            "pointer": "/code"
-          }
-        ],
+        "detail": "Cargo {id} not found",
         "instance": "/api/cargos/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

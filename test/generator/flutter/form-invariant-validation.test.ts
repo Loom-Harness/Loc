@@ -119,7 +119,7 @@ describe("flutter forms — invariant-derived client validation (M-T1.16)", () =
     // `plain: string` is constrained by nothing — the pre-M-T1.16 arrow form,
     // unchanged.  This is the floor that keeps the change additive.
     expect(src).toContain(
-      "decoration: const InputDecoration(labelText: 'Plain'), validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null)",
+      "decoration: InputDecoration(labelText: t('C.Ticket.field.plain', 'Plain')), validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null)",
     );
   });
 

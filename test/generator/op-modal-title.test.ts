@@ -82,7 +82,7 @@ describe("op-dialog Modal — the authored title: is the dialog title", () => {
       const src = await uiSource(t.platform, t.pack, `title: "Archive product",`);
       // Under i18n the title binds through `t(key, default)` keyed to the
       // `modalTitle` catalog slot — the same key the extraction pass emits.
-      expect(src).toMatch(/t\("page\.Detail\.modalTitle\.\w+", "Archive product"\)/);
+      expect(src).toMatch(/t\("\w+\.page\.Detail\.modalTitle\.\w+", "Archive product"\)/);
       // …and the humanized op name is no longer standing in for it.  ("Archive"
       // still appears as the submit-button label and the toast, which are pack
       // chrome, not this slot — so assert on the TITLE position specifically.)

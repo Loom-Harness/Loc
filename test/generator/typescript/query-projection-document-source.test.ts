@@ -87,7 +87,7 @@ describe("node — query-time projection over a `shape: document` source", () =>
     expect(repo).toContain("async articleTitles(): Promise<Article[]> {");
     // Hydrate-then-filter over the rehydrated blob — the document read shape.
     expect(repo).toContain(
-      "const all = rows.map((r) => articleFromDoc(r.data as ArticleDoc, r.version));",
+      "const all = rows.map((r) => articleFromDoc(r.data as ArticleDoc, r.rowVersion));",
     );
   });
 

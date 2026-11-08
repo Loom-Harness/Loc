@@ -135,7 +135,7 @@ const EXPECTED: Record<string, Expectation> = {
     reach: ["Registration", "Audit"],
     pureReach: "FeeQuote",
     declaration:
-      "export async function isHolderFree(accounts: AccountRepositoryPort, holder: string): Promise<boolean> {",
+      "async function registration_isHolderFree(accounts: AccountRepositoryPort, holder: string): Promise<boolean> {",
     declaredIn: "d/domain/services.ts",
   },
   dotnet: {

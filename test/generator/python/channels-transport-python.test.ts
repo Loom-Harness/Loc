@@ -123,6 +123,25 @@ describe("redis broker transport — python leg (M-T4.4 slice 2b)", () => {
     expect(channels).toContain("task.result()");
   });
 
+  it("keeps the redis subscriber alive across a broker restart: read inside the try, back off, resubscribe", async () => {
+    const files = await generateSystemFiles(FIXTURE);
+    const channels = files.get("ship_api/app/channels.py") ?? "";
+    const loop = channels.slice(channels.indexOf("    _subscribed.set()"));
+    // The read is guarded: its failure is logged, backed off (capped), and the
+    // pub/sub connection is rebuilt and resubscribed instead of ending the task.
+    const tryAt = loop.indexOf(
+      "            try:\n                message = await transport.get_message(",
+    );
+    expect(tryAt, "get_message must sit inside a try").toBeGreaterThan(-1);
+    expect(loop).toContain("backoff = min(backoff * 2, 30.0)");
+    expect(loop).toContain("await asyncio.sleep(backoff)");
+    expect(loop).toContain("await transport.resubscribe()");
+    expect(channels).toContain("    async def resubscribe(self) -> None:");
+    expect(channels).toContain("self._addresses.extend(addresses)");
+    // Cancellation is not swallowed: only `Exception` is caught.
+    expect(loop).not.toContain("BaseException");
+  });
+
   it("gives the consumer the foreign event vocabulary and reactor routing", async () => {
     const files = await generateSystemFiles(FIXTURE);
     // shipApi does NOT host Orders, yet consumes OrderPlaced via the wired

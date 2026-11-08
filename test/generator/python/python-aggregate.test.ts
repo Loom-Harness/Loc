@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — aggregate emission (plan S5): the domain class shape
@@ -22,9 +21,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python aggregate emission", () => {
@@ -39,7 +36,7 @@ describe("python aggregate emission", () => {
     const files = await build();
     const order = files.get("api/app/domain/order.py")!;
     expect(order).toContain(
-      "def __init__(self, *, id: OrderId, status: OrderStatus, placed_at: datetime, unit_budget: Decimal, watchers: list[CustomerId], version: int, lines: list[OrderLine], _trust_store: bool = False) -> None:",
+      "def __init__(self, *, id: OrderId, status: OrderStatus, placed_at: datetime, unit_budget: Decimal, watchers: list[CustomerId], row_version: int, lines: list[OrderLine], _trust_store: bool = False) -> None:",
     );
     // RS-10: the invariant run is gated on the trust marker — repository
     // rehydration (`_rehydrate`) skips it, domain construction asserts.
@@ -120,7 +117,7 @@ describe("python aggregate emission", () => {
   });
 
   it("constructible aggregates get a public create factory with new id + seeds", async () => {
-    const { model, errors } = await parseString(`system PyCreate {
+    const fixture = `system PyCreate {
       subdomain Ops {
         context Ops {
           aggregate Widget {
@@ -141,9 +138,8 @@ describe("python aggregate emission", () => {
         serves: OpsApi
         port: 8000
       }
-    }`);
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
+    }`;
+    const files = await generateSystemFiles(fixture);
     const widget = files.get("api/app/domain/widget.py")!;
     expect(widget).toContain(
       '    def create(cls, *, label: str, note: str | None = None) -> "Widget":',

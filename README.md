@@ -191,8 +191,6 @@ session.
 
 ```bash
 node bin/cli.js parse <file.ddd>                       # parse + validate, exit non-zero on errors
-node bin/cli.js generate ts     <file.ddd> -o <out>    # single Hono project (legacy single-context mode)
-node bin/cli.js generate dotnet <file.ddd> -o <out>    # single .NET project (legacy)
 node bin/cli.js generate system <file.ddd> -o <out>    # full multi-deployable tree + docker-compose.yml
 node bin/cli.js snapshot        <file.ddd> -o <out>    # capture immutable .loom/snapshots/<ts>-<guid>.loomsnap.json (provenance rule snapshot)
 node bin/cli.js verify          <file.ddd> --results <results.json>  # join existing test-results onto the requirements graph → .loom/verification.{json,md} (gates the exit code; does NOT run the suites)
@@ -204,7 +202,7 @@ Common flags:
 | Flag | Effect |
 | --- | --- |
 | `-o, --out <dir>` | Output directory.  Created if missing. |
-| `-w, --watch` | Re-run the generator on every save of the `.ddd` source (legacy `generate ts` / `generate dotnet` only). |
+| `-w, --watch` | Re-run the generator on every save of the `.ddd` source. |
 | `--dry-run` | Print the plan with `write` / `skip` annotations; touch nothing. |
 
 `ddd parse` exits non-zero on validation errors.  All `generate`
@@ -264,7 +262,7 @@ test runs against whichever runtime you point it at.
 
 | Example | Highlights |
 | --- | --- |
-| [`sales.ddd`](examples/sales.ddd) | DDD basics &mdash; `Order` aggregate with `OrderLine` parts, `Money` value object, `OrderStatus` enum, `OrderConfirmed` event, repository with `byCustomer` find, test blocks. |
+| [`sales.ddd`](examples/sales.ddd) | DDD basics &mdash; `Order` aggregate with `OrderLine` parts, `Money` value object, `OrderStatus` enum, `OrderConfirmed` event, `Orders` repository with an `OrdersByCustomer` criterion, test blocks. |
 | [`banking.ddd`](examples/banking.ddd) | Optional fields, multiple aggregates with cross-references via `X id`, richer `where`-filter on a repository find. |
 | [`inventory.ddd`](examples/inventory.ddd) | Nested parts, explicit `ids guid` override on an aggregate. |
 | [`money-primitive.ddd`](examples/money-primitive.ddd) | The `Money` primitive and how decimal arithmetic is preserved across backends. |

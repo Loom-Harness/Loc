@@ -1,0 +1,57 @@
+// A named operation that assigns a field a SINGLE-FIELD invariant guards —
+// `invariant qty >= 0` under `setQty(n)` — must refuse a violating value on the
+// operation path, not only on create / update.
+//
+// Elixir's operation persist is a `change(%{}) |> force_change(…)` changeset
+// that never passes through `base_changeset`, where the native single-field
+// validators live; it re-ran only the residual cross-field rules, so
+// `setQty(-1)` committed.  Every other backend asserts every invariant after
+// the operation body.
+system OpPersistFieldInvariant {
+  subdomain Stock {
+    context Stock {
+      aggregate Counter {
+        qty: int
+        label: string
+        invariant qty >= 0
+        invariant label != ""
+
+        create(qty: int, label: string) {
+          qty := qty
+          label := label
+        }
+
+        operation setQty(n: int) {
+          qty := n
+        }
+
+        operation rename(l: string) {
+          label := l
+        }
+      }
+      repository Counters for Counter { }
+    }
+  }
+  api StockApi from Stock
+  storage pg { type: postgres }
+  resource stockState { for: Stock, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Stock]
+    dataSources: [stockState]
+    serves: StockApi
+    port: 4000
+  }
+
+  test e2e "a violating operation is refused and leaves the row unchanged" against d {
+    let c = api.counters.create({ qty: 1, label: "a" })
+    api.counters.setQty(c, { n: 2 })
+    expect(api.counters.getById(c).qty).toBe(2)
+    expect(api.counters.setQty(c, { n: -1 })).toThrow(422)
+    expect(api.counters.rename(c, { l: "" })).toThrow(422)
+    let after = api.counters.getById(c)
+    expect(after.qty).toBe(2)
+    expect(after.label).toBe("a")
+    expect(api.counters.all().total).toBe(1)
+  }
+}

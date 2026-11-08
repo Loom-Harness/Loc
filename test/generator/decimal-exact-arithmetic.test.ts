@@ -83,6 +83,15 @@ describe("RS-37 — node computes decimal arithmetic through decimal.js", () => 
     const pkg = JSON.parse(await file("node", "d/package.json"));
     expect(Object.keys(pkg.dependencies)).toContain("decimal.js");
   });
+
+  it("configures 28 significant digits at boot and in the vitest setup", async () => {
+    const setup = await file("node", "d/lib/decimal-setup.ts");
+    expect(setup).toContain("Decimal.set({ precision: 28 });");
+    expect(await file("node", "d/index.ts")).toContain('import "./lib/decimal-setup";');
+    expect(await file("node", "d/vitest.config.ts")).toContain(
+      'setupFiles: ["./lib/decimal-setup.ts"]',
+    );
+  });
 });
 
 describe("RS-37 — python computes decimal arithmetic on Decimal(str(x))", () => {

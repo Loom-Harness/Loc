@@ -225,7 +225,7 @@ export interface PlatformSurface extends PlatformDescriptor {
      *  system orchestrator resolves these from the deployable's axis
      *  selection via `resolveStyle` / `resolveLayout` and passes them
      *  here; the surface forwards them into its generator's `EmitCtx`.
-     *  Absent for frontends and in legacy single-context generate mode —
+     *  Absent for frontends and for a backend with no adapter menu —
      *  the generator then falls back to its hardcoded default sibling
      *  (byte-identical under today's size-1 menus). */
     styleAdapter?: StyleAdapter;
@@ -251,8 +251,9 @@ export interface PlatformSurface extends PlatformDescriptor {
      *  frontend platform with a JSON-file translation runtime emits one
      *  `src/locales/<locale>.json` per entry — scoped to its own ui's keys —
      *  and registers each in the generated `src/i18n.ts`.  Every backend
-     *  platform, and the three frontends that compile their catalog into
-     *  source (Phoenix/HEEx, Feliz, Flutter), ignore it. */
+     *  platform, and the two frontends that compile their catalog into
+     *  source (Feliz, Flutter), ignore it.  Phoenix emits one gettext `.po` per
+     *  entry and negotiates among their tags at runtime. */
     translations?: ReadonlyMap<string, Record<string, string>>;
   }): Map<string, string>;
   /** Inputs for the deployable's docker-compose service stanza. */

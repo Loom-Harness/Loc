@@ -1,0 +1,117 @@
+// A mutating operation whose result can be an `error`, bound with `let` and
+// matched in a workflow body (13-workflows.md, "Matching a mutating call's
+// result").  `withdraw` mutates FIRST and then may answer `Insufficient`; an
+// operation that answers its error leaves no trace (D-FAILURE-MODEL), so the
+// workflow saves the account only in the match's success arm.
+//
+//   Pay    — the error arm answers `notFound`: the declined call is a 404, and
+//            the account reads back unchanged.
+//   TryPay — the error arm records a `Note` instead, so the body COMMITS on
+//            the error path.  This is the discriminating case: EF Core and JPA
+//            would flush the withdrawn balance with the note's save (or at
+//            commit) unless the arm detaches the account (`Discard` /
+//            `discard`), so the unchanged read-back fails on .NET and Java
+//            without it.
+//
+// Elixir refuses the bound form (`loom.elixir-bound-mutating-call-unsupported`).
+system MatchOpResult {
+  subdomain Banking {
+    context Ledger {
+      error Insufficient { needed: int }
+
+      aggregate Account with crudish {
+        owner: string
+        balance: int
+        operation withdraw(amt: int): int or Insufficient {
+          balance := balance - amt
+          if balance < 0 {
+            return Insufficient { needed: 0 - balance }
+          }
+          return balance
+        }
+      }
+      repository Accounts for Account
+
+      aggregate Note with crudish { text: string }
+      repository Notes for Note
+
+      workflow Pay {
+        create(account: Account id, amt: int) {
+          let a = Accounts.get(account)
+          let r = a.withdraw(amt)
+          match r {
+            int left => { }
+            Insufficient e => { notFound }
+          }
+        }
+      }
+
+      workflow TryPay {
+        create(account: Account id, amt: int) {
+          let a = Accounts.get(account)
+          let r = a.withdraw(amt)
+          match r {
+            int left => { }
+            Insufficient e => { let n = Note.create(text: "declined") }
+          }
+        }
+      }
+    }
+  }
+  api BankApi from Banking {
+    httpStatus Insufficient -> 409
+  }
+  storage primary { type: postgres }
+  resource ledgerState { for: Ledger, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ledger]
+    dataSources: [ledgerState]
+    serves: BankApi
+    port: 4000
+  }
+
+  test e2e "a matched op result saves on success and drops the change on error" against d {
+    let a = api.accounts.create({ owner: "ann", balance: 100 })
+
+    // Success persists through the match's success arm.
+    api.pay.run({ account: a.id, amt: 30 })
+    expect(api.accounts.getById(a).balance).toBe(70)
+
+    // The error arm answers 404; the withdrawal it already made in memory is
+    // never written.
+    expect(api.pay.run({ account: a.id, amt: 500 })).toThrow(404)
+    expect(api.accounts.getById(a).balance).toBe(70)
+
+    // The error arm commits a note; the account still reads back unchanged.
+    api.tryPay.run({ account: a.id, amt: 500 })
+    expect(api.accounts.getById(a).balance).toBe(70)
+    let notes = api.notes.all()
+    expect(notes.items.length).toBe(1)
+    expect(notes.items.first().text).toBe("declined")
+
+    // …and its success arm saves like Pay's.
+    api.tryPay.run({ account: a.id, amt: 20 })
+    expect(api.accounts.getById(a).balance).toBe(50)
+
+    // The operation's own route answers the same error at its mapped status
+    // and also leaves no trace.
+    expect(api.accounts.withdraw(a, { amt: 500 })).toThrow(409)
+    expect(api.accounts.getById(a).balance).toBe(50)
+    api.accounts.withdraw(a, { amt: 10 })
+    expect(api.accounts.getById(a).balance).toBe(40)
+
+    // The remaining generated routes.
+    api.accounts.update(a, { owner: "bea", balance: 40 })
+    expect(api.accounts.getById(a).owner).toBe("bea")
+    let listed = api.accounts.all()
+    expect(listed.items.length).toBe(1)
+    let note = api.notes.create({ text: "manual" })
+    expect(api.notes.getById(note).text).toBe("manual")
+    api.notes.update(note, { text: "edited" })
+    expect(api.notes.getById(note).text).toBe("edited")
+    api.notes.destroy(note)
+    api.accounts.destroy(a)
+    expect(api.accounts.getById(a)).toThrow(404)
+  }
+}

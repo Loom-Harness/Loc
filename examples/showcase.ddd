@@ -6,8 +6,8 @@
 // manages projects, build pipelines, deployments, and the engineers who
 // operate them.
 //
-// Parses + validates with zero errors; warnings (provenance / match
-// exhaustiveness) are acceptable.
+// Parses + validates with zero errors and zero warnings (pinned for every
+// examples/ and journey/ model by test/conformance/examples-zero-warnings.test.ts).
 
 // ---------------------------------------------------------------------------
 // Top-level (ambient) helper `function` (stdlib Phase B) — pure,
@@ -51,6 +51,11 @@ system DevPlatform {
         neutral: "#64748b"
         radius: "md"
         fontFamily: "Inter, system-ui, sans-serif"
+    }
+
+    // The language this model's text is written in (BCP-47); defaults to "en".
+    i18n {
+        source: "en"
     }
 
     // Strongly-typed JWT claim shape; `currentUser` types against this.
@@ -156,10 +161,13 @@ system DevPlatform {
             }
 
             aggregate Project with crudish {
-                name: string
+                // `immutable` (FieldAccess) — settable at creation, then only by
+                // the gated operations that assign them (`rename` / `archive`),
+                // so crudish's generic update cannot bypass their `requires`.
+                name: string immutable
                 description: string?
                 visibility: Visibility
-                active: bool
+                active: bool immutable
                 sequence: long
                 externalId: guid?
                 tags: string[]?
@@ -305,7 +313,7 @@ system DevPlatform {
                   for p in matched {
                       p.addPipeline("scan")
                   }
-                  let adhoc = Projects.all(ActiveNamed(needle), sort: [sequence desc])
+                  let adhoc = Projects.all(ActiveNamed(needle), sort: [sequence desc], page: { offset: 0, limit: 100 })
               }
             }
 
@@ -319,6 +327,10 @@ system DevPlatform {
                 }
                 on(e: ProjectArchived) by e.project {
                     emit ProjectArchivedRecorded { project: e.project, count: 1 }
+                }
+                // The nightly `catalogSweep` timer tick resets the tally.
+                on(t: CatalogSweepTick) by t.project {
+                    emit ArchivalReset { project: t.project }
                 }
                 apply(rec: ProjectArchivedRecorded) { archivedCount := archivedCount + rec.count }
                 apply(r: ArchivalReset) { archivedCount := 0 }
@@ -375,7 +387,8 @@ system DevPlatform {
                 // provenance runtime is emitted on hono only (loom.provenanced-
                 // backend-unsupported gates the mismatch).  The `provenanced`
                 // modifier is demonstrated in examples/provenance.ddd (hono-only).
-                total: int
+                // `immutable`: only the gated `promote` moves it after creation.
+                total: int immutable
                 cost: money?
                 startedAt: datetime
 
@@ -398,6 +411,16 @@ system DevPlatform {
             repository Builds for Build { }
             criterion BySha(commitSha: string) of Build = this.commitSha == commitSha
 
+            // TestPrincipal — a context integration test runs as the dev-stub
+            // principal with the `as { … }` claims set; the same clause on a
+            // line of its own switches the principal for what follows.
+            test "a build recorded by an admin reads back" as { role: "admin", permissions: ["builds.read"] } {
+                let b = Build.create(commitSha: "abc1234", buildState: Passed, total: 0, startedAt: now())
+                as { role: "viewer" }
+                let read = Build.find(b.id)
+                expect(read.commitSha).toBe("abc1234")
+            }
+
             // Transactional workflow with explicit isolation level.
             workflow promoteToProduction transactional(serializable) {
               create(buildId: Build id) {
@@ -418,9 +441,11 @@ system DevPlatform {
             aggregate Engineer with crudish {
                 handle: string
                   check handle.length >= 3 && handle.length <= 32
-                // SensitivityClause — PII tagging on a field.
+                // SensitivityClause — PII tagging on a field, redacted on the
+                // wire for every caller but an admin (`mask unless`).
                 email: string sensitive(pii)
                   check email.matches("^[^@]+@[^@]+\\.[^@]+$") && email.length <= 120
+                  mask unless currentUser.role == "admin"
                 level: int check level >= 1 && level <= 10
                 onCall: bool
 
@@ -455,24 +480,13 @@ system DevPlatform {
     api DeliveryApi with scaffoldGetApi(of: BySha) from Delivery
     api AccountsApi with scaffoldGetApi(of: ByHandle) from Accounts
 
-    // Connection sources (all four variants) + a vendor config map covering
-    // the three ConfigValue types (string / int / bool).
-    storage primarySql {
-        type: postgres
-        connection: env("DATABASE_URL")
-        config: { poolSize: 10, ssl: true, region: "eu-west-1" }
+    storage primarySql { type: postgres }
+    // A vendor config map (ConfigEntry) with the keys its sourceType declares.
+    // The storage binds a kind, so declaring it without a use is valid.
+    storage artifactStore {
+        type: s3
+        config: { bucket: "showcase-artifacts", region: "eu-west-1" }
     }
-    storage hotCache {
-        type: redis
-        connection: literal("redis://cache:6379")
-    }
-    // Covers ServiceConnectionSource (`connection: service(...)`); redis binds a
-    // kind, so declaring it without a use is valid.
-    storage sessionStore { type: redis, connection: service(redisCluster) }
-    storage eventBus    { type: kafka,   connection: secret(kafkaUrl) }
-
-    // ChannelSource — physical binding of a channel to a transport storage.
-    channelSource projectBus { for: ProjectEvents, use: hotCache }
 
     // Layout — header/main/footer slots; the header exercises the Sticky
     // primitive. Covers Layout, LayoutNamedSlot, LayoutMainSlot, Sticky.
@@ -639,7 +653,8 @@ system DevPlatform {
                                 Divider {},
                                 Money { 1999, currency: "USD" },
                                 KeyValueRow { "Owner", Text { "platform-team" } },
-                                Loader {}
+                                Loader {},
+                                LocaleSwitcher {}
                             }
                         },
                         Card {

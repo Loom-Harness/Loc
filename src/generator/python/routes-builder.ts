@@ -1,3 +1,4 @@
+import { destroyVersionCheck, readsIfMatch } from "../../ir/enrich/version-check.js";
 import { FIND_ABSENT_DETAIL, reasonPhrase, wireSentenceFor } from "../../ir/enrich/wire-policy.js";
 import {
   createInputFields,
@@ -39,11 +40,14 @@ import {
 } from "../../ir/util/api-surface.js";
 import { canonicalCreate, canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
+import { declaredResponseFor } from "../../ir/util/declared-response.js";
 import { disallowedDetail } from "../../ir/util/denial-detail.js";
+import { mergePatchFields } from "../../ir/util/merge-patch.js";
 import {
   lifecycleGates,
   lifecycleGatesReadRow,
   lifecycleGatesUseCurrentUser,
+  maskWritePresenceParam,
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
@@ -68,12 +72,13 @@ import {
   snake,
   upperFirst,
 } from "../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/server-default.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
-import { findUnionSpec } from "../_payload/union-wire.js";
+import { findUnionSpec, unionMoneyArms } from "../_payload/union-wire.js";
 import { pyCalendarDateWire } from "./codec-spelling.js";
 import { pyCommandBodyParam } from "./command-body.js";
 import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
@@ -90,6 +95,7 @@ import { renderPyExpr, renderPyNegatedGuard } from "./render-expr.js";
 import { aggHasFieldMask, emittableFinds } from "./repository-builder.js";
 import { hasStamp, type StampEvent, stampUsesUser } from "./stamp-call.js";
 import {
+  pyConflictRaise,
   pyErrorVariantReturn,
   pyProblemResponseEntry,
   wireStatusResolver,
@@ -119,6 +125,7 @@ export const PY_HTTP = {
   make_dispatcher: pyRef("app.dispatch", "make_dispatcher"),
   NoopDomainEventDispatcher: pyRef("app.domain.events", "NoopDomainEventDispatcher"),
   AggregateNotFoundError: pyRef("app.domain.errors", "AggregateNotFoundError"),
+  ConcurrencyError: pyRef("app.domain.errors", "ConcurrencyError"),
   User: pyRef("app.auth.user", "User"),
   require_current_user: pyRef("app.auth.user", "require_current_user"),
   AuditEntryListResponse: pyRef("app.audit.history", "AuditEntryListResponse"),
@@ -197,7 +204,6 @@ export function buildPyRoutesFile(
   const derivedOps = servedOperations(deriveAggregateOperations(agg, repo, apiStatusContext(ctx)));
   const createOp = derivedOps.find((o) => o.kind === "create");
   const allOp = derivedOps.find((o) => isAllFind(o));
-  const declaredFindOps = derivedOps.filter((o) => o.kind === "find" && !isAllFind(o));
   const getByIdOp = derivedOps.find((o) => o.kind === "getById");
   const destroyOp = derivedOps.find((o) => o.kind === "destroy");
   const opEntries = derivedOps.filter((o) => o.kind === "operation");
@@ -252,12 +258,7 @@ export function buildPyRoutesFile(
   }
   const models = lines(
     ...parts.map((p) => responseModel(p.name, p, ctx)),
-    responseModel(
-      agg.name,
-      agg,
-      ctx,
-      ctx.payloads.find((p) => p.kind === "response" && p.name === `${agg.name}Response`),
-    ),
+    responseModel(agg.name, agg, ctx, declaredResponseFor(ctx.payloads, agg)),
     // Named array component for list endpoints (`<Agg>ListResponse`,
     // RootModel so FastAPI emits a $ref instead of an inline array) —
     // response-schema parity with the other backends.
@@ -285,9 +286,6 @@ export function buildPyRoutesFile(
       : `    return ${repoClassRef(agg.name)}(session, ${H.NoopDomainEventDispatcher}())`,
     createOp ? ["", "", createRoute(agg, ctx, createOp)] : null,
     allOp ? ["", "", allRoute(agg, repo, allOp)] : null,
-    // Finds register before /{id}: Starlette matches in declaration
-    // order, so the static find paths must win over the id pattern.
-    ...declaredFindOps.flatMap((e) => ["", "", findRoute(agg, e.find!, ctx, e)]),
     getByIdOp ? ["", "", byIdRoute(agg, getByIdOp)] : null,
     // Entity history (docs/audit.md) — two path segments, so no collision with
     // the `/{id}` pattern above.  Driven by the enrichment-derived `historyFind`
@@ -408,14 +406,8 @@ export const UUID_PATTERN = UUID_WIRE_PATTERN;
  *  the paramTypeDiffs parity dimension, which compares `type` + `format`
  *  only — both unchanged.
  *
- *  PRECONDITION: every user of this constant must have a `guid` id.  True by
- *  construction for an aggregate (`lowerAggregate` sets `idValueType` to
- *  `"guid"` unconditionally); the one caller that CAN see a non-guid key —
- *  the workflow-instance byId route — already branches on
- *  `workflowCorrIdValueType` and takes `id: str` / `id: int` instead.  The
- *  `format: uuid` this replaces carried the same precondition, so the pattern
- *  adds no new coupling — but if non-guid aggregate ids ever land, this needs
- *  the workflow side's branch, not just a different annotation. */
+ *  Every identity — an aggregate's id, a workflow's correlation id — is a
+ *  guid, so every `{id}` path param uses this one annotation. */
 export const ID_PARAM = `id: ${H.Annotated}[str, ${H.Path}(pattern=r"${UUID_PATTERN}", json_schema_extra={"format": "uuid"})]`;
 
 /** The domain error names this routes file actually references. */
@@ -518,7 +510,28 @@ function payloadFieldPyType(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   )
     return `list[${t.element.name}]`;
   if (t.kind === "entity" && isResponsePayloadName(ctx, t.name)) return `${t.name} | None`;
+  // An OPTIONAL single containment (`note: MemoResponse?`) is the same
+  // nullable record reference, not a re-suffixed one.
+  if (
+    t.kind === "optional" &&
+    t.inner.kind === "entity" &&
+    isResponsePayloadName(ctx, t.inner.name)
+  )
+    return `${t.inner.name} | None`;
   return responsePyType(t, ctx);
+}
+
+/** The Pydantic declaration of one aggregate create-request field: a
+ *  non-nullable collection with no explicit default defaults to the empty list
+ *  when omitted (the wire twin of the `array` arm of `hasImplicitDefault`; node
+ *  emits `.default([])`).  Pydantic copies the default per instance. */
+function createFieldDecl(
+  f: ReturnType<typeof createInputFields>[number],
+  ctx: EnrichedBoundedContextIR,
+): string {
+  const decl = requestFieldDecl(f.type, f.optional, ctx, f.default);
+  const omittableList = f.type.kind === "array" && !f.optional && f.default === undefined;
+  return omittableList ? `${decl} = []` : decl;
 }
 
 /** Map each create-input field to a Pydantic `Field(...)` expression carrying
@@ -556,11 +569,7 @@ function createModels(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): 
     `class Create${agg.name}Request(${H.BaseModel}):`,
     inputs.length > 0
       ? inputs.map((f) =>
-          withFieldConstraint(
-            f.name,
-            requestFieldDecl(f.type, f.optional, ctx, f.default),
-            constraints.get(f.name),
-          ),
+          withFieldConstraint(f.name, createFieldDecl(f, ctx), constraints.get(f.name)),
         )
       : ["    pass"],
     createFieldMessageValidator(agg.invariants, available),
@@ -588,19 +597,22 @@ function opRequestModel(
   const available = new Set(op.params.map((p) => p.name));
   const invariants: InvariantIR[] = [...agg.invariants, ...preconditionsAsInvariants(op)];
   const constraints = createFieldConstraints(invariants, available);
+  // A merge-patch update (RS-47): every key is optional — an absent one keeps
+  // the stored value, which the route reads off `model_fields_set`.
+  const patch = mergePatchFields(op);
   return lines(
     `class ${cls}(${H.BaseModel}):`,
     op.params.length > 0
       ? op.params.map((p) =>
           withFieldConstraint(
             p.name,
-            requestFieldDecl(p.type, false, ctx, undefined, "operation"),
+            requestFieldDecl(p.type, patch !== null, ctx, undefined, "operation"),
             constraints.get(p.name),
           ),
         )
       : ["    pass"],
     createFieldMessageValidator(invariants, available),
-    createModelValidator(invariants, available, cls),
+    createModelValidator(invariants, available, cls, patch ?? undefined),
     "",
     "",
   );
@@ -1002,7 +1014,11 @@ function destroyRoute(
   // the load still runs as the 404 probe but is not bound (ruff F841).
   const destroyGateReadsRow = lifecycleGatesReadRow(canonicalDestroy(agg));
   const destroyGateUsesUser = lifecycleGatesUseCurrentUser(canonicalDestroy(agg));
-  const bindLoaded = auditDestroy || destroyGateReadsRow;
+  // A `versioned` row's DELETE reads `If-Match` like a named operation
+  // (`destroyVersionCheck`): a stale tag raises the ConcurrencyError a stale
+  // save raises (409); with no usable tag the loaded version stands.
+  const destroyIfMatch = readsIfMatch(destroyVersionCheck(agg));
+  const bindLoaded = auditDestroy || destroyGateReadsRow || destroyIfMatch;
   return lines(
     `@router.delete("${relativeOpPath(apiOp)}", status_code=204, operation_id="${camelId(opDestroy(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
     `async def destroy_${snake(agg.name)}(${ID_PARAM}, ${PY_REQUEST_PARAM}, session: SessionDep) -> ${H.Response}:`,
@@ -1012,6 +1028,14 @@ function destroyRoute(
       : `    await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
     destroyGateUsesUser ? PY_USER_BIND : null,
     ...lifecycleGate(canonicalDestroy(agg), destroyGateReadsRow ? "__loaded" : undefined),
+    ...(destroyIfMatch
+      ? [
+          // `chr(34)` is a literal double-quote (see `versionedSave`).
+          '    _if_match = request.headers.get("if-match", "").strip(chr(34))',
+          `    if _if_match.isdigit() and int(_if_match) != __loaded.${ROW_VERSION_COLUMN}:`,
+          `        ${pyConflictRaise(H.ConcurrencyError, agg.name, "id")}`,
+        ]
+      : []),
     auditDestroy ? "    __before = repo.to_wire(__loaded)" : null,
     ...destroyAuditCall,
     "    try:",
@@ -1051,8 +1075,13 @@ function requiresGate(op: OperationIR, ctx: BoundedContextIR): string[] {
         return p ? pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx) : undefined;
       },
     });
+    // A merge-patch update's mask write gate runs only when the body carries
+    // the masked key (an absent key keeps the stored value).
+    const present = maskWritePresenceParam(op, g);
     return [
-      `    if ${guard}:`,
+      present
+        ? `    if ${JSON.stringify(pythonWireIdent(present))} in body.model_fields_set and ${guard}:`
+        : `    if ${guard}:`,
       `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)})`,
     ];
   });
@@ -1145,12 +1174,28 @@ function versionedSave(
   };
 }
 
+/** A `money` field of a payload success variant rides as the fixed-scale
+ *  string (RS-12) — the tagged dict holds the `Decimal`. */
+function unionMoneyReturn(variants: TypeIR[], ctx: EnrichedBoundedContextIR): string[] {
+  return unionMoneyArms(variants, ctx).flatMap((arm) => {
+    const enc = arm.keys.map(({ key, optional }) => {
+      const access = `result[${JSON.stringify(key)}]`;
+      const wire = numericEncode(PY_NUMERIC, "money", "dto-map", access);
+      return `${JSON.stringify(key)}: ${optional ? `None if ${access} is None else ${wire}` : wire}`;
+    });
+    return [
+      `    if result["type"] == ${JSON.stringify(arm.tag)}:`,
+      `        return {**result, ${enc.join(", ")}}`,
+    ];
+  });
+}
+
 /** Serialize a scalar operation-return domain value to its wire form —
  *  the same per-scalar handling the repository's `to_wire` projection uses:
  *  money → its canonical decimal string (`money_str`), datetime → ISO-8601
  *  (`iso`), every other scalar rides as-is.  Optionals guard `None` so a
  *  `T?` return doesn't feed `None` into the string helper. */
-function pyScalarReturnToWire(expr: string, t: TypeIR): string {
+export function pyScalarReturnToWire(expr: string, t: TypeIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
   if (
     inner.kind === "primitive" &&
@@ -1165,6 +1210,24 @@ function pyScalarReturnToWire(expr: string, t: TypeIR): string {
     return t.kind === "optional" ? `${wire} if ${expr} is not None else None` : wire;
   }
   return expr;
+}
+
+/** The success answer of a union-returning operation route.  The aggregate's
+ *  own arm (`return this`) carries only its tag from the domain method; the
+ *  route answers the aggregate's wire projection under that tag. */
+function hostArmReturn(agg: EnrichedAggregateIR, op: OperationIR): string[] {
+  const rt = op.returnType;
+  const host =
+    rt?.kind === "union" && rt.variants.some((v) => v.kind === "entity" && v.name === agg.name);
+  if (!host) return ["    return result"];
+  const tag = JSON.stringify(agg.name);
+  // Read back after the save: the saved row carries the version the save
+  // advanced to.
+  return [
+    `    if result["type"] == ${tag}:`,
+    `        return {"type": ${tag}, **repo.to_wire(await repo.get_by_id(found.id))}`,
+    "    return result",
+  ];
 }
 
 function operationRoute(
@@ -1224,7 +1287,8 @@ function operationRoute(
       vsave.save,
       op.audited ? "    __after = repo.to_wire(found)" : null,
       ...(op.audited ? auditRecordCall(agg, op) : []),
-      "    return result",
+      ...unionMoneyReturn(op.returnType.variants, ctx),
+      ...hostArmReturn(agg, op),
     );
   }
   // currentUser-gated ops read the actor the auth middleware stashed on
@@ -1243,8 +1307,21 @@ function operationRoute(
     ...(needsRequest ? [PY_REQUEST_PARAM] : []),
     "session: SessionDep",
   ].join(", ");
+  // A merge-patch update (RS-47) passes the stored value for every key the
+  // body left out.  A required field's `None` can only mean absent (the model
+  // refused an explicit null); an optional one asks `model_fields_set`.
+  const patch = mergePatchFields(op);
   const callArgs = [
-    ...op.params.map((p) => pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx)),
+    ...op.params.map((p) => {
+      const attr = `body.${pythonWireIdent(p.name)}`;
+      const value = pyWireToDomain(attr, p.type, ctx);
+      if (!patch) return value;
+      const present =
+        p.type.kind === "optional"
+          ? `${JSON.stringify(pythonWireIdent(p.name))} in body.model_fields_set`
+          : `${attr} is not None`;
+      return `(${value} if ${present} else found.${pythonIdent(p.name)})`;
+    }),
   ];
   if (usesUser) callArgs.push("current_user");
   const vsave = versionedSave(agg);
@@ -1254,10 +1331,14 @@ function operationRoute(
   // it to wire, and answer 200 with the value declared as `response_model` (so
   // it lands in the OpenAPI spec), instead of the 204 that discarded it.
   if (op.returnType) {
+    // An operation answering its own aggregate (`return this`) answers the
+    // aggregate's wire projection, as the GET route does.
+    const hostReturn = op.returnType.kind === "entity" && op.returnType.name === agg.name;
     const wireType = responsePyType(op.returnType, ctx);
+    const annotation = hostReturn ? "dict[str, object]" : wireType;
     return lines(
       `@router.post("${relativeOpPath(apiOp)}", response_model=${wireType}, operation_id="${camelId(opOperation(agg.name, op.name))}"${derivedResponsesKwarg(apiOp)})`,
-      `async def ${snake(op.name)}_${snake(agg.name)}(${opSig}) -> ${wireType}:`,
+      `async def ${snake(op.name)}_${snake(agg.name)}(${opSig}) -> ${annotation}:`,
       usesUser || gateUsesUser || stampUpdateUsesUser ? PY_USER_BIND : null,
       "    repo = _repo(session)",
       `    found = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
@@ -1266,13 +1347,17 @@ function operationRoute(
       ...requiresGate(op, ctx),
       ...whenGate(agg, op),
       op.audited ? "    __before = repo.to_wire(found)" : null,
-      `    result = found.${pythonIdent(op.name)}(${callArgs.join(", ")})`,
+      hostReturn
+        ? `    found.${pythonIdent(op.name)}(${callArgs.join(", ")})`
+        : `    result = found.${pythonIdent(op.name)}(${callArgs.join(", ")})`,
       hasStamp(agg, "update") ? stampCall(agg, "update", "found") : null,
       ...vsave.ifMatch,
       vsave.save,
       op.audited ? "    __after = repo.to_wire(found)" : null,
       ...(op.audited ? auditRecordCall(agg, op) : []),
-      `    return ${pyScalarReturnToWire("result", op.returnType)}`,
+      hostReturn
+        ? "    return repo.to_wire(await repo.get_by_id(found.id))"
+        : `    return ${pyScalarReturnToWire("result", op.returnType)}`,
     );
   }
   return lines(
@@ -1305,7 +1390,7 @@ export function pyQueryParam(name: string, type: string): string {
   return `${pythonWireIdent(name)}: ${H.Annotated}[${type}, ${H.Query}(alias=${JSON.stringify(name)})]`;
 }
 
-function findRoute(
+function _findRoute(
   agg: EnrichedAggregateIR,
   find: import("../../ir/types/loom-ir.js").FindIR,
   ctx: EnrichedBoundedContextIR,

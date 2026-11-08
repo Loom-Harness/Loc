@@ -310,6 +310,21 @@ app.openapi(
 
 The mutating route evaluates the same predicate post-load before the body runs; false there throws `DisallowedError` → 409. See [`../criterion.md`](../criterion.md) for `when`'s relationship to reusable criteria.
 
+### A loop over a read that the gate does not cover
+
+A sweep that loops over a list read and calls a `when`-gated operation on each row aborts with 409 on the first row the gate refuses. When the read's predicate does not carry every `&&` conjunct of the gate, Loom suggests adding them (`loom.loop-gate-not-implied`, on the advisory `Suggestions:` channel — the check is syntactic, so the data may still satisfy the gate):
+
+```ddd
+operation close() when status == Resolved { status := Closed }   // on Ticket
+criterion Stale() of Ticket = this.age > 30
+workflow Sweep { create(n: int) {
+  let ts = Tickets.all(Stale(), page: { offset: n, limit: 100 })
+  for t in ts { t.close() }        // suggestion: 'Stale' does not include 'status == Resolved'
+} }
+```
+
+`criterion StaleResolved() of Ticket = this.age > 30 && this.status == Resolved` carries the gate and is silent. Only a loop over a `let`-bound `Repo.all(<Criterion | Retrieval>)` is checked.
+
 ## `let` & `emit`
 
 `let name = Expr` binds a local; `emit Event { field: value, … }` records a domain event (`EmitField`s are `name: value` pairs; a missing or ill-typed field is reported at the construction site, and the event must be declared in the same context). Field names re-quote and re-case per backend; emit-field order is normalized to the event's declared field order on positional-constructor backends (Java/.NET).
@@ -621,7 +636,7 @@ Java (`Wallet.create(...)` behind `WalletService.createWallet` + a `@DeleteMappi
 
 ## `apply(e: Event)` — the event-sourcing fold
 
-On a `persistedAs: eventLog` aggregate, `apply(e: SomeEvent) { body }` is the fold that turns an emitted event into state. Applier bodies are **pure folds** — `:=` / `+=` / `-=`, `let` and `if` only: an `emit` is `loom.applier-emits`, a guard is `loom.applier-guard`, a call is `loom.applier-impure-call`, and a `return` or a bare call statement is `loom.applier-stmt-invalid` (an applier yields nothing and calls nothing for its effect). Phoenix renders no `if` in a fold (`loom.elixir-if-stmt-unsupported`). Every emitted event needs an applier (`loom.emitted-event-no-applier` / `loom.emitted-event-unhandled`). The command bodies decide and `emit`; the appliers own the actual state transition. (`apply` lowers to its own `ApplyIR` and never joins `agg.operations`.)
+On a `persistedAs: eventLog` aggregate, `apply(e: SomeEvent) { body }` is the fold that turns an emitted event into state. Applier bodies are **pure folds** — `:=` / `+=` / `-=`, `let` and `if` only: an `emit` is `loom.applier-emits`, a guard is `loom.applier-guard`, a call is `loom.applier-impure-call`, and a `return` or a bare call statement is `loom.applier-stmt-invalid` (an applier yields nothing and calls nothing for its effect). Every emitted event needs an applier (`loom.emitted-event-no-applier` / `loom.emitted-event-unhandled`). The command bodies decide and `emit`; the appliers own the actual state transition. (`apply` lowers to its own `ApplyIR` and never joins `agg.operations`.)
 
 ```ddd
 aggregate Account persistedAs: eventLog {

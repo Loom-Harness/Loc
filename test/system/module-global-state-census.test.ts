@@ -1,4 +1,4 @@
-// Census of MODULE-GLOBAL MUTABLE STATE in `src/`, and the discipline that
+// Census of MODULE-GLOBAL MUTABLE STATE in `src/` and `test/_helpers/`, and the discipline that
 // keeps each entry from leaking across a test-file boundary.
 //
 // WHY THIS EXISTS.  `vitest.config.ts` runs the unit project with
@@ -38,6 +38,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 type Discipline =
   /** Saved and restored across a call via `try`/`finally`. */
@@ -51,7 +52,9 @@ type Discipline =
   /** Set once at module wiring to break an import cycle; never reassigned after. */
   | "wiring-injection"
   /** Restored by an exported hook, named in `hook`. */
-  | "test-reset-hook";
+  | "test-reset-hook"
+  /** Holds only an ordering promise whose value is discarded; carries no data between calls. */
+  | "ordering-chain";
 
 interface Pin {
   discipline: Discipline;
@@ -74,6 +77,10 @@ const PINNED: Record<string, Pin> = {
   "src/ir/lower/lower-expr.ts:ambientEnumIndex": {
     discipline: "per-run-reset",
     reason: "`lowerModel` calls `setAmbientEnumIndex` before lowering any body (lower.ts:271).",
+  },
+  "src/ir/lower/lower-expr.ts:modelTextIndex": {
+    discipline: "per-run-reset",
+    reason: "`lowerProject` calls `setModelTextIndex` before lowering any body.",
   },
   "src/ir/lower/lower-expr.ts:topLevelFnIndex": {
     discipline: "per-run-reset",
@@ -120,15 +127,16 @@ const PINNED: Record<string, Pin> = {
     discipline: "keyed-cache",
     reason: "WeakMap keyed by the Model root node; a re-parse produces a fresh root.",
   },
-  "src/language/typing/qualified-policy.ts:contextIndexByRoot": {
-    discipline: "keyed-cache",
-    reason: "WeakMap keyed by the AST root node; a re-parse produces a fresh root.",
-  },
   "src/language/print/print-expr.ts:printStatement": {
     discipline: "wiring-injection",
     reason:
       "Late-bound `printStmt` reference, installed once to break the " +
       "print-expr / print-stmt import cycle.  Never reassigned per call.",
+  },
+  "src/generator/_walker/source-text.ts:active": {
+    discipline: "scoped-restore",
+    reason:
+      "`withSourceOverrides` saves the previous override set and restores it in a `finally`; `sourceText` only reads it.",
   },
   "src/language/print/print-expr.ts:currentCol": {
     discipline: "scoped-restore",
@@ -196,6 +204,28 @@ const PINNED: Record<string, Pin> = {
       "built-ins, so overriding a built-in name restores it rather than removing it.",
     hook: { file: "src/util/source-types.ts", name: "_unregisterSourceTypeForTests" },
   },
+  "test/_helpers/parse.ts:_chain": {
+    discipline: "ordering-chain",
+    reason:
+      "Serialises `parseString` calls.  It only ever holds a promise whose value is " +
+      "discarded and whose rejection is swallowed, so no data crosses a call.",
+  },
+  "test/_helpers/parse.ts:_pendingUris": {
+    discipline: "per-run-reset",
+    reason:
+      "Drained by `evictPrevious` at the start of every parse, before the new document " +
+      "is added, so each parse sees only its own document.",
+  },
+  "test/_helpers/parse.ts:_rawParser": {
+    discipline: "build-once-cache",
+    reason: "Lazily built stateless LangiumParser over EmptyFileSystem; never reassigned.",
+  },
+  "test/_helpers/parse.ts:_services": {
+    discipline: "build-once-cache",
+    reason:
+      "Lazily built shared Langium services.  The workspace documents it accumulates " +
+      "are evicted per parse through `_pendingUris`, the entry above.",
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -218,10 +248,14 @@ const MUTATORS = new Set([
 
 const CONTAINER_CTORS = new Set(["Map", "Set", "WeakMap", "WeakSet"]);
 
+/** `src/` is the toolchain; `test/_helpers/` is shared by every test file in a
+ *  worker under `isolate: false`, so its module state leaks exactly the same way. */
+const SCAN_ROOTS = ["src", "test/_helpers"] as const;
+
 function sourceFiles(): string[] {
   // `src/language/generated/` is committed `langium generate` output, not
   // hand-written source — its module state is regenerated, not maintained.
-  return execFileSync("find", ["src", "-name", "*.ts", "-not", "-path", "*/generated/*"], {
+  return execFileSync("find", [...SCAN_ROOTS, "-name", "*.ts", "-not", "-path", "*/generated/*"], {
     encoding: "utf8",
   })
     .trim()
@@ -288,8 +322,18 @@ function scan(): string[] {
   return found.sort();
 }
 
-describe("module-global mutable state in src/", () => {
+describe("module-global mutable state in src/ and test/_helpers/", () => {
   const found = scan();
+
+  it("reaches every scan root", () => {
+    const files = sourceFiles();
+    expectReach("src/ files", files.filter((f) => f.startsWith("src/")).length, 1100);
+    expectReach(
+      "test/_helpers/ files",
+      files.filter((f) => f.startsWith("test/_helpers/")).length,
+      32,
+    );
+  });
 
   it("finds nothing unpinned — every module global declares how it cannot leak", () => {
     const unpinned = found.filter((k) => !(k in PINNED));
@@ -297,7 +341,7 @@ describe("module-global mutable state in src/", () => {
       unpinned,
       unpinned.length === 0
         ? ""
-        : `${unpinned.length} module-global(s) in src/ are not in the census.\n` +
+        : `${unpinned.length} module-global(s) in ${SCAN_ROOTS.join(" / ")} are not in the census.\n` +
             `Under \`isolate: false\` an unrestored module global is an order-dependent\n` +
             `failure in an unrelated test FILE.  Add each to PINNED with the discipline\n` +
             `that makes it safe — or give it one first:\n  ${unpinned.join("\n  ")}`,
@@ -311,7 +355,7 @@ describe("module-global mutable state in src/", () => {
       stale,
       stale.length === 0
         ? ""
-        : `${stale.length} pinned entr(y/ies) no longer exist in src/.  Delete them ` +
+        : `${stale.length} pinned entr(y/ies) no longer exist in ${SCAN_ROOTS.join(" / ")}.  Delete them ` +
             `from PINNED in the same change that removed the state:\n  ${stale.join("\n  ")}`,
     ).toEqual([]);
   });

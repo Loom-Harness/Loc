@@ -126,7 +126,15 @@ TableRename:
     | (fromTable=ID '->' to=ID);
 
 SystemMember:
-    Subdomain | Deployable | BoundedContext | TestE2E | UserBlock | AuthBlock | TenancyDecl | ThemeBlock | Ui | Api | Storage | Resource | ChannelSource | TimerSource | Layout | Capability | FunctionDecl;
+    Subdomain | Deployable | BoundedContext | TestE2E | UserBlock | AuthBlock | TenancyDecl | ThemeBlock | Ui | Api | Storage | Resource | ChannelSource | TimerSource | Layout | Capability | FunctionDecl | I18nBlock;
+
+// System-level i18n settings.  `source` names the language the `.ddd` text is
+// written in (a BCP-47 tag); it defaults to `en` when the block is absent.  At
+// most one per system (validator enforces).
+I18nBlock:
+    'i18n' '{'
+        ('source' ':' source=STRING ','?)?
+    '}';
 
 // System-level visual identity — design tokens consumed by every
 // React deployable in this system.  Tokens are intentionally
@@ -184,7 +192,9 @@ UserFieldName returns string:
     ID | 'id' | 'permissions'
     // `migration` is hard only at the top-level `Migration` block head;
     // soft in field-name position so a domain field named `migration` parses.
-    | 'migration';
+    | 'migration'
+    // The model-text intrinsics' words: a claim may still be called `label`.
+    | 'label' | 'plural';
 
 // System-level OIDC authentication config.  Sibling to `user { … }`: the
 // user block declares the claim SHAPE, this block declares WHO issues the
@@ -263,7 +273,7 @@ TenancyDecl:
 // at the system output root.
 TestE2E:
     'test' 'e2e' name=STRING 'against' deployable=[Deployable:LooseName]
-        ('verifies' verifies=[TestCase:TraceId])? '{'
+        ('verifies' verifies=[TestCase:TraceId])? principal=TestPrincipal? '{'
         body+=TestStatement*
     '}';
 
@@ -1372,12 +1382,32 @@ CapabilityMember:
 type TestSubject = Aggregate | ValueObject | DomainService | BoundedContext;
 
 TestBlock:
-    'test' name=STRING ('for' target=[TestSubject:ID])? ('verifies' verifies=[TestCase:TraceId])? '{'
+    'test' name=STRING ('for' target=[TestSubject:ID])? ('verifies' verifies=[TestCase:TraceId])?
+        principal=TestPrincipal? '{'
         body+=TestStatement*
     '}';
 
+// The principal a test runs as: `as { tenantId: "acme", roles: ["agent"] }`.
+// Shared by a context integration `test` and a `test e2e` block — as the head
+// clause (the whole test) and as a body line (the statements after it).  Each claim
+// names a field of the system's `user { … }` block (a bare name, checked in IR
+// validation against the declared fields — the user block may live in another
+// file); the value is an `Expression` so the printer and lowering reuse the
+// literal vocabulary, and the AST validator narrows it to a string literal or a
+// list of string literals.  Absent, the test runs as the dev-stub principal.
+TestPrincipal:
+    'as' '{'
+        (claims+=TestPrincipalClaim (','? claims+=TestPrincipalClaim)* ','?)?
+    '}';
+
+TestPrincipalClaim:
+    name=UserFieldName ':' value=Expression;
+
+// A bare `as { … }` line inside a test body switches the principal the
+// following statements run as (until the next `as { … }` line) — how one test
+// shows that a second principal cannot read what the first wrote.
 TestStatement:
-    ExpectStmt | PreconditionStmt | LetStmt | EmitStmt | AssignOrCallStmt;
+    ExpectStmt | PreconditionStmt | LetStmt | EmitStmt | TestPrincipal | AssignOrCallStmt;
 
 // Assertions are method-based: `expect(<actual>).<matcher>(…)`.  The matcher
 // is an intrinsic (`toBe` / `toThrow` / `toHaveText` / …) recognised by the
@@ -1851,7 +1881,7 @@ DomainServiceOperation:
 // keyword" is enforced in the LEXER by `soft-keyword-colon-guard.ts` (wired
 // into `DddTokenBuilder`).  The same guard covers the other trailing clauses
 // with the same shape: the `TypeRef` union/carrier words (`or` / `option` /
-// `paged` / `envelope`) and the `check`/`invariant` `message "…"` clause.
+// `paged` / the refused `envelope`) and the `check`/`invariant` `message "…"` clause.
 //
 // CONSEQUENCE FOR GRAMMAR AUTHORS: do not write a guarded keyword immediately
 // before a `':'` in any rule — it would no longer lex as that keyword.  The
@@ -1917,11 +1947,14 @@ Property:
 SensitivityClause:
     'sensitive' '(' tags+=ID (',' tags+=ID)* ')';
 
+// The name takes the soft keywords a field name does (`contains label: Label`).
 Containment:
-    'contains' name=ID ':' partType=[EntityPart:ID] (collection?='[]')? (optional?='?')?;
+    'contains' name=PropertyName ':' partType=[EntityPart:ID] (collection?='[]')? (optional?='?')?;
 
+// The name takes the soft keywords a field name does — `derived label: string`
+// must keep parsing now that `label` is the model-text intrinsic's keyword.
 DerivedProp:
-    'derived' name=ID ':' type=TypeRef '=' expr=Expression;
+    'derived' name=PropertyName ':' type=TypeRef '=' expr=Expression;
 
 // Invariants default to "every layer the classifier can translate
 // the predicate to" (frontend Zod, Hono routes, FluentValidation).
@@ -2120,13 +2153,13 @@ SoftKeywordsExceptSort returns string:
       | 'embedded' | 'enforcement' | 'entitles' | 'env' | 'envelope' | 'ephemeral' | 'error' | 'event'
       | 'eventLog' | 'eventSourced' | 'every' | 'extern' | 'favicon' | 'feliz' | 'filter' | 'flowbite'
       | 'flutter' | 'footer' | 'framework' | 'global' | 'group' | 'header' | 'hosts' | 'httpStatus'
-      | 'immutable' | 'implements' | 'implies' | 'index' | 'inheritanceUsing' | 'inMemory' | 'instance'
+      | 'i18n' | 'immutable' | 'implements' | 'implies' | 'index' | 'inheritanceUsing' | 'inMemory' | 'instance'
       | 'internal' | 'isolationLevel' | 'issuer' | 'java' | 'join' | 'jwt' | 'kafka' | 'key' | 'keyed'
-      | 'keyPrefix' | 'kind' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'localDisk' | 'log'
+      | 'keyPrefix' | 'kind' | 'label' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'localDisk' | 'log'
       | 'mailer' | 'main' | 'managed' | 'mantine' | 'mask' | 'meilisearch' | 'menu' | 'message' | 'migration'
       | 'modules' | 'money' | 'mui' | 'mysql' | 'nats' | 'node' | 'objectStore' | 'of' | 'ogImage' | 'oidc'
       | 'onCreate' | 'onUpdate' | 'opt' | 'option' | 'or' | 'overlap' | 'ownTable' | 'paged' | 'parent'
-      | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'policy'
+      | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'plural' | 'policy'
       | 'port' | 'postgres' | 'primeng' | 'projection' | 'provenanced' | 'provider'
       | 'python' | 'query' | 'queryHandler' | 'queue' | 'rabbitmq' | 'raw' | 'react' | 'readCommitted'
       | 'readonly' | 'readUncommitted' | 'redis' | 'relational' | 'repeatableRead' | 'replica'
@@ -2134,7 +2167,7 @@ SoftKeywordsExceptSort returns string:
       | 'retrieval' | 'route' | 's3' | 'schema' | 'scopes' | 'secret' | 'section' | 'seed' | 'select'
       | 'sendgrid' | 'sensitive' | 'serializable' | 'serves' | 'service' | 'ses' | 'sessions' | 'shadcn'
       | 'shadcnSvelte' | 'shadcnVue' | 'shape' | 'sharedTable' | 'sidebar' | 'slot' | 'smtp' | 'snapshot'
-      | 'solution' | 'spartanNg' | 'sql' | 'sqlite' | 'stamp' | 'state' | 'storage' | 'store'
+      | 'solution' | 'source' | 'spartanNg' | 'sql' | 'sqlite' | 'stamp' | 'state' | 'storage' | 'store'
       | 'subdomain' | 'svelte' | 'tablePrefix' | 'targets' | 'tenancy' | 'testCase' | 'theme' | 'timerSource'
       | 'title' | 'token' | 'transactional' | 'ttl' | 'type' | 'ui' | 'urlStyle' | 'use' | 'user'
       | 'valueobject' | 'verifies' | 'views' | 'vue' | 'vuetify' | 'work' | 'workflow' | 'workflows' | 'write'
@@ -2168,17 +2201,18 @@ QualifiedPageName returns string:
 // Type references
 // ---------------------------------------------------------------------------
 
-// ML-postfix generic instantiation: `customer paged`, `event envelope`,
-// `string envelope paged`.  The `(ctors+=GenericCtor)*` list accumulates
-// left-associatively, so `string envelope paged` folds to
-// `paged(envelope(string))` in lowering.  Array/optional stay outermost —
+// ML-postfix generic instantiation: `customer paged`.  The
+// `(ctors+=GenericCtor)*` list accumulates left-associatively, so
+// `string paged paged` folds to `paged(paged(string))` in lowering (and is
+// refused by the carrier-bound check).  `option` folds to `T?`; `envelope`
+// still parses only so `loom.envelope-removed` can name its replacement.  Array/optional stay outermost —
 // `customer paged[]` is array-of-(paged customer).  The constructors are a
 // blessed closed keyword set; keyword tokens can't be confused with an
 // adjacent ID field name, which is what makes the otherwise-ambiguous postfix
 // form (`a: string b: int`) safe.  User-declared generics +
 // identifier-postfix instantiation are deferred.
 // Anonymous `or` unions: `A or B or C` in any type position.  Postfix
-// constructors (`paged` / `envelope` / `option`) and the array / optional
+// constructors (`paged` / `option`) and the array / optional
 // markers bind tighter than `or`, so `string or int option` parses as
 // `string or (int option)` and `A or B[]` as `A or (B[])`.  The head atom's
 // fields stay on `TypeRef` itself (backward-compatible: a non-union TypeRef
@@ -2245,7 +2279,10 @@ NamedType:
 // `create(c: SettleOrder)` — so they cannot leak into aggregate field /
 // operation-param / UI positions, where a bare event name stays unresolved.
 // IdType (`X id`) filters them back out — `PaymentReceived id` is meaningless.
-type NamedDecl = Aggregate | EntityPart | EnumDecl | ValueObject | EventDecl | PayloadDecl;
+// A Workflow joins for one position only: a workflow `create`'s result type
+// may name its own workflow (`create(…): Fulfillment { …; return this }`),
+// and the scope provider offers it nowhere else.
+type NamedDecl = Aggregate | EntityPart | EnumDecl | ValueObject | EventDecl | PayloadDecl | Workflow;
 
 // ---------------------------------------------------------------------------
 // Statements
@@ -2757,6 +2794,7 @@ PrimaryExpr infers Expression:
     | TemplateString
     | LiteralExpr
     | PrimitiveConversion
+    | ModelText
     | NowExpr
     | ThisRef
     | IdRef
@@ -2892,6 +2930,17 @@ LiteralExpr:
 // so no backend, emitter or IR consumer sees this change.
 PrimitiveConversion:
     {infer PrimitiveConversion} target=('string' | 'long' | 'decimal' | 'money') '(' value=Expression ')';
+
+// The translated text a user sees for a model element (i18n identity keys):
+// `label(Task)` (singular name), `plural(Task)` (plural name),
+// `label(Task.title)` (a field), `label(Task.complete)` (an operation),
+// `label(Status.Draft)` (an enum value).  `path` is a flat `[Ctx.]Type[.member]`
+// list resolved by `src/language/model-text.ts`; the call is admitted only in a
+// user-visible page / component position (`loom.model-text-outside-ui`).  Both
+// words are soft, so `label:` stays a named argument and a field may be
+// called `label`.
+ModelText:
+    {infer ModelText} kind=('label' | 'plural') '(' path+=NameRefIdent ('.' path+=MemberName)* ')';
 
 NowExpr:
     {infer NowExpr} 'now' '(' ')';

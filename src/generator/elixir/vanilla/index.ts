@@ -10,7 +10,11 @@
 // ---------------------------------------------------------------------------
 
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
-import { type ChannelIR, workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
+import {
+  type ChannelIR,
+  sourceLocaleOf,
+  workflowEmitsCommandRoute,
+} from "../../../ir/types/loom-ir.js";
 import {
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
@@ -58,6 +62,7 @@ import { renderEventModule } from "../events-emit.js";
 import { heexI18nUi } from "../i18n.js";
 import type { GenerateVanillaElixirArgs } from "../index.js";
 import { emitLiveViewPages, type LiveRoute } from "../liveview-emit.js";
+import { phoenixLocaleModel } from "../locale.js";
 import { emitMigrations } from "../migrations-emit.js";
 import { renderRelEnv, renderRelease, renderRelServer } from "../shell/config.js";
 import { renderDockerfile, renderDockerignore } from "../shell/project.js";
@@ -67,6 +72,7 @@ import { exStatus } from "../wire-policy-ex.js";
 import { emitVanillaApiControllers } from "./api-emit.js";
 import { emitVanillaAudit } from "./audit-emit.js";
 import { emitVanillaChangesets } from "./changeset-emit.js";
+import { opAssertedInvariants } from "./changeset-invariant-emit.js";
 import { aggregateBodyValueObjectFields } from "./changeset-validators.js";
 import { emitVanillaContextModule } from "./context-emit.js";
 import { denialOverrides, denialStatus, denialTitle, opHasWireDenial } from "./denial.js";
@@ -76,7 +82,6 @@ import { emitVanillaEventSourcedFiles } from "./eventsourced-emit.js";
 import { emitExplicitHandlers, emitExplicitRoutesController } from "./explicit-handlers-emit.js";
 import { emitVanillaExternModules } from "./extern-emit.js";
 import { emitVanillaFilesController } from "./files-controller-emit.js";
-import { contextsHaveCheckedFindParams } from "./find-controller.js";
 import { emitOpenApiSpec } from "./openapi-emit.js";
 import { contextsHavePagedReads } from "./page-param.js";
 import { renderVanillaProblemDetailsModule } from "./problem-details-emit.js";
@@ -122,6 +127,12 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // Same gate as the other five frontends: a string-less ui gets no `pgettext`
   // binding anywhere and stays byte-identical.
   const i18nUi = heexI18nUi(sys, deployable);
+  // The shipped locales (source first) with generate-time endonyms: the shell
+  // emitter builds the negotiation tables from them, and `LocaleSwitcher`
+  // reads them off the walk context.
+  const localeModel = phoenixLocaleModel(sourceLocaleOf(sys), [
+    ...(args.translations?.keys() ?? []),
+  ]);
   // `pack?.` — a JSON-API-only deployable renders no template at all, and the
   // IR-level shell tests call this orchestrator without one.  Every other pack
   // use in this function already sits behind a `hasLiveView`-shaped branch, so
@@ -177,13 +188,12 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // `errors[]` 422 rather than being clamped past the bounds this app's own
   // OpenAPI document publishes (page-param.ts), and it sends through the same
   // responder.  So does a find whose declared query params fail their
-  // published type (find-controller.ts).  An app with none stays byte-identical.
+  // An app with none stays byte-identical.
   const hasWireDenials =
     contexts.some((c) =>
       c.aggregates.some((agg) => (agg.operations ?? []).some((op) => opHasWireDenial(op))),
     ) ||
     contextsHavePagedReads(contexts) ||
-    contextsHaveCheckedFindParams(contexts) ||
     // …OR a command workflow with params: a request omitting one answers the
     // same `errors[]` 422 (one pointer per missing param, L1-E / E7).
     contexts.some((c) =>
@@ -218,6 +228,14 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
       echoesDenialDetail(deployable, sys),
       hasStrictIngress,
+      // An operation persist re-asserts a message-less invariant as the
+      // operation's domain error — the domain-floor status + title.
+      contexts.some((c) => c.aggregates.some((a) => opAssertedInvariants(a).length > 0))
+        ? {
+            status: denialStatus("precondition", ladderStatuses),
+            title: denialTitle("precondition", ladderStatuses),
+          }
+        : undefined,
     );
   out.set(`lib/${appName}_web/problem_details.ex`, renderProblemDetails(false));
 
@@ -378,7 +396,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // Value-object collection (`charges: Money[]`) child schemas — one Ecto
     // schema per VO-array field, owning the id-less `<owner>_<field>` child
     // table the parent `has_many`s + `cast_assoc`s.
-    emitVanillaValueCollectionSchemas(appModule, ctx, out);
+    emitVanillaValueCollectionSchemas(appModule, ctx, out, sys);
     // Validating value-object constructors (`<VO>.new/1`) for VOs with
     // invariants — enforced at construction (F5) + called by the test suite.
     emitVanillaValueObjects(appModule, ctx, out);
@@ -485,7 +503,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // its own `run/1` module here and a `QueryProjectionsController` after the
     // loop (sibling of the folded ProjectionsController).
     allQueryProjections.push(
-      ...emitVanillaQueryProjectionModules(appName, appModule, ctx, out, sourcemap, sys),
+      ...emitVanillaQueryProjectionModules(appName, appModule, ctx, out, sourcemap, sys, contexts),
     );
     emitDispatch(appName, ctx, appModule, out, sys, sourcemap, channelsCfg, wiredForeignChannels);
     // First-boot seed data (database-seeding.md, M-T6.37) — one
@@ -499,7 +517,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     });
     if (seedMod) seedModules.push(seedMod.module);
     // Domain `test "..."` blocks → ExUnit (pure-subset; see tests-emit.ts).
-    if (emitAggregateTests(ctx, appModule, out, sys)) hasDomainTests = true;
+    const principalUser = deployable.auth?.required === true ? sys.user?.fields : undefined;
+    if (emitAggregateTests(ctx, appModule, out, sys, principalUser)) hasDomainTests = true;
   }
   if (hasDomainTests) emitTestHelper(out);
   // Realtime SSE wire (channels.md Part I) — one deployable-level
@@ -631,6 +650,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       appName,
       appModule,
       sourcemap,
+      locales: localeModel.entries,
     });
     for (const [path, content] of liveFiles) out.set(path, content);
     liveRoutes.push(...routes);
@@ -880,6 +900,9 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // the `priv/repo/seeds.exs` manual entry the shell emits alongside).
     seedModules,
     deployable.port,
+    sourceLocaleOf(sys),
+    sys.subdomains.flatMap((sub) => sub.contexts),
+    args.translations,
   );
 
   // Deployment + boot machinery — the Elixir release, Dockerfile, and Ecto

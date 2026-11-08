@@ -33,7 +33,7 @@ export const ProductResponse = z.object({
   id: z.string(),
   sku: z.string(),
   price: MoneySchema,
-  version: z.number().int(),
+  rowVersion: z.number().int(),
   display: z.string(),
 });
 export type ProductResponse = z.infer<typeof ProductResponse>;
@@ -91,7 +91,7 @@ export function useUpdateProduct(id: string) {
   return useMutation({
     mutationFn: async (input: UpdateProductRequest) => {
       const loaded = qc.getQueryData<ProductResponse>(["products", id]);
-      await api.post(`/products/${seg(id)}/update`, input, ifMatch(loaded?.version));
+      await api.post(`/products/${seg(id)}/update`, input, ifMatch(loaded?.rowVersion));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["products", id] });

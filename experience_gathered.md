@@ -7019,3 +7019,30 @@ tier cannot see (each was a 500 or a leak before it was understood):
 `discriminatorMap` takes classes, not names, so every class of a hierarchy is
 declared before the first schema; `EntitySchema<Sub, Root>` takes the root class
 (not its schema) in `extends`.
+
+## 139. One PGlite, many worker clients: drive `PGliteWorker` with a handshake stand-in (2026-11-08)
+
+The playground boots each Node deployable in its own worker and one PGlite per
+`storage` in a storage host worker under the infra worker (`web/src/runtime/`).
+
+- **Stock `PGliteWorker` makes the wrong worker the database owner.** Each
+  client spawns its own host worker and the hosts elect a leader, so the
+  deployable that wins the election owns the database, and restarting that
+  deployable loses an in-memory database. The library's two halves talk over
+  BroadcastChannel after a four-message handshake on the `Worker` object
+  (`here` → `init` → `ready{ id }` → `leader-now`). So hand the client a
+  `Worker` stand-in that answers `here`/`ready` with the host's id
+  (`storage-client.ts`), and run the stock `worker({ init })` in the real host.
+  Both halves stay unmodified.
+- **The stock host's `init` listener is `{ once: true }` and takes the FIRST
+  message of any type.** Send nothing else to the host before `init`. Your own
+  control messages need a distinct `type`.
+- **Make the channel id unique per page.** BroadcastChannel and
+  `navigator.locks` are origin-wide, so two playground tabs on the same id
+  would answer each other's clients.
+- **Cost:** ~6 ms per statement against ~0.25 ms in-worker, because each
+  query makes three round trips (lock, execProtocol, release). See #4814.
+- **Vite worker bundles have no top-level await** (the build target predates
+  it), and the failure surfaces as a transform error on the *importing*
+  module. Wrap the host's dynamic `import()` in an async IIFE. A nested
+  `new Worker(new URL(…, import.meta.url))` inside a worker does bundle and run.

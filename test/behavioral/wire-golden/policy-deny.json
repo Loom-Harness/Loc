@@ -148,7 +148,7 @@
       "body": {
         "balance": 100,
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -161,7 +161,7 @@
           {
             "balance": 100,
             "id": "<volatile:key>",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -204,7 +204,7 @@
       "body": {
         "balance": 100,
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -224,7 +224,7 @@
       "body": {
         "id": "<volatile:key>",
         "label": "L-1",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -237,7 +237,7 @@
           {
             "id": "<volatile:key>",
             "label": "L-1",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -261,7 +261,7 @@
       "body": {
         "id": "<volatile:key>",
         "label": "L-2",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -350,18 +350,12 @@
       "seq": 29,
       "method": "POST",
       "path": "/api/ledgers/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "label is required",
-            "pointer": "/label"
-          }
-        ],
+        "detail": "Ledger {id} not found",
         "instance": "/api/ledgers/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     },
@@ -382,7 +376,7 @@
       "body": {
         "balance": 100,
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -393,7 +387,7 @@
       "body": {
         "balance": 100,
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -465,7 +459,7 @@
       "body": {
         "id": "<volatile:key>",
         "label": "LADDER-L1",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -489,7 +483,7 @@
       "body": {
         "id": "<volatile:key>",
         "label": "LADDER-L1",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {

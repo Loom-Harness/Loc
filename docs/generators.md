@@ -141,8 +141,7 @@ gaps that remain are language-level rather than per-backend — see
 
 ## TypeScript backend (`platform: node`)
 
-`generate ts` for legacy single-context sources; `generate system` for
-deployables marked `platform: node`.
+`generate system` for deployables marked `platform: node`.
 
 ### File map
 
@@ -152,7 +151,8 @@ For a context with aggregates `Order` (containing parts) and `Product`:
 <deployable>/
 ├── package.json                     # deps: hono, @hono/node-server, @hono/zod-openapi, zod, drizzle-orm, pg
 ├── tsconfig.json
-├── index.ts                         # pg Pool → drizzle → createApp(db) → @hono/node-server.serve
+├── index.ts                         # pg Pool → drizzle → migrations → bootApp(db) → @hono/node-server.serve → shutdown
+├── boot.ts                          # bootApp(db, opts) → { app, stop }: seeds, verifier, orgPath resolver, dispatchers, channel transports + consumers, outbox relay, timers (the playground runs it too)
 ├── scheduler.ts                     # timerSource jobs (when the deployable owns any) — see "Timer sources"
 ├── drizzle.config.ts                # Drizzle Kit config (db:generate, db:push, db:studio)
 ├── Dockerfile                       # multi-stage node:22-alpine; runtime serves `node out/index.js`
@@ -209,6 +209,11 @@ where durability matters:
   `on`/`create` reactor fires with no new machinery.
 - **Observability.** `timer_fired` / `timer_skipped_overlap` /
   `timer_lock_contended` / `timer_emit_failed` / `timer_catchup` on the catalog.
+- **`infra: "in-process"`** (`startTimerScheduler`'s option, passed through from
+  `bootApp` — the browser playground sets it): `cron:` timers run on an
+  in-memory stand-in for pg-boss that fires each boundary in this process
+  (`timer_cron_in_process`, warn — not durable, no retry, no single-fire), and
+  `every:` ticks dispatch without the advisory-lock transaction.
 
 **Delivery semantics (multi-pod).** Still **at-least-once**: pg-boss gives
 single-fire per boundary and durable retry, but a clock-skewed peer or a
@@ -343,8 +348,7 @@ field is **not** persisted as a column on the owner table.
 
 ## .NET backend (`platform: dotnet`)
 
-`generate dotnet` for legacy single-context sources; `generate system`
-for deployables marked `platform: dotnet`.
+`generate system` for deployables marked `platform: dotnet`.
 
 ### File map
 

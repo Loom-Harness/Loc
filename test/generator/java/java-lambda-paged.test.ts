@@ -107,11 +107,11 @@ describe("java — a JPA retrieval param named `offset` / `limit` clears the pag
       "public List<Order> runByLim(int limit_, String offset_, Integer offset, Integer limit) {",
     );
     expect(i).toContain(
-      "return jpa.runByLim(limit_, offset_, new OffsetLimitPageRequest(offset, limit, Sort.unsorted()));",
+      "var result = jpa.runByLim(limit_, offset_, new OffsetLimitPageRequest(offset, limit, Sort.unsorted()));",
     );
-    expect(i).toContain("return jpa.runByOff(offset_, Pageable.unpaged());");
+    expect(i).toContain("var result = jpa.runByOff(offset_, Pageable.unpaged());");
     expect(i).toContain(
-      "return jpa.findAll(OrderCriteria.InReg(offset_), new OffsetLimitPageRequest(offset, limit, Sort.unsorted())).getContent();",
+      'var result = jpa.findAll(OrderCriteria.InReg(offset_), new OffsetLimitPageRequest(offset, limit, Sort.by(Sort.Order.asc("id")))).getContent();',
     );
     const j = await file("OrderJpaRepository.java");
     expect(j).toContain(

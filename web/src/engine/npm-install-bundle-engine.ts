@@ -11,23 +11,30 @@
 // ---------------------------------------------------------------------------
 
 import { LoomRuntimeClient } from "../runtime/client.js";
+import { InfraClient } from "../runtime/infra-client.js";
+import type { StorageSchemaPlan } from "../runtime/infra-protocol.js";
 import type {
+  BootFail,
+  BootPlan,
   BootResult,
   DispatchResult,
   QueryResult,
   SerializedRequest,
+  StorageBootInfo,
   WipeResult,
 } from "../runtime/protocol.js";
 import type { LogLine } from "../util/log-line.js";
 import type { BundleResult } from "../bundle/protocol.js";
 import {
   RUNTIME_VERSIONS,
+  bootEntryFor,
   devStubEntryFor,
   makeEntryStdin,
   schemaPathFor,
 } from "../bundle/plugin.js";
 import { engineRegistry } from "./registry.js";
 import type {
+  BackendBundle,
   EngineCapabilities,
   EngineSnapshot,
   PrepareInput,
@@ -116,14 +123,18 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     customPackages: "full",
   };
 
-  private runtime: LoomRuntimeClient | null = null;
+  /** One runtime worker per Node deployable, by slug. */
+  private readonly runtimes = new Map<string, LoomRuntimeClient>();
+  /** The shared infrastructure (storages) — created on first boot. */
+  private infra: InfraClient | null = null;
+  /** The booted plan: which backend is the default target, which storage is
+   *  first — and what tab-suspension recovery re-boots. */
+  private booted: BootPlan | null = null;
   private readonly onLost?: () => void;
   private readonly onLog?: (lines: LogLine[]) => void;
   private readonly injectedRun?: EsbuildRun;
   private vfsBundler: VfsBundlerClient | null = null;
-  private lastBoot:
-    | { bundleCode: string; dataDir?: string; persistent: boolean }
-    | null = null;
+  private lastBoot: { plan: BootPlan; persistent: boolean } | null = null;
 
   constructor(
     opts: RuntimeEngineOptions & { esbuildRun?: EsbuildRun } = {},
@@ -143,87 +154,56 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     return this.vfsBundler.run;
   }
 
-  /** The runtime worker is created lazily on first boot — `prepare`
-   *  (install + bundle) needs no worker, which also keeps the class
-   *  unit-testable outside a Worker host. */
-  private rt(): LoomRuntimeClient {
-    return (this.runtime ??= new LoomRuntimeClient({
-      onRespawn: this.onLost,
-      onLog: this.onLog,
-    }));
+  /** Workers are created lazily on first boot — `prepare` (install +
+   *  bundle) needs none, which also keeps the class unit-testable outside a
+   *  Worker host. */
+  private rt(slug: string): LoomRuntimeClient {
+    let rt = this.runtimes.get(slug);
+    if (!rt) {
+      rt = new LoomRuntimeClient({
+        onLog: this.onLog,
+        // Backend→backend HTTP: a deployable's request to another's compose
+        // address runs through that deployable's app, in its own worker.
+        onHttpCall: (host, request) => this.dispatch(request, host),
+      });
+      this.runtimes.set(slug, rt);
+    }
+    return rt;
+  }
+
+  private infraClient(): InfraClient {
+    return (this.infra ??= new InfraClient());
   }
 
   async prepare(input: PrepareInput): Promise<PreparedBuild> {
     const generatedFiles = new Map<string, string | Uint8Array>();
     for (const f of input.files) generatedFiles.set("/" + f.path, f.content);
-
-    // Scope the install per bundle: the Hono backend gets its own
-    // deps + the runtime PGlite pin (the entry imports it though the
-    // package.json doesn't); the React frontend gets its own deps.
-    // Installing only what each bundle imports avoids pulling the
-    // whole Mantine tree into the backend install (and vice-versa).
-    const honoDeps = {
-      ...harvestDeps(generatedFiles, input.honoEntry),
-      "@electric-sql/pglite": RUNTIME_VERSIONS["@electric-sql/pglite"],
-    };
     const run = this.esbuildRun();
 
-    const honoRun = await run({
-      generatedFiles,
-      rootDeps: honoDeps,
-      stdinContents: makeEntryStdin(
-        input.honoEntry,
-        schemaPathFor(input.honoEntry),
-        // Present for every `auth: required` deployable, `auth { oidc }` ones
-        // included — the entry registers the emitted dev stub so `createApp`'s
-        // verifier assertion passes without a reachable IdP.
-        devStubEntryFor(generatedFiles, input.honoEntry),
-      ),
-      // Backend-only: the React run below never sets this.
-      sourcemap: input.sourcemap,
-    });
-    // Apply the npm-pglite postprocess HERE — the runtime worker
-    // boots `hono.code` verbatim, so nothing else would.  Failure →
-    // a bundle diagnostic, not a thrown rejection that skips
-    // BUNDLE_DONE.
-    let hono: BundleResult;
-    if (!honoRun.ok) {
-      hono = { ok: false, diagnostics: [{ severity: "error", message: honoRun.message }] };
-    } else {
-      try {
-        const code = postProcessNpmBundle(honoRun.code);
-        hono = {
-          ok: true,
-          kind: "hono",
-          code,
-          size: code.length,
-          durationMs: 0,
-          fetchedUrls: [],
-          versions: honoRun.versions,
-          diagnostics: [],
-        };
-      } catch (err) {
-        hono = {
-          ok: false,
-          diagnostics: [
-            {
-              severity: "error",
-              message: err instanceof Error ? err.message : String(err),
-            },
-          ],
-        };
-      }
+    // One bundle per Node deployable, in order.  Each gets its own deps + the
+    // runtime PGlite pin (the entry imports it though the package.json
+    // doesn't); the deployables of one system share a dependency set, so
+    // every install after the first is served from the install cache.
+    const backends: BackendBundle[] = [];
+    for (const entry of input.backendEntries) {
+      backends.push({
+        slug: entry.split("/").slice(0, -2).join("/"),
+        entry,
+        bundle: await this.bundleBackend(run, generatedFiles, entry, input.sourcemap),
+      });
     }
 
     let react: BundleResult | null = null;
-    if (hono.ok && input.reactEntry) {
+    if (backends.every((b) => b.bundle.ok) && input.reactEntry) {
       // C2: the worker externalises the prebuilt design-pack vendor
       // when one is shipped (app-only bundle + iframe importmap), and
       // otherwise bundles the frontend self-contained (react from the
       // single deduped node_modules — one instance, no importmap).
       // Either way the engine forwards the worker's vendorImportmap /
       // vendorCssUrl (set only on the externalised path) onto the
-      // react BundleResult for the preview.
+      // react BundleResult for the preview.  Installing only what each
+      // bundle imports keeps the Mantine tree out of the backend install
+      // (and vice-versa).
       const r = await run({
         generatedFiles,
         rootDeps: harvestDeps(generatedFiles, input.reactEntry),
@@ -245,34 +225,188 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
           }
         : { ok: false, diagnostics: [{ severity: "error", message: r.message }] };
     }
-    return { hono, react };
+    return { backends, react };
   }
 
-  // boot/dispatch/wipe/reset/respawn delegate to the shared
-  // PGlite+Hono runtime client.
-  async boot(
-    bundleCode: string,
-    dataDir?: string,
-    opts?: { fresh?: boolean },
-  ): Promise<BootResult> {
-    const res = await this.rt().boot({ bundleCode, dataDir, fresh: opts?.fresh });
-    if (res.ok) this.lastBoot = { bundleCode, dataDir, persistent: res.persistent };
-    return res;
+  private async bundleBackend(
+    run: EsbuildRun,
+    generatedFiles: Map<string, string | Uint8Array>,
+    entry: string,
+    sourcemap: boolean | undefined,
+  ): Promise<BundleResult> {
+    const honoRun = await run({
+      generatedFiles,
+      rootDeps: {
+        ...harvestDeps(generatedFiles, entry),
+        "@electric-sql/pglite": RUNTIME_VERSIONS["@electric-sql/pglite"],
+      },
+      stdinContents: makeEntryStdin(
+        entry,
+        schemaPathFor(entry),
+        // Registered by the entry only when there is no `boot.ts` (whose
+        // `bootApp` registers the verifier itself).
+        devStubEntryFor(generatedFiles, entry),
+        bootEntryFor(generatedFiles, entry),
+      ),
+      // Backend-only: the React run never sets this.
+      sourcemap,
+    });
+    // Apply the npm-pglite postprocess HERE — the runtime worker boots the
+    // code verbatim, so nothing else would.  Failure → a bundle diagnostic,
+    // not a thrown rejection that skips BUNDLE_DONE.
+    if (!honoRun.ok) {
+      return { ok: false, diagnostics: [{ severity: "error", message: honoRun.message }] };
+    }
+    try {
+      const code = postProcessNpmBundle(honoRun.code);
+      return {
+        ok: true,
+        kind: "hono",
+        code,
+        size: code.length,
+        durationMs: 0,
+        fetchedUrls: [],
+        versions: honoRun.versions,
+        diagnostics: [],
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        diagnostics: [{ severity: "error", message: err instanceof Error ? err.message : String(err) }],
+      };
+    }
   }
-  dispatch(req: SerializedRequest): Promise<DispatchResult> {
-    return this.rt().dispatch(req);
+
+  // Boot order mirrors `docker compose up`: the storages come up first, the
+  // deployables start once their database is migrated.
+  async boot(plan: BootPlan, opts?: { fresh?: boolean }): Promise<BootResult> {
+    const start = performance.now();
+    const infra = this.infraClient();
+    this.booted = null;
+    await infra.reset();
+    // A deployable that left the system takes its worker with it.
+    const slugs = new Set(plan.backends.map((b) => b.slug));
+    for (const [slug, rt] of this.runtimes) {
+      if (slugs.has(slug)) continue;
+      rt.dispose();
+      this.runtimes.delete(slug);
+    }
+
+    const opened = new Map<string, { channel: string; persistent: boolean }>();
+    for (const st of plan.storages) {
+      const res = await infra.openStorage({ key: st.key, dataDir: st.dataDir, fresh: opts?.fresh });
+      if (!res.ok) return this.failed(res);
+      opened.set(st.key, { channel: res.channel, persistent: res.persistent });
+    }
+
+    // Import every bundle.  A storage without a recorded chain (a source
+    // without a system: one deployable) takes its schema from that
+    // deployable's Drizzle tables.
+    const synthDdl = new Map<string, string>();
+    for (const b of plan.backends) {
+      const st = plan.storages.find((s) => s.key === b.storage);
+      if (!st) return this.failed({ ok: false, message: `Deployable "${b.slug}" binds no booted storage.` });
+      const wantsDdl = st.migrations.kind === "unversioned" && !synthDdl.has(st.key);
+      const res = await this.rt(b.slug).load({
+        bundleCode: b.bundleCode,
+        synthDdl: wantsDdl,
+        env: b.env,
+        serviceHosts: plan.backends.map((o) => o.slug).filter((h) => h !== b.slug),
+      });
+      if (!res.ok) return this.failed(res, b.slug);
+      if (wantsDdl) synthDdl.set(st.key, res.ddl ?? "");
+    }
+
+    const storages: StorageBootInfo[] = [];
+    for (const st of plan.storages) {
+      const schema: StorageSchemaPlan =
+        st.migrations.kind === "chain" ? st.migrations : { kind: "ddl", ddl: synthDdl.get(st.key) ?? "" };
+      const res = await infra.migrateStorage(st.key, schema);
+      if (!res.ok) return this.failed(res, null, plan.storages.length > 1 ? st.key : null);
+      storages.push({
+        key: st.key,
+        persistent: opened.get(st.key)?.persistent ?? false,
+        applied: res.applied,
+        ddl: res.ddl,
+      });
+    }
+
+    for (const b of plan.backends) {
+      const channel = opened.get(b.storage)?.channel ?? "";
+      const res = await this.rt(b.slug).start(channel);
+      if (!res.ok) return this.failed(res, b.slug);
+    }
+
+    this.booted = plan;
+    const persistent = storages.every((s) => s.persistent);
+    this.lastBoot = { plan, persistent };
+    return {
+      ok: true,
+      ddl:
+        storages.length === 1
+          ? (storages[0]?.ddl ?? "")
+          : storages.map((s) => `-- storage: ${s.key}\n${s.ddl}`).join("\n\n"),
+      durationMs: Math.round(performance.now() - start),
+      persistent,
+      applied: storages.flatMap((s) => s.applied),
+      storages,
+      backends: plan.backends.map((b) => b.slug),
+    };
   }
-  query(sql: string): Promise<QueryResult> {
-    return this.rt().query(sql);
+
+  /** A boot that stopped: name the deployable or storage it stopped at when
+   *  the system has more than one, and leave nothing half-started. */
+  private failed(fail: BootFail, slug?: string | null, storage?: string | null): BootFail {
+    const where =
+      slug && this.runtimes.size > 1 ? `${slug}: ` : storage ? `storage ${storage}: ` : "";
+    return { ...fail, message: `${where}${fail.message}` };
   }
-  wipe(): Promise<WipeResult> {
-    return this.rt().wipe();
+
+  private target(target?: string): LoomRuntimeClient | null {
+    const slug = target ?? this.booted?.backends[0]?.slug;
+    return slug === undefined ? null : (this.runtimes.get(slug) ?? null);
   }
-  reset(): Promise<{ ok: true }> {
-    return this.rt().reset();
+
+  dispatch(req: SerializedRequest, target?: string): Promise<DispatchResult> {
+    const rt = this.target(target);
+    if (!rt) {
+      return Promise.resolve({
+        ok: false,
+        message: target ? `No booted deployable "${target}".` : "Runtime not booted — call /boot first.",
+      });
+    }
+    return rt.dispatch(req);
   }
+  query(sql: string, storage?: string): Promise<QueryResult> {
+    const key = storage ?? this.booted?.storages[0]?.key;
+    if (!key || !this.infra) return Promise.resolve({ ok: false, message: "Runtime not booted — boot first." });
+    return this.infra.query(key, sql);
+  }
+  async wipe(storage?: string): Promise<WipeResult> {
+    if (!this.booted || !this.infra) return { ok: false, message: "Runtime not booted — nothing to wipe." };
+    const keys = storage ? [storage] : this.booted.storages.map((s) => s.key);
+    for (const key of keys) {
+      const res = await this.infra.wipe(key);
+      if (!res.ok) return keys.length > 1 ? { ok: false, message: `storage ${key}: ${res.message}` } : res;
+    }
+    return { ok: true };
+  }
+  async reset(): Promise<{ ok: true }> {
+    this.booted = null;
+    await Promise.all([...this.runtimes.values()].map((rt) => rt.reset()));
+    await this.infra?.reset();
+    return { ok: true };
+  }
+  /** The browser killed (or may have killed) a backgrounded worker: every
+   *  worker is replaced, so the booted state is gone — `onLost` says so. */
   respawn(): void {
-    this.runtime?.respawn();
+    this.respawnAll();
+    this.onLost?.();
+  }
+  private respawnAll(): void {
+    this.booted = null;
+    this.infra?.respawn();
+    for (const rt of this.runtimes.values()) rt.respawn(true);
   }
   /** Drop the bundler worker, releasing everything it holds.
    *
@@ -292,25 +426,27 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     this.vfsBundler?.dispose();
     this.vfsBundler = null;
   }
-  // Tab-suspension recovery: re-boot the retained bundle into a fresh
-  // worker; OPFS data reattaches.
+  // Tab-suspension recovery: re-boot the retained plan into fresh workers;
+  // the OPFS islands reattach.
   async snapshot(): Promise<EngineSnapshot | null> {
     return this.lastBoot?.persistent
-      ? { engineId: this.capabilities.id, version: 1, blob: this.lastBoot }
+      ? { engineId: this.capabilities.id, version: 2, blob: this.lastBoot.plan }
       : null;
   }
   async restore(snap: EngineSnapshot): Promise<boolean> {
-    if (snap.engineId !== this.capabilities.id || snap.version !== 1) {
-      return false;
-    }
-    const blob = snap.blob as { bundleCode: string; dataDir?: string } | null;
-    if (!blob?.bundleCode) return false;
-    this.rt().respawn(true);
-    const res = await this.boot(blob.bundleCode, blob.dataDir);
+    // Version 1 snapshots held one bundle and one data dir; a cold boot
+    // replaces them.
+    if (snap.engineId !== this.capabilities.id || snap.version !== 2) return false;
+    const plan = snap.blob as BootPlan | null;
+    if (!plan?.backends?.length || !plan.storages) return false;
+    this.respawnAll();
+    const res = await this.boot(plan);
     return res.ok;
   }
   dispose(): void {
-    this.runtime?.dispose();
+    for (const rt of this.runtimes.values()) rt.dispose();
+    this.runtimes.clear();
+    this.infra?.dispose();
     this.vfsBundler?.dispose();
   }
 }

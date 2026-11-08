@@ -106,10 +106,12 @@ system OptionalValueObject {
 
     // Absent again: clearing it must null EVERY leaf of the group, not just the
     // one the read path happens to probe — a backend that cleared only the
-    // probed leaf would still read back a VO here.
+    // probed leaf would still read back a VO here.  The update is a merge patch
+    // (RS-47), so the clear is an explicit `null`.
     api.persons.update(p, {
       name: "ada",
-      home: { line1: "1 Main St", city: "Springfield", rent: "1200.00" }
+      home: { line1: "1 Main St", city: "Springfield", rent: "1200.00" },
+      office: null
     })
     let cleared = api.persons.getById(p)
     expect(cleared.office).toBe(null)

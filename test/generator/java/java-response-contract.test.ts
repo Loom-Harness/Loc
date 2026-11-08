@@ -153,8 +153,8 @@ describe("M-T5.10 PR5 — Java reads the <Agg>Response contract record", () => {
     // the wireShape baseline carries an `int version` token, and `apiReadFields`
     // gives the scaffoldHandlers-spliced DECLARED `response` record the SAME
     // token, so the two stay byte-identical.
-    expect(baselineOrder).toContain(", int version,");
-    expect(scaffoldOrder).toContain(", int version,");
+    expect(baselineOrder).toContain(", int rowVersion,");
+    expect(scaffoldOrder).toContain(", int rowVersion,");
     expect(baselineOrder).toBe(scaffoldOrder);
     expect(scaffoldOrder).toContain("MoneyResponse total");
     expect(scaffoldOrder).toContain("List<LineResponse> lines");

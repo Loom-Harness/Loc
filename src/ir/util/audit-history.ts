@@ -145,9 +145,7 @@ export function aggServesHistory(agg: AggregateIR): boolean {
 export function buildHistoryFind(agg: AggregateIR, requires?: FindIR["requires"]): FindIR {
   return {
     name: AUDIT_HISTORY_FIND,
-    params: [
-      { name: "id", type: { kind: "id", targetName: agg.name, valueType: agg.idValueType } },
-    ],
+    params: [{ name: "id", type: { kind: "id", targetName: agg.name } }],
     returnType: { kind: "array", element: { kind: "primitive", name: "json" } },
     auditHistory: true,
     ...(requires ? { requires } : {}),

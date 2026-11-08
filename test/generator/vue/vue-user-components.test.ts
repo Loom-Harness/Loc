@@ -55,7 +55,7 @@ describe("user-defined components — Vue", () => {
     expect(comp).toContain('<v-card variant="outlined"');
     expect(comp).toMatch(/\{\{ t\("[^"]*", "Hello, \{name\}", \{ name: name \}\) \}\}/);
     expect(comp).toMatch(/<div>\{\{ t\("[^"]*", "Welcome!"\) \}\}<\/div>/);
-    expect(comp).toContain('import { t } from "../i18n";');
+    expect(comp).toContain('import { t } from "../lib/locale";');
   });
 
   it("a page invoking a component imports the SFC and renders the tag", async () => {

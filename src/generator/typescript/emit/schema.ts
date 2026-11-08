@@ -1,10 +1,16 @@
+import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
+import {
+  aggregateTableName,
+  partTableName,
+  projectionTableName,
+} from "../../../ir/enrich/storage-names.js";
+import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
 import type {
   AggregateIR,
   AssociationIR,
   BoundedContextIR,
   EnrichedBoundedContextIR,
   FieldIR,
-  IdValueType,
   ProjectionIR,
   TypeIR,
   WorkflowIR,
@@ -25,7 +31,7 @@ import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines as joinLines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, workflowStateTableName } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
+import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { drizzleIdColumn, drizzleScalarColumn } from "../codec-spelling.js";
 /** Per-aggregate dataSource lookup the orchestrator passes in.  Lets
  *  the schema emitter ask "what schema / tablePrefix does THIS
@@ -151,8 +157,7 @@ export function renderSchema(
             directParentName(agg, part.name, owner),
             ctx,
             new Set(),
-            agg.idValueType,
-            { schema, prefix },
+            { table: partTableName(part), schema, prefix },
           ),
         );
       }
@@ -174,7 +179,13 @@ export function renderSchema(
     // Document (`shape: document`): the whole aggregate is one opaque
     // jsonb blob (`id, data, version`).  No part/join tables.
     if (shape === "document") {
-      tables.push(emitDocumentTable(agg.name, agg.idValueType, { schema, prefix }));
+      tables.push(
+        emitDocumentTable(agg.name, {
+          table: aggregateTableName(agg, ctx.aggregates),
+          schema,
+          prefix,
+        }),
+      );
       continue;
     }
     // Embedded (`shape: embedded`): queryable root row + one jsonb column
@@ -185,7 +196,8 @@ export function renderSchema(
     }
     const indexed = indexedColumnsFor(agg, true);
     tables.push(
-      emitTable(agg.name, agg.fields, undefined, ctx, indexed, agg.idValueType, {
+      emitTable(agg.name, agg.fields, undefined, ctx, indexed, {
+        table: aggregateTableName(agg, ctx.aggregates),
         schema,
         prefix,
         uniqueOf: agg,
@@ -199,8 +211,7 @@ export function renderSchema(
           directParentName(agg, part.name, agg.name),
           ctx,
           new Set(),
-          agg.idValueType,
-          { schema, prefix },
+          { table: partTableName(part), schema, prefix },
         ),
       );
     }
@@ -214,15 +225,13 @@ export function renderSchema(
     // row per element keyed by (parent_id, ordinal), columns flattened
     // from the value object.  Plain relational shape (portable).
     for (const vc of valueCollectionsFor(agg)) {
-      tables.push(emitValueCollectionTable(vc, agg.name, ctx, agg.idValueType, { schema, prefix }));
+      tables.push(emitValueCollectionTable(vc, agg.name, ctx, { schema, prefix }));
     }
     for (const part of agg.parts) {
       for (const vc of valueCollectionsFor(part)) {
         // Owner is the PART, not the aggregate — the child table's FK points at
         // the part row (`valueCollectionTableShape(..., partName)` agrees).
-        tables.push(
-          emitValueCollectionTable(vc, part.name, ctx, agg.idValueType, { schema, prefix }),
-        );
+        tables.push(emitValueCollectionTable(vc, part.name, ctx, { schema, prefix }));
       }
     }
   }
@@ -235,13 +244,15 @@ export function renderSchema(
   // migrations (`<owner>_events`).  Aggregate binding fixes the schema first
   // (an owning context with both an ES aggregate and an ES workflow shares one
   // log), else the workflow schema resolver.
-  const eventLogs = new Map<string, { schema?: string; prefix?: string }>();
+  const eventLogs = new Map<string, { schema?: string; prefix?: string; tenant?: boolean }>();
   for (const agg of ctx.aggregates) {
     if (agg.persistedAs !== "eventLog") continue;
     const owner = opts.resolveStreamContext?.(agg.name) ?? ctx.name;
     if (!eventLogs.has(owner)) {
       eventLogs.set(owner, { schema: schemaFor(agg), prefix: prefixFor(agg) });
     }
+    // A tenant-scoped stream puts the tenant metadata columns on its log.
+    if (isTenantScopedStream(agg)) eventLogs.get(owner)!.tenant = true;
   }
   for (const wf of ctx.workflows) {
     if (!wf.eventSourced) continue;
@@ -370,14 +381,19 @@ export function renderSchema(
  *  `emitWorkflowStateTable`: the `keyed by` correlation column is the PK, the
  *  remaining state fields are columns.  No idempotent marker in v1. */
 function emitProjectionTable(proj: ProjectionIR, ctx: BoundedContextIR, schema?: string): string {
-  const tableName = tableNameFor(proj.name);
+  const tableName = projectionTableName(proj);
   const lines: string[] = [];
   const factory = schema ? `${schemaConstName(schema)}.table` : "pgTable";
-  lines.push(`export const ${lowerFirst(plural(proj.name))} = ${factory}("${tableName}", {`);
+  const constName = lowerFirst(plural(proj.name));
+  // A tenant-scoped fold (`fold-tenancy.ts`) keys its row by
+  // `(tenantId, <key>)` and carries the tenant columns under the
+  // `tenantOwned` field names, so the floor lowers over it like a table's.
+  const tenancy = foldTenancyFor(proj);
+  lines.push(`export const ${constName} = ${factory}("${tableName}", {`);
   for (const f of proj.stateFields) {
     if (f.name === proj.correlationField) {
-      const corrType = f.type.kind === "id" ? f.type.valueType : "guid";
-      lines.push(`  ${f.name}: ${drizzleIdColumn(corrType, snake(f.name))}.primaryKey(),`);
+      const pk = tenancy ? ".notNull()" : ".primaryKey()";
+      lines.push(`  ${f.name}: ${drizzleIdColumn(snake(f.name))}${pk},`);
     } else if (f.type.kind === "array" && f.type.element.kind === "id") {
       // A reference collection on a state row is one jsonb id-array column
       // (the shared migration's `JSONB NULL`) — there is no join table.
@@ -388,7 +404,19 @@ function emitProjectionTable(proj: ProjectionIR, ctx: BoundedContextIR, schema?:
       lines.push(...drizzleColumnLines({ ...f, optional: true }, ctx).map((s) => `  ${s}`));
     }
   }
-  lines.push(`});`);
+  if (!tenancy) {
+    lines.push(`});`);
+    return lines.join("\n");
+  }
+  for (const m of tenancy.metadata)
+    lines.push(`  ${m.field}: text("${m.column}")${m.required ? ".notNull()" : ""},`);
+  const keyCols = [
+    ...tenancy.metadata.filter((m) => m.required).map((m) => `table.${m.field}`),
+    `table.${proj.correlationField}`,
+  ];
+  lines.push(`}, (table) => ({`);
+  lines.push(`  ${constName}Pk: primaryKey({ columns: [${keyCols.join(", ")}] }),`);
+  lines.push(`}));`);
   return lines.join("\n");
 }
 
@@ -410,8 +438,8 @@ function emitJoinTable(
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
   const tableFactory = options.schema ? `${schemaConstName(options.schema)}.table` : "pgTable";
   lines.push(`export const ${tableConst} = ${tableFactory}("${tableName}", {`);
-  lines.push(`  ${ownerKey}: ${drizzleIdColumn(assoc.valueType, assoc.ownerFk)}.notNull(),`);
-  lines.push(`  ${targetKey}: ${drizzleIdColumn(assoc.valueType, assoc.targetFk)}.notNull(),`);
+  lines.push(`  ${ownerKey}: ${drizzleIdColumn(assoc.ownerFk)}.notNull(),`);
+  lines.push(`  ${targetKey}: ${drizzleIdColumn(assoc.targetFk)}.notNull(),`);
   lines.push(`}, (table) => ({`);
   lines.push(
     `  ${tableConst}Pk: primaryKey({ columns: [table.${ownerKey}, table.${targetKey}] }),`,
@@ -524,12 +552,12 @@ function emitEmbeddedTable(
   indexedColumns: Set<string>,
   options: { schema?: string; prefix?: string } = {},
 ): string {
-  const baseTable = tableNameFor(agg.name);
+  const baseTable = aggregateTableName(agg, ctx.aggregates);
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
   const tableFactory = options.schema ? `${schemaConstName(options.schema)}.table` : "pgTable";
   const lines: string[] = [];
   lines.push(`export const ${lowerFirst(plural(agg.name))} = ${tableFactory}("${tableName}", {`);
-  lines.push(`  id: ${drizzleIdColumn(agg.idValueType, "id")}.primaryKey(),`);
+  lines.push(`  id: ${drizzleIdColumn("id")}.primaryKey(),`);
   for (const f of agg.fields) {
     if (f.type.kind === "array" && f.type.element.kind === "id") {
       const not = f.optional ? "" : ".notNull()";
@@ -572,8 +600,7 @@ function emitWorkflowStateTable(wf: WorkflowIR, ctx: BoundedContextIR, schema?: 
   lines.push(`export const ${lowerFirst(plural(wf.name))} = ${factory}("${tableName}", {`);
   for (const f of wf.stateFields ?? []) {
     if (f.name === wf.correlationField) {
-      const corrType = f.type.kind === "id" ? f.type.valueType : "guid";
-      lines.push(`  ${f.name}: ${drizzleIdColumn(corrType, snake(f.name))}.primaryKey(),`);
+      lines.push(`  ${f.name}: ${drizzleIdColumn(snake(f.name))}.primaryKey(),`);
     } else if (f.type.kind === "array" && f.type.element.kind === "id") {
       // A reference collection on a saga row is one jsonb id-array column
       // (the shared migration's `JSONB`) — there is no join table.
@@ -605,7 +632,7 @@ function emitWorkflowStateTable(wf: WorkflowIR, ctx: BoundedContextIR, schema?: 
  *  the MVP — `(stream_id, version)` ordering is all fold-from-zero needs. */
 function emitEventLogTable(
   name: string,
-  options: { schema?: string; prefix?: string } = {},
+  options: { schema?: string; prefix?: string; tenant?: boolean } = {},
 ): string {
   const baseTable = `${snake(name)}_events`;
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
@@ -624,6 +651,13 @@ function emitEventLogTable(
     `  type: text("type").notNull(),`,
     `  data: jsonb("data").notNull(),`,
     `  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),`,
+    // Stream tenant metadata (`stream-tenancy.ts`) — present when a
+    // `tenantOwned` stream shares this log; null on every other stream's rows.
+    // Property names match the aggregate's `tenantOwned` fields, so the
+    // tenancy read restriction lowers over this table unchanged.
+    ...(options.tenant
+      ? STREAM_TENANT_METADATA.map((m) => `  ${m.field}: text("${m.column}"),`)
+      : []),
     `}, (table) => ({`,
     `  ${constName}Pk: primaryKey({ columns: [table.streamType, table.streamId, table.version] }),`,
     `}));`,
@@ -632,17 +666,17 @@ function emitEventLogTable(
 
 function emitDocumentTable(
   name: string,
-  idType: IdValueType,
-  options: { schema?: string; prefix?: string } = {},
+  /** `table` is the aggregate's table (`aggregateTableName`). */
+  options: { table: string; schema?: string; prefix?: string },
 ): string {
-  const baseTable = tableNameFor(name);
+  const baseTable = options.table;
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
   const tableFactory = options.schema ? `${schemaConstName(options.schema)}.table` : "pgTable";
   return [
     `export const ${lowerFirst(plural(name))} = ${tableFactory}("${tableName}", {`,
-    `  id: ${drizzleIdColumn(idType, "id")}.primaryKey(),`,
+    `  id: ${drizzleIdColumn("id")}.primaryKey(),`,
     `  data: jsonb("data").notNull(),`,
-    `  version: integer("version").notNull(),`,
+    `  ${ROW_VERSION_FIELD}: integer("${ROW_VERSION_COLUMN}").notNull(),`,
     `});`,
   ].join("\n");
 }
@@ -661,12 +695,12 @@ function emitTphTable(
   ctx: BoundedContextIR,
   options: { schema?: string; prefix?: string } = {},
 ): string {
-  const baseTable = tableNameFor(base.name);
+  const baseTable = aggregateTableName(base, ctx.aggregates);
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
   const tableFactory = options.schema ? `${schemaConstName(options.schema)}.table` : "pgTable";
   const lines: string[] = [];
   lines.push(`export const ${lowerFirst(plural(base.name))} = ${tableFactory}("${tableName}", {`);
-  lines.push(`  id: ${drizzleIdColumn(base.idValueType, "id")}.primaryKey(),`);
+  lines.push(`  id: ${drizzleIdColumn("id")}.primaryKey(),`);
   lines.push(`  kind: text("kind").notNull(),`);
   for (const f of base.fields) {
     lines.push(...drizzleColumnLines(f, ctx).map((s) => `  ${s}`));
@@ -705,7 +739,6 @@ function emitValueCollectionTable(
   // Deriving it from `vc.parentFk` instead would mean un-snaking a name.
   ownerName: string,
   ctx: BoundedContextIR,
-  idType: IdValueType,
   options: { schema?: string; prefix?: string } = {},
 ): string {
   const vo = findValueObjectInScope(ctx, vc.voName);
@@ -717,7 +750,7 @@ function emitValueCollectionTable(
   // `.references()` mirrors the migration's `FOREIGN KEY … REFERENCES …
   // ON DELETE CASCADE`, exactly as the containment-part table does.
   lines.push(
-    `  parentId: ${drizzleIdColumn(idType, vc.parentFk)}.notNull().references(() => ${ownerTableConst}.id, { onDelete: "cascade" }),`,
+    `  parentId: ${drizzleIdColumn(vc.parentFk)}.notNull().references(() => ${ownerTableConst}.id, { onDelete: "cascade" }),`,
   );
   lines.push(`  ordinal: integer("ordinal").notNull(),`);
   for (const f of vo?.fields ?? []) {
@@ -743,10 +776,10 @@ function emitTable(
   parentName: string | undefined,
   ctx: BoundedContextIR,
   indexedColumns: Set<string>,
-  idType: IdValueType,
-  options: { schema?: string; prefix?: string; uniqueOf?: AggregateIR } = {},
+  /** `table` is the row's table (`aggregateTableName` / `partTableName`). */
+  options: { table: string; schema?: string; prefix?: string; uniqueOf?: AggregateIR },
 ): string {
-  const baseTable = tableNameFor(name);
+  const baseTable = options.table;
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
   const lines: string[] = [];
   // dataSource-driven schema routing: when the owning aggregate's
@@ -756,14 +789,14 @@ function emitTable(
   // qualifies the SQL with the schema name.
   const tableFactory = options.schema ? `${schemaConstName(options.schema)}.table` : "pgTable";
   lines.push(`export const ${lowerFirst(plural(name))} = ${tableFactory}("${tableName}", {`);
-  lines.push(`  id: ${drizzleIdColumn(idType, "id")}.primaryKey(),`);
+  lines.push(`  id: ${drizzleIdColumn("id")}.primaryKey(),`);
   if (parentName) {
     // `.references()` mirrors the migration's `FOREIGN KEY … REFERENCES …
     // ON DELETE CASCADE` so the Drizzle schema's relational metadata matches
     // the DDL Loom emits.
     const parentTableConst = lowerFirst(plural(parentName));
     lines.push(
-      `  parentId: ${drizzleIdColumn(idType, `${snake(parentName)}_id`)}.notNull().references(() => ${parentTableConst}.id, { onDelete: "cascade" }),`,
+      `  parentId: ${drizzleIdColumn(`${snake(parentName)}_id`)}.notNull().references(() => ${parentTableConst}.id, { onDelete: "cascade" }),`,
     );
   }
   for (const f of fields) {
@@ -869,7 +902,7 @@ function drizzleColumnLinesForName(
         throw new Error("internal: 'duration' is expression-only and never reaches a column");
       return [`${fieldName}: ${drizzleScalarColumn(inner.name, colName)}${not},`];
     case "id":
-      return [`${fieldName}: ${drizzleIdColumn(inner.valueType, colName)}${not},`];
+      return [`${fieldName}: ${drizzleIdColumn(colName)}${not},`];
     case "enum":
       return [`${fieldName}: text("${colName}", { enum: ${lowerFirst(inner.name)}Values })${not},`];
     case "valueobject": {

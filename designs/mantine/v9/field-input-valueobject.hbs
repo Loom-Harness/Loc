@@ -1,4 +1,4 @@
-<Fieldset legend="{{label}}" variant="filled" radius="md" data-testid="{{testId}}">
+<Fieldset {{#if labelExpr}}legend={ {{{labelExpr}}} }{{else}}legend="{{label}}"{{/if}} variant="filled" radius="md" data-testid="{{testId}}">
           <Stack gap="sm">
             {{{innerHtml}}}
           </Stack>

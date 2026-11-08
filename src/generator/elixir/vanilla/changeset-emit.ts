@@ -30,15 +30,15 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { outboundReferenceFields } from "../../../ir/util/aggregate-flags.js";
 import { baseOf, ownFieldsOf, uniqueKeyIndex } from "../../../ir/util/inheritance.js";
+import { aggregateHasMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../../util/message-code.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
-import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { serverSeededFields } from "../../construction-default.js";
-import { MONEY_MAX_EXCLUSIVE, MONEY_PRECISION, MONEY_WIRE_SCALE } from "../../money-scale.js";
 import { renderExpr as renderElixirExpr } from "../render-expr.js";
 import { exFieldMessage, exLit, exValuePrefix } from "../wire-policy-ex.js";
 import {
@@ -49,15 +49,20 @@ import {
   renderRequirePresentHelper,
 } from "./changeset-ingress.js";
 import {
+  aggregateHasDomainFloorCodes,
   aggregateHasResidualInvariants,
   messagedRoutesToResidual,
+  opAssertedInvariants,
   renderInvariantValidatorFn,
+  renderOpInvariantAssertFn,
+  renderPatchInvariantFn,
 } from "./changeset-invariant-emit.js";
 import {
   aggregateBodyValueObjectFields,
   ectoValidator,
   voHasConstraints,
 } from "./changeset-validators.js";
+import { exInt32Range, exMoneyColumnSql, exMoneyMaxExclusive } from "./codec-spelling-ex.js";
 import { normalizeDatetime } from "./datetime-type-emit.js";
 import { isVanillaDocAgg, renderDocChangeset } from "./document-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
@@ -117,6 +122,64 @@ function castScalarFields(agg: AggregateIR, ctx: BoundedContextIR): AggField[] {
   return filterCastableFields(agg.fields as AggField[], agg, ctx);
 }
 
+/** Per-field constraint validators derived from single-field invariants (the
+ *  same `singleFieldConstraints` classifier Zod / FluentValidation / the Java
+ *  validator consume) — `f >= N` → `validate_number`, `f.length <= N` →
+ *  `validate_length`, `f.matches(r)` → `validate_format`.  Guarded / cross-field
+ *  invariants return null and keep their domain-level enforcement.  Only fields
+ *  that are actually cast get a validator.
+ *
+ *  One list, read by both the cast seams and (its MESSAGED subset, `messagedOnly`)
+ *  `validate_field_invariants/1`, which an operation persist pipes through; a
+ *  message-less rule reaches the operation path through `assert_op_invariants/1`
+ *  instead, so it answers the operation's domain-error shape. */
+export function fieldInvariantValidatorLines(
+  agg: AggregateIR,
+  ctx: BoundedContextIR,
+  messagedOnly = false,
+): string[] {
+  const castFields = new Set(castScalarFields(agg, ctx).map((f) => snake(f.name)));
+  return (agg.invariants ?? []).flatMap((inv) =>
+    messagedOnly && inv.message == null
+      ? []
+      : // A messaged rule that routes to the `validate_invariants/1` residual
+        // carrier (to carry its wire `code`) is emitted there, not as a native
+        // `validate_*` line — otherwise it would double-validate. A message-less
+        // rule (and a messaged rule that can't route) keeps its native line.
+        messagedRoutesToResidual(inv)
+        ? []
+        : (singleFieldConstraints(inv) ?? [])
+            .filter((c) => castFields.has(snake(c.field)))
+            .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),
+  );
+}
+
+/** The invariant pipes an operation persist appends to its
+ *  `change(%{}) |> force_change(…)` changeset, `indent` spaces deep.  That
+ *  changeset never passes through `base_changeset`, so it re-runs the floor
+ *  there: every message-less rule as the operation's domain error
+ *  (`assert_op_invariants/1`), the messaged single-field validators
+ *  (`validate_field_invariants/1`), and the residual cross-field / guarded /
+ *  coded rules (`validate_invariants/1`, or its `validate_domain_floor/1` twin
+ *  when a messaged rule carries a wire code).  Empty when the aggregate declares
+ *  none, so such an op is unchanged. */
+export function opPersistInvariantPipes(
+  agg: AggregateIR,
+  ctx: BoundedContextIR,
+  changesetMod: string,
+  indent: number,
+): string {
+  const pad = `\n${" ".repeat(indent)}|> ${changesetMod}.`;
+  const asserted = opAssertedInvariants(agg).length > 0 ? `${pad}assert_op_invariants()` : "";
+  const field =
+    fieldInvariantValidatorLines(agg, ctx, true).length > 0
+      ? `${pad}validate_field_invariants()`
+      : "";
+  const invFn = aggregateHasDomainFloorCodes(agg) ? "validate_domain_floor" : "validate_invariants";
+  const residual = aggregateHasResidualInvariants(agg) ? `${pad}${invFn}()` : "";
+  return `${asserted}${field}${residual}`;
+}
+
 /** A TPH/TPC concrete subtype's canonical `update` carries only its OWN
  *  declared fields — the abstract base's fields are not update params
  *  (`docs/inheritance.md`; the `inheritance.ddd` / `payments.ddd` corpus
@@ -153,6 +216,9 @@ export function aggregateNeedsUpdateChangeset(
 ): boolean {
   if (isEventSourced(agg) || isAbstractBase(agg)) return false;
   if (aggregateIsVersioned(agg)) return true;
+  // A merge-patch update (RS-47) judges each rule by which keys the patch
+  // carried, which only the dedicated seam knows how to do.
+  if (aggregateHasMergePatchUpdate(agg)) return true;
   if ((agg.contains ?? []).length > 0) return true;
   // The update-excluded-field check needs the context (value-collection
   // resolution); the emitter always has one, so routing stays in step.
@@ -308,23 +374,26 @@ function renderChangeset(
   // `validate_length`, `f.matches(r)` → `validate_format`.  Guarded / cross-field
   // invariants return null and keep their domain-level enforcement.  Only fields
   // that are actually cast (`@all_fields`) get a validator.
-  const castFields = new Set(allFields.map((f) => snake(f.name)));
-  const validatorLines = (agg.invariants ?? []).flatMap((inv) =>
-    // A messaged rule that routes to the `validate_invariants/1` residual
-    // carrier (to carry its wire `code`) is emitted there, not as a native
-    // `validate_*` line — otherwise it would double-validate. A message-less
-    // rule (and a messaged rule that can't route) keeps its native line.
-    messagedRoutesToResidual(inv)
-      ? []
-      : (singleFieldConstraints(inv) ?? [])
-          .filter((c) => castFields.has(snake(c.field)))
-          .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),
-  );
+  const validatorLines = fieldInvariantValidatorLines(agg, ctx);
+  const messagedFieldLines = fieldInvariantValidatorLines(agg, ctx, true);
+  const opAssertFn = renderOpInvariantAssertFn(agg, `${appModule}.${ctxModule}`);
+  // An operation persist is a `change(%{}) |> force_change` changeset that
+  // never passes through `base_changeset`.  A message-less rule reaches it as
+  // `assert_op_invariants/1` (the operation's domain error); the MESSAGED
+  // single-field lines reach it as this public function.
+  const fieldInvariantFn =
+    messagedFieldLines.length > 0
+      ? `\n\n  @doc "Assert the aggregate's messaged single-field invariants on a changeset built outside \`base_changeset\` — the operation persist."
+  def validate_field_invariants(changeset) do
+    changeset
+${messagedFieldLines.join("\n")}
+  end`
+      : "";
   // Money RANGE (M-T6.60 divergence 3) — one `validate_change` per cast money
   // COLUMN.  The create/update path never reaches `__loom_decimal_param` (the
   // op-param guard): it casts straight onto the `:decimal` field, and
   // `Ecto.Type.cast(:decimal, "<40 digits>")` succeeds, so the value reached
-  // NUMERIC(${MONEY_PRECISION},${MONEY_WIRE_SCALE}) and the DATABASE refused it — a 500 for a client fault.
+  // ${exMoneyColumnSql()} and the DATABASE refused it — a 500 for a client fault.
   // A value-object's money is deliberately NOT covered: it rides a jsonb column
   // with no precision bound, so it cannot produce that failure.
   const moneyColumns = allFields
@@ -340,13 +409,13 @@ function renderChangeset(
     moneyColumns.length > 0
       ? `
 
-  # The money column is NUMERIC(${MONEY_PRECISION},${MONEY_WIRE_SCALE}); a well-formed decimal string of any
+  # The money column is ${exMoneyColumnSql()}; a well-formed decimal string of any
   # magnitude casts cleanly onto it, so without this the DATABASE is what
   # refuses an over-large price — a 500 for a client fault.  The bound is
   # derived from the column's own precision, so one constant governs the guard
   # and the DDL (M-T6.60 divergence 3).
   defp __loom_money_range(field, %Decimal{} = value) do
-    if Decimal.lt?(Decimal.abs(value), Decimal.new(${JSON.stringify(MONEY_MAX_EXCLUSIVE)})),
+    if Decimal.lt?(Decimal.abs(value), Decimal.new(${exMoneyMaxExclusive()})),
       do: [],
       else: [{field, ${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(Decimal.to_string(value))}]
   end
@@ -371,8 +440,8 @@ function renderChangeset(
     .map((f) => snake(f.name));
   const int32RangeLines = int32Columns.map(
     (f) =>
-      `    |> validate_number(:${f}, greater_than_or_equal_to: ${INT32_MIN}, ` +
-      `less_than_or_equal_to: ${INT32_MAX}, message: ${exFieldMessage("integer-range")})`,
+      `    |> validate_number(:${f}, greater_than_or_equal_to: ${exInt32Range().min}, ` +
+      `less_than_or_equal_to: ${exInt32Range().max}, message: ${exFieldMessage("integer-range")})`,
   );
   const validatorBlock =
     validatorLines.length > 0 || moneyRangeLines.length > 0 || int32RangeLines.length > 0
@@ -735,7 +804,11 @@ ${
   const hasResidualInvariants = aggregateHasResidualInvariants(agg);
   const invBlock = hasResidualInvariants ? "\n    |> validate_invariants()" : "";
   const invariantFn = renderInvariantValidatorFn(agg, `${appModule}.${ctxModule}`);
-  const invariantFnBlock = invariantFn ? `\n\n${invariantFn}` : "";
+  // A merge-patch update judges a rule at the wire only when the patch carried
+  // every member it reads; otherwise its error moves to the domain floor.
+  const patchInvFn =
+    hasResidualInvariants && aggregateHasMergePatchUpdate(agg) ? renderPatchInvariantFn(agg) : "";
+  const invariantFnBlock = `${invariantFn ? `\n\n${invariantFn}` : ""}${patchInvFn ? `\n\n${patchInvFn}` : ""}`;
 
   // Dedicated `update_changeset/2` — the generic PATCH seam (repository `update`
   // routes here when `aggregateNeedsUpdateChangeset` is true).  It differs from
@@ -793,20 +866,24 @@ ${
       : "",
   ].join("");
   const ingressHelper = createDecimalPaths.length > 0 ? renderDecimalIngressHelpers() : "";
-  const optimisticLine = versioned ? "\n    |> optimistic_lock(:version)" : "";
+  const optimisticLine = versioned ? `\n    |> optimistic_lock(:${ROW_VERSION_COLUMN})` : "";
   const updateVcPrep = valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : "";
   // RS-26 presence check.  `validate_required/2` alone CANNOT enforce a required
   // field on update: it resolves through `get_field/2`, which falls back to the
   // loaded row, so an omitted KEY is indistinguishable from one carrying the
-  // stored value.  The update contract is full-replacement, so an absent key IS
-  // a missing field — and the other four backends reject it at their
+  // stored value.  A command-shaped update is full-replacement, so an absent key
+  // IS a missing field (the merge-patch `update`, RS-47, skips this check) — and the other four backends reject it at their
   // deserialization boundary, before any row exists to fall back to.  Presence
   // is therefore checked against the raw attrs, ahead of `cast`.
   //
   // Emitted only where there is a required field to check, so an aggregate whose
   // updatable fields are all optional stays byte-identical.
   const updateRequiredNames = updateFields.filter((f) => isRequiredUpdateInput(f));
-  const emitPresenceCheck = emitUpdateChangeset && updateRequiredNames.length > 0;
+  // A merge-patch update (RS-47) is the opposite contract: an absent key keeps
+  // the stored value — exactly what `cast/3` does — so neither the presence
+  // check nor its optional twin below applies.
+  const mergePatch = aggregateHasMergePatchUpdate(agg);
+  const emitPresenceCheck = emitUpdateChangeset && !mergePatch && updateRequiredNames.length > 0;
   const presenceLine = emitPresenceCheck ? `\n    |> __require_keys(attrs, ${updateReqList})` : "";
   // RS-26's OPTIONAL twin.  The update contract is FULL REPLACEMENT, but
   // `cast/3` ignores a key the attrs do not carry — so an OMITTED optional field
@@ -821,7 +898,7 @@ ${
   // Emitted only where there is an optional field to clear, so an aggregate whose
   // updatable fields are all required stays byte-identical.
   const updateOptionalNames = updateFields.filter((f) => f.optional || f.type.kind === "optional");
-  const emitClearAbsent = emitUpdateChangeset && updateOptionalNames.length > 0;
+  const emitClearAbsent = emitUpdateChangeset && !mergePatch && updateOptionalNames.length > 0;
   const clearAbsentDecl = emitClearAbsent
     ? `\n  @update_optional [${updateOptionalNames.map((f) => `:${snake(f.name)}`).join(", ")}]`
     : "";
@@ -863,12 +940,12 @@ ${
   end`
     : "";
   const updateChangesetBlock = emitUpdateChangeset
-    ? `\n\n  @doc "Update changeset — the generic PATCH seam.  Casts only the update-editable wire fields and does NOT touch contained parts (their mutation goes through the aggregate's own operations)${versioned ? "; guards the write with optimistic_lock(:version)" : ""}."
+    ? `\n\n  @doc "Update changeset — the generic PATCH seam.  Casts only the update-editable wire fields and does NOT touch contained parts (their mutation goes through the aggregate's own operations)${versioned ? "; guards the write with optimistic_lock(:${ROW_VERSION_COLUMN})" : ""}."
   def update_changeset(struct, attrs) do
     attrs = __normalize_keys(attrs)
     ${voKeyNormalizeLine}${updateVcPrep}struct
     |> ${castLines(updateColsList, updateStringList)}${updateIngressLine}${presenceLine}${clearAbsentLine}
-    |> ${requireLines(updateReqList, updateReqStringList)}${validatorBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}${optimisticLine}
+    |> ${requireLines(updateReqList, updateReqStringList)}${validatorBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${patchInvFn ? "\n    |> validate_patch_invariants(attrs)" : invBlock}${optimisticLine}
   end`
     : "";
 
@@ -925,7 +1002,7 @@ defmodule ${changesetMod} do
     ${voKeyNormalizeLine}${valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : ""}struct
     |> ${castLines("@all_fields", "@string_fields")}${createIngressLine}${defaultBlock}
     |> ${requireLines("@required_fields", "@required_strings")}${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}
-  end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voShapeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
+  end${updateChangesetBlock}${invariantFnBlock}${opAssertFn ? `\n\n${opAssertFn}` : ""}${fieldInvariantFn}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voShapeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
 
 ${actionHelpers}
 end

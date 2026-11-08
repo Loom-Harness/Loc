@@ -21,6 +21,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const SOURCE = `
 system Probe {
@@ -184,7 +185,7 @@ describe("java — reserved-word param / binding names: declaration and use agre
     const c = await file(SOURCE, "Calc.java");
     expect(c).toContain("public static int inc(int do_) {");
     expect(c).toContain("filter(do__ -> do__ > 0)");
-    expect(c).toContain("return do_ + z;");
+    expect(uncheckedInt(c)).toContain("return do_ + z;");
   });
 
   it("criterion factory params mangle", async () => {
@@ -196,14 +197,14 @@ describe("java — reserved-word param / binding names: declaration and use agre
   it("the JPA retrieval delegate passes the mangled param", async () => {
     const r = await file(SOURCE, "OrderRepositoryImpl.java");
     expect(r).toContain("public List<Order> runByReg(String case_) {");
-    expect(r).toContain("return jpa.runByReg(case_, Pageable.unpaged());");
+    expect(r).toContain("var result = jpa.runByReg(case_, Pageable.unpaged());");
   });
 
   it("workflow request components and spine bindings mangle", async () => {
     expect(await file(SOURCE, "LetWRequest.java")).toContain('@JsonProperty("final")');
     const w = await file(SOURCE, "OWorkflows.java");
     expect(w).toContain("var case_ = ordersRepository.getById(do_);");
-    expect(w).toContain("case_.bump(final_ + n);");
+    expect(uncheckedInt(w)).toContain("case_.bump(final_ + n);");
     expect(w).toContain('var new_ = Order.create("s", final_, "r");');
     expect(w).toContain('var default_ = ordersRepository.runByReg("r");');
     expect(w).toContain("for (var final__ : default_) {");

@@ -21,6 +21,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 // The leg core is plain ESM over node builtins only — importable straight from
 // test/behavioral without that workspace's own deps.
 // @ts-expect-error — untyped .mjs harness module
@@ -83,6 +84,6 @@ describe("schemathesis leg — a case that never ran cannot make a waiver look s
     // the wrong reason.
     // @ts-expect-error — untyped .mjs harness module
     const { loadRules } = await import("../behavioral/schemathesis-core.mjs");
-    expect(loadRules("java").length).toBeGreaterThan(0);
+    expectReach("java waiver rules", loadRules("java").length, 1);
   });
 });

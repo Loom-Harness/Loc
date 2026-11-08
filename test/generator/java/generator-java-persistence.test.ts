@@ -237,3 +237,67 @@ describe("java validator — single-containment gate (S4)", () => {
     expect(diags.some((d) => d.code === "loom.java-single-containment-unsupported")).toBe(false);
   });
 });
+
+describe("java generator — enum components of an @Embeddable value object", () => {
+  const VO_ENUM_SRC = `
+system Shop {
+  subdomain Sales {
+    context Rules {
+      enum Effect { Points, Require }
+      enum Kind { case, plain }
+      valueobject Rule {
+        key: string
+        effect: Effect
+        maybe: Effect?
+        kind: Kind
+        effects: Effect[]
+        kinds: Kind[]
+      }
+      aggregate RuleSet with crudish {
+        name: string
+        rules: Rule[]
+        main: Rule
+      }
+      repository RuleSets for RuleSet { }
+    }
+  }
+  api RulesApi from Sales
+  storage primary { type: postgres }
+  resource rulesState { for: Rules, kind: state, use: primary }
+  deployable shopApi {
+    platform: java
+    contexts: [Rules]
+    dataSources: [rulesState]
+    serves: RulesApi
+    port: 8081
+  }
+}
+`;
+
+  it("names the STRING mapping on the record components (default is ORDINAL → 23514)", async () => {
+    const vo = (await generateSystemFiles(VO_ENUM_SRC)).get(
+      `${ROOT}/domain/valueobjects/Rule.java`,
+    )!;
+    expect(vo).toContain("@Enumerated(EnumType.STRING) Effect effect");
+    expect(vo).toContain("@Enumerated(EnumType.STRING) Effect maybe");
+    // A reserved-word enum persists through its generated codec instead.
+    expect(vo).toContain("@Convert(converter = Kind.Codec.class) Kind kind");
+    expect(vo).not.toMatch(/(?<!\) )\bEffect effect/);
+  });
+
+  it("maps an enum ARRAY component like the root array arm (by name, native array)", async () => {
+    const vo = (await generateSystemFiles(VO_ENUM_SRC)).get(
+      `${ROOT}/domain/valueobjects/Rule.java`,
+    )!;
+    expect(vo).toContain(
+      "@Enumerated(EnumType.STRING) @JdbcTypeCode(SqlTypes.ARRAY) List<Effect> effects",
+    );
+    // A reserved-word enum's codec cannot convert a list: plain array mapping.
+    expect(vo).toContain("@JdbcTypeCode(SqlTypes.ARRAY) List<Kind> kinds");
+    expect(vo).not.toContain(
+      "@Enumerated(EnumType.STRING) @JdbcTypeCode(SqlTypes.ARRAY) List<Kind>",
+    );
+    expect(vo).toContain("import org.hibernate.annotations.JdbcTypeCode;");
+    expect(vo).toContain("import org.hibernate.type.SqlTypes;");
+  });
+});

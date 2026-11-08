@@ -18,12 +18,16 @@ import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import type { Model, TypeAtom, TypeRef } from "../generated/ast.js";
 import {
+  isCommandHandler,
   isDomainServiceOperation,
+  isNamedType,
   isOperation,
   isPayloadDecl,
   isProperty,
+  isQueryHandler,
   isSlotType,
   isTypeRef,
+  isWorkflowCreateDecl,
 } from "../generated/ast.js";
 
 export function checkUnions(model: Model, accept: ValidationAcceptor): void {
@@ -39,7 +43,8 @@ export function checkUnions(model: Model, accept: ValidationAcceptor): void {
 }
 
 /** An inline `A or B` union is a transport shape (like a generic carrier) — it
- *  may only appear as an operation's return type, not
+ *  may only appear as an operation's return type (or, with an `error`
+ *  variant, a routed command entry point's — see below), not
  *  as a stored property / parameter elsewhere.  This keeps the `union` TypeIR
  *  out of the storage-side emitters (drizzle columns, migrations) that don't
  *  render it.  A *named* union (`payload Foo = A | B`) is referenced by name
@@ -64,7 +69,36 @@ function checkUnionPosition(t: TypeRef, accept: ValidationAcceptor): void {
   // A domainService operation's `or`-union return (domain-services.md) — the
   // same designed-in-outcome shape as an aggregate operation return.
   if (isDomainServiceOperation(container)) return;
+  // The result of a routed command entry point — a workflow `create`, a
+  // `commandHandler`, a `queryHandler` — may be an expected failure: a union
+  // with at least one `error` variant answers the error at its mapped status.
+  // A union with no error variant, or one on an `extern` handler (whose user
+  // code owns the result), stays a transport shape out of place here.
+  if (
+    t.$containerProperty === "returnType" &&
+    (isWorkflowCreateDecl(container) ||
+      ((isCommandHandler(container) || isQueryHandler(container)) && !container.extern)) &&
+    [t, ...t.alternatives].some(isErrorAtom)
+  ) {
+    return;
+  }
   accept("error", diagMessage("loom.union-position"), { node: t, code: "loom.union-position" });
+}
+
+/** True when the union variant names an `error` payload.  A variant a macro
+ *  built carries a plain, never-linked `{ $refText }` reference (it resolves
+ *  by name, as lowering reads it), so an unlinked one is looked up by name
+ *  among the model's `error` records. */
+function isErrorAtom(a: TypeRef | TypeAtom): boolean {
+  if (!isNamedType(a.base)) return false;
+  const ref = a.base.target;
+  if (ref?.ref) return isPayloadDecl(ref.ref) && ref.ref.kind === "error";
+  const name = ref?.$refText;
+  if (!name) return false;
+  for (const n of AstUtils.streamAllContents(AstUtils.findRootNode(a))) {
+    if (isPayloadDecl(n) && n.kind === "error" && n.name === name) return true;
+  }
+  return false;
 }
 
 /** Stable structural key for a variant atom — base identity plus the postfix

@@ -18,6 +18,23 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "JACKSON_LOGICAL_TYPE is a closed emitter-side table; two primitives sharing a Jackson logical type must carry the same ingress rule, which the java wire-policy census pins. No .ddd input moves it.",
   },
+  // src/generator/_imports/dotnet.ts
+  "src/generator/_imports/dotnet.ts#csUsing": {
+    invariant:
+      'Every slot namespace is an emitter-side constant (`csUsing("System.Linq")`, the persistence/channel header slots); no .ddd input reaches it. (src/generator/_imports/dotnet.ts:59)',
+  },
+  "src/generator/_imports/dotnet.ts#finalizeCsUnit": {
+    invariant:
+      "Every `ref()` handle the .NET backend writes is a fixed BCL/package type (`cs-symbols.ts` and the emitters' constant `csRef`s), none sharing a simple name across namespaces; user type names are never written through `ref`. The wiring gate (test/generator/imports/dotnet-imports.test.ts) finalizes corpus units. (src/generator/_imports/dotnet.ts:121)",
+  },
+  "src/generator/_imports/dotnet.ts#finalizeCsUnit$2": {
+    invariant:
+      "No emitter writes an aliased handle whose alias a hand-written `using Alias = …;` line already binds to another target; aliases are emitter-side constants. (src/generator/_imports/dotnet.ts:160)",
+  },
+  "src/generator/_imports/dotnet.ts#finalizeCsUnit$3": {
+    invariant:
+      "Every emitted .cs unit has a `namespace` declaration or a leading `using` region, so a derived line always has a place; an emitter-authoring contract no .ddd input moves. (src/generator/_imports/dotnet.ts:182)",
+  },
   // src/generator/_imports/java.ts
   "src/generator/_imports/java.ts#finalizeJavaUnit": {
     invariant:
@@ -32,6 +49,32 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "A user type name equal to an imported JDK/library type (e.g. a value object named `Instant` or `List`) makes two imports bind one simple name; refused here (Java has no import alias) instead of emitting a javac ambiguity. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it in and re-classify guardedBy.",
     mission: "#3164",
     reviewUntil: "2027-01-31",
+  },
+
+  // src/generator/_imports/ts.ts
+  "src/generator/_imports/ts.ts#tsSpecifier": {
+    invariant:
+      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+  },
+  "src/generator/_imports/ts.ts#render": {
+    invariant:
+      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+  },
+  "src/generator/_imports/ts.ts#finalizeTsModule": {
+    invariant:
+      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+  },
+  "src/generator/_imports/ts.ts#finalizeTsModule$2": {
+    invariant:
+      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+  },
+  "src/generator/_imports/ts.ts#finalizeTsModule$3": {
+    invariant:
+      "Every TS symbol is an infrastructure name (a framework export or a generated module's fixed export) or a name derived per module from a declaration the validator already keeps unique (an api slug's router, an objectStore's byte helpers); no two modules export one of them under one local name.",
+  },
+  "src/generator/_imports/ts.ts#assertNoSlots": {
+    invariant:
+      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
   },
 
   // src/generator/python/wire-policy-py.ts
@@ -95,6 +138,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "Import handles are constructed by emitter code from fixed module paths and names that pass through the backend's identifier escaping; a malformed handle is an emitter bug, caught at construction instead of emitting a broken import line. (src/generator/_imports/symbol.ts:52)",
   },
+  "src/generator/_imports/symbol.ts#check$4": {
+    invariant:
+      "Only javaOnDemandRef builds an on-demand handle, always java and always named; any other on-demand handle is an emitter bug, caught at construction instead of emitting a wildcard import no unit can use. (src/generator/_imports/symbol.ts:59)",
+  },
   "src/generator/_imports/symbol.ts#resolveMarkers": {
     invariant:
       "Markers are produced only by ref() with validated handles and consumed by the same module's finalizer; a malformed or surviving marker is an emitter bug (a fragment that bypassed the finalizer), never user input. (src/generator/_imports/symbol.ts:111)",
@@ -124,18 +171,24 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/_expr/target.ts
   "src/generator/_expr/target.ts#renderExprWith": {
-    invariant:
-      "action-ref is lowered only when env.actions/env.stores are set (page/component/store lowering), and those bodies are rendered only by the frontend walkers (walker-core.ts:2200, heex-walker-core.ts:780), never by the backend renderExprWith callers (domain bodies, requires gates). (src/ir/lower/lower-expr.ts:2455, src/ir/lower/lower-expr.ts:744, src/ir/lower/lower-ui.ts:134/374)",
+    guardedBy: ["loom.model-text-outside-ui"],
+  },
+  "src/generator/_expr/target.ts#renderExprWithMarks": {
+    guardedBy: ["loom.model-text-outside-ui"],
   },
   "src/generator/_expr/target.ts#renderExprWith$2": {
     invariant:
+      "action-ref is lowered only when env.actions/env.stores are set (page/component/store lowering), and those bodies are rendered only by the frontend walkers (walker-core.ts:2200, heex-walker-core.ts:780), never by the backend renderExprWith callers (domain bodies, requires gates). (src/ir/lower/lower-expr.ts:2455, src/ir/lower/lower-expr.ts:744, src/ir/lower/lower-ui.ts:134/374)",
+  },
+  "src/generator/_expr/target.ts#renderExprWith$3": {
+    invariant:
       "authz-filter is built only by enrichment (tenant-stance.ts:349/451, enrichments.ts:588/682) into contextFilters/writeScopeFilter, and every backend filter translator special-cases it (isDenyFilter/isDeepScopeFilter; in-app path _expr/authz-filter-inapp.ts). Empirically: the 90-fixture corpus with `deny on <every aggregate>` and `deny write` injected into every context, generated on node, node{mikroorm}, dotnet, dotnet{dapper}, python, java and elixir, never reached this throw. The document-shape crossing (policy-document.ddd) was the historical leak and is fixed. (src/ir/util/tenant-stance.ts:349,451; src/generator/_expr/authz-filter-inapp.ts)",
   },
-  "src/generator/_expr/target.ts#renderExprWithMarks": {
+  "src/generator/_expr/target.ts#renderExprWithMarks$2": {
     invariant:
       "Only caller is the TS aggregate op-body loop (domain statements); action-ref is lowered only in UI bodies (env.actions/env.stores). (src/generator/typescript/render-stmt.ts:161; src/ir/lower/lower-expr.ts:2455)",
   },
-  "src/generator/_expr/target.ts#renderExprWithMarks$2": {
+  "src/generator/_expr/target.ts#renderExprWithMarks$3": {
     invariant:
       "Only caller renders aggregate op-body statements, which never contain the enrichment-only authz-filter sentinel (built at tenant-stance.ts:349/451 into filters only). (src/generator/typescript/render-stmt.ts:161)",
   },
@@ -589,10 +642,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "A read-port can only name a repository of the service's own context because lowerDomainService builds serviceRepos from its own context, so readingIsSingleContext is always true (cross-context reads lower to an unresolved ref refused by loom.domain-service-cross-context-read). (src/ir/lower/lower-domain-service.ts:29-33 (serviceRepos built from env.ctx.members only))",
   },
   "src/generator/elixir/domain-service-emit.ts#renderOperation$2": {
-    guardedBy: ["loom.elixir-if-stmt-unsupported"],
-    note: "The gate runs the identical elixirIfRefusal(op.body,'value') predicate on every domain-service operation of a context hosted by an elixir deployable.",
-  },
-  "src/generator/elixir/domain-service-emit.ts#renderOperation$3": {
     guardedBy: ["loom.elixir-match-stmt-unsupported"],
     note: "The gate runs the identical elixirMatchRefusal(op.body,'value') predicate on every domain-service operation of a context hosted by an elixir deployable.",
   },
@@ -609,6 +658,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/heex-target.ts#renderForEach": {
     invariant:
       "heexTarget is never handed to the shared _walker engine; the HEEx walker calls only a handful of its methods directly and never renderForEach, so this shim is dead. (src/generator/elixir/heex-walker-core.ts:74 (heexTarget imported only here; only renderStateRead/renderStateWrite/renderMatch/renderApiCall/renderNavigate are invoked, at :873,:1466,:1620,:2178,:2222))",
+  },
+  "src/generator/elixir/heex-target.ts#renderLocaleSwitcher": {
+    invariant:
+      "heexTarget is never handed to the shared _walker engine; the HEEx walker renders LocaleSwitcher through heex-primitives.ts:renderLocaleSwitcher and never calls this seam, so this shim is dead. (src/generator/elixir/heex-walker-core.ts:74 (heexTarget imported only here; only renderStateRead/renderStateWrite/renderMatch/renderApiCall/renderNavigate are invoked))",
   },
   "src/generator/elixir/heex-target.ts#renderNestedStateWrite": {
     invariant:
@@ -685,24 +738,16 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/elixir/vanilla/domain-core-emit.ts
   "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt": {
-    guardedBy: ["loom.elixir-if-stmt-unsupported"],
-    note: "The event-sourced pure core reads the same command body as the ES command runner; validateElixirIfSupport refuses ANY `if` in an event-sourced command body (operations, creates and destroys) on an elixir-hosted context (`#event-sourced`).",
-  },
-  "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt$2": {
     guardedBy: ["loom.elixir-match-stmt-unsupported"],
     note: "validateElixirMatchStatements refuses ANY statement match in an event-sourced operation / create / destroy on an elixir-hosted context (`#event-sourced`).",
   },
-  "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt$3": {
+  "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt$2": {
     invariant:
       "Exhaustive `never` default: every StmtIR kind has an arm above it. (src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt)",
   },
 
   // src/generator/elixir/vanilla/eventsourced-emit.ts
-  "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner": {
-    guardedBy: ["loom.elixir-if-stmt-unsupported"],
-    note: "validateElixirIfSupport refuses ANY `if` in an event-sourced command body — operations, creates and destroys alike — on an elixir-hosted context (`#event-sourced`).",
-  },
-  "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner$2": {
+  "src/generator/elixir/vanilla/eventsourced-emit.ts#sortPath": {
     guardedBy: ["loom.elixir-match-stmt-unsupported"],
     note: "validateElixirMatchStatements refuses ANY statement match in an event-sourced operation / create / destroy on an elixir-hosted context (`#event-sourced`).",
   },
@@ -724,10 +769,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "loom.applier-emits",
       "loom.applier-impure-call",
       "loom.applier-guard",
-      "loom.elixir-if-stmt-unsupported",
       "loom.variant-match-placement",
     ],
-    note: "validateApplierBodies holds every applier (aggregate and workflow) to APPLIER_STMT_KINDS; the fold renders all of it but `if`, which validateElixirIfSupport refuses in every elixir-hosted applier. `expression` is refused too, so the renderer's `expression` arm is unreachable.",
+    note: "validateApplierBodies holds every applier (aggregate and workflow) to APPLIER_STMT_KINDS (assign / add / remove / let / if), all of which the fold renders. `expression` is refused too, so the renderer's `expression` arm is unreachable.",
+  },
+  "src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldStatement$2": {
+    invariant:
+      "Exhaustive `never` default: every StmtIR kind has an arm above it. (src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldStatement)",
   },
 
   // src/generator/elixir/store-emit.ts
@@ -754,10 +802,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/vanilla/function-emit.ts#renderPureBlock$3": {
     guardedBy: ["loom.variant-match-placement"],
   },
-  "src/generator/elixir/vanilla/function-emit.ts#renderFunctionBodyLines": {
-    guardedBy: ["loom.elixir-if-stmt-unsupported"],
-    note: 'validateElixirIfSupport classifies every block-bodied `function` — aggregate AND workflow — with the same elixirIfRefusal("value") predicate this throw asserts.',
-  },
 
   // src/generator/elixir/vanilla/integration-tests-emit.ts
   "src/generator/elixir/vanilla/integration-tests-emit.ts#renderStmt": {
@@ -769,10 +813,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/vanilla/operation-returns-emit.ts#renderReturningStmt": {
     guardedBy: ["loom.elixir-match-stmt-unsupported", "loom.variant-match-placement"],
     note: "The gate runs the identical elixirMatchRefusal predicate (or the stricter event-sourced one) over every aggregate operation / create / destroy in an elixir-hosted context; a pure fold or function is refused by the placement rule on every backend.",
-  },
-  "src/generator/elixir/vanilla/operation-returns-emit.ts#renderReturningStmt$2": {
-    guardedBy: ["loom.elixir-if-stmt-unsupported"],
-    note: "The gate runs the identical elixirIfRefusal predicate (or the stricter event-sourced one) over every aggregate operation in an elixir-hosted context; relational create/destroy bodies are not rendered (loom.lifecycle-body-dropped).",
   },
 
   // src/generator/elixir/vanilla/projections-emit.ts
@@ -921,27 +961,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
   "src/generator/feliz/wire.ts#collectBodyReads": {
     guardedBy: ["loom.ui-read-unresolved", "loom.ui-api-operation-unknown"],
-    note: "A QueryView read naming anything other than all/byId/history/a declared find is refused (tried create/delete/undeclared names).",
-  },
-  // The four Feliz find-read sites: every find a page can read is a
-  // synthesized paged `findAllBy<Criterion>`, and `loom.ui-read-unresolved`
-  // (#unrouted) refuses each such read on Feliz, which has no route to reach
-  // it — so none of the four is reachable.
-  "src/generator/feliz/wire.ts#felizFindRead": {
-    guardedBy: ["loom.ui-read-unresolved"],
-    note: "Every synthesized-find read on feliz is refused by ui-read-unresolved#unrouted (ui-checks.ts: feliz hosts carry no paged-find routes).",
-  },
-  "src/generator/feliz/wire.ts#felizFindRead$2": {
-    guardedBy: ["loom.ui-read-unresolved"],
-    note: "Same guard as felizFindRead; the target-neutral loom.ui-find-call-arity also refuses the arity case first-hand.",
-  },
-  "src/generator/feliz/wire.ts#findParamQueryValue": {
-    guardedBy: ["loom.ui-read-unresolved"],
-    note: "Same guard as felizFindRead; feature find-read-composite-param (omits feliz) also refuses a list param.",
-  },
-  "src/generator/feliz/wire.ts#walk": {
-    guardedBy: ["loom.ui-read-unresolved"],
-    note: "Same guard as felizFindRead; feature find-read-unbound-arg (omits feliz) also refuses a row-bound arg.",
+    note: "A QueryView read naming anything other than all/byId/history is refused (tried create/delete/undeclared names).",
   },
 
   // src/generator/flutter/auth-gate.ts
@@ -1308,6 +1328,66 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/dotnet/codec-spelling.ts#csEnvelopeInstant": {
     invariant:
       "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+
+  // src/generator/java/codec-spelling.ts
+  "src/generator/java/codec-spelling.ts#javaJsonSqlType": {
+    invariant:
+      "The Codec fact stores the `json` scalar in a `json` column (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#javaMoneyColumnLabel": {
+    invariant:
+      "The Codec fact's money column is the bounded `decimal` NUMERIC(19,4) (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#javaIntOutOfRange": {
+    invariant:
+      "The Codec fact's int range is the JVM int (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#instantUnit": {
+    invariant:
+      "The Codec fact's datetime wire form carries exactly three fraction digits and truncates at ingress (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#javaInstantWire": {
+    invariant:
+      "The Codec fact's datetime wire form drops the fraction on a whole second (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#assertCalendarDate": {
+    invariant:
+      "The Codec fact's date wire form is `calendar-date` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#javaEnvelopeInstant": {
+    invariant:
+      "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  // src/generator/elixir/vanilla/codec-spelling-ex.ts
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exPgInstantType": {
+    invariant:
+      "The Codec fact's datetime column is the `datetime` instant column (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exSchemaType": {
+    invariant:
+      "exSchemaType is reached only from exEctoScalarType, exEctoIdType, exEctoIdJsonType and exEctoJsonType, which pass the Codec fact's column for a storable scalar or an id value type; the fact maps none of those to `bigserial` or `array` (pinned by test/ir/codec.test.ts). (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exMoneyColumnSql": {
+    invariant:
+      "The Codec fact's money column is the bounded `NUMERIC(19,4)` decimal (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exMoneyGrammarRegex": {
+    invariant:
+      "The Codec fact's money grammar is the fixed `MONEY_WIRE_GRAMMAR` the emitted regex spells (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exCalendarDateWire": {
+    invariant:
+      "The Codec fact's date wire form is `calendar-date` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exEnvelopeInstant": {
+    invariant:
+      "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  // src/generator/elixir/vanilla/datetime-type-emit.ts
+  "src/generator/elixir/vanilla/datetime-type-emit.ts#renderLoomDatetimeModule": {
+    invariant:
+      "The Codec fact's datetime wire form is three truncated fraction digits with none on a whole second (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
   },
 
   // src/generator/typescript/emit/channels.ts

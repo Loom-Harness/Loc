@@ -41,3 +41,10 @@ context Roster {
   repository Trainers for Trainer { }
   criterion TrainersHoldingInParty(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
 }
+
+// The deployment: one node backend hosting the context, persisted to postgres.
+system Roster {
+  storage db { type: postgres }
+  resource rosterState { for: Roster, kind: state, use: db, index: [Trainer.party] }
+  deployable roster { platform: node, contexts: [Roster], dataSources: [rosterState] }
+}

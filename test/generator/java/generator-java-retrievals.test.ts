@@ -113,7 +113,7 @@ describe("java generator — retrieval repository surface", () => {
     );
     const impl = files_.get(`${ROOT}/features/customers/CustomerRepositoryImpl.java`)!;
     expect(impl).toContain(
-      'return jpa.findAll(CustomerCriteria.InRegion(rgn), Sort.by(Sort.Order.asc("name")));',
+      'var result = jpa.findAll(CustomerCriteria.InRegion(rgn), Sort.by(Sort.Order.asc("name"), Sort.Order.asc("id")));',
     );
     expect(impl).toContain("import com.loom.crmapi.domain.criteria.CustomerCriteria;");
   });
@@ -121,7 +121,7 @@ describe("java generator — retrieval repository surface", () => {
   it("composed retrieval falls back to a @Query JPQL with order by", async () => {
     const jpa = (await files()).get(`${ROOT}/features/customers/CustomerJpaRepository.java`)!;
     expect(jpa).toContain(
-      '@Query("select e from Customer e where e.active and e.score >= :min order by e.score desc, e.name asc")',
+      '@Query("select e from Customer e where e.active and e.score >= :min order by e.score desc, e.name asc, e.id asc")',
     );
     expect(jpa).toContain(
       '    List<Customer> runActiveHighScorers(@Param("min") int min, Pageable pageable);',
@@ -143,7 +143,7 @@ describe("java generator — paged Repo.run (offset/limit overloads)", () => {
   it("reified paged run rides findAll(spec, OffsetLimitPageRequest).getContent()", async () => {
     const impl = (await files()).get(`${ROOT}/features/customers/CustomerRepositoryImpl.java`)!;
     expect(impl).toContain(
-      'return jpa.findAll(CustomerCriteria.InRegion(rgn), new OffsetLimitPageRequest(offset, limit, Sort.by(Sort.Order.asc("name")))).getContent();',
+      'var result = jpa.findAll(CustomerCriteria.InRegion(rgn), new OffsetLimitPageRequest(offset, limit, Sort.by(Sort.Order.asc("name"), Sort.Order.asc("id")))).getContent();',
     );
     expect(impl).toContain(
       "import com.loom.crmapi.infrastructure.persistence.OffsetLimitPageRequest;",
@@ -157,9 +157,9 @@ describe("java generator — paged Repo.run (offset/limit overloads)", () => {
       'List<Customer> runActiveHighScorers(@Param("min") int min, Pageable pageable);',
     );
     const impl = files_.get(`${ROOT}/features/customers/CustomerRepositoryImpl.java`)!;
-    expect(impl).toContain("return jpa.runActiveHighScorers(min, Pageable.unpaged());");
+    expect(impl).toContain("var result = jpa.runActiveHighScorers(min, Pageable.unpaged());");
     expect(impl).toContain(
-      "return jpa.runActiveHighScorers(min, new OffsetLimitPageRequest(offset, limit, Sort.unsorted()));",
+      "var result = jpa.runActiveHighScorers(min, new OffsetLimitPageRequest(offset, limit, Sort.unsorted()));",
     );
   });
 

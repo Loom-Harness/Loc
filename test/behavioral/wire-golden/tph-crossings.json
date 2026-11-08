@@ -37,7 +37,7 @@
         "deletedAt": null,
         "id": "<volatile:key>",
         "reference": "REF-1",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -65,7 +65,7 @@
             "deletedAt": null,
             "id": "<volatile:key>",
             "reference": "REF-1",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -85,7 +85,7 @@
           "deletedAt": null,
           "id": "<volatile:key>",
           "reference": "REF-1",
-          "version": 2
+          "rowVersion": 2
         }
       ]
     },
@@ -151,7 +151,7 @@
         {
           "id": "<volatile:key>",
           "reference": "REF-2",
-          "version": 1,
+          "rowVersion": 1,
           "weightKg": 40
         }
       ]
@@ -164,7 +164,7 @@
       "body": {
         "id": "<volatile:key>",
         "reference": "REF-2",
-        "version": 1,
+        "rowVersion": 1,
         "weightKg": 40
       }
     },
@@ -183,7 +183,7 @@
       "body": {
         "id": "<volatile:key>",
         "reference": "REF-2",
-        "version": 2,
+        "rowVersion": 2,
         "weightKg": 55
       }
     },
@@ -296,18 +296,12 @@
       "seq": 25,
       "method": "POST",
       "path": "/api/parcels/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "courier is required",
-            "pointer": "/courier"
-          }
-        ],
+        "detail": "Parcel {id} not found",
         "instance": "/api/parcels/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

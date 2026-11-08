@@ -12,9 +12,8 @@ import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../src/language/ddd-module.js";
-import type { Model } from "../../src/language/generated/ast.js";
-import { generateSystems } from "../../src/system/index.js";
 import { diagText } from "../_helpers/diagnostics.js";
+import { generateSystemFilesUnchecked } from "../_helpers/generate.js";
 
 const ACME_EXPLICIT = `
 system Acme {
@@ -115,7 +114,11 @@ async function build(source: string) {
     errors,
     files:
       errors.length === 0
-        ? generateSystems(doc.parseResult.value as Model).files
+        ? await generateSystemFilesUnchecked(
+            source,
+            "ACME_EXPLICIT passes phase ④ but phase ⑦ refuses it (multi-backend ui, " +
+              "clickhouse storage, cache resource) — re-scoping the hook tests is #4700",
+          )
         : new Map<string, string>(),
   };
 }
