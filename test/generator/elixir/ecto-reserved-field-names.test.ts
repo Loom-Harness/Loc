@@ -92,7 +92,7 @@ describe("phoenix generator — a declared field owning an Ecto timestamp column
   it("a model without such a field keeps both timestamps() lines", async () => {
     const files = await generateSystemFiles(system("meta: string"));
     expect(bySuffix(files, "lib/api/ec/thing.ex")).toContain(
-      "    field :meta, :string\n    field :label, :string\n    field :version, :integer, default: 1\n    timestamps(type: :utc_datetime)\n",
+      "    field :meta, :string\n    field :label, :string\n    field :row_version, :integer, default: 1\n    timestamps(type: :utc_datetime)\n",
     );
     expect(bySuffix(files, "_create_things.exs")).toContain("      timestamps()\n");
   });

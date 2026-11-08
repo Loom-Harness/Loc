@@ -34,6 +34,7 @@ import {
 } from "../../../ir/util/op-gates.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
@@ -523,7 +524,7 @@ export function renderJavaService(
     readsIfMatch(operationVersionCheck(agg, op)) ? ", Integer ifMatch" : "";
   const ifMatchGuardFor = (op: OperationIR): string | null =>
     readsIfMatch(operationVersionCheck(agg, op))
-      ? `        if (ifMatch != null && aggregate.version() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, id.value());`
+      ? `        if (ifMatch != null && aggregate.${ROW_VERSION_FIELD}() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, id.value());`
       : null;
   const unionReturnNames = new Set<string>();
   const opLines = agg.operations
@@ -701,7 +702,7 @@ export function renderJavaService(
           // tag raises the exception the repository's guarded save raises (409).
           ...(destroyReadsIfMatch
             ? [
-                `        if (ifMatch != null && aggregate.version() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, id.value());`,
+                `        if (ifMatch != null && aggregate.${ROW_VERSION_FIELD}() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, id.value());`,
               ]
             : []),
           ...(auditDestroy

@@ -39,6 +39,7 @@
 import { isConstructible } from "../../ir/enrich/wire-projection.js";
 import type { AggregateIR, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { renderValueEqualsCall } from "../_frontend/value-equals.js";
@@ -166,7 +167,7 @@ function instanceOperation(
   // renders through the walker's own scope (a QueryView `data:` binding maps to
   // the unwrapped provider value), so it names the record in scope here.
   const versionExpr = sendsIfMatchPrecondition(agg, op)
-    ? `${emitExpr(inst.receiver, ctx)}.version`
+    ? `${emitExpr(inst.receiver, ctx)}.${ROW_VERSION_FIELD}`
     : undefined;
   return { agg, op, idExpr, ...(versionExpr ? { versionExpr } : {}) };
 }

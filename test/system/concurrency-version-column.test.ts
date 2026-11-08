@@ -66,14 +66,14 @@ describe("versioned → Postgres version column DDL", () => {
   it("emits `version INTEGER NOT NULL DEFAULT 1` on the state table", async () => {
     const files = await generateSystemFiles(nodeSystem("with versioned"));
     // Identifiers are quote-always in the DDL; assert quote-agnostically.
-    expect(sqlOf(files)).toMatch(/"?version"? INTEGER NOT NULL DEFAULT 1/);
+    expect(sqlOf(files)).toMatch(/"?row_version"? INTEGER NOT NULL DEFAULT 1/);
   });
 
   it("emits the version column by DEFAULT — every aggregate is versioned (M-T3.4)", async () => {
     // Versioning is default-on infrastructure: a plain aggregate with no
     // `with versioned` still carries the optimistic-concurrency column.
     const files = await generateSystemFiles(nodeSystem(""));
-    expect(sqlOf(files)).toMatch(/"?version"? INTEGER NOT NULL DEFAULT 1/);
+    expect(sqlOf(files)).toMatch(/"?row_version"? INTEGER NOT NULL DEFAULT 1/);
   });
 });
 
@@ -84,7 +84,7 @@ describe("versioned → Ecto version column", () => {
       ([p]) => p.includes("priv/repo/migrations/") && p.endsWith("create_customers.exs"),
     )?.[1];
     expect(migration, "create_customers.exs").toBeDefined();
-    expect(migration).toContain(":version");
+    expect(migration).toContain(":row_version");
     expect(migration).toContain("default: 1");
   });
 
@@ -94,7 +94,7 @@ describe("versioned → Ecto version column", () => {
       ([p]) => p.includes("priv/repo/migrations/") && p.endsWith("create_customers.exs"),
     )?.[1];
     expect(migration, "create_customers.exs").toBeDefined();
-    expect(migration).toContain(":version");
+    expect(migration).toContain(":row_version");
     expect(migration).toContain("default: 1");
   });
 });

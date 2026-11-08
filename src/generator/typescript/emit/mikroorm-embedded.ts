@@ -19,6 +19,7 @@ import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
@@ -165,13 +166,13 @@ export function renderMikroEmbeddedRepository(
   // the CAS value itself (1 on insert, expected + 1 on the update).  A
   // non-versioned embedded aggregate keeps the byte-identical bare upsert.
   const versioned = rowVersionGuarded(agg);
-  const rootEntriesNoVersion = rootEntries.filter((e) => !e.startsWith("version:"));
-  const rootRowInsert = `{ ${rootEntriesNoVersion.join(", ")}, version: 1 }`;
-  const rootRowUpdate = `{ ${rootEntriesNoVersion.join(", ")}, version: expected + 1 }`;
+  const rootEntriesNoVersion = rootEntries.filter((e) => !e.startsWith(`${ROW_VERSION_FIELD}:`));
+  const rootRowInsert = `{ ${rootEntriesNoVersion.join(", ")}, ${ROW_VERSION_FIELD}: 1 }`;
+  const rootRowUpdate = `{ ${rootEntriesNoVersion.join(", ")}, ${ROW_VERSION_FIELD}: expected + 1 }`;
   const insertValues = audited ? stampInsertCall(agg, rootRowInsert) : rootRowInsert;
   const updateSet = audited ? stampUpdateCall(agg, rootRowUpdate) : rootRowUpdate;
   const versionedSaveLines = [
-    `    const expected = expectedVersion ?? aggregate.version;`,
+    `    const expected = expectedVersion ?? aggregate.${ROW_VERSION_FIELD};`,
     // The save's statements are scoped by id (and version) alone: they bypass
     // the read scope, so a loaded-`ignoring` aggregate stays savable and a
     // soft-deleted row is still found as existing.
@@ -180,7 +181,7 @@ export function renderMikroEmbeddedRepository(
     `      await em.insert(${row}, ${insertValues});`,
     savedVersionOnInsert("      "),
     `    } else {`,
-    `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, version: expected }, ${updateSet}, { filters: false });`,
+    `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, ${ROW_VERSION_FIELD}: expected }, ${updateSet}, { filters: false });`,
     `      if (affected === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
     savedVersionOnUpdate("      "),
     `    }`,

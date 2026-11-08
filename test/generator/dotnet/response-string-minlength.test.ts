@@ -86,7 +86,7 @@ describe("dotnet — a response string publishes no length bound it cannot keep"
     // int would be noise at best and is not what the fix is about.
     const responses = await emitted("Customers/Responses/CustomerResponses.cs");
     expect(responses).toContain("[property: Required] Guid Id");
-    expect(responses).toContain("[property: Required] int Version");
+    expect(responses).toContain("[property: Required] int RowVersion");
   });
 
   it("the field stays REQUIRED — this is still a RequiredAttribute", async () => {

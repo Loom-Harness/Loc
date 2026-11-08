@@ -32,6 +32,7 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { csUsing } from "../../_imports/dotnet.js";
 import { BCL_COLLIDING_TYPE_NAMES, collidingNamesOfAggregate } from "../bcl-collision.js";
 import { csJsonSqlType } from "../codec-spelling.js";
@@ -557,7 +558,7 @@ export function renderConfiguration(
         voLookup,
         false,
         agg.name,
-        versioned && f.name === "version",
+        versioned && f.name === ROW_VERSION_FIELD,
         options.schema,
       ),
     );

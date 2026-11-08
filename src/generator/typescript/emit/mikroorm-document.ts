@@ -18,6 +18,7 @@ import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import {
   docTypeAlias,
@@ -71,7 +72,7 @@ export function renderMikroDocumentRepository(
   // (the blob copy lags a write), matching the drizzle document path.
   const fromDocOf = (rowVar: string): string =>
     versioned
-      ? `${lowerFirst(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc, ${rowVar}.version)`
+      ? `${lowerFirst(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc, ${rowVar}.${ROW_VERSION_FIELD})`
       : `${lowerFirst(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc)`;
   // In-app capability predicate over a rehydrated aggregate (soft-delete /
   // tenancy).  On `shape: document` the filter CANNOT be pushed into the query
@@ -202,13 +203,13 @@ export function renderMikroDocumentRepository(
   const docData = docAudited ? `data: ${stampInsertCall(agg, "data")}` : "data";
   const saveLines = versioned
     ? [
-        `    const expected = expectedVersion ?? aggregate.version;`,
+        `    const expected = expectedVersion ?? aggregate.${ROW_VERSION_FIELD};`,
         `    const existing = await em.findOne(${row}, { id: aggregate.id as string });`,
         `    if (existing === null) {`,
-        `      await em.insert(${row}, { id: aggregate.id as string, ${docData}, version: 1 });`,
+        `      await em.insert(${row}, { id: aggregate.id as string, ${docData}, ${ROW_VERSION_FIELD}: 1 });`,
         savedVersionOnInsert("      "),
         `    } else {`,
-        `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, version: expected }, { data, version: expected + 1 });`,
+        `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, ${ROW_VERSION_FIELD}: expected }, { data, ${ROW_VERSION_FIELD}: expected + 1 });`,
         `      if (affected === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
         savedVersionOnUpdate("      "),
         `    }`,
@@ -216,9 +217,9 @@ export function renderMikroDocumentRepository(
     : [
         `    const existing = await em.findOne(${row}, { id: aggregate.id as string });`,
         `    if (existing === null) {`,
-        `      await em.insert(${row}, { id: aggregate.id as string, ${docData}, version: 1 });`,
+        `      await em.insert(${row}, { id: aggregate.id as string, ${docData}, ${ROW_VERSION_FIELD}: 1 });`,
         `    } else {`,
-        `      await em.nativeUpdate(${row}, { id: aggregate.id as string }, { data, version: existing.version + 1 });`,
+        `      await em.nativeUpdate(${row}, { id: aggregate.id as string }, { data, ${ROW_VERSION_FIELD}: existing.${ROW_VERSION_FIELD} + 1 });`,
         `    }`,
       ];
 

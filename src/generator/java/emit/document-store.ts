@@ -5,6 +5,7 @@ import {
   exprUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
@@ -22,7 +23,6 @@ import {
   inMemoryRetrievalLines,
   isPagedFind,
   unionFindAsOptionalTwin,
-  versionFieldName,
 } from "./repository.js";
 import { javaBlobWriteGuardLines, writeScopeUsesPrincipal } from "./write-scope.js";
 // ---------------------------------------------------------------------------
@@ -235,14 +235,14 @@ export function renderJavaDocumentRepositoryImpl(
   // overwriting the first.  On success the bumped counter is reflected onto the
   // instance (`_applyVersion`), so the same handle saved again is not stale.
   //
-  // RS-14 — the wire `version` of a document aggregate is served out of the
+  // RS-14 — the wire `rowVersion` of a document aggregate is served out of the
   // `data` jsonb (the serialized aggregate), while the concurrency counter
-  // lives in the `version` COLUMN.  The aggregate is serialized BEFORE the next
-  // version is known, so `jsonb_set` stamps the incremented counter back into
-  // `data.version` in the upsert itself and the blob and the column can never
-  // disagree.  (Versioned only — without the capability there is no `version`
-  // key in `data` and `jsonb_set` would CREATE one.)
-  const versionField = versionFieldName(agg);
+  // lives in the `row_version` COLUMN.  The aggregate is serialized BEFORE the
+  // next value is known, so `jsonb_set` stamps the incremented counter back
+  // into `data.rowVersion` in the upsert itself and the blob and the column can
+  // never disagree.  (Versioned only — without the capability there is no
+  // `rowVersion` key in `data` and `jsonb_set` would CREATE one.)
+  const versionField = ROW_VERSION_FIELD;
   const versionedSaveLines = [
     `        var __expectedVersion = aggregate.${versionField}();`,
     `        String __data;`,
@@ -252,11 +252,11 @@ export function renderJavaDocumentRepositoryImpl(
     `            throw new IllegalStateException("document serialization failed", e);`,
     `        }`,
     `        var __written = jdbc.query(`,
-    `            "insert into ${table} (id, data, version) values (?, ?::${javaJsonSqlType()}, 1) "`,
+    `            "insert into ${table} (id, data, ${ROW_VERSION_COLUMN}) values (?, ?::${javaJsonSqlType()}, 1) "`,
     `                + "on conflict (id) do update set "`,
-    `                + "data = jsonb_set(excluded.data, '{version}', to_jsonb(${bare}.version + 1)), "`,
-    `                + "version = ${bare}.version + 1 "`,
-    `                + "where ${bare}.version = ? returning version",`,
+    `                + "data = jsonb_set(excluded.data, '{${versionField}}', to_jsonb(${bare}.${ROW_VERSION_COLUMN} + 1)), "`,
+    `                + "${ROW_VERSION_COLUMN} = ${bare}.${ROW_VERSION_COLUMN} + 1 "`,
+    `                + "where ${bare}.${ROW_VERSION_COLUMN} = ? returning ${ROW_VERSION_COLUMN}",`,
     `            (rs, i) -> rs.getInt(1),`,
     `            aggregate.id().value(), __data, __expectedVersion);`,
     `        if (__written.isEmpty()) {`,
@@ -336,8 +336,8 @@ export function renderJavaDocumentRepositoryImpl(
       : [
           `        try {`,
           `            jdbc.update(`,
-          `                "insert into ${table} (id, data, version) values (?, ?::${javaJsonSqlType()}, 1) "`,
-          `                    + "on conflict (id) do update set data = excluded.data, version = ${bare}.version + 1",`,
+          `                "insert into ${table} (id, data, ${ROW_VERSION_COLUMN}) values (?, ?::${javaJsonSqlType()}, 1) "`,
+          `                    + "on conflict (id) do update set data = excluded.data, ${ROW_VERSION_COLUMN} = ${bare}.${ROW_VERSION_COLUMN} + 1",`,
           `                aggregate.id().value(), JSON.writeValueAsString(aggregate));`,
           `        } catch (tools.jackson.core.JacksonException e) {`,
           `            throw new IllegalStateException("document serialization failed", e);`,

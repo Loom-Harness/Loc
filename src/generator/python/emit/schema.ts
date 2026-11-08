@@ -30,6 +30,7 @@ import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { pythonIdent, snake, workflowStateTableName } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { pyRef } from "../../_imports/python.js";
 import { pyIdColumnType, pyIntColumnType } from "../codec-spelling.js";
 import {
@@ -408,7 +409,7 @@ function renderDocumentModel(
     "",
     `    id: Mapped[str] = mapped_column(${SA.Uuid}(as_uuid=False), primary_key=True)`,
     `    data: Mapped[object] = mapped_column(${PG.JSONB})`,
-    `    version: Mapped[int] = mapped_column(${SA.Integer})`,
+    `    ${ROW_VERSION_COLUMN}: Mapped[int] = mapped_column(${SA.Integer})`,
   );
 }
 

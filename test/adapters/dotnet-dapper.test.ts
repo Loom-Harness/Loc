@@ -106,19 +106,19 @@ describe("dapper persistence adapter — dotnet (Phase 5c)", () => {
     // version 1 on INSERT, bumps version = version + 1 on conflict, and CASes
     // the conflict branch on the expected version (client `If-Match`, else the
     // loaded aggregate's own version, read ambiently exactly as the EF path).
-    expect(repo).toContain("var __expected = expectedVersion ?? aggregate.Version;");
+    expect(repo).toContain("var __expected = expectedVersion ?? aggregate.RowVersion;");
     expect(repo).toContain(
-      "VALUES (@id, @customer, @status, @total::jsonb, @note, 1) ON CONFLICT (id) DO UPDATE SET customer = excluded.customer, status = excluded.status, total = excluded.total, note = excluded.note, version = orders.version + 1 WHERE orders.version = @ExpectedVersion",
+      "VALUES (@id, @customer, @status, @total::jsonb, @note, 1) ON CONFLICT (id) DO UPDATE SET customer = excluded.customer, status = excluded.status, total = excluded.total, note = excluded.note, row_version = orders.row_version + 1 WHERE orders.row_version = @ExpectedVersion",
     );
     // No returned row ⇒ the CAS failed (stale write / stale precondition) ⇒
     // throw the persistence-neutral conflict exception (→ 409); otherwise the
     // stored version is carried back onto the aggregate, as EF's tracker does.
-    expect(repo).toContain("WHERE orders.version = @ExpectedVersion RETURNING version");
+    expect(repo).toContain("WHERE orders.row_version = @ExpectedVersion RETURNING row_version");
     expect(repo).toContain(
       'if (__written is null) throw new ConcurrencyConflictException("Order", aggregate.Id.Value);',
     );
     expect(repo).toContain(
-      'typeof(Order).GetProperty("Version")!.DeclaringType!.GetProperty("Version")!.SetValue(aggregate, __written.Value);',
+      'typeof(Order).GetProperty("RowVersion")!.DeclaringType!.GetProperty("RowVersion")!.SetValue(aggregate, __written.Value);',
     );
     // The persistence-neutral exception is emitted into Domain.Common (Dapper
     // only — EF keys its 409 arm on DbUpdateConcurrencyException).
@@ -857,7 +857,7 @@ system D {
 }`;
 
   // #4405: the document repository emits no method for a criterion read yet.
-  it.fails("no longer rejects shape: document; emits a (id, data, version) blob table + JSONB repository — #4405", async () => {
+  it.fails("no longer rejects shape: document; emits a (id, data, row_version) blob table + JSONB repository — #4405", async () => {
     const { files, errors } = await emit(DOC);
     expect(errors).toEqual([]); // the dapper document gate is lifted
     // Blob table (no per-field columns, no child/join tables).
@@ -1144,7 +1144,7 @@ system D {
     expect(repo).toContain("(email = @email) AND kind = 'Customer'"); // named find
     // INSERT writes the discriminator literal into the shared table.
     expect(repo).toContain(
-      "INSERT INTO parties (id, kind, name, email, credit_limit, version) VALUES (@id, 'Customer', @name, @email, @credit_limit, 1)",
+      "INSERT INTO parties (id, kind, name, email, credit_limit, row_version) VALUES (@id, 'Customer', @name, @email, @credit_limit, 1)",
     );
     // …spelled once in the aggregate's scope helper, which the INSERT splices.
     expect(repo).toContain("INSERT INTO parties");
@@ -1411,7 +1411,7 @@ system D {
     );
     // criterion `where: NameIs(n)` → inline SQL with this-prop → column.
     expect(repo).toContain(
-      'var sql = "SELECT id, name, active, version FROM customers WHERE (name = @n) ORDER BY name ASC, id ASC";',
+      'var sql = "SELECT id, name, active, row_version FROM customers WHERE (name = @n) ORDER BY name ASC, id ASC";',
     );
     expect(repo).toContain("var p = new DynamicParameters();");
     expect(repo).toContain('p.Add("n", n);');

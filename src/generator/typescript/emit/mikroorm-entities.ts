@@ -38,6 +38,7 @@ import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { type MikroScalar, mikroScalar } from "../codec-spelling.js";
 import { joinColumnName, joinTableConstName } from "../emit.js";
 import { isRefCollection } from "../repository-associations-builder.js";
@@ -468,7 +469,13 @@ function documentColumnsOf(): MikroColumn[] {
       primary: false,
       columnType: "jsonb",
     },
-    { prop: "version", mikroType: "number", tsType: "number", nullable: false, primary: false },
+    {
+      prop: ROW_VERSION_FIELD,
+      mikroType: "number",
+      tsType: "number",
+      nullable: false,
+      primary: false,
+    },
   ];
 }
 

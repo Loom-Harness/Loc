@@ -17,6 +17,7 @@ import type { AggPool } from "../../../ir/util/inheritance.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_PASCAL } from "../../../util/row-version.js";
 import { csNsRef, csUsing } from "../../_imports/dotnet.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
@@ -266,7 +267,7 @@ export function renderRepositoryImpl(
     ? [
         "        if (entry.State != EntityState.Added && entry.State != EntityState.Detached)",
         "        {",
-        "            var __version = entry.Property(x => x.Version);",
+        `            var __version = entry.Property(x => x.${ROW_VERSION_PASCAL});`,
         "            var __expected = expectedVersion;",
         "            if (__expected.HasValue) __version.OriginalValue = __expected.Value;",
         "            __version.CurrentValue = __version.OriginalValue + 1;",
@@ -1151,8 +1152,8 @@ export function renderDocumentRepositoryImpl(
             // concurrency token's ORIGINAL value makes SaveChanges issue
             // `UPDATE … WHERE version = <expected>`; zero rows raise EF's
             // native DbUpdateConcurrencyException → the RS-40 409.
-            "        var __expected = expectedVersion ?? aggregate.Version;",
-            "        if (__existing != null) _db.Entry(__existing).Property(x => x.Version).OriginalValue = __expected;",
+            `        var __expected = expectedVersion ?? aggregate.${ROW_VERSION_PASCAL};`,
+            `        if (__existing != null) _db.Entry(__existing).Property(x => x.${ROW_VERSION_PASCAL}).OriginalValue = __expected;`,
             "        var __nextVersion = __existing == null ? 1 : __expected + 1;",
             // INSERT only: a jsonb aggregate is not EF-tracked, so the
             // AuditableInterceptor never stamps it.  Must run BEFORE the
@@ -1161,15 +1162,15 @@ export function renderDocumentRepositoryImpl(
             ...(docCreateStamps
               ? ["        if (__existing == null) aggregate._StampOnCreate();"]
               : []),
-            "        var __data = System.Text.Json.JsonSerializer.Serialize(aggregate.ToSnapshot() with { Version = __nextVersion }, __json);",
+            `        var __data = System.Text.Json.JsonSerializer.Serialize(aggregate.ToSnapshot() with { ${ROW_VERSION_PASCAL} = __nextVersion }, __json);`,
             "        if (__existing == null)",
             "        {",
-            `            _db.${setName}.Add(new ${agg.name}Document { Id = aggregate.Id.Value, Data = __data, Version = __nextVersion });`,
+            `            _db.${setName}.Add(new ${agg.name}Document { Id = aggregate.Id.Value, Data = __data, ${ROW_VERSION_PASCAL} = __nextVersion });`,
             "        }",
             "        else",
             "        {",
             "            __existing.Data = __data;",
-            "            __existing.Version = __nextVersion;",
+            `            __existing.${ROW_VERSION_PASCAL} = __nextVersion;`,
             "        }",
           ]
         : [
@@ -1184,12 +1185,12 @@ export function renderDocumentRepositoryImpl(
             "        var __data = System.Text.Json.JsonSerializer.Serialize(aggregate.ToSnapshot(), __json);",
             "        if (__existing == null)",
             "        {",
-            `            _db.${setName}.Add(new ${agg.name}Document { Id = aggregate.Id.Value, Data = __data, Version = 1 });`,
+            `            _db.${setName}.Add(new ${agg.name}Document { Id = aggregate.Id.Value, Data = __data, ${ROW_VERSION_PASCAL} = 1 });`,
             "        }",
             "        else",
             "        {",
             "            __existing.Data = __data;",
-            "            __existing.Version += 1;",
+            `            __existing.${ROW_VERSION_PASCAL} += 1;`,
             "        }",
           ]),
       "        await _db.SaveChangesAsync(cancellationToken);",

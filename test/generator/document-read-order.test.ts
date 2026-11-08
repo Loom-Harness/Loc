@@ -115,11 +115,11 @@ describe("document whole-table read ordering — every backend", () => {
   it(".NET/dapper orders the whole-table read by id — the adapter the first fix missed", async () => {
     const files = await generateSystemFiles(sourceFor("dotnet { persistence: dapper }"));
     const repo = fileEndingWith(files, "Infrastructure/Repositories/ThingRepository.cs");
-    expect(repo).toContain('SELECT id, data, version FROM things ORDER BY id"');
+    expect(repo).toContain('SELECT id, data, row_version FROM things ORDER BY id"');
     // Every whole-table SELECT over the document triple carries the ORDER BY.
     // A by-id or `= ANY(@ids)` read is addressed, not positional, so the
     // negative lookahead lets `… FROM things WHERE …` through.
-    expect(repo).not.toMatch(/SELECT id, data, version FROM things(?! WHERE)(?! ORDER BY id)/);
+    expect(repo).not.toMatch(/SELECT id, data, row_version FROM things(?! WHERE)(?! ORDER BY id)/);
   });
 
   // Elixir's read is ORDERED; see the long note below for why that is not yet the

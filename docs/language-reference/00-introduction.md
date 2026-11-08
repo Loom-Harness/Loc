@@ -80,7 +80,7 @@ class ProductRow(Base):
 
 > Every example in the reference — this one included — is sourced by
 > actually running the generator, never hand-waved; see
-> [`AUTHORING.md`](AUTHORING.md). (The `version` column is the optimistic-
+> [`AUTHORING.md`](AUTHORING.md). (The `row_version` column is the optimistic-
 > concurrency token every state-based aggregate carries.)
 
 When a feature is backend-only (a repository query) or frontend-only (a

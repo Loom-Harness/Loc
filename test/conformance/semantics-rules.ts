@@ -270,7 +270,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
   },
   {
     id: "RS-14",
-    title: "`version` increments on every persisted mutation, document shapes included",
+    title: "`rowVersion` increments on every persisted mutation, document shapes included",
     trigger:
       "a `versioned` aggregate with `shape: document` (jsonb-stored): create, invoke an operation, read back",
     observable:
@@ -451,7 +451,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
   },
   {
     id: "RS-20",
-    title: "`version` counts persisted mutations, not entity-graph dirtiness",
+    title: "`rowVersion` counts persisted mutations, not entity-graph dirtiness",
     trigger:
       "a `versioned` aggregate whose mutation touches only a CHILD (a single `contains`), whose create also writes a value-object collection, or whose command re-assigns a value the row already holds",
     observable:

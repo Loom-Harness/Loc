@@ -118,7 +118,7 @@ describe("node per-row wire encoder — RS-12 (money) / RS-24 (decimal)", () => 
     note: "n",
     fees: [D("2"), D("0.1")],
     rates: [0.1, 2],
-    version: 1,
+    rowVersion: 1,
   };
 
   it("money is a 4-place string and decimal a number — required, optional and collection", () => {
@@ -131,7 +131,7 @@ describe("node per-row wire encoder — RS-12 (money) / RS-24 (decimal)", () => 
       surcharge: 0.5,
       fees: ["2.0000", "0.1000"], // "2" is exactly what String(decimal) would send
       rates: [0.1, 2],
-      version: 1,
+      rowVersion: 1,
     });
   });
 

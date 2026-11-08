@@ -15,7 +15,7 @@ public sealed class Product
     public ProductId Id { get; private set; }
     public string Sku { get; private set; } = default!;
     public Money Price { get; private set; } = default!;
-    public int Version { get; private set; } = default!;
+    public int RowVersion { get; private set; } = default!;
 
     private readonly List<IDomainEvent> _domainEvents = new();
     public IReadOnlyList<IDomainEvent> DomainEvents => _domainEvents.AsReadOnly();
@@ -24,11 +24,11 @@ public sealed class Product
         Id = default!;
         Sku = default!;
         Price = default!;
-        Version = default!;
+        RowVersion = default!;
     }
 
     public string Display => this.Sku;
-    public string Inspect => "Product(" + "id: " + this.Id.ToString() + ", " + "sku: " + "'" + this.Sku + "'" + ", " + "price: " + "Money(" + "amount: " + this.Price.Amount.ToString(System.Globalization.CultureInfo.InvariantCulture) + ", " + "currency: " + "'" + this.Price.Currency + "'" + ")" + ", " + "version: " + this.Version.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")";
+    public string Inspect => "Product(" + "id: " + this.Id.ToString() + ", " + "sku: " + "'" + this.Sku + "'" + ", " + "price: " + "Money(" + "amount: " + this.Price.Amount.ToString(System.Globalization.CultureInfo.InvariantCulture) + ", " + "currency: " + "'" + this.Price.Currency + "'" + ")" + ", " + "rowVersion: " + this.RowVersion.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")";
     public override string ToString() => Inspect;
     public void Update(string sku, Money price)
     {
@@ -55,7 +55,7 @@ public sealed class Product
         public ProductId Id { get; init; } = default!;
         public string Sku { get; init; } = default!;
         public Money Price { get; init; } = default!;
-        public int Version { get; init; } = default!;
+        public int RowVersion { get; init; } = default!;
     }
 
     public static Product _Create(__State s)
@@ -64,7 +64,7 @@ public sealed class Product
         e.Id = s.Id;
         e.Sku = s.Sku;
         e.Price = s.Price;
-        e.Version = s.Version;
+        e.RowVersion = s.RowVersion;
         e.AssertInvariants();
         return e;
     }
@@ -74,7 +74,7 @@ public sealed class Product
         e.Id = new ProductId(Guid.CreateVersion7());
         e.Sku = sku;
         e.Price = price;
-        e.Version = 1;
+        e.RowVersion = 1;
         e.AssertInvariants();
         return e;
     }

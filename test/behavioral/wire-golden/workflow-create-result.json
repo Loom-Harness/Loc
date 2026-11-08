@@ -35,7 +35,7 @@
         "id": "<volatile:key>",
         "number": "A-1",
         "owner": "<uuid>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -55,7 +55,7 @@
         "id": "<volatile:key>",
         "number": "B-1",
         "owner": "<uuid>",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -75,7 +75,7 @@
         "id": "<volatile:key>",
         "number": "B-1",
         "owner": "<uuid>",
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -101,7 +101,7 @@
         "id": "<volatile:key>",
         "number": "A-1",
         "owner": "<uuid>",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -128,7 +128,7 @@
         "id": "<volatile:key>",
         "number": "B-1",
         "owner": "<uuid>",
-        "version": 5
+        "rowVersion": 5
       }
     },
     {
@@ -143,14 +143,14 @@
             "id": "<volatile:key>",
             "number": "A-1",
             "owner": "<uuid>",
-            "version": 2
+            "rowVersion": 2
           },
           {
             "balance": 30,
             "id": "<volatile:key>",
             "number": "B-1",
             "owner": "<uuid>",
-            "version": 5
+            "rowVersion": 5
           }
         ],
         "page": 1,
@@ -174,7 +174,7 @@
       "body": {
         "id": "<volatile:key>",
         "name": "Alicia",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -203,7 +203,7 @@
           {
             "id": "<volatile:key>",
             "name": "Alicia",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,

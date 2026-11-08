@@ -69,6 +69,7 @@ import {
   isStampDecl,
   isSubdomain,
 } from "../../language/generated/ast.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import {
   mkAssignOrCallStmt,
   mkCallArg,
@@ -975,7 +976,7 @@ function _cloneAstNode(node: Record<string, unknown>): Record<string, unknown> {
  *      base first, a nearer like-named field shadowing it, exactly the
  *      enrichment merge), then its own — whose `access` is NOT `internal` and
  *      NOT `secret` (the `forApiRead` matrix).  The macro-added managed/token
- *      fields (`createdAt`, `version`) stay, exactly as in the wire shape;
+ *      fields (`createdAt`, `rowVersion`) stay, exactly as in the wire shape;
  *      `tenantOwned`'s `dataKey` is `internal`, so the access filter drops it.
  *      A `provenanced` field keeps the flag, so the record lowers to the same
  *      `Provenanced<T>` carrier `wireTypeForField` puts on the wire.
@@ -995,86 +996,21 @@ function _cloneAstNode(node: Record<string, unknown>): Record<string, unknown> {
  * field is a fresh `field(...)` node (not the aggregate's own `Property`, which
  * `setContainer` would reparent). */
 export function apiReadFields(agg: Aggregate): readonly Property[] {
-  // `version` is normally spliced by default-on versioning before the
-  // (late) contract macro reads the aggregate; re-derive it from the same rule
-  // (every non-event-sourced aggregate) for a read that runs earlier, into the
-  // wire-shape slot (after declared properties, before containments).  Skip it
-  // when a `version` member already exists, so it is never doubled.
+  // Default-on `versioned` is spliced onto the aggregate LATER in the
+  // walk (`expandModel` visits this context's `scaffoldHandlers` before it
+  // reaches the child aggregate), so `rowVersion` is not yet a member here.  The
+  // IR wire read projection (`forApiRead`) always exposes it, so the read
+  // contract must too — re-derive it from the same default-on rule (every
+  // non-event-sourced aggregate) and splice it into the wire-shape slot (after
+  // declared properties, before containments).  Skip it when a `rowVersion` member
+  // already exists (an explicit context-level `with versioned` applied ahead of
+  // `scaffoldHandlers`), so it is never doubled.
   const members = agg.members ?? [];
   const isEventSourced = (agg as { persistedAs?: string }).persistedAs === "eventLog";
-  const hasVersion = members.some((m) => isProperty(m) && m.name === "version");
-  const trailing = !isEventSourced && !hasVersion ? [field("version", primType("int"))] : [];
+  const hasVersion = members.some((m) => isProperty(m) && m.name === ROW_VERSION_FIELD);
+  const trailing =
+    !isEventSourced && !hasVersion ? [field(ROW_VERSION_FIELD, primType("int"))] : [];
   return apiReadFieldsOf(members, trailing, entityPartNames(agg), inheritedProperties(agg));
-}
-
-/** The names of `agg`'s entity parts — the set an entity-typed property must
- * name to be an inferred containment.  Parts are aggregate-local, so the
- * aggregate's own part list decides it for the aggregate AND its parts. */
-export function entityPartNames(agg: Aggregate): ReadonlySet<string> {
-  return new Set((agg.members ?? []).filter(isEntityPart).map((p) => p.name));
-}
-
-/** True for a `contains`-less entity-typed property (`lines: Line[]`) — the
- * macro-phase twin of `isInferredContainment` (`src/language/containment.ts`),
- * keyed on the part NAME because cross-references are not linked yet. */
-function isInferredContainmentByName(p: Property, partNames: ReadonlySet<string>): boolean {
-  const t = p.type;
-  if (!t || t.alternatives.length > 0 || t.ctors.length > 0) return false;
-  return isNamedType(t.base) && partNames.has(t.base.target.$refText);
-}
-
-/** The containment `m` declares — an explicit `contains` or an inferred
- * entity-typed property — by part NAME, or `undefined` for any other member.
- * The macro-phase twin of `lowerContainments`'s per-member split. */
-export function containmentOf(
-  m: unknown,
-  partNames: ReadonlySet<string>,
-): { name: string; part: string; collection: boolean; optional: boolean } | undefined {
-  if (isContainment(m)) {
-    return {
-      name: m.name,
-      part: m.partType.$refText,
-      collection: !!m.collection,
-      optional: !!m.optional,
-    };
-  }
-  if (isProperty(m) && isInferredContainmentByName(m, partNames) && isNamedType(m.type.base)) {
-    return {
-      name: m.name,
-      part: m.type.base.target.$refText,
-      collection: !!m.type.array,
-      optional: !!m.type.optional,
-    };
-  }
-  return undefined;
-}
-
-/** The value properties `agg` inherits through its FULL `extends` chain,
- * root-most ancestor first, minus any name a nearer declaration redeclares —
- * the same merge `enrichments.ts`'s `mergedFieldsFor` applies to the IR, over
- * the same scope (a base resolved within the aggregate's own context). */
-function inheritedProperties(agg: Aggregate): Property[] {
-  const siblings = ((agg.$container as { members?: unknown[] } | undefined)?.members ?? []).filter(
-    isAggregate,
-  );
-  const ownProps = (a: Aggregate): Property[] => {
-    const parts = entityPartNames(a);
-    return (a.members ?? []).filter(
-      (m): m is Property => isProperty(m) && !isInferredContainmentByName(m, parts),
-    );
-  };
-  const merged = (a: Aggregate, seen: Set<string>): Property[] => {
-    const own = ownProps(a);
-    const baseName = a.superType?.$refText;
-    if (!baseName || seen.has(a.name)) return own;
-    seen.add(a.name);
-    const base = siblings.find((s) => s.name === baseName);
-    if (!base) return own;
-    const ownNames = new Set(own.map((p) => p.name));
-    return [...merged(base, seen).filter((p) => !ownNames.has(p.name)), ...own];
-  };
-  const own = new Set(ownProps(agg).map((p) => p.name));
-  return merged(agg, new Set()).filter((p) => !own.has(p.name));
 }
 
 /** The shared read-projection field walk for an aggregate OR an entity part
@@ -1084,7 +1020,7 @@ function inheritedProperties(agg: Aggregate): Property[] {
 export function apiReadFieldsOf(
   members: readonly (AggregateMember | EntityPartMember)[],
   // Extra property fields spliced right after the declared properties (step a)
-  // and before containments — the wire-shape slot the macro-added `version`
+  // and before containments — the wire-shape slot the macro-added `rowVersion`
   // token occupies (`wireFieldsForAggregate` appends it last among `fields`).
   trailingProps: readonly Property[] = [],
   // The owning aggregate's entity-part names, so an entity-typed property is
@@ -1210,7 +1146,7 @@ export function targetFields(target: Aggregate): readonly Property[] {
  *   2. **Access modifier** — exclude fields whose `access` puts them
  *      outside the editable update payload: `immutable` (create-only),
  *      `managed` (server-owned), `token` (echoed precondition like
- *      `id`/`version`), `internal` (never client-input).  `secret`
+ *      `id`/`rowVersion`), `internal` (never client-input).  `secret`
  *      STAYS — write-only fields belong IN update inputs (password
  *      changes etc.).
  *   3. **Stamp target** — exclude fields a visible `stamp onCreate` /

@@ -149,8 +149,8 @@ describe("M-T5.10 PR2 — .NET reads the <Agg>Response contract record", () => {
     const scaffoldOrder = recordDecl(responsesFile(scaffold, "Order", "Orders"), "OrderResponse");
     const baselineOrder = recordDecl(responsesFile(baseline, "Order", "Orders"), "OrderResponse");
     // Both carry the synthetic version token (default-on M-T3.4).
-    expect(baselineOrder).toContain("[property: Required] int Version");
-    expect(scaffoldOrder).toContain("[property: Required] int Version");
+    expect(baselineOrder).toContain("[property: Required] int RowVersion");
+    expect(scaffoldOrder).toContain("[property: Required] int RowVersion");
     // The two read paths are byte-identical.
     expect(baselineOrder).toBe(scaffoldOrder);
     // Read path shape: VO → MoneyResponse, containment →

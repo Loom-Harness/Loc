@@ -107,8 +107,8 @@
       "body": {
         "customerId": "<volatile:key>",
         "id": "<volatile:key>",
-        "status": "Draft",
-        "version": 4
+        "rowVersion": 4,
+        "status": "Draft"
       }
     },
     {
@@ -132,8 +132,8 @@
           {
             "customerId": "<volatile:key>",
             "id": "<volatile:key>",
-            "status": "Draft",
-            "version": 4
+            "rowVersion": 4,
+            "status": "Draft"
           }
         ],
         "page": 1,

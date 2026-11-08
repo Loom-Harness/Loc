@@ -88,7 +88,7 @@ describe("Java typed in-system api client", () => {
 
   it("boxes record components so a missing field is null, not a parse crash", async () => {
     expect(await client()).toContain(
-      "public record OrderResponse(String id, String code, String status, Integer version) { }",
+      "public record OrderResponse(String id, String code, String status, Integer rowVersion) { }",
     );
   });
 
