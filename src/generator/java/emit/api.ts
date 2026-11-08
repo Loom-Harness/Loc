@@ -1022,8 +1022,11 @@ export function renderApiExceptionAdvice(
       `        // exist.  \`unique (...)\` is 23505 and is the only conflict this arm`,
       `        // answers; any other SQLState (a 23514 check violation, a 23502 not-null)`,
       `        // is not a uniqueness clash and takes the catch-all 500, as on node and .NET.`,
+      // Postgres raises 23503 for a still-referenced DELETE under ON DELETE
+      // RESTRICT too, so a 23503 on a DELETE request is the referenced arm; a
+      // DELETE never writes a reference, so it cannot be the dangling one.
       hasReferencedDelete &&
-        `        if (${JSON.stringify(PG_RESTRICT_VIOLATION)}.equals(sqlState(e))) {`,
+        `        if (${JSON.stringify(PG_RESTRICT_VIOLATION)}.equals(sqlState(e)) || (${JSON.stringify(PG_FOREIGN_KEY_VIOLATION)}.equals(sqlState(e)) && isDelete(request))) {`,
       hasReferencedDelete &&
         `            CatalogLog.event(${javaLogEvent("conflict")}, "message", ${referencedDetail}, "status", ${referencedInUseStatus});`,
       hasReferencedDelete && `            httpMetrics.recordDomainFault("conflict");`,
@@ -1449,6 +1452,13 @@ export function renderApiExceptionAdvice(
       `            }`,
       `        }`,
       `        return ${referencedFallback};`,
+      `    }`,
+      ``,
+      `    /** Whether the request is an HTTP DELETE — the only request a`,
+      `     *  still-referenced row can refuse. */`,
+      `    private static boolean isDelete(WebRequest request) {`,
+      `        return request instanceof org.springframework.web.context.request.ServletWebRequest sw`,
+      `            && "DELETE".equals(sw.getRequest().getMethod());`,
       `    }`,
     ],
     // The SQLState reader is emitted only alongside the DataIntegrityViolation
