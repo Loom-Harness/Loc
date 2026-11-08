@@ -1,3 +1,4 @@
+import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
 import {
   createInputFields,
   createOmissionValue,
@@ -773,6 +774,18 @@ export function renderJavaEntity(
           `        _appended = _domainEvents.size();`,
           `    }`,
           ``,
+          // The stream's tenant is metadata of its stored events, not folded
+          // state: the repository adopts it onto the `tenantOwned` fields after
+          // the fold, so the instance answers like a `tenantOwned` row.
+          ...(isAgg(entity) && isTenantScopedStream(entity)
+            ? [
+                `    /** Internal: adopt the stream's tenant metadata (stored-event metadata, never an event payload). */`,
+                `    public void _adoptStreamTenant(${STREAM_TENANT_METADATA.map((m) => `String ${m.field}`).join(", ")}) {`,
+                ...STREAM_TENANT_METADATA.map((m) => `        this.${m.field} = ${m.field};`),
+                `    }`,
+                ``,
+              ]
+            : []),
         ]
       : [];
   const pullEventsLines = isRoot
@@ -1152,7 +1165,8 @@ export function renderJavaEntity(
     };
     claimStampHookLines.push(
       ...(plainStampHooks ? [] : [`    @${JPA("PrePersist")}`]),
-      `    void _stampOnCreate() {`,
+      // An event stream's repository stamps a new stream across packages.
+      `    ${eventSourced ? "public " : ""}void _stampOnCreate() {`,
       ...hookBody(claimStamps, "create"),
       `    }`,
       ``,

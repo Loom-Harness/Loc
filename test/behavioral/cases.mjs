@@ -542,6 +542,30 @@ export const AUTHZ_LADDERS = {
         path: "/api/employees/{id}",
       },
       { label: "control — ungated list read", method: "GET", path: "/api/employees" },
+      // The visibility taint's sinks (docs/auth.md).  Neither harness principal
+      // holds `people.unmask`, so both are refused; the control beside them is
+      // the same route answering 204 when the masked keys are left out — the
+      // refusal is the mask's, not the identity's.
+      {
+        label: "mask write gate — a new value for a masked field is refused",
+        method: "POST",
+        path: "/api/employees/{id}/update",
+        body: { salary: 1 },
+        arms: { anonymous: null, unauthorized: 403, authorized: 403 },
+      },
+      {
+        label: "control — the same update without the masked keys goes through",
+        method: "POST",
+        path: "/api/employees/{id}/update",
+        body: { name: "Ladder" },
+        arms: { anonymous: null, unauthorized: 204, authorized: 204 },
+      },
+      {
+        label: "mask read gate — a lookup filtering on a masked field is refused",
+        method: "GET",
+        path: "/api/employees/by_national_id?nid=NID-L",
+        arms: { anonymous: null, unauthorized: 403, authorized: 403 },
+      },
     ],
     arms: { anonymous: null, unauthorized: 200, authorized: 200 },
     anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",

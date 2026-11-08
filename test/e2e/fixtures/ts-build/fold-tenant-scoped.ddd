@@ -1,0 +1,89 @@
+// Tenant-scoped folded projections (`fold-tenancy.ts`).  A fold over events of
+// `tenantOwned` producers stamps each row with the event's tenant (read from
+// the event metadata — the dispatching frame's event origin), keys the row by
+// `(tenant_id, <key>)`, and every read applies the tenant floor through the
+// fold row's read scope.
+//
+//   - `Totals` folds `Paid` from the STATE aggregate `Acct` and `Deposited`
+//     from the EVENT-SOURCED `Ledger` — both `tenantOwned`: scoped.
+//   - `Bookings` folds `Booked` from the `crossTenant` aggregate `Plan`:
+//     exempt (no tenant column, unscoped reads).
+//   - `topUp` (a command workflow) appends to the event-sourced `Ledger`
+//     outside the aggregate's own service: its publish carries the STREAM's
+//     tenant too.
+//   - `Org` is the hierarchy registry.
+system FoldTenancy {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Main {
+      event Paid { acct: Acct id, amount: int }
+      event Opened { ledger: Ledger id, owner: string }
+      event Deposited { ledger: Ledger id, acct: Acct id, amount: int }
+      event Booked { plan: Plan id, seats: int }
+
+      aggregate Acct with tenantOwned, crudish {
+        owner: string
+        operation pay(amount: int) { emit Paid { acct: id, amount: amount } }
+      }
+      aggregate Ledger persistedAs: eventLog with tenantOwned {
+        owner: string
+        balance: int
+        create open(owner: string) { emit Opened { ledger: id, owner: owner } }
+        operation deposit(acct: Acct id, amount: int) {
+          emit Deposited { ledger: id, acct: acct, amount: amount }
+        }
+        apply(e: Opened) { owner := e.owner  balance := 0 }
+        apply(e: Deposited) { balance := balance + e.amount }
+      }
+      aggregate Plan crossTenant with crudish {
+        title: string
+        operation book(seats: int) { emit Booked { plan: id, seats: seats } }
+      }
+
+      repository Accts for Acct { }
+      repository Ledgers for Ledger { }
+      repository Plans for Plan { }
+
+      workflow topUp {
+        create(l: Ledger id, a: Acct id, amount: int) {
+          let ledger = Ledgers.get(l)
+          ledger.deposit(a, amount)
+        }
+      }
+
+      projection Totals keyed by acct {
+        acct: Acct id
+        paid: int
+        deposited: int
+        on(e: Paid) { acct := e.acct  paid := e.amount }
+        on(e: Deposited) { acct := e.acct  deposited := e.amount }
+      }
+      projection Bookings keyed by plan {
+        plan: Plan id
+        seats: int
+        on(e: Booked) { plan := e.plan  seats := e.seats }
+      }
+    }
+    context Registry {
+      aggregate Org with crudish {
+        name: string
+        implements tenantRegistry
+      }
+      repository Orgs for Org { }
+    }
+  }
+  api MainApi from Core
+  storage pg { type: postgres }
+  resource mainState { for: Main, kind: state, use: pg }
+  resource mainLog { for: Main, kind: eventLog, use: pg }
+  resource registryState { for: Registry, kind: state, use: pg }
+  deployable api {
+    platform: node
+    contexts: [Main, Registry]
+    dataSources: [mainState, mainLog, registryState]
+    serves: MainApi
+    port: 4000
+    auth: required
+  }
+}

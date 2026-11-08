@@ -3,6 +3,7 @@ import {
   partTableName,
   registryTableName,
 } from "../../ir/enrich/storage-names.js";
+import { isTenantScopedStream } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
@@ -1882,7 +1883,8 @@ function emitAggregate(
       // ES folds the stream, document round-trips one jsonb column).
       // A document root's claim stamps emit as plain methods the service calls
       // — there is no JPA persistence context to fire an @PrePersist hook.
-      documentClaimStamps: isDocument && agg.persistedAs !== "eventLog",
+      documentClaimStamps:
+        (isDocument && agg.persistedAs !== "eventLog") || isTenantScopedStream(agg),
       documentRoot: isDocument,
       persistence:
         agg.persistedAs === "eventLog" || isDocument
@@ -1963,7 +1965,15 @@ function emitAggregate(
     place(
       `${agg.name}RepositoryImpl.java`,
       "repository-impl",
-      renderJavaEventSourcedRepositoryImpl(agg, repoWithViews, repoCtx, idClass, schema, ctx.name),
+      renderJavaEventSourcedRepositoryImpl(
+        agg,
+        repoWithViews,
+        repoCtx,
+        idClass,
+        schema,
+        ctx.name,
+        ctx.aggregates,
+      ),
       agg.name,
       repoOrigin,
       construct,

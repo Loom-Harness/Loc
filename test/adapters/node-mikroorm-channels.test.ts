@@ -114,7 +114,10 @@ describe("MikroORM broker channels", () => {
     expect(ch, "http/channels.ts was not emitted on the mikroorm adapter").toBeDefined();
     const src = ch as string;
     expect(src).toContain('import { Redis } from "ioredis";');
-    expect(src).toContain("export function createChannelTransports()");
+    expect(src).toContain(
+      "export function createChannelTransports(\n  transportFor?: (binding: ChannelBinding) => ChannelTransport,\n)",
+    );
+    expect(src).toContain("export function createInProcessTransport(): ChannelTransport {");
     expect(src).toContain("export function channelPublishTee(");
     expect(src).toContain("export async function startChannelConsumers(");
     // The transport module is persistence-independent: it must not reach for a
@@ -132,21 +135,24 @@ describe("MikroORM broker channels", () => {
   });
 
   it("wires the transports + consumer loop at boot, over the mikro EntityManager", async () => {
-    const index = (await emit(sys("mikroorm"))).get("api/index.ts") as string;
-    expect(index).toContain(
-      'import { channelPublishTee, createChannelTransports, startChannelConsumers } from "./http/channels";',
+    const files = await emit(sys("mikroorm"));
+    const index = files.get("api/index.ts") as string;
+    const boot = files.get("api/boot.ts") as string;
+    expect(boot).toContain(
+      'import { type ChannelBinding, channelPublishTee, type ChannelTransport, createChannelTransports, createInProcessTransport, startChannelConsumers } from "./http/channels";',
     );
-    expect(index).toContain("const channelTransports = createChannelTransports();");
-    // `db` here is the EntityManager (mikro connection), and the tee wraps the
-    // in-process dispatcher built on it.
+    expect(boot).toContain("const channelTransports = createChannelTransports(");
+    // `db` here is the EntityManager (mikro connection) index.ts hands to
+    // bootApp, and the tee wraps the in-process dispatcher built on it.
     expect(index).toContain("const db = orm.em;");
-    expect(index).toContain(
+    expect(index).toContain("await bootApp(db);");
+    expect(boot).toContain(
       "const app = createApp(db, channelPublishTee(channelTransports, requestEvents));",
     );
-    expect(index).toContain(
+    expect(boot).toContain(
       "const stopChannelConsumers = await startChannelConsumers(channelTransports, inProcessEvents);",
     );
-    expect(index).toContain("await stopChannelConsumers();");
+    expect(boot).toContain("await stopChannelConsumers();");
     // No drizzle schema import survives on this adapter.
     expect(index).not.toContain('import * as schema from "./db/schema";');
   });
@@ -157,11 +163,11 @@ describe("MikroORM broker channels", () => {
     // publish to the broker.  This is the composition that made the outbox the
     // prerequisite slice.
     const files = await emit(durableProducer("mikroorm"));
-    const index = files.get("api/index.ts") as string;
-    expect(index).toContain(
+    const boot = files.get("api/boot.ts") as string;
+    expect(boot).toContain(
       "const stopOutboxRelay = startOutboxRelay(db, channelPublishTee(channelTransports, inProcessEvents, { fromRelay: true }));",
     );
-    expect(index).toContain(
+    expect(boot).toContain(
       "const app = createApp(db, channelPublishTee(channelTransports, createOutboxDispatcher(db, requestEvents)));",
     );
     // The workflow-less producer file carries the mikro outbox machinery.

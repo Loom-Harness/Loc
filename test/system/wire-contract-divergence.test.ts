@@ -62,48 +62,6 @@ type Divergence =
 /** The exact divergence set, measured 2026-09-22 on the C4 coordinator head.
  *  SHRINK-ONLY: a fix deletes its row. */
 const BASELINE: Record<string, Divergence> = {
-  // ── class A — the record OMITS a field the wire carries ──────────────────
-  // A2. fields inherited from an `abstract aggregate` base.  Enrichment merges
-  //     the extends chain into the concrete; the record's walk does not — the
-  //     coordination note's item 3 (`aggregate-inheritance.md` I2, "the chain
-  //     walk has two consumers"), now measured rather than predicted.
-  "inheritance.ddd Parties.Customer": "missing-in-record",
-  "inheritance.ddd Parties.Vendor": "missing-in-record",
-  "inheritance.ddd Parties.Machine": "missing-in-record",
-  "inheritance.ddd Parties.Vehicle": "missing-in-record",
-  "tph.ddd Fleet.Car": "missing-in-record",
-  "tph.ddd Fleet.Truck": "missing-in-record",
-  "tph-crossings.ddd Depot.Parcel": "missing-in-record",
-  "tph-crossings.ddd Depot.Crate": "missing-in-record",
-  // The #3954 fixtures (#3595): the same A2 class, over both layouts and a
-  // capability on the abstract base (whose fields the record walk also misses).
-  "inheritance-base-reads.ddd Fleet.Car": "missing-in-record",
-  "inheritance-base-reads.ddd Fleet.Truck": "missing-in-record",
-  "inheritance-base-reads.ddd Fleet.Crane": "missing-in-record",
-  "inheritance-base-reads.ddd Fleet.Forklift": "missing-in-record",
-  "inheritance-base-reads.ddd Fleet.Driver": "missing-in-record",
-  "inheritance-base-reads.ddd Fleet.Dispatcher": "missing-in-record",
-  "inheritance-read-restrictions.ddd Fleet.Car": "missing-in-record",
-  "inheritance-read-restrictions.ddd Fleet.Truck": "missing-in-record",
-  "inheritance-read-restrictions.ddd Fleet.Driver": "missing-in-record",
-  "inheritance-read-restrictions.ddd Fleet.Dispatcher": "missing-in-record",
-  // One more A2 witness from a NEW fixture, not a regression: the crossed-axes
-  // widening of `vo-cross-context` gives `Shipper extends Party` an inherited
-  // `label`, so enrichment merges it into the concrete's wire shape and the
-  // record's walk does not — identical to the eight inheritance/TPH rows
-  // above, and the same root cause the `loom.create-params-not-wire` warning
-  // reports on that aggregate.  Drains with the A2 class fix, not separately.
-  "vo-cross-context.ddd Billing.Shipper": "missing-in-record",
-  // The same A2 row, witnessed by a NEW fixture (the TPH-concrete projection
-  // source): `AutoClaim`/`PropertyClaim` inherit `reference`/`status` from the
-  // abstract `Claim` exactly as `tph.ddd`'s concretes do.  Drains with A2.
-  "projection-tph-source.ddd Claims.AutoClaim": "missing-in-record",
-  "projection-tph-source.ddd Claims.PropertyClaim": "missing-in-record",
-  // The acronym-names fixture's TPH concretes: the same A2 class, a new-fixture
-  // witness (`title` inherited from `CatalogSKU`), not a regression.
-  "acronym-names.ddd Catalog.PhysicalSKU": "missing-in-record",
-  "acronym-names.ddd Catalog.DigitalSKU": "missing-in-record",
-
   // ── class B — the same field, described differently ─────────────────────
   // B1. a containment names the part's own `<Part>Response` record (context
   //     scope cannot reference a raw entity part), the derived shape names the
@@ -113,6 +71,9 @@ const BASELINE: Record<string, Divergence> = {
   "core-domain.ddd Orders.Order": "containment-response-suffix",
   // acronym-names' `contains variants: VariantSKU[]` — the same deliberate B1 shape.
   "acronym-names.ddd Catalog.ProductSKU": "containment-response-suffix",
+  // part-rules-private-op's `lines: Line[]` (an inferred containment) — the
+  // same deliberate B1 shape.
+  "part-rules-private-op.ddd Billing.Invoice": "containment-response-suffix",
   // (added with the RS-37 witness — a fixture carrying a containment, so the
   // same deliberate B1 shape; not a new divergence class.)
   "decimal-exact.ddd Lab.Sample": "containment-response-suffix",
@@ -139,13 +100,6 @@ const BASELINE: Record<string, Divergence> = {
   "provenance.ddd Ordering.Order": "provenanced-carrier-lost",
   "provenance-money.ddd Leasing.Lease": "provenanced-carrier-lost",
   "if-branch-shapes.ddd Orders.Tally": "provenanced-carrier-lost",
-
-  // ── class C — same field set, different ORDER ───────────────────────────
-  // The derived walk is id → properties → containments → derived, and the
-  // `versioned` capability's `version` is a PROPERTY, so it precedes the
-  // containment; the record's walk appends it after.  Order is the wire
-  // contract for every positional DTO (.NET / Java records, F# records).
-  "part-rules-private-op.ddd Billing.Invoice": "field-order",
 };
 
 /** The comparable identity of one wire row.  Deliberately narrow: the two
@@ -257,12 +211,7 @@ async function census(): Promise<{
  *  to the comparison above, so this list is the census's blind spot and is
  *  pinned exactly — a growing blind spot would shrink the divergence count
  *  without anything being fixed. */
-const UNCONTRACTED = [
-  // `contractRecords` walks the aggregate's containment closure for part
-  // records; this part is reachable only through a PRIVATE operation's rules,
-  // so no `<Part>Response` is minted while the derived walk still wires it.
-  "part-rules-private-op.ddd Billing.Invoice.Line",
-];
+const UNCONTRACTED: string[] = [];
 
 describe("wire shape vs. the declared response contract (M-T5.40 census)", () => {
   it("diverges on exactly the baselined nodes — shrink-only", async () => {

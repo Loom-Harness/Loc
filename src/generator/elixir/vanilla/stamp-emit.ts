@@ -20,7 +20,7 @@
 // original parameterless seam (byte-identical).
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
+import type { AggregateIR, ContextStampAssignmentIR, ExprIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { stampValueReadsAggregate } from "../../../ir/util/stamp-self-read.js";
 import { snake } from "../../../util/naming.js";
@@ -174,6 +174,22 @@ export function stampAssignmentPairs(
     s.field,
     s.value,
   ]);
+}
+
+/** The stamp pairs of an explicit assignment list (a stream's tenancy stamp),
+ *  rendered exactly like {@link stampAssignmentPairs}. */
+export function stampPairsOf(
+  agg: AggregateIR,
+  assignments: readonly ContextStampAssignmentIR[],
+  contextModule: string,
+  principalIdKey: string,
+): [string, string][] {
+  return stampAssignments(
+    { ...agg, contextStamps: [{ event: "create", assignments: [...assignments] }] },
+    ["create"],
+    contextModule,
+    principalIdKey,
+  ).map((s) => [s.field, s.value]);
 }
 
 /** Each stamp assignment for `events`: the snake-cased target column, the

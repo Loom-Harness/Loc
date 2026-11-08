@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { validate } from "../../src/api/index.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { uncheckedInt } from "../_helpers/unchecked-int.js";
 
 // ---------------------------------------------------------------------------
 // The seven generator-throw-census sites of the event-sourced / workflow body
@@ -152,7 +153,7 @@ system WF {
   it("python workflow-eventsourced-emit#renderApplierStmt: `let` and `if` in a workflow applier render", async () => {
     const files = await generateSystemFiles(sweep("python", FOLD));
     const py = fileMatching(files, /app\/dispatch\.py$/);
-    expect(py).toContain(
+    expect(uncheckedInt(py)).toContain(
       [
         "    a = r.at",
         "    state.fired_at = a",
@@ -167,7 +168,7 @@ system WF {
   it("hono workflow-eventsourced-builder#renderApplierStmt: `let` and `if` in a workflow applier render", async () => {
     const files = await generateSystemFiles(sweep("node", FOLD));
     const ts = fileMatching(files, /http\/workflows\.ts$/);
-    expect(ts).toContain(
+    expect(uncheckedInt(ts)).toContain(
       [
         "      const a = r.at;",
         "      state.firedAt = a;",
@@ -183,7 +184,7 @@ system WF {
   it("elixir fold-stmt-emit#renderFoldStatement: an `if` in a workflow applier rebinds the folded state", async () => {
     expect(await errorCodes(sweep("elixir", FOLD))).toEqual([]);
     const ex = allElixir(await generateSystemFiles(sweep("elixir", FOLD)));
-    expect(ex).toMatch(
+    expect(uncheckedInt(ex)).toMatch(
       /state = if r\.n > 0 do\n\s+state = %\{state \| count: state\.count \+ r\.n\}\n\s+state\n\s+else\n\s+state = %\{state \| count: 0\}\n\s+state\n\s+end/,
     );
   });

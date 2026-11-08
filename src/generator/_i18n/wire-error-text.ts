@@ -35,6 +35,7 @@ const PROBLEM_TEXT: Readonly<Record<WireRejectionClass, string>> = {
   forbidden: "You are not allowed to do this.",
   "not-found": "Not found",
   "state-gate": "Not allowed in the current state.",
+  "arithmetic-overflow": "This value is out of range.",
   // Also the text of an unnamed domain-floor rule (`rule-text.ts`).
   "domain-floor": "Business rule violated",
   "version-conflict": "Someone else changed this. Reload and try again.",

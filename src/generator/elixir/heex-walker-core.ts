@@ -60,6 +60,7 @@ import { type EnrichedAggregateIR, exprUsesCurrentUser } from "../../ir/types/lo
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../ir/util/denial-detail.js";
 import { hostStatefulComponents } from "../../ir/util/heex-component-host-state.js";
+import { operationActionGates } from "../../ir/util/op-gates.js";
 import {
   listShapedProjectionNames,
   readableProjectionNames,
@@ -1314,7 +1315,7 @@ export function gateActionButton(
   ctx: WalkContext,
 ): string {
   if (!ctx.authEnabled) return button;
-  const gates = op.statements.filter((s) => s.kind === "requires").map((s) => s.expr);
+  const gates = operationActionGates(op);
   if (gates.length === 0) return button;
   // Classify with the JS gate-expr (currentUser-only ⇒ non-null); gate only
   // when EVERY predicate is currentUser-only.  The rendered Elixir gate is

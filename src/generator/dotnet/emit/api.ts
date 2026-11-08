@@ -906,6 +906,7 @@ export function renderExceptionFilter(
   // `httpStatus` map as the structural conflicts above; the defaults are the
   // 422 / 403 literals.
   const domainStatus = wireStatus("domain-floor", overrides);
+  const overflowStatus = wireStatus("arithmetic-overflow", overrides);
   const forbiddenStatus = wireStatus("forbidden", overrides);
   // The domain not-found rung resolves like its four siblings, so
   // `httpStatus NotFound -> <code>` moves this filter's
@@ -1285,6 +1286,18 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("domain_error");
             context.Result = Problem(context, ${domainStatus}, ${csTitle("domain-floor", overrides)}, de.Message, trace_id, ${csCode("domain-floor")});
+            context.ExceptionHandled = true;
+            return;
+        }
+        // RS-48: a \`checked(...)\` integer \`+ - *\` left its int32 / int64 range.
+        if (context.Exception is System.OverflowException ofe)
+        {
+            ${renderDotnetLogCall("domainError", [
+              { name: "message", valueExpr: "ofe.Message" },
+              { name: "status", valueExpr: `${overflowStatus}` },
+            ])}
+            global::${ns}.Observability.HttpMetrics.RecordDomainFault("domain_error");
+            context.Result = Problem(context, ${overflowStatus}, ${csTitle("arithmetic-overflow", overrides)}, ${csFixedDetail("arithmetic-overflow")}, trace_id, ${csCode("arithmetic-overflow")});
             context.ExceptionHandled = true;
             return;
         }
@@ -1930,6 +1943,106 @@ public sealed class ListResponseWrapperFilter : IDocumentFilter
                 }
             }
         }
+    }
+}
+`;
+}
+
+export const VO_MERGE_FILTER_PATH = "Api/ValueObjectSchemaMergeFilter.cs";
+
+/** Swashbuckle document filter — publishes a value object as ONE component
+ *  named after the VO (`Dims`), as node / python / elixir / java do.  The .NET
+ *  wire types are two CLR records (`DimsRequest` for input, `DimsResponse` for
+ *  output) and Swashbuckle refuses to give two CLR types one schema id, so the
+ *  merge happens on the finished document: the response schema (else the
+ *  request one) is registered under the VO's name, the per-direction components
+ *  are dropped, and every `$ref` to them is retargeted.  `merges` bakes in each
+ *  VO's source schema ids (already disambiguated against `CustomSchemaIds`
+ *  overrides) so nothing is guessed at runtime. */
+export function renderValueObjectSchemaMergeFilter(
+  ns: string,
+  merges: ReadonlyArray<{ name: string; sources: readonly string[] }>,
+): string {
+  return `// Auto-generated.
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Microsoft.OpenApi;
+using Swashbuckle.AspNetCore.SwaggerGen;
+
+namespace ${ns}.Api;
+
+public sealed class ValueObjectSchemaMergeFilter : IDocumentFilter
+{
+    private static readonly (string Name, string[] Sources)[] Merges = new (string, string[])[]
+    {
+${merges.map((m) => `        (${JSON.stringify(m.name)}, new[] { ${m.sources.map((x) => JSON.stringify(x)).join(", ")} }),`).join("\n")}
+    };
+
+    public void Apply(OpenApiDocument swaggerDoc, DocumentFilterContext context)
+    {
+        var schemas = swaggerDoc.Components?.Schemas;
+        if (schemas is null) return;
+        var rename = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (name, sources) in Merges)
+        {
+            if (schemas.ContainsKey(name)) continue;
+            IOpenApiSchema? keep = null;
+            foreach (var source in sources)
+            {
+                if (!schemas.TryGetValue(source, out var schema)) continue;
+                rename[source] = name;
+                if (keep is null || source.EndsWith("Response", StringComparison.Ordinal)) keep = schema;
+            }
+            if (keep is null) continue;
+            foreach (var source in sources) schemas.Remove(source);
+            schemas[name] = keep;
+        }
+        if (rename.Count == 0) return;
+
+        foreach (var schema in schemas.Values.ToList()) Retarget(schema, swaggerDoc, rename);
+        if (swaggerDoc.Paths is null) return;
+        foreach (var path in swaggerDoc.Paths.Values)
+        {
+            if (path.Operations is null) continue;
+            foreach (var operation in path.Operations.Values)
+            {
+                if (operation.Parameters is not null)
+                    foreach (var parameter in operation.Parameters)
+                        if (parameter is OpenApiParameter p && p.Schema is not null)
+                            p.Schema = Retarget(p.Schema, swaggerDoc, rename);
+                if (operation.RequestBody?.Content is { } requestContent)
+                    foreach (var media in requestContent.Values)
+                        if (media.Schema is not null) media.Schema = Retarget(media.Schema, swaggerDoc, rename);
+                if (operation.Responses is null) continue;
+                foreach (var response in operation.Responses.Values)
+                {
+                    if (response.Content is null) continue;
+                    foreach (var media in response.Content.Values)
+                        if (media.Schema is not null) media.Schema = Retarget(media.Schema, swaggerDoc, rename);
+                }
+            }
+        }
+    }
+
+    // A $ref is a distinct OpenApiSchemaReference node (Microsoft.OpenApi 2.0);
+    // inline schemas are mutated in place, so only a reference is replaced.
+    private static IOpenApiSchema Retarget(IOpenApiSchema schema, OpenApiDocument doc, Dictionary<string, string> rename)
+    {
+        if (schema is OpenApiSchemaReference reference)
+            return reference.Reference?.Id is string id && rename.TryGetValue(id, out var to)
+                ? new OpenApiSchemaReference(to, doc)
+                : schema;
+        if (schema is not OpenApiSchema s) return schema;
+        if (s.Items is not null) s.Items = Retarget(s.Items, doc, rename);
+        if (s.AdditionalProperties is not null) s.AdditionalProperties = Retarget(s.AdditionalProperties, doc, rename);
+        if (s.Properties is not null)
+            foreach (var key in s.Properties.Keys.ToList())
+                s.Properties[key] = Retarget(s.Properties[key], doc, rename);
+        foreach (var list in new[] { s.AllOf, s.OneOf, s.AnyOf })
+            if (list is not null)
+                for (var i = 0; i < list.Count; i++) list[i] = Retarget(list[i], doc, rename);
+        return schema;
     }
 }
 `;

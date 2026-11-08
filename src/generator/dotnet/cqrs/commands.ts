@@ -16,6 +16,7 @@ import { mergePatchFields } from "../../../ir/util/merge-patch.js";
 import {
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
+  maskWritePresenceParam,
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
@@ -66,7 +67,13 @@ function requiresGate(op: AggregateIR["operations"][number]): string {
           paramExpr: (name) =>
             op.params.some((q) => q.name === name) ? `command.${upperFirst(name)}` : undefined,
         });
-        return `        if (!(${pred})) throw new ForbiddenException(${JSON.stringify(
+        // A merge-patch update's mask write gate runs only when the body
+        // carries the masked key (an absent key keeps the stored value).
+        const present = maskWritePresenceParam(op, g);
+        const cond = present
+          ? `command.PatchedKeys.Contains(${JSON.stringify(present)}) && !(${pred})`
+          : `!(${pred})`;
+        return `        if (${cond}) throw new ForbiddenException(${JSON.stringify(
           `Forbidden: ${g.source}`,
         )});\n`;
       })

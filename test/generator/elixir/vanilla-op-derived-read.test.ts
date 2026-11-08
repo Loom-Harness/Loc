@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 // ---------------------------------------------------------------------------
 // Vanilla (plain Ecto) derived-read inlining in operation bodies (#1765).
@@ -53,7 +54,7 @@ describe("vanilla op body — derived read inlining", () => {
     );
     // `total := doubled` renders `doubled`'s expression (`total * 2`) off the
     // struct column, NOT `record.doubled` (a non-existent key → KeyError).
-    expect(snap).toContain("record = %{record | total: (record.total * 2)}");
+    expect(uncheckedInt(snap)).toContain("record = %{record | total: (record.total * 2)}");
     expect(snap).not.toContain("record.doubled");
   });
 
@@ -61,7 +62,9 @@ describe("vanilla op body — derived read inlining", () => {
     const facade = facadeOf(await generateSystemFiles(SRC));
     const snapQuad = facade.slice(facade.indexOf("def snap_quad_cart("));
     // `quad = doubled * 2`, `doubled = total * 2` → both inline down to the column.
-    expect(snapQuad).toContain("record = %{record | total: ((record.total * 2) * 2)}");
+    expect(uncheckedInt(snapQuad)).toContain(
+      "record = %{record | total: ((record.total * 2) * 2)}",
+    );
     expect(snapQuad).not.toContain("record.quad");
     expect(snapQuad).not.toContain("record.doubled");
   });

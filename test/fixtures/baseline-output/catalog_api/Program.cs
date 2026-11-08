@@ -246,6 +246,10 @@ builder.Services.AddSwaggerGen(c =>
     // Promote inline array list responses to named <Agg>ListResponse
     // components (matches Hono/Phoenix, which name the wrapper).
     c.DocumentFilter<ListResponseWrapperFilter>();
+    // One component per value object (`Dims`, not DimsRequest + DimsResponse),
+    // as the other backends publish.  After the filters above so it sees
+    // their final refs.
+    c.DocumentFilter<ValueObjectSchemaMergeFilter>();
     // Mark non-nullable reference-type properties as required in the
     // schema — matches Hono/Phoenix, which mark every non-optional field
     // required.  Without this Swashbuckle leaves the required set empty.

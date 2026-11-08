@@ -26,8 +26,14 @@ export function renderCommon(
     /** An `extern` operation exists — its unfilled hook raises
      *  `ExternNotImplementedException`, answered 501. */
     extern?: boolean;
+    /** Some stream is tenant-scoped (`stream-tenancy.ts`): a buffered event
+     *  keeps the frame it was raised in — an append raises inside its stream
+     *  tenant's event-origin frame, closed again by the time the scope flushes.
+     *  Off ⇒ byte-identical. */
+    deferralKeepsFrame?: boolean;
   } = {},
 ): string {
+  const keep = opts.deferralKeepsFrame === true;
   // M-T1.11 (c): a NAMED invariant / field check / precondition throws its
   // `<Ctx>.<Owner>.rule.<name>` code and RFC 6901 pointer along with the text, so
   // DomainExceptionFilter answers the same `errors[]` entry the wire rung
@@ -333,7 +339,7 @@ public sealed class DomainEventDeferral : IDisposable
 {
     private static readonly AsyncLocal<DomainEventDeferral?> _current = new();
     private readonly DomainEventDeferral? _previous;
-    private readonly List<(IDomainEventDispatcher Dispatcher, IDomainEvent Event)> _buffered = new();
+${keep ? `    private readonly List<(IDomainEventDispatcher Dispatcher, IDomainEvent Event, RequestContext? Frame)> _buffered = new();` : `    private readonly List<(IDomainEventDispatcher Dispatcher, IDomainEvent Event)> _buffered = new();`}
     private bool _closed;
 
     private DomainEventDeferral()
@@ -350,7 +356,15 @@ public sealed class DomainEventDeferral : IDisposable
         var scope = _current.Value;
         while (scope is { _closed: true }) scope = scope._previous;
         if (scope is null) return dispatcher.DispatchAsync(ev, cancellationToken);
-        scope._buffered.Add((dispatcher, ev));
+${
+  keep
+    ? `        // The raising frame rides along: an event-sourced append raises inside
+        // its stream tenant's event-origin frame, which is closed again by the
+        // time the scope flushes — the outbox capture, the CloudEvents envelope
+        // and a fold read the event's tenant from the frame the dispatch runs in.
+        scope._buffered.Add((dispatcher, ev, RequestContext.Current));`
+    : `        scope._buffered.Add((dispatcher, ev));`
+}
         return Task.CompletedTask;
     }
 
@@ -360,7 +374,15 @@ public sealed class DomainEventDeferral : IDisposable
         Close();
         var pending = _buffered.ToArray();
         _buffered.Clear();
-        foreach (var (dispatcher, ev) in pending) await dispatcher.DispatchAsync(ev, cancellationToken);
+${
+  keep
+    ? `        foreach (var (dispatcher, ev, frame) in pending)
+        {
+            using var __frame = frame is null || ReferenceEquals(frame, RequestContext.Current) ? null : RequestContext.Enter(frame);
+            await dispatcher.DispatchAsync(ev, cancellationToken);
+        }`
+    : `        foreach (var (dispatcher, ev) in pending) await dispatcher.DispatchAsync(ev, cancellationToken);`
+}
     }
 
     public void Dispose()

@@ -1046,13 +1046,47 @@ defp serialize(record) do
 end
 ```
 
+#### Where a masked value flows — the visibility taint
+
+A mask protects the field only if every place its value reaches applies it.
+Phase ⑥ computes that once (`src/ir/enrich/mask-taint.ts`), and each sink either
+**inherits** the predicate or is **refused** in phase ⑦:
+
+| Sink | What happens |
+| --- | --- |
+| a `derived` that reads a masked field (directly or through another derived) | redacts under the conjunction of the masks it reads — it is on the wire with `maskUnless`, so every backend's masked serializer nulls it |
+| a read whose predicate reads a masked field — a `criterion` behind `scaffoldGet` / a `queryHandler`'s `Repo.find(C)` / `Repo.all(C)` / a retrieval | inherits the mask as a leading `requires` (403), evaluated before the query: a 200-or-404 on a guessed value would be an existence oracle |
+| an operation that writes a caller-supplied value into a masked field (the generic `update` among them) | inherits the mask as a hoisted `requires` (403); on a merge-patch update it runs only when the body carries the masked key |
+| a `create` | not a sink: a new row has no stored value to overwrite |
+
+Every inherited gate is the mask predicate alone.  It reads only `currentUser`
+(`loom.field-mask-not-current-user`), never the row or the value the caller
+sent, so a right guess at the hidden value and a wrong one get the same answer.
+
+```ddd
+aggregate Employee with crudish {
+  name: string
+  salary: decimal mask unless currentUser.permissions.contains(permissions.unmask)
+  derived band: string = name + " / " + string(salary)   // redacts with salary
+}
+```
+
+```ts
+// generated (Hono) — the masked serializer nulls the derived too
+if (!(currentUser !== null && ((currentUser.permissions).includes("hr.unmask")))) wire.salary = null;
+if (!(currentUser !== null && ((currentUser.permissions).includes("hr.unmask")))) wire.band = null;
+```
+
 #### Masked fields and the generated `update`
 
-The write side is not masked: a masked field is an ordinary update input. The
-generated `update` (`with crudish`) is a JSON Merge Patch
+A caller who cannot read a masked field cannot change it either.  The generated
+`update` (`with crudish`) is a JSON Merge Patch
 ([RS-47](conformance-semantics.md#rs-47--the-generated-update-body-is-a-json-merge-patch-an-absent-key-keeps-the-stored-value-null-clears-a-t-field)),
 so a caller who reads the field as `null` leaves it out of the patch and the
-stored value stays — an update no longer wipes what the caller could not see.
+stored value stays.  A body that **carries** the masked key — any value,
+including the one already stored — is refused with 403 unless the caller
+satisfies the mask predicate, and nothing is written.  Any other operation that
+writes a parameter into a masked field requires the predicate outright.
 
 ```ddd
 aggregate Employee with crudish {
@@ -1062,23 +1096,22 @@ aggregate Employee with crudish {
 ```
 
 ```ts
-// generated (Hono) — http/employee.routes.ts: an absent key passes the stored value
+// generated (Hono) — http/employee.routes.ts: gated on the KEY, not its value
+if (body.salary !== undefined && !((currentUser.permissions).includes("hr.unmask"))) throw new ForbiddenError("Forbidden: mask unless — only a caller who can read Employee.salary may change it");
 aggregate.update((body.name === undefined ? aggregate.name : body.name), (body.salary === undefined ? aggregate.salary : body.salary));
 ```
 
-Two edges are deliberate. A caller who does **send** a masked field still
-writes it, whether or not it can read it back — gate that with a `requires` on
-the operation, as below. And a client that echoes a whole read body back as its
-patch sends the masked field as `null`: on an optional field that clears it, and
-on a required one it is refused (422, `"salary is required"`). Send only the
-keys you mean to change.
+The gate is a hoisted `requires`, so it runs wherever the operation's gates run
+(the route, a workflow step, and on Phoenix the context seam the LiveView edit
+form also calls).  A client that echoes a whole read body back sends the masked
+key as `null`, so it is refused: send only the keys you mean to change.
 
 **Status (M-T3.2 item 6).** Grammar + IR + printer + wire contract + validation,
 plus read redaction on **all five backends** (node, .NET, Python, Java, Elixir),
 have shipped — a `mask unless` field now redacts fail-closed on every backend.
-A write-side field gate (`write(...)` / `readonly when`) was tried and **reverted**
-(redundant with a post-load `requires` on the operation, which is also row-aware);
-gate field writes with `operation update(…) requires <field> == this.<field> || <caller-check>`.
+The write side inherits the mask as a hoisted gate (above); a gate of your own
+on another field has the same shape:
+`operation update(…) requires <field> == this.<field> || <caller-check>`.
 
 | Diagnostic | When |
 | --- | --- |
@@ -1449,9 +1482,11 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
 > built-in identity.
 
 **Under `auth { oidc }` the stub is preview-only.** The Hono backend still
-emits `auth/dev-stub.ts`, but its `index.ts` registers only the OIDC verifier,
-so a running app ignores the header. The playground preview registers the stub
-instead, because no identity provider is reachable from its browser worker —
+emits `auth/dev-stub.ts`, but its start-up sequence (`bootApp` in `boot.ts`)
+registers the stub only when the host passes `verifier: "dev-stub"`, which the
+server's `index.ts` never does, so a running app ignores the header. The
+playground preview passes it, because no identity provider is reachable from
+its browser worker —
 that is the one place an OIDC system honours `x-loom-dev-claims` (a malformed
 header there answers 401, not 400, since the OIDC middleware does not know the
 stub).

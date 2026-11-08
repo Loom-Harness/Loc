@@ -1,5 +1,6 @@
 import { deriveEventSubscriptions, enrichLoomModel } from "../../ir/enrich/enrichments.js";
 import { aggregateTableName } from "../../ir/enrich/storage-names.js";
+import { eventLogCarriesTenant } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { lowerModel } from "../../ir/lower/lower.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
@@ -219,7 +220,9 @@ import {
   renderTestsFile,
   renderValidationProblem,
   renderValueObject,
+  renderValueObjectSchemaMergeFilter,
   renderVoTestsFile,
+  VO_MERGE_FILTER_PATH,
 } from "./emit.js";
 import { emitExplicitHandlers, emitExplicitRouteController } from "./explicit-handlers-emit.js";
 import {
@@ -232,7 +235,7 @@ import { rewriteNamespacesForLayout } from "./layout-namespaces.js";
 import { emitProjectionDispatch, emitProjectionReads } from "./projection-emit.js";
 import { emitProjectionRowPersistence } from "./projection-state-emit.js";
 import { emitQueryProjections } from "./query-projection-emit.js";
-import { dotnetSchemaIdOverrides } from "./schema-ids.js";
+import { dotnetSchemaIdOverrides, valueObjectSchemaMerges } from "./schema-ids.js";
 import { emitRetrievalSpecs, renderPagingExtension } from "./spec-emit.js";
 import { hasAnyWireValidator, renderValidationBehavior } from "./validator-emit.js";
 import { emitDispatchHandlers, emitWorkflowInstanceReads, emitWorkflows } from "./workflow-emit.js";
@@ -490,6 +493,7 @@ function emitProjectFromContexts(
       foreignValues.valueObjects.some((v) => v.invariants.length > 0),
     domainFloorCodes: contexts.some(hasDomainFloorMessages),
     extern: contexts.some(hasExternOperation),
+    deferralKeepsFrame: contexts.some(eventLogCarriesTenant),
   });
   emitDispatcher(ns, out, hasSubscriptions, system?.deployable.persistence !== "dapper");
   out.set("Domain/Events/IDomainEvent.cs", renderIDomainEvent(ns, hasSubscriptions));
@@ -1716,6 +1720,7 @@ function emitAggregate(
             findBodies,
             ctx.name,
             [...repoImplUsings].sort(),
+            ctx.aggregates,
           )
         : isDoc
           ? renderDapperDocumentRepository(
@@ -1762,6 +1767,7 @@ function emitAggregate(
       renderEventSourcedRepositoryImpl(agg, repoWithViews, ns, findBodies, ctx.name, {
         extraUsings: [...repoImplUsings].sort(),
         idClass,
+        pool: ctx.aggregates,
       }),
       repoOrigin,
     );
@@ -2069,6 +2075,16 @@ function emitProject(
   // aggregates does not take the whole `/openapi.json` document down with a
   // duplicate schemaId.  Collision-free ⇒ empty ⇒ byte-identical Program.cs.
   const schemaIdOverrides = dotnetSchemaIdOverrides(out);
+  // One component per value object (cross-backend parity): fold the
+  // `<Vo>Request` / `<Vo>Response` records into `<Vo>` on the finished document.
+  const voMerges = valueObjectSchemaMerges(
+    valueObjectPool(ctx).map((v) => v.name),
+    out,
+    schemaIdOverrides,
+  );
+  if (voMerges.length > 0) {
+    out.set(VO_MERGE_FILTER_PATH, renderValueObjectSchemaMergeFilter(ns, voMerges));
+  }
   out.set(
     "Program.cs",
     renderProgram(ctx, ns, {
@@ -2076,6 +2092,7 @@ function emitProject(
       schemaIdOverrides,
       // Read off the emitted files, like `schemaIdOverrides` above.
       opUnionFilter: out.has(OP_UNION_FILTER_PATH),
+      voMergeFilter: out.has(VO_MERGE_FILTER_PATH),
       authRequired: !!options?.authRequired,
       userFields: options?.userFields ?? [],
       usesValidators,
@@ -2293,11 +2310,11 @@ function emitEventLogFiles(
   for (const c of esCtxs) {
     out.set(
       `Infrastructure/Persistence/Events/${upperFirst(c.name)}EventRecord.cs`,
-      renderEventRecordPoco(ns, c.name),
+      renderEventRecordPoco(ns, c.name, eventLogCarriesTenant(c)),
     );
     out.set(
       `Infrastructure/Persistence/Configurations/${upperFirst(c.name)}EventRecordConfiguration.cs`,
-      renderEventRecordConfiguration(c.name, ns, resolveSchema(c)),
+      renderEventRecordConfiguration(c.name, ns, resolveSchema(c), eventLogCarriesTenant(c)),
     );
   }
 }

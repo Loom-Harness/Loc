@@ -1,3 +1,4 @@
+import { INTEGER_OVERFLOW_DETAIL } from "../../../ir/enrich/wire-policy.js";
 // ---------------------------------------------------------------------------
 // `app/domain/errors.py` — the domain error taxonomy every layer maps
 // onto HTTP statuses (DomainError → 422 per RS-15, AggregateNotFoundError → 404,
@@ -97,6 +98,15 @@ DomainErrorKind = Literal["precondition", "invariant"]
 
 
 class DomainError(Exception):${domainErrorBody}${valueObjectInvariantError}
+
+
+def check_int(value: int, lo: int, hi: int) -> int:
+    """Integer arithmetic in domain code stays inside its declared range
+    (int32 for \`int\`, int64 for \`long\`); python ints are unbounded, so the
+    result is checked here and refused as the domain floor's 422."""
+    if value < lo or value > hi:
+        raise DomainError(${JSON.stringify(INTEGER_OVERFLOW_DETAIL)})
+    return value
 
 
 class AggregateNotFoundError(Exception):

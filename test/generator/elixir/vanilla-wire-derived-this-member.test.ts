@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 // ---------------------------------------------------------------------------
 // Derived-property wire projection on vanilla — the EXPLICIT-receiver spelling.
@@ -43,9 +44,9 @@ describe("vanilla wire projection — a derived spelled `this.<prop>` projects l
     const key = [...files.keys()].find((k) => k.endsWith("/controllers/ticket_controller.ex"))!;
     expect(key, "ticket controller not emitted").toBeDefined();
     const ctrl = files.get(key)!;
-    expect(ctrl).toContain('"throws" => record.synchronized + 1');
-    expect(ctrl).toContain('"plus" => record.synchronized + 1');
-    expect(ctrl).toContain('"chained" => (record.synchronized + 1) * 2');
+    expect(uncheckedInt(ctrl)).toContain('"throws" => record.synchronized + 1');
+    expect(uncheckedInt(ctrl)).toContain('"plus" => record.synchronized + 1');
+    expect(uncheckedInt(ctrl)).toContain('"chained" => (record.synchronized + 1) * 2');
     expect(ctrl).not.toContain("record.throws");
   });
 });

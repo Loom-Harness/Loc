@@ -112,6 +112,7 @@ export type WireRejectionClass =
   | "not-found"
   | "state-gate"
   | "domain-floor"
+  | "arithmetic-overflow"
   | "version-conflict"
   | "unique-conflict"
   | "dangling-reference"
@@ -171,6 +172,9 @@ export const NOT_IMPLEMENTED_DETAIL = "This operation is not implemented.";
 
 /** The 500 `detail` (RS-28): the fault is never echoed. */
 const INTERNAL_DETAIL = "internal";
+
+/** The `detail` of an `arithmetic-overflow` refusal (RS-48). */
+export const INTEGER_OVERFLOW_DETAIL = "Value out of range";
 
 const TABLE: Readonly<Record<WireRejectionClass, WireRejectionRow>> = {
   // The routing tier (RS-9): a path no router serves, and a served path asked
@@ -244,6 +248,15 @@ const TABLE: Readonly<Record<WireRejectionClass, WireRejectionRow>> = {
     title: "reason-phrase",
     detail: { kind: "carried" },
     errors: "rule",
+    stage: "domain",
+  },
+  // Integer arithmetic in domain code left its declared range (RS-48): the
+  // domain floor's status and title, one fixed sentence on every backend.
+  "arithmetic-overflow": {
+    status: { resolves: "DomainError" },
+    title: "reason-phrase",
+    detail: { kind: "fixed", text: INTEGER_OVERFLOW_DETAIL },
+    errors: "none",
     stage: "domain",
   },
   "version-conflict": {
@@ -730,7 +743,7 @@ export function ingressFor(primitive: WirePrimitive): WireIngress {
  *  still refuse it as `field-invalid` (a hand-written arm), never fall back to
  *  the domain floor.
  *
- *  On a merge-patch `update` (RS-47) every member is optional, so a `schema`
+ *  On a merge-patch `update` (RS-48) every member is optional, so a `schema`
  *  rule is judged there only when the patch carries every member it reads
  *  (`ruleMembers`, `src/ir/util/merge-patch.ts`); a patch that leaves one out
  *  defers it to the domain floor over the merged state. */

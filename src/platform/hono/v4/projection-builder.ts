@@ -9,14 +9,16 @@ import {
   renderRawInstantHelper,
 } from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
+import { T as TS } from "../../../generator/typescript/ts-symbols.js";
 import { isFlattenedValueObject, voLeaves } from "../../../generator/typescript/vo-flatten.js";
 import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
 import {
-  wireCode,
-  wireFixedDetail,
-  wireStatus,
-  wireTitle,
-} from "../../../ir/enrich/wire-policy.js";
+  type FoldTenancy,
+  foldFloorTerms,
+  foldTenancyFor,
+  foldTenantColumns,
+} from "../../../ir/enrich/fold-tenancy.js";
+import { wireCode, wireFixedDetail, wireStatus, wireTitle } from "../../../ir/enrich/wire-policy.js";
 import type {
   EnrichedBoundedContextIR,
   ProjectionIR,
@@ -34,6 +36,23 @@ import {
 } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { emitWireSchema, zodFor, zodForResponse } from "./routes-builder.js";
+
+/** A scoped fold row's read scope as a drizzle condition over `table`
+ *  (`eq(table.tenantId, String(requireCurrentUser().<claim>))`), or null when
+ *  the fold is unscoped. */
+function drizzleFoldScope(t: FoldTenancy | undefined, table: string): string | null {
+  if (!t) return null;
+  const terms = foldFloorTerms(t).map(
+    (f) => `${TS.eq}(${table}.${f.field}, String(${TS.requireCurrentUser}().${f.claim}))`,
+  );
+  return terms.length === 1 ? terms[0]! : `${TS.and}(${terms.join(", ")})`;
+}
+
+/** The same scope as MikroORM filter-object entries. */
+function mikroFoldScope(t: FoldTenancy | undefined): string[] {
+  if (!t) return [];
+  return foldFloorTerms(t).map((f) => `${f.field}: String(${TS.requireCurrentUser}().${f.claim})`);
+}
 
 /** The `db` handle's TS type in an emitted projection function signature —
  *  `EntityManager` under the MikroORM adapter (`persistence: mikroorm`), the
@@ -152,7 +171,6 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
         `import { ${folded.map(mikroProjectionRowClass).join(", ")} } from "../db/entities";`,
       ]
     : [
-        'import { eq } from "drizzle-orm";',
         'import type { NodePgDatabase } from "drizzle-orm/node-postgres";',
         'import * as schema from "../db/schema";',
       ];
@@ -248,15 +266,22 @@ function emitStateHelpers(p: ProjectionIR, usingMikro = false): string[] {
   const T = upperFirst(p.name);
   const corr = p.correlationField;
   const dbType = projDbType(usingMikro);
+  // A tenant-scoped fold row is keyed by `(tenant, key)`: the load takes the
+  // event's tenant beside the key, and the upsert conflicts on both.
+  const tenancy = foldTenancyFor(p);
+  const tenantCol = tenancy ? foldTenantColumns(tenancy).tenant.field : undefined;
+  const tenantParam = tenantCol ? [`  tenant: string,`] : [];
   if (usingMikro) {
     const rowClass = mikroProjectionRowClass(p);
+    const where = tenantCol ? `{ ${corr}: key, ${tenantCol}: tenant }` : `{ ${corr}: key }`;
     return [
       `type ${T}State = ${rowClass};`,
       `async function load${T}(`,
       `  db: ${dbType},`,
       `  key: string,`,
+      ...tenantParam,
       `): Promise<${T}State | undefined> {`,
-      `  const row = await db.findOne(${rowClass}, { ${corr}: key });`,
+      `  const row = await db.findOne(${rowClass}, ${where});`,
       `  return row ?? undefined;`,
       `}`,
       `async function save${T}(db: ${dbType}, state: ${T}State): Promise<void> {`,
@@ -265,17 +290,22 @@ function emitStateHelpers(p: ProjectionIR, usingMikro = false): string[] {
     ];
   }
   const table = `schema.${lowerFirst(plural(p.name))}`;
+  const where = tenantCol
+    ? `${TS.and}(${TS.eq}(${table}.${corr}, key), ${TS.eq}(${table}.${tenantCol}, tenant))`
+    : `${TS.eq}(${table}.${corr}, key)`;
+  const target = tenantCol ? `[${table}.${tenantCol}, ${table}.${corr}]` : `${table}.${corr}`;
   return [
     `type ${T}State = typeof ${table}.$inferInsert;`,
     `async function load${T}(`,
     `  db: ${dbType},`,
     `  key: string,`,
+    ...tenantParam,
     `): Promise<${T}State | undefined> {`,
-    `  const rows = await db.select().from(${table}).where(eq(${table}.${corr}, key)).limit(1);`,
+    `  const rows = await db.select().from(${table}).where(${where}).limit(1);`,
     `  return rows[0];`,
     `}`,
     `async function save${T}(db: ${dbType}, state: ${T}State): Promise<void> {`,
-    `  await db.insert(${table}).values(state).onConflictDoUpdate({ target: ${table}.${corr}, set: state });`,
+    `  await db.insert(${table}).values(state).onConflictDoUpdate({ target: ${target}, set: state });`,
     `}`,
   ];
 }
@@ -303,16 +333,33 @@ function emitFoldHandler(
   // UNMANAGED instance via `Object.assign` (typed `Row & { corr }` → `Row`, no
   // cast; unmanaged, so no identity-map entry until the upsert).  Drizzle's
   // `$inferInsert` makes nullable columns optional and accepts the bare literal.
+  // A tenant-scoped fold (`fold-tenancy.ts`) reads the event's tenant from
+  // its metadata — the dispatching frame's event origin (the raising request,
+  // or the frame the relay / consumer / stream append opened) — keys the row
+  // by it and stamps it on allocation.  An event with no tenant (raised
+  // outside any principal) has no tenant's row to fold into.
+  const tenancy = foldTenancyFor(p);
+  const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
+  const seed = cols
+    ? `${corr}: __key, ${cols.tenant.field}: __tenant, ${cols.dataKey.field}: __origin?.orgPath ?? __tenant`
+    : `${corr}: __key`;
   const allocate = usingMikro
-    ? `Object.assign(new ${mikroProjectionRowClass(p)}(), { ${corr}: __key })`
-    : `{ ${corr}: __key }`;
+    ? `Object.assign(new ${mikroProjectionRowClass(p)}(), { ${seed} })`
+    : `{ ${seed} }`;
   const out = [
     `export async function fold${h.event}Into${T}(`,
     `  db: ${projDbType(usingMikro)},`,
     `  ${escapeTsIdent(h.param)}: Events.${h.event},`,
     `): Promise<void> {`,
+    ...(cols
+      ? [
+          `  const __origin = ${TS.currentEventOrigin}();`,
+          `  const __tenant = __origin?.tenant;`,
+          `  if (__tenant == null) return;`,
+        ]
+      : []),
     `  const __key = ${keyExpr};`,
-    `  const state = (await load${T}(db, __key)) ?? ${allocate};`,
+    `  const state = (await load${T}(db, __key${cols ? ", __tenant" : ""})) ?? ${allocate};`,
   ];
   for (const stmt of h.statements) out.push(renderFoldStatement(stmt, p, h, ctxDecls));
   out.push(`  await save${T}(db, state);`);
@@ -582,7 +629,13 @@ function emitProjectionRoutes(
     // (`st_atTime` / `st_who`), so `{ ...row }` would ship those and no `st`.
     // Such a shape gets the explicit per-field projection instead; every other
     // projection keeps the text it has always had.
-    const nest = needsWireProjection(p.wireShape, ctx);
+    // Every read of a scoped fold applies its read scope (`fold-tenancy.ts`),
+    // and its rows carry tenant columns the wire shape does not name — so they
+    // go out through the explicit per-field projection too.
+    const tenancy = foldTenancyFor(p);
+    const mikroScope = mikroFoldScope(tenancy);
+    const drizzleScope = drizzleFoldScope(tenancy, table);
+    const nest = needsWireProjection(p.wireShape, ctx) || tenancy !== undefined;
     const wireOne = (rowExpr: string): string =>
       nest ? rawRowWireObject(rowExpr, p.wireShape ?? [], ctx) : rawRowWireExpr(rowExpr, instants);
     const forbiddenResponse = `        ${forbiddenStatus}: { description: ${JSON.stringify(
@@ -614,8 +667,10 @@ function emitProjectionRoutes(
     out.push(...gateLines(p, "      "));
     out.push(
       usingMikro
-        ? `      const rows = await db.find(${rowClass}, {});`
-        : `      const rows = await db.select().from(${table});`,
+        ? `      const rows = await db.find(${rowClass}, {${mikroScope.length > 0 ? ` ${mikroScope.join(", ")} ` : ""}});`
+        : drizzleScope
+          ? `      const rows = await db.select().from(${table}).where(${drizzleScope});`
+          : `      const rows = await db.select().from(${table});`,
     );
     // RS-4 — the rows go out RAW (no repository `toWire` on this path), so a
     // `datetime` column would reach `JSON.stringify` as a `Date` and serialise
@@ -653,11 +708,14 @@ function emitProjectionRoutes(
     // the key exists.
     out.push(...gateLines(p, "      "));
     if (usingMikro) {
-      out.push(`      const row = await db.findOne(${rowClass}, { ${corr}: key });`);
-    } else {
       out.push(
-        `      const rows = await db.select().from(${table}).where(eq(${table}.${corr}, key)).limit(1);`,
+        `      const row = await db.findOne(${rowClass}, { ${[`${corr}: key`, ...mikroScope].join(", ")} });`,
       );
+    } else {
+      const byKey = drizzleScope
+        ? `${TS.and}(${TS.eq}(${table}.${corr}, key), ${drizzleScope})`
+        : `${TS.eq}(${table}.${corr}, key)`;
+      out.push(`      const rows = await db.select().from(${table}).where(${byKey}).limit(1);`);
       out.push(`      const row = rows[0];`);
     }
     // RS-27 extends here — a projection row read by its correlation KEY is a

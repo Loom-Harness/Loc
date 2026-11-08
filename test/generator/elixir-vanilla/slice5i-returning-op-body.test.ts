@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 // ---------------------------------------------------------------------------
 // T2.c tail — returning-op body statements on the elixir vanilla foundation
@@ -61,7 +62,9 @@ describe("vanilla — T2.c returning-op body statements", () => {
     expect(ctx).toContain(
       'with :ok <- ensure(delta != 0, {:validation_failed, [%{pointer: "/delta", message: "Business rule violated", code: "problem.domain-floor"}]})',
     );
-    expect(ctx).toContain(":ok <- ensure(record.quantity + delta >= 0, {:forbidden, ");
+    expect(uncheckedInt(ctx)).toContain(
+      ":ok <- ensure(record.quantity + delta >= 0, {:forbidden, ",
+    );
     // The old raise form is gone — an expected denial is no longer a 500.
     expect(ctx).not.toContain("raise(ArgumentError");
     // The `ensure/2` helper is emitted for the state op that now needs it.
@@ -71,7 +74,7 @@ describe("vanilla — T2.c returning-op body statements", () => {
 
   it("renders `assign` as a struct-update on the threaded record", async () => {
     const ctx = get(await files(), "lib/api/stock.ex");
-    expect(ctx).toContain("record = %{record | quantity: record.quantity + delta}");
+    expect(uncheckedInt(ctx)).toContain("record = %{record | quantity: record.quantity + delta}");
   });
 
   it("hoists `emit` past the persist — broadcast fires AFTER persist_change commits (S5a)", async () => {

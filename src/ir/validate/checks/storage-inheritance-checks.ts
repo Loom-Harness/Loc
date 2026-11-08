@@ -7,8 +7,9 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { descriptorFor } from "../../../platform/metadata.js";
+import { maskedReadsOf } from "../../enrich/mask-taint.js";
 import type { BoundedContextIR, EnrichedLoomModel, ExprIR, StmtIR } from "../../types/loom-ir.js";
-import { walkExprDeep, walkStmtsDeep } from "../../util/walk.js";
+import { walkStmtsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { firstNonGateRef, GATE_ALLOWED_REFS } from "./query-checks.js";
 
@@ -183,34 +184,15 @@ export function validateProvenancedStorage(
 // such an event is refused with the same code as the read bypass.
 // ---------------------------------------------------------------------------
 
-/** The masked field a single expression reads, or null.  `masked` holds the
- *  aggregate's `mask unless` field names plus every `derived` that reads one;
- *  `taintedLets` maps a body-local `let` name to the masked field it carries. */
-
+/** The first masked field a single expression reads, or null — the shared
+ *  taint reader (`mask-taint.ts`), with a `let` carrying one masked name. */
 function firstMaskedRead(
   e: ExprIR,
   masked: ReadonlySet<string>,
   taintedLets: ReadonlyMap<string, string>,
 ): string | null {
-  let hit: string | null = null;
-  walkExprDeep(e, (n) => {
-    if (hit !== null) return;
-    if (n.kind === "ref") {
-      const selfProp =
-        n.refKind === "this-prop" || n.refKind === "this-vo-prop" || n.refKind === "this-derived";
-      if (selfProp && masked.has(n.name)) {
-        hit = n.name;
-        return;
-      }
-      if (n.refKind === "let") {
-        const via = taintedLets.get(n.name);
-        if (via !== undefined) hit = via;
-      }
-      return;
-    }
-    if (n.kind === "member" && n.receiver.kind === "this" && masked.has(n.member)) hit = n.member;
-  });
-  return hit;
+  const lets = new Map([...taintedLets].map(([k, v]) => [k, [v]] as const));
+  return maskedReadsOf(e, masked, lets)[0] ?? null;
 }
 
 /** Map every event whose emitted payload carries a `mask unless` value to the

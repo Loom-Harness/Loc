@@ -17,6 +17,7 @@ import {
   type RepositoryIR,
   type RetrievalIR,
   type TypeIR,
+  type WireField,
 } from "../../ir/types/loom-ir.js";
 import { findRaisesNotFound } from "../../ir/util/key-lookup.js";
 import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
@@ -1876,9 +1877,11 @@ export function toWireMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedConte
 
 /** The read-masked wire fields of an aggregate (`field: T mask unless <expr>`,
  *  authorization.md §5) — the API-read wire fields whose `maskUnless` predicate
- *  is set.  Empty when the aggregate declares no field mask. */
-export function maskedWireFields(agg: EnrichedAggregateIR): FieldIR[] {
-  return agg.fields.filter((f) => f.maskUnless !== undefined);
+ *  is set: each masked field, plus every `derived` the visibility taint
+ *  (`src/ir/enrich/mask-taint.ts`) marks as computed from one.  Empty when the
+ *  aggregate declares no field mask. */
+export function maskedWireFields(agg: EnrichedAggregateIR): WireField[] {
+  return forApiRead(wireFieldsFor(agg)).filter((wf) => wf.maskUnless !== undefined);
 }
 
 /** True iff `agg` declares at least one `mask unless` field — the gate for

@@ -98,8 +98,8 @@ function splitTopLevel(list: string): string[] {
 
 async function indexTs(): Promise<string> {
   const all = await files();
-  const key = [...all.keys()].find((k) => k.endsWith("api/index.ts"));
-  expect(key, "api/index.ts not emitted").toBeDefined();
+  const key = [...all.keys()].find((k) => k.endsWith("api/boot.ts"));
+  expect(key, "api/boot.ts not emitted").toBeDefined();
   return all.get(key!)!;
 }
 

@@ -816,6 +816,7 @@ export function renderApiExceptionAdvice(
   const title = (cls: WireRejectionClass): string =>
     javaLit(wireTitle(cls, structuralErrorStatuses));
   const fixed = (cls: WireRejectionClass): string => javaLit(wireFixedDetail(cls));
+  const overflowStatus = wireStatus("arithmetic-overflow", structuralErrorStatuses);
   const fieldInvalid = wireStatus("field-invalid");
   // The aggregate a restrict violation concerns is read off the request path
   // (`/api/<route>/{id}`) at runtime; the generic subject is only the fallback
@@ -997,6 +998,18 @@ export function renderApiExceptionAdvice(
     `        CatalogLog.event(${javaLogEvent("domainError")}, "message", e.getMessage(), "status", ${domainStatus});`,
     `        httpMetrics.recordDomainFault("domain_error");`,
     `        return respond(problem(${domainStatus}, ${title("domain-floor")}, e.getMessage(), ${code("domain-floor")}, request), ${domainStatus});`,
+    `    }`,
+    ``,
+    // RS-48: the `Math.*Exact` calls a checked integer `+ - *` renders throw
+    // `ArithmeticException("integer overflow" | "long overflow")` — the domain
+    // floor's 422 with the fact's fixed sentence.  Any other ArithmeticException
+    // (a BigDecimal division by zero) is not modelled and keeps the catch-all.
+    `    @ExceptionHandler(ArithmeticException.class)`,
+    `    public ResponseEntity<ProblemDetail> onArithmetic(ArithmeticException e, WebRequest request) {`,
+    `        if (!"integer overflow".equals(e.getMessage()) && !"long overflow".equals(e.getMessage())) return onUnhandled(e, request);`,
+    `        CatalogLog.event(${javaLogEvent("domainError")}, "message", e.getMessage(), "status", ${overflowStatus});`,
+    `        httpMetrics.recordDomainFault("domain_error");`,
+    `        return respond(problem(${overflowStatus}, ${title("arithmetic-overflow")}, ${fixed("arithmetic-overflow")}, ${code("arithmetic-overflow")}, request), ${overflowStatus});`,
     `    }`,
     ``,
     `    @ExceptionHandler(DisallowedException.class)`,

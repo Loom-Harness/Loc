@@ -84,7 +84,14 @@ const CEILINGS: Record<string, number> = {
   // `T?` miss answers 404, that every accepted `ignoring` position omits the
   // predicate it names, and each criterion predicate's emitted shape — emission
   // details (a missing guard, a dropped bypass) that compile cleanly when wrong.
-  "(cross-target)": 3700, // cross-backend pins for unsorted-read id order, hoisted handler reads, widened domain-service reads and document nested VO collections
+  // 3500 → 3700: the #3593 wave-2 train pins, on all five backends, that a
+  // tenant-scoped event stream and a tenant-scoped fold carry the tenant
+  // predicate on every read (an absence no compile gate sees), that integer
+  // arithmetic is wrapped in the RS-48 overflow guard, and that response
+  // records carry inherited / provenanced fields.
+  // main: cross-backend pins for unsorted-read id order, hoisted handler
+  // reads, widened domain-service reads and document nested VO collections.
+  "(cross-target)": 3700,
   _expr: 200,
   _frontend: 400,
   _i18n: 200,
@@ -98,11 +105,13 @@ const CEILINGS: Record<string, number> = {
   _workflow: 200,
   angular: 1000,
   dotnet: 2400, // the EF identity-parity pins assert the emitted C# (tracker fork, 409 path) per leg
-  // 3400 → 3600: outbox-relay-resilience.test.ts pins that the relay, broker
-  // publishers and cron scheduler rescue a transient DB/broker failure and back
-  // off instead of crashing the app — a missing guard compiles cleanly and no
-  // runtime leg injects a broker or DB outage.
-  elixir: 3600, // the Ecto delta-migration pins assert the emitted create/rename/key-move per step; runtime proof is migration-evolution-elixir
+  // The Ecto delta-migration pins assert the emitted create/rename/key-move per
+  // step (runtime proof is migration-evolution-elixir).  The outbox-relay pins
+  // assert the relay, broker publishers and cron scheduler rescue a transient
+  // DB/broker failure (no runtime leg injects an outage).  The #3593 wave-2 pins
+  // assert elixir's event-log and fold-row tenant scope, RS-48 overflow guards
+  // and the union-money arm — per-site predicates that compile cleanly when absent.
+  elixir: 3600,
   "elixir-vanilla": 500,
   feliz: 1500,
   flutter: 1400, // the coded-error localizers pin the emitted Dart `t(code, english, params)` per form rung (#4473)
@@ -110,7 +119,10 @@ const CEILINGS: Record<string, number> = {
   hono: 500,
   i18n: 200,
   imports: 200,
-  java: 1900,
+  // 1900 → 2100: java's stream-tenant / fold-tenant scoping and its
+  // `Math.*Exact` overflow guards (#3533, #4594, #3585) — per-site predicates in
+  // emitted JPQL / service code that compile cleanly when missing.
+  java: 2100,
   python: 1800,
   react: 1600,
   svelte: 600,

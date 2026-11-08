@@ -26,7 +26,7 @@ import {
   PG_REFERENCED_IN_USE_SQLSTATES,
   PG_UNIQUE_VIOLATION,
 } from "../../../generator/_persistence/pg-sqlstate.js";
-import { tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
+import { FILE_REF_ZOD, tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
 import {
   historyMapperArgs,
   historyMapperName,
@@ -135,6 +135,7 @@ import {
   lifecycleGates,
   lifecycleGatesReadRow,
   lifecycleGatesUseCurrentUser,
+  maskWritePresenceParam,
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
@@ -1814,7 +1815,11 @@ function requiresGateLines(
           return p ? wireToDomainExpr(`body.${p.name}`, p.type, ctx) : undefined;
         }),
     });
-    return `${pad}if (!(${pred})) throw new ForbiddenError(${JSON.stringify(
+    // A merge-patch update's mask write gate runs only when the body carries
+    // the masked key (an absent key keeps the stored value).
+    const present = maskWritePresenceParam(op, g);
+    const cond = present ? `body.${present} !== undefined && !(${pred})` : `!(${pred})`;
+    return `${pad}if (${cond}) throw new ForbiddenError(${JSON.stringify(
       `Forbidden: ${g.source}`,
     )});`;
   });
@@ -2824,7 +2829,7 @@ const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
   date: BODY_DATE,
   guid: "z.string()",
   json: "z.unknown()",
-  File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
+  File: FILE_REF_ZOD,
 };
 
 export const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
@@ -2838,7 +2843,7 @@ export const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
   date: BODY_DATE,
   guid: "z.string()",
   json: "z.unknown()",
-  File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
+  File: FILE_REF_ZOD,
 };
 
 const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
@@ -2852,7 +2857,7 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
   date: "z.string()",
   guid: "z.string()",
   json: "z.unknown()",
-  File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
+  File: FILE_REF_ZOD,
 };
 
 export function zodFor(t: TypeIR, context: "create-body" | "body" | "query" = "body"): string {

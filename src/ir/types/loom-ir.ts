@@ -1684,6 +1684,14 @@ export interface ProjectionIR {
    *  token then the state fields, mirroring `WorkflowIR.instanceWireShape`.
    *  Populated by `enrichLoomModel`. */
   wireShape?: WireField[];
+  /** The principal claim (`tenancy by user.<claim>`) a FOLDED projection's rows
+   *  are tenant-scoped by — set by enrichment when the fold folds events of a
+   *  tenant-scoped producer (`foldTenancyVerdict` in
+   *  `src/ir/enrich/fold-tenancy.ts` answers `scoped`).  Stored because the
+   *  verdict reads every context's producers of the folded events, which a
+   *  backend emitting one context cannot see; consume it only through
+   *  `foldTenancyFor`.  Absent ⇒ the fold is unscoped. */
+  foldTenantClaim?: string;
   /** Provenance chain back to the `.ddd` source. */
   origin?: OriginRef;
 }
@@ -3648,7 +3656,19 @@ export interface UiParamBindingIR {
 
 export type StmtIR =
   | { kind: "precondition"; expr: ExprIR; source: string; message?: MessageIR; origin?: OriginRef }
-  | { kind: "requires"; expr: ExprIR; source: string; origin?: OriginRef }
+  | {
+      kind: "requires";
+      expr: ExprIR;
+      source: string;
+      /** Set on the write gate enrichment prepends to an operation that
+       *  assigns a caller-supplied value to a `mask unless` field
+       *  (`applyMaskWriteGates`, `src/ir/enrich/mask-taint.ts`) — the masked
+       *  field's name.  It authorizes the WRITE of that one field only, so it
+       *  is not the operation's own exposure gate (`validateDefaultDeny`) and
+       *  not a client-evaluable action gate. */
+      maskWriteOf?: string;
+      origin?: OriginRef;
+    }
   | { kind: "let"; name: string; expr: ExprIR; type: TypeIR; origin?: OriginRef }
   | {
       kind: "assign";
