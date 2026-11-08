@@ -208,12 +208,12 @@ export function blockingMessage(state: BlockingMigrationState): string {
     }
   }
   if (state.initial) {
-    return "Migration required — the database is created from recorded migrations, and none are recorded yet. Record the initial migration in the Migrations tab, then boot again.";
+    return "Migration required — the database is created from recorded migrations, and none are recorded yet. Record the initial migration (Record migration… beside Boot, or the Migrations tab), then apply it.";
   }
   const steps = `${state.steps} unrecorded schema change${state.steps === 1 ? "" : "s"}`;
   const where = `module${state.modules.length === 1 ? "" : "s"} ${state.modules.join(", ")}`;
   const destructive = state.destructive ? " One of them is destructive and needs the destructive acknowledgement." : "";
-  return `Migration required — ${steps} in ${where}. The database was left as it is. Record the migration in the Migrations tab, then boot again.${destructive}`;
+  return `Migration required — ${steps} in ${where}. The database was left as it is. Record the migration (Record migration… beside Boot, or the Migrations tab), then apply it.${destructive}`;
 }
 
 /** A migration unit that failed to apply. */
