@@ -4,7 +4,6 @@
 // runs the same function against PGlite.  Start-up wiring belongs here, never
 // in index.ts, so the two hosts cannot drift apart.
 import { createApp } from "./http/index";
-import { baseLogger } from "./obs/log";
 
 /** How the host wants the app booted.  Every option defaults to the deployed
  *  behaviour; the browser playground sets them because it has no IdP, no
@@ -30,7 +29,7 @@ export interface BootedApp {
 
 export async function bootApp(
   db: Parameters<typeof createApp>[0],
-  opts: BootOptions = {},
+  _opts: BootOptions = {},
 ): Promise<BootedApp> {
   const app = createApp(db);
   return {

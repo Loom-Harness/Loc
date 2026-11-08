@@ -2385,14 +2385,17 @@ const stopTimers = await ${T.startTimerScheduler}(db, inProcessEvents, { infra: 
       : `  async stop() {\n${stopLines.map((l) => `    ${l}\n`).join("")}  },\n`;
   const preamble = `${seedCall}${authStubCall}${orgPathRegistration}`.replace(/^\n/, "");
   const body = `${preamble}${preamble ? "\n" : ""}${wiring}return {\n  app,\n${stopBody}};\n`;
+  // Only what the body reads: a deployable that wires nothing option-driven
+  // (no auth, no channels, no timers) neither logs here nor reads \`opts\`.
+  const loggerImport = /\bbaseLogger\./.test(body) ? 'import { baseLogger } from "./obs/log";\n' : "";
+  const optsParam = /\bopts\./.test(body) ? "opts" : "_opts";
   return `// Auto-generated.
 // The deployable's start-up sequence.  The deployed server (index.ts) runs it
 // between migrations and \`serve()\`; the browser playground's runtime worker
 // runs the same function against PGlite.  Start-up wiring belongs here, never
 // in index.ts, so the two hosts cannot drift apart.
 import { createApp } from "./http/index";
-import { baseLogger } from "./obs/log";
-
+${loggerImport}
 /** How the host wants the app booted.  Every option defaults to the deployed
  *  behaviour; the browser playground sets them because it has no IdP, no
  *  broker and no second Postgres connection. */
@@ -2424,7 +2427,7 @@ export interface BootedApp {
 
 export async function bootApp(
   db: Parameters<typeof createApp>[0],
-  opts: BootOptions = {},
+  ${optsParam}: BootOptions = {},
 ): Promise<BootedApp> {
 ${indentBlock(body)}}
 `;
