@@ -54,7 +54,7 @@ await page.route("**/api/products/smoke-id", (route) =>
   route.fulfill({
     status: 200,
     contentType: "application/json",
-    body: JSON.stringify({ id: "smoke-id", name: "Widget", price: "0", active: false, version: 1 }),
+    body: JSON.stringify({ id: "smoke-id", name: "Widget", price: "0", active: false, rowVersion: 1 }),
   }),
 );
 
