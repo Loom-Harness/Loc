@@ -84,21 +84,6 @@ const PENDING_ERROR_CODES: readonly WireWaiver[] =
 // `elixir` joined with M-T6.92, which turned its 500 into the same 409.
 export const WIRE_WAIVERS: readonly WireWaiver[] = [
   ...PENDING_ERROR_CODES,
-  // An unfilled extern stub's 501 detail is the stub's own message, which every
-  // backend (node, dotnet, python included) writes with a per-backend file path.
-  // The paths cannot agree; the real defect (a file path in a response) is
-  // shared by all five and is a wire-policy change (`carried` -> fixed), not a
-  // java/elixir one.
-  {
-    backends: ["java", "elixir"],
-    cases: ["error-codes"],
-    request: "POST /api/products/{id}/ship",
-    path: "$.detail",
-    kinds: ["value"],
-    values: { golden: "^extern operation", actual: "^extern operation" },
-    reason:
-      "#4473 — every backend's 501 detail for an unfilled extern stub carries its own implementation file path (node leaks `src/domain/product.ts` too); ends when the shared policy makes the detail fixed",
-  },
   // elixir's workflow / explicit-route dispatcher receives the bare
   // `{:error, :conflict}` (no aggregate, no row), so its 409 `detail` is the
   // generic sentence.  Status, `title` and `type` agree; every other backend

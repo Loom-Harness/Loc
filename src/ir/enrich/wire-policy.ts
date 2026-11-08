@@ -165,6 +165,10 @@ export const MALFORMED_BODY_DETAIL = "Malformed JSON in request body";
 const VALIDATION_FAILED_TITLE = "Validation failed";
 const VALIDATION_FAILED_DETAIL = "One or more fields are invalid.";
 
+/** The 501 `detail`: the `extern` hook's file location stays in the server log,
+ *  never in the response. */
+export const NOT_IMPLEMENTED_DETAIL = "This operation is not implemented.";
+
 /** The 500 `detail` (RS-28): the fault is never echoed. */
 const INTERNAL_DETAIL = "internal";
 
@@ -275,7 +279,7 @@ const TABLE: Readonly<Record<WireRejectionClass, WireRejectionRow>> = {
   "not-implemented": {
     status: { fixed: 501 },
     title: { fixed: "Not Implemented" },
-    detail: { kind: "carried" },
+    detail: { kind: "fixed", text: NOT_IMPLEMENTED_DETAIL },
     errors: "none",
     stage: "fault",
   },

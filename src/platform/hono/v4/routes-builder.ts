@@ -1676,7 +1676,7 @@ export function buildRoutesFile(
       `      ${renderHonoLogCall("internalError", `error: err.message, status: ${NOT_IMPLEMENTED_STATUS}`)}`,
     );
     lines.push(
-      `      return problem(${NOT_IMPLEMENTED_STATUS}, ${JSON.stringify(wireTitle("not-implemented"))}, err.message, ${JSON.stringify(wireCode("not-implemented"))});`,
+      `      return problem(${NOT_IMPLEMENTED_STATUS}, ${JSON.stringify(wireTitle("not-implemented"))}, ${JSON.stringify(wireFixedDetail("not-implemented"))}, ${JSON.stringify(wireCode("not-implemented"))});`,
     );
     lines.push(`    }`);
   }

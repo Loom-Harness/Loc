@@ -305,7 +305,8 @@ defmodule ${moduleName} do
   @spec run(map()) :: {:ok, term()} | {:error, term()}
   def run(params) when is_map(params) do
     _ = params
-    raise "extern ${kindLabel} \`${h.name}\` is not implemented — fill in ${fileRel}"
+    raise ${appModule}.NotImplementedError,
+          "extern ${kindLabel} \`${h.name}\` is not implemented — fill in ${fileRel}"
   end
 end
 `;

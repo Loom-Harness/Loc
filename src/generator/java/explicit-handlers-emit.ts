@@ -310,7 +310,7 @@ function renderExternImpl(
     `public class ${h.name}HandlerImpl implements ${h.name}Port {`,
     `    @Override`,
     `    public ${ret} handle(${params}) {`,
-    `        throw new UnsupportedOperationException(${JSON.stringify(msg)});`,
+    `        throw new NotImplementedException(${JSON.stringify(msg)});`,
     `    }`,
     `}`,
     ``,

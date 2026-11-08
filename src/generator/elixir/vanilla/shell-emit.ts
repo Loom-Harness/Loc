@@ -1316,10 +1316,10 @@ defmodule ${appModule}Web.FaultHandler do
   end
 
   # An \`extern\` operation whose hand-written body was never filled in: the
-  # stub's own message names the file to fill in, and it is the one fault whose
-  # text is meant for the caller.
-  defp respond(conn, ${exStatus("not-implemented")}, %${appModule}.NotImplementedError{message: message}) do
-    ProblemDetails.problem_response(conn, ${exStatus("not-implemented")}, ${exTitle("not-implemented")}, message, ${exCode("not-implemented")})
+  # stub's own message names the file to fill in; it goes to the server log and
+  # the response carries the fixed sentence.
+  defp respond(conn, ${exStatus("not-implemented")}, %${appModule}.NotImplementedError{}) do
+    ProblemDetails.problem_response(conn, ${exStatus("not-implemented")}, ${exTitle("not-implemented")}, ${exFixedDetail("not-implemented")}, ${exCode("not-implemented")})
   end
 
   # An \`If-Match\` header that names no version is a client error with its own

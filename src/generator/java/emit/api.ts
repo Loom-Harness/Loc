@@ -1005,7 +1005,7 @@ export function renderApiExceptionAdvice(
     `    @ExceptionHandler(NotImplementedException.class)`,
     `    public ResponseEntity<ProblemDetail> onNotImplemented(NotImplementedException e, WebRequest request) {`,
     `        CatalogLog.event(${javaLogEvent("internalError")}, "error", e.getMessage(), "status", ${wireStatus("not-implemented")});`,
-    `        return respond(problem(${wireStatus("not-implemented")}, ${title("not-implemented")}, e.getMessage(), ${code("not-implemented")}, request), ${wireStatus("not-implemented")});`,
+    `        return respond(problem(${wireStatus("not-implemented")}, ${title("not-implemented")}, ${fixed("not-implemented")}, ${code("not-implemented")}, request), ${wireStatus("not-implemented")});`,
     `    }`,
     ``,
     hasIntegrityHandler && [
