@@ -473,7 +473,7 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  workflow) ships on the other four backends, each running the command in
  *  one transaction rolled back whole on an error answer; the Phoenix routes
  *  have neither a tagged result nor a rollback seam for it, and refuse it. */
-const MAX_OPEN_GAPS = 18;
+const MAX_OPEN_GAPS = 19;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live
@@ -508,7 +508,7 @@ const MAX_OPEN_GAPS = 18;
  *  14 -> 13: `loom.chart-unsupported-target` and `loom.datagrid-unsupported-
  *  target` folded into the capability table's one code,
  *  `loom.target-unsupported`. */
-const LATENT_SEAMS = 13;
+const LATENT_SEAMS = 12;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

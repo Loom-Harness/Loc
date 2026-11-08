@@ -531,3 +531,50 @@ A `capability` subsumes the field/filter/stamp macros: `auditable` and
   `stamp onCreate { createdBy := currentUser }` assigns `createdBy`
   requires every implementor to have a `createdBy: User id` field — a
   missing field is an IR-validation error.
+
+## Feature compositions
+
+A capability composes with how its aggregate persists and where the aggregate sits in an
+inheritance hierarchy. Each such pair has a verdict per backend in the capability table,
+`src/util/target-capabilities.ts` (`FEATURE_AXES` × `COMPOSING_AXES`). A pair is either
+supported, which means a behavioural corpus fixture runs it on that backend, or refused
+at the aggregate with `loom.target-unsupported`:
+
+| pair | verdict |
+|---|---|
+| `persistedAs: eventLog` with `versioned` | refused on every backend (`#feature-composition-broken`). The stream is the concurrency control, and nothing folds the spliced `version`. |
+| `persistedAs: eventLog` with `softDeletable` | refused on every backend (`#feature-composition-broken`). No event-sourced read filters `isDeleted`. |
+| `persistedAs: eventLog` with `auditable` / `tenantOwned` | refused by `loom.stamp-on-event-sourced-invalid`. |
+| `shape: document` with `softDeletable` | supported, except on elixir (`#feature-composition-broken`): the declared create there demands `isDeleted`. |
+| `persistedAs: eventLog` / `shape: document` with a `provenanced` field; `shape: document` with `auditable`; `auditable` or a `provenanced` field anywhere in a hierarchy; `softDeletable` on an abstract base | refused on every backend (`#feature-composition-unwitnessed`): no behavioural fixture runs the pair yet. |
+
+Every other pair of these axes is supported on all five backends.
+
+Pairs whose features meet at a deployable, a resource or a field, rather than on one aggregate, are rows of the same table (`BackendConstruct` / `RefusableUiConstruct`). Each is refused where noted:
+
+| pair | refused on |
+|---|---|
+| an event-sourced aggregate emitting an event a broker-bound channel carries | node, dotnet (the event append and the outbox row commit separately); python, java, elixir (unwitnessed) |
+| a `tenantOwned` aggregate on a deployable that does not host its `tenantRegistry` tree | every backend (the org-path resolver reads a table the deployable does not have) |
+| a typed `kind: api` resource calling an `auth: required` deployable | every backend (no credentials are forwarded) |
+| a `timerSource` whose event rides a broker-bound channel | node (the tick is dispatched in-process); the other four (unwitnessed) |
+| `allow deep` / `allow global` on a TPH subtype of a `tenantOwned` base | dotnet (the base filter pins the exact tenant); the other four (unwitnessed) |
+| a value-object collection on an entity part | node, dotnet, python, elixir (`loom.collection-field-unpersisted`); java (unwitnessed) |
+| a value object field whose type is a value object with an invariant | elixir (the inner invariant never runs) |
+| an operation answering `<payload> or <error>`, served to a ui | react, vue, svelte, angular (the api client does not compile) |
+
+```ddd
+event Opened { account: Account id, owner: string }
+aggregate Account persistedAs: eventLog, with versioned {
+  owner: string
+  create open(owner: string) { emit Opened { account: id, owner: owner } }
+  apply(e: Opened) { owner := e.owner }
+}
+// loom.target-unsupported: aggregate 'Account' (`persistence:eventLog` with
+// `capability:versioned`) — deployable 'd' (backend 'node') generates code for
+// this combination that compiles but does not behave as either feature promises.
+```
+
+Nothing is generated for a refused pair. To support a pair on a backend, add a corpus fixture
+that reaches it and runs a `test e2e` block there. Then name the fixture in the cell.
+`test/system/feature-composition-table.test.ts` checks that the fixture reaches the pair.

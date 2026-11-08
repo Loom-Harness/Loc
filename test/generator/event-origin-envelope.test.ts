@@ -97,8 +97,8 @@ async function genHierarchy(platform: string): Promise<Map<string, string>> {
       "aggregate Organization with crudish { name: string }",
       "aggregate Organization with crudish {\n        name: string\n        implements tenantRegistry\n      }",
     ),
-    "shipApi's tenant-owned context without the registry is refused " +
-      "(loom.tenancy-registry-remote-unsupported, #4806); these cases pin sales_api, which hosts it",
+    "shipApi hosts a tenant-owned context without the registry, which is refused " +
+      "(loom.tenancy-registry-remote-unsupported, #4806); these cases pin the event origin envelope on sales_api, which hosts it",
   );
 }
 

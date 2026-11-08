@@ -22,8 +22,13 @@ import {
   type BackendConstruct,
   backendCapability,
   type CapabilityVerdict,
+  type CompositionVerdict,
+  compositionCapability,
+  FEATURE_TUPLES,
+  type FeatureTuple,
   type RefusableUiConstruct,
   type TargetRefusalSlug,
+  tupleFeatures,
   UI_CONSTRUCTS,
   uiCapability,
 } from "../../../util/target-capabilities.js";
@@ -33,7 +38,9 @@ import {
   type DeployableIR,
   type ExprIR,
   type Platform,
+  type StmtIR,
   type SystemIR,
+  type TypeIR,
   type UiIR,
   type WorkflowStmtIR,
   workflowEmitsCommandRoute,
@@ -42,7 +49,12 @@ import type { OriginRef } from "../../types/origin.js";
 import { bodyUsesChart } from "../../util/chart.js";
 import { dataGridHosts } from "../../util/data-grid.js";
 import { entityHistoryReadHosts } from "../../util/entity-history-read.js";
+import { aggregatesWithTuple } from "../../util/feature-atoms.js";
+import { baseOf } from "../../util/inheritance.js";
+import { findValueObjectInScope } from "../../util/reachable-types.js";
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
+import { TENANT_REGISTRY_CAPABILITY } from "../../util/tenant-stance.js";
+import { walkExprDeep, walkStmtsDeep } from "../../util/walk.js";
 import { bodyWriteScopeGuards, writeScopeContext } from "../../util/write-scope-guards.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { mountedUis, standardOpAwaitUses } from "./ui-framework-checks.js";
@@ -56,7 +68,7 @@ export interface ConstructUse {
 }
 
 type UiDetector = (ui: UiIR, sys: SystemIR) => ConstructUse[];
-type BackendDetector = (ctx: BoundedContextIR, sys: SystemIR) => ConstructUse[];
+type BackendDetector = (ctx: BoundedContextIR, sys: SystemIR, d: DeployableIR) => ConstructUse[];
 
 /** The bodies of a ui a construct can sit in: every page and component. */
 function uiBodies(ui: UiIR): Array<{ what: string; body: ExprIR | undefined; origin?: OriginRef }> {
@@ -93,7 +105,42 @@ export const UI_DETECTORS: Readonly<Record<RefusableUiConstruct, UiDetector>> = 
       what: `${u.where} (\`match await ${u.name}()\`)`,
       source: `${ui.name}/${u.where}`,
     })),
+  "return:payload-or-error@api-client": (ui, sys) => {
+    const out: ConstructUse[] = [];
+    for (const param of ui.apiParams) {
+      const api = sys.apis.find((a) => a.name === param.apiName);
+      const sd = api && sys.subdomains.find((x) => x.name === api.sourceModule);
+      for (const ctx of sd?.contexts ?? []) {
+        for (const agg of ctx.aggregates) {
+          for (const op of agg.operations) {
+            const arm = payloadSuccessArm(op.returnType, ctx, agg.name);
+            if (!arm) continue;
+            out.push({
+              what: `operation '${agg.name}.${op.name}' (returns \`${arm} or …\`) served to ui '${ui.name}'`,
+              source: `${ui.name}/${api!.name}.${agg.name}.${op.name}`,
+              origin: op.origin,
+            });
+          }
+        }
+      }
+    }
+    return out;
+  },
 };
+
+/** The success arm of a `<payload> or <error>` return, when that arm is a
+ *  declared non-error payload rather than the aggregate itself. */
+function payloadSuccessArm(
+  t: TypeIR | undefined,
+  ctx: BoundedContextIR,
+  aggName: string,
+): string | undefined {
+  if (t?.kind !== "union") return undefined;
+  const kindOf = (name: string) => ctx.payloads.find((p) => p.name === name)?.kind;
+  const named = t.variants.flatMap((v) => (v.kind === "entity" ? [v.name] : []));
+  if (!named.some((n) => kindOf(n) === "error")) return undefined;
+  return named.find((n) => n !== aggName && kindOf(n) !== undefined && kindOf(n) !== "error");
+}
 
 /** The `resource` bindings of a context whose kind and storage type satisfy
  *  `pick`, as uses.  `what` names the resource and the thing it binds. */
@@ -221,7 +268,201 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
   "storage:clickhouse@declaration": storageDeclarations("clickhouse"),
   "storage:bigquery@declaration": storageDeclarations("bigquery"),
   "storage:nats@declaration": storageDeclarations("nats"),
+  "publish:event-sourced@broker-channel": (ctx, sys) => {
+    const carried = brokerCarriedEvents(sys);
+    const out: ConstructUse[] = [];
+    for (const agg of ctx.aggregates) {
+      if (!aggregateIsEventSourced(agg)) continue;
+      const emitted = [...(agg.creates ?? []), ...agg.operations].flatMap((o) =>
+        emittedEvents(o.statements),
+      );
+      const event = emitted.find((e) => carried.has(e));
+      if (!event) continue;
+      out.push({
+        what: `event-sourced aggregate '${agg.name}' (emits '${event}', which a broker-bound channel carries)`,
+        source: `${ctx.name}/aggregate ${agg.name}`,
+        origin: agg.origin,
+      });
+    }
+    return out;
+  },
+  "tenancy:remote-registry@deployable": (ctx, sys, d) => {
+    const registry = sys.tenancy?.registryName;
+    if (!registry) return [];
+    const registryCtx = sys.subdomains
+      .flatMap((sd) => sd.contexts)
+      .find((c) => c.aggregates.some((a) => a.name === registry));
+    // Only a `tenantRegistry` tree has an org path to resolve; a flat registry
+    // is never read at request time.
+    const tree = registryCtx?.aggregates
+      .find((a) => a.name === registry)
+      ?.capabilities?.includes(TENANT_REGISTRY_CAPABILITY);
+    if (!registryCtx || !tree || d.contextNames.includes(registryCtx.name)) return [];
+    return ctx.aggregates
+      .filter((a) => a.capabilities?.includes("tenantOwned"))
+      .map((a) => ({
+        what: `tenant-owned aggregate '${a.name}' (its registry '${registry}' is hosted by another deployable)`,
+        source: `${ctx.name}/aggregate ${a.name}`,
+        origin: a.origin,
+      }));
+  },
+  "call:auth-required-api@resource": (ctx, sys) =>
+    resourceUses(ctx, sys, (ds) => {
+      if (ds.kind !== "api" || !ds.apiName) return undefined;
+      const callee = sys.deployables.find((x) => x.serves.includes(ds.apiName!));
+      return callee?.auth?.required
+        ? `kind: api, calls '${ds.apiName}' on auth-required deployable '${callee.name}'`
+        : undefined;
+    }),
+  "timer:broker-channel@deployable": (ctx, sys) => {
+    const carried = brokerCarriedEvents(sys);
+    return sys.timerSources
+      .filter((t) => t.context === ctx.name && carried.has(t.event))
+      .map((t) => ({
+        what: `timerSource '${t.name}' (its '${t.event}' rides a broker-bound channel)`,
+        source: `${sys.name}/${t.name}`,
+      }));
+  },
+  "read:wide-stance@tph-subtype": (ctx, sys) => {
+    const pool = sys.subdomains.flatMap((sd) => sd.contexts.flatMap((c) => c.aggregates));
+    const out: ConstructUse[] = [];
+    for (const rule of ctx.policyReadLevels ?? []) {
+      if (rule.level === "local") continue;
+      const agg = ctx.aggregates.find((a) => a.name === rule.aggregate);
+      const base = agg && baseOf(agg, pool);
+      if (!agg || !base?.capabilities?.includes("tenantOwned")) continue;
+      if ((agg.inheritanceUsing ?? base.inheritanceUsing ?? "sharedTable") !== "sharedTable")
+        continue;
+      out.push({
+        what: `\`allow ${rule.level} on ${agg.name}\` (a TPH subtype of tenant-owned base '${base.name}')`,
+        source: `${ctx.name}/policy ${rule.source}`,
+        origin: agg.origin,
+      });
+    }
+    return out;
+  },
+  "derived:reads-masked-field@aggregate": (ctx) => {
+    const out: ConstructUse[] = [];
+    for (const agg of ctx.aggregates) {
+      const masked = new Set(agg.fields.filter((f) => f.maskUnless).map((f) => f.name));
+      if (masked.size === 0) continue;
+      // The synthesized `inspect` derived is a log sink, not a wire field.
+      for (const der of agg.derived.filter((x) => x.name !== agg.inspectDerived?.name)) {
+        const field = ownFieldsRead(der.expr).find((n) => masked.has(n));
+        if (!field) continue;
+        out.push({
+          what: `derived '${agg.name}.${der.name}' (reads masked field '${field}')`,
+          source: `${ctx.name}/aggregate ${agg.name}.${der.name}`,
+          origin: agg.origin,
+        });
+      }
+    }
+    return out;
+  },
+  "criterion:reads-masked-field@context": (ctx) => {
+    const out: ConstructUse[] = [];
+    for (const crit of ctx.criteria) {
+      const target = crit.targetType.kind === "entity" ? crit.targetType.name : undefined;
+      const agg = ctx.aggregates.find((a) => a.name === target);
+      if (!agg) continue;
+      const masked = new Set(agg.fields.filter((f) => f.maskUnless).map((f) => f.name));
+      const field = ownFieldsRead(crit.body).find((n) => masked.has(n));
+      if (!field) continue;
+      out.push({
+        what: `criterion '${crit.name}' (filters on masked field '${agg.name}.${field}')`,
+        source: `${ctx.name}/criterion ${crit.name}`,
+      });
+    }
+    return out;
+  },
+  "field:valueobject-collection@entity-part": (ctx) => {
+    const out: ConstructUse[] = [];
+    for (const agg of ctx.aggregates) {
+      for (const part of agg.parts) {
+        for (const f of part.fields) {
+          const t = f.type.kind === "optional" ? f.type.inner : f.type;
+          if (t.kind !== "array" || t.element.kind !== "valueobject") continue;
+          out.push({
+            what: `entity part '${agg.name}.${part.name}' field '${f.name}' (a ${t.element.name}[] collection)`,
+            source: `${ctx.name}/aggregate ${agg.name}.${part.name}.${f.name}`,
+            origin: agg.origin,
+          });
+        }
+      }
+    }
+    return out;
+  },
+  "invariant:nested-valueobject@valueobject": (ctx) => {
+    const out: ConstructUse[] = [];
+    for (const vo of ctx.valueObjects) {
+      for (const f of vo.fields) {
+        const t = f.type.kind === "optional" ? f.type.inner : f.type;
+        if (t.kind !== "valueobject") continue;
+        const inner = findValueObjectInScope(ctx, t.name);
+        if (!inner || inner.invariants.length === 0) continue;
+        out.push({
+          what: `value object '${vo.name}' field '${f.name}' (a '${inner.name}', which declares an invariant)`,
+          source: `${ctx.name}/valueobject ${vo.name}.${f.name}`,
+        });
+      }
+    }
+    return out;
+  },
 };
+
+/** Every event a channel carries when some `channelSource` binds that channel
+ *  to a broker. */
+function brokerCarriedEvents(sys: SystemIR): ReadonlySet<string> {
+  const bound = new Set(sys.channelSources.map((cs) => cs.channelName.split(".").pop()));
+  const out = new Set<string>();
+  for (const sd of sys.subdomains) {
+    for (const c of sd.contexts) {
+      for (const ch of c.channels) if (bound.has(ch.name)) for (const e of ch.carries) out.add(e);
+    }
+  }
+  return out;
+}
+
+/** The events a statement list emits, at any depth. */
+function emittedEvents(stmts: readonly StmtIR[]): string[] {
+  const out: string[] = [];
+  for (const s of stmts) {
+    walkStmtsDeep(s, (x) => {
+      if (x.kind === "emit") out.push(x.eventName);
+    });
+  }
+  return out;
+}
+
+/** The own fields an expression reads, by name. */
+function ownFieldsRead(e: ExprIR): string[] {
+  const out: string[] = [];
+  walkExprDeep(e, (x) => {
+    if (x.kind === "ref" && x.refKind === "this-prop") out.push(x.name);
+    else if (x.kind === "member" && x.receiver.kind === "this") out.push(x.member);
+  });
+  return out;
+}
+
+/** Where each feature tuple meets on one aggregate of a hosted context.  The
+ *  pool is the whole system, so an inheritance atom sees a base declared in a
+ *  sibling context. */
+export function tupleUses(
+  tuple: FeatureTuple,
+  ctx: BoundedContextIR,
+  sys: SystemIR,
+): ConstructUse[] {
+  const pool = sys.subdomains.flatMap((sd) => sd.contexts.flatMap((c) => c.aggregates));
+  const hosted = new Set(ctx.aggregates);
+  const [a, b] = tupleFeatures(tuple);
+  return aggregatesWithTuple(tuple, pool)
+    .filter((agg) => hosted.has(agg))
+    .map((agg) => ({
+      what: `aggregate '${agg.name}' (\`${a}\` with \`${b}\`)`,
+      source: `${ctx.name}/aggregate ${agg.name}`,
+      origin: agg.origin,
+    }));
+}
 
 /** Constructs declared once per system rather than per context: a refusal is
  *  raised once however many backend deployables share the verdict. */
@@ -238,9 +479,15 @@ const SYSTEM_SCOPED: ReadonlySet<BackendConstruct> = new Set([
 export interface CapabilityLookup {
   ui(framework: string, construct: RefusableUiConstruct): CapabilityVerdict;
   backend(platform: Platform, construct: BackendConstruct): CapabilityVerdict | undefined;
+  /** Absent: no tuple is refused (a test lookup about constructs only). */
+  composition?(platform: Platform, tuple: FeatureTuple): CompositionVerdict | undefined;
 }
 
-const SHIPPED_TABLE: CapabilityLookup = { ui: uiCapability, backend: backendCapability };
+const SHIPPED_TABLE: CapabilityLookup = {
+  ui: uiCapability,
+  backend: backendCapability,
+  composition: compositionCapability,
+};
 
 /** Raise `loom.target-unsupported` for one use, worded by the row's reason.
  *  One literal catalog key per slug, so the catalog ratchet sees each
@@ -357,6 +604,28 @@ function refuse(
         use,
       );
       return;
+    case "feature-composition-broken":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#feature-composition-broken", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
+        use,
+      );
+      return;
+    case "feature-composition-unwitnessed":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#feature-composition-unwitnessed", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
+        use,
+      );
+      return;
     default: {
       const _exhaustive: never = slug;
       void _exhaustive;
@@ -397,7 +666,7 @@ export function validateTargetCapabilities(
       for (const ctxName of d.contextNames) {
         const ctx = ctxByName.get(ctxName);
         if (!ctx) continue;
-        for (const use of BACKEND_DETECTORS[construct](ctx, sys)) {
+        for (const use of BACKEND_DETECTORS[construct](ctx, sys, d)) {
           if (SYSTEM_SCOPED.has(construct)) {
             const key = `${construct}|${use.source}`;
             if (seen.has(key)) continue;
@@ -407,6 +676,15 @@ export function validateTargetCapabilities(
         }
       }
     }
+    for (const tuple of FEATURE_TUPLES) {
+      const v = lookup.composition?.(d.platform, tuple);
+      if (v?.verdict !== "refused") continue;
+      for (const ctxName of d.contextNames) {
+        const ctx = ctxByName.get(ctxName);
+        if (!ctx) continue;
+        for (const use of tupleUses(tuple, ctx, sys)) refuse(diags, v.slug, use, d, d.platform);
+      }
+    }
     // The adapter axis: a construct the backend's default adapter realizes
     // but this deployable's `persistence:` adapter does not yet.
     for (const r of ADAPTER_REFUSALS) {
@@ -414,7 +692,7 @@ export function validateTargetCapabilities(
       for (const ctxName of d.contextNames) {
         const ctx = ctxByName.get(ctxName);
         if (!ctx) continue;
-        for (const use of BACKEND_DETECTORS[r.construct](ctx, sys)) {
+        for (const use of BACKEND_DETECTORS[r.construct](ctx, sys, d)) {
           refuse(diags, r.verdict.slug, use, d, `${d.platform} (persistence: ${r.persistence})`);
         }
       }
