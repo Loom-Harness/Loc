@@ -158,7 +158,7 @@ import type { Model } from "../../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 // Hono-framework builders now live in this package (P2b) — siblings.
-import { emissionSink } from "../../../util/emission-sink.js";
+import { emissionSink, rewrite } from "../../../util/emission-sink.js";
 import { lowerFirst, plural } from "../../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
 import { emitApiClientModule } from "./adapters/api-client.js";
@@ -1688,7 +1688,7 @@ export function generateTypeScriptForContexts(
   // Deliberately root-only: no `include`, so vitest's DEFAULT include still
   // decides what runs and the set of tests `npm test` executes is unchanged.
   // The single job of this file is to stop the upward search.
-  out.set("vitest.config.ts", VITEST_CONFIG);
+  out.set("vitest.config.ts", renderVitestConfig(projectImportsDecimalJs));
   out.set(
     "index.ts",
     renderProjectIndexTs(
@@ -1733,6 +1733,19 @@ export function generateTypeScriptForContexts(
       system?.deployable.port ?? 3000,
     ),
   );
+  // Exact-`decimal` arithmetic precision: configured once at boot (and in the
+  // vitest setup) so every module's `Decimal` sees it.
+  if (projectImportsDecimalJs) {
+    out.set(DECIMAL_SETUP_PATH, DECIMAL_SETUP_TS);
+    rewrite(
+      out,
+      "index.ts",
+      (out.get("index.ts") as string).replace(
+        "// Auto-generated.\n",
+        `// Auto-generated.\nimport "./${DECIMAL_SETUP_PATH.replace(/\.ts$/, "")}";\n`,
+      ),
+    );
+  }
   if (!usingMikro) out.set("drizzle.config.ts", DRIZZLE_CONFIG);
   out.set("Dockerfile", renderDockerfileTs(hasMigrations));
   out.set(".dockerignore", DOCKERIGNORE_TS);
@@ -2017,7 +2030,21 @@ function projectTsconfigJson(debugImports: boolean): string {
   );
 }
 
-const VITEST_CONFIG = `// Auto-generated.  Pins the test root to THIS project so
+/** Significant digits `Decimal` computes with.  decimal.js defaults to 20, which
+ *  rounds a product/quotient that .NET (`decimal`, 28-29 digits) and Python
+ *  (`decimal` context, 28) keep exact; 28 is the floor all backends agree on. */
+const DECIMAL_PRECISION = 28;
+const DECIMAL_SETUP_PATH = "lib/decimal-setup.ts";
+const DECIMAL_SETUP_TS = `// Auto-generated.  Do not edit by hand.
+// decimal.js computes with 20 significant digits by default; the other
+// backends keep 28, so configure the shared Decimal constructor to match.
+import Decimal from "decimal.js";
+
+Decimal.set({ precision: ${DECIMAL_PRECISION} });
+`;
+
+function renderVitestConfig(withDecimalSetup: boolean): string {
+  return `// Auto-generated.  Pins the test root to THIS project so
 // vitest never walks up into an enclosing repo's config — without this file a
 // generated tree dropped inside such a repo ran zero of its own tests and still
 // exited 0.  No \`include\`: vitest's default globs decide what runs.
@@ -2026,10 +2053,13 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    root: fileURLToPath(new URL(".", import.meta.url)),
+    root: fileURLToPath(new URL(".", import.meta.url)),${
+      withDecimalSetup ? `\n    setupFiles: ["./${DECIMAL_SETUP_PATH}"],` : ""
+    }
   },
 });
 `;
+}
 
 const TSUP_CONFIG = `// Auto-generated.  tsup bundles index.ts → dist/index.js for
 // production.  Externals match runtime deps from package.json so
