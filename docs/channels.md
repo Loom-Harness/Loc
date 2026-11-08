@@ -257,6 +257,8 @@ the wiring validators (`loom.channelsource-unbound`,
 `loom.deployable-channel-unrelated`, `loom.channel-consumer-unwired`) gate the
 structural half.
 
+`loom.channel-consumer-unwired` also fires when the system declares no `channelSource` at all: a deployable that consumes a channel's events while the owning context runs on another deployable would never receive them (events only travel in-process).
+
 ## Event origin — the reactor's tenant across the outbox and the broker
 
 A reactor runs as the **system principal of its triggering event's tenant**
