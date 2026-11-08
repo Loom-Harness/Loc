@@ -388,7 +388,7 @@ function codedPreconditionTerm(
  *  non-operation call site: lifecycle gates, workflows, dispatch handlers) means
  *  "no request body to point into", so the answer is always false and those
  *  paths stay byte-identical. */
-export function deniesAtWire(s: GuardStmt, available: ReadonlySet<string> | undefined): boolean {
+function deniesAtWire(s: GuardStmt, available: ReadonlySet<string> | undefined): boolean {
   if (available === undefined) return false;
   if (s.kind !== "precondition") return false;
   return ruleStage({ expr: s.expr, source: s.source, message: s.message }, available) === "schema";
