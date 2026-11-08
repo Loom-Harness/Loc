@@ -73,10 +73,14 @@ jobs:
         with:
           version: 'v3.16.3'
 
+      # Fetched through the authenticated API: an anonymous release
+      # download from a runner IP can be throttled and answer an HTML page.
       - name: Install kubeconform
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          curl -sSL -o kubeconform.tar.gz \
-            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          gh release download v0.6.7 --repo yannh/kubeconform \
+            --pattern kubeconform-linux-amd64.tar.gz --output kubeconform.tar.gz
           tar xzf kubeconform.tar.gz kubeconform
           sudo mv kubeconform /usr/local/bin/
           kubeconform -v
