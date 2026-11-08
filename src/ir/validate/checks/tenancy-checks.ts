@@ -1,5 +1,6 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { platformFamily } from "../../../language/validators/data/platform-rules.js";
+import { remoteRegistryReaders } from "../../enrich/hosting-facts.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../types/loom-ir.js";
 import { isMaterializedProjection } from "../../types/loom-ir.js";
 import { canonicalCreate } from "../../util/canonical-lifecycle.js";
@@ -520,8 +521,33 @@ function validateFoldedProjectionTenancy(sys: SystemIR, diags: LoomDiagnostic[])
   }
 }
 
+/** `loom.tenancy-registry-remote-unsupported` — a backend deployable hosts a
+ *  context that depends on the registry's materialized path (a `tenantOwned`
+ *  aggregate stamps `dataKey := currentUser.orgPath`; any `orgPath` / `rootOrg`
+ *  / operating-scope read) but does not host the registry.  Its database has
+ *  no registry table, and no backend resolves the path across deployables, so
+ *  the rows it writes would be keyed by the bare claim and a `deep` read would
+ *  see only the caller's own org. */
+function validateRegistryHosting(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  for (const r of remoteRegistryReaders(sys)) {
+    diags.push({
+      severity: "error",
+      code: "loom.tenancy-registry-remote-unsupported",
+      message: diagMessage("loom.tenancy-registry-remote-unsupported", {
+        name: r.deployable.name,
+        context: r.context,
+        registry: sys.tenancy?.registryName,
+        registryContext: r.registryContext,
+      }),
+      source: `${sys.name}/${r.deployable.name}`,
+      origin: r.deployable.origin,
+    });
+  }
+}
+
 export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
   validateOrgContextGate(sys, diags);
+  validateRegistryHosting(sys, diags);
   validateTenantRegistry(sys, diags);
   validateRegistryConstructible(sys, diags);
   validatePolicyReadLevels(sys, diags);

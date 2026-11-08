@@ -588,6 +588,16 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "tenancy-owned", title: "first-class tenancy — `tenancy by` + tenantOwned + crossTenant", doc: "tenancy", backends: ALL },
   { id: "tenancy-hierarchy", title: "tenancy hierarchy — `implements tenantRegistry` + `policy` deep/global/local read ladder", doc: "tenancy", backends: ALL },
   {
+    id: "tenancy-registry-split",
+    title: "a hierarchy registry on one deployable, and an `auth: required` deployable beside it hosting only `crossTenant` data",
+    doc: "tenancy",
+    backends: ALL,
+    // Two services on purpose — the defect is only reachable on the deployable
+    // that does not host the registry.
+    deployables: ["orgs", "catalog"],
+    note: "Every backend emitted its `currentUser.orgPath` registry lookup on every `auth: required` deployable of a hierarchy system, whether or not that deployable hosted the registry: node selected `schema.orgs` (TS2339), .NET emitted `EfOrgPathResolver` over a missing `DbSet` (CS0246/CS1061), elixir called an undefined schema module (`--warnings-as-errors`), python ran `SELECT data_key FROM orgs` on a database without the table.  The lookup now keys on `hostedHierarchyRegistry` (`src/ir/enrich/hosting-facts.ts`); the compile tier is the oracle.  The tenant-owned half of the pair is refused (`loom.tenancy-registry-remote-unsupported`).",
+  },
+  {
     id: "org-context",
     title:
       "`organizationContext` — the operating-scope accessor re-rooting the tenantOwned write stamp, behind every backend's fail-closed `x-org-context` switch gate",

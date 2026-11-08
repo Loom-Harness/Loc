@@ -1,3 +1,4 @@
+import { hostedHierarchyRegistry } from "../../ir/enrich/hosting-facts.js";
 import { registryTableName } from "../../ir/enrich/storage-names.js";
 import {
   fieldFixedMessage,
@@ -53,7 +54,6 @@ import {
   resolveContextSchema,
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
-import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import {
   commandCreateEntryResult,
@@ -505,7 +505,11 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // for flat tenancy keeps the claim-copy.
   const orgPathRegistryTable = authRequired
     ? (() => {
-        const reg = hierarchyRegistry(args.sys);
+        // Only a deployable hosting the registry's context has its table.
+        const reg = hostedHierarchyRegistry(
+          args.sys,
+          args.contexts.map((c) => c.name),
+        );
         if (!reg) return undefined;
         const owning = args.contexts.find((c) => c.aggregates.some((a) => a.name === reg.name));
         const ds = owning

@@ -93,6 +93,10 @@ import {
 import { TsOutputMap } from "../../../generator/typescript/ts-output.js";
 import { T } from "../../../generator/typescript/ts-symbols.js";
 import { deriveEventSubscriptions, enrichLoomModel } from "../../../ir/enrich/enrichments.js";
+import {
+  brokerBoundChannelsCarrying,
+  hostedHierarchyRegistry,
+} from "../../../ir/enrich/hosting-facts.js";
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { anyRouteReadsIfMatch } from "../../../ir/enrich/version-check.js";
 import {
@@ -156,7 +160,6 @@ import {
   resolveContextSchema,
   resolveDataSourceConfig,
 } from "../../../ir/util/resolve-datasource.js";
-import { hierarchyRegistry } from "../../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
 import type { Model } from "../../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
@@ -1482,7 +1485,7 @@ export function generateTypeScriptForContexts(
   }
 
   if (authRequired && system?.sys) {
-    emitAuthFiles(system.sys, out);
+    emitAuthFiles(system.sys, system.deployable.contextNames, out);
   }
   // The OTel `service.name` resource attribute default — the deployable's
   // name (compose/k8s override it via OTEL_SERVICE_NAME per service).
@@ -1645,6 +1648,15 @@ export function generateTypeScriptForContexts(
   // hosted OR wired channel); a pure producer skips the loop and the
   // in-process dispatcher import.
   const hasChannelConsumers = hasChannels && merged.eventSubscriptions.some((s) => !s.projection);
+  // A tick whose channel this deployable binds to a broker is published
+  // through the tee like any other event, so a consumer on another deployable
+  // receives it; otherwise the scheduler keeps dispatching in-process.
+  const timerTicksOverBroker =
+    hasChannels &&
+    !!system &&
+    ownedTimers.some(
+      (ts) => brokerBoundChannelsCarrying(system.sys, system.deployable, ts.event).length > 0,
+    );
 
   const projectUsesMoney = contexts.some(contextUsesMoney);
   // `decimal.js` is also the exact-`decimal` arithmetic runtime (RS-37): a
@@ -1726,7 +1738,9 @@ export function generateTypeScriptForContexts(
       // tenancy.  The aggregate name (not the drizzle table var) is what
       // crosses the seam: each branch needs a different spelling of it (the
       // `orgs` schema var vs the `OrgRow` entity class).
-      authRequired && system ? hierarchyRegistry(system.sys)?.name : undefined,
+      authRequired && system
+        ? hostedHierarchyRegistry(system.sys, system.deployable.contextNames)?.name
+        : undefined,
       // Timer scheduler (scheduling.md, M-T4.1): boot wires startTimerScheduler
       // into the same in-process dispatcher the outbox relay uses.
       hasTimers,
@@ -1738,6 +1752,7 @@ export function generateTypeScriptForContexts(
       // A native run (`npm run dev`) listens on the deployable's declared
       // port; the image sets PORT to its container port.
       system?.deployable.port ?? 3000,
+      timerTicksOverBroker,
     ),
   );
   // Exact-`decimal` arithmetic precision: configured once at boot (and in the
@@ -2192,6 +2207,7 @@ function renderProjectIndexTs(
   hasChannels = false,
   hasChannelConsumers = false,
   nativePort = 3000,
+  timerTicksOverBroker = false,
 ): string {
   // Side-effect imports for the resource-client modules (objectStore /
   // queue / api) so their clients instantiate at boot.  Empty for
@@ -2378,7 +2394,11 @@ const stopOutboxRelay = ${T.startOutboxRelay}(db, ${T.channelPublishTee}(channel
     ? `// Timer sources (scheduling.md): infrastructure fires tick events on a
 // wall-clock cadence.  cron: timers run on pg-boss (durable, retried,
 // single-fire across replicas); every: timers run in-process.
-const stopTimers = await ${T.startTimerScheduler}(db, inProcessEvents);
+const stopTimers = await ${T.startTimerScheduler}(db, ${
+        timerTicksOverBroker
+          ? `${T.channelPublishTee}(channelTransports, inProcessEvents)`
+          : "inProcessEvents"
+      });
 `
     : ""
 }`

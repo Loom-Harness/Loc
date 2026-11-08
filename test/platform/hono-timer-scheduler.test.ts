@@ -115,4 +115,35 @@ describe("timerSource → Hono durable scheduler", () => {
     // The plain boot path — no shared dispatcher construction.
     expect(index).toContain("const app = createApp(db);");
   });
+
+  // A tick whose channel the timer's deployable binds to a broker must ride
+  // the publish tee: its only consumer lives on another deployable, behind the
+  // broker, and an in-process dispatch never reaches it.
+  it("publishes a broker-bound tick through the channel tee", async () => {
+    const src = `
+system T {
+  subdomain Up { context Clock {
+    aggregate Run with crudish { label: string }
+    repository Runs for Run { }
+    event Tick { run: Run id, at: datetime }
+    channel Ticks { carries: Tick } } }
+  subdomain Down { context Billing {
+    aggregate Cut with crudish { at: datetime }
+    repository Cuts for Cut { }
+    workflow OnTick { run: Run id  create(t: Tick) by t.run { let c = Cut.create(at: t.at) } } } }
+  storage pg { type: postgres }
+  storage bus { type: redis }
+  resource clockState { for: Clock, kind: state, use: pg }
+  resource billState { for: Billing, kind: state, use: pg }
+  timerSource t { for: Tick, every: 30s }
+  channelSource tb { for: Ticks, use: bus }
+  deployable up { platform: node contexts: [Clock] dataSources: [clockState] channels: [tb] port: 3000 }
+  deployable down { platform: node contexts: [Billing] dataSources: [billState] channels: [tb] port: 3001 }
+}`;
+    const files = await generateSystemFiles(src);
+    const index = [...files.entries()].find(([k]) => k.endsWith("up/index.ts"))?.[1] ?? "";
+    expect(index).toContain(
+      "const stopTimers = await startTimerScheduler(db, channelPublishTee(channelTransports, inProcessEvents));",
+    );
+  });
 });

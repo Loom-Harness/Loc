@@ -1,3 +1,4 @@
+import { hostedHierarchyRegistry } from "../../ir/enrich/hosting-facts.js";
 import type {
   AuthIR,
   AuthValueIR,
@@ -8,7 +9,6 @@ import type {
   UserIR,
 } from "../../ir/types/loom-ir.js";
 import { systemReadsOrgContext } from "../../ir/util/org-context.js";
-import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";
@@ -105,7 +105,10 @@ export function emitAuth(args: AuthEmitArgs): AuthEmitResult {
   // `@schema_prefix` + `:binary_id` cast) via the app `Repo`.  Without it (flat
   // tenancy), the claim-copy stands.  The plug is constructed once per
   // request, so the read is naturally memoized on `conn.assigns.current_user`.
-  const registry = hierarchyRegistry(sys);
+  // Only a deployable hosting the registry's context has its schema module and
+  // table; any other keeps the claim-copy (phase ⑦ refuses it when something it
+  // hosts reads the path).
+  const registry = hostedHierarchyRegistry(sys, deployable.contextNames);
   const orgPathRegistry =
     registry && sys.tenancy
       ? orgPathRegistryRef(sys, appModule, sys.tenancy.registryName)
@@ -240,25 +243,28 @@ function renderAuthPlug(
   # materialized \`data_key\`, read once per request from the tenant registry via
   # the app \`Repo\`.  The registry's Ecto schema module applies the schema prefix
   # and casts the pinned string claim against the \`:binary_id\` id column (the
-  # same cast the registry self-scope filter uses).  Fails safe to the raw claim
+  # same cast the registry self-scope filter uses).  Falls back to the raw claim
   # (the root-segment path) when the row / data_key is absent or the claim is
-  # malformed — never crashes the request.  It runs BEFORE the principal
+  # not a uuid.  A database error is not swallowed: it fails the request rather
+  # than silently scoping the caller to the bare claim.  It runs BEFORE the principal
   # exists, and reads exactly the row the registry's own self-scope admits
   # (\`id == claim\`), so it skips the read scope (\`skip_filters: :all\`) rather
   # than meeting a principal-bound clause with no principal.
   defp put_org_path(user), do: Map.put(user, :org_path, resolve_org_path(user[:${orgPathKey}]))
 
   defp resolve_org_path(claim) when is_binary(claim) and claim != "" do
-    try do
-      case ${orgPathRegistry.repoModule}.one(
-             from(o in ${orgPathRegistry.schemaModule}, where: o.id == ^claim, select: o.data_key),
-             skip_filters: :all
-           ) do
-        data_key when is_binary(data_key) and data_key != "" -> data_key
-        _ -> claim
-      end
-    rescue
-      _ -> claim
+    case Ecto.UUID.cast(claim) do
+      {:ok, id} ->
+        case ${orgPathRegistry.repoModule}.one(
+               from(o in ${orgPathRegistry.schemaModule}, where: o.id == ^id, select: o.data_key),
+               skip_filters: :all
+             ) do
+          data_key when is_binary(data_key) and data_key != "" -> data_key
+          _ -> claim
+        end
+
+      :error ->
+        claim
     end
   end
 

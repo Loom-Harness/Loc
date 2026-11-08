@@ -1,4 +1,5 @@
 import { deriveEventSubscriptions, enrichLoomModel } from "../../ir/enrich/enrichments.js";
+import { hostedHierarchyRegistry } from "../../ir/enrich/hosting-facts.js";
 import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { lowerModel } from "../../ir/lower/lower.js";
@@ -59,7 +60,6 @@ import {
   resolveContextSchema,
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
-import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import type { Model } from "../../language/generated/ast.js";
 import { apiRoutePrefix } from "../../util/api-base.js";
@@ -754,7 +754,13 @@ function emitProjectFromContexts(
     // The persistence adapter picks the `IOrgPathResolver` implementation the
     // hierarchy seam emits — the EF one references AppDbContext, which a
     // `persistence: dapper` project does not have.
-    emitAuthFiles(system.sys, ns, out, system.deployable.persistence === "dapper");
+    emitAuthFiles(
+      system.sys,
+      ns,
+      out,
+      system.deployable.persistence === "dapper",
+      system.deployable.contextNames,
+    );
   }
   // The principal's id property on the User record (PascalCased; the claim
   // named `id`, else the first field).  Drives the carrier's ActorId accessor
@@ -1211,7 +1217,11 @@ function emitProjectFromContexts(
     // `tenantRegistry` (a `dataKey` column), so Program.cs registers the scoped
     // `IOrgPathResolver` → `EfOrgPathResolver` the auth middleware calls to
     // materialize `currentUser.orgPath`.  Undefined (flat tenancy) ⇒ omitted.
-    orgPathResolver: !!(authRequired && system?.sys && hierarchyRegistry(system.sys)),
+    orgPathResolver: !!(
+      authRequired &&
+      system?.sys &&
+      hostedHierarchyRegistry(system.sys, system.deployable.contextNames)
+    ),
   });
   emitTestProject(merged, ns, out, resourceEmission.nugetDeps);
   // Fullstack mode — generate the React project under ClientApp/.

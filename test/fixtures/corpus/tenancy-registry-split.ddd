@@ -1,0 +1,55 @@
+// A hierarchy registry on one deployable, and an `auth: required` deployable
+// beside it that hosts only shared (`crossTenant`) data.
+//
+// `currentUser.orgPath` is the caller org's materialized `dataKey`, read from
+// the registry's table — which only the deployable hosting the registry's
+// context has.  The `catalog` deployable must therefore keep the claim-copy
+// `orgPath` and emit no registry lookup: a lookup there names a table (and on
+// node / .NET / elixir a schema symbol) its project does not have.  A
+// tenant-owned context on `catalog` would be refused instead
+// (`loom.tenancy-registry-remote-unsupported`).
+//
+// The deployable platform is substituted per leg (node/python/java/dotnet/elixir).
+system TenancyRegistrySplit {
+  user { id: string  tenantId: string }
+  tenancy by user.tenantId of Org
+
+  subdomain Net {
+    context Orgs {
+      aggregate Org with crudish {
+        name: string
+        implements tenantRegistry
+      }
+      repository Orgs for Org { }
+    }
+  }
+  subdomain Shop {
+    context Catalog {
+      aggregate Product crossTenant with crudish {
+        title: string
+      }
+      repository Products for Product { }
+    }
+  }
+  api NetApi from Net
+  api ShopApi from Shop
+  storage pg { type: postgres }
+  resource orgState { for: Orgs, kind: state, use: pg }
+  resource catalogState { for: Catalog, kind: state, use: pg }
+  deployable orgs {
+    platform: __PLATFORM__
+    contexts: [Orgs]
+    dataSources: [orgState]
+    serves: NetApi
+    auth: required
+    port: 3000
+  }
+  deployable catalog {
+    platform: __PLATFORM__
+    contexts: [Catalog]
+    dataSources: [catalogState]
+    serves: ShopApi
+    auth: required
+    port: 3001
+  }
+}

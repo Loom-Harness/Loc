@@ -530,6 +530,26 @@ const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
 };
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A tenant-owned context on a deployable that does not host the hierarchy
+  // registry: its database has no registry table to resolve `orgPath` from.
+  "loom.tenancy-registry-remote-unsupported": `
+system H {
+  user { id: string  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Net { context Orgs {
+    aggregate Org with crudish { name: string  implements tenantRegistry }
+    repository Orgs for Org { } } }
+  subdomain Shop { context Sales {
+    aggregate Sale with tenantOwned, crudish { label: string }
+    repository Sales for Sale { } } }
+  api NetApi from Net
+  api ShopApi from Shop
+  storage pg { type: postgres }
+  resource orgState { for: Orgs, kind: state, use: pg }
+  resource saleState { for: Sales, kind: state, use: pg }
+  deployable netSvc { platform: node contexts: [Orgs] dataSources: [orgState] serves: NetApi auth: required port: 3000 }
+  deployable shopSvc { platform: python contexts: [Sales] dataSources: [saleState] serves: ShopApi auth: required port: 3001 }
+}`,
   // A store field's default is evaluated when the store is created, so on the
   // JS-family store renderer it must be a constant: a call is refused.
   "loom.store-init-not-constant": `

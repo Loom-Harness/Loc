@@ -175,6 +175,19 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: false,
   },
   {
+    code: "loom.tenancy-registry-remote-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/tenancy-checks.ts:535",
+    what:
+      "a backend deployable hosting a context that reads the tenant hierarchy (a " +
+      "`tenantOwned` aggregate's `dataKey` stamp, or an `orgPath` / `rootOrg` / " +
+      "`organizationContext` read) without hosting the registry's context.  Its database has " +
+      "no registry table, and no backend resolves the caller org's path from another " +
+      "deployable yet.",
+    mission: "#4806",
+    verified: false,
+  },
+  {
     code: "loom.audited-backend-unsupported",
     kind: "seam",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:385",
