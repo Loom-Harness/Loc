@@ -1401,6 +1401,8 @@ export function generateTypeScriptForContexts(
       ...(!usingMikro && (system?.migrations?.length ?? 0) > 0
         ? { migrator: "../db/migrate" }
         : {}),
+      // The auth layer is emitted below under the same condition.
+      ...(authRequired && system?.sys?.user ? { user: system.sys.user.fields } : {}),
     });
     if (integrationTests) {
       out.set(`test/${lowerFirst(ctx.name)}.integration.test.ts`, integrationTests);
