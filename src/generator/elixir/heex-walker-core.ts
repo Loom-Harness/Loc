@@ -1,12 +1,14 @@
 // ---------------------------------------------------------------------------
 // HEEx walker core.
 //
-// Sibling of src/generator/react/body-walker.ts but emits HEEx for the
-// Phoenix LiveView platform.  Same input (`PageIR.body` expression IR),
-// different output language.  Follows the repo's existing per-platform
-// renderer pattern (cf. dotnet/render-expr.ts vs typescript/render-expr.ts
-// — neither delegates through a common interface; they coexist as
-// siblings).
+// Renders a page body (`PageIR.body` expression IR) as HEEx for the Phoenix
+// LiveView platform.  It is a separate engine from the shared walker core
+// (`src/generator/_walker/walker-core.ts`, `walkBody`) because LiveView's
+// output topology differs: lambdas hoist to `handle_event/3` clauses, lists
+// render as `for` comprehensions, and conditional children are `if` blocks.
+// Its expression leaves still ride the shared dispatcher —
+// `renderExprWith(…, HEEX_TARGET)` — so it carries no expression switch of its
+// own.
 //
 // What this walker produces, per page:
 //
@@ -14,17 +16,14 @@
 //   - A list of `handle_event/3` clauses derived from operation actions
 //     and block-body lambdas (`onSubmit`, `Action(op).then`).
 //
-// What this walker DOES NOT cover in v0:
-//
-//   - Full closed-primitive library (Form/Dashboard/Review/
-//     Tabs/Grid/Card/Toolbar/Heading/Text/Badge/Stat/
-//     Empty/Field/Toggle/Select/Fieldset/Action/Button).  v0 supports
-//     the structural set (Stack/Heading/Text/Card/Toolbar/Empty/
-//     Badge/Action/Button); the rest emit a HEEx comment with the
-//     primitive name so the gap is visible in generated output.
-//   - Field input mapping beyond the basics — page-new / page-detail
-//     templates handle the heavy lifting; this walker only renders
-//     custom-page bodies (PageIR.body without archetype).
+// Coverage.  Every page renders through here, scaffolded ones included (the
+// scaffold macros give each page its full body).  Every primitive that has a
+// TSX renderer has a HEEx renderer too, except `DataGrid`, which LiveView
+// refuses (a compile-time diagnostic, not a blank region);
+// `test/generator/elixir/heex-parity.test.ts` pins that set.  A construct the
+// walker still cannot render (a missing or unreadable primitive argument, an
+// unreachable reference) emits a `loom:unrendered [<code>]` HEEx comment via
+// `giveUpText`, naming the catalogued `loom.*` code.
 //
 // State seam:
 //   - Template position: `state.step`  → `@step`
