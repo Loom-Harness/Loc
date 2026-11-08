@@ -18,11 +18,11 @@ export default function CustomerNew() {
   return (
     <Stack gap="md" data-testid="customers-new-page">
       <Breadcrumbs>
-        <Anchor component={RouterLink} to="/">{t("page.New.anchor.n0mxf2", "Home")}</Anchor>
-        <Anchor component={RouterLink} to="/customers">{t("page.New.anchor.vweyym", "Customers")}</Anchor>
-        <Text>{t("page.New.text.2ludo1", "New")}</Text>
+        <Anchor component={RouterLink} to="/">{t("WebApp.page.New.anchor.n0mxf2", "Home")}</Anchor>
+        <Anchor component={RouterLink} to="/customers">{t("Customers.Customer.name.other", "Customers")}</Anchor>
+        <Text>{t("WebApp.page.New.text.2ludo1", "New")}</Text>
       </Breadcrumbs>
-      <Title order={2}>{t("page.New.heading.m0eqrn", "Create customer")}</Title>
+      <Title order={2}>{t("WebApp.page.New.heading.m0eqrn", "Create customer")}</Title>
       <Card withBorder padding="md">
         <form onSubmit={handleSubmit(async (vals) => {
                   try {
@@ -39,20 +39,20 @@ export default function CustomerNew() {
                   }
                 })} data-testid="customers-new">
           <Stack gap="md">
-            <TextInput label="Username" {...register("username")} data-testid="customers-new-input-username" error={errors.username?.message} />
+            <TextInput label={ t("Customers.Customer.field.username", "Username") } {...register("username")} data-testid="customers-new-input-username" error={errors.username?.message} />
     
-            <TextInput label="Email" {...register("email")} data-testid="customers-new-input-email" error={errors.email?.message} />
+            <TextInput label={ t("Customers.Customer.field.email", "Email") } {...register("email")} data-testid="customers-new-input-email" error={errors.email?.message} />
     
             <Controller
               control={control}
               name="age"
               render={({ field, fieldState }) => (
-                <NumberInput label="Age" data-testid="customers-new-input-age" allowDecimal={false} value={field.value as number | "" | undefined} onChange={(v) => field.onChange(typeof v === "number" ? v : Number(v) || 0)} error={fieldState.error?.message} />
+                <NumberInput label={ t("Customers.Customer.field.age", "Age") } data-testid="customers-new-input-age" allowDecimal={false} value={field.value as number | "" | undefined} onChange={(v) => field.onChange(typeof v === "number" ? v : Number(v) || 0)} error={fieldState.error?.message} />
               )}
             />
     
             <Group justify="flex-end" gap="xs" mt="md">
-              <Button type="submit" loading={ create.isPending } data-testid="customers-new-submit">Create</Button>
+              <Button type="submit" loading={ create.isPending } data-testid="customers-new-submit">{t("Customers.Customer.op.create", "Create")}</Button>
             </Group>
           </Stack>
         </form>

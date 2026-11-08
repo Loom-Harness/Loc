@@ -17,6 +17,7 @@ import {
   TRACE_COLLECTOR,
 } from "../generator/_obs/tracing.js";
 import { SourceMapRecorder } from "../generator/_trace/sourcemap.js";
+import { withSourceOverrides } from "../generator/_walker/source-text.js";
 import { E2E_FIXTURES_TS } from "../generator/react/emit-templates.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel } from "../ir/lower/lower.js";
@@ -31,6 +32,7 @@ import type {
   SystemIR,
   TypeIR,
 } from "../ir/types/loom-ir.js";
+import { sourceLocaleOf } from "../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../ir/types/migrations-ir.js";
 import { apiResourceBindings } from "../ir/util/api-resource-binding.js";
 import {
@@ -46,6 +48,7 @@ import { hasAdapters, resolveLayout, resolveStyle } from "../platform/resolve-ad
 import { AUTH_BASE_PATH } from "../util/api-base.js";
 import { type EmissionSink, emissionSink } from "../util/emission-sink.js";
 import { resourceEnvUrlVar, resourceSidecarUrl } from "../util/resource-env.js";
+import { serviceSlug } from "../util/service-slug.js";
 import { renderAsyncApi } from "./asyncapi.js";
 import { renderDataSourcesMd } from "./datasources.js";
 import { type DevIdpTokenSource, renderE2EFile } from "./e2e-render.js";
@@ -135,6 +138,13 @@ export interface GenerateSystemOptions {
    *  chain yet: every owning module then gets one initial migration derived
    *  from the model, with nothing to drift from.  See docs/migrations.md. */
   migrationChain?: MigrationChain;
+  /** What a model that has moved past `migrationChain`'s head does.
+   *  `"refuse"` (the default, and the CLI's behaviour) throws a
+   *  `MigrationDriftError`.  `"render-chain"` renders the recorded chain as
+   *  it stands, so the migration files lack the unrecorded change: the
+   *  playground uses it because it gates its database on the unrecorded
+   *  change instead of refusing to generate. */
+  unrecordedChanges?: "refuse" | "render-chain";
   /** `--sourcemap` switch — when true, additionally emit
    *  `.loom/sourcemap.json` mapping generated file regions back to the
    *  `.ddd` spans (or macro-call sites) that produced them.  Off by
@@ -179,6 +189,11 @@ export interface GenerateSystemOptions {
    *  `ddd i18n` subcommand uses) and the playground supplies its own.  Absent
    *  / empty is the normal case and emits byte-identically to before. */
   translations?: ReadonlyMap<string, Record<string, string>>;
+  /** Source-language text overrides from the translator tree's
+   *  `locales/<source>/<ns>.json` files, keyed by runtime key.  An override
+   *  replaces the text derived from the model in every emitted default and
+   *  source catalog (`sourceText`).  Absent / empty emits the derived text. */
+  sourceOverrides?: ReadonlyMap<string, string>;
 }
 
 export function generateSystems(model: Model, options: GenerateSystemOptions = {}): SystemEmission {
@@ -207,17 +222,20 @@ export function generateSystemsFromLoom(
   const recorder = options.sourcemap ? SourceMapRecorder.create() : undefined;
   // Every system's phase-⑨ advisories, folded into one list on the emission.
   const migrationWarnings: MigrationWarning[] = [];
-  for (const sys of loom.systems) {
-    emitSystem(sys, loom, out, {
-      emitTrace: options.emitTrace,
-      emitKubernetes: options.emitKubernetes,
-      migrationChain: options.migrationChain,
-      collectMigrationWarnings: migrationWarnings,
-      sourcemap: recorder,
-      sourceTexts: options.sourceTexts,
-      translations: options.translations,
-    });
-  }
+  withSourceOverrides(options.sourceOverrides, () => {
+    for (const sys of loom.systems) {
+      emitSystem(sys, loom, out, {
+        emitTrace: options.emitTrace,
+        emitKubernetes: options.emitKubernetes,
+        migrationChain: options.migrationChain,
+        unrecordedChanges: options.unrecordedChanges,
+        collectMigrationWarnings: migrationWarnings,
+        sourcemap: recorder,
+        sourceTexts: options.sourceTexts,
+        translations: options.translations,
+      });
+    }
+  });
   // Traceability artifacts — model-global (requirements may
   // reference code across systems), so emitted once at the output root
   // rather than per system.  No-op when the source declares no
@@ -302,6 +320,7 @@ function emitSystem(
     emitTrace?: boolean;
     emitKubernetes?: boolean;
     migrationChain?: MigrationChain;
+    unrecordedChanges?: "refuse" | "render-chain";
     /** Sink for the derivation's non-fatal diagnostics, folded into
      *  `SystemEmission.migrationWarnings`. */
     collectMigrationWarnings?: MigrationWarning[];
@@ -397,7 +416,7 @@ function emitSystem(
   // extracted from the system's UIs, keyed by content-hash (D-I18N-KEY).  The
   // diff surface `ddd i18n sync` merges each locale against.  See
   // `i18n-catalog.ts` and https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/i18n.md.
-  out.set(".loom/messages.en.json", renderMessageCatalog(sys));
+  out.set(`.loom/messages.${sourceLocaleOf(sys)}.json`, renderMessageCatalog(sys));
   // Mermaid views of the IR — a domain class diagram and a per-workflow
   // call flowchart.  The playground previews them inline; GitHub renders
   // them in fences.  See `mermaid.ts`.
@@ -672,6 +691,7 @@ function systemMigrations(
   loom: EnrichedLoomModel,
   options: {
     migrationChain?: MigrationChain;
+    unrecordedChanges?: "refuse" | "render-chain";
     collectMigrationWarnings?: MigrationWarning[];
   },
 ): MigrationsIR[] {
@@ -692,7 +712,9 @@ function systemMigrations(
     allowDestructive: true,
   });
   const drifted = drift.filter((d) => d.steps.length > 0).map((d) => d.module);
-  if (drifted.length > 0) throw new MigrationDriftError(drifted);
+  if (drifted.length > 0 && options.unrecordedChanges !== "render-chain") {
+    throw new MigrationDriftError(drifted);
+  }
   const owned = new Set(sys.subdomains.filter((m) => m.migrationsOwner).map((m) => m.name));
   return chainMigrations(chain).filter((m) => owned.has(m.module));
 }
@@ -727,16 +749,7 @@ function frontendOrigins(sys: SystemIR): string[] {
     .map((f) => `http://localhost:${f.port}`);
 }
 
-/** The compose-safe service slug of a deployable name.  Exported because it
- *  is also the exact suffix set an api-e2e vitest title can carry
- *  (` against <serviceSlug>`, appended by `e2e-render.ts`), which `ddd verify`
- *  needs to undo the suffix when joining results onto the requirements graph
- *  — see `src/verify/verification.ts`.  Note it is NOT `naming.snake`: that
- *  splits consecutive capitals too (`APIGateway` → `api_gateway`, where this
- *  gives `apigateway`). */
-export function serviceSlug(name: string): string {
-  return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
-}
+export { serviceSlug };
 
 // ---------------------------------------------------------------------------
 // docker-compose.yml

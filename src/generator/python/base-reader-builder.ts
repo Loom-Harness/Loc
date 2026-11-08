@@ -97,18 +97,22 @@ export function buildPyBaseUnionFile(
   );
 }
 
-/** Read-only `<Base>Repository` — `find_by_id`, `all` and `find_page` over the
- *  hierarchy, returning the union, plus its tagged `to_wire`. */
+/** Read-only `<Base>Repository` — `find_by_id` and `all` over the hierarchy,
+ *  returning the union, plus its tagged `to_wire`.  `find_page` exists only
+ *  for its one caller, the `GET /<bases>` route, so it (and with it the
+ *  `app.domain.paging` import) is rendered exactly when `routesPolymorphicRead`
+ *  holds — the same predicate that decides whether `paging.py` is emitted. */
 export function buildPyBaseReaderFile(
   base: EnrichedAggregateIR,
   concretes: EnrichedAggregateIR[],
   ctx: EnrichedBoundedContextIR,
 ): string {
   const read = polymorphicReadFor(base, ctx.aggregates);
+  const paged = routesPolymorphicRead(base, ctx);
   const body =
     read && isTphBase(base, ctx.aggregates)
-      ? tphReader(base, read)
-      : tpcReader(base, concretes, read);
+      ? tphReader(base, read, paged)
+      : tpcReader(base, concretes, read, paged);
   return lines(
     `"""Read-only polymorphic ${base.name} reader.  Auto-generated."""`,
     "",
@@ -155,7 +159,7 @@ function toWireLines(base: EnrichedAggregateIR, read: PolymorphicRead | undefine
   ];
 }
 
-function tphReader(base: EnrichedAggregateIR, read: PolymorphicRead): string {
+function tphReader(base: EnrichedAggregateIR, read: PolymorphicRead, paged: boolean): string {
   const row = schemaRow(rowClassName(base.name));
   const order = read.order.map((t) => `${row}.${snake(t.field)}.${t.direction}()`).join(", ");
   return lines(
@@ -172,15 +176,19 @@ function tphReader(base: EnrichedAggregateIR, read: PolymorphicRead): string {
     `    async def all(self) -> list[${aggRef(base)}]:`,
     `        rows = (await self._session.execute(${R.select}(${row}).order_by(${order}))).scalars().all()`,
     "        return [await self._hydrate(row) for row in rows]",
-    "",
-    `    async def find_page(self, page: int, page_size: int) -> ${R.PagedResult}[${aggRef(base)}]:`,
-    "        offset = (page - 1) * page_size",
-    `        total = (await self._session.execute(${R.select}(${R.func}.count()).select_from(${row}))).scalar_one()`,
-    "        rows = (",
-    `            await self._session.execute(${R.select}(${row}).order_by(${order}).limit(page_size).offset(offset))`,
-    "        ).scalars().all()",
-    "        items = [await self._hydrate(row) for row in rows]",
-    ...pagedResultLines(),
+    ...(paged
+      ? [
+          "",
+          `    async def find_page(self, page: int, page_size: int) -> ${R.PagedResult}[${aggRef(base)}]:`,
+          "        offset = (page - 1) * page_size",
+          `        total = (await self._session.execute(${R.select}(${R.func}.count()).select_from(${row}))).scalar_one()`,
+          "        rows = (",
+          `            await self._session.execute(${R.select}(${row}).order_by(${order}).limit(page_size).offset(offset))`,
+          "        ).scalars().all()",
+          "        items = [await self._hydrate(row) for row in rows]",
+          ...pagedResultLines(),
+        ]
+      : []),
     ...toWireLines(base, read),
     "",
     // Each row is already its concrete's mapped subclass; its concrete
@@ -198,6 +206,7 @@ function tpcReader(
   base: EnrichedAggregateIR,
   concretes: EnrichedAggregateIR[],
   read: PolymorphicRead | undefined,
+  paged: boolean,
 ): string {
   return lines(
     ...readerHead(base),
@@ -216,7 +225,7 @@ function tpcReader(
     `        out: list[${aggRef(base)}] = []`,
     ...concretes.map((c) => `        out.extend(await ${repoCall(c.name)}.all())`),
     "        return sorted(out, key=lambda item: str(item.id))",
-    ...(read
+    ...(paged
       ? [
           "",
           `    async def find_page(self, page: int, page_size: int) -> ${R.PagedResult}[${aggRef(base)}]:`,

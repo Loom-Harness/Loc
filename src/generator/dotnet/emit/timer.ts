@@ -23,6 +23,7 @@
 import type { EventIR, FieldIR, TimerSourceIR } from "../../../ir/types/loom-ir.js";
 import { upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
+import { CS } from "../cs-symbols.js";
 
 /** Stable per-timer advisory-lock key — an FNV-1a hash of the timerSource name
  *  into a signed 32-bit int, IDENTICAL to the Hono `timerLockKey` derivation so
@@ -153,7 +154,11 @@ public sealed class ${cls}
 
 /** Render one `<Pascal>TimerService : BackgroundService` for an `every:` timer.
  *  Unchanged from: PeriodicTimer + transaction-scoped advisory lock. */
-function renderEveryService(ts: TimerSourceIR, eventByName: Map<string, EventIR>): string {
+function renderEveryService(
+  ts: TimerSourceIR,
+  eventByName: Map<string, EventIR>,
+  usingDapper: boolean,
+): string {
   const cls = `${upperFirst(ts.name)}TimerService`;
   const lockKey = timerLockKey(ts.name);
   const struct = tickStruct(eventByName.get(ts.event), ts.event);
@@ -170,6 +175,29 @@ function renderEveryService(ts: TimerSourceIR, eventByName: Map<string, EventIR>
     { name: "error", valueExpr: "ex.Message" },
   ]);
   const everyMs = ts.cadence.kind === "every" ? ts.cadence.everyMs : 0;
+  // The tick's single-fire lock rides the persistence adapter's own connection:
+  // the EF `AppDbContext.Database`, or the Dapper path's `NpgsqlDataSource`.
+  const lockBlock = usingDapper
+    ? `            var db = scope.ServiceProvider.GetRequiredService<${CS.NpgsqlDataSource}>();
+            var events = scope.ServiceProvider.GetRequiredService<IDomainEventDispatcher>();
+            // TRANSACTION-SCOPED advisory lock: held on the tx's single pinned
+            // connection and released automatically on commit (no unlock to leak
+            // onto a different pooled connection).  Non-blocking: a peer replica's
+            // concurrent tick fails the try and skips.
+            await using var conn = await db.OpenConnectionAsync(cancellationToken);
+            await using var tx = await conn.BeginTransactionAsync(cancellationToken);
+            await using var lockCmd = new ${CS.NpgsqlCommand}("SELECT pg_try_advisory_xact_lock(${lockKey})", conn, tx);
+            var locked = (bool)(await lockCmd.ExecuteScalarAsync(cancellationToken))!;`
+    : `            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var events = scope.ServiceProvider.GetRequiredService<IDomainEventDispatcher>();
+            // TRANSACTION-SCOPED advisory lock: held on the tx's single pinned
+            // connection and released automatically on commit (no unlock to leak
+            // onto a different pooled connection).  Non-blocking: a peer replica's
+            // concurrent tick fails the try and skips.
+            await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
+            var locked = await db.Database
+                ${CS.EfCore}.SqlQuery<bool>($"SELECT pg_try_advisory_xact_lock({LockKey}) AS \\"Value\\"")
+                .SingleAsync(cancellationToken);`;
 
   return `/// <summary>timerSource ${ts.name} { for: ${ts.event}, every: ${everyMs}ms } —
 /// in-process PeriodicTimer; single-fire across replicas via a transaction-scoped
@@ -213,16 +241,7 @@ public sealed class ${cls} : BackgroundService
         try
         {
             await using var scope = _scopes.CreateAsyncScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var events = scope.ServiceProvider.GetRequiredService<IDomainEventDispatcher>();
-            // TRANSACTION-SCOPED advisory lock: held on the tx's single pinned
-            // connection and released automatically on commit (no unlock to leak
-            // onto a different pooled connection).  Non-blocking: a peer replica's
-            // concurrent tick fails the try and skips.
-            await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
-            var locked = await db.Database
-                .SqlQuery<bool>($"SELECT pg_try_advisory_xact_lock({LockKey}) AS \\"Value\\"")
-                .SingleAsync(cancellationToken);
+${lockBlock}
             if (!locked)
             {
                 ${contendedLog}
@@ -256,19 +275,19 @@ export function renderTimerScheduler(
   timers: readonly TimerSourceIR[],
   eventByName: Map<string, EventIR>,
   ns: string,
+  usingDapper = false,
 ): string {
   const jobs = cronTimers(timers)
     .map((ts) => renderCronJob(ts, eventByName))
     .join("\n\n");
   const services = everyTimers(timers)
-    .map((ts) => renderEveryService(ts, eventByName))
+    .map((ts) => renderEveryService(ts, eventByName, usingDapper))
     .join("\n\n");
 
   return `// Auto-generated — emitted only when this deployable owns timerSources (scheduling.md).
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;

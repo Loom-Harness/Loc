@@ -1,3 +1,6 @@
+import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
+import type { AggPool } from "../../../ir/util/inheritance.js";
+import { streamOriginFrameLines, streamScopePredicate, streamScopeWhere } from "./event-store.js";
 // ---------------------------------------------------------------------------
 // dapper — minimal-real persistence emitters for the .NET backend
 // (D-REALIZATION-AXES).  An ALTERNATE persistence implementation
@@ -20,6 +23,8 @@
 // `text` (`.ToString()` / `Enum.Parse`).
 // ---------------------------------------------------------------------------
 
+import { readSortFor } from "../../../ir/enrich/read-scope.js";
+import { aggregateTableName, partTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -28,7 +33,6 @@ import type {
   EntityPartIR,
   ExprIR,
   FieldIR,
-  IdValueType,
   ParamIR,
   PrimitiveName,
   RepositoryIR,
@@ -54,7 +58,7 @@ import { lines } from "../../../util/code-builder.js";
 import { rewrite } from "../../../util/emission-sink.js";
 import { intrinsicFor, intrinsicKey } from "../../../util/intrinsics.js";
 import { escapeCsharpIdent, plural, snake, upperFirst } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
+import { ROW_VERSION_COLUMN, ROW_VERSION_PASCAL } from "../../../util/row-version.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
 import { renderPrincipalTest } from "../../_expr/principal-term.js";
@@ -77,9 +81,10 @@ import {
   buildDapperScope,
   csSqlInterpolated,
   csSqlLiteral,
-  documentReadPredicates,
+  documentReadTerms,
 } from "./dapper-scope.js";
 import { DAPPER_BEGIN_TX, DAPPER_COMMIT_TX, dapperOpenConn } from "./dapper-session.js";
+import { documentFindCapFilter } from "./document-cap-filter.js";
 import { csClaimStampsFor } from "./entity.js";
 import {
   inMemoryFilter,
@@ -156,35 +161,10 @@ export function sqlIdent(name: string): string {
   return isReservedIdent(name) ? `\\"${name}\\"` : name;
 }
 
-/** Postgres table for an aggregate — lowercase plural (e.g. `orders`).  BARE:
- *  callers quote it at the SQL position with `sqlIdent`, because the same
- *  string also seeds derived names (a `CREATE INDEX` name) where a quote would
- *  be wrong. */
-const tableOf = (aggName: string): string => tableNameFor(aggName);
-
-/** The state table an aggregate's rows live in — the SAME derivation the
- *  repositories and the DDL use, exported so the OTHER raw-Npgsql readers
- *  (the query-time projection handlers, which query the table directly rather
- *  than through a repository) name the identical table.  Pass the TPH BASE
- *  name for a `sharedTable` concrete: it has no table of its own. */
-export function dapperAggregateTable(aggName: string): string {
-  return tableOf(aggName);
-}
-
-/** SQL + C# row type for an id value type.  The SQL type is the `Codec` fact's
+/** SQL + C# row type of an id (a guid).  The SQL type is the `Codec` fact's
  *  id column. */
-export function idTypes(vt: IdValueType): { sql: string; cs: string } {
-  const sql = csIdSqlType(vt);
-  switch (vt) {
-    case "int":
-      return { sql, cs: "int" };
-    case "long":
-      return { sql, cs: "long" };
-    case "string":
-      return { sql, cs: "string" };
-    default:
-      return { sql, cs: "Guid" };
-  }
+export function idTypes(): { sql: string; cs: string } {
+  return { sql: csIdSqlType(), cs: "Guid" };
 }
 
 /** The C# row type of a primitive column. */
@@ -241,7 +221,7 @@ function unwrapOptional(t: TypeIR): { type: TypeIR; nullable: boolean } {
  *  id struct the hydrate mints; it defaults to `<Agg>Id` but a TPH concrete
  *  passes its shared base's `<Base>Id` (the concrete declares no id of its own). */
 function idColumn(agg: EnrichedAggregateIR, idClass = `${agg.name}Id`): DapperColumn {
-  const { sql, cs } = idTypes(agg.idValueType);
+  const { sql, cs } = idTypes();
   return {
     col: "id",
     sql,
@@ -324,7 +304,7 @@ export function fieldColumn(f: FieldIR, accBase = "aggregate"): DapperColumn {
           : `System.Text.Json.JsonSerializer.Deserialize<${type.name}>(r.${escapeCsharpIdent(col)})!`,
       };
     case "id": {
-      const { sql, cs } = idTypes(type.valueType);
+      const { sql, cs } = idTypes();
       return {
         col,
         sql,
@@ -533,7 +513,6 @@ function partChildrenOf(agg: EnrichedAggregateIR, ownerName: string = agg.name):
   const buildLevel = (
     containments: readonly ContainmentIR[],
     fkOwner: string,
-    fkOwnerIdVt: IdValueType,
     parentEntityId: string,
   ): PartChild[] =>
     containments.map((cont): PartChild => {
@@ -542,23 +521,23 @@ function partChildrenOf(agg: EnrichedAggregateIR, ownerName: string = agg.name):
       return {
         cont,
         part,
-        table: tableNameFor(part.name),
+        table: partTableName(part),
         fkOwner,
         parentFk: `${snake(fkOwner)}_id`,
         parentEntityId,
-        parentIdCs: idTypes(fkOwnerIdVt).cs,
-        partIdCs: idTypes(part.parentIdValueType).cs,
-        parentIdSql: idTypes(fkOwnerIdVt).sql,
-        partIdSql: idTypes(part.parentIdValueType).sql,
+        parentIdCs: idTypes().cs,
+        partIdCs: idTypes().cs,
+        parentIdSql: idTypes().sql,
+        partIdSql: idTypes().sql,
         childVar,
         fieldCols: part.fields.map((f) => fieldColumn(f, childVar)),
         // A nested part FKs its DIRECT parent (this part), for both the storage
         // FK and the `State.ParentId` type — so `fkOwner === parentEntityId`
         // below (the TPH split only ever applies at the root level).
-        children: buildLevel(part.contains ?? [], part.name, part.parentIdValueType, part.name),
+        children: buildLevel(part.contains ?? [], part.name, part.name),
       };
     });
-  return buildLevel(agg.contains ?? [], ownerName, agg.idValueType, agg.name);
+  return buildLevel(agg.contains ?? [], ownerName, agg.name);
 }
 
 /** Flatten the containment tree to every part table (pre-order) — the schema,
@@ -700,8 +679,9 @@ function containmentMembers(
 }
 
 // ---------------------------------------------------------------------------
-// find `where` → SQL.  Minimal subset; throws on anything unsupported so the
-// caller can emit a compile-safe `NotImplementedException` body.
+// find `where` → SQL — every shape the IR queryable gate admits.  Anything
+// else throws `QueryEmissionRefusal` (`loom.query-emission-invalid`): reaching
+// it is a validator gap, so it fails generation rather than shipping a stub.
 // ---------------------------------------------------------------------------
 
 const SQL_BINOP: Record<string, string> = {
@@ -781,7 +761,7 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
       // A5 temporal — `datetime ± days/hours/minutes(n)` is not a comparison,
       // so it has no `SQL_BINOP` row; it is Postgres interval arithmetic and
       // must be recognised BEFORE the operator lookup, which would otherwise
-      // reject the `+` and hand the caller a NotImplementedException body.
+      // refuse the `+`.
       const interval = temporalInterval(e);
       if (interval) {
         const side = whereToSql(interval.operand, sqlCtx);
@@ -869,17 +849,10 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
     case "member":
       // `this.<field>` → column.
       if (e.receiver.kind === "this") return sqlIdent(snake(e.member));
-      // `this.<vo>.<sub>` → the FLATTENED column the schema gives a value
-      // object's sub-property (`flags.active` → `flags_active`), the same
-      // spelling `columnsForType` emits and the drizzle / EF / JPA / SQLAlchemy
-      // twins target.  Without this arm every predicate touching a value
-      // object — a comparison as much as a bare boolean — fell through to the
-      // refusal below, and `renderDapperRepository` turned that into a
-      // `NotImplementedException` STUB BODY: a repository method that compiles,
-      // ships, and throws the first time the endpoint is called.  Measured in
-      // wave C2 packet 2n on `this.flags.label == "x"`, `this.flags.active` and
-      // `!this.flags.active`, which is also why the register's
-      // `DAPPER_SUBSET = FULL_SUBSET` claim was wrong.
+      // `this.<vo>.<sub>` → the value object's leaf, read out of its jsonb
+      // column (`voLeafSql`).  The gate admits a value-object leaf in every
+      // predicate position — a comparison as much as a bare boolean
+      // (`this.flags.active`, `!this.flags.active`).
       if (e.receiver.kind === "member" && e.receiver.receiver.kind === "this")
         return voLeafSql(snake(e.receiver.member), e.member, e.memberType);
       // `currentUser.<claim>` → a Dapper named parameter bound from the ambient
@@ -954,15 +927,16 @@ function stripOptional(t: TypeIR): TypeIR {
  *  and arithmetic behave as over a real column.  (It used to name the
  *  flattened `<vo>_<leaf>` column the OTHER backends store — a `column does
  *  not exist` 500 on the first call; the defect #3080 fixed for the
- *  projection aggregates.)  An enum leaf is refused: default System.Text.Json
- *  writes it as its ORDINAL, which neither an enum literal nor an enum
- *  parameter (bound by name) can be compared against. */
+ *  projection aggregates.)  An enum leaf is its member NAME as text: the value
+ *  object's enum properties carry a `JsonStringEnumConverter` (enums-vos.ts),
+ *  so it compares against an enum literal (`'A'`) and an enum parameter (bound
+ *  by name) exactly as an enum column does. */
 function voLeafSql(voColumn: string, leaf: string, leafType: TypeIR): string {
   const inner = stripOptional(leafType);
   const col = sqlIdent(voColumn);
   const key = upperFirst(leaf);
   if (inner.kind === "id") {
-    const cast = idTypes(inner.valueType).sql;
+    const cast = idTypes().sql;
     const extract = `${col}->'${key}'->>'Value'`;
     return cast === csSqlType("string") ? `(${extract})` : `(${extract})::${cast}`;
   }
@@ -973,6 +947,7 @@ function voLeafSql(voColumn: string, leaf: string, leafType: TypeIR): string {
       ? `(${extract})`
       : `(${extract})::${cast}`;
   }
+  if (inner.kind === "enum") return `(${col}->>'${key}')`;
   return refuseOutOfVocabulary("sql-dapper", `value-object leaf of kind '${inner.kind}' in find`);
 }
 
@@ -1351,7 +1326,7 @@ export function renderDapperRepository(
     (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
   );
   const idClass = tph ? `${tph.baseName}Id` : `${agg.name}Id`;
-  const table = sqlIdent(tableOf(tph ? tph.baseName : agg.name));
+  const table = sqlIdent(aggregateTableName(agg, pool));
   const sqlCtx: WhereSqlCtx = { agg, table };
   // The read scope: ONE generated `<Agg>Scope` helper holds the `kind` scope and
   // every capability / tenancy / deny predicate; each statement below splices a
@@ -1427,7 +1402,7 @@ export function renderDapperRepository(
   // ONLY when the row's current version matches the expected version (the
   // client's `If-Match`, or the loaded aggregate's own version) — a CAS in the
   // conflict branch's `WHERE`.  A stale row / stale precondition makes the
-  // UPDATE match zero rows, so `ExecuteAsync` returns 0 and we throw
+  // UPDATE match zero rows, so `RETURNING version` yields no row and we throw
   // `ConcurrencyConflictException` (→ 409 via DomainExceptionFilter's Dapper
   // arm) — the persistence-neutral mirror of EF's `IsConcurrencyToken()` +
   // `DbUpdateConcurrencyException`.  The expected version is read from the
@@ -1437,7 +1412,7 @@ export function renderDapperRepository(
   // unchanged.  A non-versioned aggregate keeps the blind upsert below
   // (byte-identical).
   const versioned = rowVersionGuarded(agg);
-  const versionCol = "version";
+  const versionCol = ROW_VERSION_COLUMN;
   const upsertSetNoVersion = cols
     .filter((c) => c.col !== "id" && c.col !== versionCol && !onCreateCols.has(c.col))
     .map((c) => `${sqlIdent(c.col)} = excluded.${sqlIdent(c.col)}`)
@@ -1479,9 +1454,14 @@ export function renderDapperRepository(
     ? [
         `        ${dapperOpenConn(ns)}`,
         `        ${DAPPER_BEGIN_TX}`,
-        "        var __expected = expectedVersion ?? aggregate.Version;",
-        `        var __affected = await conn.ExecuteAsync(new CommandDefinition(${csSqlLiteral(`INSERT INTO ${table} (${insertColList}) VALUES (${versionedInsertValsTph}) ON CONFLICT (id) DO UPDATE SET ${versionedSetClause} WHERE ${table}.${versionCol} = @ExpectedVersion${tph ? ` AND ${scope.writeKindOn(table)}` : ""}`)}, new { ${saveParams}, ExpectedVersion = __expected }, transaction: __tx, cancellationToken: cancellationToken));`,
-        `        if (__affected == 0) throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
+        `        var __expected = expectedVersion ?? aggregate.${ROW_VERSION_PASCAL};`,
+        `        var __written = await conn.ExecuteScalarAsync<int?>(new CommandDefinition(${csSqlLiteral(`INSERT INTO ${table} (${insertColList}) VALUES (${versionedInsertValsTph}) ON CONFLICT (id) DO UPDATE SET ${versionedSetClause} WHERE ${table}.${versionCol} = @ExpectedVersion${tph ? ` AND ${scope.writeKindOn(table)}` : ""} RETURNING ${versionCol}`)}, new { ${saveParams}, ExpectedVersion = __expected }, transaction: __tx, cancellationToken: cancellationToken));`,
+        `        if (__written is null) throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
+        // The aggregate now carries the version it was stored at, so a response
+        // projected after the save reads it, as on the EF path, where the change
+        // tracker writes the bumped token back.  `Version` has a private setter,
+        // reached through the declaring type's property.
+        `        typeof(${agg.name}).GetProperty("${ROW_VERSION_PASCAL}")!.DeclaringType!.GetProperty("${ROW_VERSION_PASCAL}")!.SetValue(aggregate, __written.Value);`,
       ]
     : [
         `        ${dapperOpenConn(ns)}`,
@@ -1606,8 +1586,8 @@ export function renderDapperRepository(
         "        if (roots.Count == 0) return;",
         "        var __ids = roots.Select(x => x.Id.Value).ToArray();",
         ...associations.flatMap((a) => {
-          const ownerCs = idTypes(agg.idValueType).cs;
-          const targetCs = idTypes(a.valueType).cs;
+          const ownerCs = idTypes().cs;
+          const targetCs = idTypes().cs;
           const prop = upperFirst(a.fieldName);
           return [
             `        var __${a.fieldName}Rows = (await conn.QueryAsync<(${ownerCs} owner, ${targetCs} target)>(new CommandDefinition("SELECT ${sqlIdent(a.ownerFk)}, ${sqlIdent(a.targetFk)} FROM ${sqlIdent(a.joinTable)} WHERE ${sqlIdent(a.ownerFk)} = ANY(@ids) ORDER BY ${sqlIdent(a.ownerFk)}, ${sqlIdent(a.targetFk)}", new { ids = __ids }, cancellationToken: cancellationToken))).ToList();`,
@@ -1803,16 +1783,11 @@ export function renderDapperRepository(
     const allFindParamsSuffix = allFindParams.length > 0 ? `, ${allFindParams.join(", ")}` : "";
     // A clause-less find still filters — by its implicit key match.
     const own = f.filter;
-    let where = "";
-    try {
-      where = own ? ` WHERE ${whereToSql(own, sqlCtx)}` : "";
-    } catch {
-      // Unsupported predicate — emit a compile-safe stub.
-      return lines(
-        `    public Task<${ret}> ${name}(${renderParams(f.params, [], usesUser)})`,
-        `        => throw new NotImplementedException("Dapper v1 does not support this find's predicate.");`,
-      );
-    }
+    // Every predicate the IR gate admits (`firstNonQueryablePredicate`) renders
+    // here; a refusal is a validator gap and surfaces as
+    // `loom.query-emission-invalid`, never as a stub method that compiles and
+    // throws on its first call.
+    const where = own ? ` WHERE ${whereToSql(own, sqlCtx)}` : "";
     // An `ignoring` clause on the find (named-filter-bypass.md §11) is STATIC
     // here — it is part of the declaration, so the bypassed capability's
     // predicate is simply never spliced into this method's SQL.
@@ -1943,8 +1918,7 @@ export function renderDapperRepository(
 
   // Retrieval bundles → `Run<Name>Async`, parameterised SQL (where + sort +
   // call-site offset/limit paging).  The `where` is the inlined predicate
-  // (criterion bodies included) rendered by `whereToSql`; anything outside the
-  // Dapper subset stubs with NotImplementedException, like the find path.
+  // (criterion bodies included) rendered by `whereToSql`.
   const retrievalMethods = retrievals.map((r) => {
     const name = upperFirst(r.name);
     // Same collision rule as the find path: the method's own locals move, the
@@ -1954,24 +1928,12 @@ export function renderDapperRepository(
       DAPPER_RETRIEVAL_LOCALS,
     );
     const own = csReadOwnParams(r.params.map((p) => p.name));
-    let whereSql: string;
-    try {
-      whereSql = whereToSql(r.where, sqlCtx);
-    } catch {
-      return lines(
-        `    public Task<IReadOnlyList<${agg.name}>> Run${name}Async(${renderRetrievalParamsWithCt(r.params)})`,
-        `        => throw new NotImplementedException("Dapper v1 does not support this retrieval's predicate.");`,
-      );
-    }
-    const orderSql =
-      r.sort.length > 0
-        ? ` ORDER BY ${r.sort
-            .map(
-              (s) =>
-                `${sqlIdent(snake(s.path[0]!.name))} ${s.direction === "desc" ? "DESC" : "ASC"}`,
-            )
-            .join(", ")}`
-        : "";
+    // As on the find path: a refusal is `loom.query-emission-invalid`, not a stub.
+    const whereSql = whereToSql(r.where, sqlCtx);
+    // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`).
+    const orderSql = ` ORDER BY ${readSortFor(r.sort)
+      .map((s) => `${sqlIdent(snake(s.path[0]!.name))} ${s.direction === "desc" ? "DESC" : "ASC"}`)
+      .join(", ")}`;
     // A retrieval's `ignoring` clause arrives at RUNTIME (the `FilterBypass
     // bypass` port param a workflow's inline `Repo.run(...) ignoring …` binds),
     // so unlike the find path the SQL cannot be decided at emit time: the
@@ -2005,10 +1967,16 @@ export function renderDapperRepository(
         // placeholder in the SQL); only the C# local holding the bag may move.
         return `        ${L("p")}.Add("${p.name}", ${val});`;
       }),
-      // Principal params (`__cu_<claim>`) — the spliced capability filter's refs
-      // plus any the retrieval's own `where` carries — bound from the ambient
-      // request principal (the retrieval method takes no `currentUser` param).
-      ...dedupPrincipalRefs([...filterPrincipalRefs, ...collectFilterPrincipalRefs([r.where])]).map(
+      // Principal params (`__cu_<claim>`) — the refs of the capability filters
+      // the retrieval keeps plus any its own `where` carries — bound from the
+      // ambient request principal (the retrieval method takes no `currentUser`
+      // param).  A widened read's own retrieval drops the filters its stance
+      // names, so it binds none of theirs: `ignoring *` must not dereference
+      // the principal an unauthenticated call does not have.
+      ...dedupPrincipalRefs([
+        ...filterPrincipalRefsFor({ bypassAll: r.bypassAll, bypassCaps: r.bypassCaps }),
+        ...collectFilterPrincipalRefs([r.where]),
+      ]).map(
         (pr) =>
           `        ${L("p")}.Add("${pr.param}", ${principalValue(pr, AMBIENT_CURRENT_USER)});`,
       ),
@@ -2034,7 +2002,13 @@ export function renderDapperRepository(
               `        return ${L("__roots")};`,
             ]
           : [`        return await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), ${own.ct});`]
-        : [`        return ${L("rows")}.Select(Map).ToList();`]),
+        : hasAssoc
+          ? [
+              `        var ${L("__roots")} = ${L("rows")}.Select(Map).ToList();`,
+              `        await LoadRefsAsync(${L("conn")}, ${L("__roots")}, ${own.ct});`,
+              `        return ${L("__roots")};`,
+            ]
+          : [`        return ${L("rows")}.Select(Map).ToList();`]),
       `    }`,
     );
   });
@@ -2252,9 +2226,9 @@ export function renderDapperDocumentRepository(
   const domainAliases = collidingNamesOfAggregate(agg).map(
     (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
   );
-  const table = sqlIdent(tableOf(agg.name));
+  const table = sqlIdent(aggregateTableName(agg, pool));
   const snap = `${agg.name}Snapshot`;
-  const idCs = idTypes(agg.idValueType).cs;
+  const idCs = idTypes().cs;
   const versioned = rowVersionGuarded(agg);
   const finds = (repo?.finds ?? []).map((raw) => domainFindShape(raw, agg.name));
   const anyFindUsesUser = finds.some(findUsesCurrentUser);
@@ -2267,7 +2241,7 @@ export function renderDapperDocumentRepository(
   // its next Save sends `ExpectedVersion = 0`, the CAS `WHERE version = 0`
   // misses the row (column is `1`), and every second write 409s.
   const deserSnap = versioned
-    ? `System.Text.Json.JsonSerializer.Deserialize<${snap}>(__d.data, __json)! with { Version = __d.version }`
+    ? `System.Text.Json.JsonSerializer.Deserialize<${snap}>(__d.data, __json)! with { ${ROW_VERSION_PASCAL} = __d.${ROW_VERSION_COLUMN} }`
     : `System.Text.Json.JsonSerializer.Deserialize<${snap}>(__d.data, __json)!`;
   const deser = `${agg.name}.FromSnapshot(${deserSnap})`;
 
@@ -2293,7 +2267,8 @@ export function renderDapperDocumentRepository(
   // renders the constant `false` — inlined that makes the next statement
   // unreachable (CS0162 → an error under /warnaserror), while `=> false;` as a
   // method body is clean.
-  const docFilters = documentReadPredicates(agg, pool);
+  const docFilterTerms = documentReadTerms(agg, pool);
+  const docFilters = docFilterTerms.map((t) => t.predicate);
   const capPredicate =
     docFilters.length > 0
       ? docFilters
@@ -2367,15 +2342,15 @@ export function renderDapperDocumentRepository(
   const saveLines = versioned
     ? [
         ...savePrelude,
-        "        var __expected = expectedVersion ?? aggregate.Version;",
-        `        var __affected = await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (id, data, version) VALUES (@id, CAST(@data AS jsonb), 1) ON CONFLICT (id) DO UPDATE SET data = excluded.data, version = ${table}.version + 1 WHERE ${table}.version = @ExpectedVersion", new { id = aggregate.Id.Value, data = __data, ExpectedVersion = __expected }, ${audit.txArg}cancellationToken: cancellationToken));`,
+        `        var __expected = expectedVersion ?? aggregate.${ROW_VERSION_PASCAL};`,
+        `        var __affected = await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (id, data, ${ROW_VERSION_COLUMN}) VALUES (@id, CAST(@data AS jsonb), 1) ON CONFLICT (id) DO UPDATE SET data = excluded.data, ${ROW_VERSION_COLUMN} = ${table}.${ROW_VERSION_COLUMN} + 1 WHERE ${table}.${ROW_VERSION_COLUMN} = @ExpectedVersion", new { id = aggregate.Id.Value, data = __data, ExpectedVersion = __expected }, ${audit.txArg}cancellationToken: cancellationToken));`,
         `        if (__affected == 0) throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
         ...audit.flush,
         audit.commit,
       ].filter((l): l is string => l !== null)
     : [
         ...savePrelude,
-        `        await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (id, data, version) VALUES (@id, CAST(@data AS jsonb), 1) ON CONFLICT (id) DO UPDATE SET data = excluded.data, version = ${table}.version + 1", new { id = aggregate.Id.Value, data = __data }, ${audit.txArg}cancellationToken: cancellationToken));`,
+        `        await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (id, data, ${ROW_VERSION_COLUMN}) VALUES (@id, CAST(@data AS jsonb), 1) ON CONFLICT (id) DO UPDATE SET data = excluded.data, ${ROW_VERSION_COLUMN} = ${table}.${ROW_VERSION_COLUMN} + 1", new { id = aggregate.Id.Value, data = __data }, ${audit.txArg}cancellationToken: cancellationToken));`,
         ...audit.flush,
         audit.commit,
       ].filter((l): l is string => l !== null);
@@ -2403,11 +2378,13 @@ export function renderDapperDocumentRepository(
       // that one was reached, so dapper kept answering heap order while EF did
       // not.  It is the same read on the same table, so it gets the same
       // ordering.  Id is the primary key, so this is an index scan.
-      `var __rows = await ${conn}.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} ORDER BY id", cancellationToken: ${ct}));`,
+      `var __rows = await ${conn}.QueryAsync<Row>(new CommandDefinition("SELECT id, data, ${ROW_VERSION_COLUMN} FROM ${table} ORDER BY id", cancellationToken: ${ct}));`,
       // The capability filter narrows the visible set BEFORE the find's own
       // predicate runs, so a find never returns a capability-hidden (foreign
       // tenant, soft-deleted) document.
-      `var __all = __rows.Select(__d => ${deser})${capFilter};`,
+      // A widened read (`ignoring …`) keeps only the filters its clause does
+      // not name — the same selection the EF document path makes.
+      `var __all = __rows.Select(__d => ${deser})${documentFindCapFilter(agg, docFilterTerms, f)};`,
     ];
     // `find … paged` over a document carrier (ledger row F2-CB-C1): the SAME
     // in-memory page the EF document path emits — the interface, controller and
@@ -2486,13 +2463,13 @@ export function renderDapperDocumentRepository(
       "    {",
       `        public ${idCs} id { get; set; }${idCs === "string" ? " = default!;" : ""}`,
       "        public string data { get; set; } = default!;",
-      "        public int version { get; set; }",
+      `        public int ${ROW_VERSION_COLUMN} { get; set; }`,
       "    }",
       "",
       `    public async Task<${agg.name}?> GetByIdAsync(${agg.name}Id id, CancellationToken cancellationToken = default)`,
       "    {",
       `        ${dapperOpenConn(ns)}`,
-      `        var __d = await conn.QuerySingleOrDefaultAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} WHERE id = @id", new { id = id.Value }, cancellationToken: cancellationToken));`,
+      `        var __d = await conn.QuerySingleOrDefaultAsync<Row>(new CommandDefinition("SELECT id, data, ${ROW_VERSION_COLUMN} FROM ${table} WHERE id = @id", new { id = id.Value }, cancellationToken: cancellationToken));`,
       // With a capability filter, a row OUTSIDE the caller's scope reads as
       // missing (→ 404), matching what the relational adapter's spliced WHERE
       // does to the same lookup.
@@ -2510,7 +2487,7 @@ export function renderDapperDocumentRepository(
       "    {",
       `        if (ids.Count == 0) return Array.Empty<${agg.name}>();`,
       `        ${dapperOpenConn(ns)}`,
-      `        var __rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} WHERE id = ANY(@ids)", new { ids = ids.Select(x => x.Value).ToArray() }, cancellationToken: cancellationToken));`,
+      `        var __rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT id, data, ${ROW_VERSION_COLUMN} FROM ${table} WHERE id = ANY(@ids)", new { ids = ids.Select(x => x.Value).ToArray() }, cancellationToken: cancellationToken));`,
       `        return __rows.Select(__d => ${deser})${capFilter}.ToList();`,
       "    }",
       ...capMethod,
@@ -2552,6 +2529,8 @@ export function renderDapperEventSourcedRepository(
   ctxName: string,
   /** As `renderDapperDocumentRepository`'s. */
   extraUsings: readonly string[] = [],
+  /** The context's aggregates — the pool the stream-tenancy fact resolves in. */
+  pool: AggPool = [],
 ): string {
   // BCL type-name collision (#3024) — the dapper adapter is a SECOND repository
   // emitter beside the EF one, with its own using block and its own non-generic
@@ -2564,6 +2543,13 @@ export function renderDapperEventSourcedRepository(
   const domainAliases = collidingNamesOfAggregate(agg).map(
     (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
   );
+  // Stream tenancy (stream-tenancy.ts): the tenant is metadata of the stored
+  // events, adopted onto the folded instance; reads apply the fact's tenancy
+  // restrictions in-app over it.
+  const tenancy = streamTenancyFor(agg, pool);
+  const defaultScope = streamScopePredicate(agg, pool);
+  const metaCols = (tenancy?.metadata ?? []).map((m) => m.column);
+  const metaSel = metaCols.map((c) => `, ${c}`).join("");
   // The single per-context event log (event-log-architecture.md): every load /
   // append / fold scopes to `stream_type = @st` (this aggregate's name) so a
   // sibling stream sharing the `<ctx>_events` table is never folded in.
@@ -2572,7 +2558,7 @@ export function renderDapperEventSourcedRepository(
   // Audit staging seam — shared with the relational + document emitters.
   const audit = dapperAuditSeam(agg, ns);
   const eventNames = [...new Set((agg.appliers ?? []).map((a) => a.event))];
-  const idValue = csValueTypeForId(agg.idValueType);
+  const idValue = csValueTypeForId();
   const parseId =
     idValue === "Guid"
       ? "System.Guid.Parse(__g.Key)"
@@ -2621,7 +2607,7 @@ export function renderDapperEventSourcedRepository(
     const f = domainFindShape(raw, agg.name);
     const body = findBodies.find((b) => b.name === f.name);
     // In-memory over the folded streams: a criterion's query face compiles to a `Func`.
-    const filter = inMemoryFilter(body?.filterClause ?? "");
+    const filter = inMemoryFilter(body?.filterClause ?? "") + streamScopeWhere(agg, pool, f);
     // ES finds load every stream in-memory, so strip the async EF terminal
     // (the projection clause passes the method's own token, `ct`).
     const { ct } = csReadOwnParams(f.params.map((p) => p.name));
@@ -2690,16 +2676,29 @@ export function renderDapperEventSourcedRepository(
       "        public string stream_id { get; set; } = default!;",
       "        public string type { get; set; } = default!;",
       "        public string data { get; set; } = default!;",
+      ...metaCols.map((c) => `        public string? ${c} { get; set; }`),
       "    }",
       "",
       `    public async Task<${agg.name}?> GetByIdAsync(${agg.name}Id id, CancellationToken cancellationToken = default)`,
       "    {",
       "        var __sid = id.Value.ToString();",
       `        ${dapperOpenConn(ns)}`,
-      `        var __rows = (await conn.QueryAsync<EvRow>(new CommandDefinition("SELECT stream_id, type, data FROM ${table} WHERE stream_type = @st AND stream_id = @sid ORDER BY version", new { st = "${streamType}", sid = __sid }, cancellationToken: cancellationToken))).ToList();`,
+      `        var __rows = (await conn.QueryAsync<EvRow>(new CommandDefinition("SELECT stream_id, type, data${metaSel} FROM ${table} WHERE stream_type = @st AND stream_id = @sid ORDER BY version", new { st = "${streamType}", sid = __sid }, cancellationToken: cancellationToken))).ToList();`,
       "        if (__rows.Count == 0) return null;",
-      `        return ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`,
+      ...(tenancy
+        ? [
+            // A foreign tenant's stream reads as absent (404): no existence leak.
+            `        var __inst = ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`,
+            `        __inst._AdoptStreamTenant(${metaCols.map((c) => `__rows[0].${c}`).join(", ")});`,
+            ...(defaultScope
+              ? [`        return _TenantVisible(__inst) ? __inst : null;`]
+              : [`        return __inst;`]),
+          ]
+        : [`        return ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`]),
       "    }",
+      ...(defaultScope
+        ? ["", `    private static bool _TenantVisible(${agg.name} x) => ${defaultScope};`]
+        : []),
       ...writeScopeMethod,
       "",
       `    public async Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${agg.name}Id> ids, CancellationToken cancellationToken = default)`,
@@ -2735,13 +2734,16 @@ export function renderDapperEventSourcedRepository(
       // (SQLSTATE 23505) — the RS-40 409, the same exception the guarded
       // relational / document upserts raise.
       "            var __version = aggregate._StreamVersion;",
+      // A NEW stream is stamped from the principal; later appends carry the
+      // loaded stream's tenant forward.
+      ...(tenancy ? ["            if (__version == 0) aggregate._StampOnCreate();"] : []),
       "            foreach (var __ev in __pending)",
       "            {",
       "                __version++;",
       "                var __data = System.Text.Json.JsonSerializer.Serialize((object)__ev, __json);",
       "                try",
       "                {",
-      `                    await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at) VALUES (@st, @sid, @version, @type, CAST(@data AS jsonb), now())", new { st = "${streamType}", sid = __sid, version = __version, type = __ev.GetType().Name, data = __data }, ${audit.txArg}cancellationToken: cancellationToken));`,
+      `                    await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at${metaSel}) VALUES (@st, @sid, @version, @type, CAST(@data AS jsonb), now()${metaCols.map((c) => `, @${c}`).join("")})", new { st = "${streamType}", sid = __sid, version = __version, type = __ev.GetType().Name, data = __data${(tenancy?.metadata ?? []).map((m) => `, ${m.column} = aggregate.${upperFirst(m.field)}`).join("")} }, ${audit.txArg}cancellationToken: cancellationToken));`,
       "                }",
       '                catch (Npgsql.PostgresException __ex) when (__ex.SqlState == "23505")',
       "                {",
@@ -2752,16 +2754,28 @@ export function renderDapperEventSourcedRepository(
       "        }",
       ...audit.flush,
       audit.commit,
+      ...(tenancy ? streamOriginFrameLines(ns, "        ") : []),
       "        foreach (var ev in __pending) await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
       "    }",
       "",
       `    private async Task<List<${agg.name}>> _LoadAllAsync(CancellationToken cancellationToken)`,
       "    {",
       `        ${dapperOpenConn(ns)}`,
-      `        var __rows = (await conn.QueryAsync<EvRow>(new CommandDefinition("SELECT stream_id, type, data FROM ${table} WHERE stream_type = @st ORDER BY stream_id, version", new { st = "${streamType}" }, cancellationToken: cancellationToken))).ToList();`,
+      `        var __rows = (await conn.QueryAsync<EvRow>(new CommandDefinition("SELECT stream_id, type, data${metaSel} FROM ${table} WHERE stream_type = @st ORDER BY stream_id, version", new { st = "${streamType}" }, cancellationToken: cancellationToken))).ToList();`,
       `        return __rows`,
       "            .GroupBy(__r => __r.stream_id)",
-      `            .Select(__g => ${agg.name}._FromEvents(new ${agg.name}Id(${parseId}), __g.Select(RowToEvent).ToList()))`,
+      ...(tenancy
+        ? [
+            "            .Select(__g =>",
+            "            {",
+            `                var __inst = ${agg.name}._FromEvents(new ${agg.name}Id(${parseId}), __g.Select(RowToEvent).ToList());`,
+            `                __inst._AdoptStreamTenant(${metaCols.map((c) => `__g.First().${c}`).join(", ")});`,
+            "                return __inst;",
+            "            })",
+          ]
+        : [
+            `            .Select(__g => ${agg.name}._FromEvents(new ${agg.name}Id(${parseId}), __g.Select(RowToEvent).ToList()))`,
+          ]),
       "            .ToList();",
       "    }",
       "",

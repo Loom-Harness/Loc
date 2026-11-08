@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — shape: document (F2a).  A document aggregate persists
@@ -20,9 +19,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python shape: document", () => {
@@ -31,7 +28,7 @@ describe("python shape: document", () => {
     const schema = files.get("api/app/db/schema.py")!;
     expect(schema).toContain("class ArticleRow(Base):");
     expect(schema).toContain("data: Mapped[object] = mapped_column(JSONB)");
-    expect(schema).toContain("version: Mapped[int] = mapped_column(Integer)");
+    expect(schema).toContain("row_version: Mapped[int] = mapped_column(Integer)");
     // No normalised part table for the contained Section.
     expect(schema).not.toContain("class SectionRow(Base):");
   });
@@ -43,20 +40,22 @@ describe("python shape: document", () => {
     // `row.version` into `from_doc` (the blob copy lags a write), and the write
     // is the guarded upsert (seed at the aggregate's version, bump on conflict
     // only when the stored version still matches → ConcurrencyError otherwise).
-    expect(repo).toContain("return _article_from_doc(row.data, row.version)");
+    expect(repo).toContain("return _article_from_doc(row.data, row.row_version)");
     expect(repo).toContain("data = _article_to_doc(aggregate)");
     expect(repo).toContain(
-      "_expected = aggregate.version if expected_version is None else expected_version",
+      "_expected = aggregate.row_version if expected_version is None else expected_version",
     );
-    expect(repo).toContain(".values(id=aggregate.id, data=data, version=aggregate.version)");
-    expect(repo).toContain('set_={"data": data, "version": ArticleRow.version + 1},');
-    expect(repo).toContain("where=ArticleRow.version == _expected,");
-    expect(repo).toContain("if _guarded.first() is None:");
+    expect(repo).toContain(
+      ".values(id=aggregate.id, data=data, row_version=aggregate.row_version)",
+    );
+    expect(repo).toContain('set_={"data": data, "row_version": ArticleRow.row_version + 1},');
+    expect(repo).toContain("where=ArticleRow.row_version == _expected,");
+    expect(repo).toContain("if _saved_version is None:");
     // Nested part serialisers.
     expect(repo).toContain("def _article_to_doc(a: Article) -> dict[str, object]:");
     expect(repo).toContain("def _section_to_doc(a: Section) -> dict[str, object]:");
     expect(repo).toContain('"sections": [_section_to_doc(e) for e in a.sections]');
-    expect(repo).toContain("def _article_from_doc(raw: object, version: int) -> Article:");
+    expect(repo).toContain("def _article_from_doc(raw: object, row_version: int) -> Article:");
     expect(repo).toContain('Article._rehydrate(id=ArticleId(cast(str, d["id"]))');
   });
 
@@ -66,7 +65,7 @@ describe("python shape: document", () => {
   // until the document repository emits criterion reads (in-memory over the
   // rehydrated documents); then drop `.fails`.
   it.fails("a criterion read's repository method exists (document repository emits none)", async () => {
-    const { model, errors } = await parseString(
+    const files = await generateSystemFiles(
       FIXTURE.replace(
         /(criterion ArticlesPopular\(min: int\) of Article = this\.viewCount >= min)/,
         `$1
@@ -79,8 +78,6 @@ describe("python shape: document", () => {
       }`,
       ),
     );
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
     expect(files.get("api/app/application/get_popular.py")).toContain(
       "await articles.run_find_all_by_articles_popular(min, limit=1)",
     );
@@ -122,9 +119,7 @@ describe("python document — optional single containment is null-safe", () => {
   `;
 
   it("None-guards the optional containment in _to_doc and _from_doc", async () => {
-    const { model, errors } = await parseString(SRC);
-    if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SRC);
     const repo = files.get("api/app/db/repositories/cart_repository.py")!;
     expect(repo, "cart_repository.py generated").toBeDefined();
     // Serialize: None-guarded, not a bare `_coupon_to_doc(a.coupon)` (which the

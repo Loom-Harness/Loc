@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 // ---------------------------------------------------------------------------
 // Vanilla (plain Ecto) named-operation persistence regression.
@@ -45,7 +46,7 @@ describe("vanilla named-op persistence (force_change)", () => {
     const facade = file(await generateSystemFiles(SRC), "/shop.ex");
     const inc = facade.slice(facade.indexOf("def inc_cart("));
     // The body rebinds record to the new value…
-    expect(inc).toContain("record = %{record | total: record.total + 1}");
+    expect(uncheckedInt(inc)).toContain("record = %{record | total: record.total + 1}");
     // …so the persist MUST force the change (put_change would drop it as a no-op
     // vs the already-mutated changeset data → empty changeset → no UPDATE).
     expect(inc).toContain("|> Ecto.Changeset.force_change(:total, record.total)");

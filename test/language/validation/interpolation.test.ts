@@ -155,7 +155,7 @@ describe("validation — A6 interpolation format suffix", () => {
         operation greet(): string {
           return \`{quantity, plural, one {# order} other {# orders}}\`
         }
-        function label(): string = \`{customerName, select, vip {VIP} other {std}}\`
+        function tag(): string = \`{customerName, select, vip {VIP} other {std}}\`
       `);
       expect(ds.map((d) => d.severity)).toEqual([2, 2, 2, 2, 2]); // all warnings
       expect(

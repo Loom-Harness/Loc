@@ -146,7 +146,7 @@ describe("svelte generator — project shape", () => {
     expect(welcome).toContain("let count = $state<number>(0);");
     expect(welcome).toContain("count = (count + 1);");
     expect(welcome).toContain("$effect(() => {");
-    expect(welcome).toContain('document.title = "Welcome";');
+    expect(welcome).toContain('document.title = t("WebApp.page.Welcome.title.okelqr", "Welcome");');
   });
 
   it("wires create forms through the runes form helper", async () => {

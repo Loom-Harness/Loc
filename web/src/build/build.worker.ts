@@ -17,15 +17,14 @@ import { validateLoomModel } from "../../../src/ir/validate/validate.js";
 // it pulls the generation registry → every backend generator (.NET / Java /
 // Phoenix / Python).  The "system" mode loads it via a dynamic `import()` so
 // those generators land in a SEPARATE chunk, out of the main worker bundle.
-// `web-bundle-boundary.test.ts` pins this.  (The Hono "ts" path below stays a
-// static import — it runs in-browser with no chunk fetch.)
+// `web-bundle-boundary.test.ts` pins this.
 import { captureSnapshots } from "../../../src/system/loomsnap.js";
 // The evolution-diff core (migration + wire-contract delta) lives in its own
 // pure, headless-testable module — the worker just serialises it over
 // postMessage.  It pulls the schema-migration deriver / SQL renderer / wire-
 // spec differ (all browser-safe siblings of `system/index`, so the bundle-
 // boundary test stays green).
-import { recordMigration, runEvolution } from "./evolution.js";
+import { migrationPlan, recordMigration, runEvolution } from "./evolution.js";
 // The committed migration chain — pure format + rules, no generator, so a
 // static import keeps the bundle boundary.
 import { diagMessage } from "../../../src/diagnostics/messages.js";
@@ -35,14 +34,13 @@ import {
   MigrationDriftError,
   parseChain,
 } from "../../../src/system/migration-chain.js";
+import { pendingMigrations } from "../../../src/system/migration-diff.js";
 import { readChainFiles } from "./chain-files.js";
 // The playground's legacy single-context build targets the default Hono
 // backend and supplies that package's pins to the shared emitter.
-import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
-import { BACKEND_PINS as HONO_PINS } from "../../../src/platform/hono/v5/pins.js";
 import { fnv1a32 } from "../util/hash.js";
 import { MemoryVfs } from "../vfs/memory-vfs.js";
-import { loadProjectFromVfs } from "./project-loader.js";
+import { loadProjectFromVfs, retainOnlyDocuments } from "./project-loader.js";
 import { seedBuiltinPacks } from "./template-bundled.js";
 import { setWorkerVfs } from "./worker-vfs.js";
 import type {
@@ -85,6 +83,7 @@ async function parse(
   const existing = documents.all.find((d) => d.uri.toString() === DOC_URI.toString());
   if (existing) documents.deleteDocument(existing.uri);
   const doc = documents.createDocument(DOC_URI, text);
+  retainOnlyDocuments(services.shared, [doc]);
   await builder.build([doc], { validation: true });
   const diagnostics = collectDiagnostics([doc]);
   // Keyed the same way the CLI keys it (`doc.uri.path`) — this is what
@@ -198,8 +197,10 @@ async function handleGenerateFromPath(
   const parsed = await parseProject(entryPath);
   if (!parsed.loom) return { ok: false, diagnostics: parsed.diagnostics };
   // The chain beside the entry, read the way `ddd generate system` reads
-  // `migrations/`: rendered whole, and a model that moved past its head is
-  // refused.  No chain files ⇒ unchanged (each module's initial migration).
+  // `migrations/`: rendered whole.  A model that moved past its head still
+  // generates — the recorded chain is rendered and the unrecorded change is a
+  // warning, because the playground gates its database on it instead.  No
+  // chain files ⇒ each module's initial migration, derived from the model.
   const chainFiles = readChainFiles(workerVfs, entryPath);
   let migrationChain: MigrationChain | undefined;
   if (chainFiles) {
@@ -219,20 +220,30 @@ async function handleGenerateFromPath(
   });
 }
 
-/** A migration-chain refusal as the diagnostic the Problems pane shows —
- *  a chain that does not read, or a model with unrecorded schema changes. */
-function migrationRefusal(err: MigrationChainError | MigrationDriftError): BuildDiagnostic {
-  if (err instanceof MigrationChainError) {
-    return {
-      severity: "error",
-      code: "loom.migration-chain-invalid",
-      message: diagMessage("loom.migration-chain-invalid", { detail: err.message }),
-      source: "loom-migrations",
-    };
-  }
+/** A migration chain that does not read, as the error the Problems pane
+ *  shows. */
+function migrationRefusal(err: MigrationChainError): BuildDiagnostic {
   return {
     severity: "error",
-    message: `${err.message} In the playground: Migrations tab → Record migration.`,
+    code: "loom.migration-chain-invalid",
+    message: diagMessage("loom.migration-chain-invalid", { detail: err.message }),
+    source: "loom-migrations",
+  };
+}
+
+/** The model's schema changes the chain does not record, as a warning: the
+ *  generate renders the recorded chain, and Boot leaves the database as it is
+ *  until the change is recorded.  `null` when the chain records the model. */
+function unrecordedWarning(loom: EnrichedLoomModel, chain: MigrationChain): BuildDiagnostic | null {
+  // Whether a drop is allowed was settled when it was recorded; this only
+  // asks whether anything is left to record (as `generate system` does).
+  const drifted = pendingMigrations(loom, chain, { allowDestructive: true })
+    .filter((d) => d.steps.length > 0)
+    .map((d) => d.module);
+  if (drifted.length === 0) return null;
+  return {
+    severity: "warning",
+    message: `${new MigrationDriftError(drifted).message} In the playground: Record migration… beside Boot (or the Migrations tab). Until then the generated migrations stop at the recorded chain and Boot leaves the database as it is.`,
     source: "loom-migrations",
   };
 }
@@ -272,11 +283,6 @@ async function generateFromAst(input: {
       ),
     );
   }
-  if (loom.contexts.length > 0) {
-    return wrapGenerate("ts", input.diagnostics, irDiags, () => ({
-      files: generateTypeScript(input.model, HONO_PINS),
-    }));
-  }
   return emptyResult(input.diagnostics, irDiags);
 }
 
@@ -303,10 +309,12 @@ function systemOptions(input: {
   sourceTexts?: ReadonlyMap<string, string>;
   inlineSources: true;
   migrationChain?: MigrationChain;
+  unrecordedChanges: "render-chain";
 } {
   return {
     sourcemap: true,
     ...(input.migrationChain ? { migrationChain: input.migrationChain } : {}),
+    unrecordedChanges: "render-chain",
     sourceTexts: input.sourcemap ? input.sourceTexts : undefined,
     // The playground has no filesystem behind `sources`, so the sidecars must
     // carry the `.ddd` text itself or devtools has nothing to show.  The CLI
@@ -372,10 +380,7 @@ function deriveApiSurface(loom: EnrichedLoomModel): ApiSurfaceView {
 
 /** Multi-file generation path.  The merged `LoomModel` is already
  *  built by `parseProject`; we only need enrichment + the
- *  system-mode generator.  Legacy single-context `generate ts` /
- *  `generate dotnet` aren't reachable here — those callers stay on
- *  the text path because they don't compose multi-file output
- *  anyway (mirrors the CLI's split). */
+ *  system-mode generator. */
 async function generateFromLoom(input: {
   loom: LoomModel;
   diagnostics: BuildDiagnostic[];
@@ -391,6 +396,8 @@ async function generateFromLoom(input: {
   }
   const irDiags = irValidate(loom);
   if (hasError(irDiags)) return { ok: false, diagnostics: [...input.diagnostics, ...irDiags] };
+  const unrecorded = input.migrationChain ? unrecordedWarning(loom, input.migrationChain) : null;
+  if (unrecorded) irDiags.push(unrecorded);
 
   if (loom.systems.length > 0) {
     const { generateSystemsFromLoom } = await import("../../../src/system/index.js");
@@ -447,7 +454,7 @@ interface EmissionParts {
 }
 
 function wrapGenerate(
-  mode: "system" | "ts",
+  mode: "system",
   parseDiags: BuildDiagnostic[],
   irDiags: BuildDiagnostic[],
   emit: () => EmissionParts,
@@ -463,7 +470,7 @@ function wrapGenerate(
       ...(parts.api ? { api: parts.api } : {}),
     };
   } catch (err) {
-    if (err instanceof MigrationDriftError || err instanceof MigrationChainError) {
+    if (err instanceof MigrationChainError) {
       return { ok: false, diagnostics: [...parseDiags, ...irDiags, migrationRefusal(err)] };
     }
     return {
@@ -473,7 +480,7 @@ function wrapGenerate(
         ...irDiags,
         {
           severity: "error",
-          message: `${mode === "system" ? "generateSystems" : "generateTypeScript"} failed: ${err instanceof Error ? err.message : String(err)}`,
+          message: `generateSystems failed: ${err instanceof Error ? err.message : String(err)}`,
           source: "loom-gen",
         },
       ],
@@ -491,7 +498,9 @@ function emptyResult(parseDiags: BuildDiagnostic[], irDiags: BuildDiagnostic[]):
       ...irDiags,
       {
         severity: "warning",
-        message: "Source has no contexts or systems — nothing to generate.",
+        message:
+          "Source declares no deployable — nothing to generate.  Add a `system` with a " +
+          "backend `deployable { platform: …, contexts: […], dataSources: […] }`.",
         source: "loom-gen",
       },
     ],
@@ -587,6 +596,10 @@ self.onmessage = async (ev: MessageEvent<BuildRpcRequest>) => {
       }
       case "migrate.record": {
         response.result = await recordMigration(req.params);
+        break;
+      }
+      case "migrate.plan": {
+        response.result = await migrationPlan(req.params);
         break;
       }
       case "vfs.write": {

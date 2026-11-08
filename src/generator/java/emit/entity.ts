@@ -1,3 +1,4 @@
+import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
 import {
   createInputFields,
   createOmissionValue,
@@ -11,7 +12,6 @@ import type {
   EnrichedEntityPartIR,
   ExprIR,
   FieldIR,
-  IdValueType,
   StmtIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
@@ -28,15 +28,16 @@ import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
+import { factoryLocal, snake } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaOnDemandRef, javaRef } from "../../_imports/java.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
 import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import type { RestrictionHost } from "../capability-filter.js";
+import { javaInstantTruncate } from "../codec-spelling.js";
 import { jid } from "../java-ident.js";
 import {
   buildJavaRegexFields,
@@ -65,6 +66,9 @@ import {
   jpaSingleContainmentParentAnnotations,
 } from "./jpa-annotations.js";
 
+/** A `jakarta.persistence` type, spelled simple-named; the unit gains
+ *  `import jakarta.persistence.*;` iff one of these survives into its text. */
+const JPA = (name: string): string => javaOnDemandRef("jakarta.persistence", name);
 const ARRAY_LIST = javaRef("java.util", "ArrayList");
 const JDBC_TYPE_CODE = javaRef("org.hibernate.annotations", "JdbcTypeCode");
 const SQL_TYPES = javaRef("org.hibernate.type", "SqlTypes");
@@ -142,7 +146,6 @@ export interface JavaSuperTypeInfo {
   readonly fieldNames: ReadonlySet<string>;
   readonly derivedNames?: ReadonlySet<string>;
   readonly sharesIdentity?: boolean;
-  readonly idValueType?: IdValueType;
   /** Package the base class lives in — imported when it differs from the
    *  concrete's package (byLayer puts each aggregate in its own
    *  per-plural package; base fields are `protected` for exactly this). */
@@ -284,7 +287,6 @@ export function renderJavaEntity(
   const isAgg = (e: typeof entity): e is EnrichedAggregateIR => "operations" in e;
   const emitTrace = !!options.emitTrace;
   const superType = options.superType;
-  const _idValueType = isAgg(entity) ? entity.idValueType : "guid";
   const idClass = superType?.sharesIdentity ? `${superType.name}Id` : `${entity.name}Id`;
   const operations = isAgg(entity) ? entity.operations : [];
   const createInputFieldList = isAgg(entity) ? createInputFields(entity) : [];
@@ -437,7 +439,7 @@ export function renderJavaEntity(
       fieldLines.push(`    @${javaRef("org.springframework.data.annotation", audit.annotation)}`);
       if (persistence) {
         fieldLines.push(
-          `    @Column(name = "${hbIdent(snake(f.name))}"${audit.createEvent ? ", updatable = false" : ""})`,
+          `    @${JPA("Column")}(name = "${hbIdent(snake(f.name))}"${audit.createEvent ? ", updatable = false" : ""})`,
         );
       }
       fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
@@ -451,7 +453,7 @@ export function renderJavaEntity(
       // INSERT — same column semantics as the annotation path).
       if (persistence) {
         fieldLines.push(
-          `    @Column(name = "${hbIdent(snake(f.name))}"${claimColumn.createEvent ? ", updatable = false" : ""})`,
+          `    @${JPA("Column")}(name = "${hbIdent(snake(f.name))}"${claimColumn.createEvent ? ", updatable = false" : ""})`,
         );
       }
       fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
@@ -480,7 +482,7 @@ export function renderJavaEntity(
     if (persistence?.embedded) {
       fieldLines.push(
         `    @${JDBC_TYPE_CODE}(${SQL_TYPES}.JSON)`,
-        `    @Column(name = "${hbIdent(snake(c.name))}", nullable = false)`,
+        `    @${JPA("Column")}(name = "${hbIdent(snake(c.name))}", nullable = false)`,
       );
       fieldLines.push(
         c.collection
@@ -517,7 +519,7 @@ export function renderJavaEntity(
     for (const f of provFields) {
       if (persistence) {
         fieldLines.push(`    @${JDBC_TYPE_CODE}(${SQL_TYPES}.JSON)`);
-        fieldLines.push(`    @Column(name = "${snake(f.name)}_provenance")`);
+        fieldLines.push(`    @${JPA("Column")}(name = "${snake(f.name)}_provenance")`);
       }
       fieldLines.push(`    ProvLineage ${jid(f.name)}Provenance;`);
     }
@@ -735,7 +737,9 @@ export function renderJavaEntity(
   // from the entity.
   const versionFieldName =
     (persistence || options.documentRoot === true) && isAgg(entity) && aggregateIsVersioned(entity)
-      ? entity.fields.find((f) => f.access === "token" && !superType?.fieldNames.has(f.name))?.name
+      ? entity.fields.find(
+          (f) => f.name === ROW_VERSION_FIELD && !superType?.fieldNames.has(f.name),
+        )?.name
       : undefined;
   const applyVersionLines: string[] =
     versionFieldName !== undefined
@@ -747,15 +751,52 @@ export function renderJavaEntity(
           ``,
         ]
       : [];
+  // An event-sourced root's repository `save` APPENDS the recorded events to
+  // the stream and the service then PUBLISHES them with `pullEvents()`, so the
+  // append cannot drain the buffer: it reads the not-yet-appended tail through
+  // `_unappendedEvents()` and marks it appended, leaving every event for the
+  // publisher.  The mark makes a second `save` before the publish append
+  // nothing twice, and the publish (`pullEvents`) resets it with the buffer.
+  const esAppendLines =
+    isRoot && eventSourced
+      ? [
+          `    private transient int _appended;`,
+          ``,
+          `    /** Internal: events recorded since the last append, left in the buffer for publishing. */`,
+          `    public List<DomainEvent> _unappendedEvents() {`,
+          `        return List.copyOf(_domainEvents.subList(_appended, _domainEvents.size()));`,
+          `    }`,
+          ``,
+          `    /** Internal: every recorded event is now in the stream. */`,
+          `    public void _markAppended() {`,
+          `        _appended = _domainEvents.size();`,
+          `    }`,
+          ``,
+          // The stream's tenant is metadata of its stored events, not folded
+          // state: the repository adopts it onto the `tenantOwned` fields after
+          // the fold, so the instance answers like a `tenantOwned` row.
+          ...(isAgg(entity) && isTenantScopedStream(entity)
+            ? [
+                `    /** Internal: adopt the stream's tenant metadata (stored-event metadata, never an event payload). */`,
+                `    public void _adoptStreamTenant(${STREAM_TENANT_METADATA.map((m) => `String ${m.field}`).join(", ")}) {`,
+                ...STREAM_TENANT_METADATA.map((m) => `        this.${m.field} = ${m.field};`),
+                `    }`,
+                ``,
+              ]
+            : []),
+        ]
+      : [];
   const pullEventsLines = isRoot
     ? [
+        ...esAppendLines,
         `    public List<DomainEvent> pullEvents() {`,
         `        var copy = List.copyOf(_domainEvents);`,
         `        _domainEvents.clear();`,
+        eventSourced ? `        _appended = 0;` : null,
         `        return copy;`,
         `    }`,
         ``,
-      ]
+      ].filter((l): l is string => l !== null)
     : [];
   // Drain the per-write lineage buffer after a save (the Java mirror of the
   // Hono/.NET `DrainProv()`); the repository persists one provenance_records
@@ -832,16 +873,18 @@ export function renderJavaEntity(
   }
 
   // --- event-sourced construction ----------------------------------------------
+  // The factory's instance local must not shadow one of its own parameters.
+  const esLocal = factoryLocal((esCreate?.params ?? []).map((p) => p.name));
   const esCreateFactoryLines: string[] =
     isRoot && eventSourced && esCreate
       ? [
           `    public static ${entity.name} create(${esCreate.params
             .map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`)
             .join(", ")}) {`,
-          `        var e = new ${entity.name}();`,
-          `        e.id = ${idClass}.newId();`,
-          `        e._init(${esCreate.params.map((p) => jid(p.name)).join(", ")});`,
-          `        return e;`,
+          `        var ${esLocal} = new ${entity.name}();`,
+          `        ${esLocal}.id = ${idClass}.newId();`,
+          `        ${esLocal}._init(${esCreate.params.map((p) => jid(p.name)).join(", ")});`,
+          `        return ${esLocal};`,
           `    }`,
           ``,
           `    private void _init(${esCreate.params
@@ -910,6 +953,8 @@ export function renderJavaEntity(
   // construction goes through the `_init` emit-and-fold path above).
   const createBody = isAgg(entity) ? createBodyStatements(entity) : [];
   const createParams = isAgg(entity) ? createBodyParams(entity) : [];
+  // The factory's instance local must not shadow one of its own parameters.
+  const pubLocal = factoryLocal(createInputFieldList.map((f) => f.name));
   const createPublicLines: string[] =
     isRoot && isAgg(entity) && hasCreate(entity) && !eventSourced
       ? [
@@ -926,8 +971,8 @@ export function renderJavaEntity(
                 `${renderJavaType(javaFactoryDefault(f) === undefined ? f.type : { kind: "optional", inner: f.type })} ${jid(f.name)}`,
             )
             .join(", ")}) {`,
-          `        var e = new ${entity.name}();`,
-          `        e.id = ${idClass}.newId();`,
+          `        var ${pubLocal} = new ${entity.name}();`,
+          `        ${pubLocal}.id = ${idClass}.newId();`,
           ...createInputFieldList.map((f) => {
             const dflt = javaFactoryDefault(f);
             const t = f.type.kind === "optional" ? f.type.inner : f.type;
@@ -939,7 +984,7 @@ export function renderJavaEntity(
             // corpus case).
             const given = t.kind === "array" ? `new ${ARRAY_LIST}<>(${jid(f.name)})` : jid(f.name);
             // `!= null`, not a truthiness test: an explicit 0/""/false survives.
-            return `        e.${jid(f.name)} = ${
+            return `        ${pubLocal}.${jid(f.name)} = ${
               dflt === undefined
                 ? t.kind === "array"
                   ? `${jid(f.name)} != null ? ${given} : null`
@@ -960,7 +1005,10 @@ export function renderJavaEntity(
             ? constructionSeededFields(
                 entity.fields,
                 new Set(createInputFieldList.map((f) => f.name)),
-              ).map((f) => `        e.${jid(f.name)} = ${renderJavaExpr(f.default, renderCtx)};`)
+              ).map(
+                (f) =>
+                  `        ${pubLocal}.${jid(f.name)} = ${renderJavaExpr(f.default, renderCtx)};`,
+              )
             : []),
           // A field a narrowed `create(…)` leaves out with no declared default
           // is a bare `bool` or a collection (`loom.create-param-required-
@@ -974,7 +1022,7 @@ export function renderJavaEntity(
                 )
                 .flatMap((f) => {
                   const v = javaFactoryDefault(f);
-                  return v === undefined ? [] : [`        e.${jid(f.name)} = ${v};`];
+                  return v === undefined ? [] : [`        ${pubLocal}.${jid(f.name)} = ${v};`];
                 })
             : []),
           // A server-owned field with no default (`openedAt: datetime managed`)
@@ -984,17 +1032,21 @@ export function renderJavaEntity(
           ...(isAgg(entity)
             ? serverSeededFields(entity).map(
                 ({ field, seed }) =>
-                  `        e.${jid(field.name)} = ${javaServerInitSeed(seed, field.type)};`,
+                  `        ${pubLocal}.${jid(field.name)} = ${javaServerInitSeed(seed, field.type)};`,
               )
             : []),
-          emitTrace ? `        e._assertInvariants("<init>");` : `        e._assertInvariants();`,
+          emitTrace
+            ? `        ${pubLocal}._assertInvariants("<init>");`
+            : `        ${pubLocal}._assertInvariants();`,
           // The create body (`createBodyStatements`) runs against the
           // constructed instance, exactly like an operation body: params as
           // locals, unlisted fields already at their declared defaults.
           ...(createBody.length > 0
-            ? [`        e._createBody(${createParams.map((p) => jid(p.name)).join(", ")});`]
+            ? [
+                `        ${pubLocal}._createBody(${createParams.map((p) => jid(p.name)).join(", ")});`,
+              ]
             : []),
-          `        return e;`,
+          `        return ${pubLocal};`,
           `    }`,
           ``,
           ...(createBody.length > 0
@@ -1112,8 +1164,9 @@ export function renderJavaEntity(
       ];
     };
     claimStampHookLines.push(
-      ...(plainStampHooks ? [] : [`    @PrePersist`]),
-      `    void _stampOnCreate() {`,
+      ...(plainStampHooks ? [] : [`    @${JPA("PrePersist")}`]),
+      // An event stream's repository stamps a new stream across packages.
+      `    ${eventSourced ? "public " : ""}void _stampOnCreate() {`,
       ...hookBody(claimStamps, "create"),
       `    }`,
       ``,
@@ -1121,7 +1174,7 @@ export function renderJavaEntity(
     const updateStamps = claimStamps.filter((s) => !s.createEvent);
     if (updateStamps.length > 0) {
       claimStampHookLines.push(
-        ...(plainStampHooks ? [] : [`    @PreUpdate`]),
+        ...(plainStampHooks ? [] : [`    @${JPA("PreUpdate")}`]),
         `    void _stampOnUpdate() {`,
         ...hookBody(updateStamps, "update"),
         `    }`,
@@ -1163,9 +1216,6 @@ export function renderJavaEntity(
     ``,
     `import java.util.List;`,
     ``,
-    // An on-demand import — the JPA annotations stay simple-named under it.
-    persistence ? `import jakarta.persistence.*;` : null,
-    persistence ? `` : null,
     `import ${basePkg}.domain.common.*;`,
     `import ${basePkg}.domain.enums.*;`,
     `import ${basePkg}.domain.events.*;`,
@@ -1177,7 +1227,7 @@ export function renderJavaEntity(
     // they carry only @Entity + their @DiscriminatorValue (= the kind
     // value every backend stamps).
     persistence && superType?.sharesIdentity
-      ? [`@Entity`, `@DiscriminatorValue("${entity.name}")`]
+      ? [`@${JPA("Entity")}`, `@${JPA("DiscriminatorValue")}("${entity.name}")`]
       : persistence
         ? jpaClassAnnotations(persistence.tableName, {
             schema: persistence.schema,
@@ -1187,7 +1237,7 @@ export function renderJavaEntity(
     ...restrictionAnnotations,
     // Compose the auditing listener (it stacks with inheritance — no
     // @MappedSuperclass needed, so it doesn't collide with `extends`).
-    isAuditable ? `@EntityListeners(${AUDITING_ENTITY_LISTENER}.class)` : null,
+    isAuditable ? `@${JPA("EntityListeners")}(${AUDITING_ENTITY_LISTENER}.class)` : null,
     jmolecules,
     `public class ${entity.name}${superType ? ` extends ${javaRef(superType.pkg ?? pkg, superType.name)}` : ""}${
       isAuditable ? ` implements Auditable` : ""
@@ -1274,6 +1324,8 @@ export function renderJavaAbstractBaseEntity(
   options: {
     tph?: boolean;
     persistence?: {
+      /** The hierarchy's shared table (`aggregateTableName`). */
+      tableName: string;
       schema?: string;
       voLookup: ReadonlyMap<string, readonly FieldIR[]>;
       mangledEnums?: ReadonlySet<string>;
@@ -1298,8 +1350,8 @@ export function renderJavaAbstractBaseEntity(
     ? [
         ...(persistence
           ? [
-              `    @EmbeddedId`,
-              `    @AttributeOverride(name = "value", column = @Column(name = "id"))`,
+              `    @${JPA("EmbeddedId")}`,
+              `    @${JPA("AttributeOverride")}(name = "value", column = @${JPA("Column")}(name = "id"))`,
             ]
           : []),
         `    protected ${base.name}Id id;`,
@@ -1352,7 +1404,7 @@ export function renderJavaAbstractBaseEntity(
   // dirtiness, the capability declares persisted commands).
   const baseVersionField =
     persistence && aggregateIsVersioned(base)
-      ? base.fields.find((f) => f.access === "token")?.name
+      ? base.fields.find((f) => f.name === ROW_VERSION_FIELD)?.name
       : undefined;
   const applyVersionLines: string[] =
     baseVersionField !== undefined
@@ -1369,9 +1421,6 @@ export function renderJavaAbstractBaseEntity(
   return lines(
     `package ${pkg};`,
     ``,
-    // An on-demand import — the JPA annotations stay simple-named under it.
-    persistence ? `import jakarta.persistence.*;` : null,
-    persistence ? `` : null,
     `import ${basePkg}.domain.common.*;`,
     `import ${basePkg}.domain.enums.*;`,
     `import ${basePkg}.domain.ids.*;`,
@@ -1385,14 +1434,14 @@ export function renderJavaAbstractBaseEntity(
       : `// columns onto its own table (JPA @MappedSuperclass).`,
     ...(persistence && options.tph
       ? [
-          `@Entity`,
-          `@Table(name = "${hbIdent(tableNameFor(base.name))}"${persistence.schema ? `, schema = "${persistence.schema}"` : ""})`,
-          `@Inheritance(strategy = InheritanceType.SINGLE_TABLE)`,
-          `@DiscriminatorColumn(name = "kind")`,
+          `@${JPA("Entity")}`,
+          `@${JPA("Table")}(name = "${hbIdent(persistence.tableName)}"${persistence.schema ? `, schema = "${persistence.schema}"` : ""})`,
+          `@${JPA("Inheritance")}(strategy = ${JPA("InheritanceType")}.SINGLE_TABLE)`,
+          `@${JPA("DiscriminatorColumn")}(name = "kind")`,
           ...hostedRestrictions,
         ]
       : []),
-    persistence && !options.tph ? `@MappedSuperclass` : null,
+    persistence && !options.tph ? `@${JPA("MappedSuperclass")}` : null,
     `public abstract class ${base.name} {`,
     ...idLines,
     ...fieldLines,
@@ -1414,7 +1463,7 @@ function javaServerInitSeed(seed: ServerInitSeed, t: TypeIR): string {
   const name = t.kind === "primitive" ? t.name : "";
   switch (seed) {
     case "now":
-      return "java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS)";
+      return javaInstantTruncate("java.time.Instant.now()");
     case "zero":
       return name === "decimal" ? "java.math.BigDecimal.ZERO" : name === "long" ? "0L" : "0";
     case "false":

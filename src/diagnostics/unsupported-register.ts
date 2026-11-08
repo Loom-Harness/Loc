@@ -91,6 +91,38 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   // gap — real parity TODOs.  This is the sprint backlog.  Drains to zero.
   // -------------------------------------------------------------------------
   {
+    code: "loom.elixir-bound-mutating-call-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/call-result-checks.ts:194",
+    what:
+      "A mutating call bound with `let` in a workflow / handler body an elixir deployable " +
+      "emits — `let r = a.withdraw(x)` (with or without an `error` variant in the result) and " +
+      "`let r = Transfer.run(…)` over a `mutating` domain service.  The other four backends " +
+      "render it as the call statement plus a binding, and save the mutated aggregate at exit " +
+      "or, for an error-carrying result, in the non-error arms of the `match` over it.  On " +
+      "Phoenix every op call is a with-clause that persists inside the context function and " +
+      "matches its `{:ok, _}` away at five render sites (workflow body, branch, single-op " +
+      "case, reactor dispatch, explicit handler); a `mutating` service is inlined clause by " +
+      "clause and computes no value at all",
+    mission: "#4541",
+    verified: false,
+  },
+  {
+    code: "loom.elixir-entry-result-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/call-result-checks.ts:239",
+    what:
+      "A routed workflow `create`, `commandHandler` or `queryHandler` an elixir deployable " +
+      "emits whose result is an expected failure (`T or E`), and a `create` answering its own " +
+      "workflow (`return this`).  The other four backends run the entry point in one " +
+      "transaction, roll it back whole on an error answer (saves, saga row, the error arm's " +
+      "writes, no events) and answer the error at its mapped status; the Phoenix with-chain " +
+      "routes have no tagged result to branch on and no `Repo.rollback` seam around the saga " +
+      "row and the body, and the bound mutating call most such bodies match is refused " +
+      "already (`loom.elixir-bound-mutating-call-unsupported`)",
+    mission: "#4571",
+  },
+  {
     code: "loom.ui-multi-backend-unsupported",
     kind: "gap",
     site: "src/ir/validate/checks/ui-backend-binding-checks.ts:48",
@@ -112,16 +144,16 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.elixir-match-stmt-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/elixir-match-stmt-checks.ts:216",
+    site: "src/ir/validate/checks/elixir-match-stmt-checks.ts:294",
     what:
       "FIVE narrow sub-shapes of the statement `match` in a body an elixir deployable emits, " +
-      "`scope` under **D-ELIXIR-IF-BRANCH** like the `if` statement's.  The statement ITSELF " +
+      "`scope` under **D-ELIXIR-IF-BRANCH**.  The statement ITSELF " +
       "renders: an operation rebinds `record` through a value-producing `case` " +
       "(`vanilla/match-stmt-emit.ts`), a domain service's tail `case` is its value, and a " +
       "workflow / handler / reactor body runs it as one `{:ok, _} <- (case … end)` with-clause.  " +
       "What is left: `#return-in-arm`, `#guard-in-arm`, `#arm-statement` and `#event-sourced` " +
-      "(an event-sourced command body or `eventSourced` workflow handler) — the `if` statement's " +
-      "four, for the same body-building reasons — and `#multi-success`: a union subject with two " +
+      "(an event-sourced command body or `eventSourced` workflow handler) — each a change to how " +
+      "a Phoenix body is built — and `#multi-success`: a union subject with two " +
       "success variants, whose `{:ok, value}` tuples carry no tag on Phoenix (the expression " +
       "`match` reads the same untagged tuple), so telling them apart needs the success value " +
       "tagged at every `or`-returning producer",
@@ -130,20 +162,22 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-return-type-unsupported",
     kind: "scope",
-    site: "src/language/validators/structural.ts:438",
+    site: "src/language/validators/structural.ts:533",
     what:
-      "a workflow `create(…): T` whose `T` is an aggregate / payload / value object / " +
-      "decimal / money / datetime.  The v1 result (B-03) ships `X id` / `string` / `int` / " +
-      "`long` / `bool` on all five backends; the rest need the per-backend response " +
-      "projection the `commandHandler` route already has.  (The `eventSourced` refusal is a " +
-      "permanent rule with its own code, `loom.workflow-return-event-sourced`.)",
-    mission: "#3916",
+      "a routed entry point's result that is (or has a success variant that is) a value " +
+      "object / decimal / money / date / datetime, and a workflow `create`'s plain (non-union) " +
+      "aggregate or payload result.  Shipped: `X id` / `string` / `int` / `long` / `bool`, the " +
+      "create's own workflow (`return this`, its instance state), and `T or E` unions whose " +
+      "success variants are those or payloads or aggregates (answered as `<Agg>Response`).  " +
+      "(The `eventSourced` refusal is a permanent rule with its own code, " +
+      "`loom.workflow-return-event-sourced`.)",
+    mission: "#4572",
     verified: false,
   },
   {
     code: "loom.audited-backend-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/storage-inheritance-checks.ts:385",
+    site: "src/ir/validate/checks/storage-inheritance-checks.ts:310",
     what:
       "audit-record emission (`operation … audited`, `audited create|destroy`) ships on every " +
       "backend — fires only when no backend deployable hosts the context",
@@ -158,11 +192,23 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.context-test-unsupported",
     kind: "seam",
-    site: "src/language/validators/test-placement.ts:98",
+    site: "src/language/validators/test-placement.ts:147",
     what:
       "context-level `test` whose target context no backend deployable hosts — every backend " +
       "renders context integration tests, so only a frontend-only host warns",
     mission: "#3378",
+  },
+  {
+    code: "loom.projection-cross-context-source-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:172",
+    what:
+      "a per-row (repository-sourced) query-time projection reading an aggregate declared in " +
+      "ANOTHER context, on node / python / .NET: their repository emitters synthesise the source " +
+      "find only from projections in the aggregate's own context, so the route called a method " +
+      "never emitted.  java and elixir resolve the home context and emit it; the direct-table " +
+      "arms work everywhere.",
+    mission: "#4595",
   },
   {
     code: "loom.dapper-unsupported",
@@ -229,14 +275,14 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // classifies each cell — `test/system/target-capability-table.test.ts`
     // proves every supported cell renders and every refused one is raised.
     code: "loom.target-unsupported",
-    kind: "seam",
-    site: "src/ir/validate/checks/target-capability-checks.ts:329",
+    kind: "gap",
+    site: "src/ir/validate/checks/target-capability-checks.ts:670",
     what:
-      "a construct × position its target cannot render, per the capability table.  LATENT: " +
-      "every refused cell today is a settled never — `DataGrid` on flutter and phoenixLiveView " +
-      "(D-DATAGRID-TARGETS: it ships iff the target can run TanStack itself) — and `Chart` and " +
-      "the entity-history read are supported on every shipping frontend, so the remaining " +
-      "refusals are the seam a NEW frontend gates on until it ports",
+      "a construct × position, or a feature pair, its target cannot render, per the capability " +
+      "table.  `DataGrid` on flutter and phoenixLiveView is a settled never (D-DATAGRID-TARGETS); " +
+      "the `#feature-composition-broken` / `#feature-composition-unwitnessed` cells are gaps, " +
+      "each lifted by a corpus fixture that runs the pair on that backend (#4028), and so is a " +
+      "`tenantOwned` event-sourced aggregate on node's mikroorm (`#tenant-owned-event-sourced`, #4686)",
     mission: "#3592",
     verified: true,
   },
@@ -249,39 +295,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "deployable hosts the context",
   },
   {
-    code: "loom.elixir-if-stmt-unsupported",
-    kind: "scope",
-    site: "src/ir/validate/checks/if-stmt-checks.ts:305",
-    what:
-      "FOUR narrow sub-shapes of the `if` STATEMENT in a domain body an elixir deployable emits.  " +
-      "RE-CLASSED `scope` in wave C2 packet 2m under **D-ELIXIR-IF-BRANCH**: each survivor needs a " +
-      "change to HOW a Phoenix body is BUILT (a list-level restructure for the early exit, a " +
-      "non-hoisted guard form, a statement spine for ES commands), and two members of the closed " +
-      "branch vocabulary are not even elixir-local — the conditional `emit` is an event-ORDERING " +
-      "question the S5a persist-then-dispatch restructure cannot answer, and the PROVENANCED " +
-      "write is decided by the TARGET-NEUTRAL `opHasProvSite` (`src/ir/util/prov-id.ts:49`), so " +
-      "deepening it changes all five backends.  M-T6.59 owns that body renderer.  " +
-      "The statement ITSELF now renders (M-T6.59, wave C2 2a): `vanilla/if-stmt-emit.ts` makes it " +
-      "value-producing (`record = if … do … record else record end`) and `opBodyStmtsDeep` makes " +
-      "every persist/containment probe deep-walk the branches, so a branch assignment survives " +
-      "`Repo.update` (boot-proved on real Postgres).  What is left: `#return-in-branch` (an EARLY " +
-      "EXIT — the linear body renderers would have to restructure the statements FOLLOWING the " +
-      "`if` into a `case` arm, a list-level transform that also breaks the same-length " +
-      "`statementSubRegions` sourcemap zip; allowed already in a TAIL-VALUE body, where every " +
-      "`return` is already tail-position), `#guard-in-branch` (the op path hoists top-level " +
-      "`requires`/`precondition` into a `with :ok <- ensure(…)` chain answering 403/422; a nested " +
-      "one would raise → 500, a wire divergence worse than the refusal), and `#event-sourced` (an " +
-      "ES command body is sorted into `with`-clauses / `let`s / one `events = […]` list, not " +
-      "rendered as a statement sequence, so a conditional `emit` has nowhere to go), and " +
-      "`#branch-statement` (the CLOSED branch vocabulary — an `emit` or a " +
-      "PROVENANCED write in a branch: each RENDERS, but the emitters decide an operation's " +
-      "supporting machinery by scanning its TOP-LEVEL statements, so a conditional `emit` gets no " +
-      "`require Logger` and cannot be hoisted past the commit by the S5a restructure, and a nested " +
-      "provenanced write captures lineage in an op the route layer never put in flush mode)",
-    mission: "#3316",
-    verified: true,
-  },
-  {
     // The TARGET-AGNOSTIC half, promoted out of the Feliz row below in wave C2
     // packet 2i (audit F66).  Every frontend resolves a `match await` subject to
     // an aggregate instance op and renders nothing else — the four JS walkers
@@ -289,7 +302,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // codegen, and only Feliz / Flutter said so, behind a platform check.
     code: "loom.async-effect-subject-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:542",
+    site: "src/ir/validate/checks/store-checks.ts:577",
     what:
       "`match await <subject>` whose subject is not an aggregate INSTANCE operation.  The " +
       "reachable population was CENSUSED in wave C2 packet 2l by spelling every candidate " +
@@ -311,7 +324,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.ui-body-feature-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-body-vocabulary-checks.ts:364",
+    site: "src/ir/validate/checks/ui-body-vocabulary-checks.ts:303",
     what:
       "the per-target frontend body vocabulary (`UI_BODY_FEATURE_RENDERERS`): on Feliz a " +
       "block lambda or an action value inside an action, a `match await` nested in an arm / in a " +
@@ -325,7 +338,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.feliz-async-effect-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:466",
+    site: "src/ir/validate/checks/store-checks.ts:502",
     what:
       "`match await` on Feliz in a COMPONENT host — the Feliz generator projects async effects " +
       "only on pages (the trigger id comes from the host page's route `:id`), so a component " +
@@ -336,7 +349,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.field-mask-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/storage-inheritance-checks.ts:290",
+    site: "src/ir/validate/checks/storage-inheritance-checks.ts:215",
     what:
       "`mask unless` read redaction ships on every backend — fires only when no backend " +
       "deployable hosts the context",
@@ -345,7 +358,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.flutter-async-effect-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/store-checks.ts:590",
+    site: "src/ir/validate/checks/store-checks.ts:625",
     what:
       "`match await` in a COMPONENT action.  RE-CLASSED `gap` -> `scope` under " +
       "**D-FLUTTER-COMPONENT-BINDINGS**: `match await <api>.<Agg>.<op>()` on an INSTANCE " +
@@ -434,7 +447,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // M-T1.20, which already IS the register of frontend refusals accepted in
     // `.ddd`.  Unlike its neighbours there, this one is not per-target: all six
     // refuse it, which is what makes it a surface decision rather than a port.
-    site: "src/ir/validate/checks/if-stmt-checks.ts:423",
+    site: "src/ir/validate/checks/if-stmt-checks.ts:52",
     what:
       "the `if` STATEMENT in a `ui` page / component / store body, on EVERY frontend.  A page body " +
       "is an expression tree — a condition is a VALUE there (`cond ? a : b`, `match`) — and no " +
@@ -517,7 +530,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.store-lifetime-target-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:366",
+    site: "src/ir/validate/checks/store-checks.ts:402",
     what:
       "a persisted store field with no total F# (feliz) or Dart (flutter) codec.  BOTH halves " +
       "narrowed across wave C2 (feliz in packets 2i + 2l, flutter in packet 2j) to exactly the " +
@@ -760,7 +773,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1665",
+    site: "src/ir/validate/checks/workflow-checks.ts:1786",
     what: "workflow load of an array result — a `let` binds one row",
     mission: "#3376",
     verified: true,

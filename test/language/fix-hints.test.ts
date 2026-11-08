@@ -195,6 +195,34 @@ describe("fix-hints", () => {
     expect(errors).toEqual([]);
   });
 
+  it("envelope-removed: `T envelope` becomes `T` (round-trip clean)", async () => {
+    const ENV = `context Sales {
+  aggregate Order { code: string }
+  repository Orders for Order
+  queryHandler One(id: Order id): Order envelope {
+    let o = Orders.get(id)
+    return o
+  }
+}
+`;
+    const { doc, model, diagnostics } = await parseString(ENV);
+    const report = buildValidateReport({
+      modelPath: "m.ddd",
+      langiumDiagnostics: diagnostics,
+      doc,
+      irDiagnostics: [],
+      model,
+    });
+    const hint = report.diagnostics.find((d) => d.code === "loom.envelope-removed");
+    expect(hint?.severity).toBe("error");
+    expect(hint?.fixHint?.kind).toBe("replace-text");
+    const applied = await applyPatches(ENV, [hint?.fixHint?.patch as ModelPatch]);
+    expect(applied.ok).toBe(true);
+    expect(applied.text).toContain("queryHandler One(id: Order id): Order {");
+    const { errors } = await parseString(applied.text);
+    expect(errors).toEqual([]);
+  });
+
   it("react-deployable-missing-ui: appends `ui: <Name>` (single ui, round-trip clean)", async () => {
     const SYS = `system S {
   context Sales { aggregate Order { total: int } }

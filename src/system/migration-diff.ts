@@ -1,6 +1,11 @@
 import type { EnrichedLoomModel } from "../ir/types/loom-ir.js";
 import type { SchemaSnapshot } from "../ir/types/migrations-ir.js";
-import { headSnapshots, type MigrationChain } from "./migration-chain.js";
+import {
+  type ChainEntry,
+  headSnapshots,
+  type MigrationChain,
+  recordGeneration,
+} from "./migration-chain.js";
 import {
   buildMigrations,
   type MigrationDelta,
@@ -40,15 +45,90 @@ export function migrationIntents(loom: EnrichedLoomModel) {
 export function pendingMigrations(
   loom: EnrichedLoomModel,
   chain: MigrationChain,
-  options: { allowDestructive?: boolean; warnings?: MigrationWarning[] } = {},
+  options: {
+    allowDestructive?: boolean;
+    warnings?: MigrationWarning[];
+    destructiveRefusals?: (MigrationDestructiveError | MigrationShapeChangeError)[];
+  } = {},
 ): MigrationDelta[] {
   return loom.systems.flatMap((sys) =>
     buildMigrations(sys, headSnapshots(chain), {
       ...migrationIntents(loom),
       allowDestructive: options.allowDestructive,
       warnings: options.warnings,
+      destructiveRefusals: options.destructiveRefusals,
     }),
   );
+}
+
+/** Record `loom`'s schema changes since `chain`'s head as its next entries —
+ *  `ddd migrate add`, the playground's Record migration and the
+ *  `loom_migration_record` tool, on one core.  Throws the derivation's
+ *  refusals (a destructive change without `allowDestructive`) and
+ *  `recordGeneration`'s (a bad or taken name); the caller writes the
+ *  entries.  Empty when nothing changed. */
+export function recordPendingMigrations(
+  loom: EnrichedLoomModel,
+  chain: MigrationChain,
+  options: { name: string; now: string; allowDestructive?: boolean; warnings?: MigrationWarning[] },
+): ChainEntry[] {
+  const deltas = pendingMigrations(loom, chain, {
+    allowDestructive: options.allowDestructive,
+    warnings: options.warnings,
+  });
+  return recordGeneration(chain, deltas, {
+    name: options.name,
+    now: options.now,
+    allowDestructive: options.allowDestructive,
+  });
+}
+
+/** One owning module's line in a migration status. */
+export interface ModuleMigrationStatus {
+  module: string;
+  /** The module's newest recorded entry, if any. */
+  head?: { version: string; name: string };
+  /** Steps the model has that the chain does not record yet. */
+  unrecordedSteps: number;
+  /** The destructive gate refuses the unrecorded steps: recording them needs
+   *  the explicit acknowledgement (`--allow-destructive`). */
+  destructive: boolean;
+  /** The gate's refusal message when `destructive`. */
+  destructiveMessage?: string;
+}
+
+/** What the chain records against what the model describes. */
+export interface MigrationStatus {
+  /** One line per owning module of every system, in module order. */
+  modules: ModuleMigrationStatus[];
+  /** The `loom.migration-block-applied` advisories: `migration` blocks the
+   *  chain has fully applied, which the source may drop. */
+  spentBlocks: string[];
+}
+
+/** `ddd migrate status` and the `loom_migration_status` tool, on one core:
+ *  each owning module's head and the steps recording would write, with the
+ *  destructive gate's verdict on them.  Throws any derivation refusal other
+ *  than the destructive gate. */
+export function migrationStatus(loom: EnrichedLoomModel, chain: MigrationChain): MigrationStatus {
+  const warnings: MigrationWarning[] = [];
+  const refusals: (MigrationDestructiveError | MigrationShapeChangeError)[] = [];
+  const deltas = pendingMigrations(loom, chain, { warnings, destructiveRefusals: refusals });
+  const modules = deltas.map((d): ModuleMigrationStatus => {
+    const head = chain.entries.filter((e) => e.module === d.module).at(-1);
+    const messages = refusals.filter((r) => r.module === d.module).map((r) => r.message);
+    return {
+      module: d.module,
+      ...(head ? { head: { version: head.version, name: head.name } } : {}),
+      unrecordedSteps: d.steps.length,
+      destructive: messages.length > 0,
+      ...(messages.length > 0 ? { destructiveMessage: messages.join("\n") } : {}),
+    };
+  });
+  const spentBlocks = warnings
+    .filter((w) => w.code === "loom.migration-block-applied")
+    .map((w) => w.message);
+  return { modules, spentBlocks };
 }
 
 /** One system's evolution from a baseline to the current model. */

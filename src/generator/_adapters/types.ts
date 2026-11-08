@@ -50,8 +50,7 @@ export interface EmitCtx {
   /** The deployable's resolved STYLE adapter (`application:` axis →
    *  D-REALIZATION-AXES).  Resolved once at the system orchestrator from
    *  `deployable.application` via `resolveStyle` and threaded down, so a
-   *  per-deployable selection takes effect.  Absent in legacy
-   *  single-context generate mode (no system orchestrator) — call sites
+   *  per-deployable selection takes effect.  Absent → call sites
    *  fall back to the backend's hardcoded default sibling, keeping output
    *  byte-identical.  With today's size-1 real menus the resolved adapter
    *  IS that default. */

@@ -106,13 +106,12 @@ const PROBE_BODY = `Stack {
           of: Shop.Product.all,
           data: rows => Table { rows: rows, Column { "SlotColumnHeader", o => Text { o.name } } }
         },
-        Text { "SlotGridAnchor" }__GRID__
+        Loader()__GRID__
       }`;
 
 /** A sortable, filterable, selectable `DataGrid` — its pager, filter, sort and
  *  selection chrome.  Only where the grid ships (`loom.target-unsupported` on
- *  Flutter and HEEx).  `Loader()` is not probed yet: eleven cells leave
- *  `chrome.loading` unread (#4485). */
+ *  Flutter and HEEx). */
 const GRID_PROBE = `,
         QueryView {
           of: Shop.Product.all,
@@ -316,7 +315,7 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
     id: "D-I18N-1",
     targets: ["feliz", "flutter"],
     menus: ["derived"],
-    key: /^page\.\w+\.menu\.(label|section)\./,
+    key: /^WebApp\.page\.\w+\.menu\.(label|section)\./,
     reason:
       "a scaffold page's `menu:` sidebar metadata is catalogued, but the Feliz navbar labels " +
       "its links by page name and Flutter emits no navigation at all — the menu-navigation " +
@@ -327,7 +326,7 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
     id: "D-I18N-2",
     targets: ["flutter"],
     menus: BOTH,
-    key: /^chrome\.delete(Entity|Confirm)$/,
+    key: /^chrome\.delete(Entity|Confirm)\.\w+$/,
     reason:
       '`DestroyForm`\'s button ("Delete Product") renders raw in the Flutter form runtime ' +
       "(`forms.dart`), which owns the widget's label",
@@ -357,16 +356,6 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
     menus: BOTH,
     key: /^chrome\.toggleNavigation$/,
     reason: "the other half of the openMenu/toggleNavigation pair",
-  },
-  {
-    kind: "over-merge",
-    id: "O-sortBy",
-    targets: ["mui", ...HEEX],
-    menus: BOTH,
-    key: /^chrome\.sortBy$/,
-    reason:
-      "TABLE_CONTROLS_CHROME: MUI's grid sorts on a header click with no labelled control, " +
-      "and HEEx has no sortable column in the fixture (it renders no DataGrid)",
   },
   {
     kind: "over-merge",
@@ -603,7 +592,10 @@ function roundTrip(
   const raw: RoundTrip["raw"] = [];
   const missing: string[] = [];
   const esc = (v: string): string => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const rawDead = dead.filter((k) => {
+  /** A line rendering `k`'s English raw — in a string or text position, with
+   *  no key carrying that English on the same line (the bound `t(k, "…")`
+   *  default is on the call's own line, so it never counts). */
+  const rendersRaw = (k: string, textNodes = false): ((line: string) => boolean) => {
     const v = catalog[k]!;
     const sameText = Object.keys(catalog).filter((o) => catalog[o] === v);
     // An ICU message renders with its holes filled ("Delete {entity}" →
@@ -614,10 +606,16 @@ function roundTrip(
       .map(esc)
       .join(`[^"'<>]+?`);
     const literal = new RegExp(`(["'>]\\s*)${body}(\\s*["'<])`, v.includes("{") ? "i" : "");
-    return text
-      .split("\n")
-      .some((line) => literal.test(line) && !sameText.some((o) => line.includes(o)));
-  });
+    // A markup text node also renders raw where it fills its own line, or
+    // follows decoration inside the tag (`>← Back to home<`).  Only for a key
+    // known to be rendered: a bare "Home" line is just as likely another
+    // message's text (a derived nav label) as this key's.
+    const textNode = new RegExp(`(?:^\\s*|>[^<>{}"'=]*?)${body}\\s*(?:<|$)`);
+    return (line) =>
+      (literal.test(line) || (textNodes && textNode.test(line))) &&
+      !sameText.some((o) => line.includes(o));
+  };
+  const rawDead = dead.filter((k) => text.split("\n").some(rendersRaw(k)));
   const unbound: RoundTrip["unbound"] = [];
   for (const literal of authored(menu, t)) {
     const keys = Object.keys(catalog).filter((k) => catalog[k] === literal);
@@ -658,6 +656,26 @@ function roundTrip(
     for (const line of src.split("\n")) {
       for (const [k, re] of chrome) {
         if (re.test(line)) unbound.push({ key: k, file, line: line.trim().slice(0, 160) });
+      }
+    }
+  }
+  // And the raw half for shell / pack chrome (`chrome.*` — a fixed English
+  // vocabulary; the scaffold `page.*` keys share theirs with domain names a
+  // backend spells as identifiers) that IS consumed somewhere: a key bound at one
+  // render site keeps it alive, so a second site that spells the English raw
+  // (the shell's 404 view binds "Back to home" while its error view does not)
+  // escapes the dead-key direction entirely.  Placeholder-free messages only:
+  // an ICU hole matches any run of text, so "Delete {entity}" would also match
+  // the bound default of "Delete this {entity}?" — the ICU chrome keeps the
+  // dead-key direction alone.  Comment lines quote chrome in prose.
+  const liveChrome = Object.keys(catalog)
+    .filter((k) => k.startsWith("chrome.") && !catalog[k]!.includes("{") && !dead.includes(k))
+    .map((k) => [k, rendersRaw(k, true)] as const);
+  for (const [file, src] of tree) {
+    for (const line of src.split("\n")) {
+      if (/^\s*(?:\/\/|#|<!--|\{\/\*|\*)/.test(line)) continue;
+      for (const [k, isRaw] of liveChrome) {
+        if (isRaw(line)) raw.push({ key: k, file, line: line.trim().slice(0, 160) });
       }
     }
   }

@@ -15,13 +15,14 @@ import {
   deriveAggregateOperations,
   isAllFind,
 } from "../../../ir/util/api-surface.js";
+import { mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { findUnionSpec, unionMembers } from "../../_payload/union-wire.js";
 import {
-  collectWireUsings,
   csIdValueClrType,
+  isWireValueType,
   wireToCommandArgument,
   wireType,
 } from "../dto-mapping.js";
@@ -30,7 +31,7 @@ import { CS_PAGED_QUERY_PARAMS } from "../emit/common.js";
 import { renderController } from "../emit.js";
 import { AMBIENT_CURRENT_USER, renderCsExpr } from "../render-expr.js";
 import { requestVoValidatorName } from "../validator-emit.js";
-import { isNullableWireDefault } from "../wire-default.js";
+import { hasNullableWireDefault, omitsToEmptyCollection } from "../wire-default.js";
 
 /** One arm of a return-typed operation's controller translation. */
 export interface ReturnUnionArm {
@@ -77,12 +78,14 @@ export function buildOperationSpec(
     // URL segment from routeSlug (D-URLSTYLE); name stays the verb
     // for the C# action method + command type.
     routeSlug: op.routeSlug,
-    cmdArgs: op.params.map((p) =>
-      wireToCommandArgument(`request.${upperFirst(p.name)}`, p.type, ctx, {
-        ns,
-        pointer: `/${p.name}`,
-      }),
-    ),
+    cmdArgs:
+      mergePatchCmdArgs(op, ctx, ns) ??
+      op.params.map((p) =>
+        wireToCommandArgument(`request.${upperFirst(p.name)}`, p.type, ctx, {
+          ns,
+          pointer: `/${p.name}`,
+        }),
+      ),
     // Wire-shape key set for --trace's wire_in line.  Param names
     // are lowerCamel in the IR — same form the JSON wire uses
     // (default ASP.NET JsonNamingPolicy.CamelCase).
@@ -108,6 +111,31 @@ export function buildOperationSpec(
     // `[ProducesResponseType(typeof(<Wire>), 200)]` + `return Ok(result)` path.
     returnScalar: buildReturnScalarSpec(op, ctx),
   };
+}
+
+/** A merge-patch update's command arguments (RS-47): every request property
+ *  is nullable, so a REQUIRED field's absent key binds a placeholder the
+ *  handler never reads — it passes the stored value for every key outside
+ *  `PatchedKeys()`, the trailing argument.  An optional field converts exactly
+ *  as before (`null` is a value the patch may carry).  `undefined` for any
+ *  other operation. */
+function mergePatchCmdArgs(
+  op: OperationIR,
+  ctx: EnrichedBoundedContextIR,
+  ns: string,
+): string[] | undefined {
+  const fields = mergePatchFields(op);
+  if (!fields) return undefined;
+  return [
+    ...fields.map((f) => {
+      const expr = `request.${upperFirst(f.name)}`;
+      const site = { ns, pointer: `/${f.name}` };
+      if (f.nullable) return wireToCommandArgument(expr, f.type, ctx, site);
+      const present = isWireValueType(f.type) ? `${expr}!.Value` : `${expr}!`;
+      return `(${expr} is null ? default! : ${wireToCommandArgument(present, f.type, ctx, site)})`;
+    }),
+    "request.PatchedKeys()",
+  ];
 }
 
 /** Wire type for a SCALAR operation return (`operation describe(): string` —
@@ -202,21 +230,9 @@ export function emitController(
   const probeByOp = new Map<unknown, ApiOperationIR>(
     derivedOps.filter((o) => o.kind === "gateProbe").map((o) => [o.operation, o]),
   );
-  // The derivation registers the auto-`all` LAST (Hono's shadowing order);
-  // .NET has always emitted it first (enrichment prepends it to `repo.finds`),
-  // and ASP.NET attribute routing is registration-order-free — so keep the
-  // historical order rather than churn every controller's method layout.
-  const findEntries = [
-    ...derivedOps.filter((o) => isAllFind(o)),
-    ...derivedOps.filter((o) => o.kind === "find" && !isAllFind(o)),
-  ];
-  const publicOps = opEntries.map((o) => o.operation!);
+  const findEntries = derivedOps.filter((o) => isAllFind(o));
   const exposedFinds = findEntries.map((o) => o.find!);
   const usings = new Set<string>();
-  for (const f of requiredFields) collectWireUsings(f.type, ctx, usings);
-  for (const op of publicOps) for (const p of op.params) collectWireUsings(p.type, ctx, usings);
-  for (const find of exposedFinds)
-    for (const p of find.params) collectWireUsings(p.type, ctx, usings);
   // A paged find's action returns `Paged<…Response>` from the shared runtime.
   if (exposedFinds.some((f) => pagedReturn(f.returnType))) usings.add(`${ns}.Domain.Common`);
   // A server-sourced field default (`now()` / `currentUser.*`) is applied
@@ -237,7 +253,7 @@ export function emitController(
     `Api/${upperFirst(plural(agg.name))}Controller.cs`,
     renderController(agg, repo, ns, {
       idClass,
-      idClrType: csIdValueClrType(agg.idValueType),
+      idClrType: csIdValueClrType(),
       createAction: createActionOverride ?? derivedOps.some((o) => o.kind === "create"),
       destroyAction: derivedOps.some((o) => o.kind === "destroy"),
       createApiOp: derivedOps.find((o) => o.kind === "create"),
@@ -273,7 +289,7 @@ export function emitController(
         // compile-time constant), so both coalesce here.  `renderCsExpr` yields
         // the DOMAIN value in each case — `DateTime.UtcNow` / the ambient claim
         // / `new Money(0m, "USD")` — which is exactly the command's param type.
-        if (isNullableWireDefault(f.default)) {
+        if (f.default !== undefined && hasNullableWireDefault(f)) {
           // The nullable request field coalesces to the per-request default.
           // `renderCsExpr` yields the DOMAIN value (`DateTime.UtcNow`, the
           // ambient claim) matching the command's param type; in the `: <parse>`
@@ -283,6 +299,11 @@ export function emitController(
             currentUserExpr: AMBIENT_CURRENT_USER,
           });
           return `request.${upperFirst(f.name)} is null ? ${dflt} : ${wireArg}`;
+        }
+        // An omitted non-nullable collection is the empty collection (the
+        // request field is nullable; see `omitsToEmptyCollection`).
+        if (omitsToEmptyCollection(agg, f)) {
+          return `request.${upperFirst(f.name)} is null ? [] : ${wireArg}`;
         }
         return wireArg;
       }),

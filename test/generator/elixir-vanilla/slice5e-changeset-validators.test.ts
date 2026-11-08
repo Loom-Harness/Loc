@@ -96,7 +96,7 @@ system P {
     // DATABASE answers 500 for what is a client fault.  Asserted exactly, so
     // an invariant leaking in here would still fail this test.
     const VERSION_BOUND =
-      "|> validate_number(:version, greater_than_or_equal_to: -2147483648, " +
+      "|> validate_number(:row_version, greater_than_or_equal_to: -2147483648, " +
       'less_than_or_equal_to: 2147483647, message: "Integer out of range")';
     const numberLines = cs.split("\n").filter((l) => l.includes("validate_number"));
     // Once per changeset that casts the column — this aggregate emits the base

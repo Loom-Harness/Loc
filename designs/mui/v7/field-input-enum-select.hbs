@@ -3,9 +3,9 @@
           name="{{path}}"
           render={({ field, fieldState }) => (
             <FormControl fullWidth size="small" error={!!fieldState.error}>
-              <InputLabel>{{label}}</InputLabel>
-              <Select label="{{label}}" data-testid="{{testId}}" value={field.value as string ?? ""} onChange={(e) => field.onChange(e.target.value)}>
-                { ({{{enumValuesJson}}}).map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>) }
+              <InputLabel>{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</InputLabel>
+              <Select {{#if labelExpr}}label={ {{{labelExpr}}} }{{else}}label="{{label}}"{{/if}} data-testid="{{testId}}" value={field.value as string ?? ""} onChange={(e) => field.onChange(e.target.value)}>
+                { ({{{enumValuesJson}}}).map((v) => <MenuItem key={v} value={v}>{{#if enumLabelFn}}{ ({{{enumLabelFn}}})(v) }{{else}}{v}{{/if}}</MenuItem>) }
               </Select>
               {fieldState.error && <FormHelperText>{fieldState.error.message}</FormHelperText>}
             </FormControl>

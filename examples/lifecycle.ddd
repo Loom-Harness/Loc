@@ -4,7 +4,7 @@
 // `create(...)` and `destroy { }`.  This example exists so the generated
 // hard-delete paths — Hono `DELETE /{id}` + repo `delete()`, .NET
 // `[HttpDelete]` + `Destroy<Agg>Command` + repo `DeleteAsync` — get real
-// compile coverage in the `generate ts` / `generate dotnet` build gates.
+// compile coverage in the node + dotnet build gates.
 // Every other example leaves lifecycle implicit, so they never exercise the
 // canonical-destroy emission.
 context Lifecycle {
@@ -26,7 +26,7 @@ context Lifecycle {
   // required field is defaulted, so it's constructible — the generated
   // create is `POST /` with an empty body + a factory that applies the
   // defaults.  Gives the synthesised-create path compile coverage in the
-  // `generate ts` / `generate dotnet` build gates.
+  // node + dotnet build gates.
   aggregate Counter {
     count: int = 0
     label: string = "untitled"
@@ -36,4 +36,11 @@ context Lifecycle {
   repository Articles for Article { }
   repository Tags for Tag { }
   repository Counters for Counter { }
+}
+
+// The deployment: one node backend hosting the context, persisted to postgres.
+system Lifecycle {
+  storage db { type: postgres }
+  resource lifecycleState { for: Lifecycle, kind: state, use: db }
+  deployable lifecycle { platform: node, contexts: [Lifecycle], dataSources: [lifecycleState] }
 }

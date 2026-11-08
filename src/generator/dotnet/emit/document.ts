@@ -7,7 +7,7 @@ import type {
 import { directParentName } from "../../../ir/util/containment-parent.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
+import { ROW_VERSION_COLUMN, ROW_VERSION_PASCAL } from "../../../util/row-version.js";
 import { csJsonSqlType } from "../codec-spelling.js";
 import { csValueTypeForId, renderCsType } from "../render-expr.js";
 
@@ -64,7 +64,7 @@ function snapshotInit(t: TypeIR): string {
  *  `Data` holds the serialised aggregate; `Version` is an EF
  *  concurrency token bumped on every save. */
 export function renderDocumentPoco(agg: EnrichedAggregateIR, ns: string): string {
-  const idType = csValueTypeForId(agg.idValueType);
+  const idType = csValueTypeForId();
   const idInit = idType === "string" ? " = default!;" : "";
   return (
     lines(
@@ -78,22 +78,23 @@ export function renderDocumentPoco(agg: EnrichedAggregateIR, ns: string): string
       "{",
       `    public ${idType} Id { get; set; }${idInit}`,
       `    public string Data { get; set; } = "{}";`,
-      "    public int Version { get; set; }",
+      `    public int ${ROW_VERSION_PASCAL} { get; set; }`,
       "}",
     ) + "\n"
   );
 }
 
 /** EF Core configuration for a document aggregate's persistence
- *  record: jsonb `Data` column + concurrency-token `Version`.  Honours
+ *  record: jsonb `Data` column + concurrency-token `RowVersion`.  Honours
  *  the same dataSource `schema` / `tablePrefix` knobs the normalised
  *  configuration does. */
 export function renderDocumentConfiguration(
   agg: EnrichedAggregateIR,
   ns: string,
-  options: { schema?: string; tablePrefix?: string } = {},
+  /** `table` is the aggregate's table (`aggregateTableName`). */
+  options: { table: string; schema?: string; tablePrefix?: string },
 ): string {
-  const baseTable = tableNameFor(agg.name);
+  const baseTable = options.table;
   const tableName = options.tablePrefix ? `${options.tablePrefix}${baseTable}` : baseTable;
   const tableArgs = options.schema ? `"${tableName}", "${options.schema}"` : `"${tableName}"`;
   return (
@@ -112,13 +113,13 @@ export function renderDocumentConfiguration(
       `        builder.ToTable(${tableArgs});`,
       "        builder.HasKey(x => x.Id);",
       // Map each property to the migration's snake_case column — EF's default
-      // is the PascalCase CLR name (`Id`/`Data`/`Version`), which does NOT
-      // match the `id`/`data`/`version` DDL → `column c.Id does not exist` on
+      // is the PascalCase CLR name (`Id`/`Data`/`RowVersion`), which does NOT
+      // match the `id`/`data`/`row_version` DDL → `column c.Id does not exist` on
       // every read/insert.  The key is a plain `Guid` (minted app-side), so no
       // value converter is needed, only the column name + ValueGeneratedNever.
       `        builder.Property(x => x.Id).HasColumnName("id").ValueGeneratedNever();`,
       `        builder.Property(x => x.Data).HasColumnName("data").HasColumnType("${csJsonSqlType()}");`,
-      `        builder.Property(x => x.Version).HasColumnName("version").IsConcurrencyToken();`,
+      `        builder.Property(x => x.${ROW_VERSION_PASCAL}).HasColumnName("${ROW_VERSION_COLUMN}").IsConcurrencyToken();`,
       "    }",
       "}",
     ) + "\n"

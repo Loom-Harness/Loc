@@ -3,7 +3,6 @@ import type {
   AggregateIR,
   BoundedContextIR,
   DerivedIR,
-  ExprIR,
   PageIR,
   ParamIR,
   StateFieldIR,
@@ -20,6 +19,7 @@ import { FORMAT_CALL_HELPERS } from "../../_frontend/format-helpers.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import { usesToastEffect } from "../../_frontend/toast-effect.js";
 import type { LoadedPack } from "../../_packs/loader.js";
+import { localizedPageTitle } from "../../_walker/i18n-emit.js";
 import {
   closeUsedActions,
   emitExpr,
@@ -38,6 +38,7 @@ import {
   fieldGroupControlDecl,
   fileUploadMethodLines,
 } from "../form-fields.js";
+import { ANGULAR_LOCALE_SWITCHER_CLASS } from "../locale-switcher.js";
 import { ANGULAR_REF_LABEL_CLASS } from "../ref-label-runtime.js";
 import { storeClassName, storeFileSlug } from "../store-builder.js";
 import { angularTarget } from "./angular-target.js";
@@ -130,9 +131,9 @@ export interface AngularPageShellInput {
   /** Page-level `derived name: T = expr` bindings — hoisted as
    *  `readonly <name> = computed(() => <expr>)` class fields. */
   derived?: readonly DerivedIR[];
-  /** Active design pack — required to build the `WalkContext` the derived
-   *  expressions emit through. */
-  pack?: LoadedPack;
+  /** Active design pack — builds the `WalkContext` the derived expressions
+   *  and state initializers emit through. */
+  pack: LoadedPack;
   /** True when the hosting frontend deployable has `auth: ui` (a verified
    *  session is available client-side).  Enables the page-level `requires`
    *  guard below — without it, a `requires` predicate stays purely a
@@ -171,6 +172,9 @@ export interface AngularPageShellInput {
    *  so the import path a call site needs differs by flavour.  A name absent
    *  here is treated as extern (the pre-existing path). */
   walkedComponents?: ReadonlySet<string>;
+  /** i18n key prefix (`page.<Name>`) — set only when the UI has extractable
+   *  strings; the page `title:` keys against it. */
+  i18nPrefix?: string;
 }
 
 /** Component mode — render the walked body as a reusable standalone component
@@ -249,14 +253,17 @@ function arrayElementTs(t: TypeIR): string | undefined {
   return "string";
 }
 
-/** Render a `state {}` field's `signal(...)` initial value.  Uses the field's
- *  declared `= <init>` when it's a literal (string / number / bool / null) or a
- *  list of literals; otherwise falls back to the type's zero value.  (Init
- *  expressions evaluate before any signal exists, so they can't reference
- *  state/params — literals cover the realistic surface.) */
-function renderStateInit(field: StateFieldIR): string {
-  const lit = field.init !== undefined ? renderInitLiteral(field.init) : undefined;
-  return coerceMoneyStateInit(field.type, lit ?? angularTarget.defaultInitFor(field.type));
+/** Render a `state {}` field's `signal(...)` initial value: the field's
+ *  declared `= <init>` through the real expression emitter (as the React and
+ *  Svelte shells do), with an empty context — an initializer evaluates before
+ *  any signal exists, so it cannot reference state or params.  The type's zero
+ *  value only when there is no initializer. */
+function renderStateInit(field: StateFieldIR, pack: LoadedPack): string {
+  const init =
+    field.init !== undefined
+      ? emitExpr(field.init, derivedCtx(pack, new Set(), new Set(), new Set()))
+      : angularTarget.defaultInitFor(field.type);
+  return coerceMoneyStateInit(field.type, init);
 }
 
 /** A `File`-typed `state {}` field (optional-unwrapped).  Its signal is typed
@@ -266,34 +273,6 @@ function renderStateInit(field: StateFieldIR): string {
 function isFileStateField(field: StateFieldIR): boolean {
   const t = unwrapOpt(field.type);
   return t.kind === "primitive" && t.name === "File";
-}
-
-function renderInitLiteral(e: ExprIR): string | undefined {
-  if (e.kind === "literal") {
-    if (e.lit === "string") return JSON.stringify(e.value);
-    if (e.lit === "null") return "null";
-    // `money` is a decimal.js `Decimal`, not a number — `signal(12.50)` would
-    // infer `WritableSignal<number>` and every `.toDecimalPlaces(…)` read off
-    // it would fail `ng build`.  Mirrors `jsExprLeaves.exprLiteral`; Angular
-    // needs its own arm because state inits render through this literal
-    // reader rather than through the shared leaf table.
-    if (e.lit === "money") return `new Decimal(${JSON.stringify(e.value)})`;
-    // int / decimal / bool already carry their JS-literal text.
-    return e.value;
-  }
-  // An ENUM VALUE (`s: Status = Status.draft`) lowers to a `ref` with
-  // `refKind: "enum-value"`, which is exactly the shape `walker-core` renders
-  // as a bare string literal (an enum is a string union on the wire).  Without
-  // this arm it fell through to `undefined` and the field silently mounted at
-  // the type ZERO — a value that is not in the enum at all.  React and Svelte
-  // never had the bug: their page shells render the init through the real
-  // expression emitter, not through a literal-only reader.
-  if (e.kind === "ref" && e.refKind === "enum-value") return JSON.stringify(e.name);
-  if (e.kind === "list") {
-    const els = e.elements.map(renderInitLiteral);
-    return els.every((x): x is string => x !== undefined) ? `[${els.join(", ")}]` : undefined;
-  }
-  return undefined;
 }
 
 /** Register named imports on the walk result's `imports` map (drained into
@@ -427,6 +406,32 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     }
   }
 
+  // Per-page document title: a field-initializer `effect` (an injection
+  // context) that re-runs when a signal the title reads changes — the
+  // counterpart of React's `useEffect` and Svelte's `$effect`.  The title
+  // expression shares `result.imports` + the page's i18n prefix, so a
+  // translated title lands its `t` import and keys against the catalog.
+  const titleEffectLines: string[] = [];
+  if (page.title && input.pack && !cm) {
+    coreSymbols.add("effect");
+    const paramNames = new Set(page.params.map((p) => p.name));
+    const stateNames = new Set(page.state.map((s) => s.name));
+    const derivedNames = new Set(derived.map((d) => d.name));
+    const tctx = {
+      ...derivedCtx(input.pack, paramNames, stateNames, derivedNames),
+      imports: result.imports,
+      i18nPrefix: input.i18nPrefix,
+    };
+    const titleExpr = prefixSignalReadsWithThis(
+      localizedPageTitle(page.title, tctx),
+      new Set<string>([...stateNames, ...derivedNames]),
+    );
+    if (tctx.usesState) derivedUsesState = true;
+    titleEffectLines.push(
+      `  private readonly titleEffect = effect(() => { document.title = ${titleExpr}; });`,
+    );
+  }
+
   // Named-action handlers → class methods (`<name>(<param>?) { … }`;
   // named-actions-and-stores.md, Proposal A Stage 1).  The body lowers through
   // the shared `emitStmt`, then signal reads (`count()`) + write targets
@@ -519,10 +524,10 @@ export function renderAngularPage(input: AngularPageShellInput): string {
         // gap the React/Svelte shells had before #2294 and Vue's before the
         // DataGrid Vue port.
         members.push(
-          `  readonly ${f.name} = signal<${arrayElementTs(f.type)}[]>(${renderStateInit(f)});`,
+          `  readonly ${f.name} = signal<${arrayElementTs(f.type)}[]>(${renderStateInit(f, input.pack)});`,
         );
       } else {
-        members.push(`  readonly ${f.name} = signal(${renderStateInit(f)});`);
+        members.push(`  readonly ${f.name} = signal(${renderStateInit(f, input.pack)});`);
       }
     }
   }
@@ -548,6 +553,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     );
   }
   members.push(...derivedLines);
+  members.push(...titleEffectLines);
   members.push(...actionMethods);
 
   // Navigation → `inject(Router)`; the walked handler calls
@@ -707,6 +713,11 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   if (result.tsx.includes("<loom-chart")) {
     imports.push(`import { LoomChart } from "../components/loom-chart.component";`);
     componentImports.add("LoomChart");
+  }
+  // The language picker — same marker discipline (`angular/locale-switcher.ts`).
+  if (result.tsx.includes("<loom-locale-switcher")) {
+    imports.push(`import { ${ANGULAR_LOCALE_SWITCHER_CLASS} } from "../../lib/locale-switcher";`);
+    componentImports.add(ANGULAR_LOCALE_SWITCHER_CLASS);
   }
 
   // Extern frontend functions the walked body / action bodies call — import
@@ -1105,12 +1116,13 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     // shared variant-match envelope records) rewrites one level deeper.  The
     // Angular renderers that add api imports directly already spell `../../api/`,
     // so this only lifts the framework-neutral single-dot entries.
-    // The i18n runtime lives at `src/lib/i18n.ts`, two hops up from
-    // `src/app/pages/` — the walker's `../i18n` seam import rewrites to
-    // `../../lib/i18n` (M-T1.11), same lift as the `../api/` entries.
+    // The Angular `t` lives in `src/lib/locale.ts` (the signal-reading wrapper
+    // over `src/lib/i18n.ts`), two hops up from `src/app/pages/` — the walker's
+    // `../i18n` seam import rewrites to `../../lib/locale`, same lift as the
+    // `../api/` entries.
     const rewritten = from
       .replace(/^\.\.\/api\//, "../../api/")
-      .replace(/^\.\.\/i18n$/, "../../lib/i18n");
+      .replace(/^\.\.\/i18n$/, "../../lib/locale");
     const sorted = [...names].sort();
     imports.push(`import { ${sorted.join(", ")} } from ${JSON.stringify(rewritten)};`);
     for (const n of sorted) {

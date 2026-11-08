@@ -48,27 +48,27 @@ system ConcurrencyTwoWritersSystem {
     let read = api.docs.getById(n)
 
     // The current version is accepted on a named operation, and moves the row.
-    api.docs.rename(n, { t: "second" }, { ifMatch: read.version })
+    api.docs.rename(n, { t: "second" }, { ifMatch: read.rowVersion })
     let moved = api.docs.getById(n)
     expect(moved.title).toBe("second")
-    expect(moved.version).toBe(read.version + 1)
+    expect(moved.rowVersion).toBe(read.rowVersion + 1)
 
     // The same — now stale — version is refused, on a void and on a
     // value-returning operation; the row keeps the winning write.
-    expect(api.docs.rename(n, { t: "lost" }, { ifMatch: read.version })).toThrow(409)
-    expect(api.docs.retitle(n, { t: "lost" }, { ifMatch: read.version })).toThrow(409)
+    expect(api.docs.rename(n, { t: "lost" }, { ifMatch: read.rowVersion })).toThrow(409)
+    expect(api.docs.retitle(n, { t: "lost" }, { ifMatch: read.rowVersion })).toThrow(409)
     let kept = api.docs.getById(n)
     expect(kept.title).toBe("second")
-    expect(kept.version).toBe(moved.version)
+    expect(kept.rowVersion).toBe(moved.rowVersion)
 
     // A `shape: document` aggregate: the same contract on its guarded upsert.
     let m = api.memos.create({ body: "draft" })
     let mread = api.memos.getById(m)
-    api.memos.rewrite(m, { b: "final" }, { ifMatch: mread.version })
-    expect(api.memos.rewrite(m, { b: "lost" }, { ifMatch: mread.version })).toThrow(409)
+    api.memos.rewrite(m, { b: "final" }, { ifMatch: mread.rowVersion })
+    expect(api.memos.rewrite(m, { b: "lost" }, { ifMatch: mread.rowVersion })).toThrow(409)
     let mkept = api.memos.getById(m)
     expect(mkept.body).toBe("final")
-    expect(mkept.version).toBe(mread.version + 1)
+    expect(mkept.rowVersion).toBe(mread.rowVersion + 1)
 
     // The derived routes the case does not otherwise reach (the api-caller
     // census wants every one driven).  The row `n` stays for the probe.

@@ -242,6 +242,7 @@ export type DiagPhase =
   | "boot:ddl-meta"
   | "boot:ddl-drop"
   | "boot:ddl-apply"
+  | "boot:storage-connect"
   | "boot:create-app";
 
 interface PhaseMark {

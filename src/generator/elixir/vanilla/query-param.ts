@@ -19,8 +19,8 @@
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
-import { integralWireRange } from "../../../util/numeric-range.js";
 import { exFieldMessage, exLit, exMissingSuffix } from "../wire-policy-ex.js";
+import { exIntegerRange } from "./codec-spelling-ex.js";
 
 /** One query/path param an action reads: its wire name and declared type. */
 export interface QueryParam {
@@ -115,7 +115,7 @@ function findParamCheck(t: TypeIR, ctx: BoundedContextIR): FindParamCheck {
       switch (info.primitive) {
         case "int":
         case "long":
-          return { kind: "integer", ...integralWireRange(info.primitive) };
+          return { kind: "integer", ...exIntegerRange(info.primitive) };
         case "decimal":
         case "money":
           return { kind: "decimal" };
@@ -131,15 +131,8 @@ function findParamCheck(t: TypeIR, ctx: BoundedContextIR): FindParamCheck {
           return { kind: "present" };
       }
     case "id":
-      switch (info.idValueType) {
-        case "guid":
-          return { kind: "uuid" };
-        case "int":
-        case "long":
-          return { kind: "integer", ...integralWireRange(info.idValueType) };
-        default:
-          return { kind: "string" };
-      }
+      // Every aggregate id is a guid on the wire.
+      return { kind: "uuid" };
     case "enum": {
       const values = enumPool(ctx).find((e) => e.name === info.base)?.values;
       return values ? { kind: "enum", values } : { kind: "string" };

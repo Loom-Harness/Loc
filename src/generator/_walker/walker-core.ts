@@ -86,6 +86,7 @@ import { escapeHtmlAttr } from "./a11y-emit.js";
 import { tryDetectApiHook } from "./api-hook-detector.js";
 import { registerApiHook } from "./api-hook-register.js";
 import { giveUp, giveUpText, wrapLoneRootComment } from "./give-up.js";
+import { localizedModelText } from "./i18n-emit.js";
 import { storeMemberLocal, upperFirstName } from "./js-target-helpers.js";
 import { emitUserComponent } from "./primitives/controls.js";
 import { WALKER_PRIMITIVES } from "./registry.js";
@@ -427,34 +428,53 @@ export function isWalkableLayoutBody(
   userComponents: ReadonlyMap<string, readonly ParamIR[]> = new Map(),
 ): boolean {
   if (!body) return false;
-  if (body.kind === "call") {
-    if (STDLIB_LAYOUT_COMPONENTS.has(body.name)) return true;
-    // Calls to user-defined components are walker-
-    // eligible too (resolved via the supplied map).
-    return userComponents.has(body.name);
+  const walkable = (e: ExprIR | undefined): boolean => isWalkableLayoutBody(e, userComponents);
+  // Only RESULT positions are followed — the value a page body evaluates to —
+  // never call arguments, or any body containing a nested call would count.
+  switch (body.kind) {
+    case "call":
+      // A stdlib layout primitive, or a user-defined component (resolved via
+      // the supplied map).
+      return STDLIB_LAYOUT_COMPONENTS.has(body.name) || userComponents.has(body.name);
+    case "paren":
+      return walkable(body.inner);
+    case "ternary":
+      // `body: loading ? Empty("…") : Stack(…)` — walkable when either branch is.
+      return walkable(body.then) || walkable(body.otherwise);
+    case "match":
+      // The documented wizard pattern (page-metamodel.md §7/§12): walkable when
+      // any arm is, in either the predicate form (`arms`) or the variant form
+      // (`variantArms`).  react and svelte gate on this predicate, so a `false`
+      // here drops the page with no file and no diagnostic.
+      return (
+        body.arms.some((a) => walkable(a.value)) ||
+        (body.variantArms ?? []).some((a) => walkable(a.value)) ||
+        walkable(body.otherwise)
+      );
+    case "action-ref":
+    case "authz-filter":
+    case "binary":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "member":
+    case "method-call":
+    case "modelText":
+    case "new":
+    case "object":
+    case "ref":
+    case "this":
+    case "unary":
+      return false;
+    default: {
+      const _exhaustive: never = body;
+      return _exhaustive;
+    }
   }
-  // Top-level conditional bodies dispatch through the
-  // walker as long as either branch is walkable.  Powers patterns
-  // like `body: loading ? Empty("…") : Stack(…)`.
-  if (body.kind === "ternary") {
-    return (
-      isWalkableLayoutBody(body.then, userComponents) ||
-      isWalkableLayoutBody(body.otherwise, userComponents)
-    );
-  }
-  // A bare `match` body is the documented wizard pattern
-  // (page-metamodel.md §7/§12) and the walker has full `match` arms —
-  // only THIS predicate did not admit it, so react and svelte (the two
-  // emitters that gate on it) dropped the page with no file and no
-  // diagnostic, while vue and angular — which walk unconditionally —
-  // rendered it.  Same rule as `ternary`: walkable when any arm is.
-  if (body.kind === "match") {
-    return (
-      body.arms.some((a) => isWalkableLayoutBody(a.value, userComponents)) ||
-      isWalkableLayoutBody(body.otherwise, userComponents)
-    );
-  }
-  return false;
 }
 
 export function walkBody(
@@ -993,6 +1013,11 @@ export interface OperationFormState extends FormStateBase {
    *  (shadcn/mui/chakra) render the trigger inside the self-
    *  contained `<Op>OpModal` component, so they need it here. */
   triggerLabel: string;
+  /** The operation's identity-keyed label (`<Ctx>.<Agg>.op.<op>`) as a markup
+   *  token and an expression — the submit button's text and the dialog title's
+   *  fallback.  Absent when the implicit model-text sites are off
+   *  (`_walker/model-text-sites.ts`): the shell then uses the humanized name. */
+  opLabel?: { markup: string; expr: string };
   /** The dialog's TITLE, read from the enclosing `Modal`'s `title:` — the
    *  `modalTitle` user-visible slot, so it is already extracted into the
    *  catalog and already translated here (D-I18N-ATTR).  Two spellings,
@@ -1006,6 +1031,10 @@ export interface OperationFormState extends FormStateBase {
    *  through the `chrome.*` catalog key `opDialogChrome` picks (the template
    *  can't reach a WalkContext). */
   cancelLabel?: string;
+  /** The success toast's text, as a target-native VALUE expression (a `t(…)`
+   *  call or a quoted literal): the per-operation whole sentence
+   *  (`chrome.operationSucceeded.<op>`), resolved where a WalkContext exists. */
+  successMessage?: string;
   /** The accessible name of the dialog's close icon, as a target-native VALUE
    *  expression (a `t(…)` call or a quoted literal) for an attribute/prop slot
    *  — never equal to the submit label (`opDialogChrome`).  Read only by the
@@ -1204,6 +1233,12 @@ export function walk(
   switch (expr.kind) {
     case "call":
       return emitComponent(expr, ctx, depth, slot);
+    case "modelText":
+      // `label(…)` / `plural(…)` as a markup child — its translated text.
+      return ctx.target.renderInterpolation(localizedModelText(ctx, expr.key, expr.defaultText), {
+        kind: "primitive",
+        name: "string",
+      });
     case "literal":
       // String literal in a child position becomes a markup text node.
       // Other literal kinds (int / decimal / bool) stay as
@@ -2245,6 +2280,10 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       }
       return routeId;
     }
+    case "modelText":
+      // `label(…)` / `plural(…)` — the identity-keyed translation call, or the
+      // English default when the UI has no translation runtime.
+      return localizedModelText(ctx, expr.key, expr.defaultText);
     case "i18nFormat":
       // Transparent i18n wrapper (M-T1.11).  When a body opts into i18n the
       // format is spliced into the ICU message by `icuFromConcat`/`localizedRaw`

@@ -35,9 +35,9 @@ describe("mobile boot headroom", () => {
     // Order is the whole point: after the bundle result is in hand, before
     // the boot that needs the headroom.  Releasing earlier would fight the
     // bundle; later would be useless.
-    const bundleAt = src.indexOf("if (!bundleRes?.hono.ok) return;");
+    const bundleAt = src.indexOf('if (!bundleRes?.backends) return "bundle";');
     const releaseAt = src.search(call);
-    const bootAt = src.indexOf("const booted = await runBootStep(bundleRes.hono);");
+    const bootAt = src.indexOf("const booted = await runBootStep(bundleRes.backends);");
     expect(bundleAt).toBeGreaterThan(-1);
     expect(bootAt).toBeGreaterThan(-1);
     expect(releaseAt).toBeGreaterThan(bundleAt);

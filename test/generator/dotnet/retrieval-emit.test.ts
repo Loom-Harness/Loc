@@ -5,11 +5,10 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  generateDotnet,
+  generateBackendFiles,
   generateSystemFiles,
   generateSystemFilesUnchecked,
 } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
 
 const SRC = `
   context Sales {
@@ -35,7 +34,7 @@ const SRC = `
 `;
 
 async function files() {
-  return generateDotnet(await parseValid(SRC));
+  return generateBackendFiles(SRC, "dotnet");
 }
 
 describe(".NET generator — retrieval", () => {
@@ -61,7 +60,7 @@ describe(".NET generator — retrieval", () => {
     expect(spec).toBeDefined();
     expect(spec).toMatch(/public sealed class ByRegionSpec : Specification<Customer>/);
     expect(spec).toMatch(
-      /Query\.Where\(new InRegionCriterion\(rgn\)\.ToExpression\(\)\)\.OrderByDescending\(x => x\.Name\);/,
+      /Query\.Where\(new InRegionCriterion\(rgn\)\.ToExpression\(\)\)\.OrderByDescending\(x => x\.Name\)\.ThenBy\(x => x\.Id\);/,
     );
   });
 
@@ -144,7 +143,7 @@ describe(".NET generator — retrieval principal binding (DEBT-24)", () => {
     const spec = [...files.entries()].find(([k]) => k.endsWith("/MineRichSpec.cs"))?.[1];
     expect(spec).toBeDefined();
     expect(spec!).toMatch(
-      /Query\.Where\(x => x\.TenantId == RequestContext\.Current!\.CurrentUser!\.TenantId\)\.OrderByDescending\(x => x\.Balance\);/,
+      /Query\.Where\(x => x\.TenantId == RequestContext\.Current!\.CurrentUser!\.TenantId\)\.OrderByDescending\(x => x\.Balance\)\.ThenBy\(x => x\.Id\);/,
     );
     // No unbound bare `currentUser` token, and the RequestContext namespace is imported.
     expect(spec!).not.toMatch(/== currentUser\./);
@@ -152,7 +151,7 @@ describe(".NET generator — retrieval principal binding (DEBT-24)", () => {
   });
 
   it("leaves a non-principal retrieval spec unchanged (no ambient accessor)", async () => {
-    const out = await generateDotnet(await parseValid(SRC));
+    const out = await generateBackendFiles(SRC, "dotnet");
     const spec = out.get("Domain/Customers/ByRegionSpec.cs")!;
     expect(spec).not.toMatch(/RequestContext\.Current/);
     expect(spec).not.toMatch(/using .*Domain\.Common;/);

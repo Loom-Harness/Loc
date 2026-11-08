@@ -1,4 +1,8 @@
-import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
+import {
+  destroyVersionCheck,
+  operationVersionCheck,
+  readsIfMatch,
+} from "../../../ir/enrich/version-check.js";
 import { unionInstanceName } from "../../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -8,22 +12,31 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { mergePatchFields } from "../../../ir/util/merge-patch.js";
 import {
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
+  maskWritePresenceParam,
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
 } from "../../../ir/util/op-gates.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_PASCAL } from "../../../util/row-version.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { unionMembers } from "../../_payload/union-wire.js";
-import { maskNamer, projectEntityExpr, projectToResponse, wireType } from "../dto-mapping.js";
+import {
+  maskNamer,
+  projectEntityArgs,
+  projectEntityExpr,
+  projectToResponse,
+  wireType,
+} from "../dto-mapping.js";
 import { IF_MATCH_EXPECTED_VERSION_CS } from "../emit/version-check-cs.js";
 import { renderCommand, renderCommandHandler } from "../emit.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "../render-expr.js";
 import { renderCreateValidator, renderOperationValidator } from "../validator-emit.js";
-import { csNotFoundException } from "../wire-policy-cs.js";
+import { csNotFoundException, csSentence } from "../wire-policy-cs.js";
 
 /** The `when` canCommand gate (criterion.md use site 2): evaluate the
  *  predicate against the loaded aggregate before the body runs; false →
@@ -54,7 +67,13 @@ function requiresGate(op: AggregateIR["operations"][number]): string {
           paramExpr: (name) =>
             op.params.some((q) => q.name === name) ? `command.${upperFirst(name)}` : undefined,
         });
-        return `        if (!(${pred})) throw new ForbiddenException(${JSON.stringify(
+        // A merge-patch update's mask write gate runs only when the body
+        // carries the masked key (an absent key keeps the stored value).
+        const present = maskWritePresenceParam(op, g);
+        const cond = present
+          ? `command.PatchedKeys.Contains(${JSON.stringify(present)}) && !(${pred})`
+          : `!(${pred})`;
+        return `        if (${cond}) throw new ForbiddenException(${JSON.stringify(
           `Forbidden: ${g.source}`,
         )});\n`;
       })
@@ -270,6 +289,22 @@ export function emitCreateCommandAndHandler(
   }
 }
 
+/** The `if-match` precondition of a `versioned` row's DELETE: the client's tag
+ *  (parsed once at the HTTP edge into `RequestContext.ExpectedVersion`) must
+ *  equal the loaded row's version; with no tag the loaded version stands.  A
+ *  stale tag throws the exception a stale save throws, so the same filter arm
+ *  answers 409. */
+function destroyIfMatchCheck(agg: AggregateIR, usingDapper?: boolean): string {
+  if (!readsIfMatch(destroyVersionCheck(agg))) return "";
+  const stale = usingDapper
+    ? `new ConcurrencyConflictException(${JSON.stringify(agg.name)}, aggregate.Id.Value)`
+    : `new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException(${csSentence("version-conflict", `${agg.name} {aggregate.Id.Value}`)})`;
+  return (
+    `        if (${IF_MATCH_EXPECTED_VERSION_CS} is int __ifMatch && __ifMatch != aggregate.${ROW_VERSION_PASCAL})\n` +
+    `            throw ${stale};\n`
+  );
+}
+
 /** Canonical hard-delete: `Destroy<Agg>Command(<Agg>Id Id)` + handler that
  * loads (404 if absent), then hard-deletes via the repo.  Mirrors the
  * operation-handler load→act→return shape; crudish's destroy is empty-bodied
@@ -283,6 +318,9 @@ export function emitDestroyCommandAndHandler(
   /** Supplied when the destroy action is `audited` — carries the enclosing
    *  context for the before-snapshot wire projection. */
   auditCtx?: EnrichedBoundedContextIR,
+  /** `persistence: dapper` — names the stale-version exception the repository's
+   *  own guarded save throws, so the DELETE precondition answers the same 409. */
+  usingDapper?: boolean,
 ): void {
   out.set(
     `Application/${aggFolder}/Commands/Destroy${agg.name}Command.cs`,
@@ -361,6 +399,7 @@ export function emitDestroyCommandAndHandler(
         // property: #2450's gate passed a mutation that moved this line below
         // `DeleteAsync`, which denies a delete that already happened.
         destroyGate.body +
+        destroyIfMatchCheck(agg, usingDapper) +
         destroyAuditStage +
         `        await _repo.DeleteAsync(aggregate, cancellationToken);\n` +
         `        return Unit.Value;\n`,
@@ -401,9 +440,13 @@ export function emitOperationCommandAndHandler(
   idClass: string = `${agg.name}Id`,
 ): void {
   {
+    // A merge-patch update (RS-47) also carries the keys its body held; the
+    // handler passes the stored value for every other one.
+    const patch = mergePatchFields(op);
     const params = [
       `${idClass} Id`,
       ...op.params.map((p) => `${renderCsType(p.type)} ${upperFirst(p.name)}`),
+      ...(patch ? ["IReadOnlySet<string> PatchedKeys"] : []),
     ].join(", ");
     // Exception-less return-typed op (exception-less.md): the command carries
     // the Domain union as its result (`ICommand<Union>`), the handler returns it
@@ -421,6 +464,12 @@ export function emitOperationCommandAndHandler(
       op.returnType && op.returnType.kind !== "union"
         ? wireType(op.returnType, ctx, "response")
         : undefined;
+    // An entity return (`return this`) answers its `<Agg>Response`, which
+    // lives in the aggregate's `Responses` namespace.
+    const responseUsing =
+      op.returnType?.kind === "entity" && !op.audited
+        ? `${ns}.Application.${plural(agg.name)}.Responses`
+        : undefined;
     out.set(
       `Application/${aggFolder}/Commands/${upperFirst(op.name)}Command.cs`,
       renderCommand({
@@ -429,7 +478,11 @@ export function emitOperationCommandAndHandler(
         commandName: `${upperFirst(op.name)}Command`,
         commandParams: params,
         returnType: returnUnion ?? scalarWireType,
-        extraUsings: returnUnion ? [`${ns}.Domain.${plural(agg.name)}`] : undefined,
+        extraUsings: returnUnion
+          ? [`${ns}.Domain.${plural(agg.name)}`]
+          : responseUsing
+            ? [responseUsing]
+            : undefined,
       }),
     );
     // Per-op FluentValidation rules from wire-translatable
@@ -452,7 +505,11 @@ export function emitOperationCommandAndHandler(
     // The handler evaluates the gate, so it needs the accessor injected even
     // when the remaining body takes no principal.
     const gateUsesUser = operationGatesUseCurrentUser(op);
-    const baseCallArgs = op.params.map((p) => `command.${upperFirst(p.name)}`);
+    const baseCallArgs = op.params.map((p) =>
+      patch
+        ? `(command.PatchedKeys.Contains(${JSON.stringify(p.name)}) ? command.${upperFirst(p.name)} : aggregate.${upperFirst(p.name)})`
+        : `command.${upperFirst(p.name)}`,
+    );
     const callArgs = (usesUser ? [...baseCallArgs, "_currentUser.User"] : baseCallArgs).join(", ");
     const userExtraDeps =
       usesUser || gateUsesUser ? [{ type: "ICurrentUserAccessor", field: "_currentUser" }] : [];
@@ -570,6 +627,31 @@ export function emitOperationCommandAndHandler(
     const saveArgs = readsIfMatch(operationVersionCheck(agg, op))
       ? `${IF_MATCH_EXPECTED_VERSION_CS}, cancellationToken`
       : "cancellationToken";
+    // A success arm that is the aggregate itself (`return this`) is answered
+    // as the aggregate's wire projection read AFTER the save, as a plain
+    // `: Agg` return is; the domain method cannot project its own response.
+    const hostTag = variants.some((v) => v.kind === "entity" && v.name === agg.name)
+      ? unionMembers(variants, ctx).find((_, i) => {
+          const v = variants[i]!;
+          return v.kind === "entity" && v.name === agg.name;
+        })?.tag
+      : undefined;
+    const hostArmProjection =
+      returnUnion && hostTag
+        ? (() => {
+            const arm = `global::${ns}.Domain.${plural(agg.name)}.${returnUnion}_${hostTag}`;
+            return `        if (result is ${arm}) result = new ${arm}(${projectEntityArgs("aggregate", agg as EnrichedAggregateIR, ctx, { unionVariant: true })});\n`;
+          })()
+        : "";
+    // The projection constructs the contained parts' `<Part>Response` records,
+    // which live in the aggregate's `Responses` namespace.  That namespace also
+    // declares an application-side twin of the domain union, so it is imported
+    // as one alias per part record rather than as a whole namespace (which
+    // would make the handler's union return type ambiguous).
+    const responsesNs = `global::${ns}.Application.${plural(agg.name)}.Responses`;
+    const partResponseAliases = [
+      ...new Set([...hostArmProjection.matchAll(/new (\w+Response)\(/g)].map((m) => m[1]!)),
+    ].map((r) => `${r} = ${responsesNs}.${r}`);
     const handlerBody = returnUnion
       ? loadLine +
         auditBefore +
@@ -577,6 +659,7 @@ export function emitOperationCommandAndHandler(
         errorGuard +
         auditStage +
         `        await _repo.SaveAsync(aggregate, ${saveArgs});\n` +
+        hostArmProjection +
         `        return result;\n`
       : scalarWireType
         ? // Scalar return (BUG-003): capture the domain value, save, then project
@@ -614,7 +697,12 @@ export function emitOperationCommandAndHandler(
         commandName: `${upperFirst(op.name)}Command`,
         returnType: handlerReturnType,
         extraDeps: [...userExtraDeps, ...auditDeps],
-        extraUsings: [...userExtraUsings, ...auditUsings],
+        extraUsings: [
+          ...userExtraUsings,
+          ...auditUsings,
+          ...(responseUsing ? [responseUsing] : []),
+          ...partResponseAliases,
+        ],
         body: handlerBody,
       }),
     );

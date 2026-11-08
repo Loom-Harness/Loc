@@ -17,10 +17,10 @@ const CreateCustomerRequest = z.object({
 const CreateCustomerResponse = z.object({ id: z.string() }).openapi("CreateCustomerResponse");
 
 const UpdateCustomerRequest = z.object({
-  username: z.string().refine((s) => [...s].length >= 3 && [...s].length <= 32, { message: "Username must be 3 to 32 characters" }).openapi({ minLength: 3, maxLength: 32 }).refine((s: string) => !s.includes("\u0000")),
-  email: z.string().refine((s: string) => !s.includes("\u0000")),
-  age: z.number().int().openapi({ format: "int32" }).min(18, { message: "Age must be between 18 and 150" }).max(150, { message: "Age must be between 18 and 150" }),
-}).openapi("UpdateCustomerRequest").refine((data: any) => data.username !== data.email, { path: ["username"], message: "Invariant violated: username != email" }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Invariant violated: email check email.matches(\"^[^@]+@[^@]+\\\\.[^@]+$\") && email.length <= 120" });
+  username: z.string().refine((s) => [...s].length >= 3 && [...s].length <= 32, { message: "Username must be 3 to 32 characters" }).openapi({ minLength: 3, maxLength: 32 }).refine((s: string) => !s.includes("\u0000")).optional(),
+  email: z.string().refine((s: string) => !s.includes("\u0000")).optional(),
+  age: z.number().int().openapi({ format: "int32" }).min(18, { message: "Age must be between 18 and 150" }).max(150, { message: "Age must be between 18 and 150" }).optional(),
+}).openapi("UpdateCustomerRequest").refine((data: any) => data.username === undefined || data.email === undefined || (data.username !== data.email), { path: ["username"], message: "Invariant violated: username != email" }).refine((data: any) => data.email === undefined || (/^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120), { path: ["email"], message: "Invariant violated: email check email.matches(\"^[^@]+@[^@]+\\\\.[^@]+$\") && email.length <= 120" });
 
 const AllQuery = z.object({
   page: z.coerce.number().int().min(1).max(1000000).default(1),
@@ -33,7 +33,7 @@ export const CustomerResponse = z.object({
   username: z.string(),
   email: z.string(),
   age: z.number().int().openapi({ format: "int32" }),
-  version: z.number().int().openapi({ format: "int32" }),
+  rowVersion: z.number().int().openapi({ format: "int32" }),
   display: z.string(),
 }).openapi("CustomerResponse");
 export const CustomerListResponse = z.array(CustomerResponse).openapi("CustomerListResponse");
@@ -89,7 +89,7 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
       const { id } = c.req.valid("param");
       const found = await repo.findById(Ids.CustomerId(id));
       if (!found) throw new AggregateNotFoundError(`Customer ${id} not found`);
-      c.header("etag", versionETag(found.version));
+      c.header("etag", versionETag(found.rowVersion));
       return c.json(repo.toWire(found) as z.infer<typeof CustomerResponse>, 200);
     },
   );
@@ -110,7 +110,10 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
     }),
     async (c) => {
       const { id } = c.req.valid("param");
-      await repo.getById(Ids.CustomerId(id));
+      const __loaded = await repo.getById(Ids.CustomerId(id));
+      const ifMatch = c.req.header("if-match");
+      const expectedVersion = parseIfMatch(ifMatch, __loaded.rowVersion);
+      if (expectedVersion !== __loaded.rowVersion) throw new ConcurrencyError("Customer", id);
       try {
         await repo.delete(Ids.CustomerId(id));
       } catch (err) {
@@ -150,8 +153,8 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
       recordDomainOperation("Customer", "update");
       const aggregate = await repo.getById(Ids.CustomerId(id));
       const ifMatch = c.req.header("if-match");
-      const expectedVersion = parseIfMatch(ifMatch, aggregate.version);
-      aggregate.update(body.username, body.email, body.age);
+      const expectedVersion = parseIfMatch(ifMatch, aggregate.rowVersion);
+      aggregate.update((body.username === undefined ? aggregate.username : body.username), (body.email === undefined ? aggregate.email : body.email), (body.age === undefined ? aggregate.age : body.age));
       await repo.save(aggregate, expectedVersion);
       return c.body(null, 204);
     },

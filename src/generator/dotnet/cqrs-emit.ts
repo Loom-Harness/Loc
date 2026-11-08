@@ -107,7 +107,15 @@ export function emitCqrs(
   // Canonical destroy → Delete command + handler (gated on the IR
   // lifecycle, so plain aggregates emit no extra CQRS files).
   if (canonicalDestroy(agg))
-    emitDestroyCommandAndHandler(agg, ns, aggFolder, out, idClass, auditDestroy ? ctx : undefined);
+    emitDestroyCommandAndHandler(
+      agg,
+      ns,
+      aggFolder,
+      out,
+      idClass,
+      auditDestroy ? ctx : undefined,
+      options?.usingDapper,
+    );
   emitOperationCommandsAndHandlers(agg, ctx, ns, aggFolder, out, idClass);
   emitGetByIdQueryAndHandler(agg, ctx, ns, aggFolder, out, idClass);
   emitCanOpQueriesAndHandlers(agg, ns, aggFolder, out, idClass);

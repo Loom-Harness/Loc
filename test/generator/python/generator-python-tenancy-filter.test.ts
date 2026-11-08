@@ -14,17 +14,14 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = readFileSync("test/e2e/fixtures/python-build/tenancy-filter.ddd", "utf8");
 const REPO = "api/app/db/repositories/account_repository.py";
 const SCOPE = "api/app/db/read_scope.py";
 
 async function build(): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(SRC);
-  if (errors.length) throw new Error(`source has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(SRC);
 }
 
 describe("python generator — principal (tenancy) capability filter", () => {

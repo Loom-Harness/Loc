@@ -31,13 +31,13 @@
             "code": "P1",
             "id": "<volatile:key>",
             "region": "NA",
-            "version": 1
+            "rowVersion": 1
           },
           {
             "code": "P2",
             "id": "<volatile:key>",
             "region": "NA",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -62,7 +62,7 @@
         "code": "P1",
         "id": "<volatile:key>",
         "region": "EU",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -76,7 +76,7 @@
             "code": "P1",
             "id": "<volatile:key>",
             "region": "EU",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -96,13 +96,13 @@
             "code": "P1",
             "id": "<volatile:key>",
             "region": "EU",
-            "version": 2
+            "rowVersion": 2
           },
           {
             "code": "P2",
             "id": "<volatile:key>",
             "region": "NA",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -122,7 +122,7 @@
             "code": "P1",
             "id": "<volatile:key>",
             "region": "EU",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -175,7 +175,7 @@
             "code": "P2",
             "id": "<volatile:key>",
             "region": "NA",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,

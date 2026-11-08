@@ -20,8 +20,8 @@
         "code": "S1",
         "createdAt": "<timestamp>",
         "id": "<volatile:key>",
-        "updatedAt": "<timestamp>",
-        "version": 1
+        "rowVersion": 1,
+        "updatedAt": "<timestamp>"
       }
     },
     {
@@ -40,8 +40,8 @@
         "code": "S2",
         "createdAt": "<timestamp>",
         "id": "<volatile:key>",
-        "updatedAt": "<timestamp>",
-        "version": 2
+        "rowVersion": 2,
+        "updatedAt": "<timestamp>"
       }
     },
     {
@@ -55,8 +55,8 @@
             "code": "S2",
             "createdAt": "<timestamp>",
             "id": "<volatile:key>",
-            "updatedAt": "<timestamp>",
-            "version": 2
+            "rowVersion": 2,
+            "updatedAt": "<timestamp>"
           }
         ],
         "page": 1,
@@ -141,18 +141,12 @@
       "seq": 11,
       "method": "POST",
       "path": "/api/orders/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "code is required",
-            "pointer": "/code"
-          }
-        ],
+        "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

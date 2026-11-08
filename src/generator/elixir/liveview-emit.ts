@@ -56,8 +56,10 @@ import {
   E2E_TSCONFIG_JSON,
   PLAYWRIGHT_CONFIG_TS_PHOENIX,
 } from "../_frontend/e2e-harness.js";
+import type { LocaleEntry } from "../_frontend/locale-meta.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
+import { componentKeyPrefix, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { opUsesCurrentUser } from "./domain/predicates.js";
 import {
   type ActionBinding,
@@ -71,7 +73,7 @@ import {
   type UploadBinding,
   walkBodyToHeex,
 } from "./heex-walker.js";
-import { heexI18nEnabled } from "./i18n.js";
+import { heexI18nEnabled, pgettextCall } from "./i18n.js";
 import { buildPlaywrightPageObject, pageObjectPathFor } from "./page-objects-emit.js";
 import { exprUsesBind, REALTIME_TOPIC, renderMessageExprElixir } from "./realtime-liveview.js";
 import { renderExpr as renderDomainExpr } from "./render-expr.js";
@@ -83,7 +85,7 @@ import {
   vanillaHistoryMapperName,
   vanillaHistoryMapperTakesPrincipal,
 } from "./vanilla/audit-history-emit.js";
-import { renderGateCondition } from "./vanilla/gate.js";
+import { renderGateCondition, updateSeamGates } from "./vanilla/gate.js";
 import { isRelationalRowAgg, servesRefLabel, servesRefLabels } from "./vanilla/ref-label.js";
 
 /** One router entry the orchestrator splices into router.ex. */
@@ -154,8 +156,11 @@ export function emitLiveViewPages(args: {
    *  `kind:"macro"` ref pointing at its `with scaffold(...)` call site, so
    *  this is the macro leg of the source-map milestone. */
   sourcemap?: SourceMapRecorder;
+  /** Locales the app ships (source first) with their endonyms, for
+   *  `LocaleSwitcher`.  Undefined means single-locale. */
+  locales?: readonly LocaleEntry[];
 }): { files: Map<string, string>; routes: LiveRoute[] } {
-  const { contexts, deployable, sys, appName, appModule, sourcemap } = args;
+  const { contexts, deployable, sys, appName, appModule, sourcemap, locales } = args;
   const out = emissionSink("generator/elixir/liveview-emit");
   const routes: LiveRoute[] = [];
 
@@ -363,8 +368,10 @@ export function emitLiveViewPages(args: {
       partContextModule,
       contextModuleByAggName,
       contextByAggName,
-      i18nEnabled ? `component.${c.name}` : undefined,
+      i18nEnabled ? componentKeyPrefix(ui, c) : undefined,
       c.name,
+      undefined,
+      locales,
     );
     componentInfo.set(c.name, {
       actionBindings: w.actionBindings,
@@ -429,6 +436,7 @@ export function emitLiveViewPages(args: {
       refLabelAggs,
       refLabelBatchAggs,
       refLabelSourceAggs,
+      locales,
     });
     anyChart ||= usesChart;
     anyTableHelpers ||= usesTableHelpers;
@@ -498,6 +506,7 @@ export function emitLiveViewPages(args: {
         contextModuleByAggName,
         authEnabled,
         i18nEnabled,
+        locales,
       }),
     );
   }
@@ -525,6 +534,8 @@ interface RenderArgs {
    *  page walk then keys every literal text slot to the shared catalog and
    *  emits `pgettext(<key>, <English>)`.  False ⇒ no prefix, byte-identical. */
   i18nEnabled?: boolean;
+  /** See `emitLiveViewPages`' `locales`. */
+  locales?: readonly LocaleEntry[];
   page: PageIR;
   liveModule: string;
   appName: string;
@@ -876,9 +887,10 @@ function renderLiveView(a: RenderArgs): {
     // i18n key prefix — `page.<Name>` matches the catalog (the scaffold's
     // role-scoped `page.name`, not the router emit name); undefined when the ui
     // has no extractable strings (byte-identical to pre-i18n).
-    a.i18nEnabled ? `page.${page.name}` : undefined,
+    a.i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
     undefined,
     a.refLabelBatchAggs,
+    a.locales,
   );
   const heex = walked.heex;
   // `__loom_ref_labels/1` — re-loads every `@<x>_labels` map the page's
@@ -929,6 +941,7 @@ function renderLiveView(a: RenderArgs): {
     liftedState,
     a.refLabelAggs,
     walked.refLabelBindings,
+    a.i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
   );
   const handleParams = renderHandleParams(
     page,
@@ -1429,6 +1442,9 @@ function renderMount(
   /** Targets whose `IdLink`s read `@<x>_labels` — seeded `%{}` here so the
    *  template resolves before (or without) a load filling it. */
   refLabelBindings: readonly string[] = [],
+  /** i18n key prefix (`page.<Name>`) — set only when the UI has extractable
+   *  strings; the page `title:` keys against it. */
+  i18nPrefix?: string,
 ): string {
   // `if connected?(socket), do: subscribe` — only the live (websocket-
   // connected) mount subscribes; the initial static render skips it.  Prepended
@@ -1437,6 +1453,18 @@ function renderMount(
     ? `    if connected?(socket), do: Phoenix.PubSub.subscribe(${realtimeAppModule}.PubSub, ${JSON.stringify(REALTIME_TOPIC)})\n`
     : "";
   const assigns: string[] = [];
+  // Per-page document title: the root layout reads `@page_title` (falling back
+  // to the app name).  Only a plain literal can be set here — `mount` runs
+  // before route params and loaded records exist, so an interpolated title has
+  // nothing to read.  Under i18n it translates through the catalog key
+  // `collectUiMessages` wrote.
+  const pageTitle = page.title;
+  if (pageTitle && pageTitle.kind === "literal" && pageTitle.lit === "string") {
+    const rendered = i18nPrefix
+      ? pgettextCall(messageKey(i18nPrefix, "title", pageTitle.value), pageTitle.value)
+      : elixirString(pageTitle.value);
+    assigns.push(`      |> assign(:page_title, ${rendered})`);
+  }
   for (const f of page.state) {
     // The field's declared `= <init>`, else the type-aware default from the
     // walker — single source of truth so `state.field` defaults match across
@@ -1978,15 +2006,23 @@ function renderOperationEventClauses(
         // A principal-reading op takes the actor the same way the `Action`
         // seam passes it (nil when the deployable runs no auth).
         const cu = fb.callsOp && opIR && opUsesCurrentUser(opIR);
+        // A merge-patch `update` seam with a `mask unless` write gate evaluates
+        // it against the actor, and may deny.
+        const updateGated =
+          !fb.callsOp &&
+          updateSeamGates(
+            aggregatesByName.get(fb.name)?.operations.find((o) => o.name === "update"),
+          ).length > 0;
         const submitCall = fb.callsOp
           ? `${ctxModule}.${op}_${aggSnake}(socket.assigns.data, params${cu ? ", Map.get(socket.assigns, :current_user)" : ""})`
-          : `${ctxModule}.update_${aggSnake}(socket.assigns.data, params)`;
-        const errorArm = fb.callsOp
-          ? `
+          : `${ctxModule}.update_${aggSnake}(socket.assigns.data, params${updateGated ? ", Map.get(socket.assigns, :current_user)" : ""})`;
+        const errorArm =
+          fb.callsOp || updateGated
+            ? `
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "${human} failed: #{inspect(reason)}")}`
-          : "";
+            : "";
         return `  @impl true
   def handle_event("validate_${op}", params, socket) do
     params = Map.get(params, "${op}", %{})
@@ -2348,6 +2384,8 @@ function renderUiComponents(args: {
   authEnabled: boolean;
   /** True when the ui has extractable user-visible strings (M-T1.11). */
   i18nEnabled?: boolean;
+  /** See `emitLiveViewPages`' `locales`. */
+  locales?: readonly LocaleEntry[];
 }): string {
   const {
     ui,
@@ -2388,8 +2426,10 @@ function renderUiComponents(args: {
         partContextModule,
         contextModuleByAggName,
         args.bcByAggregate,
-        args.i18nEnabled ? `component.${c.name}` : undefined,
+        args.i18nEnabled ? componentKeyPrefix(ui, c) : undefined,
         c.name,
+        undefined,
+        args.locales,
       );
       // Lifted state arrives as an attr of the same namespaced name the host
       // assigns under, so an intermediate component forwards it verbatim.  It

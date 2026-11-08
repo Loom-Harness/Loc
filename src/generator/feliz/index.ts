@@ -25,6 +25,7 @@ import type {
   UserIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { DEFAULT_SOURCE_LOCALE, sourceLocaleOf } from "../../ir/types/loom-ir.js";
 import { backendServesRealtime } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesDataGrid } from "../../ir/util/data-grid.js";
@@ -40,18 +41,22 @@ import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
+import { NPM_FETCH_RETRY_FLAGS } from "../_docker/node-stage.js";
 import {
   E2E_FIXTURES_TS,
   E2E_PACKAGE_JSON,
   E2E_TSCONFIG_JSON,
   PLAYWRIGHT_CONFIG_TS,
 } from "../_frontend/e2e-harness.js";
+import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
 import { deriveSidebarFromUi, type NavSectionVM } from "../_frontend/menu-emitter.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { APP_SHELL_CHROME, chromeKey } from "../_walker/i18n-chrome.js";
+import { literalString, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import { bcByAggregateOf, type PagedQueryContext } from "../_walker/paged-query.js";
+import { sourceText } from "../_walker/source-text.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import {
@@ -80,7 +85,12 @@ import {
   usesRouteIdFn,
 } from "./fs-expr.js";
 import { fsIdent } from "./fs-ident.js";
-import { FELIZ_INTL_MESSAGEFORMAT, felizI18nEnabled, renderFelizI18nModule } from "./i18n.js";
+import {
+  FELIZ_INTL_MESSAGEFORMAT,
+  felizI18nEnabled,
+  felizLocaleSwitchable,
+  renderFelizI18nModule,
+} from "./i18n.js";
 import { felizPack } from "./pack.js";
 import {
   felizRealtimeRefetchAggregates,
@@ -213,6 +223,11 @@ export interface GenerateFelizOptions {
    *  pages are recorded as `fragment()` REGIONS inside that file, anchored by
    *  each view function's own text.  See `_trace/sourcemap.ts`. */
   sourcemap?: SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag — see `PlatformSurface.emitProject`'s `translations`.  Each is
+   *  compiled into the `I18n` module beside the source catalog, under the SAME
+   *  gate as it.  Absent / empty is the normal case. */
+  translations?: TranslationCatalogs;
 }
 
 /** Indent every line of `block` by `n` spaces. */
@@ -231,11 +246,17 @@ function dispatchWrappers(
   page: PageIR,
   used: ReadonlySet<string>,
   asyncEffectActions: ReadonlyMap<string, FelizAsyncEffect> = new Map(),
+  i18n = false,
 ): string[] {
   const stateNames = new Set(page.state.map((s) => s.name));
   // Args are rendered in the VIEW's scope — a state read resolves to
   // `model.<Field>`; the route `id` is a bound local of the detail-page view fn.
-  const argCtx: FsExprCtx = { stateNames, locals: new Set(["id"]), routeId: "id" };
+  const argCtx: FsExprCtx = {
+    stateNames,
+    locals: new Set(["id"]),
+    routeId: "id",
+    ...(i18n ? { i18n: true } : {}),
+  };
   return page.actions
     .filter((a) => used.has(a.name))
     .map((a) => {
@@ -375,6 +396,46 @@ function pageDerivedBinds(page: PageIR): { binds: string[]; names: Set<string> }
   return { binds, names: locals };
 }
 
+/** The F# helper that sets `document.title`, spliced into `App.fs` once when any
+ *  page declares a `title:` (page views call it as a render-time statement; the
+ *  assignment is idempotent). */
+const SET_DOCUMENT_TITLE = "setDocumentTitle";
+const SET_DOCUMENT_TITLE_DECL = [
+  '[<Fable.Core.Emit("document.title = $0")>]',
+  `let ${SET_DOCUMENT_TITLE} (title: string) : unit = jsNative`,
+].join("\n");
+
+/** The statement line that sets a page's document title, or `undefined` when
+ *  the page has no `title:` (or one `renderFsExpr` cannot spell).  Under i18n a
+ *  literal title translates through the target's own `renderTranslate` with the
+ *  catalog key `collectUiMessages` wrote (`<Ui>.page.<Name>.title.<hash>`); an
+ *  interpolated one renders as the raw expression. */
+function pageTitleLine(
+  ui: UiIR,
+  page: PageIR,
+  i18nEnabled: boolean,
+  stateNames: ReadonlySet<string>,
+  locals: ReadonlySet<string>,
+): string | undefined {
+  const title = page.title;
+  if (!title) return undefined;
+  const render = (e: ExprIR): string => renderFsExpr(e, { stateNames, locals });
+  const prefix = i18nEnabled ? pageKeyPrefix(ui, page) : undefined;
+  let expr: string;
+  try {
+    const literal = literalString(title);
+    if (prefix && literal !== undefined) {
+      const key = messageKey(prefix, "title", literal);
+      expr = felizTarget.renderTranslate!({ key, message: sourceText(key, literal) });
+    } else {
+      expr = literal !== undefined ? fsString(literal) : `(${render(title)})`;
+    }
+  } catch {
+    return undefined;
+  }
+  return `    ${SET_DOCUMENT_TITLE} ${expr}`;
+}
+
 /** Render one page's view function under `fnName` (`view` for a single-page
  *  ui, `<pageCamel>View` under routing).  Threads the ui's api params +
  *  reachable aggregates so the shared walker's api-hook detection fires on
@@ -438,12 +499,18 @@ function renderPageView(
   // rest binds locals no body refers to.
   const idParam = routeParams.map((n) => ` (${fsIdent(n)}: string)`).join("");
   const head = `let ${fnName} (model: Model) (dispatch: Msg -> unit)${idParam} =`;
-  if (!page.body) return `${head}\n    Html.none`;
   const stateNames = new Set(page.state.map((s) => s.name));
+  if (!page.body) {
+    const bare = pageTitleLine(ui, page, i18nEnabled, stateNames, new Set());
+    return `${head}\n${bare ? `${bare}\n` : ""}    Html.none`;
+  }
   // `derived` first: pure over `state {}` + earlier derived, so it renders
   // without walking anything — and the names that BOUND are what the walk may
   // read bare (`renderDerivedRead`).
   const derived = pageDerivedBinds(page);
+  const titleLine = pageTitleLine(ui, page, i18nEnabled, stateNames, derived.names);
+  // The title statement follows the `derived` lets it may read.
+  const titleStmt = titleLine ? `${titleLine}\n` : "";
   const result = walkBody(
     page.body,
     felizTarget,
@@ -468,7 +535,7 @@ function renderPageView(
     // i18n key prefix — `page.<Name>` matches the catalog (the scaffold's
     // role-scoped `page.name`, e.g. `List`, not the router emit name);
     // undefined when the ui has no extractable strings (byte-identical).
-    i18nEnabled ? `page.${page.name}` : undefined,
+    i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
   );
   if (used) {
     for (const c of result.usedUserComponents) used.components.add(c);
@@ -477,7 +544,7 @@ function renderPageView(
     if (result.usesDataGrid) used.usesDataGrid = true;
   }
   const wrappers = [
-    ...dispatchWrappers(page, result.usedActions ?? new Set(), asyncEffectActions),
+    ...dispatchWrappers(page, result.usedActions ?? new Set(), asyncEffectActions, i18nEnabled),
     ...storeWrappers(page, ui, result.usedStores ?? new Map()),
     // `derived` lets LAST in the preamble — the same order a component's
     // declaration uses (action dispatchers, then the derived `let`s).  Neither
@@ -492,7 +559,7 @@ function renderPageView(
   // gate; a failing predicate (or no session) renders `forbiddenView`.
   if (pageGate && page.requires) {
     const gate = renderFelizGate(page.requires, "currentUser");
-    const inner = indentBlock(`${preamble}${body}`, 4);
+    const inner = indentBlock(`${preamble}${titleStmt}${body}`, 4);
     return [
       head,
       "    match model.CurrentUser with",
@@ -501,7 +568,7 @@ function renderPageView(
       "    | _ -> forbiddenView",
     ].join("\n");
   }
-  return `${head}\n${preamble}${body}`;
+  return `${head}\n${preamble}${titleStmt}${body}`;
 }
 
 /** True when an expression tree reads `currentUser.<claim>` — a member access
@@ -743,6 +810,9 @@ function renderNavbar(
   i18nEnabled = false,
   pageGate = false,
   menu?: readonly NavSectionVM[],
+  /** Two or more locales ship: the bar carries the language picker, and a bar
+   *  with no links still renders for it. */
+  localeSwitcher = false,
 ): string {
   // ONE line per entry, guard included: F# keys a newline-separated list
   // element by its first-token column, so a multi-line guard here would
@@ -752,7 +822,9 @@ function renderNavbar(
       ? `(match model.CurrentUser with Some currentUser when ${renderFelizGate(page.requires, "currentUser")} -> ${li} | _ -> Html.none)`
       : li;
   const label = (text: string, key: string | undefined): string =>
-    i18nEnabled && key ? `(I18n.t ${fsString(key)} ${fsString(text)})` : fsString(text);
+    i18nEnabled && key
+      ? `(I18n.t ${fsString(key)} ${fsString(sourceText(key, text))})`
+      : fsString(text);
   let entries: string[];
   if (menu) {
     entries = menu.flatMap((section) => [
@@ -770,12 +842,13 @@ function renderNavbar(
             ),
       ),
     ]);
-    if (entries.length === 0) return "";
+    if (entries.length === 0 && !localeSwitcher) return "";
   } else {
     const navPages = pages.filter((p) => !hasRouteParam(p));
-    if (navPages.length < 2) return "";
-    // PATH href (History API routing), not a `#/…` hash link.
-    entries = navPages.map((p) =>
+    if (navPages.length < 2 && !localeSwitcher) return "";
+    // PATH href (History API routing), not a `#/…` hash link.  A lone page
+    // renders no link list at all: the bar then exists only for the picker.
+    entries = (navPages.length < 2 ? [] : navPages).map((p) =>
       guard(
         p,
         `Html.li [ prop.children [ Html.a [ prop.href "${p.route ?? "/"}"; prop.text "${humanizeLabel(p.name)}" ] ] ]`,
@@ -794,11 +867,20 @@ function renderNavbar(
     '      Html.div [ prop.className "flex-1"; prop.children [',
     `        Html.a [ prop.className "btn btn-ghost text-xl"; prop.href "/"; prop.text "${humanizeLabel(brand)}" ]`,
     "      ] ]",
-    '      Html.div [ prop.className "flex-none"; prop.children [',
-    '        Html.ul [ prop.className "menu menu-horizontal px-1"; prop.children [',
-    items,
-    "        ] ]",
-    "      ] ]",
+    ...(entries.length > 0
+      ? [
+          '      Html.div [ prop.className "flex-none"; prop.children [',
+          '        Html.ul [ prop.className "menu menu-horizontal px-1"; prop.children [',
+          items,
+          "        ] ]",
+          "      ] ]",
+        ]
+      : []),
+    ...(localeSwitcher
+      ? [
+          '      Html.div [ prop.className "flex-none px-1"; prop.children [ I18n.localeSwitcher () ] ]',
+        ]
+      : []),
     "    ] ]",
   ].join("\n");
 }
@@ -824,13 +906,14 @@ function renderRootView(
   /** The ui's explicit `menu { }`, derived — the navbar renders it instead of
    *  the top-level page list. */
   menu?: readonly NavSectionVM[],
+  localeSwitcher = false,
 ): string {
   const arms = pages.map((p) => {
     const names = routeParamNames(p);
     const args = names.length > 0 ? ` ${names.map(fsIdent).join(" ")}` : "";
     return `        | ${pageCase(p, nameCtx)}${caseArgs(names)} -> ${pageViewFn(p, nameCtx)} model dispatch${args}`;
   });
-  const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate, menu);
+  const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate, menu, localeSwitcher);
   const router = [
     "    React.router [",
     // PATH-based routing (History API), NOT hash (`#/…`) — the generated SPA
@@ -1269,6 +1352,10 @@ function renderAppFs(
    *  cannot recover them from the finished string — it collects them here and
    *  anchors each one afterwards. */
   onPageView?: (page: PageIR, viewText: string) => void,
+  /** The system's source language — the catalog the `I18n` module falls back to. */
+  sourceLocale?: string,
+  /** Translated catalogs — what makes a second locale resolvable. */
+  translations?: TranslationCatalogs,
 ): string {
   const pages = ui.pages;
   if (pages.length === 0) {
@@ -1281,6 +1368,14 @@ function renderAppFs(
   // of the JS frontends' `src/i18n.ts` shim.  Empty catalog → no module, the
   // walks pass no prefix, and the file is byte-identical to pre-i18n.
   const i18nEnabled = felizI18nEnabled(ui);
+  // Two or more locales ship: the Model carries the active `Locale`, `Msg` a
+  // `LocaleChanged` case (dispatched by the listener `init` registers whenever
+  // `I18n.setLocale` runs), and the navbar the language picker.
+  const localeSwitchable = felizLocaleSwitchable(
+    ui,
+    translations,
+    sourceLocale ?? DEFAULT_SOURCE_LOCALE,
+  );
   const aggregatesByName = new Map<string, AggregateIR>();
   for (const c of contexts) for (const a of c.aggregates) aggregatesByName.set(a.name, a);
   // Aggregate-qualified page-name context (`classifyPage` inputs) — the scaffold
@@ -1476,7 +1571,7 @@ function renderAppFs(
   const persistedStores = felizPersistedStores(ui);
   const storeUrlArm = storeUrlUpdateArm(persistedStores);
   const storeUrlSub = renderStoreUrlSub(persistedStores);
-  const model = renderModel(state, reads, routed, formRecords, authUi, pageGate);
+  const model = renderModel(state, reads, routed, formRecords, authUi, pageGate, localeSwitchable);
   // A component `state {}` cell seeded from a component param: `init` has no
   // props, so the agreeing call-site constant substitutes in — or the component
   // defers (`component-state-init.ts`).
@@ -1490,6 +1585,8 @@ function renderAppFs(
     pageGate,
     storePersistInitOverrides(persistedStores),
     componentInits.paramValues,
+    i18nEnabled,
+    localeSwitchable,
   );
   const msg = renderMsg(
     msgActions,
@@ -1506,6 +1603,7 @@ function renderAppFs(
     boundState,
     fileUploads,
     storeUrlArm ? STORE_URL_MSG : undefined,
+    localeSwitchable,
   );
   const update = renderUpdate(
     actions,
@@ -1527,6 +1625,8 @@ function renderAppFs(
     // The route table a `navigate(<Page>)` STATEMENT in an action body resolves
     // against — its MVU arm lives in `update-emit.ts`, outside every page view.
     new Map(pages.filter((p) => p.route).map((p) => [p.name, p.route!])),
+    i18nEnabled,
+    localeSwitchable,
   );
   const wire = hasWire
     ? renderWireTypes(
@@ -1585,6 +1685,7 @@ function renderAppFs(
     externFunctionNames,
     authUi,
     i18nEnabled,
+    uiName: ui.name,
     emittedRecords,
     // The Model fields the record ACTUALLY declares — same `reads` list
     // `renderModel` is built from, so a component naming `model.<Field>` can
@@ -1641,6 +1742,7 @@ function renderAppFs(
           i18nEnabled,
           pageGate,
           ui.menu ? deriveSidebarFromUi(ui, nameCtx) : undefined,
+          localeSwitchable,
         ),
       ]
     : [
@@ -1709,6 +1811,9 @@ function renderAppFs(
   // calls it (the views follow `update` and see it too), else ahead of the views.
   const updateToast = update.includes(`${FELIZ_ACTION_TOAST} (`);
   const viewsToast = !updateToast && views.some((v) => v.includes(`${FELIZ_ACTION_TOAST} (`));
+  // Declared only when a page view actually calls it (a title `renderFsExpr`
+  // cannot spell emits no call), so the `Fable.Core` open + helper track use.
+  const usesPageTitle = views.some((v) => v.includes(`${SET_DOCUMENT_TITLE} `));
 
   return lines(
     "module App",
@@ -1742,7 +1847,11 @@ function renderAppFs(
     // The store-persistence module reaches Web Storage / `URLSearchParams` /
     // `history.replaceState` through the SAME `Emit` + `jsNative` escape hatch
     // (no `Fable.Browser.*` package reference), so it needs `Fable.Core` too.
-    (hasRealtime || used.usesDataGrid || i18nEnabled || persistedStores.length > 0) &&
+    (hasRealtime ||
+      used.usesDataGrid ||
+      i18nEnabled ||
+      persistedStores.length > 0 ||
+      usesPageTitle) &&
       "open Fable.Core",
     (hasFileUploads || hasRealtime || used.usesDataGrid || i18nEnabled) &&
       "open Fable.Core.JsInterop",
@@ -1750,7 +1859,12 @@ function renderAppFs(
     // else: F# is order-sensitive and every page view below calls into it, while
     // the module itself references nothing.
     i18nEnabled ? "" : false,
-    i18nEnabled ? renderFelizI18nModule(ui) : false,
+    i18nEnabled ? renderFelizI18nModule(ui, sourceLocale, contexts, translations) : false,
+    // The Fable.SimpleHttp requests below carry `Accept-Language`.
+    i18nEnabled && hasHttp ? "" : false,
+    i18nEnabled && hasHttp ? FELIZ_HTTP_LOCALE : false,
+    usesPageTitle ? "" : false,
+    usesPageTitle ? SET_DOCUMENT_TITLE_DECL : false,
     // Auth session gate — SessionState (gates the Model) + the Auth probe module.
     // Under a page gate the probe decodes the verified claims into `CurrentUser`
     // (record + decoder ahead of the claims-variant Auth module); a gate-free
@@ -1839,6 +1953,7 @@ function renderAppFs(
     persistedStores.length > 0 ? renderUpdateWithPersist() : false,
     storeUrlSub ? "" : false,
     storeUrlSub || undefined,
+
     // Realtime subscription module (channels.md Part I) — references `Msg`,
     // `Api`, and the reads' `Loaded` cases, so it sits after `update`.
     hasRealtime ? "" : false,
@@ -1898,20 +2013,49 @@ function renderAppFs(
     // URL mirror — in place of `update`.
     `Program.mkProgram init ${persistedStores.length > 0 ? "updateWithPersist" : "update"} safeView`,
     '|> Program.withErrorHandler (fun (msg, ex) -> Fable.Core.JS.console.error ($"Unhandled error in {msg}:", ex))',
-    // `Sub<'msg>` is a LIST of (id, start) pairs, so two subscriptions compose by
+    // `Sub<'msg>` is a LIST of (id, start) pairs, so subscriptions compose by
     // concatenation — `withSubscription` itself takes only one.
-    hasRealtime && storeUrlSub
-      ? "|> Program.withSubscription (fun m -> realtimeSub m @ storeUrlSub m)"
-      : hasRealtime
-        ? "|> Program.withSubscription realtimeSub"
-        : storeUrlSub
-          ? "|> Program.withSubscription storeUrlSub"
-          : false,
+    programSubscription([hasRealtime && "realtimeSub", storeUrlSub && "storeUrlSub"]),
     '|> Program.withReactSynchronous "root"',
     "|> Program.run",
     "",
   );
 }
+
+/** `|> Program.withSubscription …` for the named `Sub<Msg>` producers: the one
+ *  producer itself, or their concatenation; `false` when there are none. */
+function programSubscription(producers: readonly (string | false | undefined)[]): string | false {
+  const names = producers.filter((n): n is string => typeof n === "string");
+  if (names.length === 0) return false;
+  if (names.length === 1) return `|> Program.withSubscription ${names[0]}`;
+  return `|> Program.withSubscription (fun m -> ${names.map((n) => `${n} m`).join(" @ ")})`;
+}
+
+/** Fable.SimpleHttp's `Http`, shadowed so every request carries the active
+ *  locale.  The `Api` and `Auth` modules keep their ordinary `Http.request …
+ *  |> Http.send` / `Http.get` spelling; each `Http.request` (and so each
+ *  `Http.get`) stamps `Accept-Language: <active locale>` when it is CALLED, so
+ *  the backend negotiates its own locale from the language the UI shows now.
+ *  Every function the generated modules use is re-bound here; the rest of
+ *  Fable.SimpleHttp (`Headers`, `BodyContent`, `GET`/`POST`/`DELETE`) is
+ *  untouched. */
+const FELIZ_HTTP_LOCALE = lines(
+  "/// Fable.SimpleHttp's `Http`, with `Accept-Language: <active locale>` on every",
+  "/// request — the backend answers in the language the UI is showing.",
+  "module Http =",
+  "  let request (url: string) =",
+  "    Fable.SimpleHttp.Http.request url",
+  '    |> Fable.SimpleHttp.Http.header (Headers.create "Accept-Language" (I18n.getLocale ()))',
+  "  let method m req = Fable.SimpleHttp.Http.method m req",
+  "  let content c req = Fable.SimpleHttp.Http.content c req",
+  "  let header h req = Fable.SimpleHttp.Http.header h req",
+  "  let send req = Fable.SimpleHttp.Http.send req",
+  "  let get (url: string) : Async<int * string> =",
+  "    async {",
+  "      let! response = request url |> method GET |> send",
+  "      return response.statusCode, response.responseText",
+  "    }",
+);
 
 // The wire layer pulls in two more packages (proposal §10 known-good pins):
 // Fable.SimpleHttp for the fetch, Thoth.Json for the decoders.  A read-free
@@ -2112,7 +2256,7 @@ const STYLES_CSS = `@tailwind base;
 // step needs Node, so the build stage carries both; the runtime stage serves
 // the static bundle.  (Compose-boot verification is a follow-up slice; this
 // makes the emitted tree structurally buildable.)
-const DOCKERFILE = `# syntax=docker/dockerfile:1
+export const DOCKERFILE = `# syntax=docker/dockerfile:1
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /app
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \\
@@ -2120,7 +2264,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \\
   && rm -rf /var/lib/apt/lists/*
 COPY . .
 RUN dotnet tool restore
-RUN npm install
+RUN npm install --no-audit --no-fund ${NPM_FETCH_RETRY_FLAGS}
 RUN npm run build
 
 FROM nginx:1.27-alpine AS runtime
@@ -2131,8 +2275,8 @@ EXPOSE 3000
 CMD ["nginx", "-g", "daemon off;"]
 `;
 
-const INDEX_HTML = (theme: string, title: string): string => `<!doctype html>
-<html lang="en" data-theme="${theme}">
+const INDEX_HTML = (theme: string, title: string, lang: string): string => `<!doctype html>
+<html lang="${lang}" data-theme="${theme}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -2225,6 +2369,8 @@ export function generateFelizForContexts(
     // SAME gate the app's other authenticated traffic rides.
     realtimeStreamCredential(deployable, target, sys.user),
     options.sourcemap ? (page, text) => pageViews.push({ page, text }) : undefined,
+    sourceLocaleOf(sys),
+    options.translations,
   );
   out.set("src/App.fs", appFs);
   if (options.sourcemap) {
@@ -2257,7 +2403,7 @@ export function generateFelizForContexts(
       target ? { port: deployable.port, apiTarget: `http://localhost:${target.port}` } : undefined,
     ),
   );
-  out.set("index.html", INDEX_HTML(theme, humanize(sys.name)));
+  out.set("index.html", INDEX_HTML(theme, humanize(sys.name), sourceLocaleOf(sys)));
   out.set("styles.css", STYLES_CSS);
   out.set("tailwind.config.js", TAILWIND_CONFIG(theme));
   out.set("postcss.config.js", POSTCSS_CONFIG);

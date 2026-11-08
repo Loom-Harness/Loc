@@ -14,8 +14,8 @@ import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Aggregate, Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
 import { diagText } from "../../_helpers/diagnostics.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 import { parseValid } from "../../_helpers/parse.js";
 
 async function parse(src: string) {
@@ -353,7 +353,7 @@ system Sys {
     const customer = ctx.aggregates.find((a) => a.name === "Customer")!;
     const names = wireFieldsFor(customer).map((f) => f.name);
     // id first, then inherited base fields, then own.
-    expect(names).toEqual(["id", "name", "email", "creditLimit", "version"]);
+    expect(names).toEqual(["id", "name", "email", "creditLimit", "rowVersion"]);
   });
 
   it("does not duplicate a base field the concrete redeclares (own shadows)", async () => {
@@ -372,7 +372,7 @@ system Sys {
     const customer = ctx.aggregates.find((a) => a.name === "Customer")!;
     const names = wireFieldsFor(customer).map((f) => f.name);
     expect(names.filter((n) => n === "name")).toHaveLength(1);
-    expect(names).toEqual(["id", "name", "tier", "version"]);
+    expect(names).toEqual(["id", "name", "tier", "rowVersion"]);
   });
 
   it("emits no inheritance diagnostic for an ownTable (TPC) hierarchy (IR-validate)", async () => {
@@ -442,8 +442,7 @@ system Sys {
   });
 
   it("drops the abstract base's TABLE from the generation view (concretes are standalone)", async () => {
-    const model = await parseValid(OWN_TABLE);
-    const { files } = generateSystems(model);
+    const files = await generateSystemFiles(OWN_TABLE);
     const all = [...files.values()].join("\n");
     // The concrete subtype emits its standalone table (carrying the merged
     // base fields); the abstract base emits no table of its own. (The
@@ -470,7 +469,7 @@ system Sys {
   });
 
   it("emits a TPC base reader: `find all Party` delegates to each concrete repo", async () => {
-    const { files } = generateSystems(await parseValid(OWN_TABLE));
+    const files = await generateSystemFiles(OWN_TABLE);
     const union = files.get("api/domain/party.ts") ?? "";
     expect(union).toMatch(/export type Party = Customer/);
     // Not a `kind`-discriminated shared table — resolved per-table.
@@ -520,7 +519,7 @@ system Sys {
 }`;
 
   it("emits a .NET polymorphic reader: abstract Party base + delegating PartyRepository", async () => {
-    const { files } = generateSystems(await parseValid(TPC_TWO_CONCRETE("dotnet", 5000)));
+    const files = await generateSystemFiles(TPC_TWO_CONCRETE("dotnet", 5000));
     const get = (suffix: string) =>
       [...files.entries()].find(([p]) => p.endsWith(suffix))?.[1] ?? "";
     // Concrete subtypes emit as standalone entities/tables.
@@ -562,7 +561,7 @@ system Sys {
   });
 
   it("emits Ecto schemas for the TPC concretes on the vanilla foundation", async () => {
-    const { files } = generateSystems(await parseValid(TPC_TWO_CONCRETE("elixir", 4000)));
+    const files = await generateSystemFiles(TPC_TWO_CONCRETE("elixir", 4000));
     const paths = [...files.keys()];
     // Concrete subtypes emit Ecto schemas, each carrying the merged base fields.
     expect(paths.some((p) => p.endsWith("parties/customer.ex"))).toBe(true);
@@ -624,7 +623,7 @@ system Sys {
   });
 
   it("emits ONE shared table with a `kind` discriminator + nullable concrete columns", async () => {
-    const { files } = generateSystems(await parseValid(TPH));
+    const files = await generateSystemFiles(TPH);
     const schema = files.get("api/db/schema.ts") ?? "";
     // One shared `parties` table; no per-concrete tables.
     expect(schema).toMatch(/\.table\("parties"/);
@@ -638,7 +637,7 @@ system Sys {
   });
 
   it("targets the shared table, filtering and stamping `kind`, in each concrete repo", async () => {
-    const { files } = generateSystems(await parseValid(TPH));
+    const files = await generateSystemFiles(TPH);
     const repo = files.get("api/db/repositories/customer-repository.ts") ?? "";
     // Reads/writes go to the shared `parties` table…
     expect(repo).toMatch(/from\(schema\.parties\)/);
@@ -656,7 +655,7 @@ system Sys {
   });
 
   it("mounts the concrete routers, and the abstract base only as a read-only polymorphic read", async () => {
-    const { files } = generateSystems(await parseValid(TPH));
+    const files = await generateSystemFiles(TPH);
     const paths = [...files.keys()];
     expect(paths).toContain("api/http/customer.routes.ts");
     expect(paths).toContain("api/http/supplier.routes.ts");
@@ -672,7 +671,7 @@ system Sys {
   });
 
   it("emits a matching shared-table migration (no per-concrete tables)", async () => {
-    const { files } = generateSystems(await parseValid(TPH));
+    const files = await generateSystemFiles(TPH);
     const sql = [...files.entries()].find(([p]) => /db\/migrations\/.*\.sql$/.test(p))?.[1] ?? "";
     // The Parties context lands in its own `parties` Postgres schema.
     expect(sql).toMatch(/CREATE TABLE "parties"\."parties" \(/);
@@ -695,7 +694,7 @@ system Sys {
   });
 
   it("emits a polymorphic base reader: <Base> union + read-only <Base>Repository", async () => {
-    const { files } = generateSystems(await parseValid(TPH));
+    const files = await generateSystemFiles(TPH);
     // The abstract base's discriminated-union type.
     const union = files.get("api/domain/party.ts") ?? "";
     expect(union).toMatch(/export type Party = Customer \| Supplier;/);
@@ -775,7 +774,7 @@ system Sys {
   resource partiesState { for: Parties, kind: state, use: primary }
   deployable api { platform: node contexts: [Parties] dataSources: [partiesState] port: 3000 }
 }`;
-    const { files } = generateSystems(await parseValid(SRC));
+    const files = await generateSystemFiles(SRC);
     const schema = files.get("api/db/schema.ts") ?? "";
     // The part gets its own table…
     expect(schema).toMatch(/\.table\("addresses"/);

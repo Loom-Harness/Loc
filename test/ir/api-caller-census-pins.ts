@@ -773,6 +773,15 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.moveMoney.run (no such aggregate)",
     "api.registerAccount.run (no such aggregate)",
   ],
+  "corpus/workflow-expected-failure": [
+    "api.hold.instance (no such aggregate)",
+    "api.hold.run (no such aggregate)",
+    "api.pay.run (no such aggregate)",
+  ],
+  "corpus/match-op-result": [
+    "api.pay.run (no such aggregate)",
+    "api.tryPay.run (no such aggregate)",
+  ],
   "corpus/projection-implicit-sub": [
     "api.fulfilment.instance (no such aggregate)",
     "api.fulfilment.instances (no such aggregate)",
@@ -835,6 +844,11 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // wire golden with no new content — a `using` alias is not observable on the
   // wire.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT.
   "dotnet-bcl-type-collision",
+  // The defect is a .NET COMPILE failure (CS0136: the construction factory's
+  // `var e` re-declared a create param named `e`); the fix renames a factory
+  // local, which is not observable on the wire.  Signed with its reason in
+  // gate-ledger's BEHAVIOURAL_ABSENT.
+  "factory-param-local-collision",
   // The defect is an elixir COMPILE failure (`alias Claims.Claims` shadowing the
   // app module in every controller, so `Claims.GuardError` was undefined); the
   // fix only changes how the controller spells the facade, which is not

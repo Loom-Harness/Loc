@@ -38,8 +38,23 @@ Heavy work runs in Web Workers, not on the UI thread:
   same one the VS Code extension speaks, over `monaco-languageclient`;
 - a **build worker** — runs the generator over a workspace VFS and returns
   the generated file tree;
-- a **runtime worker** (`src/runtime/`) — bundles the Hono backend and
-  boots PGlite.
+- a **runtime worker per Node deployable** (`src/runtime/runtime.worker.ts`)
+  — imports that deployable's bundle and serves its requests;
+- an **infra worker** (`src/runtime/infra.worker.ts`) — the shared
+  infrastructure `docker-compose.yml` runs beside the services: one PGlite
+  per `storage`, each in a nested storage host worker.
+
+**Backend → backend HTTP.** A deployable's generated api client reads
+`process.env.<X>_URL`, which compose sets to `http://<slug>:<port>`. Each
+runtime worker boots with its own compose service's `environment:` as
+`process.env` (`composeServiceEnv`; set before the bundle is imported, and per
+worker so two deployables never see each other's values), and its `fetch` is
+wrapped (`runtime/service-fetch.ts`): a request to a booted deployable's
+hostname is posted to the main thread, which dispatches it into that
+deployable's worker and posts the response back; any other URL reaches the
+network. Routing is by hostname (a compose service name is unique; the container
+port means nothing in the browser). The frontend's own calls already go to its
+`targets:` backend.
 
 ## The four capabilities
 
@@ -90,12 +105,13 @@ mobile they render as the plain source editor until explicitly opened
 
 ### Live preview
 
-When the generated tree contains a Hono backend and a React frontend, the
-runtime worker bundles both (an in-browser npm install + esbuild-wasm
-bundle, `src/engine/`), boots the backend, and the React app renders in a
-sandboxed iframe. Iframe `fetch()` calls to `http://localhost:*` are
+When the generated tree contains Hono backends and a React frontend, the
+engine bundles each of them (an in-browser npm install + esbuild-wasm
+bundle, `src/engine/`), boots every backend in its own runtime worker, and
+the React app renders in a sandboxed iframe. Iframe `fetch()` calls to `http://localhost:*` are
 intercepted by an in-iframe shim and routed via `postMessage` to the
-parent, which dispatches them through the runtime worker — so the
+parent, which dispatches them through the runtime worker of the backend the
+frontend `targets:` — so the
 generated React → Hono → Postgres round-trip runs end-to-end under one
 origin. In live mode the preview refreshes in place as you type (debounced
 ~5 s).
@@ -106,19 +122,103 @@ generates fully and is browsable in the Files pane, but the preview names
 those as "run outside the playground" rather than booting them. The
 playground surfaces this explicitly instead of failing silently.
 
+### The backend's start-up sequence in the preview
+
+The runtime worker boots the generated backend through its own start-up
+sequence — `bootApp` in the deployable's `boot.ts`, the same function the
+generated `index.ts` runs before `serve()` — so seeds, the user verifier, the
+tenant-registry `orgPath` resolver, the channel consumers, the outbox relay
+and the timers all run in the preview as they do deployed. The worker passes
+the browser's answers, each announced at warn level in the runtime log:
+
+| Option | Preview behaviour | Why |
+|---|---|---|
+| `verifier: "dev-stub"` | the dev stub, even under `auth { oidc }` | no identity provider is reachable from the worker |
+| `infra: "in-process"` — channels | every `channelSource` binding on one in-memory transport (`channel_transport_in_process`): broadcast fan-out and round-robin consumer groups, asynchronous delivery | no broker; retention, replay and dead-lettering are not emulated |
+| `infra: "in-process"` — `cron:` timers | an in-process loop at each cron boundary (`timer_cron_in_process`) instead of pg-boss | pg-boss opens its own Postgres connection, which PGlite cannot give it; no durability, retry or cross-replica single-fire |
+| `infra: "in-process"` — `every:` timers | fire without the advisory-lock transaction | one process, and PGlite's single connection would deadlock the tick's writes behind the lock |
+
+The broker and job-queue client packages (`ioredis`, `kafkajs`, `amqplib`,
+`pg-boss`) are swapped at bundle time for stubs whose constructors throw
+(`BROWSER_STUBBED_PACKAGES` in `src/engine/npm/esbuild-vfs-plugin.ts`): their
+module bodies cannot evaluate in a worker, and the in-process boot never
+constructs them. `bootApp`'s `channelTransport` option is the seam an emulated
+broker plugs into. **Reset** stops what boot started before it closes PGlite.
+
 ### In-browser test runner
 
-The Postgres is **PGlite** — a WebAssembly Postgres — booted inside the
-runtime worker (`src/runtime/runtime.worker.ts`). Because Loom emits a
-Drizzle `pg-core` schema rather than ready SQL, the worker can't run
-Drizzle Kit in a browser; instead `src/runtime/ddl.ts` (`synthDDL`) walks
-the bundled schema's table/enum/index metadata and emits the minimal
-`CREATE SCHEMA` / `CREATE TYPE` / `CREATE TABLE` / `CREATE INDEX` SQL to
-bring a fresh PGlite up to the shape the generated repositories expect. It
-is idempotent (`IF NOT EXISTS`, enum-create wrapped in a duplicate-object
-catch) so it re-applies cleanly against a persistent OPFS-backed PGlite —
-the DB survives reloads, keyed by a hash of the source, with "Reset DB" to
-drop and rebuild.
+The Postgres is **PGlite** — a WebAssembly Postgres — one database per
+`storage` the system's Node deployables bind, not one per deployable. Each
+runs in a storage host worker under the infra worker
+(`src/runtime/storage-host.worker.ts`), and every deployable bound to the
+storage connects to it through PGlite's `PGliteWorker` client, so two backends
+on one `storage` read and write the same rows (the Shared storage example).
+Each storage holds the union of the schemas of the modules its deployables
+host. A request through the extra hop costs about 6 ms per SQL statement. The
+Runtime tab's request composer picks which backend a request goes to when the
+system has several. Its schema comes only from
+the workspace's **recorded migration chain** (`migrations/*.json`, below), the
+way a deployed backend's does. On every Boot the build worker renders the
+chain to the migration files the generated Hono backend carries in
+`db/migrations/` (`migrationPlan` in `src/build/evolution.ts`, over the same
+`migrationUnits` renderer `ddd generate system` uses), and the runtime applies
+the units after the last one the database applied, which
+`__loom.schema_meta` records as `chain_head` (`src/runtime/migrate.ts`). A
+transactional unit commits with its head update, so a failed unit leaves the
+database at the one before it. Each database is an OPFS island keyed by the
+workspace, its entry and — when the system has several — its storage (in
+memory on mobile), so it survives reloads and
+schema edits; a recorded change migrates it in place and keeps the rows.
+
+Boot never writes to the database while the model has **unrecorded** schema
+changes: it stops with *migration required* (`backend-status`), names the
+modules and steps, and leaves the database as it is. That includes a workspace
+with no chain, every built-in example among them — no migration is implied, so
+the database is created only once the initial migration is recorded. A database the chain cannot describe — one at a unit the chain
+no longer has, or one an earlier playground built without migration tracking
+(a `ddl_hash` row) — is reported, not dropped. The only actions that drop the
+user schemas are the explicit ones: **Reset database** (Database sub-view —
+drops every row of every storage and rebuilds each schema from its recorded
+units) and **Reset
+database & boot** / **Clear stored data & retry** (drop the island's stored
+data, then boot). A source with no `system` block cannot record migrations;
+its schema is synthesised from the bundled Drizzle tables (`src/runtime/ddl.ts`,
+`synthDDL`), applied to an empty database only, and a changed schema is
+reported for an explicit reset.
+
+The pipeline strip shows where the schema stands without a boot or an open
+tab. On every source change the build worker re-runs the check Boot runs
+(`migrate.plan`), and a badge beside Boot reads one of:
+
+- *migration required · initial schema* — nothing is recorded yet (every
+  built-in example on open). Boot is blocked until the initial migration is
+  recorded.
+- *migration required · N unrecorded changes* — what `ddd migrate status`
+  lists, with a *destructive* flag when one of them needs
+  `--allow-destructive`.
+- *migration recorded · N migrations not applied* — the chain records the
+  model, and the database this session booted has not applied its newest
+  entries.
+
+**Record migration…** opens a dialog that previews exactly what recording
+writes — every table's `Initial` for a first recording, the next entry
+otherwise — with the Migrations tab's diagram, SQL and destructive gate, and
+records through the same path as the tab (`ddd migrate add`). **Apply**
+regenerates, bundles and boots, and the boot applies the recorded entries the
+database lacks; the badge then clears. The Problems pane shows unrecorded
+changes as one notice row that opens the same dialog.
+
+The Agent tab's chat drives the same flow explicitly. It layers three host
+tools over the catalog (`web/src/agent/host-tools.ts`): `loom_migration_status`
+(the catalog tool, with the workspace's model and chain filled in),
+`loom_migration_record` (records through the tab's path, so the badge and the
+Migrations tab move with it; a destructive change needs `allowDestructive:
+true`) and `loom_migration_apply` (the badge's **Apply**, returning whether
+the boot started the app, stopped on a pending migration, or failed and
+where). The three act on the model the workspace holds: an edit the plan gate
+has not written yet is refused, and the agent records and applies in the next
+turn. The scripted demo checks the status and records the initial migration
+after it generates.
 
 On top of that live runtime, the playground runs the **DSL-emitted test
 suites** — the same files `ddd generate system` writes:
@@ -180,7 +280,7 @@ The dock's **Runtime** tab has four sub-views once the backend is booted: **API*
 
 The **Migrations** tab compares the live source with a baseline (*Last save* by default, or any commit pinned from History) and draws the schema as a table diagram tinted by the pending migration — added green, changed amber, removed red, untouched dimmed (`web/src/layout/migration-tint.ts` over the evolution worker's `tables` + per-step `table`) — beside the migration SQL. A destructive change renders as the gate `ddd migrate add` raises: the `--allow-destructive` flag and the data it would drop. The comparison runs when the tab opens; **Refresh** re-runs it.
 
-The workspace holds the committed migration chain in the same format the CLI keeps on disk: `migrations/*.json` beside the entry `.ddd` (`/workspace/migrations/` for `main.ddd`, see [migrations.md § The migration chain](migrations.md#the-migration-chain--migrations-beside-the-source)). When the chain exists, generate renders it whole, like `ddd generate system`. A chain that does not read as one list, or a model with schema changes the chain does not record, fails the generate with a diagnostic. The Migrations tab then uses the chain's head as the schema baseline, so the SQL it shows is exactly what `ddd migrate add` would record. The baseline source still drives the wire-contract diff. Every diff passes the model's `migration { … }` intents, so a declared rename shows as a `RENAME COLUMN`, not a drop and add. A status line under the baseline picker gives the chain's entry count, its head, and the unrecorded steps. On two heads it names both files and says to run `ddd migrate rebase` locally. **Record migration** takes a kebab-case name and is the playground's `ddd migrate add`, numbered from the browser's UTC clock. A destructive change also needs its `--allow-destructive` box ticked. Recording writes the new entries into the workspace's working tree like any other edit, then re-runs the diff and the generate. With no chain yet, the first recording starts one with each module's `Initial`. Like `ddd migrate add`, the diff and the record run the IR validator on the live source first: a model it refuses (an `index:` naming a removed field, a missing `dataSources:` binding) shows its diagnostics instead of a migration, because the SQL derived from it would not apply. A baseline pinned from History only has to load. The diff core is `evolveSystem` (`src/system/migration-diff.ts`), which the toolkit's `loom_diff` shares.
+The workspace holds the committed migration chain in the same format the CLI keeps on disk: `migrations/*.json` beside the entry `.ddd` (`/workspace/migrations/` for `main.ddd`, see [migrations.md § The migration chain](migrations.md#the-migration-chain--migrations-beside-the-source)). When the chain exists, generate renders it whole, like `ddd generate system`. A chain that does not read as one list fails the generate with a diagnostic. A model with schema changes the chain does not record still generates — unlike the CLI, which refuses — with a warning: the generated migrations stop at the recorded chain, and Boot leaves the database as it is until the change is recorded. The Migrations tab then uses the chain's head as the schema baseline, so the SQL it shows is exactly what `ddd migrate add` would record. The baseline source still drives the wire-contract diff. Every diff passes the model's `migration { … }` intents, so a declared rename shows as a `RENAME COLUMN`, not a drop and add. A status line under the baseline picker gives the chain's entry count, its head, and the unrecorded steps. On two heads it names both files and says to run `ddd migrate rebase` locally. **Record migration** takes a kebab-case name and is the playground's `ddd migrate add`, numbered from the browser's UTC clock. A destructive change also needs its `--allow-destructive` box ticked. Recording writes the new entries into the workspace's working tree like any other edit, then re-runs the diff and the generate. With no chain yet, the first recording starts one with each module's `Initial`. Like `ddd migrate add`, the diff and the record run the IR validator on the live source first: a model it refuses (an `index:` naming a removed field, a missing `dataSources:` binding) shows its diagnostics instead of a migration, because the SQL derived from it would not apply. A baseline pinned from History only has to load. The diff core is `evolveSystem` (`src/system/migration-diff.ts`), which the toolkit's `loom_diff` shares.
 
 The **Tests** tab's requirement verdicts read *Verified / Failing / Untested / Unverified* with a one-line legend; a discovery failure (in a sandbox with no registry: `Failed to resolve module specifier "uuidv7"`) shows one line of interpretation with the raw text folded behind *Show details*, and discovery reports per-suite progress with a *Cancel*.
 

@@ -47,7 +47,7 @@ import type {
 const prim = (name: PrimitiveName): TypeIR => ({ kind: "primitive", name });
 const opt = (inner: TypeIR): TypeIR => ({ kind: "optional", inner });
 const arr = (element: TypeIR): TypeIR => ({ kind: "array", element });
-const idOf = (targetName: string): TypeIR => ({ kind: "id", targetName, valueType: "guid" });
+const idOf = (targetName: string): TypeIR => ({ kind: "id", targetName });
 const enumOf = (name: string): TypeIR => ({ kind: "enum", name });
 const voOf = (name: string): TypeIR => ({ kind: "valueobject", name });
 

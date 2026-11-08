@@ -1,8 +1,10 @@
 import type { ExprIR, OperationIR } from "../../ir/types/loom-ir.js";
+import { operationFormParams } from "../../ir/util/op-gates.js";
 import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
 import { giveUp } from "../_walker/give-up.js";
+import { opModelText, paramLabelOwner } from "../_walker/model-text-sites.js";
 import { opGateFor } from "../_walker/op-gate.js";
 import { namedArgValue, positionalArgs, stringNamed } from "../_walker/shared/args.js";
 import { emitExpr, type WalkContext } from "../_walker/walker-core.js";
@@ -144,11 +146,13 @@ export function renderAngularOperationForm(
   // the `aria-invalid` / `aria-describedby` matching its inline error.
   const agg = ctx.aggregatesByName.get(aggName);
   const opInvariants = [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)];
-  const available = new Set(op.params.map((p) => p.name));
+  const available = new Set(operationFormParams(op).map((p) => p.name));
   const errorFields = new Set(angularValidatorMap(opInvariants, available).keys());
 
   const parts = bc
-    ? partitionAngularFields(op.params, bc, ns, ctx, formVar, errorFields)
+    ? partitionAngularFields(operationFormParams(op), bc, ns, ctx, formVar, errorFields, (name) =>
+        agg ? paramLabelOwner(agg, name) : undefined,
+      )
     : {
         flatControls: [],
         flatMarkup: [],
@@ -185,7 +189,7 @@ export function renderAngularOperationForm(
 
   const inner = "  ".repeat(depth + 1);
   const close = "  ".repeat(depth);
-  const label = humanize(op.name);
+  const label = (bc && opModelText(ctx, bc, aggName, op.name)?.markup) || humanize(op.name);
   const submit = formButton(ctx, {
     type: "submit",
     emphasis: "primary",

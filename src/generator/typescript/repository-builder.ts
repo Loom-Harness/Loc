@@ -31,6 +31,7 @@ import { collectEnums, collectValueObjects } from "./repository-imports-builder.
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { saveMethod } from "./repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "./repository-wire-builder.js";
+import { TT } from "./ts-symbols.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
@@ -169,8 +170,8 @@ export function buildRepositoryFile(
     `export class ${agg.name}Repository implements ${repoPortName(agg.name)} {`,
     // Explicit field declarations + constructor assignments, not
     // parameter properties — the latter is non-erasable sugar Node's
-    // type stripping rejects; see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md
-    // "Non-erasable syntax" and emit/value-objects.ts's renderValueObject.
+    // type stripping rejects; see docs/debugging.md
+    // (the generated TypeScript must stay erasable) and emit/value-objects.ts's renderValueObject.
     `  private readonly db: Db;`,
     `  private readonly events: DomainEventDispatcher;`,
     `  constructor(`,
@@ -290,7 +291,7 @@ function getByIdMethod(
 ): string {
   const tableName = repoTableName(agg, ctx);
   return lines(
-    `  async getById(id: Ids.${agg.name}Id): Promise<${agg.name}> {`,
+    `  async getById(id: ${TT.Ids}.${agg.name}Id): Promise<${agg.name}> {`,
     ...writeScopeGuardLines(agg, tableName, ctx, drizzleOps),
     `    const found = await this.findById(id);`,
     `    if (!found) ${tsNotFoundThrow(agg.name, "id")}`,
@@ -317,7 +318,7 @@ function deleteMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): 
   // Non-TPH aggregates get `null` here, so their emission is byte-identical.
   const filter = withKind(`eq(schema.${tableName}.id, id)`, kindPredicate(agg, ctx));
   return lines(
-    `  async delete(id: Ids.${agg.name}Id): Promise<void> {`,
+    `  async delete(id: ${TT.Ids}.${agg.name}Id): Promise<void> {`,
     `    await this.db.delete(schema.${tableName}).where(${filter});`,
     `  }`,
   );

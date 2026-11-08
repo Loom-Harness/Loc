@@ -20,12 +20,12 @@
         "footprint": 11.25,
         "id": "<volatile:key>",
         "name": "widget",
+        "rowVersion": 1,
         "size": {
           "height": 4.5,
           "width": 2.5
         },
         "topLevel": 12.25,
-        "version": 1,
         "weight": 3.5
       }
     },
@@ -40,12 +40,12 @@
             "footprint": 11.25,
             "id": "<volatile:key>",
             "name": "widget",
+            "rowVersion": 1,
             "size": {
               "height": 4.5,
               "width": 2.5
             },
             "topLevel": 12.25,
-            "version": 1,
             "weight": 3.5
           }
         ],
@@ -71,12 +71,12 @@
         "footprint": 15.75,
         "id": "<volatile:key>",
         "name": "widget2",
+        "rowVersion": 2,
         "size": {
           "height": 4.5,
           "width": 3.5
         },
         "topLevel": 30.25,
-        "version": 2,
         "weight": 5.5
       }
     },

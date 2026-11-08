@@ -100,13 +100,10 @@ describe("policy × shape: document — node (Hono/Drizzle)", () => {
     expect(thing).toContain("const currentUser = requireCurrentUser();");
   });
 
-  // KNOWN DEFECT: a criterion read over a `shape: document` aggregate
-  // (`Things.find(Labelled(l))`) calls `things.runFindAllByLabelled(…)`, but
-  // the node document repository never defines it (TS2339) — so the ladder
-  // has no criterion read to narrow.  `it.fails` keeps the expectation on
-  // record; drop the `.fails` once the document repository emits criterion
-  // reads (filtered in-app under the same ladder, as java's is).
-  it.fails("the same predicate narrows a criterion read, not just findById", async () => {
+  // A criterion read over a `shape: document` aggregate
+  // (`Things.find(Labelled(l))`) calls `things.runFindAllByLabelled(…)`, which
+  // filters in-app under the same ladder as the by-id reads, as java's does.
+  it("the same predicate narrows a criterion read, not just findById", async () => {
     const thing = await fileContaining("node", "thing-repository");
     const method = thing.slice(thing.indexOf("async runFindAllByLabelled("));
     expect(method).toContain("async runFindAllByLabelled(");

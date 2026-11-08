@@ -38,6 +38,42 @@ const NODE_BUILTINS = new Set([
   "tty", "url", "util", "v8", "vm", "wasi", "worker_threads", "zlib",
 ]);
 
+// The infrastructure client packages a generated Node backend imports for its
+// broker transports and durable `cron:` timers.  None of them can run in the
+// browser — they open TCP connections — and their module bodies subclass
+// Node's EventEmitter at evaluation, which kills the whole bundle import in a
+// worker.  The preview never constructs them: the worker boots with
+// `bootApp(db, { infra: "in-process" })`, which puts every channel binding on
+// an in-memory transport and runs `cron:` timers in-process.  So each is
+// swapped at bundle time for a module with the same exports whose
+// constructors throw, naming the package — loud if anything ever reaches one.
+// An emulated broker replaces these stubs with facades over the same exports.
+const unavailable = (pkg: string): string =>
+  `const unavailable = (what) => { throw new Error(${JSON.stringify(pkg)} + ": " + what + " is not available in the browser preview, which boots with infra: 'in-process'"); };`;
+export const BROWSER_STUBBED_PACKAGES: Readonly<Record<string, string>> = {
+  ioredis: [
+    unavailable("ioredis"),
+    "export class Redis { constructor() { unavailable('new Redis()'); } }",
+    "export default Redis;",
+  ].join("\n"),
+  kafkajs: [
+    unavailable("kafkajs"),
+    "export class Kafka { constructor() { unavailable('new Kafka()'); } }",
+    "export const logLevel = { NOTHING: 0, ERROR: 1, WARN: 2, INFO: 4, DEBUG: 5 };",
+  ].join("\n"),
+  amqplib: [
+    unavailable("amqplib"),
+    "export function connect() { return unavailable('connect()'); }",
+    "export default { connect };",
+  ].join("\n"),
+  "pg-boss": [
+    unavailable("pg-boss"),
+    "export class PgBoss { constructor() { unavailable('new PgBoss()'); } }",
+    "export default PgBoss;",
+  ].join("\n"),
+};
+const STUBBED = "vfs-stubbed-package";
+
 /** A node builtin: `node:*`, an exact name, or a subpath like
  *  `fs/promises` / `stream/promises` (head segment is a builtin). */
 function isNodeBuiltin(spec: string): boolean {
@@ -142,6 +178,9 @@ export function makeVfsNpmPlugin(
         if (isNodeBuiltin(spec)) {
           return { path: spec, namespace: EMPTY };
         }
+        if (Object.hasOwn(BROWSER_STUBBED_PACKAGES, spec)) {
+          return { path: spec, namespace: STUBBED };
+        }
         // A URL is not a module specifier — pass it through verbatim.
         // esbuild routes CSS `url()` tokens through onResolve, so an
         // inlined icon (`url("data:image/svg+xml,…")`) or a remote asset
@@ -190,6 +229,11 @@ export function makeVfsNpmPlugin(
         }
         return { errors: [{ text: `vfs: bare "${spec}" not in installed node_modules` }] };
       });
+
+      build.onLoad({ filter: /.*/, namespace: STUBBED }, (args) => ({
+        contents: BROWSER_STUBBED_PACKAGES[args.path],
+        loader: "js",
+      }));
 
       build.onLoad({ filter: /.*/, namespace: EMPTY_CSS }, () => ({
         contents: "",

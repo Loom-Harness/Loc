@@ -13,7 +13,6 @@ import type {
   ExprIR,
   FieldAccess,
   FieldIR,
-  IdValueType,
   TypeIR,
   ValueObjectIR,
   WireField,
@@ -22,6 +21,7 @@ import { isMacroEmitted } from "../types/origin.js";
 import { canonicalCreate, canonicalDestroy } from "../util/canonical-lifecycle.js";
 import { hasTenantOwned, TENANT_OWNED_DATA_KEY_FIELD } from "../util/tenant-stance.js";
 import { satisfiableAtConstruction } from "../validate/invariant-classify.js";
+import { maskedReadPredicates } from "./mask-taint.js";
 
 /** Any structure carrying a resolved access role.  Both `WireField`
  * and `FieldIR` satisfy this — backends choose the shape that suits
@@ -183,9 +183,10 @@ export function isRequiredCreateInput(f: RequirableInput): boolean {
  *  of default does.
  *
  *  A default — explicit `= value` or the language-defined implicit `bool` one —
- *  is a CONSTRUCTION rule, and Loom's update contract is full-replacement (the
- *  PUT carries every field), so there is nothing to construct and "absent" can
- *  only mean "a required field is missing".  That is RS-26
+ *  is a CONSTRUCTION rule, and a command-shaped update replaces every field, so
+ *  there is nothing to construct and "absent" can only mean "a required field
+ *  is missing".  (The merge-patch `update`, RS-47, reads an absent key as the
+ *  stored value instead — still never a default.)  That is RS-26
  *  (`test/conformance/semantics-rules.ts`), and it is why this function must
  *  NOT consult `hasImplicitDefault` — a create-input predicate.
  *
@@ -226,8 +227,8 @@ export function isRequiredUpdateInput(f: RequirableInput): boolean {
  *  `valueobject`) with a narrower one (`Leg[]` vs `string[]`), and "absent
  *  means empty" is no less true of `tags: string[]`.
  *
- *  CREATE-side only.  {@link isRequiredUpdateInput} must not consult this —
- *  Loom's update contract is full-replacement, so an absent collection there
+ *  CREATE-side only.  {@link isRequiredUpdateInput} must not consult this — a
+ *  command-shaped update replaces every field, so an absent collection there
  *  means "a required field is missing", not "empty" (RS-26). */
 function hasImplicitDefault(t: TypeIR): boolean {
   const base = t.kind === "optional" ? t.inner : t;
@@ -451,8 +452,8 @@ export function updatePreconditions<T extends WithAccess>(items: readonly T[]): 
 // filters above (`forApiRead(wireFieldsFor(ent))`) to project a boundary shape.
 // ---------------------------------------------------------------------------
 
-function idTypeFor(targetName: string, valueType: IdValueType = "guid"): TypeIR {
-  return { kind: "id", targetName, valueType };
+function idTypeFor(targetName: string): TypeIR {
+  return { kind: "id", targetName };
 }
 
 function containmentTypeFor(partName: string, collection: boolean): TypeIR {
@@ -484,10 +485,13 @@ export function wireTypeForField(f: FieldIR): TypeIR {
 }
 
 export function wireFieldsForAggregate(agg: AggregateIR): WireField[] {
+  // The visibility taint (`mask-taint.ts`): a derived computed from a masked
+  // value carries the masks it reads, so it redacts wherever the field does.
+  const masks = maskedReadPredicates(agg);
   const out: WireField[] = [
     {
       name: "id",
-      type: idTypeFor(agg.name, agg.idValueType),
+      type: idTypeFor(agg.name),
       optional: false,
       source: "id",
       access: "token",
@@ -536,6 +540,7 @@ export function wireFieldsForAggregate(agg: AggregateIR): WireField[] {
       optional: d.type.kind === "optional",
       source: "derived",
       access: "editable",
+      ...(masks.has(d.name) ? { maskUnless: masks.get(d.name)! } : {}),
     });
   }
   return out;
@@ -545,7 +550,7 @@ export function wireFieldsForPart(part: EntityPartIR): WireField[] {
   const out: WireField[] = [
     {
       name: "id",
-      type: idTypeFor(part.name, part.parentIdValueType),
+      type: idTypeFor(part.name),
       optional: false,
       source: "id",
       access: "token",
@@ -609,12 +614,12 @@ export function wireFieldsForValueObject(vo: ValueObjectIR): WireField[] {
 }
 
 /** Recompute the canonical wire shape for an aggregate / part / value object,
- *  dispatching on the node's structural discriminator (aggregates carry
- *  `idValueType`, parts `parentIdValueType`, value objects neither).  A drop-in
+ *  dispatching on the node's structural discriminator (parts carry
+ *  `parentName`, aggregates `operations`, value objects neither).  A drop-in
  *  for the retired `wireShapeFor` stamp reader: byte-identical output because it
  *  runs the SAME walk the enrichment pass ran, over the same enriched fields. */
 export function wireFieldsFor(ent: AggregateIR | EntityPartIR | ValueObjectIR): WireField[] {
-  if ("idValueType" in ent) return wireFieldsForAggregate(ent);
-  if ("parentIdValueType" in ent) return wireFieldsForPart(ent);
+  if ("parentName" in ent) return wireFieldsForPart(ent);
+  if ("operations" in ent) return wireFieldsForAggregate(ent);
   return wireFieldsForValueObject(ent);
 }

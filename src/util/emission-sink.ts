@@ -33,9 +33,14 @@ export class EmissionClobberError extends Error {
     readonly path: string,
     firstWriter: string,
     secondWriter: string,
+    caseAlias?: string,
   ) {
     super(
-      `[${sink}] two producers wrote different content to the same output path "${path}" — ` +
+      `[${sink}] two producers wrote different content to the same output path "${path}"` +
+        (caseAlias === undefined
+          ? ""
+          : ` (the same file as "${caseAlias}" on a case-insensitive filesystem, and a duplicate to a build)`) +
+        ` — ` +
         `the second write would silently drop the first file.\n` +
         `  first writer:  ${firstWriter}\n` +
         `  second writer: ${secondWriter}\n` +
@@ -60,6 +65,10 @@ export class EmissionSink extends Map<string, string> {
   /** Where each path's live content was written from.  An `Error` captures
    *  its raw frames cheaply; the stack is only formatted on a collision. */
   private readonly writers = new Map<string, Error>();
+  /** Case-folded path → the spelling that was written, so two paths that
+   *  differ only by case — one file on a case-insensitive filesystem — are
+   *  refused like a same-path clash. */
+  private readonly folded = new Map<string, string>();
 
   constructor(
     readonly label: string,
@@ -101,23 +110,40 @@ export class EmissionSink extends Map<string, string> {
         writerOf(writer),
       );
     }
-    if (prev === undefined) this.writers.set(path, writer);
+    if (prev === undefined) {
+      const key = path.toLowerCase();
+      const alias = this.folded.get(key);
+      if (alias !== undefined && alias !== path) {
+        throw new EmissionClobberError(
+          this.label,
+          path,
+          writerOf(this.writers.get(alias)),
+          writerOf(writer),
+          alias,
+        );
+      }
+      this.folded.set(key, path);
+      this.writers.set(path, writer);
+    }
     return super.set(path, content);
   }
 
   /** Deliberately overwrite a path (post-processing an already-emitted file). */
   replace(path: string, content: string): this {
     this.writers.set(path, new Error());
+    if (!this.folded.has(path.toLowerCase())) this.folded.set(path.toLowerCase(), path);
     return super.set(path, content);
   }
 
   override delete(path: string): boolean {
     this.writers.delete(path);
+    if (this.folded.get(path.toLowerCase()) === path) this.folded.delete(path.toLowerCase());
     return super.delete(path);
   }
 
   override clear(): void {
     this.writers.clear();
+    this.folded.clear();
     super.clear();
   }
 }

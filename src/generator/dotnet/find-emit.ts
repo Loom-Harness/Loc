@@ -1,4 +1,4 @@
-import { envelopeReturn } from "../../ir/stdlib/generics.js";
+import { readSortFor } from "../../ir/enrich/read-scope.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
@@ -67,26 +67,11 @@ export function unionFindAsOptionalTwin(find: FindIR, aggName: string): FindIR {
   return { ...find, returnType: { kind: "optional", inner: success } };
 }
 
-/** `T envelope` is a SINGLE-ROW find (M-T6.57, ratified): the carrier carries no
- *  distinct wire shape, so the Domain repository answers the carried `T` — the
- *  same shape `find x(): T` produces, absent → the `AggregateNotFoundException`
- *  rung `projectionClauseFor` already emits for a non-optional single find.
- *
- *  Without the unwrap the shared C# type printer rendered `Task<Envelope<Order>>`
- *  onto a method whose body returns a bare `Order` — **CS0029** — and the query
- *  handler then read `domain.Id.Value` off the carrier.  The generated project
- *  did not compile, and no fixture instantiated the carrier, so nothing noticed. */
-export function envelopeFindAsSingleRow(find: FindIR): FindIR {
-  const carried = envelopeReturn(find.returnType);
-  return carried ? { ...find, returnType: carried } : find;
-}
-
-/** The DOMAIN-side shape of a find: the union→optional twin, with the `envelope`
- *  carrier unwrapped.  Every emitter that renders a repository signature or body
- *  goes through this, so the two normalisations can never be applied to one
- *  emitter and forgotten in another. */
+/** The DOMAIN-side shape of a find: the union→optional twin.  Every emitter
+ *  that renders a repository signature or body goes through this, so the
+ *  normalisation can never be applied to one emitter and forgotten in another. */
 export function domainFindShape(find: FindIR, aggName: string): FindIR {
-  return envelopeFindAsSingleRow(unionFindAsOptionalTwin(find, aggName));
+  return unionFindAsOptionalTwin(find, aggName);
 }
 
 export function buildFindBodies(
@@ -165,12 +150,15 @@ function retrievalWhereClause(
   return `.Where(${x} => ${renderCsExpr(r.where, { thisName: x, agg, efQuery: true })})`;
 }
 
-/** `.OrderBy(x => x.Col)[.ThenBy…]` for a retrieval's sort terms (empty
- *  when unsorted).  Only the first path segment is used in v1 (a direct
- *  column), matching the Hono emitter + validateRetrievals gating. */
+/** `.OrderBy(x => x.Col)[.ThenBy…]` for a retrieval's sort terms plus the
+ *  `id` tie-break, or `.OrderBy(x => x.Id)` when unsorted (`readSortFor`).
+ *  Only the first path segment is used in v1 (a direct column), matching the
+ *  Hono emitter + validateRetrievals gating. */
 function orderByClauseFor(r: RetrievalIR): string {
-  if (r.sort.length === 0) return "";
-  return r.sort
+  // The lambda parameter yields to a same-named retrieval param, as the
+  // `where` lambda does (a param `x` would otherwise be shadowed).
+  const x = csLocalNamer(r.params.map((p) => p.name))("x");
+  return readSortFor(r.sort)
     .map((s, i) => {
       const col = upperFirst(s.path[0]!.name);
       const method =
@@ -181,7 +169,7 @@ function orderByClauseFor(r: RetrievalIR): string {
           : s.direction === "desc"
             ? "ThenByDescending"
             : "ThenBy";
-      return `.${method}(x => x.${col})`;
+      return `.${method}(${x} => ${x}.${col})`;
     })
     .join("");
 }

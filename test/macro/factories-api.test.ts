@@ -396,6 +396,6 @@ describe("targetFields — Property filter", () => {
       derived display: string = name
       operation rotate() { }
     `);
-    expect(targetFields(agg).map((f) => f.name)).toEqual(["name", "email", "version"]);
+    expect(targetFields(agg).map((f) => f.name)).toEqual(["name", "email", "rowVersion"]);
   });
 });

@@ -28,7 +28,7 @@
 // Derive, don't stamp (CLAUDE.md): a pure function of the repository's finds,
 // computed at each emission site.
 
-import type { ExprIR, FindIR, IdValueType, RepositoryIR, SystemIR } from "../types/loom-ir.js";
+import type { ExprIR, FindIR, RepositoryIR, SystemIR } from "../types/loom-ir.js";
 
 /** The repository find backing the aggregate's list endpoint — the
  *  enrichment-injected `all`, or the author's own `find all(...)` when they
@@ -63,15 +63,12 @@ export function listReadGate(repo: RepositoryIR | undefined): ExprIR | undefined
  *  literal, so the route fails closed (403) on every backend.  A synthesised
  *  one is never in `repo.finds`: it owns no route or repository method of its
  *  own, it only carries the by-id route's gate. */
-export function byIdRouteFind(
-  repo: RepositoryIR | undefined,
-  idValueType: IdValueType,
-): FindIR | undefined {
+export function byIdRouteFind(repo: RepositoryIR | undefined): FindIR | undefined {
   if (!repo) return undefined;
   const listRead = listReadFind(repo);
   const policyGate = listRead?.defaultDenied ? undefined : listRead?.requires;
   if (!policyGate && !repo.readsDefaultDenied) return undefined;
-  const idType = { kind: "id", targetName: repo.aggregateName, valueType: idValueType } as const;
+  const idType = { kind: "id", targetName: repo.aggregateName } as const;
   return {
     name: "byId",
     params: [{ name: "id", type: idType }],

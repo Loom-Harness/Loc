@@ -4,6 +4,8 @@ import type {
   EvolutionParams,
   EvolutionResult,
   GenerateResult,
+  MigrationPlanParams,
+  MigrationPlanResult,
   RecordMigrationParams,
   RecordMigrationResult,
   SnapshotResult,
@@ -12,6 +14,9 @@ import type {
   VfsWriteResult,
 } from "./protocol.js";
 import { logDiagnostic } from "../util/diagnostics.js";
+import { BuildWorkerRespawnedError } from "./respawn.js";
+
+export { BuildWorkerRespawnedError };
 
 /** Anything the worker can return — narrowed by the call-site to the
  *  expected method's result type.  Centralising avoids duplicating
@@ -21,6 +26,7 @@ type AnyResult =
   | SnapshotResult
   | EvolutionResult
   | RecordMigrationResult
+  | MigrationPlanResult
   | VfsWriteResult
   | VfsDeleteResult;
 
@@ -49,6 +55,7 @@ export interface LoomBuildClientOptions {
 export class LoomBuildClient {
   private worker!: Worker;
   private nextId = 1;
+  private spawns = 0;
   private pending = new Map<number, PendingSlot>();
   private readonly seedWorkspace?: () => VfsEntry[];
   private disposed = false;
@@ -62,6 +69,7 @@ export class LoomBuildClient {
    *  push the workspace seed (if any) so generation calls land on
    *  a worker whose VFS already mirrors the main-thread workspace. */
   private spawn(): void {
+    this.spawns++;
     this.worker = new Worker(new URL("./build.worker.ts", import.meta.url), {
       type: "module",
     });
@@ -191,6 +199,12 @@ export class LoomBuildClient {
     return this.call("migrate.record", params) as Promise<RecordMigrationResult>;
   }
 
+  /** What a boot may do to the runtime's database: the workspace's recorded
+   *  chain rendered to SQL, and the model's unrecorded changes. */
+  migrationPlan(params: MigrationPlanParams): Promise<MigrationPlanResult> {
+    return this.call("migrate.plan", params) as Promise<MigrationPlanResult>;
+  }
+
   /** Push one or more files into the worker's VFS.  Returns the
    *  sorted list of paths actually written. */
   vfsWrite(entries: VfsEntry[]): Promise<VfsWriteResult> {
@@ -220,10 +234,19 @@ export class LoomBuildClient {
       /* terminate on a dead worker can throw; we don't care */
     }
     for (const slot of this.pending.values()) {
-      slot.reject(new Error("Build worker respawned; retry the operation."));
+      slot.reject(new BuildWorkerRespawnedError());
     }
     this.pending.clear();
     this.spawn();
+  }
+
+  /** Counts worker instances: bumped at every spawn, initial included.  A
+   *  sequence of RPCs that must all reach ONE worker (VFS writes, then the
+   *  generate that reads them) compares this before and after.  A respawned
+   *  worker holds only the `seedWorkspace` replay, not writes sent to the
+   *  worker it replaced. */
+  get generation(): number {
+    return this.spawns;
   }
 
   dispose(): void {

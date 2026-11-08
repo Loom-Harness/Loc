@@ -57,7 +57,7 @@ describe("HEEx standalone form inputs (parity finding #5)", () => {
     // The label is a user-visible slot (`inputLabel`, M-T1.11): it rides
     // `pgettext` through HEEx's `{…}` expression-attribute form.
     expect(heex).toMatch(
-      /<\.input type="text" name="draft" value=\{@draft\} label=\{pgettext\("page\.\w+\.inputLabel\.\w+", "Name"\)\} phx-change="update_draft" \/>/,
+      /<\.input type="text" name="draft" value=\{@draft\} label=\{pgettext\("\w+\.page\.\w+\.inputLabel\.\w+", "Name"\)\} phx-change="update_draft" \/>/,
     );
     expect(heex).toMatch(/<\.input type="number" name="count" value=\{@count\}/);
     expect(heex).toMatch(/<\.input type="select" name="region"[^>]*options=\{\["EU", "US"\]\}/);

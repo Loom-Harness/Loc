@@ -18,7 +18,7 @@ public sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         builder.Property(x => x.Username).HasColumnName("username");
         builder.Property(x => x.Email).HasColumnName("email");
         builder.Property(x => x.Age).HasColumnName("age");
-        builder.Property(x => x.Version).HasColumnName("version").IsConcurrencyToken();
+        builder.Property(x => x.RowVersion).HasColumnName("row_version").IsConcurrencyToken();
         builder.Ignore(x => x.DomainEvents);
     }
 }

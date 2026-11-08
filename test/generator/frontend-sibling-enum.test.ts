@@ -59,10 +59,12 @@ describe("a sibling-context enum renders as an enum on the frontends", () => {
       expect(tsx, page).toContain('defaultValues: { kind: "Fire", title: "" }');
       expect(tsx, page).toMatch(
         new RegExp(
-          `<Select label="Kind" data-testid="${testId}" data=\\{ \\["Fire","Theft"\\] \\}`,
+          // The label and option labels are identity-keyed (`B.Clm.field.kind`,
+          // `A.ClaimKind.value.Fire`): the sibling enum keeps its own context.
+          `<Select label=\\{ t\\("\\w+\\.\\w+\\.field\\.kind", "Kind"\\) \\} data-testid="${testId}" data=\\{ \\(\\["Fire","Theft"\\]\\)\\.map`,
         ),
       );
-      expect(tsx, page).not.toMatch(/<TextInput label="Kind"/);
+      expect(tsx, page).not.toMatch(/<TextInput label=\{ t\("\w+\.\w+\.field\.kind"/);
     }
   });
 
@@ -70,8 +72,10 @@ describe("a sibling-context enum renders as an enum on the frontends", () => {
     const files = await generateSystemFiles(src("platform: angular, design: angularMaterial"));
     for (const page of ["clm-new.component.ts", "file-clm-workflow.component.ts"]) {
       expect(bySuffix(files, page), page).toContain('<mat-select formControlName="kind"');
+      // The option labels are identity-keyed under the enum's own context
+      // (`A.Kind.value.Fire`), not the form's (`B`).
       expect(bySuffix(files, page), page).toMatch(
-        /<mat-select formControlName="kind"[^>]*><mat-option value="Fire">Fire<\/mat-option><mat-option value="Theft">Theft<\/mat-option><\/mat-select>/,
+        /<mat-select formControlName="kind"[^>]*><mat-option value="Fire">\{\{ t\("A\.Kind\.value\.Fire", "Fire"\) \}\}<\/mat-option><mat-option value="Theft">\{\{ t\("A\.Kind\.value\.Theft", "Theft"\) \}\}<\/mat-option><\/mat-select>/,
       );
     }
   });

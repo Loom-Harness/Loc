@@ -255,6 +255,7 @@ function describeSeedValue(e: ExprIR): string {
     case "convert":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "id":
     case "lambda":
     case "list":

@@ -136,7 +136,7 @@ describe("kafka log transport (M-T4.4 slice 4)", () => {
       "...(keyValue === undefined || keyValue === null ? {} : { loomkey: String(keyValue) }),",
     );
     // Workflow-less durable producer still boots outbox + relay through the tee.
-    const index = files.get("sales_api/index.ts") ?? "";
+    const index = files.get("sales_api/boot.ts") ?? "";
     expect(index).toContain(
       "startOutboxRelay(db, channelPublishTee(channelTransports, inProcessEvents, { fromRelay: true }))",
     );

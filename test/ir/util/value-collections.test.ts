@@ -25,7 +25,7 @@ const vo = (name = "Charge"): TypeIR => ({ kind: "valueobject", name });
 const arr = (element: TypeIR): TypeIR => ({ kind: "array", element });
 const opt = (inner: TypeIR): TypeIR => ({ kind: "optional", inner });
 const prim = (name: string): TypeIR => ({ kind: "primitive", name }) as TypeIR;
-const idT = (): TypeIR => ({ kind: "id", targetName: "Tag", valueType: "guid" }) as TypeIR;
+const idT = (): TypeIR => ({ kind: "id", targetName: "Tag" }) as TypeIR;
 
 const field = (name: string, type: TypeIR, optional = false): FieldIR =>
   ({ name, type, optional }) as unknown as FieldIR;

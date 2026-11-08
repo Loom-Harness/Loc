@@ -144,16 +144,9 @@ const PROJECTION_VO_ROW: readonly Backend[] = ["node", "java", "vanilla"];
 /** The backends that write a provenanced value into its lineage in the
  *  `Codec` fact's lineage encoding — the wire form: money's RS-12 string
  *  (owner ruling on #3527), a decimal's RS-24 number and a datetime's RS-38
- *  instant (owner rulings on #3593).  node, python and dotnet (EF and Dapper)
- *  are on the fact.  The other two generate the case cleanly, and each boots
- *  it as a tracked expected failure (`BEHAVIOURAL_XFAIL`,
- *  test/behavioral/registers.mjs):
- *  - **java**: the lineage's `object` slot serializes a JSON number
- *    (`3000.3`).
- *  - **elixir** (`vanilla`): Jason encodes the `Decimal` unscaled (`"3000.3"`).
- *  Each backend joins this row in the change that moves it onto the fact and
- *  deletes its expected-failure entry. */
-const MONEY_LINEAGE_WIRE: readonly Backend[] = ["node", "python", "dotnet"];
+ *  instant (owner rulings on #3593).  node, python, dotnet (EF and Dapper) and
+ *  java and elixir (`vanilla`) are on the fact — every backend. */
+const MONEY_LINEAGE_WIRE: readonly Backend[] = ["node", "python", "dotnet", "java", "vanilla"];
 
 // M-T6.96: .NET EF cannot re-host a part's nested OWNED instances under a new
 // owner (they are deleted with the old one), so the rebuild shape is held off
@@ -198,6 +191,52 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "core-domain", title: "enum/VO/event/containment/derived/invariant/operation/find", doc: "language", backends: ALL },
   { id: "state-gate", title: "`when` canCommand state gate + GET can-query companion", doc: "criterion", backends: ALL },
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
+  {
+    id: "op-persist-field-invariant",
+    title: "a named operation assigning a field a single-field invariant guards (`invariant qty >= 0` under `setQty(-1)`) is refused with 422 and leaves the row unchanged",
+    doc: "language",
+    backends: ALL,
+    note: "Elixir's operation persist (`change(%{}) |> force_change`) re-ran only the residual cross-field rules, so a single-field invariant — native `validate_number` in `base_changeset` only — was bypassed and `setQty(-1)` committed.",
+  },
+  {
+    id: "union-match-arms",
+    title: "a `return match` whose arms build different union variants, tagged per arm",
+    doc: "payloads",
+    backends: ALL,
+  },
+  {
+    id: "workflow-expected-failure",
+    title: "a workflow `create` / handler answering `T or E`, rolled back whole on the error",
+    doc: "workflow",
+    backends: ["node", "dotnet", "java", "python"],
+    note: "elixir refuses the let-bound mutating call every entry point here matches (`loom.elixir-bound-mutating-call-unsupported`).",
+  },
+  {
+    id: "scaffold-handlers-or-e",
+    title: "`scaffoldHandlers` over an operation answering `T or E`: the handler returns the result",
+    doc: "scaffold-macros",
+    backends: ["node", "dotnet", "java", "python"],
+    note: "elixir refuses an expected-failure entry point (`loom.elixir-entry-result-unsupported`).",
+  },
+  {
+    id: "op-return-this",
+    title: "an operation answering its own aggregate (`return this`, and an `Agg or Error` arm)",
+    doc: "payloads",
+    backends: ALL,
+  },
+  {
+    id: "if-branch-shapes",
+    title: "the `if` statement deciding per path: early return, branch guard, branch emit + provenanced write, event-sourced command + applier",
+    doc: "language",
+    backends: ALL,
+  },
+  {
+    id: "match-op-result",
+    title: "`let r = a.op()` over an `or Error` result, matched in a workflow body",
+    doc: "workflow",
+    backends: ["node", "dotnet", "java", "python"],
+    note: "elixir refuses the let-bound mutating call (`loom.elixir-bound-mutating-call-unsupported`, a registered gap): a Phoenix context operation persists inside its own function and every with-chain site matches its `{:ok, _}` away.  `TryPay`'s error arm saves a `Note`, so the error path COMMITS — the shape that needs the EF Core / JPA error arm to detach the account; the unchanged read-back after it is the behavioural witness.",
+  },
   {
     id: "scaffold-get",
     title:
@@ -603,6 +642,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by #3024.  `ddd new --platform dotnet --template crud` emits an aggregate named `Task`, and the generated project did not build AT ALL: `generate system` reported `0 error(s), 0 warning(s)` and `dotnet build` then produced 17 errors — CS0104 in every file that wildcard-imports the domain namespace, plus CS0535/CS0738 because the repository INTERFACE *declares* that namespace, so its bare `Task SaveAsync` return silently meant the DOMAIN type and disagreed with its own impl.  Repaired rather than refused (a file-scoped `using Task = <ns>.Domain.Tasks.Task;` outranks the wildcard import and, being non-generic, leaves `Task<…>` alone; only NON-GENERIC async returns are additionally qualified, and only for the name `Task`).  `Queue` is the second aggregate on purpose — it proves the alias is general, not `Task`-special-cased: aliasing only `Task` left `aggregate Type` failing with the identical triple against `System.Type`.  The row is ALL because the other four backends have no such ambiguity and must stay byte-identical — verified across 84 corpus/example models, where this shape is the only one whose output moves.",
   },
   {
+    id: "factory-param-local-collision",
+    title:
+      "a create-input field (`e: int`) and an event-sourced `create(e: int)` parameter named like the .NET construction factory's instance local",
+    doc: "language",
+    backends: ALL,
+    note: "The .NET `Create(...)` factory built the instance into `var e` and took each create input as a same-named parameter, so a field called `e` re-declared a parameter in the same scope (CS0136) — on both the state-backed and the event-sourced factory — while `generate system` reported 0 error(s).  The local now steps aside (`_e`) only when a parameter owns `e`, so every other model stays byte-identical.  The row is ALL because no other backend declares such a local, and nothing else may move.",
+  },
+  {
     id: "member-named-like-vo",
     title:
       "a member named after a VALUE OBJECT (`amount: decimal` beside `valueobject Amount`) — refused on .NET alone by an over-firing `loom.dotnet-name-collision`",
@@ -768,7 +815,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "a provenanced field's lineage — `inputs[].value` and `computedValue` carry money as the RS-12 wire string, a decimal as the RS-24 number and a datetime as the RS-38 instant",
     doc: "provenance",
     backends: MONEY_LINEAGE_WIRE,
-    note: "The `Codec` fact (`src/ir/enrich/codec.ts`) rules every scalar's lineage encoding to be its wire encoding (owner rulings on #3527 and #3593).  node, python and .NET write it through their wire encoders; the other two legs boot it as tracked expected failures (`BEHAVIOURAL_XFAIL`, #4402) until each is moved onto the fact — java sends money as a JSON number, elixir as an unscaled Decimal string.  The money assertions come first, so those legs fail on them before the decimal and datetime writes",
+    note: "The `Codec` fact (`src/ir/enrich/codec.ts`) rules every scalar's lineage encoding to be its wire encoding (owner rulings on #3527 and #3593).  Every backend — node, python, .NET, java and elixir — writes it through its wire encoders.  The money assertions come first, then the decimal and datetime writes",
   },
   {
     id: "audited",
@@ -907,6 +954,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "minted by the Fable field test (A1): node's zod refine rendered `==` as JS `===`, so an omitted optional key — `undefined`, the wire's OTHER spelling of absent — failed the guard and `POST /api/tasks` answered 422 where .NET and Python answered 201.  No corpus fixture omitted an optional field a rule then referenced, so the five-way wire golden could not see the divergence at all.  The aggregate is `Ticket`, not the `Task` the field test used: an aggregate named `Task` shadows `System.Threading.Tasks.Task` inside the generated .NET repository, so `ITaskRepository` and `TaskRepository` disagree on `SaveAsync(Task, CancellationToken)` and the project does not compile (CS0535/CS0738, reproduced on the behavioral-dotnet leg).  That BCL-name collision is real and unfixed — `loom.dotnet-name-collision` (#2737) refuses a member colliding with a SIBLING type, not an aggregate colliding with a type the emitter itself uses — but it is not what this fixture is for, and pinning it here would make the absent-optional row unreachable on .NET",
+  },
+  {
+    id: "merge-patch-update",
+    title:
+      "the crudish `update` body as a JSON Merge Patch (RFC 7396) — an absent key keeps the stored value, `null` clears a `T?` field and is refused on a required one, a one-member rule judged at the wire only when its member is present, a two-member rule over a partial patch judged by the domain floor",
+    doc: "scaffold-macros",
+    backends: ALL,
+    note: "minted by the owner ruling on #4109 (RS-47): every backend read the update body as a full replacement, so an update omitting `note` CLEARED it (the optional param bound to null) and one omitting a required field was a 422 — which also meant a caller who could not read a `mask unless` field (#3600) could not update the row without wiping it.  One field of each shape the merge has to carry back unchanged (required/optional scalar, int, optional date, enum, scalar collection, optional value object).  The `test e2e` block carries this fixture's golden",
   },
   {
     id: "managed-seeds",

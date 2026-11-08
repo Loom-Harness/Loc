@@ -25,6 +25,7 @@
 // ---------------------------------------------------------------------------
 
 import Handlebars from "handlebars";
+import { sourceText } from "../_walker/source-text.js";
 
 /** How one frontend spells a translated label in each markup position.  The
  *  `key`/`message` pair is exactly what the extraction pass recorded, so the
@@ -85,8 +86,8 @@ function tokensFor(
     return { labelText: escaped, labelAttr: (n) => `${String(n)}="${escaped}"` };
   }
   return {
-    labelText: spelling.text(labelKey, label),
-    labelAttr: (n) => spelling.attr(String(n), labelKey, label),
+    labelText: spelling.text(labelKey, sourceText(labelKey, label)),
+    labelAttr: (n) => spelling.attr(String(n), labelKey, sourceText(labelKey, label)),
   };
 }
 

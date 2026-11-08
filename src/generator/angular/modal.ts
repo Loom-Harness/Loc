@@ -1,4 +1,5 @@
 import type { ExprIR, OperationIR } from "../../ir/types/loom-ir.js";
+import { operationFormParams } from "../../ir/util/op-gates.js";
 import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
@@ -9,6 +10,7 @@ import {
   localizedPageChromeText,
   localizedText,
 } from "../_walker/i18n-emit.js";
+import { opModelText, paramLabelOwner } from "../_walker/model-text-sites.js";
 import { opGateFor, opRequiresClientGate } from "../_walker/op-gate.js";
 import { namedArgValue, positionalArgs, stringNamed } from "../_walker/shared/args.js";
 import { emitExpr, type WalkContext } from "../_walker/walker-core.js";
@@ -135,6 +137,12 @@ export function renderAngularModal(
   const submitMethod = `submit${upperFirst(op.name)}${aggName}`;
   const ns = stringNamed(formChild, "testid") ?? `${routeSegmentFor(aggName)}-op-${op.name}`;
 
+  // The operation's identity-keyed label (`<Ctx>.<Agg>.op.<op>`) — the text of
+  // a trigger with no authored label, the dialog title and the submit button.
+  const opBc = ctx.bcByAggregate?.get(aggName);
+  const opLabelMarkup =
+    (opBc && opModelText(ctx, opBc, aggName, op.name)?.markup) || humanize(op.name);
+
   const trigger = namedArgValue(call, "trigger");
   const triggerPositional = trigger?.kind === "call" ? positionalArgs(trigger)[0] : undefined;
   // The trigger label is the `button` user-visible slot — already in the
@@ -146,7 +154,7 @@ export function renderAngularModal(
   const triggerLabel =
     trigger?.kind === "call" && triggerPositional?.kind === "literal"
       ? localizedText(trigger, ctx, "button", JSON.stringify(humanize(op.name)))
-      : humanize(op.name);
+      : opLabelMarkup;
   const emphasis =
     trigger?.kind === "call" ? (stringNamed(trigger, "emphasis") ?? "primary") : "primary";
   const style = formStyle(ctx);
@@ -184,11 +192,13 @@ export function renderAngularModal(
   // constrained control can carry the `aria-invalid` / `aria-describedby`
   // matching its inline error.
   const opInvariants = [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)];
-  const available = new Set(op.params.map((p) => p.name));
+  const available = new Set(operationFormParams(op).map((p) => p.name));
   const errorFields = new Set(angularValidatorMap(opInvariants, available).keys());
 
   const parts = bc
-    ? partitionAngularFields(op.params, bc, ns, ctx, formVar, errorFields)
+    ? partitionAngularFields(operationFormParams(op), bc, ns, ctx, formVar, errorFields, (name) =>
+        agg ? paramLabelOwner(agg, name) : undefined,
+      )
     : {
         flatControls: [],
         flatMarkup: [],
@@ -235,7 +245,7 @@ export function renderAngularModal(
   // the packs have always used.  `renderAttrBinding` is not involved: the title
   // is markup TEXT here, so an i18n `t(…)` call arrives ready to interpolate.
   const titleId = `${ns}-title`;
-  const title = modalTitleOf(call, ctx) ?? label;
+  const title = modalTitleOf(call, ctx) ?? opLabelMarkup;
   const modal = [
     `<div class="loom-modal">`,
     `${inner}<button ${triggerBtn} (click)='${idSig}.set(${idExpr}); ${openSig}.set(true)'${gate ? ` [disabled]='${gate.disabledExpr}' [attr.title]='(${gate.disabledExpr}) ? ${gate.reasonExpr} : null'` : ""} data-testid="${ns}">${triggerLabel}</button>`,
@@ -244,7 +254,7 @@ export function renderAngularModal(
     `${deep}  <h3 id="${titleId}" class="loom-modal-title">${title}</h3>`,
     `${deep}<form [formGroup]="${formVar}" (ngSubmit)="${submitMethod}()" data-testid="${ns}-form">`,
     ...[...fieldMarkup, ...parts.groupMarkup, ...parts.arrayMarkup].map((m) => `${deep}  ${m}`),
-    `${deep}  ${formButton(ctx, { type: "submit", emphasis: "primary", label, attrs: ` [disabled]="${mutationVar}.isPending()" data-testid="${ns}-submit"` })}`,
+    `${deep}  ${formButton(ctx, { type: "submit", emphasis: "primary", label: opLabelMarkup, attrs: ` [disabled]="${mutationVar}.isPending()" data-testid="${ns}-submit"` })}`,
     `${deep}  <button ${cancelBtn} (click)='${openSig}.set(false)'>${localizedPageChromeText(ctx, opDialogChrome(label).dismiss)}</button>`,
     `${deep}</form>`,
     `${deep}</div>`,

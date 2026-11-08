@@ -1,3 +1,4 @@
+import { INTEGER_OVERFLOW_DETAIL } from "../../ir/enrich/wire-policy.js";
 import { genericShape } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
@@ -7,6 +8,13 @@ import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeTsIdent, lowerFirst, upperFirst, workflowFnCamel } from "../../util/naming.js";
 import { escapeTargetFieldMember, escapeTargetMember } from "../../util/target-identifiers.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
+import {
+  checkedBinaryKind,
+  checkedUnaryKind,
+  type IntegralKind,
+  NODE_INT_RANGE,
+} from "../_expr/checked-int.js";
+import { nullishOperand } from "../_expr/coalesce.js";
 import { tsCodePointLength } from "../_expr/code-point.js";
 import { JS_COLLECTION_RENDERERS } from "../_expr/js-collection-ops.js";
 import { JS_INTRINSIC_RENDERERS } from "../_expr/js-intrinsics.js";
@@ -22,6 +30,7 @@ import {
   renderExprWithMarks,
 } from "../_expr/target.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
+import { T, TT } from "./ts-symbols.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the TypeScript backend.
@@ -78,25 +87,6 @@ export interface TsRenderContext {
   paramExpr?: (name: string) => string | undefined;
 }
 
-/** True for the coalesce shape the lowerer builds: `left == null ? x : left`
- *  where the else-branch is the identical `left` node of the null test. */
-function isCoalesce(e: Extract<ExprIR, { kind: "ternary" }>): boolean {
-  const c = e.cond;
-  return (
-    c.kind === "binary" &&
-    c.op === "==" &&
-    c.right.kind === "literal" &&
-    c.right.lit === "null" &&
-    c.left === e.otherwise
-  );
-}
-
-/** `??` cannot mix with `||` / `&&` unparenthesised; keep plain
- *  identifier/member/call chains bare and parenthesise anything else. */
-function nullishOperand(text: string): string {
-  return /^[\w$.]+(\([^()]*\))?$/.test(text) ? text : `(${text})`;
-}
-
 const DEFAULT: TsRenderContext = { thisName: "this" };
 
 const TS_TARGET: ExprTarget<TsRenderContext> = {
@@ -134,15 +124,13 @@ const TS_TARGET: ExprTarget<TsRenderContext> = {
     // TS2322 and a silently-wrong value.  Use `.neg()` (audit finding A11).
     // Loom `decimal` is a plain JS `number` on this backend, so it keeps the
     // native operator.
-    op === "-" && unaryOperandIsMoney(e) ? `${operand}.neg()` : `${op}${operand}`,
+    op === "-" && unaryOperandIsMoney(e)
+      ? `${operand}.neg()`
+      : tsCheckedInt(`${op}${operand}`, checkedUnaryKind(e)),
   binary: renderBinary,
-  ternary: (cond, then, otherwise, e) =>
-    e && isCoalesce(e)
-      ? // `a ?? b` lowers to `a == null ? b : a`, reusing the SAME left node.
-        // Rendering it as a ternary evaluates a call-shaped left twice and
-        // leaves tsc unable to narrow; JS `??` evaluates it once.
-        `(${nullishOperand(otherwise)} ?? ${nullishOperand(then)})`
-      : `${cond} ? ${then} : ${otherwise}`,
+  ternary: (cond, then, otherwise) => `${cond} ? ${then} : ${otherwise}`,
+  // JS `??` evaluates the left once and narrows it for tsc.
+  coalesce: (left, fallback) => `(${nullishOperand(left)} ?? ${nullishOperand(fallback)})`,
   convert: (value, e) => renderTsConvert(e.target, e.from, value),
   // Transparent i18n wrapper (M-T1.11) — drop the format, emit the operand.
   i18nFormat: (inner) => inner,
@@ -582,7 +570,7 @@ function renderNew(
   // part keeps the ambient parent id (byte-identical).
   const parentRef = ctx.thisName === "this" ? "this._id" : `${ctx.thisName}.id`;
   const inits = [
-    `id: Ids.new${e.partName}Id()`,
+    `id: ${T.Ids}.new${e.partName}Id()`,
     ...(e.nested ? [] : [`parentId: ${parentRef}`]),
     ...fields.map((f) => `${f.name}: ${f.value}`),
   ];
@@ -664,7 +652,18 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   }
   // Equality comparisons in TS: prefer === / !==
   const opPrint = e.op === "==" ? "===" : e.op === "!=" ? "!==" : e.op;
-  return `${left} ${opPrint} ${right}`;
+  return tsCheckedInt(`${left} ${opPrint} ${right}`, checkedBinaryKind(e));
+}
+
+/** Range-check an integer `+ - *` result (RS-48).  `int` is bounded at int32;
+ *  `long` at the declared safe-integer ceiling, past which a JS `number` has
+ *  already lost precision — so an overflowing product is caught, never rounded.
+ *  Self-contained (an inline arrow) so no file needs a helper import; it
+ *  throws the `DomainError` every generated router already maps to the 422. */
+function tsCheckedInt(expr: string, kind: IntegralKind | null): string {
+  if (kind === null) return expr;
+  const { min, max } = NODE_INT_RANGE[kind];
+  return `((__v: number): number => { if (__v < ${min} || __v > ${max}) throw new DomainError(${JSON.stringify(INTEGER_OVERFLOW_DETAIL)}); return __v; })(${expr})`;
 }
 
 /** `datetime ==/!= datetime` by instant (B-13), or null to fall through.
@@ -938,7 +937,7 @@ const TS_TYPE_TARGET: TypeTarget = {
         return "{ url: string; key: string; contentType: string; size: number }";
     }
   },
-  id: (targetName) => `Ids.${targetName}Id`,
+  id: (targetName) => `${TT.Ids}.${targetName}Id`,
   array: (element) => `${element}[]`,
   optional: (inner) => `${inner} | null`,
   genericInstance(t, recur) {

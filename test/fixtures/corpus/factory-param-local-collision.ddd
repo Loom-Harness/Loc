@@ -1,0 +1,44 @@
+// A create-input field — or an event-sourced `create` parameter — named after
+// a local the generated construction factory declares.  The .NET factory
+// builds the instance into a local and assigns each input from its
+// same-named parameter, so a field called `e` (or `s`) must not shadow that
+// local: C# refuses a local that re-declares a parameter name in the same
+// scope (CS0136), so the project would not compile while `generate system`
+// reported 0 error(s).
+//
+// `Point` covers the state-backed `Create(...)` factory (both persistence
+// adapters reach it); `Tally` covers the event-sourced `Create(...)` whose
+// parameters are the `create` action's.  Every other backend builds the
+// instance without a same-scope local of that name, so the row is ALL: the
+// point is that nothing else moves.
+system FactoryLocal {
+  subdomain Work {
+    context Work {
+      aggregate Point with crudish {
+        e: int
+        s: string
+      }
+      repository Points for Point { }
+
+      event Opened { tally: Tally id, e: int }
+      aggregate Tally persistedAs: eventLog {
+        e: int
+        create open(e: int) { emit Opened { tally: id, e: e } }
+        apply(ev: Opened) { e := ev.e }
+      }
+      repository Tallies for Tally
+    }
+  }
+
+  api WorkApi from Work
+  storage pg { type: postgres }
+  resource workState { for: Work, kind: state, use: pg }
+  resource workLog { for: Work, kind: eventLog, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Work]
+    dataSources: [workState, workLog]
+    serves: WorkApi
+    port: 4000
+  }
+}

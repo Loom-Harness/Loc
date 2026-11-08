@@ -20,7 +20,7 @@ function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}}{{#if gated}},
             onSubmit={form.handleSubmit(async (vals) => {
               try {
                 await mut.mutateAsync(vals);
-                toast.success({{{chromeValue "operationSucceeded" operation=humanOp}}});
+                toast.success({{{successMessage}}});
                 setOpen(false);
               } catch (e) {
                 const outcome = applyServerErrors({ error: e, setError: form.setError, fieldMap: {} as const });
@@ -37,7 +37,7 @@ function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}}{{#if gated}},
               {{/each}}{{else}}<p className="text-sm text-muted-foreground">{{{chrome "noParameters"}}}</p>
               {{/if}}<div className="mt-4 flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>{{{cancelLabel}}}</Button>
-                <Button type="submit" disabled={mut.isPending} data-testid="{{slug}}-op-{{opName}}-submit">{{humanOp}}</Button>
+                <Button type="submit" disabled={mut.isPending} data-testid="{{slug}}-op-{{opName}}-submit">{{{humanOp}}}</Button>
               </div>
             </div>
           </form>

@@ -18,7 +18,7 @@ system Todo {
 
       aggregate Task with crudish {
         title: string
-        status: Status
+        status: Status immutable   // moved only by the guarded transitions below
         priority: Priority
         due: datetime?
         notes: string?

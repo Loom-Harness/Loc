@@ -6,8 +6,8 @@
 // and the fold-load / append-own-events dispatch handlers.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const SRC = `system S { subdomain O { context O {
   aggregate Order { status: string  operation place() { status := "P"  emit OrderPlaced { order: id } } }
@@ -27,9 +27,7 @@ const SRC = `system S { subdomain O { context O {
   deployable api { platform: dotnet contexts: [O] serves: A dataSources: [oState] port: 8080 } }`;
 
 async function gen(): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(SRC);
-  if (errors.length) throw new Error(errors.join("\n"));
-  return generateSystems(model).files;
+  return generateSystemFiles(SRC);
 }
 
 const file = (files: Map<string, string>, suffix: string): string =>
@@ -41,7 +39,7 @@ describe("dotnet event-sourced workflows", () => {
     expect(state).toContain("public sealed class TallyState");
     // The applier folds against `this` (the fold-target instance), like an aggregate.
     expect(state).toContain("private void _ApplyPaymentRegistered(PaymentRegistered pr)");
-    expect(state).toContain("Total = this.Total + pr.Amount;");
+    expect(uncheckedInt(state)).toContain("Total = this.Total + pr.Amount;");
     expect(state).toContain("private void _Apply(IDomainEvent ev)");
     expect(state).toContain(
       "public static TallyState _FromEvents(OrderId __key, IReadOnlyList<IDomainEvent> events)",

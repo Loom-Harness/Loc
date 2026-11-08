@@ -1,0 +1,50 @@
+// Two Node backends sharing one `storage`, with a React frontend on one of
+// them.  `admin` and `storefront` both host the Catalog context and bind the
+// same `primary` storage, so they read and write one database: a product
+// created through `admin` is listed by `storefront`.
+//
+// The playground boots both backends, one worker each, and the database once
+// (the infra worker).  The Runtime tab's request composer picks which backend
+// a request goes to; the preview talks to `admin`, the frontend's target.
+
+system SharedStorage {
+  subdomain Catalog {
+    context Catalog {
+      aggregate Product with crudish {
+        sku: string
+        name: string
+        invariant sku.length > 0
+        derived display: string = sku
+      }
+    }
+  }
+
+  ui Backoffice with scaffold(subdomains: [Catalog]) {
+  }
+
+  storage primary { type: postgres }
+  resource catalogState { for: Catalog, kind: state, use: primary }
+
+  // The write side: the back-office frontend's backend.
+  deployable admin {
+    platform: node
+    contexts: [Catalog]
+    dataSources: [catalogState]
+    port: 3000
+  }
+
+  // A second backend on the same storage — it sees every row `admin` writes.
+  deployable storefront {
+    platform: node
+    contexts: [Catalog]
+    dataSources: [catalogState]
+    port: 3002
+  }
+
+  deployable backoffice {
+    platform: react
+    targets: admin
+    ui: Backoffice
+    port: 3001
+  }
+}

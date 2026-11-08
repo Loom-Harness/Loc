@@ -22,8 +22,7 @@
 
 import { describe, expect, it } from "vitest";
 import { MONEY_WIRE_SCALE, MONEY_WIRE_ZERO } from "../../src/generator/money-scale.js";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const SYSTEM = (platform: string) => `system MoneyAgg {
   subdomain Sales { context Orders {
@@ -69,9 +68,7 @@ const SYSTEM = (platform: string) => `system MoneyAgg {
 }`;
 
 async function build(platform: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(SYSTEM(platform));
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(SYSTEM(platform));
 }
 
 function file(files: Map<string, string>, suffix: string): string {

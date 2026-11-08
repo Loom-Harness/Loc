@@ -56,6 +56,7 @@ import { buildWalkerPageObject } from "../_frontend/walker-page-objects.js";
 import { buildWorkflowPageObject } from "../_frontend/workflow-page-object.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
+import { componentKeyPrefix, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { isWalkableLayoutBody, walkBody } from "../_walker/walker-core.js";
 import { svelteLayoutGroup } from "./layouts-emitter.js";
 import {
@@ -236,7 +237,7 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
       ui.stores,
       // i18n key prefix — `component.<Name>` matches the catalog; undefined when
       // the UI has no extractable strings (byte-identical to pre-i18n).
-      ctx.i18nEnabled ? `component.${c.name}` : undefined,
+      ctx.i18nEnabled ? componentKeyPrefix(ui, c) : undefined,
     );
     out.set(componentPath, componentContent);
     ctx.sourcemap?.file(componentPath, componentContent, c.origin, componentConstruct);
@@ -330,7 +331,7 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
       // i18n key prefix — `page.<Name>` matches the catalog (the scaffold's
       // role-scoped `page.name`, e.g. `List`, not the router emit name);
       // undefined when the UI has no extractable strings (byte-identical).
-      ctx.i18nEnabled ? `page.${page.name}` : undefined,
+      ctx.i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
     );
     const pageContent = rendered.content;
     out.set(emitPath, pageContent);

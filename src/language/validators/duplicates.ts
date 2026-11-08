@@ -38,6 +38,13 @@
 //      Layer 3-4).  A `route -> Context.<name>` resolves the bare name against
 //      the UNION of both kinds, so a collision silently deduplicates in the
 //      resolver and a route would dispatch ambiguously.
+//   6. loom.duplicate-repository     — within a context, at most one
+//      `repository … for X` per aggregate.  A repository is body-less and its
+//      surface is the shared verb contract (D-REPOSITORY-CONTRACT), so a
+//      second one is only another name for the same store; the backends emit
+//      one repository class per aggregate and resolve operations per
+//      aggregate, so the alias would either crash an emitter or quietly share
+//      the first one's class.
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
@@ -58,12 +65,14 @@ import {
   isCreate,
   isDerivedProp,
   isDestroy,
+  isEntityPart,
   isEnumDecl,
   isEventDecl,
   isFunctionDecl,
   isOperation,
   isProperty,
   isQueryHandler,
+  isRepository,
   isValueObject,
 } from "../generated/ast.js";
 
@@ -135,6 +144,26 @@ function checkHandlerNames(ctx: BoundedContext, accept: ValidationAcceptor): voi
   }
 }
 
+/** One repository per aggregate root within a context: the first
+ *  `repository … for X` owns X, every later one is refused. */
+function checkRepositoryTargets(ctx: BoundedContext, accept: ValidationAcceptor): void {
+  const owner = new Map<string, string>();
+  for (const m of ctx.members) {
+    if (!isRepository(m)) continue;
+    const agg = m.aggregate.ref?.name ?? m.aggregate.$refText;
+    const first = owner.get(agg);
+    if (first === undefined) {
+      owner.set(agg, m.name);
+      continue;
+    }
+    accept(
+      "error",
+      diagMessage("loom.duplicate-repository", { name: m.name, agg, first, ctxName: ctx.name }),
+      { node: m, property: "aggregate", code: "loom.duplicate-repository" },
+    );
+  }
+}
+
 /** Field-position names on an aggregate — properties, derived fields, and
  *  containments all lower to a single wire-shape member, so they share one
  *  namespace.  (Entity-part *type* names are a separate namespace, gated in
@@ -154,6 +183,40 @@ function checkAggregateFieldNames(agg: Aggregate, accept: ValidationAcceptor): v
       `names must be distinct (they map to one field of the wire shape).`,
     accept,
   );
+}
+
+/** The member namespace of an aggregate or entity part: a field, derived field,
+ *  containment, function and named operation all become one member of the
+ *  generated class (a getter / property beside a method of the same name), so a
+ *  callable that reuses a field's name — or an earlier callable's — is refused.
+ *  Fields repeating a field are `loom.duplicate-field`'s business; this reports
+ *  the CALLABLE that collides. */
+function checkMemberNamespace(
+  owner: string,
+  members: readonly AstNode[],
+  accept: ValidationAcceptor,
+): void {
+  const taken = new Map<string, string>();
+  for (const m of members) {
+    if (isProperty(m) || isDerivedProp(m) || isContainment(m)) {
+      const what = isContainment(m) ? "containment" : isDerivedProp(m) ? "derived field" : "field";
+      if (!taken.has(m.name)) taken.set(m.name, what);
+    }
+  }
+  for (const m of members) {
+    if (!isFunctionDecl(m) && !isOperation(m)) continue;
+    const what = isFunctionDecl(m) ? "function" : "operation";
+    const first = taken.get(m.name);
+    if (first !== undefined) {
+      accept(
+        "error",
+        diagMessage("loom.member-name-collision", { what, name: m.name, owner, first }),
+        { node: m, property: "name", code: "loom.member-name-collision" },
+      );
+    } else {
+      taken.set(m.name, what);
+    }
+  }
 }
 
 /** Field-position names on a value object — properties and derived fields
@@ -211,9 +274,16 @@ export function checkDuplicateNames(model: Model, accept: ValidationAcceptor): v
     if (isBoundedContext(node)) {
       checkContextTypeNames(node, accept);
       checkHandlerNames(node, accept);
-    } else if (isAggregate(node)) checkAggregateFieldNames(node, accept);
-    else if (isValueObject(node)) checkValueObjectFieldNames(node, accept);
-    else if (isEventDecl(node)) checkEventFieldNames(node, accept);
+      checkRepositoryTargets(node, accept);
+    } else if (isAggregate(node)) {
+      checkAggregateFieldNames(node, accept);
+      checkMemberNamespace(`aggregate '${node.name}'`, node.members, accept);
+    } else if (isEntityPart(node)) {
+      checkMemberNamespace(`entity '${node.name}'`, node.members, accept);
+    } else if (isValueObject(node)) {
+      checkValueObjectFieldNames(node, accept);
+      checkMemberNamespace(`value object '${node.name}'`, node.members, accept);
+    } else if (isEventDecl(node)) checkEventFieldNames(node, accept);
     else if (isEnumDecl(node)) checkEnumValueNames(node, accept);
 
     if (isOperation(node)) checkParamNames(node.params, `operation '${node.name}'`, accept);

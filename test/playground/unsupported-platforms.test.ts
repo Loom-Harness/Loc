@@ -13,8 +13,9 @@ import {
 // SvelteKit `$app/*` client + Vue SFC pipeline aren't reproduced
 // in-browser — are listed in the UI instead of showing a silent blank
 // Preview.  These pin the labels + the comma-joined formatter so each
-// platform reads cleanly (`analyzeDeployables` in App.tsx maps the
-// generated project markers to these; that detection rides web-tsc).
+// platform reads cleanly (`analyzeDeployables` in
+// web/src/build/deployables.ts maps the generated project markers to these;
+// `deployables.test.ts` pins that detection).
 // ---------------------------------------------------------------------------
 
 describe("unsupported-platform labels", () => {

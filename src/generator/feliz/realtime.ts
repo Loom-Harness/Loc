@@ -205,6 +205,7 @@ function exprReadsBinding(e: ExprIR, bind: string): boolean {
     case "convert":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "id":
     case "lambda":
     case "list":
@@ -248,6 +249,7 @@ function felizNeedsToastField(ui: UiIR): boolean {
       case "convert":
       case "duration":
       case "i18nFormat":
+      case "modelText":
       case "id":
       case "lambda":
       case "list":

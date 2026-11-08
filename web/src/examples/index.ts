@@ -5,6 +5,8 @@ import storefrontSystemSource from "./storefront-system.ddd?raw";
 import storefrontDotnetSource from "./storefront-dotnet.ddd?raw";
 import storefrontElixirSource from "./storefront-elixir.ddd?raw";
 import salesSystemSource from "./sales-system.ddd?raw";
+import crossDeployableSystemSource from "./cross-deployable-system.ddd?raw";
+import sharedStorageSystemSource from "./shared-storage-system.ddd?raw";
 import bankingSystemSource from "./banking-system.ddd?raw";
 import inventorySystemSource from "./inventory-system.ddd?raw";
 import provenanceSystemSource from "./provenance-system.ddd?raw";
@@ -277,6 +279,20 @@ export const examples: LoomExample[] = [
     source: salesSystemSource,
     blurb:
       "Aggregates, value-objects, events, operations, transactional `placeOrder` workflow.",
+  },
+  {
+    id: "shared-storage-system",
+    label: "Shared storage (two Hono backends + React)",
+    source: sharedStorageSystemSource,
+    blurb:
+      "Two Node backends bound to one `storage`: both boot, each in its own worker, on one database — a product written through `admin` is listed by `storefront`.",
+  },
+  {
+    id: "cross-deployable-system",
+    label: "Cross-deployable call (two Hono backends)",
+    source: crossDeployableSystemSource,
+    blurb:
+      "`shippingSvc` calls `ordersSvc` over a typed `api` resource: the derived `ORDERS_URL` address is routed to the other backend's in-browser app.",
   },
   {
     id: "banking-system",

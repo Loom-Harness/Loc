@@ -20,7 +20,7 @@
 // capability conjunct — a silent read of soft-deleted rows.
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/index.js";
+import { generateSystemFilesUnchecked } from "../../_helpers/index.js";
 
 const SRC = `
   system S {
@@ -76,7 +76,10 @@ const SRC = `
 
 let cached: Map<string, string> | undefined;
 async function files(): Promise<Map<string, string>> {
-  cached ??= await generateSystemFiles(SRC);
+  cached ??= await generateSystemFilesUnchecked(
+    SRC,
+    "the capability table refuses `shape: document` with `softDeletable` on elixir; this pins the emitter for the day a fixture lifts the pair",
+  );
   return cached;
 }
 
@@ -158,7 +161,7 @@ describe("elixir — query-time projection over a `shape: document` source", () 
         '      "title" => record.title,',
         '      "viewCount" => record.view_count,',
         '      "deletedAt" => record.deleted_at,',
-        '      "version" => row.version',
+        '      "rowVersion" => row.row_version',
         "    }",
         "  end",
       ].join("\n"),

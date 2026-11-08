@@ -42,6 +42,16 @@ interface Cx {
   readonly resolver?: SaveResolver;
 }
 
+/** True for a call statement whose bound result carries `error` variants
+ *  (`let r = a.withdraw(x)` over `int or Insufficient`): its mutations are
+ *  tentative until a `match` arm over `r` proves success, so they are saved in
+ *  that match's non-error arms and nowhere else. */
+export function isGuardedCall(
+  st: Extract<WorkflowStmtIR, { kind: "op-call" | "domain-service-call" }>,
+): boolean {
+  return (st.result?.errorVariants.length ?? 0) > 0;
+}
+
 /** Every effect of `body`, in program order.  `resolver` is required (pass
  *  `undefined` deliberately) because without it the callees' declared
  *  mutations are invisible, which reads exactly like "the body mutates less". */
@@ -61,7 +71,15 @@ export function bodyEffects(body: EffectBodyIR, resolver: SaveResolver | undefin
  *  `cx.out` under `scope`. */
 function collectStmtEffects(st: WorkflowStmtIR, scope: readonly EffectScopeIR[], cx: Cx): void {
   const out = cx.out;
-  walkWorkflowStmtOwnExprsDeep(st, (e) => pushExprEffect(e, scope, cx));
+  // A guarded `let r = Svc.op(…)`: the service's mutations are tentative on
+  // `r` (see `isGuardedCall`).
+  const guardedService =
+    st.kind === "domain-service-call" && st.result && isGuardedCall(st)
+      ? { call: st.call, result: st.result.name }
+      : undefined;
+  walkWorkflowStmtOwnExprsDeep(st, (e) =>
+    pushExprEffect(e, scope, cx, guardedService?.call === e ? guardedService.result : undefined),
+  );
   switch (st.kind) {
     // Guards, pure bindings and the call statements (whose `call` effect the
     // expression scan above already produced) add no structural effect.
@@ -115,7 +133,13 @@ function collectStmtEffects(st: WorkflowStmtIR, scope: readonly EffectScopeIR[],
     case "op-call":
       out.push({
         kind: "mutate",
-        target: { kind: "aggregate", name: st.target, aggName: st.aggName, op: st.op },
+        target: {
+          kind: "aggregate",
+          name: st.target,
+          aggName: st.aggName,
+          op: st.op,
+          ...(st.result && isGuardedCall(st) ? { result: st.result.name } : {}),
+        },
         scope,
       });
       return;
@@ -193,7 +217,13 @@ function collectExprEffects(root: ExprIR, scope: readonly EffectScopeIR[], cx: C
  *  a call out of the body (and the mutations its callee declares), a call to
  *  an aggregate operation on a bound local, or a repository read in expression
  *  position. */
-function pushExprEffect(e: ExprIR, scope: readonly EffectScopeIR[], cx: Cx): void {
+function pushExprEffect(
+  e: ExprIR,
+  scope: readonly EffectScopeIR[],
+  cx: Cx,
+  /** The local a guarded call's result is bound to, when `e` is that call. */
+  result?: string,
+): void {
   const out = cx.out;
   if (e.kind === "ref") {
     if (e.refKind === "this-prop" || e.refKind === "this-derived") {
@@ -209,7 +239,7 @@ function pushExprEffect(e: ExprIR, scope: readonly EffectScopeIR[], cx: Cx): voi
   const target = callTarget(e);
   if (target) {
     out.push({ kind: "call", target, scope });
-    if (target.kind === "domain-service") pushServiceMutations(e, target, scope, cx);
+    if (target.kind === "domain-service") pushServiceMutations(e, target, scope, cx, result);
     return;
   }
   if (e.callKind === "repo-read" && e.repoRead) {
@@ -223,9 +253,10 @@ function pushExprEffect(e: ExprIR, scope: readonly EffectScopeIR[], cx: Cx): voi
   }
 }
 
-/** `a.withdraw(x)` in expression position (`let r = a.withdraw(x)`), where `a`
- *  is a bound local and `withdraw` an operation of its aggregate: the same
- *  mutation an `op-call` statement records. */
+/** `a.withdraw(x)` in expression position (inside a larger expression — a
+ *  `let` bound to the call itself lowers to an `op-call`), where `a` is a bound
+ *  local and `withdraw` an operation of its aggregate: the same mutation an
+ *  `op-call` statement records. */
 function pushLocalOpMutation(
   e: Extract<ExprIR, { kind: "method-call" }>,
   scope: readonly EffectScopeIR[],
@@ -251,6 +282,7 @@ function pushServiceMutations(
   target: Extract<CallTargetIR, { kind: "domain-service" }>,
   scope: readonly EffectScopeIR[],
   cx: Cx,
+  result: string | undefined,
 ): void {
   const op = cx.resolver?.resolveServiceOp(target.service, target.op);
   if (!op || !cx.resolver) return;
@@ -266,6 +298,7 @@ function pushServiceMutations(
         aggName: p.type.name,
         op: target.op,
         service: target.service,
+        ...(result ? { result } : {}),
       },
       scope,
     });

@@ -252,7 +252,7 @@ describe("loom.resource-op-outside-workflow — the gate", () => {
         aggregate Order with crudish { name: string }
         repository Orders for Order { }
         domainService Naming {
-          operation label(name: string): string { return "order-" + name }
+          operation tag(name: string): string { return "order-" + name }
           test "svc test" { salesFiles.put("t", "x") }
         }
       `),
@@ -308,7 +308,7 @@ describe("loom.resource-op-outside-workflow — what it must NOT flag", () => {
         aggregate Order with crudish { name: string }
         repository Orders for Order { }
         domainService Naming {
-          operation label(name: string): string { return "order-" + name }
+          operation tag(name: string): string { return "order-" + name }
         }
       `),
     ).not.toContain(CODE);

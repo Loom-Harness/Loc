@@ -269,7 +269,7 @@ describe("vanilla provenance — leaf inputs", () => {
   it("records a leaf nested inside a conversion", async () => {
     const ctx = file(await generateSystemFiles(CONVERTED), "/api/orders.ex");
     expect(ctx).toContain(
-      'loom_prov_inputs_0 = [%{path: "qty", value: qty}, %{path: "ratio", value: record.ratio}]',
+      'loom_prov_inputs_0 = [%{path: "qty", value: qty}, %{path: "ratio", value: Api.Provenance.Wire.decimal(record.ratio)}]',
     );
   });
 });

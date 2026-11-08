@@ -185,10 +185,10 @@ describe("deriveSidebarFromUi — explicit `menu { … }` block", () => {
     const sections = deriveSidebarFromUi(ui, CTX) ?? [];
     const entries = sections.flatMap((s) => s.entries);
     // The section heading is authored → keyed under the `menu` prefix.
-    expect(sections[0]?.labelKey).toMatch(/^menu\.section\./);
+    expect(sections[0]?.labelKey).toMatch(/^WebApp\.menu\.section\./);
     // An authored link `label:` → keyed; the extraction pass records the same.
-    expect(entries.find((e) => e.to === "/orders")?.labelKey).toMatch(/^menu\.link\./);
-    expect(entries.find((e) => e.external)?.labelKey).toMatch(/^menu\.link\./);
+    expect(entries.find((e) => e.to === "/orders")?.labelKey).toMatch(/^WebApp\.menu\.link\./);
+    expect(entries.find((e) => e.external)?.labelKey).toMatch(/^WebApp\.menu\.link\./);
     // A DERIVED label (page title / page name) is not in the catalog, so it
     // carries no key — a key that resolves to nothing is the dead-key defect.
     expect(entries.find((e) => e.to === "/ops/dashboard")?.labelKey).toBeUndefined();
@@ -267,8 +267,8 @@ describe("deriveSidebarFromUi — the menuMeta fallback grouping", () => {
     const sections = deriveSidebarFromUi(ui, CTX) ?? [];
     // Alpha sorts first, so the heading's key rides Alpha's prefix — every
     // page in the group carries the same message, so any one of them keys it.
-    expect(sections[0]?.labelKey).toMatch(/^page\.Alpha\.menu\.section\./);
-    expect(sections[0]?.entries[0]?.labelKey).toMatch(/^page\.Alpha\.menu\.label\./);
+    expect(sections[0]?.labelKey).toMatch(/^WebApp\.page\.Alpha\.menu\.section\./);
+    expect(sections[0]?.entries[0]?.labelKey).toMatch(/^WebApp\.page\.Alpha\.menu\.label\./);
   });
 
   it("returns undefined when nothing drives a sidebar (caller keeps its default)", async () => {

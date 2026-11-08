@@ -518,7 +518,7 @@ const __twoWriterProbe = async (dispatch) => {
   const versions = [];
   const readVersion = async () => {
     const r = await dispatch({ method: "GET", url: u.origin + rowPath, headers: { ...headers } });
-    try { return JSON.parse(r?.response?.body ?? "")?.version; } catch { return undefined; }
+    try { return JSON.parse(r?.response?.body ?? "")?.rowVersion; } catch { return undefined; }
   };
   for (let p = 0; p < __TWO_WRITER_PAIRS; p++) {
     const v = await readVersion();
@@ -604,7 +604,9 @@ const __emptyCommandBodyProbes = async (dispatch) => {
   // left out is refused at the wire — 422 with one \`errors[]\` entry,
   // \`{ pointer: "/<key>", message: "<key> is required" }\`, before the row is loaded — on
   // every backend; elixir used to hand the nil to the operation body and answer
-  // 500.  One key, so the entry list has one order on every backend.
+  // 500.  One key, so the entry list has one order on every backend.  When the
+  // command is the generated \`update\`, \`{}\` is a valid merge patch (RS-47), so
+  // the probe records the 404 the absent id earns instead.
   for (let i = 0; i < __wire.length; i++) {
     const e = __wire[i];
     if (e.method !== "POST" || e.status < 200 || e.status >= 300) continue;

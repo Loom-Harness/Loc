@@ -1147,7 +1147,30 @@ fits any sane budget. **A leg that is slow is a different problem from a leg
 that is tight-budgeted, and it wants a different fix** — the budget stops the
 bleeding, cutting the runtime is the repair.
 
-### The 2026-11-01 node re-measure (current for node)
+### The 2026-11-02 re-measure (current for every leg)
+
+Every leg had outgrown its budget: `behavioral-python` and `behavioral-dapper`
+were being killed at their caps right after the suite passed (5 and 4 of the
+last 20 runs), and since `pr-gate` stopped dropping a cancelled run that no
+newer run of its workflow superseded, each such kill blocks the PR.
+Job-execution seconds from the Actions API, n=20 successful runs per leg:
+
+| leg | job median | job p95 | job max | was | now |
+|---|---:|---:|---:|---:|---:|
+| `behavioral-e2e` (node) | 10m53s | 11m21s | 11m30s | 15m | **20m** |
+| `behavioral-e2e-python` | 9m34s | 9m56s § | 9m56s | 10m | **15m** |
+| `behavioral-e2e-java` | 25m20s | 27m00s | 27m16s | 30m | **45m** |
+| `behavioral-e2e-dotnet` | 18m10s | 22m30s | 23m12s | 25m | **35m** |
+| `behavioral-e2e-dapper` | 16m47s | 19m32s § | 19m41s | 20m | **30m** |
+| `behavioral-e2e-mikroorm` | 17m59s | 21m58s | 22m00s | 25m | **35m** |
+| `behavioral-e2e-elixir` | 18m18s | 19m39s | 19m52s | 20m | **30m** |
+
+§ censored by cap kills — a lower bound; re-derive with `ci-budget-report.mjs`
+once uncensored samples exist. The runtimes roughly doubled since 2026-10-05
+as the behavioral corpus grew; cutting them is the repair, the budget only
+stops the bleeding.
+
+### The 2026-11-01 node re-measure (superseded)
 
 Each node case now boots in its own worker process (`test/behavioral/run.mjs`),
 which adds process start and package load per case. After that landed, four
@@ -1161,7 +1184,7 @@ which adds process start and package load per case. After that landed, four
 § censored — re-derive with `ci-budget-report.mjs` once the leg has uncensored
 samples (#4401 tracks bringing the per-case cost back down).
 
-### The 2026-10-05 re-measure (current for the other legs)
+### The 2026-10-05 re-measure (superseded)
 
 Re-run after the behavioral corpus grew by the wave C3 drains, when
 `behavioral-dotnet` was killed at its 15m cap on a PR adding six fixtures — on
@@ -1182,7 +1205,7 @@ seconds from the Actions API, n=20 successful runs per leg:
 2026-09-10 figure below still stands, and java's recent runs (~15m) sit well
 inside it.
 
-### The 2026-09-10 baseline (superseded — java still rests on it)
+### The 2026-09-10 baseline (superseded)
 
 All seven behavioral legs, measured at step level from the Actions API
 (`behavioral-java` at n=40, the rest at n=15):

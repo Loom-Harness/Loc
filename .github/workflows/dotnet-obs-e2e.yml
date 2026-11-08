@@ -133,7 +133,7 @@ jobs:
       - name: Install Loom toolchain
         run: npm ci
 
-      # The e2e test calls `bin/cli.js generate dotnet ...` then spawns
+      # The e2e test calls `bin/cli.js generate system ...` then spawns
       # `dotnet run`.  Both work against the host filesystem; we don't
       # pre-generate here — the test itself does, into a tmpdir.
 

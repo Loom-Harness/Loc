@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — aggregate inheritance (plan S13).  TPH: one shared
@@ -21,9 +20,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python TPH inheritance", () => {
@@ -95,5 +92,57 @@ describe("python TPC inheritance", () => {
     );
     const union = files.get("api/app/domain/asset.py")!;
     expect(union).toContain("Asset = Machine | Vehicle");
+  });
+});
+
+// A base whose concrete masks a field (or gates its `all` behind `requires`)
+// has no `GET /<bases>` route, so nothing pages it: its reader renders no
+// `find_page` and no `app.domain.paging` import.  Whichever way that predicate
+// falls, every module importing `app.domain.paging` must find it emitted.
+const MASKED_BASE = (inheritance: "sharedTable" | "ownTable") => `
+system S {
+  user { id: guid  role: string  permissions: string[] }
+  subdomain Core {
+    permissions { unmask }
+    context Main {
+      abstract aggregate ThingBase inheritanceUsing: ${inheritance} { note: string }
+      aggregate Thing extends ThingBase with crudish {
+        label: string
+        ssn: string mask unless currentUser.permissions.contains(permissions.unmask)
+      }
+      repository Things for Thing { }
+    }
+  }
+  api MainApi from Core
+  storage primary { type: postgres }
+  resource mainState { for: Main, kind: state, use: primary }
+  deployable d { platform: python  contexts: [Main]  dataSources: [mainState]  serves: MainApi  port: 4000  auth: required }
+}
+`;
+
+function pagingImportersWithoutModule(files: Map<string, string>, root: string): string[] {
+  if (files.has(`${root}/app/domain/paging.py`)) return [];
+  return [...files]
+    .filter(([p, c]) => p.endsWith(".py") && c.includes("app.domain.paging"))
+    .map(([p]) => p);
+}
+
+describe("python base reader paging", () => {
+  for (const inheritance of ["sharedTable", "ownTable"] as const) {
+    it(`an unrouted ${inheritance} base reader imports no paging module that is not emitted`, async () => {
+      const files = await generateSystemFiles(MASKED_BASE(inheritance));
+      const reader = files.get("d/app/db/repositories/thing_base_repository.py")!;
+      expect(reader).toContain("class ThingBaseRepository:");
+      expect(files.has("d/app/http/thing_base_routes.py")).toBe(false);
+      expect(pagingImportersWithoutModule(files, "d")).toEqual([]);
+      expect(reader).not.toContain("find_page");
+    });
+  }
+
+  it("a routed base reader keeps find_page and its paging module", async () => {
+    const files = await build();
+    expect(files.get("api/app/db/repositories/party_repository.py")).toContain("def find_page(");
+    expect(files.get("api/app/db/repositories/asset_repository.py")).toContain("def find_page(");
+    expect(files.has("api/app/domain/paging.py")).toBe(true);
   });
 });

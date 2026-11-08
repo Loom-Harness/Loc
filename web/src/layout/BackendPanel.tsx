@@ -23,6 +23,7 @@ import {
   interpretBootError,
   interpretStatus,
   nextStepMid,
+  PENDING_MIGRATION,
   RUNTIME_STATUS,
   RUNTIME_VIEW,
   seeStream,
@@ -48,12 +49,16 @@ interface Props {
 // (`btn-boot` there — M-T8.16); mobile has no strip buttons, so the
 // banner keeps it.
 export function BackendHeader({ ctx }: Props): JSX.Element {
-  const { isDesktop, pipeline, ddl, honoBundle, runBoot } = ctx;
+  const { isDesktop, pipeline, ddl, bootPending, honoBundle, runBoot } = ctx;
   return (
     <Group gap="xs" wrap="wrap" justify="flex-end">
       {ddl ? (
         <Badge size="xs" color="green" variant="light" data-testid="backend-status">
           {RUNTIME_STATUS.booted}
+        </Badge>
+      ) : bootPending ? (
+        <Badge size="xs" color="yellow" variant="light" data-testid="backend-status">
+          {RUNTIME_STATUS.migrationRequired}
         </Badge>
       ) : (
         <Badge size="xs" color="gray" variant="light" data-testid="backend-status">
@@ -88,8 +93,12 @@ export function BackendBody({ ctx }: Props): JSX.Element {
     pipeline,
     ddl,
     persistent,
-    migrated,
+    appliedMigrations,
+    bootPending,
     bootErrorMessage,
+    bootedBackends,
+    reqTarget,
+    setReqTarget,
     reqMethod,
     setReqMethod,
     reqPath,
@@ -179,6 +188,44 @@ export function BackendBody({ ctx }: Props): JSX.Element {
           )}
         </Stack>
       )}
+      {bootPending && (
+        <Stack gap={6} mb="xs" data-testid="boot-migration-pending" data-kind={bootPending.migration.kind}>
+          <Text size="xs" c="yellow.8" data-testid="boot-migration-pending-message">
+            {bootPending.message}
+          </Text>
+          {bootPending.migration.kind === "unrecorded" && (
+            <Button
+              size="xs"
+              variant="light"
+              color="yellow"
+              onClick={() => ctx.setRecordMigrationOpen(true)}
+              data-testid="boot-migration-record"
+              style={{ alignSelf: "flex-start" }}
+            >
+              {PENDING_MIGRATION.record}
+            </Button>
+          )}
+          {bootPending.migration.kind === "unknown-database" && honoBundle && (
+            <ConfirmAction
+              spec={confirmSites.clearStoredData()}
+              onConfirm={runResetData}
+              testids={{ base: "btn-reset-data", yes: "btn-reset-data-confirm" }}
+              trigger={(arm) => (
+                <Button
+                  size="xs"
+                  variant="default"
+                  color="red"
+                  onClick={arm}
+                  loading={pipeline.booting}
+                  data-testid="btn-reset-data"
+                >
+                  Reset database &amp; boot…
+                </Button>
+              )}
+            />
+          )}
+        </Stack>
+      )}
       {ddl ? (
         <Stack gap={8}>
           <SegmentedControl
@@ -203,7 +250,7 @@ export function BackendBody({ ctx }: Props): JSX.Element {
           {subview === "db" ? (
             <DatabaseView
               persistent={persistent}
-              migrated={migrated}
+              appliedMigrations={appliedMigrations}
               runWipe={runWipe}
               runQuery={runQuery}
               isDesktop={isDesktop}
@@ -229,6 +276,19 @@ export function BackendBody({ ctx }: Props): JSX.Element {
             />
           )}
           <Group gap={6} wrap="wrap">
+            {bootedBackends.length > 1 && (
+              <Select
+                size="xs"
+                value={reqTarget ?? bootedBackends[0] ?? null}
+                onChange={(v) => setReqTarget(v)}
+                data={bootedBackends}
+                allowDeselect={false}
+                w={isDesktop ? 130 : "100%"}
+                styles={mobileInputStyles}
+                aria-label="Backend"
+                data-testid="req-target"
+              />
+            )}
             <Select
               size="xs"
               value={reqMethod}
@@ -402,7 +462,7 @@ export function BackendBody({ ctx }: Props): JSX.Element {
 
 interface DatabaseViewProps {
   persistent: boolean;
-  migrated: boolean;
+  appliedMigrations: string[];
   runWipe: () => void;
   runQuery: LayoutCtx["runQuery"];
   isDesktop: boolean;
@@ -412,7 +472,7 @@ interface DatabaseViewProps {
 // lives, the ad-hoc SQL console, and a clearly-explained Reset.
 function DatabaseView({
   persistent,
-  migrated,
+  appliedMigrations,
   runWipe,
   runQuery,
   isDesktop,
@@ -429,9 +489,9 @@ function DatabaseView({
           >
             {persistent ? "persisted" : "in-memory"}
           </Badge>
-          {migrated && (
-            <Badge size="xs" color="orange" variant="light" data-testid="migrated-status">
-              schema migrated
+          {appliedMigrations.length > 0 && (
+            <Badge size="xs" color="blue" variant="light" data-testid="migrated-status">
+              {appliedMigrations.length} migration{appliedMigrations.length === 1 ? "" : "s"} applied
             </Badge>
           )}
         </Group>
@@ -440,9 +500,10 @@ function DatabaseView({
             ? "Rows are saved in your browser (OPFS), keyed by the source hash — they survive a page reload."
             : "Your browser refused persistent storage, so rows live in memory and are wiped on reload."}
         </Text>
-        {migrated && (
-          <Text size="xs" c="dimmed">
-            The schema changed since the last boot, so the database was dropped and recreated — earlier rows were cleared.
+        {appliedMigrations.length > 0 && (
+          <Text size="xs" c="dimmed" data-testid="migrated-list">
+            This boot applied the recorded migration{appliedMigrations.length === 1 ? "" : "s"}{" "}
+            {appliedMigrations.join(", ")}. Existing rows were kept.
           </Text>
         )}
       </Stack>
@@ -463,7 +524,7 @@ function ResetDatabase({ runWipe }: { runWipe: () => void }): JSX.Element {
   return (
     <Stack gap={4}>
       <Text size="xs" c="dimmed">
-        Reset drops every row and re-applies the schema. The table structure stays — only your data is cleared.
+        Reset drops every row and rebuilds the schema from the recorded migrations. The table structure stays — only your data is cleared.
       </Text>
       <ConfirmAction
         spec={confirmSites.resetDatabase()}

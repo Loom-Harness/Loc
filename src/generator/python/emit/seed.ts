@@ -8,6 +8,7 @@ import { lines } from "../../../util/code-builder.js";
 import { pythonIdent, snake } from "../../../util/naming.js";
 import { pyRef } from "../../_imports/python.js";
 import {
+  asMoneySeedLiteral,
   type Entry,
   groupByDataset,
   type SeederAggregate,
@@ -139,7 +140,7 @@ function renderDatasetFn(
     e.raw
       ? // raw path (D-SEED-XREF): driver-level INSERT with explicit ids,
         // schema-qualified to match the dataSource-routed table.
-        `    await (await session.connection()).exec_driver_sql(${pyStr(qualifiedInsert(e.row, schemaFor(e.row.aggregate)))})`
+        `    await (await session.connection()).exec_driver_sql(${pyStr(qualifiedInsert(e, schemaFor(e.row.aggregate)))})`
       : `    await ${snake(e.row.aggregate)}_repo.save(${pyRef(`app.domain.${snake(e.row.aggregate)}`, e.row.aggregate)}.create(${renderInput(e.row, aggByName.get(e.row.aggregate)!)}))`,
   );
   return lines(
@@ -158,8 +159,8 @@ function renderDatasetFn(
 /** The shared INSERT renderer emits an unqualified table name; the
  *  Python schema routes every aggregate table through its dataSource's
  *  Postgres schema, so the raw INSERT is qualified to match. */
-function qualifiedInsert(row: SeedRowIR, schema: string | undefined): string {
-  const sql = renderSeedRowInsert(row.aggregate, row.fields);
+function qualifiedInsert(e: Entry, schema: string | undefined): string {
+  const sql = renderSeedRowInsert(e.table, e.row.fields);
   if (!schema) return sql;
   return sql.replace(/^INSERT INTO "/, `INSERT INTO "${schema}"."`);
 }
@@ -176,7 +177,7 @@ function renderInput(row: SeedRowIR, agg: SeederAggregate): string {
 }
 
 function renderField(value: ExprIR, type: TypeIR | undefined): string {
-  return coerceSeedValue(type, renderPyExpr(value));
+  return coerceSeedValue(type, renderPyExpr(asMoneySeedLiteral(value, type)));
 }
 
 /** A seed row's `datetime` field is written as a string literal (`"2024-…Z"`),

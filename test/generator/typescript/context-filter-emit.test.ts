@@ -10,8 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import { scopeFn } from "../../_helpers/drizzle-scope.js";
-import { generateHono, generateSystemFiles } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Sales {
@@ -31,8 +30,7 @@ const SRC = `
 
 describe("typescript generator — capability filter (contextFilters)", () => {
   it("AND-s the non-principal filter into every root read site", async () => {
-    const model = await parseValid(SRC);
-    const files = generateHono(model);
+    const files = await generateBackendFiles(SRC, "node");
     const repo = files.get("db/repositories/doc-repository.ts")!;
     expect(repo).toBeDefined();
 
@@ -69,7 +67,8 @@ describe("typescript generator — capability filter (contextFilters)", () => {
     // body is rendered into the helper, and the repository's criterion reads and
     // retrievals that consume the same criterion keep their module-level
     // predicate fn.
-    const model = await parseValid(`
+    const files = await generateBackendFiles(
+      `
       context Sales {
         criterion NotDeleted of Doc = !this.isDeleted
         aggregate Doc {
@@ -84,8 +83,9 @@ describe("typescript generator — capability filter (contextFilters)", () => {
           return r
         }
       }
-    `);
-    const files = generateHono(model);
+    `,
+      "node",
+    );
     const repo = files.get("db/repositories/doc-repository.ts")!;
     // Every root read calls the scope helper (no re-inlined body at the use sites).
     expect(repo).toMatch(
@@ -166,14 +166,16 @@ system T {
   });
 
   it("emits no capability predicate when the aggregate has no filter", async () => {
-    const model = await parseValid(`
+    const files = await generateBackendFiles(
+      `
       context Sales {
         aggregate Plain { subject: string }
         repository Plains for Plain { }
         criterion PlainsBySubject(s: string) of Plain = subject == s
       }
-    `);
-    const files = generateHono(model);
+    `,
+      "node",
+    );
     const repo = files.get("db/repositories/plain-repository.ts")!;
     // Plain findById keeps the bare id predicate (no and-wrapping).
     expect(repo).toMatch(/findById[\s\S]*?\.where\(eq\(schema\.plains\.id, id\)\)/);
@@ -231,8 +233,9 @@ describe("typescript generator — principal capability filter (DEBT-01)", () =>
   });
 
   it("does not import requireCurrentUser when the filter is non-principal", async () => {
-    const model = await parseValid(SRC);
-    const repo = generateHono(model).get("db/repositories/doc-repository.ts")!;
+    const repo = (await generateBackendFiles(SRC, "node")).get(
+      "db/repositories/doc-repository.ts",
+    )!;
     expect(repo).not.toContain("requireCurrentUser");
   });
 });

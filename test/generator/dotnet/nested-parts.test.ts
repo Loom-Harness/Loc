@@ -5,8 +5,7 @@
 // EF materialises/persists the owned graph, so there are no repository changes.
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Logistics {
@@ -29,8 +28,7 @@ const SRC = `
 
 describe("dotnet generator — part-in-part containment", () => {
   it("nests the owned-type config with the direct-parent FK column", async () => {
-    const model = await parseValid(SRC);
-    const cfg = generateDotnet(model).get(
+    const cfg = (await generateBackendFiles(SRC, "dotnet")).get(
       "Infrastructure/Persistence/Configurations/OrderConfiguration.cs",
     )!;
 
@@ -41,13 +39,12 @@ describe("dotnet generator — part-in-part containment", () => {
     // lambda param o1 so it doesn't shadow the enclosing o).
     expect(cfg).toContain('o.OwnsMany<Label>("_labels", o1 => {');
     expect(cfg).toContain('o1.Property("ParentId").HasColumnName("shipment_id");');
-    expect(cfg).toContain('o1.ToTable("labels");');
+    expect(cfg).toContain('o1.ToTable("labels", "logistics");');
     expect(cfg).toContain('o1.WithOwner().HasForeignKey("ParentId");');
   });
 
   it("brands the nested part ParentId to the direct-parent id type", async () => {
-    const model = await parseValid(SRC);
-    const files = generateDotnet(model);
+    const files = await generateBackendFiles(SRC, "dotnet");
     // Label's parent is Shipment, so its ParentId is ShipmentId (not OrderId).
     const label = files.get("Domain/Orders/Label.cs")!;
     expect(label).toContain("public ShipmentId ParentId { get; private set; }");

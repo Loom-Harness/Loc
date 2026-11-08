@@ -1,15 +1,7 @@
-import * as path from "node:path";
-import { fileURLToPath } from "node:url";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { beforeAll, describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
-import { BACKEND_PINS as HONO_PINS } from "../../../src/platform/hono/v5/pins.js";
 import { dddSourceOf } from "../../_helpers/ddd-corpus.js";
+import { generateBackendFromFile, generateBackendFromSource } from "../../_helpers/generate.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
-import { parseValid } from "../../_helpers/parse.js";
 
 // ---------------------------------------------------------------------------
 // Hono/Drizzle document-persistence emission (`normalised(false)`).
@@ -23,33 +15,21 @@ import { parseValid } from "../../_helpers/parse.js";
 // `tsc + tsup` gate lives in test/e2e/generated-build.test.ts.
 // ---------------------------------------------------------------------------
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(here, "..", "..", "..");
-
-async function buildModel(file: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(path.join(repoRoot, file)),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  return doc.parseResult.value as Model;
-}
-
 describe("Hono/Drizzle document-persistence emission (normalised(false))", () => {
   let files: Map<string, string>;
   beforeAll(async () => {
-    files = generateTypeScript(await buildModel("examples/document.ddd"), HONO_PINS);
+    files = await generateBackendFromFile("examples/document.ddd", "node");
   });
 
   it("emits a single jsonb document table (no part/join tables) for the document aggregate", () => {
     const schema = files.get("db/schema.ts")!;
-    expect(schema).toContain('export const carts = pgTable("carts", {');
+    expect(schema).toContain('export const carts = shoppingSchema.table("carts", {');
     expect(schema).toContain('data: jsonb("data").notNull(),');
-    expect(schema).toContain('version: integer("version").notNull(),');
+    expect(schema).toContain('rowVersion: integer("row_version").notNull(),');
     // No normalised cart_items part table.
-    expect(schema).not.toContain('pgTable("cart_items"');
+    expect(schema).not.toContain('.table("cart_items"');
     // Sibling normalised aggregate keeps its column-per-field table.
-    expect(schema).toContain('export const customers = pgTable("customers", {');
+    expect(schema).toContain('export const customers = shoppingSchema.table("customers", {');
   });
 
   it("repository round-trips through toDoc/fromDoc + _rehydrate", () => {
@@ -58,9 +38,9 @@ describe("Hono/Drizzle document-persistence emission (normalised(false))", () =>
     // Versioned root: fromDoc takes the authoritative `version` COLUMN, not the
     // stale blob copy — so `aggregate.version` is correct after a load and the
     // CAS save doesn't 409 on the next update.
-    expect(repo).toContain("return cartFromDoc(row.data as CartDoc, row.version);");
-    expect(repo).toContain("function cartFromDoc(d: CartDoc, version: number): Cart {");
-    expect(repo).toContain("version: version");
+    expect(repo).toContain("return cartFromDoc(row.data as CartDoc, row.rowVersion);");
+    expect(repo).toContain("function cartFromDoc(d: CartDoc, rowVersion: number): Cart {");
+    expect(repo).toContain("rowVersion: rowVersion");
     expect(repo).toContain("Cart._rehydrate({");
     expect(repo).toContain("items: (d.items ?? []).map((x) => cartItemFromDoc(x))");
     expect(repo).toContain(
@@ -71,15 +51,15 @@ describe("Hono/Drizzle document-persistence emission (normalised(false))", () =>
     // ConcurrencyError — matching the relational repo, so `repo.save(agg,
     // expectedVersion)` from the versioned `update` route type-checks.
     expect(repo).toContain("async save(aggregate: Cart, expectedVersion?: number)");
-    expect(repo).toContain("const expected = expectedVersion ?? aggregate.version;");
-    expect(repo).toContain("version: expected + 1");
+    expect(repo).toContain("const expected = expectedVersion ?? aggregate.rowVersion;");
+    expect(repo).toContain("rowVersion: expected + 1");
     expect(repo).toContain('throw new ConcurrencyError("Cart", aggregate.id as string)');
   });
 
   it("reads evaluate in-memory over rehydrated documents", () => {
     const repo = files.get("db/repositories/cart-repository.ts")!;
     expect(repo).toContain(
-      "const all = rows.map((r) => cartFromDoc(r.data as CartDoc, r.version));",
+      "const all = rows.map((r) => cartFromDoc(r.data as CartDoc, r.rowVersion));",
     );
     // No Drizzle column predicate against the document table.
     expect(repo).not.toContain("schema.carts.customerId");
@@ -102,11 +82,11 @@ describe("Hono/Drizzle document-persistence emission (normalised(false))", () =>
   // jsonb column.  Unlike document, root reads are REAL SQL on the root.
   it("embedded: root columns + one jsonb containment column, no part table", () => {
     const schema = files.get("db/schema.ts")!;
-    expect(schema).toContain('export const wishlists = pgTable("wishlists", {');
+    expect(schema).toContain('export const wishlists = shoppingSchema.table("wishlists", {');
     // `customerId: Customer id` (guid) → uuid, in lockstep with the migration.
     expect(schema).toContain('customerId: uuid("customer_id").notNull(),');
     expect(schema).toContain('items: jsonb("items").notNull(),');
-    expect(schema).not.toContain('pgTable("wish_items"');
+    expect(schema).not.toContain('.table("wish_items"');
   });
 
   it("embedded: root via columns, containment via jsonb; root reads are real SQL", () => {
@@ -122,7 +102,7 @@ describe("Hono/Drizzle document-persistence emission (normalised(false))", () =>
     expect(repo).toContain("async save(aggregate: Wishlist, expectedVersion?: number)");
     expect(repo).toContain("items: aggregate.items.map((e) => wishItemToDoc(e))");
     expect(repo).toContain(
-      ".where(and(eq(schema.wishlists.id, aggregate.id), eq(schema.wishlists.version, expected)))",
+      ".where(and(eq(schema.wishlists.id, aggregate.id), eq(schema.wishlists.rowVersion, expected)))",
     );
     expect(repo).toContain('throw new ConcurrencyError("Wishlist", aggregate.id as string)');
     expect(repo).not.toContain("FromDoc(row.data");
@@ -155,8 +135,7 @@ describe("Hono/Drizzle document — optional single containment is null-safe", (
   `;
 
   it("guards the optional containment in the Doc type + toDoc + fromDoc", async () => {
-    const model = await parseValid(SRC);
-    const files = generateTypeScript(model, HONO_PINS);
+    const files = await generateBackendFromSource(SRC, "node");
     const repo = files.get("db/repositories/cart-repository.ts")!;
     expect(repo, "cart-repository.ts generated").toBeDefined();
     // Type alias: nullable single containment is `PartDoc | null`.
@@ -200,12 +179,11 @@ describe("document save() applies the onCreate stamps", () => {
    *  `files` is scoped to it. */
   let unstamped: Map<string, string>;
   beforeAll(async () => {
-    unstamped = generateTypeScript(await buildModel("examples/document.ddd"), HONO_PINS);
+    unstamped = await generateBackendFromFile("examples/document.ddd", "node");
     // The corpus fixture is a `__PLATFORM__`-tokenized TEMPLATE, not a source —
     // `dddSourceOf` substitutes a backend the way every census and runner does.
-    // It is a multi-context SYSTEM, so it goes through the system generator
-    // (the legacy single-context `generateTypeScript` emits no repositories for
-    // it, which is how this assertion first passed vacuously).
+    // It is a multi-context SYSTEM, so the whole tree is emitted and the
+    // repository looked up by path suffix.
     stamped = await generateSystemFiles(dddSourceOf("test/fixtures/corpus/policy-document.ddd"));
   });
 
@@ -251,7 +229,7 @@ describe("document save() applies the onCreate stamps", () => {
     // passed on `data: data` — the byte-different form an unaudited
     // aggregate must not emit.
     expect(src).toContain(
-      "insert(schema.carts).values({ id: aggregate.id as string, data, version: 1 })",
+      "insert(schema.carts).values({ id: aggregate.id as string, data, rowVersion: 1 })",
     );
   });
 });

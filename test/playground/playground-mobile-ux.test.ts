@@ -1,12 +1,8 @@
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../src/language/ddd-module.js";
-import type { Model } from "../../src/language/generated/ast.js";
-import { generateSystems } from "../../src/system/index.js";
 import { makePreviewHtml } from "../../web/src/preview/iframe-html.js";
+import { generateSystemFilesFromProject } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Mobile UX regressions:
@@ -31,21 +27,12 @@ import { makePreviewHtml } from "../../web/src/preview/iframe-html.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
 
-async function buildModel(file: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(path.join(repoRoot, file)),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], {
-    validation: true,
-  });
-  return doc.parseResult.value as Model;
-}
+const buildFiles = (file: string): Promise<Map<string, string>> =>
+  generateSystemFilesFromProject(path.join(repoRoot, file));
 
 describe("mobile menu auto-close — App.tsx app-shell", () => {
   it("mantine: useEffect on location.pathname calls close()", async () => {
-    const model = await buildModel("examples/acme.ddd");
-    const { files } = generateSystems(model);
+    const files = await buildFiles("examples/acme.ddd");
     const app = files.get("web_app/src/App.tsx")!;
     expect(app).toMatch(/useDisclosure\(\)\s*;/);
     // Destructure `close` from useDisclosure so the effect has
@@ -59,8 +46,7 @@ describe("mobile menu auto-close — App.tsx app-shell", () => {
 
   it("shadcn: useEffect on location.pathname calls setOpened(false)", async () => {
     // The shadcn pack ships in the storybook example.
-    const model = await buildModel("web/src/examples/storybook-shadcn.ddd");
-    const { files } = generateSystems(model);
+    const files = await buildFiles("web/src/examples/storybook-shadcn.ddd");
     const appKey = [...files.keys()].find((k) => k.endsWith("/src/App.tsx"));
     expect(appKey, "shadcn generator emits an App.tsx").toBeDefined();
     const app = files.get(appKey!)!;

@@ -96,7 +96,7 @@ describe("node/Hono — http/messages.ts + defaultHook resolution", () => {
     const problem = bySuffix(await filesFor("node"), "http/problem-details.ts")!;
     expect(problem).toContain('import { localizeMessage } from "./messages"');
     expect(problem).toContain(
-      "message: isAbsent(result.data, issue.path) ? missingFieldMessage(issue.path) : localizeMessage(issue.params?.loomCode, issue.message)",
+      "message: isMissing(result.data, issue) ? missingFieldMessage(issue.path) : localizeMessage(issue.params?.loomCode, issue.message)",
     );
   });
 });
@@ -257,9 +257,13 @@ describe("cross-backend parity", () => {
     // java / elixir extract the first tag, then hand the rest to their ecosystem.
     const advice = bySuffix(java, "ApiExceptionAdvice.java")!;
     expect(advice).toContain('RequestContext.locale().split(",")[0].split(";")[0].trim()');
+    // elixir's 422 handler hands the header to the shared Accept-Language
+    // matcher, which does the first-tag extraction (q-ordered) before gettext.
     const problem = bySuffix(elixir, "_web/problem_details.ex")!;
-    expect(problem).toContain('String.split(",")');
-    expect(problem).toContain('String.split(";")');
+    expect(problem).toContain("Web.Locale.header_gettext_locale(");
+    const matcher = bySuffix(elixir, "_web/locale.ex")!;
+    expect(matcher).toContain('String.split(",", trim: true)');
+    expect(matcher).toContain('String.split(";")');
   });
 
   it("a system with no authored message emits no catalog and no lookup", async () => {
@@ -277,7 +281,7 @@ describe("cross-backend parity", () => {
     }
     // …and the resolution sites keep their pre-catalog form.
     expect(bySuffix(await filesFor("node", NO_MESSAGES), "http/problem-details.ts")).toContain(
-      "message: isAbsent(result.data, issue.path) ? missingFieldMessage(issue.path) : issue.message,",
+      "message: isMissing(result.data, issue) ? missingFieldMessage(issue.path) : issue.message,",
     );
     expect(bySuffix(await filesFor("python", NO_MESSAGES), "app/http/problem.py")).not.toContain(
       "localize_message",

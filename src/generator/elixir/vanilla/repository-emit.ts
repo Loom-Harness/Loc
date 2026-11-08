@@ -14,7 +14,6 @@
 
 import { declaredCreateParamNames } from "../../../ir/enrich/wire-projection.js";
 import {
-  envelopeReturn,
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
   pagedReturn,
@@ -31,6 +30,7 @@ import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { renderPolymorphicReader } from "./base-reader.js";
@@ -113,13 +113,7 @@ export function customFindsOf(repo: RepositoryIR | undefined): FindIR[] {
 function isSingleReturn(t: TypeIR): boolean {
   if (t.kind === "optional" && t.inner.kind === "entity") return true;
   if (t.kind === "entity") return true;
-  if (t.kind === "union") return true;
-  // `T envelope` is a SINGLE-ROW find (M-T6.57, ratified).  It fell through to
-  // the LIST arm here, so `audit/0` ran `Repo.all(query)` — EVERY row — and the
-  // controller answered a JSON ARRAY, while this app's own published OpenAPI
-  // declares a single object plus a 404.
-  if (envelopeReturn(t)) return true;
-  return false;
+  return t.kind === "union";
 }
 
 function renderRepository(
@@ -413,7 +407,7 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
   const versioned = savesLockVersion(agg);
   const versionedParam = versioned ? ", expected_version \\\\ nil" : "";
   const versionOverride = versioned
-    ? `    record = %{record | version: expected_version || record.version}\n\n`
+    ? `    record = %{record | ${ROW_VERSION_COLUMN}: expected_version || record.${ROW_VERSION_COLUMN}}\n\n`
     : "";
   // The generic PATCH routes through `update_changeset` whenever the aggregate
   // needs one (containment owner, update-excluded field, or versioned) — that

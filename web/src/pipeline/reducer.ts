@@ -61,7 +61,7 @@ export function pipelineReducer(
         bundling: false,
         bundle: {
           kind: "result",
-          hono: action.hono,
+          backends: action.backends,
           react: action.react,
         },
       };
@@ -83,8 +83,22 @@ export function pipelineReducer(
           kind: "ok",
           ddl: action.ddl,
           persistent: action.persistent,
-          migrated: action.migrated,
+          applied: action.applied,
+          backends: action.backends,
         },
+        database: { kind: "at", head: action.head },
+      };
+    case "BOOT_PENDING":
+      return {
+        ...state,
+        booting: false,
+        boot: { kind: "pending", migration: action.migration, message: action.message },
+        // The boot read the database's head before it stopped; a database
+        // the chain cannot describe has no head the chain can measure.
+        database:
+          action.migration.kind === "unrecorded"
+            ? { kind: "at", head: action.migration.head }
+            : { kind: "unknown" },
       };
     case "BOOT_FAIL":
       return {
@@ -92,6 +106,17 @@ export function pipelineReducer(
         booting: false,
         boot: { kind: "fail", message: action.message },
       };
+
+    // ---- Migration chain check ----------------------------------------
+    // Independent of the cascade: a source edit re-checks without touching
+    // the generate / bundle / boot slots, and a regenerate keeps the check.
+    // The check re-runs after every edit and nearly always confirms what the
+    // slot already holds; returning the same state then keeps React from
+    // re-rendering the whole app for nothing.  The slot is plain data, so its
+    // JSON is its identity.
+    case "MIGRATION_CHECKED":
+      if (JSON.stringify(state.migrationCheck) === JSON.stringify(action.check)) return state;
+      return { ...state, migrationCheck: action.check };
 
     // ---- Dispatch -----------------------------------------------------
     case "DISPATCH_START":
@@ -116,8 +141,8 @@ export function pipelineReducer(
       //
       // The PGlite database itself may or may not survive depending
       // on how the previous boot landed:
-      //   - `persistent: true`  →  OPFS-backed, keyed by source
-      //     hash.  The fresh worker reattaches the same island on
+      //   - `persistent: true`  →  OPFS-backed, keyed by
+      //     workspace.  The fresh worker reattaches the same island on
       //     the next Boot — rows are preserved.
       //   - `persistent: false` →  in-memory only (Safari private
       //     mode, hostile-storage policies).  The data lived inside
@@ -133,6 +158,9 @@ export function pipelineReducer(
         ...state,
         boot: { kind: "fail", message },
         dispatch: NONE_DISPATCH,
+        // An in-memory database died with the worker; the next boot starts
+        // an empty one.
+        database: wasPersistent ? state.database : { kind: "unknown" },
       };
     }
   }

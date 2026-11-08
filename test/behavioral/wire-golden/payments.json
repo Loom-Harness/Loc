@@ -23,7 +23,7 @@
         "id": "<volatile:key>",
         "last4": "4242",
         "network": "Visa",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -45,7 +45,7 @@
         "id": "<volatile:key>",
         "last4": "4242",
         "network": "Mastercard",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -61,7 +61,7 @@
           "id": "<volatile:key>",
           "last4": "4242",
           "network": "Mastercard",
-          "version": 2
+          "rowVersion": 2
         }
       ]
     },
@@ -78,7 +78,7 @@
           "id": "<volatile:key>",
           "last4": "4242",
           "network": "Mastercard",
-          "version": 2
+          "rowVersion": 2
         }
       ]
     },
@@ -135,7 +135,7 @@
         "id": "<volatile:key>",
         "last4": "0007",
         "routingNumber": "021000021",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -155,7 +155,7 @@
         "id": "<volatile:key>",
         "last4": "0007",
         "routingNumber": "011000015",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -169,7 +169,7 @@
           "id": "<volatile:key>",
           "last4": "0007",
           "routingNumber": "011000015",
-          "version": 2
+          "rowVersion": 2
         }
       ]
     },
@@ -243,18 +243,12 @@
       "seq": 21,
       "method": "POST",
       "path": "/api/bank_accounts/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "routingNumber is required",
-            "pointer": "/routingNumber"
-          }
-        ],
+        "detail": "BankAccount {id} not found",
         "instance": "/api/bank_accounts/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

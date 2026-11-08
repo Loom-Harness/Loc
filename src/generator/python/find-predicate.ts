@@ -572,6 +572,7 @@ function lower(
     case "convert":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "id":
     case "lambda":
     case "list":
@@ -662,6 +663,7 @@ function isColumnRooted(e: ExprIR): boolean {
     case "convert":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "id":
     case "lambda":
     case "list":

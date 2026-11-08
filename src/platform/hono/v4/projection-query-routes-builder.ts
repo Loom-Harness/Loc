@@ -1,7 +1,8 @@
+import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { numericKindOf } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
-import { tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
+import { FILE_REF_ZOD, tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
 import {
   mikroBypassedFilters,
   whereToMikroFilter,
@@ -24,6 +25,7 @@ import {
   canonicalIsoExpr,
   wireProjectionValue,
 } from "../../../generator/typescript/repository-wire-builder.js";
+import { T } from "../../../generator/typescript/ts-symbols.js";
 import { readDiscriminator, readScopeFor } from "../../../ir/enrich/read-scope.js";
 import { wireFixedDetail, wireStatus, wireTitle } from "../../../ir/enrich/wire-policy.js";
 import type {
@@ -267,9 +269,6 @@ export function buildQueryProjectionsFile(
   const allAggs = new Set([...sourceAggs, ...followAggs]);
   const usesEvents =
     projections.some((p) => (p.query?.auxiliaries.length ?? 0) > 0) || sourceAggs.size > 0;
-  const needsIds = projections.some((p) =>
-    (p.query?.auxiliaries ?? []).some((a) => a.path.length >= 1),
-  );
 
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
@@ -310,7 +309,7 @@ export function buildQueryProjectionsFile(
     }
   }
   if (anyMoneyAggregate(projections)) lines.push(`import Decimal from "decimal.js";`);
-  if (needsIds) lines.push(`import * as Ids from "../domain/ids";`);
+  lines.push(tsImportSlot("~/domain/ids"));
   for (const aggName of [...allAggs].sort()) {
     lines.push(
       `import { ${aggName}Repository } from "../db/repositories/${lowerFirst(aggName)}-repository";`,
@@ -1351,7 +1350,7 @@ export function idsSourceForAux(
 ): string {
   if (aux.path.length === 1) {
     if (fromRow) {
-      return `rows.map((r) => r.${aux.path[0]!}).filter((x): x is string => x !== null).map((x) => Ids.${aux.aggName}Id(x))`;
+      return `rows.map((r) => r.${aux.path[0]!}).filter((x): x is string => x !== null).map((x) => ${T.Ids}.${aux.aggName}Id(x))`;
     }
     return `rows.map((r) => r.${aux.path[0]!})`;
   }
@@ -1388,7 +1387,7 @@ export function zodForRow(t: TypeIR, enumValues: Map<string, string[]>): string 
         case "json":
           return "z.unknown()";
         case "File":
-          return "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })";
+          return FILE_REF_ZOD;
         case "duration":
           // A5: expression-only primitive — never a projection-row / wire type.
           throw new Error("internal: 'duration' is expression-only and never reaches a view row");
