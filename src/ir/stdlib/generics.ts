@@ -2,7 +2,7 @@
  * Stdlib generic-carrier registry (payload-transport-layer.md, P3).
  *
  * The single source of truth for the blessed closed set of carrier-bounded
- * generic payloads (`paged`, `envelope`).  Each entry maps a constructor name
+ * generic payloads (`paged`, and the synthesized `provenanced`).  Each entry maps a constructor name
  * to a `fields(arg)` builder that produces the concrete `FieldIR[]` of the
  * instantiated shape — `arg` is the carrier type argument substituted into the
  * template.
@@ -18,9 +18,6 @@
  *   paged(T)    → { items: T[]; page: int; pageSize: int; total: int; totalPages: int }
  *                 1-based `page`; `totalPages` kept so clients don't recompute;
  *                 `hasNext`/`hasPrev` omitted (trivially derivable).
- *   envelope(T) → NOT a wire shape.  Ratified (M-T6.57) as "a single-row find":
- *                 unwrapped to `T` at each backend's find-return seam, so
- *                 `find x(): T envelope` ≡ `find x(): T`.  See `envelopeReturn`.
  *   provenanced(T) → { value: T; lineage: json | null }
  *                 The `provenanced` field modifier's WIRE carrier (M-T6.12).
  *                 Synthesized by enrichment, never written in `.ddd`, and
@@ -50,8 +47,6 @@ export interface GenericShape {
 }
 
 const intType: TypeIR = { kind: "primitive", name: "int" };
-const stringType: TypeIR = { kind: "primitive", name: "string" };
-const datetimeType: TypeIR = { kind: "primitive", name: "datetime" };
 const jsonType: TypeIR = { kind: "primitive", name: "json" };
 
 function field(name: string, type: TypeIR): FieldIR {
@@ -72,17 +67,6 @@ export const GENERIC_SHAPES: Record<GenericCtorName, GenericShape> = {
       field("total", intType),
       field("totalPages", intType),
     ],
-  },
-  // `envelope` — the P3 design's `{ id, ts, body }` wrapper.  It never shipped:
-  // nothing in the IR can source `ts`, and the keyword was RATIFIED (M-T6.57) as
-  // "a single-row find" instead — `find x(): T envelope` emits exactly what
-  // `find x(): T` emits, with the carrier unwrapped by `envelopeReturn` at each
-  // backend's find-return seam.  No emitter reads this field list; it is kept so
-  // the monomorphization machinery stays total over `GenericCtorName`.
-  envelope: {
-    ctor: "envelope",
-    param: "P",
-    fields: (arg) => [field("id", stringType), field("ts", datetimeType), field("body", arg)],
   },
   // `Provenanced<T>` (M-T6.12) — the value + its lineage as ONE wire carrier.
   // Unlike its two siblings this ctor has no grammar arm: `total: int
@@ -171,7 +155,7 @@ function genericArgName(arg: TypeIR): string {
 
 /** Deterministic name of the concrete payload a `genericInstance` monomorphizes
  *  to: `<ArgName><Ctor>` — `string paged` → `StringPaged`, `Customer id paged`
- *  → `CustomerIdPaged`, `OrderPlaced envelope` → `OrderPlacedEnvelope`.  The
+ *  → `CustomerIdPaged`, `Order paged` → `OrderPaged`.  The
  *  single source of truth shared by enrichment (which synthesizes the payload
  *  under this name) and every backend (which maps a `genericInstance` reference
  *  to it). */
@@ -219,24 +203,6 @@ export const PAGED_QUERY_PARAMS: readonly string[] = ["page", "pageSize", "sort"
  *  one an unsorted request gets on all of them. */
 export function pagedSortDefault(find: { defaultSort?: readonly unknown[] }): string {
   return find.defaultSort && find.defaultSort.length > 0 ? "" : "id";
-}
-
-/** If `t` is a top-level `envelope(arg)` instantiation, return its carried
- *  `arg`; otherwise null.
- *
- *  **`envelope` is a SINGLE-ROW find** (M-T6.57, ratified).  `find audit(): T
- *  envelope` means "read at most one `T`": the repository answers `T` (absent →
- *  the backend's not-found rung, i.e. 404 on the wire), and the route serialises
- *  the BARE body — exactly what `find audit(): T` already emits on every
- *  backend.  The carrier keyword therefore carries no distinct wire shape; it is
- *  unwrapped at each backend's find-return seam so `T envelope` and `T` emit
- *  identically.  (The `{ id, ts, body }` shape in `GENERIC_SHAPES.envelope`
- *  was the P3 design; nothing in the IR can source `ts`, so it never shipped.)
- *
- *  Sibling of `pagedReturn`: the recogniser a backend's find emitter reaches for
- *  when it needs to know what a carrier return actually means. */
-export function envelopeReturn(t: TypeIR): TypeIR | null {
-  return t.kind === "genericInstance" && t.ctor === "envelope" ? t.arg : null;
 }
 
 /** If `t` is a top-level `paged(arg)` instantiation, return its carrier `arg`

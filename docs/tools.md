@@ -384,6 +384,27 @@ reads every value in it as a real translation.
   a hint entry (`previousSource`, `previousTranslation`) so the translator sees
   what it replaced.
 - *Stale* translations (`--keep-stale`) live in `locales/.loom/stale/<locale>/<ns>.json`.
+- *Renames and moves.* A model-identity key (`<Ctx>.<Type>.<facet>[.<member>]`)
+  changes when the model element does. `sync` re-keys the translation (and its
+  review flag) in every locale, into the new namespace file on a context move,
+  instead of dropping it and starting a new untranslated key. Two sources, in
+  order:
+  1. **Declared** — the same `migration "<name>" { … }` steps `ddd migrate`
+     reads: `Order -> PurchaseOrder` (every facet of the type),
+     `Order.qty -> quantity` (the `field` key), `Sales.Order -> Billing.Order`
+     (a move). No i18n-specific syntax; steps are ledger-inert once carried.
+  2. **Inferred** — for what a block cannot name (ops, enum values, rules,
+     error messages, or a project with no block): exactly one key vanished and
+     one appeared with the same shape (same member facet in the same type, same
+     name/message facet in the same context, or same type and member in another
+     context) *and* the same source text. Ambiguous groups are left alone.
+
+  Each carried key prints under the locale as `renamed: <old> -> <new>
+  (migration block | inferred …)`, and `status` counts it as pending. When the
+  English text changed with the rename (a default label derives from the
+  identifier, so `qty -> quantity` does), the translation is kept and flagged
+  needs-review through the ordinary source-changed path. Source-language
+  overrides are not re-keyed; `check` lists the old ones as stale.
 
 A tree written by an older Loom (`TODO: …` values, diff3 conflict blocks inside
 values, `_stale.<key>` entries) migrates through `ddd i18n sync`: `TODO:` values

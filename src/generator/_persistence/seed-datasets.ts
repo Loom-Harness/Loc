@@ -16,6 +16,7 @@
 // ---------------------------------------------------------------------------
 
 import { scalarCodecOf } from "../../ir/enrich/codec.js";
+import { aggregateTableNameOf } from "../../ir/enrich/storage-names.js";
 import {
   type CreateOmissionValue,
   createInputFields,
@@ -46,6 +47,8 @@ export function asMoneySeedLiteral(value: ExprIR, type: TypeIR | undefined): Exp
 export interface Entry {
   row: SeedRowIR;
   raw: boolean;
+  /** The table the row's aggregate lives in (`aggregateTableNameOf`). */
+  table: string;
 }
 
 /** One dataset's merged entries (across all `seed <dataset>` blocks). */
@@ -73,7 +76,12 @@ export function groupByDataset(ctx: EnrichedBoundedContextIR): Dataset[] {
       byName.set(seed.dataset, ds);
       order.push(seed.dataset);
     }
-    for (const row of seed.rows) ds.entries.push({ row, raw: seed.path === "raw" });
+    for (const row of seed.rows)
+      ds.entries.push({
+        row,
+        raw: seed.path === "raw",
+        table: aggregateTableNameOf(row.aggregate, ctx.aggregates),
+      });
   }
   return order.map((n) => byName.get(n)!);
 }

@@ -182,6 +182,14 @@ export const heexTarget: WalkerTarget = {
     );
   },
 
+  /** Unreachable for HEEx — the parallel heex-walker renders the picker
+   *  through `heex-primitives.ts:renderLocaleSwitcher`. */
+  renderLocaleSwitcher(): never {
+    throw new Error(
+      "heexTarget.renderLocaleSwitcher: the HEEx walker renders LocaleSwitcher via heex-primitives; this should never be called.",
+    );
+  },
+
   /** Unreachable for HEEx — the parallel heex-walker renders the
    *  `For` comprehension through `heex-primitives.ts:renderFor` (a
    *  `for … do … end` block), not this seam. */

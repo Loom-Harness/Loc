@@ -81,7 +81,9 @@ describe("Vue attribute-position expressions are entity-escaped", () => {
   for (const design of ["vuetify", "shadcnVue"]) {
     it(`${design}: the v-for attribute is not terminated by the expression's quotes`, async () => {
       const src = await pageSrc("vue", design, ".vue");
-      const vFor = src.split("\n").find((l) => l.includes("v-for="));
+      // The row loop over the filtered rows — not the first `v-for` of the
+      // concatenation, which is the shell switcher's option loop under i18n.
+      const vFor = src.split("\n").find((l) => l.includes("v-for=") && l.includes("kind"));
       expect(vFor, "the page emits a v-for row loop").toBeDefined();
       // The defect, stated as the shape it took: a raw `"` inside the value.
       expect(vFor).toContain("&quot;A&quot;");

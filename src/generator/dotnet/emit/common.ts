@@ -377,15 +377,7 @@ public sealed class DomainEventDeferral : IDisposable
     }
 }
 
-${
-  /* `Paged<T>`'s sibling carrier record, `Envelope<T>`, used to sit right here.
-     It was DEAD and worse than dead: `find x(): T envelope` declared
-     `Task<Envelope<Order>>` on the repository and returned a bare `Order`
-     (CS0029), and the query handler then read `domain.Id.Value` off it.
-     `envelope` is ratified as a SINGLE-ROW find (M-T6.57) — unwrapped to `T` by
-     `domainFindShape` in find-emit.ts — so no emitted C# names the type and the
-     record is gone.  Do not reintroduce it without a caller. */ ""
-}/// <summary>
+/// <summary>
 /// The paged carrier (payload-transport-layer.md, P3b).  Serializes camelCase to
 /// the same wire JSON as the Hono / React backends (items/page/pageSize/total/
 /// totalPages).  Used both domain-side (Paged&lt;Order&gt; off the repository) and

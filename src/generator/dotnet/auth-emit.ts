@@ -1,3 +1,4 @@
+import { registryTableName } from "../../ir/enrich/storage-names.js";
 import type {
   AggregateIR,
   AuthIR,
@@ -23,7 +24,6 @@ import {
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
-import { dapperAggregateTable } from "./emit/dapper.js";
 import { renderCsType } from "./render-expr.js";
 import { csCodeInit } from "./wire-policy-cs.js";
 
@@ -92,7 +92,7 @@ export function emitAuthFiles(
         ? "Infrastructure/Persistence/DapperOrgPathResolver.cs"
         : "Infrastructure/Persistence/EfOrgPathResolver.cs",
       usingDapper
-        ? renderDapperOrgPathResolver(ns, registry)
+        ? renderDapperOrgPathResolver(ns, registryTableName(sys) as string)
         : renderEfOrgPathResolver(ns, registry),
     );
   }
@@ -1631,8 +1631,7 @@ ${wrap}
  *  every failure path so the middleware falls back to the claim.  Emitting the
  *  EF file regardless of adapter does not compile on a Dapper deployable: no
  *  `Microsoft.EntityFrameworkCore`, no `AppDbContext`. */
-function renderDapperOrgPathResolver(ns: string, registry: AggregateIR): string {
-  const table = dapperAggregateTable(registry.name);
+function renderDapperOrgPathResolver(ns: string, table: string): string {
   const dataKeyColumn = snake("dataKey");
   // The claim is bound as the RAW scalar (Dapper has no id-value-type handler),
   // guarded so a malformed claim fails safe — the raw-parameter mirror of the

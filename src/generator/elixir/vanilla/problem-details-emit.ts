@@ -141,27 +141,19 @@ export function renderVanillaProblemDetailsModule(
   defp localize(nil, message), do: message
 
   defp localize(code, message) do
-    Gettext.with_locale(gettext_locale(), fn ->
+    Gettext.with_locale(${appModule}Web.Gettext, gettext_locale(), fn ->
       Gettext.pgettext(${appModule}Web.Gettext, code, message)
     end)
   end
 
   # The ambient request locale carries the Accept-Language header VERBATIM
-  # (it is the request-stable input, not a catalog-shaped one), so
-  # the normalisation to a lookup tag lives here: the first listed language,
-  # without its \`;q=\` weight.  An unknown tag is not an error for gettext —
-  # it has no translations, so the msgid (the authored English) is returned.
+  # (it is the request-stable input, not a catalog-shaped one).  The shared
+  # matcher picks the first listed language, in q order, that the project ships
+  # (exact tag, then base language: \`fr-FR\` -> \`fr\`) and spells it the way
+  # gettext names its directories (\`pt_BR\`).  No listed language shipping
+  # means the source language, whose msgid is the authored text.
   defp gettext_locale do
-    tag =
-      ${appModule}.RequestContext.locale()
-      |> String.split(",")
-      |> List.first("")
-      |> String.split(";")
-      |> List.first("")
-      |> String.trim()
-      |> String.downcase()
-
-    if tag == "", do: "en", else: tag
+    ${appModule}Web.Locale.header_gettext_locale(${appModule}.RequestContext.locale())
   end`
     : "";
   const conflictFn = hasVersioned

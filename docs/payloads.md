@@ -135,14 +135,13 @@ The arithmetic rules that keep the two types apart — `money ± money`,
 
 ---
 
-## 2. Generic carriers — `paged` and `envelope`
+## 2. Generic carriers — `paged`
 
-Two **carrier-bounded generic payloads** are built in. They are instantiated
+One **carrier-bounded generic payload** is built in. It is instantiated
 with **ML-postfix** syntax — the carrier keyword follows its type argument:
 
 ```
 queryHandler ListOrders(region: string): Order paged   # paged(Order) — the { items, page, … } wrapper
-response Latest { last: OrderPlaced envelope }         # envelope(…) — the BARE body
 ```
 
 The argument must be a **carrier**: a primitive, an `X id`, an enum, a value
@@ -156,18 +155,11 @@ closed, blessed set (`loom.generic-*` codes guard the rules).
 
 ```
 paged(T)    → { items: T[]; page: int; pageSize: int; total: int; totalPages: int }
-envelope(T) → T          # NOT a wrapper (see below)
 ```
 
-**`envelope` is not a wire shape** (M-T6.57, ratified 2026-09-10): `T
-envelope` serialises as the bare `T`.  It was a single-row `find` return; with
-`find` declarations removed it has no read position left (its removal is
-#4122). The
-`{ id, ts, body }` wrapper this document used to pin was the P3 design and never
-shipped on any backend — nothing in the IR can source `ts` — and two backends
-emitted code that did not compile while carrying its type in their signatures.
-`T envelope` and `T` now emit identically everywhere; see
-[`language-reference/04-type-system.md` § `envelope`](language-reference/04-type-system.md#envelope).
+**`envelope` is removed** (`loom.envelope-removed`): `T envelope` meant exactly
+`T`, so write `T` — see
+[`language-reference/04-type-system.md` § `envelope` (removed)](language-reference/04-type-system.md#envelope-removed).
 
 `paged` is **1-based** (`page` starts at 1) and offset-based; `totalPages` is
 included so clients don't recompute it. A paged read auto-gains `page` /
@@ -343,7 +335,8 @@ referenced by its name and so is unaffected.
 | `loom.union-position` | An inline `or` union outside an operation return, or outside a routed entry point's result (workflow `create` / `commandHandler` / `queryHandler`) with an `error` variant (a payload field included). |
 | `loom.union-find-shape-unsupported` | A union find that isn't the absence shape `Agg or <error>` / `Agg option` (exactly the aggregate + one `none`/`error{resource}` variant). |
 | `loom.union-read-undiscriminated` | A member read (`r.code`) or an operation call (`r.touch()`) straight through an `or`-union value — a union find's result or an `or`-returning operation's — outside a variant `match` arm. Discriminate it first (`match r { Order o => o.code, else => … }`); a find declared `: Order` answers 404 on a miss instead. |
-| `loom.generic-arg-not-carrier` | A non-carrier or nested carrier argument to `paged` / `envelope`. |
+| `loom.generic-arg-not-carrier` | A non-carrier or nested carrier argument to `paged`. |
+| `loom.envelope-removed` | `T envelope` — removed; it meant `T`. |
 | `loom.generic-position` | A generic carrier outside a transport position. |
 
 ---
@@ -459,6 +452,5 @@ refused by `loom.workflow-mutation-unsaved`.
 - **Merge-patch update** semantics (presence is the generated update's rule,
   not an `option` type — D-ABSENCE-MODEL, #4109).
   (Exception-less **operation returns** of unions have shipped — see §5.)
-- **User-declared generic payloads** beyond the blessed `paged` / `envelope`
-  set.
+- **User-declared generic payloads** beyond the blessed `paged`.
 - **Multi-arg generics** and row polymorphism over payloads.
