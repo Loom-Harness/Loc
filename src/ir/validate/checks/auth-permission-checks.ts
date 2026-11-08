@@ -73,6 +73,24 @@ export function validateAuth(sys: SystemIR, diags: LoomDiagnostic[]): void {
       });
     }
   }
+  // (3) `auth: required` + a `user { … }` block but no `auth { oidc }`: the
+  // generated verifier is the dev stub — a development login that answers
+  // only under LOOM_DEV_AUTH=1, lets the caller forge any principal through
+  // `x-loom-dev-claims`, and leaves default-deny enforcement unchecked (it
+  // needs the `auth { }` block).  Legitimate while building, never deployable,
+  // so a warning that says so.
+  if (sys.user && !sys.auth) {
+    for (const d of sys.deployables) {
+      if (!d.auth?.required) continue;
+      diags.push({
+        severity: "warning",
+        code: "loom.auth-dev-login-only",
+        message: diagMessage("loom.auth-dev-login-only", { name: d.name }),
+        source: `${sys.name}/${d.name}`,
+        origin: d.origin,
+      });
+    }
+  }
 }
 
 export function validatePermissions(sys: SystemIR, diags: LoomDiagnostic[]): void {

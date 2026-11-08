@@ -46,6 +46,7 @@ import type { Model } from "../language/generated/ast.js";
 import { platformFor } from "../platform/registry.js";
 import { hasAdapters, resolveLayout, resolveStyle } from "../platform/resolve-adapters.js";
 import { AUTH_BASE_PATH } from "../util/api-base.js";
+import { DEV_AUTH_ENV } from "../util/dev-claims.js";
 import { type EmissionSink, emissionSink } from "../util/emission-sink.js";
 import { resourceEnvUrlVar, resourceSidecarUrl } from "../util/resource-env.js";
 import { renderAsyncApi } from "./asyncapi.js";
@@ -1636,6 +1637,13 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   }
   lines.push(`  environment:`);
   for (const [k, v] of shape.env) lines.push(`    ${k}: ${JSON.stringify(v)}`);
+  // The dev-stub verifier (an `auth: required` backend with no `auth { oidc }`
+  // block) answers only when ${DEV_AUTH_ENV}=1.  This compose file is the local
+  // dev stack, so it switches the development login on; a deployment that does
+  // not set it fails closed (401 to every authenticated request).
+  if (d.auth?.required && sys.user && !sys.auth && !platform.isFrontend) {
+    lines.push(`    ${DEV_AUTH_ENV}: "1"`);
+  }
   // Deliberately NO `LOOM_TEST_RESET` here (finding H-30).  The dev-only
   // state reset (`src/util/test-reset.ts`) truncates every table, and this
   // stack publishes the api on 0.0.0.0 — enabling it from the default compose

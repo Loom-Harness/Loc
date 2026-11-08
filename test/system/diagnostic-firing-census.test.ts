@@ -1830,6 +1830,21 @@ system S {
   } }
 }`,
 
+  // `auth: required` + a `user { … }` block with no `auth { oidc }`: the
+  // generated verifier is the dev stub (on only under LOOM_DEV_AUTH=1, header-
+  // forgeable) — a development login, which the warning says.
+  "loom.auth-dev-login-only": `
+system S {
+  user { id: string  role: string }
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 auth: required }
+}`,
+
   // A repository read used as a MEMBER RECEIVER never lowers to a `repo-read`
   // (the detector wants the whole chain), so no read port is threaded in and
   // every backend emits the bare repository name.

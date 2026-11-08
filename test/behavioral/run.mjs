@@ -121,7 +121,7 @@ function entrySource({ deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, aut
     // path the harness takes and the boot path a real deployment takes register
     // the same thing, the way the OIDC arm above already does.
     authImport = `import { registerDevStubVerifier } from ${J(join(deplDir, "auth", "dev-stub.ts"))};`;
-    authRegister = "registerDevStubVerifier();";
+    authRegister = "registerDevStubVerifier(true);";
   }
   const bearerEnv = bearerToken ? `, E2E_BEARER_TOKEN: ${J(bearerToken)}` : "";
   // The authenticated-but-unauthorized credential, in this system's auth

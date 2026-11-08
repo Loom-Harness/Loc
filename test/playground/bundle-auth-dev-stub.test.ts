@@ -82,10 +82,10 @@ describe("makeEntryStdin", () => {
   it("registers the dev stub BEFORE createApp can be reached", () => {
     const entry = makeEntryStdin(HONO_ENTRY, schemaPathFor(HONO_ENTRY), "d/auth/dev-stub.ts");
     expect(entry).toContain('import { registerDevStubVerifier } from "./d/auth/dev-stub.ts";');
-    expect(entry).toContain("registerDevStubVerifier();");
+    expect(entry).toContain("registerDevStubVerifier(true);");
     // Order is the whole point: the call is top-level, so it runs at module
     // evaluation — before the worker calls the exported `createApp`.
-    expect(entry.indexOf("registerDevStubVerifier();")).toBeLessThan(
+    expect(entry.indexOf("registerDevStubVerifier(true);")).toBeLessThan(
       entry.indexOf("export { createApp }"),
     );
   });
@@ -139,10 +139,10 @@ system Helpdesk {
     expect(boot).toBe("d/boot.ts");
     const entry = makeEntryStdin(HONO_ENTRY, schemaPathFor(HONO_ENTRY), stub, boot);
     expect(entry).toContain('export { bootApp } from "./d/boot.ts";');
-    expect(entry).not.toContain("registerDevStubVerifier();");
+    expect(entry).not.toContain("registerDevStubVerifier(true);");
     const bootTs = files.get("d/boot.ts") ?? "";
     expect(bootTs).toMatch(
-      /if \(opts\.verifier === "dev-stub"\) \{\n\s+registerDevStubVerifier\(\);[\s\S]*\} else \{\n\s+registerOidcVerifier\(\);/,
+      /if \(opts\.verifier === "dev-stub"\) \{\n\s+registerDevStubVerifier\(true\);[\s\S]*\} else \{\n\s+registerOidcVerifier\(\);/,
     );
   });
 });

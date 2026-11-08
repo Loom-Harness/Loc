@@ -96,7 +96,7 @@ function entrySource({ deplDir, authMode }) {
     // identity is one this backend never actually serves, and here it would
     // also mean fuzzing `/api/auth/me` against a shape the emitter never emits.
     authImport = `import { registerDevStubVerifier } from ${J(join(deplDir, "auth", "dev-stub.ts"))};`;
-    authRegister = "registerDevStubVerifier();";
+    authRegister = "registerDevStubVerifier(true);";
   }
   return `
 ${MIGRATOR_IMPORT}

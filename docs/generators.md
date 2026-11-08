@@ -1151,7 +1151,7 @@ Per deployable it emits:
 | Persistence | JPA annotations mirroring the shared `MigrationsIR` schema (`@EmbeddedId` typed ids, flattened-VO `@AttributeOverride`s, unidirectional `@OneToMany` containments with `nullable = false` join columns, `@ElementCollection` join tables for `X id[]` + value collections, `@MappedSuperclass` TPC bases); repository triple — domain port (`save`/`findById`/`getById`/`findAll`/`delete` + declared finds), Spring Data interface with `@Query` JPQL finds, `@Repository` impl mapping misses to 404 |
 | Migrations | `MigrationsIR` → Flyway `db/migration/V<ts>.<n>__*.sql` via the shared Postgres-SQL renderer |
 | API | `@RestController` per aggregate (`POST /` 201 `{id}`+Location, `GET /{id}`, `GET /`, `POST /{id}/<op_snake>` 204, `GET /<find_snake>`, `DELETE /{id}`), DTO records in `wireShape` order (money/datetime as strings), wire validators from the shared invariant classifier → 422 RFC 7807 with `errors[]`, `@RestControllerAdvice` (400/403/404/422/500 problem+json — 400 only for a malformed body, the domain floor is 422), springdoc `/openapi.json` brought to cross-backend parity by an `OpenApiContractCustomizer` (named `<Agg>ListResponse` array wrappers, RFC 7807 error responses, named enum components, empty request bodies for param-less ops, per-component `required` sets, `Workflow` operationId suffixes) |
-| Auth | `auth: required` + `user {}` → typed `User` record, `UserVerifier` boundary + accept-all dev stub, 401 filter, ThreadLocal accessor; `currentUser` threads into ops as a trailing parameter |
+| Auth | `auth: required` + `user {}` → typed `User` record, `UserVerifier` boundary + the dev stub (no `auth { oidc }`; on only under `LOOM_DEV_AUTH=1`), 401 filter, ThreadLocal accessor; `currentUser` threads into ops as a trailing parameter |
 | Workflows | `POST /workflows/<snake>` via a per-context `@Service` (loops over `Repo.all(...)` retrievals incl. the call-site `page:` tuple, workflow-level `emit` logging the `domain_event` envelope) |
 | Retrievals / criteria | reified criteria → `<Agg>Criteria` `Specification<T>` factories (java consumes `CriterionIR` directly — the first backend to); `run<Name>` port methods: an exact-criterion-ref retrieval rides `JpaSpecificationExecutor.findAll(spec, Sort)`, composed `where`s fall back to `@Query` JPQL with `order by`; paged runs via the `OffsetLimitPageRequest` Pageable |
 | Paged finds | `find all(): T paged` → `Paged<T>` envelope over Spring Data `Pageable` (1-based, `page=1&pageSize=20` defaults) |
@@ -1515,8 +1515,9 @@ Out of scope for v1 (intentional):
   block emit a *first-class* auth surface on every backend — a typed
   principal, a request boundary (401), `requires` 403 gates on
   operations / pages, `currentUser`/tenancy capability filters,
-  and an OIDC turnkey verifier — but the default verifier is an
-  accept-all **dev stub**.  Wiring a real IdP (or replacing the stub)
+  and an OIDC turnkey verifier — but without an `auth { oidc }` block the
+  verifier is a **dev stub**, on only under `LOOM_DEV_AUTH=1` (the generated
+  dev compose sets it).  Wiring a real IdP (or replacing the stub)
   is the deployment's job; see [`auth.md`](auth.md).  (Fine-grained RBAC
   beyond predicate `requires` is not modelled.)
 - ~~**Pagination on `findAll`**~~ — **stale, corrected 2026-09-10.**

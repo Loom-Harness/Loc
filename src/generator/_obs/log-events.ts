@@ -109,6 +109,10 @@ export const LogEvents = {
     fields: [],
   },
   authDevStubRegistered: { event: "auth_dev_stub_registered", level: "warn", fields: [] },
+  // The dev stub is installed (no `auth { oidc }` block) but LOOM_DEV_AUTH is
+  // not 1, so it refuses every request: one line at boot says why every
+  // authenticated request answers 401.
+  authDevStubDisabled: { event: "auth_dev_stub_disabled", level: "error", fields: ["reason"] },
   // The OIDC verifier refused a presented token (bad signature / iss / exp /
   // aud, or a discovery / JWKS failure) and answers 401.  Every verifier
   // swallows the exception to keep the 401 a 401 (never a 500), which used to

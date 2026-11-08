@@ -4284,6 +4284,13 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.auth-no-user-block": (p: { name: unknown; sysName: unknown }) =>
     `deployable '${p.name}' has 'auth: required' but system '${p.sysName}' declares no 'user { ... }' block. ` +
     `Add a system-level user block describing the JWT claim shape (e.g. 'user { id: string, role: string }').`,
+  "loom.auth-dev-login-only": (p: { name: unknown }) =>
+    `deployable '${p.name}': auth: required without auth { oidc }: development login only.  ` +
+    `The generated verifier is the dev stub: it answers only when LOOM_DEV_AUTH=1 (the generated ` +
+    `docker-compose.yml sets it; every request is 401 otherwise), accepts any caller as a built-in ` +
+    `identity, and lets the caller forge any role, permission or tenant through the ` +
+    `x-loom-dev-claims header; default-deny enforcement is not checked.  Declare an ` +
+    `\`auth { oidc { … } }\` block, or replace the stub with your own verifier, before deploying.`,
   "loom.duplicate-permission": (p: { name: unknown; pName: unknown }) =>
     `subdomain '${p.name}': permission '${p.pName}' is declared more than once.`,
 

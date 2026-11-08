@@ -295,6 +295,7 @@ async function main() {
             "-v", `${projDir}:/app`, "-w", "/app",
             "-e", `DATABASE_URL=${pg.url}`, "-e", "MIX_ENV=dev",
             "-e", "PHX_SERVER=true", "-e", `PORT=${PORT}`,
+            "-e", "LOOM_DEV_AUTH=1",
             IMAGE, "bash", "-c", bootScript,
           ],
           { stdio: "pipe", detached: true },
