@@ -179,6 +179,7 @@ describe("pendingMigration", () => {
     pipelineReducer(pipelineReducer(s, { type: "BOOT_START" }), {
       type: "BOOT_OK",
       ddl: "",
+      backends: ["api"],
       persistent: true,
       applied: [],
       head,
@@ -286,6 +287,7 @@ describe("pendingMigration", () => {
     mem = pipelineReducer(mem, {
       type: "BOOT_OK",
       ddl: "",
+      backends: ["api"],
       persistent: false,
       applied: [],
       head: "a",
