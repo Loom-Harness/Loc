@@ -265,7 +265,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "10-repositories-and-queries.md#the-source-has-to-have-columns",
   "loom.projection-cross-context-source-unsupported":
     "10-repositories-and-queries.md#a-source-in-another-context",
-  "loom.tenancy-folded-projection-unscoped":
+  "loom.tenancy-folded-projection-mixed":
+    "10-repositories-and-queries.md#folded--keyed-by--one-event",
+  "loom.tenancy-projection-over-scoped-fold":
     "10-repositories-and-queries.md#folded--keyed-by--one-event",
   "loom.ignoring-clause-placement":
     "10-repositories-and-queries.md#ignoring--capability-filter-bypass",

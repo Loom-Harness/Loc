@@ -967,7 +967,7 @@ export interface ScaffoldColumn {
  *  enriched IR wire shape; the macro runs on the AST).  A declared property is
  *  sortable iff it is a single orderable root column the read surface shows:
  *  a required, non-array primitive or enum, not `provenanced` (the wire carries
- *  a `{ value, lineage }` object), not the `token` access (`version`), not
+ *  a `{ value, lineage }` object), not the `token` access (`rowVersion`), not
  *  `secret`/`internal`, and not `mask unless` (ordering would leak the hidden
  *  value).  `test/macro/scaffold-sortable-allowlist.test.ts` pins the two lists
  *  equal over one aggregate exercising every exclusion. */
@@ -1186,8 +1186,8 @@ function apiVisibleProperties(members: readonly { $type: string }[]): Property[]
 /** The aggregate-root properties a scaffold LIST column / DETAIL row renders:
  *  the API-visible ones minus the optimistic-concurrency counter.  That counter
  *  is transport-only — read to detect a conflict, echoed back as the update's
- *  If-Match / `version` precondition, never something a user reads or edits
- *  (`updatePreconditions`, src/ir/enrich/wire-projection.ts) — so a "Version"
+ *  If-Match / `rowVersion` precondition, never something a user reads or edits
+ *  (`updatePreconditions`, src/ir/enrich/wire-projection.ts) — so a "Row Version"
  *  column on every list is noise.  It stays on the wire, the DTOs, and the
  *  update forms' precondition plumbing; only the display bodies drop it. */
 function userFacingProperties(agg: Aggregate): Property[] {
@@ -1195,13 +1195,12 @@ function userFacingProperties(agg: Aggregate): Property[] {
 }
 
 /** True iff `p` is the field the `versioned` capability contributes (spliced by
- *  default onto every non-event-sourced aggregate, M-T3.4): the aggregate is
- *  tagged `versioned` AND the property is that capability's `token`-access
- *  `version` field.  Derived from facts already on the AST — the expander's
- *  capability tag plus the field's declared access — rather than the name alone,
- *  so a user's own `version` property (an editable `version: int` the expander
- *  keeps in place of the splice, or any `version` on an event-sourced aggregate,
- *  which is never versioned) still renders. */
+ *  default onto every non-event-sourced aggregate): the aggregate is tagged
+ *  `versioned` AND the property is that capability's `token`-access
+ *  `rowVersion` field.  Derived from facts already on the AST — the expander's
+ *  capability tag plus the field's declared access — rather than the name
+ *  alone, so a user's own `version` property (plain domain data) always
+ *  renders. */
 function isConcurrencyToken(agg: Aggregate, p: Property): boolean {
   const caps = (agg as { [CAPABILITIES_TAG]?: string[] })[CAPABILITIES_TAG] ?? [];
   return caps.includes("versioned") && p.access === "token" && p.name === VERSIONED_TOKEN_FIELD;

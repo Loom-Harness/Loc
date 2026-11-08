@@ -38,6 +38,7 @@ import {
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { declarationSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
@@ -1753,8 +1754,12 @@ function renderNamedOpFunction(
     // `{:error, :conflict}` in `persist_change/1` (→ 409 at the controller),
     // the same protocol the generic PATCH seam has always used.
     const opVersioned = savesLockVersion(agg);
-    const opLockPipe6 = opVersioned ? "\n      |> Ecto.Changeset.optimistic_lock(:version)" : "";
-    const opLockPipe = opVersioned ? "\n    |> Ecto.Changeset.optimistic_lock(:version)" : "";
+    const opLockPipe6 = opVersioned
+      ? `\n      |> Ecto.Changeset.optimistic_lock(:${ROW_VERSION_COLUMN})`
+      : "";
+    const opLockPipe = opVersioned
+      ? `\n    |> Ecto.Changeset.optimistic_lock(:${ROW_VERSION_COLUMN})`
+      : "";
 
     // Operation persistence re-runs the aggregate's invariants: the plain
     // `change(%{})` + `force_change` path bypasses every changeset validator, so a

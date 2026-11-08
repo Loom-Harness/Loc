@@ -72,9 +72,7 @@ describe("MikroORM timerSource scheduling", () => {
     expect(src).not.toContain("./db/schema");
     // pg-boss is adapter-independent (it takes DATABASE_URL directly).
     expect(src).toContain('import { PgBoss } from "pg-boss";');
-    expect(src).toContain(
-      "const boss = new PgBoss({ connectionString: process.env.DATABASE_URL });",
-    );
+    expect(src).toContain(": new PgBoss({ connectionString: process.env.DATABASE_URL });");
   });
 
   it("runs the loom_timer_runs watermark through the mikro connection", async () => {
@@ -118,11 +116,15 @@ describe("MikroORM timerSource scheduling", () => {
   });
 
   it("wires the scheduler at boot on the mikro connection", async () => {
-    const index = (await emit(sys("mikroorm", "every: 30s"))).get("d/index.ts") as string;
-    expect(index).toContain('import { startTimerScheduler } from "./scheduler";');
+    const files = await emit(sys("mikroorm", "every: 30s"));
+    const index = files.get("d/index.ts") as string;
+    const boot = files.get("d/boot.ts") as string;
+    expect(boot).toContain('import { startTimerScheduler } from "./scheduler";');
     expect(index).toContain("const db = orm.em;");
-    expect(index).toContain("const stopTimers = await startTimerScheduler(db, inProcessEvents);");
-    expect(index).toContain("await stopTimers();");
+    expect(boot).toContain(
+      "const stopTimers = await startTimerScheduler(db, inProcessEvents, { infra: opts.infra });",
+    );
+    expect(boot).toContain("await stopTimers();");
   });
 
   it("declares the cron dependencies only for a cron timer", async () => {

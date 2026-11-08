@@ -70,6 +70,12 @@ installConsoleTee();
 
 interface BundleModule {
   createApp: (db: unknown) => { fetch: (req: Request) => Promise<Response> };
+  /** The generated start-up sequence (`boot.ts`) — absent from a bundle whose
+   *  backend emits none, which then boots through bare `createApp`. */
+  bootApp?: (
+    db: unknown,
+    opts: { verifier: "dev-stub"; infra: "in-process" },
+  ) => Promise<{ app: { fetch: (req: Request) => Promise<Response> }; stop: () => Promise<void> }>;
   schema: Record<string, unknown>;
   drizzle: (pglite: unknown, opts: { schema: Record<string, unknown> }) => unknown;
   // `new PGlite()`, `new PGlite(options)`, or `new PGlite(dataDir, options)`.
@@ -134,6 +140,9 @@ async function loadPgliteAssets(): Promise<{
 
 interface RuntimeState {
   app: { fetch: (req: Request) => Promise<Response> };
+  /** Stops what `bootApp` started (timers, channel consumers, the outbox
+   *  relay) — run before PGlite closes on Reset and re-boot. */
+  stop: () => Promise<void>;
   pglite: PgliteHandle;
   ddl: string;
   /** The plan the boot migrated with — what Reset rebuilds the schema from. */
@@ -161,6 +170,11 @@ const DEFAULT_DISPATCH_TIMEOUT_MS = 30_000;
 
 async function tearDownState(): Promise<void> {
   if (!state) return;
+  try {
+    await state.stop();
+  } catch {
+    // best-effort
+  }
   try {
     await state.pglite.close?.();
   } catch {
@@ -269,19 +283,31 @@ async function boot(
   if ("ok" in migrated) return migrated;
 
   let app: BundleModule["createApp"] extends (db: unknown) => infer R ? R : never;
+  let stop = async (): Promise<void> => {};
   try {
     const db = mod.drizzle(pglite, { schema: mod.schema });
     progress("create-app");
-    app = mod.createApp(db);
+    if (mod.bootApp) {
+      // The deployed start-up sequence minus `serve()`: seeds, verifier,
+      // dispatchers, channel consumers, outbox relay, timers.  The preview
+      // reaches no IdP, no broker and no second Postgres connection, so it
+      // takes the dev-stub verifier and the in-process broker + cron.
+      const booted = await mod.bootApp(db, { verifier: "dev-stub", infra: "in-process" });
+      app = booted.app;
+      stop = booted.stop;
+    } else {
+      app = mod.createApp(db);
+    }
   } catch (err) {
     return {
       ok: false,
-      message: `createApp failed: ${errText(err)}`,
+      message: `${mod.bootApp ? "bootApp" : "createApp"} failed: ${errText(err)}`,
     };
   }
 
   state = {
     app,
+    stop,
     pglite,
     ddl: migrated.ddl,
     migrations,

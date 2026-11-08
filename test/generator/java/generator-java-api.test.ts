@@ -109,7 +109,7 @@ describe("java generator — DTO records (S5)", () => {
   it("response record follows wireShape order with money/datetime as strings", async () => {
     const dto = (await files()).get(`${ROOT}/features/orders/OrderResponse.java`)!;
     expect(dto).toContain(
-      "public record OrderResponse(UUID id, String code, Status status, AddressResponse shipTo, String notes, String total, String placedAt, int version, List<LineItemResponse> lineItems, String lineTotal) {",
+      "public record OrderResponse(UUID id, String code, Status status, AddressResponse shipTo, String notes, String total, String placedAt, int rowVersion, List<LineItemResponse> lineItems, String lineTotal) {",
     );
     // Money → wire string at the FIXED NUMERIC(19,4) scale (RS-12).
     expect(dto).toContain(

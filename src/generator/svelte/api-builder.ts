@@ -18,6 +18,7 @@ import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import {
   aggregateHasProvenanced,
@@ -315,7 +316,9 @@ export function buildSvelteApiModule(
     lines.push(`    mutationFn: async (input: ${upperFirst(op.name)}${agg.name}Request) => {`);
     // F-023 — the version comes from the by-id query cache: the row the user is
     // looking at, under the key this hook already invalidates on success.
-    const occArg = sendsIfMatchPrecondition(agg, op) ? ", ifMatch(loaded?.version)" : "";
+    const occArg = sendsIfMatchPrecondition(agg, op)
+      ? `, ifMatch(loaded?.${ROW_VERSION_FIELD})`
+      : "";
     if (occArg) {
       lines.push(`      const loaded = qc.getQueryData<${agg.name}Response>(["${tag}", id()]);`);
     }

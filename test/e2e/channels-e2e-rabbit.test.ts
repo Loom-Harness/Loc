@@ -34,7 +34,7 @@ const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT === "1";
 // here as well as on the redis suite.  The channel below is `queue`/`work`, the
 // only shipped durable broker combo (SHIPPED_COMBOS.redis is
 // `broadcast/ephemeral` only), so on the producer `durableBrokerEvents` is
-// non-empty ⇒ `outboxRelay` is TRUE ⇒ the emitted `index.ts` really does wire
+// non-empty ⇒ `outboxRelay` is TRUE ⇒ the emitted `boot.ts` really does wire
 //
 //   createApp(db, channelPublishTee(t, createOutboxDispatcher(db, inProcess)))
 //   startOutboxRelay(db, channelPublishTee(t, inProcess, { fromRelay: true }))

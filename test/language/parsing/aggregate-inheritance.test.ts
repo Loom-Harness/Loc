@@ -353,7 +353,7 @@ system Sys {
     const customer = ctx.aggregates.find((a) => a.name === "Customer")!;
     const names = wireFieldsFor(customer).map((f) => f.name);
     // id first, then inherited base fields, then own.
-    expect(names).toEqual(["id", "name", "email", "creditLimit", "version"]);
+    expect(names).toEqual(["id", "name", "email", "creditLimit", "rowVersion"]);
   });
 
   it("does not duplicate a base field the concrete redeclares (own shadows)", async () => {
@@ -372,7 +372,7 @@ system Sys {
     const customer = ctx.aggregates.find((a) => a.name === "Customer")!;
     const names = wireFieldsFor(customer).map((f) => f.name);
     expect(names.filter((n) => n === "name")).toHaveLength(1);
-    expect(names).toEqual(["id", "name", "tier", "version"]);
+    expect(names).toEqual(["id", "name", "tier", "rowVersion"]);
   });
 
   it("emits no inheritance diagnostic for an ownTable (TPC) hierarchy (IR-validate)", async () => {

@@ -30,6 +30,7 @@
         "note": "keep me",
         "pages": 3,
         "priority": "High",
+        "rowVersion": 2,
         "span": {
           "end": 2,
           "start": 1
@@ -38,8 +39,7 @@
           "a",
           "b"
         ],
-        "title": "Renamed",
-        "version": 2
+        "title": "Renamed"
       }
     },
     {
@@ -61,13 +61,13 @@
         "note": null,
         "pages": 3,
         "priority": "High",
+        "rowVersion": 3,
         "span": null,
         "tags": [
           "a",
           "b"
         ],
-        "title": "Renamed",
-        "version": 3
+        "title": "Renamed"
       }
     },
     {
@@ -89,12 +89,12 @@
         "note": "back",
         "pages": 3,
         "priority": "High",
+        "rowVersion": 4,
         "span": null,
         "tags": [
           "c"
         ],
-        "title": "Renamed",
-        "version": 4
+        "title": "Renamed"
       }
     },
     {
@@ -116,12 +116,12 @@
         "note": "back",
         "pages": 3,
         "priority": "High",
+        "rowVersion": 5,
         "span": null,
         "tags": [
           "c"
         ],
-        "title": "Renamed",
-        "version": 5
+        "title": "Renamed"
       }
     },
     {
@@ -221,12 +221,12 @@
         "note": "back",
         "pages": 3,
         "priority": "High",
+        "rowVersion": 6,
         "span": null,
         "tags": [
           "c"
         ],
-        "title": "Renamed",
-        "version": 6
+        "title": "Renamed"
       }
     },
     {
@@ -243,12 +243,12 @@
             "note": "back",
             "pages": 3,
             "priority": "High",
+            "rowVersion": 6,
             "span": null,
             "tags": [
               "c"
             ],
-            "title": "Renamed",
-            "version": 6
+            "title": "Renamed"
           }
         ],
         "page": 1,

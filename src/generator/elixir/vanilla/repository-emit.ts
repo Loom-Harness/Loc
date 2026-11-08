@@ -30,6 +30,7 @@ import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { renderPolymorphicReader } from "./base-reader.js";
@@ -406,7 +407,7 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
   const versioned = savesLockVersion(agg);
   const versionedParam = versioned ? ", expected_version \\\\ nil" : "";
   const versionOverride = versioned
-    ? `    record = %{record | version: expected_version || record.version}\n\n`
+    ? `    record = %{record | ${ROW_VERSION_COLUMN}: expected_version || record.${ROW_VERSION_COLUMN}}\n\n`
     : "";
   // The generic PATCH routes through `update_changeset` whenever the aggregate
   // needs one (containment owner, update-excluded field, or versioned) — that

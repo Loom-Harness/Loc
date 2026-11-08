@@ -593,8 +593,9 @@ describe("mikroorm — `seed` data", () => {
     // otherwise drop the `__loom_seed` marker it is about to write.
     expect(cli).toContain("await orm.schema.update({ safe: true });");
     expect(cli).toContain("await runSeeds(orm.em);");
-    // Boot path runs the seeds after schema update.
-    expect(files.get("api/index.ts")).toContain("await runSeeds(db);");
+    // Boot path runs the seeds (in bootApp) after schema update.
+    expect(files.get("api/boot.ts")).toContain("await runSeeds(db);");
+    expect(files.get("api/index.ts")).toContain("await bootApp(db);");
   });
 });
 
@@ -1143,13 +1144,13 @@ describe("mikroorm — shape: document (wave 3)", () => {
     expect(errors).toEqual([]);
   });
 
-  it("collapses the aggregate to a single (id, data, version) jsonb Row — no child/pivot tables", async () => {
+  it("collapses the aggregate to a single (id, data, row_version) jsonb Row — no child/pivot tables", async () => {
     const { files } = await emit(DOC_SRC);
     const entities = files.get("api/db/entities.ts")!;
     expect(entities).toContain("export class ArticleRow {");
     expect(entities).toContain('id: { type: "string", primary: true }');
     expect(entities).toContain('data: { type: "json", columnType: "jsonb" }');
-    expect(entities).toContain('version: { type: "number" }');
+    expect(entities).toContain('rowVersion: { type: "number" }');
     // The contained Section part rides inside the blob — no relational child Row.
     expect(entities).not.toContain("SectionRow");
     expect(entities).toContain("export const entities = [ArticleRowSchema];");
@@ -1165,14 +1166,14 @@ describe("mikroorm — shape: document (wave 3)", () => {
     expect(repo).toContain("function sectionToDoc");
     // Read casts the jsonb blob; the versioned root takes the authoritative
     // version COLUMN (not the stale blob copy).
-    expect(repo).toContain("articleFromDoc(row.data as ArticleDoc, row.version)");
+    expect(repo).toContain("articleFromDoc(row.data as ArticleDoc, row.rowVersion)");
     // Save is the version-CAS write over the blob (default-on versioning).
     expect(repo).toContain("const data = articleToDoc(aggregate);");
     expect(repo).toContain(
-      "await em.insert(ArticleRow, { id: aggregate.id as string, data, version: 1 });",
+      "await em.insert(ArticleRow, { id: aggregate.id as string, data, rowVersion: 1 });",
     );
     expect(repo).toContain(
-      "await em.nativeUpdate(ArticleRow, { id: aggregate.id as string, version: expected }, { data, version: expected + 1 })",
+      "await em.nativeUpdate(ArticleRow, { id: aggregate.id as string, rowVersion: expected }, { data, rowVersion: expected + 1 })",
     );
     expect(repo).toContain('throw new ConcurrencyError("Article", aggregate.id as string)');
   });
@@ -1299,10 +1300,10 @@ describe("mikroorm — persist-time audit stamping", () => {
     // `nativeUpdate` whose `stampUpdate` only touches updatedAt/updatedBy, so the
     // create-only createdAt/createdBy stay at their loaded values (immutable).
     expect(repo).toMatch(
-      /await em\.insert\(OrderRow, stampInsertOrder\([\s\S]*?version: 1 \}\)\);/,
+      /await em\.insert\(OrderRow, stampInsertOrder\([\s\S]*?rowVersion: 1 \}\)\);/,
     );
     expect(repo).toMatch(
-      /await em\.nativeUpdate\(OrderRow, \{ id: aggregate\.id as string, version: expected \}, stampUpdateOrder\([\s\S]*?version: expected \+ 1 \}\), \{ filters: false \}\);/,
+      /await em\.nativeUpdate\(OrderRow, \{ id: aggregate\.id as string, rowVersion: expected \}, stampUpdateOrder\([\s\S]*?rowVersion: expected \+ 1 \}\), \{ filters: false \}\);/,
     );
   });
 

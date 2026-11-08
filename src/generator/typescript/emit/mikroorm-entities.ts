@@ -9,6 +9,7 @@
 // -------------------------------------------------------------------------
 
 import type { CodecPrimitive } from "../../../ir/enrich/codec.js";
+import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
 import {
   aggregateTableName,
   partTableName,
@@ -37,6 +38,7 @@ import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { type MikroScalar, mikroScalar } from "../codec-spelling.js";
 import { joinColumnName, joinTableConstName } from "../emit.js";
 import { isRefCollection } from "../repository-associations-builder.js";
@@ -467,7 +469,13 @@ function documentColumnsOf(): MikroColumn[] {
       primary: false,
       columnType: "jsonb",
     },
-    { prop: "version", mikroType: "number", tsType: "number", nullable: false, primary: false },
+    {
+      prop: ROW_VERSION_FIELD,
+      mikroType: "number",
+      tsType: "number",
+      nullable: false,
+      primary: false,
+    },
   ];
 }
 
@@ -725,11 +733,19 @@ export const mikroProjectionRowClass = (proj: ProjectionIR): string =>
 
 function projectionStateColumns(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): MikroColumn[] {
   const corr = proj.correlationField;
-  return proj.stateFields.flatMap((f): MikroColumn[] =>
+  const cols = proj.stateFields.flatMap((f): MikroColumn[] =>
     f.name === corr
       ? [{ prop: f.name, mikroType: "string", tsType: "string", nullable: false, primary: true }]
       : stateFieldColumns(f, ctx).map((c) => ({ ...c, nullable: true })),
   );
+  // A tenant-scoped fold (`fold-tenancy.ts`): the row carries the tenant
+  // columns and is keyed by `(tenantId, <key>)` — a composite primary key.
+  const tenancy = foldTenancyFor(proj);
+  if (tenancy) {
+    for (const m of tenancy.metadata)
+      cols.push(TEXT(m.field, m.required ? { primary: true } : { nullable: true }));
+  }
+  return cols;
 }
 
 /** The `uniques:` block for each `unique (...)` key the aggregate declares —

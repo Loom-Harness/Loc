@@ -45,7 +45,7 @@
           }
         ],
         "name": "c",
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -70,7 +70,7 @@
           }
         ],
         "name": "c",
-        "version": 4
+        "rowVersion": 4
       }
     },
     {
@@ -101,7 +101,7 @@
           }
         ],
         "name": "c",
-        "version": 4
+        "rowVersion": 4
       }
     },
     {
@@ -129,7 +129,7 @@
             "id": "<volatile:key>",
             "lines": [],
             "name": "renamed",
-            "version": 6
+            "rowVersion": 6
           }
         ],
         "page": 1,

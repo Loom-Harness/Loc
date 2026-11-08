@@ -8,6 +8,7 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { platformFamily } from "../../../language/validators/data/platform-rules.js";
+import { isTenancyStampAssignment } from "../../enrich/stream-tenancy.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
@@ -96,7 +97,14 @@ export function validateStampSupport(sys: SystemIR, diags: LoomDiagnostic[]): vo
             code: "loom.stamp-principal-without-auth",
           });
         }
-        if (enriched.persistedAs === "eventLog") {
+        // The `tenantOwned` capability's own `tenantId` / `dataKey` stamp is
+        // not a lifecycle stamp on an event-sourced aggregate: it stamps the
+        // stream's tenant METADATA when the stream is created (see
+        // `stream-tenancy.ts`).  Every other stamp would mutate folded state.
+        const lifecycleStamps = stamps
+          .flatMap((r) => r.assignments)
+          .filter((a) => !isTenancyStampAssignment(enriched, a));
+        if (enriched.persistedAs === "eventLog" && lifecycleStamps.length > 0) {
           diags.push({
             severity: "error",
             message: diagMessage("loom.stamp-on-event-sourced-invalid", {

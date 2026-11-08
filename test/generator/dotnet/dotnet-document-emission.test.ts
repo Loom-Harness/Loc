@@ -50,7 +50,7 @@ describe(".NET document-persistence emission (normalised(false))", () => {
     expect(poco).toContain("public sealed class CartDocument");
     expect(poco).toContain("public Guid Id { get; set; }");
     expect(poco).toContain('public string Data { get; set; } = "{}";');
-    expect(poco).toContain("public int Version { get; set; }");
+    expect(poco).toContain("public int RowVersion { get; set; }");
   });
 
   it("configures the Data column as jsonb with a concurrency-token Version", () => {
@@ -67,7 +67,7 @@ describe(".NET document-persistence emission (normalised(false))", () => {
       'builder.Property(x => x.Data).HasColumnName("data").HasColumnType("jsonb");',
     );
     expect(cfg).toContain(
-      'builder.Property(x => x.Version).HasColumnName("version").IsConcurrencyToken();',
+      'builder.Property(x => x.RowVersion).HasColumnName("row_version").IsConcurrencyToken();',
     );
   });
 
@@ -113,18 +113,18 @@ describe(".NET document-persistence emission (normalised(false))", () => {
     // M-T6.98: the write-time CAS compares against the HANDLE's version (or
     // `If-Match`) — the concurrency token's original value — not the re-read
     // tracked row a sibling handle may already have advanced.
-    expect(repo).toContain("var __expected = expectedVersion ?? aggregate.Version;");
+    expect(repo).toContain("var __expected = expectedVersion ?? aggregate.RowVersion;");
     expect(repo).toContain(
-      "if (__existing != null) _db.Entry(__existing).Property(x => x.Version).OriginalValue = __expected;",
+      "if (__existing != null) _db.Entry(__existing).Property(x => x.RowVersion).OriginalValue = __expected;",
     );
     expect(repo).toContain("var __nextVersion = __existing == null ? 1 : __expected + 1;");
     expect(repo).toContain(
-      "var __data = System.Text.Json.JsonSerializer.Serialize(aggregate.ToSnapshot() with { Version = __nextVersion }, __json);",
+      "var __data = System.Text.Json.JsonSerializer.Serialize(aggregate.ToSnapshot() with { RowVersion = __nextVersion }, __json);",
     );
     expect(repo).toContain(
-      "_db.Carts.Add(new CartDocument { Id = aggregate.Id.Value, Data = __data, Version = __nextVersion });",
+      "_db.Carts.Add(new CartDocument { Id = aggregate.Id.Value, Data = __data, RowVersion = __nextVersion });",
     );
-    expect(repo).toContain("__existing.Version = __nextVersion;");
+    expect(repo).toContain("__existing.RowVersion = __nextVersion;");
     // Load: deserialise + FromSnapshot.
     expect(repo).toContain(
       "return Cart.FromSnapshot(System.Text.Json.JsonSerializer.Deserialize<CartSnapshot>(__doc.Data, __json)!);",

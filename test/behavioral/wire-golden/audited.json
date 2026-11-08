@@ -27,8 +27,8 @@
         "id": "<volatile:key>",
         "quantity": 2,
         "reference": "R1",
-        "status": 3,
-        "version": 2
+        "rowVersion": 2,
+        "status": 3
       }
     },
     {
@@ -40,8 +40,8 @@
         "id": "<volatile:key>",
         "quantity": 2,
         "reference": "R1",
-        "status": 3,
-        "version": 2
+        "rowVersion": 2,
+        "status": 3
       }
     },
     {
@@ -55,8 +55,8 @@
             "id": "<volatile:key>",
             "quantity": 2,
             "reference": "R1",
-            "status": 3,
-            "version": 2
+            "rowVersion": 2,
+            "status": 3
           }
         ],
         "page": 1,
@@ -129,7 +129,7 @@
         "code": "SH-1",
         "dispatched": false,
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -148,7 +148,7 @@
         "code": "SH-1",
         "dispatched": true,
         "id": "<volatile:key>",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -167,7 +167,7 @@
         "code": "SH-2",
         "dispatched": true,
         "id": "<volatile:key>",
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -186,7 +186,7 @@
         "code": "SH-3",
         "dispatched": true,
         "id": "<volatile:key>",
-        "version": 4
+        "rowVersion": 4
       }
     },
     {
@@ -198,7 +198,7 @@
         "code": "SH-3",
         "dispatched": true,
         "id": "<volatile:key>",
-        "version": 4
+        "rowVersion": 4
       }
     },
     {
@@ -212,7 +212,7 @@
             "code": "SH-3",
             "dispatched": true,
             "id": "<volatile:key>",
-            "version": 4
+            "rowVersion": 4
           }
         ],
         "page": 1,

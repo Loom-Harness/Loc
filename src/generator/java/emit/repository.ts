@@ -15,6 +15,7 @@ import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import {
@@ -142,7 +143,7 @@ function versionCasSql(
   const pool = ctx.pool ?? [agg];
   const table = sqlRestrictionIdent(aggregateTableName(agg, pool));
   const qualified = ctx.schema ? `${sqlRestrictionIdent(ctx.schema)}.${table}` : table;
-  const vc = sqlRestrictionIdent(snake(versionFieldName(agg)));
+  const vc = sqlRestrictionIdent(snake(ROW_VERSION_FIELD));
   const kind = discriminatorValue(agg, pool);
   const kindGuard = kind ? ` and kind = '${kind}'` : "";
   return {
@@ -502,13 +503,6 @@ export function renderJavaRepositoryInterface(
   );
 }
 
-/** The `versioned` capability's synthetic counter field (`version: int token`).
- *  Read off the aggregate rather than hard-coded so the JPQL bump, the entity
- *  mutator and the impl's guard can never drift apart. */
-export function versionFieldName(agg: EnrichedAggregateIR): string {
-  return agg.fields.find((f) => f.access === "token")?.name ?? "version";
-}
-
 export function renderJavaSpringDataRepository(
   agg: EnrichedAggregateIR,
   repo: RepositoryIR | undefined,
@@ -678,7 +672,7 @@ export function renderJavaRepositoryImpl(
   const requestContext = javaRef(`${ctx.basePkg}.config`, "RequestContext");
   const provenance = !!ctx.provenance;
   const versioned = rowVersionGuarded(agg);
-  const versionField = versionFieldName(agg);
+  const versionField = ROW_VERSION_FIELD;
   // Selective bypass: a find / retrieval read that `ignoring`s a capability
   // runs with that capability's Hibernate named filters DISABLED — tenancy's
   // included.  The impl wraps the delegate body with

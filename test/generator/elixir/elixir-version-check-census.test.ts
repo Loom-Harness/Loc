@@ -88,7 +88,7 @@ describe("elixir checksVersion census — source", () => {
 
 const ELIXIR_CASES = CORPUS.filter((f) => f.backends.includes("vanilla")).map((f) => f.id);
 const CALL = "expected_version = __expected_version(conn)";
-const OVERLAY = "expected_version || record.version";
+const OVERLAY = "expected_version || record.row_version";
 
 /** The text of the controller action `def <action>(conn, %{"id" => id}…` up to
  *  the next definition. */
@@ -129,7 +129,7 @@ describe("elixir checksVersion census — emitted controllers and saves", () => 
           );
           expect(
             destroyBlock.includes("{:error, :conflict} ->") &&
-              destroyBlock.includes("expected_version in [nil, record.version]"),
+              destroyBlock.includes("expected_version in [nil, record.row_version]"),
             `${agg.name}.destroy refuses a stale tag`,
           ).toBe(wantsDestroy);
           if (wantsDestroy) reading++;

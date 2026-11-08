@@ -30,6 +30,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const SOURCE = `
 system Probe {
@@ -243,7 +244,7 @@ describe("java — body `let` bindings vs the enclosing method's names", () => {
     const d = await file("ODispatcher.java");
     expect(d).toContain("var events_ = e.amount();");
     expect(d).toContain("var sagaStateRepository_ = 1;");
-    expect(d).toContain("state.setNote(events_ + sagaStateRepository_);");
+    expect(uncheckedInt(d)).toContain("state.setNote(events_ + sagaStateRepository_);");
     expect(d).toContain("var boardRowRepository_ = e.amount();");
     expect(d).toContain("state.setTotal(boardRowRepository_);");
     expect(d).toContain("boardRowRepository.save(state);");

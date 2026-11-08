@@ -38,7 +38,7 @@ const rows = ["delta", "alpha", "echo", "bravo", "charlie", "foxtrot", "golf"].m
   category: null,
   contact: { email: null, phone: null },
   tags: null,
-  version: 1,
+  rowVersion: 1,
 }));
 
 async function names() {

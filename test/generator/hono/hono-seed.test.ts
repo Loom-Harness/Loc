@@ -70,17 +70,18 @@ describe("Hono database seeding (Phase 2, domain path)", () => {
     expect(seed).toContain("async function seedDemo(");
   });
 
-  it("wires the seeder into package.json and index.ts boot", async () => {
+  it("wires the seeder into package.json and the boot sequence", async () => {
     const files = await build();
     const pkg = JSON.parse(find(files, /\/package\.json$/));
     expect(pkg.scripts["db:seed"]).toBe("tsx db/seed-cli.ts");
 
-    // The project-root index.ts (not http/index.ts).
+    // Seeds run inside bootApp (boot.ts), which the project-root index.ts
+    // (not http/index.ts) calls after migrating — and the playground runs too.
+    const boot = find(files, /(^|\/)boot\.ts$/);
+    expect(boot).toContain('import { runSeeds } from "./db/seed"');
+    expect(boot).toContain("await runSeeds(db);");
     const index = find(files, /(^|\/)index\.ts$/, (k) => !/\/http\//.test(k));
-    expect(index).toContain('import { runSeeds } from "./db/seed"');
-    expect(index).toContain("await runSeeds(db);");
-    // Seeding runs after migrations.
-    expect(index.indexOf("await migrate(")).toBeLessThan(index.indexOf("await runSeeds("));
+    expect(index.indexOf("await migrate(")).toBeLessThan(index.indexOf("await bootApp(db)"));
   });
 
   it("keeps db/seed.ts a pure module — the CLI entry lives in db/seed-cli.ts", async () => {
