@@ -2,6 +2,7 @@ import {
   hasDomainFloorAnswer,
   workflowPreconditionThrowArgs,
 } from "../../../generator/_i18n/domain-floor.js";
+import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { numericKindOf } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
@@ -40,6 +41,7 @@ import {
 } from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr, renderTsType } from "../../../generator/typescript/render-expr.js";
 import { renderTsStatements } from "../../../generator/typescript/render-stmt.js";
+import { T } from "../../../generator/typescript/ts-symbols.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
 import {
@@ -618,7 +620,6 @@ export function buildWorkflowsFile(
     "ConcurrencyError",
   ].filter(hasRef);
   const usesEvents = /\bEvents\.\w/.test(bodyStr);
-  const usesIds = /\bIds\.\w/.test(bodyStr);
   const usesSchema = /\bschema\.\w/.test(bodyStr) || /\bNodePgDatabase\b/.test(bodyStr);
   const usesDb = /\bNodePgDatabase\b/.test(bodyStr);
   const usesDispatcher = /\bDomainEventDispatcher\b/.test(bodyStr);
@@ -672,7 +673,7 @@ export function buildWorkflowsFile(
   // money-carrying param stays byte-identical.
   if (/(?<!\.)\bmoneySchema\b/.test(bodyStr))
     imports.push(`import { moneySchema } from "../lib/schemas";`);
-  if (usesIds) imports.push(`import * as Ids from "../domain/ids";`);
+  imports.push(tsImportSlot("~/domain/ids"));
   if (errorClasses.length > 0) {
     imports.push(`import { ${errorClasses.join(", ")} } from "../domain/errors";`);
   }
@@ -1386,7 +1387,7 @@ function taggedEntryValue(
       // the save advanced to, which the in-memory aggregate does not.  The id
       // is re-branded: a bound union arm of an operation's result carries the
       // aggregate's wire projection, whose id is a plain string.
-      return `{ type: ${tag}, ...(${repo}.toWire(await ${repo}.getById(Ids.${leaf.arm.name}Id(String(${rendered}.id)))) as Record<string, unknown>) }`;
+      return `{ type: ${tag}, ...(${repo}.toWire(await ${repo}.getById(${T.Ids}.${leaf.arm.name}Id(String(${rendered}.id)))) as Record<string, unknown>) }`;
     }
     case "workflow":
       return `{ type: ${tag}, ...(${selfRow} as Record<string, unknown>) }`;

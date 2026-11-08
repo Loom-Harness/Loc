@@ -337,7 +337,7 @@ describe("scaffold list/detail — internal & secret fields stay off the page", 
   // `softDeletable`) inject exactly such `internal` fields, so this is the gate
   // that keeps `with scaffold` compiling across the multi-tenant/soft-delete
   // turn.  Managed fields (`deletedAt`) ARE on the wire and must stay; the
-  // `version: int token` counter is on the wire too but is transport-only, so
+  // `rowVersion: int token` counter is on the wire too but is transport-only, so
   // the display bodies drop it (pinned in its own describe below).
   const withAccessFields = `
     system S {
@@ -347,7 +347,7 @@ describe("scaffold list/detail — internal & secret fields stay off the page", 
           tenantId: string internal
           apiKey: string secret
           deletedAt: datetime? managed
-          version: int token
+          revision: int token
         }
         repository Widgets for Widget { }
       }
@@ -378,13 +378,12 @@ describe("scaffold list/detail — internal & secret fields stay off the page", 
 });
 
 describe("scaffold list/detail — the optimistic-concurrency counter stays off the page", () => {
-  // Every non-event-sourced aggregate is `versioned` by default (M-T3.4): the
-  // expander splices `version: int token = 1`.  That counter is transport-only
-  // (read for the update's If-Match precondition, never edited), so a "Version"
+  // Every non-event-sourced aggregate is `versioned` by default: the expander
+  // splices `rowVersion: int token = 1`.  That counter is transport-only (read
+  // for the update's If-Match precondition, never edited), so a "Row Version"
   // list column / detail row is noise.  The drop keys on the capability fact
-  // (aggregate tagged `versioned` + the field's `token` access), not the name —
-  // a user's own editable `version: int` (which the expander keeps in place of
-  // the splice) is ordinary data and still renders.
+  // (aggregate tagged `versioned` + the field's `token` access + its name) —
+  // a user's own `version` field is ordinary data and still renders.
   const src = `
     system S {
       context C {
@@ -396,21 +395,21 @@ describe("scaffold list/detail — the optimistic-concurrency counter stays off 
     }
   `;
 
-  it("drops the spliced `version` from the list columns and detail rows", async () => {
+  it("drops the spliced `rowVersion` from the list columns and detail rows", async () => {
     const { model, errors } = await parseString(src);
     expect(errors).toEqual([]);
     const task: Aggregate = findNode(model, "Aggregate", "Task");
     // the field really is on the aggregate (still on the wire / DTO)…
-    expect(task.members.some((m) => m.$type === "Property" && m.name === "version")).toBe(true);
+    expect(task.members.some((m) => m.$type === "Property" && m.name === "rowVersion")).toBe(true);
     // …but not on the page
     expect(scalarColumnsForAggregate(task).map((c) => c.name)).toEqual(["title"]);
     const details = printExpr(scaffoldDetails(task));
     expect(details).toContain("KeyValueRow(label(Task.title)");
-    expect(details).not.toContain("Version");
-    expect(details).not.toContain("version");
+    expect(details).not.toContain("RowVersion");
+    expect(details).not.toContain("rowVersion");
   });
 
-  it("keeps a user-declared editable `version` field", async () => {
+  it("keeps a user-declared `version` field — plain data", async () => {
     const { model, errors } = await parseString(src);
     expect(errors).toEqual([]);
     const release = findNode(model, "Aggregate", "Release");

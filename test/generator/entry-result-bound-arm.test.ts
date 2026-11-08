@@ -29,7 +29,7 @@ describe("a bound union arm answered by an entry point", () => {
   it("node: the own arm reads the getters; a bound error keeps its fields", async () => {
     const all = await files("node");
     expect(ending(all, "domain/order.ts")).toContain(
-      'return { type: "Order", id: this.id, code: this.code, paid: this.paid, version: this.version };',
+      'return { type: "Order", id: this.id, code: this.code, paid: this.paid, rowVersion: this.rowVersion };',
     );
     const routes = ending(all, "http/shopApi-routes.ts");
     expect(routes).toContain(
@@ -41,7 +41,7 @@ describe("a bound union arm answered by an entry point", () => {
   it(".NET: the own arm is the projection of `this`, re-read once after the save", async () => {
     const all = await files("dotnet");
     expect(ending(all, "Domain/Orders/Order.cs")).toContain(
-      "return new OrderOrUnsettled_Order(this.Id.Value, this.Code, this.Paid, this.Version);",
+      "return new OrderOrUnsettled_Order(this.Id.Value, this.Code, this.Paid, this.RowVersion);",
     );
     const h = ending(all, "CloseOrderHandler.cs");
     expect(h).toContain(

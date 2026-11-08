@@ -37,7 +37,7 @@
         "deletedAt": null,
         "id": "<volatile:key>",
         "reference": "REF-1",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -65,7 +65,7 @@
             "deletedAt": null,
             "id": "<volatile:key>",
             "reference": "REF-1",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -85,7 +85,7 @@
           "deletedAt": null,
           "id": "<volatile:key>",
           "reference": "REF-1",
-          "version": 2
+          "rowVersion": 2
         }
       ]
     },
@@ -151,7 +151,7 @@
         {
           "id": "<volatile:key>",
           "reference": "REF-2",
-          "version": 1,
+          "rowVersion": 1,
           "weightKg": 40
         }
       ]
@@ -164,7 +164,7 @@
       "body": {
         "id": "<volatile:key>",
         "reference": "REF-2",
-        "version": 1,
+        "rowVersion": 1,
         "weightKg": 40
       }
     },
@@ -183,7 +183,7 @@
       "body": {
         "id": "<volatile:key>",
         "reference": "REF-2",
-        "version": 2,
+        "rowVersion": 2,
         "weightKg": 55
       }
     },

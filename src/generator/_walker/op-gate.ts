@@ -1,7 +1,9 @@
 // The `can_<op>` probe of a `when`-gated operation trigger, shared by every
 // walker primitive that renders one (`Modal { OperationForm }`, a bare
 // `OperationForm`, `Action`).
+
 import type { AggregateIR } from "../../ir/types/loom-ir.js";
+import { operationActionGates } from "../../ir/util/op-gates.js";
 import { upperFirst } from "../../util/naming.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
 import { localizedPageChromeValue } from "./i18n-emit.js";
@@ -49,7 +51,7 @@ export function opRequiresClientGate(
   ctx: WalkContext,
 ): string | null {
   if (!ctx.authUi) return null;
-  const gates = op.statements.filter((s) => s.kind === "requires").map((s) => s.expr);
+  const gates = operationActionGates(op);
   if (gates.length === 0) return null;
   const parts = gates.map((g) => tryRenderGate(g, "currentUser"));
   if (!parts.every((p) => p !== null)) return null;

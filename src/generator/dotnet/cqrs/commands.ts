@@ -16,11 +16,13 @@ import { mergePatchFields } from "../../../ir/util/merge-patch.js";
 import {
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
+  maskWritePresenceParam,
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
 } from "../../../ir/util/op-gates.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_PASCAL } from "../../../util/row-version.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { unionMembers } from "../../_payload/union-wire.js";
 import {
@@ -65,7 +67,13 @@ function requiresGate(op: AggregateIR["operations"][number]): string {
           paramExpr: (name) =>
             op.params.some((q) => q.name === name) ? `command.${upperFirst(name)}` : undefined,
         });
-        return `        if (!(${pred})) throw new ForbiddenException(${JSON.stringify(
+        // A merge-patch update's mask write gate runs only when the body
+        // carries the masked key (an absent key keeps the stored value).
+        const present = maskWritePresenceParam(op, g);
+        const cond = present
+          ? `command.PatchedKeys.Contains(${JSON.stringify(present)}) && !(${pred})`
+          : `!(${pred})`;
+        return `        if (${cond}) throw new ForbiddenException(${JSON.stringify(
           `Forbidden: ${g.source}`,
         )});\n`;
       })
@@ -292,7 +300,7 @@ function destroyIfMatchCheck(agg: AggregateIR, usingDapper?: boolean): string {
     ? `new ConcurrencyConflictException(${JSON.stringify(agg.name)}, aggregate.Id.Value)`
     : `new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException(${csSentence("version-conflict", `${agg.name} {aggregate.Id.Value}`)})`;
   return (
-    `        if (${IF_MATCH_EXPECTED_VERSION_CS} is int __ifMatch && __ifMatch != aggregate.Version)\n` +
+    `        if (${IF_MATCH_EXPECTED_VERSION_CS} is int __ifMatch && __ifMatch != aggregate.${ROW_VERSION_PASCAL})\n` +
     `            throw ${stale};\n`
   );
 }

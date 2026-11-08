@@ -15,7 +15,9 @@
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { platformFamily } from "../../../language/validators/data/platform-rules.js";
 import {
+  ADAPTER_REFUSALS,
   BACKEND_CONSTRUCTS,
   type BackendConstruct,
   backendCapability,
@@ -30,6 +32,7 @@ import {
   UI_CONSTRUCTS,
   uiCapability,
 } from "../../../util/target-capabilities.js";
+import { isTenantScopedStream } from "../../enrich/stream-tenancy.js";
 import {
   type BoundedContextIR,
   type DeployableIR,
@@ -234,6 +237,12 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
       )
       .map((b) => ({ what: b.what, source: `${ctx.name}/${b.what}`, origin: b.origin }));
   },
+  "capability:tenantOwned@event-sourced": (ctx) =>
+    ctx.aggregates.filter(isTenantScopedStream).map((agg) => ({
+      what: `event-sourced aggregate '${agg.name}' with tenantOwned`,
+      source: `${ctx.name}/aggregate ${agg.name}`,
+      origin: agg.origin,
+    })),
   "resource:replica@resource": (ctx, sys) =>
     resourceUses(ctx, sys, (ds) =>
       ds.kind === "replica" ? `kind: replica, storage '${ds.storageName}'` : undefined,
@@ -540,6 +549,17 @@ function refuse(
         use,
       );
       return;
+    case "tenant-owned-event-sourced":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#tenant-owned-event-sourced", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
+        use,
+      );
+      return;
     case "resource-kind-unrealized":
       refused(
         diags,
@@ -606,28 +626,6 @@ function refuse(
         use,
       );
       return;
-    case "mask-derived":
-      refused(
-        diags,
-        diagMessage("loom.target-unsupported#mask-derived", {
-          what: use.what,
-          dName,
-          target: t,
-        }),
-        use,
-      );
-      return;
-    case "mask-criterion":
-      refused(
-        diags,
-        diagMessage("loom.target-unsupported#mask-criterion", {
-          what: use.what,
-          dName,
-          target: t,
-        }),
-        use,
-      );
-      return;
     default: {
       const _exhaustive: never = slug;
       void _exhaustive;
@@ -685,6 +683,18 @@ export function validateTargetCapabilities(
         const ctx = ctxByName.get(ctxName);
         if (!ctx) continue;
         for (const use of tupleUses(tuple, ctx, sys)) refuse(diags, v.slug, use, d, d.platform);
+      }
+    }
+    // The adapter axis: a construct the backend's default adapter realizes
+    // but this deployable's `persistence:` adapter does not yet.
+    for (const r of ADAPTER_REFUSALS) {
+      if (platformFamily(d.platform) !== r.family || d.persistence !== r.persistence) continue;
+      for (const ctxName of d.contextNames) {
+        const ctx = ctxByName.get(ctxName);
+        if (!ctx) continue;
+        for (const use of BACKEND_DETECTORS[r.construct](ctx, sys, d)) {
+          refuse(diags, r.verdict.slug, use, d, `${d.platform} (persistence: ${r.persistence})`);
+        }
       }
     }
   }

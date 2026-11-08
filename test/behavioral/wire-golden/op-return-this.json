@@ -20,7 +20,7 @@
         "balance": 101,
         "id": "<volatile:key>",
         "owner": "ann",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -32,8 +32,8 @@
         "balance": 91,
         "id": "<volatile:key>",
         "owner": "ann",
-        "type": "Account",
-        "version": 3
+        "rowVersion": 3,
+        "type": "Account"
       }
     },
     {
@@ -59,7 +59,7 @@
         "balance": 91,
         "id": "<volatile:key>",
         "owner": "ann",
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -78,7 +78,7 @@
         "balance": 91,
         "id": "<volatile:key>",
         "owner": "bea",
-        "version": 4
+        "rowVersion": 4
       }
     },
     {
@@ -92,7 +92,7 @@
             "balance": 91,
             "id": "<volatile:key>",
             "owner": "bea",
-            "version": 4
+            "rowVersion": 4
           }
         ],
         "page": 1,

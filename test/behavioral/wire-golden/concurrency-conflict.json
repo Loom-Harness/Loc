@@ -18,8 +18,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "text": "first",
-        "version": 1
+        "rowVersion": 1,
+        "text": "first"
       }
     },
     {
@@ -36,8 +36,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "text": "second",
-        "version": 2
+        "rowVersion": 2,
+        "text": "second"
       }
     },
     {
@@ -60,8 +60,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "text": "second",
-        "version": 2
+        "rowVersion": 2,
+        "text": "second"
       }
     },
     {
@@ -73,8 +73,8 @@
         "items": [
           {
             "id": "<volatile:key>",
-            "text": "second",
-            "version": 2
+            "rowVersion": 2,
+            "text": "second"
           }
         ],
         "page": 1,

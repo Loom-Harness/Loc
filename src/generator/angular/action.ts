@@ -1,4 +1,5 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
+import { operationActionGates } from "../../ir/util/op-gates.js";
 import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
 import { giveUp } from "../_walker/give-up.js";
@@ -178,7 +179,7 @@ export function renderAngularAction(
   // touches `this.<field>`/params (not client-evaluable — `tryRenderGate`
   // returns null), the button stays ungated; the backend 403 still enforces.
   if (ctx.authUi) {
-    const gates = op.statements.filter((s) => s.kind === "requires").map((s) => s.expr);
+    const gates = operationActionGates(op);
     if (gates.length > 0) {
       const parts = gates.map((g) => tryRenderGate(g, "currentUser"));
       if (parts.every((p) => p !== null)) {

@@ -21,6 +21,7 @@ import { isMacroEmitted } from "../types/origin.js";
 import { canonicalCreate, canonicalDestroy } from "../util/canonical-lifecycle.js";
 import { hasTenantOwned, TENANT_OWNED_DATA_KEY_FIELD } from "../util/tenant-stance.js";
 import { satisfiableAtConstruction } from "../validate/invariant-classify.js";
+import { maskedReadPredicates } from "./mask-taint.js";
 
 /** Any structure carrying a resolved access role.  Both `WireField`
  * and `FieldIR` satisfy this — backends choose the shape that suits
@@ -484,6 +485,9 @@ export function wireTypeForField(f: FieldIR): TypeIR {
 }
 
 export function wireFieldsForAggregate(agg: AggregateIR): WireField[] {
+  // The visibility taint (`mask-taint.ts`): a derived computed from a masked
+  // value carries the masks it reads, so it redacts wherever the field does.
+  const masks = maskedReadPredicates(agg);
   const out: WireField[] = [
     {
       name: "id",
@@ -536,6 +540,7 @@ export function wireFieldsForAggregate(agg: AggregateIR): WireField[] {
       optional: d.type.kind === "optional",
       source: "derived",
       access: "editable",
+      ...(masks.has(d.name) ? { maskUnless: masks.get(d.name)! } : {}),
     });
   }
   return out;

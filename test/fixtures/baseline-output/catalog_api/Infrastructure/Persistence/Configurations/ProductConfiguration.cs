@@ -20,7 +20,7 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
             o.Property(x => x.Amount).HasColumnName("price_amount");
             o.Property(x => x.Currency).HasColumnName("price_currency");
         });
-        builder.Property(x => x.Version).HasColumnName("version").IsConcurrencyToken();
+        builder.Property(x => x.RowVersion).HasColumnName("row_version").IsConcurrencyToken();
         builder.Ignore(x => x.DomainEvents);
     }
 }

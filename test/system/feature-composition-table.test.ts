@@ -198,7 +198,13 @@ function fixtureDisqualified(fixture: string, platform: Platform): string | unde
 describe("feature tuples — every cell is witnessed (fixture) or refused (code)", () => {
   for (const cell of cells()) {
     const v = cell.verdict;
-    if (v.verdict === "supported") {
+    if (v.verdict === "supported" && "construct" in v) {
+      it(`${cell.id}: supported — by the '${v.construct}' row`, () => {
+        expect(TARGET_CAPABILITIES[cell.platform].backend?.[v.construct]).toEqual({
+          verdict: "supported",
+        });
+      });
+    } else if (v.verdict === "supported") {
       it(`${cell.id}: supported — '${v.fixture}' runs the pair`, async () => {
         expect(fixtureDisqualified(v.fixture, cell.platform)).toBeUndefined();
         const model = await lowered(corpusSourceFor(v.fixture, CORPUS_BACKEND[cell.platform]!));

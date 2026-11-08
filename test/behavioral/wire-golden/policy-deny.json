@@ -148,7 +148,7 @@
       "body": {
         "balance": 100,
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -161,7 +161,7 @@
           {
             "balance": 100,
             "id": "<volatile:key>",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -204,7 +204,7 @@
       "body": {
         "balance": 100,
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -224,7 +224,7 @@
       "body": {
         "id": "<volatile:key>",
         "label": "L-1",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -237,7 +237,7 @@
           {
             "id": "<volatile:key>",
             "label": "L-1",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -261,7 +261,7 @@
       "body": {
         "id": "<volatile:key>",
         "label": "L-2",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -376,7 +376,7 @@
       "body": {
         "balance": 100,
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -387,7 +387,7 @@
       "body": {
         "balance": 100,
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -459,7 +459,7 @@
       "body": {
         "id": "<volatile:key>",
         "label": "LADDER-L1",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -483,7 +483,7 @@
       "body": {
         "id": "<volatile:key>",
         "label": "LADDER-L1",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {

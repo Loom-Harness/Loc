@@ -85,7 +85,7 @@ import {
   vanillaHistoryMapperName,
   vanillaHistoryMapperTakesPrincipal,
 } from "./vanilla/audit-history-emit.js";
-import { renderGateCondition } from "./vanilla/gate.js";
+import { renderGateCondition, updateSeamGates } from "./vanilla/gate.js";
 import { isRelationalRowAgg, servesRefLabel, servesRefLabels } from "./vanilla/ref-label.js";
 
 /** One router entry the orchestrator splices into router.ex. */
@@ -2006,15 +2006,23 @@ function renderOperationEventClauses(
         // A principal-reading op takes the actor the same way the `Action`
         // seam passes it (nil when the deployable runs no auth).
         const cu = fb.callsOp && opIR && opUsesCurrentUser(opIR);
+        // A merge-patch `update` seam with a `mask unless` write gate evaluates
+        // it against the actor, and may deny.
+        const updateGated =
+          !fb.callsOp &&
+          updateSeamGates(
+            aggregatesByName.get(fb.name)?.operations.find((o) => o.name === "update"),
+          ).length > 0;
         const submitCall = fb.callsOp
           ? `${ctxModule}.${op}_${aggSnake}(socket.assigns.data, params${cu ? ", Map.get(socket.assigns, :current_user)" : ""})`
-          : `${ctxModule}.update_${aggSnake}(socket.assigns.data, params)`;
-        const errorArm = fb.callsOp
-          ? `
+          : `${ctxModule}.update_${aggSnake}(socket.assigns.data, params${updateGated ? ", Map.get(socket.assigns, :current_user)" : ""})`;
+        const errorArm =
+          fb.callsOp || updateGated
+            ? `
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "${human} failed: #{inspect(reason)}")}`
-          : "";
+            : "";
         return `  @impl true
   def handle_event("validate_${op}", params, socket) do
     params = Map.get(params, "${op}", %{})

@@ -43,7 +43,7 @@ function rowsFor(pageNum) {
       display: `Item ${pageNum}A`,
       price: "1.00",
       tags: [],
-      version: 1,
+      rowVersion: 1,
     },
     {
       id: `p${pageNum}b`,
@@ -51,7 +51,7 @@ function rowsFor(pageNum) {
       display: `Item ${pageNum}B`,
       price: "2.00",
       tags: [],
-      version: 1,
+      rowVersion: 1,
     },
   ];
 }

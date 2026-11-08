@@ -1,3 +1,4 @@
+import { isTenantScopedStream } from "../../../ir/enrich/stream-tenancy.js";
 import {
   destroyVersionCheck,
   operationVersionCheck,
@@ -26,6 +27,7 @@ import {
   callerGates,
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
+  maskWritePresenceParam,
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
@@ -33,6 +35,7 @@ import {
 } from "../../../ir/util/op-gates.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
@@ -453,11 +456,16 @@ export function renderJavaService(
       // in this file rather than the ENTITY's `collectJavaStmtImports` sweep
       // over `op.statements` — a `tsc`-green emitter can still emit Java that
       // doesn't compile.
-      return `        if (!(${renderJavaExpr(g.expr, {
+      const pred = renderJavaExpr(g.expr, {
         thisName: "aggregate",
         accessorProps: true,
         paramExpr: (n) => locals.get(n),
-      })})) throw new ${forbidden}(${JSON.stringify(`Forbidden: ${g.source}`)});`;
+      });
+      // A merge-patch update's mask write gate runs only when the body carries
+      // the masked key (an absent key keeps the stored value).
+      const present = maskWritePresenceParam(op, g);
+      const cond = present ? `request.has(${JSON.stringify(present)}) && !(${pred})` : `!(${pred})`;
+      return `        if (${cond}) throw new ${forbidden}(${JSON.stringify(`Forbidden: ${g.source}`)});`;
     });
   const whenGateLine = (
     op: (typeof agg.operations)[number],
@@ -522,7 +530,7 @@ export function renderJavaService(
     readsIfMatch(operationVersionCheck(agg, op)) ? ", Integer ifMatch" : "";
   const ifMatchGuardFor = (op: OperationIR): string | null =>
     readsIfMatch(operationVersionCheck(agg, op))
-      ? `        if (ifMatch != null && aggregate.version() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, id.value());`
+      ? `        if (ifMatch != null && aggregate.${ROW_VERSION_FIELD}() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, id.value());`
       : null;
   const unionReturnNames = new Set<string>();
   const opLines = agg.operations
@@ -700,7 +708,7 @@ export function renderJavaService(
           // tag raises the exception the repository's guarded save raises (409).
           ...(destroyReadsIfMatch
             ? [
-                `        if (ifMatch != null && aggregate.version() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, id.value());`,
+                `        if (ifMatch != null && aggregate.${ROW_VERSION_FIELD}() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, id.value());`,
               ]
             : []),
           ...(auditDestroy
@@ -782,8 +790,13 @@ export function renderJavaService(
       ? [...unionReturnNames].sort().map((u) => `import ${ctx.entityPkg}.${u};`)
       : []),
     ctx.domainRepoPkg !== ctx.pkg ? `import ${ctx.domainRepoPkg}.${agg.name}Repository;` : null,
-    needsUserAccessor || historyMasks ? `import ${ctx.basePkg}.auth.CurrentUserAccessor;` : null,
-    needsUserAccessor || historyMasks ? `import ${ctx.basePkg}.auth.User;` : null,
+    needsUserAccessor || historyMasks || isTenantScopedStream(agg)
+      ? `import ${ctx.basePkg}.auth.CurrentUserAccessor;`
+      : null,
+    needsUserAccessor || historyMasks || isTenantScopedStream(agg)
+      ? `import ${ctx.basePkg}.auth.User;`
+      : null,
+    isTenantScopedStream(agg) ? `import ${ctx.basePkg}.auth.EventOrigin;` : null,
     anyAudited ? `import ${ctx.basePkg}.config.RequestContext;` : null,
     // Entity history — the shared wire records + read-time helpers
     // (`api-common`, so one copy serves every audited aggregate).
@@ -846,7 +859,27 @@ export function renderJavaService(
     ...destroyLines,
     ...voMappers,
     ...auditActorLines,
-    `    private void publishEvents(${agg.name} aggregate) {`,
+    ...(isTenantScopedStream(agg)
+      ? [
+          // The events' origin is their STREAM's tenant: the outbox capture and
+          // the channel envelope (`tenantid` / `loomorgpath`) read the ambient
+          // principal, so when the raising principal's tenant is not the
+          // stream's (a `policy`-widened subtree append) the publish runs in the
+          // stream tenant's event-origin frame.  Same tenant: the request's own.
+          `    private void publishEvents(${agg.name} aggregate) {`,
+          `        var __origin = User.currentEventOrigin();`,
+          `        if (java.util.Objects.equals(__origin == null ? null : __origin.tenant(), aggregate.tenantId())) {`,
+          `            publishAll(aggregate);`,
+          `        } else {`,
+          `            CurrentUserAccessor.runAsEventOrigin(`,
+          `                new EventOrigin(aggregate.tenantId(), aggregate.dataKey(), __origin == null ? null : __origin.causedBy()),`,
+          `                () -> publishAll(aggregate));`,
+          `        }`,
+          `    }`,
+          ``,
+          `    private void publishAll(${agg.name} aggregate) {`,
+        ]
+      : [`    private void publishEvents(${agg.name} aggregate) {`]),
     `        for (var event : aggregate.pullEvents()) {`,
     // The domain-event narrative line fires at the dispatch seam regardless of
     // whether the event has in-process subscribers — when it does, the in-VM

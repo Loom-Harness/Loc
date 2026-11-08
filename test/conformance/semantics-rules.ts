@@ -270,7 +270,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
   },
   {
     id: "RS-14",
-    title: "`version` increments on every persisted mutation, document shapes included",
+    title: "`rowVersion` increments on every persisted mutation, document shapes included",
     trigger:
       "a `versioned` aggregate with `shape: document` (jsonb-stored): create, invoke an operation, read back",
     observable:
@@ -451,7 +451,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
   },
   {
     id: "RS-20",
-    title: "`version` counts persisted mutations, not entity-graph dirtiness",
+    title: "`rowVersion` counts persisted mutations, not entity-graph dirtiness",
     trigger:
       "a `versioned` aggregate whose mutation touches only a CHILD (a single `contains`), whose create also writes a value-object collection, or whose command re-assigns a value the row already holds",
     observable:
@@ -1560,6 +1560,30 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "the witness is test/fixtures/corpus/merge-patch-update.ddd, whose golden is test/behavioral/wire-golden/merge-patch-update.json; per-backend emission is pinned by test/generator/merge-patch-update.test.ts",
     ],
     tier: "behavioral",
+  },
+  {
+    id: "RS-48",
+    title:
+      'Integer arithmetic in domain code that leaves its declared range is a 422 "Value out of range", never a wrap and never a 500',
+    trigger:
+      "`stock + n`, `a * b`, `a - b` or `-n` over `int` / `long` operands in an aggregate operation, workflow, handler or domain service, with a result outside int32 (`int`) or int64 (`long`)",
+    observable:
+      'the request is refused 422 `application/problem+json` with `title` "Unprocessable Entity" and `detail` "Value out of range" (the domain-floor status, remappable via `httpStatus DomainError`), and the row keeps its stored value',
+    // One predicate decides which nodes are checked for every backend
+    // (`checkedBinaryKind` / `checkedUnaryKind`, src/generator/_expr/checked-int.ts);
+    // the fact is the `arithmetic-overflow` rejection class of wirePolicy.  node
+    // and python compare the result against the bound, elixir raises the typed
+    // GuardError from a `case`, java renders `Math.*Exact` and .NET `checked(...)`,
+    // the last two mapped from ArithmeticException / OverflowException by their
+    // exception advice / filter.  Before the ruling node, python and elixir
+    // persisted an out-of-range value (a 500 from the database CHECK) and java and
+    // .NET wrapped silently (#3585).
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "#3585 (owner ruling 2026-11-03)",
+      "gated statically by test/generator/_expr/checked-int.test.ts; `long` keeps its ruled node ceiling of 2^53-1 (D-LONG-AVG-DEFAULTS) so a long result past it is refused on node only",
+    ],
+    tier: "static",
   },
 ];
 

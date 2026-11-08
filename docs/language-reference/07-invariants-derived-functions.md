@@ -781,7 +781,7 @@ A `workflow` may also declare `function` members (both forms). They are emitted 
 
 ## `mask unless` — field read redaction
 
-`field: T mask unless <currentUser predicate>` redacts the field to `null` on every read response unless the caller satisfies the predicate (fail-closed; the response schema becomes nullable; audit/provenance snapshots stay unmasked). The predicate must be `bool` (`'mask unless' on 'x' must be of type 'bool'`) and may reference only `currentUser` and constants (`loom.field-mask-not-current-user`); a masked field can't be read through a projection source without its mask (`loom.field-mask-projection-source`), and `loom.field-mask-unsupported` names the platforms that don't implement the redaction.
+`field: T mask unless <currentUser predicate>` redacts the field to `null` on every read response unless the caller satisfies the predicate (fail-closed; the response schema becomes nullable; audit/provenance snapshots stay unmasked). The predicate must be `bool` (`'mask unless' on 'x' must be of type 'bool'`) and may reference only `currentUser` and constants (`loom.field-mask-not-current-user`); a masked field can't be read through a projection source without its mask (`loom.field-mask-projection-source`), and `loom.field-mask-unsupported` names the platforms that don't implement the redaction. Wherever the value flows, the mask follows it: a `derived` computed from a masked field redacts with it, a read whose predicate filters on one requires the mask (403), and an operation that writes a caller-supplied value into one requires it too (on the merge-patch `update`, only when the body carries the masked key).
 
 ```ddd
 user { id: string  role: string }

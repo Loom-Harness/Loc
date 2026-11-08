@@ -190,22 +190,22 @@ describe("versioned on every table layout", () => {
     const snap = await snapshotOf(tph(false));
     const version = snap.tables
       .find((t) => t.name === "machines")!
-      .columns.find((c) => c.name === "version")!;
+      .columns.find((c) => c.name === "row_version")!;
     expect(version).toMatchObject({ nullable: false, default: "1", capability: "versioned" });
   });
 
   it("adding `version` to a populated TPH table keeps DEFAULT 1 (no transient-default drop)", async () => {
     const base = await snapshotOf(tph(false));
     const machines = base.tables.find((t) => t.name === "machines")!;
-    machines.columns = machines.columns.filter((c) => c.name !== "version");
+    machines.columns = machines.columns.filter((c) => c.name !== "row_version");
     const loom = await buildLoomModel(tph(false));
     const steps = buildMigrations(loom.systems[0]!, memorySnapshotStore({ Floor: base }), {
       allowDestructive: false,
     })[0]!.steps;
-    const add = steps.find((s) => s.op === "addColumn" && s.column.name === "version");
+    const add = steps.find((s) => s.op === "addColumn" && s.column.name === "row_version");
     expect(add).toMatchObject({ table: "machines", column: { nullable: false, default: "1" } });
     expect(
-      steps.some((s) => s.op === "alterColumnDefault" && s.name === "version"),
+      steps.some((s) => s.op === "alterColumnDefault" && s.name === "row_version"),
       "the DEFAULT 1 is the column's own, not a transient backfill default",
     ).toBe(false);
   });

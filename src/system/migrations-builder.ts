@@ -2,6 +2,7 @@ import { diagMessage } from "../diagnostics/messages.js";
 import { qIdent } from "../generator/sql-pg.js";
 import { renderSqlScalarExpr } from "../generator/sql-pg-expr.js";
 import { idColumn, scalarCodec } from "../ir/enrich/codec.js";
+import { foldTenancyFor } from "../ir/enrich/fold-tenancy.js";
 import {
   aggregateTableName,
   associationTables,
@@ -9,6 +10,7 @@ import {
   projectionTableName,
   tableNameFor,
 } from "../ir/enrich/storage-names.js";
+import { eventLogCarriesTenant, STREAM_TENANT_METADATA } from "../ir/enrich/stream-tenancy.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -89,6 +91,7 @@ import {
   upperFirst,
   workflowStateTableName,
 } from "../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../util/row-version.js";
 import type { SnapshotStore } from "./snapshot.js";
 // ---------------------------------------------------------------------------
 // MigrationsIR builder + diff.
@@ -304,7 +307,7 @@ export function schemaFromModule(
       ctx.aggregates.some((a) => a.persistedAs === "eventLog") ||
       ctx.workflows.some((w) => w.eventSourced);
     if (hasEventStream) {
-      const t = eventLogTableForStream(snake(ctx.name), module.name);
+      const t = eventLogTableForStream(snake(ctx.name), module.name, eventLogCarriesTenant(ctx));
       if (ctxSchema !== undefined) t.schema = ctxSchema;
       tables.push(t);
     }
@@ -633,11 +636,21 @@ function projectionTableShape(
       columns.push(mapped.column);
     }
   }
+  // A tenant-scoped fold (`fold-tenancy.ts`) stamps each row with the event's
+  // tenant and keys it by `(tenant_id, <key>)`: two tenants folding the same
+  // business key get two rows.  `tenant_id` leads the key so the floor read
+  // (`tenant_id = <claim>`) rides the primary-key index.
+  const tenancy = foldTenancyFor(proj);
+  if (tenancy) {
+    for (const m of tenancy.metadata)
+      columns.push({ name: m.column, type: { kind: "text" }, nullable: !m.required });
+  }
+  const tenantKey = tenancy?.metadata.filter((m) => m.required).map((m) => m.column) ?? [];
   return {
     name: tableName,
     ownerModule,
     columns,
-    primaryKey: [snake(corr)],
+    primaryKey: [...tenantKey, snake(corr)],
     foreignKeys: [],
     indexes: [],
   };
@@ -739,8 +752,8 @@ function embeddedTableForAggregate(
 
 /** Document-shaped aggregate (`shape: document`): the whole aggregate
  *  tree is one JSON document, so the table is the canonical document
- *  triple — `id` (PK), `data` (the serialised tree, JSONB), and `version`
- *  (the single-value optimistic-concurrency token; invariant §2.2#1 —
+ *  triple — `id` (PK), `data` (the serialised tree, JSONB), and `row_version`
+ *  (the `versioned` optimistic-concurrency counter, `ROW_VERSION_COLUMN`; invariant §2.2#1 —
  *  the document is written and concurrency-checked as one unit).  No part
  *  or join tables: contained parts live inside `data`, and cross-aggregate
  *  `X id` / `X id[]` references stay references but ride inside `data` as
@@ -752,7 +765,7 @@ function documentTableForAggregate(tableName: string, ownerModule: string): Tabl
     columns: [
       { name: "id", type: idColumnType(), nullable: false },
       { name: "data", type: { kind: "json" }, nullable: false },
-      { name: "version", type: { kind: "int" }, nullable: false },
+      { name: ROW_VERSION_COLUMN, type: { kind: "int" }, nullable: false },
     ],
     primaryKey: ["id"],
     foreignKeys: [],
@@ -770,8 +783,14 @@ function documentTableForAggregate(tableName: string, ownerModule: string): Tabl
  *  optimistic-concurrency control).  `seq` is a context-global monotonic cursor
  *  (Marten's `mt_events` scoped to a context) that a projection replay reads in
  *  order — DB-assigned, carried inert until the rebuild reader lands.  `type`
- *  discriminates the event for the fold; `data` is the JSON payload. */
-function eventLogTableForStream(snakeCtxName: string, ownerModule: string): TableShape {
+ *  discriminates the event for the fold; `data` is the JSON payload.  A log
+ *  holding a `tenantOwned` stream also carries the stream tenant metadata
+ *  columns `tenant_id` / `data_key` (`stream-tenancy.ts`). */
+function eventLogTableForStream(
+  snakeCtxName: string,
+  ownerModule: string,
+  carriesTenant: boolean,
+): TableShape {
   const tableName = `${snakeCtxName}_events`;
   return {
     name: tableName,
@@ -784,6 +803,16 @@ function eventLogTableForStream(snakeCtxName: string, ownerModule: string): Tabl
       { name: "type", type: { kind: "text" }, nullable: false },
       { name: "data", type: { kind: "json" }, nullable: false },
       { name: "occurred_at", type: { kind: "datetime" }, nullable: false, default: "now()" },
+      // Stream tenant metadata (`stream-tenancy.ts`): nullable, because the
+      // log's other streams (a `crossTenant` aggregate, an `eventSourced`
+      // workflow) carry none.
+      ...(carriesTenant
+        ? STREAM_TENANT_METADATA.map((m) => ({
+            name: m.column,
+            type: { kind: "text" as const },
+            nullable: true,
+          }))
+        : []),
     ],
     primaryKey: ["stream_type", "stream_id", "version"],
     foreignKeys: [],
@@ -3433,7 +3462,7 @@ const CAPABILITY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   softDeletable: ["is_deleted", "deleted_at"],
   tenantOwned: ["tenant_id", "data_key"],
   auditable: ["created_at", "updated_at", "created_by", "updated_by"],
-  versioned: ["version"],
+  versioned: [ROW_VERSION_COLUMN],
 };
 
 /** The value an EXISTING row unambiguously holds for a capability column the
@@ -3446,7 +3475,7 @@ const CAPABILITY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
  *      tenant), so the gate keeps refusing and says so;
  *    - `auditable`'s stamps — the true creation time and author of an old row
  *      are unknown, and `created_by` has no defensible placeholder;
- *    - `versioned.version` — a real `DEFAULT 1` column (`CAPABILITY_DB_DEFAULT`), so the
+ *    - `versioned.row_version` — a real `DEFAULT 1` column (`CAPABILITY_DB_DEFAULT`), so the
  *      add is never blocking;
  *    - the nullable ones (`deleted_at`, `data_key`) — a nullable add needs none.
  *  Rides `addColumnDefault`, the M-T2.16 path: added WITH the default, which
@@ -3458,12 +3487,12 @@ const CAPABILITY_BACKFILL: Readonly<Record<string, string>> = {
 
 /** A REAL column DEFAULT a capability column carries in every `CREATE` (not
  *  just the add-time backfill above).  `versioned`'s counter seeds new rows at
- *  1, so `version INTEGER NOT NULL DEFAULT 1` — which also keeps adding the
+ *  1, so `row_version INTEGER NOT NULL DEFAULT 1` — which also keeps adding the
  *  capability to a populated table non-destructive (a NOT NULL add WITH a
  *  default never trips `isBlockingNotNullAdd`).  sql-pg renders it; the Ecto
  *  emitter reads the same `default` off MigrationsIR. */
 const CAPABILITY_DB_DEFAULT: Readonly<Record<string, string>> = {
-  "versioned.version": "1",
+  [`versioned.${ROW_VERSION_COLUMN}`]: "1",
 };
 
 /** Stamp the columns a built-in capability contributed to `columns` (see

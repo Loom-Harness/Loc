@@ -161,7 +161,7 @@ describe("elixir — query-time projection over a `shape: document` source", () 
         '      "title" => record.title,',
         '      "viewCount" => record.view_count,',
         '      "deletedAt" => record.deleted_at,',
-        '      "version" => row.version',
+        '      "rowVersion" => row.row_version',
         "    }",
         "  end",
       ].join("\n"),

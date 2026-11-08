@@ -39,6 +39,7 @@ import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
@@ -517,7 +518,9 @@ export function buildApiModule(
     // the key this hook already invalidates on success.  A cold cache (the form
     // was reached without reading the record) yields `undefined` → no header →
     // the previous behaviour, rather than a guess.
-    const occArg = sendsIfMatchPrecondition(agg, op) ? ", ifMatch(loaded?.version)" : "";
+    const occArg = sendsIfMatchPrecondition(agg, op)
+      ? `, ifMatch(loaded?.${ROW_VERSION_FIELD})`
+      : "";
     if (occArg) {
       lines.push(`      const loaded = qc.getQueryData<${agg.name}Response>(["${tag}", ${ID}]);`);
     }

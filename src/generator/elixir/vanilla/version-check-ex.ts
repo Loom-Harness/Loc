@@ -18,6 +18,7 @@
 
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import type { AggregateIR } from "../../../ir/types/loom-ir.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 
 /** True when the aggregate's row save runs the `optimistic_lock(:version)`
  *  guard — the decision every write-path emitter renders. */
@@ -28,16 +29,16 @@ export function savesLockVersion(agg: AggregateIR): boolean {
 /** The controller binding of the client's expected version. */
 export const EXPECTED_VERSION_BIND = "    expected_version = __expected_version(conn)\n";
 
-/** The loaded `record` with its `version` replaced by the client's `If-Match`
+/** The loaded `record` with its `row_version` counter replaced by the client's `If-Match`
  *  (the loaded version when the header is absent). */
-export const RECORD_AT_EXPECTED_VERSION = "%{record | version: expected_version || record.version}";
+export const RECORD_AT_EXPECTED_VERSION = `%{record | ${ROW_VERSION_COLUMN}: expected_version || record.${ROW_VERSION_COLUMN}}`;
 
 /** The controller's private `If-Match` parser, emitted once per controller that
  *  has at least one `if-match` route. */
 export const EXPECTED_VERSION_HELPER = `
 
   # Parse the optimistic-concurrency precondition (the client's expected
-  # \`version\`) from the \`if-match\` request header.  Absent or unparseable → nil,
+  # \`rowVersion\`) from the \`if-match\` request header.  Absent or unparseable → nil,
   # which the write path treats as write-time CAS (the loaded row's own version).
   defp __expected_version(conn) do
     case get_req_header(conn, "if-match") do

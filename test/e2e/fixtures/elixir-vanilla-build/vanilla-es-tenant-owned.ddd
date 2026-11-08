@@ -1,0 +1,91 @@
+// A `tenantOwned` event-sourced aggregate on elixir (stream-tenancy.ts), with an
+// in-process Dispatcher (the Tracking saga) so the append's stream-origin
+// dispatch frame compiles.  The
+// stream carries its tenant as stored-event metadata: the event log gains
+// `tenant_id` / `data_key`, a new stream is stamped from the principal, every
+// stream load and list is scoped by the generated `<agg>StreamScope` helper,
+// and an append carries the loaded stream's tenant forward.
+//
+//   - `Ledger` keeps the flat tenant floor, is read through a criterion, and
+//     declares an operation (the append path).
+//   - `Book` is widened to `allow deep` — the subtree scope over `data_key` —
+//     and is read once `ignoring tenantOwned` (the unscoped stream load).
+//   - `Org` is the hierarchy registry (`implements tenantRegistry`).
+system EsTenancy {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Main {
+      event Opened { ledger: Ledger id, owner: string }
+      event Deposited { ledger: Ledger id, amount: int }
+      event Shelved { book: Book id, title: string }
+
+      aggregate Ledger persistedAs: eventLog with tenantOwned {
+        owner: string
+        balance: int
+        create open(owner: string) { emit Opened { ledger: id, owner: owner } }
+        operation deposit(amount: int) {
+          precondition amount > 0
+          emit Deposited { ledger: id, amount: amount }
+        }
+        apply(e: Opened) { owner := e.owner  balance := 0 }
+        apply(e: Deposited) { balance := balance + e.amount }
+      }
+      aggregate Book persistedAs: eventLog with tenantOwned {
+        title: string
+        create shelve(title: string) { emit Shelved { book: id, title: title } }
+        apply(e: Shelved) { title := e.title }
+      }
+
+      repository Ledgers for Ledger { }
+      repository Books for Book { }
+      criterion ByOwner(o: string) of Ledger = this.owner == o
+      criterion Titled(t: string) of Book = this.title == t
+      // A criterion read over the folded streams — scoped by `_loadAll`.
+      queryHandler ListByOwner(o: string): Ledger paged {
+        let r = Ledgers.all(ByOwner(o))
+        return r
+      }
+      // A widened single-row read — its synthesized find loads unscoped.
+      queryHandler AnyTitled(t: string): Book? {
+        let b = Books.find(Titled(t)) ignoring tenantOwned
+        return b
+      }
+
+      workflow Tracking {
+        ledgerId: Ledger id
+
+        create(p: Opened) by p.ledger {
+          let l = Ledgers.get(p.ledger)
+          l.deposit(1)
+        }
+      }
+
+      policy {
+        allow deep on Book
+      }
+    }
+    context Registry {
+      aggregate Org with crudish {
+        name: string
+        implements tenantRegistry
+      }
+      repository Orgs for Org { }
+    }
+  }
+  api MainApi from Core {
+    route GET "/ledgers/by_owner/{o}" -> Main.ListByOwner
+    route GET "/books/titled/{t}" -> Main.AnyTitled
+  }
+  storage pg { type: postgres }
+  resource mainLog { for: Main, kind: eventLog, use: pg }
+  resource registryState { for: Registry, kind: state, use: pg }
+  deployable api {
+    platform: elixir
+    contexts: [Main, Registry]
+    dataSources: [mainLog, registryState]
+    serves: MainApi
+    port: 4000
+    auth: required
+  }
+}

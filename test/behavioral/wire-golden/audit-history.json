@@ -76,9 +76,9 @@
         "id": "<volatile:key>",
         "quantity": 5,
         "reference": "R1",
+        "rowVersion": 2,
         "status": 7,
-        "updatedAt": "<timestamp>",
-        "version": 2
+        "updatedAt": "<timestamp>"
       }
     },
     {
@@ -91,9 +91,9 @@
         "id": "<volatile:key>",
         "quantity": 5,
         "reference": "R1",
+        "rowVersion": 2,
         "status": 7,
-        "updatedAt": "<timestamp>",
-        "version": 2
+        "updatedAt": "<timestamp>"
       }
     },
     {
@@ -116,9 +116,9 @@
         "id": "<volatile:key>",
         "quantity": 8,
         "reference": "R1",
+        "rowVersion": 3,
         "status": 7,
-        "updatedAt": "<timestamp>",
-        "version": 3
+        "updatedAt": "<timestamp>"
       }
     },
     {
@@ -323,18 +323,18 @@
             "id": "<volatile:key>",
             "quantity": 8,
             "reference": "R1",
+            "rowVersion": 3,
             "status": 7,
-            "updatedAt": "<timestamp>",
-            "version": 3
+            "updatedAt": "<timestamp>"
           },
           {
             "createdAt": "<timestamp>",
             "id": "<volatile:key>",
             "quantity": 1,
             "reference": "R2",
+            "rowVersion": 2,
             "status": 2,
-            "updatedAt": "<timestamp>",
-            "version": 2
+            "updatedAt": "<timestamp>"
           }
         ],
         "page": 1,
@@ -360,8 +360,8 @@
       "body": {
         "deletedAt": null,
         "id": "<volatile:key>",
-        "text": "note",
-        "version": 1
+        "rowVersion": 1,
+        "text": "note"
       }
     },
     {
@@ -397,8 +397,8 @@
           {
             "deletedAt": null,
             "id": "<volatile:key>",
-            "text": "note",
-            "version": 1
+            "rowVersion": 1,
+            "text": "note"
           }
         ],
         "page": 1,
@@ -477,8 +477,8 @@
       "body": {
         "id": "<volatile:key>",
         "paid": true,
-        "total": 40,
-        "version": 2
+        "rowVersion": 2,
+        "total": 40
       }
     },
     {
@@ -519,8 +519,8 @@
           {
             "id": "<volatile:key>",
             "paid": true,
-            "total": 40,
-            "version": 2
+            "rowVersion": 2,
+            "total": 40
           }
         ],
         "page": 1,

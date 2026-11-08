@@ -49,14 +49,13 @@ export type TargetRefusalSlug =
   | "entity-history-read"
   | "match-await-standard-op"
   | "lifecycle-guard-event-sourced"
+  | "tenant-owned-event-sourced"
   | "resource-kind-unrealized"
   | "storage-type-unrealized"
   | "resource-knob-unrealized"
   | "storage-type-unbound"
   | "feature-composition-broken"
-  | "feature-composition-unwitnessed"
-  | "mask-derived"
-  | "mask-criterion";
+  | "feature-composition-unwitnessed";
 
 /** A target's verdict on one construct × position. */
 export type CapabilityVerdict =
@@ -122,6 +121,9 @@ export type BackendConstruct =
    *  body re-checks the row's write scope before the write and rolls back on
    *  a miss (`ir/util/write-scope-guards.ts`). */
   | "effect:mutate-held-row@command-body"
+  /** `with tenantOwned` on a `persistedAs: eventLog` aggregate — a stream
+   *  that carries its tenant as stored-event metadata (`stream-tenancy.ts`). */
+  | "capability:tenantOwned@event-sourced"
   /** `resource r { kind: replica, … }` — a read-replica binding. */
   | "resource:replica@resource"
   /** `resource r { kind: cache, … }` — a read-through cache binding. */
@@ -208,6 +210,7 @@ export const ALL_UI_CONSTRUCTS: readonly UiConstruct[] = [...UI_CONSTRUCTS, ...O
 export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "stmt:requires@event-sourced-create",
   "effect:mutate-held-row@command-body",
+  "capability:tenantOwned@event-sourced",
   "resource:replica@resource",
   "resource:cache@resource",
   "resource:snapshot@resource",
@@ -345,6 +348,9 @@ export function tupleFeatures(t: FeatureTuple): readonly [Feature, Feature] {
  *  witness, so "supported" cannot be claimed without a fixture that runs it. */
 export type CompositionVerdict =
   | { readonly verdict: "supported"; readonly fixture: string }
+  /** Supported because a construct row names the same pair and is supported
+   *  on this target, proven by that row's own witness. */
+  | { readonly verdict: "supported"; readonly construct: BackendConstruct }
   | { readonly verdict: "refused"; readonly slug: TargetRefusalSlug }
   | { readonly verdict: "owned"; readonly code: string };
 
@@ -492,7 +498,11 @@ const COMMON_COMPOSITIONS: Readonly<Record<FeatureTuple, CompositionVerdict>> = 
   // readable by id, in the list and through every find.
   "persistence:eventLog+capability:softDeletable": BROKEN,
   "persistence:eventLog+capability:auditable": STAMP_ON_EVENT_SOURCED,
-  "persistence:eventLog+capability:tenantOwned": STAMP_ON_EVENT_SOURCED,
+  // The stream carries its tenant as event metadata.
+  "persistence:eventLog+capability:tenantOwned": {
+    verdict: "supported",
+    construct: "capability:tenantOwned@event-sourced",
+  },
   "persistence:eventLog+capability:provenanced": UNWITNESSED,
   "persistence:document+capability:versioned": witnessed("paged-nonrelational"),
   "persistence:document+capability:softDeletable": witnessed("find-bypass"),
@@ -546,10 +556,11 @@ const COMMON_PAIRS: Pick<
   "timer:broker-channel@deployable": refused("feature-composition-unwitnessed"),
   // No fixture runs a widened read stance over a tenant-owned TPH base.
   "read:wide-stance@tph-subtype": refused("feature-composition-unwitnessed"),
-  // The derived value is computed from the unmasked field and returned whole.
-  "derived:reads-masked-field@aggregate": refused("mask-derived"),
-  // The predicate filters on the unmasked value, so its hits reveal it.
-  "criterion:reads-masked-field@context": refused("mask-criterion"),
+  // A derived that reads a masked field inherits the mask, and a criterion
+  // over one is evaluated as the caller sees it; the `field-mask` corpus
+  // fixture runs both on every backend.
+  "derived:reads-masked-field@aggregate": SUPPORTED,
+  "criterion:reads-masked-field@context": SUPPORTED,
   "field:valueobject-collection@entity-part": owned("loom.collection-field-unpersisted"),
   "invariant:nested-valueobject@valueobject": SUPPORTED,
 };
@@ -558,6 +569,9 @@ const COMMON_PAIRS: Pick<
 const STATIC_HOST_BACKEND_ROWS: Readonly<Record<BackendConstruct, CapabilityVerdict>> = {
   "stmt:requires@event-sourced-create": ES_CREATE_REQUIRES_REFUSED,
   "effect:mutate-held-row@command-body": SUPPORTED,
+  // A tenant-scoped event stream is stamped, scoped and carried as event
+  // metadata (the node MikroORM event store is refused in `ADAPTER_REFUSALS`).
+  "capability:tenantOwned@event-sourced": SUPPORTED,
   ...UNREALIZED_RESOURCES,
   ...COMMON_PAIRS,
 };
@@ -605,6 +619,27 @@ const REACT_CAPABILITIES: TargetCapabilityTable = {
     scopes: ["props:typescript", "forms:shared-local-scope"],
   },
 };
+
+/** A backend construct one persistence ADAPTER cannot realize yet, although the
+ *  backend's default adapter (the row in `TARGET_CAPABILITIES`) does — the
+ *  adapter axis of the same table.  `loom.target-unsupported` reads these per
+ *  deployable, matched on its platform family and `persistence:` knob. */
+export interface AdapterRefusal {
+  family: "node" | "dotnet" | "elixir" | "python" | "java";
+  persistence: string;
+  construct: BackendConstruct;
+  verdict: CapabilityVerdict & { verdict: "refused" };
+}
+
+export const ADAPTER_REFUSALS: readonly AdapterRefusal[] = [
+  // The MikroORM event store does not carry a stream's tenant yet (#4686).
+  {
+    family: "node",
+    persistence: "mikroorm",
+    construct: "capability:tenantOwned@event-sourced",
+    verdict: { verdict: "refused", slug: "tenant-owned-event-sourced" },
+  },
+];
 
 /** Every target's table.  The `static` PLATFORM is React's UI-only alias and
  *  shares its table; a ui whose resolved FRAMEWORK is spelled `static` is not
@@ -655,6 +690,7 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
     backend: {
       "stmt:requires@event-sourced-create": SUPPORTED,
       "effect:mutate-held-row@command-body": SUPPORTED,
+      "capability:tenantOwned@event-sourced": SUPPORTED,
       ...UNREALIZED_RESOURCES,
       ...COMMON_PAIRS,
       // The changeset casts the nested value object inline and never runs its
