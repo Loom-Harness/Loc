@@ -78,6 +78,7 @@ import { lines } from "../../util/code-builder.js";
 import {
   plural,
   pythonIdent,
+  pythonModuleFn,
   pythonWireIdent,
   pythonWireNeedsAlias,
   snake,
@@ -121,8 +122,15 @@ type Handler = CommandHandlerIR | QueryHandlerIR;
 // Symbols beyond the shared HTTP set, as `ref()` markers (M-T9.84).
 const ANY = pyRef("typing", "Any");
 const DOMAIN_EVENT = pyRef("app.domain.events", "DomainEvent");
-/** A handler's application function (`from app.application.<snake> import <snake>`). */
-const handlerFnRef = (name: string): string => pyRef(`app.application.${snake(name)}`, snake(name));
+/** A handler's application module and function name: one module per handler,
+ *  named for the function it defines.  `pythonModuleFn` escapes a keyword
+ *  (`Def` → `def_`, which `import` could not spell) and a builtin (`All` →
+ *  `all_`), so the module-level `def` never rebinds the builtin its own body or
+ *  the importing router calls. */
+const handlerFn = (name: string): string => pythonModuleFn(name);
+/** A handler's application function (`from app.application.<fn> import <fn>`). */
+const handlerFnRef = (name: string): string =>
+  pyRef(`app.application.${handlerFn(name)}`, handlerFn(name));
 /** An extern handler's user impl function. */
 const externImplRef = (name: string): string =>
   pyRef(`app.application.impl.${externImplFn(name)}`, externImplFn(name));
@@ -183,7 +191,7 @@ const externImplFn = (name: string): string => `${snake(name)}_impl`;
  *  void command it awaits without returning; otherwise it returns the impl's
  *  value verbatim (the impl owns the return contract). */
 function renderPyExternDispatch(h: Handler): string {
-  const fnName = snake(h.name);
+  const fnName = handlerFn(h.name);
   const paramSig = h.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
   const params = [`session: ${H.AsyncSession}`, ...paramSig].join(", ");
   const ret = h.returnType ? renderPyType(h.returnType) : "None";
@@ -310,7 +318,7 @@ function renderPagedRunHandlerModule(
   ctx: EnrichedBoundedContextIR,
   hasDispatch: boolean,
 ): string {
-  const fnName = snake(h.name);
+  const fnName = handlerFn(h.name);
   const run = pagedRunStmt(h, ctx);
   const repoVar = pythonIdent(run.repoName);
   const dispatcherExpr = dispatcherFor(hasDispatch);
@@ -386,7 +394,7 @@ function renderHandlerModule(
   if (h.returnType && pagedReturn(h.returnType)) {
     return renderPagedRunHandlerModule(h, ctx, hasDispatch);
   }
-  const fnName = snake(h.name);
+  const fnName = handlerFn(h.name);
   const usesUser = handlerUsesUser(h, ctx);
 
   // A `command`/`query` RECORD param (M-T5.10 handler-param rewrite) FLATTENS
@@ -602,7 +610,10 @@ export function emitPyExplicitHandlers(
   const hasExtern = handlers.some((h) => h.extern);
   if (hasExtern) out.set("app/application/impl/__init__.py", "");
   for (const h of handlers) {
-    out.set(`app/application/${snake(h.name)}.py`, renderHandlerModule(h, ctx, hasDispatch, sys));
+    out.set(
+      `app/application/${handlerFn(h.name)}.py`,
+      renderHandlerModule(h, ctx, hasDispatch, sys),
+    );
     // Extern: the scaffold-once user impl the dispatch above delegates to.
     if (h.extern) out.set(externImplPath(h.name), renderPyExternImpl(h, ctx));
   }

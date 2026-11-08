@@ -26,6 +26,7 @@ import {
   escapeTargetMember,
   IDENT_TARGETS,
   isReserved,
+  pythonBuiltins,
   reservedWords,
 } from "../../src/util/target-identifiers.js";
 import { REPO_ROOT } from "../_helpers/ddd-corpus.js";
@@ -54,6 +55,19 @@ describe("coverage against authoritative keyword lists", () => {
     // PEP 634/695 keep `match` / `case` / `type` / `_` legal identifiers, so a
     // `case: string` member stays `case` on python.
     expect(soft.filter((k) => isReserved("python", k))).toEqual([]);
+  });
+
+  it("python: the module-level builtin escape covers every public `dir(builtins)` name", () => {
+    const out = execFileSync(
+      "python3",
+      [
+        "-c",
+        "import builtins, json; print(json.dumps(sorted(n for n in dir(builtins) if n.islower() and not n.startswith('_'))))",
+      ],
+      { encoding: "utf8" },
+    );
+    const known = new Set(pythonBuiltins());
+    expect((JSON.parse(out) as string[]).filter((n) => !known.has(n))).toEqual([]);
   });
 
   it("ts: every reserved and strict-mode future-reserved word of the TS scanner, plus arguments/eval", () => {

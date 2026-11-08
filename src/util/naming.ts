@@ -1,4 +1,4 @@
-import { escapeTargetIdent } from "./target-identifiers.js";
+import { escapePythonBuiltin, escapeTargetIdent } from "./target-identifiers.js";
 
 /** Uppercase the first character only — the rest is left untouched.
  *  Intended for identifiers that are already camelCase / PascalCase
@@ -171,6 +171,15 @@ export function escapePythonIdent(name: string): string {
  *  `@JsonProperty`. */
 export function pythonIdent(name: string): string {
   return escapePythonIdent(snake(name));
+}
+
+/** The python MODULE-LEVEL function name for a `.ddd` name — {@link
+ *  pythonIdent}, further escaped when it is a python builtin (`All` → `all_`,
+ *  `Sum` → `sum_`).  A module-level `def all(...)` rebinds `all` for the whole
+ *  module (its own body included) and for every module that imports it by
+ *  name, so the declaration, its import and every call go through this. */
+export function pythonModuleFn(name: string): string {
+  return escapePythonBuiltin(pythonIdent(name));
 }
 
 /** The python WIRE-model attribute for a `.ddd` name: the pydantic HTTP
