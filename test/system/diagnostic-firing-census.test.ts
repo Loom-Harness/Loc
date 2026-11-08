@@ -1462,8 +1462,11 @@ system S {
     criterion ByCode(c: string) of Order = this.code == c
     retrieval Coded(c: string) of Order { where: ByCode(c) }
     workflow w { create(c: string) { let xs = Orders.all(Coded(c), sort: [code desc], page: { limit: 5 }) } }`),
+  // A repository verb on a name no repository declares.
+  "loom.repository-unknown": repoOnly(`    aggregate Order with crudish { code: string }
+    workflow w { create(id: Order id) { let o = Orders.get(id) } }`),
   // A repository read by a name no contract verb spells.
-  "loom.repo-unknown-read": repoOnly(`    aggregate Order with crudish { code: string }
+  "loom.repo-unknown-read":repoOnly(`    aggregate Order with crudish { code: string }
     repository Orders for Order
     domainService Q {
       operation taken(c: string): bool { return Orders.findByID(c) != null }

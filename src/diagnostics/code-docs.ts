@@ -179,6 +179,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.repo-get-criterion": "10-repositories-and-queries.md#the-repository-verbs",
   "loom.repo-find-retrieval": "10-repositories-and-queries.md#the-repository-verbs",
   "loom.repo-all-arg": "10-repositories-and-queries.md#the-repository-verbs",
+  "loom.repository-unknown": "10-repositories-and-queries.md#the-repository-verbs",
   "loom.repo-sort-placement": "10-repositories-and-queries.md#sorting-an-all-over-a-criterion",
   "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
   "loom.repo-unknown-read": "10-repositories-and-queries.md#repository--the-read-contract",

@@ -191,6 +191,29 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/language/validators/repo-verbs.ts
   // ----------------------------------------------------------------------
+  "loom.repository-unknown": (p: {
+    receiver: unknown;
+    verb: unknown;
+    ctx: unknown;
+    agg: unknown;
+    declared: unknown;
+  }) =>
+    `'${p.receiver}.${p.verb}(…)' reads a repository, but no repository named '${p.receiver}' is ` +
+    `declared in context '${p.ctx}'.${p.declared}  Declare it — \`repository ${p.receiver} for ` +
+    `${p.agg} { }\` — or read through a repository the context declares.`,
+  "loom.repository-unknown#aggregate": (p: { receiver: unknown; verb: unknown; repo: unknown }) =>
+    `'${p.receiver}.${p.verb}(…)' reads through the aggregate's name, but '${p.receiver}' is an ` +
+    `aggregate, not a repository; outside a context 'test' a body reads through the repository: ` +
+    `\`${p.repo}.${p.verb}(…)\`.`,
+  "loom.repository-unknown#aggregate-no-repository": (p: {
+    receiver: unknown;
+    verb: unknown;
+    repo: unknown;
+  }) =>
+    `'${p.receiver}.${p.verb}(…)' reads through the aggregate's name, but '${p.receiver}' is an ` +
+    `aggregate, not a repository, and the context declares no repository for it.  Declare one — ` +
+    `\`repository ${p.repo} for ${p.receiver} { }\` — and read through it: ` +
+    `\`${p.repo}.${p.verb}(…)\`.`,
   "loom.repo-verb-renamed": (p: {
     receiver: unknown;
     verb: unknown;
@@ -215,6 +238,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.receiver}.all(…)' takes a criterion or a retrieval reference ('Active', 'InRegion(r)'), ` +
     "or nothing for the whole collection — not an inline predicate. Declare the predicate as a " +
     "'criterion' and pass its name.",
+  "loom.repo-all-arg#integration-test": (p: { receiver: unknown }) =>
+    `'${p.receiver}.all(…)' in a context 'test' reads the whole collection through the ` +
+    `generated repository, which takes no criterion, retrieval, 'sort:' or 'page:' there. ` +
+    `Write '${p.receiver}.all()' and assert over the list, or exercise the filtered read ` +
+    `through the query handler that runs it.`,
   "loom.repo-sort-placement": (p: { receiver: unknown; verb: unknown }) =>
     `'sort:' on '${p.receiver ? `${p.receiver}.` : ""}${p.verb}(…)' is never read: it belongs to a ` +
     "repository read over a criterion — 'Repo.all(<Criterion>, sort: [field desc])'.",

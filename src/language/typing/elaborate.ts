@@ -33,7 +33,11 @@ import {
   PRINCIPAL_ORG_PATH,
   PRINCIPAL_ROOT_ORG,
 } from "../../util/principal.js";
-import { repositoryVerb } from "../../util/repository-contract.js";
+import {
+  isRepoVerbAt,
+  repositoryVerb,
+  retiredRepoVerb,
+} from "../../util/repository-contract.js";
 import { findVerb } from "../../util/resource-verbs.js";
 import { durationUnitOf } from "../../util/temporal.js";
 import { isValueObjectEqualsIntrinsic } from "../../util/value-object-intrinsics.js";
@@ -136,6 +140,7 @@ import {
   isSystem,
   isTemplateStr,
   isTernaryExpr,
+  isTestBlock,
   isTestE2E,
   isThisRef,
   isUi,
@@ -184,6 +189,9 @@ export interface Frame {
   candidateAlias?: string;
   /** A `test e2e` body: ctx-less, bare domain names stay unresolved. */
   e2e: boolean;
+  /** A context `test` body: it reads through the generated repository by
+   *  AGGREGATE name (`Order.get(id)`, `Order.all()`). */
+  contextTest?: boolean;
   /** Inside a row-shaped walker primitive (`For` / `Table` / `DataGrid`): the
    *  row element type every context-less lambda in the body binds. */
   rowElem?: Ty;
@@ -425,6 +433,7 @@ export class Elaborator {
     }
     if (isUi(node)) return scope.child({ ui: true, ctx: undefined });
     if (isTestE2E(node)) return scope.child({ e2e: true, ctx: undefined, owner: undefined });
+    if (isTestBlock(node)) return scope.child({ contextTest: true });
     if (isAggregate(node) || isEntityPart(node) || isValueObject(node) || isWorkflow(node)) {
       return scope.child({ owner: node, candidateAlias: undefined });
     }
@@ -1462,13 +1471,35 @@ export class Elaborator {
     }
     if (ms.call) {
       const repo = this.index.find("repository", name, node);
-      if (repo && !this.index.find("aggregate", name, node)) {
+      const aggNamed = this.index.find("aggregate", name, node);
+      if (repo && !aggNamed) {
         const agg = repo.aggregate?.ref;
         this.synthArgs(ms.args, scope);
         return {
           t: agg ? this.repoReadType(agg, ms) : Ty.unknown("unresolved-type"),
           consumed: 1,
         };
+      }
+      // A repository verb on a name that is not a repository is a read, never
+      // the collection quantifier `all(pred)` / `any(pred)` an unknown
+      // receiver would otherwise fall back to.  A context `test` reads by
+      // aggregate name; anywhere else the name has no rows to read, and the
+      // read stays unknown for `checkRepoVerbs` to report.
+      const verb = String(ms.member);
+      if (!scope.frame.ui && !scope.frame.e2e && (repositoryVerb(verb) || retiredRepoVerb(verb))) {
+        if (aggNamed && scope.frame.contextTest && isRepoVerbAt(verb, "integration-test")) {
+          this.synthArgs(ms.args, scope);
+          return { t: this.repoReadType(aggNamed, ms), consumed: 1 };
+        }
+        const head = this.synthName(name, scope, node);
+        if (head.kind === "unknown" && head.cause === "unresolved-name") {
+          this.synthArgs(ms.args, scope);
+          return { t: Ty.unknown("unresolved-name"), consumed: 1 };
+        }
+        if (aggNamed && !scope.frame.contextTest) {
+          this.synthArgs(ms.args, scope);
+          return { t: Ty.unknown("not-a-value"), consumed: 1 };
+        }
       }
       const svc = this.index.find("service", name, node);
       if (svc) {

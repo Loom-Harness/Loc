@@ -44,7 +44,19 @@ The verbs are `get`, `find`, `getBy`, `findBy`, `all` and `remove` ([D-REPO-VERB
 - **`all` runs a criterion or a retrieval**, or with no argument reads the whole collection. An inline predicate is not an argument: declare it as a `criterion` and pass the name (`loom.repo-all-arg`). `page: { offset?, limit? }` bounds the read. In a workflow body an `all(<Criterion>)` without `page:` is warned about (`loom.findall-no-page`).
 - **`remove` is the one write.** It deletes the aggregate and yields no value.
 
-Every verb reads the same in a workflow, a handler, a domain service and a context `test` (which names the aggregate instead of the repository: `Order.get(id)`). The emitted repository methods keep their own names (`getById`, `findById`, `findAll`, `run<Retrieval>`, `findAllBy<Criterion>`). Those are generated code, never `.ddd` spellings.
+Every verb reads the same in a workflow, a handler, a domain service and a context `test` (which names the aggregate instead of the repository: `Order.get(id)`, `Order.find(id)`, `Order.all()`). In a context `test`, `Order.all()` is the whole collection as `Order[]`; an argument there is refused (`loom.repo-all-arg`). A verb called on a name that is no repository — an undeclared name, or an aggregate outside a context `test` — is `loom.repository-unknown`, which names the repository to declare or to read through:
+
+```ddd
+queryHandler Owners(p: Pokemon id): Trainer[] { let x = Trainers.all(HasPoke(p))  return x }
+```
+
+```
+error  loom.repository-unknown
+'Trainers.all(…)' reads a repository, but no repository named 'Trainers' is declared in context 'C'.
+Declare it — `repository Trainers for Trainer { }` — or read through a repository the context declares.
+```
+
+The emitted repository methods keep their own names (`getById`, `findById`, `findAll`, `run<Retrieval>`, `findAllBy<Criterion>`). Those are generated code, never `.ddd` spellings.
 
 The previous spellings are a hard cutover. Each one is an error that names its replacement, and `node scripts/codemod-repo-verbs.mjs` rewrites a whole tree:
 
