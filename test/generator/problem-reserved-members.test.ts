@@ -44,3 +44,19 @@ describe("problem body reserved members", () => {
     expect(rejected.fields.map((f) => f.name)).toEqual(["reason"]);
   });
 });
+
+describe("elixir problem_variant — the envelope wins over a same-named record field", () => {
+  it("drops every reserved member from the record before merging the envelope", async () => {
+    const { renderProblemVariantHelper } = await import(
+      "../../src/generator/elixir/vanilla/operation-returns-emit.js"
+    );
+    const { RFC7807_MEMBERS } = await import("../../src/generator/_payload/union-wire.js");
+    const helper = renderProblemVariantHelper();
+    for (const m of RFC7807_MEMBERS) {
+      expect(helper).toContain(`:${m}`);
+      expect(helper).toContain(JSON.stringify(m));
+    }
+    // The envelope is the second argument of `Map.merge`, so it wins.
+    expect(helper).toMatch(/Map\.merge\(\s*Map\.drop\(data, \[[^\]]*\]\),\s*%\{type: type/);
+  });
+});

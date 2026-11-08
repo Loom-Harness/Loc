@@ -41,6 +41,7 @@ import {
 } from "../../../util/naming.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
+import { RFC7807_MEMBERS } from "../../_payload/union-wire.js";
 import { type SourceMapSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
 import {
   type ElixirChannelsCfg,
@@ -1798,13 +1799,17 @@ ${resultClauses}`;
 /** The shared per-controller responder for an error variant — RFC-7807
  *  envelope + the variant's own fields as §3.2 extension members. */
 export function renderProblemVariantHelper(): string {
+  const reserved = [...RFC7807_MEMBERS].sort();
+  const reservedKeys = `[${[...reserved.map((m) => `:${m}`), ...reserved.map((m) => JSON.stringify(m))].join(", ")}]`;
   return `  defp problem_variant(conn, status, type, title, code, data) do
     # \`code\` is the error's catalog key (\`<Ctx>.<Error>.message\`); its record
     # fields ride both as extension members and as \`params\`.
+    # A record field named like an RFC-7807 member (\`code\`, \`params\`, …)
+    # rides \`params\` only, never over the envelope member it shares a name with.
     body =
       Map.merge(
-        %{type: type, title: title, status: status, detail: title, instance: conn.request_path, code: code},
-        data
+        Map.drop(data, ${reservedKeys}),
+        %{type: type, title: title, status: status, detail: title, instance: conn.request_path, code: code}
       )
 
     body = if map_size(data) > 0, do: Map.put(body, :params, data), else: body
