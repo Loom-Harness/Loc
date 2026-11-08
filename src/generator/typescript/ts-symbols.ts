@@ -10,7 +10,7 @@
 import { ref } from "../_imports/symbol.js";
 import { refType, tsDefault, tsNamed, tsNamespace } from "../_imports/ts.js";
 
-export const TS_SYM = {
+const TS_SYM = {
   PgBoss: tsNamed("pg-boss", "PgBoss"),
   CronExpressionParser: tsNamed("cron-parser", "CronExpressionParser"),
   Ids: tsNamespace("~/domain/ids", "Ids"),
