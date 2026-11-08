@@ -76,21 +76,10 @@ const persistenceDevDeps = (pins: BackendPins): Lines => [
   `"@types/pg": "${pins.devDependencies["@types/pg"]}",`,
 ];
 
-const adapterByPins = new WeakMap<BackendPins, PersistenceAdapter>();
-
 /** The drizzle adapter for one registered version's dep pins — the shared
  *  dir never imports a version's `pins.ts`; the version's surface passes its
- *  pins in (D-HONO-SHARED).  One adapter object per pin set. */
-export function drizzlePersistenceAdapterFor(pins: BackendPins): PersistenceAdapter {
-  let adapter = adapterByPins.get(pins);
-  if (!adapter) {
-    adapter = makeDrizzlePersistenceAdapter(pins);
-    adapterByPins.set(pins, adapter);
-  }
-  return adapter;
-}
-
-const makeDrizzlePersistenceAdapter = (pins: BackendPins): PersistenceAdapter => ({
+ *  pins in (D-HONO-SHARED). */
+export const drizzlePersistenceAdapterFor = (pins: BackendPins): PersistenceAdapter => ({
   name: "drizzle",
 
   emitProjectDeps(_ctx: EmitCtx): Lines {

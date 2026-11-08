@@ -27,6 +27,7 @@ import { type BackendPins, generateTypeScriptForContexts } from "./emit.js";
  *  `BACKEND_PINS` fed to the shared emitter differ — so each registered
  *  version passes its own `pins.ts` rather than copying the surface. */
 export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
+  const drizzlePersistenceAdapter = drizzlePersistenceAdapterFor(pins);
   return {
     name: "node",
     defaultPort: 3000,
@@ -79,7 +80,7 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
     adapters(): PlatformAdapters {
       const menu: PlatformAdapters = {
         persistence: {
-          drizzle: drizzlePersistenceAdapterFor(pins),
+          drizzle: drizzlePersistenceAdapter,
           mikroorm: mikroOrmPersistenceAdapter,
         },
         styles: {

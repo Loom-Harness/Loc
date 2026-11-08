@@ -41,7 +41,7 @@ system Sys {
 }
 `;
 
-/** The adapter the registered `node@v5` surface builds from its pins. */
+/** A drizzle adapter over the registered `node@v5` pins. */
 const drizzlePersistenceAdapter = drizzlePersistenceAdapterFor(BACKEND_PINS);
 
 async function buildCtx(): Promise<EmitCtx> {
@@ -56,8 +56,12 @@ async function buildCtx(): Promise<EmitCtx> {
 describe("drizzle PersistenceAdapter (real)", () => {
   it("is registered as the hono drizzle persistence adapter", () => {
     const resolved = adaptersFor("node")!.persistence.drizzle;
-    expect(resolved).toBe(drizzlePersistenceAdapter);
     expect(resolved.name).toBe("drizzle");
+    // Built from the v5 pins: the same deps as an adapter over those pins.
+    const ctx = {} as EmitCtx;
+    expect(resolved.emitProjectDeps(ctx)).toEqual(drizzlePersistenceAdapter.emitProjectDeps(ctx));
+    // One adapter object per surface, not one per menu read.
+    expect(adaptersFor("node")!.persistence.drizzle).toBe(resolved);
   });
 
   it("is a REAL adapter, not a reserved stub (no stub-throw)", () => {
