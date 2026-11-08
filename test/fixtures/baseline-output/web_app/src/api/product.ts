@@ -4,18 +4,18 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, ifMatch, seg } from "./client";
 
 export const MoneySchema = z.object({
-  amount: z.number().min(0, { message: "Amount must be at least 0" }),
-  currency: z.string().refine((s) => [...s].length === 3, { message: "Currency must be exactly 3 characters" }),
+  amount: z.number().refine((v: any) => v >= 0, { message: "Amount must be at least 0", params: { loomCode: "field.min", loomValues: {"min":0} } }),
+  currency: z.string().refine((v: any) => [...v].length === 3, { message: "Currency must be exactly 3 characters", params: { loomCode: "field.length", loomValues: {"length":3} } }),
 });
 
 export const CreateProductRequest = z.object({
-  sku: z.string().refine((s) => [...s].length >= 1, { message: "Sku must be at least 1 character" }),
+  sku: z.string().refine((v: any) => [...v].length >= 1, { message: "Sku must be at least 1 character", params: { loomCode: "field.min-length", loomValues: {"min":1} } }),
   price: MoneySchema,
 });
 export type CreateProductRequest = z.infer<typeof CreateProductRequest>;
 
 export const UpdateProductRequest = z.object({
-  sku: z.string().refine((s) => [...s].length >= 1, { message: "Sku must be at least 1 character" }),
+  sku: z.string().refine((v: any) => [...v].length >= 1, { message: "Sku must be at least 1 character", params: { loomCode: "field.min-length", loomValues: {"min":1} } }),
   price: MoneySchema,
 });
 export type UpdateProductRequest = z.infer<typeof UpdateProductRequest>;

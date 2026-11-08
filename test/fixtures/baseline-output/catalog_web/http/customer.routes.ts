@@ -10,16 +10,16 @@ import { DomainError, AggregateNotFoundError, DisallowedError, ForbiddenError, E
 
 
 const CreateCustomerRequest = z.object({
-  username: z.string().refine((s) => [...s].length >= 3 && [...s].length <= 32, { message: "Username must be 3 to 32 characters" }).openapi({ minLength: 3, maxLength: 32 }).refine((s: string) => !s.includes("\u0000")),
+  username: z.string().refine((v: any) => [...v].length >= 3, { message: "Username must be 3 to 32 characters", params: { loomCode: "field.min-length", loomValues: {"min":3} } }).refine((v: any) => [...v].length <= 32, { message: "Username must be 3 to 32 characters", params: { loomCode: "field.max-length", loomValues: {"max":32} } }).openapi({ minLength: 3, maxLength: 32 }).refine((s: string) => !s.includes("\u0000")),
   email: z.string().refine((s: string) => !s.includes("\u0000")),
-  age: z.number().int().openapi({ format: "int32" }).min(18, { message: "Age must be between 18 and 150" }).max(150, { message: "Age must be between 18 and 150" }),
+  age: z.number().int().openapi({ format: "int32" }).refine((v: any) => v >= 18, { message: "Age must be between 18 and 150", params: { loomCode: "field.min", loomValues: {"min":18} } }).refine((v: any) => v <= 150, { message: "Age must be between 18 and 150", params: { loomCode: "field.max", loomValues: {"max":150} } }).openapi({ minimum: 18, maximum: 150 }),
 }).openapi("CreateCustomerRequest").refine((data: any) => data.username !== data.email, { path: ["username"], message: "Business rule violated", params: { loomCode: "problem.domain-floor" } }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Business rule violated", params: { loomCode: "problem.domain-floor" } });
 const CreateCustomerResponse = z.object({ id: z.string() }).openapi("CreateCustomerResponse");
 
 const UpdateCustomerRequest = z.object({
-  username: z.string().refine((s) => [...s].length >= 3 && [...s].length <= 32, { message: "Username must be 3 to 32 characters" }).openapi({ minLength: 3, maxLength: 32 }).refine((s: string) => !s.includes("\u0000")).optional(),
+  username: z.string().refine((v: any) => [...v].length >= 3, { message: "Username must be 3 to 32 characters", params: { loomCode: "field.min-length", loomValues: {"min":3} } }).refine((v: any) => [...v].length <= 32, { message: "Username must be 3 to 32 characters", params: { loomCode: "field.max-length", loomValues: {"max":32} } }).openapi({ minLength: 3, maxLength: 32 }).refine((s: string) => !s.includes("\u0000")).optional(),
   email: z.string().refine((s: string) => !s.includes("\u0000")).optional(),
-  age: z.number().int().openapi({ format: "int32" }).min(18, { message: "Age must be between 18 and 150" }).max(150, { message: "Age must be between 18 and 150" }).optional(),
+  age: z.number().int().openapi({ format: "int32" }).refine((v: any) => v >= 18, { message: "Age must be between 18 and 150", params: { loomCode: "field.min", loomValues: {"min":18} } }).refine((v: any) => v <= 150, { message: "Age must be between 18 and 150", params: { loomCode: "field.max", loomValues: {"max":150} } }).openapi({ minimum: 18, maximum: 150 }).optional(),
 }).openapi("UpdateCustomerRequest").refine((data: any) => data.username === undefined || data.email === undefined || (data.username !== data.email), { path: ["username"], message: "Business rule violated", params: { loomCode: "problem.domain-floor" } }).refine((data: any) => data.email === undefined || (/^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120), { path: ["email"], message: "Business rule violated", params: { loomCode: "problem.domain-floor" } });
 
 const AllQuery = z.object({

@@ -14,7 +14,7 @@ export type CreateOrderRequest = z.infer<typeof CreateOrderRequest>;
 
 export const AddLineOrderRequest = z.object({
   productId: z.string().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/),
-  qty: z.number().int().min(1, { message: "Qty must be at least 1" }),
+  qty: z.number().int().refine((v: any) => v >= 1, { message: "Qty must be at least 1", params: { loomCode: "field.min", loomValues: {"min":1} } }),
 });
 export type AddLineOrderRequest = z.infer<typeof AddLineOrderRequest>;
 export const ConfirmOrderRequest = z.object({

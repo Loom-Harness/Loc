@@ -7,6 +7,8 @@ interface LoomFieldError {
   type?: string | number;
   message?: string;
   loomCode?: string;
+  /** A field limit's bound (`{ min: 1 }`), the values its text names. */
+  loomValues?: Record<string, unknown>;
 }
 
 /** The zod issue codes that mean the value has the wrong type or shape. */
@@ -21,5 +23,9 @@ export function fieldErrorText(error: unknown): string | undefined {
   if (!e?.message) return undefined;
   if (e.type === "server") return e.message;
   const code = e.loomCode ?? (TYPE_MISMATCH.has(String(e.type)) ? "field.type-mismatch" : "field.rule");
-  return t(code, e.message);
+  try {
+    return t(code, e.message, e.loomValues as Parameters<typeof t>[2]);
+  } catch {
+    return e.message;
+  }
 }
