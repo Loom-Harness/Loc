@@ -25,6 +25,7 @@ import {
 } from "../../ir/util/audit-history.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
+import { maskedPatchParams } from "../../ir/util/op-gates.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
@@ -385,7 +386,10 @@ export function buildAngularApiModule(
   const ops = agg.operations.filter((o) => o.visibility === "public");
   const opRequests = ops.flatMap((op) => [
     `export interface ${upperFirst(op.name)}${single}Request {`,
-    ...op.params.map((p) => `  ${p.name}: ${wireTsType(p.type)};`),
+    // A masked merge-patch key may be left out (the stored value stays).
+    ...op.params.map(
+      (p) => `  ${p.name}${maskedPatchParams(op).has(p.name) ? "?" : ""}: ${wireTsType(p.type)};`,
+    ),
     "}",
     "",
   ]);

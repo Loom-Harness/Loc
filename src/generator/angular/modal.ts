@@ -1,4 +1,5 @@
 import type { ExprIR, OperationIR } from "../../ir/types/loom-ir.js";
+import { operationFormParams } from "../../ir/util/op-gates.js";
 import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
@@ -191,11 +192,11 @@ export function renderAngularModal(
   // constrained control can carry the `aria-invalid` / `aria-describedby`
   // matching its inline error.
   const opInvariants = [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)];
-  const available = new Set(op.params.map((p) => p.name));
+  const available = new Set(operationFormParams(op).map((p) => p.name));
   const errorFields = new Set(angularValidatorMap(opInvariants, available).keys());
 
   const parts = bc
-    ? partitionAngularFields(op.params, bc, ns, ctx, formVar, errorFields, (name) =>
+    ? partitionAngularFields(operationFormParams(op), bc, ns, ctx, formVar, errorFields, (name) =>
         agg ? paramLabelOwner(agg, name) : undefined,
       )
     : {
