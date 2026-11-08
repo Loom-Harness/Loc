@@ -354,15 +354,22 @@ const READS = new Map<string, Set<string>>(
 
 /** The params each builder DECLARES, read off the catalog's own AST — the
  *  runtime entry is a closure, so optionality (`via?: unknown`) is only visible
- *  in the source. */
+ *  in the source.  The entries live in the family files under
+ *  `src/diagnostics/messages/`, which `messages.ts` merges. */
 function declaredParams(): Map<string, { required: Set<string>; optional: Set<string> }> {
-  const file = path.join(repoRoot, "src", "diagnostics", "messages.ts");
-  const sf = ts.createSourceFile(
-    "messages.ts",
-    fs.readFileSync(file, "utf8"),
-    ts.ScriptTarget.ESNext,
-    true,
-  );
+  const dir = path.join(repoRoot, "src", "diagnostics", "messages");
+  const sources = fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".ts"))
+    .sort()
+    .map((f) =>
+      ts.createSourceFile(
+        f,
+        fs.readFileSync(path.join(dir, f), "utf8"),
+        ts.ScriptTarget.ESNext,
+        true,
+      ),
+    );
   const out = new Map<string, { required: Set<string>; optional: Set<string> }>();
 
   const split = (t: ts.TypeNode | undefined) => {
@@ -371,7 +378,7 @@ function declaredParams(): Map<string, { required: Set<string>; optional: Set<st
     if (t && ts.isTypeLiteralNode(t)) {
       for (const m of t.members) {
         if (ts.isPropertySignature(m) && m.name) {
-          (m.questionToken ? optional : required).add(m.name.getText(sf));
+          (m.questionToken ? optional : required).add(m.name.getText());
         }
       }
     }
@@ -382,7 +389,7 @@ function declaredParams(): Map<string, { required: Set<string>; optional: Set<st
   // — one wording, six per-platform codes).  The params live on the returned
   // arrow, so resolve the factory name to it.
   const factories = new Map<string, ts.TypeNode | undefined>();
-  for (const st of sf.statements) {
+  for (const st of sources.flatMap((sf) => [...sf.statements])) {
     if (!ts.isVariableStatement(st)) continue;
     for (const d of st.declarationList.declarations) {
       if (!ts.isIdentifier(d.name) || !d.initializer || !ts.isArrowFunction(d.initializer))
@@ -411,7 +418,7 @@ function declaredParams(): Map<string, { required: Set<string>; optional: Set<st
     }
     ts.forEachChild(n, visit);
   };
-  visit(sf);
+  for (const sf of sources) visit(sf);
   return out;
 }
 
