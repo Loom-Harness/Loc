@@ -44,6 +44,7 @@ const CODE = "loom.toast-message-unsupported";
 
 const sys = (toast: string, platform: string) => `
 system RtShop {
+  user { email: string }
   subdomain Shipping {
     context Fulfillment {
       aggregate Order { customerId: string  status: string  total: int }
