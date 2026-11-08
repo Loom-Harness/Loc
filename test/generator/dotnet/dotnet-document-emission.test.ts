@@ -1,11 +1,8 @@
+import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { beforeAll, describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateDotnet } from "../../_helpers/generate.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // .NET document-persistence emission (`normalised(false)`).
@@ -27,19 +24,15 @@ import { generateDotnet } from "../../_helpers/generate.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
 
-async function buildModel(file: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(path.join(repoRoot, file)),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  return doc.parseResult.value as Model;
+/** The `.NET` project for a bare-context example, hosted on one deployable. */
+function generateExample(file: string): Promise<Map<string, string>> {
+  return generateBackendFiles(readFileSync(path.join(repoRoot, file), "utf8"), "dotnet");
 }
 
 describe(".NET document-persistence emission (normalised(false))", () => {
   let files: Map<string, string>;
   beforeAll(async () => {
-    files = generateDotnet(await buildModel("examples/document.ddd"));
+    files = await generateExample("examples/document.ddd");
   });
 
   it("emits the document record (POCO) instead of a normalised entity config", () => {
@@ -65,7 +58,7 @@ describe(".NET document-persistence emission (normalised(false))", () => {
       "Infrastructure/Persistence/Configurations/CartDocumentConfiguration.cs",
     )!;
     expect(cfg).toContain("IEntityTypeConfiguration<CartDocument>");
-    expect(cfg).toContain('builder.ToTable("carts");');
+    expect(cfg).toContain('builder.ToTable("carts", "shopping");');
     // Every property is mapped to the migration's snake_case column — EF's
     // default PascalCase (`Id`/`Data`/`Version`) does not match the DDL, so an
     // unqualified mapping yields `column c.Id does not exist` at runtime.

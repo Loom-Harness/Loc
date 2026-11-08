@@ -103,8 +103,31 @@ export async function loadProjectFromVfs(
 
   const entry = walk(resolved, []);
   const all = [...visited.values()];
+  retainOnlyDocuments(shared, all);
   await shared.workspace.DocumentBuilder.build(all, { validation: true });
   return { entry, all };
+}
+
+/** Make `keep` the whole Langium workspace: every other document leaves it,
+ *  index entries included.
+ *
+ *  The build worker reuses one workspace for every generate, so a document
+ *  the current project no longer reaches — a deleted or renamed file, a
+ *  single-file generate's document, a replaced example's companion — would
+ *  otherwise stay in global scope.  Two live copies of the same declarations
+ *  bind some references to the stale one (`Cannot assign 'Money' to
+ *  'Money'`). */
+export function retainOnlyDocuments(
+  shared: LangiumSharedServices,
+  keep: readonly LangiumDocument[],
+): void {
+  const docs = shared.workspace.LangiumDocuments;
+  const kept = new Set(keep.map((d) => d.uri.toString()));
+  for (const doc of docs.all.toArray()) {
+    if (kept.has(doc.uri.toString())) continue;
+    docs.deleteDocument(doc.uri);
+    shared.workspace.IndexManager.remove(doc.uri);
+  }
 }
 
 /** Stable URI for a VFS path so a re-generate replays through the

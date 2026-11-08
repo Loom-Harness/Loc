@@ -51,6 +51,7 @@ import { opBodyStmtsDeep, opUsesCurrentUser, stmtUsesParam } from "../domain/pre
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { exErrorVariant } from "../wire-policy-ex.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
+import { opPersistInvariantPipes } from "./changeset-emit.js";
 import { exLineageValue } from "./codec-spelling-ex.js";
 import {
   appModuleOf,
@@ -71,6 +72,12 @@ import { renderElixirMatchStmt } from "./match-stmt-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { collectVanillaLeaves, provColumn, provenancedFieldsOf } from "./provenance-emit.js";
 import { isRefCollFieldName, refCollPutAssocValue } from "./ref-collection-emit.js";
+import {
+  decideArmBeforePersist,
+  renderElixirUnionReturn,
+  returnAlwaysFails,
+  returnCanFail,
+} from "./union-return-emit.js";
 import { valueRowFieldsOf } from "./value-collection-schema-emit.js";
 import {
   EXPECTED_VERSION_BIND,
@@ -500,7 +507,7 @@ export function returningOpHasCommitPath(
   if (returningOpHasSuccessPath(op, agg)) return true; // fall-through to the aggregate
   const last = op.statements[op.statements.length - 1];
   if (last?.kind !== "return") return false;
-  return !(last.variantTag !== undefined && isErrorTag(last.variantTag, ctx));
+  return !returnAlwaysFails(last, (tag) => isErrorTag(tag, ctx));
 }
 
 /** The body renderer's persist decision — a returning op persists whenever it
@@ -773,7 +780,8 @@ export function renderReturningOpFunction(
   const lastStmt = op.statements[op.statements.length - 1];
   const trailingReturn = lastStmt?.kind === "return" ? lastStmt : undefined;
   const trailingIsError =
-    trailingReturn?.variantTag !== undefined && isErrorTag(trailingReturn.variantTag, ctx);
+    trailingReturn !== undefined &&
+    returnAlwaysFails(trailingReturn, (tag) => isErrorTag(tag, ctx));
   // A trailing `return this` / aggregate-typed success return commits the same
   // mutated aggregate as a fall-through — normalize it onto the persist path
   // (the success wire projects off `saved`).  A trailing NON-aggregate success
@@ -931,12 +939,22 @@ export function renderReturningOpFunction(
   const versionLock = savesLockVersion(agg)
     ? "\n      |> Ecto.Changeset.optimistic_lock(:version)"
     : "";
+  // The persisted changeset is built with `change(%{}) |> force_change`, which
+  // runs no validator — re-run the aggregate's invariants on it (both halves,
+  // see `opPersistInvariantPipes`) so a violating op answers 422 instead of
+  // committing.
+  const invPipes = opPersistInvariantPipes(agg, ctx, `${aggModule}Changeset`, 6);
   // A trailing NON-aggregate success return (shape C), re-rendered to sit inside
   // the `{:ok, saved}` commit arm over the persisted struct — a preceding
   // `record = saved` rebinds `record`, so the return's `this.*` reads reflect the
-  // saved values.
+  // saved values.  It sits 8 columns in, 4 deeper than a body statement, so a
+  // multi-line return (a per-arm `cond`) shifts its continuation lines to match.
   const shapeCReturn = (): string =>
-    renderReturningStmt(trailingReturn!, ctx, renderCtx, lastIdx).trimStart();
+    renderReturningStmt(trailingReturn!, ctx, renderCtx, lastIdx)
+      .trimStart()
+      .split("\n")
+      .map((l, i) => (i === 0 || l.trim() === "" ? l : `    ${l}`))
+      .join("\n");
 
   // Derived rows that must commit with the state change (provenance flush /
   // audit record) — hoisted out of the prov/audit branch so the durable-outbox
@@ -1007,7 +1025,7 @@ export function renderReturningOpFunction(
       ...(durableEmit.bind.length > 0 ? [``] : []),
       `    changeset =`,
       `      ${persistBase}`,
-      `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
+      `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
       ``,
       ...txBody,
       `    case tx_result do`,
@@ -1035,7 +1053,7 @@ export function renderReturningOpFunction(
             // so a rollback drops them too.
             `    changeset =`,
             `      ${persistBase}`,
-            `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
+            `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
             ``,
             `    tx_result =`,
             `      ${appModule}.Repo.transaction(fn ->`,
@@ -1061,7 +1079,7 @@ export function renderReturningOpFunction(
         : [
             `    changeset =`,
             `      ${persistBase}`,
-            `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
+            `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
             ``,
             `    ${appModule}.Repo.transaction(fn ->`,
             `      case ${repoMod}.persist_change(changeset) do`,
@@ -1081,7 +1099,7 @@ export function renderReturningOpFunction(
         [
           `    changeset =`,
           `      ${persistBase}`,
-          `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
+          `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
           ``,
           `    tx_result =`,
           `      ${appModule}.Repo.transaction(fn ->`,
@@ -1115,7 +1133,7 @@ export function renderReturningOpFunction(
       ? [
           `    changeset =`,
           `      ${persistBase}`,
-          `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
+          `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
           ``,
           `    case ${repoMod}.persist_change(changeset) do`,
           `      {:ok, saved} ->`,
@@ -1129,7 +1147,7 @@ export function renderReturningOpFunction(
       : [
           `    changeset =`,
           `      ${persistBase}`,
-          `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
+          `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
           ``,
           `    case ${repoMod}.persist_change(changeset) do`,
           `      {:ok, saved} -> {:ok, ${wireMap("saved", true)}}`,
@@ -1145,7 +1163,7 @@ export function renderReturningOpFunction(
     tailLines = [
       `    changeset =`,
       `      ${persistBase}`,
-      `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
+      `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
       ``,
       `    case ${repoMod}.persist_change(changeset) do`,
       `      {:ok, saved} ->`,
@@ -1163,7 +1181,7 @@ export function renderReturningOpFunction(
     tailLines = [
       `    changeset =`,
       `      ${persistBase}`,
-      `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
+      `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}${invPipes}`,
       ``,
       `    case ${repoMod}.persist_change(changeset) do`,
       `      {:ok, saved} ->`,
@@ -1175,6 +1193,18 @@ export function renderReturningOpFunction(
       `        {:error, changeset}`,
       `    end`,
     ];
+  }
+  // A trailing `return match { … }` that can answer an error arm decides its
+  // arm before the write, so the error arm persists nothing.
+  if (
+    persists &&
+    trailingReturn?.armVariants &&
+    returnCanFail(trailingReturn, (tag) => isErrorTag(tag, ctx))
+  ) {
+    tailLines = decideArmBeforePersist(
+      renderReturningStmt(trailingReturn, ctx, renderCtx, lastIdx),
+      tailLines,
+    );
   }
   // A guarded op wraps its body + persist in a leading `with ensure(...)` chain
   // (guards short-circuit to `{:error, atom}` before any write); a guard-free op
@@ -1289,6 +1319,13 @@ export function renderReturningStmt(
       if (s.value.kind === "call" && s.value.callKind === "private-operation") {
         return `    ${renderExpr(s.value, rc)}`;
       }
+      // `return match { … }` tagged per arm: each arm answers its own tuple.
+      const perArm = renderElixirUnionReturn(s, {
+        indent: "    ",
+        renderExpr: (e) => renderExpr(e, rc),
+        renderReturn: (r) => renderReturningStmt(r, ctx, rc, index),
+      });
+      if (perArm !== null) return perArm;
       const value = renderExpr(s.value, rc);
       if (s.variantTag && isErrorTag(s.variantTag, ctx)) {
         // Error variant → `{:error, "<tag>", <fields-map>}`, and that map is

@@ -2936,11 +2936,7 @@ export function zodFor(t: TypeIR, context: "create-body" | "body" | "query" = "b
       // `context` is deliberately ignored: the same rule holds for a body
       // field and for a `?owner=` query parameter (F3 is F2 through the query
       // string), and both funnel through this one arm.
-      //
-      // Gated on the declared id VALUE type — an `int`/`long`/`string`-keyed
-      // aggregate is not a uuid, and the pre-existing wire treatment (every id
-      // as a string) stays untouched for those.
-      return info.idValueType === "guid" ? "UuidString" : "z.string()";
+      return "UuidString";
     case "enum":
     case "valueObject":
       return `${info.base}Schema`;

@@ -41,6 +41,7 @@ import {
 } from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr, renderTsType } from "../../../generator/typescript/render-expr.js";
 import { renderTsStatements } from "../../../generator/typescript/render-stmt.js";
+import { T } from "../../../generator/typescript/ts-symbols.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
 import {
@@ -112,7 +113,11 @@ import {
   commandCreateResult,
   emitsCommandRoute,
 } from "../../../ir/util/workflow-command-route.js";
-import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
+import {
+  bodyWriteScopeGuards,
+  type WriteScopeContext,
+  writeScopeContext,
+} from "../../../ir/util/write-scope-guards.js";
 import {
   LOOM_OUTBOX_ORIGIN_KEY,
   OUTBOX_PURGE_INTERVAL_SECONDS,
@@ -1000,7 +1005,7 @@ function emitWorkflowRoute(
   // Conditional because a workflow that touches no repository genuinely cannot
   // send it; `workflowCanAnswerNotFound` is the shared predicate the other four
   // backends thread into `errorStatuses("workflow", …, { readsAggregate })`.
-  if (workflowCanAnswerNotFound(wf)) {
+  if (workflowCanAnswerNotFound(wf, ctx)) {
     const wfRouteNotFoundStatus = wireStatus("not-found", ctx.structuralErrorStatuses);
     out.push(
       `      ${wfRouteNotFoundStatus}: { description: ${JSON.stringify(
@@ -1125,6 +1130,11 @@ function emitWorkflowRoute(
   // constructs `new <Agg>Repository(...)` for them so the service is handed a
   // live handle even when the workflow body never reads that repo itself.
   const reposNeeded = mergeReadPortRepos(collectReposForWorkflow(wf), wf, ctx);
+  // A body that re-checks a held row's write scope runs in one transaction,
+  // so a row outside the scope fails the whole command and rolls back the
+  // rows it already changed.
+  const writeScope = writeScopeContext(wf.statements, ctx);
+  const rechecksWriteScope = bodyWriteScopeGuards(wf.statements, writeScope).length > 0;
   const hasEmit = workflowEmits(wf.statements).length > 0;
   if (hasEmit) {
     out.push(`    const workflowEvents: Events.DomainEvent[] = [];`);
@@ -1236,7 +1246,7 @@ function emitWorkflowRoute(
   // An expected-failure result runs in one transaction whether or not the
   // workflow is `transactional`: an error answer rolls everything back.
   if (er) out.push(`${bi}const __rollback = new Error("expected failure");`);
-  if (wf.transactional || er) {
+  if (wf.transactional || er || rechecksWriteScope) {
     // The adapter's transaction seam (shared with the audited / provenanced
     // routes): drizzle `db.transaction`, mikroorm `db.transactional` — an
     // EntityManager has no `transaction` (TS2551).  The isolation option is
@@ -1267,7 +1277,7 @@ function emitWorkflowRoute(
     out.push(...stateLoad("tx", `${bi}  `));
     const stmtChunks = renderWorkflowStmtChunks(
       wf.statements,
-      honoWorkflowStmtTarget(ctx, paramExprs, wfThis, { dbHandle: "tx", repoVarByAgg }),
+      honoWorkflowStmtTarget(ctx, paramExprs, wfThis, { dbHandle: "tx", repoVarByAgg }, writeScope),
       `${bi}  `,
     );
     out.push(...stmtChunks.flat());
@@ -1300,7 +1310,7 @@ function emitWorkflowRoute(
     out.push(...stateLoad("db", bi));
     const stmtChunks = renderWorkflowStmtChunks(
       wf.statements,
-      honoWorkflowStmtTarget(ctx, paramExprs, wfThis, { dbHandle: "db", repoVarByAgg }),
+      honoWorkflowStmtTarget(ctx, paramExprs, wfThis, { dbHandle: "db", repoVarByAgg }, writeScope),
       bi,
     );
     out.push(...stmtChunks.flat());
@@ -1367,12 +1377,16 @@ function taggedEntryValue(
       return `{ type: ${tag}, value: ${rendered} }`;
     case "payload":
     case "error":
-      return `{ type: ${tag}, ...(${rendered}) }`;
+      // A bound union arm (`NotFound e => { return e }`) already carries its
+      // own `type` (the same tag); widened so the spread may restate it.
+      return `{ type: ${tag}, ...(${rendered} as Record<string, unknown>) }`;
     case "aggregate": {
       const repo = repoVarByAgg.get(leaf.arm.name) ?? `${lowerFirst(plural(leaf.arm.name))}`;
       // Read back after the body's saves: the saved row carries the version
-      // the save advanced to, which the in-memory aggregate does not.
-      return `{ type: ${tag}, ...(${repo}.toWire(await ${repo}.getById(${rendered}.id)) as Record<string, unknown>) }`;
+      // the save advanced to, which the in-memory aggregate does not.  The id
+      // is re-branded: a bound union arm of an operation's result carries the
+      // aggregate's wire projection, whose id is a plain string.
+      return `{ type: ${tag}, ...(${repo}.toWire(await ${repo}.getById(${T.Ids}.${leaf.arm.name}Id(String(${rendered}.id)))) as Record<string, unknown>) }`;
     }
     case "workflow":
       return `{ type: ${tag}, ...(${selfRow} as Record<string, unknown>) }`;
@@ -1454,11 +1468,11 @@ export function entryErrorAnswer(
 }
 
 /** The TS type of a workflow route's declared result local — the WIRE type the
- *  200 schema publishes (a branded id is a `string`/`number` subtype, so the
- *  domain value assigns to it directly).  Only the result kinds phase ④ admits
+ *  200 schema publishes (a branded id is a `string` subtype, so the domain
+ *  value assigns to it directly).  Only the result kinds phase ④ admits
  *  (`loom.workflow-return-type-unsupported`) reach here. */
 function workflowResultTsType(t: TypeIR): string {
-  if (t.kind === "id") return t.valueType === "int" || t.valueType === "long" ? "number" : "string";
+  if (t.kind === "id") return "string";
   if (t.kind === "primitive") {
     if (t.name === "int" || t.name === "long") return "number";
     if (t.name === "bool") return "boolean";
@@ -1592,20 +1606,9 @@ function emitInstanceRoutes(
   out.push(`    path: "/${slug}/instances/{id}",`);
   out.push(`    tags: ["workflows"],`);
   out.push(`    operationId: "${camelId(opWorkflowInstanceById(wf.name))}",`);
-  // The param schema derives from the correlation id's value type — guid →
-  // uuid-format string, int/long → coerced integer, string → plain — so the
-  // parity gate's path-param dimension agrees with .NET / Java / Python /
-  // Phoenix by construction (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/non-guid-id-http-params.md).
-  const corrVt = workflowCorrIdValueType(wf);
-  const idParamZod =
-    corrVt === "guid"
-      ? "UuidString"
-      : corrVt === "string"
-        ? "z.string()"
-        : "z.coerce.number().int()";
-  // `load<T>Events` / `fold<T>` key streams as text; a numeric id stringifies.
-  const idAsKey = corrVt === "int" || corrVt === "long" ? "String(id)" : "id";
-  out.push(`    request: { params: z.object({ id: ${idParamZod} }) },`);
+  // The correlation id is a guid — a uuid-format string — so the parity
+  // gate's path-param dimension agrees with .NET / Java / Python / Phoenix.
+  out.push(`    request: { params: z.object({ id: UuidString }) },`);
   out.push(`    responses: {`);
   out.push(
     `      200: { description: "OK", content: { "application/json": { schema: ${T}InstanceResponse } } },`,
@@ -1616,7 +1619,7 @@ function emitInstanceRoutes(
       reasonPhrase(notFoundStatus),
     )}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
   );
-  // The correlation-id param is PARSED (uuid / coerced integer above), so a
+  // The correlation-id param is PARSED (uuid above), so a
   // malformed one answers the wire-validation 422 — the same set
   // `errorStatuses("getById")` publishes, which is exactly what the java and
   // elixir emitters render for this route.
@@ -1633,13 +1636,13 @@ function emitInstanceRoutes(
   if (wf.eventSourced) {
     // Single-stream load + fold for the given correlation id; an empty stream
     // means no such instance.
-    out.push(`    const __stream = await ${helpers.load}(db, ${idAsKey});`);
+    out.push(`    const __stream = await ${helpers.load}(db, id);`);
     // RS-27 extends here: a workflow INSTANCE read is addressed by id, so its
     // 404 carries the same sentence the aggregate getById route does.  Main's
     // fix covered the aggregate routes; these two surfaces were left on the
     // machine token.
     out.push(`    if (__stream.length === 0) ${tsNotFoundThrow(T, "id")}`);
-    out.push(`    const row = ${helpers.fold}(${idAsKey}, __stream);`);
+    out.push(`    const row = ${helpers.fold}(id, __stream);`);
   } else if (usingMikro) {
     out.push(`    const row = await db.findOne(${rowClass}, { ${corr}: id });`);
     out.push(`    if (!row) ${tsNotFoundThrow(T, "id")}`);
@@ -1809,6 +1812,11 @@ function emitOutboxRetention(): string[] {
   ];
 }
 
+/** The relay's per-tick failure log: a DB error anywhere in a drain pass is
+ *  logged and retried next interval, never an unhandled rejection. */
+const OUTBOX_RELAY_ERROR_LOG =
+  'baseLogger.warn({ event: "outbox_relay_error", error: err instanceof Error ? err.message : String(err) });';
+
 /** The drain pass's retention step: at most once per purge interval, delete
  *  the dispatched rows older than the retention window (`del` is the store's
  *  delete over `cutoff`).  A failed purge is logged and retried next interval
@@ -1821,7 +1829,7 @@ function outboxPurgeStep(del: string): string[] {
     `        try {`,
     `          await ${del};`,
     `        } catch (err) {`,
-    `          baseLogger.warn({ event: "outbox_relay_error", error: err instanceof Error ? err.message : String(err) });`,
+    `          ${OUTBOX_RELAY_ERROR_LOG}`,
     `        }`,
     `      }`,
   ];
@@ -1960,6 +1968,8 @@ function emitOutboxMachinery(
   out.push(`          }`);
   out.push(`        }`);
   out.push(`      }`);
+  out.push(`    } catch (err) {`);
+  out.push(`      ${OUTBOX_RELAY_ERROR_LOG}`);
   out.push(`    } finally {`);
   out.push(`      draining = false;`);
   out.push(`    }`);
@@ -2075,6 +2085,8 @@ function emitMikroOutboxMachinery(
     `          }`,
     `        }`,
     `      }`,
+    `    } catch (err) {`,
+    `      ${OUTBOX_RELAY_ERROR_LOG}`,
     `    } finally {`,
     `      draining = false;`,
     `    }`,
@@ -2727,6 +2739,10 @@ export function honoWorkflowStmtTarget(
   /** Present only on the command-route path: enables staging an audit_records
    *  row for an inline `audited` op-call (the reactor path passes none). */
   audit?: { dbHandle: string; repoVarByAgg: Map<string, string> },
+  /** The body's write-scope requirement — present on a command body (a
+   *  workflow's command route, a command handler) in a context with a
+   *  narrowed write scope; a reactor passes none. */
+  writeScope?: WriteScopeContext,
 ): WorkflowStmtTarget {
   // Read-port wiring (domain-services.md rev. 4): a `reading`-tier
   // domain-service call is supplied its repository handle(s) ahead of the user
@@ -3012,6 +3028,19 @@ export function honoWorkflowStmtTarget(
     notFound: (st, indent) => [
       `${indent}throw new AggregateNotFoundError(${JSON.stringify(notFoundStmtDetail(st))});`,
     ],
+    // A held row is re-loaded through `getById` — the write-scope load every
+    // op route uses — before the statement mutates or deletes it; a row
+    // outside the caller's write scope throws the same not-found (→ 404).
+    ...(writeScope
+      ? {
+          writeScope: {
+            cx: writeScope,
+            guard: (g, indent) => [
+              `${indent}await ${lowerFirst(g.repoName)}.getById(${escapeTsIdent(g.name)}.id);`,
+            ],
+          },
+        }
+      : {}),
   };
 }
 

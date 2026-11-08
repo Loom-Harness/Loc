@@ -539,7 +539,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
     // The derived registry self-scope filter compares
     // `<Registry>.id == currentUser.<claim>` — the `tenantId ≡
     // <Registry>.id` identity — so the claim's declared type must bind
-    // against the registry's id value type: same-typed always works, and a
+    // against the registry's guid id: a `guid` claim always works, and a
     // `string` claim binds as a guid at each backend's accessor site
     // (`tenancyClaimBinding`).  Anything else can't compare on any backend —
     // reject with the fix spelled out rather than emitting a filter that
@@ -549,11 +549,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
       .flatMap((ctx) => ctx.aggregates)
       .find((a) => a.name === tenancy.registryName);
     const claimType = sys.user?.fields.find((f) => f.name === tenancy.claimField)?.type;
-    if (
-      registry &&
-      claimType &&
-      tenancyClaimBinding(registry.idValueType, claimType) === "mismatch"
-    ) {
+    if (registry && claimType && tenancyClaimBinding(claimType) === "mismatch") {
       diags.push({
         severity: "error",
         code: "loom.tenancy-claim-type-mismatch",
@@ -562,11 +558,6 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
           claimField: tenancy.claimField,
           claimType: typeName(claimType),
           registryName: registry.name,
-          idValueType: registry.idValueType,
-          idValueType2:
-            registry.idValueType === "guid"
-              ? ` (or '${tenancy.claimField}: string', bound as a guid at the accessor site)`
-              : "",
         }),
         source: `${sys.name}/tenancy`,
       });

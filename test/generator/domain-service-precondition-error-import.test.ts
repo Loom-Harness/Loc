@@ -5,8 +5,7 @@
 // scanned for.  So node emitted:
 //
 //   import Decimal from "decimal.js";            // the complete import list
-//   export namespace Calc {
-//     export function quote(km: number, rate: Decimal): Decimal {
+//   function calc_quote(km: number, rate: Decimal): Decimal {
 //         if (!(km > 0)) throw new DomainError("Precondition failed: km > 0", "precondition");
 //
 // which is `tsc` TS2304 ("Cannot find name 'DomainError'"), and — because the

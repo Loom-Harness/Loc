@@ -22,21 +22,8 @@
 // EF path binds through LINQ against a `HasConversion`-mapped property, so it
 // never had the ordinal problem.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
-
-async function build(source: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const helper = parseHelper(services.Ddd);
-  const doc = await helper(source, { validation: true });
-  const errs = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  if (errs.length) throw new Error(`parse errors:\n${errs.map((e) => e.message).join("\n")}`);
-  return doc.parseResult?.value as Model;
-}
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 /** One enum-keyed criterion read and — as the scope guard — one STRING-keyed
  *  read that must keep binding the bare parameter. */
@@ -75,9 +62,7 @@ system Shop {
 }`;
 
 const repoFor = async (): Promise<string> =>
-  generateSystems(await build(SOURCE)).files.get(
-    "api/Infrastructure/Repositories/OrderRepository.cs",
-  )!;
+  (await generateSystemFiles(SOURCE)).get("api/Infrastructure/Repositories/OrderRepository.cs")!;
 
 describe("Dapper binds an enum read parameter by name", () => {
   it("binds `.ToString()` for the enum param and the BARE name for the string param", async () => {

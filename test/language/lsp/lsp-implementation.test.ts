@@ -16,7 +16,7 @@ import { NodeFileSystem } from "langium/node";
 import { afterAll, describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
+import { generateSystemFilesFromProject } from "../../_helpers/generate.js";
 
 // Small fixture (copied from test/cli/generate-sourcemap.test.ts): single
 // node deployable, `Order.confirm()` with 2 statements. A `Money`
@@ -84,10 +84,15 @@ async function loadRealDocument(dir: string, filename: string, text: string) {
   return { services, doc, filePath };
 }
 
-/** Generate the fixture with `--sourcemap` and write every emitted file
- *  (including `.loom/sourcemap.json`) under `outDir`. */
-function writeGeneratedTree(model: Model, sourceTexts: Map<string, string>, outDir: string): void {
-  const { files } = generateSystems(model, { sourcemap: true, sourceTexts });
+/** Generate the on-disk fixture with `--sourcemap` — through the same project
+ *  loader `ddd generate system` uses, so the sourcemap names the real file —
+ *  and write every emitted file (including `.loom/sourcemap.json`) under
+ *  `outDir`. */
+async function writeGeneratedTree(docUri: URI, outDir: string): Promise<void> {
+  const files = await generateSystemFilesFromProject(docUri.fsPath, {
+    sourcemap: true,
+    sourceTexts: new Map([[docUri.path, SOURCE]]),
+  });
   for (const [rel, content] of files) {
     const abs = path.join(outDir, rel);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
@@ -102,9 +107,7 @@ describe("DddImplementationProvider (textDocument/implementation)", () => {
   it("wires up a real generated tree and answers go-to-generated-code queries", async () => {
     const { services, doc } = await loadRealDocument(projectDir, "main.ddd", SOURCE);
     expect(doc.diagnostics?.filter((d) => d.severity === 1) ?? []).toEqual([]);
-    const model = doc.parseResult.value;
-    const sourceTexts = new Map([[doc.uri.path, SOURCE]]);
-    writeGeneratedTree(model, sourceTexts, outDir);
+    await writeGeneratedTree(doc.uri, outDir);
 
     const map = JSON.parse(
       fs.readFileSync(path.join(outDir, ".loom", "sourcemap.json"), "utf8"),
@@ -253,11 +256,7 @@ describe("DddImplementationProvider (textDocument/implementation)", () => {
     // produces, and exactly what the ancestor child-scan looks at.
     const neighbourSrcDir = path.join(ws, "app-b");
     const { doc: neighbourDoc } = await loadRealDocument(neighbourSrcDir, "main.ddd", SOURCE);
-    writeGeneratedTree(
-      neighbourDoc.parseResult.value,
-      new Map([[neighbourDoc.uri.path, SOURCE]]),
-      path.join(ws, "app-b-out"),
-    );
+    await writeGeneratedTree(neighbourDoc.uri, path.join(ws, "app-b-out"));
 
     const provider = services.Ddd.lsp.ImplementationProvider!;
     const pos = positionOf(SOURCE, "customerName\n");
@@ -280,8 +279,7 @@ describe("DddImplementationProvider (textDocument/implementation)", () => {
     const deepProject = path.join(tmp, "deep-project");
     const deepDocDir = path.join(deepProject, "src", "orders");
     const { services, doc } = await loadRealDocument(deepDocDir, "main.ddd", SOURCE);
-    const model = doc.parseResult.value;
-    writeGeneratedTree(model, new Map([[doc.uri.path, SOURCE]]), path.join(deepProject, "out"));
+    await writeGeneratedTree(doc.uri, path.join(deepProject, "out"));
 
     const provider = services.Ddd.lsp.ImplementationProvider!;
     const pos = positionOf(SOURCE, "customerName\n");

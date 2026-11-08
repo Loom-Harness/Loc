@@ -305,6 +305,10 @@ export function fromData(name: string, t: TypeIR, ctx: EnrichedBoundedContextIR)
  *  VO/other array decodes element-wise, `null` staying `None`. */
 function decodeValue(access: string, t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
+  // An optional scalar/id/enum stays `None` when the payload holds `null`;
+  // the value-object and array arms below carry their own guard.
+  if (t.kind === "optional" && inner.kind !== "valueobject" && inner.kind !== "array")
+    return `(None if ${access} is None else ${decodeValue(access, inner, ctx)})`;
   switch (inner.kind) {
     case "primitive":
       switch (inner.name) {
@@ -360,16 +364,21 @@ function eventToData(events: EventIR[], ctx: EnrichedBoundedContextIR): string {
   );
 }
 
+const ENCODED_SCALARS: ReadonlySet<string> = new Set(["datetime", "date", "money"]);
+
 /** Encode the event field value `expr` to its JSON-safe payload form.  A value
  *  object becomes its nested `{"<field>": …}` map (the shape {@link decodeValue}
  *  reads back); an array encodes element-wise when its elements need it. */
 export function toData(expr: string, t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
+  const nullable = (v: string): string =>
+    t.kind === "optional" ? `(None if ${expr} is None else ${v})` : v;
+  // `.isoformat()` / `str()` on an unset optional would raise; guard it first.
+  if (t.kind === "optional" && inner.kind === "primitive" && ENCODED_SCALARS.has(inner.name))
+    return nullable(toData(expr, inner, ctx));
   if (inner.kind === "primitive" && (inner.name === "datetime" || inner.name === "date"))
     return `${expr}.isoformat()`;
   if (inner.kind === "primitive" && inner.name === "money") return `str(${expr})`;
-  const nullable = (v: string): string =>
-    t.kind === "optional" ? `(None if ${expr} is None else ${v})` : v;
   if (inner.kind === "valueobject") {
     const vo = findValueObjectInScope(ctx, inner.name);
     if (!vo) return expr;

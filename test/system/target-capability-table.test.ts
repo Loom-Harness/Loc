@@ -303,6 +303,37 @@ system W {
   deployable d { platform: ${platform}, contexts: [Main], dataSources: [st, es], serves: MainApi, port: 3000, auth: required }
 }
 `,
+  // The issue-#3969 shape: a bulk read feeding a mutation under `deny write`.
+  "effect:mutate-held-row@command-body": (platform) => `
+system W {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Main {
+      aggregate Ledger with tenantOwned, crudish {
+        label: string
+        hits: int = 0
+        operation touch() { hits := hits + 1 }
+      }
+      aggregate Org with crudish { name: string  implements tenantRegistry }
+      criterion AnyLedger of Ledger = hits >= 0
+      repository Ledgers for Ledger { }
+      repository Orgs for Org { }
+      workflow touchLedgers {
+        create() {
+          let rows = Ledgers.all(AnyLedger, page: { offset: 0, limit: 50 })
+          for l in rows { l.touch() }
+        }
+      }
+      policy { deny write on Ledger }
+    }
+  }
+  api MainApi from Core
+  storage pg { type: postgres }
+  resource st { for: Main, kind: state, use: pg }
+  deployable d { platform: ${platform}, contexts: [Main], dataSources: [st], serves: MainApi, port: 3000, auth: required }
+}
+`,
   "resource:replica@resource": (platform) =>
     resourceWitness(
       platform,

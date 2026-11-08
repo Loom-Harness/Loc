@@ -1,5 +1,10 @@
 import type { WorkflowStmtIR } from "../../ir/types/loom-ir.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import {
+  type WriteScopeContext,
+  type WriteScopeGuard,
+  writeScopeGuards,
+} from "../../ir/util/write-scope-guards.js";
 
 // ---------------------------------------------------------------------------
 // The shared workflow statement-sequence spine — the `WorkflowStmtIR`
@@ -59,6 +64,17 @@ export interface WorkflowStmtTarget {
    *  SAME error a `getById` miss raises, carrying `notFoundStmtDetail(st)` as
    *  its message, so the route answers the identical ProblemDetails 404. */
   notFound(st: ByKind<"not-found">, indent: string): string[];
+
+  /** The body's write-scope requirement (`ir/util/write-scope-guards.ts`).
+   *  When set, the spine renders `guard` for every row a statement mutates or
+   *  deletes, ahead of that statement: a re-load through the aggregate's
+   *  write-scope load, which raises the backend's not-found (→ 404) for a row
+   *  outside the caller's write scope.  Absent on a body that cannot need
+   *  one (a reactor, or a context with no narrowed write scope). */
+  readonly writeScope?: {
+    readonly cx: WriteScopeContext;
+    guard(g: WriteScopeGuard, indent: string): string[];
+  };
 
   /** `for-each`: `renderedBody` is the loop body already rendered at
    *  `indent + indentUnit` by the spine; the target wraps it in the backend's
@@ -221,6 +237,17 @@ export function renderWorkflowStmtChunks(
 }
 
 function renderWorkflowStmt(
+  st: WorkflowStmtIR,
+  target: WorkflowStmtTarget,
+  indent: string,
+): string[] {
+  const ws = target.writeScope;
+  const guards = ws ? writeScopeGuards(st, ws.cx).flatMap((g) => ws.guard(g, indent)) : [];
+  const own = renderWorkflowStmtOwn(st, target, indent);
+  return guards.length > 0 ? [...guards, ...own] : own;
+}
+
+function renderWorkflowStmtOwn(
   st: WorkflowStmtIR,
   target: WorkflowStmtTarget,
   indent: string,

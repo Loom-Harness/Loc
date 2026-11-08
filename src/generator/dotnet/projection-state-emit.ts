@@ -1,7 +1,7 @@
+import { projectionTableName } from "../../ir/enrich/storage-names.js";
 import type { ProjectionIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
-import { tableNameFor } from "../../util/storage-names.js";
 import { csIdValueClrType } from "./dto-mapping.js";
 import { renderCsType } from "./render-expr.js";
 // ---------------------------------------------------------------------------
@@ -28,7 +28,7 @@ export function projectionRowClass(proj: ProjectionIR): string {
 
 /** The read-model row table name — matches `projectionTableShape`. */
 export function projectionRowTable(proj: ProjectionIR): string {
-  return tableNameFor(proj.name);
+  return projectionTableName(proj);
 }
 
 /** The DbSet property name (`OrderBooks`) the fold + read controller go through. */
@@ -124,7 +124,7 @@ function renderProjectionRowConfiguration(proj: ProjectionIR, ns: string, schema
       // The key is NOT NULL → the plain converter; a non-key id column is
       // nullable → the `HasValue`-guarded `Id? ⇆ Provider?` form (an
       // expression-tree lambda can't use `?.`, mirroring the aggregate config).
-      const provider = csIdValueClrType(leaf.valueType);
+      const provider = csIdValueClrType();
       const conv = isKey
         ? `.HasConversion(v => v.Value, v => new ${idType}(v))`
         : `.HasConversion(v => v.HasValue ? v.Value.Value : (${provider}?)null, v => v.HasValue ? (${idType}?)new ${idType}(v.Value) : (${idType}?)null)`;

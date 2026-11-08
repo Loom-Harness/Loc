@@ -44,14 +44,7 @@ import {
 import { printExpr } from "../../language/print/index.js";
 import { PRINCIPAL_TYPE_NAME } from "../../util/principal.js";
 import { canonicalUnion, OPTION_NONE } from "../stdlib/unions.js";
-import type {
-  DataSourceKind,
-  ExprIR,
-  IdValueType,
-  PermissionDeclIR,
-  TypeIR,
-  UserIR,
-} from "../types/loom-ir.js";
+import type { DataSourceKind, ExprIR, PermissionDeclIR, TypeIR, UserIR } from "../types/loom-ir.js";
 import type { ApiOperationIR } from "../util/api-surface.js";
 
 /** Synthetic entity name used to type the `currentUser` magic
@@ -427,14 +420,15 @@ export function lowerType(t: TypeRef | undefined, env?: Env): TypeIR {
 /** Lower one type atom — `base` plus the postfix constructor / array /
  *  optional markers (shared by a `TypeRef` head and each `or`-alternative /
  *  named-union `TypeAtom`).  Folds the postfix generic constructors
- *  left-to-right (P3): `string envelope paged` → ctors `["envelope", "paged"]`
- *  → `paged(envelope(string))`.  The P4 carrier `option` is a *union* carrier,
+ *  left-to-right (P3).  The P4 carrier `option` is a *union* carrier,
  *  so `T option` folds to `union[T, none]` rather than a `genericInstance`.
  *  Array/optional stay outermost so `customer paged[]` is array-of-(paged
  *  customer). */
 export function lowerAtom(t: TypeRef | TypeAtom, env?: Env): TypeIR {
   let inner = lowerBase(t, env);
   for (const ctor of t.ctors ?? []) {
+    // `envelope` is refused (`loom.envelope-removed`): it lowers as its argument.
+    if (ctor === "envelope") continue;
     inner =
       ctor === "option"
         ? canonicalUnion([inner, OPTION_NONE])
@@ -466,24 +460,6 @@ function lowerBase(t: TypeRef | TypeAtom, env?: Env): TypeIR {
       const principalId = env.user.fields.find((f) => f.name === "id")?.type;
       if (principalId) return principalId;
     }
-    let valueType: IdValueType = "guid";
-    if (target && isAggregate(target)) {
-      valueType = "guid" as IdValueType;
-    } else if (target && isEntityPart(target)) {
-      const _owner = ancestorAggregate(target);
-      valueType = "guid" as IdValueType;
-    } else if (!target && env) {
-      // Unresolved ref (a macro- / capability-emitted plain `{ $refText }` ref —
-      // e.g. a `Self id` rewritten to `<Host> id`, whose ref the Linker skips):
-      // recover the target's idKind from the lowering env by name so the FK
-      // value type matches a hand-written `<Host> id`.
-      const refText = base.target?.$refText;
-      const found = refText ? findEntityByName(env, refText) : undefined;
-      if (found && isAggregate(found)) valueType = "guid" as IdValueType;
-      else if (found && isEntityPart(found)) {
-        valueType = "guid" as IdValueType;
-      }
-    }
     // Macro-emitted references can lack a `$refNode`, which causes
     // Langium's default Linker to skip resolution silently — `ref`
     // stays undefined even when the target exists in scope.  Fall
@@ -492,11 +468,7 @@ function lowerBase(t: TypeRef | TypeAtom, env?: Env): TypeIR {
     // Tracked separately from the "genuinely unresolved" case
     // because the text is authoritative for synthesised refs.
     const targetName = target?.name ?? base.target?.$refText ?? "Unknown";
-    return {
-      kind: "id",
-      targetName,
-      valueType,
-    };
+    return { kind: "id", targetName };
   }
   if (isNamedType(base)) {
     const target = base.target?.ref;
@@ -707,15 +679,6 @@ export function findOperationInEnv(env: Env, name: string): Operation | undefine
 // ---------------------------------------------------------------------------
 // Misc AST helpers
 // ---------------------------------------------------------------------------
-
-export function ancestorAggregate(node: AstNode): Aggregate | undefined {
-  let cur: AstNode | undefined = node;
-  while (cur) {
-    if (isAggregate(cur)) return cur;
-    cur = cur.$container;
-  }
-  return undefined;
-}
 
 /** The `.ddd` source text behind an AST node — the human-readable label a
  *  `requires` / `precondition` failure carries into the generated 403 / 422

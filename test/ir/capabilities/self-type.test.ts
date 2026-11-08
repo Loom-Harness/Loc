@@ -34,7 +34,7 @@ describe("`Self id` anchored capability type (typed-capabilities.md)", () => {
     `);
     expect(parentType(findAgg(ir, "Org"))).toEqual({
       kind: "optional",
-      inner: { kind: "id", targetName: "Org", valueType: "guid" },
+      inner: { kind: "id", targetName: "Org" },
     });
   });
 

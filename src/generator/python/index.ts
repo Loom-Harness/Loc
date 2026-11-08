@@ -1,3 +1,4 @@
+import { registryTableName } from "../../ir/enrich/storage-names.js";
 import {
   fieldFixedMessage,
   fieldSentenceSuffix,
@@ -61,7 +62,6 @@ import {
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
-import { tableNameFor } from "../../util/storage-names.js";
 import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
@@ -511,7 +511,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         const ds = owning
           ? resolveDataSourceConfig(reg as EnrichedAggregateIR, owning, args.sys)
           : undefined;
-        const table = `${ds?.tablePrefix ?? ""}${tableNameFor(reg.name)}`;
+        const table = `${ds?.tablePrefix ?? ""}${registryTableName(args.sys)}`;
         return ds?.schema ? `${ds.schema}.${table}` : table;
       })()
     : undefined;
@@ -2063,13 +2063,11 @@ function renderProblemPy(
         # A DB constraint tripped.  Discriminate by Postgres SQLSTATE so a
         # dangling cross-aggregate reference (23503 foreign_key_violation) is not
         # conflated with a \`unique (...)\` breach (23505 unique_violation), which
-        # is a conflict with state that DOES exist.  Anything else is a conflict
-        # too, so it shares the 409.  asyncpg exposes \`.sqlstate\` on the driver
-        # error SQLAlchemy wraps in \`.orig\`.
+        # is a conflict with state that DOES exist.  Any other SQLSTATE is not a
+        # client conflict: it takes the sanitized 500 catch-all.  asyncpg exposes
+        # \`.sqlstate\` on the driver error SQLAlchemy wraps in \`.orig\`.
         sqlstate = getattr(getattr(err, "orig", None), "sqlstate", None)
-${danglingRefArm}${uniqueArm}        log("warn", "disallowed", message=str(err), status=${uniquenessStatus})
-        record_domain_fault("disallowed")
-        return problem(request, ${uniquenessStatus}, ${title("unique-conflict")}, "The request conflicts with the current state.")
+${danglingRefArm}${uniqueArm}        return await _internal(request, err)
 
 `
     : "";

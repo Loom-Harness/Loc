@@ -70,6 +70,9 @@ function catalogedSources(): string[] {
     }
   }
   out.push(path.join("src", "language", "ddd-validator.ts"));
+  // The macro-synthesised attribution (`loom.macro-synthesised`) wraps another
+  // check's message when the diagnostic is built, not at a coded site.
+  out.push(path.join("src", "language", "ddd-document-validator.ts"));
   out.push(path.join("src", "macros", "expander.ts"));
   // A stdlib macro's `warn(...)` text (`loom.scaffold-aggregate-unserved`) renders
   // from the catalog at the macro, not from the expander.

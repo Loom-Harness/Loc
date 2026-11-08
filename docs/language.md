@@ -367,6 +367,12 @@ Cross-aggregate references are written as `Other id`:
 customerId: Customer id
 ```
 
+`X id` must name something with an identity — an aggregate (abstract bases
+included) or an entity part.  A value object, enum, event, payload record or
+workflow has no id, so `origin: Point id` over `valueobject Point` is
+`loom.id-target-not-identity`; hold the value directly (`origin: Point`)
+instead.
+
 The underlying value type is always `guid`, and there is **no `ids` clause** —
 `ids int|long|string` were removed (no backend implemented id generation for a
 non-guid primary key, so declaring one produced an app that collided on the
@@ -959,7 +965,7 @@ opts out of redaction by writing their own debug form.
 ```
 TypeRef       = TypeAtom ('or' TypeAtom)*                  // anonymous union
 TypeAtom      = BaseType GenericCtor* ('[]')? ('?')?
-GenericCtor   = 'paged' | 'envelope' | 'option'             // ML-postfix carriers
+GenericCtor   = 'paged' | 'option' | 'envelope'             // ML-postfix carriers ('envelope' is refused)
 BaseType      = PrimitiveType | SlotType | ActionType | SelfType | IdType | NamedType
 IdType        = Identifier 'id'                // cross-aggregate FK
 NamedType     = Identifier                     // bare name
@@ -974,8 +980,8 @@ ActionType    = 'action' ('(' TypeRef ')')?    // callback-shaped param marker �
 // `docs/language-reference/05-expressions.md` § Money literals vs money(x).
 ```
 
-The postfix carriers fold left (`string envelope paged` is
-`paged(envelope(string))`) and bind tighter than `or`, as do `[]` / `?`:
+The postfix carriers fold left (`string option paged` is
+`paged(string?)`) and bind tighter than `or`, as do `[]` / `?`:
 `string or int option` is `string or (int option)`.  `A or B` and the named
 `payload U = A | B` form are the discriminated-union surface (tagged `type`
 on the wire) — see [`payloads.md`](payloads.md).  `File` is the uploaded-file
@@ -1265,7 +1271,7 @@ Pragmatic core, similar to a subset of TypeScript / C# expressions.
 | `a + b`, `a - b`, `a * b`, `a / b`, `a % b` | Arithmetic. |
 | `a < b`, `a <= b`, `a > b`, `a >= b`, `a == b`, `a != b` | Comparison. |
 | `a && b`, `a \|\| b` | Logical. |
-| `a ?? b` | Nullish coalescing — `a` unless it is null, else `b`.  Binds LOOSER than `\|\|` and TIGHTER than `? :`, and is RIGHT-associative (`a ?? b ?? c` is `a ?? (b ?? c)`).  Pure sugar: it lowers to `a == null ? b : a`, so it works on every backend and every frontend the ternary does.  NOTE the left operand is evaluated TWICE (once in the test, once as the value) — bind an effectful one with `let` first. |
+| `a ?? b` | Nullish coalescing — `a` unless it is null, else `b`.  Binds LOOSER than `\|\|` and TIGHTER than `? :`, and is RIGHT-associative (`a ?? b ?? c` is `a ?? (b ?? c)`).  Pure sugar: it lowers to `a == null ? b : a`, so it works on every backend and every frontend the ternary does. The left operand is evaluated ONCE and the right only when the left is null on every backend (TS `(a ?? b)`, C# `(a ?? b)`, Java `Optional.ofNullable(a).orElseGet(() -> b)`, Python `[c if c is not None else b for c in (a,)][0]`, Elixir `case a do nil -> b; c -> c end`). |
 | `cond ? a : b` | Ternary (`loom.ternary-condition` / `loom.ternary-branches`). A direct null test on `cond` narrows the proven branch — see [Null narrowing](#null-narrowing). |
 | `match { cond => value, …, else => value }` | Predicate-arms expression — the first true arm wins; `else` is the fallthrough. |
 | `match subject { Variant [b] => value, …, else => value }` | Variant match over an `A or B` union or a `T?` scrutinee (a presence check), optionally binding the narrowed variant.  The subject must be a simple ref / member read, not a call — except `match await <call> { … }` in a page `action`, which awaits a remote command and matches its Result ([`actions.md`](actions.md)). |
@@ -2178,7 +2184,7 @@ validator raises is in it).  By family, with the doc that explains each:
 | `loom.migration-*`, `loom.rename-*`, `loom.backfill-*`, `loom.unique-*` | `migration { … }` ledger steps, destructive / rebaseline gating, `unique (…)` | [`migrations.md`](migrations.md) |
 | `loom.handler-*`, `loom.command-handler-*`, `loom.query-handler-*`, `loom.route-handler-unresolved`, `loom.extern-*` | `commandHandler` / `queryHandler` contracts, `api` routes, extern pairing | [`extern.md`](extern.md), [`architecture.md`](architecture.md) |
 | `loom.criterion-*`, `loom.retrieval-*`, `loom.find-*`, `loom.findall-*`, `loom.list-find-removed` | Criteria purity / arity / aliasing, retrievals, the queryable subset | [`criterion.md`](criterion.md) |
-| `loom.union-*`, `loom.payload-*`, `loom.generic-*`, `loom.match-*` | `A or B` unions, payload records, `paged` / `envelope` / `option` carriers, `match` exhaustiveness and subjects | [`payloads.md`](payloads.md) |
+| `loom.union-*`, `loom.payload-*`, `loom.generic-*`, `loom.match-*` | `A or B` unions, payload records, `paged` / `option` carriers, `match` exhaustiveness and subjects | [`payloads.md`](payloads.md) |
 | `loom.channel*`, `loom.reactor-*`, `loom.relay-*`, `loom.timer-*` | Channels, channelSources, reactors, timers | [`channels.md`](channels.md) |
 | `loom.resource-*`, `loom.datasource-*`, `loom.file-*`, `loom.config-*`, `loom.index-suggestion` | Resource bindings, storage kinds, `File` fields, vendor config, index advice | [`resources.md`](resources.md) |
 | `loom.seed-*` | Seed rows vs abstract / event-sourced / tenant-owned aggregates, `raw` columns | [`language-reference/23-domain-services-and-seeds.md`](language-reference/23-domain-services-and-seeds.md) |

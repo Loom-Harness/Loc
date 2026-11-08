@@ -1269,6 +1269,9 @@ export const DIAGNOSTIC_MESSAGES = {
     `${p.where} constructs '${p.name} { … }', an entity part of aggregate '${p.ownerName}'. ` +
     `An entity part is built only inside the aggregate that owns it — outside it there is nothing to hold it: ` +
     `call an operation on '${p.ownerName}' that adds the part, passing its fields as plain parameters.`,
+  "loom.id-target-not-identity": (p: { name: unknown; kind: unknown; hint: unknown }) =>
+    `'${p.name} id' names ${p.kind} '${p.name}', which has no identity — only aggregates and entity parts carry an id. ` +
+    `Reference an aggregate or an entity part instead${p.hint}.`,
   "loom.ambiguous-part-ref": (p: { name: unknown; list: unknown; names: unknown }) =>
     `Ambiguous entity-part reference '${p.name} id' — '${p.name}' is declared in ${p.list}. ` +
     `Entity parts are aggregate-local; reference the owning aggregate's root instead (e.g. '${p.names} id'), ` +
@@ -1954,6 +1957,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `Extract the logic into a pure 'function' and call that from both places.`,
   "loom.unknown-user-claim": (p: { member: unknown; claims: unknown }) =>
     `'${p.member}' is not a claim on the principal. 'currentUser' carries exactly the fields declared in the system's 'user { }' block (${p.claims}), plus the derived 'orgPath' / 'rootOrg' under 'tenancy by'. Declare it ('${p.member}: <type>' inside 'user { }') or fix the spelling — an undeclared claim reaches the generated backend verbatim, whose 'UserClaims' shape is built from that same block, and breaks its own compile.`,
+  "loom.unknown-user-claim#no-user-block": (p: { member: unknown }) =>
+    `'currentUser.${p.member}' reads a claim, but the system declares no 'user { }' block, so the principal carries none. Declare it ('user { ${p.member}: <type> }', with 'auth' on the deployable that serves it); without a declaration the claim has no type, and its generated read is a guess.`,
   "loom.unknown-primitive-member": (p: { member: unknown; prim: unknown; known: unknown }) =>
     `'${p.member}' is not a member of '${p.prim}'. '${p.prim}' is a PRIMITIVE value, not a record — it has no fields.${p.known} An invented member is not caught anywhere downstream: it reaches the generated code verbatim, where node/.NET/Java fail their own compile and python/elixir do not — so an invariant written over one silently never fires.`,
   "loom.unknown-primitive-member#money": (p: { member: unknown; known: unknown }) =>
@@ -2125,6 +2130,9 @@ export const DIAGNOSTIC_MESSAGES = {
     `context '${p.name}': ${p.kind} '${p.hName}' has a parameter named 'id', which is ` +
     `reserved — a bare 'id' in a handler body resolves to the current entity's implicit id, ` +
     `not the parameter. Rename it (e.g. 'orderId').`,
+  "loom.envelope-removed":
+    "`T envelope` is removed: it meant exactly `T` (a single value), so the carrier added nothing. " +
+    "Write `T` instead — the quick fix drops the `envelope`.",
   "loom.option-deprecated":
     "`T option` is deprecated: it means `T?`, the one way to say a value may be missing. " +
     "Write `T?` instead — the quick fix rewrites it.",
@@ -2750,6 +2758,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `field '${p.name}' (${p.k}) cannot be URL-synced — ` +
     `\`persist: url\` fields must be scalar (string/number/bool/enum/id). ` +
     `Use \`persist: local\` for structural state.`,
+  "loom.store-init-not-constant": (p: { name: unknown; kind: unknown }) =>
+    `field '${p.name}': its initializer is not a constant (a \`${p.kind}\` expression).  ` +
+    `A store field is initialised once, when the store is created, so its default ` +
+    `may use only literals, lists, operators, \`? :\`, enum values and \`string(…)\` — ` +
+    `set anything else from a store action instead.`,
   "loom.store-action-view-effect": (p: { where: unknown; name: unknown; sName: unknown }) =>
     `action '${p.name}': \`${p.sName}(…)\` is a view-scoped effect — ` +
     `a store has no router/socket to ${p.sName} on.  Move it to the calling page's ` +
@@ -3772,6 +3785,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `(CS0119 for a method, CS1061 for a property). Rename the declaration to something other ` +
     `than '${p.member}' (an operation reads well as 'add${p.member}'), or host this context on ` +
     `a node / python / elixir / java deployable.`,
+  "loom.dotnet-name-collision#generated-member": (p: {
+    what: unknown;
+    owner: unknown;
+    name: unknown;
+    member: unknown;
+    ctxName: unknown;
+  }) =>
+    `'${p.ctxName}.${p.owner}' declares ${p.what} '${p.name}', which the dotnet backend emits ` +
+    `as the C# member '${p.member}' — a name the backend already GENERATES on that class ` +
+    `(the root's 'Inspect' / 'ToString()' / 'DomainEvents' / 'PullEvents()', a part's ` +
+    `'ParentId'). Two members of one name in one class do not compile (CS0102 / CS0111). ` +
+    `Rename the declaration, or host this context on a node / python / elixir / java deployable.`,
   "loom.context-filter-no-principal": (p: {
     name: unknown;
     platform: unknown;
@@ -4452,6 +4477,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `every frontend (\`{/* ${p.name}: not supported … */}\` on React/Vue/Svelte/Angular/Feliz/` +
     `Flutter, \`<%!-- ${p.name}: … --%>\` on Phoenix LiveView), so the element and everything ` +
     `nested inside it silently disappear from the page.  Make it a direct child of ${p.parents}.`,
+  "loom.paged-envelope-unknown-member": (p: { member: unknown; known: unknown }) =>
+    `A page body reads '.${p.member}' off a 'QueryView { paged: true }' binding.  That binding ` +
+    `is the paged ENVELOPE, not a row and not a collection, and it carries only ${p.known} — ` +
+    `every frontend would print '.${p.member}' verbatim against an object that has no such ` +
+    `member.  Read the rows through '.items' (e.g. 'rows.items.count') or one of the page fields.`,
   "loom.frontend-collection-op-unsupported": (p: { where: unknown; op: unknown }) =>
     `uses the collection op \`.${p.op}\` on a collection in a page/component ` +
     `expression.  The frontends render the ops that RESHAPE a collection — \`count\`, ` +
@@ -4820,14 +4850,12 @@ export const DIAGNOSTIC_MESSAGES = {
     claimField: unknown;
     claimType: unknown;
     registryName: unknown;
-    idValueType: unknown;
-    idValueType2: unknown;
   }) =>
     `system '${p.name}': tenancy claim 'user.${p.claimField}' is typed ` +
-    `'${p.claimType}' but registry '${p.registryName}' has a ${p.idValueType} id. ` +
+    `'${p.claimType}' but registry '${p.registryName}' has a guid id. ` +
     `The derived registry self-scope filter compares ${p.registryName}.id to the claim, so ` +
-    `declare the claim as '${p.claimField}: ${p.idValueType}'` +
-    `${p.idValueType2}.`,
+    `declare the claim as '${p.claimField}: guid'` +
+    ` (or '${p.claimField}: string', bound as a guid at the accessor site).`,
   "loom.tenant-owned-claim-type": (p: { name: unknown; claimField: unknown; claimType: unknown }) =>
     `system '${p.name}': tenancy claim 'user.${p.claimField}' is typed ` +
     `'${p.claimType}' but 'tenantOwned' provides 'tenantId: string' — the ` +
@@ -5102,6 +5130,39 @@ export const DIAGNOSTIC_MESSAGES = {
     `The body of 'api.${p.slug}.instance(…)' is the persisted instance shape of workflow ` +
     `'${p.workflow}': its correlation field, then its state fields. The read is 'undefined' at ` +
     `run time, so an assertion over it passes or fails for the wrong reason. Readable: ${p.known}.`,
+  "loom.e2e-unknown-response-field#projection": (p: {
+    read: unknown;
+    slug: unknown;
+    projection: unknown;
+    known: unknown;
+    suggestion?: unknown;
+  }) =>
+    `e2e: '${p.read}' reads a field the response does not carry.${didYouMean(p.suggestion)} ` +
+    `The body of 'api.${p.slug}.byKey(…)' is one row of projection '${p.projection}': its key, ` +
+    `then its state fields. The read is 'undefined' at run time, so an assertion over it passes ` +
+    `or fails for the wrong reason. Readable: ${p.known}.`,
+  "loom.e2e-unknown-query-key": (p: {
+    slug: unknown;
+    key: unknown;
+    aggregate: unknown;
+    known: unknown;
+    suggestion?: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.all({ ${p.key}: … })' sends the query key '${p.key}', which the ` +
+    `'${p.aggregate}' list route does not read.${didYouMean(p.suggestion)} The route ignores ` +
+    `it and answers the default page, so an assertion about the page the test asked for passes ` +
+    `or fails for the wrong reason. Accepted keys: ${p.known}.`,
+  "loom.e2e-projection-read-arity": (p: {
+    slug: unknown;
+    verb: unknown;
+    projection: unknown;
+    got: unknown;
+    expected: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…)' passes ${p.got} argument(s), but projection ` +
+    `'${p.projection}''s '${p.verb}' read takes ${p.expected}: 'byKey(key)' reads one row by its ` +
+    `key and 'list()' reads every row, with nothing else on the request. Pass exactly ` +
+    `${p.expected}.`,
   "loom.e2e-body-type-mismatch": (p: {
     slug: unknown;
     verb: unknown;
@@ -5437,11 +5498,21 @@ export const DIAGNOSTIC_MESSAGES = {
     call: unknown;
     binding: unknown;
   }) =>
-    `${p.where} reaches repository '${p.repoName}' INLINE, inside an expression. A workflow ` +
-    `wires up a repository only for a read bound to its own 'let' statement, so an inline read ` +
+    `${p.where} reaches repository '${p.repoName}' INLINE, inside an expression. A workflow or ` +
+    `handler wires up a repository only for a read bound to its own 'let' statement, so an inline read ` +
     `is dropped from codegen: no repository is ever instantiated, and every backend renders ` +
     `'${p.repoName}' as a bare name nothing binds. Bind the read first, then reference the ` +
     `binding: 'let ${p.binding} = ${p.call}'.`,
+  "loom.handler-unknown-name": (p: {
+    handler: unknown;
+    where: unknown;
+    name: unknown;
+    reason: unknown;
+  }) =>
+    `${p.handler}: ${p.where} references '${p.name}', which binds to nothing in a handler body — ` +
+    `it is ${p.reason}. Every backend would render '${p.name}' verbatim as a name the generated ` +
+    `handler never binds, so the project would not compile. Use a parameter, a 'let' binding, or ` +
+    `a read of this context's own repositories bound to a 'let' ('let x = <Repo>.get(…)').`,
   "loom.workflow-emit-unknown-event": (p: { name: unknown; eventName: unknown }) =>
     `workflow '${p.name}': emit refers to unknown event '${p.eventName}'.`,
   "loom.workflow-emit-missing-field": (p: { name: unknown; evName: unknown; f: unknown }) =>
@@ -5670,6 +5741,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `Macro '${p.childName}' (invoked from '${p.name}') threw: ${p.message}`,
   "loom.macro-threw#direct": (p: { name: unknown; message: unknown }) =>
     `Macro '${p.name}' threw during expansion: ${p.message}`,
+  // Not a diagnostic of its own: the attribution any AST-phase diagnostic on a
+  // macro-synthesised node is wrapped in (`DddDocumentValidator.toDiagnostic`),
+  // which keeps that diagnostic's code and moves it onto the `with` clause.
+  "loom.macro-synthesised": (p: { message: unknown; macro: unknown }) =>
+    `${String(p.message).replace(/\.\s*$/, "")} (in code synthesised by '${p.macro}')`,
   "loom.capability-host-invalid": (p: { name: unknown; hostKind: unknown }) =>
     `Capability '${p.name}' can only be applied to an aggregate or context (got '${p.hostKind}').  ` +
     "A capability is a pure mixin over domain state, not a UI or API concern.",

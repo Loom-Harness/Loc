@@ -19,6 +19,7 @@ import {
   TENANT_OWNED_DATA_KEY_FIELD,
   TENANT_OWNED_TENANT_ID_FIELD,
 } from "../../ir/util/tenant-stance.js";
+import type { WriteScopeContext } from "../../ir/util/write-scope-guards.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import {
@@ -90,6 +91,11 @@ export interface RenderCtx {
   repoRunActor?: boolean;
   /** Module prefix for the current bounded context, e.g. `"MyApp.Sales"`. */
   contextModule: string;
+  /** Set by a COMMAND body (a workflow's `run`, an explicit handler): the
+   *  body's write-scope requirement (`ir/util/write-scope-guards.ts`), so each
+   *  op-call / delete / mutating service call re-loads the rows it writes
+   *  through `get_<agg>_for_write` first.  Unset on a reactor. */
+  writeScope?: WriteScopeContext;
   /** Set by the workflow `run/1` and explicit-handler bodies: a `getById` load
    *  tags its miss `{:not_found, "<Agg> <id> not found"}` (and a natural-key
    *  `getBy` its miss `{:not_found, "not_found"}`) so the dispatcher answers
@@ -239,6 +245,15 @@ function integralOperand(t: TypeIR | undefined): "" | "?" | null {
   return t?.kind === "optional" ? "?" : "";
 }
 
+/** `a ?? b` — `case` matches ONLY `nil` (`||` would also swallow `false`), binds
+ *  the left once, and evaluates the fallback only on the `nil` clause.  The
+ *  binder is not underscore-prefixed (an underscored variable that is read
+ *  warns, and generated Elixir compiles with warnings as errors); each `case`
+ *  clause scopes it, so nested coalesces cannot collide. */
+function renderElixirCoalesce(left: string, fallback: string): string {
+  return `(case ${left} do nil -> ${fallback}; loom_c -> loom_c end)`;
+}
+
 const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // The one backend whose double-quoted string literal interpolates (`#{…}`)
   // — `elixirString` neutralizes that in addition to JSON's `"`/`\`/control-
@@ -281,6 +296,7 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // the keyword list at the value boundary where it belongs.  Cheap: the pair
   // of parens is inert wherever the bare form already parsed.
   ternary: (cond, then, otherwise) => `(if ${cond}, do: ${then}, else: ${otherwise})`,
+  coalesce: renderElixirCoalesce,
   convert: (value, e) => renderElixirConvert(e.target, e.from, value),
   // Transparent i18n wrapper (M-T1.11) — drop the format, emit the operand.
   i18nFormat: (inner) => inner,
@@ -331,6 +347,7 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
 export const ELIXIR_CTX_FREE_LEAVES = {
   escapeStringLiteral: ELIXIR_TARGET.escapeStringLiteral,
   literal: (lit: LiteralKind, value: string) => renderLiteral(lit, value),
+  coalesce: renderElixirCoalesce,
   convert: (value: string, e: ConvertExpr) => renderElixirConvert(e.target, e.from, value),
   duration: renderDurationInMemory,
   i18nFormat: ELIXIR_TARGET.i18nFormat,

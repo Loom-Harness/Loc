@@ -12,16 +12,13 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const REPO = "api/app/db/repositories/doc_repository.py";
 const SCOPE = "api/app/db/read_scope.py";
 
 async function build(source: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(source);
-  if (errors.length) throw new Error(`source has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(source);
 }
 
 /** The body of one repository method (`async def <name>(…):` up to the next

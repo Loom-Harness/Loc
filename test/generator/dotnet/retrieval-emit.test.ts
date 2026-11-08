@@ -5,11 +5,10 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  generateDotnet,
+  generateBackendFiles,
   generateSystemFiles,
   generateSystemFilesUnchecked,
 } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
 
 const SRC = `
   context Sales {
@@ -35,7 +34,7 @@ const SRC = `
 `;
 
 async function files() {
-  return generateDotnet(await parseValid(SRC));
+  return generateBackendFiles(SRC, "dotnet");
 }
 
 describe(".NET generator — retrieval", () => {
@@ -152,7 +151,7 @@ describe(".NET generator — retrieval principal binding (DEBT-24)", () => {
   });
 
   it("leaves a non-principal retrieval spec unchanged (no ambient accessor)", async () => {
-    const out = await generateDotnet(await parseValid(SRC));
+    const out = await generateBackendFiles(SRC, "dotnet");
     const spec = out.get("Domain/Customers/ByRegionSpec.cs")!;
     expect(spec).not.toMatch(/RequestContext\.Current/);
     expect(spec).not.toMatch(/using .*Domain\.Common;/);

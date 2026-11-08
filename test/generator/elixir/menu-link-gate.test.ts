@@ -134,7 +134,14 @@ describe("phoenix sidebar — menu-link gate", () => {
     // evaluate against, so it is refused rather than silently dropped — which
     // is what the sidebar emitter did before, turning an authorization rule
     // into an ungated link with no diagnostic.
-    const loom = await buildLoomModel(system({ auth: false }));
+    // The principal is declared (`user { }`), so the claim read itself is
+    // legal; what the ui lacks is the auth that would bind it.
+    const loom = await buildLoomModel(
+      system({ auth: false }).replace(
+        "system Acme {",
+        "system Acme {\n  user { id: string  role: string }",
+      ),
+    );
     const codes = validateLoomModel(loom)
       .filter((d) => d.severity === "error")
       .map((d) => d.code);

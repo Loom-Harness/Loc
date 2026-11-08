@@ -5,25 +5,11 @@
 // annotations onto each backend's k8s pod template.  Pure static frontends
 // emit no metrics and are excluded from both.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../src/language/ddd-module.js";
-import type { Model } from "../../src/language/generated/ast.js";
-import { generateSystems } from "../../src/system/index.js";
-
-const services = createDddServices(NodeFileSystem);
-const parse = parseHelper<Model>(services.Ddd);
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 async function filesFor(src: string): Promise<Map<string, string>> {
-  const doc = await parse(src, { validation: false });
-  // `parseHelper` returns a PARTIAL ast on a syntax error instead of
-  // throwing, so a fixture typo would silently move these assertions onto a
-  // half-read model.  This fixture used to say `ui web { for: OrdersApi }`,
-  // which is not a `ui` member at all — every assertion below was judging
-  // output composed from a broken parse (`experience_gathered.md` §59).
-  expect(doc.parseResult.parserErrors.map((e) => e.message)).toEqual([]);
-  return generateSystems(doc.parseResult.value, { emitKubernetes: true }).files;
+  return generateSystemFiles(src, { emitKubernetes: true });
 }
 
 // A backend (node) + a static React frontend targeting it.

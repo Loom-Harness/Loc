@@ -11,6 +11,7 @@ import { printStructural } from "../../../src/language/print/index.js";
 import { parseString } from "../../_helpers/parse.js";
 
 const wrap = (body: string) => `
+  system S { user { region: string } }
   context Sales {
     enum OrderStatus { Draft, Confirmed, Closed }
     aggregate Order { status: OrderStatus  placedAt: datetime  customerId: Customer id  lineCount: int  total: money  region: string }

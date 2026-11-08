@@ -8,10 +8,10 @@
 // so the emitted set compiles.
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
+  user { name: string  role: string }
   context Sales {
     aggregate Customer {
       active: bool
@@ -28,7 +28,7 @@ const SRC = `
 `;
 
 async function files() {
-  return generateDotnet(await parseValid(SRC));
+  return generateBackendFiles(SRC, "dotnet");
 }
 
 describe(".NET generator — reified criteria (Slice 1: evaluate face)", () => {
@@ -111,7 +111,7 @@ const CONSUME_SRC = `
 
 describe(".NET generator — reified criteria (Slice 2b: retrieval Specification consumes ToExpression)", () => {
   async function all() {
-    return generateDotnet(await parseValid(CONSUME_SRC));
+    return generateBackendFiles(CONSUME_SRC, "dotnet");
   }
 
   it("a single parameterized criterion `where` → a Spec consuming ToExpression()", async () => {
@@ -163,13 +163,13 @@ const FIND_SRC = `
 
 describe(".NET generator — reified criteria (Slice 2b: single-row reads)", () => {
   async function files() {
-    return generateDotnet(await parseValid(FIND_SRC));
+    return generateBackendFiles(FIND_SRC, "dotnet");
   }
 
   it("find(C) reads through a Spec that consumes ToExpression()", async () => {
     const out = await files();
     const spec = out.get("Domain/Customers/FindAllByInRegionSpec.cs")!;
-    expect(spec).toMatch(/using Sales\.Domain\.Criteria;/);
+    expect(spec).toMatch(/using App\.Domain\.Criteria;/);
     expect(spec).toMatch(/Query\.Where\(new InRegionCriterion\(rgn\)\.ToExpression\(\)\);/);
     expect(out.get("Infrastructure/Repositories/CustomerRepository.cs")!).toMatch(
       /WithSpecification\(new FindAllByInRegionSpec\(rgn\)\)/,

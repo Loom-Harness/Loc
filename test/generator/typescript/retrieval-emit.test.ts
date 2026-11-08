@@ -5,8 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import { validate } from "../../../src/api/index.js";
-import { generateHono, generateSystemFilesUnchecked } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles, generateSystemFilesUnchecked } from "../../_helpers/generate.js";
 
 const SRC = `
   context Sales {
@@ -24,8 +23,9 @@ const SRC = `
 
 describe("typescript generator — retrieval", () => {
   it("emits a runActiveInRegion method with where + sort + paging", async () => {
-    const model = await parseValid(SRC);
-    const repo = generateHono(model).get("db/repositories/customer-repository.ts")!;
+    const repo = (await generateBackendFiles(SRC, "node")).get(
+      "db/repositories/customer-repository.ts",
+    )!;
 
     // Method signature: retrieval params + optional page arg, returns array.
     expect(repo).toMatch(
@@ -49,26 +49,34 @@ describe("typescript generator — retrieval", () => {
   });
 
   it("emits no run method for an aggregate with no retrieval", async () => {
-    const model = await parseValid(`
+    const repo = (
+      await generateBackendFiles(
+        `
       context Sales {
         aggregate Order { total: decimal }
         repository Orders for Order { }
       }
-    `);
-    const repo = generateHono(model).get("db/repositories/order-repository.ts")!;
+    `,
+        "node",
+      )
+    ).get("db/repositories/order-repository.ts")!;
     expect(repo).not.toMatch(/async run/);
   });
 
   it("emits a paging-only run for a where-only retrieval, ordered by id", async () => {
-    const model = await parseValid(`
+    const repo = (
+      await generateBackendFiles(
+        `
       context Sales {
         aggregate Customer { active: bool }
         repository Customers for Customer { }
         criterion ActiveCustomer of Customer = active == true
         retrieval AllActive of Customer = ActiveCustomer
       }
-    `);
-    const repo = generateHono(model).get("db/repositories/customer-repository.ts")!;
+    `,
+        "node",
+      )
+    ).get("db/repositories/customer-repository.ts")!;
     expect(repo).toMatch(/async runAllActive\(page\?: /);
     expect(repo).toMatch(
       /runAllActive[^\n]*\n[^\n]*\.orderBy\(asc\(schema\.customers\.id\)\)\.\$dynamic\(\)/,

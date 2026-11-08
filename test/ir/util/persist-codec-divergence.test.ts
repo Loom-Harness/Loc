@@ -31,7 +31,7 @@ import { flutterPersistCodec } from "../../../src/ir/util/flutter-persist-codec.
 const prim = (name: string): TypeIR => ({ kind: "primitive", name }) as TypeIR;
 const arr = (element: TypeIR): TypeIR => ({ kind: "array", element });
 const opt = (inner: TypeIR): TypeIR => ({ kind: "optional", inner });
-const id = (): TypeIR => ({ kind: "id", targetName: "Order", valueType: "guid" }) as TypeIR;
+const id = (): TypeIR => ({ kind: "id", targetName: "Order" }) as TypeIR;
 const enumT = (): TypeIR => ({ kind: "enum", name: "Status" });
 const vo = (): TypeIR => ({ kind: "valueobject", name: "Money" });
 const entity = (): TypeIR => ({ kind: "entity", name: "Line" });

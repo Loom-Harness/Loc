@@ -233,7 +233,7 @@ export function renderBaseController(
   const variants = variantsOf(read, ctx);
   const route = `${routePrefix}${routeSegmentFor(B)}`;
   const [pageParam, pageSizeParam] = csPagedQueryParams();
-  const idClr = csIdValueClrType(base.idValueType);
+  const idClr = csIdValueClrType();
   // Most-derived arm first is moot (every concrete is a leaf), but a C#
   // `switch` over type patterns must still name each concrete once.
   const arms = variants.map(

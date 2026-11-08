@@ -19,7 +19,6 @@ import type {
   EnrichedSystemIR,
   EntityPartIR,
   FieldIR,
-  IdValueType,
   ManualIndexIR,
   PrimitiveName,
   ProjectionIR,
@@ -222,10 +221,20 @@ export function schemaFromModule(
     }
     const shape = shapeOf(agg, ctxFor(agg));
     if (shape === "document") {
-      return [withLineageColumns(agg, documentTableForAggregate(agg, module.name))];
+      return [
+        withLineageColumns(
+          agg,
+          documentTableForAggregate(aggregateTableName(agg, pool), module.name),
+        ),
+      ];
     }
     if (shape === "embedded") {
-      return [withLineageColumns(agg, embeddedTableForAggregate(agg, module.name))];
+      return [
+        withLineageColumns(
+          agg,
+          embeddedTableForAggregate(agg, aggregateTableName(agg, pool), module.name),
+        ),
+      ];
     }
     const out: TableShape[] = [
       withLineageColumns(agg, tableForAggregate(agg, module.name, voLookup, enumLookup)),
@@ -570,8 +579,7 @@ function workflowStateTableShape(
   const columns: ColumnShape[] = [];
   for (const f of wf.stateFields ?? []) {
     if (f.name === corr) {
-      const vt = f.type.kind === "id" ? f.type.valueType : "guid";
-      columns.push({ name: snake(f.name), type: idColumnType(vt), nullable: false });
+      columns.push({ name: snake(f.name), type: idColumnType(), nullable: false });
       continue;
     }
     if (isReferenceCollection(f.type)) {
@@ -610,8 +618,7 @@ function projectionTableShape(
   const columns: ColumnShape[] = [];
   for (const f of proj.stateFields) {
     if (f.name === corr) {
-      const vt = f.type.kind === "id" ? f.type.valueType : "guid";
-      columns.push({ name: snake(f.name), type: idColumnType(vt), nullable: false });
+      columns.push({ name: snake(f.name), type: idColumnType(), nullable: false });
       continue;
     }
     // Non-key columns are NULLABLE: a fold upserts only the fields an event
@@ -692,11 +699,12 @@ function orderTablesByFkDependency(tables: TableShape[]): TableShape[] {
  *  join tables.  This is the shape EF owned-types `.ToJson()`, Drizzle
  *  jsonb columns, and Phoenix embedded schemas all map to natively — one
  *  physical layout shared across every backend. */
-function embeddedTableForAggregate(agg: AggregateIR, ownerModule: string): TableShape {
-  const tableName = tableNameFor(agg.name);
-  const columns: ColumnShape[] = [
-    { name: "id", type: idColumnType(agg.idValueType), nullable: false },
-  ];
+function embeddedTableForAggregate(
+  agg: AggregateIR,
+  tableName: string,
+  ownerModule: string,
+): TableShape {
+  const columns: ColumnShape[] = [{ name: "id", type: idColumnType(), nullable: false }];
   const foreignKeys: FKShape[] = [];
   const indexes: IndexShape[] = [];
   for (const f of agg.fields) {
@@ -737,13 +745,12 @@ function embeddedTableForAggregate(agg: AggregateIR, ownerModule: string): Table
  *  or join tables: contained parts live inside `data`, and cross-aggregate
  *  `X id` / `X id[]` references stay references but ride inside `data` as
  *  id strings / arrays. */
-function documentTableForAggregate(agg: AggregateIR, ownerModule: string): TableShape {
-  const tableName = tableNameFor(agg.name);
+function documentTableForAggregate(tableName: string, ownerModule: string): TableShape {
   return {
     name: tableName,
     ownerModule,
     columns: [
-      { name: "id", type: idColumnType(agg.idValueType), nullable: false },
+      { name: "id", type: idColumnType(), nullable: false },
       { name: "data", type: { kind: "json" }, nullable: false },
       { name: "version", type: { kind: "int" }, nullable: false },
     ],
@@ -3115,8 +3122,9 @@ function resolveTableRenames(
       } else {
         const proj = ctx.projections.find((p) => p.name === ri.to)!;
         if (!isMaterializedProjection(proj)) continue; // query-time: no table
+        // The old name has no node any more: spell it by name.
         const from = tableNameFor(ri.from);
-        const to = tableNameFor(ri.to);
+        const to = projectionTableName(proj);
         push(from, to, newSchema, isMove ? { fromSchema: oldSchemaFor(from) } : undefined);
       }
       continue;
@@ -3161,7 +3169,7 @@ function resolveTableRenames(
 
     // Root table — plural, so computed directly (irregular plurals like
     // `category → categories` don't survive a bare prefix substitution).
-    push(tableNameFor(ri.from), tableNameFor(ri.to), schema, move);
+    push(tableNameFor(ri.from), aggregateTableName(agg, ctx.aggregates), schema, move);
 
     // Value-object collection child tables owned by the ROOT (`field: VO[]`)
     // and association join tables (`Target id[]`): table and owner FK both
@@ -3516,7 +3524,7 @@ function stampReshapeMetadata(
 ): void {
   if (agg.persistedAs === "eventLog") return; // stream lives in <ctx>_events
   if (isTphConcrete(agg, pool)) return; // shares the base's table (stamped there)
-  const root = produced.find((t) => t.name === tableNameFor(agg.name));
+  const root = produced.find((t) => t.name === aggregateTableName(agg, pool));
   if (!root) return; // no own root table (abstract TPC base owns none)
   if (isTphBase(agg, pool)) {
     root.inheritance = { strategy: "sharedTable", base: agg.name };
@@ -3546,9 +3554,7 @@ function tableForAggregate(
   enumLookup: EnumLookup,
 ): TableShape {
   const tableName = tableNameFor(agg.name);
-  const columns: ColumnShape[] = [
-    { name: "id", type: idColumnType(agg.idValueType), nullable: false },
-  ];
+  const columns: ColumnShape[] = [{ name: "id", type: idColumnType(), nullable: false }];
   const foreignKeys: FKShape[] = [];
   const indexes: IndexShape[] = uniqueIndexesFor(agg, tableName);
 
@@ -3619,7 +3625,7 @@ function tphTableForAggregate(
     optional: false,
   } as FieldIR;
   const columns: ColumnShape[] = [
-    { name: "id", type: idColumnType(base.idValueType), nullable: false },
+    { name: "id", type: idColumnType(), nullable: false },
     mapField(kindField).column,
   ];
   const foreignKeys: FKShape[] = [];
@@ -3726,8 +3732,8 @@ function tableForPart(
   const parentTable = tableNameFor(fkOwnerName);
   const parentFk = `${snake(fkOwnerName)}_id`;
   const columns: ColumnShape[] = [
-    { name: "id", type: idColumnType(parent.idValueType), nullable: false },
-    { name: parentFk, type: idColumnType(parent.idValueType), nullable: false },
+    { name: "id", type: idColumnType(), nullable: false },
+    { name: parentFk, type: idColumnType(), nullable: false },
   ];
   const foreignKeys: FKShape[] = [{ column: parentFk, refTable: parentTable, onDelete: "cascade" }];
   const indexes: IndexShape[] = [
@@ -3783,7 +3789,7 @@ function tableForAssociation(
   pool: readonly AggregateIR[],
 ): TableShape {
   const { ownerTable, targetTable } = associationTables(assoc, pool);
-  const idType = idColumnType(assoc.valueType);
+  const idType = idColumnType();
   return {
     name: assoc.joinTable,
     ownerModule,
@@ -3847,7 +3853,7 @@ function valueCollectionTableShape(
   partName?: string,
 ): TableShape {
   const ownerTable = partName ? tableNameFor(partName) : tableNameFor(parentAgg.name);
-  const idType = idColumnType(parentAgg.idValueType);
+  const idType = idColumnType();
   const elementFields = voLookup.get(vc.voName) ?? [];
   const columns: ColumnShape[] = [
     { name: vc.parentFk, type: idType, nullable: false },
@@ -4259,7 +4265,7 @@ function mapTypeToColumn(t: TypeIR): {
       return { type: primitiveColumnType(t.name) };
     case "id":
       return {
-        type: idColumnType(t.valueType),
+        type: idColumnType(),
         fkRefTable: tableNameFor(t.targetName),
       };
     case "enum":
@@ -4300,8 +4306,8 @@ function primitiveColumnType(name: PrimitiveName): ColumnType {
   return scalarCodec(name).column;
 }
 
-function idColumnType(t: IdValueType): ColumnType {
-  return idColumn(t);
+function idColumnType(): ColumnType {
+  return idColumn();
 }
 
 // ---------------------------------------------------------------------------

@@ -1,3 +1,8 @@
+import {
+  aggregateTableName,
+  partTableName,
+  registryTableName,
+} from "../../ir/enrich/storage-names.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
@@ -8,7 +13,6 @@ import type {
   EnrichedBoundedContextIR,
   EventIR,
   FieldIR,
-  IdValueType,
   ProjectionIR,
   RepositoryIR,
   SystemIR,
@@ -64,7 +68,6 @@ import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
-import { tableNameFor } from "../../util/storage-names.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
@@ -730,7 +733,7 @@ function emitProjectFromContexts(
       place(
         `${agg.name}Id.java`,
         "id",
-        renderJavaId(agg.name, agg.idValueType, basePkg),
+        renderJavaId(agg.name, basePkg),
         undefined,
         agg.origin,
         idConstruct,
@@ -739,7 +742,7 @@ function emitProjectFromContexts(
         place(
           `${part.name}Id.java`,
           "id",
-          renderJavaId(part.name, agg.idValueType, basePkg),
+          renderJavaId(part.name, basePkg),
           undefined,
           agg.origin,
           idConstruct,
@@ -759,7 +762,7 @@ function emitProjectFromContexts(
           place(
             `${assoc.targetAgg}IdJsonListConverter.java`,
             "id",
-            renderJavaIdListConverter(assoc.targetAgg, assoc.valueType, basePkg),
+            renderJavaIdListConverter(assoc.targetAgg, basePkg),
             undefined,
             agg.origin,
             idConstruct,
@@ -972,7 +975,7 @@ function emitProjectFromContexts(
         place(
           `${f.type.element.targetName}IdJsonListConverter.java`,
           "id",
-          renderJavaIdListConverter(f.type.element.targetName, f.type.element.valueType, basePkg),
+          renderJavaIdListConverter(f.type.element.targetName, basePkg),
           undefined,
           origin,
           construct,
@@ -1198,7 +1201,7 @@ function emitProjectFromContexts(
         if (effectiveSavingShape(a, cfg) !== "document" || a.persistedAs === "eventLog") {
           return undefined;
         }
-        const bare = tableNameFor(a.name);
+        const bare = aggregateTableName(a, ctx.aggregates);
         return cfg?.schema ? `${cfg.schema}.${bare}` : bare;
       },
       contexts,
@@ -1364,14 +1367,7 @@ function emitProjectFromContexts(
       ...userClaimIdTypeSources(system.sys.user),
     ]);
     for (const name of foreignIdNames) {
-      let idValueType = "uuid";
-      for (const sub of system.sys.subdomains) {
-        for (const c of sub.contexts) {
-          const agg = c.aggregates.find((a) => a.name === name);
-          if (agg) idValueType = agg.idValueType;
-        }
-      }
-      place(`${name}Id.java`, "id", renderJavaId(name, idValueType, basePkg));
+      place(`${name}Id.java`, "id", renderJavaId(name, basePkg));
     }
   }
 
@@ -1412,7 +1408,6 @@ function emitProjectFromContexts(
       channelBindings,
       carriedEvents,
       consumerHandlers,
-      system.sys,
       {
         durableBroker: durableBrokerEvents.size > 0,
         outboxEntityPkg: pkgFor("infra-persistence"),
@@ -1472,18 +1467,15 @@ function emitProjectFromContexts(
     // among THIS deployable's contexts (so the boot JdbcTemplate reaches it),
     // `currentUser.orgPath` reads the registry's `data_key` per request;
     // otherwise the claim-copy accessor stands.
-    let orgPathRegistry: { table: string; idValueType: IdValueType } | undefined;
+    let orgPathRegistry: { table: string } | undefined;
     const reg = hierarchyRegistry(system.sys);
     if (reg) {
       for (const ctx of contexts) {
         const regAgg = ctx.aggregates.find((a) => a.name === reg.name);
         if (regAgg) {
           const schema = resolveDataSourceConfig(regAgg, ctx, system.sys)?.schema;
-          const table = tableNameFor(reg.name);
-          orgPathRegistry = {
-            table: schema ? `${schema}.${table}` : table,
-            idValueType: reg.idValueType,
-          };
+          const table = registryTableName(system.sys) as string;
+          orgPathRegistry = { table: schema ? `${schema}.${table}` : table };
           break;
         }
       }
@@ -1766,7 +1758,12 @@ function emitAggregate(
       "entity",
       renderJavaAbstractBaseEntity(agg, basePkg, pkgFor("entity", agg.name), {
         tph,
-        persistence: { schema, voLookup, mangledEnums },
+        persistence: {
+          tableName: aggregateTableName(agg, ctx.aggregates),
+          schema,
+          voLookup,
+          mangledEnums,
+        },
         restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`, contexts),
       }),
       agg.name,
@@ -1779,7 +1776,7 @@ function emitAggregate(
       place(
         `${plural(agg.name)}Controller.java`,
         "controller",
-        renderJavaBaseReadController(agg, read, agg.idValueType, {
+        renderJavaBaseReadController(agg, read, {
           basePkg,
           pkg: pkgFor("controller", agg.name),
           routePrefix,
@@ -1820,7 +1817,6 @@ function emitAggregate(
         fieldNames: new Set(inheritedBase.fields.map((f) => f.name)),
         derivedNames: new Set(inheritedBase.derived.map((d) => d.name)),
         sharesIdentity: !!tphBase,
-        idValueType: tphBase?.idValueType,
         pkg: pkgFor("entity", inheritedBase.name),
       }
     : undefined;
@@ -1861,7 +1857,7 @@ function emitAggregate(
           isDocument || isEmbedded
             ? undefined
             : {
-                tableName: tableNameFor(part.name),
+                tableName: partTableName(part),
                 schema,
                 // `_parent` @OneToOne (single only) + the `parentId` mirror both
                 // reference the DIRECT parent, so JPA navigates the real
@@ -1900,7 +1896,7 @@ function emitAggregate(
         agg.persistedAs === "eventLog" || isDocument
           ? undefined
           : {
-              tableName: tableNameFor(agg.name),
+              tableName: aggregateTableName(agg, ctx.aggregates),
               schema,
               containmentOwnerName: ownerName,
               embedded: isEmbedded,
@@ -1984,7 +1980,14 @@ function emitAggregate(
     place(
       `${agg.name}RepositoryImpl.java`,
       "repository-impl",
-      renderJavaDocumentRepositoryImpl(agg, repoWithViews, repoCtx, idClass, schema),
+      renderJavaDocumentRepositoryImpl(
+        agg,
+        aggregateTableName(agg, ctx.aggregates),
+        repoWithViews,
+        repoCtx,
+        idClass,
+        schema,
+      ),
       agg.name,
       repoOrigin,
       construct,

@@ -20,6 +20,7 @@
 // `text` (`.ToString()` / `Enum.Parse`).
 // ---------------------------------------------------------------------------
 
+import { aggregateTableName, partTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -28,7 +29,6 @@ import type {
   EntityPartIR,
   ExprIR,
   FieldIR,
-  IdValueType,
   ParamIR,
   PrimitiveName,
   RepositoryIR,
@@ -54,7 +54,6 @@ import { lines } from "../../../util/code-builder.js";
 import { rewrite } from "../../../util/emission-sink.js";
 import { intrinsicFor, intrinsicKey } from "../../../util/intrinsics.js";
 import { escapeCsharpIdent, plural, snake, upperFirst } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
 import { renderPrincipalTest } from "../../_expr/principal-term.js";
@@ -156,35 +155,10 @@ export function sqlIdent(name: string): string {
   return isReservedIdent(name) ? `\\"${name}\\"` : name;
 }
 
-/** Postgres table for an aggregate — lowercase plural (e.g. `orders`).  BARE:
- *  callers quote it at the SQL position with `sqlIdent`, because the same
- *  string also seeds derived names (a `CREATE INDEX` name) where a quote would
- *  be wrong. */
-const tableOf = (aggName: string): string => tableNameFor(aggName);
-
-/** The state table an aggregate's rows live in — the SAME derivation the
- *  repositories and the DDL use, exported so the OTHER raw-Npgsql readers
- *  (the query-time projection handlers, which query the table directly rather
- *  than through a repository) name the identical table.  Pass the TPH BASE
- *  name for a `sharedTable` concrete: it has no table of its own. */
-export function dapperAggregateTable(aggName: string): string {
-  return tableOf(aggName);
-}
-
-/** SQL + C# row type for an id value type.  The SQL type is the `Codec` fact's
+/** SQL + C# row type of an id (a guid).  The SQL type is the `Codec` fact's
  *  id column. */
-export function idTypes(vt: IdValueType): { sql: string; cs: string } {
-  const sql = csIdSqlType(vt);
-  switch (vt) {
-    case "int":
-      return { sql, cs: "int" };
-    case "long":
-      return { sql, cs: "long" };
-    case "string":
-      return { sql, cs: "string" };
-    default:
-      return { sql, cs: "Guid" };
-  }
+export function idTypes(): { sql: string; cs: string } {
+  return { sql: csIdSqlType(), cs: "Guid" };
 }
 
 /** The C# row type of a primitive column. */
@@ -241,7 +215,7 @@ function unwrapOptional(t: TypeIR): { type: TypeIR; nullable: boolean } {
  *  id struct the hydrate mints; it defaults to `<Agg>Id` but a TPH concrete
  *  passes its shared base's `<Base>Id` (the concrete declares no id of its own). */
 function idColumn(agg: EnrichedAggregateIR, idClass = `${agg.name}Id`): DapperColumn {
-  const { sql, cs } = idTypes(agg.idValueType);
+  const { sql, cs } = idTypes();
   return {
     col: "id",
     sql,
@@ -324,7 +298,7 @@ export function fieldColumn(f: FieldIR, accBase = "aggregate"): DapperColumn {
           : `System.Text.Json.JsonSerializer.Deserialize<${type.name}>(r.${escapeCsharpIdent(col)})!`,
       };
     case "id": {
-      const { sql, cs } = idTypes(type.valueType);
+      const { sql, cs } = idTypes();
       return {
         col,
         sql,
@@ -533,7 +507,6 @@ function partChildrenOf(agg: EnrichedAggregateIR, ownerName: string = agg.name):
   const buildLevel = (
     containments: readonly ContainmentIR[],
     fkOwner: string,
-    fkOwnerIdVt: IdValueType,
     parentEntityId: string,
   ): PartChild[] =>
     containments.map((cont): PartChild => {
@@ -542,23 +515,23 @@ function partChildrenOf(agg: EnrichedAggregateIR, ownerName: string = agg.name):
       return {
         cont,
         part,
-        table: tableNameFor(part.name),
+        table: partTableName(part),
         fkOwner,
         parentFk: `${snake(fkOwner)}_id`,
         parentEntityId,
-        parentIdCs: idTypes(fkOwnerIdVt).cs,
-        partIdCs: idTypes(part.parentIdValueType).cs,
-        parentIdSql: idTypes(fkOwnerIdVt).sql,
-        partIdSql: idTypes(part.parentIdValueType).sql,
+        parentIdCs: idTypes().cs,
+        partIdCs: idTypes().cs,
+        parentIdSql: idTypes().sql,
+        partIdSql: idTypes().sql,
         childVar,
         fieldCols: part.fields.map((f) => fieldColumn(f, childVar)),
         // A nested part FKs its DIRECT parent (this part), for both the storage
         // FK and the `State.ParentId` type — so `fkOwner === parentEntityId`
         // below (the TPH split only ever applies at the root level).
-        children: buildLevel(part.contains ?? [], part.name, part.parentIdValueType, part.name),
+        children: buildLevel(part.contains ?? [], part.name, part.name),
       };
     });
-  return buildLevel(agg.contains ?? [], ownerName, agg.idValueType, agg.name);
+  return buildLevel(agg.contains ?? [], ownerName, agg.name);
 }
 
 /** Flatten the containment tree to every part table (pre-order) — the schema,
@@ -962,7 +935,7 @@ function voLeafSql(voColumn: string, leaf: string, leafType: TypeIR): string {
   const col = sqlIdent(voColumn);
   const key = upperFirst(leaf);
   if (inner.kind === "id") {
-    const cast = idTypes(inner.valueType).sql;
+    const cast = idTypes().sql;
     const extract = `${col}->'${key}'->>'Value'`;
     return cast === csSqlType("string") ? `(${extract})` : `(${extract})::${cast}`;
   }
@@ -1351,7 +1324,7 @@ export function renderDapperRepository(
     (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
   );
   const idClass = tph ? `${tph.baseName}Id` : `${agg.name}Id`;
-  const table = sqlIdent(tableOf(tph ? tph.baseName : agg.name));
+  const table = sqlIdent(aggregateTableName(agg, pool));
   const sqlCtx: WhereSqlCtx = { agg, table };
   // The read scope: ONE generated `<Agg>Scope` helper holds the `kind` scope and
   // every capability / tenancy / deny predicate; each statement below splices a
@@ -1611,8 +1584,8 @@ export function renderDapperRepository(
         "        if (roots.Count == 0) return;",
         "        var __ids = roots.Select(x => x.Id.Value).ToArray();",
         ...associations.flatMap((a) => {
-          const ownerCs = idTypes(agg.idValueType).cs;
-          const targetCs = idTypes(a.valueType).cs;
+          const ownerCs = idTypes().cs;
+          const targetCs = idTypes().cs;
           const prop = upperFirst(a.fieldName);
           return [
             `        var __${a.fieldName}Rows = (await conn.QueryAsync<(${ownerCs} owner, ${targetCs} target)>(new CommandDefinition("SELECT ${sqlIdent(a.ownerFk)}, ${sqlIdent(a.targetFk)} FROM ${sqlIdent(a.joinTable)} WHERE ${sqlIdent(a.ownerFk)} = ANY(@ids) ORDER BY ${sqlIdent(a.ownerFk)}, ${sqlIdent(a.targetFk)}", new { ids = __ids }, cancellationToken: cancellationToken))).ToList();`,
@@ -2263,9 +2236,9 @@ export function renderDapperDocumentRepository(
   const domainAliases = collidingNamesOfAggregate(agg).map(
     (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
   );
-  const table = sqlIdent(tableOf(agg.name));
+  const table = sqlIdent(aggregateTableName(agg, pool));
   const snap = `${agg.name}Snapshot`;
-  const idCs = idTypes(agg.idValueType).cs;
+  const idCs = idTypes().cs;
   const versioned = rowVersionGuarded(agg);
   const finds = (repo?.finds ?? []).map((raw) => domainFindShape(raw, agg.name));
   const anyFindUsesUser = finds.some(findUsesCurrentUser);
@@ -2583,7 +2556,7 @@ export function renderDapperEventSourcedRepository(
   // Audit staging seam — shared with the relational + document emitters.
   const audit = dapperAuditSeam(agg, ns);
   const eventNames = [...new Set((agg.appliers ?? []).map((a) => a.event))];
-  const idValue = csValueTypeForId(agg.idValueType);
+  const idValue = csValueTypeForId();
   const parseId =
     idValue === "Guid"
       ? "System.Guid.Parse(__g.Key)"

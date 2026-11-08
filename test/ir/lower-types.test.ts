@@ -80,7 +80,7 @@ describe("lowerType — array & optional", () => {
 });
 
 describe("lowerType — id refs", () => {
-  it("lowers `T id` to `{kind: 'id', targetName: T, valueType: 'guid'}` by default", async () => {
+  it("lowers `T id` to `{kind: 'id', targetName: T}`", async () => {
     const agg = await aggregate(
       `aggregate A { customerId: Customer id }
        aggregate Customer { name: string }`,
@@ -89,7 +89,6 @@ describe("lowerType — id refs", () => {
     expect(fieldType(agg, "customerId")).toEqual({
       kind: "id",
       targetName: "Customer",
-      valueType: "guid",
     });
   });
 
@@ -104,7 +103,6 @@ describe("lowerType — id refs", () => {
     expect((t as { kind: "array"; element: TypeIR }).element).toEqual({
       kind: "id",
       targetName: "Customer",
-      valueType: "guid",
     });
   });
 });

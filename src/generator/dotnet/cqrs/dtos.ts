@@ -31,7 +31,7 @@ import {
 import { renderRequestDtos, renderResponseDtos } from "../emit.js";
 import { renderCsExpr } from "../render-expr.js";
 import { renderRequestValidators } from "../validator-emit.js";
-import { isNullableWireDefault, omitsToEmptyCollection } from "../wire-default.js";
+import { hasNullableWireDefault, omitsToEmptyCollection } from "../wire-default.js";
 
 // ---------------------------------------------------------------------------
 // Response DTOs — value objects first (so subsequent records can reference
@@ -81,7 +81,7 @@ export function emitResponseDtos(
   if (emitsRestCreate(agg)) {
     records.push({
       name: `Create${agg.name}Response`,
-      params: dtoParam(csIdValueClrType(agg.idValueType), "Id"),
+      params: dtoParam(csIdValueClrType(), "Id"),
     });
   }
   // Provenance (provenance.md): a response carrying any provenanced field's
@@ -340,7 +340,8 @@ export function emitRequestDtos(
       // file has no `Domain.ValueObjects` using.  So it takes the identical
       // escape hatch, and the controller's coalesce (which DOES have the
       // domain namespace in scope) supplies the value per request.
-      const nonConstant = isNullableWireDefault(d) || omitsToEmptyCollection(agg, f);
+      const nonConstant =
+        (d !== undefined && hasNullableWireDefault(f)) || omitsToEmptyCollection(agg, f);
       if (nonConstant) {
         const wt = wireType(f.type, ctx, "request");
         return {

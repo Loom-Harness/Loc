@@ -536,7 +536,7 @@ export function deriveAggregateOperations(
   // route builder renders ITS gate rather than re-locating it.  Under
   // denyByDefault an undeclared one carries the synthesised DENY gate instead
   // (`byIdRouteFind`), so the route fails closed with 403.
-  const byId = byIdRouteFind(repo, agg.idValueType);
+  const byId = byIdRouteFind(repo);
   push(
     "getById",
     opGetById(agg.name),

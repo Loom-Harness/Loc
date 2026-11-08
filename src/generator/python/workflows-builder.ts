@@ -38,7 +38,7 @@ import {
   commandCreateResult,
   commandWorkflowsOf,
 } from "../../ir/util/workflow-command-route.js";
-import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
+import { type WriteScopeContext, writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import {
   plural,
@@ -656,7 +656,7 @@ function workflowRoute(
       er ? entryErrorStatusesPy(er, ctx) : [],
       conflictResolver(ctx),
       {
-        readsAggregate: workflowCanAnswerNotFound(wf),
+        readsAggregate: workflowCanAnswerNotFound(wf, ctx),
       },
     )})`,
     // A route-invoked workflow runs in a child frame under the request root, so
@@ -794,6 +794,7 @@ function workflowRoute(
       ctx,
       collectLiveLetNames(wf.statements, wf.savesAtExit),
       saveLines,
+      writeScopeContext(wf.statements, ctx),
     ),
     "        ",
   );
@@ -935,14 +936,9 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
   // snake-cased attrs `instance_field_value` projects, so the projection,
   // operationIds, and route paths stay identical to the state path.
   const fns = esFns(wf);
-  // The `{id}` param annotation derives from the correlation id's value type —
-  // guid → the uuid-format str `ID_PARAM`, int/long → `int`, string → plain
-  // `str` — parity with Hono / .NET / Java / Phoenix by construction
-  // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/non-guid-id-http-params.md).
-  const corrVt = workflowCorrIdValueType(wf);
-  const idParam = corrVt === "guid" ? ID_PARAM : corrVt === "string" ? "id: str" : "id: int";
-  // `_load_<wf>_events` / `_fold_<wf>` key streams as str; a numeric id stringifies.
-  const idAsKey = corrVt === "int" || corrVt === "long" ? "str(id)" : "id";
+  // The correlation id is a guid, so the `{id}` param is the uuid-format str
+  // `ID_PARAM` — parity with Hono / .NET / Java / Phoenix.
+  const idParam = ID_PARAM;
   const list = wf.eventSourced
     ? lines(
         `@router.get("/${slug}/instances", response_model=${T}InstanceListResponse, operation_id="${camelId(opWorkflowInstances(wf.name))}"${listKwarg})`,
@@ -963,10 +959,10 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
         `@router.get("/${slug}/instances/{id}", response_model=${T}InstanceResponse, operation_id="${camelId(opWorkflowInstanceById(wf.name))}"${byIdKwarg})`,
         `async def ${slug}_instance(${idParam}, ${userParam}session: SessionDep) -> dict[str, object]:`,
         gateLines,
-        `    __stream = await ${dispatchFn(fns.load)}(session, ${idAsKey})`,
+        `    __stream = await ${dispatchFn(fns.load)}(session, id)`,
         "    if not __stream:",
         `        ${pyNotFoundRaise(H.AggregateNotFoundError, T, "id")}`,
-        `    row = ${dispatchFn(fns.fold)}(${idAsKey}, __stream)`,
+        `    row = ${dispatchFn(fns.fold)}(id, __stream)`,
         `    return {${proj("row")}}`,
       )
     : lines(
@@ -1022,6 +1018,10 @@ export function pyWorkflowStmtTarget(
   ctx: EnrichedBoundedContextIR | undefined,
   usedLets: ReadonlySet<string> | undefined,
   saveLines: PySaveLines,
+  /** The body's write-scope requirement — present on a command body (a
+   *  workflow's command route, an explicit command handler); a reactor
+   *  passes none. */
+  writeScope?: WriteScopeContext,
 ): WorkflowStmtTarget {
   /** The awaited criterion retrieval run capped at one row — the
    *  single-result read behind `Repo.find(<Criterion>)` in a `let` and an
@@ -1268,5 +1268,19 @@ export function pyWorkflowStmtTarget(
     notFound: (st, i) => [
       `${i}raise ${PY.AggregateNotFoundError}(${JSON.stringify(notFoundStmtDetail(st))})`,
     ],
+    // A held row is re-loaded through `get_by_id_for_write` — the load every
+    // mutation route uses — before the statement mutates or deletes it; a row
+    // outside the caller's write scope raises the same not-found (→ 404), and
+    // the request's transaction rolls back on the error answer.
+    ...(writeScope
+      ? {
+          writeScope: {
+            cx: writeScope,
+            guard: (g, i) => [
+              `${i}await ${pythonIdent(g.repoName)}.get_by_id_for_write(${snake(g.name)}.id)`,
+            ],
+          },
+        }
+      : {}),
   };
 }

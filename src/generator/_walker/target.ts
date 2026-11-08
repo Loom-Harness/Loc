@@ -1389,6 +1389,16 @@ export interface WalkerTarget {
    *  port it, and everything else falls through to a visible comment. */
   renderTimeline?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
 
+  /** REQUIRED — the markup for `LocaleSwitcher {}`, the language picker.  The
+   *  shared `emitLocaleSwitcher` returns it verbatim, so every target names its
+   *  own binding into the generated locale runtime and none can fall through to
+   *  a placeholder: React imports its `LocaleSwitcher` component, Vue and Svelte
+   *  render the `<LocaleSwitcher />` marker tag the page shell imports, Angular
+   *  renders `<loom-locale-switcher />`, Feliz calls `I18n.localeSwitcher ()`,
+   *  and Flutter builds `const LocaleSwitcher()`.  HEEx renders through its own
+   *  walker and never reaches this seam. */
+  renderLocaleSwitcher(call: ExprIR, ctx: WalkContext, depth: number): string;
+
   /** OPTIONAL — whole-primitive override for `DestroyForm(of: <Agg>)`.  The
    *  shared `emitDestroyForm` delegates here first; a non-null return is used
    *  verbatim and the shared path (which records an `actionMutations` sink +

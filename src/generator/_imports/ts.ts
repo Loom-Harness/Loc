@@ -39,7 +39,7 @@ export function tsNamespace(module: string, local: string): ImportSymbol {
 /** A reference to `sym` in a type position (an annotation, `implements`, a
  *  type argument): it needs the binding only at compile time. */
 export function refType(sym: ImportSymbol): string {
-  return ref({ ...sym, typeOnly: true });
+  return ref({ ...sym, typeOnly: true as const });
 }
 
 const SLOT_OPEN = "\uE002";

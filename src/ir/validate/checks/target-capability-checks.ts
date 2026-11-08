@@ -25,19 +25,22 @@ import {
   UI_CONSTRUCTS,
   uiCapability,
 } from "../../../util/target-capabilities.js";
-import type {
-  BoundedContextIR,
-  DeployableIR,
-  ExprIR,
-  Platform,
-  SystemIR,
-  UiIR,
+import {
+  type BoundedContextIR,
+  type DeployableIR,
+  type ExprIR,
+  type Platform,
+  type SystemIR,
+  type UiIR,
+  type WorkflowStmtIR,
+  workflowEmitsCommandRoute,
 } from "../../types/loom-ir.js";
 import type { OriginRef } from "../../types/origin.js";
 import { bodyUsesChart } from "../../util/chart.js";
 import { dataGridHosts } from "../../util/data-grid.js";
 import { entityHistoryReadHosts } from "../../util/entity-history-read.js";
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
+import { bodyWriteScopeGuards, writeScopeContext } from "../../util/write-scope-guards.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { mountedUis, standardOpAwaitUses } from "./ui-framework-checks.js";
 
@@ -167,6 +170,22 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
       }
     }
     return out;
+  },
+  "effect:mutate-held-row@command-body": (ctx) => {
+    const bodies: { what: string; statements: WorkflowStmtIR[]; origin?: OriginRef }[] = [
+      ...ctx.workflows
+        .filter(workflowEmitsCommandRoute)
+        .map((w) => ({ what: `workflow '${w.name}'`, statements: w.statements, origin: w.origin })),
+      ...(ctx.commandHandlers ?? []).map((h) => ({
+        what: `commandHandler '${h.name}'`,
+        statements: h.statements,
+      })),
+    ];
+    return bodies
+      .filter(
+        (b) => bodyWriteScopeGuards(b.statements, writeScopeContext(b.statements, ctx)).length > 0,
+      )
+      .map((b) => ({ what: b.what, source: `${ctx.name}/${b.what}`, origin: b.origin }));
   },
   "resource:replica@resource": (ctx, sys) =>
     resourceUses(ctx, sys, (ds) =>

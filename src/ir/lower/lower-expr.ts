@@ -353,12 +353,12 @@ export function passTargetSteps(lv: AstNode): TypeIR[] {
  * null spelling (`=== null` / `is null` / `is_nil` / `== nil` / `== null`),
  * and each frontend renders it in a page body the same way.
  *
- * NOTE — the left operand is rendered TWICE (once in the test, once as the
- * value).  That is invisible for the reads `??` is actually written on (a
- * field, a param, a let-binding); it is why an effectful left operand — a
- * repository read, an operation call — should be bound with `let` first.
- * Documented in `docs/language.md`; deliberately not gated, since the IR has
- * no expression-level binding form to lower into.
+ * The `cond.left` and the `otherwise` branch are the SAME node: that identity
+ * is the coalesce marker (`coalesceParts`, src/generator/_expr/coalesce.ts).
+ * Every backend renders the marked shape through `ExprTarget.coalesce`, which
+ * evaluates the left once and the fallback only when the left is null — the
+ * `cond` is never rendered for it.  Frontends that render the ternary
+ * directly (a page body) see the plain `a == null ? b : a` shape.
  */
 function lowerCoalesceChain(chain: BinaryChain, env: Env): ExprIR {
   const operands = [chain.head, ...chain.rest];

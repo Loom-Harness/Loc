@@ -62,6 +62,7 @@ import { renderEventModule } from "../events-emit.js";
 import { heexI18nUi } from "../i18n.js";
 import type { GenerateVanillaElixirArgs } from "../index.js";
 import { emitLiveViewPages, type LiveRoute } from "../liveview-emit.js";
+import { phoenixLocaleModel } from "../locale.js";
 import { emitMigrations } from "../migrations-emit.js";
 import { renderRelEnv, renderRelease, renderRelServer } from "../shell/config.js";
 import { renderDockerfile, renderDockerignore } from "../shell/project.js";
@@ -71,6 +72,7 @@ import { exStatus } from "../wire-policy-ex.js";
 import { emitVanillaApiControllers } from "./api-emit.js";
 import { emitVanillaAudit } from "./audit-emit.js";
 import { emitVanillaChangesets } from "./changeset-emit.js";
+import { opAssertedInvariants } from "./changeset-invariant-emit.js";
 import { aggregateBodyValueObjectFields } from "./changeset-validators.js";
 import { emitVanillaContextModule } from "./context-emit.js";
 import { denialOverrides, denialStatus, denialTitle, opHasWireDenial } from "./denial.js";
@@ -125,6 +127,12 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // Same gate as the other five frontends: a string-less ui gets no `pgettext`
   // binding anywhere and stays byte-identical.
   const i18nUi = heexI18nUi(sys, deployable);
+  // The shipped locales (source first) with generate-time endonyms: the shell
+  // emitter builds the negotiation tables from them, and `LocaleSwitcher`
+  // reads them off the walk context.
+  const localeModel = phoenixLocaleModel(sourceLocaleOf(sys), [
+    ...(args.translations?.keys() ?? []),
+  ]);
   // `pack?.` — a JSON-API-only deployable renders no template at all, and the
   // IR-level shell tests call this orchestrator without one.  Every other pack
   // use in this function already sits behind a `hasLiveView`-shaped branch, so
@@ -220,6 +228,14 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
       echoesDenialDetail(deployable, sys),
       hasStrictIngress,
+      // An operation persist re-asserts a message-less invariant as the
+      // operation's domain error — the domain-floor status + title.
+      contexts.some((c) => c.aggregates.some((a) => opAssertedInvariants(a).length > 0))
+        ? {
+            status: denialStatus("precondition", ladderStatuses),
+            title: denialTitle("precondition", ladderStatuses),
+          }
+        : undefined,
     );
   out.set(`lib/${appName}_web/problem_details.ex`, renderProblemDetails(false));
 
@@ -633,6 +649,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       appName,
       appModule,
       sourcemap,
+      locales: localeModel.entries,
     });
     for (const [path, content] of liveFiles) out.set(path, content);
     liveRoutes.push(...routes);
@@ -884,6 +901,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     deployable.port,
     sourceLocaleOf(sys),
     sys.subdomains.flatMap((sub) => sub.contexts),
+    args.translations,
   );
 
   // Deployment + boot machinery — the Elixir release, Dockerfile, and Ecto

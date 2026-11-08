@@ -11,8 +11,7 @@
 // byte-identical (no port, no `async`, no `await`).
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const READING = `system PyReading {
   subdomain Banking {
@@ -66,9 +65,7 @@ const READING = `system PyReading {
 `;
 
 async function build(src: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(src);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(src);
 }
 
 describe("python generator — domainService reading tier", () => {

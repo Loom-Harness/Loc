@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { EmptyFileSystem } from "langium";
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -6,6 +8,7 @@ import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 import { loadProjectFromVfs } from "../../web/src/build/project-loader.js";
 import { MemoryVfs } from "../../web/src/vfs/memory-vfs.js";
+import { generateSystemFilesFromLoom } from "../_helpers/generate.js";
 
 function makeVfs(files: Record<string, string>): MemoryVfs {
   const vfs = new MemoryVfs();
@@ -202,8 +205,7 @@ describe("playground project loader (VFS-backed)", () => {
 
     const merged = mergeLoomModels(all.map((d) => lowerModel(d.parseResult?.value as Model)));
     const loom = enrichLoomModel(merged);
-    const { generateSystemsFromLoom } = await import("../../src/system/index.js");
-    const files = generateSystemsFromLoom(loom).files;
+    const files = await generateSystemFilesFromLoom(loom);
 
     // Money emitted into the deployable's value-objects bundle.
     const vos = files.get("api/domain/value-objects.ts") ?? "";
@@ -237,5 +239,29 @@ describe("playground project loader (VFS-backed)", () => {
       secondCtx.members[0] as import("../../src/language/generated/ast.js").Aggregate
     ).members.length;
     expect(secondAggMembers).toBeGreaterThan(firstAggMembers);
+  });
+
+  it("drops documents the current project no longer reaches", async () => {
+    // One worker, one Langium workspace, many generates: a file the user
+    // deleted or renamed (or a single-file generate's document) must not stay
+    // in global scope.  Two copies of the same declarations make the
+    // `with crudish` body bind `Money` to the stale copy.
+    const acme = readFileSync(resolve(__dirname, "../../web/src/examples/acme.ddd"), "utf8");
+    const services = createDddServices(EmptyFileSystem);
+    await loadProjectFromVfs(
+      "/workspace/old.ddd",
+      services.shared,
+      makeVfs({ "/workspace/old.ddd": acme }),
+    );
+    const { entry } = await loadProjectFromVfs(
+      "/workspace/main.ddd",
+      services.shared,
+      makeVfs({ "/workspace/main.ddd": acme }),
+    );
+    const errors = (entry.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message);
+    expect(errors).toEqual([]);
+    expect(services.shared.workspace.LangiumDocuments.all.map((d) => d.uri.path).toArray()).toEqual(
+      ["/workspace/main.ddd"],
+    );
   });
 });

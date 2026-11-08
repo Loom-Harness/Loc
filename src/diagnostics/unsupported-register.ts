@@ -162,7 +162,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-return-type-unsupported",
     kind: "scope",
-    site: "src/language/validators/structural.ts:496",
+    site: "src/language/validators/structural.ts:533",
     what:
       "a routed entry point's result that is (or has a success variant that is) a value " +
       "object / decimal / money / date / datetime, and a workflow `create`'s plain (non-union) " +
@@ -276,7 +276,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // proves every supported cell renders and every refused one is raised.
     code: "loom.target-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/target-capability-checks.ts:329",
+    site: "src/ir/validate/checks/target-capability-checks.ts:350",
     what:
       "a construct × position its target cannot render, per the capability table.  LATENT: " +
       "every refused cell today is a settled never — `DataGrid` on flutter and phoenixLiveView " +
@@ -335,7 +335,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // codegen, and only Feliz / Flutter said so, behind a platform check.
     code: "loom.async-effect-subject-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:542",
+    site: "src/ir/validate/checks/store-checks.ts:577",
     what:
       "`match await <subject>` whose subject is not an aggregate INSTANCE operation.  The " +
       "reachable population was CENSUSED in wave C2 packet 2l by spelling every candidate " +
@@ -371,7 +371,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.feliz-async-effect-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:466",
+    site: "src/ir/validate/checks/store-checks.ts:502",
     what:
       "`match await` on Feliz in a COMPONENT host — the Feliz generator projects async effects " +
       "only on pages (the trigger id comes from the host page's route `:id`), so a component " +
@@ -391,7 +391,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.flutter-async-effect-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/store-checks.ts:590",
+    site: "src/ir/validate/checks/store-checks.ts:625",
     what:
       "`match await` in a COMPONENT action.  RE-CLASSED `gap` -> `scope` under " +
       "**D-FLUTTER-COMPONENT-BINDINGS**: `match await <api>.<Agg>.<op>()` on an INSTANCE " +
@@ -563,7 +563,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.store-lifetime-target-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:366",
+    site: "src/ir/validate/checks/store-checks.ts:402",
     what:
       "a persisted store field with no total F# (feliz) or Dart (flutter) codec.  BOTH halves " +
       "narrowed across wave C2 (feliz in packets 2i + 2l, flutter in packet 2j) to exactly the " +
@@ -806,7 +806,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1694",
+    site: "src/ir/validate/checks/workflow-checks.ts:1786",
     what: "workflow load of an array result — a `let` binds one row",
     mission: "#3376",
     verified: true,

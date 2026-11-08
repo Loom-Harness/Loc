@@ -530,6 +530,25 @@ const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
 };
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A store field's default is evaluated when the store is created, so on the
+  // JS-family store renderer it must be a constant: a call is refused.
+  "loom.store-init-not-constant": `
+system S {
+  subdomain Catalog { context Stock {
+    aggregate Item with crudish { sku: string }
+    repository Items for Item
+  } }
+  api StockApi from Catalog
+  storage pg { type: postgres }
+  resource st { for: Stock, kind: state, use: pg }
+  deployable api { platform: node contexts: [Stock] dataSources: [st] serves: StockApi port: 8080 }
+  ui WebApp {
+    api Catalog: StockApi
+    store Prefs { state { stamp: string = now().toString() } }
+    page Browse { route: "/browse" body: Stack { Text { "x" } } }
+  }
+  deployable web { platform: static targets: api ui: WebApp { Catalog: api } port: 3001 }
+}`,
   // Migration table steps (`Old -> New`, `A.Old -> B.New`), resolved on the
   // merged IR: a context the model lacks, a target it lacks, a name two
   // contexts declare, and a move between modules on different databases.
@@ -1966,6 +1985,9 @@ system P {
     }`),
   // `let r = o.hold()` whose result can be an error, never matched: nothing may
   // save the tentative change.
+  // `X id` naming a value object: only aggregates and entity parts carry an id.
+  "loom.id-target-not-identity": repoOnly(`    valueobject Pt { x: int }
+    aggregate R with crudish { p: Pt id }`),
   // `create(…): W` answers the workflow's instance state, but W has no
   // correlation field, so no instance is persisted.
   "loom.workflow-return-this-uncorrelated": repoOnly(`    error Declined { reason: string }
@@ -2035,6 +2057,20 @@ system P {
         precondition t.name == Others.get(t.otherId).label
       }
     }`),
+  // A name that binds to nothing inside a `commandHandler` body — the handler
+  // twin of `loom.workflow-unknown-name`.
+  "loom.handler-unknown-name":
+    repoOnly(`    aggregate Thing with crudish { name: string  operation rename(n: string) { name := n } }
+    repository Things for Thing
+    commandHandler RenameThing(tid: Thing id) {
+      let t = Things.get(tid)
+      t.rename(Nowhere.label)
+    }`),
+  // A member off an explicitly-paged `QueryView` binding that the paged
+  // envelope does not carry.
+  "loom.paged-envelope-unknown-member": uiPage(
+    `QueryView { of: Catalog.Item.all, paged: true, data: rows => Text { rows.frob } }`,
+  ),
   // The code whose "covered by message in validation.test.ts" claim outlived
   // the file it cited (M-T9.33's own opening finding).  It fires: an `emit`
   // supplying a field the event does not declare.
@@ -2109,6 +2145,12 @@ system S {
   } }
 }`,
   // `T option` is the deprecated spelling of `T?`.
+  "loom.envelope-removed": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    queryHandler One(id: Order id): Order envelope {
+      let o = Orders.get(id)
+      return o
+    }`),
   "loom.option-deprecated": repoOnly(`    aggregate Order with crudish { code: string }
     repository Orders for Order
     criterion OrderByCode(code: string) of Order = this.code == code
@@ -3027,6 +3069,39 @@ system S {
   deployable d { platform: node, contexts: [C], dataSources: [st], port: 4103 }
   test e2e "t" against d {
     let w = api.widgets.create({ code: "W-1", qty: "not-a-number" })
+  }
+}`,
+
+  "loom.e2e-unknown-query-key": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4104 }
+  test e2e "t" against d {
+    let ws = api.widgets.all({ pgae: 2 })
+  }
+}`,
+
+  "loom.e2e-projection-read-arity": `
+system S {
+  subdomain D { context C {
+    event Placed { orderId: Widget id  qty: int }
+    aggregate Widget with crudish { code: string }
+    projection Board keyed by orderId {
+      orderId: Widget id
+      total: int
+      on(e: Placed) { total := total + e.qty }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4104 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1" })
+    let bs = api.board.list(w)
   }
 }`,
 
@@ -4276,6 +4351,10 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   "loom.macro-threw": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-non-ast-result": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-escapes-host": "test/macro/misbehaving-macro-diagnostics.test.ts",
+  // The attribution wrapped around any AST diagnostic raised on macro-
+  // synthesised code.  No stdlib macro synthesises an ill-typed body, so the
+  // pointed-at file registers one that does and asserts the wrapped message.
+  "loom.macro-synthesised": "test/macro/macro-synthesised-diagnostic-range.test.ts",
   // The body-walker GIVE-UP codes (M-T9.55).  Reachable from ordinary `.ddd`
   // source — `Stack { CreateForm { } }` reaches one — but never out of
   // `validate()`: they are attached in phase 8 by `giveUp()` and rendered into

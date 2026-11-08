@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { finalizeCsUnit } from "../../../src/generator/_imports/dotnet.js";
 import {
   csMemberScope,
   csSystemRoot,
@@ -84,7 +85,7 @@ describe("dotnet — `System` member shadows the System namespace", () => {
       tests: [],
     } as unknown as ValueObjectIR;
     expect(typeMemberNames(vo)).toContain("system");
-    const cs = renderValueObject(vo, "Api");
+    const cs = finalizeCsUnit(renderValueObject(vo, "Api"));
     expect(cs).toContain("public string System { get; init; }");
     expect(cs).toContain(
       "this.Weight.ToString(global::System.Globalization.CultureInfo.InvariantCulture)",

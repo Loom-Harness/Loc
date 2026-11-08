@@ -45,6 +45,8 @@ import {
   type TranslationCatalogs,
 } from "../_frontend/i18n-runtime.js";
 import { LIB_SCHEMAS_PROV_TS, PROV_LINEAGE_SCHEMA_BLOCK } from "../_frontend/lib-schemas.js";
+import { localeDir } from "../_frontend/locale-meta.js";
+import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
 import {
   deriveSidebarFromUi,
   type NavEntryVM,
@@ -88,6 +90,12 @@ import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import { renderVueChartRuntime } from "./chart-runtime.js";
 import { addComponentImports } from "./component-imports.js";
 import { prepareVueNamedLayouts } from "./layouts-emitter.js";
+import {
+  renderVueLocaleComposable,
+  renderVueLocaleSwitcher,
+  VUE_LOCALE_COMPOSABLE_PATH,
+  VUE_LOCALE_SWITCHER_PATH,
+} from "./locale-switcher.js";
 import { buildVueRealtimeHandlers } from "./realtime-handlers-builder.js";
 import { VUE_REF_LABEL, VUE_REF_LABEL_PATH } from "./ref-label-runtime.js";
 import { renderVueStoreModule } from "./store-builder.js";
@@ -198,7 +206,12 @@ export function generateVueForContexts(
   // the catalog via the SHARED walker seam) and the app ships an `src/i18n.ts`
   // shim + `src/locales/en.json`.  Empty catalog → no translation runtime, walk
   // sites pass `undefined` and output stays byte-identical to pre-i18n.
-  const i18nEnabled = collectUiMessages(ui).length > 0;
+  const i18nEnabled =
+    collectUiMessages(ui).length > 0 || uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? []);
+  // Two or more locales ship (the source plus a translated catalog): the shell
+  // header carries the `LocaleSwitcher` and the routed tree re-renders on a
+  // switch.  Set where the translated catalogs are emitted, below.
+  let localeSwitchable = false;
   // Pack-DECLARED chrome rides the SAME already-enabled gate (see the React
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
@@ -228,6 +241,10 @@ export function generateVueForContexts(
       out.set(`src/locales/${locale}.json`, content);
     }
     out.set("src/i18n.ts", renderI18nModule([...translated.keys()], sourceLocaleOf(sys)));
+    // The Vue binding of that store (`useLocale`, `LocaleSwitcher`).
+    out.set(VUE_LOCALE_COMPOSABLE_PATH, renderVueLocaleComposable());
+    out.set(VUE_LOCALE_SWITCHER_PATH, renderVueLocaleSwitcher());
+    localeSwitchable = [...translated.keys()].some((l) => l !== sourceLocaleOf(sys));
   }
 
   // Per-aggregate api modules — 1:1 with the aggregate inventory,
@@ -450,7 +467,7 @@ export function generateVueForContexts(
   out.set(
     "src/pages/NotFound.vue",
     renderShell(pack, "not-found-page", {
-      scriptBody: i18nEnabled ? '\nimport { t } from "../i18n";\n' : "",
+      scriptBody: i18nEnabled ? '\nimport { t } from "../lib/locale";\n' : "",
       notFoundText: shellChromeText("notFound", i18nEnabled),
       backToHomeText: shellChromeText("backToHome", i18nEnabled),
     }),
@@ -549,7 +566,10 @@ export function generateVueForContexts(
   // `authUi` computed above (before page emission, which consumes it for the
   // `page { requires … }` gate).  Drives the session client + provide/inject
   // route guard emits below (the Vue-shaped half of the React auth wiring).
-  out.set("src/api/client.ts", renderShell(pack, "api-client", { hasDelete, hasAuthUi: authUi }));
+  out.set(
+    "src/api/client.ts",
+    renderShell(pack, "api-client", { hasDelete, hasAuthUi: authUi, i18nEnabled }),
+  );
   out.set("src/api/config.ts", renderShell(pack, "api-config", { apiBaseUrl }));
   if (authUi) {
     out.set("src/auth/session.ts", AUTH_SESSION_TS);
@@ -559,7 +579,7 @@ export function generateVueForContexts(
   out.set("src/logger.ts", renderShell(pack, "logger", {}));
   out.set(
     "src/lib/format.ts",
-    renderShell(pack, "format-helpers", { moneySource: MONEY_TEXT_SOURCE }),
+    renderShell(pack, "format-helpers", { moneySource: MONEY_TEXT_SOURCE, i18nEnabled }),
   );
   // Interactive-table sort helper (M-T1.1) — imported by a page only when it
   // renders a sortable `Table`; emitted unconditionally (like format.ts).
@@ -713,6 +733,9 @@ export function generateVueForContexts(
     toggleNavAria: shellChromeAttr("aria-label", "toggleNavigation", i18nEnabled),
     // The error boundary's "Back to home" recovery button (both Vue packs).
     backToHomeText: shellChromeText("backToHome", i18nEnabled),
+    // The header's language picker, and the shell's subscription to the locale
+    // ref that keys the routed tree.  Both off ⇒ the shell is byte-identical.
+    localeSwitchable,
   };
   if (useLayouts) {
     // The chrome (and its toast/realtime hosts) move OUT of App.vue into
@@ -728,7 +751,8 @@ export function generateVueForContexts(
         hasRealtimeHandlers: false,
         hasToastHost: false,
         // DefaultLayout.vue sits one directory deeper than `src/`.
-        i18nImportPath: "../i18n",
+        i18nImportPath: "../lib/locale",
+        srcPrefix: "../",
         sessionImportPath: "../auth/session",
       }),
     );
@@ -738,7 +762,8 @@ export function generateVueForContexts(
       "src/App.vue",
       renderShell(pack, "app-shell", {
         ...chromeVM,
-        i18nImportPath: "./i18n",
+        i18nImportPath: "./lib/locale",
+        srcPrefix: "./",
         sessionImportPath: "./auth/session",
       }),
     );
@@ -779,7 +804,7 @@ export function generateVueForContexts(
   out.set(
     "index.html",
     renderShell(pack, "index-html", {
-      ...prepareIndexHtmlVM(sys, deployable, ui),
+      ...prepareIndexHtmlVM(sys, deployable, ui, i18nEnabled),
       usesCodeBlock,
     }),
   );
@@ -1038,6 +1063,7 @@ function prepareIndexHtmlVM(
   sys: SystemIR,
   deployable: DeployableIR,
   ui: UiIR,
+  i18nEnabled: boolean,
 ): Record<string, unknown> {
   const page = ui.pages.find((p) => p.route === "/") ?? ui.pages[0];
   const metadata = page?.metadata;
@@ -1045,6 +1071,9 @@ function prepareIndexHtmlVM(
     // System name before deployable name — see the react twin (finding E7).
     title: staticTitleOf(page) ?? humanize(sys.name) ?? deployable.name,
     lang: sourceLocaleOf(sys),
+    // `dir` only under i18n: the runtime keeps it in step on a switch, and an
+    // app with no locale model keeps its markup byte-identical.
+    ...(i18nEnabled ? { dir: localeDir(sourceLocaleOf(sys)) } : {}),
     description: metadata?.description,
     ogImage: metadata?.ogImage,
     canonical: metadata?.canonical,

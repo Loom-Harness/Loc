@@ -235,6 +235,21 @@ const PROVIDERS: Record<string, FixHintProvider> = {
     return replaceNode(member, source, "Write `T?` instead of `T option`.");
   },
 
+  // `queryHandler q(): Order envelope` → `queryHandler q(): Order`.  `envelope`
+  // lowers as its argument, so dropping the word changes nothing the program
+  // means.
+  "loom.envelope-removed": (d, doc, node) => {
+    if (!(isTypeRef(node) || isTypeAtom(node))) return undefined;
+    const member = enclosingMember(node);
+    const window = member ? flagged(d, doc, member) : undefined;
+    if (!member || !window) return undefined;
+    return replaceNode(
+      member,
+      cutOut(window.text, window.start, window.end),
+      "Write `T` instead of `T envelope`.",
+    );
+  },
+
   // NOT PROVIDED — `loom.cross-aggregate-entity-part` (`line: Line` where the
   // part belongs to another aggregate → `line: <Owner> id`).  The diagnostic is
   // UNREACHABLE: `DddScopeProvider.localTypeScope` keeps a bare name in a type

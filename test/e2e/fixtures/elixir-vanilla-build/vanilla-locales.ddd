@@ -1,0 +1,48 @@
+// RUNTIME LOCALE NEGOTIATION on Phoenix HEEx — the fixture that makes the
+// per-PR Elixir gate COMPILE the locale plug, the LiveView `on_mount` hook, the
+// generated matcher, the `<html lang dir>` root layout, the app-shell
+// `LocaleSwitcher` and the per-locale gettext trees.
+//
+// The translator tree lives beside this file in `vanilla-locales.locales/`
+// (`de` and `fr`); `generated-elixir-vanilla-build.test.ts` passes it to the
+// CLI as `--locales` because the default `locales/` directory is shared by every
+// fixture in this directory.  `mix compile --warnings-as-errors` is the
+// assertion; the matcher's behaviour is pinned in
+// `test/generator/elixir/locale-negotiation.test.ts`.
+system VanillaLocales {
+  subdomain Sales {
+    context Sales {
+      aggregate Order with crudish {
+        code: string
+        total: money
+        invariant code.length > 0 message "Order code is required"
+      }
+      repository Orders for Order { }
+    }
+  }
+
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  resource salesState { for: Sales, kind: state, use: primary }
+
+  ui OrdersAdmin {
+    page Orders {
+      route: "/orders"
+      body: Stack {
+        Heading { "Orders" },
+        Text { "Pick a language below." },
+        LocaleSwitcher {}
+      }
+    }
+  }
+
+  deployable phoenixApp {
+    platform: elixir
+    design: coreComponents
+    contexts: [Sales]
+    dataSources: [salesState]
+    serves: SalesApi
+    ui: OrdersAdmin
+    port: 4000
+  }
+}
