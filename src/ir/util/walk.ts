@@ -25,7 +25,7 @@
 // implement its `*UsesCurrentUser` family; that back-edge is type-only in the
 // reverse direction, so no runtime cycle forms.
 
-import type { ExprIR, StmtIR, WorkflowStmtIR } from "../types/loom-ir.js";
+import type { ExprIR, StmtIR, TestStmtIR, WorkflowStmtIR } from "../types/loom-ir.js";
 
 /** Callbacks for {@link walkExprChildren}.  An expression's immediate children
  *  are other expressions, EXCEPT a block-body lambda whose `block` holds
@@ -422,6 +422,23 @@ export function walkStmtExprsDeep(s: StmtIR, visit: (e: ExprIR) => void): void {
     (c) => walkExprDeep(c, visit),
     (n) => walkStmtExprsDeep(n, visit),
   );
+}
+
+/** Visit every expression reachable from a test-body statement: an
+ *  assertion's subject, every expression of an ordinary statement (nested
+ *  blocks included), and none for a principal switch (`as { … }` carries
+ *  only literal claims). */
+export function walkTestStmtExprsDeep(s: TestStmtIR, visit: (e: ExprIR) => void): void {
+  switch (s.kind) {
+    case "expect":
+    case "expect-throws":
+      walkExprDeep(s.expr, visit);
+      return;
+    case "principal":
+      return;
+    default:
+      walkStmtExprsDeep(s, visit);
+  }
 }
 
 /**

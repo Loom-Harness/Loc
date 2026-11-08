@@ -1837,6 +1837,17 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.test-needs-target": (p: { name: unknown }) =>
     `A 'test' declared outside its subject must name it: ` +
     `\`test ${p.name} for <Subject> { … }\`.`,
+  "loom.test-principal-placement": (p: { name: unknown }) =>
+    `Test ${p.name} declares an 'as { … }' principal, but only a context integration ` +
+    `'test' (nested in a context, or 'for <Context>') and a 'test e2e' block run as a ` +
+    `principal — an aggregate, value-object or domain-service unit test never reaches ` +
+    `the auth layer.  Drop the clause, or move the test to its context.`,
+  "loom.test-principal-value": (p: { name: unknown }) =>
+    `Principal claim '${p.name}' must be a string literal (\`${p.name}: "acme"\`) or a list ` +
+    `of string literals (\`${p.name}: ["agent"]\`) — a test principal is fixed data, not an ` +
+    `expression.`,
+  "loom.test-principal-duplicate-claim": (p: { name: unknown }) =>
+    `Principal claim '${p.name}' is set twice in one 'as { … }' clause — keep one.`,
   "loom.context-test-unsupported": (p: { name: unknown }) =>
     `Context integration tests emit on every backend (test-placement.md), but context ` +
     `'${p.name}' is not hosted by any backend deployable, so this 'test' produces no ` +
@@ -4986,6 +4997,40 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`${p.source}\` on tenant-owned aggregate '${p.name}' omits the tenant ` +
     `discriminator — this is a GLOBAL unique across all tenants. Did you mean ` +
     `\`unique (tenantId, ${p.columns})\`?`,
+
+  // ----------------------------------------------------------------------
+  // src/ir/validate/checks/test-principal-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.test-principal-no-user": (p: { test: unknown }) =>
+    `Test '${p.test}' declares an 'as { … }' principal, but its system declares no ` +
+    `'user { … }' block, so there is no claim shape to bind — declare one, or drop the clause.`,
+  "loom.test-principal-unknown-claim": (p: { name: unknown; fields: unknown }) =>
+    `Principal claim '${p.name}' is not a field of the system's 'user { … }' block ` +
+    `(declared: ${p.fields}).`,
+  "loom.test-principal-claim-type": (p: { name: unknown; shape: unknown }) =>
+    p.shape === "string"
+      ? `Principal claim '${p.name}' is a 'string' field — give it one string literal, not a list.`
+      : p.shape === "uuid"
+        ? `Principal claim '${p.name}' is a 'guid' / id field — give it one UUID string literal ` +
+          `("00000000-0000-0000-0000-000000000001").`
+        : p.shape === "stringList"
+          ? `Principal claim '${p.name}' is a 'string[]' field — give it a list of string ` +
+            `literals (\`${p.name}: ["agent"]\`).`
+          : `Principal claim '${p.name}' has a type a test principal cannot set — only ` +
+            `'string', 'guid', '<Aggregate> id' and 'string[]' claims are settable.`,
+  "loom.e2e-principal-claim-not-carried": (p: { name: unknown }) =>
+    `A 'test e2e' principal travels in the dev-stub 'x-loom-dev-claims' header, which ` +
+    `carries only non-optional 'string' and 'string[]' claims — '${p.name}' would be ` +
+    `dropped by the backend and the block would run with its dev-stub value.`,
+  "loom.e2e-principal-oidc": (p: { test: unknown }) =>
+    `'test e2e' '${p.test}' declares an 'as { … }' principal, but the system declares ` +
+    `'auth { oidc }': the running backend verifies bearer tokens and ignores the dev-stub ` +
+    `claims header, so the block would run as the token's principal instead.  Run it ` +
+    `against a dev-stub system, or drop the clause and pass E2E_BEARER_TOKEN.`,
+  "loom.e2e-principal-ui": (p: { test: unknown }) =>
+    `'test e2e' '${p.test}' drives a ui (Playwright) and declares an 'as { … }' principal — ` +
+    `the browser session signs in once per suite, so a per-block principal is not ` +
+    `supported there.  Write the block against the backend's 'api', or drop the clause.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/test-checks.ts

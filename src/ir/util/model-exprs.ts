@@ -408,6 +408,8 @@ function visitTestStmts(
       expr(s.expr, src, "TestStmtIR.expr", v);
       continue;
     }
+    // A principal switch carries literal claims, no expression.
+    if (s.kind === "principal") continue;
     walkStmtExprsDeep(s, (x) => v({ expr: x, source: src, site, ui: false }));
   }
 }
