@@ -76,6 +76,7 @@ import { utcVersionNow } from "../../src/system/migration-chain.js";
 import { inlineSourcemapArtifacts, overlaySourcemapArtifacts } from "./build/strip-sourcemap";
 import { type Band, correspondenceAt, sourceBands, sourceSpanFor } from "./build/correspondence";
 import { diffGenerated, type OutputDiff } from "./build/output-diff";
+import { analyzeDeployables } from "./build/deployables";
 import { resolveTestId } from "./build/select-target";
 import type { BundleOk } from "./bundle/protocol";
 import {
@@ -160,8 +161,6 @@ import {
   type MobileTab,
   type ReactBundleStatus,
   type SelectResult,
-  type UnsupportedDeployable,
-  type UnsupportedPlatform,
 } from "./layout/ctx";
 import type { OutputStream } from "./layout/OutputPanel";
 import { useGeneratedConflicts } from "./layout/use-generated-conflicts";
@@ -181,66 +180,6 @@ const EMPTY_FILES: VirtualFile[] = [];
 // Same module-level-constant discipline as EMPTY_FILES: a fresh `[]` per
 // render would defeat the `ctx` memo for every consumer.
 const EMPTY_BANDS: readonly Band[] = [];
-
-/** Per-deployable summary derived from the generated file tree.
- *  The playground only knows how to bundle + boot Hono backends and
- *  React frontends in the browser; .NET (Program.cs/csproj) and
- *  Phoenix LiveView (mix.exs) deployables are surfaced separately so
- *  the UI can say "Files-only" instead of failing with a generic
- *  "no entry found" error. */
-interface DeployableAnalysis {
-  /** Hono entry path (single-context root or system-mode slug folder). */
-  hono: string | null;
-  /** React entry path (always under a system-mode slug folder). */
-  react: string | null;
-  /** Deployables the browser cannot bundle/boot — listed so the UI
-   *  can name them in status messages.  Empty for Hono/React-only
-   *  systems. */
-  unsupported: UnsupportedDeployable[];
-}
-
-function analyzeDeployables(files: VirtualFile[]): DeployableAnalysis {
-  // Legacy single-context mode dumps Hono at the root with no slug —
-  // there are no .NET / Phoenix outputs in that mode, so the
-  // unsupported list is always empty.
-  if (files.some((f) => f.path === "http/index.ts")) {
-    return { hono: "http/index.ts", react: null, unsupported: [] };
-  }
-  let hono: string | null = null;
-  let react: string | null = null;
-  const platformBySlug = new Map<string, UnsupportedPlatform>();
-  const angularSlugs = new Set<string>();
-  for (const f of files) {
-    if (!hono && /^[^/]+\/http\/index\.ts$/.test(f.path)) hono = f.path;
-    if (!react && /^[^/]+\/src\/main\.tsx$/.test(f.path)) react = f.path;
-    const dotnet = f.path.match(/^([^/]+)\/Program\.cs$/);
-    if (dotnet) platformBySlug.set(dotnet[1], "dotnet");
-    const phoenix = f.path.match(/^([^/]+)\/mix\.exs$/);
-    if (phoenix) platformBySlug.set(phoenix[1], "elixir");
-    // Frontend SPAs the preview engine doesn't bundle in-browser yet:
-    // SvelteKit (`svelte.config.js`; its `$app/*` client + file routing
-    // aren't reproduced), Vue (`src/main.ts` — the `.ts` entry, vs
-    // react's `src/main.tsx`; the `.vue` SFC pipeline isn't wired), and
-    // Angular (`angular.json`; its AOT/`ng build` toolchain isn't run
-    // in-browser).  Angular *also* emits `src/main.ts`, so `angular.json`
-    // is the discriminator and takes precedence over the Vue match below
-    // (applied after the loop, order-independent of file iteration).
-    // Surfaced like the backend platforms so Preview explains the grey
-    // rather than showing a silent blank — the full project is in Files.
-    const svelte = f.path.match(/^([^/]+)\/svelte\.config\.js$/);
-    if (svelte) platformBySlug.set(svelte[1], "svelte");
-    const angular = f.path.match(/^([^/]+)\/angular\.json$/);
-    if (angular) angularSlugs.add(angular[1]);
-    const vue = f.path.match(/^([^/]+)\/src\/main\.ts$/);
-    if (vue) platformBySlug.set(vue[1], "vue");
-  }
-  // Angular wins over the shared `src/main.ts` Vue heuristic.
-  for (const slug of angularSlugs) platformBySlug.set(slug, "angular");
-  const unsupported: UnsupportedDeployable[] = [...platformBySlug]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([slug, platform]) => ({ slug, platform }));
-  return { hono, react, unsupported };
-}
 
 /** Convert a workspace-absolute `files` map from a SharedProject
  *  into the workspace-relative shape `LoomExample.files` expects.
