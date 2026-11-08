@@ -73,9 +73,9 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
+        "rowVersion": 2,
         "sku": "SKU-1",
-        "status": "Shipped",
-        "version": 2
+        "status": "Shipped"
       }
     },
     {
@@ -152,9 +152,9 @@
         "items": [
           {
             "id": "<volatile:key>",
+            "rowVersion": 3,
             "sku": "SKU-1",
-            "status": "Shipped",
-            "version": 3
+            "status": "Shipped"
           }
         ],
         "page": 1,

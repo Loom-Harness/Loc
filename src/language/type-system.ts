@@ -48,6 +48,7 @@ import {
 } from "./generated/ast.js";
 import { stdFunction } from "./stdlib.js";
 import { PRIMITIVE_FIELDS } from "./typing/primitive-fields.js";
+import { type OutOfScopePolicy, policyInOtherContext } from "./typing/qualified-policy.js";
 import { typeToString } from "./typing/relations.js";
 import { typingFor } from "./typing/shared.js";
 import { PAGED_META, type Ty, withTags } from "./typing/ty.js";
@@ -201,12 +202,9 @@ function aggregateHasDisplay(agg: Aggregate): boolean {
  *  declaration (function, value object, criterion, local policy, top-level
  *  function, duration builtin) claims the name first: mirrors
  *  the typing pass's free-call order (`Elaborator.freeCall`) so the validator and the pass
- *  agree on which calls are out of scope.  Same-document only — a context in
- *  another file is not visible from here (the call then stays `unknown`). */
-export function outOfScopePolicyCall(
-  name: string,
-  env: Env,
-): { decl: PolicyDecl; declaredIn: BoundedContext; usedIn: BoundedContext } | undefined {
+ *  agree on which calls are out of scope.  Searches every document of the
+ *  compilation unit, so a policy declared in another file is caught too. */
+export function outOfScopePolicyCall(name: string, env: Env): OutOfScopePolicy | undefined {
   const usedIn = envContext(env);
   if (!usedIn) return undefined;
   const sym = env.resolve(name);
@@ -217,16 +215,7 @@ export function outOfScopePolicyCall(
   if (lookupPolicyFnByName(name, env)) return undefined;
   if (lookupTopLevelFunction(name, env)) return undefined;
   if (durationUnitOf(name)) return undefined;
-  const root = AstUtils.findRootNode(usedIn);
-  for (const node of AstUtils.streamAllContents(root)) {
-    if (!isBoundedContext(node) || node === usedIn) continue;
-    for (const m of node.members) {
-      if (isPolicyDecl(m) && m.returnType !== undefined && m.name === name) {
-        return { decl: m, declaredIn: node, usedIn };
-      }
-    }
-  }
-  return undefined;
+  return policyInOtherContext(typingFor(usedIn).index, name, usedIn);
 }
 
 /** The user `FunctionDecl` a free call `name(args)` resolves to, or `undefined`

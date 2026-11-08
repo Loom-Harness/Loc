@@ -25,14 +25,14 @@
         "id": "<volatile:key>",
         "note": "none",
         "reference": "R1",
+        "rowVersion": 1,
         "seats": 1,
         "tags": [],
         "tier": "free",
         "total": {
           "amount": 0,
           "currency": "USD"
-        },
-        "version": 1
+        }
       }
     },
     {
@@ -51,14 +51,14 @@
             "id": "<volatile:key>",
             "note": "none",
             "reference": "R1",
+            "rowVersion": 1,
             "seats": 1,
             "tags": [],
             "tier": "free",
             "total": {
               "amount": 0,
               "currency": "USD"
-            },
-            "version": 1
+            }
           }
         ],
         "page": 1,
@@ -88,6 +88,7 @@
         "id": "<volatile:key>",
         "note": "changed",
         "reference": "R2",
+        "rowVersion": 2,
         "seats": 3,
         "tags": [
           "vip"
@@ -96,8 +97,7 @@
         "total": {
           "amount": 5,
           "currency": "GBP"
-        },
-        "version": 2
+        }
       }
     },
     {

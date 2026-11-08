@@ -310,6 +310,10 @@ function renderCronTimerScheduler(appModule: string, ts: TimerSourceIR): string 
     { name: "timer", valueExpr: "@timer_name" },
     { name: "boundary", valueExpr: "boundary" },
   ]);
+  const failedLog = renderPhoenixLogCall("timerEmitFailed", [
+    { name: "timer", valueExpr: "@timer_name" },
+    { name: "error", valueExpr: "Exception.message(e)" },
+  ]);
 
   return `# Auto-generated — cron: timer scheduler (scheduling.md).
 defmodule ${mod} do
@@ -333,7 +337,16 @@ defmodule ${mod} do
 
   @impl true
   def handle_info(:tick, %{cron: cron} = state) do
-    enqueue(previous_boundary(cron))
+    # A failed enqueue (pool exhausted, database briefly unreachable) is logged
+    # and the next boundary still scheduled; the boot catch-up replays the one
+    # missed boundary from the watermark.  It never escapes the GenServer.
+    try do
+      enqueue(previous_boundary(cron))
+    rescue
+      e ->
+        ${failedLog}
+    end
+
     schedule_next(cron)
     {:noreply, state}
   end

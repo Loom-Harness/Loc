@@ -20,8 +20,8 @@
         "code": "S1",
         "createdAt": "<timestamp>",
         "id": "<volatile:key>",
-        "updatedAt": "<timestamp>",
-        "version": 1
+        "rowVersion": 1,
+        "updatedAt": "<timestamp>"
       }
     },
     {
@@ -40,8 +40,8 @@
         "code": "S2",
         "createdAt": "<timestamp>",
         "id": "<volatile:key>",
-        "updatedAt": "<timestamp>",
-        "version": 2
+        "rowVersion": 2,
+        "updatedAt": "<timestamp>"
       }
     },
     {
@@ -55,8 +55,8 @@
             "code": "S2",
             "createdAt": "<timestamp>",
             "id": "<volatile:key>",
-            "updatedAt": "<timestamp>",
-            "version": 2
+            "rowVersion": 2,
+            "updatedAt": "<timestamp>"
           }
         ],
         "page": 1,

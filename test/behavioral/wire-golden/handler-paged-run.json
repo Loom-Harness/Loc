@@ -40,13 +40,13 @@
             "code": "E-3",
             "id": "<volatile:key>",
             "region": "EU",
-            "version": 1
+            "rowVersion": 1
           },
           {
             "code": "E-1",
             "id": "<volatile:key>",
             "region": "EU",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -97,7 +97,7 @@
         "code": "N-1",
         "id": "<volatile:key>",
         "region": "EU",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -111,19 +111,19 @@
             "code": "E-3",
             "id": "<volatile:key>",
             "region": "EU",
-            "version": 1
+            "rowVersion": 1
           },
           {
             "code": "E-1",
             "id": "<volatile:key>",
             "region": "EU",
-            "version": 1
+            "rowVersion": 1
           },
           {
             "code": "N-1",
             "id": "<volatile:key>",
             "region": "EU",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -143,19 +143,19 @@
             "code": "E-3",
             "id": "<volatile:key>",
             "region": "EU",
-            "version": 1
+            "rowVersion": 1
           },
           {
             "code": "E-1",
             "id": "<volatile:key>",
             "region": "EU",
-            "version": 1
+            "rowVersion": 1
           },
           {
             "code": "N-1",
             "id": "<volatile:key>",
             "region": "EU",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -196,13 +196,13 @@
             "code": "E-3",
             "id": "<volatile:key>",
             "region": "EU",
-            "version": 1
+            "rowVersion": 1
           },
           {
             "code": "E-1",
             "id": "<volatile:key>",
             "region": "EU",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,

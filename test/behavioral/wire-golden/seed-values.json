@@ -19,9 +19,9 @@
       "body": {
         "id": "<volatile:key>",
         "name": "Delta",
+        "rowVersion": 1,
         "size": 9,
-        "tier": "Free",
-        "version": 1
+        "tier": "Free"
       }
     },
     {
@@ -34,23 +34,23 @@
           {
             "id": "<volatile:key>",
             "name": "Alpha",
+            "rowVersion": 1,
             "size": 1,
-            "tier": "Free",
-            "version": 1
+            "tier": "Free"
           },
           {
             "id": "<volatile:key>",
             "name": "Beta",
+            "rowVersion": 1,
             "size": 2,
-            "tier": "Pro",
-            "version": 1
+            "tier": "Pro"
           },
           {
             "id": "<volatile:key>",
             "name": "Delta",
+            "rowVersion": 1,
             "size": 9,
-            "tier": "Free",
-            "version": 1
+            "tier": "Free"
           }
         ],
         "page": 1,
@@ -74,9 +74,9 @@
       "body": {
         "id": "<volatile:key>",
         "name": "Delta-2",
+        "rowVersion": 2,
         "size": 10,
-        "tier": "Pro",
-        "version": 2
+        "tier": "Pro"
       }
     },
     {
@@ -110,16 +110,16 @@
           {
             "id": "<volatile:key>",
             "name": "Alpha",
+            "rowVersion": 1,
             "size": 1,
-            "tier": "Free",
-            "version": 1
+            "tier": "Free"
           },
           {
             "id": "<volatile:key>",
             "name": "Beta",
+            "rowVersion": 1,
             "size": 2,
-            "tier": "Pro",
-            "version": 1
+            "tier": "Pro"
           }
         ],
         "page": 1,
@@ -138,14 +138,14 @@
           {
             "endsAt": "<timestamp>",
             "id": "<volatile:key>",
+            "rowVersion": 1,
             "startsAt": "<timestamp>",
             "title": "Kickoff",
             "venue": {
               "city": "Springfield",
               "line1": "1 Main St",
               "line2": null
-            },
-            "version": 1
+            }
           }
         ],
         "page": 1,
@@ -171,14 +171,14 @@
       "body": {
         "endsAt": null,
         "id": "<volatile:key>",
+        "rowVersion": 1,
         "startsAt": "<timestamp>",
         "title": "Talk",
         "venue": {
           "city": "Shelbyville",
           "line1": "2 Side St",
           "line2": null
-        },
-        "version": 1
+        }
       }
     },
     {
@@ -196,14 +196,14 @@
       "body": {
         "endsAt": null,
         "id": "<volatile:key>",
+        "rowVersion": 2,
         "startsAt": "<timestamp>",
         "title": "Talk 2",
         "venue": {
           "city": "Shelbyville",
           "line1": "2 Side St",
           "line2": "Unit 4"
-        },
-        "version": 2
+        }
       }
     },
     {

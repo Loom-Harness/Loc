@@ -17,7 +17,7 @@ public sealed class Customer
     public string Username { get; private set; } = default!;
     public string Email { get; private set; } = default!;
     public int Age { get; private set; } = default!;
-    public int Version { get; private set; } = default!;
+    public int RowVersion { get; private set; } = default!;
 
     private readonly List<IDomainEvent> _domainEvents = new();
     public IReadOnlyList<IDomainEvent> DomainEvents => _domainEvents.AsReadOnly();
@@ -27,11 +27,11 @@ public sealed class Customer
         Username = default!;
         Email = default!;
         Age = default!;
-        Version = default!;
+        RowVersion = default!;
     }
 
     public string Display => this.Username;
-    public string Inspect => "Customer(" + "id: " + this.Id.ToString() + ", " + "username: " + "'" + this.Username + "'" + ", " + "email: " + "'" + this.Email + "'" + ", " + "age: " + this.Age.ToString(System.Globalization.CultureInfo.InvariantCulture) + ", " + "version: " + this.Version.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")";
+    public string Inspect => "Customer(" + "id: " + this.Id.ToString() + ", " + "username: " + "'" + this.Username + "'" + ", " + "email: " + "'" + this.Email + "'" + ", " + "age: " + this.Age.ToString(System.Globalization.CultureInfo.InvariantCulture) + ", " + "rowVersion: " + this.RowVersion.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")";
     public override string ToString() => Inspect;
     public void Update(string username, string email, int age)
     {
@@ -64,7 +64,7 @@ public sealed class Customer
         public string Username { get; init; } = default!;
         public string Email { get; init; } = default!;
         public int Age { get; init; } = default!;
-        public int Version { get; init; } = default!;
+        public int RowVersion { get; init; } = default!;
     }
 
     public static Customer _Create(__State s)
@@ -74,7 +74,7 @@ public sealed class Customer
         e.Username = s.Username;
         e.Email = s.Email;
         e.Age = s.Age;
-        e.Version = s.Version;
+        e.RowVersion = s.RowVersion;
         e.AssertInvariants();
         return e;
     }
@@ -85,7 +85,7 @@ public sealed class Customer
         e.Username = username;
         e.Email = email;
         e.Age = age;
-        e.Version = 1;
+        e.RowVersion = 1;
         e.AssertInvariants();
         return e;
     }

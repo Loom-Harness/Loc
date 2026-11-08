@@ -48,20 +48,20 @@
           {
             "id": "<volatile:key>",
             "region": "EU",
-            "total": 30,
-            "version": 1
+            "rowVersion": 1,
+            "total": 30
           },
           {
             "id": "<volatile:key>",
             "region": "EU",
-            "total": 10,
-            "version": 1
+            "rowVersion": 1,
+            "total": 10
           },
           {
             "id": "<volatile:key>",
             "region": "EU",
-            "total": 20,
-            "version": 1
+            "rowVersion": 1,
+            "total": 20
           }
         ],
         "page": 1,
@@ -85,8 +85,8 @@
       "body": {
         "id": "<volatile:key>",
         "region": "NA",
-        "total": 31,
-        "version": 2
+        "rowVersion": 2,
+        "total": 31
       }
     },
     {
@@ -99,14 +99,14 @@
           {
             "id": "<volatile:key>",
             "region": "EU",
-            "total": 10,
-            "version": 1
+            "rowVersion": 1,
+            "total": 10
           },
           {
             "id": "<volatile:key>",
             "region": "EU",
-            "total": 20,
-            "version": 1
+            "rowVersion": 1,
+            "total": 20
           }
         ],
         "page": 1,
@@ -124,26 +124,26 @@
         {
           "id": "<volatile:key>",
           "region": "NA",
-          "total": 31,
-          "version": 2
+          "rowVersion": 2,
+          "total": 31
         },
         {
           "id": "<volatile:key>",
           "region": "EU",
-          "total": 10,
-          "version": 1
+          "rowVersion": 1,
+          "total": 10
         },
         {
           "id": "<volatile:key>",
           "region": "EU",
-          "total": 20,
-          "version": 1
+          "rowVersion": 1,
+          "total": 20
         },
         {
           "id": "<volatile:key>",
           "region": "NA",
-          "total": 5,
-          "version": 1
+          "rowVersion": 1,
+          "total": 5
         }
       ]
     },

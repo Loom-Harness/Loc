@@ -56,6 +56,7 @@ import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { lines } from "../../util/code-builder.js";
 import { errorTypeUri } from "../../util/error-defaults.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
@@ -839,7 +840,7 @@ export interface FelizOperationForm extends FormRecord {
  *  aggregate, or it has not loaded. */
 export function ifMatchVersionExpr(aggregate: string, hasByIdRead: boolean): string {
   if (!hasByIdRead) return "None";
-  return `(match model.${byIdFieldName(aggregate)} with | Loaded (Some __loaded) when __loaded.id = id -> Some (string __loaded.version) | _ -> None)`;
+  return `(match model.${byIdFieldName(aggregate)} with | Loaded (Some __loaded) when __loaded.id = id -> Some (string __loaded.${ROW_VERSION_FIELD}) | _ -> None)`;
 }
 
 /** A one-click operation action a page hosts — `Action { <instance>.<op> }` on a

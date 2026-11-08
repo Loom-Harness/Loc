@@ -46,8 +46,8 @@
             }
           }
         ],
-        "status": "Open",
-        "version": 2
+        "rowVersion": 2,
+        "status": "Open"
       }
     },
     {
@@ -58,7 +58,7 @@
       "body": {
         "id": "<volatile:key>",
         "name": "Buyer",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -71,7 +71,7 @@
           {
             "id": "<volatile:key>",
             "name": "Buyer",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -100,8 +100,8 @@
               }
             }
           ],
-          "status": "Open",
-          "version": 2
+          "rowVersion": 2,
+          "status": "Open"
         }
       ]
     },
@@ -145,7 +145,7 @@
           }
         ],
         "label": "Birthday",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -164,7 +164,7 @@
             }
           ],
           "label": "Birthday",
-          "version": 2
+          "rowVersion": 2
         }
       ]
     },

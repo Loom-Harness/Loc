@@ -26,8 +26,8 @@
       "body": {
         "id": "<volatile:key>",
         "open": false,
-        "subject": "SSO broken",
-        "version": 2
+        "rowVersion": 2,
+        "subject": "SSO broken"
       }
     },
     {
@@ -45,8 +45,8 @@
       "body": {
         "id": "<volatile:key>",
         "open": true,
-        "subject": "SSO broken",
-        "version": 3
+        "rowVersion": 3,
+        "subject": "SSO broken"
       }
     },
     {
@@ -71,8 +71,8 @@
       "body": {
         "id": "<volatile:key>",
         "open": true,
-        "subject": "SSO broken",
-        "version": 5
+        "rowVersion": 5,
+        "subject": "SSO broken"
       }
     },
     {
@@ -97,8 +97,8 @@
       "body": {
         "id": "<volatile:key>",
         "open": true,
-        "subject": "SSO broken",
-        "version": 7
+        "rowVersion": 7,
+        "subject": "SSO broken"
       }
     },
     {
@@ -123,8 +123,8 @@
       "body": {
         "id": "<volatile:key>",
         "open": true,
-        "subject": "SSO broken",
-        "version": 9
+        "rowVersion": 9,
+        "subject": "SSO broken"
       }
     },
     {
@@ -149,8 +149,8 @@
       "body": {
         "id": "<volatile:key>",
         "open": true,
-        "subject": "SSO broken",
-        "version": 11
+        "rowVersion": 11,
+        "subject": "SSO broken"
       }
     },
     {
@@ -168,8 +168,8 @@
       "body": {
         "id": "<volatile:key>",
         "open": true,
-        "subject": "SSO fixed",
-        "version": 12
+        "rowVersion": 12,
+        "subject": "SSO fixed"
       }
     },
     {
@@ -182,8 +182,8 @@
           {
             "id": "<volatile:key>",
             "open": true,
-            "subject": "SSO fixed",
-            "version": 12
+            "rowVersion": 12,
+            "subject": "SSO fixed"
           }
         ],
         "page": 1,

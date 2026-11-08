@@ -89,6 +89,7 @@ import {
   upperFirst,
   workflowStateTableName,
 } from "../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../util/row-version.js";
 import type { SnapshotStore } from "./snapshot.js";
 // ---------------------------------------------------------------------------
 // MigrationsIR builder + diff.
@@ -739,8 +740,8 @@ function embeddedTableForAggregate(
 
 /** Document-shaped aggregate (`shape: document`): the whole aggregate
  *  tree is one JSON document, so the table is the canonical document
- *  triple — `id` (PK), `data` (the serialised tree, JSONB), and `version`
- *  (the single-value optimistic-concurrency token; invariant §2.2#1 —
+ *  triple — `id` (PK), `data` (the serialised tree, JSONB), and `row_version`
+ *  (the `versioned` optimistic-concurrency counter, `ROW_VERSION_COLUMN`; invariant §2.2#1 —
  *  the document is written and concurrency-checked as one unit).  No part
  *  or join tables: contained parts live inside `data`, and cross-aggregate
  *  `X id` / `X id[]` references stay references but ride inside `data` as
@@ -752,7 +753,7 @@ function documentTableForAggregate(tableName: string, ownerModule: string): Tabl
     columns: [
       { name: "id", type: idColumnType(), nullable: false },
       { name: "data", type: { kind: "json" }, nullable: false },
-      { name: "version", type: { kind: "int" }, nullable: false },
+      { name: ROW_VERSION_COLUMN, type: { kind: "int" }, nullable: false },
     ],
     primaryKey: ["id"],
     foreignKeys: [],
@@ -3433,7 +3434,7 @@ const CAPABILITY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   softDeletable: ["is_deleted", "deleted_at"],
   tenantOwned: ["tenant_id", "data_key"],
   auditable: ["created_at", "updated_at", "created_by", "updated_by"],
-  versioned: ["version"],
+  versioned: [ROW_VERSION_COLUMN],
 };
 
 /** The value an EXISTING row unambiguously holds for a capability column the
@@ -3446,7 +3447,7 @@ const CAPABILITY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
  *      tenant), so the gate keeps refusing and says so;
  *    - `auditable`'s stamps — the true creation time and author of an old row
  *      are unknown, and `created_by` has no defensible placeholder;
- *    - `versioned.version` — a real `DEFAULT 1` column (`CAPABILITY_DB_DEFAULT`), so the
+ *    - `versioned.row_version` — a real `DEFAULT 1` column (`CAPABILITY_DB_DEFAULT`), so the
  *      add is never blocking;
  *    - the nullable ones (`deleted_at`, `data_key`) — a nullable add needs none.
  *  Rides `addColumnDefault`, the M-T2.16 path: added WITH the default, which
@@ -3458,12 +3459,12 @@ const CAPABILITY_BACKFILL: Readonly<Record<string, string>> = {
 
 /** A REAL column DEFAULT a capability column carries in every `CREATE` (not
  *  just the add-time backfill above).  `versioned`'s counter seeds new rows at
- *  1, so `version INTEGER NOT NULL DEFAULT 1` — which also keeps adding the
+ *  1, so `row_version INTEGER NOT NULL DEFAULT 1` — which also keeps adding the
  *  capability to a populated table non-destructive (a NOT NULL add WITH a
  *  default never trips `isBlockingNotNullAdd`).  sql-pg renders it; the Ecto
  *  emitter reads the same `default` off MigrationsIR. */
 const CAPABILITY_DB_DEFAULT: Readonly<Record<string, string>> = {
-  "versioned.version": "1",
+  [`versioned.${ROW_VERSION_COLUMN}`]: "1",
 };
 
 /** Stamp the columns a built-in capability contributed to `columns` (see

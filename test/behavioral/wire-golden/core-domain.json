@@ -41,12 +41,12 @@
             "sku": "S1"
           }
         ],
+        "rowVersion": 3,
         "status": "Placed",
         "total": {
           "amount": 10,
           "currency": "USD"
-        },
-        "version": 3
+        }
       }
     },
     {
@@ -72,12 +72,12 @@
             "sku": "S1"
           }
         ],
+        "rowVersion": 4,
         "status": "Placed",
         "total": {
           "amount": 12,
           "currency": "USD"
-        },
-        "version": 4
+        }
       }
     },
     {
@@ -107,24 +107,24 @@
                 "sku": "S1"
               }
             ],
+            "rowVersion": 4,
             "status": "Placed",
             "total": {
               "amount": 12,
               "currency": "USD"
-            },
-            "version": 4
+            }
           },
           {
             "code": "CD3",
             "id": "<volatile:key>",
             "isDraft": true,
             "lines": [],
+            "rowVersion": 1,
             "status": "Draft",
             "total": {
               "amount": 1,
               "currency": "USD"
-            },
-            "version": 1
+            }
           }
         ],
         "page": 1,
@@ -172,12 +172,12 @@
                 "sku": "S1"
               }
             ],
+            "rowVersion": 4,
             "status": "Placed",
             "total": {
               "amount": 12,
               "currency": "USD"
-            },
-            "version": 4
+            }
           }
         ],
         "page": 1,
@@ -203,12 +203,12 @@
               "sku": "S1"
             }
           ],
+          "rowVersion": 4,
           "status": "Placed",
           "total": {
             "amount": 12,
             "currency": "USD"
-          },
-          "version": 4
+          }
         }
       ]
     },

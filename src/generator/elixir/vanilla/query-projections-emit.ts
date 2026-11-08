@@ -52,6 +52,7 @@ import {
 import { aggregateArgColumn, isValueObjectLeaf } from "../../../ir/util/projection-column.js";
 import { projectionSourceContext } from "../../../ir/util/projection-source.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { numericKindOf } from "../../_numeric/codec.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -537,7 +538,7 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
           headVar: "row",
           bind: "    record = row.data",
           idExpr: "row.id",
-          versionExpr: "row.version",
+          versionExpr: `row.${ROW_VERSION_COLUMN}`,
           contextModule: srcModule,
         })
       : renderWireSerialize(sourceAgg, srcCtx, { contextModule: srcModule });

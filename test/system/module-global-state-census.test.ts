@@ -127,10 +127,6 @@ const PINNED: Record<string, Pin> = {
     discipline: "keyed-cache",
     reason: "WeakMap keyed by the Model root node; a re-parse produces a fresh root.",
   },
-  "src/language/typing/qualified-policy.ts:contextIndexByRoot": {
-    discipline: "keyed-cache",
-    reason: "WeakMap keyed by the AST root node; a re-parse produces a fresh root.",
-  },
   "src/language/print/print-expr.ts:printStatement": {
     discipline: "wiring-injection",
     reason:

@@ -58,8 +58,8 @@
           }
         ],
         "name": "c",
-        "tags": [],
-        "version": 3
+        "rowVersion": 3,
+        "tags": []
       }
     },
     {
@@ -91,8 +91,8 @@
           }
         ],
         "name": "c",
-        "tags": [],
-        "version": 4
+        "rowVersion": 4,
+        "tags": []
       }
     },
     {
@@ -131,8 +131,8 @@
           }
         ],
         "name": "c",
-        "tags": [],
-        "version": 6
+        "rowVersion": 6,
+        "tags": []
       }
     },
     {
@@ -171,8 +171,8 @@
           }
         ],
         "name": "c",
-        "tags": [],
-        "version": 8
+        "rowVersion": 8,
+        "tags": []
       }
     },
     {
@@ -223,8 +223,8 @@
           }
         ],
         "name": "c",
-        "tags": [],
-        "version": 11
+        "rowVersion": 11,
+        "tags": []
       }
     },
     {
@@ -293,10 +293,10 @@
           }
         ],
         "name": "c",
+        "rowVersion": 14,
         "tags": [
           "<uuid>"
-        ],
-        "version": 14
+        ]
       }
     },
     {
@@ -333,10 +333,10 @@
           }
         ],
         "name": "c2",
+        "rowVersion": 15,
         "tags": [
           "<uuid>"
-        ],
-        "version": 15
+        ]
       }
     },
     {
@@ -347,7 +347,7 @@
       "body": {
         "id": "<volatile:key>",
         "name": "t1",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -367,12 +367,12 @@
           {
             "id": "<volatile:key>",
             "name": "t1b",
-            "version": 2
+            "rowVersion": 2
           },
           {
             "id": "<volatile:key>",
             "name": "t2",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -410,10 +410,10 @@
               }
             ],
             "name": "c2",
+            "rowVersion": 15,
             "tags": [
               "<uuid>"
-            ],
-            "version": 15
+            ]
           }
         ],
         "page": 1,
@@ -459,7 +459,7 @@
           {
             "id": "<volatile:key>",
             "name": "t2",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,

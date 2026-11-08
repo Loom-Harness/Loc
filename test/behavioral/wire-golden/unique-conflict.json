@@ -45,13 +45,13 @@
             "email": "ada@example.com",
             "id": "<volatile:key>",
             "name": "Ada",
-            "version": 1
+            "rowVersion": 1
           },
           {
             "email": "bob@example.com",
             "id": "<volatile:key>",
             "name": "Bob",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -83,7 +83,7 @@
         "email": "bob@example.com",
         "id": "<volatile:key>",
         "name": "Bob",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -111,7 +111,7 @@
         "email": "ada@example.com",
         "id": "<volatile:key>",
         "name": "Ada again",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -165,23 +165,23 @@
           {
             "id": "<volatile:key>",
             "region": "eu",
+            "rowVersion": 1,
             "sku": "A-1",
-            "title": "Lamp",
-            "version": 1
+            "title": "Lamp"
           },
           {
             "id": "<volatile:key>",
             "region": "us",
+            "rowVersion": 1,
             "sku": "A-1",
-            "title": "Lamp",
-            "version": 1
+            "title": "Lamp"
           },
           {
             "id": "<volatile:key>",
             "region": "eu",
+            "rowVersion": 1,
             "sku": "B-2",
-            "title": "Desk",
-            "version": 1
+            "title": "Desk"
           }
         ],
         "page": 1,
@@ -198,9 +198,9 @@
       "body": {
         "id": "<volatile:key>",
         "region": "eu",
+        "rowVersion": 1,
         "sku": "A-1",
-        "title": "Lamp",
-        "version": 1
+        "title": "Lamp"
       }
     },
     {
@@ -211,9 +211,9 @@
       "body": {
         "id": "<volatile:key>",
         "region": "us",
+        "rowVersion": 1,
         "sku": "A-1",
-        "title": "Lamp",
-        "version": 1
+        "title": "Lamp"
       }
     },
     {
@@ -224,9 +224,9 @@
       "body": {
         "id": "<volatile:key>",
         "region": "eu",
+        "rowVersion": 1,
         "sku": "B-2",
-        "title": "Desk",
-        "version": 1
+        "title": "Desk"
       }
     },
     {
@@ -258,9 +258,9 @@
       "body": {
         "id": "<volatile:key>",
         "region": "apac",
+        "rowVersion": 2,
         "sku": "A-1",
-        "title": "Desk",
-        "version": 2
+        "title": "Desk"
       }
     },
     {
@@ -280,16 +280,16 @@
           {
             "id": "<volatile:key>",
             "region": "eu",
+            "rowVersion": 1,
             "sku": "A-1",
-            "title": "Lamp",
-            "version": 1
+            "title": "Lamp"
           },
           {
             "id": "<volatile:key>",
             "region": "apac",
+            "rowVersion": 2,
             "sku": "A-1",
-            "title": "Desk",
-            "version": 2
+            "title": "Desk"
           }
         ],
         "page": 1,

@@ -22,7 +22,7 @@
         "price": {
           "scale": 2
         },
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -38,7 +38,7 @@
             "price": {
               "scale": 2
             },
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -65,7 +65,7 @@
         "price": {
           "scale": 3
         },
-        "version": 2
+        "rowVersion": 2
       }
     },
     {

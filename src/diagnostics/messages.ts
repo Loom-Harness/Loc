@@ -983,6 +983,17 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.policy-out-of-scope": (p: { name: unknown; declaredIn: unknown; usedIn: unknown }) =>
     `policy '${p.name}' is declared in context '${p.declaredIn}'; policies are context-local — ` +
     `redeclare it in '${p.usedIn}' to call it there.`,
+  // The same rule reached through a top-level function: its body is inlined at
+  // each call site, so a policy it names must be declared in the CALLING context.
+  "loom.policy-out-of-scope#via-function": (p: {
+    fn: unknown;
+    name: unknown;
+    declaredIn: unknown;
+    usedIn: unknown;
+  }) =>
+    `function '${p.fn}' calls policy '${p.name}', which is declared in context '${p.declaredIn}'; ` +
+    `policies are context-local and a top-level function is inlined where it is called — ` +
+    `redeclare '${p.name}' in '${p.usedIn}' to call '${p.fn}' there.`,
   "loom.policy-fn-arity": (p: {
     argc: unknown;
     name: unknown;
@@ -5767,9 +5778,10 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   "loom.unknown-capability": (p: { cap: unknown }) =>
     `Unknown capability '${p.cap}' in 'implements'.`,
-  "loom.version-field-collision": (p: { name: unknown; name2: unknown }) =>
-    `field 'version' on aggregate '${p.name}' collides with Loom's optimistic-concurrency column, which is an 'int'. ` +
-    `Rename this field (e.g. '${p.name2}Version'), or declare it 'version: int' if you meant the concurrency counter.`,
+  "loom.version-field-collision": (p: { field: unknown; name: unknown }) =>
+    `field '${p.field}' on aggregate '${p.name}' collides with Loom's optimistic-concurrency counter 'rowVersion' ` +
+    `(column 'row_version'), an 'int' every save rewrites. Rename this field — 'version' is an ordinary field ` +
+    `name — or declare it 'rowVersion: int' if you meant the concurrency counter.`,
   "loom.softdelete-field-collision": (p: { name: unknown; name2: unknown }) =>
     `field 'isDeleted' on aggregate '${p.name}' collides with the 'softDeletable' capability's flag, which is a 'bool' ` +
     `(the spliced 'filter !this.isDeleted' reads it). Rename this field (e.g. '${p.name2}Deleted'), or declare it ` +

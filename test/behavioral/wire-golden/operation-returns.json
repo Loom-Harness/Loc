@@ -37,7 +37,7 @@
         "code": "OR2",
         "id": "<volatile:key>",
         "reserved": false,
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -60,13 +60,13 @@
             "code": "OR2",
             "id": "<volatile:key>",
             "reserved": false,
-            "version": 3
+            "rowVersion": 3
           },
           {
             "code": "OR3",
             "id": "<volatile:key>",
             "reserved": false,
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -107,7 +107,7 @@
             "code": "OR2",
             "id": "<volatile:key>",
             "reserved": false,
-            "version": 3
+            "rowVersion": 3
           }
         ],
         "page": 1,
@@ -165,7 +165,7 @@
         "code": "OR2",
         "id": "<volatile:key>",
         "reserved": false,
-        "version": 3
+        "rowVersion": 3
       }
     },
     {

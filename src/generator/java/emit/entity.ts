@@ -28,6 +28,7 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { factoryLocal, snake } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { floorRuleText } from "../../_i18n/rule-text.js";
@@ -737,7 +738,9 @@ export function renderJavaEntity(
   // from the entity.
   const versionFieldName =
     (persistence || options.documentRoot === true) && isAgg(entity) && aggregateIsVersioned(entity)
-      ? entity.fields.find((f) => f.access === "token" && !superType?.fieldNames.has(f.name))?.name
+      ? entity.fields.find(
+          (f) => f.name === ROW_VERSION_FIELD && !superType?.fieldNames.has(f.name),
+        )?.name
       : undefined;
   const applyVersionLines: string[] =
     versionFieldName !== undefined
@@ -1387,7 +1390,7 @@ export function renderJavaAbstractBaseEntity(
   // dirtiness, the capability declares persisted commands).
   const baseVersionField =
     persistence && aggregateIsVersioned(base)
-      ? base.fields.find((f) => f.access === "token")?.name
+      ? base.fields.find((f) => f.name === ROW_VERSION_FIELD)?.name
       : undefined;
   const applyVersionLines: string[] =
     baseVersionField !== undefined

@@ -23,7 +23,7 @@
         "display": "B-1",
         "id": "<volatile:key>",
         "name": "B-1",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -110,7 +110,7 @@
         "display": "B-1",
         "id": "<volatile:key>",
         "name": "B-1",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -132,7 +132,7 @@
         "display": "B-1b",
         "id": "<volatile:key>",
         "name": "B-1b",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -149,7 +149,7 @@
             "display": "B-1b",
             "id": "<volatile:key>",
             "name": "B-1b",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,

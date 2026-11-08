@@ -22,10 +22,10 @@
         "hasFee": true,
         "id": "<volatile:key>",
         "noFee": false,
+        "rowVersion": 1,
         "subtotal": "10.0000",
         "subtotalIsFee": true,
-        "subtotalNotFee": false,
-        "version": 1
+        "subtotalNotFee": false
       }
     },
     {
@@ -48,10 +48,10 @@
         "hasFee": false,
         "id": "<volatile:key>",
         "noFee": true,
+        "rowVersion": 1,
         "subtotal": "10.0000",
         "subtotalIsFee": false,
-        "subtotalNotFee": true,
-        "version": 1
+        "subtotalNotFee": true
       }
     },
     {
@@ -114,10 +114,10 @@
         "hasFee": true,
         "id": "<volatile:key>",
         "noFee": false,
+        "rowVersion": 3,
         "subtotal": "11.0000",
         "subtotalIsFee": false,
-        "subtotalNotFee": true,
-        "version": 3
+        "subtotalNotFee": true
       }
     },
     {
@@ -133,10 +133,10 @@
             "hasFee": true,
             "id": "<volatile:key>",
             "noFee": false,
+            "rowVersion": 2,
             "subtotal": "11.0000",
             "subtotalIsFee": false,
-            "subtotalNotFee": true,
-            "version": 2
+            "subtotalNotFee": true
           },
           {
             "fee": "2.5000",
@@ -144,10 +144,10 @@
             "hasFee": true,
             "id": "<volatile:key>",
             "noFee": false,
+            "rowVersion": 3,
             "subtotal": "11.0000",
             "subtotalIsFee": false,
-            "subtotalNotFee": true,
-            "version": 3
+            "subtotalNotFee": true
           }
         ],
         "page": 1,
@@ -182,7 +182,7 @@
         "qtyIsRate": true,
         "qtyOverRate": false,
         "rate": 3,
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -211,7 +211,7 @@
         "qtyIsRate": false,
         "qtyOverRate": false,
         "rate": 2.5,
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -266,7 +266,7 @@
         "qtyIsRate": false,
         "qtyOverRate": false,
         "rate": 2.5,
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -288,7 +288,7 @@
             "qtyIsRate": true,
             "qtyOverRate": false,
             "rate": 3,
-            "version": 1
+            "rowVersion": 1
           },
           {
             "cap": null,
@@ -302,7 +302,7 @@
             "qtyIsRate": false,
             "qtyOverRate": false,
             "rate": 2.5,
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -399,7 +399,7 @@
         "balance": "20.0000",
         "id": "<volatile:key>",
         "limit": "25.0000",
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -413,7 +413,7 @@
             "balance": "20.0000",
             "id": "<volatile:key>",
             "limit": "25.0000",
-            "version": 3
+            "rowVersion": 3
           }
         ],
         "page": 1,
@@ -445,7 +445,7 @@
           "balance": "20.0000",
           "id": "<volatile:key>",
           "limit": "25.0000",
-          "version": 3
+          "rowVersion": 3
         }
       ]
     },

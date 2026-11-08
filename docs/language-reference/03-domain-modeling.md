@@ -86,7 +86,7 @@ end
 ```
 ::: end
 
-**Every state aggregate is optimistically versioned by default.** The macro expander splices the built-in `versioned` capability (`version: int token = 1`) onto every aggregate that is not `persistedAs: eventLog` and does not already carry it, so every table gets `version INTEGER NOT NULL DEFAULT 1`, every save is a guarded `UPDATE … WHERE id = $1 AND version = $2`, and a stale write answers **409**. The `version` field rides the wire as a `token` (read + echoed back). Declaring your own `version` field is allowed only as `version: int` — any other type collides (`loom.version-field-collision`: *field 'version' on aggregate 'Order' collides with Loom's optimistic-concurrency column, which is an 'int'*). See [`../capabilities.md`](../capabilities.md).
+**Every state aggregate is optimistically versioned by default.** The macro expander splices the built-in `versioned` capability (`rowVersion: int token = 1`) onto every aggregate that is not `persistedAs: eventLog` and does not already carry it, so every table gets `row_version INTEGER NOT NULL DEFAULT 1`, every save is a guarded `UPDATE … WHERE id = $1 AND row_version = $2`, and a stale write answers **409**. The `rowVersion` field rides the wire as a `token` (read + echoed back as `If-Match`). `version` is an ordinary field name — declare it with any type as plain data. A non-`int` `rowVersion`, or another spelling that snake-cases to `row_version`, collides (`loom.version-field-collision`: *field 'rowVersion' on aggregate 'Order' collides with Loom's optimistic-concurrency counter 'rowVersion' (column 'row_version'), …*); a plain `rowVersion: int` — what `unfold` ejects — is accepted as the counter itself. See [`../capabilities.md`](../capabilities.md).
 
 A `shape: document` aggregate keeps the same repository surface over a blob table:
 
@@ -548,7 +548,7 @@ Every field carries an access modifier governing its role across three shapes: t
 | `internal` | ✗ (never via API) | ✗ | ✗ | ✓ (projections may read) |
 | `secret` | ✗ (never disclosed) | ✓ | ✓ (write-only) | ✓ |
 
-The synthetic `id` and the implicit `version` are `token`; a `token` field must be non-nullable (`loom.token-nullable`). `managed` fields are server-seeded in the `create` factory (`datetime` → now, `int` → `0`); `secret` and `internal` are dropped from the read projection.
+The synthetic `id` and the implicit `rowVersion` are `token`; a `token` field must be non-nullable (`loom.token-nullable`). `managed` fields are server-seeded in the `create` factory (`datetime` → now, `int` → `0`); `secret` and `internal` are dropped from the read projection.
 
 **Every ✗ above is a WIRE fact.** `immutable` reads "absent from the update
 input", *not* "never changes" — nothing stops a domain operation from assigning
@@ -597,7 +597,7 @@ context Orders {
     reference: string                  // editable (default)
     slug: string immutable             // set once at creation
     createdAt: datetime managed        // server stamps it; not client-writable
-    version: int token                 // the optimistic-concurrency counter, spelled out
+    revision: int token                // echoed back as a precondition, never client-edited
     couponCode: string secret          // accepted on write; never sent back
     internalScore: int internal        // hidden from clients
   }

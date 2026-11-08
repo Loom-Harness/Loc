@@ -47,7 +47,7 @@ export const OrderResponse = z.object({
   customerId: z.string(),
   status: OrderStatusSchema,
   placedAt: z.string(),
-  version: z.number().int(),
+  rowVersion: z.number().int(),
   lines: z.array(OrderLineResponse),
 });
 export type OrderResponse = z.infer<typeof OrderResponse>;
@@ -131,7 +131,7 @@ export function useUpdateOrder(id: string) {
   return useMutation({
     mutationFn: async (input: UpdateOrderRequest) => {
       const loaded = qc.getQueryData<OrderResponse>(["orders", id]);
-      await api.post(`/orders/${seg(id)}/update`, input, ifMatch(loaded?.version));
+      await api.post(`/orders/${seg(id)}/update`, input, ifMatch(loaded?.rowVersion));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["orders", id] });

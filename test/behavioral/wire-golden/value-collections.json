@@ -29,8 +29,8 @@
           }
         ],
         "reference": "INV-1",
-        "surcharges": [],
-        "version": 1
+        "rowVersion": 1,
+        "surcharges": []
       }
     },
     {
@@ -54,13 +54,13 @@
           }
         ],
         "reference": "INV-2",
+        "rowVersion": 2,
         "surcharges": [
           {
             "amount": 1,
             "currency": "USD"
           }
-        ],
-        "version": 2
+        ]
       }
     },
     {
@@ -79,13 +79,13 @@
               }
             ],
             "reference": "INV-2",
+            "rowVersion": 2,
             "surcharges": [
               {
                 "amount": 1,
                 "currency": "USD"
               }
-            ],
-            "version": 2
+            ]
           }
         ],
         "page": 1,

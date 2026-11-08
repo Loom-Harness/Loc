@@ -13,6 +13,7 @@ import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
@@ -51,6 +52,7 @@ import {
   savedVersionOnInsert,
   savedVersionOnUpdate,
 } from "./saved-version.js";
+import { T, TT } from "./ts-symbols.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
@@ -82,7 +84,7 @@ function hydrateLocals(agg: EnrichedAggregateIR, rowVar: string, indent: string)
     if (isRefCollection(f.type) && f.type.kind === "array" && f.type.element.kind === "id") {
       const target = f.type.element.targetName;
       out.push(
-        `${indent}const ${f.name} = ((${rowVar}.${f.name} ?? []) as string[]).map((s) => Ids.${target}Id(s));`,
+        `${indent}const ${f.name} = ((${rowVar}.${f.name} ?? []) as string[]).map((s) => ${T.Ids}.${target}Id(s));`,
       );
     }
   }
@@ -113,7 +115,7 @@ export function buildEmbeddedRepositoryFile(
   _emitTrace = false,
 ): string {
   const tableName = lowerFirst(plural(agg.name));
-  const idVar = `Ids.${agg.name}Id`;
+  const idVar = `${TT.Ids}.${agg.name}Id`;
   // `toWireMasked(root, currentUser: User | null)` NAMES `User` — the mask is
   // a second reason this file needs the import, as on the relational builder.
   const repoUsesUser = (repo?.finds ?? []).some(findUsesCurrentUser) || aggHasFieldMask(agg);
@@ -178,9 +180,9 @@ export function buildEmbeddedRepositoryFile(
   // (`version: aggregate.version`); the guarded path stamps version itself, so
   // drop that entry before re-appending the CAS value — else the object
   // literal has two `version` keys (TS1117).
-  const rootEntriesNoVersion = rootEntries.filter((e) => !e.startsWith("version:"));
-  const rootRowInsert = `{ ${rootEntriesNoVersion.join(", ")}, version: 1 }`;
-  const rootRowUpdate = `{ ${rootEntriesNoVersion.join(", ")}, version: expected + 1 }`;
+  const rootEntriesNoVersion = rootEntries.filter((e) => !e.startsWith(`${ROW_VERSION_FIELD}:`));
+  const rootRowInsert = `{ ${rootEntriesNoVersion.join(", ")}, ${ROW_VERSION_FIELD}: 1 }`;
+  const rootRowUpdate = `{ ${rootEntriesNoVersion.join(", ")}, ${ROW_VERSION_FIELD}: expected + 1 }`;
 
   // Declared finds PLUS the query-time projections sourced from this
   // aggregate.  A query-time projection route calls `repo.<projName>()` by name
@@ -272,14 +274,14 @@ export function buildEmbeddedRepositoryFile(
       ? [
           // CAS-guarded write: expected version from the route's `If-Match`
           // (falling back to the loaded version), a lost race → ConcurrencyError.
-          `    const expected = expectedVersion ?? aggregate.version;`,
+          `    const expected = expectedVersion ?? aggregate.${ROW_VERSION_FIELD};`,
           savedVersionDecl("    "),
-          `    const existing = await this.db.select({ version: schema.${tableName}.version }).from(schema.${tableName}).where(eq(schema.${tableName}.id, aggregate.id));`,
+          `    const existing = await this.db.select({ ${ROW_VERSION_FIELD}: schema.${tableName}.${ROW_VERSION_FIELD} }).from(schema.${tableName}).where(eq(schema.${tableName}.id, aggregate.id));`,
           `    if (existing.length === 0) {`,
           `      await this.db.insert(schema.${tableName}).values(${rootRowInsert});`,
           savedVersionOnInsert("      "),
           `    } else {`,
-          `      const updated = await this.db.update(schema.${tableName}).set(${rootRowUpdate}).where(and(eq(schema.${tableName}.id, aggregate.id), eq(schema.${tableName}.version, expected))).returning({ id: schema.${tableName}.id });`,
+          `      const updated = await this.db.update(schema.${tableName}).set(${rootRowUpdate}).where(and(eq(schema.${tableName}.id, aggregate.id), eq(schema.${tableName}.${ROW_VERSION_FIELD}, expected))).returning({ id: schema.${tableName}.id });`,
           `      if (updated.length === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
           savedVersionOnUpdate("      "),
           `    }`,
@@ -469,7 +471,7 @@ function embeddedFindMethod(
 }
 
 function tsFindParamType(t: TypeIR): string {
-  if (t.kind === "id") return `Ids.${t.targetName}Id`;
+  if (t.kind === "id") return `${TT.Ids}.${t.targetName}Id`;
   if (t.kind === "enum") return t.name;
   if (t.kind === "primitive") {
     switch (t.name) {

@@ -18,8 +18,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "title": "first",
-        "version": 1
+        "rowVersion": 1,
+        "title": "first"
       }
     },
     {
@@ -36,8 +36,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "title": "second",
-        "version": 2
+        "rowVersion": 2,
+        "title": "second"
       }
     },
     {
@@ -75,8 +75,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "title": "second",
-        "version": 2
+        "rowVersion": 2,
+        "title": "second"
       }
     },
     {
@@ -96,7 +96,7 @@
       "body": {
         "body": "draft",
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -128,7 +128,7 @@
       "body": {
         "body": "final",
         "id": "<volatile:key>",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -163,8 +163,8 @@
         "items": [
           {
             "id": "<volatile:key>",
-            "title": "fourth",
-            "version": 3
+            "rowVersion": 3,
+            "title": "fourth"
           }
         ],
         "page": 1,
@@ -264,8 +264,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "title": "fourth",
-        "version": 3
+        "rowVersion": 3,
+        "title": "fourth"
       }
     },
     {
@@ -296,8 +296,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "title": "second",
-        "version": 4
+        "rowVersion": 4,
+        "title": "second"
       }
     },
     {
@@ -328,8 +328,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "title": "second",
-        "version": 5
+        "rowVersion": 5,
+        "title": "second"
       }
     },
     {
@@ -360,8 +360,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "title": "second",
-        "version": 6
+        "rowVersion": 6,
+        "title": "second"
       }
     },
     {
@@ -392,8 +392,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "title": "second",
-        "version": 7
+        "rowVersion": 7,
+        "title": "second"
       }
     },
     {
@@ -424,8 +424,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "title": "second",
-        "version": 8
+        "rowVersion": 8,
+        "title": "second"
       }
     }
   ]

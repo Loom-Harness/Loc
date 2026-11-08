@@ -52,7 +52,7 @@ const ROWS = [
   category: null,
   contact: { email: null, phone: null },
   tags: null,
-  version: 1,
+  rowVersion: 1,
 }));
 
 const grid = () => page.locator('[data-testid="product-grid"]');

@@ -203,6 +203,16 @@ export class DeclIndex {
     return sameDoc ?? cands[0];
   }
 
+  /** Every declaration of `kind` named `name` across the whole compilation
+   *  unit — this unit's documents first, then the rest of the import closure —
+   *  with no scoping.  For checks that must see a declaration wherever it is
+   *  written, such as a context-local one reached from the wrong context. */
+  findAll<K extends DeclKind>(kind: K, name: string): DeclKinds[K][] {
+    const guard = GUARDS[kind];
+    const own = (this.byName.get(name) ?? []).filter((n): n is DeclKinds[K] => guard(n));
+    return this.composedIndex ? [...own, ...this.composedIndex.findAll(kind, name)] : own;
+  }
+
   /** What a `test e2e` `api.<slug>` may name, by the spellings the generated
    *  client accepts (`e2e-render.ts`): an aggregate as `lowerFirst(name)`,
    *  its route segment or `lowerFirst(plural(name))`; a projection or a

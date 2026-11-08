@@ -52,8 +52,8 @@
           "deletedAt": null,
           "id": "<volatile:key>",
           "plate": "C-1",
-          "seats": 4,
-          "version": 1
+          "rowVersion": 1,
+          "seats": 4
         }
       ]
     },
@@ -95,7 +95,7 @@
           "id": "<volatile:key>",
           "payloadKg": 900,
           "plate": "T-1",
-          "version": 1
+          "rowVersion": 1
         }
       ]
     },
@@ -108,7 +108,7 @@
         "id": "<volatile:key>",
         "payloadKg": 900,
         "plate": "T-1",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -127,8 +127,8 @@
         "deletedAt": null,
         "id": "<volatile:key>",
         "plate": "C-1",
-        "seats": 5,
-        "version": 2
+        "rowVersion": 2,
+        "seats": 5
       }
     },
     {
@@ -147,7 +147,7 @@
         "id": "<volatile:key>",
         "payloadKg": 950,
         "plate": "T-1",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -201,8 +201,8 @@
         "deletedAt": "<timestamp>",
         "id": "<volatile:key>",
         "plate": "C-1",
-        "seats": 5,
-        "version": 3
+        "rowVersion": 3,
+        "seats": 5
       }
     },
     {
@@ -257,7 +257,7 @@
           "id": "<volatile:key>",
           "payloadKg": 950,
           "plate": "T-1",
-          "version": 2
+          "rowVersion": 2
         }
       ]
     },
@@ -317,7 +317,7 @@
         "id": "<volatile:key>",
         "licence": "L-1",
         "name": "Ada",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -379,7 +379,7 @@
         "id": "<volatile:key>",
         "licence": "L-2",
         "name": "Ada",
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -406,7 +406,7 @@
           "desk": 3,
           "id": "<volatile:key>",
           "name": "Bob",
-          "version": 1
+          "rowVersion": 1
         }
       ]
     },
@@ -426,7 +426,7 @@
         "desk": 4,
         "id": "<volatile:key>",
         "name": "Bob",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -555,8 +555,8 @@
         "deletedAt": null,
         "id": "<volatile:key>",
         "plate": "LADDER-C",
-        "seats": 2,
-        "version": 1
+        "rowVersion": 1,
+        "seats": 2
       }
     },
     {
@@ -582,8 +582,8 @@
         "deletedAt": null,
         "id": "<volatile:key>",
         "plate": "LADDER-C",
-        "seats": 2,
-        "version": 1
+        "rowVersion": 1,
+        "seats": 2
       }
     },
     {
@@ -596,8 +596,8 @@
           "deletedAt": null,
           "id": "<volatile:key>",
           "plate": "LADDER-C",
-          "seats": 2,
-          "version": 1
+          "rowVersion": 1,
+          "seats": 2
         }
       ]
     },
@@ -618,8 +618,8 @@
           "deletedAt": null,
           "id": "<volatile:key>",
           "plate": "LADDER-C",
-          "seats": 2,
-          "version": 1
+          "rowVersion": 1,
+          "seats": 2
         }
       ]
     },
@@ -632,8 +632,8 @@
         "deletedAt": null,
         "id": "<volatile:key>",
         "plate": "LADDER-C",
-        "seats": 2,
-        "version": 1
+        "rowVersion": 1,
+        "seats": 2
       }
     },
     {
@@ -659,8 +659,8 @@
         "deletedAt": null,
         "id": "<volatile:key>",
         "plate": "LADDER-C",
-        "seats": 2,
-        "version": 1
+        "rowVersion": 1,
+        "seats": 2
       }
     },
     {
@@ -672,8 +672,8 @@
         "deletedAt": null,
         "id": "<volatile:key>",
         "plate": "LADDER-C",
-        "seats": 2,
-        "version": 1
+        "rowVersion": 1,
+        "seats": 2
       }
     },
     {
@@ -685,8 +685,8 @@
         "deletedAt": null,
         "id": "<volatile:key>",
         "plate": "LADDER-C",
-        "seats": 2,
-        "version": 1
+        "rowVersion": 1,
+        "seats": 2
       }
     },
     {
@@ -698,8 +698,8 @@
         "deletedAt": null,
         "id": "<volatile:key>",
         "plate": "LADDER-C",
-        "seats": 2,
-        "version": 1
+        "rowVersion": 1,
+        "seats": 2
       }
     },
     {
@@ -721,7 +721,7 @@
           "id": "<volatile:key>",
           "payloadKg": 1,
           "plate": "LADDER-T",
-          "version": 1
+          "rowVersion": 1
         }
       ]
     },
@@ -742,7 +742,7 @@
           "id": "<volatile:key>",
           "payloadKg": 1,
           "plate": "LADDER-T",
-          "version": 1
+          "rowVersion": 1
         }
       ]
     },
@@ -802,7 +802,7 @@
         "id": "<volatile:key>",
         "licence": "L-9",
         "name": "LADDER-D",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -829,7 +829,7 @@
         "id": "<volatile:key>",
         "licence": "L-9",
         "name": "LADDER-D",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -852,14 +852,14 @@
           "id": "<volatile:key>",
           "licence": "L-9",
           "name": "LADDER-D",
-          "version": 1
+          "rowVersion": 1
         },
         {
           "deletedAt": null,
           "id": "<volatile:key>",
           "licence": "L-8",
           "name": "LADDER-D2",
-          "version": 1
+          "rowVersion": 1
         }
       ]
     },
@@ -881,14 +881,14 @@
           "id": "<volatile:key>",
           "licence": "L-9",
           "name": "LADDER-D",
-          "version": 1
+          "rowVersion": 1
         },
         {
           "deletedAt": null,
           "id": "<volatile:key>",
           "licence": "L-8",
           "name": "LADDER-D2",
-          "version": 1
+          "rowVersion": 1
         }
       ]
     }

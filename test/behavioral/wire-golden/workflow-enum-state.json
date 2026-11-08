@@ -64,7 +64,7 @@
       "body": {
         "id": "<volatile:key>",
         "reference": "CLM-1",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -84,7 +84,7 @@
           {
             "id": "<volatile:key>",
             "reference": "CLM-2",
-            "version": 3
+            "rowVersion": 3
           }
         ],
         "page": 1,
@@ -101,7 +101,7 @@
       "body": {
         "id": "<volatile:key>",
         "name": "Lloyd",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -121,7 +121,7 @@
           {
             "id": "<volatile:key>",
             "name": "Lloyd's",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,

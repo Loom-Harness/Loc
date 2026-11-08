@@ -27,8 +27,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "status": 200,
-        "version": 1
+        "rowVersion": 1,
+        "status": 200
       }
     },
     {
@@ -66,13 +66,13 @@
         "code": "P-1",
         "id": "<volatile:key>",
         "qty": 1,
+        "rowVersion": 3,
         "variants": [
           {
             "id": "<volatile:key>",
             "label": "red"
           }
-        ],
-        "version": 3
+        ]
       }
     },
     {
@@ -89,13 +89,13 @@
             "code": "P-1",
             "id": "<volatile:key>",
             "qty": 1,
+            "rowVersion": 3,
             "variants": [
               {
                 "id": "<volatile:key>",
                 "label": "red"
               }
-            ],
-            "version": 3
+            ]
           }
         ],
         "page": 1,
@@ -129,8 +129,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
+        "rowVersion": 1,
         "title": "Box",
-        "version": 1,
         "weightGrams": 500
       }
     },
@@ -141,9 +141,9 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
+        "rowVersion": 1,
         "sizeBytes": 1024,
-        "title": "Ebook",
-        "version": 1
+        "title": "Ebook"
       }
     },
     {
@@ -196,7 +196,7 @@
       "body": {
         "id": "<volatile:key>",
         "path": "/c",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -209,12 +209,12 @@
           {
             "id": "<volatile:key>",
             "path": "/a",
-            "version": 1
+            "rowVersion": 1
           },
           {
             "id": "<volatile:key>",
             "path": "/c",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -240,7 +240,7 @@
           {
             "id": "<volatile:key>",
             "path": "/a",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -274,13 +274,13 @@
         "items": [
           {
             "id": "<volatile:key>",
-            "status": 200,
-            "version": 1
+            "rowVersion": 1,
+            "status": 200
           },
           {
             "id": "<volatile:key>",
-            "status": 503,
-            "version": 2
+            "rowVersion": 2,
+            "status": 503
           }
         ],
         "page": 1,
@@ -305,8 +305,8 @@
         "items": [
           {
             "id": "<volatile:key>",
-            "status": 200,
-            "version": 1
+            "rowVersion": 1,
+            "status": 200
           }
         ],
         "page": 1,
@@ -341,8 +341,8 @@
         "code": "P-4",
         "id": "<volatile:key>",
         "qty": 2,
-        "variants": [],
-        "version": 2
+        "rowVersion": 2,
+        "variants": []
       }
     },
     {
@@ -359,29 +359,29 @@
             "code": "P-1",
             "id": "<volatile:key>",
             "qty": 1,
+            "rowVersion": 3,
             "variants": [
               {
                 "id": "<volatile:key>",
                 "label": "red"
               }
-            ],
-            "version": 3
+            ]
           },
           {
             "aliases": [],
             "code": "P-2",
             "id": "<volatile:key>",
             "qty": 3,
-            "variants": [],
-            "version": 2
+            "rowVersion": 2,
+            "variants": []
           },
           {
             "aliases": [],
             "code": "P-4",
             "id": "<volatile:key>",
             "qty": 2,
-            "variants": [],
-            "version": 2
+            "rowVersion": 2,
+            "variants": []
           }
         ],
         "page": 1,
@@ -411,21 +411,21 @@
             "code": "P-1",
             "id": "<volatile:key>",
             "qty": 1,
+            "rowVersion": 3,
             "variants": [
               {
                 "id": "<volatile:key>",
                 "label": "red"
               }
-            ],
-            "version": 3
+            ]
           },
           {
             "aliases": [],
             "code": "P-2",
             "id": "<volatile:key>",
             "qty": 3,
-            "variants": [],
-            "version": 2
+            "rowVersion": 2,
+            "variants": []
           }
         ],
         "page": 1,
@@ -457,8 +457,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
+        "rowVersion": 2,
         "title": "Crate",
-        "version": 2,
         "weightGrams": 950
       }
     },
@@ -470,14 +470,14 @@
       "body": [
         {
           "id": "<volatile:key>",
+          "rowVersion": 1,
           "title": "Box",
-          "version": 1,
           "weightGrams": 500
         },
         {
           "id": "<volatile:key>",
+          "rowVersion": 2,
           "title": "Crate",
-          "version": 2,
           "weightGrams": 950
         }
       ]
@@ -497,8 +497,8 @@
       "body": [
         {
           "id": "<volatile:key>",
+          "rowVersion": 1,
           "title": "Box",
-          "version": 1,
           "weightGrams": 500
         }
       ]
@@ -526,9 +526,9 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
+        "rowVersion": 2,
         "sizeBytes": 20,
-        "title": "Song",
-        "version": 2
+        "title": "Song"
       }
     },
     {
@@ -539,15 +539,15 @@
       "body": [
         {
           "id": "<volatile:key>",
+          "rowVersion": 1,
           "sizeBytes": 1024,
-          "title": "Ebook",
-          "version": 1
+          "title": "Ebook"
         },
         {
           "id": "<volatile:key>",
+          "rowVersion": 2,
           "sizeBytes": 20,
-          "title": "Song",
-          "version": 2
+          "title": "Song"
         }
       ]
     },
@@ -566,9 +566,9 @@
       "body": [
         {
           "id": "<volatile:key>",
+          "rowVersion": 1,
           "sizeBytes": 1024,
-          "title": "Ebook",
-          "version": 1
+          "title": "Ebook"
         }
       ]
     },

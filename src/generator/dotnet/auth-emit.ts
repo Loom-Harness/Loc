@@ -15,6 +15,7 @@ import { LOOM_OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
+import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
 import { claimPathFor, claimsReferenceIds } from "../_auth/claim-types.js";
 import {
   DEV_CLAIMS_HEADER,
@@ -367,7 +368,7 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR, ns: string): string {
   // validated against the declared audience (env-overridable), or — with no
   // `audience:` — only when OIDC_AUDIENCE is set at runtime (G8-04).
   const checksDoc = auth.oidc.audience
-    ? "checks iss / aud / exp"
+    ? "checks iss / aud / exp (an audience that resolves\n/// empty rejects every token — the model declares `audience:`)"
     : "checks iss / exp, and aud only when\n/// the OIDC_AUDIENCE env var is set (the model declares no `audience:`)";
   const reads = user.fields.map((f) => csClaimRead(f, auth));
   const args = reads.map((r) => r.arg).join(",\n            ");
@@ -435,7 +436,18 @@ public sealed class OidcUserVerifier : IUserVerifier
         {
             return null;
         }
-
+${
+  audienceDeclared(auth)
+    ? `
+        // The model declares an audience: one that resolves EMPTY fails
+        // closed (every token rejected), it never turns the aud check off.
+        if (string.IsNullOrEmpty(Audience))
+        {
+            return Rejected(${JSON.stringify(audienceUnsetReason(auth))});
+        }
+`
+    : ""
+}
         OpenIdConnectConfiguration configuration;
         try
         {
@@ -454,9 +466,9 @@ public sealed class OidcUserVerifier : IUserVerifier
             ValidateIssuer = true,
             IssuerSigningKeys = configuration.SigningKeys,
             ValidateIssuerSigningKey = true,
-            // An EMPTY audience (OIDC_AUDIENCE unset or "") skips the aud
-            // check — the documented opt-out every backend honours.  Testing
-            // only for null validated every token against "" and rejected all.
+            // An EMPTY audience skips the aud check — reachable only when the
+            // model declares no audience.  Testing only for null validated
+            // every token against "" and rejected all.
             ValidateAudience = !string.IsNullOrEmpty(Audience),
             ValidAudience = Audience,
             ValidateLifetime = true,

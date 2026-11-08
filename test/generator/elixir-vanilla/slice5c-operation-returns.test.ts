@@ -69,7 +69,7 @@ describe("vanilla — T2.c operation-return emit", () => {
     const ctl = get(await files(), "/controllers/order_controller.ex");
     expect(ctl).toContain('def reserve(conn, %{"id" => id} = params) do');
     expect(ctl).toContain(
-      "reserve_order_result(conn, Orders.reserve_order(%{record | version: expected_version || record.version}, attrs))",
+      "reserve_order_result(conn, Orders.reserve_order(%{record | row_version: expected_version || record.row_version}, attrs))",
     );
     expect(ctl).toContain("def reserve_order_result(conn, {:ok, success})");
     // NotFound → 404 ProblemDetails via the shared responder

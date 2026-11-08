@@ -49,6 +49,7 @@
 // ---------------------------------------------------------------------------
 
 import { snake } from "../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -144,10 +145,10 @@ export function resolveColumnChain(
 ): ProjectionColumnResolution {
   const [head, ...rest] = chain;
   if (head === undefined) return { ok: false, reason: refuseUnknown(agg.name, "") };
-  // `id` and `version` are the columns every relational shape has and neither
-  // carries a declared `FieldIR`; nothing may hang off them (`o.id.value` is a
-  // domain-object read, not a column).
-  if ((head === "id" || head === "version") && rest.length === 0) {
+  // `id` and the `rowVersion` counter are the columns every relational shape
+  // has; nothing may hang off them (`o.id.value` is a domain-object read, not a
+  // column).
+  if ((head === "id" || head === ROW_VERSION_FIELD) && rest.length === 0) {
     return { ok: true, path: [head], fields: [] };
   }
   if (agg.derived?.some((d) => d.name === head)) {

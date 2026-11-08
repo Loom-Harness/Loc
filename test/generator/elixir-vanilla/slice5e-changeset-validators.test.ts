@@ -102,7 +102,7 @@ system P {
     // an invariant leaking in here would still fail this test.
     // …carried by a `validate_change` closure rather than `validate_number`, so
     // the error can name its catalog code and bounds (`field.integer-range`).
-    const VERSION_BOUND = "|> validate_change(:version, &__loom_int32_range/2)";
+    const VERSION_BOUND = "|> validate_change(:row_version, &__loom_int32_range/2)";
     const numberLines = cs.split("\n").filter((l) => l.includes("__loom_int32_range/2"));
     // Once per changeset that casts the column — this aggregate emits the base
     // one and the versioned update one, and both take client attrs.

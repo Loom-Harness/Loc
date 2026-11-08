@@ -21,7 +21,7 @@
         "code": "C1",
         "id": "<volatile:key>",
         "region": "EU",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -44,7 +44,7 @@
           "code": "C1",
           "id": "<volatile:key>",
           "region": "EU",
-          "version": 1
+          "rowVersion": 1
         }
       ]
     },
@@ -65,7 +65,7 @@
         "code": "C1B",
         "id": "<volatile:key>",
         "region": "EU",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -79,7 +79,7 @@
           "code": "C1B",
           "id": "<volatile:key>",
           "region": "EU",
-          "version": 2
+          "rowVersion": 2
         }
       ]
     },
@@ -95,7 +95,7 @@
             "code": "C1B",
             "id": "<volatile:key>",
             "region": "EU",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,

@@ -63,9 +63,9 @@
         "name": "a😀bc",
         "price": "1.0000",
         "qty": 1,
+        "rowVersion": 1,
         "shout": "A😀BC",
         "slug": "a😀bc",
-        "version": 1,
         "wholePrice": "1.0000"
       }
     },
@@ -91,9 +91,9 @@
         "name": "straße",
         "price": "1.0000",
         "qty": 1,
+        "rowVersion": 1,
         "shout": "STRASSE",
         "slug": "straße",
-        "version": 1,
         "wholePrice": "1.0000"
       }
     },
@@ -124,9 +124,9 @@
         "name": "  Ada  ",
         "price": "18.5000",
         "qty": -3,
+        "rowVersion": 1,
         "shout": "  ADA  ",
         "slug": "ada",
-        "version": 1,
         "wholePrice": "19.0000"
       }
     },
@@ -144,9 +144,9 @@
           "name": "  Ada  ",
           "price": "18.5000",
           "qty": -3,
+          "rowVersion": 1,
           "shout": "  ADA  ",
           "slug": "ada",
-          "version": 1,
           "wholePrice": "19.0000"
         }
       ]
@@ -165,9 +165,9 @@
           "name": "Bob",
           "price": "7.2500",
           "qty": 4,
+          "rowVersion": 1,
           "shout": "BOB",
           "slug": "bob",
-          "version": 1,
           "wholePrice": "7.0000"
         }
       ]
@@ -186,9 +186,9 @@
           "name": "  Ada  ",
           "price": "18.5000",
           "qty": -3,
+          "rowVersion": 1,
           "shout": "  ADA  ",
           "slug": "ada",
-          "version": 1,
           "wholePrice": "19.0000"
         }
       ]
@@ -207,9 +207,9 @@
           "name": "  Ada  ",
           "price": "18.5000",
           "qty": -3,
+          "rowVersion": 1,
           "shout": "  ADA  ",
           "slug": "ada",
-          "version": 1,
           "wholePrice": "19.0000"
         }
       ]
@@ -228,9 +228,9 @@
           "name": "Bob",
           "price": "7.2500",
           "qty": 4,
+          "rowVersion": 1,
           "shout": "BOB",
           "slug": "bob",
-          "version": 1,
           "wholePrice": "7.0000"
         }
       ]
@@ -249,9 +249,9 @@
           "name": "Bob",
           "price": "7.2500",
           "qty": 4,
+          "rowVersion": 1,
           "shout": "BOB",
           "slug": "bob",
-          "version": 1,
           "wholePrice": "7.0000"
         }
       ]
@@ -270,9 +270,9 @@
           "name": "Bob",
           "price": "7.2500",
           "qty": 4,
+          "rowVersion": 1,
           "shout": "BOB",
           "slug": "bob",
-          "version": 1,
           "wholePrice": "7.0000"
         }
       ]
@@ -297,9 +297,9 @@
         "name": " Bob ",
         "price": "7.2500",
         "qty": -4,
+        "rowVersion": 2,
         "shout": " BOB ",
         "slug": "bob",
-        "version": 2,
         "wholePrice": "7.0000"
       }
     },
@@ -317,9 +317,9 @@
           "name": " Bob ",
           "price": "7.2500",
           "qty": -4,
+          "rowVersion": 2,
           "shout": " BOB ",
           "slug": "bob",
-          "version": 2,
           "wholePrice": "7.0000"
         }
       ]
@@ -338,9 +338,9 @@
           "name": " Bob ",
           "price": "7.2500",
           "qty": -4,
+          "rowVersion": 2,
           "shout": " BOB ",
           "slug": "bob",
-          "version": 2,
           "wholePrice": "7.0000"
         }
       ]
@@ -360,9 +360,9 @@
             "name": "  Ada  ",
             "price": "18.5000",
             "qty": -3,
+            "rowVersion": 1,
             "shout": "  ADA  ",
             "slug": "ada",
-            "version": 1,
             "wholePrice": "19.0000"
           },
           {
@@ -373,9 +373,9 @@
             "name": " Bob ",
             "price": "7.2500",
             "qty": -4,
+            "rowVersion": 2,
             "shout": " BOB ",
             "slug": "bob",
-            "version": 2,
             "wholePrice": "7.0000"
           }
         ],

@@ -55,7 +55,7 @@
           "lineage": null,
           "value": "<timestamp>"
         },
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -124,7 +124,7 @@
           },
           "value": "<timestamp>"
         },
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -197,7 +197,7 @@
           },
           "value": "<timestamp>"
         },
-        "version": 4
+        "rowVersion": 4
       }
     },
     {
@@ -270,7 +270,7 @@
           },
           "value": "<timestamp>"
         },
-        "version": 5
+        "rowVersion": 5
       }
     },
     {
@@ -343,7 +343,7 @@
           },
           "value": "<timestamp>"
         },
-        "version": 6
+        "rowVersion": 6
       }
     },
     {
@@ -411,7 +411,7 @@
               },
               "value": "<timestamp>"
             },
-            "version": 6
+            "rowVersion": 6
           }
         ],
         "page": 1,

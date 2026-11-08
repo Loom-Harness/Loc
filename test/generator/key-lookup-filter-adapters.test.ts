@@ -55,7 +55,7 @@ describe("dapper — a natural-key read filters on its key columns", () => {
       "dotnet { persistence: dapper }",
       "Infrastructure/Repositories/WorkOrderRepository.cs",
     );
-    const cols = "SELECT id, reference, region, site, version FROM work_orders";
+    const cols = "SELECT id, reference, region, site, row_version FROM work_orders";
     expect(r).toContain(`"${cols} WHERE (reference = @reference) LIMIT 1"`);
     expect(r).toContain(
       `"${cols} WHERE ((region = @region) AND (reference = @reference)) LIMIT 1"`,

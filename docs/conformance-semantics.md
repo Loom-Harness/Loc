@@ -268,9 +268,9 @@ the conforming backends, and the fix that established it.
 
 ### RS-11 · A created `versioned` aggregate reads back at version 1
 - **Guarantee.** A freshly-created `versioned` aggregate reads back with
-  `version` = **1** — the canonical value, fixed by the capability declaration
-  `version: int token = 1` (`src/macros/prelude.ts`), mirrored to
-  `version INTEGER NOT NULL DEFAULT 1`.
+  `rowVersion` = **1** — the canonical value, fixed by the capability declaration
+  `rowVersion: int token = 1` (`src/macros/prelude.ts`), mirrored to
+  `row_version INTEGER NOT NULL DEFAULT 1`.
 - **Trigger.** A `versioned` aggregate created via `POST`, then read.
 - **Observable.** Every backend now reads back `1`. node stamps `version = 1`
   in its versioned save *and* (since M-T6.63) seeds it in the factory too, so the
@@ -368,8 +368,8 @@ the conforming backends, and the fix that established it.
   shapes}.json`); fixed in the same PR, so the waiver is gone and the gate
   enforces the envelope unconditionally. Tier: **behavioral**.
 
-### RS-14 · `version` increments on every persisted mutation, document shapes included
-- **Guarantee.** A `versioned` aggregate reads back `version: 2` after one
+### RS-14 · `rowVersion` increments on every persisted mutation, document shapes included
+- **Guarantee.** A `versioned` aggregate reads back `rowVersion: 2` after one
   post-create mutation — `1` at create (RS-11), `+1` per persisted mutation —
   **regardless of `shape:`**.
 - **Trigger.** A `versioned` aggregate with `shape: document` (jsonb-stored):
@@ -612,8 +612,8 @@ the conforming backends, and the fix that established it.
   (2026-07-31), after the rule had already been recorded as all-five conforming.
   Both verified on booted apps. Tier: **behavioral**.
 
-### RS-20 · `version` counts persisted mutations, not entity-graph dirtiness
-- **Guarantee.** `version` is `1` at create and `+1` per persisted mutation,
+### RS-20 · `rowVersion` counts persisted mutations, not entity-graph dirtiness
+- **Guarantee.** `rowVersion` is `1` at create and `+1` per persisted mutation,
   **independent of which part of the aggregate graph changed** (RS-11 + RS-14)
   **and of whether any column value actually differs**. A command that ran and
   was persisted bumps the counter; that is what "optimistic concurrency token"

@@ -75,6 +75,7 @@ import {
   snake,
   upperFirst,
 } from "../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/server-default.js";
@@ -1032,7 +1033,7 @@ function destroyRoute(
       ? [
           // `chr(34)` is a literal double-quote (see `versionedSave`).
           '    _if_match = request.headers.get("if-match", "").strip(chr(34))',
-          "    if _if_match.isdigit() and int(_if_match) != __loaded.version:",
+          `    if _if_match.isdigit() and int(_if_match) != __loaded.${ROW_VERSION_COLUMN}:`,
           `        ${pyConflictRaise(H.ConcurrencyError, agg.name, "id")}`,
         ]
       : []),

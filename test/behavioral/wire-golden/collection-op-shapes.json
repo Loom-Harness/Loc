@@ -32,8 +32,8 @@
         "lineTotal": "0.0000",
         "lines": [],
         "owed": "-2.5000",
-        "uniquePrices": [],
-        "version": 1
+        "rowVersion": 1,
+        "uniquePrices": []
       }
     },
     {
@@ -120,11 +120,11 @@
           }
         ],
         "owed": "-2.5000",
+        "rowVersion": 4,
         "uniquePrices": [
           "1.5000",
           "10.0000"
-        ],
-        "version": 4
+        ]
       }
     },
     {
@@ -196,11 +196,11 @@
           }
         ],
         "owed": "-2.5000",
+        "rowVersion": 5,
         "uniquePrices": [
           "1.5000",
           "10.0000"
-        ],
-        "version": 5
+        ]
       }
     },
     {
@@ -273,11 +273,11 @@
           }
         ],
         "owed": "-2.5000",
+        "rowVersion": 6,
         "uniquePrices": [
           "1.5000",
           "10.0000"
-        ],
-        "version": 6
+        ]
       }
     },
     {
@@ -348,11 +348,11 @@
           }
         ],
         "owed": "-0.7500",
+        "rowVersion": 7,
         "uniquePrices": [
           "1.5000",
           "10.0000"
-        ],
-        "version": 7
+        ]
       }
     },
     {
@@ -418,11 +418,11 @@
               }
             ],
             "owed": "-0.7500",
+            "rowVersion": 7,
             "uniquePrices": [
               "1.5000",
               "10.0000"
-            ],
-            "version": 7
+            ]
           }
         ],
         "page": 1,

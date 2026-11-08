@@ -20,7 +20,7 @@
         "amount": 5,
         "id": "<volatile:key>",
         "label": "T-1",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -33,7 +33,7 @@
           "amount": 5,
           "id": "<volatile:key>",
           "label": "T-1",
-          "version": 1
+          "rowVersion": 1
         }
       ]
     },
@@ -48,7 +48,7 @@
             "amount": 5,
             "id": "<volatile:key>",
             "label": "T-1",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -86,7 +86,7 @@
         "amount": 5,
         "id": "<volatile:key>",
         "label": "T-2",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {

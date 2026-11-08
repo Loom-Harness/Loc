@@ -24,12 +24,12 @@
         "grade": "Senior",
         "id": "<volatile:key>",
         "name": "Ada",
+        "rowVersion": 1,
         "skillCount": 2,
         "skills": [
           "HVAC",
           "Electrical"
-        ],
-        "version": 1
+        ]
       }
     },
     {
@@ -52,13 +52,13 @@
         "grade": "Senior",
         "id": "<volatile:key>",
         "name": "Ada",
+        "rowVersion": 2,
         "skillCount": 3,
         "skills": [
           "Plumbing",
           "HVAC",
           "Electrical"
-        ],
-        "version": 2
+        ]
       }
     },
     {
@@ -78,9 +78,9 @@
         "grade": "Junior",
         "id": "<volatile:key>",
         "name": "Ada",
+        "rowVersion": 3,
         "skillCount": 0,
-        "skills": [],
-        "version": 3
+        "skills": []
       }
     },
     {
@@ -95,9 +95,9 @@
             "grade": "Junior",
             "id": "<volatile:key>",
             "name": "Ada",
+            "rowVersion": 3,
             "skillCount": 0,
-            "skills": [],
-            "version": 3
+            "skills": []
           }
         ],
         "page": 1,

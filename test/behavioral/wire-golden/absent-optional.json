@@ -19,8 +19,8 @@
       "body": {
         "estimate": null,
         "id": "<volatile:key>",
-        "title": "Ship it",
-        "version": 1
+        "rowVersion": 1,
+        "title": "Ship it"
       }
     },
     {
@@ -40,8 +40,8 @@
       "body": {
         "estimate": 3,
         "id": "<volatile:key>",
-        "title": "Sized",
-        "version": 1
+        "rowVersion": 1,
+        "title": "Sized"
       }
     },
     {
@@ -83,8 +83,8 @@
       "body": {
         "estimate": null,
         "id": "<volatile:key>",
-        "title": "Shipped",
-        "version": 2
+        "rowVersion": 2,
+        "title": "Shipped"
       }
     },
     {
@@ -97,14 +97,14 @@
           {
             "estimate": null,
             "id": "<volatile:key>",
-            "title": "Shipped",
-            "version": 2
+            "rowVersion": 2,
+            "title": "Shipped"
           },
           {
             "estimate": 3,
             "id": "<volatile:key>",
-            "title": "Sized",
-            "version": 1
+            "rowVersion": 1,
+            "title": "Sized"
           }
         ],
         "page": 1,
@@ -144,8 +144,8 @@
           {
             "estimate": 3,
             "id": "<volatile:key>",
-            "title": "Sized",
-            "version": 1
+            "rowVersion": 1,
+            "title": "Sized"
           }
         ],
         "page": 1,

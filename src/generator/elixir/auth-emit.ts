@@ -14,6 +14,7 @@ import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
+import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
 import { claimShapes, UUID_PATTERN } from "../_auth/claim-decode.js";
 import { claimPathFor } from "../_auth/claim-types.js";
 import {
@@ -680,7 +681,8 @@ function renderOidcVerifier(auth: AuthIR, webModule: string, fields: readonly Fi
   // Auth.Token's `aud` validator; here we only enforce that the claim is
   // PRESENT (joken skips validators for absent claims).  Both are gated on a
   // non-empty runtime `audience()`, which IS the escape hatch
-  // (OIDC_AUDIENCE="" disables the aud check).
+  // (OIDC_AUDIENCE="" disables the aud check) — but only for a model that
+  // declares no audience; a declared one fails closed in `audience_configured`.
   //
   // Emitted UNCONDITIONALLY (CR1-b / P0-4).  It used to be gated on a declared
   // `audience:`, so a `.ddd` without one produced a Phoenix release with no
@@ -705,6 +707,23 @@ function renderOidcVerifier(auth: AuthIR, webModule: string, fields: readonly Fi
   @doc false
   def audience, do: ${envOrDeclared("OIDC_AUDIENCE", auth.oidc.audience)}
 `;
+  // A DECLARED audience that resolves empty fails closed: the first `with`
+  // step rejects every token instead of letting the "" escape hatch above
+  // turn the aud check off (see `_auth/audience.ts`).
+  const declared = audienceDeclared(auth);
+  const audienceGate = declared ? `:ok <- audience_configured(),\n         ` : "";
+  const audienceConfiguredDef = declared
+    ? `
+  # The model declares an audience, so an empty runtime \`audience()\` rejects
+  # every token — it never disables the aud check.
+  defp audience_configured do
+    case audience() do
+      "" -> {:error, ${elixirString(audienceUnsetReason(auth))}}
+      _ -> :ok
+    end
+  end
+`
+    : "";
   return `  # ---------------------------------------------------------------------------
   # OIDC token verification — delegated to joken + joken_jwks.
   # ---------------------------------------------------------------------------
@@ -724,7 +743,7 @@ ${audienceFn}
     # so no symmetric/\`none\` alg-confusion path) + validates iss / exp / nbf
     # (+ aud when configured); \`require_claims/1\` enforces required-claim
     # presence.
-    with {:ok, claims} <- ${webModule}.Auth.Token.verify_and_validate(token),
+    with ${audienceGate}{:ok, claims} <- ${webModule}.Auth.Token.verify_and_validate(token),
          :ok <- require_claims(claims) do
       {:ok, claims}
     else
@@ -755,7 +774,7 @@ ${audienceFn}
        do: :ok,
        else: :error
   end
-${audPresentDef}${renderUserClaimChecks(fields, auth)}
+${audPresentDef}${audienceConfiguredDef}${renderUserClaimChecks(fields, auth)}
   # Reads a dotted claim path off the (string-keyed) claims map; nil when any
   # segment is missing.  Only the OIDC build_user maps via paths, so this lives
   # in the OIDC section (the dev stub reads flat claim keys directly).

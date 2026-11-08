@@ -5,6 +5,7 @@ import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
+import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
 import { claimShapes, UUID_PATTERN } from "../_auth/claim-decode.js";
 import { DEV_CLAIMS_HEADER, MALFORMED_DEV_CLAIMS_DETAIL } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
@@ -857,9 +858,15 @@ from app.auth.user import User
 from app.auth.verifier import register_user_verifier
 
 _SCOPES = ${JSON.stringify(scopes)}
-# An EMPTY audience (OIDC_AUDIENCE unset or "") means "no aud check" — the
-# documented opt-out every backend honours.  Folded to None: PyJWT given
-# audience="" with verify_aud on rejects EVERY token.
+${
+  audienceDeclared(auth)
+    ? `# The model declares an audience: one that resolves EMPTY (OIDC_AUDIENCE
+# unset or "") is folded to None and rejects every token in the verifier —
+# it never turns the aud check off.`
+    : `# An EMPTY audience (OIDC_AUDIENCE unset or "") means "no aud check" — the
+# opt-out for a model that declares no audience.  Folded to None: PyJWT given
+# audience="" with verify_aud on rejects EVERY token.`
+}
 _AUDIENCE: str | None = (${auth.oidc.audience ? pyEnvOverridable("OIDC_AUDIENCE", auth.oidc.audience) : 'os.environ.get("OIDC_AUDIENCE")'}) or None
 
 
@@ -923,7 +930,19 @@ def _token_from(request: Request) -> str | None:
 async def _oidc_verifier(request: Request) -> User | None:
     token = _token_from(request)
     if token is None:
-        return None
+        return None${
+          audienceDeclared(auth)
+            ? `
+    if _AUDIENCE is None:
+        # A declared audience that resolves empty fails closed.
+        ${PY.log}(
+            "debug",
+            "auth_token_rejected",
+            reason=${JSON.stringify(audienceUnsetReason(auth))},
+        )
+        return None`
+            : ""
+        }
     try:
         signing_key = _jwks_client().get_signing_key_from_jwt(token)
         payload: dict[str, Any] = jwt.decode(

@@ -21,8 +21,8 @@
         "createdBy": "admin",
         "id": "<volatile:key>",
         "ownerRole": "agent",
-        "title": "Printer",
-        "version": 1
+        "rowVersion": 1,
+        "title": "Printer"
       }
     },
     {
@@ -42,8 +42,8 @@
         "createdBy": "admin",
         "id": "<volatile:key>",
         "ownerRole": "agent",
-        "title": "Printer 2",
-        "version": 2
+        "rowVersion": 2,
+        "title": "Printer 2"
       }
     },
     {
@@ -58,8 +58,8 @@
             "createdBy": "admin",
             "id": "<volatile:key>",
             "ownerRole": "agent",
-            "title": "Printer 2",
-            "version": 2
+            "rowVersion": 2,
+            "title": "Printer 2"
           }
         ],
         "page": 1,
@@ -108,9 +108,9 @@
         "createdAt": "<timestamp>",
         "createdBy": "admin",
         "id": "<volatile:key>",
+        "rowVersion": 1,
         "updatedAt": "<timestamp>",
-        "updatedBy": "admin",
-        "version": 1
+        "updatedBy": "admin"
       }
     },
     {
@@ -130,9 +130,9 @@
         "createdAt": "<timestamp>",
         "createdBy": "admin",
         "id": "<volatile:key>",
+        "rowVersion": 2,
         "updatedAt": "<timestamp>",
-        "updatedBy": "admin",
-        "version": 2
+        "updatedBy": "admin"
       }
     },
     {
@@ -147,9 +147,9 @@
             "createdAt": "<timestamp>",
             "createdBy": "admin",
             "id": "<volatile:key>",
+            "rowVersion": 2,
             "updatedAt": "<timestamp>",
-            "updatedBy": "admin",
-            "version": 2
+            "updatedBy": "admin"
           }
         ],
         "page": 1,

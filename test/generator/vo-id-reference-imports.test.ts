@@ -67,8 +67,9 @@ describe("a value object holding a cross-aggregate reference imports its id type
       await generateCorpusCase(FEATURE, "node"),
       "domain/value-objects.ts",
     );
-    // The defect, stated as the thing that was missing.
-    expect(src).toContain('import * as Ids from "./ids";');
+    // The defect, stated as the thing that was missing.  Only type positions
+    // reference it, so the derived import is type-only.
+    expect(src).toContain('import type * as Ids from "./ids";');
     // …and the reference that made it necessary, in all three type positions.
     expect(src).toContain("readonly ship: Ids.ShipId;");
     expect(src).toContain("get assignedShip(): Ids.ShipId");
@@ -97,7 +98,7 @@ describe("a value object holding a cross-aggregate reference imports its id type
       await generateSystemFiles(systemWith(body)),
       "domain/value-objects.ts",
     );
-    expect(src).toContain('import * as Ids from "./ids";');
+    expect(src).toContain('import type * as Ids from "./ids";');
     expect(src).toContain("Ids.ShipId");
   });
 

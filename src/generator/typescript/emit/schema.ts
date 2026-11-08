@@ -29,6 +29,7 @@ import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines as joinLines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, workflowStateTableName } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { drizzleIdColumn, drizzleScalarColumn } from "../codec-spelling.js";
 /** Per-aggregate dataSource lookup the orchestrator passes in.  Lets
  *  the schema emitter ask "what schema / tablePrefix does THIS
@@ -646,7 +647,7 @@ function emitDocumentTable(
     `export const ${lowerFirst(plural(name))} = ${tableFactory}("${tableName}", {`,
     `  id: ${drizzleIdColumn("id")}.primaryKey(),`,
     `  data: jsonb("data").notNull(),`,
-    `  version: integer("version").notNull(),`,
+    `  ${ROW_VERSION_FIELD}: integer("${ROW_VERSION_COLUMN}").notNull(),`,
     `});`,
   ].join("\n");
 }

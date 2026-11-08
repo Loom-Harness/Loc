@@ -32,7 +32,7 @@
         "qty": {
           "value": 5
         },
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -76,7 +76,7 @@
         "qty": {
           "value": 5
         },
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -100,7 +100,7 @@
         "qty": {
           "value": 5
         },
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -126,7 +126,7 @@
             "qty": {
               "value": 6
             },
-            "version": 4
+            "rowVersion": 4
           }
         ],
         "page": 1,
@@ -149,7 +149,7 @@
         "qty": {
           "value": 6
         },
-        "version": 4
+        "rowVersion": 4
       }
     },
     {
@@ -200,7 +200,7 @@
         "qty": {
           "value": 7
         },
-        "version": 5
+        "rowVersion": 5
       }
     },
     {

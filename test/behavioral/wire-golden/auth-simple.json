@@ -26,8 +26,8 @@
       "body": {
         "id": "<volatile:key>",
         "open": false,
-        "subject": "Broken login",
-        "version": 2
+        "rowVersion": 2,
+        "subject": "Broken login"
       }
     },
     {
@@ -45,8 +45,8 @@
       "body": {
         "id": "<volatile:key>",
         "open": true,
-        "subject": "Login restored",
-        "version": 3
+        "rowVersion": 3,
+        "subject": "Login restored"
       }
     },
     {
@@ -59,8 +59,8 @@
           {
             "id": "<volatile:key>",
             "open": true,
-            "subject": "Login restored",
-            "version": 3
+            "rowVersion": 3,
+            "subject": "Login restored"
           }
         ],
         "page": 1,

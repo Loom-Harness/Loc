@@ -54,15 +54,15 @@ ${backend}
 const SENDS: Record<string, { file: RegExp; call: RegExp }> = {
   react: {
     file: /src\/api\/doc\.ts$/,
-    call: /api\.post\(`\/docs\/\$\{seg\(id\)\}\/update`, input, ifMatch\(loaded\?\.version\)\)/,
+    call: /api\.post\(`\/docs\/\$\{seg\(id\)\}\/update`, input, ifMatch\(loaded\?\.rowVersion\)\)/,
   },
   vue: {
     file: /src\/api\/doc\.ts$/,
-    call: /api\.post\(`\/docs\/\$\{seg\(toValue\(id\)\)\}\/update`, input, ifMatch\(loaded\?\.version\)\)/,
+    call: /api\.post\(`\/docs\/\$\{seg\(toValue\(id\)\)\}\/update`, input, ifMatch\(loaded\?\.rowVersion\)\)/,
   },
   svelte: {
     file: /api\/doc\.ts$/,
-    call: /api\.post\(`\/docs\/\$\{seg\(id\(\)\)\}\/update`, input, ifMatch\(loaded\?\.version\)\)/,
+    call: /api\.post\(`\/docs\/\$\{seg\(id\(\)\)\}\/update`, input, ifMatch\(loaded\?\.rowVersion\)\)/,
   },
   angular: {
     file: /src\/api\/doc\.ts$/,
@@ -196,7 +196,7 @@ describe("If-Match: the self-hosted frontends send the loaded version", () => {
     // The version comes from the Model's byId read, and only when it is the
     // record the route id addresses.
     expect(app).toContain(
-      "  | SubmitUpdateDocOpForm id -> { model with UpdateDocOpFormServer = ServerErrors.empty }, Cmd.OfAsync.perform (Api.updateDoc id (match model.DocById with | Loaded (Some __loaded) when __loaded.id = id -> Some (string __loaded.version) | _ -> None)) model.UpdateDocOpForm UpdateDocOpDone",
+      "  | SubmitUpdateDocOpForm id -> { model with UpdateDocOpFormServer = ServerErrors.empty }, Cmd.OfAsync.perform (Api.updateDoc id (match model.DocById with | Loaded (Some __loaded) when __loaded.id = id -> Some (string __loaded.rowVersion) | _ -> None)) model.UpdateDocOpForm UpdateDocOpDone",
     );
   }, 90_000);
 
@@ -211,7 +211,7 @@ describe("If-Match: the self-hosted frontends send the loaded version", () => {
       "headers: {'Content-Type': 'application/json', if (widget.expectedVersion != null) 'If-Match': '\"${widget.expectedVersion}\"'},",
     );
     const detail = [...files].find(([p]) => p.endsWith("lib/pages/doc_detail_page.dart"))![1];
-    expect(detail).toContain("UpdateDocForm(id: id, expectedVersion: docById.version)");
+    expect(detail).toContain("UpdateDocForm(id: id, expectedVersion: docById.rowVersion)");
   }, 90_000);
 
   it("the precondition rides the guarded write only (self-hosted)", async () => {

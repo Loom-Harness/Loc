@@ -26,8 +26,8 @@
       "body": {
         "hits": 1,
         "id": "<volatile:key>",
-        "text": "n",
-        "version": 2
+        "rowVersion": 2,
+        "text": "n"
       }
     },
     {
@@ -45,8 +45,8 @@
       "body": {
         "hits": 3,
         "id": "<volatile:key>",
-        "text": "n",
-        "version": 3
+        "rowVersion": 3,
+        "text": "n"
       }
     },
     {
@@ -71,8 +71,8 @@
       "body": {
         "hits": 3,
         "id": "<volatile:key>",
-        "text": "n",
-        "version": 3
+        "rowVersion": 3,
+        "text": "n"
       }
     },
     {
@@ -188,8 +188,8 @@
         {
           "hits": 9,
           "id": "<volatile:key>",
-          "text": "renamed",
-          "version": 5
+          "rowVersion": 5,
+          "text": "renamed"
         }
       ]
     },

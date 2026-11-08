@@ -29,8 +29,8 @@
         {
           "balance": 100,
           "id": "<volatile:key>",
-          "tenantId": "<volatile:key>",
-          "version": 1
+          "rowVersion": 1,
+          "tenantId": "<volatile:key>"
         }
       ]
     },
@@ -49,8 +49,8 @@
       "body": {
         "balance": 150,
         "id": "<volatile:key>",
-        "tenantId": "<volatile:key>",
-        "version": 2
+        "rowVersion": 2,
+        "tenantId": "<volatile:key>"
       }
     },
     {
@@ -63,8 +63,8 @@
           {
             "balance": 150,
             "id": "<volatile:key>",
-            "tenantId": "<volatile:key>",
-            "version": 2
+            "rowVersion": 2,
+            "tenantId": "<volatile:key>"
           }
         ],
         "page": 1,
@@ -190,8 +190,8 @@
       "body": {
         "balance": 1,
         "id": "<volatile:key>",
-        "tenantId": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1,
+        "tenantId": "<volatile:key>"
       }
     },
     {
@@ -216,8 +216,8 @@
       "body": {
         "balance": 1,
         "id": "<volatile:key>",
-        "tenantId": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1,
+        "tenantId": "<volatile:key>"
       }
     },
     {

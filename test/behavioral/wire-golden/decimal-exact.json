@@ -28,11 +28,11 @@
         "partsWeight": 0,
         "ratio": 3,
         "rounded": 1.01,
+        "rowVersion": 1,
         "sum": 0.3,
         "thirds": 0.1,
         "tie": 1.005,
-        "total": 0.1,
-        "version": 1
+        "total": 0.1
       }
     },
     {
@@ -54,11 +54,11 @@
             "partsWeight": 0,
             "ratio": 3,
             "rounded": 1.01,
+            "rowVersion": 1,
             "sum": 0.3,
             "thirds": 0.1,
             "tie": 1.005,
-            "total": 0.1,
-            "version": 1
+            "total": 0.1
           }
         ],
         "page": 1,
@@ -114,11 +114,11 @@
         "partsWeight": 0.3,
         "ratio": 3,
         "rounded": 1.01,
+        "rowVersion": 4,
         "sum": 0.3,
         "thirds": 0.1,
         "tie": 1.005,
-        "total": 0.3,
-        "version": 4
+        "total": 0.3
       }
     },
     {

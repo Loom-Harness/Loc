@@ -74,8 +74,8 @@
         "customerId": "<volatile:key>",
         "id": "<volatile:key>",
         "riskScore": 10,
-        "status": "Cancelled",
-        "version": 2
+        "rowVersion": 2,
+        "status": "Cancelled"
       }
     },
     {
@@ -115,8 +115,8 @@
         "customerId": "<volatile:key>",
         "id": "<volatile:key>",
         "riskScore": 90,
-        "status": "Draft",
-        "version": 1
+        "rowVersion": 1,
+        "status": "Draft"
       }
     },
     {
@@ -128,8 +128,8 @@
         "customerId": "<volatile:key>",
         "id": "<volatile:key>",
         "riskScore": 90,
-        "status": "Draft",
-        "version": 1
+        "rowVersion": 1,
+        "status": "Draft"
       }
     },
     {
@@ -148,8 +148,8 @@
         "customerId": "<volatile:key>",
         "id": "<volatile:key>",
         "riskScore": 70,
-        "status": "Draft",
-        "version": 2
+        "rowVersion": 2,
+        "status": "Draft"
       }
     },
     {
@@ -163,15 +163,15 @@
             "customerId": "<volatile:key>",
             "id": "<volatile:key>",
             "riskScore": 70,
-            "status": "Draft",
-            "version": 2
+            "rowVersion": 2,
+            "status": "Draft"
           },
           {
             "customerId": "<volatile:key>",
             "id": "<volatile:key>",
             "riskScore": 10,
-            "status": "Cancelled",
-            "version": 2
+            "rowVersion": 2,
+            "status": "Cancelled"
           }
         ],
         "page": 1,

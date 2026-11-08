@@ -37,24 +37,24 @@
             "balance": 7,
             "holder": "Ada",
             "id": "<volatile:key>",
-            "tier": "Silver",
-            "version": 1
+            "rowVersion": 1,
+            "tier": "Silver"
           },
           {
             "active": false,
             "balance": 0,
             "holder": "Bo",
             "id": "<volatile:key>",
-            "tier": "Gold",
-            "version": 1
+            "rowVersion": 1,
+            "tier": "Gold"
           },
           {
             "active": true,
             "balance": 1,
             "holder": "Cy",
             "id": "<volatile:key>",
-            "tier": "Gold",
-            "version": 1
+            "rowVersion": 1,
+            "tier": "Gold"
           }
         ],
         "page": 1,
@@ -73,8 +73,8 @@
         "balance": 7,
         "holder": "Ada",
         "id": "<volatile:key>",
-        "tier": "Silver",
-        "version": 1
+        "rowVersion": 1,
+        "tier": "Silver"
       }
     },
     {
@@ -94,8 +94,8 @@
         "balance": 3,
         "holder": "Bo",
         "id": "<volatile:key>",
-        "tier": "Gold",
-        "version": 2
+        "rowVersion": 2,
+        "tier": "Gold"
       }
     },
     {

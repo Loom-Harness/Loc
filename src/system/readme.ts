@@ -205,7 +205,11 @@ function signingIn(sys: SystemIR, ctx: SystemReadmeContext): string[] {
     `curl -H "Authorization: Bearer $TOKEN" http://localhost:${probe.port}/api/auth/me`,
     "```",
     "",
-    "There is no fake-login header on this stack: `x-loom-dev-claims` is ignored once the model declares `auth { oidc }`. To sign in with the real provider instead, set `OIDC_ISSUER` and `OIDC_CLIENT_ID` on the backend services.",
+    `There is no fake-login header on this stack: \`x-loom-dev-claims\` is ignored once the model declares \`auth { oidc }\`. To sign in with the real provider instead, set \`OIDC_ISSUER\` and \`OIDC_CLIENT_ID\` on the backend services${
+      sys.auth?.oidc.audience?.kind === "env"
+        ? ", plus `OIDC_AUDIENCE` (the value that provider puts in `aud`): the model declares an env-bound `audience:`, so a backend whose audience resolves empty rejects every token"
+        : ""
+    }.`,
     "",
   ];
 }

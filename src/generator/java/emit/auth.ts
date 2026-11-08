@@ -11,6 +11,7 @@ import { lines } from "../../../util/code-builder.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { TEST_RESET_PATH } from "../../../util/test-reset.js";
+import { audienceDeclared, audienceUnsetReason } from "../../_auth/audience.js";
 import { claimEnumNames, claimPathFor, claimsReferenceIds } from "../../_auth/claim-types.js";
 import {
   DEV_CLAIMS_HEADER,
@@ -1091,6 +1092,16 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): s
     `        if (token == null) {`,
     `            return null;`,
     `        }`,
+    ...(audienceDeclared(auth)
+      ? [
+          `        // The model declares an audience: one that resolves EMPTY fails`,
+          `        // closed (every token rejected), it never turns the aud check off.`,
+          `        if (AUDIENCE == null || AUDIENCE.isEmpty()) {`,
+          `            CatalogLog.event(${javaLogEvent("authTokenRejected")}, "reason", ${JSON.stringify(audienceUnsetReason(auth))});`,
+          `            return null;`,
+          `        }`,
+        ]
+      : []),
     `        try {`,
     `            JWTClaimsSet claims = processor().process(token, null);`,
     `            Map<String, Object> payload = claims.toJSONObject();`,
@@ -1138,9 +1149,9 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): s
     `        DefaultJWTProcessor<SecurityContext> proc = new DefaultJWTProcessor<>();`,
     `        proc.setJWSKeySelector(keySelector);`,
     `        JWTClaimsSet exactMatch = new JWTClaimsSet.Builder().issuer(ISSUER).build();`,
-    `        // An EMPTY audience (OIDC_AUDIENCE unset or "") skips the aud check —`,
-    `        // the documented opt-out every backend honours.  Nimbus given ""`,
-    `        // would demand aud == "" and reject every token, so fold it to null.`,
+    `        // An EMPTY audience skips the aud check — reachable only when the`,
+    `        // model declares no audience.  Nimbus given "" would demand`,
+    `        // aud == "" and reject every token, so fold it to null.`,
     `        String audience = AUDIENCE == null || AUDIENCE.isEmpty() ? null : AUDIENCE;`,
     `        proc.setJWTClaimsSetVerifier(`,
     `            new DefaultJWTClaimsVerifier<>(audience, exactMatch, Set.of("exp")));`,

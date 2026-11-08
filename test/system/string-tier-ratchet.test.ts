@@ -98,7 +98,11 @@ const CEILINGS: Record<string, number> = {
   _workflow: 200,
   angular: 1000,
   dotnet: 2400, // the EF identity-parity pins assert the emitted C# (tracker fork, 409 path) per leg
-  elixir: 3400, // the Ecto delta-migration pins assert the emitted create/rename/key-move per step; runtime proof is migration-evolution-elixir
+  // 3400 → 3600: outbox-relay-resilience.test.ts pins that the relay, broker
+  // publishers and cron scheduler rescue a transient DB/broker failure and back
+  // off instead of crashing the app — a missing guard compiles cleanly and no
+  // runtime leg injects a broker or DB outage.
+  elixir: 3600, // the Ecto delta-migration pins assert the emitted create/rename/key-move per step; runtime proof is migration-evolution-elixir
   "elixir-vanilla": 500,
   feliz: 1500,
   flutter: 1400, // the coded-error localizers pin the emitted Dart `t(code, english, params)` per form rung (#4473)

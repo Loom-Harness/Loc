@@ -71,6 +71,7 @@ import {
   snake,
   upperFirst,
 } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { namedRuleText } from "../../_i18n/rule-text.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
@@ -130,12 +131,12 @@ export function isVanillaDocAgg(agg: AggregateIR, ctx: BoundedContextIR, sys?: S
  *  {@link docStampAttrs}; {@link docRequiredFields} keeps it OUT of
  *  `validate_required` because the SERVER owns its value, not the caller. */
 function docFields(agg: AggregateIR): FieldIR[] {
-  // Drop `token`-access fields (the optimistic-concurrency `version`): the
-  // document row stores `version` on the ROOT schema (`field :version`,
+  // Drop `token`-access fields (the optimistic-concurrency `rowVersion`): the
+  // document row stores it on the ROOT schema (`field :row_version`,
   // stamped by `document_changeset`), NOT inside the `:data` jsonb blob.  If it
   // leaked into the `<Agg>.Data` embed it would be `cast` + `validate_required`
   // there while `document_changeset` only stamps the root — so create (which
-  // never supplies `version`) fails the embed's `validate_required(:version)`,
+  // never supplies it) fails the embed's `validate_required(:row_version)`,
   // surfacing as a 422 with an empty top-level `errors` array (the nested embed
   // carries the error).  B5.
   return agg.fields.filter((f) => f.name !== "id" && f.access !== "token");
@@ -240,7 +241,7 @@ defmodule ${moduleName} do
 ${prefixLine}
   schema "${tableName}" do
     embeds_one :data, ${moduleName}.Data, on_replace: :update
-    field :version, :integer, default: 1
+    field :${ROW_VERSION_COLUMN}, :integer, default: 1
     timestamps(type: ${exFrameworkTimestampType()})
   end
 ${pureCoreBlock}end
@@ -469,15 +470,15 @@ export function renderDocChangeset(appModule: string, ctxModule: string, agg: Ag
     updateRequired.length > 0 || updateOptional.length > 0 ? `\n\n${NORMALIZE_KEYS_DEFP}` : "";
   return `# Auto-generated.
 defmodule ${changesetMod} do
-  @moduledoc "Casts document attrs into the embedded \`:data\` schema + stamps the version."
+  @moduledoc "Casts document attrs into the embedded \`:data\` schema + stamps the row version."
   import Ecto.Changeset
 
-  @doc "Cast \`attrs\` into the aggregate's embedded document, stamping \`version\`."
+  @doc "Cast \`attrs\` into the aggregate's embedded document, stamping \`${ROW_VERSION_COLUMN}\`."
   def document_changeset(%${aggMod}{} = record, attrs, version) when is_map(attrs) do
     record
     |> cast(%{"data" => attrs}, [])
     |> cast_embed(:data, with: &${aggMod}.Data.changeset/2, required: true)
-    |> put_change(:version, version)
+    |> put_change(:${ROW_VERSION_COLUMN}, version)
   end
 
   @doc "The UPDATE seam — \`document_changeset/3\` plus the raw-attrs presence check."
@@ -485,7 +486,7 @@ defmodule ${changesetMod} do
     record
     |> cast(%{"data" => ${clearAbsentData}}, [])${requireKeys}
     |> cast_embed(:data, with: &${aggMod}.Data.changeset/2, required: true)
-    |> put_change(:version, version)
+    |> put_change(:${ROW_VERSION_COLUMN}, version)
   end${requireKeysHelper}${clearAbsentHelper}${normalizeKeysHelper}
 end
 `;
@@ -633,7 +634,7 @@ export function renderDocRepository(
 
   return `# Auto-generated.
 defmodule ${repoMod} do
-  @moduledoc "Document-shaped repository — CRUD over the (id, data, version) jsonb row."
+  @moduledoc "Document-shaped repository — CRUD over the (id, data, ${ROW_VERSION_COLUMN}) jsonb row."
   alias ${appModule}.Repo
   # order_by is a MACRO: a fully-qualified call needs this require, or Elixir
   # parses it as a remote FUNCTION call, the [r] never becomes a query binding,
@@ -705,7 +706,7 @@ ${updateStamps}
 ${
   versioned
     ? `    # Optimistic concurrency (default-on \`versioned\`): override the loaded
-    # struct's \`:version\` with the client's expected value (the If-Match the
+    # struct's \`:${ROW_VERSION_COLUMN}\` with the client's expected value (the If-Match the
     # controller parsed), stamp it as the changeset's current version, then
     # \`optimistic_lock\` guards the UPDATE on that value and bumps it by one.
     # A stale write matches no row → \`Ecto.StaleEntryError\`, rescued into
@@ -713,17 +714,17 @@ ${
     # (write-time CAS).  \`force: true\` because the lock's increment rides
     # \`prepare_changes\`, which Ecto runs only AFTER deciding the update is
     # non-empty — see repository-emit.ts's \`updateForce\`.
-    record = %{record | version: expected_version || record.version}
+    record = %{record | ${ROW_VERSION_COLUMN}: expected_version || record.${ROW_VERSION_COLUMN}}
 
     record
-    |> ${changesetMod}.document_update_changeset(attrs, record.version)
-    |> Ecto.Changeset.optimistic_lock(:version)
+    |> ${changesetMod}.document_update_changeset(attrs, record.${ROW_VERSION_COLUMN})
+    |> Ecto.Changeset.optimistic_lock(:${ROW_VERSION_COLUMN})
     |> Repo.update(force: true)
   rescue
     Ecto.StaleEntryError -> {:error, :conflict}
   end`
     : `    record
-    |> ${changesetMod}.document_update_changeset(attrs, record.version + 1)
+    |> ${changesetMod}.document_update_changeset(attrs, record.${ROW_VERSION_COLUMN} + 1)
     |> Repo.update()
   end`
 }
@@ -1071,8 +1072,8 @@ export function renderDocNamedOpFunction(
   // row column still exists and must advance, but there is no CAS contract.
   const opVersionPipe = (indent: string): string =>
     savesLockVersion(agg)
-      ? `${indent}|> Ecto.Changeset.change(%{})\n${indent}|> Ecto.Changeset.optimistic_lock(:version)`
-      : `${indent}|> Ecto.Changeset.change(%{version: row.version + 1})`;
+      ? `${indent}|> Ecto.Changeset.change(%{})\n${indent}|> Ecto.Changeset.optimistic_lock(:${ROW_VERSION_COLUMN})`
+      : `${indent}|> Ecto.Changeset.change(%{${ROW_VERSION_COLUMN}: row.${ROW_VERSION_COLUMN} + 1})`;
   const persistTail = hasAudit
     ? [
         "",
@@ -1230,8 +1231,8 @@ export function renderDocReturningOpFunction(
       "    changeset =",
       "      row",
       savesLockVersion(agg)
-        ? "      |> Ecto.Changeset.change(%{})\n      |> Ecto.Changeset.optimistic_lock(:version)"
-        : "      |> Ecto.Changeset.change(%{version: row.version + 1})",
+        ? `      |> Ecto.Changeset.change(%{})\n      |> Ecto.Changeset.optimistic_lock(:${ROW_VERSION_COLUMN})`
+        : `      |> Ecto.Changeset.change(%{${ROW_VERSION_COLUMN}: row.${ROW_VERSION_COLUMN} + 1})`,
       "      |> Ecto.Changeset.put_embed(:data, Map.from_struct(record))",
       "",
     ];
@@ -1286,13 +1287,13 @@ export function renderDocReturningOpFunction(
       // (possibly mutated but uncommitted) embed; an explicit `return` renders inline
       // in `body`.  Byte-identical to the pre-#1774 doc path for these shapes.
       tailLines = fallThrough
-        ? [`    {:ok, ${docWireMap(agg, "row.id", "record", "row.version")}}`]
+        ? [`    {:ok, ${docWireMap(agg, "row.id", "record", `row.${ROW_VERSION_COLUMN}`)}}`]
         : [];
     } else if (aggregateSuccess) {
       // Mutating success (fall-through OR normalized trailing `return this`): persist,
       // then project the aggregate wire off the SAVED embed.
       tailLines = persistThen([
-        `      {:ok, saved} -> {:ok, ${docWireMap(agg, "saved.id", "saved.data", "saved.version")}}`,
+        `      {:ok, saved} -> {:ok, ${docWireMap(agg, "saved.id", "saved.data", `saved.${ROW_VERSION_COLUMN}`)}}`,
       ]);
     } else {
       // Shape C: a mutating body ending in a NON-aggregate success return
@@ -1398,15 +1399,15 @@ function docWireMap(
   recvExpr: string,
   versionExpr: string,
 ): string {
-  // `version` is a token column on the ROOT row, not the `:data` embed
+  // The `rowVersion` counter is a column on the ROOT row, not the `:data` embed
   // (`docFields` excludes it — B5), so it reads off `versionExpr` (the root), not
   // `recvExpr`.  Present iff the aggregate carries the (default-on) concurrency
   // token, so the op-response wire shape matches `GET /<plural>/:id`.
-  const hasVersion = agg.fields.some((f) => f.name === "version" && f.access === "token");
+  const hasVersion = agg.fields.some((f) => f.name === ROW_VERSION_FIELD && f.access === "token");
   const entries = [
     `"id" => ${idExpr}`,
     ...docFields(agg).map((f) => `${JSON.stringify(f.name)} => ${recvExpr}.${snake(f.name)}`),
-    ...(hasVersion ? [`"version" => ${versionExpr}`] : []),
+    ...(hasVersion ? [`${JSON.stringify(ROW_VERSION_FIELD)} => ${versionExpr}`] : []),
   ];
   return `%{${entries.join(", ")}}`;
 }

@@ -35,7 +35,7 @@
         "ceiling": 100,
         "id": "<volatile:key>",
         "owner": "Ada",
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -147,7 +147,7 @@
         "ceiling": 100,
         "id": "<volatile:key>",
         "owner": "Ada",
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -176,7 +176,7 @@
             "ceiling": 100,
             "id": "<volatile:key>",
             "owner": "Ada",
-            "version": 5
+            "rowVersion": 5
           }
         ],
         "page": 1,
@@ -202,7 +202,7 @@
         "ceiling": 100,
         "id": "<volatile:key>",
         "owner": "Ada L.",
-        "version": 6
+        "rowVersion": 6
       }
     },
     {

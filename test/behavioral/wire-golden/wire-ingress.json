@@ -25,7 +25,7 @@
         "name": "Lamp",
         "price": "12.5000",
         "qty": 3,
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -236,7 +236,7 @@
         "name": "Lamp",
         "price": "12.5000",
         "qty": 3,
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -255,7 +255,7 @@
             "name": "Lamp",
             "price": "12.5000",
             "qty": 3,
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -285,7 +285,7 @@
         "name": "Lamp",
         "price": "9.9900",
         "qty": 3,
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -309,7 +309,7 @@
         "name": "Lamp",
         "price": "8.0000",
         "qty": 3,
-        "version": 3
+        "rowVersion": 3
       }
     },
     {

@@ -19,11 +19,11 @@ exports[`wire-spec.json > emits the expected document shape for examples/acme.dd
           "format": "uuid",
           "type": "string",
         },
+        "rowVersion": {
+          "type": "integer",
+        },
         "username": {
           "type": "string",
-        },
-        "version": {
-          "type": "integer",
         },
       },
       "required": [
@@ -31,7 +31,7 @@ exports[`wire-spec.json > emits the expected document shape for examples/acme.dd
         "username",
         "email",
         "age",
-        "version",
+        "rowVersion",
         "display",
       ],
       "type": "object",
@@ -56,6 +56,9 @@ exports[`wire-spec.json > emits the expected document shape for examples/acme.dd
           "format": "date-time",
           "type": "string",
         },
+        "rowVersion": {
+          "type": "integer",
+        },
         "status": {
           "enum": [
             "Draft",
@@ -65,16 +68,13 @@ exports[`wire-spec.json > emits the expected document shape for examples/acme.dd
           ],
           "type": "string",
         },
-        "version": {
-          "type": "integer",
-        },
       },
       "required": [
         "id",
         "customerId",
         "status",
         "placedAt",
-        "version",
+        "rowVersion",
         "lines",
       ],
       "type": "object",
@@ -92,18 +92,18 @@ exports[`wire-spec.json > emits the expected document shape for examples/acme.dd
         "price": {
           "$ref": "#/valueObjects/Money",
         },
+        "rowVersion": {
+          "type": "integer",
+        },
         "sku": {
           "type": "string",
-        },
-        "version": {
-          "type": "integer",
         },
       },
       "required": [
         "id",
         "sku",
         "price",
-        "version",
+        "rowVersion",
         "display",
       ],
       "type": "object",

@@ -36,6 +36,7 @@ import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { serverInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { escapeTargetFieldMember, escapeTargetMember } from "../../../util/target-identifiers.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
@@ -49,6 +50,7 @@ import {
   statementExprMarks,
   statementSubRegions,
 } from "../render-stmt.js";
+import { T, TT } from "../ts-symbols.js";
 import { tsRuleParams } from "../wire-policy-ts.js";
 
 /** One operation body's exact emitted text plus its per-statement
@@ -290,7 +292,7 @@ function rootShape(a: AggregateIR): EntityShape {
     eventSourced: a.persistedAs === "eventLog",
     creates: a.creates,
     versionField: rowVersionGuarded(a)
-      ? a.fields.find((f) => f.access === "token")?.name
+      ? a.fields.find((f) => f.name === ROW_VERSION_FIELD)?.name
       : undefined,
   };
 }
@@ -428,10 +430,10 @@ function renderEntity(
   // byte-identical (parentName === rootName).
   const isNested = !e.isRoot && e.parentName != null && e.parentName !== e.rootName;
   const parentIdField = (optional: boolean): string | null =>
-    e.isRoot ? null : `parentId${optional ? "?" : ""}: Ids.${e.parentName ?? e.rootName}Id`;
+    e.isRoot ? null : `parentId${optional ? "?" : ""}: ${TT.Ids}.${e.parentName ?? e.rootName}Id`;
 
   const stateFields = [
-    `id: Ids.${e.name}Id`,
+    `id: ${TT.Ids}.${e.name}Id`,
     parentIdField(isNested),
     ...e.fields.map((f) => `${f.name}: ${renderTsType(f.type)}`),
     ...provFields.map((f) => `${f.name}_provenance: ProvLineage | null`),
@@ -461,7 +463,7 @@ function renderEntity(
   const createStateLiteral =
     hasContains || isNested || optionalFields.length > 0
       ? `{ ${[
-          `id: Ids.${e.name}Id`,
+          `id: ${TT.Ids}.${e.name}Id`,
           parentIdField(isNested),
           ...e.fields.map(
             (f) => `${f.name}${f.type.kind === "optional" ? "?" : ""}: ${renderTsType(f.type)}`,
@@ -486,9 +488,9 @@ function renderEntity(
       : `new ${createCallee}(state)`;
 
   const fieldDecls: string[] = [];
-  fieldDecls.push(`  ${fieldVis} _id: Ids.${e.name}Id;`);
+  fieldDecls.push(`  ${fieldVis} _id: ${TT.Ids}.${e.name}Id;`);
   if (!e.isRoot) {
-    fieldDecls.push(`  ${fieldVis} _parentId: Ids.${e.parentName ?? e.rootName}Id;`);
+    fieldDecls.push(`  ${fieldVis} _parentId: ${TT.Ids}.${e.parentName ?? e.rootName}Id;`);
   }
   if (e.isRoot) {
     fieldDecls.push(`  ${fieldVis} _events: Events.DomainEvent[] = [];`);
@@ -514,7 +516,7 @@ function renderEntity(
     // position on save and the real parentId is set from the DB row on hydrate.
     ctorAssignments.push(
       isNested
-        ? `    this._parentId = state.parentId ?? Ids.new${e.parentName}Id();`
+        ? `    this._parentId = state.parentId ?? ${T.Ids}.new${e.parentName}Id();`
         : "    this._parentId = state.parentId;",
     );
   }
@@ -543,10 +545,10 @@ function renderEntity(
   );
 
   const getters: string[] = [];
-  getters.push(`  get id(): Ids.${e.name}Id { return this._id; }`);
+  getters.push(`  get id(): ${TT.Ids}.${e.name}Id { return this._id; }`);
   if (!e.isRoot) {
     getters.push(
-      `  get parentId(): Ids.${e.parentName ?? e.rootName}Id { return this._parentId; }`,
+      `  get parentId(): ${TT.Ids}.${e.parentName ?? e.rootName}Id { return this._parentId; }`,
     );
   }
   for (const f of e.fields) {
@@ -909,7 +911,7 @@ function renderEntity(
               .join("; ")} }`,
             e.name,
           ),
-          `    const inst = ${newSelf(`{ id: Ids.new${e.name}Id() } as unknown as ${stateLiteral}, true`)};`,
+          `    const inst = ${newSelf(`{ id: ${T.Ids}.new${e.name}Id() } as unknown as ${stateLiteral}, true`)};`,
           `    inst._init(${esCreate.params.map((p) => `input.${p.name}`).join(", ")});`,
           emitTrace
             ? `    inst.${assertName}(${JSON.stringify(esCreate.name)});`
@@ -962,7 +964,7 @@ function renderEntity(
             e.name,
           ),
           `    ${createBodyName ? "const inst = " : "return "}${newSelfCallee}({`,
-          `      id: Ids.new${e.name}Id(),`,
+          `      id: ${T.Ids}.new${e.name}Id(),`,
           ...e.fields.map((f) => `      ${f.name}: ${fieldInit(f)},`),
           ...provFields.map((f) => `      ${f.name}_provenance: null,`),
           ...e.contains.map((c) => `      ${c.name}: ${c.collection ? "[]" : "null"},`),
@@ -1092,8 +1094,8 @@ function renderEntity(
           "  }",
           "",
           isExternRoot
-            ? `  static _fromEvents<T extends ${className}>(this: new (state: ${stateLiteral}, trustStore?: boolean) => T, id: Ids.${e.name}Id, events: Events.DomainEvent[]): T {`
-            : `  static _fromEvents(id: Ids.${e.name}Id, events: Events.DomainEvent[]): ${e.name} {`,
+            ? `  static _fromEvents<T extends ${className}>(this: new (state: ${stateLiteral}, trustStore?: boolean) => T, id: ${TT.Ids}.${e.name}Id, events: Events.DomainEvent[]): T {`
+            : `  static _fromEvents(id: ${TT.Ids}.${e.name}Id, events: Events.DomainEvent[]): ${e.name} {`,
           isExternRoot
             ? `    const inst = new this({ id } as unknown as ${stateLiteral}, true);`
             : `    const inst = ${e.name}._rehydrate({ id } as unknown as ${stateLiteral});`,

@@ -38,16 +38,16 @@
         {
           "done": false,
           "id": "<volatile:key>",
+          "rowVersion": 1,
           "technicianUserId": "<volatile:key>",
-          "title": "Boiler",
-          "version": 1
+          "title": "Boiler"
         },
         {
           "done": true,
           "id": "<volatile:key>",
+          "rowVersion": 1,
           "technicianUserId": "<volatile:key>",
-          "title": "Pump",
-          "version": 1
+          "title": "Pump"
         }
       ]
     },
@@ -60,9 +60,9 @@
         {
           "done": false,
           "id": "<volatile:key>",
+          "rowVersion": 1,
           "technicianUserId": "<volatile:key>",
-          "title": "Boiler",
-          "version": 1
+          "title": "Boiler"
         }
       ]
     },
@@ -75,9 +75,9 @@
         {
           "done": true,
           "id": "<volatile:key>",
+          "rowVersion": 1,
           "technicianUserId": "<volatile:key>",
-          "title": "Pump",
-          "version": 1
+          "title": "Pump"
         }
       ]
     },
@@ -90,16 +90,16 @@
         {
           "done": false,
           "id": "<volatile:key>",
+          "rowVersion": 1,
           "technicianUserId": "<volatile:key>",
-          "title": "Boiler",
-          "version": 1
+          "title": "Boiler"
         },
         {
           "done": false,
           "id": "<volatile:key>",
+          "rowVersion": 1,
           "technicianUserId": "<volatile:key>",
-          "title": "Boiler",
-          "version": 1
+          "title": "Boiler"
         }
       ]
     },
@@ -111,9 +111,9 @@
       "body": {
         "done": false,
         "id": "<volatile:key>",
+        "rowVersion": 1,
         "technicianUserId": "<volatile:key>",
-        "title": "Boiler",
-        "version": 1
+        "title": "Boiler"
       }
     },
     {
@@ -124,9 +124,9 @@
       "body": {
         "done": true,
         "id": "<volatile:key>",
+        "rowVersion": 1,
         "technicianUserId": "<volatile:key>",
-        "title": "Pump",
-        "version": 1
+        "title": "Pump"
       }
     },
     {
@@ -144,9 +144,9 @@
       "body": {
         "done": false,
         "id": "<volatile:key>",
+        "rowVersion": 2,
         "technicianUserId": "<volatile:key>",
-        "title": "Boiler",
-        "version": 2
+        "title": "Boiler"
       }
     },
     {
@@ -158,23 +158,23 @@
         {
           "done": false,
           "id": "<volatile:key>",
+          "rowVersion": 1,
           "technicianUserId": "<volatile:key>",
-          "title": "Boiler",
-          "version": 1
+          "title": "Boiler"
         },
         {
           "done": true,
           "id": "<volatile:key>",
+          "rowVersion": 1,
           "technicianUserId": "<volatile:key>",
-          "title": "Pump",
-          "version": 1
+          "title": "Pump"
         },
         {
           "done": false,
           "id": "<volatile:key>",
+          "rowVersion": 2,
           "technicianUserId": "<volatile:key>",
-          "title": "Boiler",
-          "version": 2
+          "title": "Boiler"
         }
       ]
     },
@@ -194,16 +194,16 @@
         {
           "done": false,
           "id": "<volatile:key>",
+          "rowVersion": 1,
           "technicianUserId": "<volatile:key>",
-          "title": "Boiler",
-          "version": 1
+          "title": "Boiler"
         },
         {
           "done": true,
           "id": "<volatile:key>",
+          "rowVersion": 1,
           "technicianUserId": "<volatile:key>",
-          "title": "Pump",
-          "version": 1
+          "title": "Pump"
         }
       ]
     },
@@ -215,9 +215,9 @@
       "body": {
         "done": false,
         "id": "<volatile:key>",
+        "rowVersion": 3,
         "technicianUserId": "<volatile:key>",
-        "title": "Boiler",
-        "version": 3
+        "title": "Boiler"
       }
     },
     {
@@ -230,23 +230,23 @@
           {
             "done": false,
             "id": "<volatile:key>",
+            "rowVersion": 1,
             "technicianUserId": "<volatile:key>",
-            "title": "Boiler",
-            "version": 1
+            "title": "Boiler"
           },
           {
             "done": true,
             "id": "<volatile:key>",
+            "rowVersion": 1,
             "technicianUserId": "<volatile:key>",
-            "title": "Pump",
-            "version": 1
+            "title": "Pump"
           },
           {
             "done": false,
             "id": "<volatile:key>",
+            "rowVersion": 3,
             "technicianUserId": "<volatile:key>",
-            "title": "Boiler",
-            "version": 3
+            "title": "Boiler"
           }
         ],
         "page": 1,

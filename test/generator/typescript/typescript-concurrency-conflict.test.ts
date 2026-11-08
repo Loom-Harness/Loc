@@ -55,17 +55,17 @@ describe("hono/drizzle generator — versioned optimistic-concurrency", () => {
     expect(repo).toContain(
       "async save(aggregate: Customer, expectedVersion?: number): Promise<void> {",
     );
-    expect(repo).toContain("const expected = expectedVersion ?? aggregate.version;");
+    expect(repo).toContain("const expected = expectedVersion ?? aggregate.rowVersion;");
 
     // Fresh row: plain insert seeding version: 1.
     expect(repo).toContain(
-      "await tx.insert(schema.customers).values({ id: aggregate.id as string, email: aggregate.email, name: aggregate.name, version: 1 });",
+      "await tx.insert(schema.customers).values({ id: aggregate.id as string, email: aggregate.email, name: aggregate.name, rowVersion: 1 });",
     );
 
     // Existing row: UPDATE conditioned on id AND version, bumping to expected + 1.
-    expect(repo).toContain("version: expected + 1");
+    expect(repo).toContain("rowVersion: expected + 1");
     expect(repo).toContain(
-      "eq(schema.customers.id, aggregate.id), eq(schema.customers.version, expected)",
+      "eq(schema.customers.id, aggregate.id), eq(schema.customers.rowVersion, expected)",
     );
     expect(repo).toContain(".returning({ id: schema.customers.id })");
 
@@ -85,7 +85,9 @@ describe("hono/drizzle generator — versioned optimistic-concurrency", () => {
     // `Number(ifMatch)`: an entity-tag is a QUOTED string, so a client sending
     // back the ETag this API now gives it (`If-Match: "3"`) produced
     // `Number('"3"') === NaN`, matched no row, and answered a spurious 409.
-    expect(routes).toContain("const expectedVersion = parseIfMatch(ifMatch, aggregate.version);");
+    expect(routes).toContain(
+      "const expectedVersion = parseIfMatch(ifMatch, aggregate.rowVersion);",
+    );
     expect(routes).not.toContain("Number(ifMatch)");
     expect(routes).toContain("await repo.save(aggregate, expectedVersion);");
   });
@@ -110,15 +112,15 @@ describe("hono/drizzle generator — versioned optimistic-concurrency", () => {
     );
     // Read response carries the version token.
     expect(routes).toMatch(
-      /CustomerResponse = z\.object\(\{[\s\S]*?version: z\.number\(\)\.int\(\)/,
+      /CustomerResponse = z\.object\(\{[\s\S]*?rowVersion: z\.number\(\)\.int\(\)/,
     );
     // Create/update inputs drop it (token access).
     const createReq =
       routes.match(/CreateCustomerRequest = z\.object\(\{([\s\S]*?)\}\)/)?.[1] ?? "";
     const updateReq =
       routes.match(/UpdateCustomerRequest = z\.object\(\{([\s\S]*?)\}\)/)?.[1] ?? "";
-    expect(createReq).not.toContain("version");
-    expect(updateReq).not.toContain("version");
+    expect(createReq).not.toContain("rowVersion");
+    expect(updateReq).not.toContain("rowVersion");
   });
 
   it("an aggregate without `with versioned` still gets the guarded write — default-on (M-T3.4)", async () => {
@@ -129,7 +131,7 @@ describe("hono/drizzle generator — versioned optimistic-concurrency", () => {
     // capability spelled out in source.
     expect(repo).toContain("ConcurrencyError");
     expect(repo).toContain("expectedVersion");
-    expect(repo).toContain("version");
+    expect(repo).toContain("rowVersion");
     expect(routes).toContain("ConcurrencyError");
     expect(routes).toContain("if-match");
     expect(routes).toContain('event: "conflict"');

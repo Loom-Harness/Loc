@@ -27,7 +27,7 @@
         "balance": 70,
         "id": "<volatile:key>",
         "owner": "ann",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -53,7 +53,7 @@
         "balance": 70,
         "id": "<volatile:key>",
         "owner": "ann",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -72,7 +72,7 @@
         "balance": 70,
         "id": "<volatile:key>",
         "owner": "ann",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -84,8 +84,8 @@
         "items": [
           {
             "id": "<volatile:key>",
-            "text": "declined",
-            "version": 1
+            "rowVersion": 1,
+            "text": "declined"
           }
         ],
         "page": 1,
@@ -110,7 +110,7 @@
         "balance": 50,
         "id": "<volatile:key>",
         "owner": "ann",
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -140,7 +140,7 @@
         "balance": 50,
         "id": "<volatile:key>",
         "owner": "ann",
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -162,7 +162,7 @@
         "balance": 40,
         "id": "<volatile:key>",
         "owner": "ann",
-        "version": 4
+        "rowVersion": 4
       }
     },
     {
@@ -181,7 +181,7 @@
         "balance": 40,
         "id": "<volatile:key>",
         "owner": "bea",
-        "version": 5
+        "rowVersion": 5
       }
     },
     {
@@ -195,7 +195,7 @@
             "balance": 40,
             "id": "<volatile:key>",
             "owner": "bea",
-            "version": 5
+            "rowVersion": 5
           }
         ],
         "page": 1,
@@ -220,8 +220,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "text": "manual",
-        "version": 1
+        "rowVersion": 1,
+        "text": "manual"
       }
     },
     {
@@ -238,8 +238,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "text": "edited",
-        "version": 2
+        "rowVersion": 2,
+        "text": "edited"
       }
     },
     {

@@ -56,8 +56,8 @@
       "body": {
         "code": "A2-REV",
         "id": "<volatile:key>",
-        "status": "Shipped",
-        "version": 2
+        "rowVersion": 2,
+        "status": "Shipped"
       }
     },
     {
@@ -70,14 +70,14 @@
           {
             "code": "A1",
             "id": "<volatile:key>",
-            "status": "Cancelled",
-            "version": 2
+            "rowVersion": 2,
+            "status": "Cancelled"
           },
           {
             "code": "A2-REV",
             "id": "<volatile:key>",
-            "status": "Shipped",
-            "version": 2
+            "rowVersion": 2,
+            "status": "Shipped"
           }
         ],
         "page": 1,
@@ -117,8 +117,8 @@
           {
             "code": "A1",
             "id": "<volatile:key>",
-            "status": "Cancelled",
-            "version": 2
+            "rowVersion": 2,
+            "status": "Cancelled"
           }
         ],
         "page": 1,

@@ -33,7 +33,7 @@ export const CustomerResponse = z.object({
   username: z.string(),
   email: z.string(),
   age: z.number().int().openapi({ format: "int32" }),
-  version: z.number().int().openapi({ format: "int32" }),
+  rowVersion: z.number().int().openapi({ format: "int32" }),
   display: z.string(),
 }).openapi("CustomerResponse");
 export const CustomerListResponse = z.array(CustomerResponse).openapi("CustomerListResponse");
@@ -89,7 +89,7 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
       const { id } = c.req.valid("param");
       const found = await repo.findById(Ids.CustomerId(id));
       if (!found) throw new AggregateNotFoundError(`Customer ${id} not found`);
-      c.header("etag", versionETag(found.version));
+      c.header("etag", versionETag(found.rowVersion));
       return c.json(repo.toWire(found) as z.infer<typeof CustomerResponse>, 200);
     },
   );
@@ -112,8 +112,8 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
       const { id } = c.req.valid("param");
       const __loaded = await repo.getById(Ids.CustomerId(id));
       const ifMatch = c.req.header("if-match");
-      const expectedVersion = parseIfMatch(ifMatch, __loaded.version);
-      if (expectedVersion !== __loaded.version) throw new ConcurrencyError("Customer", id);
+      const expectedVersion = parseIfMatch(ifMatch, __loaded.rowVersion);
+      if (expectedVersion !== __loaded.rowVersion) throw new ConcurrencyError("Customer", id);
       try {
         await repo.delete(Ids.CustomerId(id));
       } catch (err) {
@@ -153,7 +153,7 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
       recordDomainOperation("Customer", "update");
       const aggregate = await repo.getById(Ids.CustomerId(id));
       const ifMatch = c.req.header("if-match");
-      const expectedVersion = parseIfMatch(ifMatch, aggregate.version);
+      const expectedVersion = parseIfMatch(ifMatch, aggregate.rowVersion);
       aggregate.update((body.username === undefined ? aggregate.username : body.username), (body.email === undefined ? aggregate.email : body.email), (body.age === undefined ? aggregate.age : body.age));
       await repo.save(aggregate, expectedVersion);
       return c.body(null, 204);

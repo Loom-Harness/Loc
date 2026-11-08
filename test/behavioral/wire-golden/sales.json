@@ -23,8 +23,8 @@
           "amount": 9.99,
           "currency": "USD"
         },
-        "sku": "WIDGET-1",
-        "version": 1
+        "rowVersion": 1,
+        "sku": "WIDGET-1"
       }
     },
     {
@@ -46,8 +46,8 @@
           "amount": 12.5,
           "currency": "EUR"
         },
-        "sku": "WIDGET-1B",
-        "version": 2
+        "rowVersion": 2,
+        "sku": "WIDGET-1B"
       }
     },
     {
@@ -64,8 +64,8 @@
               "amount": 12.5,
               "currency": "EUR"
             },
-            "sku": "WIDGET-1B",
-            "version": 2
+            "rowVersion": 2,
+            "sku": "WIDGET-1B"
           }
         ],
         "page": 1,
@@ -129,7 +129,7 @@
         "externalRef": "ext-42",
         "id": "<volatile:key>",
         "name": "Defaulter",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -151,7 +151,7 @@
         "externalRef": "ext-43",
         "id": "<volatile:key>",
         "name": "Defaulter II",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -168,7 +168,7 @@
             "externalRef": "ext-43",
             "id": "<volatile:key>",
             "name": "Defaulter II",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -239,8 +239,8 @@
         "id": "<volatile:key>",
         "lines": [],
         "placedAt": "<timestamp>",
-        "status": "Draft",
-        "version": 1
+        "rowVersion": 1,
+        "status": "Draft"
       }
     },
     {
@@ -260,8 +260,8 @@
         "id": "<volatile:key>",
         "lines": [],
         "placedAt": "<timestamp>",
-        "status": "Cancelled",
-        "version": 2
+        "rowVersion": 2,
+        "status": "Cancelled"
       }
     },
     {
@@ -321,8 +321,8 @@
           }
         ],
         "placedAt": "<timestamp>",
-        "status": "Confirmed",
-        "version": 3
+        "rowVersion": 3,
+        "status": "Confirmed"
       }
     },
     {
@@ -343,16 +343,16 @@
               }
             ],
             "placedAt": "<timestamp>",
-            "status": "Confirmed",
-            "version": 3
+            "rowVersion": 3,
+            "status": "Confirmed"
           },
           {
             "customerId": "<volatile:key>",
             "id": "<volatile:key>",
             "lines": [],
             "placedAt": "<timestamp>",
-            "status": "Cancelled",
-            "version": 2
+            "rowVersion": 2,
+            "status": "Cancelled"
           }
         ],
         "page": 1,
@@ -394,8 +394,8 @@
             "id": "<volatile:key>",
             "lines": [],
             "placedAt": "<timestamp>",
-            "status": "Cancelled",
-            "version": 2
+            "rowVersion": 2,
+            "status": "Cancelled"
           }
         ],
         "page": 1,

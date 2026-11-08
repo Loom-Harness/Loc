@@ -53,12 +53,12 @@
           }
         ],
         "reference": "R1",
+        "rowVersion": 4,
         "tags": [
           "bulk",
           "rush"
         ],
-        "total": 15,
-        "version": 4
+        "total": 15
       }
     },
     {
@@ -89,12 +89,12 @@
           }
         ],
         "reference": "R1",
+        "rowVersion": 5,
         "tags": [
           "bulk",
           "rush"
         ],
-        "total": 15,
-        "version": 5
+        "total": 15
       }
     },
     {
@@ -125,12 +125,12 @@
           }
         ],
         "reference": "R1",
+        "rowVersion": 6,
         "tags": [
           "bulk",
           "rush"
         ],
-        "total": 16,
-        "version": 6
+        "total": 16
       }
     },
     {
@@ -155,12 +155,12 @@
             }
           ],
           "reference": "R1",
+          "rowVersion": 6,
           "tags": [
             "bulk",
             "rush"
           ],
-          "total": 16,
-          "version": 6
+          "total": 16
         }
       ]
     },
@@ -192,11 +192,11 @@
           }
         ],
         "reference": "R2",
+        "rowVersion": 7,
         "tags": [
           "bulk"
         ],
-        "total": 16,
-        "version": 7
+        "total": 16
       }
     },
     {

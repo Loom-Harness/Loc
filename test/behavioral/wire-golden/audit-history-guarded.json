@@ -36,10 +36,10 @@
         "grade": 1,
         "id": "<volatile:key>",
         "name": "Ada L",
+        "rowVersion": 3,
         "salary": 1050,
         "updatedAt": "<timestamp>",
-        "updatedBy": "admin",
-        "version": 3
+        "updatedBy": "admin"
       }
     },
     {
@@ -55,10 +55,10 @@
             "grade": 1,
             "id": "<volatile:key>",
             "name": "Ada L",
+            "rowVersion": 3,
             "salary": 1050,
             "updatedAt": "<timestamp>",
-            "updatedBy": "admin",
-            "version": 3
+            "updatedBy": "admin"
           }
         ],
         "page": 1,
@@ -202,7 +202,7 @@
             "amount": 3000,
             "id": "<volatile:key>",
             "period": "2026-10",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -220,7 +220,7 @@
         "amount": 3000,
         "id": "<volatile:key>",
         "period": "2026-10",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -240,7 +240,7 @@
       "body": {
         "id": "<volatile:key>",
         "label": "D-1",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -253,7 +253,7 @@
           {
             "id": "<volatile:key>",
             "label": "D-1",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -507,7 +507,7 @@
             "amount": 3000,
             "id": "<volatile:key>",
             "period": "2026-10",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
