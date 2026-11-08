@@ -58,7 +58,7 @@ Too big for one session? Split the issue into sub-issues, finish one, leave the 
 - Open the PR ready-for-review when it is built and green locally, body `Fixes #N` plus what changed and the gates you ran. Use `Fixes` only when the PR meets the whole acceptance; for part of it use `Refs #N` and say on the issue what remains, so the merge does not close unfinished work.
 - If the work turned out bigger, smaller or different than the issue says, edit the issue (body and *Acceptance*) so the next reader inherits reality — the issue, not a doc, is the record.
 - Docs that describe behavior (reference docs, `decisions.md`, `experience_gathered.md`) change in the same PR as the code. Status, progress notes and handoffs go in issue comments — never a PR of their own.
-- Drive the PR to green / into the merge queue.
+- **Merge it yourself — never leave the merge to the owner.** Once the PR is ready for review, enable auto-merge on it, so it enters the merge queue the moment it is green. A stacked PR gets auto-merge too and lands after its base (retarget it to `main` once the base merges). Then drive it: a red check, a conflict or a queue ejection on it is your work until it has merged. A train worker's draft member is the exception: the coordinator queues the train.
 - **Done** = acceptance met, PR green or queued, discoveries filed. The final report lists the PR and every issue you filed. Then stop — don't take the next issue unless you were asked to.
 
 ## Waves and evals

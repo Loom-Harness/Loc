@@ -84,6 +84,7 @@ import {
   renderItalic as renderItalicHeex,
   renderKeyValueRow as renderKeyValueRowHeex,
   renderLoader as renderLoaderHeex,
+  renderLocaleSwitcher as renderLocaleSwitcherHeex,
   renderModal as renderModalHeex,
   renderMoney as renderMoneyHeex,
   renderMultilineField as renderMultilineFieldHeex,
@@ -155,6 +156,7 @@ import {
   emitTabs,
   emitToolbar,
 } from "./primitives/layout.js";
+import { emitLocaleSwitcher } from "./primitives/locale-switcher.js";
 import { emitProvenanceInfo } from "./primitives/provenance-info.js";
 import { emitTable } from "./primitives/table.js";
 import {
@@ -429,6 +431,18 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     tsx: emitLoader,
     heex: renderLoaderHeex,
     a11y: { role: "status", live: "polite", busy: true },
+  },
+  // The language picker.  No arguments: the shipped locales are a fact about the
+  // system.  React renders the generated `LocaleSwitcher` component; HEEx a
+  // `<select>` that writes the `loom_locale` cookie and reloads under `?lang=`.
+  LocaleSwitcher: {
+    group: "layout",
+    admissibleInSource: true,
+    tsx: emitLocaleSwitcher,
+    heex: renderLocaleSwitcherHeex,
+    // A native `<select>` (its built-in role needs no `role=`) that must carry a
+    // discernible name: every target labels it with the active locale (`aria-label`).
+    a11y: { needsName: true },
   },
   // A link needs discernible text (native `<a href>` role="link").
   Anchor: {

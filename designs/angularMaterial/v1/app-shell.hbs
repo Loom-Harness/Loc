@@ -12,7 +12,8 @@ import { LoomErrorHandler } from "./error-handler";
 {{#if authUi}}import { AuthGateComponent } from "./auth/auth-gate.component";
 {{/if}}{{#if shellUsesSession}}import { SessionService } from "./auth/session.service";
 {{/if}}{{#if hasRealtimeHandlers}}import { RealtimeHandlersComponent } from "./realtime-handlers.component";
-{{/if}}{{#if i18nEnabled}}import { t } from "../lib/i18n";
+{{/if}}{{#if i18nEnabled}}import { t } from "../lib/locale";
+{{/if}}{{#if localeSwitchable}}import { LocaleSwitcher } from "../lib/locale-switcher";
 {{/if}}
 @Component({
   selector: "app-root",
@@ -27,13 +28,15 @@ import { LoomErrorHandler } from "./error-handler";
 {{#if authUi}}    MatButtonModule,
     AuthGateComponent,
 {{/if}}{{#if hasRealtimeHandlers}}    RealtimeHandlersComponent,
+{{/if}}{{#if localeSwitchable}}    LocaleSwitcher,
 {{/if}}  ],
   template: `
 {{{errorBanner}}}    <a href="#main-content" class="loom-skip-link">{{{skipToContentText}}}</a>
 {{#if hasRealtimeHandlers}}    <app-realtime-handlers />
 {{/if}}    <mat-toolbar color="primary">
       <a routerLink="/" class="loom-brand">{{systemNameHuman}}</a>
-{{#if authUi}}      @if (session.snapshot().kind === "authed") {
+{{#if localeSwitchable}}      <loom-locale-switcher class="loom-locale" />
+{{/if}}{{#if authUi}}      @if (session.snapshot().kind === "authed") {
         <button mat-button type="button" class="loom-sign-out" data-testid="sign-out" (click)="session.signOut()">{{{chrome "signOut"}}}</button>
       }
 {{/if}}    </mat-toolbar>
@@ -57,7 +60,8 @@ import { LoomErrorHandler } from "./error-handler";
   styles: [
     `
     .loom-brand { color: inherit; text-decoration: none; font-weight: 600; }
-{{#if authUi}}    .loom-sign-out { margin-left: auto; }
+{{#if localeSwitchable}}    .loom-locale { margin-left: auto; }
+{{/if}}{{#if authUi}}    .loom-sign-out { margin-left: {{#if localeSwitchable}}8px{{else}}auto{{/if}}; }
 {{/if}}    .loom-shell { height: calc(100vh - 64px); }
     .loom-sidenav { width: 240px; }
     .loom-content { padding: 16px; min-width: 0; }

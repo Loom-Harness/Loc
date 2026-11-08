@@ -434,3 +434,105 @@ describe("e2e payload — the gate defers where it has no ground truth", () => {
     ).toEqual([]);
   });
 });
+
+// The read shapes the payload gate used to skip: a projection row read
+// (`byKey`), a getById read on an `extends` subtype, the `all({…})` query keys
+// and the projection read arity.  Each one validated `0 error(s)` and then ran
+// against `undefined` / the default page / a request with its argument
+// dropped.
+const readSys = (body: string) => `
+  system S {
+    subdomain D { context C {
+      event Placed { orderId: Widget id  qty: int }
+      abstract aggregate Party inheritanceUsing: sharedTable { name: string }
+      aggregate Customer extends Party with crudish { creditLimit: int }
+      aggregate Widget with crudish { code: string }
+      projection Board keyed by orderId {
+        orderId: Widget id
+        total: int
+        on(e: Placed) { total := total + e.qty }
+      }
+    } }
+    storage pg { type: postgres }
+    resource st { for: C, kind: state, use: pg }
+    deployable d { platform: node, contexts: [C], dataSources: [st], port: 4000 }
+    test e2e "t" against d {
+      let w = api.widgets.create({ code: "W" })
+      ${body}
+    }
+  }`;
+
+async function readCodes(body: string): Promise<string[]> {
+  const { model, errors } = await parseString(readSys(body));
+  expect(errors).toEqual([]);
+  return validateLoomModel(toLoomModel(model))
+    .filter((d) => d.severity === "error")
+    .map((d) => d.code ?? "<uncoded>");
+}
+
+describe("e2e reads — a projection's byKey row", () => {
+  it("refuses a field the row does not carry, bound or inline", async () => {
+    expect(await readCodes(`let b = api.board.byKey(w)  expect(b.totl).toBe(0)`)).toEqual([
+      "loom.e2e-unknown-response-field",
+    ]);
+    expect(await readCodes(`expect(api.board.byKey(w).totl).toBe(0)`)).toEqual([
+      "loom.e2e-unknown-response-field",
+    ]);
+  });
+
+  it("NON-VACUITY: the key and every state field read clean; a list read is not judged", async () => {
+    expect(
+      await readCodes(
+        `let b = api.board.byKey(w)  expect(b.total).toBe(0)  expect(b.orderId).toBe(w.id)  let bs = api.board.list()  expect(bs.length).toBe(1)`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("e2e reads — a getById on an `extends` subtype", () => {
+  it("refuses a field neither the subtype nor its base declares", async () => {
+    expect(
+      await readCodes(
+        `let c = api.customers.create({ name: "A", creditLimit: 1 })  let g = api.customers.getById(c)  expect(g.nmae).toBe("A")`,
+      ),
+    ).toEqual(["loom.e2e-unknown-response-field"]);
+  });
+
+  it("NON-VACUITY: an inherited field and an own field both read clean", async () => {
+    expect(
+      await readCodes(
+        `let c = api.customers.create({ name: "A", creditLimit: 1 })  let g = api.customers.getById(c)  expect(g.name).toBe("A")  expect(g.creditLimit).toBe(1)`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("e2e reads — the all({…}) query keys", () => {
+  it("refuses a key the list route does not read", async () => {
+    expect(await readCodes(`let ws = api.widgets.all({ pgae: 2 })`)).toEqual([
+      "loom.e2e-unknown-query-key",
+    ]);
+  });
+
+  it("NON-VACUITY: the whole pagination set, and no argument at all, read clean", async () => {
+    expect(
+      await readCodes(
+        `let ws = api.widgets.all({ page: 1, pageSize: 10, sort: "code", dir: "asc" })  let all = api.widgets.all()`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("e2e reads — projection read arity", () => {
+  it("refuses an argument to list() — the renderer drops it", async () => {
+    expect(await readCodes(`let bs = api.board.list(w)`)).toEqual([
+      "loom.e2e-projection-read-arity",
+    ]);
+  });
+
+  it("refuses byKey() with no key — the renderer cannot address a row", async () => {
+    expect(await readCodes(`let b = api.board.byKey()`)).toEqual([
+      "loom.e2e-projection-read-arity",
+    ]);
+  });
+});

@@ -1,3 +1,4 @@
+import { registryTableName } from "../../ir/enrich/storage-names.js";
 import {
   fieldFixedMessage,
   fieldSentenceSuffix,
@@ -61,7 +62,6 @@ import {
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
-import { tableNameFor } from "../../util/storage-names.js";
 import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
@@ -511,7 +511,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         const ds = owning
           ? resolveDataSourceConfig(reg as EnrichedAggregateIR, owning, args.sys)
           : undefined;
-        const table = `${ds?.tablePrefix ?? ""}${tableNameFor(reg.name)}`;
+        const table = `${ds?.tablePrefix ?? ""}${registryTableName(args.sys)}`;
         return ds?.schema ? `${ds.schema}.${table}` : table;
       })()
     : undefined;

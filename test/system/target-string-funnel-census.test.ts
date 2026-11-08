@@ -448,17 +448,15 @@ const REVIEWED_SAFE: readonly Waiver[] = [
 /** Live bypasses, per file, with EXACT counts (shrink-only — a fix lowers or
  *  deletes its row, and a new one fails).
  *
- *  `src/generator/elixir/**` DELIBERATELY HAS NO ROW: it is this packet's
+ *  `src/generator/elixir/**` DELIBERATELY HAS NO ROW: it is the
  *  enforced-clean root, asserted separately below so the property is stated
  *  rather than implied by an absent key.
  *
- *  Everything here is handed off in
- *  `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c4-4a-wave2.md` — the packet's fence
- *  admits the scan on these two roots, not the emitter change. The flutter
- *  rows are mostly calls to one of the FOUR divergent local `dartStr`
- *  copies (one of which is the identity function), which is the `exStr`
- *  class again and why they are counted as bypasses rather than trusted by
- *  name. */
+ *  Every row here is debt, meant to reach zero by routing flutter/feliz
+ *  through one escape funnel per language as Elixir does.  The flutter rows
+ *  are mostly calls to one of the FOUR divergent local `dartStr` copies (one
+ *  of which is the identity function), which is why they are counted as
+ *  bypasses rather than trusted by name. */
 const BYPASS_BASELINE: Readonly<Record<string, number>> = {
   "src/generator/feliz/feliz-target.ts": 4,
   "src/generator/feliz/pack.ts": 1,

@@ -771,15 +771,6 @@ describe("dotnet renderCsType — generic carriers (P3b)", () => {
     };
     expect(renderCsType(t)).toBe("Paged<Order>");
   });
-
-  it("renders `envelope` as Envelope<T>", () => {
-    const t: TypeIR = {
-      kind: "genericInstance",
-      ctor: "envelope",
-      arg: { kind: "primitive", name: "string" },
-    };
-    expect(renderCsType(t)).toBe("Envelope<string>");
-  });
 });
 
 // ── The `error`-variant arm keeps its binding (audit F59 / M-T6.61) ────────

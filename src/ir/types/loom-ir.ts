@@ -195,7 +195,7 @@ export type TypeIR =
  *  rendered STRUCTURALLY (an inline `{ value, lineage }` object) rather than
  *  monomorphized to a named DTO, so it never reaches
  *  `monomorphizeGenericInstances`. */
-export type GenericCtorName = "paged" | "envelope" | "provenanced";
+export type GenericCtorName = "paged" | "provenanced";
 
 export interface ParamIR {
   name: string;

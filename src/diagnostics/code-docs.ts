@@ -87,9 +87,11 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.crudish-hard-delete":
     "../scaffold-macros.md#crudish-delete-under-softdeletable--loomcrudish-hard-delete",
   "loom.entity-field-optional-collection": "04-type-system.md#collections--t",
-  "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-envelope-option",
-  "loom.generic-position": "04-type-system.md#generic-carriers--paged-envelope-option",
+  "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-option",
+  "loom.generic-position": "04-type-system.md#generic-carriers--paged-option",
+  "loom.paged-envelope-unknown-member": "04-type-system.md#paged",
   "loom.option-deprecated": "04-type-system.md#option",
+  "loom.envelope-removed": "04-type-system.md#envelope-removed",
   "loom.token-nullable": "04-type-system.md#options--t",
   "loom.nullable-receiver": "04-type-system.md#options--t",
   "loom.bare-aggregate-in-type": "04-type-system.md#x-id--cross-aggregate-references",
@@ -273,6 +275,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-private-operation": "13-workflows.md#body-vocabulary",
   "loom.workflow-unrecognised-statement": "13-workflows.md#body-vocabulary",
   "loom.workflow-inline-repository-call": "13-workflows.md#body-vocabulary",
+  "loom.handler-unknown-name":
+    "06-behavior-and-statements.md#handler-bodies--commandhandler--queryhandler",
   "loom.workflow-return-no-caller": "13-workflows.md#returning-a-result",
   "loom.workflow-return-not-last": "13-workflows.md#returning-a-result",
   "loom.workflow-return-untyped": "13-workflows.md#returning-a-result",
@@ -316,6 +320,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.relay-target-not-subscribed":
     "14-apis-storage-resources-channels.md#transport-compatibility",
   "loom.component-missing-body": "15-ui-pages-structure.md#component--reusable-region-tree",
+  "loom.store-init-not-constant":
+    "15-ui-pages-structure.md#store--shared-client-state-with-a-lifetime",
   "loom.action-out-of-position": "15-ui-pages-structure.md#state--derived--action",
   "loom.effect-in-lambda": "15-ui-pages-structure.md#state--derived--action",
   "loom.angular-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
@@ -489,6 +495,10 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.e2e-routed-handler-arity":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-unknown-body-key": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.e2e-unknown-query-key":
+    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.e2e-projection-read-arity":
+    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-missing-required-field":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-body-type-mismatch":

@@ -1,6 +1,5 @@
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
-import { envelopeReturn } from "../../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
   FindIR,
@@ -383,15 +382,6 @@ function findReturn(t: TypeIR, basePkg: string): string {
   if (t.kind === "genericInstance" && t.ctor === "paged") {
     return `${pagedRef(basePkg)}<${boxedJavaType(t.arg)}>`;
   }
-  // `T envelope` is a SINGLE-ROW find: the carrier carries no wire
-  // shape, so the repository answers the carried `T` — the same signature
-  // `find x(): T` produces.  Without this the shared type printer renders
-  // `Envelope<Order>` into the port, the Spring Data interface AND the impl,
-  // and NOTHING declares or imports it: the generated project does not compile,
-  // `OrderResponse.from(...)` is called on it, and `@Query(…) Envelope<Order>`
-  // is not a Spring-Data-mappable return in the first place.
-  const carried = envelopeReturn(t);
-  if (carried) return findReturn(carried, basePkg);
   return renderJavaType(t);
 }
 
