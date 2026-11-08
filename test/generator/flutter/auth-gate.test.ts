@@ -110,18 +110,26 @@ describe("flutter auth: ui — the page and action guards", () => {
     const dart = (await gated()).get("web/lib/pages/admin_page.dart")!;
     expect(dart).toContain("import '../auth.dart';");
     expect(dart).toContain("class AdminPage extends ConsumerWidget {");
-    // Non-null: `AuthGate` guarantees a session before any route builds.
-    expect(dart).toContain("final currentUser = ref.watch(sessionProvider).value!;");
+    // No null assertion: an unresolved session renders ForbiddenView.
+    expect(dart).toContain("final currentUser = ref.watch(sessionProvider).value;");
+    expect(dart).toContain(
+      "if (currentUser == null) return const Scaffold(body: ForbiddenView());",
+    );
+    expect(dart).not.toContain("sessionProvider).value!");
     expect(dart).toContain("child: (currentUser.role == 'admin')");
     expect(dart).toContain(": const ForbiddenView(),");
   });
 
   it("binds the claims for a plain `currentUser.<claim>` body read too", async () => {
     const dart = (await gated()).get("web/lib/pages/home_page.dart")!;
-    expect(dart).toContain("final currentUser = ref.watch(sessionProvider).value!;");
+    expect(dart).toContain("final currentUser = ref.watch(sessionProvider).value;");
+    expect(dart).not.toContain("sessionProvider).value!");
     expect(dart).toContain("currentUser.id");
-    // No `requires` on this page → no ForbiddenView branch.
-    expect(dart).not.toContain("ForbiddenView");
+    // No `requires` on this page → no gate branch, only the null-session fallback.
+    expect(dart).toContain(
+      "if (currentUser == null) return const Scaffold(body: ForbiddenView());",
+    );
+    expect(dart).not.toContain(": const ForbiddenView()");
   });
 
   it("hides an Action button whose op carries a currentUser-only `requires`", async () => {
