@@ -231,10 +231,13 @@ export function entryControllerAnswer(
     const r = errorVariantResponse(tag, ctx.errorStatusOverrides);
     const d = errorVariantResponse(tag);
     const m = members.find((mm) => mm.tag === tag);
-    const fields =
-      m?.shape === "record" ? m.fields.filter((f) => !RFC7807_MEMBERS.has(f.name)) : [];
+    // Every field rides `params`; only those not named like a problem member
+    // (`code`, `params`, …) also ride as extension members, where the problem
+    // member would overwrite them.
+    const allFields = m?.shape === "record" ? m.fields : [];
+    const fields = allFields.filter((f) => !RFC7807_MEMBERS.has(f.name));
     out.push(
-      `${indent}    case ${base}_${tag} ${fields.length > 0 ? "__e" : "_"}:`,
+      `${indent}    case ${base}_${tag} ${allFields.length > 0 ? "__e" : "_"}:`,
       `${indent}    {`,
       `${indent}        var problem = new Microsoft.AspNetCore.Mvc.ProblemDetails { Status = ${r.status}, Title = ${JSON.stringify(d.title)}, Type = ${JSON.stringify(d.type)}, Detail = ${JSON.stringify(d.detail)}, Instance = HttpContext.Request.Path };`,
       ...fields.map(
@@ -245,7 +248,7 @@ export function entryControllerAnswer(
         ctx,
         tag,
         "problem",
-        fields.map((f) => ({ json: f.name, accessor: `__e.${upperFirst(f.name)}` })),
+        allFields.map((f) => ({ json: f.name, accessor: `__e.${upperFirst(f.name)}` })),
         `${indent}        `,
       ),
       `${indent}        return new ObjectResult(problem) { StatusCode = ${r.status}, ContentTypes = { "application/problem+json" } };`,
