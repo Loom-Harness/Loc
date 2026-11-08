@@ -1,14 +1,13 @@
 // Generic-carrier checks (payload-transport-layer.md, phase P3).
 //
-// Carrier-bound rule for ML-postfix generic instantiation (`customer paged`,
-// `event envelope`).  The single type argument of a blessed generic carrier
+// Carrier-bound rule for ML-postfix generic instantiation (`customer paged`).  The single type argument of a blessed generic carrier
 // must itself be a *carrier* — a primitive, an `X id`, an enum, a value
 // object, or an entity (aggregate / entity part, which project through their
 // wire shape).  Two shapes are rejected:
 //
 //   * a `slot` argument — `slot` is a UI-only param marker, never a
 //     boundary-crossing carrier; and
-//   * a nested generic argument (`event envelope paged`) — v1 ships only
+//   * a nested generic argument (`T paged paged`) — v1 ships only
 //     single-level instantiation (A7a); nested carriers arrive with P3b
 //     monomorphization.
 //
@@ -54,7 +53,10 @@ export function checkSelfType(model: Model, accept: ValidationAcceptor): void {
 
 export function checkGenericCarriers(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
-    if (isTypeRef(node) || isTypeAtom(node)) checkOptionDeprecated(node, accept);
+    if (isTypeRef(node) || isTypeAtom(node)) {
+      checkOptionDeprecated(node, accept);
+      checkEnvelopeRemoved(node, accept);
+    }
     if (isTypeRef(node)) {
       checkTypeRefCarrier(node, accept);
       checkTypeRefPosition(node, accept);
@@ -76,6 +78,26 @@ function checkOptionDeprecated(t: TypeRef | TypeAtom, accept: ValidationAcceptor
   });
 }
 
+/** `T envelope` meant exactly `T` — a single value, no wire carrier — so the
+ *  keyword is refused with a mechanical fix: drop it.  It still parses so the
+ *  refusal can name the replacement; it lowers as its argument. */
+function checkEnvelopeRemoved(t: TypeRef | TypeAtom, accept: ValidationAcceptor): void {
+  t.ctors.forEach((ctor, index) => {
+    if (ctor !== "envelope") return;
+    accept("error", diagMessage("loom.envelope-removed"), {
+      node: t,
+      property: "ctors",
+      index,
+      code: "loom.envelope-removed",
+    });
+  });
+}
+
+/** The constructors that build a transport carrier — `option` is `T?` and a
+ *  refused `envelope` is its argument, so neither is one. */
+const carrierCtors = (t: TypeRef): string[] =>
+  t.ctors.filter((c) => c !== "option" && c !== "envelope");
+
 /** A generic carrier is a transport shape, not a stored value — it may only
  *  appear as a queryHandler's return type or as a field of a payload
  *  (payload-transport-layer.md, P3b).  Anywhere else (a stored aggregate /
@@ -85,15 +107,14 @@ function checkOptionDeprecated(t: TypeRef | TypeAtom, accept: ValidationAcceptor
 function checkTypeRefPosition(t: TypeRef, accept: ValidationAcceptor): void {
   // `option` is `T?`, legal in any position; only the transport carriers stay
   // bound to one.
-  const carriers = t.ctors.filter((c) => c !== "option");
+  const carriers = carrierCtors(t);
   if (carriers.length === 0) return;
   const container = t.$container;
   // A queryHandler's return type: the TypeRef sits directly on the QueryHandler
   // (`queryHandler X(...): <T> paged`).  A paged read exposed through the
   // application layer is the durable read-path vehicle (read-path-architecture.md,
   // "The ergonomic default") — the criterion runs through the read-only port and
-  // the handler returns the `Paged<T>` envelope, so `paged`/`envelope` are legal
-  // here.  Params are wrapped in `Parameter` nodes,
+  // the handler returns the `Paged<T>` envelope, so `paged` is legal here.  Params are wrapped in `Parameter` nodes,
   // so a param carrier still doesn't match.
   if (isQueryHandler(container)) return;
   // A payload field: a `Property` whose owner is a `PayloadDecl`.
@@ -106,18 +127,18 @@ function checkTypeRefPosition(t: TypeRef, accept: ValidationAcceptor): void {
 }
 
 function checkTypeRefCarrier(t: TypeRef, accept: ValidationAcceptor): void {
-  if (t.ctors.length === 0) return;
+  const ctors = carrierCtors(t);
+  if (ctors.length === 0) return;
 
   // Nesting: with two or more postfix constructors, every constructor past
   // the innermost receives a generic-instance argument — not a carrier.
-  // `event envelope paged` → `paged(envelope(event))`; `paged`'s argument is
-  // `envelope(event)`.  Rejected in v1.
-  if (t.ctors.length > 1) {
+  // `T paged paged` → `paged(paged(T))`.  Rejected.
+  if (ctors.length > 1) {
     accept(
       "error",
       diagMessage("loom.generic-arg-not-carrier#nested-generic-carriers", {
-        ctors: t.ctors.join(" "),
-        ctors2: t.ctors[t.ctors.length - 1],
+        ctors: ctors.join(" "),
+        ctors2: ctors[ctors.length - 1],
       }),
       { node: t, property: "ctors", code: "loom.generic-arg-not-carrier" },
     );
@@ -130,7 +151,7 @@ function checkTypeRefCarrier(t: TypeRef, accept: ValidationAcceptor): void {
   if (isSlotType(t.base)) {
     accept(
       "error",
-      diagMessage("loom.generic-arg-not-carrier#requires-a-carrier-type", { ctors: t.ctors[0] }),
+      diagMessage("loom.generic-arg-not-carrier#requires-a-carrier-type", { ctors: ctors[0] }),
       { node: t, property: "base", code: "loom.generic-arg-not-carrier" },
     );
   }

@@ -302,7 +302,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // codegen, and only Feliz / Flutter said so, behind a platform check.
     code: "loom.async-effect-subject-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:542",
+    site: "src/ir/validate/checks/store-checks.ts:577",
     what:
       "`match await <subject>` whose subject is not an aggregate INSTANCE operation.  The " +
       "reachable population was CENSUSED in wave C2 packet 2l by spelling every candidate " +
@@ -338,7 +338,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.feliz-async-effect-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:466",
+    site: "src/ir/validate/checks/store-checks.ts:502",
     what:
       "`match await` on Feliz in a COMPONENT host — the Feliz generator projects async effects " +
       "only on pages (the trigger id comes from the host page's route `:id`), so a component " +
@@ -358,7 +358,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.flutter-async-effect-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/store-checks.ts:590",
+    site: "src/ir/validate/checks/store-checks.ts:625",
     what:
       "`match await` in a COMPONENT action.  RE-CLASSED `gap` -> `scope` under " +
       "**D-FLUTTER-COMPONENT-BINDINGS**: `match await <api>.<Agg>.<op>()` on an INSTANCE " +
@@ -530,7 +530,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.store-lifetime-target-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:366",
+    site: "src/ir/validate/checks/store-checks.ts:402",
     what:
       "a persisted store field with no total F# (feliz) or Dart (flutter) codec.  BOTH halves " +
       "narrowed across wave C2 (feliz in packets 2i + 2l, flutter in packet 2j) to exactly the " +

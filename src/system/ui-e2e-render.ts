@@ -10,6 +10,7 @@ import type {
   TestStmtIR,
   WorkflowIR,
 } from "../ir/types/loom-ir.js";
+import { walkExprDeep, walkStmtExprsDeep } from "../ir/util/walk.js";
 import { intrinsicMatcherSig } from "../util/intrinsic-matchers.js";
 import { escapeTsIdent, lowerFirst, plural, snake, upperFirst } from "../util/naming.js";
 import { routeSegmentFor } from "../util/storage-names.js";
@@ -138,23 +139,7 @@ function collectReferencedAggregates(
 ): AggregateIR[] {
   const seen = new Set<string>();
   const out: AggregateIR[] = [];
-  for (const t of tests) {
-    for (const s of t.statements) walkStmt(s);
-  }
-  return out;
-
-  function walkStmt(s: TestStmtIR): void {
-    if (
-      s.kind === "expect" ||
-      s.kind === "expect-throws" ||
-      s.kind === "let" ||
-      s.kind === "expression"
-    ) {
-      walkExpr(s.expr);
-    }
-  }
-  function walkExpr(e: ExprIR | undefined): void {
-    if (!e) return;
+  walkAllExprs(tests, (e) => {
     const call = matchUiCall(e);
     if (call && call.kind === "aggregate") {
       const agg = findAggregateBySlug(call.aggregateSlug, contexts);
@@ -163,27 +148,8 @@ function collectReferencedAggregates(
         out.push(agg);
       }
     }
-    if (e.kind === "method-call") {
-      walkExpr(e.receiver);
-      for (const a of e.args) walkExpr(a);
-    }
-    if (e.kind === "member") walkExpr(e.receiver);
-    if (e.kind === "binary") {
-      walkExpr(e.left);
-      walkExpr(e.right);
-    }
-    if (e.kind === "ternary") {
-      walkExpr(e.cond);
-      walkExpr(e.then);
-      walkExpr(e.otherwise);
-    }
-    if (e.kind === "unary") walkExpr(e.operand);
-    if (e.kind === "paren") walkExpr(e.inner);
-    if (e.kind === "call") for (const a of e.args) walkExpr(a);
-    if (e.kind === "new" || e.kind === "object") {
-      for (const f of e.fields) walkExpr(f.value);
-    }
-  }
+  });
+  return out;
 }
 
 function collectReferencedWorkflows(
@@ -205,41 +171,14 @@ function collectReferencedWorkflows(
   return out;
 }
 
+/** Every expression in the tests' bodies, at any depth: an assertion's
+ *  expression through `walkExprDeep`, every other statement (a `StmtIR`)
+ *  through `walkStmtExprsDeep`, which also reaches nested blocks. */
 function walkAllExprs(tests: TestE2EIR[], visit: (e: ExprIR) => void): void {
-  const walk = (e: ExprIR | undefined): void => {
-    if (!e) return;
-    visit(e);
-    if (e.kind === "method-call") {
-      walk(e.receiver);
-      for (const a of e.args) walk(a);
-    }
-    if (e.kind === "member") walk(e.receiver);
-    if (e.kind === "binary") {
-      walk(e.left);
-      walk(e.right);
-    }
-    if (e.kind === "ternary") {
-      walk(e.cond);
-      walk(e.then);
-      walk(e.otherwise);
-    }
-    if (e.kind === "unary") walk(e.operand);
-    if (e.kind === "paren") walk(e.inner);
-    if (e.kind === "call") for (const a of e.args) walk(a);
-    if (e.kind === "new" || e.kind === "object") {
-      for (const f of e.fields) walk(f.value);
-    }
-  };
   for (const t of tests) {
     for (const s of t.statements) {
-      if (
-        s.kind === "expect" ||
-        s.kind === "expect-throws" ||
-        s.kind === "let" ||
-        s.kind === "expression"
-      ) {
-        walk(s.expr);
-      }
+      if (s.kind === "expect" || s.kind === "expect-throws") walkExprDeep(s.expr, visit);
+      else walkStmtExprsDeep(s, visit);
     }
   }
 }

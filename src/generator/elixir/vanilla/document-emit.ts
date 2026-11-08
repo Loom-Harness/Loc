@@ -39,9 +39,9 @@
 // `validateVanillaDocumentScope`.
 // ---------------------------------------------------------------------------
 
+import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import { isRequiredUpdateInput } from "../../../ir/enrich/wire-projection.js";
 import {
-  envelopeReturn,
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
   pagedReturn,
@@ -59,6 +59,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import type { AggPool } from "../../../ir/util/inheritance.js";
 import { aggregateHasMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import { isDocumentShaped, resolveDataSourceConfig } from "../../../ir/util/resolve-datasource.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
@@ -70,7 +71,6 @@ import {
   snake,
   upperFirst,
 } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -204,13 +204,14 @@ export function renderDocSchema(
   appModule: string,
   ctxModule: string,
   agg: AggregateIR,
+  pool: AggPool,
   schemaPrefix?: string,
   /** The aggregate's pure domain core (`domain-core-emit.ts`), spliced into the
    *  root module; empty when no unit test reaches the aggregate. */
   pureCore: readonly string[] = [],
 ): string {
   const moduleName = `${appModule}.${ctxModule}.${upperFirst(agg.name)}`;
-  const tableName = tableNameFor(agg.name);
+  const tableName = aggregateTableName(agg, pool);
   const pureCoreBlock = pureCore.length > 0 ? `\n${pureCore.join("\n")}\n` : "";
   const prefixLine = schemaPrefix ? `  @schema_prefix ${JSON.stringify(schemaPrefix)}\n` : "";
   // Route A: the blob is a TYPED `embeds_one :data, <Agg>.Data` embedded schema
@@ -746,9 +747,7 @@ function isDocSingleReturn(t: TypeIR): boolean {
   return (
     t.kind === "union" ||
     t.kind === "entity" ||
-    (t.kind === "optional" && t.inner.kind === "entity") ||
-    // `T envelope` — a single-row find (M-T6.57).
-    envelopeReturn(t) !== null
+    (t.kind === "optional" && t.inner.kind === "entity")
   );
 }
 

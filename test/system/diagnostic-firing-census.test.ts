@@ -530,6 +530,25 @@ const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
 };
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A store field's default is evaluated when the store is created, so on the
+  // JS-family store renderer it must be a constant: a call is refused.
+  "loom.store-init-not-constant": `
+system S {
+  subdomain Catalog { context Stock {
+    aggregate Item with crudish { sku: string }
+    repository Items for Item
+  } }
+  api StockApi from Catalog
+  storage pg { type: postgres }
+  resource st { for: Stock, kind: state, use: pg }
+  deployable api { platform: node contexts: [Stock] dataSources: [st] serves: StockApi port: 8080 }
+  ui WebApp {
+    api Catalog: StockApi
+    store Prefs { state { stamp: string = now().toString() } }
+    page Browse { route: "/browse" body: Stack { Text { "x" } } }
+  }
+  deployable web { platform: static targets: api ui: WebApp { Catalog: api } port: 3001 }
+}`,
   // Migration table steps (`Old -> New`, `A.Old -> B.New`), resolved on the
   // merged IR: a context the model lacks, a target it lacks, a name two
   // contexts declare, and a move between modules on different databases.
@@ -2126,6 +2145,12 @@ system S {
   } }
 }`,
   // `T option` is the deprecated spelling of `T?`.
+  "loom.envelope-removed": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    queryHandler One(id: Order id): Order envelope {
+      let o = Orders.get(id)
+      return o
+    }`),
   "loom.option-deprecated": repoOnly(`    aggregate Order with crudish { code: string }
     repository Orders for Order
     criterion OrderByCode(code: string) of Order = this.code == code
@@ -4299,6 +4324,10 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   "loom.macro-threw": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-non-ast-result": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-escapes-host": "test/macro/misbehaving-macro-diagnostics.test.ts",
+  // The attribution wrapped around any AST diagnostic raised on macro-
+  // synthesised code.  No stdlib macro synthesises an ill-typed body, so the
+  // pointed-at file registers one that does and asserts the wrapped message.
+  "loom.macro-synthesised": "test/macro/macro-synthesised-diagnostic-range.test.ts",
   // The body-walker GIVE-UP codes (M-T9.55).  Reachable from ordinary `.ddd`
   // source — `Stack { CreateForm { } }` reaches one — but never out of
   // `validate()`: they are attached in phase 8 by `giveUp()` and rendered into

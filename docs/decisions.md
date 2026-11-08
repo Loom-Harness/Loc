@@ -2536,6 +2536,10 @@ it.
 
 ## D-ENVELOPE-RATIFY — `X envelope` is a single-row find, not an `{id, ts, body}` carrier
 
+**Superseded (2026-11-03):** with declared finds removed (#3951) the keyword had
+no position where it meant anything but `T`, so it is removed — refused as
+`loom.envelope-removed`, whose quick fix drops it (#4122).
+
 **Status:** applied — the proposed default took effect 2026-09-13 (merged to `main` 2026-09-11 in #2863; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 
 **Question.** Does `find audit(): Order envelope` mean a wrapped

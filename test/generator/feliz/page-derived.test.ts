@@ -23,6 +23,7 @@ import { buildLoomModel } from "../../_helpers/ir.js";
 
 const sys = (pageBody: string) => `
 system P {
+  user { id: string }
   subdomain S { context C { } }
   ui WebApp {
 ${pageBody}

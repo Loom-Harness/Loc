@@ -120,6 +120,7 @@ describe("operation / workflow requires gate parsing", () => {
   // different audiences.
   it("parses + round-trips the workflow header `requires` gate", async () => {
     const src = `
+  system S { user { role: string } }
   context Sales {
     aggregate Ticket { open: bool }
     repository Tickets for Ticket { }
@@ -147,7 +148,8 @@ describe("operation / workflow requires gate parsing", () => {
     expect(printed).toContain('workflow Escalation requires currentUser.role == "supervisor"');
     // The header gate prints BEFORE the body, like every other header gate.
     expect(printed.indexOf("requires ")).toBeLessThan(printed.indexOf("{"));
-    const { errors: reErrors } = await parseString(`context Sales {
+    const { errors: reErrors } = await parseString(`system S { user { role: string } }
+  context Sales {
     aggregate Ticket { open: bool }
     repository Tickets for Ticket { }
 ${printed}

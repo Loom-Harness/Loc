@@ -7,6 +7,7 @@ import {
   createConnection,
 } from "vscode-languageserver/browser";
 import { createDddServices } from "./ddd-module.js";
+import { EditorOwnedDocumentsModule } from "./lsp/editor-owned-documents.js";
 
 // Browser entry for the Loom language server.  Hosts the full Langium LSP
 // server inside a web worker, talking to the editor over postMessage.  This
@@ -19,5 +20,10 @@ const messageReader = new BrowserMessageReader(self);
 const messageWriter = new BrowserMessageWriter(self);
 const connection = createConnection(messageReader, messageWriter);
 
-const { shared } = createDddServices({ connection, ...EmptyFileSystem });
+// The editor is the server's only document source, so a document the editor
+// closes leaves the workspace (see `EditorOwnedDocumentsModule`).
+const { shared } = createDddServices(
+  { connection, ...EmptyFileSystem },
+  EditorOwnedDocumentsModule,
+);
 startLanguageServer(shared);

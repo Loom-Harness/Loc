@@ -1957,6 +1957,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `Extract the logic into a pure 'function' and call that from both places.`,
   "loom.unknown-user-claim": (p: { member: unknown; claims: unknown }) =>
     `'${p.member}' is not a claim on the principal. 'currentUser' carries exactly the fields declared in the system's 'user { }' block (${p.claims}), plus the derived 'orgPath' / 'rootOrg' under 'tenancy by'. Declare it ('${p.member}: <type>' inside 'user { }') or fix the spelling — an undeclared claim reaches the generated backend verbatim, whose 'UserClaims' shape is built from that same block, and breaks its own compile.`,
+  "loom.unknown-user-claim#no-user-block": (p: { member: unknown }) =>
+    `'currentUser.${p.member}' reads a claim, but the system declares no 'user { }' block, so the principal carries none. Declare it ('user { ${p.member}: <type> }', with 'auth' on the deployable that serves it); without a declaration the claim has no type, and its generated read is a guess.`,
   "loom.unknown-primitive-member": (p: { member: unknown; prim: unknown; known: unknown }) =>
     `'${p.member}' is not a member of '${p.prim}'. '${p.prim}' is a PRIMITIVE value, not a record — it has no fields.${p.known} An invented member is not caught anywhere downstream: it reaches the generated code verbatim, where node/.NET/Java fail their own compile and python/elixir do not — so an invariant written over one silently never fires.`,
   "loom.unknown-primitive-member#money": (p: { member: unknown; known: unknown }) =>
@@ -2128,6 +2130,9 @@ export const DIAGNOSTIC_MESSAGES = {
     `context '${p.name}': ${p.kind} '${p.hName}' has a parameter named 'id', which is ` +
     `reserved — a bare 'id' in a handler body resolves to the current entity's implicit id, ` +
     `not the parameter. Rename it (e.g. 'orderId').`,
+  "loom.envelope-removed":
+    "`T envelope` is removed: it meant exactly `T` (a single value), so the carrier added nothing. " +
+    "Write `T` instead — the quick fix drops the `envelope`.",
   "loom.option-deprecated":
     "`T option` is deprecated: it means `T?`, the one way to say a value may be missing. " +
     "Write `T?` instead — the quick fix rewrites it.",
@@ -2753,6 +2758,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `field '${p.name}' (${p.k}) cannot be URL-synced — ` +
     `\`persist: url\` fields must be scalar (string/number/bool/enum/id). ` +
     `Use \`persist: local\` for structural state.`,
+  "loom.store-init-not-constant": (p: { name: unknown; kind: unknown }) =>
+    `field '${p.name}': its initializer is not a constant (a \`${p.kind}\` expression).  ` +
+    `A store field is initialised once, when the store is created, so its default ` +
+    `may use only literals, lists, operators, \`? :\`, enum values and \`string(…)\` — ` +
+    `set anything else from a store action instead.`,
   "loom.store-action-view-effect": (p: { where: unknown; name: unknown; sName: unknown }) =>
     `action '${p.name}': \`${p.sName}(…)\` is a view-scoped effect — ` +
     `a store has no router/socket to ${p.sName} on.  Move it to the calling page's ` +
@@ -5686,6 +5696,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `Macro '${p.childName}' (invoked from '${p.name}') threw: ${p.message}`,
   "loom.macro-threw#direct": (p: { name: unknown; message: unknown }) =>
     `Macro '${p.name}' threw during expansion: ${p.message}`,
+  // Not a diagnostic of its own: the attribution any AST-phase diagnostic on a
+  // macro-synthesised node is wrapped in (`DddDocumentValidator.toDiagnostic`),
+  // which keeps that diagnostic's code and moves it onto the `with` clause.
+  "loom.macro-synthesised": (p: { message: unknown; macro: unknown }) =>
+    `${String(p.message).replace(/\.\s*$/, "")} (in code synthesised by '${p.macro}')`,
   "loom.capability-host-invalid": (p: { name: unknown; hostKind: unknown }) =>
     `Capability '${p.name}' can only be applied to an aggregate or context (got '${p.hostKind}').  ` +
     "A capability is a pure mixin over domain state, not a UI or API concern.",

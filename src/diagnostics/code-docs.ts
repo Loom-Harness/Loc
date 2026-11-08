@@ -73,6 +73,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   // --- src/language/validators/structural.ts (M-T9.56 drain) --------------
   "loom.audited-no-command": "22-macros.md#audit--the-built-in-capability-auditable",
   "loom.scaffold-aggregate-unserved": "22-macros.md#scaffold-family--application--transport",
+  "loom.macro-synthesised": "22-macros.md#errors-inside-synthesised-code",
   "loom.duplicate-entity-part": "03-domain-modeling.md#entity-parts--contains",
   "loom.valueobject-contains-entity": "03-domain-modeling.md#valueobject",
   "loom.containment-optional-collection": "03-domain-modeling.md#entity-parts--contains",
@@ -87,10 +88,11 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.crudish-hard-delete":
     "../scaffold-macros.md#crudish-delete-under-softdeletable--loomcrudish-hard-delete",
   "loom.entity-field-optional-collection": "04-type-system.md#collections--t",
-  "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-envelope-option",
-  "loom.generic-position": "04-type-system.md#generic-carriers--paged-envelope-option",
+  "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-option",
+  "loom.generic-position": "04-type-system.md#generic-carriers--paged-option",
   "loom.paged-envelope-unknown-member": "04-type-system.md#paged",
   "loom.option-deprecated": "04-type-system.md#option",
+  "loom.envelope-removed": "04-type-system.md#envelope-removed",
   "loom.token-nullable": "04-type-system.md#options--t",
   "loom.nullable-receiver": "04-type-system.md#options--t",
   "loom.bare-aggregate-in-type": "04-type-system.md#x-id--cross-aggregate-references",
@@ -317,6 +319,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.relay-target-not-subscribed":
     "14-apis-storage-resources-channels.md#transport-compatibility",
   "loom.component-missing-body": "15-ui-pages-structure.md#component--reusable-region-tree",
+  "loom.store-init-not-constant":
+    "15-ui-pages-structure.md#store--shared-client-state-with-a-lifetime",
   "loom.action-out-of-position": "15-ui-pages-structure.md#state--derived--action",
   "loom.effect-in-lambda": "15-ui-pages-structure.md#state--derived--action",
   "loom.angular-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",

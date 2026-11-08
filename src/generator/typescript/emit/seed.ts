@@ -164,7 +164,7 @@ function renderDatasetFn(
     e.raw
       ? // raw path (D-SEED-XREF): direct INSERT with explicit id + FK columns,
         // qualified with the aggregate's dataSource schema (see `SchemaFor`).
-        rawInsert(renderSeedRowInsert(e.row.aggregate, e.row.fields, schemaFor(e.row.aggregate)))
+        rawInsert(renderSeedRowInsert(e.table, e.row.fields, schemaFor(e.row.aggregate)))
       : `  await ${repoVar(e.row.aggregate)}.save(${e.row.aggregate}.create(${renderInput(e.row, typesByAgg.get(e.row.aggregate))}));`,
   );
   return lines(

@@ -9,6 +9,11 @@
 // -------------------------------------------------------------------------
 
 import type { CodecPrimitive } from "../../../ir/enrich/codec.js";
+import {
+  aggregateTableName,
+  partTableName,
+  projectionTableName,
+} from "../../../ir/enrich/storage-names.js";
 import type {
   AssociationIR,
   EnrichedAggregateIR,
@@ -21,6 +26,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
+import type { AggPool } from "../../../ir/util/inheritance.js";
 import {
   discriminatorValue,
   isTphBase,
@@ -31,7 +37,6 @@ import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
 import { type MikroScalar, mikroScalar } from "../codec-spelling.js";
 import { joinColumnName, joinTableConstName } from "../emit.js";
 import { isRefCollection } from "../repository-associations-builder.js";
@@ -42,10 +47,6 @@ import {
   tphConcreteAggregates,
 } from "./mikroorm-schema-filters.js";
 import { usesRawFragment } from "./mikroorm-shared.js";
-
-/** Postgres table for an aggregate — lowercase plural (e.g. `orders`). */
-
-const tableOf = (aggName: string): string => tableNameFor(aggName);
 
 /** Row-entity class name for an aggregate (the MikroORM persistence model). */
 
@@ -437,7 +438,7 @@ function renderPartRowEntity(
       "",
       `export const ${schemaName} = new EntitySchema<${cls}>({`,
       `  class: ${cls},`,
-      `  tableName: "${tableNameFor(part.name)}",`,
+      `  tableName: "${partTableName(part)}",`,
       `  properties: {`,
       ...propLines,
       `  },`,
@@ -738,10 +739,10 @@ function projectionStateColumns(proj: ProjectionIR, ctx: EnrichedBoundedContextI
  *  a duplicate write commits.  A `softDeletable` key is partial (`WHERE
  *  is_deleted = false`, so a soft-deleted row frees its key), which MikroORM
  *  only expresses as the index's full DDL. */
-function mikroUniquesLines(agg: EnrichedAggregateIR): string[] {
+function mikroUniquesLines(agg: EnrichedAggregateIR, pool: AggPool): string[] {
   const keys = agg.uniqueKeys ?? [];
   if (keys.length === 0) return [];
-  const table = tableOf(agg.name);
+  const table = aggregateTableName(agg, pool);
   const softDeletable = agg.capabilities?.includes("softDeletable") ?? false;
   const entries = keys.map((uk) => {
     const cols = uk.columns.map((c) => snake(c));
@@ -885,13 +886,13 @@ export function renderMikroEntities(
         ...(tph ? [] : [`export class ${cls} {`, ...classFields, `}`, ""]),
         `export const ${schemaName} = new EntitySchema<${cls}>({`,
         `  class: ${cls},`,
-        `  tableName: "${tableOf(agg.name)}",`,
+        `  tableName: "${aggregateTableName(agg, ctx.aggregates)}",`,
         ...stiLines,
         `  properties: {`,
         ...propLines,
         `  },`,
         ...filterLines,
-        ...mikroUniquesLines(agg),
+        ...mikroUniquesLines(agg, ctx.aggregates),
         `});`,
         "",
       ),
@@ -1016,7 +1017,7 @@ export function renderMikroEntities(
     if (!isMaterializedProjection(proj)) continue;
     const { block, schemaName } = renderRecordRowEntity(
       mikroProjectionRowClass(proj),
-      tableNameFor(proj.name),
+      projectionTableName(proj),
       projectionStateColumns(proj, ctx),
     );
     schemaNames.push(schemaName);
