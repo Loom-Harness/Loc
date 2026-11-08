@@ -56,6 +56,7 @@ import {
   wireChangeEntity,
 } from "../../../src/system/migration-diff.js";
 import { MigrationDestructiveError } from "../../../src/system/migrations-builder.js";
+import { serviceSlug } from "../../../src/util/service-slug.js";
 import type { SnapshotStore } from "../../../src/system/snapshot.js";
 import { MemoryVfs } from "../vfs/memory-vfs.js";
 import { chainDir, readChainFiles } from "./chain-files.js";
@@ -383,8 +384,6 @@ export async function migrationPlan(params: MigrationPlanParams): Promise<Migrat
     steps > 0 ? { initial: chain.entries.length === 0, modules, steps, destructive } : null;
   const all = chainMigrations(chain);
   const storages: StoragePlan[] = [];
-  // Lazy, as the build worker loads the system orchestrator everywhere else.
-  const { serviceSlug } = await import("../../../src/system/index.js");
   for (const sys of loaded.loom.systems) {
     for (const s of storageGroups(sys, serviceSlug)) {
       const units = unitPlans(all.filter((m) => s.modules.has(m.module)));

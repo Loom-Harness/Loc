@@ -48,6 +48,7 @@ import { hasAdapters, resolveLayout, resolveStyle } from "../platform/resolve-ad
 import { AUTH_BASE_PATH } from "../util/api-base.js";
 import { type EmissionSink, emissionSink } from "../util/emission-sink.js";
 import { resourceEnvUrlVar, resourceSidecarUrl } from "../util/resource-env.js";
+import { serviceSlug } from "../util/service-slug.js";
 import { renderAsyncApi } from "./asyncapi.js";
 import { renderDataSourcesMd } from "./datasources.js";
 import { type DevIdpTokenSource, renderE2EFile } from "./e2e-render.js";
@@ -748,16 +749,7 @@ function frontendOrigins(sys: SystemIR): string[] {
     .map((f) => `http://localhost:${f.port}`);
 }
 
-/** The compose-safe service slug of a deployable name.  Exported because it
- *  is also the exact suffix set an api-e2e vitest title can carry
- *  (` against <serviceSlug>`, appended by `e2e-render.ts`), which `ddd verify`
- *  needs to undo the suffix when joining results onto the requirements graph
- *  — see `src/verify/verification.ts`.  Note it is NOT `naming.snake`: that
- *  splits consecutive capitals too (`APIGateway` → `api_gateway`, where this
- *  gives `apigateway`). */
-export function serviceSlug(name: string): string {
-  return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
-}
+export { serviceSlug };
 
 // ---------------------------------------------------------------------------
 // docker-compose.yml
