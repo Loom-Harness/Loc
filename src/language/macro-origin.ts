@@ -44,3 +44,20 @@ export function originOf(node: unknown): OriginToken | undefined {
   }
   return undefined;
 }
+
+/** The `with X(...)` clause a macro-synthesised node is attributed to: the
+ *  nearest origin call site that has a CST of its own, and the macro named
+ *  there.  A nested invocation's call node may itself be synthesised, so the
+ *  walk continues through that call node's own origin until it reaches a
+ *  clause the user wrote.  `undefined` when the node carries no origin, or
+ *  when no call site in the chain has source text. */
+export function macroCallSiteOf(node: unknown): OriginToken | undefined {
+  const seen = new Set<OriginToken>();
+  let token = originOf(node);
+  while (token && !seen.has(token)) {
+    if (token.callNode.$cstNode) return token;
+    seen.add(token);
+    token = originOf(token.callNode);
+  }
+  return undefined;
+}

@@ -517,6 +517,18 @@ ui W with scaffoldAggregate(of: Nope) { }
 //                                                          [loom.macro-arg-unresolved-ref]
 ```
 
+### Errors inside synthesised code
+
+Code a macro synthesises is checked like code you wrote. A check that fails inside it has no source text of its own to point at, so it is reported on the macro's name in the `with` clause that produced it, keeps its own code, and names the macro (`loom.macro-synthesised` is the attribution's wording, not a separate diagnostic):
+
+```ddd
+aggregate Lease with crudish, withLateFees(ratePct: 7) {   // withLateFees assigns a string to a money field
+  monthlyRent: money
+}
+// 4:37 error: Cannot assign 'string' to 'money' (in code synthesised by 'withLateFees')
+//                                                          [loom.assign-type-mismatch]
+```
+
 ### `ignoring` placement
 
 `ignoring <Capability>` bypasses a capability read filter (the `softDeletable` case above). It rides `PostfixExpr`, which is admissible anywhere an expression is — so it parses cleanly in positions where nothing reads it back and the filter silently stays applied. `loom.ignoring-clause-placement` refuses those: the clause has exactly three homes — a query-time projection's `where` slot (**before** `join` / `group by` / `select`), and an inline read bound by a `let`.
