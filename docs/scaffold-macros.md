@@ -331,7 +331,7 @@ api SalesApi from Sales
 The `Ordering` context gains:
 
 ```ddd
-response OrderResponse { code: string, status: string, version: int }
+response OrderResponse { code: string, status: string, rowVersion: int }
 query GetOrderQuery { orderId: Order id }
 command CreateOrderCommand { code: string, status: string }
 ```
@@ -345,7 +345,7 @@ export const OrderResponse = z.object({
   id: z.string(),
   code: z.string(),
   status: z.string(),
-  version: z.number().int().openapi({ format: "int32" }),
+  rowVersion: z.number().int().openapi({ format: "int32" }),
 }).openapi("OrderResponse");
 ```
 
