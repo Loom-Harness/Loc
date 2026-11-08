@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from "vitest";
 import { honoProjectDirs, unboundSymbols } from "../_helpers/emitted-binding.js";
-import { generateSystemFiles } from "../_helpers/index.js";
+import { generateSystemFiles, generateSystemFilesUnchecked } from "../_helpers/index.js";
 
 const fixture = (platform: string, auth = true): string => `
 system Acme {
@@ -92,11 +92,13 @@ async function gen(platform: string, auth = true): Promise<Map<string, string>> 
 /** Hierarchical tenancy: the registry is a `tenantRegistry` TREE, so the
  *  system principal's materialized path is the origin's `orgPath`. */
 async function genHierarchy(platform: string): Promise<Map<string, string>> {
-  return generateSystemFiles(
+  return generateSystemFilesUnchecked(
     fixture(platform).replace(
       "aggregate Organization with crudish { name: string }",
       "aggregate Organization with crudish {\n        name: string\n        implements tenantRegistry\n      }",
     ),
+    "shipApi's tenant-owned context without the registry is refused " +
+      "(loom.tenancy-registry-remote-unsupported, #4806); these cases pin sales_api, which hosts it",
   );
 }
 

@@ -294,5 +294,9 @@ describe.skipIf(!ENABLED)(`cross-deployable broker delivery (channels-e2e, ${LEG
       30_000,
       "a Pulse created on shipApi by the salesApi timer tick",
     );
+    const res = await fetch(`http://localhost:${SHIP_PORT}/api/pulses`);
+    const body = (await res.json()) as { items: { at: string }[] };
+    expect(body.items.length).toBeGreaterThan(0);
+    expect(Number.isNaN(Date.parse(body.items[0].at))).toBe(false);
   }, 60_000);
 });
