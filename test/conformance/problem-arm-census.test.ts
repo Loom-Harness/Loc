@@ -81,7 +81,7 @@ const PLATFORMS = ["node", "dotnet", "java", "python", "elixir"] as const;
 const VALIDATION_ARM: Record<string, RegExp> = {
   node: /title: "([^"]*)",\s*\n\s*status: 422,\s*\n\s*detail: "([^"]*)"/,
   dotnet: /Title = "([^"]*)",\s*\n\s*Status = 422,\s*\n\s*Detail = "([^"]*)"/,
-  java: /problem\(422, "([^"]*)", "([^"]*)", request\)/,
+  java: /problem\(422, "([^"]*)", "([^"]*)", "problem\.field-invalid", request\)/,
   python: /problem\(request, 422, "([^"]*)", "([^"]*)", errors, code=/,
   elixir: /title: "([^"]*)",\s*\n\s*status: 422,\s*\n\s*detail: "([^"]*)"/,
 };

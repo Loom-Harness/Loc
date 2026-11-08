@@ -153,7 +153,7 @@ describe("vanilla — guarded NAMED op denies 403/422 (not raise → 500)", () =
     );
     expect(fn).toContain(":ok <- ensure(record.balance >= amount, {:forbidden, ");
     expect(fn).toContain(
-      ':ok <- ensure(amount > 0, {:validation_failed, [%{pointer: "/amount", message: "Amount must be at least 1", code: "field.rule"}]})',
+      ':ok <- ensure(amount > 0, {:validation_failed, [%{pointer: "/amount", message: "Amount must be at least 1", code: "field.min", params: %{min: 1}}]})',
     );
     // Guards precede the mutation + persist.
     // Anchored on the chain's OPENING token rather than on `with :ok <- ensure`:

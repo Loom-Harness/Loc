@@ -323,13 +323,13 @@ const SITES: Record<Platform, Site[]> = {
       rung: "ConcurrencyConflict",
       what: "the optimistic-lock @ExceptionHandler",
       file: "api/ApiExceptionAdvice.java",
-      at: /problem\((\d+), "Conflict", detail, request\)/,
+      at: /problem\((\d+), "Conflict", detail, "problem\.version-conflict", request\)/,
     },
     {
       rung: "ReferencedInUse",
       what: "the FK-restrict (23503) arm of the DataIntegrityViolation handler",
       file: "api/ApiExceptionAdvice.java",
-      at: /problem\((\d+), "[^"]*", "This resource is still referenced/,
+      at: /problem\((\d+), "[^"]*", referencedDetail\(request\), "problem\.referenced-in-use"/,
     },
     {
       rung: "Forbidden",
@@ -418,7 +418,7 @@ const SITES: Record<Platform, Site[]> = {
       rung: "ConcurrencyConflict",
       what: "`conflict_response/3`, the shared optimistic-lock responder",
       file: "api_web/problem_details.ex",
-      at: /def conflict_response\(conn, kind, id\) do[\s\S]{0,1200}?send_resp\((\d+), body\)/,
+      at: /defp send_conflict\(conn, detail\) do[\s\S]{0,1200}?send_resp\((\d+), body\)/,
     },
     {
       rung: "ReferencedInUse",
@@ -430,13 +430,13 @@ const SITES: Record<Platform, Site[]> = {
       rung: "Forbidden",
       what: "the read gate of the by-id read",
       file: "controllers/item_controller.ex",
-      at: /problem_response\(conn, (\d+), "[^"]*", "Forbidden: find byId"\)/,
+      at: /problem_response\(conn, (\d+), "[^"]*", "Forbidden: find byId", "problem\.forbidden"\)/,
     },
     {
       rung: "Forbidden",
       what: "the read gate of the AUDIT-HISTORY controller (was a literal until this PR)",
       file: "controllers/item_controller.ex",
-      at: /problem_response\(conn, (\d+), "[^"]*", "Forbidden: find history"\)/,
+      at: /problem_response\(conn, (\d+), "[^"]*", "Forbidden: find history", "problem\.forbidden"\)/,
     },
     {
       rung: "NotFound",

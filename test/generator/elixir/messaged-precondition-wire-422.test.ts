@@ -129,11 +129,11 @@ function file(files: Map<string, string>, suffix: string): string {
 }
 
 describe("elixir/vanilla — messaged precondition answers the wire-validation 422 (M-T6.20)", () => {
-  it("lifts a message-LESS param precondition with node's sentence and no code; leaves this-state on the domain floor", async () => {
+  it("lifts a message-LESS param precondition with node's sentence and its field-limit code; leaves this-state on the domain floor", async () => {
     const ctx = file(await generateSystemFiles(SRC), "/api/cat.ex");
-    // Message-less: node's synthesized sentence, no code (RS-43).
+    // Message-less: node's synthesized sentence (RS-43), the limit's code and bound.
     expect(ctx).toContain(
-      'ensure(amount >= 1, {:validation_failed, [%{pointer: "/amount", message: "Amount must be at least 1", code: "field.rule"}]})',
+      'ensure(amount >= 1, {:validation_failed, [%{pointer: "/amount", message: "Amount must be at least 1", code: "field.min", params: %{min: 1}}]})',
     );
     expect(ctx).not.toContain("Precondition failed: amount >= 1");
     // Messaged but reads `this.status` — no request body carries it, so it is

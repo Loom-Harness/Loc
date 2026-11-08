@@ -50,12 +50,19 @@ describe("strict numeric bound on a decimal field emits an exclusive validator",
   it("zod (node/Hono): `.gt(0.5)` / `.lt(2)`, integer bound stays `.min(5)`", async () => {
     const files = await filesFor("node", 3000);
     const routes = findFile(files, /parcel\.routes\.ts$/i);
-    expect(routes).toContain('.gt(0.5, { message: "Weight must be greater than 0.5" })');
-    expect(routes).toContain('.lt(2, { message: "Weight must be less than 2" })');
+    expect(routes).toContain(
+      '.refine((v: any) => v > 0.5, { message: "Weight must be greater than 0.5", params: { loomCode: "field.greater-than", loomValues: {"min":0.5} } })',
+    );
+    expect(routes).toContain(
+      '.refine((v: any) => v < 2, { message: "Weight must be less than 2", params: { loomCode: "field.less-than", loomValues: {"max":2} } })',
+    );
+    expect(routes).toContain(".openapi({ exclusiveMinimum: 0.5, exclusiveMaximum: 2 })");
     // No inclusive decimal fold leaked through.
-    expect(routes).not.toContain(".min(1.5)");
+    expect(routes).not.toContain("v >= 1.5");
     // Integer strict bound is byte-identical to the legacy inclusive fold.
-    expect(routes).toContain('.min(5, { message: "Qty must be at least 5" })');
+    expect(routes).toContain(
+      '.refine((v: any) => v >= 5, { message: "Qty must be at least 5", params: { loomCode: "field.min", loomValues: {"min":5} } })',
+    );
   });
 
   it("pydantic (python): `Field(gt=0.5, lt=2)`, integer bound stays `ge=5`", async () => {
@@ -69,10 +76,13 @@ describe("strict numeric bound on a decimal field emits an exclusive validator",
   it("Ecto (elixir): `greater_than: 0.5` / `less_than: 2`, integer bound stays `greater_than_or_equal_to: 5`", async () => {
     const files = await filesFor("elixir", 4000);
     const changeset = findFile(files, /parcel_changeset\.ex$/i);
-    expect(changeset).toContain("greater_than: 0.5");
-    expect(changeset).toContain("less_than: 2");
-    expect(changeset).not.toContain("greater_than_or_equal_to: 1.5");
-    expect(changeset).toContain("greater_than_or_equal_to: 5");
+    // One `validate_change` per side, each under its own field-limit code.
+    expect(changeset).toContain('Decimal.new("0.5")) == :gt');
+    expect(changeset).toContain('loom_code: "field.greater-than", loom_params: %{min: 0.5}');
+    expect(changeset).toContain('Decimal.new("2")) == :lt');
+    expect(changeset).toContain('loom_code: "field.less-than", loom_params: %{max: 2}');
+    expect(changeset).not.toContain('Decimal.new("1.5")');
+    expect(changeset).toContain('Decimal.new("5")) != :lt');
   });
 
   it("FluentValidation (.NET): `.GreaterThan(0.5m)` / `.LessThan(2m)`, integer bound stays `.GreaterThanOrEqualTo(5)`", async () => {

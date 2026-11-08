@@ -92,8 +92,8 @@ const REGEX_AND_LENGTH = `
 describe("string .length is code points — node/Hono", () => {
   it("the native chain is a code-point refine, not zod's code-unit .min/.max", async () => {
     const routes = await file("node_api/http/product.routes.ts");
-    expect(routes).toContain("[...s].length >= 3");
-    expect(routes).toContain("[...s].length <= 16");
+    expect(routes).toContain("[...v].length >= 3");
+    expect(routes).toContain("[...v].length <= 16");
     // The code-unit primitives must be gone from the length constraint.
     expect(routes).not.toContain("z.string().min(3)");
     expect(routes).not.toContain(".max(16)");
@@ -125,9 +125,9 @@ describe("string .length is code points — node/Hono", () => {
       [...all.keys()].find((k) => k.endsWith("node_api/http/person.routes.ts"))!,
     )!;
     expect(routes).toContain(
-      'email: z.string().regex(/^[^@]+@[^@]+$/, { message: "Email is not in the expected format" })' +
-        '.refine((s) => [...s].length <= 120, { message: "Email must be at most 120 characters" })' +
-        ".openapi({ maxLength: 120 })",
+      'email: z.string().refine((v: any) => /^[^@]+@[^@]+$/.test(v), { message: "Email is not in the expected format", params: { loomCode: "field.pattern" } })' +
+        '.refine((v: any) => [...v].length <= 120, { message: "Email must be at most 120 characters", params: { loomCode: "field.max-length", loomValues: {"max":120} } })' +
+        ".openapi({ maxLength: 120, pattern: /^[^@]+@[^@]+$/.source })",
     );
   });
 });
@@ -194,9 +194,10 @@ describe("string .length is code points — elixir", () => {
     expect(changeset).toContain("|> validate_change(:code, fn _, value ->");
     expect(changeset).toContain("length(String.to_charlist(value)) >= 3");
     expect(changeset).toContain("length(String.to_charlist(value)) <= 16");
-    // Ecto's error metadata is kept; the message is node's `singleFieldMessage`.
+    // The message is node's `singleFieldMessage`; the error carries the side's
+    // field-limit code and bound.
     expect(changeset).toContain(
-      '[{:code, {"Code must be at least 3 characters", count: 3, validation: :length, kind: :min, type: :string}}]',
+      'validation: :length, loom_code: "field.min-length", loom_params: %{min: 3}}}]',
     );
     // The grapheme-counting forms are gone.
     expect(changeset).not.toContain("validate_length(");

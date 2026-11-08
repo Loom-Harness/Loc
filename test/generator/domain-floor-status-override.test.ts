@@ -73,7 +73,8 @@ async function emit(platform: string, apiBody: string): Promise<string> {
 const RUNTIME_ARM: Record<string, (status: number, title: string) => string> = {
   node: (s, t) => `return problem(${s}, "${t}", err.message, "problem.domain-floor");`,
   dotnet: (s, t) => `Problem(context, ${s}, "${t}", de.Message, trace_id, "problem.domain-floor");`,
-  java: (s, t) => `return respond(problem(${s}, "${t}", e.getMessage(), request), ${s});`,
+  java: (s, t) =>
+    `return respond(problem(${s}, "${t}", e.getMessage(), "problem.domain-floor", request), ${s});`,
   python: (s, t) => `return problem(request, ${s}, "${t}", str(err), code="problem.domain-floor")`,
 };
 
@@ -134,7 +135,7 @@ describe("M-T5.20 — the `Forbidden` rung resolves the same way", () => {
         node: 'return problem(402, "Payment Required", err.detail, "problem.forbidden");',
         dotnet:
           'Problem(context, 402, "Payment Required", "Forbidden", trace_id, "problem.forbidden");',
-        java: 'return respond(problem(402, "Payment Required", e.getMessage(), request), 402);',
+        java: 'return respond(problem(402, "Payment Required", "Forbidden", "problem.forbidden", request), 402);',
         python:
           'return problem(request, 402, "Payment Required", "Forbidden", code="problem.forbidden")',
       };

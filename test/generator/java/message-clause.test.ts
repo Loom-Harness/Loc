@@ -51,12 +51,12 @@ describe("java — messaged rule → wire validator + domain floor text", () => 
     );
   });
 
-  it("answers a message-LESS single-field rule with the generic field.rule code", async () => {
+  it("answers a message-LESS single-field rule with its field-limit code and bound", async () => {
     const { validator } = await gen();
     // The message-less `invariant sku.length > 0` uses the generic `field.rule`
     // code and reads no values, so it carries no `params`.
     expect(validator).toContain(
-      'errors.rejectValue("sku", "field.rule", "Sku must be at least 1 character")',
+      'errors.rejectValue("sku", "field.min-length", new Object[] {"min", 1}, "Sku must be at least 1 character")',
     );
   });
 });

@@ -81,8 +81,8 @@ const ARMS: Record<string, { real: string[]; dev: string[]; log: string }> = {
     log: '"forbidden", fe.Message, 403',
   },
   java: {
-    real: ['problem(403, "Forbidden", "Forbidden", request), 403'],
-    dev: ['problem(403, "Forbidden", e.getMessage(), request), 403'],
+    real: ['problem(403, "Forbidden", "Forbidden", "problem.forbidden", request), 403'],
+    dev: ['problem(403, "Forbidden", "Forbidden", "problem.forbidden", request), 403'],
     log: '"message", e.getMessage(), "status", 403',
   },
   python: {
@@ -91,8 +91,8 @@ const ARMS: Record<string, { real: string[]; dev: string[]; log: string }> = {
     log: 'log("warn", "forbidden", message=str(err), status=403)',
   },
   elixir: {
-    real: ['detail = if status == 403, do: "Forbidden", else: detail'],
-    dev: [],
+    real: ['detail = if code == "problem.forbidden", do: "Forbidden", else: detail'],
+    dev: ['detail = if code == "problem.forbidden", do: "Forbidden", else: detail'],
     log: 'Logger.warning("forbidden", event: "forbidden", message: detail, status: status)',
   },
 };
@@ -112,8 +112,10 @@ describe("403 detail echoes the gate only under the dev-stub verifier (ruling D4
     });
   }
 
-  it("elixir: the redaction is emitted only under a real verifier", async () => {
-    expect(await all("elixir", false)).not.toContain('do: "Forbidden", else: detail');
+  it("elixir: the redaction keys on the forbidden code, not the status", async () => {
+    // Under every verifier (#4473): a `httpStatus Forbidden -> …` override moves
+    // the status, never the code.
+    expect(await all("elixir", false)).not.toContain("detail = if status == 403");
   });
 
   it("node: no forbidden arm anywhere still answers err.message", async () => {

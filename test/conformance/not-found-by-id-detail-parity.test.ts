@@ -153,7 +153,9 @@ const EXPECTED: Record<
     platform: "elixir",
     port: 3008,
     exts: ["problem_details.ex"],
-    needles: ['problem_response(conn, 404, "Not Found", "#{kind} #{id} not found")'],
+    needles: [
+      'problem_response(conn, 404, "Not Found", "#{kind} #{id} not found", "problem.not-found")',
+    ],
   },
 };
 
@@ -221,7 +223,7 @@ describe("RS-27 — a 404-by-id detail is the same sentence on all five backends
     expect(controller).not.toContain("ResponseEntity.notFound().build()");
     // The advice that renders it — `e.getMessage()` is what carries the sentence.
     expect(sourceFor(files, ".java")).toContain(
-      'return respond(problem(404, "Not Found", e.getMessage(), request), 404);',
+      'return respond(problem(404, "Not Found", e.getMessage(), "problem.not-found", request), 404);',
     );
   });
 

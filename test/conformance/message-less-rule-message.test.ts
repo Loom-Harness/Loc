@@ -109,16 +109,18 @@ describe("RS-43 — a message-less rule answers node's sentence on every backend
     expect(java).not.toContain('"Invariant violated: seats >= 1 && seats <= 500"');
   });
 
-  it("elixir: a message-less precondition denies on the errors[] rung, with node's sentence and no code", async () => {
+  it("elixir: a message-less precondition denies on the errors[] rung, with node's sentence and its field-limit code", async () => {
     const ex = all(await generateSystemFiles(fixture("elixir")), ".ex");
     expect(ex).toContain(
-      '{:validation_failed, [%{pointer: "/count", message: "Count must be at least 1"}]}',
+      '{:validation_failed, [%{pointer: "/count", message: "Count must be at least 1", code: "field.min", params: %{min: 1}}]}',
     );
     expect(ex).toContain(
-      '{:validation_failed, [%{pointer: "/code", message: "Code is not in the expected format"}]}',
+      '{:validation_failed, [%{pointer: "/code", message: "Code is not in the expected format", code: "field.pattern"}]}',
     );
-    // The responder renders a code-less entry.
-    expect(ex).toContain("defp render_wire_error(%{pointer: pointer, message: message}) do");
+    // The responder renders the entry with its code and params.
+    expect(ex).toContain(
+      "defp render_wire_error(%{pointer: pointer, message: message} = entry) do",
+    );
   });
 
   it("python: a message-less model-level invariant raises a typed error at its field", async () => {

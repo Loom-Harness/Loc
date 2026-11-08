@@ -230,7 +230,7 @@ describe("RS-39 — an absent required field: one 422 everywhere; a create with 
   it("java: @NotNull reads the wirePolicy missing-field sentence; Ticket's create body is not required", async () => {
     const m = await files("java");
     expect(fileEndingWith(m, "ApiExceptionAdvice.java")).toContain(
-      `"NotNull".equals(err.getCode()) ? lastKey((String) entry.get("pointer")) + " is required"`,
+      'var message = missing ? lastKey(pointer) + " is required" : err.getDefaultMessage();',
     );
     expect(lineWith(fileEndingWith(m, "TicketsController.java"), "createTicket(")).toContain(
       "@RequestBody(required = false) CreateTicketRequest request",

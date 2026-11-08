@@ -66,7 +66,7 @@ const STRIPS: Record<string, { file: RegExp; strip: RegExp }> = {
   },
   dotnet: { file: /RequestContextMiddleware\.cs$/, strip: /tag = tag\[1\.\.\^1\]/ },
   python: { file: /problem\.py$/, strip: /_IF_MATCH = re\.compile\(r'\^\(\?:W\/\)\?\(\?:"/ },
-  elixir: { file: /_controller\.ex$/, strip: /String\.trim\("\\""\)/ },
+  elixir: { file: /_controller\.ex$/, strip: /\(\?:"\(\\d\+\)"\|\(\\d\+\)\)/ },
   // The CONTROLLER, not the helper: a row pointed at `IfMatch.java` would keep
   // passing while the controller bound the raw header to an `Integer` and never
   // called the helper at all — the helper would just sit there unused.  The

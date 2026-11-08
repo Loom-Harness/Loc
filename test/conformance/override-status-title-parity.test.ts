@@ -188,7 +188,7 @@ const SITES: Record<Platform, Site[]> = {
       rung: "Forbidden",
       what: "the `requires` gate refusal on the gated list read",
       file: "controllers/item_controller.ex",
-      at: /problem_response\(conn, \d+, "([^"]*)", "Forbidden: find all"\)/,
+      at: /problem_response\(conn, \d+, "([^"]*)", "Forbidden: find all", "problem\.forbidden"\)/,
     },
     {
       rung: "Disallowed",
@@ -200,7 +200,7 @@ const SITES: Record<Platform, Site[]> = {
       rung: "NotFound",
       what: "the routed single-row read's absence arm (its handler's `notFound`)",
       file: "controllers/a_routes_controller.ex",
-      at: /def respond\(conn, \{:error, \{:not_found, detail\}\}\),\s+do: ProblemDetails\.problem_response\(conn, \d+, "([^"]*)", detail\)/,
+      at: /def respond\(conn, \{:error, \{:not_found, detail\}\}\),\s+do: ProblemDetails\.problem_response\(conn, \d+, "([^"]*)", detail, "problem\.not-found"\)/,
     },
     {
       rung: "NotFound",

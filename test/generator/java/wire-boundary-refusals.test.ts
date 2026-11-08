@@ -178,7 +178,7 @@ describe("java — the invariant validator skips a null instead of dereferencing
     // Narrowness: skipping NULL must not skip EMPTY. `""` is present and
     // violates the invariant; it answered 422 before and answers 422 after.
     const validator = await file("orders/CreateOrderValidator.java");
-    expect(validator).toContain('errors.rejectValue("sku", "field.rule"');
+    expect(validator).toContain('errors.rejectValue("sku", "field.min-length"');
     expect(validator).toContain(">= 1");
   });
 });

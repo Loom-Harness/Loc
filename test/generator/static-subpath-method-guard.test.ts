@@ -219,7 +219,7 @@ describe("each backend mounts the guard ahead of routing", () => {
     // which dropped the headers the framework put the SEMANTICS in — `Allow`
     // on a 405 (a MUST), `WWW-Authenticate` on a 401.
     expect(advice).toContain(
-      "return respond(problem(status, reason, detail, request), status, er.getHeaders());",
+      "return respond(problem(status, reason, detail, frameworkCode(status), request), status, er.getHeaders());",
     );
     expect(advice).toContain(".headers(headers)");
   });

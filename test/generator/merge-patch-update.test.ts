@@ -229,9 +229,8 @@ describe("merge-patch update — elixir", () => {
     const update = changeset.slice(changeset.indexOf("def update_changeset"));
     expect(update.slice(0, update.indexOf("\n  end"))).not.toMatch(/__require_keys|__clear_absent/);
     expect(update).toContain("|> validate_patch_invariants(attrs)");
-    expect(changeset).toContain(
-      'defp __patch_members(:min_pages, "A memo has at least its minimum pages"), do: ["min_pages", "pages"]',
-    );
+    // Keyed by the rule's identity key (its wire code), never its text.
+    expect(changeset).toMatch(/defp __patch_members\("[^"]+"\), do: \["min_pages", "pages"\]/);
     const controller = fileEndingWith(files, "controllers/memo_controller.ex");
     expect(controller).toContain("@patch_required ~w(title pages minPages)");
     expect(controller).not.toMatch(/@required_params %\{[^}]*update:/);

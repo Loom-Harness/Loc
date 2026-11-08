@@ -263,7 +263,7 @@ describe("java generator — wire validators + advice (S5)", () => {
     expect(v).toContain(
       // `code == null ||` skips a NULL rather than dereferencing it (F23): this
       // Validator runs ALONGSIDE the record's @NotNull, not after it.
-      'if (!(code == null || ((int) code.codePoints().count()) >= 1)) errors.rejectValue("code", "field.rule", "Code must be at least 1 character");',
+      'if (!(code == null || ((int) code.codePoints().count()) >= 1)) errors.rejectValue("code", "field.min-length", new Object[] {"min", 1}, "Code must be at least 1 character");',
     );
     const ctrl = files_.get(`${ROOT}/features/orders/OrdersController.java`)!;
     expect(ctrl).toContain("@Valid @RequestBody CreateOrderRequest request");
@@ -303,7 +303,7 @@ system Demo {
 `;
     const out = await generateSystemFiles(src);
     const check =
-      'if (!(handle == null || ((int) handle.codePoints().count()) >= 1)) errors.rejectValue("handle", "field.rule", "Handle must be at least 1 character");';
+      'if (!(handle == null || ((int) handle.codePoints().count()) >= 1)) errors.rejectValue("handle", "field.min-length", new Object[] {"min", 1}, "Handle must be at least 1 character");';
     const create = [...out.entries()].find(([k]) => /CreateAccountValidator\.java$/.test(k))?.[1];
     const update = [...out.entries()].find(([k]) => /UpdateAccountValidator\.java$/.test(k))?.[1];
     expect(create).toContain(check);

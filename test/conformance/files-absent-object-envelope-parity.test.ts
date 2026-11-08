@@ -252,7 +252,7 @@ describe("M-T6.39 — an absent /files object answers the service's one 404 enve
       producerFile: "ApiExceptionAdvice.java",
       resolved: [
         'CatalogLog.event("not_found", "warn", "status", 410);',
-        'return respond(problem(410, "Gone", e.getMessage(), request), 410);',
+        'return respond(problem(410, "Gone", e.getMessage(), "problem.not-found", request), 410);',
       ],
       routeFile: "FilesController.java",
     },

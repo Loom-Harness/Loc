@@ -46,13 +46,13 @@ function fnBody(src: string, name: string): string {
 
 describe("elixir vanilla — part rules, guarded invariants, private-op calls (M-T6.55)", () => {
   describe("F14 — a part-level `check` / `invariant` is enforced in the part's own changeset", () => {
-    it("`check qty > 0` becomes a native validate_number on the PART changeset", async () => {
+    it("`check qty > 0` becomes a `field.min` check on the PART changeset", async () => {
       const line = (await files()).get("d/lib/d/billing/line.ex")!;
       const cs = fnBody(line, "changeset");
       expect(cs).toContain("cast(attrs, [:sku, :qty])");
       // The rule itself — absent entirely before the fix.
       expect(cs).toContain(
-        'validate_number(:qty, greater_than_or_equal_to: 1, message: "Qty must be at least 1")',
+        '{"Qty must be at least 1", validation: :number, loom_code: "field.min", loom_params: %{min: 1}}',
       );
     });
 

@@ -95,7 +95,8 @@ const SPELLINGS: Record<string, Spelling> = {
     // declared set as its own `new Route(...)` literal, which IS route-scoped.
     createSlice: ['new Route("post", "/api/orders",', "),"],
     destroySlice: ['new Route("delete", "/api/orders/{id}",', "),"],
-    arm: (s, t) => `return respond(problem(${s}, "${t}", e.getMessage(), request), ${s});`,
+    arm: (s, t) =>
+      `return respond(problem(${s}, "${t}", "Forbidden", "problem.forbidden", request), ${s});`,
   },
   python: {
     declFile: "api/app/http/order_routes.py",

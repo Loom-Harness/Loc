@@ -236,7 +236,7 @@ describe("M-T6.31 — an absent read raises the service's one 404 producer, all 
   it("java renders the raised carrier as the 7807 envelope", async () => {
     const files = await generateSystemFiles(systemFor("java", 3113));
     expect(sourceFor(files, ".java")).toContain(
-      'return respond(problem(404, "Not Found", e.getMessage(), request), 404);',
+      'return respond(problem(404, "Not Found", e.getMessage(), "problem.not-found", request), 404);',
     );
   });
 

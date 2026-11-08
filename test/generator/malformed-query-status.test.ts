@@ -96,7 +96,7 @@ describe("a malformed query string answers 4xx, not 500", () => {
     // it at 400 so an unset code can never emit a 2xx or 3xx for a fault.
     expect(file).toContain("var status = e.getErrorCode() >= 400 ? e.getErrorCode() : 400;");
     expect(file).toContain(
-      'return respond(problem(status, reason, "Malformed query string", request), status);',
+      'return respond(problem(status, reason, "Malformed query string", "problem.malformed-body", request), status);',
     );
   });
 
@@ -132,7 +132,7 @@ describe("a malformed query string answers 4xx, not 500", () => {
     // a 400 would pass every assertion above and be far worse than the bug.
     expect(file).toContain("@ExceptionHandler(Exception.class)");
     expect(file).toContain(
-      'return respond(problem(500, "Internal Server Error", "internal", request), 500);',
+      'var problem = problem(500, "Internal Server Error", "internal", "problem.internal", request);',
     );
   });
 });

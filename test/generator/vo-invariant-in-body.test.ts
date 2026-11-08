@@ -73,7 +73,8 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
   it("java: a DomainException subclass with its own (more specific) advice handler", async () => {
     const fs = await files("java");
     expect(find(fs, "domain/valueobjects/Qty.java")).toContain(
-      'throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "Orders.Qty.rule.quantityPositive")',
+      // The named rule's identity key, plus the values it read as `params`.
+      'throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "Orders.Qty.rule.quantityPositive", ValueObjectInvariantException.params("value", value))',
     );
     expect(find(fs, "ValueObjectInvariantException.java")).toContain(
       "public class ValueObjectInvariantException extends DomainException",
@@ -82,7 +83,9 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
     expect(advice).toContain("@ExceptionHandler(ValueObjectInvariantException.class)");
     // One entry serializer since M-T1.11 (c) — the handler hands it the "" pointer.
     expect(advice).toContain('entry.put("pointer", pointer);');
-    expect(advice).toContain('return domainFloorWithEntry(e, e.getRuleCode(), "", request);');
+    expect(advice).toContain(
+      'return domainFloorWithEntry(e, e.getRuleCode(), e.getRuleParams(), "", request);',
+    );
   });
 
   it("python: a DomainError subclass with its own handler", async () => {

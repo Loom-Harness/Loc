@@ -154,7 +154,7 @@ system G {
     expect(vo).toContain("defmodule VanApi.Selling.Money do");
     expect(vo).toContain("@types %{amount: :decimal, currency: :string}");
     expect(vo).toContain(
-      '|> validate_number(:amount, greater_than_or_equal_to: 0, message: "Amount must be at least 0")',
+      '{"Amount must be at least 0", validation: :number, loom_code: "field.min", loom_params: %{min: 0}}',
     );
     expect(vo).toContain("def new(attrs) when is_map(attrs) do");
     expect(vo).toContain("apply_action(changeset(attrs), :insert)");
