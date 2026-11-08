@@ -1601,7 +1601,10 @@ export function generateTypeScriptForContexts(
     const apiBindings = apiResourceBindings(system.deployable, system.sys);
     const apiClient = emitApiClientModule(apiBindings, system.sys);
     if (apiClient.length > 0) {
-      out.set("resources/api-clients.ts", `${apiClient.join("\n")}\n`);
+      out.set(
+        "resources/api-clients.ts",
+        finalizeTsModule(`${apiClient.join("\n")}\n`, { path: "resources/api-clients.ts" }),
+      );
     }
   }
 

@@ -23,6 +23,8 @@
 // ---------------------------------------------------------------------------
 
 import { zodForResponse } from "../../../../generator/_frontend/zod-schemas.js";
+import { ref } from "../../../../generator/_imports/symbol.js";
+import { tsNamed } from "../../../../generator/_imports/ts.js";
 import { apiCallPrincipal } from "../../../../ir/enrich/hosting-facts.js";
 import { forApiRead, wireFieldsForAggregate } from "../../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../../../ir/types/loom-ir.js";
@@ -125,8 +127,6 @@ export function emitApiClientModule(
   // middleware) and replayed on every call to it.  A deployable whose callees
   // are all open captures nothing.
   const forwarding = bindings.some((b) => apiCallPrincipal(b.server) === "forward-caller");
-  if (forwarding) out.push(`import { AsyncLocalStorage } from "node:async_hooks";`);
-  if (forwarding) out.push(`import { createMiddleware } from "hono/factory";`);
   out.push(`import { z } from "zod";`);
   out.push(``);
   if (forwarding) out.push(...callerCredentialCapture());
@@ -286,7 +286,7 @@ export function emitApiClientModule(
  *  requires auth. */
 function callerCredentialCapture(): string[] {
   return [
-    `const callerCredential = new AsyncLocalStorage<Record<string, string>>();`,
+    `const callerCredential = new ${ref(tsNamed("node:async_hooks", "AsyncLocalStorage"))}<Record<string, string>>();`,
     ``,
     `function sessionCookie(cookies: string | undefined): string | null {`,
     `  for (const pair of (cookies ?? "").split(";")) {`,
@@ -300,7 +300,7 @@ function callerCredentialCapture(): string[] {
     ``,
     `/** Captures the inbound caller's credential for the in-system calls this`,
     ` *  request makes.  Mounted after the auth middleware. */`,
-    `export const forwardCallerCredential = createMiddleware(async (c, next) => {`,
+    `export const forwardCallerCredential = ${ref(tsNamed("hono/factory", "createMiddleware"))}(async (c, next) => {`,
     `  const headers: Record<string, string> = {};`,
     `  const authorization = c.req.header("authorization");`,
     `  const session = authorization ? null : sessionCookie(c.req.header("cookie"));`,

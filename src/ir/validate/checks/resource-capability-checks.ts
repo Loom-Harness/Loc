@@ -305,14 +305,23 @@ function configValueMatchesType(
  *  401 every time.  A service credential for those callers is #4804. */
 function validateApiCallPrincipal(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const c of principalLessApiCalls(sys)) {
-    const params = { name: c.deployable.name, resource: c.resource, server: c.server };
+    const name = c.deployable.name;
     diags.push({
       severity: "error",
       code: "loom.api-call-principal-unsupported",
       message:
         c.why === "reactor"
-          ? diagMessage("loom.api-call-principal-unsupported#reactor", { ...params, site: c.site })
-          : diagMessage("loom.api-call-principal-unsupported#anonymous-caller", params),
+          ? diagMessage("loom.api-call-principal-unsupported#reactor", {
+              name,
+              resource: c.resource,
+              server: c.server,
+              site: c.site,
+            })
+          : diagMessage("loom.api-call-principal-unsupported#anonymous-caller", {
+              name,
+              resource: c.resource,
+              server: c.server,
+            }),
       source: `${sys.name}/${c.deployable.name}`,
       origin: c.deployable.origin,
     });
