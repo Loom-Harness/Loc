@@ -19,7 +19,7 @@
 // ---------------------------------------------------------------------------
 
 /** A language tag — one finalizer per tag. */
-export type ImportLang = "py" | "java" | "cs";
+export type ImportLang = "py" | "java" | "cs" | "ts";
 
 /** A typed handle on an importable symbol. */
 export interface ImportSymbol {
@@ -35,6 +35,9 @@ export interface ImportSymbol {
    *  simple name the text spells; it never enters the simple-name collision
    *  check, because wildcard imports shadow nothing explicit. */
   readonly onDemand?: true;
+  /** TypeScript only: the reference sits in a type position, so an import
+   *  that only such references need is written `import type`. */
+  readonly typeOnly?: true;
 }
 
 /** The marker delimiters — exported so a language finalizer can recognise
@@ -45,13 +48,18 @@ const SEP = "|";
 
 /** Every marker in a text. Module / name / alias never contain `|` or the
  *  private-use delimiters, so the token grammar is unambiguous. */
-const MARKER_RE = /([a-z]+\*?)\|([^|]*)\|([^|]*)\|([^|]*)/g;
+const MARKER_RE = /([a-z]+[*~]?)\|([^|]*)\|([^|]*)\|([^|]*)/g;
 
 const IDENT_PATH = /^[A-Za-z_][\w]*(\.[A-Za-z_][\w]*)*$/;
-const IDENT = /^[A-Za-z_][\w]*$/;
+/** A TypeScript module specifier: a package (`decimal.js`, `@hono/zod-openapi`,
+ *  `node:crypto`) or a project-root path (`~/domain/errors`). */
+const TS_MODULE = /^~?[@\w.:/-]+$/;
+const IDENT = /^[A-Za-z_$][\w$]*$/;
 
 function check(sym: ImportSymbol): ImportSymbol {
-  if (!IDENT_PATH.test(sym.module)) throw new Error(`import symbol: bad module '${sym.module}'`);
+  if (!(sym.lang === "ts" ? TS_MODULE : IDENT_PATH).test(sym.module)) {
+    throw new Error(`import symbol: bad module '${sym.module}'`);
+  }
   if (sym.name !== undefined && !IDENT.test(sym.name)) {
     throw new Error(`import symbol: bad name '${sym.name}' (from ${sym.module})`);
   }
@@ -68,7 +76,7 @@ function check(sym: ImportSymbol): ImportSymbol {
  *  finalizer turns into the spelling AND an import line. */
 export function ref(sym: ImportSymbol): string {
   check(sym);
-  return `${OPEN}${sym.lang}${sym.onDemand ? "*" : ""}${SEP}${sym.module}${SEP}${sym.name ?? ""}${SEP}${sym.alias ?? ""}${CLOSE}`;
+  return `${OPEN}${symbolKey(sym)}${CLOSE}`;
 }
 
 /** The spelling a reference to `sym` resolves to. */
@@ -86,14 +94,21 @@ export function binding(sym: ImportSymbol): string {
 
 /** A stable identity for de-duplication. */
 export function symbolKey(sym: ImportSymbol): string {
-  return `${sym.lang}${sym.onDemand ? "*" : ""}${SEP}${sym.module}${SEP}${sym.name ?? ""}${SEP}${sym.alias ?? ""}`;
+  return `${tag(sym)}${SEP}${sym.module}${SEP}${sym.name ?? ""}${SEP}${sym.alias ?? ""}`;
+}
+
+/** The marker's language tag: the language, suffixed `*` for a java
+ *  on-demand import or `~` for a TypeScript type-position reference. */
+function tag(sym: ImportSymbol): string {
+  return `${sym.lang}${sym.onDemand ? "*" : sym.typeOnly ? "~" : ""}`;
 }
 
 function decode(tag: string, module: string, name: string, alias: string): ImportSymbol {
-  const onDemand = tag.endsWith("*");
+  const suffix = /[*~]$/.test(tag) ? tag.slice(-1) : "";
   return {
-    lang: (onDemand ? tag.slice(0, -1) : tag) as ImportLang,
-    ...(onDemand ? { onDemand: true as const } : {}),
+    lang: (suffix ? tag.slice(0, -1) : tag) as ImportLang,
+    ...(suffix === "*" ? { onDemand: true as const } : {}),
+    ...(suffix === "~" ? { typeOnly: true as const } : {}),
     module,
     ...(name !== "" ? { name } : {}),
     ...(alias !== "" ? { alias } : {}),

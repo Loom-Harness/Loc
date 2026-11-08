@@ -29,6 +29,7 @@ import type {
   SeedRowIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
+import { discriminatorValue } from "../../ir/util/inheritance.js";
 
 /** A bare numeric literal written into a `money` seed field (`minRent: 500.00`)
  *  is a money value, not a float: retag it so each backend's money-literal
@@ -57,6 +58,26 @@ export interface Dataset {
   entries: Entry[];
 }
 
+/** A raw row for a TPH concrete lands in the hierarchy's one shared table, whose
+ *  `kind` discriminator is NOT NULL with no default — so the INSERT must name
+ *  it.  The domain path writes it through the entity; only the raw path needs
+ *  it spelled out. */
+function withDiscriminator(
+  row: SeedRowIR,
+  pool: EnrichedBoundedContextIR["aggregates"],
+): SeedRowIR {
+  const agg = pool.find((a) => a.name === row.aggregate);
+  const kind = agg ? discriminatorValue(agg, pool) : undefined;
+  if (kind === undefined || row.fields.some((f) => f.name === "kind")) return row;
+  return {
+    ...row,
+    fields: [
+      ...row.fields,
+      { name: "kind", value: { kind: "literal", lit: "string", value: kind } },
+    ],
+  };
+}
+
 /** Group every `SeedIR` row by dataset, preserving source order + path.
  *
  *  Datasets are keyed by their RAW name, and each backend derives the seeder
@@ -76,12 +97,14 @@ export function groupByDataset(ctx: EnrichedBoundedContextIR): Dataset[] {
       byName.set(seed.dataset, ds);
       order.push(seed.dataset);
     }
-    for (const row of seed.rows)
+    for (const row of seed.rows) {
+      const raw = seed.path === "raw";
       ds.entries.push({
-        row,
-        raw: seed.path === "raw",
+        row: raw ? withDiscriminator(row, ctx.aggregates) : row,
+        raw,
         table: aggregateTableNameOf(row.aggregate, ctx.aggregates),
       });
+    }
   }
   return order.map((n) => byName.get(n)!);
 }

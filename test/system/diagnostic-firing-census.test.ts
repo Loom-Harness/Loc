@@ -1914,6 +1914,31 @@ system P {
   "loom.duplicate-repository": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing
     repository Stuff for Thing`),
+  // An operation reusing a field's name: one member namespace per aggregate.
+  "loom.member-name-collision": repoOnly(`    aggregate Thing with crudish {
+      qty: int
+      operation qty(n: int) { qty := n }
+    }
+    repository Things for Thing`),
+  // Two contexts one deployable hosts, each declaring an `Order` aggregate.
+  "loom.hosted-type-name-collision": `
+system S {
+  subdomain D {
+    context Sales {
+      aggregate Order with crudish { qty: int }
+      repository Orders for Order
+    }
+    context Billing {
+      aggregate Order with crudish { amt: int }
+      repository BillingOrders for Order
+    }
+  }
+  api A from D
+  storage pg { type: postgres }
+  resource s { for: Sales, kind: state, use: pg }
+  resource b { for: Billing, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Sales, Billing], dataSources: [s, b], serves: A, port: 4000 }
+}`,
   "loom.duplicate-workflow": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing
     workflow Dup { create(n: string) { precondition n.length > 0 } }

@@ -65,6 +65,7 @@ import {
   isCreate,
   isDerivedProp,
   isDestroy,
+  isEntityPart,
   isEnumDecl,
   isEventDecl,
   isFunctionDecl,
@@ -184,6 +185,40 @@ function checkAggregateFieldNames(agg: Aggregate, accept: ValidationAcceptor): v
   );
 }
 
+/** The member namespace of an aggregate or entity part: a field, derived field,
+ *  containment, function and named operation all become one member of the
+ *  generated class (a getter / property beside a method of the same name), so a
+ *  callable that reuses a field's name — or an earlier callable's — is refused.
+ *  Fields repeating a field are `loom.duplicate-field`'s business; this reports
+ *  the CALLABLE that collides. */
+function checkMemberNamespace(
+  owner: string,
+  members: readonly AstNode[],
+  accept: ValidationAcceptor,
+): void {
+  const taken = new Map<string, string>();
+  for (const m of members) {
+    if (isProperty(m) || isDerivedProp(m) || isContainment(m)) {
+      const what = isContainment(m) ? "containment" : isDerivedProp(m) ? "derived field" : "field";
+      if (!taken.has(m.name)) taken.set(m.name, what);
+    }
+  }
+  for (const m of members) {
+    if (!isFunctionDecl(m) && !isOperation(m)) continue;
+    const what = isFunctionDecl(m) ? "function" : "operation";
+    const first = taken.get(m.name);
+    if (first !== undefined) {
+      accept(
+        "error",
+        diagMessage("loom.member-name-collision", { what, name: m.name, owner, first }),
+        { node: m, property: "name", code: "loom.member-name-collision" },
+      );
+    } else {
+      taken.set(m.name, what);
+    }
+  }
+}
+
 /** Field-position names on a value object — properties and derived fields
  *  (value objects cannot contain entities). */
 function checkValueObjectFieldNames(vo: ValueObject, accept: ValidationAcceptor): void {
@@ -240,9 +275,15 @@ export function checkDuplicateNames(model: Model, accept: ValidationAcceptor): v
       checkContextTypeNames(node, accept);
       checkHandlerNames(node, accept);
       checkRepositoryTargets(node, accept);
-    } else if (isAggregate(node)) checkAggregateFieldNames(node, accept);
-    else if (isValueObject(node)) checkValueObjectFieldNames(node, accept);
-    else if (isEventDecl(node)) checkEventFieldNames(node, accept);
+    } else if (isAggregate(node)) {
+      checkAggregateFieldNames(node, accept);
+      checkMemberNamespace(`aggregate '${node.name}'`, node.members, accept);
+    } else if (isEntityPart(node)) {
+      checkMemberNamespace(`entity '${node.name}'`, node.members, accept);
+    } else if (isValueObject(node)) {
+      checkValueObjectFieldNames(node, accept);
+      checkMemberNamespace(`value object '${node.name}'`, node.members, accept);
+    } else if (isEventDecl(node)) checkEventFieldNames(node, accept);
     else if (isEnumDecl(node)) checkEnumValueNames(node, accept);
 
     if (isOperation(node)) checkParamNames(node.params, `operation '${node.name}'`, accept);

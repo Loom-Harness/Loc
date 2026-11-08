@@ -289,7 +289,7 @@ describe("loom.dotnet-name-collision — generated members", () => {
       title: string
       inspection: string = ""
       derived inspect: string = title
-      version: int = 0
+      version: int token = 0
       contains comments: Comment[]
       entity Comment { body: string  inspect: string = "" }`;
     expect(await collisions(system(body))).toEqual([]);

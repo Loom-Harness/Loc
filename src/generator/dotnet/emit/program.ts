@@ -661,7 +661,7 @@ ${
   const externHandlers = [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])]
     .filter((h) => h.extern)
     .map((h) => ({
-      ifaceFqn: `${ns}.Application.Handlers.I${h.name}Handler`,
+      ifaceFqn: `${ns}.Application.Handlers.I${upperFirst(h.name)}Handler`,
       opName: h.name,
       aggName: ctx.name,
     }));

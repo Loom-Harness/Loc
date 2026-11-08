@@ -111,6 +111,32 @@ describe("timerSource → .NET durable TimerScheduler", () => {
     expect(csproj).not.toContain("Cronos");
   });
 
+  it("emits the scheduler on persistence: dapper, locking over NpgsqlDataSource", async () => {
+    const g = get(
+      await generateSystemFiles(
+        WITH_TIMERS.replace("platform: dotnet,", "platform: dotnet { persistence: dapper },"),
+      ),
+    );
+
+    const scheduler = g("Infrastructure/Scheduling/TimerScheduler.cs");
+    expect(scheduler).not.toBe("");
+    expect(scheduler).toContain("public sealed class SweepTimerJob");
+    expect(scheduler).toContain("public sealed class HealthzTimerService : BackgroundService");
+    // The advisory lock rides the Dapper path's data source, not a DbContext.
+    expect(scheduler).toContain("GetRequiredService<NpgsqlDataSource>()");
+    expect(scheduler).toContain('new NpgsqlCommand("SELECT pg_try_advisory_xact_lock(');
+    expect(scheduler).toContain("using Npgsql;");
+    expect(scheduler).not.toContain("AppDbContext");
+    expect(scheduler).not.toContain("Microsoft.EntityFrameworkCore");
+
+    const program = g("d/Program.cs");
+    expect(program).toContain(
+      "builder.Services.AddHostedService<D.Infrastructure.Scheduling.HealthzTimerService>();",
+    );
+    expect(program).toContain("builder.Services.AddHangfireServer();");
+    expect(g("d/D.csproj")).toContain('<PackageReference Include="Hangfire.PostgreSql"');
+  });
+
   it("is byte-identical for a timer-free deployable (no scheduler artifacts)", async () => {
     const files = await generateSystemFiles(NO_TIMERS);
     const keys = [...files.keys()];
