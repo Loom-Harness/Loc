@@ -11,6 +11,8 @@ import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../../../generator/_a
 import { brokerChannelBindings } from "../../../generator/_channels/bindings.js";
 import { hasDomainFloorMessages } from "../../../generator/_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../../../generator/_i18n/validation-catalog.js";
+import { ref, spellMarkers } from "../../../generator/_imports/symbol.js";
+import { finalizeTsModule, tsImportSlot, tsNamed } from "../../../generator/_imports/ts.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { BOOT_DB_RETRY } from "../../../generator/_obs/boot-db-retry.js";
 import { renderHonoBaseLogCall } from "../../../generator/_obs/render-hono.js";
@@ -88,6 +90,8 @@ import {
   type RepoPortSpec,
   renderRepositoryPortsFile,
 } from "../../../generator/typescript/repository-port-builder.js";
+import { TsOutputMap } from "../../../generator/typescript/ts-output.js";
+import { T } from "../../../generator/typescript/ts-symbols.js";
 import { deriveEventSubscriptions, enrichLoomModel } from "../../../ir/enrich/enrichments.js";
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { anyRouteReadsIfMatch } from "../../../ir/enrich/version-check.js";
@@ -158,7 +162,6 @@ import type { Model } from "../../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 // Hono-framework builders now live in this package (P2b) — siblings.
-import { emissionSink } from "../../../util/emission-sink.js";
 import { lowerFirst, plural } from "../../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
 import { emitApiClientModule } from "./adapters/api-client.js";
@@ -795,7 +798,7 @@ export function generateTypeScriptForContexts(
 ): Map<string, string> {
   const emitTrace = !!options.emitTrace;
   const sourcemap = options.sourcemap;
-  const out = emissionSink("platform/hono/v4/emit");
+  const out = new TsOutputMap("platform/hono/v4/emit");
   const authRequired = !!(system?.deployable.auth?.required && system.sys.user);
   // OIDC turnkey auth (D-AUTH-OIDC): present when the system declares an
   // `auth { oidc { … } }` block AND this deployable opts in.  Drives the
@@ -1097,8 +1100,8 @@ export function generateTypeScriptForContexts(
       for (const frag of workflowOpFragments) {
         sourcemap.fragment(
           "http/workflows.ts",
-          workflowsContent,
-          frag.fragmentText,
+          out.get("http/workflows.ts")!,
+          spellMarkers(frag.fragmentText),
           frag.subRegions,
         );
       }
@@ -1138,7 +1141,7 @@ export function generateTypeScriptForContexts(
       out.set(`http/${slug}-routes.ts`, content);
       explicitRouters.push({
         fn: `${slug}Routes`,
-        module: `./${slug}-routes`,
+        module: `~/http/${slug}-routes`,
         mountPath: API_BASE_PATH,
       });
     }
@@ -1222,15 +1225,18 @@ export function generateTypeScriptForContexts(
     const byLayerPath = byLayerLayoutAdapter.pathFor(artifact, emitCtx ?? ({} as EmitCtx));
     const finalPath = layout.pathFor(artifact, emitCtx ?? ({} as EmitCtx));
     if (finalPath !== byLayerPath) moved.set(byLayerPath, finalPath);
-    out.set(finalPath, artifact.content);
-    sourcemap?.file(finalPath, artifact.content, origin, construct);
+    // Finalized under the byLayer path its project-relative imports resolve
+    // against; the layout pass below rewrites them for the final path.
+    out.set(finalPath, finalizeTsModule(artifact.content, { path: byLayerPath }));
+    const content = out.get(finalPath)!;
+    sourcemap?.file(finalPath, content, origin, construct);
     // Statement-granular sub-regions (source-map) — layered onto
     // the whole-file region just recorded above, anchored by exact-text
     // search against this SAME final content, so they land at the right
     // absolute lines regardless of what the layout adapter did to the path.
     if (sourcemap && opFragments) {
       for (const frag of opFragments) {
-        sourcemap.fragment(finalPath, artifact.content, frag.fragmentText, frag.subRegions);
+        sourcemap.fragment(finalPath, content, spellMarkers(frag.fragmentText), frag.subRegions);
       }
     }
   };
@@ -1362,7 +1368,7 @@ export function generateTypeScriptForContexts(
           usingMikro,
         );
         out.set(routesPath, routesContent);
-        sourcemap?.file(routesPath, routesContent, agg.origin, construct);
+        sourcemap?.file(routesPath, out.get(routesPath)!, agg.origin, construct);
       }
       const testsFile = renderTestsFile(agg, ctx);
       if (testsFile) {
@@ -1760,7 +1766,7 @@ export function generateTypeScriptForContexts(
   // through the phase-5 `.ts.map` sidecars straight to `.ddd` coordinates.
   // Flag-off keeps today's extensionless (Bundler-style) imports untouched.
   if (sourcemap) addTsExtensionsForNodeDebug(out);
-  return out;
+  return out.assertFinal();
 }
 
 function findRepoFor(ctx: BoundedContextIR, name: string): RepositoryIR | undefined {
@@ -2058,6 +2064,16 @@ export default defineConfig({
  *  migration whose SQL fails logs `migration_failed` — carrying every link of
  *  that chain with the driver's Postgres `code`/`detail`/`constraint` — and
  *  aborts boot at once. */
+/** The specifier order of the boot module's multi-name imports. */
+const SLOT_ORDER: Record<string, readonly string[]> = {
+  "~/http/channels": [
+    "channelPublishTee",
+    "createChannelTransports",
+    "startChannelConsumers",
+    "closeChannelTransports",
+  ],
+};
+
 function renderHonoBootMigrate(): string {
   const { maxAttempts, baseDelayMs, maxDelayMs } = BOOT_DB_RETRY;
   return lines(
@@ -2113,7 +2129,7 @@ function renderHonoBootMigrate(): string {
     renderHonoBaseLogCall("migrationsStarting"),
     `for (let attempt = 1, maxAttempts = ${maxAttempts}; ; attempt++) {`,
     "  try {",
-    '    await migrate(db, { migrationsFolder: "./db/migrations" });',
+    `    await ${T.migrate}(db, { migrationsFolder: "./db/migrations" });`,
     `    ${renderHonoBaseLogCall("migrationsComplete")}`,
     "    break;",
     "  } catch (err) {",
@@ -2153,10 +2169,10 @@ function renderProjectIndexTs(
   const resourceImportBlock = resourceImports.length > 0 ? `${resourceImports.join("\n")}\n` : "";
   // `db/migrate.ts` — Drizzle's migrator plus the non-transactional files a
   // `CREATE INDEX CONCURRENTLY` needs (`emitTypescriptMigrations`).
-  const migImport = runMigrationsAtBoot ? `import { migrate } from "./db/migrate";\n` : "";
-  const seedImport = runSeedsAtBoot ? `import { runSeeds } from "./db/seed";\n` : "";
+  const migImport = `${tsImportSlot("~/db/migrate")}\n`;
+  const seedImport = `${tsImportSlot("~/db/seed")}\n`;
   const seedCall = runSeedsAtBoot
-    ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the __loom_seed marker; idempotent across boots.\nawait runSeeds(db);\n`
+    ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the __loom_seed marker; idempotent across boots.\nawait ${T.runSeeds}(db);\n`
     : "";
   const migCall = runMigrationsAtBoot ? renderHonoBootMigrate() : "";
   // createApp() calls assertUserVerifierRegistered() when auth is required.
@@ -2174,16 +2190,12 @@ function renderProjectIndexTs(
   // The dispatcher `createApp` gets on the request path — the isolating twin
   // when there are reactors to isolate (H-28), else the shared instance.
   const requestEventsVar = withInProcess ? "requestEvents" : "inProcessEvents";
-  const authStubImport = !userShape
-    ? ""
-    : oidc
-      ? `import { registerOidcVerifier } from "./auth/oidc";\n`
-      : `import { registerDevStubVerifier } from "./auth/dev-stub";\n`;
+  const authStubImport = `${tsImportSlot("~/auth/oidc")}\n${tsImportSlot("~/auth/dev-stub")}\n`;
   const authStubCall = !userShape
     ? ""
     : oidc
-      ? `\n// OIDC verifier — validates the IdP's tokens against its\n// JWKS and maps claims onto the typed User.  Configure the issuer /\n// client via the env vars the \`auth { oidc }\` block referenced.\nregisterOidcVerifier();\nbaseLogger.info({ event: "auth_oidc_verifier_registered" });\n`
-      : `\n// Dev-stub verifier (auth/dev-stub.ts) — accepts every request as a\n// built-in identity filling every field the \`user { … }\` block declares.\n// Dev-only: the Loom playground (or curl) can override the claims by\n// sending a base64-encoded JSON object in \`x-loom-dev-claims\`; absent the\n// header the built-in identity is used.  REPLACE for production by calling\n// registerUserVerifier(...) with a real JWT-decoding implementation.\nregisterDevStubVerifier();\nbaseLogger.warn({ event: "auth_dev_stub_registered" });\n`;
+      ? `\n// OIDC verifier — validates the IdP's tokens against its\n// JWKS and maps claims onto the typed User.  Configure the issuer /\n// client via the env vars the \`auth { oidc }\` block referenced.\n${T.registerOidcVerifier}();\nbaseLogger.info({ event: "auth_oidc_verifier_registered" });\n`
+      : `\n// Dev-stub verifier (auth/dev-stub.ts) — accepts every request as a\n// built-in identity filling every field the \`user { … }\` block declares.\n// Dev-only: the Loom playground (or curl) can override the claims by\n// sending a base64-encoded JSON object in \`x-loom-dev-claims\`; absent the\n// header the built-in identity is used.  REPLACE for production by calling\n// registerUserVerifier(...) with a real JWT-decoding implementation.\n${T.registerDevStubVerifier}();\nbaseLogger.warn({ event: "auth_dev_stub_registered" });\n`;
   // Tenant-registry orgPath resolver (multi-tenancy) — wired on BOTH
   // persistence paths.  The auth middleware calls it per request; here we bind
   // it to the db with a `SELECT data_key … WHERE id = <claim>`.
@@ -2205,49 +2217,29 @@ function renderProjectIndexTs(
   const orgPathRegistryTable = orgPathRegistryAgg && lowerFirst(plural(orgPathRegistryAgg));
   const orgPathRegistryRow = orgPathRegistryAgg && `${orgPathRegistryAgg}Row`;
   const wireOrgPath = !!orgPathRegistryAgg;
-  const orgPathImport = !wireOrgPath
-    ? ""
-    : usingMikro
-      ? `import { registerOrgPathResolver } from "./auth/middleware";\nimport { ${orgPathRegistryRow} } from "./db/entities";\n`
-      : `import { eq } from "drizzle-orm";\nimport { registerOrgPathResolver } from "./auth/middleware";\n`;
+  const orgPathImport = `${tsImportSlot("drizzle-orm")}\n${tsImportSlot("~/auth/middleware")}\n${tsImportSlot("~/db/entities")}\n`;
+  const orgPathRow = orgPathRegistryRow && ref(tsNamed("~/db/entities", orgPathRegistryRow));
   const orgPathDoc = `\n// Register the tenant-registry \`orgPath\` resolver (multi-tenancy):\n// currentUser.orgPath = the caller org's materialized \`data_key\`, memoized\n// per request in the auth middleware; a missing row / dataKey falls back to\n// the claim (root-segment path) — fail-safe, never null/crash.\n`;
   const orgPathRegistration = !wireOrgPath
     ? ""
     : usingMikro
-      ? `${orgPathDoc}registerOrgPathResolver(async (claim) => {\n  const row = await db.fork().findOne(${orgPathRegistryRow}, { id: claim }, { filters: false });\n  return row?.dataKey ?? null;\n});\n`
-      : `${orgPathDoc}registerOrgPathResolver(async (claim) => {\n  const rows = await db\n    .select({ dataKey: schema.${orgPathRegistryTable}.dataKey })\n    .from(schema.${orgPathRegistryTable})\n    .where(eq(schema.${orgPathRegistryTable}.id, claim))\n    .limit(1);\n  return rows[0]?.dataKey ?? null;\n});\n`;
+      ? `${orgPathDoc}${T.registerOrgPathResolver}(async (claim) => {\n  const row = await db.fork().findOne(${orgPathRow}, { id: claim }, { filters: false });\n  return row?.dataKey ?? null;\n});\n`
+      : `${orgPathDoc}${T.registerOrgPathResolver}(async (claim) => {\n  const rows = await db\n    .select({ dataKey: schema.${orgPathRegistryTable}.dataKey })\n    .from(schema.${orgPathRegistryTable})\n    .where(${T.eq}(schema.${orgPathRegistryTable}.id, claim))\n    .limit(1);\n  return rows[0]?.dataKey ?? null;\n});\n`;
   // Event-dispatch / relay / scheduler imports — SHARED by both persistence
   // branches — the mikro adapter emits the outbox relay too, so this block
   // cannot live inside the drizzle arm.  Empty when nothing needs the
   // in-process dispatcher.
-  const dispatcherImports = `${
-    // The in-process dispatcher is shared by the outbox relay and the timer
-    // scheduler (scheduling.md) — import it (and the realtime tee) whenever
-    // either is wired; the outbox-only helpers stay behind the outbox flag.
-    needsDispatcher
-      ? `${
-          withInProcess
-            ? `import { createInProcessDispatcher${
-                outboxRelay ? ", createOutboxDispatcher, startOutboxRelay" : ""
-              } } from "./http/workflows";\n`
-            : `import { NoopDomainEventDispatcher } from "./domain/events";\n${
-                // Pure producer of durable broker-bound events (M-T4.4):
-                // the outbox captures on save; the relay publishes on drain.
-                outboxRelay
-                  ? `import { createOutboxDispatcher, startOutboxRelay } from "./http/workflows";\n`
-                  : ""
-              }`
-        }${hasRealtime ? `import { realtimeTee } from "./http/realtime";\n` : ""}${
-          hasTimers ? `import { startTimerScheduler } from "./scheduler";\n` : ""
-        }${
-          hasChannels
-            ? `import { channelPublishTee, createChannelTransports${
-                hasChannelConsumers ? ", startChannelConsumers" : ", closeChannelTransports"
-              } } from "./http/channels";\n`
-            : ""
-        }`
-      : ""
-  }`;
+  // Event-dispatch / relay / scheduler / broker imports — SHARED by both
+  // persistence branches; each is written only when the wiring below uses it.
+  const dispatcherImports = `${[
+    "~/domain/events",
+    "~/http/workflows",
+    "~/http/realtime",
+    "~/scheduler",
+    "~/http/channels",
+  ]
+    .map((m) => `${tsImportSlot(m, { order: SLOT_ORDER[m] })}\n`)
+    .join("")}`;
   // Persistence wiring (D-REALIZATION-AXES `persistence:`) — drizzle (pg pool +
   // boot-time migrate) vs mikroorm (MikroORM.init + schema:update at startup).
   // The drizzle import header is kept byte-identical to the pre-mikroorm shape.
@@ -2292,11 +2284,11 @@ ${effectiveMigCall}${seedCall}${authStubCall}${orgPathRegistration}${
       }const inProcessEvents = ${
         withInProcess
           ? hasRealtime
-            ? "realtimeTee(createInProcessDispatcher(db))"
-            : "createInProcessDispatcher(db)"
+            ? `${T.realtimeTee}(${T.createInProcessDispatcher}(db))`
+            : `${T.createInProcessDispatcher}(db)`
           : hasRealtime
-            ? "realtimeTee(NoopDomainEventDispatcher)"
-            : "NoopDomainEventDispatcher"
+            ? `${T.realtimeTee}(${T.NoopDomainEventDispatcher})`
+            : `${T.NoopDomainEventDispatcher}`
       };
 ${
   withInProcess
@@ -2306,8 +2298,8 @@ ${
 // instance above keeps throwing: the relay / consumers / scheduler retry on it.
 const requestEvents = ${
         hasRealtime
-          ? "realtimeTee(createInProcessDispatcher(db, { isolateReactorFailures: true }))"
-          : "createInProcessDispatcher(db, { isolateReactorFailures: true })"
+          ? `${T.realtimeTee}(${T.createInProcessDispatcher}(db, { isolateReactorFailures: true }))`
+          : `${T.createInProcessDispatcher}(db, { isolateReactorFailures: true })`
       };
 `
     : ""
@@ -2318,16 +2310,18 @@ const requestEvents = ${
 // the broker (co-located consumers receive them via the subscription, not
 // a local shortcut); the consumer loop feeds received envelopes into the
 // same in-process dispatcher local reactors use.
-const channelTransports = createChannelTransports();
+const channelTransports = ${T.createChannelTransports}();
 `
     : ""
 }const app = ${
         hasChannels
-          ? `createApp(db, channelPublishTee(channelTransports, ${
-              outboxRelay ? `createOutboxDispatcher(db, ${requestEventsVar})` : requestEventsVar
+          ? `createApp(db, ${T.channelPublishTee}(channelTransports, ${
+              outboxRelay
+                ? `${T.createOutboxDispatcher}(db, ${requestEventsVar})`
+                : requestEventsVar
             }))`
           : outboxRelay
-            ? `createApp(db, createOutboxDispatcher(db, ${requestEventsVar}))`
+            ? `createApp(db, ${T.createOutboxDispatcher}(db, ${requestEventsVar}))`
             : "createApp(db)"
       };
 ${
@@ -2336,7 +2330,7 @@ ${
       // only once every binding is subscribed.  An envelope published into
       // the gap is dropped by the broker on an ephemeral channel and never
       // redelivered (java: #2350, elixir/dotnet/python: #2386).
-      "const stopChannelConsumers = await startChannelConsumers(channelTransports, inProcessEvents);\n"
+      `const stopChannelConsumers = await ${T.startChannelConsumers}(channelTransports, inProcessEvents);\n`
     : ""
 }${
   outboxRelay
@@ -2345,16 +2339,16 @@ ${
 // durable events whose channel is broker-bound publish to the broker
 // (design §5 — outbox-drain → broker publish); the rest re-enter the
 // local chain.
-const stopOutboxRelay = startOutboxRelay(db, channelPublishTee(channelTransports, inProcessEvents, { fromRelay: true }));
+const stopOutboxRelay = ${T.startOutboxRelay}(db, ${T.channelPublishTee}(channelTransports, inProcessEvents, { fromRelay: true }));
 `
-      : "const stopOutboxRelay = startOutboxRelay(db, inProcessEvents);\n"
+      : `const stopOutboxRelay = ${T.startOutboxRelay}(db, inProcessEvents);\n`
     : ""
 }${
   hasTimers
     ? `// Timer sources (scheduling.md): infrastructure fires tick events on a
 // wall-clock cadence.  cron: timers run on pg-boss (durable, retried,
 // single-fire across replicas); every: timers run in-process.
-const stopTimers = await startTimerScheduler(db, inProcessEvents);
+const stopTimers = await ${T.startTimerScheduler}(db, inProcessEvents);
 `
     : ""
 }`
@@ -2384,7 +2378,7 @@ async function shutdown(signal: string): Promise<void> {
   await stopChannelConsumers();`
       : hasChannels
         ? `
-  await closeChannelTransports(channelTransports);`
+  await ${T.closeChannelTransports}(channelTransports);`
         : ""
   }
   await new Promise<void>((resolve) => server.close(() => resolve()));
