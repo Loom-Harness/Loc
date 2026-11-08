@@ -49,6 +49,8 @@ test("two deployables, two storages: pickers, status rows and tagged logs", asyn
       edited,
     );
     expect(await readEditorSource(page)).toContain("use: replica");
+    // The edit must validate before anything is recorded against it.
+    await expect(page.getByTestId("btn-validate")).toHaveAttribute("data-state", "ok");
   });
 
   await test.step("Generate, bundle", async () => {
