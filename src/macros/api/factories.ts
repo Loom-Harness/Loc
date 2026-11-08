@@ -1013,6 +1013,76 @@ export function apiReadFields(agg: Aggregate): readonly Property[] {
   return apiReadFieldsOf(members, trailing, entityPartNames(agg), inheritedProperties(agg));
 }
 
+/** The names of `agg`'s entity parts — the set an entity-typed property must
+ * name to be an inferred containment.  Parts are aggregate-local, so the
+ * aggregate's own part list decides it for the aggregate AND its parts. */
+export function entityPartNames(agg: Aggregate): ReadonlySet<string> {
+  return new Set((agg.members ?? []).filter(isEntityPart).map((p) => p.name));
+}
+
+/** True for a `contains`-less entity-typed property (`lines: Line[]`) — the
+ * macro-phase twin of `isInferredContainment` (`src/language/containment.ts`),
+ * keyed on the part NAME because cross-references are not linked yet. */
+function isInferredContainmentByName(p: Property, partNames: ReadonlySet<string>): boolean {
+  const t = p.type;
+  if (!t || t.alternatives.length > 0 || t.ctors.length > 0) return false;
+  return isNamedType(t.base) && partNames.has(t.base.target.$refText);
+}
+
+/** The containment `m` declares — an explicit `contains` or an inferred
+ * entity-typed property — by part NAME, or `undefined` for any other member.
+ * The macro-phase twin of `lowerContainments`'s per-member split. */
+export function containmentOf(
+  m: unknown,
+  partNames: ReadonlySet<string>,
+): { name: string; part: string; collection: boolean; optional: boolean } | undefined {
+  if (isContainment(m)) {
+    return {
+      name: m.name,
+      part: m.partType.$refText,
+      collection: !!m.collection,
+      optional: !!m.optional,
+    };
+  }
+  if (isProperty(m) && isInferredContainmentByName(m, partNames) && isNamedType(m.type.base)) {
+    return {
+      name: m.name,
+      part: m.type.base.target.$refText,
+      collection: !!m.type.array,
+      optional: !!m.type.optional,
+    };
+  }
+  return undefined;
+}
+
+/** The value properties `agg` inherits through its FULL `extends` chain,
+ * root-most ancestor first, minus any name a nearer declaration redeclares —
+ * the same merge `enrichments.ts`'s `mergedFieldsFor` applies to the IR, over
+ * the same scope (a base resolved within the aggregate's own context). */
+function inheritedProperties(agg: Aggregate): Property[] {
+  const siblings = ((agg.$container as { members?: unknown[] } | undefined)?.members ?? []).filter(
+    isAggregate,
+  );
+  const ownProps = (a: Aggregate): Property[] => {
+    const parts = entityPartNames(a);
+    return (a.members ?? []).filter(
+      (m): m is Property => isProperty(m) && !isInferredContainmentByName(m, parts),
+    );
+  };
+  const merged = (a: Aggregate, seen: Set<string>): Property[] => {
+    const own = ownProps(a);
+    const baseName = a.superType?.$refText;
+    if (!baseName || seen.has(a.name)) return own;
+    seen.add(a.name);
+    const base = siblings.find((s) => s.name === baseName);
+    if (!base) return own;
+    const ownNames = new Set(own.map((p) => p.name));
+    return [...merged(base, seen).filter((p) => !ownNames.has(p.name)), ...own];
+  };
+  const own = new Set(ownProps(agg).map((p) => p.name));
+  return merged(agg, new Set()).filter((p) => !own.has(p.name));
+}
+
 /** The shared read-projection field walk for an aggregate OR an entity part
  * (`apiReadFields` wraps it for aggregates; `scaffoldHandlers` calls it directly
  * on a part's members).  A part has no synthetic `id` in its response body
