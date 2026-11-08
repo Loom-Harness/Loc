@@ -648,7 +648,6 @@ export function modeLabel(result: GenerateResult | null): string {
   if (!result.ok) return "failed";
   switch (result.mode) {
     case "system": return "system";
-    case "ts": return "single Hono project";
     case "none": return "empty";
   }
 }

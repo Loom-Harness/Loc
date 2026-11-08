@@ -139,3 +139,10 @@ context Sales {
     }
   }
 }
+
+// The deployment: one node backend hosting the context, persisted to postgres.
+system Sales {
+  storage db { type: postgres }
+  resource salesState { for: Sales, kind: state, use: db }
+  deployable sales { platform: node, contexts: [Sales], dataSources: [salesState] }
+}

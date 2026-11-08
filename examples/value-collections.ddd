@@ -16,3 +16,10 @@ context Invoicing {
 
     repository Invoices for Invoice { }
 }
+
+// The deployment: one node backend hosting the context, persisted to postgres.
+system Invoicing {
+  storage db { type: postgres }
+  resource invoicingState { for: Invoicing, kind: state, use: db }
+  deployable invoicing { platform: node, contexts: [Invoicing], dataSources: [invoicingState] }
+}

@@ -468,7 +468,7 @@ records; no graphs, no cycles.
 ```ts
 interface LoomModel {
   systems: SystemIR[];                  // explicit system blocks
-  contexts: BoundedContextIR[];         // legacy single-deployable mode
+  contexts: BoundedContextIR[];         // root contexts of a source with no system (generates nothing)
 }
 
 interface SystemIR {
@@ -984,9 +984,7 @@ reserved `'ui'` modifier (which would shadow the body's
 
 **File**: `src/cli/main.ts`.
 
-**Inputs**: a `Map<path, content>` from phase ⑧ (legacy single-context
-mode: `generate ts` / `generate dotnet`) or phase ⑨ (system mode:
-`generate system`).
+**Inputs**: the `Map<path, content>` phase ⑨ composes (`generate system`).
 
 **Outputs**: files on disk under the user-specified `--out` directory.
 

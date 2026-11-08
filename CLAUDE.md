@@ -86,8 +86,6 @@ it if `docker info` starts failing mid-session.
 ```bash
 node bin/cli.js new <name> [--platform node|dotnet|elixir|java|python] [--template blank|crud] [--design <pack>]  # scaffold a starter project (main.ddd + README + .loomignore + LICENSE), validated before writing
 node bin/cli.js parse <file.ddd>                       # parse + validate (AST + IR, multi-file aware), exit non-zero on errors
-node bin/cli.js generate ts     <file.ddd> -o <out>    # single Hono project (legacy single-context mode)
-node bin/cli.js generate dotnet <file.ddd> -o <out>    # single .NET project (legacy)
 node bin/cli.js generate system <file.ddd> -o <out>    # full multi-deployable tree + docker-compose.yml
 node bin/cli.js migrate add     <name> <file.ddd> [--allow-destructive]  # record the model's schema changes as the next entry of the migration chain (migrations/ beside the .ddd, committed) — like `ef migrations add`; `generate system` renders the chain and refuses unrecorded changes.  `migrate status` / `remove` / `rebase` inspect, drop the newest entry, and resolve two heads after a merge
 node bin/cli.js diff            <file.ddd> [--baseline <old.ddd> | --git <ref>] [--json]  # classify model changes as compatible / breaking-for-clients (wire contract) / breaking-for-data (the destructive migration gate); default baseline is the committed migrations/ chain; exits 1 on breaking, 2 when it cannot diff
@@ -99,7 +97,7 @@ node bin/cli.js patch           <file.ddd> …                           # apply
 node bin/cli.js i18n {extract|init|sync|status|check|prune} <file.ddd> # translator workflow over the extracted string catalog — `sync` is a three-way merge (BASE locales/.loom/source.lock.json, OURS locales/<locale>.json, THEIRS a fresh extraction); `check --strict` is the CI gate (src/cli/i18n/ over the pure merge core src/i18n/merge.ts)
 ```
 
-Flags: `-o/--out`, `-w/--watch` (legacy generate only), `--dry-run` (print `write`/`skip` plan, touch nothing), `--sourcemap` (`generate system` only — also emit `.loom/sourcemap.json`). `generate system` also takes `--json`, `--trace`, and `--inline-sources` (with `--sourcemap`: inline each `.ddd`'s text into every v3 sidecar — off by default, the sidecars name the `.ddd` by absolute path); `new` also takes `--force`.
+Flags: `-o/--out`, `-w/--watch`, `--dry-run` (print `write`/`skip` plan, touch nothing), `--sourcemap` (`generate system` only — also emit `.loom/sourcemap.json`). `generate system` also takes `--json`, `--trace`, and `--inline-sources` (with `--sourcemap`: inline each `.ddd`'s text into every v3 sidecar — off by default, the sidecars name the `.ddd` by absolute path); `new` also takes `--force`.
 
 ## Architecture — the one-directional pipeline
 

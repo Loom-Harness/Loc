@@ -1,11 +1,8 @@
 // The paged list read on the .NET backend — exercises P3b generic-carrier
 // emission (Paged<T> record + CountAsync/Skip/Take repository + paged CQRS
 // query/handler + controller page/pageSize action) under
-// `ddd generate dotnet` + `dotnet build /warnaserror` in the
+// `ddd generate system` + `dotnet build /warnaserror` in the
 // generated-dotnet CI matrix.  The repository's implicit `all` is paged.
-//
-// A loose context (like inventory.ddd) so the single-context
-// `generate dotnet` path emits a complete project.
 context Orders {
   aggregate Order {
     code: string
@@ -13,4 +10,11 @@ context Orders {
   }
   repository Orders for Order
   criterion OrdersInRegion(region: string) of Order = this.region == region
+}
+
+// The deployment: one dotnet backend hosting the context, persisted to postgres.
+system Orders {
+  storage db { type: postgres }
+  resource ordersState { for: Orders, kind: state, use: db }
+  deployable orders { platform: dotnet, contexts: [Orders], dataSources: [ordersState] }
 }

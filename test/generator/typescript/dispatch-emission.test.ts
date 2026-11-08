@@ -5,31 +5,11 @@
 // and `createApp` defaults its dispatcher to that factory instead of the
 // no-op.  A channel-less project emits none of this (byte-identical, Noop).
 
-import * as path from "node:path";
-import { fileURLToPath } from "node:url";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
-import { BACKEND_PINS } from "../../../src/platform/hono/v5/pins.js";
-
-const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(here, "..", "..", "..");
+import { generateBackendFromFile } from "../../_helpers/generate.js";
 
 async function generate(file: string): Promise<Map<string, string>> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(path.join(root, file)),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  expect(
-    errors.map((d) => d.message),
-    "fixture validation errors",
-  ).toEqual([]);
-  return generateTypeScript(doc.parseResult.value as Model, BACKEND_PINS);
+  return generateBackendFromFile(file, "node");
 }
 
 describe("in-process event dispatch emission", () => {
@@ -80,7 +60,10 @@ describe("in-process event dispatch emission", () => {
 
   it("emits a persisted state table keyed by the correlation field (db/schema.ts)", async () => {
     const schema = (await generate("test/fixtures/dispatch-sample.ddd")).get("db/schema.ts") ?? "";
-    expect(schema).toMatch(/export const orderFulfillments = pgTable\("order_fulfillments", \{/);
+    // The system path places each context's tables in its own Postgres schema.
+    expect(schema).toMatch(
+      /export const orderFulfillments = fulfillmentSchema\.table\("order_fulfillments", \{/,
+    );
     // guid correlation key → uuid, matching the migration's idColumnType.
     expect(schema).toMatch(/orderId: uuid\("order_id"\)\.primaryKey\(\)/);
     expect(schema).toMatch(/attempts: integer\("attempts"\)\.notNull\(\)/);

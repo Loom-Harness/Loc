@@ -10,9 +10,8 @@ import { generate as generateModel, LOOM_VERSION, validate } from "../api/index.
 import { translateBreakpoint } from "../dap/index.js";
 import { isAdvisoryCode } from "../diagnostics/advisory.js";
 import { fsDesignPackInspector } from "../generator/_packs/loader-fs.js";
-import { generateDotnet } from "../generator/dotnet/index.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
-import { lowerModel, lowerProject } from "../ir/lower/lower.js";
+import { lowerProject } from "../ir/lower/lower.js";
 import type { EnrichedLoomModel, TestOutcome } from "../ir/types/loom-ir.js";
 import { DEFAULT_SOURCE_LOCALE, sourceLocaleOf } from "../ir/types/loom-ir.js";
 import {
@@ -27,11 +26,6 @@ import type { Model } from "../language/generated/ast.js";
 import { applyPatches, type ModelPatch } from "../language/model-patch.js";
 import { loadProject } from "../language/project-loader.js";
 import { installFsBackendSource } from "../platform/fs-discovery.js";
-import { generateTypeScript } from "../platform/hono/v4/emit.js";
-// Legacy single-context `generate ts` targets the default Hono
-// backend; the CLI (an entrypoint) supplies that package's pins to
-// the version-agnostic shared emitter.
-import { BACKEND_PINS as HONO_PINS } from "../platform/hono/v5/pins.js";
 import { type GiveUpReport, partitionGiveUps } from "../system/give-up-report.js";
 import { generateSystemsFromLoom, pendingMigrations, serviceSlug } from "../system/index.js";
 import { captureSnapshots } from "../system/loomsnap.js";
@@ -129,47 +123,6 @@ import {
 import { escapesOutDir } from "./output-containment.js";
 import { warningLines } from "./warning-lines.js";
 
-interface ParseResult {
-  model: Model;
-  diagnostics: string[];
-  errorCount: number;
-  warningCount: number;
-  /** `.ddd` source text keyed by `URI.path` (the same key an `OriginRef`'s
-   *  `SourceRef.path` resolves to) — feeds `GenerateSystemOptions.sourceTexts`
-   *  for Source Map v3 sidecar emission.  Just this one document's text. */
-  sourceTexts: Map<string, string>;
-}
-
-async function parseFile(file: string): Promise<ParseResult> {
-  const services = createDddServices(NodeFileSystem);
-  const absolute = path.resolve(file);
-  if (!fs.existsSync(absolute)) {
-    throw new Error(`File not found: ${absolute}`);
-  }
-  const docs = services.shared.workspace.LangiumDocuments;
-  const doc = await docs.getOrCreateDocument(URI.file(absolute));
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-
-  const diagnostics: string[] = [];
-  let errorCount = 0;
-  let warningCount = 0;
-  for (const d of doc.diagnostics ?? []) {
-    const severity = d.severity === 1 ? "error" : d.severity === 2 ? "warning" : "info";
-    if (severity === "error") errorCount++;
-    if (severity === "warning") warningCount++;
-    const line = d.range.start.line + 1;
-    const col = d.range.start.character + 1;
-    diagnostics.push(`${absolute}:${line}:${col} ${severity}: ${d.message}`);
-  }
-  return {
-    model: doc.parseResult?.value as Model,
-    diagnostics,
-    errorCount,
-    warningCount,
-    sourceTexts: new Map([[doc.uri.path, doc.textDocument.getText()]]),
-  };
-}
-
 /** What the CLI host offers phase ⑦ beyond the model: a disk-backed reader
  *  for custom `design:` packs, so a malformed pack is a
  *  `loom.design-pack-invalid` diagnostic on `parse` rather than a crash on
@@ -189,8 +142,9 @@ interface ProjectParseResult {
   diagnostics: string[];
   errorCount: number;
   warningCount: number;
-  /** `.ddd` source text keyed by `URI.path`, over every document in the
-   *  import graph — see `ParseResult.sourceTexts`. */
+  /** `.ddd` source text keyed by `URI.path` (the key an `OriginRef`'s
+   *  `SourceRef.path` resolves to), over every document in the import graph —
+   *  feeds `GenerateSystemOptions.sourceTexts` for Source Map v3 sidecars. */
   sourceTexts: Map<string, string>;
 }
 
@@ -198,8 +152,7 @@ interface ProjectParseResult {
  * Multi-file entry — load the project rooted at `entryFile`, walk
  * its `import` graph, and return a single enriched `LoomModel` built
  * by lowering each document independently and merging the results.
- * Used by `generate system`.  Single-document legacy commands stay
- * on `parseFile`.
+ * Used by every command that reads a model.
  */
 async function parseProject(entryFile: string): Promise<ProjectParseResult> {
   const services = createDddServices(NodeFileSystem);
@@ -319,9 +272,7 @@ function printSummary(...phases: readonly PhaseTally[]): void {
   console.error(`${errors} error(s), ${warnings} warning(s).`);
 }
 
-/** The AST-diagnostic (phase ④) lines.  Structurally typed on the three fields
- *  it reads, so it serves both the single-document `ParseResult` and the
- *  multi-file `ProjectParseResult`.  Returns its tally for `printSummary`; the
+/** The AST-diagnostic (phase ④) lines.  Returns its tally for `printSummary`; the
  *  footer is NOT this function's to print. */
 function printAstDiagnostics(result: {
   diagnostics: readonly string[];
@@ -633,8 +584,6 @@ interface RunOptions {
   /** `--sourcemap` switch — when true, `generate system` additionally emits
    * `.loom/sourcemap.json` mapping generated file regions back to `.ddd`
    * spans / macro-call sites.  Off by default (byte-identical output).
-   * System target only — the legacy single-project `generate ts` /
-   * `generate dotnet` paths don't accept this flag.
    * See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md. */
   sourcemap?: boolean;
   /** `--inline-sources` switch — inline each `.ddd`'s full text into every
@@ -676,7 +625,28 @@ interface RunResult {
   locallyModified?: number;
 }
 
-type GenerateTarget = "ts" | "dotnet" | "system";
+/** `generate system` emitted nothing: the source declares no deployable.  The
+ *  hint shows the lines to add — platform and database are the author's
+ *  choice, so there is no implicit default deployable to fall back on. */
+function noDeployableMessage(file: string, loom: EnrichedLoomModel): string {
+  const ctx =
+    loom.contexts[0]?.name ??
+    loom.systems[0]?.subdomains.flatMap((s) => s.contexts)[0]?.name ??
+    "Sales";
+  const lc = ctx.charAt(0).toLowerCase() + ctx.slice(1);
+  return [
+    `No deployable declared in ${file}, so there is nothing to generate.  Add a`,
+    "system that hosts the contexts on a backend, for example:",
+    "",
+    `  system ${ctx}System {`,
+    "    storage db { type: postgres }",
+    `    resource ${lc}State { for: ${ctx}, kind: state, use: db }`,
+    `    deployable ${lc} { platform: node, contexts: [${ctx}], dataSources: [${lc}State] }`,
+    "  }",
+    "",
+    "(`platform:` takes node | dotnet | elixir | python | java.)",
+  ].join("\n");
+}
 
 /** The migration failures that are an operator's to fix — reported as a clean
  *  CLI failure with the error's own recovery hint, never as a crash. */
@@ -1023,62 +993,31 @@ async function runDiff(
 }
 
 async function runGenerate(
-  target: GenerateTarget,
   file: string,
   outDir: string,
   options: RunOptions = {},
 ): Promise<RunResult> {
-  // `generate system` is multi-file aware: load the entry's import
-  // graph, lower per document, merge.  Legacy single-deployable
-  // `generate ts` / `generate dotnet` stay on the single-file path
-  // and re-lower internally through `generateTypeScript` /
-  // `generateDotnet` (each of which calls `enrichLoomModel(lowerModel(model))`).
-  let loom: EnrichedLoomModel;
-  let model: Model | undefined;
-  // Only the `system` target's project load carries a `sourceTexts` map
-  // today (Source Map v3 sidecars are node/Hono-only — see
-  // `GenerateSystemOptions.sourceTexts`); harmless to leave undefined on
-  // the legacy `ts`/`dotnet` paths, which never call `generateSystemsFromLoom`.
-  let sourceTexts: Map<string, string> | undefined;
-  // Phase ④'s tally, folded into the single summary once phase ⑦ has run.  The
-  // legacy `ts`/`dotnet` targets print no AST diagnostics on the success path
-  // (they never did), so their contribution is zero.
-  let ast: PhaseTally = { errors: 0, warnings: 0 };
-  if (target === "system") {
-    let projectResult: ProjectParseResult;
-    try {
-      projectResult = await parseProject(file);
-    } catch (err) {
-      console.error(`${file}: ${err instanceof Error ? err.message : String(err)}`);
-      if (!options.continueOnError) process.exit(1);
-      return { hadError: true };
-    }
-    // ALWAYS, not just on the failing runs.  This print lived inside an
-    // `errorCount > 0` branch, so a successful `generate system` dropped every
-    // AST-layer (phase ④) warning it had just computed — 20 of them on the ERP
-    // example, all of which `ddd parse` prints for the same file.  A user who
-    // only runs `generate` never saw them.  Same call `parse` makes, so the
-    // wording and the footer match by construction.
-    ast = printAstDiagnostics(projectResult);
-    if (projectResult.errorCount > 0) {
-      // Phase ⑦ never runs after an AST error, so this is the last phase there
-      // is — print the one summary here rather than leaving the run footerless.
-      printSummary(ast);
-      if (!options.continueOnError) process.exit(1);
-      return { hadError: true };
-    }
-    loom = projectResult.loom;
-    sourceTexts = projectResult.sourceTexts;
-  } else {
-    const result = await parseFile(file);
-    if (result.errorCount > 0) {
-      printSummary(printAstDiagnostics(result));
-      if (!options.continueOnError) process.exit(1);
-      return { hadError: true };
-    }
-    model = result.model;
-    loom = enrichLoomModel(lowerModel(result.model));
+  // Multi-file aware: load the entry's import graph, lower per document, merge.
+  let projectResult: ProjectParseResult;
+  try {
+    projectResult = await parseProject(file);
+  } catch (err) {
+    console.error(`${file}: ${err instanceof Error ? err.message : String(err)}`);
+    if (!options.continueOnError) process.exit(1);
+    return { hadError: true };
   }
+  // ALWAYS, not just on the failing runs: a successful `generate system` must
+  // print the same phase-④ warnings `ddd parse` prints for the same file.
+  const ast: PhaseTally = printAstDiagnostics(projectResult);
+  if (projectResult.errorCount > 0) {
+    // Phase ⑦ never runs after an AST error, so this is the last phase there
+    // is — print the one summary here rather than leaving the run footerless.
+    printSummary(ast);
+    if (!options.continueOnError) process.exit(1);
+    return { hadError: true };
+  }
+  const loom: EnrichedLoomModel = projectResult.loom;
+  const sourceTexts: Map<string, string> = projectResult.sourceTexts;
 
   // Loom-IR-level validation: catches `api.<unknown>.<verb>` and
   // `ui.<unknown>.<verb>` references in `test e2e` bodies before
@@ -1131,91 +1070,81 @@ async function runGenerate(
    *  beside the give-ups below — same shape of problem: a fact known inside a
    *  pure pass with no console, which used to reach nobody. */
   let migrationWarnings: MigrationWarning[] = [];
-  if (target === "system") {
-    // Every backend's migration files are rendered from the committed chain
-    // beside the source (`migrations/`), so `-o` holds no migration state of
-    // its own.  No chain yet ⇒ each module's initial migration, derived from
-    // the model.  See docs/migrations.md.
-    try {
-      const sourceLocale = loom.systems[0]
-        ? sourceLocaleOf(loom.systems[0])
-        : DEFAULT_SOURCE_LOCALE;
-      const emission = generateSystemsFromLoom(loom, {
-        emitTrace: options.emitTrace,
-        emitKubernetes: options.emitKubernetes,
-        migrationChain: readMigrationChain(file),
-        sourcemap: options.sourcemap,
-        inlineSources: options.inlineSources,
-        // Locale catalogs from the translator tree (`ddd i18n init/sync`).
-        // Read HERE, not in `src/system/`, which stays fs-free — the same
-        // split `sourceTexts` uses.  Empty map ⇒ nothing changes.
-        translations: loadTranslations(file, { dir: options.localesDir, source: sourceLocale }),
-        // The source language's own `locales/<source>/` directory: overrides of
-        // the text the model derives, applied to every emitted default.
-        sourceOverrides: loadSourceOverrides(file, {
-          dir: options.localesDir,
-          source: sourceLocale,
-        }),
-        // Harmless to pass unconditionally — v3 sidecar emission is still
-        // gated on `sourcemap` inside `generateSystemsFromLoom`.
-        sourceTexts,
-      });
-      files = emission.files;
-      giveUps = emission.giveUps;
-      // Phase-⑨ advisories (F-3).  The only one today announces the drop+add →
-      // RENAME inference the migration builder makes deliberately: it fired,
-      // and before this the run said `0 error(s), 0 warning(s)` about it, so
-      // an author whose two columns were unrelated was never told their old
-      // column's data was about to land under the new name.  A WARNING — the
-      // inference is load-bearing, so it must not fail the run, and the
-      // migration IS written.
-      migrationWarnings = emission.migrationWarnings;
-    } catch (err) {
-      // An unreadable chain, an unrecorded model change, or a migration the
-      // derivation refuses is a recoverable operator problem, not a compiler
-      // crash — report it as a clean CLI failure (with the recovery hint from
-      // the error message).  Re-throw anything else for the top-level handler.
-      if (isMigrationRefusal(err)) {
-        console.error(`${file}: ${err.message}`);
-        if (!options.continueOnError) process.exit(1);
-        return { hadError: true };
-      }
-      throw err;
-    }
-    if (files.size === 0) {
-      console.error(
-        `No \`system\` block declared in ${file}.  Use \`generate ts\` or \`generate dotnet\` for legacy single-deployable sources.`,
-      );
+  // Every backend's migration files are rendered from the committed chain
+  // beside the source (`migrations/`), so `-o` holds no migration state of
+  // its own.  No chain yet ⇒ each module's initial migration, derived from
+  // the model.  See docs/migrations.md.
+  try {
+    const sourceLocale = loom.systems[0] ? sourceLocaleOf(loom.systems[0]) : DEFAULT_SOURCE_LOCALE;
+    const emission = generateSystemsFromLoom(loom, {
+      emitTrace: options.emitTrace,
+      emitKubernetes: options.emitKubernetes,
+      migrationChain: readMigrationChain(file),
+      sourcemap: options.sourcemap,
+      inlineSources: options.inlineSources,
+      // Locale catalogs from the translator tree (`ddd i18n init/sync`).
+      // Read HERE, not in `src/system/`, which stays fs-free — the same
+      // split `sourceTexts` uses.  Empty map ⇒ nothing changes.
+      translations: loadTranslations(file, { dir: options.localesDir, source: sourceLocale }),
+      // The source language's own `locales/<source>/` directory: overrides of
+      // the text the model derives, applied to every emitted default.
+      sourceOverrides: loadSourceOverrides(file, {
+        dir: options.localesDir,
+        source: sourceLocale,
+      }),
+      // Harmless to pass unconditionally — v3 sidecar emission is still
+      // gated on `sourcemap` inside `generateSystemsFromLoom`.
+      sourceTexts,
+    });
+    files = emission.files;
+    giveUps = emission.giveUps;
+    // Phase-⑨ advisories (F-3).  The only one today announces the drop+add →
+    // RENAME inference the migration builder makes deliberately: it fired,
+    // and before this the run said `0 error(s), 0 warning(s)` about it, so
+    // an author whose two columns were unrelated was never told their old
+    // column's data was about to land under the new name.  A WARNING — the
+    // inference is load-bearing, so it must not fail the run, and the
+    // migration IS written.
+    migrationWarnings = emission.migrationWarnings;
+  } catch (err) {
+    // An unreadable chain, an unrecorded model change, or a migration the
+    // derivation refuses is a recoverable operator problem, not a compiler
+    // crash — report it as a clean CLI failure (with the recovery hint from
+    // the error message).  Re-throw anything else for the top-level handler.
+    if (isMigrationRefusal(err)) {
+      console.error(`${file}: ${err.message}`);
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
     }
-    // Its own footer, for the same reason the give-ups have one: the
-    // `N error(s), N warning(s).` line above is the phase-④/⑦ verdict and was
-    // already printed before generation ran.
-    printMigrationWarnings(migrationWarnings);
-    // Lift the walkers' give-ups.  They were already in the output, named by
-    // code, three characters from the defect — this is the only place with both
-    // the emitted text and a console to report against.
-    const gu = partitionGiveUps(giveUps);
-    for (const g of gu.errors) {
-      console.error(`${g.code} ${g.path}:${g.line}: ${g.text}`);
-    }
-    for (const g of gu.warnings) {
-      console.error(`${g.code} ${g.path}:${g.line} warning: ${g.text}`);
-    }
-    if (gu.errors.length > 0 || gu.warnings.length > 0) {
-      console.error(
-        `${gu.errors.length} error(s), ${gu.warnings.length} warning(s) in generated pages.`,
-      );
-    }
-    if (gu.errors.length > 0) {
-      if (!options.continueOnError) process.exit(1);
-      return { hadError: true };
-    }
-  } else if (target === "ts") {
-    files = generateTypeScript(model!, HONO_PINS, { emitTrace: options.emitTrace });
-  } else {
-    files = generateDotnet(model!, { emitTrace: options.emitTrace });
+    throw err;
+  }
+  if (files.size === 0) {
+    console.error(noDeployableMessage(file, loom));
+    if (!options.continueOnError) process.exit(1);
+    return { hadError: true };
+  }
+  // Its own footer, for the same reason the give-ups have one: the
+  // `N error(s), N warning(s).` line above is the phase-④/⑦ verdict and was
+  // already printed before generation ran.
+  printMigrationWarnings(migrationWarnings);
+  // Lift the walkers' give-ups.  They were already in the output, named by
+  // code, three characters from the defect — this is the only place with both
+  // the emitted text and a console to report against.
+  const gu = partitionGiveUps(giveUps);
+  for (const g of gu.errors) {
+    console.error(`${g.code} ${g.path}:${g.line}: ${g.text}`);
+  }
+  for (const g of gu.warnings) {
+    console.error(`${g.code} ${g.path}:${g.line} warning: ${g.text}`);
+  }
+  if (gu.errors.length > 0 || gu.warnings.length > 0) {
+    console.error(
+      `${gu.errors.length} error(s), ${gu.warnings.length} warning(s) in generated pages.`,
+    );
+  }
+  if (gu.errors.length > 0) {
+    if (!options.continueOnError) process.exit(1);
+    return { hadError: true };
   }
 
   const ig = loadLoomIgnore(outDir);
@@ -2189,52 +2118,6 @@ program
 
 const generate = program.command("generate").description("Generate code from a .ddd file");
 generate
-  .command("ts <file>")
-  .description("Generate TypeScript (Hono + Drizzle)")
-  .requiredOption("-o, --out <dir>", "output directory")
-  .option("-w, --watch", "re-run on changes to <file>")
-  .option("--dry-run", "list paths that would be written / skipped, write nothing")
-  .option(
-    "--trace",
-    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/observability.md",
-  )
-  .action(
-    async (
-      file: string,
-      options: { out: string; watch?: boolean; dryRun?: boolean; trace?: boolean },
-    ) => {
-      await runGenerate("ts", file, options.out, {
-        dryRun: options.dryRun,
-        emitTrace: !!options.trace,
-      });
-      if (options.watch)
-        await watchAndRegenerate("ts", file, options.out, { emitTrace: !!options.trace });
-    },
-  );
-generate
-  .command("dotnet <file>")
-  .description("Generate .NET (ASP.NET Core + EF Core + Mediator)")
-  .requiredOption("-o, --out <dir>", "output directory")
-  .option("-w, --watch", "re-run on changes to <file>")
-  .option("--dry-run", "list paths that would be written / skipped, write nothing")
-  .option(
-    "--trace",
-    "emit trace-level seam instrumentation (tx_begin/commit/rollback around SaveChangesAsync) — off by default; see docs/observability.md",
-  )
-  .action(
-    async (
-      file: string,
-      options: { out: string; watch?: boolean; dryRun?: boolean; trace?: boolean },
-    ) => {
-      await runGenerate("dotnet", file, options.out, {
-        dryRun: options.dryRun,
-        emitTrace: !!options.trace,
-      });
-      if (options.watch)
-        await watchAndRegenerate("dotnet", file, options.out, { emitTrace: !!options.trace });
-    },
-  );
-generate
   .command("system <file>")
   .description(
     "Generate every deployable in the file's `system` blocks plus a docker-compose.yml at the output root.",
@@ -2306,9 +2189,9 @@ generate
         localesDir: options.locales,
         allWarnings: options.allWarnings,
       };
-      await runGenerate("system", file, options.out, runOpts);
+      await runGenerate(file, options.out, runOpts);
       if (options.watch) {
-        await watchAndRegenerate("system", file, options.out, runOpts);
+        await watchAndRegenerate(file, options.out, runOpts);
       }
     },
   );
@@ -2648,7 +2531,6 @@ i18n
   });
 
 async function watchAndRegenerate(
-  target: GenerateTarget,
   file: string,
   outDir: string,
   extraOptions: Partial<RunOptions> = {},
@@ -2667,7 +2549,7 @@ async function watchAndRegenerate(
     }
     inFlight = true;
     try {
-      await runGenerate(target, file, outDir, { continueOnError: true, ...extraOptions });
+      await runGenerate(file, outDir, { continueOnError: true, ...extraOptions });
     } catch (err) {
       // Defensive — runGenerate is supposed to capture its own
       // errors when continueOnError is set, but a renderer throwing

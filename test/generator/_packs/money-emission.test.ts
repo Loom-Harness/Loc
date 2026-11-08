@@ -20,7 +20,7 @@ import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
 } from "../../../src/ir/types/loom-ir.js";
-import { buildLoomModel } from "../../_helpers/index.js";
+import { buildLoomModel, enrichedContexts } from "../../_helpers/index.js";
 
 async function billingFixture(): Promise<{
   ctx: EnrichedBoundedContextIR;
@@ -31,9 +31,9 @@ async function billingFixture(): Promise<{
     "utf8",
   );
   const loom = await buildLoomModel(src);
-  // Bare-context source — bounded contexts land under `contexts`, not
-  // inside a system.
-  const ctx = loom.contexts.find((c) => c.name === "Billing");
+  // The example declares a `system`, which re-parents its contexts under the
+  // system's subdomains.
+  const ctx = enrichedContexts(loom).find((c) => c.name === "Billing");
   expect(ctx, "Billing context").toBeDefined();
   const inv = ctx!.aggregates.find((a) => a.name === "Invoice")!;
   return { ctx: ctx!, inv };
@@ -106,24 +106,8 @@ describe("money emission — Hono lib/schemas.ts helper", () => {
   // routes import `moneySchema` rather than redeclaring the chain.
 
   async function generateHonoFiles(): Promise<Map<string, string>> {
-    const { parseValid } = await import("../../_helpers/parse.js");
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const src = fs.readFileSync(
-      path.resolve(__dirname, "..", "../..", "examples/money-primitive.ddd"),
-      "utf8",
-    );
-    void (await parseValid(src));
-    // money-primitive.ddd is a bare-context source (no `system { … }`
-    // block) — `generateSystems` is the multi-system orchestrator; for
-    // bare contexts the single-deployable `generate ts` path is the
-    // closer match.  Use the lower-level Hono emit for an inline
-    // single-context generation.
-    const { buildLoomModel } = await import("../../_helpers/index.js");
-    const { generateTypeScriptForContexts } = await import("../../../src/platform/hono/v4/emit.js");
-    const { BACKEND_PINS } = await import("../../../src/platform/hono/v5/pins.js");
-    const loom = await buildLoomModel(src);
-    return generateTypeScriptForContexts(loom.contexts, BACKEND_PINS);
+    const { generateBackendFromFile } = await import("../../_helpers/generate.js");
+    return generateBackendFromFile("examples/money-primitive.ddd", "node");
   }
 
   it("emits `lib/schemas.ts` exporting `moneySchema` when a context uses money", async () => {
@@ -139,16 +123,16 @@ describe("money emission — Hono lib/schemas.ts helper", () => {
   });
 
   it("omits `lib/schemas.ts` for projects without any money usage", async () => {
-    const { buildLoomModel } = await import("../../_helpers/index.js");
-    const { generateTypeScriptForContexts } = await import("../../../src/platform/hono/v4/emit.js");
-    const { BACKEND_PINS } = await import("../../../src/platform/hono/v5/pins.js");
-    const loom = await buildLoomModel(`
+    const { generateBackendFromSource } = await import("../../_helpers/generate.js");
+    const files = await generateBackendFromSource(
+      `
       context Foo {
         aggregate Bar { name: string }
         repository Bars for Bar { }
       }
-    `);
-    const files = generateTypeScriptForContexts(loom.contexts, BACKEND_PINS);
+    `,
+      "node",
+    );
     expect(files.get("lib/schemas.ts")).toBeUndefined();
   });
 
@@ -169,17 +153,8 @@ describe("money emission — Hono lib/schemas.ts helper", () => {
 
 describe("money emission — repository persist drops redundant parens", () => {
   it("emits `aggregate.subtotal.toString()` (no wrapping parens)", async () => {
-    const { buildLoomModel } = await import("../../_helpers/index.js");
-    const { generateTypeScriptForContexts } = await import("../../../src/platform/hono/v4/emit.js");
-    const { BACKEND_PINS } = await import("../../../src/platform/hono/v5/pins.js");
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const src = fs.readFileSync(
-      path.resolve(__dirname, "..", "../..", "examples/money-primitive.ddd"),
-      "utf8",
-    );
-    const loom = await buildLoomModel(src);
-    const files = generateTypeScriptForContexts(loom.contexts, BACKEND_PINS);
+    const { generateBackendFromFile } = await import("../../_helpers/generate.js");
+    const files = await generateBackendFromFile("examples/money-primitive.ddd", "node");
     const repo = files.get("db/repositories/invoice-repository.ts");
     expect(repo).toBeDefined();
     // Defensive (value).toString() is gone — money persists as plain
