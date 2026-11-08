@@ -5741,6 +5741,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `Macro '${p.childName}' (invoked from '${p.name}') threw: ${p.message}`,
   "loom.macro-threw#direct": (p: { name: unknown; message: unknown }) =>
     `Macro '${p.name}' threw during expansion: ${p.message}`,
+  // Not a diagnostic of its own: the attribution any AST-phase diagnostic on a
+  // macro-synthesised node is wrapped in (`DddDocumentValidator.toDiagnostic`),
+  // which keeps that diagnostic's code and moves it onto the `with` clause.
+  "loom.macro-synthesised": (p: { message: unknown; macro: unknown }) =>
+    `${String(p.message).replace(/\.\s*$/, "")} (in code synthesised by '${p.macro}')`,
   "loom.capability-host-invalid": (p: { name: unknown; hostKind: unknown }) =>
     `Capability '${p.name}' can only be applied to an aggregate or context (got '${p.hostKind}').  ` +
     "A capability is a pure mixin over domain state, not a UI or API concern.",
