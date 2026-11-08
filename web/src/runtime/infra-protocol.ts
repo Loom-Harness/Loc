@@ -2,7 +2,9 @@
 // browser twin of the non-application services in `docker-compose.yml`.
 //
 //   main thread ──► infra worker ──► storage host worker (one per storage)
-//                                    └─ later: broker state, object store, mailbox
+//                    ├─ broker state (infra/broker-model.ts)
+//                    └─ further services (infra/services.ts)
+//   deployable worker ── InfraPort (MessagePort) ──► infra worker
 //
 // Deployable workers reach a storage directly: each opens a `PGliteWorker`
 // client on the storage's `channel` (see `storage-client.ts`), and the storage
@@ -14,12 +16,8 @@
 // to a SharedWorker (or across tabs) unchanged.  A new kind of infrastructure
 // is a new `service` with its own ops; the envelope stays.
 
-import type {
-  BootFail,
-  MigrationPlan,
-  QueryResult,
-  WipeResult,
-} from "./protocol.js";
+import type { BrokerOp } from "./infra/broker-protocol.js";
+import type { BootFail, MigrationPlan } from "./protocol.js";
 
 /** The schema a storage is brought to: the recorded chain's units for the
  *  modules it holds, or — for a source without a system — the Drizzle-derived
@@ -66,16 +64,32 @@ export type StorageOp =
   | { op: "wipe"; params: { key: string } }
   | { op: "close"; params: { key: string } };
 
-export type InfraOp = { op: "reset"; params: Record<string, never> };
+export type InfraOp =
+  | { op: "reset"; params: Record<string, never> }
+  /** Attach a deployable: the request carries one end of a `MessageChannel`
+   *  (transferred); the deployable holds the other as its `InfraPort`. */
+  | { op: "connect"; params: { client: string } }
+  | { op: "disconnect"; params: { client: string } };
 
-export type InfraRequest = { id: number } & (
-  | ({ service: "storage" } & StorageOp)
-  | ({ service: "infra" } & InfraOp)
-);
+/** Every service's ops, by service name.  A new infra service adds one line
+ *  here and one in `infra/services.ts` (see `infra/service.ts`). */
+export interface InfraServiceOps {
+  storage: StorageOp;
+  infra: InfraOp;
+  broker: BrokerOp;
+}
+
+type ServiceRequest<S extends keyof InfraServiceOps> = S extends keyof InfraServiceOps
+  ? { service: S } & InfraServiceOps[S]
+  : never;
+
+/** One request, from the main thread or (over an `InfraPort`) from a
+ *  deployable. */
+export type InfraRequest = { id: number } & ServiceRequest<keyof InfraServiceOps>;
 
 export interface InfraResponse {
   id: number;
-  result?: StorageOpenResult | StorageMigrateResult | QueryResult | WipeResult | { ok: true };
+  result?: unknown;
   error?: { message: string };
 }
 

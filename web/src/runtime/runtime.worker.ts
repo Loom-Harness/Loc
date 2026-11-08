@@ -8,6 +8,8 @@ import { synthDDL } from "./ddl";
 import type { LogLine } from "../util/log-line.js";
 import { installConsoleTee, setLogSink } from "./console-tee.js";
 import { errText } from "./migrate.js";
+import { BrokerClient, type ChannelBindingLike, type ChannelTransport } from "./broker-facade.js";
+import { InfraPort } from "./infra-port.js";
 import { StorageHostHandle } from "./storage-client.js";
 import type {
   DispatchResult,
@@ -50,7 +52,12 @@ interface BundleModule {
    *  backend emits none, which then boots through bare `createApp`. */
   bootApp?: (
     db: unknown,
-    opts: { verifier: "dev-stub"; infra: "in-process" },
+    opts: {
+      verifier: "dev-stub";
+      infra: "in-process";
+      /** Read only by a backend that wires channels. */
+      channelTransport?: (binding: ChannelBindingLike) => ChannelTransport;
+    },
   ) => Promise<{ app: { fetch: (req: Request) => Promise<Response> }; stop: () => Promise<void> }>;
   schema: Record<string, unknown>;
   drizzle: (client: unknown, opts: { schema: Record<string, unknown> }) => unknown;
@@ -82,6 +89,8 @@ interface Started {
    *  re-boot. */
   stop: () => Promise<void>;
   storage: StorageConnection;
+  /** The line to the infra services (the broker) — closed after `stop`. */
+  infra: InfraPort | null;
 }
 
 let loaded: Loaded | null = null;
@@ -105,6 +114,7 @@ async function tearDown(): Promise<void> {
     } catch {
       // best-effort
     }
+    started.infra?.close();
     started = null;
   }
   if (loaded) {
@@ -147,9 +157,15 @@ async function load(bundleCode: string, synthDdl: boolean): Promise<LoadResult> 
   }
 }
 
-/** Connect to the storage and start the app on it. */
-async function start(channel: string): Promise<StartResult> {
-  if (!loaded) return { ok: false, message: "No bundle loaded — load first." };
+/** Connect to the storage and start the app on it.  `infraPort`, when the
+ *  engine attached the deployable to the infra services, carries the
+ *  channel bindings to the emulated broker. */
+async function start(channel: string, infraPort: MessagePort | undefined): Promise<StartResult> {
+  const infra = infraPort ? new InfraPort(infraPort) : null;
+  if (!loaded) {
+    infra?.close();
+    return { ok: false, message: "No bundle loaded — load first." };
+  }
   const { mod } = loaded;
   progress("storage-connect");
   let storage: StorageConnection;
@@ -157,6 +173,7 @@ async function start(channel: string): Promise<StartResult> {
     storage = new mod.PGliteWorker(new StorageHostHandle(channel));
     await storage.waitReady;
   } catch (err) {
+    infra?.close();
     return { ok: false, message: `Storage connection failed: ${errText(err)}` };
   }
   try {
@@ -165,15 +182,22 @@ async function start(channel: string): Promise<StartResult> {
     if (mod.bootApp) {
       // The deployed start-up sequence minus `serve()`: seeds, verifier,
       // dispatchers, channel consumers, outbox relay, timers.  The preview
-      // reaches no IdP and no broker, so it takes the dev-stub verifier and
-      // the in-process broker + cron.
-      const booted = await mod.bootApp(db, { verifier: "dev-stub", infra: "in-process" });
-      started = { app: booted.app, stop: booted.stop, storage };
+      // reaches no IdP, so it takes the dev-stub verifier; its brokers are
+      // the infra worker's emulated ones (one facade per binding), and
+      // `cron:` runs in-process.
+      const broker = infra ? new BrokerClient(infra) : null;
+      const booted = await mod.bootApp(db, {
+        verifier: "dev-stub",
+        infra: "in-process",
+        ...(broker ? { channelTransport: (b: ChannelBindingLike) => broker.transportFor(b) } : {}),
+      });
+      started = { app: booted.app, stop: booted.stop, storage, infra };
     } else {
-      started = { app: mod.createApp(db), stop: async () => {}, storage };
+      started = { app: mod.createApp(db), stop: async () => {}, storage, infra };
     }
     return { ok: true };
   } catch (err) {
+    infra?.close();
     await storage.close().catch(() => undefined);
     return { ok: false, message: `${mod.bootApp ? "bootApp" : "createApp"} failed: ${errText(err)}` };
   }
@@ -246,7 +270,7 @@ self.onmessage = async (ev: MessageEvent<RuntimeRpcRequest>) => {
         response.result = await load(req.params.bundleCode, req.params.synthDdl);
         break;
       case "start":
-        response.result = await start(req.params.channel);
+        response.result = await start(req.params.channel, ev.ports[0]);
         break;
       case "dispatch":
         response.result = await dispatch(req.params);

@@ -69,7 +69,7 @@ export class LoomRuntimeClient {
     };
   }
 
-  private send<T>(req: Omit<RuntimeRpcRequest, "id">): Promise<T> {
+  private send<T>(req: Omit<RuntimeRpcRequest, "id">, transfer: Transferable[] = []): Promise<T> {
     if (this.disposed) {
       return Promise.reject(new Error("LoomRuntimeClient: disposed"));
     }
@@ -79,7 +79,7 @@ export class LoomRuntimeClient {
         resolve: (v) => resolve(v as T),
         reject,
       });
-      this.worker.postMessage({ id, ...req } as RuntimeRpcRequest);
+      this.worker.postMessage({ id, ...req } as RuntimeRpcRequest, transfer);
     });
   }
 
@@ -89,9 +89,10 @@ export class LoomRuntimeClient {
     return this.send<LoadResult>({ method: "load", params: req });
   }
 
-  /** Connect to the storage on `channel` and start the app. */
-  start(channel: string): Promise<StartResult> {
-    return this.send<StartResult>({ method: "start", params: { channel } });
+  /** Connect to the storage on `channel` and start the app.  `infraPort` is
+   *  the deployable's end of its line to the infra services (transferred). */
+  start(channel: string, infraPort?: MessagePort): Promise<StartResult> {
+    return this.send<StartResult>({ method: "start", params: { channel } }, infraPort ? [infraPort] : []);
   }
 
   dispatch(req: SerializedRequest): Promise<DispatchResult> {
