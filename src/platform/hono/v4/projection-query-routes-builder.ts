@@ -2,7 +2,7 @@ import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { numericKindOf } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
-import { tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
+import { FILE_REF_ZOD, tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
 import {
   mikroBypassedFilters,
   whereToMikroFilter,
@@ -1387,7 +1387,7 @@ export function zodForRow(t: TypeIR, enumValues: Map<string, string[]>): string 
         case "json":
           return "z.unknown()";
         case "File":
-          return "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })";
+          return FILE_REF_ZOD;
         case "duration":
           // A5: expression-only primitive — never a projection-row / wire type.
           throw new Error("internal: 'duration' is expression-only and never reaches a view row");

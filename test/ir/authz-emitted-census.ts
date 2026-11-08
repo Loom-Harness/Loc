@@ -37,6 +37,8 @@
 // `authz-emitted-census.test.ts` / `authz-emitted-census-pins.ts`.  Pure text
 // over `generateSystems` output — no boot, no docker.
 
+import { maskedReadPredicates } from "../../src/ir/enrich/mask-taint.js";
+import { forApiRead, wireFieldsForAggregate } from "../../src/ir/enrich/wire-projection.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -1599,18 +1601,22 @@ export function maskFacts(model: LoomModel): MaskFact[] {
     for (const sd of sys.subdomains) {
       for (const ctx of sd.contexts) {
         for (const agg of ctx.aggregates) {
-          const masked = (agg.fields ?? []).filter((f) => f.maskUnless);
+          // The visibility taint's fact: each masked field plus every wire
+          // `derived` computed from one — both must redact.
+          const masks = maskedReadPredicates(agg);
+          const wire = new Set(forApiRead(wireFieldsForAggregate(agg)).map((w) => w.name));
+          const masked = [...masks].filter(([name]) => wire.has(name));
           if (masked.length === 0) continue;
           const markers = new Set<string>();
-          for (const f of masked) {
-            walkExprDeep(f.maskUnless, (n) => {
+          for (const [, pred] of masked) {
+            walkExprDeep(pred, (n) => {
               if (n.kind === "literal" && n.lit === "string")
                 markers.add(n.value.replace(/^"|"$/g, ""));
             });
           }
           out.push({
             aggregate: agg.name,
-            fields: masked.map((f) => f.name),
+            fields: masked.map(([name]) => name),
             markers: [...markers],
           });
         }

@@ -33,7 +33,7 @@ const ENABLED = process.env.LOOM_CHANNELS_E2E === "1";
 // SCOPE, precisely (an owner review caught this claim being wider than the
 // boot): this fixture's `channel Lifecycle { carries: OrderPlaced }` defaults to
 // `broadcast`/`ephemeral`, so NO event here is durable — `outboxRelay` is false
-// on both deployables and the emitted `index.ts` contains no
+// on both deployables and the emitted `boot.ts` contains no
 // `createOutboxDispatcher` / `startOutboxRelay` at all.  What this leg proves is
 // the TRANSPORT half on the mikro adapter: the driver, the producer publish tee
 // composed over the mikro in-process dispatcher, the consumer loop, and a real

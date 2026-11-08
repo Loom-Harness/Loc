@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 // ---------------------------------------------------------------------------
 // `shape: document` persistence on the vanilla (plain Ecto) foundation —
@@ -229,7 +230,7 @@ describe("vanilla shape: document scalar finds + named ops (Route A slice 2 — 
     // not a raise → 500) — the struct-mode read `record.item_count` is preserved.
     expect(ctx).toContain("with :ok <- ensure(record.item_count >= 0, {:precondition_failed, ");
     expect(ctx).not.toContain("raise(ArgumentError");
-    expect(ctx).toContain("record = %{record | item_count: record.item_count + 1}");
+    expect(uncheckedInt(ctx)).toContain("record = %{record | item_count: record.item_count + 1}");
     expect(ctx).toContain("|> Ecto.Changeset.optimistic_lock(:row_version)");
     expect(ctx).toContain("|> Ecto.Changeset.put_embed(:data, Map.from_struct(record))");
     expect(ctx).toContain("|> Api.Carts.CartRepository.persist_change()");
@@ -479,7 +480,7 @@ system Shop {
 
   it("persists a MUTATING fall-through success + projects off the saved embed", async () => {
     const bump = op(file(await generateSystemFiles(DOC_RET), "/shop.ex"), "bump_fall_cart");
-    expect(bump).toContain("record = %{record | total: record.total + 1}");
+    expect(uncheckedInt(bump)).toContain("record = %{record | total: record.total + 1}");
     expect(bump).toContain("|> Ecto.Changeset.optimistic_lock(:row_version)");
     expect(bump).toContain("|> Ecto.Changeset.put_embed(:data, Map.from_struct(record))");
     expect(bump).toContain("case Api.Shop.CartRepository.persist_change(changeset) do");
@@ -640,7 +641,7 @@ describe("vanilla shape: document op guards deny 403/422 (not raise → 500)", (
     expect(body).not.toContain("with :ok <- ensure");
     // Flat: record bind → mutation → re-embed persist, no denial wrap.
     expect(body).toContain("record = row.data");
-    expect(body).toContain("record = %{record | count: record.count + 1}");
+    expect(uncheckedInt(body)).toContain("record = %{record | count: record.count + 1}");
   });
 
   it("the document-op controller maps the denial atoms to 403 / 422", async () => {

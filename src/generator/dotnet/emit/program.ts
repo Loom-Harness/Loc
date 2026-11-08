@@ -126,6 +126,9 @@ export function renderProgram(
     /** True when the project emits `Api/OpUnionResponsesFilter.cs` (an
      *  operation-return union with an `error` arm, M-FT.24); registers it. */
     opUnionFilter?: boolean;
+    /** True when the project emits `Api/ValueObjectSchemaMergeFilter.cs` (one
+     *  published component per value object); registers it LAST. */
+    voMergeFilter?: boolean;
     /** When true, at least one aggregate carries `flags.isAuditable`
      *  (any aggregate has contextStamps from one or more macros).
      *  Program.cs registers the `AuditableInterceptor` and attaches
@@ -1122,6 +1125,14 @@ builder.Services.AddSwaggerGen(c =>
     // An operation returning \`T or <Error>\`: 200 carries the success arms,
     // each error arm's status carries its problem body (M-FT.24).
     c.DocumentFilter<OpUnionResponsesFilter>();`
+        : ""
+    }${
+      options?.voMergeFilter
+        ? `
+    // One component per value object (\`Dims\`, not DimsRequest + DimsResponse),
+    // as the other backends publish.  After the filters above so it sees
+    // their final refs.
+    c.DocumentFilter<ValueObjectSchemaMergeFilter>();`
         : ""
     }
     // Mark non-nullable reference-type properties as required in the

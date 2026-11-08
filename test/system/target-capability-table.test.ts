@@ -31,6 +31,7 @@ import {
 } from "../../src/ir/validate/checks/target-capability-checks.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import {
+  ADAPTER_REFUSALS,
   ALL_UI_CONSTRUCTS,
   BACKEND_CONSTRUCTS,
   type BackendConstruct,
@@ -334,6 +335,31 @@ system W {
   deployable d { platform: ${platform}, contexts: [Main], dataSources: [st], serves: MainApi, port: 3000, auth: required }
 }
 `,
+  // An event-sourced aggregate whose stream carries its tenant.
+  "capability:tenantOwned@event-sourced": (platform) => `
+system W {
+  user { id: string  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Main {
+      event Opened { ledger: Ledger id }
+      aggregate Ledger persistedAs: eventLog with tenantOwned {
+        opened: bool
+        create open() { emit Opened { ledger: id } }
+        apply(e: Opened) { opened := true }
+      }
+      aggregate Org with crudish { name: string }
+      repository Ledgers for Ledger { }
+      repository Orgs for Org { }
+    }
+  }
+  api MainApi from Core { }
+  storage pg { type: postgres }
+  resource st { for: Main, kind: state, use: pg }
+  resource es { for: Main, kind: eventLog, use: pg }
+  deployable d { platform: ${platform}, contexts: [Main], dataSources: [st, es], serves: MainApi, port: 3000, auth: required }
+}
+`,
   "resource:replica@resource": (platform) =>
     resourceWitness(
       platform,
@@ -542,6 +568,8 @@ describe("loom.target-unsupported — the check reads the table, and every detec
       ];
       for (const v of verdicts) if (v.verdict === "refused") used.add(v.slug);
     }
+    // The adapter axis's refusals are rows too.
+    for (const r of ADAPTER_REFUSALS) used.add(r.verdict.slug);
     // The fail-closed reasons count: an unknown framework is refused with them.
     for (const slug of Object.values(UI_CONSTRUCT_REFUSAL)) used.add(slug);
     const catalog = Object.keys(DIAGNOSTIC_MESSAGES)

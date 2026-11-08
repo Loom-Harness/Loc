@@ -106,6 +106,29 @@ generates fully and is browsable in the Files pane, but the preview names
 those as "run outside the playground" rather than booting them. The
 playground surfaces this explicitly instead of failing silently.
 
+### The backend's start-up sequence in the preview
+
+The runtime worker boots the generated backend through its own start-up
+sequence — `bootApp` in the deployable's `boot.ts`, the same function the
+generated `index.ts` runs before `serve()` — so seeds, the user verifier, the
+tenant-registry `orgPath` resolver, the channel consumers, the outbox relay
+and the timers all run in the preview as they do deployed. The worker passes
+the browser's answers, each announced at warn level in the runtime log:
+
+| Option | Preview behaviour | Why |
+|---|---|---|
+| `verifier: "dev-stub"` | the dev stub, even under `auth { oidc }` | no identity provider is reachable from the worker |
+| `infra: "in-process"` — channels | every `channelSource` binding on one in-memory transport (`channel_transport_in_process`): broadcast fan-out and round-robin consumer groups, asynchronous delivery | no broker; retention, replay and dead-lettering are not emulated |
+| `infra: "in-process"` — `cron:` timers | an in-process loop at each cron boundary (`timer_cron_in_process`) instead of pg-boss | pg-boss opens its own Postgres connection, which PGlite cannot give it; no durability, retry or cross-replica single-fire |
+| `infra: "in-process"` — `every:` timers | fire without the advisory-lock transaction | one process, and PGlite's single connection would deadlock the tick's writes behind the lock |
+
+The broker and job-queue client packages (`ioredis`, `kafkajs`, `amqplib`,
+`pg-boss`) are swapped at bundle time for stubs whose constructors throw
+(`BROWSER_STUBBED_PACKAGES` in `src/engine/npm/esbuild-vfs-plugin.ts`): their
+module bodies cannot evaluate in a worker, and the in-process boot never
+constructs them. `bootApp`'s `channelTransport` option is the seam an emulated
+broker plugs into. **Reset** stops what boot started before it closes PGlite.
+
 ### In-browser test runner
 
 The Postgres is **PGlite** — a WebAssembly Postgres — booted inside the
@@ -126,8 +149,7 @@ Boot never writes to the database while the model has **unrecorded** schema
 changes: it stops with *migration required* (`backend-status`), names the
 modules and steps, and leaves the database as it is. That includes a workspace
 with no chain, every built-in example among them — no migration is implied, so
-the database is created only once the initial migration is recorded in the
-Migrations tab. A database the chain cannot describe — one at a unit the chain
+the database is created only once the initial migration is recorded. A database the chain cannot describe — one at a unit the chain
 no longer has, or one an earlier playground built without migration tracking
 (a `ddl_hash` row) — is reported, not dropped. The only actions that drop the
 user schemas are the explicit ones: **Reset database** (Database sub-view —
@@ -137,6 +159,28 @@ data, then boot). A source with no `system` block cannot record migrations;
 its schema is synthesised from the bundled Drizzle tables (`src/runtime/ddl.ts`,
 `synthDDL`), applied to an empty database only, and a changed schema is
 reported for an explicit reset.
+
+The pipeline strip shows where the schema stands without a boot or an open
+tab. On every source change the build worker re-runs the check Boot runs
+(`migrate.plan`), and a badge beside Boot reads one of:
+
+- *migration required · initial schema* — nothing is recorded yet (every
+  built-in example on open). Boot is blocked until the initial migration is
+  recorded.
+- *migration required · N unrecorded changes* — what `ddd migrate status`
+  lists, with a *destructive* flag when one of them needs
+  `--allow-destructive`.
+- *migration recorded · N migrations not applied* — the chain records the
+  model, and the database this session booted has not applied its newest
+  entries.
+
+**Record migration…** opens a dialog that previews exactly what recording
+writes — every table's `Initial` for a first recording, the next entry
+otherwise — with the Migrations tab's diagram, SQL and destructive gate, and
+records through the same path as the tab (`ddd migrate add`). **Apply**
+regenerates, bundles and boots, and the boot applies the recorded entries the
+database lacks; the badge then clears. The Problems pane shows unrecorded
+changes as one notice row that opens the same dialog.
 
 On top of that live runtime, the playground runs the **DSL-emitted test
 suites** — the same files `ddd generate system` writes:

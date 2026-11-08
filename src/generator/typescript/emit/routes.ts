@@ -253,7 +253,7 @@ export function renderHttpIndex(
   // Transactional-outbox tier (dispatch-delivery-semantics.md): when any
   // channel asks for durability (`retention: log | work`), createApp's
   // default dispatcher wraps the in-process one — durable events are
-  // recorded in __loom_outbox and the relay (started by index.ts) delivers
+  // recorded in __loom_outbox and the relay (started by boot.ts) delivers
   // them; ephemeral events keep the inline at-most-once path.
   // Persistence-neutral since M-T6.23: the MikroORM adapter emits the
   // same two exports over the `LoomOutboxRow` EntitySchema, so a durable channel

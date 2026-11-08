@@ -1,0 +1,93 @@
+// Playground boot fixture: the generated start-up sequence (`bootApp`), not
+// bare `createApp(db)`.
+//
+// The preview used to build the app with `createApp(db)` alone and skip what
+// the generated `index.ts` starts around it — the broker transports and the
+// consumer loop, the timers.  A channel subscriber and an `every:` timer were
+// silently inert in the preview even with one deployable.  This fixture boots
+// the one sequence both hosts share and needs both to fire:
+//
+//   - `Listings` is bound to a redis `channelSource`, so `ProductAnnounced`
+//     leaves through the publish tee and reaches the co-located `Notify`
+//     workflow only through the consumer loop — in the browser, the in-process
+//     broker `bootApp({ infra: "in-process" })` swaps in.
+//   - `pulse` is an `every:` timer; `beat` is a `cron:` one, which the preview
+//     must run without pg-boss (pg-boss opens its own Postgres connection).
+//
+// Shaped like `sales-system.ddd`'s Product (sku + Money) so the smoke's
+// create/read round-trip applies unchanged.
+
+system BootSmoke {
+  subdomain Catalog {
+    context Sales {
+      valueobject Money {
+        amount: decimal
+        currency: string
+        invariant amount >= 0
+        invariant currency.length == 3
+      }
+
+      aggregate Product with crudish {
+        sku: string
+        price: Money
+        invariant sku.length > 0
+
+        operation announce() {
+          emit ProductAnnounced { product: id, sku: sku }
+        }
+      }
+
+      aggregate Notice with crudish {
+        sku: string
+      }
+
+      aggregate Beat with crudish {
+        source: string
+        at: datetime
+      }
+
+      repository Products for Product { }
+      repository Notices for Notice { }
+      repository Beats for Beat { }
+
+      event ProductAnnounced { product: Product id, sku: string }
+      event Pulsed { beat: Beat id, at: datetime }
+
+      channel Listings { carries: ProductAnnounced }
+      channel Pulses { carries: Pulsed }
+
+      workflow Notify {
+        product: Product id
+        create(e: ProductAnnounced) by e.product {
+          let n = Notice.create(sku: e.sku)
+        }
+      }
+
+      workflow Pulse {
+        beat: Beat id
+        create(p: Pulsed) by p.beat {
+          let b = Beat.create(source: "timer", at: p.at)
+        }
+      }
+    }
+  }
+
+  api SalesApi from Catalog
+
+  storage primarySql { type: postgres }
+  storage bus { type: redis }
+  resource salesState { for: Sales, kind: state, use: primarySql }
+  channelSource listingsBus { for: Listings, use: bus }
+
+  deployable api {
+    platform: node
+    contexts: [Sales]
+    dataSources: [salesState]
+    channels: [listingsBus]
+    serves: SalesApi
+    port: 3000
+  }
+
+  timerSource pulse { for: Pulsed, every: 1s }
+  timerSource beat { for: Pulsed, cron: "0 3 * * *" }
+}

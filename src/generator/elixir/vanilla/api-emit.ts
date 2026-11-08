@@ -74,7 +74,7 @@ import {
 import { isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced, renderEsController } from "./eventsourced-emit.js";
 import { renderPageParamHelper } from "./find-controller.js";
-import { effectiveGate, renderGateCondition } from "./gate.js";
+import { effectiveGate, renderGateCondition, updateSeamGates } from "./gate.js";
 import { isAbstractBase, isTphBase } from "./inheritance-emit.js";
 import {
   guardRescue,
@@ -582,9 +582,15 @@ ${cuBind}${showBody}
   // The update action already binds `current_user` when the aggregate has a
   // principal READ filter; bind it here too when only a principal stamp needs
   // it (avoid a double bind when both apply).
+  // A merge-patch `update` with a `mask unless` write gate evaluates it in the
+  // context seam, which then takes the principal and may deny with
+  // `{:forbidden, detail}`.
+  const updateGated = updateSeamGates(agg.operations.find((o) => o.name === "update")).length > 0;
   const updateCuBind =
-    !principal && stampPrincipal ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
-  const updateActor = stampPrincipal ? ", current_user" : "";
+    !principal && (stampPrincipal || updateGated)
+      ? "    current_user = Map.get(conn.assigns, :current_user)\n"
+      : "";
+  const updateActor = stampPrincipal || updateGated ? ", current_user" : "";
 
   // Per-operation member actions.  A returning operation (`: A or B`) translates
   // its tagged result to HTTP (success → 200, error variant → ProblemDetails);
@@ -964,7 +970,7 @@ ${cuBind}${updateCuBind}${versionBind}
         ProblemDetails.not_found_response(conn, "${aggPascal}", id)${conflictClause}
 
       {:error, %Ecto.Changeset{} = changeset} ->
-        ProblemDetails.validation_error_response(conn, changeset)
+        ProblemDetails.validation_error_response(conn, changeset)${updateGated ? forbiddenArm("      ") : ""}
     end
   end`;
   const writeActions = readOnly

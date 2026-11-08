@@ -144,14 +144,13 @@ describe("MikroORM transactional outbox", () => {
       "createOutboxDispatcher(db, createInProcessDispatcher(db, { isolateReactorFailures: true }))",
     );
     const index = files.get("api/index.ts")!;
-    expect(index).toContain(
+    const boot = files.get("api/boot.ts")!;
+    expect(boot).toContain(
       'import { createInProcessDispatcher, createOutboxDispatcher, startOutboxRelay } from "./http/workflows";',
     );
-    expect(index).toContain(
-      "const app = createApp(db, createOutboxDispatcher(db, requestEvents));",
-    );
-    expect(index).toContain("const stopOutboxRelay = startOutboxRelay(db, inProcessEvents);");
-    expect(index).toContain("stopOutboxRelay();");
+    expect(boot).toContain("const app = createApp(db, createOutboxDispatcher(db, requestEvents));");
+    expect(boot).toContain("const stopOutboxRelay = startOutboxRelay(db, inProcessEvents);");
+    expect(boot).toContain("stopOutboxRelay();");
     // …still on the mikro connection, not a pg pool.
     expect(index).toContain("const db = orm.em;");
     expect(index).not.toContain('import * as schema from "./db/schema";');

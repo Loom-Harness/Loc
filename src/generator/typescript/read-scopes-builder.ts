@@ -23,6 +23,10 @@
 // write site: the `kind` scope alone, because a write is scoped by the type
 // mapping, not by a read restriction.
 //
+// A tenant-scoped event stream (`stream-tenancy.ts`) gets a `<agg>StreamScope`
+// helper too: its tenancy restrictions over the context event log's tenant
+// metadata columns, called by every stream load of its repository.
+//
 // A TPH ROOT (the abstract base of a `sharedTable` hierarchy) gets one too: its
 // own restrictions plus each concrete's own, hosted on the root and guarded by
 // the concrete's discriminator, which is what a polymorphic read of the
@@ -37,15 +41,20 @@ import {
   type DrizzleScopeConjunct,
   drizzleScopeConjuncts,
   drizzleScopeFnName,
+  drizzleStreamScopeConjuncts,
+  drizzleStreamScopeFnName,
 } from "./repository-find-predicate.js";
 
 /** Path of the pooled helper module, relative to the generated project root. */
 export const READ_SCOPES_PATH = "db/read-scopes.ts";
 
-/** One aggregate whose repository (or base reader) calls a scope helper. */
+/** One aggregate whose repository (or base reader) calls a scope helper.
+ *  `stream` marks a tenant-scoped event stream: its helper is
+ *  `<agg>StreamScope`, over the context's event log. */
 export interface ReadScopeSpec {
   agg: EnrichedAggregateIR;
   ctx: EnrichedBoundedContextIR;
+  stream?: boolean;
 }
 
 /** Whether `agg` gets a helper: a drizzle SQL read home (the caller filters out
@@ -65,7 +74,24 @@ function guard(c: DrizzleScopeConjunct): string {
     : c.expr;
 }
 
+/** The stream scope of a tenant-scoped event stream: its tenancy
+ *  restrictions over the event log's metadata columns. */
+function renderStreamScopeFn(spec: ReadScopeSpec): string {
+  const { agg, ctx } = spec;
+  const terms = drizzleStreamScopeConjuncts(agg, ctx).map(guard);
+  const usesParam = terms.some((t) => t.includes("drops(use,"));
+  return lines(
+    `/** The stream scope of ${agg.name}: its tenancy restrictions over the stream's tenant metadata. */`,
+    `export function ${drizzleStreamScopeFnName(agg)}(${usesParam ? "use" : "_use"}: ScopeUse = {}): SQL | undefined {`,
+    `  return and(`,
+    ...terms.map((t) => `    ${t},`),
+    `  );`,
+    `}`,
+  );
+}
+
 function renderScopeFn(spec: ReadScopeSpec): string {
+  if (spec.stream) return renderStreamScopeFn(spec);
   const { agg, ctx } = spec;
   const { kind, filters, guarded } = drizzleScopeConjuncts(agg, ctx);
   const terms = [...(kind ? [kind] : []), ...filters.map(guard), ...guarded.map(guard)];

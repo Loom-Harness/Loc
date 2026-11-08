@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { uncheckedInt } from "../_helpers/unchecked-int.js";
 
 const src = (platform: string, select = "orderId = t.orderId, total = t.total") => `
   system S {
@@ -98,7 +99,7 @@ describe("query-time projection `from <Projection>` — arithmetic on a row fiel
   for (const { platform, projected } of ARITHMETIC) {
     it(`${platform}: emits plain arithmetic, never a string-convert of the operand`, async () => {
       const all = await allFiles(platform, "orderId = t.orderId, total = t.total + 1");
-      expect(all).toMatch(projected);
+      expect(uncheckedInt(all)).toMatch(projected);
       expect(all).not.toMatch(/Total \+ 1\.ToString\(/);
       expect(all).not.toMatch(/total\(\) \+ String\.valueOf\(1\)/);
       expect(all).not.toMatch(/record\.total <> to_string\(1\)/);

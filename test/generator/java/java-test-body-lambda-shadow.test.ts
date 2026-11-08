@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const SOURCE = `
 system S {
@@ -63,7 +64,9 @@ describe("java — test-body lambda binders clear the test's locals", () => {
       "o.lines().stream().anyMatch(o_ -> o_.tags().stream().anyMatch(t_ -> t_.weight() > 0))",
     );
     // The `+ t` outside the lambda still names the test local.
-    expect(src).toContain("o.lines().stream().filter(t_ -> t_.qty() > 5).toList().size() + t");
+    expect(uncheckedInt(src)).toContain(
+      "o.lines().stream().filter(t_ -> t_.qty() > 5).toList().size() + t",
+    );
   });
 
   it("context integration test: same rule, nested binders stack the suffix", async () => {

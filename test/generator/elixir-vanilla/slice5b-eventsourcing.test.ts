@@ -4,6 +4,7 @@ import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 import { parseString } from "../../_helpers/parse.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 // ---------------------------------------------------------------------------
 // Slice P4.1/P4.2 of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/elixir-eventsourcing-vanilla-plan.md —
@@ -115,7 +116,7 @@ describe("vanilla — Slice P4.2 event-sourcing emit", () => {
     expect(fold).toContain("def apply_event(state, %Api.Accounts.Events.Opened{} = e)");
     expect(fold).toContain("def apply_event(state, %Api.Accounts.Events.Deposited{} = e)");
     // `balance := balance + e.amount` folds against the threaded `state`.
-    expect(fold).toContain("state = %{state | balance: state.balance + e.amount}");
+    expect(uncheckedInt(fold)).toContain("state = %{state | balance: state.balance + e.amount}");
   });
 
   it("emits an event-store repository (load+fold reads, gap-free append)", async () => {

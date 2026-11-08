@@ -181,6 +181,15 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             context.ExceptionHandled = true;
             return;
         }
+        // RS-48: a `checked(...)` integer `+ - *` left its int32 / int64 range.
+        if (context.Exception is System.OverflowException ofe)
+        {
+            _log.LogWarning("{Event} message={Message} status={Status}", "domain_error", ofe.Message, 422);
+            global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("domain_error");
+            context.Result = Problem(context, 422, "Unprocessable Entity", "Value out of range", trace_id);
+            context.ExceptionHandled = true;
+            return;
+        }
         if (context.Exception is AggregateNotFoundException nf)
         {
             _log.LogWarning("{Event} status={Status}", "not_found", 404);

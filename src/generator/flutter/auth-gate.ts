@@ -36,6 +36,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ExprIR, OperationIR, UserIR } from "../../ir/types/loom-ir.js";
+import { operationActionGates } from "../../ir/util/op-gates.js";
 import { lines } from "../../util/code-builder.js";
 import { flutterHttpImport } from "./api-client.js";
 import { type DartRecord, renderDartModel } from "./dart-model-emit.js";
@@ -238,7 +239,7 @@ export function renderFlutterGate(e: ExprIR, userVar: string): string {
  *  when the claims fail; null leaves it always shown (the backend 403 still
  *  enforces the guard — defence-in-depth). */
 export function opActionGate(op: OperationIR): string | null {
-  const gates = op.statements.filter((s) => s.kind === "requires").map((s) => s.expr);
+  const gates = operationActionGates(op);
   if (gates.length === 0) return null;
   try {
     return gates.map((g) => `(${renderFlutterGate(g, "currentUser")})`).join(" && ");

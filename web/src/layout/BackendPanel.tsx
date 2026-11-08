@@ -23,6 +23,7 @@ import {
   interpretBootError,
   interpretStatus,
   nextStepMid,
+  PENDING_MIGRATION,
   RUNTIME_STATUS,
   RUNTIME_VIEW,
   seeStream,
@@ -189,6 +190,18 @@ export function BackendBody({ ctx }: Props): JSX.Element {
           <Text size="xs" c="yellow.8" data-testid="boot-migration-pending-message">
             {bootPending.message}
           </Text>
+          {bootPending.migration.kind === "unrecorded" && (
+            <Button
+              size="xs"
+              variant="light"
+              color="yellow"
+              onClick={() => ctx.setRecordMigrationOpen(true)}
+              data-testid="boot-migration-record"
+              style={{ alignSelf: "flex-start" }}
+            >
+              {PENDING_MIGRATION.record}
+            </Button>
+          )}
           {bootPending.migration.kind === "unknown-database" && honoBundle && (
             <ConfirmAction
               spec={confirmSites.clearStoredData()}

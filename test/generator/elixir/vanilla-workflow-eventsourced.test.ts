@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const SRC = `system FulfillmentSys {
   subdomain Fulfillment {
@@ -68,7 +69,7 @@ describe("vanilla elixir event-sourced workflows", () => {
     expect(f).toContain(
       "def apply_event(state, %Api.Fulfillment.Events.PaymentRegistered{} = pr) do",
     );
-    expect(f).toContain("state = %{state | paid: state.paid + pr.amount}");
+    expect(uncheckedInt(f)).toContain("state = %{state | paid: state.paid + pr.amount}");
     expect(f).toContain("state = %{state | cancelled: true}");
     expect(f).toContain(
       "%Api.Fulfillment.Workflows.OrderFulfillmentState{order_id: key, paid: 0, cancelled: false}",
