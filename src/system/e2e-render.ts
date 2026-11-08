@@ -12,6 +12,7 @@ import type {
   SubdomainIR,
   SystemIR,
   TestE2EIR,
+  TestPrincipalIR,
   TestStmtIR,
   WorkflowIR,
 } from "../ir/types/loom-ir.js";
@@ -137,6 +138,9 @@ interface RenderCtx {
    * prefixed with "/api".  Hono and dotnet serve at the root ("").
    */
   apiBasePath: string;
+  /** Some block of the suite declares an `as { … }` principal, so every
+   *  block sets the `__principal` slot (its own, or null). */
+  principals?: boolean;
 }
 
 /**
@@ -165,6 +169,11 @@ export function renderE2EFile(
   // ui-e2e-render path; the vitest api file only carries api tests.
   const apiTests = sys.e2eTests.filter((t) => t.kind === "api");
   if (apiTests.length === 0) return null;
+  // A suite with no `as { … }` principal anywhere keeps the env-only header
+  // path byte-for-byte.
+  const principals = apiTests.some(
+    (t) => t.principal || t.statements.some((s) => s.kind === "principal"),
+  );
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import { describe, it, expect } from "vitest";`);
@@ -214,6 +223,7 @@ export function renderE2EFile(
         valueLocals: new Set(),
         usedLetNames: collectUsedLetNames(t.statements),
         apiBasePath: apiBasePath(d.platform),
+        principals,
       };
       // Suffix the test name with the backend it ran against so
       // failures in a multi-backend run point to the diverging
@@ -238,12 +248,15 @@ export function renderE2EFile(
     lines.push(renderDevIdpBearer(devIdp));
     lines.push("");
   }
-  lines.push(
-    (devIdp
-      ? E2E_HELPERS.replace(BEARER_FROM_ENV, BEARER_FROM_ENV_OR_DEV_IDP)
-      : E2E_HELPERS
-    ).trim(),
-  );
+  let helpers = devIdp
+    ? E2E_HELPERS.replace(BEARER_FROM_ENV, BEARER_FROM_ENV_OR_DEV_IDP)
+    : E2E_HELPERS;
+  if (principals) {
+    helpers = helpers.replace(DEV_CLAIMS_FROM_ENV, DEV_CLAIMS_FROM_PRINCIPAL);
+    lines.push(PRINCIPAL_SLOT);
+    lines.push("");
+  }
+  lines.push(helpers.trim());
   lines.push("");
   lines.push(body);
   return lines.join("\n") + "\n";
@@ -286,6 +299,11 @@ function renderTest(t: TestE2EIR, ctx: RenderCtx, nameSuffix = "", mintsBearer =
   // knows its own `base` (one block replays against every compatible backend,
   // each with its own database), and this leaves the describe/it structure —
   // and therefore the test NAMES that `verifies` joins on — untouched.
+  // The block's principal: the claims its `as { … }` clause overrides on the
+  // dev-stub identity, sent as the `x-loom-dev-claims` header of every request
+  // below (null ⇒ the env principal).  Set before the reset so a body line's
+  // switch never leaks into the next block.
+  if (ctx.principals) out.push(`  __principal = ${renderPrincipalClaims(t.principal)};`);
   out.push(`  await __resetState(base);`);
   for (const s of t.statements) {
     const rendered = renderE2EStmt(s, ctx);
@@ -506,6 +524,10 @@ function renderE2EStmt(s: TestStmtIR, ctx: RenderCtx): string {
   }
   if (s.kind === "call") {
     return `${renderE2EExpr({ kind: "call", callKind: "free", name: s.name, args: s.args }, ctx)};`;
+  }
+  if (s.kind === "principal") {
+    // A body `as { … }` line: the requests after it carry these claims.
+    return `__principal = ${renderPrincipalClaims(s.principal)};`;
   }
   // A test statement we can't lower must fail generation loudly: silently
   // emitting a comment would drop the assertion and ship a green-but-empty
@@ -1374,6 +1396,26 @@ function __qs(url: string, params: Record<string, unknown>): string {
 ];
 
 const BEARER_FROM_ENV = "const token = process.env.E2E_BEARER_TOKEN;";
+
+/** A principal's claims as the JSON object the dev-stub header carries —
+ *  keyed by declared `user` field name — or `null` for no clause. */
+function renderPrincipalClaims(p: TestPrincipalIR | undefined): string {
+  if (!p) return "null";
+  // A claim name is a `user` field name — always a bare identifier.
+  return `{ ${p.claims.map((c) => `${c.name}: ${JSON.stringify(c.value)}`).join(", ")} }`;
+}
+
+const DEV_CLAIMS_FROM_ENV = "const claims = process.env.E2E_DEV_CLAIMS;";
+const DEV_CLAIMS_FROM_PRINCIPAL =
+  "const claims = __principal !== null ? JSON.stringify(__principal) : process.env.E2E_DEV_CLAIMS;";
+
+/** The running block's principal slot — emitted only for a suite that
+ *  declares an `as { … }` principal. */
+const PRINCIPAL_SLOT = `// The claims the running block's \`as { … }\` principal sets over the dev-stub
+// identity (keyed by declared \`user\` field), or null when it declares none —
+// then \`E2E_DEV_CLAIMS\` applies.  Every dev-stub verifier merges the header
+// over its built-in identity, so a block asserts what a SECOND principal sees.
+let __principal: Record<string, unknown> | null = null;`;
 const BEARER_FROM_ENV_OR_DEV_IDP = "const token = process.env.E2E_BEARER_TOKEN || __devIdpBearer;";
 
 /** The suite's own bearer token, minted from the compose stack's bundled dev

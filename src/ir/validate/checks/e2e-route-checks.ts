@@ -74,7 +74,7 @@ import {
   type RoutedHandlerTarget,
   resolveRoutedHandler,
 } from "../../util/routed-handler.js";
-import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
+import { walkTestStmtExprsDeep } from "../../util/walk.js";
 import { emitsCommandRoute } from "../../util/workflow-command-route.js";
 import { emitsInstanceRoutes } from "../../util/workflow-instances.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -605,8 +605,7 @@ function collectMagicCalls(statements: readonly TestStmtIR[], magicId: "api" | "
     if (c) out.push(c);
   };
   for (const s of statements) {
-    if (s.kind === "expect" || s.kind === "expect-throws") walkExprDeep(s.expr, visit);
-    else walkStmtExprsDeep(s, visit);
+    walkTestStmtExprsDeep(s, visit);
   }
   return out;
 }
@@ -1392,7 +1391,6 @@ function checkResponseFields(
     });
   };
   for (const s of test.statements) {
-    if (s.kind === "expect" || s.kind === "expect-throws") walkExprDeep(s.expr, visit);
-    else walkStmtExprsDeep(s, visit);
+    walkTestStmtExprsDeep(s, visit);
   }
 }

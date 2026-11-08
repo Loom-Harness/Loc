@@ -8,9 +8,8 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // persists to an append-only `<agg>_events` table (an EF `<Agg>EventRecord`
 // entity, no state table); appliers fold the stream via `_Apply` /
 // `_FromEvents`; `emit` records-and-applies; `create` builds an empty shell
-// + runs its emit-only body.  A top-level context drives the single-project
-// (legacy) `generateDotnet` path; the `dotnet build /warnaserror` gate lives
-// in test/e2e/generated-dotnet-build.test.ts.
+// + runs its emit-only body.  The `dotnet build /warnaserror` gate lives in
+// test/e2e/generated-dotnet-build.test.ts.
 // ---------------------------------------------------------------------------
 
 const SRC = `
@@ -45,16 +44,12 @@ context Accounts {
 }
 `;
 
-// This fixture used to ride the legacy single-context `generateDotnet` helper
-// on a BARE loose context.  Once that path asserts phase ⑦ (M-T9.49) the shape
-// is refused, and correctly: event-sourced storage is a HOSTED capability —
-// `loom.event-sourcing-backend-unsupported` ("no event-sourcing-capable backend
-// deployable hosts this context") — and the legacy path cannot host anything,
-// because declaring a `system` re-parents every loose context into it and
-// empties the `loom.contexts` list `generateDotnet` emits from.  So the fixture
-// grows the `kind: eventLog` resource + deployable it always implied and emits
-// through the orchestrator.  The map is re-keyed to drop the deployable
-// directory, so every assertion below reads the same path it did before.
+// Event-sourced storage is a HOSTED capability — a context no
+// event-sourcing-capable deployable hosts is refused with
+// `loom.event-sourcing-backend-unsupported` — so the fixture carries the
+// `kind: eventLog` resource + deployable it implies and emits through the
+// orchestrator.  The map is re-keyed to drop the deployable directory, so every
+// assertion below reads a project-relative path.
 async function generate(): Promise<Map<string, string>> {
   const files = await generateSystemFiles(`
     system Banking {

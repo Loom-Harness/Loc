@@ -838,6 +838,15 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // `InProcessDispatcher` — so the test reads the class off the emitted file.
   const integrationTests = renderPyContextIntegrationTest(merged, {
     inProcessDispatcher: /^class InProcessDispatcher\b/m.test(dispatchFile ?? ""),
+    // The auth layer (`app/auth/user.py`) ships under the same condition.
+    ...(authRequired && args.sys.user
+      ? {
+          principal: {
+            user: args.sys.user.fields,
+            stubKwargs: renderPyStubUserKwargs(args.sys.user),
+          },
+        }
+      : {}),
   });
   if (integrationTests) {
     out.set(`tests/test_${snake(merged.name)}_integration.py`, integrationTests);

@@ -32,7 +32,7 @@ import {
   resolveRoutedHandler,
   routedHandlerCallHints,
 } from "../../util/routed-handler.js";
-import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
+import { walkTestStmtExprsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { routeContractWillReport } from "./e2e-route-checks.js";
 import { walkExpr } from "./shared.js";
@@ -110,8 +110,7 @@ function partBuilderRefusal(stmt: TestStmtIR): string | undefined {
   const visit = (e: ExprIR): void => {
     if (e.kind === "new" && part === undefined) part = e.partName;
   };
-  if (stmt.kind === "expect" || stmt.kind === "expect-throws") walkExprDeep(stmt.expr, visit);
-  else walkStmtExprsDeep(stmt, visit);
+  walkTestStmtExprsDeep(stmt, visit);
   return part === undefined
     ? undefined
     : `the entity-part builder '${part} { … }' needs the owning aggregate's id, which a test body does not have.`;
@@ -170,8 +169,7 @@ export function validateContextIntegrationTests(
       });
     };
     for (const stmt of test.statements) {
-      if (stmt.kind === "expect" || stmt.kind === "expect-throws") walkExprDeep(stmt.expr, visit);
-      else walkStmtExprsDeep(stmt, visit);
+      walkTestStmtExprsDeep(stmt, visit);
     }
     for (const stmt of test.statements) {
       if (stmt.kind !== "expect" && stmt.kind !== "expect-throws") continue;
@@ -254,12 +252,14 @@ const UNIT_TEST_STMT_KINDS: ReadonlySet<TestStmtIR["kind"]> = new Set([
 
 /** The statement kinds a context-level integration `test` renders on every
  *  backend: each `integration-tests.ts` handles `let` / `expression` /
- *  `expect` / `expect-throws`, and throws on anything else. */
+ *  `expect` / `expect-throws` / `principal` (an `as { … }` line), and throws
+ *  on anything else. */
 const INTEGRATION_TEST_STMT_KINDS: ReadonlySet<TestStmtIR["kind"]> = new Set([
   "let",
   "expression",
   "expect",
   "expect-throws",
+  "principal",
 ]);
 
 /** Why `s` can't appear in a test of this tier, or null when it can. Reuses
@@ -444,6 +444,9 @@ function unsupportedE2EStmtKind(s: TestStmtIR): string | null {
     case "let":
     case "expression":
     case "call":
+    // An `as { … }` line switches the principal; a ui block carrying one is
+    // `loom.e2e-principal-ui`.
+    case "principal":
       return null;
     default:
       return s.kind;

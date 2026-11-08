@@ -16,14 +16,14 @@ import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateBackendFiles } from "../../_helpers/generate.js";
+import { generateFixtureBackend } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
 
 /** The `.NET` project for a bare-context example, hosted on one deployable. */
 function generateExample(file: string): Promise<Map<string, string>> {
-  return generateBackendFiles(readFileSync(path.join(repoRoot, file), "utf8"), "dotnet");
+  return generateFixtureBackend(readFileSync(path.join(repoRoot, file), "utf8"), "dotnet");
 }
 
 // Any `<Ns>.Observability.HttpMetrics.<call>(` that is NOT root-qualified — the

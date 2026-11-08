@@ -56,6 +56,8 @@ describe("ddd-mcp server", () => {
       "loom_generate",
       "loom_hover",
       "loom_list_primitives",
+      "loom_migration_record",
+      "loom_migration_status",
       "loom_outline",
       "loom_quickfix",
       "loom_read_model",

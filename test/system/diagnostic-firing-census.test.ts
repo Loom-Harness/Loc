@@ -529,6 +529,30 @@ const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
   },
 };
 
+/** A deployed, auth-required system with a `user` block, for the `as { … }`
+ *  test-principal gates: `ctxTest` lands in the context, `e2e` / `extra` at
+ *  system scope. */
+const principalSys = (opts: {
+  user?: string;
+  ctxTest?: string;
+  e2e?: string;
+  extra?: string;
+}): string => `
+system P {
+${opts.user ?? "  user { id: guid  role: string  level: int  nick: string? }"}
+${opts.extra ?? ""}
+  subdomain D { context C {
+    aggregate Note with crudish { text: string }
+    repository Notes for Note
+${opts.ctxTest ?? ""}
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 auth: required }
+${opts.e2e ?? ""}
+}`;
+
 const FIRING_FIXTURES: Record<string, string> = {
   // An event reactor calls an api whose server requires auth: it has no
   // caller credential to forward.
@@ -953,6 +977,41 @@ system TestVocab {
     test "t" { emit Pinged { n: 1 } }
   } }
 }`,
+  // The `as { … }` test principal (test-placement.md).
+  "loom.test-principal-placement": principalSys({
+    ctxTest: `    aggregate Pin { label: string  test "unit" as { role: "x" } { expect(1).toBe(1) } }`,
+  }),
+  "loom.test-principal-value": principalSys({
+    ctxTest: `    test "t" as { role: 1 + 2 } { let n = Note.create(text: "a") }`,
+  }),
+  "loom.test-principal-duplicate-claim": principalSys({
+    ctxTest: `    test "t" as { role: "a", role: "b" } { let n = Note.create(text: "a") }`,
+  }),
+  "loom.test-principal-no-user": principalSys({
+    user: "",
+    ctxTest: `    test "t" as { role: "a" } { let n = Note.create(text: "a") }`,
+  }).replace(" auth: required", ""),
+  "loom.test-principal-unknown-claim": principalSys({
+    ctxTest: `    test "t" as { nope: "a" } { let n = Note.create(text: "a") }`,
+  }),
+  "loom.test-principal-claim-type": principalSys({
+    ctxTest: `    test "t" as { level: "3" } { let n = Note.create(text: "a") }`,
+  }),
+  "loom.e2e-principal-claim-not-carried": principalSys({
+    e2e: `  test e2e "e" against d as { nick: "bob" } { let n = api.notes.create({ text: "a" }) }`,
+  }),
+  "loom.e2e-principal-oidc": principalSys({
+    extra: `  auth { oidc { issuer: "https://idp.example.com/realms/x"  clientId: "web" } }`,
+    e2e: `  test e2e "e" against d as { role: "agent" } { let n = api.notes.create({ text: "a" }) }`,
+  }),
+  "loom.e2e-principal-ui": principalSys({
+    extra: `  ui WebApp {
+    api Core: A
+    page Home { route: "/"  body: Stack { } }
+  }`,
+    e2e: `  deployable web { platform: static targets: d ui: WebApp { Core: d } port: 3001 }
+  test e2e "e" against web as { role: "agent" } { expect(1).toBe(1) }`,
+  }),
   // A paged find's own `page` parameter: the paged read adds a `page` query
   // control of its own, so the key would arrive twice and every generated
   // repository signature would declare `page` twice.
@@ -4470,6 +4529,9 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // through the tool catalog and asserts each code.
   "loom.diff-baseline-invalid": "test/tools/catalog.test.ts",
   "loom.migration-chain-invalid": "test/tools/catalog.test.ts",
+  // `loom_migration_record`'s name refusal judges the record call's `name`
+  // against the chain — an input `validate()` never sees.
+  "loom.migration-name-invalid": "test/tools/catalog.test.ts",
   "loom.macro-threw": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-non-ast-result": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-escapes-host": "test/macro/misbehaving-macro-diagnostics.test.ts",

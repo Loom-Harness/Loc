@@ -218,7 +218,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.context-test-unsupported",
     kind: "seam",
-    site: "src/language/validators/test-placement.ts:98",
+    site: "src/language/validators/test-placement.ts:147",
     what:
       "context-level `test` whose target context no backend deployable hosts — every backend " +
       "renders context integration tests, so only a frontend-only host warns",

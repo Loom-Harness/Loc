@@ -1512,6 +1512,13 @@ same `.ddd` yields the same principal on every backend. It is a **dev
 convenience, not a production path**: register a real verifier (above) before
 shipping.
 
+The same identity is what a model's **tests** run as. A context integration
+`test` binds it (in process, through the seam the middleware binds a request's)
+and a `test e2e` block may set claims over it with an `as { … }` clause — the
+clause rides this header — so a `requires` 403 or a `mask unless` redaction
+under a second principal is assertable from the model itself
+([testing reference](language-reference/18-testing.md#running-as-a-principal)).
+
 A non-optional **id-typed** claim (`customerId: Customer id`) gets the same
 all-zero identity, but **constructed through the emitted id type** rather than
 written as a raw scalar — the id is a distinct nominal type on three of the five

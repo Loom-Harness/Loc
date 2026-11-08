@@ -49,7 +49,7 @@ export interface GenerateElixirArgs {
    *  `application:` → the `layered` controller → context → repository
    *  surface).  The system orchestrator resolves it from
    *  `deployable.application` via `resolveStyle` and threads it in.
-   *  Absent in legacy single-context mode → falls back to the
+   *  Absent → falls back to the
    *  `layeredStyleAdapter`. */
   styleAdapter?: StyleAdapter;
   /** Generate-time source-map recorder (`--sourcemap`).  Threaded straight

@@ -11,32 +11,11 @@
 // those layer on the authorization work).  The authorized read remains the
 // gate: clients refetch through the API rather than trust payloads.
 
-import * as path from "node:path";
-import { fileURLToPath } from "node:url";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
-import { BACKEND_PINS } from "../../../src/platform/hono/v5/pins.js";
-import { generateSystemFiles } from "../../_helpers/generate.js";
-
-const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(here, "..", "..", "..");
+import { generateBackendFromFile, generateSystemFiles } from "../../_helpers/generate.js";
 
 async function generate(file: string): Promise<Map<string, string>> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(path.join(root, file)),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  expect(
-    errors.map((d) => d.message),
-    "fixture validation errors",
-  ).toEqual([]);
-  return generateTypeScript(doc.parseResult.value as Model, BACKEND_PINS);
+  return generateBackendFromFile(file, "node");
 }
 
 describe("realtime SSE wire — Hono (delivery: broadcast)", () => {

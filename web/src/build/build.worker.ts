@@ -17,8 +17,7 @@ import { validateLoomModel } from "../../../src/ir/validate/validate.js";
 // it pulls the generation registry → every backend generator (.NET / Java /
 // Phoenix / Python).  The "system" mode loads it via a dynamic `import()` so
 // those generators land in a SEPARATE chunk, out of the main worker bundle.
-// `web-bundle-boundary.test.ts` pins this.  (The Hono "ts" path below stays a
-// static import — it runs in-browser with no chunk fetch.)
+// `web-bundle-boundary.test.ts` pins this.
 import { captureSnapshots } from "../../../src/system/loomsnap.js";
 // The evolution-diff core (migration + wire-contract delta) lives in its own
 // pure, headless-testable module — the worker just serialises it over
@@ -39,8 +38,6 @@ import { pendingMigrations } from "../../../src/system/migration-diff.js";
 import { readChainFiles } from "./chain-files.js";
 // The playground's legacy single-context build targets the default Hono
 // backend and supplies that package's pins to the shared emitter.
-import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
-import { BACKEND_PINS as HONO_PINS } from "../../../src/platform/hono/v5/pins.js";
 import { fnv1a32 } from "../util/hash.js";
 import { MemoryVfs } from "../vfs/memory-vfs.js";
 import { loadProjectFromVfs, retainOnlyDocuments } from "./project-loader.js";
@@ -286,11 +283,6 @@ async function generateFromAst(input: {
       ),
     );
   }
-  if (loom.contexts.length > 0) {
-    return wrapGenerate("ts", input.diagnostics, irDiags, () => ({
-      files: generateTypeScript(input.model, HONO_PINS),
-    }));
-  }
   return emptyResult(input.diagnostics, irDiags);
 }
 
@@ -388,10 +380,7 @@ function deriveApiSurface(loom: EnrichedLoomModel): ApiSurfaceView {
 
 /** Multi-file generation path.  The merged `LoomModel` is already
  *  built by `parseProject`; we only need enrichment + the
- *  system-mode generator.  Legacy single-context `generate ts` /
- *  `generate dotnet` aren't reachable here — those callers stay on
- *  the text path because they don't compose multi-file output
- *  anyway (mirrors the CLI's split). */
+ *  system-mode generator. */
 async function generateFromLoom(input: {
   loom: LoomModel;
   diagnostics: BuildDiagnostic[];
@@ -465,7 +454,7 @@ interface EmissionParts {
 }
 
 function wrapGenerate(
-  mode: "system" | "ts",
+  mode: "system",
   parseDiags: BuildDiagnostic[],
   irDiags: BuildDiagnostic[],
   emit: () => EmissionParts,
@@ -491,7 +480,7 @@ function wrapGenerate(
         ...irDiags,
         {
           severity: "error",
-          message: `${mode === "system" ? "generateSystems" : "generateTypeScript"} failed: ${err instanceof Error ? err.message : String(err)}`,
+          message: `generateSystems failed: ${err instanceof Error ? err.message : String(err)}`,
           source: "loom-gen",
         },
       ],
@@ -509,7 +498,9 @@ function emptyResult(parseDiags: BuildDiagnostic[], irDiags: BuildDiagnostic[]):
       ...irDiags,
       {
         severity: "warning",
-        message: "Source has no contexts or systems — nothing to generate.",
+        message:
+          "Source declares no deployable — nothing to generate.  Add a `system` with a " +
+          "backend `deployable { platform: …, contexts: […], dataSources: […] }`.",
         source: "loom-gen",
       },
     ],

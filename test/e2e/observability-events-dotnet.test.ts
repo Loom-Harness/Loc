@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { generateBackendProject } from "./support/backend-project.js";
 import { requireDocker } from "./support/docker-probe.js";
 
 // ---------------------------------------------------------------------------
@@ -35,7 +36,6 @@ import { requireDocker } from "./support/docker-probe.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
-const cli = path.join(repoRoot, "bin", "cli.js");
 
 const ENABLED = process.env.LOOM_OBS_E2E_DOTNET === "1";
 
@@ -134,7 +134,7 @@ describe.skipIf(!ENABLED)(
             "Add `actions/setup-dotnet@v4` with `dotnet-version: '10.0.x'` to the workflow.",
         );
       }
-      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-obs-dn-"));
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-obs-dn-"));
       const pgPort = await freePort();
       const appPort = await freePort();
       const pgContainer = `loom-obs-pg-${Date.now()}`;
@@ -166,10 +166,7 @@ describe.skipIf(!ENABLED)(
         }
 
         // 3. Generate the .NET project.
-        execSync(`node ${cli} generate dotnet examples/sales.ddd -o ${outDir}`, {
-          stdio: "pipe",
-          cwd: repoRoot,
-        });
+        const outDir = generateBackendProject(repoRoot, "examples/sales.ddd", "dotnet", tmpDir);
 
         // 4. dotnet restore + build is implicit on `run`, but doing it
         //    explicitly upfront keeps the run-step output limited to
@@ -320,7 +317,7 @@ describe.skipIf(!ENABLED)(
           /* ignore */
         }
         try {
-          fs.rmSync(outDir, { recursive: true, force: true });
+          fs.rmSync(tmpDir, { recursive: true, force: true });
         } catch {
           /* ignore */
         }
