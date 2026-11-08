@@ -126,8 +126,7 @@ Boot never writes to the database while the model has **unrecorded** schema
 changes: it stops with *migration required* (`backend-status`), names the
 modules and steps, and leaves the database as it is. That includes a workspace
 with no chain, every built-in example among them — no migration is implied, so
-the database is created only once the initial migration is recorded in the
-Migrations tab. A database the chain cannot describe — one at a unit the chain
+the database is created only once the initial migration is recorded. A database the chain cannot describe — one at a unit the chain
 no longer has, or one an earlier playground built without migration tracking
 (a `ddl_hash` row) — is reported, not dropped. The only actions that drop the
 user schemas are the explicit ones: **Reset database** (Database sub-view —
@@ -137,6 +136,28 @@ data, then boot). A source with no `system` block cannot record migrations;
 its schema is synthesised from the bundled Drizzle tables (`src/runtime/ddl.ts`,
 `synthDDL`), applied to an empty database only, and a changed schema is
 reported for an explicit reset.
+
+The pipeline strip shows where the schema stands without a boot or an open
+tab. On every source change the build worker re-runs the check Boot runs
+(`migrate.plan`), and a badge beside Boot reads one of:
+
+- *migration required · initial schema* — nothing is recorded yet (every
+  built-in example on open). Boot is blocked until the initial migration is
+  recorded.
+- *migration required · N unrecorded changes* — what `ddd migrate status`
+  lists, with a *destructive* flag when one of them needs
+  `--allow-destructive`.
+- *migration recorded · N migrations not applied* — the chain records the
+  model, and the database this session booted has not applied its newest
+  entries.
+
+**Record migration…** opens a dialog that previews exactly what recording
+writes — every table's `Initial` for a first recording, the next entry
+otherwise — with the Migrations tab's diagram, SQL and destructive gate, and
+records through the same path as the tab (`ddd migrate add`). **Apply**
+regenerates, bundles and boots, and the boot applies the recorded entries the
+database lacks; the badge then clears. The Problems pane shows unrecorded
+changes as one notice row that opens the same dialog.
 
 On top of that live runtime, the playground runs the **DSL-emitted test
 suites** — the same files `ddd generate system` writes:
