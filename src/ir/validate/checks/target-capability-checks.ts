@@ -606,6 +606,28 @@ function refuse(
         use,
       );
       return;
+    case "mask-derived":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#mask-derived", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
+        use,
+      );
+      return;
+    case "mask-criterion":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#mask-criterion", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
+        use,
+      );
+      return;
     default: {
       const _exhaustive: never = slug;
       void _exhaustive;

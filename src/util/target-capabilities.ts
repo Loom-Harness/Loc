@@ -54,7 +54,9 @@ export type TargetRefusalSlug =
   | "resource-knob-unrealized"
   | "storage-type-unbound"
   | "feature-composition-broken"
-  | "feature-composition-unwitnessed";
+  | "feature-composition-unwitnessed"
+  | "mask-derived"
+  | "mask-criterion";
 
 /** A target's verdict on one construct × position. */
 export type CapabilityVerdict =
@@ -545,9 +547,9 @@ const COMMON_PAIRS: Pick<
   // No fixture runs a widened read stance over a tenant-owned TPH base.
   "read:wide-stance@tph-subtype": refused("feature-composition-unwitnessed"),
   // The derived value is computed from the unmasked field and returned whole.
-  "derived:reads-masked-field@aggregate": refused("feature-composition-broken"),
+  "derived:reads-masked-field@aggregate": refused("mask-derived"),
   // The predicate filters on the unmasked value, so its hits reveal it.
-  "criterion:reads-masked-field@context": refused("feature-composition-broken"),
+  "criterion:reads-masked-field@context": refused("mask-criterion"),
   "field:valueobject-collection@entity-part": owned("loom.collection-field-unpersisted"),
   "invariant:nested-valueobject@valueobject": SUPPORTED,
 };

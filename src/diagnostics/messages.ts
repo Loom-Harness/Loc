@@ -3318,6 +3318,14 @@ export const DIAGNOSTIC_MESSAGES = {
     target: unknown;
   }) =>
     `${p.what} — no behavioural test proves this combination on deployable '${p.dName}' (backend '${p.target}'), so the generated code may compile and still misbehave. Drop one of the two features on this aggregate until the pair is supported.`,
+  "loom.target-unsupported#mask-derived": (p: { what: unknown; dName: unknown; target: unknown }) =>
+    `${p.what} — deployable '${p.dName}' (backend '${p.target}') computes the derived value from the unmasked field and returns it whole, so a caller the mask hides the field from reads it through the derived. Drop the masked field from the derived's expression; derived fields inheriting the mask is tracked in #4802.`,
+  "loom.target-unsupported#mask-criterion": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what} — deployable '${p.dName}' (backend '${p.target}') evaluates the predicate over the unmasked value, so a caller the mask hides the field from learns it by which rows match. Filter on a field that is not masked; criteria inheriting the mask is tracked in #4802.`,
   "loom.target-unsupported#storage-type-unbound": (p: {
     what: unknown;
     dName: unknown;
