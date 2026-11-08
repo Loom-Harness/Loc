@@ -145,9 +145,9 @@ function renderComponent(spec: DataGridSpec, className: string, selector: string
   // Gated on the RENDERED body so a pack that bakes in no chrome gets neither.
   const usesI18n =
     callsTranslationRuntime(body) || columns.some((c) => c.headerValue?.startsWith("t("));
-  // The runtime lives at `src/lib/i18n.ts`, two hops up from
+  // `t` lives in `src/lib/locale.ts` (signal-reading), two hops up from
   // `src/app/components/` — the same lift the format import above makes.
-  const i18nImportLine = usesI18n ? [`import { t } from "../../lib/i18n";`] : [];
+  const i18nImportLine = usesI18n ? [`import { t } from "../../lib/locale";`] : [];
 
   return `${lines(
     `// Auto-generated.  Do not edit by hand.`,

@@ -1491,8 +1491,8 @@ const CS_TYPE_TARGET: TypeTarget = {
   id: (targetName) => `${targetName}Id`,
   array: (element) => `List<${element}>`,
   optional: (inner) => `${inner}?`,
-  // Carrier-bounded generic (`order paged`, `event envelope`) → an
-  // idiomatic C# generic record (`Paged<Order>`, `Envelope<string>`),
+  // Carrier-bounded generic (`order paged`) → an idiomatic C# generic
+  // record (`Paged<Order>`),
   // defined once in the shared runtime (P3b).  Domain-side render: an
   // entity arg stays the domain class; the controller maps it to the
   // response record when serializing.

@@ -414,8 +414,8 @@ describe("pack-declared chrome — catalogs and emission", () => {
 
   for (const [platform, design, family, suffix, importLine] of [
     ["react", "mantine", "mantine", "pages/orders/detail.tsx", 'from "../../i18n"'],
-    ["vue", "vuetify", "vuetify", "pages/orders/detail.vue", 'from "../../i18n"'],
-    ["svelte", "flowbite", "flowbite", "orders/[id]/+page.svelte", 'from "$lib/i18n"'],
+    ["vue", "vuetify", "vuetify", "pages/orders/detail.vue", 'from "../../lib/locale"'],
+    ["svelte", "flowbite", "flowbite", "orders/[id]/+page.svelte", 'from "$lib/locale.svelte"'],
   ] as const) {
     it(`${platform}: an op dialog's pack chrome binds AND the page imports its \`t\``, async () => {
       const files = await generateSystemFiles(OP_DIALOG_SYSTEM(platform, design));

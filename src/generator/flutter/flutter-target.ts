@@ -972,6 +972,11 @@ export const flutterTarget: WalkerTarget = {
     return `(switch (${lineage}) { final __p? => ${tile}, _ => const SizedBox.shrink() })`;
   },
 
+  // `LocaleSwitcher {}` → the generated `lib/i18n.dart` widget, a dropdown over
+  // the shipped locales.  It listens to `localeNotifier` itself and switching
+  // rebuilds the whole tree (`setLocale`), so the call site needs no state.
+  renderLocaleSwitcher: () => "const LocaleSwitcher()",
+
   // `Timeline(of: <entries>)` — the entity audit trail (docs/audit.md), the
   // whole-primitive Dart fork of the shared JSX renderers
   // (`_walker/primitives/timeline.ts`).  `entries` is the surrounding

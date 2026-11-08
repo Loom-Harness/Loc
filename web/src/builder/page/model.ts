@@ -123,6 +123,9 @@ export const SPECS = {
   KeyValueRow: { kind: "container", positional: ["label"] },
   Skeleton: { kind: "leaf", named: [{ key: "count", kind: "int" }] },
   Loader: { kind: "leaf" },
+  // The language picker takes no arguments: the shipped locales are a fact
+  // of the system, not the call site.
+  LocaleSwitcher: { kind: "leaf" },
   Slot: { kind: "leaf" },
   Image: { kind: "leaf", named: [{ key: "src", kind: "string" }, { key: "alt", kind: "string" }] },
   Avatar: { kind: "leaf", named: [{ key: "src", kind: "string" }, { key: "alt", kind: "string" }] },

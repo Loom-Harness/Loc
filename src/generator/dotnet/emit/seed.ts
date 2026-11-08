@@ -104,7 +104,7 @@ function renderDatasetFn(
     if (e.raw) {
       // raw path (D-SEED-XREF): direct INSERT with explicit id + FK columns,
       // qualified with the aggregate's dataSource schema (see `schemaFor`).
-      const insert = renderSeedRowInsert(e.row.aggregate, e.row.fields, schemaFor(e.row.aggregate));
+      const insert = renderSeedRowInsert(e.table, e.row.fields, schemaFor(e.row.aggregate));
       return dapper
         ? `        await conn.ExecuteAsync(new CommandDefinition(${csVerbatim(insert)}, cancellationToken: cancellationToken));`
         : `        await db.Database.ExecuteSqlRawAsync(${csVerbatim(insert)}, cancellationToken);`;

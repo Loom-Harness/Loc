@@ -150,6 +150,12 @@ export interface AppShellVM {
    *  other frontends' shells stay on their raw templates until ported. */
   notFoundText?: string;
   skipToContentText?: string;
+  /** The header's `<LocaleSwitcher />` (React), or empty when fewer than two
+   *  locales ship.  Spliced raw (`{{{localeSwitcherJsx}}}`). */
+  localeSwitcherJsx?: string;
+  /** `useLocale();` — the root component's subscription to the locale store, or
+   *  empty.  Spliced raw as the first statement of `App`. */
+  useLocaleStatement?: string;
   /** `aria-label` attribute fragment (NO leading space) for the route-level
    *  `Suspense` fallback shown while a lazy page chunk downloads. */
   routeLoadingAria?: string;

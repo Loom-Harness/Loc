@@ -67,7 +67,7 @@ describe("flutter match await (async effect)", () => {
     // Imports the JSON codec + wire models + http/config.
     expect(src).toContain("import 'dart:convert';");
     expect(src).toContain("import '../models.dart';");
-    expect(src).toContain("import 'package:http/http.dart' as http;");
+    expect(src).toContain("import '../api_client.dart' as http;");
   });
 
   it("binds the action as an id-capturing closure so the button call is unchanged", async () => {

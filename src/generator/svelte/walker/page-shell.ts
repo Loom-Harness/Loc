@@ -84,6 +84,14 @@ function refLabelImport(markup: string): string {
     : "";
 }
 
+/** The language picker's import, keyed off the tag the template carries —
+ *  `svelte/locale-switcher.ts`. */
+export function localeSwitcherImport(markup: string): string {
+  return markup.includes("<LocaleSwitcher")
+    ? `  import LocaleSwitcher from "$lib/components/LocaleSwitcher.svelte";\n`
+    : "";
+}
+
 /** Map each aggregate-typed param to its aggregate name (mirrors the
  *  react shell — powers `Action(<param>.<op>)` resolution). */
 function aggregateParamTypes(
@@ -533,7 +541,7 @@ export function renderSveltePage(
     tsx.includes("<LoomChart")
       ? `  import LoomChart from "$lib/components/LoomChart.svelte";\n`
       : ""
-  }${refLabelImport(tsx)}`;
+  }${refLabelImport(tsx)}${localeSwitcherImport(tsx)}`;
   const userComponentImports = [...usedUserComponents]
     .sort()
     .map((name) => `  import ${name} from "$lib/components/${name}.svelte";\n`)
@@ -865,7 +873,7 @@ export function renderSvelteComponentFile(
     tsx.includes("<LoomChart")
       ? `  import LoomChart from "$lib/components/LoomChart.svelte";\n`
       : ""
-  }${refLabelImport(tsx)}`;
+  }${refLabelImport(tsx)}${localeSwitcherImport(tsx)}`;
   const userComponentImports = [...usedUserComponents]
     .sort()
     .map((n) => `  import ${n} from "./${n}.svelte";\n`)

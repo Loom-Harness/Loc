@@ -21,6 +21,7 @@
 // ---------------------------------------------------------------------------
 
 import { readSortFor } from "../../../ir/enrich/read-scope.js";
+import { aggregateTableName, partTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -54,7 +55,6 @@ import { lines } from "../../../util/code-builder.js";
 import { rewrite } from "../../../util/emission-sink.js";
 import { intrinsicFor, intrinsicKey } from "../../../util/intrinsics.js";
 import { escapeCsharpIdent, plural, snake, upperFirst } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
 import { renderPrincipalTest } from "../../_expr/principal-term.js";
@@ -155,21 +155,6 @@ const DAPPER_RETRIEVAL_LOCALS = [
  *  only seeds (an index name) — all three take the bare `col`. */
 export function sqlIdent(name: string): string {
   return isReservedIdent(name) ? `\\"${name}\\"` : name;
-}
-
-/** Postgres table for an aggregate — lowercase plural (e.g. `orders`).  BARE:
- *  callers quote it at the SQL position with `sqlIdent`, because the same
- *  string also seeds derived names (a `CREATE INDEX` name) where a quote would
- *  be wrong. */
-const tableOf = (aggName: string): string => tableNameFor(aggName);
-
-/** The state table an aggregate's rows live in — the SAME derivation the
- *  repositories and the DDL use, exported so the OTHER raw-Npgsql readers
- *  (the query-time projection handlers, which query the table directly rather
- *  than through a repository) name the identical table.  Pass the TPH BASE
- *  name for a `sharedTable` concrete: it has no table of its own. */
-export function dapperAggregateTable(aggName: string): string {
-  return tableOf(aggName);
 }
 
 /** SQL + C# row type of an id (a guid).  The SQL type is the `Codec` fact's
@@ -532,7 +517,7 @@ function partChildrenOf(agg: EnrichedAggregateIR, ownerName: string = agg.name):
       return {
         cont,
         part,
-        table: tableNameFor(part.name),
+        table: partTableName(part),
         fkOwner,
         parentFk: `${snake(fkOwner)}_id`,
         parentEntityId,
@@ -1337,7 +1322,7 @@ export function renderDapperRepository(
     (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
   );
   const idClass = tph ? `${tph.baseName}Id` : `${agg.name}Id`;
-  const table = sqlIdent(tableOf(tph ? tph.baseName : agg.name));
+  const table = sqlIdent(aggregateTableName(agg, pool));
   const sqlCtx: WhereSqlCtx = { agg, table };
   // The read scope: ONE generated `<Agg>Scope` helper holds the `kind` scope and
   // every capability / tenancy / deny predicate; each statement below splices a
@@ -2237,7 +2222,7 @@ export function renderDapperDocumentRepository(
   const domainAliases = collidingNamesOfAggregate(agg).map(
     (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
   );
-  const table = sqlIdent(tableOf(agg.name));
+  const table = sqlIdent(aggregateTableName(agg, pool));
   const snap = `${agg.name}Snapshot`;
   const idCs = idTypes().cs;
   const versioned = rowVersionGuarded(agg);

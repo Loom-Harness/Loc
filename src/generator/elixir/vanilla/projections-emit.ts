@@ -1,3 +1,4 @@
+import { projectionTableName } from "../../../ir/enrich/storage-names.js";
 import type {
   EnrichedBoundedContextIR,
   EnumIR,
@@ -8,7 +9,6 @@ import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { resolveContextSchema } from "../../../ir/util/resolve-datasource.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
 import type { ApiRoute } from "../api-emit.js";
 import { ectoIdType, projectionRowModule } from "../dispatch-emit.js";
 import { renderExpr } from "../render-expr.js";
@@ -85,7 +85,7 @@ function renderProjectionRowSchema(
   const corr = proj.correlationField as string;
   const corrField = proj.stateFields.find((f) => f.name === corr);
   const pkType = corrField && corrField.type.kind === "id" ? ectoIdType() : ":string";
-  const table = tableNameFor(proj.name);
+  const table = projectionTableName(proj);
   const fieldLines = proj.stateFields
     .filter((f) => f.name !== corr)
     .map((f) => {

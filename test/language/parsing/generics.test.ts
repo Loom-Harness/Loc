@@ -1,8 +1,8 @@
 // Carrier-bounded generic payloads (payload-transport-layer.md, P3a).
 // Grammar surface — ML-postfix instantiation with the blessed keyword
-// constructors (`paged`, `envelope`) — plus the soft-keyword admission that
-// keeps pre-existing fields named `paged` / `envelope` parsing, and the
-// AST-level carrier-bound validator.
+// constructor `paged` — plus the soft-keyword admission that keeps fields
+// named `paged` / `envelope` parsing, the AST-level carrier-bound validator,
+// and the refusal of the removed `envelope` carrier.
 
 import { describe, expect, it } from "vitest";
 import type { LspDiagnostic as Diagnostic } from "../../_helpers/diagnostics.js";
@@ -25,18 +25,14 @@ describe("generics — grammar (P3a)", () => {
     ).toBe(true);
   });
 
-  it("parses `envelope` as a carrier (`string envelope`)", () => {
-    expect(parseRawOk(`context C { valueobject V { e: string envelope } }`)).toBe(true);
-  });
-
   it("parses array-outside-carrier (`string paged[]`)", () => {
     expect(parseRawOk(`context C { valueobject V { pages: string paged[] } }`)).toBe(true);
   });
 
-  it("parses chained constructors (`string envelope paged`)", () => {
+  it("parses chained constructors (`string paged paged`)", () => {
     // Grammar admits nesting (forward-compatible); the carrier-bound
     // validator restricts it in v1 — see the validator suite below.
-    expect(parseRawOk(`context C { valueobject V { x: string envelope paged } }`)).toBe(true);
+    expect(parseRawOk(`context C { valueobject V { x: string paged paged } }`)).toBe(true);
   });
 });
 
@@ -74,10 +70,8 @@ describe("generics — soft-keyword admission (P3a)", () => {
 });
 
 describe("generics — carrier-bound validator (P3a)", () => {
-  it("rejects nested carriers (`string envelope paged`) with loom.generic-arg-not-carrier", async () => {
-    const { diagnostics } = await parseString(
-      `context C { valueobject V { x: string envelope paged } }`,
-    );
+  it("rejects nested carriers (`string paged paged`) with loom.generic-arg-not-carrier", async () => {
+    const { diagnostics } = await parseString(`context C { response R { x: string paged paged } }`);
     expect(errorCodes(diagnostics)).toContain("loom.generic-arg-not-carrier");
   });
 
@@ -112,5 +106,28 @@ describe("generics — position restriction (P3b)", () => {
       `context C { valueobject V { items: string paged } }`,
     );
     expect(errorCodes(diagnostics)).toContain("loom.generic-position");
+  });
+});
+
+describe("generics — the removed `envelope` carrier", () => {
+  it("still parses, so the refusal can name the replacement", () => {
+    expect(parseRawOk(`context C { response R { e: string envelope } }`)).toBe(true);
+  });
+
+  it("is refused with loom.envelope-removed and nothing else", async () => {
+    const { diagnostics } = await parseString(`context C { response R { e: string envelope } }`);
+    expect(errorCodes(diagnostics)).toEqual(["loom.envelope-removed"]);
+  });
+
+  it("is refused in every position, alone (no position or nesting error beside it)", async () => {
+    const { diagnostics } = await parseString(
+      `context C { valueobject V { e: string envelope  p: string envelope paged } }`,
+    );
+    const codes = errorCodes(diagnostics);
+    expect(codes.filter((c) => c === "loom.envelope-removed")).toHaveLength(2);
+    expect(codes).not.toContain("loom.generic-arg-not-carrier");
+    // `string envelope paged` is `string paged` — a carrier in a stored
+    // position, refused as such.
+    expect(codes.filter((c) => c === "loom.generic-position")).toHaveLength(1);
   });
 });

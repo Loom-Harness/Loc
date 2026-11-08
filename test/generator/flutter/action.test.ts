@@ -51,7 +51,7 @@ describe("flutter Action buttons", () => {
         "headers: const {'Content-Type': 'application/json'}, body: '{}');",
     );
     expect(src).toContain("child: Text('Activate')");
-    expect(src).toContain("import 'package:http/http.dart' as http;");
+    expect(src).toContain("import '../api_client.dart' as http;");
     expect(src).toContain("import '../config.dart';");
     expect([...files.keys()].some((k) => k.endsWith("lib/config.dart"))).toBe(true);
   });

@@ -643,7 +643,8 @@ system DevPlatform {
                                 Divider {},
                                 Money { 1999, currency: "USD" },
                                 KeyValueRow { "Owner", Text { "platform-team" } },
-                                Loader {}
+                                Loader {},
+                                LocaleSwitcher {}
                             }
                         },
                         Card {
