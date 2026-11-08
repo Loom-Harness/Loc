@@ -1466,7 +1466,7 @@ system S {
   "loom.repository-unknown": repoOnly(`    aggregate Order with crudish { code: string }
     workflow w { create(id: Order id) { let o = Orders.get(id) } }`),
   // A repository read by a name no contract verb spells.
-  "loom.repo-unknown-read":repoOnly(`    aggregate Order with crudish { code: string }
+  "loom.repo-unknown-read": repoOnly(`    aggregate Order with crudish { code: string }
     repository Orders for Order
     domainService Q {
       operation taken(c: string): bool { return Orders.findByID(c) != null }
@@ -2053,6 +2053,11 @@ system S {
   // not, so the emitted request schema publishes `notes` as required and the
   // body throws it away.  A wholly empty body is deliberately NOT this shape;
   // see the check's header.
+  // An unread `find` read: it answers absence as a value, so the binding does
+  // nothing (a `get` would be an existence check and is not flagged).
+  "loom.unused-let": repoOnly(`    aggregate Claim with crudish { reference: string }
+    repository Claims for Claim
+    commandHandler Touch(c: Claim id) { let x = Claims.find(c) }`),
   "loom.workflow-param-unused": repoOnly(`    aggregate Claim with crudish { reference: string }
     repository Claims for Claim
     workflow file {

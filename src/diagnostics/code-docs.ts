@@ -299,6 +299,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.create-field-id-target": "04-type-system.md#x-id--cross-aggregate-references",
   "loom.create-name-conflict-workflow": "13-workflows.md#create--starters",
   "loom.workflow-param-unused": "13-workflows.md#create--starters",
+  "loom.unused-let": "06-behavior-and-statements.md#let--emit",
   "loom.workflow-applier-on-non-event-sourced": "13-workflows.md#create--starters",
   "loom.correlation-type-mismatch": "13-workflows.md#one-event--the-event-reactor",
   // M-T5.34.  The missing-starter ruling documents against the reactor section

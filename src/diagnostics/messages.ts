@@ -176,6 +176,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `of the emitted request schema and then discarded — the caller is obliged to send data the ` +
     `system throws away. Read it, or drop it from the signature. (A wholly empty body is not ` +
     `flagged — this fires only where the body reads SOME of its parameters and not this one.)`,
+  "loom.unused-let": (p: { name: unknown; owner: unknown }) =>
+    `'let ${p.name}' in ${p.owner} is never read.  Read it, or drop the binding: keep the ` +
+    `right-hand side as a bare statement if it has an effect (an operation or resource call), ` +
+    `and delete it if it does not (a 'find' / 'findBy' / 'all' read answers absence as a value, ` +
+    `so an unread one does nothing).  A 'get' / 'getBy' read is not flagged — it raises ` +
+    `not-found on a miss, so its binding is an existence check — and neither is a binding the ` +
+    `body saves.`,
   "loom.aggregate-not-constructible": (p: { name: unknown }) =>
     `No code path can create a '${p.name}': it declares no 'create' (and no ` +
     `'with crudish'), no workflow or commandHandler builds one, and it is not ` +
