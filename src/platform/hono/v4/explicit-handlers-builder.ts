@@ -173,6 +173,9 @@ const externImplModule = (name: string): string =>
  *  uuid string, the same `UuidString` the workflow-instance `{id}` param uses;
  *  scalars split numeric/textual. */
 function pathParamZod(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
+  // An optional (query) param is the inner type's parse, absent allowed — the
+  // binding's `== null ? null : …` then hands the handler `T | null`.
+  if (t.kind === "optional") return `${pathParamZod(t.inner, ctx)}.optional()`;
   if (t.kind === "id") return "UuidString";
   if (t.kind === "primitive") {
     switch (t.name) {
