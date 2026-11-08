@@ -16,6 +16,10 @@ export const anchors: Readonly<Record<string, string>> = {
     "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
   "loom.field-mask-principal-without-auth":
     "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
+  "loom.field-mask-event-channel":
+    "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
+  "loom.field-mask-unique-oracle":
+    "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
 
   // --- src/language/validators/statements.ts (M-T9.56 drain) ---------------
   "loom.requires-not-bool":

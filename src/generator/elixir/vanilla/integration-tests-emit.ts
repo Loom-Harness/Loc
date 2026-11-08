@@ -16,19 +16,67 @@
 // v1 constraint: a repository find must be LET-BOUND
 // (`loom.integration-find-must-bind`, shared with node).
 
+import {
+  PAGED_DEFAULT_PAGE,
+  PAGED_DEFAULT_PAGE_SIZE,
+  pagedReturn,
+} from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
   BoundedContextIR,
   ExprIR,
+  FieldIR,
   TestIR,
+  TestPrincipalIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
+import { aggregateUsesPrincipalContextFilter } from "../../../ir/types/loom-ir.js";
+import { bindingsAssertedAbsent } from "../../../ir/util/test-null-subjects.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
+import { elixirStubValueFor } from "../auth-emit.js";
+import { opUsesCurrentUser } from "../domain/predicates.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn } from "../lifecycle-seam.js";
+import { listUsesPrincipal } from "./capability-filter.js";
+import { stampUsesPrincipal } from "./stamp-emit.js";
 import { type Env, renderExpect, vtExpr } from "./tests-emit.js";
 import { opCallParamFields } from "./workflow-execution-emit.js";
+
+/** The principal a test runs as, when the deployable emits the auth plug.
+ *  Every context call whose seam takes the actor is handed `current_user`. */
+interface PrincipalScope {
+  /** The system's `user { … }` fields; absent ⇒ no principal is bound. */
+  user: readonly FieldIR[] | undefined;
+  /** `<App>Web.Auth`, which derives a principal from a claims map. */
+  authModule: string;
+  /** Bindings the test asserts null — their read keeps the `{:error, _}`. */
+  absent: Set<string>;
+}
+
+const actor = (scope: PrincipalScope, takesActor: boolean): string =>
+  scope.user && takesActor ? ", current_user" : "";
+
+/** One `as { … }` claim value as an Elixir literal (the principal is an
+ *  untyped map, so an id claim is its UUID string). */
+function renderClaimValue(value: string | readonly string[]): string {
+  return typeof value === "string"
+    ? elixirString(value)
+    : `[${value.map((v) => elixirString(v)).join(", ")}]`;
+}
+
+/** Bind `current_user` to the dev-stub principal with the test's claims
+ *  merged over it, and make it the process's ambient principal (what the
+ *  REST serializer's field masks and `system_principal/0` read). */
+function renderActAs(p: TestPrincipalIR | undefined, scope: PrincipalScope): string[] {
+  const overrides = (p?.claims ?? []).map((c) => `${snake(c.name)}: ${renderClaimValue(c.value)}`);
+  const claims =
+    overrides.length > 0 ? `Map.merge(dev_claims(), %{${overrides.join(", ")}})` : "dev_claims()";
+  return [
+    `current_user = ${scope.authModule}.as_principal(${claims})`,
+    "Process.put(:loom_current_user, current_user)",
+  ];
+}
 
 /** A `<Agg>.create(...)` / named create-action call → the owning aggregate;
  *  undefined when the call is not a create. */
@@ -60,6 +108,8 @@ function findBinding(
   ctxMod: string,
   name: string,
   env: Env,
+  scope: PrincipalScope,
+  rawName: string,
 ): string | undefined {
   if (e.kind !== "method-call" || e.receiver.kind !== "ref") return undefined;
   const aggName = (e.receiver as { name: string }).name;
@@ -73,10 +123,28 @@ function findBinding(
   if (!op && !custom) return undefined;
   const args = e.args.map((a) => vtExpr(a, env)).join(", ");
   if (op === "select-many") {
-    return `{:ok, %{items: ${name}}} = ${ctxMod}.list_${snake(agg.name)}s()`;
+    const listAll = ctx.repositories
+      .find((r) => r.aggregateName === aggName)
+      ?.finds.find((f) => f.name === "all");
+    // The actor is the list seam's trailing argument, after the paging ones.
+    const listArgs =
+      scope.user && listUsesPrincipal(agg, listAll)
+        ? listAll && pagedReturn(listAll.returnType)
+          ? `${PAGED_DEFAULT_PAGE}, ${PAGED_DEFAULT_PAGE_SIZE}, "id", "asc", current_user`
+          : "current_user"
+        : "";
+    return `{:ok, %{items: ${name}}} = ${ctxMod}.list_${snake(agg.name)}s(${listArgs})`;
   }
   if (op === "load" || op === "load-optional") {
-    return `{:ok, ${name}} = ${ctxMod}.get_${snake(agg.name)}(${args})`;
+    const call = `${ctxMod}.get_${snake(agg.name)}(${args}${actor(scope, aggregateUsesPrincipalContextFilter(agg))})`;
+    // A read the test asserts absent keeps its miss: `nil` for `{:error, _}`.
+    if (scope.absent.has(rawName)) {
+      return `${name} = case ${call} do
+  {:ok, found} -> found
+  {:error, _} -> nil
+end`;
+    }
+    return `{:ok, ${name}} = ${call}`;
   }
   // A custom find is re-exported on the context module under its own name.
   return `{:ok, ${name}} = ${ctxMod}.${elixirFindFacadeFn(e.member, agg.name)}(${args})`;
@@ -105,7 +173,13 @@ function opParamsMap(e: ExprIR & { kind: "method-call" }, agg: AggregateIR, env:
 }
 
 /** Render one integration-test statement. */
-function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, ctxMod: string, env: Env): string[] {
+function renderStmt(
+  s: TestStmtIR,
+  ctx: BoundedContextIR,
+  ctxMod: string,
+  env: Env,
+  scope: PrincipalScope,
+): string[] {
   switch (s.kind) {
     case "let": {
       const createAgg = createAggOf(s.expr, ctx);
@@ -116,10 +190,10 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, ctxMod: string, env: E
         // job — it needs an authenticated-but-unauthorized principal, which the
         // OIDC negative-authz legs mint and this harness does not.
         return [
-          `{:ok, ${snake(s.name)}} = ${ctxMod}.${internalCreateFn(createAgg.name, createAgg)}(${attrsMap(s.expr.args[0], env)})`,
+          `{:ok, ${snake(s.name)}} = ${ctxMod}.${internalCreateFn(createAgg.name, createAgg)}(${attrsMap(s.expr.args[0], env)}${actor(scope, stampUsesPrincipal(createAgg))})`,
         ];
       }
-      const find = findBinding(s.expr, ctx, ctxMod, snake(s.name), env);
+      const find = findBinding(s.expr, ctx, ctxMod, snake(s.name), env, scope, s.name);
       if (find) return [find];
       return [`${snake(s.name)} = ${vtExpr(s.expr, env)}`];
     }
@@ -129,8 +203,9 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, ctxMod: string, env: E
         // A mutating op → the context handler persists and returns {:ok, rec};
         // rebind the receiver to the persisted result.
         const recv = vtExpr(s.expr.receiver, env);
+        const op = opAgg.operations.find((o) => o.name === (s.expr as { member: string }).member);
         return [
-          `{:ok, ${recv}} = ${ctxMod}.${snake(s.expr.member)}_${snake(opAgg.name)}(${recv}, ${opParamsMap(s.expr, opAgg, env)})`,
+          `{:ok, ${recv}} = ${ctxMod}.${snake(s.expr.member)}_${snake(opAgg.name)}(${recv}, ${opParamsMap(s.expr, opAgg, env)}${actor(scope, !!op && opUsesCurrentUser(op))})`,
         ];
       }
       return [vtExpr(s.expr, env)];
@@ -155,13 +230,28 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, ctxMod: string, env: E
       }
       return [`assert {:error, _} = ${vtExpr(inner, env)}`];
     }
+    case "principal":
+      // A body `as { … }` line: rebind the principal the calls below carry.
+      return scope.user ? renderActAs(s.principal, scope) : [];
     default:
       throw new Error(`unsupported integration-test statement '${s.kind}'`);
   }
 }
 
-function renderTest(t: TestIR, ctx: BoundedContextIR, ctxMod: string, env: Env): string[] {
-  const body = t.statements.flatMap((s) => renderStmt(s, ctx, ctxMod, env));
+function renderTest(
+  t: TestIR,
+  ctx: BoundedContextIR,
+  ctxMod: string,
+  env: Env,
+  base: Omit<PrincipalScope, "absent">,
+): string[] {
+  const scope: PrincipalScope = { ...base, absent: bindingsAssertedAbsent(t.statements) };
+  // Under auth every scoped seam takes the request actor, so the test binds
+  // one first: the dev-stub identity with the test's `as { … }` claims.
+  const body = [
+    ...(scope.user ? renderActAs(t.principal, scope) : []),
+    ...t.statements.flatMap((s) => renderStmt(s, ctx, ctxMod, env, scope)),
+  ].flatMap((l) => l.split("\n"));
   return [`test ${elixirString(t.name)} do`, ...body.map((l) => `  ${l}`), "end"];
 }
 
@@ -171,6 +261,9 @@ function renderTest(t: TestIR, ctx: BoundedContextIR, ctxMod: string, env: Env):
 export function renderVanillaContextIntegrationTest(
   ctx: BoundedContextIR,
   appModule: string,
+  /** The system's `user { … }` fields when the deployable emits the auth
+   *  plug: every test then runs as a principal.  Absent ⇒ none is bound. */
+  user?: readonly FieldIR[],
 ): string | null {
   if (ctx.tests.length === 0) return null;
 
@@ -187,7 +280,16 @@ export function renderVanillaContextIntegrationTest(
     derivedAccessors: new Set(),
   };
 
-  const blocks = ctx.tests.map((t) => renderTest(t, ctx, ctxMod, env));
+  const base = { user, authModule: `${appModule}Web.Auth` };
+  const blocks = ctx.tests.map((t) => renderTest(t, ctx, ctxMod, env, base));
+  // The dev-stub identity, keyed like the principal map the auth plug builds.
+  const devClaims = user
+    ? [
+        "",
+        "  # The dev-stub identity the auth plug grants an unauthenticated dev request.",
+        `  defp dev_claims, do: %{${user.map((f) => `${snake(f.name)}: ${elixirStubValueFor(f)}`).join(", ")}}`,
+      ]
+    : [];
   const body = blocks.flatMap((block) => ["", ...block.map((l) => (l === "" ? "" : `  ${l}`))]);
 
   return `# Auto-generated.  Do not edit by hand.
@@ -199,7 +301,7 @@ defmodule ${ctxMod}IntegrationTest do
     Ecto.Adapters.SQL.Sandbox.mode(${repo}, {:shared, self()})
     :ok
   end
-${body.join("\n")}
+${devClaims.join("\n")}${devClaims.length > 0 ? "\n" : ""}${body.join("\n")}
 end
 `;
 }

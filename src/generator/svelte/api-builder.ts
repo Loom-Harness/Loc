@@ -26,6 +26,7 @@ import {
   dualTypeAliases,
   emitOperationUnionResponse,
   historyHookName,
+  opRequestFields,
   typeReachesMoney,
 } from "../_frontend/api-module.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
@@ -131,7 +132,7 @@ export function buildSvelteApiModule(
     lines.push(
       ...emitObjectWithRefines(
         `${upperFirst(op.name)}${agg.name}Request`,
-        op.params.map((p) => ({ name: p.name, base: zodForRequest(p.type) })),
+        opRequestFields(op),
         opInvariants,
         new Set(op.params.map((p) => p.name)),
       ),

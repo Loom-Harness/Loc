@@ -46,6 +46,7 @@ import {
   type FelizAsyncEffectShape,
 } from "../../ir/util/feliz-async-effect.js";
 import { typeIsFile } from "../../ir/util/file-field.js";
+import { operationFormParams } from "../../ir/util/op-gates.js";
 import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { projectionReadShape } from "../../ir/util/projection-read.js";
@@ -1354,7 +1355,7 @@ export function felizOperationForm(
   const fields = attachFieldRules(
     formFieldsFrom(
       formType,
-      op.params.filter((p) => isExpandableInput(p.type, vosByName)),
+      operationFormParams(op).filter((p) => isExpandableInput(p.type, vosByName)),
       enumsByName,
       idLabels,
       vosByName,
@@ -1379,7 +1380,13 @@ export function felizOperationForm(
     opPath: snake(op.routeSlug ?? op.name),
     navigateSegs: routeSegmentFor(name).split("/"),
     fields,
-    fieldArrays: buildFieldArrays(formType, op.params, vosByName, enumsByName, idLabels),
+    fieldArrays: buildFieldArrays(
+      formType,
+      operationFormParams(op),
+      vosByName,
+      enumsByName,
+      idLabels,
+    ),
     ...(sendsIfMatchPrecondition(agg, op) ? { ifMatch: true } : {}),
   };
 }

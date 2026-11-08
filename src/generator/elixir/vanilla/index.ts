@@ -517,7 +517,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     });
     if (seedMod) seedModules.push(seedMod.module);
     // Domain `test "..."` blocks → ExUnit (pure-subset; see tests-emit.ts).
-    if (emitAggregateTests(ctx, appModule, out, sys)) hasDomainTests = true;
+    const principalUser = deployable.auth?.required === true ? sys.user?.fields : undefined;
+    if (emitAggregateTests(ctx, appModule, out, sys, principalUser)) hasDomainTests = true;
   }
   if (hasDomainTests) emitTestHelper(out);
   // Realtime SSE wire (channels.md Part I) — one deployable-level

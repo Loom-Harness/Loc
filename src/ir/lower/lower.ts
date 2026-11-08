@@ -91,6 +91,7 @@ import {
   isTestBlock,
   isTestCase,
   isTestE2E,
+  isTestPrincipal,
   isThemeBlock,
   isUi,
   isUnique,
@@ -205,7 +206,12 @@ import {
 import { lowerProjection } from "./lower-projection.js";
 import { lowerRequirement, lowerSolution, lowerTestCase } from "./lower-requirements.js";
 import { lowerStatement } from "./lower-stmt.js";
-import { collectSubjectTests, expectStmtIR, indexHoistedTests } from "./lower-test.js";
+import {
+  collectSubjectTests,
+  expectStmtIR,
+  indexHoistedTests,
+  lowerTestPrincipal,
+} from "./lower-test.js";
 import {
   cstText,
   type Env,
@@ -1219,15 +1225,18 @@ function exprChildren(e: ExprIR): (ExprIR | undefined)[] {
 }
 
 function lowerE2E(block: TestE2E, env: Env, kind: "api" | "ui"): TestE2EIR {
+  const principal = lowerTestPrincipal(block.principal);
   const inner = block.body;
   let curEnv = env;
   const statements: TestStmtIR[] = [];
   for (const s of inner) {
     if (isExpectStmt(s)) {
       statements.push(expectStmtIR(lowerExpr(s.expr, curEnv), cstText(s.expr), originFor(s)));
+    } else if (isTestPrincipal(s)) {
+      statements.push({ kind: "principal", principal: lowerTestPrincipal(s)! });
     } else {
-      // `expect` is filtered above; the remaining shapes are exactly
-      // `Statement`.
+      // `expect` and `as { … }` are filtered above; the remaining shapes are
+      // exactly `Statement`.
       const r = lowerStatement(s as Statement, curEnv);
       statements.push(r.stmt);
       curEnv = r.envAfter;
@@ -1239,6 +1248,7 @@ function lowerE2E(block: TestE2E, env: Env, kind: "api" | "ui"): TestE2EIR {
     deployableName: block.deployable?.ref?.name ?? "",
     statements,
     verifiesTestCase: block.verifies?.ref?.name,
+    ...(principal ? { principal } : {}),
   };
 }
 
