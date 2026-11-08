@@ -53,7 +53,9 @@ export type TargetRefusalSlug =
   | "resource-kind-unrealized"
   | "storage-type-unrealized"
   | "resource-knob-unrealized"
-  | "storage-type-unbound";
+  | "storage-type-unbound"
+  | "feature-composition-broken"
+  | "feature-composition-unwitnessed";
 
 /** A target's verdict on one construct × position. */
 export type CapabilityVerdict =
@@ -76,7 +78,11 @@ export type RefusableUiConstruct =
   /** `match await <Agg>.<standard op>()` in a page or component action body — an
    *  awaited `all`/`byId`/`create`/`update`/`delete` rather than a declared
    *  operation. */
-  | "stmt:match-await-standard-op@action";
+  | "stmt:match-await-standard-op@action"
+  /** An operation of a served aggregate answering `<payload> or <error>`
+   *  whose success arm is a declared payload rather than the aggregate — in
+   *  the ui's generated api client. */
+  | "return:payload-or-error@api-client";
 
 /** UI constructs whose unsupported cells are refused by an OLDER check that
  *  keeps its own code, so a cell here is `supported` or `owned`, never
@@ -150,7 +156,31 @@ export type BackendConstruct =
   | "storage:meilisearch@declaration"
   | "storage:clickhouse@declaration"
   | "storage:bigquery@declaration"
-  | "storage:nats@declaration";
+  | "storage:nats@declaration"
+  /** An event-sourced aggregate emitting an event that a broker-bound channel
+   *  carries: the event append and the outbox row must commit together. */
+  | "publish:event-sourced@broker-channel"
+  /** A `tenantOwned` aggregate hosted on a deployable that does not host the
+   *  tenancy registry: the org-path resolver reads the registry's table. */
+  | "tenancy:remote-registry@deployable"
+  /** A typed `kind: api` resource whose api is served by an `auth: required`
+   *  deployable: the call must forward the caller's credentials. */
+  | "call:auth-required-api@resource"
+  /** A `timerSource` whose event a broker-bound channel carries to another
+   *  deployable: the tick must be published, not dispatched in-process. */
+  | "timer:broker-channel@deployable"
+  /** `allow deep` / `allow global` on a TPH subtype whose base is
+   *  `tenantOwned`. */
+  | "read:wide-stance@tph-subtype"
+  /** A `derived` that reads a `mask unless` field of its aggregate. */
+  | "derived:reads-masked-field@aggregate"
+  /** A `criterion` whose predicate reads a `mask unless` field. */
+  | "criterion:reads-masked-field@context"
+  /** A value-object collection (`Tag[]`) on a contained entity part. */
+  | "field:valueobject-collection@entity-part"
+  /** A value object with a field of a value-object type that declares an
+   *  invariant. */
+  | "invariant:nested-valueobject@valueobject";
 
 /** Every refusable UI construct, in a stable order (the table test iterates it). */
 export const UI_CONSTRUCTS: readonly RefusableUiConstruct[] = [
@@ -158,6 +188,7 @@ export const UI_CONSTRUCTS: readonly RefusableUiConstruct[] = [
   "primitive:Chart@body",
   "read:entity-history@body",
   "stmt:match-await-standard-op@action",
+  "return:payload-or-error@api-client",
 ];
 
 /** Every owned-only UI construct, in a stable order. */
@@ -197,6 +228,15 @@ export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "storage:clickhouse@declaration",
   "storage:bigquery@declaration",
   "storage:nats@declaration",
+  "publish:event-sourced@broker-channel",
+  "tenancy:remote-registry@deployable",
+  "call:auth-required-api@resource",
+  "timer:broker-channel@deployable",
+  "read:wide-stance@tph-subtype",
+  "derived:reads-masked-field@aggregate",
+  "criterion:reads-masked-field@context",
+  "field:valueobject-collection@entity-part",
+  "invariant:nested-valueobject@valueobject",
 ];
 
 /** The refusal a UI construct gets on a framework NO target renders (an
@@ -207,6 +247,7 @@ export const UI_CONSTRUCT_REFUSAL: Readonly<Record<RefusableUiConstruct, TargetR
   "primitive:Chart@body": "chart",
   "read:entity-history@body": "entity-history-read",
   "stmt:match-await-standard-op@action": "match-await-standard-op",
+  "return:payload-or-error@api-client": "feature-composition-broken",
 };
 
 /** The verdict an owned-only construct gets on a framework NO target renders.
@@ -243,6 +284,76 @@ export type UiScope =
    *  a component shape it defers must be reported. */
   | "components:deferral-filtered";
 
+// --- the feature-tuple axis ---------------------------------------------------
+//
+// A construct above is ONE feature at one position.  Most defects that validate
+// clean and then miscompile, 500 or leak live where TWO features meet on one
+// declaration — `versioned` on an event-sourced aggregate, `tenantOwned` on a
+// TPH base.  So the table has a second key besides the construct: a FEATURE
+// TUPLE, a pair of feature values drawn from two axes that compose.  Every
+// backend target states a verdict for every tuple, exactly like a construct:
+//
+//   supported — names the behavioural corpus fixture (`test/fixtures/corpus/
+//               <id>.ddd`) that reaches the pair on that backend and runs it.
+//   refused   — `loom.target-unsupported#<slug>` at every aggregate carrying
+//               both features, on that target only.
+//   owned     — refused by another check under its own code.
+//
+// `FEATURE_TUPLES` is the product of each composing axis pair, so adding a value
+// to an axis (or an axis pair) is a type error on every target, and a failing
+// `test/system/feature-composition-table.test.ts`, until each one decides it.
+
+/** The feature axes and their values. */
+export const FEATURE_AXES = {
+  /** How an aggregate persists: a state row, an event stream, a JSON document. */
+  persistence: ["state", "eventLog", "document"],
+  /** A prelude capability applied with `with <cap>`; `provenanced` is a field
+   *  modifier, counted when any field of the aggregate carries it. */
+  capability: ["versioned", "softDeletable", "auditable", "tenantOwned", "provenanced"],
+  /** Where an aggregate sits in an inheritance hierarchy, per table layout
+   *  (TPH = `sharedTable`, TPC = `ownTable`). */
+  inheritance: ["tph-base", "tph-subtype", "tpc-base", "tpc-subtype"],
+} as const;
+
+export type FeatureAxis = keyof typeof FEATURE_AXES;
+export type FeatureOf<A extends FeatureAxis> = `${A}:${(typeof FEATURE_AXES)[A][number]}`;
+/** One feature value, spelled `<axis>:<value>`. */
+export type Feature = { [A in FeatureAxis]: FeatureOf<A> }[FeatureAxis];
+
+/** The axis pairs whose values compose on one aggregate.  Every value × value
+ *  tuple of each pair is a row. */
+export const COMPOSING_AXES = [
+  ["persistence", "capability"],
+  ["capability", "inheritance"],
+] as const satisfies readonly (readonly [FeatureAxis, FeatureAxis])[];
+
+type TupleOf<P> = P extends readonly [infer A extends FeatureAxis, infer B extends FeatureAxis]
+  ? `${FeatureOf<A>}+${FeatureOf<B>}`
+  : never;
+/** A feature pair, spelled `<feature>+<feature>` in `COMPOSING_AXES` order. */
+export type FeatureTuple = TupleOf<(typeof COMPOSING_AXES)[number]>;
+
+/** Every feature tuple, in a stable order (the table test iterates it). */
+export const FEATURE_TUPLES: readonly FeatureTuple[] = COMPOSING_AXES.flatMap(([a, b]) =>
+  FEATURE_AXES[a].flatMap((x) => FEATURE_AXES[b].map((y) => `${a}:${x}+${b}:${y}` as FeatureTuple)),
+);
+
+/** The two features a tuple names. */
+export function tupleFeatures(t: FeatureTuple): readonly [Feature, Feature] {
+  const [a, b] = t.split("+") as [Feature, Feature];
+  return [a, b];
+}
+
+/** A target's verdict on one feature tuple.  A supported cell names its
+ *  witness, so "supported" cannot be claimed without a fixture that runs it. */
+export type CompositionVerdict =
+  | { readonly verdict: "supported"; readonly fixture: string }
+  /** Supported because a construct row names the same pair and is supported
+   *  on this target, proven by that row's own witness. */
+  | { readonly verdict: "supported"; readonly construct: BackendConstruct }
+  | { readonly verdict: "refused"; readonly slug: TargetRefusalSlug }
+  | { readonly verdict: "owned"; readonly code: string };
+
 /** One target's table. */
 export interface TargetCapabilityTable {
   /** The ui frameworks this target's generator renders, and its verdict per
@@ -261,6 +372,8 @@ export interface TargetCapabilityTable {
   };
   /** Its verdict per backend construct.  Absent on a frontend. */
   readonly backend?: Readonly<Record<BackendConstruct, CapabilityVerdict>>;
+  /** Its verdict per feature tuple.  Present exactly when `backend` is. */
+  readonly compositions?: Readonly<Record<FeatureTuple, CompositionVerdict>>;
 }
 
 const SUPPORTED: CapabilityVerdict = { verdict: "supported" };
@@ -291,6 +404,9 @@ const JS_FRONTEND_UI: Readonly<Record<UiConstruct, CapabilityVerdict>> = {
   "primitive:Chart@body": SUPPORTED,
   "read:entity-history@body": SUPPORTED,
   "stmt:match-await-standard-op@action": SUPPORTED,
+  // The api module names the success payload's response type and never
+  // declares it, so the client does not compile.
+  "return:payload-or-error@api-client": refused("feature-composition-broken"),
   ...COMMON_OWNED,
 };
 
@@ -349,17 +465,150 @@ const UNREALIZED_RESOURCES: Pick<
   "storage:inMemory@resource": refused("storage-type-unrealized"),
 };
 
-/** The table for a static-bundle backend: it renders no ui framework.  A
- *  tenant-scoped event stream is stamped, scoped and carried as event metadata
- *  on every backend (the node MikroORM event store is refused separately in
- *  `validateTargetCapabilities`). */
-const STATIC_HOST_BACKEND: TargetCapabilityTable = {
-  backend: {
-    "stmt:requires@event-sourced-create": ES_CREATE_REQUIRES_REFUSED,
-    "effect:mutate-held-row@command-body": SUPPORTED,
-    "capability:tenantOwned@event-sourced": SUPPORTED,
-    ...UNREALIZED_RESOURCES,
+const witnessed = (fixture: string): CompositionVerdict => ({ verdict: "supported", fixture });
+const BROKEN: CompositionVerdict = { verdict: "refused", slug: "feature-composition-broken" };
+const UNWITNESSED: CompositionVerdict = {
+  verdict: "refused",
+  slug: "feature-composition-unwitnessed",
+};
+/** Refused by the stamp check: an event-sourced aggregate has no state row to
+ *  carry a stamped column. */
+const STAMP_ON_EVENT_SOURCED: CompositionVerdict = {
+  verdict: "owned",
+  code: "loom.stamp-on-event-sourced-invalid",
+};
+
+/** The feature-tuple verdicts every backend shares unless it says otherwise.
+ *
+ *  `feature-composition-broken` marks a pair whose generated code is known
+ *  wrong; `feature-composition-unwitnessed` a pair no behavioural fixture runs,
+ *  so nothing proves the generated code right.  Either moves to `witnessed`
+ *  when a corpus fixture that reaches the pair passes on that backend. */
+const COMMON_COMPOSITIONS: Readonly<Record<FeatureTuple, CompositionVerdict>> = {
+  "persistence:state+capability:versioned": witnessed("core-domain"),
+  "persistence:state+capability:softDeletable": witnessed("tph-crossings"),
+  "persistence:state+capability:auditable": witnessed("stamps"),
+  "persistence:state+capability:tenantOwned": witnessed("inheritance-read-restrictions"),
+  "persistence:state+capability:provenanced": witnessed("if-branch-shapes"),
+  // The stream is the concurrency control: no backend folds or bumps the
+  // spliced `version` field, so the ETag / If-Match protocol answers a value
+  // that never moves.
+  "persistence:eventLog+capability:versioned": BROKEN,
+  // No event-sourced repository reads `isDeleted`: a deleted stream stays
+  // readable by id, in the list and through every find.
+  "persistence:eventLog+capability:softDeletable": BROKEN,
+  "persistence:eventLog+capability:auditable": STAMP_ON_EVENT_SOURCED,
+  // The stream carries its tenant as event metadata.
+  "persistence:eventLog+capability:tenantOwned": {
+    verdict: "supported",
+    construct: "capability:tenantOwned@event-sourced",
   },
+  "persistence:eventLog+capability:provenanced": UNWITNESSED,
+  "persistence:document+capability:versioned": witnessed("paged-nonrelational"),
+  "persistence:document+capability:softDeletable": witnessed("find-bypass"),
+  "persistence:document+capability:auditable": UNWITNESSED,
+  "persistence:document+capability:tenantOwned": witnessed("policy-document"),
+  "persistence:document+capability:provenanced": UNWITNESSED,
+  "capability:versioned+inheritance:tph-base": witnessed("inheritance"),
+  "capability:versioned+inheritance:tph-subtype": witnessed("inheritance"),
+  "capability:versioned+inheritance:tpc-base": witnessed("inheritance"),
+  "capability:versioned+inheritance:tpc-subtype": witnessed("inheritance"),
+  "capability:softDeletable+inheritance:tph-base": UNWITNESSED,
+  "capability:softDeletable+inheritance:tph-subtype": witnessed("tph-crossings"),
+  "capability:softDeletable+inheritance:tpc-base": UNWITNESSED,
+  "capability:softDeletable+inheritance:tpc-subtype": witnessed("inheritance-read-restrictions"),
+  "capability:auditable+inheritance:tph-base": UNWITNESSED,
+  "capability:auditable+inheritance:tph-subtype": UNWITNESSED,
+  "capability:auditable+inheritance:tpc-base": UNWITNESSED,
+  "capability:auditable+inheritance:tpc-subtype": UNWITNESSED,
+  "capability:tenantOwned+inheritance:tph-base": witnessed("inheritance-read-restrictions"),
+  "capability:tenantOwned+inheritance:tph-subtype": witnessed("inheritance-read-restrictions"),
+  "capability:tenantOwned+inheritance:tpc-base": witnessed("inheritance-read-restrictions"),
+  "capability:tenantOwned+inheritance:tpc-subtype": witnessed("inheritance-read-restrictions"),
+  "capability:provenanced+inheritance:tph-base": UNWITNESSED,
+  "capability:provenanced+inheritance:tph-subtype": UNWITNESSED,
+  "capability:provenanced+inheritance:tpc-base": UNWITNESSED,
+  "capability:provenanced+inheritance:tpc-subtype": UNWITNESSED,
+};
+
+/** The feature-pair constructs every backend shares unless it says otherwise.
+ *  Each names two features meeting at one site; see `BackendConstruct`. */
+const COMMON_PAIRS: Pick<
+  Record<BackendConstruct, CapabilityVerdict>,
+  | "publish:event-sourced@broker-channel"
+  | "tenancy:remote-registry@deployable"
+  | "call:auth-required-api@resource"
+  | "timer:broker-channel@deployable"
+  | "read:wide-stance@tph-subtype"
+  | "derived:reads-masked-field@aggregate"
+  | "criterion:reads-masked-field@context"
+  | "field:valueobject-collection@entity-part"
+  | "invariant:nested-valueobject@valueobject"
+> = {
+  // No fixture runs an event-sourced save through a durable channel.
+  "publish:event-sourced@broker-channel": refused("feature-composition-unwitnessed"),
+  // Phase ⑦ refuses a deployable that reads the hierarchy without hosting the
+  // registry: its database holds no registry table to resolve the path from.
+  "tenancy:remote-registry@deployable": owned("loom.tenancy-registry-remote-unsupported"),
+  // No typed api client sends an `Authorization` header.
+  "call:auth-required-api@resource": refused("feature-composition-broken"),
+  // The scheduler publishes a broker-carried tick through the channel tee;
+  // `channels-e2e` runs one to a consumer on another deployable.
+  "timer:broker-channel@deployable": SUPPORTED,
+  // No fixture runs a widened read stance over a tenant-owned TPH base.
+  "read:wide-stance@tph-subtype": refused("feature-composition-unwitnessed"),
+  // A derived that reads a masked field inherits the mask, and a criterion
+  // over one is evaluated as the caller sees it; the `field-mask` corpus
+  // fixture runs both on every backend.
+  "derived:reads-masked-field@aggregate": SUPPORTED,
+  "criterion:reads-masked-field@context": SUPPORTED,
+  "field:valueobject-collection@entity-part": owned("loom.collection-field-unpersisted"),
+  "invariant:nested-valueobject@valueobject": SUPPORTED,
+};
+
+/** The table for a static-bundle backend: it renders no ui framework. */
+const STATIC_HOST_BACKEND_ROWS: Readonly<Record<BackendConstruct, CapabilityVerdict>> = {
+  "stmt:requires@event-sourced-create": ES_CREATE_REQUIRES_REFUSED,
+  "effect:mutate-held-row@command-body": SUPPORTED,
+  // A tenant-scoped event stream is stamped, scoped and carried as event
+  // metadata (the node MikroORM event store is refused in `ADAPTER_REFUSALS`).
+  "capability:tenantOwned@event-sourced": SUPPORTED,
+  ...UNREALIZED_RESOURCES,
+  ...COMMON_PAIRS,
+};
+
+const NODE_BACKEND: TargetCapabilityTable = {
+  backend: {
+    ...STATIC_HOST_BACKEND_ROWS,
+    // The save inserts the events and then dispatches outside the transaction.
+    "publish:event-sourced@broker-channel": refused("feature-composition-broken"),
+  },
+  compositions: COMMON_COMPOSITIONS,
+};
+
+const DOTNET_BACKEND: TargetCapabilityTable = {
+  backend: {
+    ...STATIC_HOST_BACKEND_ROWS,
+    // The event save and the dispatcher's outbox write are two `SaveChangesAsync`.
+    "publish:event-sourced@broker-channel": refused("feature-composition-broken"),
+    // The base's exact `TenantId` query filter drops the subtype's subtree read.
+    "read:wide-stance@tph-subtype": refused("feature-composition-broken"),
+  },
+  compositions: COMMON_COMPOSITIONS,
+};
+
+const PYTHON_BACKEND: TargetCapabilityTable = {
+  backend: STATIC_HOST_BACKEND_ROWS,
+  compositions: COMMON_COMPOSITIONS,
+};
+
+const JAVA_BACKEND: TargetCapabilityTable = {
+  backend: {
+    ...STATIC_HOST_BACKEND_ROWS,
+    // JPA maps it to an `@CollectionTable`, but no fixture runs it.
+    "field:valueobject-collection@entity-part": refused("feature-composition-unwitnessed"),
+  },
+  compositions: COMMON_COMPOSITIONS,
 };
 
 const REACT_CAPABILITIES: TargetCapabilityTable = {
@@ -395,10 +644,10 @@ export const ADAPTER_REFUSALS: readonly AdapterRefusal[] = [
  *  shares its table; a ui whose resolved FRAMEWORK is spelled `static` is not
  *  in any `frameworks` list, so its UI constructs are refused fail-closed. */
 export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTable>> = {
-  node: STATIC_HOST_BACKEND,
-  dotnet: STATIC_HOST_BACKEND,
-  python: STATIC_HOST_BACKEND,
-  java: STATIC_HOST_BACKEND,
+  node: NODE_BACKEND,
+  dotnet: DOTNET_BACKEND,
+  python: PYTHON_BACKEND,
+  java: JAVA_BACKEND,
   elixir: {
     ui: {
       frameworks: ["phoenixLiveView"],
@@ -410,6 +659,7 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
         // An in-process `load_<agg>_history/2` in the same OTP app.
         "read:entity-history@body": SUPPORTED,
         "stmt:match-await-standard-op@action": SUPPORTED,
+        "return:payload-or-error@api-client": SUPPORTED,
         ...COMMON_OWNED,
         // `renderModal` handles the controlled op-form shape.
         "primitive:Modal-open-op-form@body": SUPPORTED,
@@ -441,6 +691,16 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
       "effect:mutate-held-row@command-body": SUPPORTED,
       "capability:tenantOwned@event-sourced": SUPPORTED,
       ...UNREALIZED_RESOURCES,
+      ...COMMON_PAIRS,
+      // The changeset casts the nested value object inline and never runs its
+      // invariant.
+      "invariant:nested-valueobject@valueobject": refused("feature-composition-broken"),
+    },
+    compositions: {
+      ...COMMON_COMPOSITIONS,
+      // A declared create on a document aggregate demands the defaulted
+      // `isDeleted` in its payload, so the create answers 422.
+      "persistence:document+capability:softDeletable": BROKEN,
     },
   },
   react: REACT_CAPABILITIES,
@@ -482,6 +742,7 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
         // DECLARED instance operation; a standard op reaches its per-statement
         // arm, which throws.
         "stmt:match-await-standard-op@action": refused("match-await-standard-op"),
+        "return:payload-or-error@api-client": SUPPORTED,
       },
       scopes: ["components:deferral-filtered"],
     },
@@ -496,6 +757,8 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
         // A `CustomPainter` over rows the client has already decoded.
         "primitive:Chart@body": SUPPORTED,
         "read:entity-history@body": SUPPORTED,
+        // `models.dart` declares every payload.
+        "return:payload-or-error@api-client": SUPPORTED,
         ...COMMON_OWNED,
         // Flutter has no extern-component hatch.
         "decl:extern-component@ui": owned("loom.user-component-deferred-target"),
@@ -592,4 +855,13 @@ export function backendsSupporting(construct: BackendConstruct): ReadonlySet<str
     if (table.backend?.[construct].verdict === "supported") out.add(platform);
   }
   return out;
+}
+
+/** The verdict for a feature tuple on a backend platform, or `undefined` for a
+ *  platform that hosts no backend. */
+export function compositionCapability(
+  platform: Platform,
+  tuple: FeatureTuple,
+): CompositionVerdict | undefined {
+  return TARGET_CAPABILITIES[platform]?.compositions?.[tuple];
 }
