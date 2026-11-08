@@ -112,6 +112,18 @@ const PENDING_FIELD_LIMITS: readonly WireWaiver[] =
 export const WIRE_WAIVERS: readonly WireWaiver[] = [
   ...PENDING_ERROR_CODES,
   ...PENDING_FIELD_LIMITS,
+  // #4473 — an unnamed single-field rule tripped at the domain floor answers
+  // `problem.domain-floor`, so its `detail` is that code's sentence
+  // (`floorRuleText`).  java and elixir still render the rule's `field.rule`
+  // text there; their floor follows with their field-limit codes.
+  {
+    backends: ["java", "elixir"],
+    path: "$.detail",
+    kinds: ["value"],
+    values: { golden: "^Business rule violated$", actual: "^Invalid value$" },
+    reason:
+      "#4473 — the java / elixir domain floor still answers an unnamed single-field rule with the field.rule text, not the domain-floor sentence",
+  },
   // elixir's workflow / explicit-route dispatcher receives the bare
   // `{:error, :conflict}` (no aggregate, no row), so its 409 `detail` is the
   // generic sentence.  Status, `title` and `type` agree; every other backend
