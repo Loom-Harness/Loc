@@ -334,3 +334,21 @@ describe("restApi routing", () => {
     }
   });
 });
+
+describe("serviceFetch passthrough", () => {
+  it("forwards a body-carrying Request to the real fetch intact (an AWS SDK PUT)", async () => {
+    const { serviceFetch } = await import("../../web/src/runtime/service-fetch.js");
+    let seen = "";
+    const real = (async (r: Request) => {
+      seen = await r.text();
+      return new Response("ok");
+    }) as unknown as typeof fetch;
+    const f = serviceFetch(
+      new Set(["orders-svc"]),
+      async () => ({ ok: false, message: "unused" }),
+      real,
+    );
+    await f(new Request("https://b.s3.amazonaws.com/k", { method: "PUT", body: "payload" }));
+    expect(seen).toBe("payload");
+  });
+});
