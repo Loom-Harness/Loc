@@ -497,8 +497,8 @@ function renderStatement(
     case "requires":
       // Bug-shaped guard → raise the typed `<App>.GuardError` (the same shape
       // the aggregate operation body emits).  The `:kind` field is the routing
-      // key the controller rescue reads, so `:message` carries the author's
-      // `message "…"` when there is one (M-T6.20).
+      // key the controller rescue reads, so `:message` is free text: a named
+      // rule's text, else the domain-floor sentence.
       return guardRaiseLine(s, renderExpr(s.expr, rc), appModuleOf(rc.contextModule));
     case "return": {
       const value = renderExpr(s.value, rc);

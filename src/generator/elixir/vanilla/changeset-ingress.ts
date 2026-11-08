@@ -19,8 +19,8 @@
 //   * a STRING.  Ecto's `cast/3` turns `""` (and, through
 //     `empty_trimmed_string?`, `"   "`) into `nil`, and `validate_required/2`
 //     treats a blank string as missing — so a blank name answered "can't be
-//     blank" before the rule that owns blankness (`check name.length > 0
-//     message "Name is required"`, an `invariant name.trim().length > 0`) ever
+//     blank" before the rule that owns blankness (`check nameRequired:
+//     name.length > 0`, an `invariant name.trim().length > 0`) ever
 //     ran.  Node keeps the string and lets the rule answer.  String columns are
 //     therefore cast with `empty_values: []` and their presence is nil-only.
 //

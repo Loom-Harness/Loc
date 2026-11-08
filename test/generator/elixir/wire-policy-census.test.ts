@@ -107,12 +107,6 @@ const WAIVERS: { file: string; line: string; reason: string }[] = [
   },
   {
     file: "src/generator/elixir/heex-walker-core.ts",
-    line: `"Forbidden" : "Precondition failed"`,
-    reason:
-      "the LiveView flash text for a denied event handler — the UI surface, not the REST wire",
-  },
-  {
-    file: "src/generator/elixir/heex-walker-core.ts",
     line: "' not found`",
     reason: "an emitted code comment naming a missing page action",
   },

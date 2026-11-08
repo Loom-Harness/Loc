@@ -1820,9 +1820,9 @@ function requiresGateLines(
 /** The canonical `create` / `destroy` authorization gate, in the ROUTE.
  *
  *  Same shape as `requiresGateLines` above — the same `requires` statements,
- *  the same `ForbiddenError` (→ 403 via this file's `onError`), the same
- *  `Forbidden: <source>` detail — because it IS the same gate; only the
- *  receiver differs:
+ *  the same `ForbiddenError` (→ 403 via this file's `onError`, the gate's
+ *  source logged and the constant `Forbidden` answered) — because it IS the
+ *  same gate; only the receiver differs:
  *
  *    create  — no receiver.  The gate runs BEFORE the factory (there is no
  *              instance yet), so it reads the principal only, which

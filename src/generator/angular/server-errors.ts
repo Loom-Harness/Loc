@@ -25,7 +25,7 @@ import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-cod
  *  server sent otherwise. */
 export function angularServerErrorsTs(i18n: boolean): string {
   return ANGULAR_SERVER_ERRORS_TEMPLATE.replace("/*{{T_BINDING}}*/", () =>
-    errorCodeTBinding(i18n, "./i18n"),
+    errorCodeTBinding(i18n, "./locale"),
   ).replace("/*{{HELPERS}}*/", () => ERROR_CODE_HELPERS_TS);
 }
 

@@ -1382,7 +1382,7 @@ export function renderReturningStmt(
       // (HTTP-boundary ops hoist guards to `with ensure(…)` for a 422 / 403
       // denial).  The typed `<App>.GuardError` carries the classification in its
       // `:kind` field, so the `:message` is the SAME `denialMessage(s)` the
-      // `ensure` path emits — the author's `message "…"` when there is one.
+      // `ensure` path emits — a named rule's text when it has one.
       return guardRaiseLine(s, renderExpr(s.expr, rc), appModuleOf(rc.contextModule));
     case "assign": {
       // `field := value` → struct-update the threaded `record`, so the
@@ -1581,9 +1581,9 @@ function renderProvenancedAssign(
 // below answers 422 too) — instead of propagating to Phoenix's default 500.
 //
 // The ROUTING KEY is the exception's `:kind` FIELD, never its message.  A
-// `cond` over `String.starts_with?(guard_msg, "Precondition failed: ")` would
-// make the message load-bearing and therefore unwritable: an author's
-// `message "…"` misses the prefix and falls to the `reraise` → 500.  With the
+// `cond` over a prefix of `guard_msg` would make the message load-bearing and
+// therefore unwritable: a named rule's text carries no fixed prefix and would
+// fall to the `reraise` → 500.  With the
 // classification out of band the detail is free text, and no `reraise`
 // arm is needed either — an exception that is not a `<App>.GuardError` is
 // simply not rescued and propagates with its own stacktrace (still a 500 for a

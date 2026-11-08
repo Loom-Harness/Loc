@@ -854,7 +854,6 @@ export function renderApiExceptionAdvice(
     valueObjectInvariants && `import ${basePkg}.domain.common.ValueObjectInvariantException;`,
     `import ${basePkg}.domain.common.WireFormatException;`,
     `import ${basePkg}.domain.common.ForbiddenException;`,
-    `import ${basePkg}.domain.common.WireFormatException;`,
     `import ${basePkg}.config.CatalogLog;`,
     `import ${basePkg}.config.HttpMetrics;`,
     `import ${basePkg}.config.RequestContext;`,

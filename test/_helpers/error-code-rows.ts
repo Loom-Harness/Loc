@@ -43,17 +43,3 @@ export const ERROR_CODE_ROWS: readonly ErrorCodeRow[] = [
   { platform: "java", wireLegs: ["java"], status: "done", fieldLimits: "done" },
   { platform: "elixir", wireLegs: ["elixir"], status: "done", fieldLimits: "done" },
 ];
-
-/** The wire legs whose backend still answers without `code` / `params`. */
-export function pendingErrorCodeLegs(): string[] {
-  return ERROR_CODE_ROWS.filter((r) => r.status !== "done").flatMap((r) => r.wireLegs);
-}
-
-/** The wire legs whose backend answers every other code but still answers a
- *  declared field limit with `field.rule` and no `params`.  (A leg whose
- *  `status` is pending is already waived on every code.) */
-export function pendingFieldLimitLegs(): string[] {
-  return ERROR_CODE_ROWS.filter((r) => r.status === "done" && r.fieldLimits !== "done").flatMap(
-    (r) => r.wireLegs,
-  );
-}

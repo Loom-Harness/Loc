@@ -3,20 +3,16 @@
 // clause that turns it into an RFC 7807 response.
 //
 // Why it exists.  A bare atom (`{:error, :forbidden}` /
-// `{:error, :precondition_failed}`) carries the STATUS but not the MESSAGE, so
-// every controller answers with a hardcoded generic string ("A precondition
-// failed") where node/dotnet/java/python name the failed predicate
-// ("Precondition failed: status != \"cancelled\"").  RFC 7807 wants `detail`
-// specific to the OCCURRENCE, and the wire-golden gate is byte-exact — it
-// cannot carry an error-envelope assertion while one backend's `detail` is
-// generic.
+// `{:error, :precondition_failed}`) carries the STATUS but not the MESSAGE, and
+// the wire-golden gate is byte-exact: every backend's `detail` must be the same
+// sentence.
 //
 // So a denial is a 2-TUPLE — `{:precondition_failed, "<message>"}` — and the
 // reason term flows through `{:error, reason}` catch-alls exactly as a bare
 // atom would.  The message is built by the SAME rule the other four
 // backends use (the `raise(<App>.GuardError, …)` path below here, and the
-// `DomainError`/`DomainException` throws there): an explicit `message:` if the
-// statement declares one, else the derived `"<Prefix>: <source>"`.
+// `DomainError`/`DomainException` throws there): a named rule's text, else the
+// domain-floor sentence (`floorRuleText`) — never the rule's source.
 //
 // Every producer (`operation-returns-emit`, `eventsourced-emit`,
 // `workflow-execution-emit`, `workflow-eventsourced-emit`, `dispatch-emit`) and
@@ -166,9 +162,9 @@ export function exRuleParams(
 // pure-core operation form — has no `with` chain to short-circuit through, so
 // it RAISES, and a controller `rescue` maps the raise to a status.
 //
-// The rescue must NOT route by MESSAGE PREFIX (`String.starts_with?(guard_msg,
-// "Precondition failed: ")`): that makes the message the ROUTING KEY, so an
-// a rule's own text would miss the prefix and `reraise` into a 500.
+// The rescue must NOT route by a MESSAGE PREFIX: that makes the message the
+// ROUTING KEY, so a named rule's own text would miss the prefix and `reraise`
+// into a 500.
 //
 // The classification is OUT OF BAND: one domain-layer `defexception`
 // carrying a `kind` field (`:forbidden` / `:precondition`) that the rescue
@@ -218,8 +214,8 @@ export function guardErrorModule(appModule: string): string {
 
 /** The `raise(<App>.GuardError, kind: …, message: …)` call a failed guard
  *  raises.  `kind` is the routing key the controller rescue reads; `message` is
- *  the author's `message "…"` when there is one, byte-identical to the string
- *  the `ensure` path puts in the same denial's `detail`. */
+ *  `denialMessage(s)`, byte-identical to the string the `ensure` path puts in
+ *  the same denial's `detail`. */
 export function guardRaise(s: GuardStmt, appModule: string): string {
   const kind = s.kind === "requires" ? ":forbidden" : ":precondition";
   return `raise(${guardErrorModule(appModule)}, kind: ${kind}, message: ${elixirString(
@@ -419,8 +415,8 @@ export function wireValidationTerm(s: GuardStmt, renderRef?: (e: ExprIR) => stri
       : ruleText({ expr: s.expr, source: s.source });
   const entry = [
     `pointer: ${JSON.stringify(pointer)}`,
-    // The author's `message "…"` goes through the shared escaping funnel — a
-    // raw `#{` here would interpolate into the 422 body at request time.
+    // The text goes through the shared escaping funnel — a raw `#{` in a
+    // translator's override would interpolate into the 422 body at request time.
     `message: ${elixirString(text)}`,
     `code: ${elixirString(ruleCode({ expr: s.expr, source: s.source, message: authored }))}`,
     ...(authored && exRuleParams(s, renderRef) ? [`params: ${exRuleParams(s, renderRef)}`] : []),

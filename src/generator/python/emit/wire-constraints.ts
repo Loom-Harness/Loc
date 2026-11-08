@@ -86,9 +86,9 @@ const KWARG_ERROR_TYPES: Readonly<Record<string, readonly string[]>> = {
  *  `singleFieldMessage` (e.g. "Billing Email is not in the expected format")
  *  for a shape node chains natively, else node's refine default — ruling D10
  *  (#15d).
- *  Before it an unnamed rule answered Pydantic's default text, which for a
- *  `pattern=` leaked the regex onto the wire (`String should match pattern
- *  '^[^@]+@…'`) and diverged from node for every other shape too.
+ *  Without it an unnamed rule would answer Pydantic's default text, which for
+ *  a `pattern=` puts the regex on the wire (`String should match pattern
+ *  '^[^@]+@…'`) and diverges from node for every other shape too.
  *
  *  The table is per MODEL (one field name can carry different bounds on two
  *  request DTOs) and keyed by `(field, pydantic error type)`, so only the

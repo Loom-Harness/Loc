@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pendingErrorCodeLegs, pendingFieldLimitLegs } from "./error-code-rows.js";
+import { ERROR_CODE_ROWS } from "./error-code-rows.js";
 import {
   applyWaivers,
   decimalEqual,
@@ -20,7 +20,7 @@ import {
 } from "./wire-record.js";
 import { WIRE_WAIVERS } from "./wire-waivers.js";
 
-describe("the #4473 pending-backend waivers cover the error codes and nothing else", () => {
+describe("#4473: no error-code waiver is left — a missing code gates on every leg", () => {
   const div = (path: string, golden: unknown) => ({
     seq: 1,
     request: "POST /api/products",
@@ -30,7 +30,7 @@ describe("the #4473 pending-backend waivers cover the error codes and nothing el
     actual: undefined as never,
   });
 
-  it("waive a missing wire code / params only on a leg still pending — none is", () => {
+  it("a missing wire code / params gates on every leg, node included", () => {
     const missing = [
       div("$.code", "problem.field-invalid"),
       div("$.errors[0].code", "field.missing"),
@@ -39,8 +39,10 @@ describe("the #4473 pending-backend waivers cover the error codes and nothing el
     ];
     // Every backend answers the codes and the field-limit codes, so no leg is
     // waived on them: a missing code gates everywhere.
-    expect(pendingErrorCodeLegs()).toEqual([]);
-    expect(pendingFieldLimitLegs()).toEqual([]);
+    for (const row of ERROR_CODE_ROWS) {
+      expect(row.status, row.platform).toBe("done");
+      expect(row.fieldLimits, row.platform).toBe("done");
+    }
     for (const leg of ["node", "mikroorm", "dotnet", "dapper", "python", "java", "elixir"])
       expect(applyWaivers(missing, leg, "c", WIRE_WAIVERS).gating, leg).toHaveLength(4);
   });

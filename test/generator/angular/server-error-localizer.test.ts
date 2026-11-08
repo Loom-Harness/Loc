@@ -2,7 +2,7 @@
 // a server field error and a refusal through `t(code, english, params)`, and a
 // constrained field's client message is a `t("<rule code>", english)`
 // interpolation in the form template, so it re-evaluates when the form renders.
-// The emitted `src/lib/server-errors.ts` is RUN here with `./i18n` stubbed.
+// The emitted `src/lib/server-errors.ts` is RUN here with `./locale` stubbed.
 
 import { describe, expect, it } from "vitest";
 import { WIRE_ERROR_MESSAGES } from "../../../src/generator/_i18n/wire-error-text.js";
@@ -23,7 +23,7 @@ type Mod = {
   applyServerErrors: (error: unknown, form: { get(p: string): unknown }) => Outcome;
 };
 
-const load = (source: string, t: typeof frT) => loadTs(source, { "./i18n": { t } }) as Mod;
+const load = (source: string, t: typeof frT) => loadTs(source, { "./locale": { t } }) as Mod;
 
 /** A control double recording what the mapper puts on it. */
 const controls = () => {
@@ -43,7 +43,7 @@ describe("Angular — server errors and client rules localize by catalog code", 
   it("renders a server field error and a global error through t, by code", async () => {
     const files = await generateFor("angular");
     const source = fileOf(files, "web/src/lib/server-errors.ts");
-    expect(source).toContain('import { t } from "./i18n";');
+    expect(source).toContain('import { t } from "./locale";');
     const { applyServerErrors } = load(source, frT);
 
     const { set, form } = controls();
@@ -75,7 +75,7 @@ describe("Angular — server errors and client rules localize by catalog code", 
     const files = await generateFor("angular", false);
     expect([...files.keys()].some((p) => p.endsWith("web/src/lib/i18n.ts"))).toBe(false);
     const source = fileOf(files, "web/src/lib/server-errors.ts");
-    expect(source).not.toContain("./i18n");
+    expect(source).not.toContain("./locale");
     const { applyServerErrors } = load(source, () => {
       throw new Error("no catalog to read");
     });

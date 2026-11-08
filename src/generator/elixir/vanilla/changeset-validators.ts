@@ -35,8 +35,8 @@ type LengthArm = { cmp: "<" | ">" | "!="; bound: number; kind: "min" | "max" | "
  *  and any Gettext translator see no difference. */
 function lengthValidator(field: string, arms: readonly LengthArm[], message: string): string {
   const error = (a: LengthArm): string =>
-    // Through the shared escaping funnel: the author's `message "…"` is `.ddd`
-    // text, and a raw `#{` in it would INTERPOLATE when the closure runs.
+    // Through the shared escaping funnel: a named rule's text is translator-
+    // overridable, and a raw `#{` in it would INTERPOLATE when the closure runs.
     `[{:${field}, {${elixirString(message)}, count: ${a.bound}, validation: :length, kind: :${a.kind}, type: :string}}]`;
   const count = "length(String.to_charlist(value))";
   if (arms.length === 1) {
@@ -106,13 +106,10 @@ export function ectoValidator(field: string, p: SingleFieldPattern, message?: st
       .map((check) => limitValidator(field, check, text))
       .join("\n");
   }
-  // An author `message "..."` rides along as Ecto's own `message:` option, so a
-  // messaged single-field rule keeps its native `validate_*` enforcement AND
-  // surfaces the author text (VOs have no residual carrier to route to). A
-  // message-less rule is byte-identical.
-  // Same funnel as the length arm above — author text, never spliced raw.
-  // A message-less rule answers node's `singleFieldMessage` sentence, not Ecto's
-  // own text (D-MESSAGELESS-DEFAULT), so the 422 reads the same on every backend.
+  // A named rule's text rides along as Ecto's own `message:` option, so a named
+  // single-field rule keeps its native `validate_*` enforcement AND surfaces its
+  // text (VOs have no residual carrier to route to).  Same funnel as the length
+  // arm above — never spliced raw.
   const text = message ?? singleFieldMessage(field, p);
   const m = `, message: ${elixirString(text)}`;
   switch (p.kind) {

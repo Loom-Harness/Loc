@@ -3757,13 +3757,13 @@ function fieldErrorBody(fld: FelizFormField, rules: readonly FelizFieldRule[] = 
   // set for no reason at all — keep the historical spelling rather than emit
   // `None` with no test.
   if (rungs.length === 0)
-    return `    if ${empty} then Some ("field.missing", "Required", []) else None`;
+    return `    if ${empty} then Some (${fsString("field.missing")}, ${fsString("Required")}, []) else None`;
   // RULE-FREE forms stay BYTE-IDENTICAL to the pre-M-T1.16 emission, so this
   // feature is provably additive: an optional numeric's historical spelling is
   // the positive `if <parses> then None else <bad>`, which the generic
   // negated chain below would otherwise re-spell.
   if (rules.length === 0 && !fld.required && parses) {
-    return `    if ${parses} then None else Some ("field.type-mismatch", "${NUMERIC_MESSAGE[fld.numeric as "integral" | "fractional"]}", [])`;
+    return `    if ${parses} then None else Some (${fsString("field.type-mismatch")}, ${fsString(NUMERIC_MESSAGE[fld.numeric as "integral" | "fractional"])}, [])`;
   }
   const chain = rungs
     .map(

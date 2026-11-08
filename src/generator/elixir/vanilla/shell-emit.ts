@@ -326,9 +326,9 @@ export function emitVanillaShellFiles(
   // Two halves, one `.po` tree: a Loom key is globally unique and is always the
   // `msgctxt`, so `mix gettext.merge` and every `.po` importer see one catalog.
   //
-  // NOT LiveView-gated: a JSON-API-only deployable with an authored
-  // `message "…"` needs the backend + catalog too, and its 422 handler resolves
-  // through them.  Neither half ⇒ no module, no `priv/gettext`, no dep.
+  // NOT LiveView-gated: a JSON-API-only deployable with a named rule needs the
+  // backend + catalog too.  Neither half ⇒ no module, no `priv/gettext`, no
+  // dep.
   if (i18nEnabled) {
     out.set(`lib/${appName}_web/gettext.ex`, renderGettextBackend(appName, appModule));
     out.set(`lib/${appName}_web/locale.ex`, renderLocaleModule(appModule, localeModel, icuEnabled));

@@ -79,8 +79,8 @@ function renderPureBlock(stmts: StmtIR[], rc: RenderCtx): string[] {
       case "precondition":
       case "requires":
         // The typed `<App>.GuardError` — its `:kind` field is what the
-        // controller rescue routes on, so `:message` carries the author's
-        // `message "…"` when there is one (M-T6.20).
+        // controller rescue routes on, so `:message` is free text: a named
+        // rule's text, else the domain-floor sentence.
         lines.push(guardRaiseLine(s, renderExpr(s.expr, rc), appModuleOf(rc.contextModule)));
         break;
       case "return":

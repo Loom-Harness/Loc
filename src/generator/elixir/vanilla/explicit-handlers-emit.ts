@@ -702,8 +702,9 @@ export function emitExplicitRoutesController(
 ${pagingElseArm("ProblemDetails", "    ")}
     end`;
       // The handler's `requires` gates (`scaffoldPaged(requires:)` splices one)
-      // — each a 403 ProblemDetails before the read, carrying the same
-      // `Forbidden: <source>` detail the other four backends throw.
+      // — each a 403 ProblemDetails before the read: the gate's source in the
+      // log, the constant detail and `problem.forbidden` on the wire, as on the
+      // other four backends.
       const gates = pagedRunGates(handler);
       if (gates.length === 0) {
         actions.push(`  def ${action}(conn, params) do\n${read}\n  end`);
