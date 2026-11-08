@@ -12,9 +12,12 @@
 //      schema-qualified relations `from "sales"."products"`).
 //
 // Case 2 is the reliable gate for the per-context-pgSchema regression:
-// the playground's `synthDDL` must `CREATE SCHEMA` + schema-qualify its
-// DDL, or the backend boots but every query 500s on a missing `sales.*`
-// relation.  The browser e2e (`e2e/runtime.spec.ts`) covers the same
+// the schema must be created and schema-qualified, or the backend boots but
+// every query 500s on a missing `sales.*` relation.  System mode migrates
+// the way the runtime worker does: nothing is created while the model has
+// no recorded migration; once the initial migration is recorded, the chain's
+// SQL (the generated backend's own `db/migrations/`) builds the schema, and a
+// recorded evolution migrates it in place with the rows kept.  The browser e2e (`e2e/runtime.spec.ts`) covers the same
 // path but self-skips when the npm registry is unreachable; this Node
 // smoke runs wherever CI has network, with no skip.
 //
@@ -47,6 +50,8 @@ import {
   RUNTIME_VERSIONS,
 } from "../src/bundle/plugin.ts";
 import { synthDDL } from "../src/runtime/ddl.ts";
+import { migrationPlan, recordMigration } from "../src/build/evolution.ts";
+import { chainDdl, migrateChain } from "../src/runtime/migrate.ts";
 import { install } from "../src/engine/npm/install.ts";
 import { makeVfsNpmPlugin } from "../src/engine/npm/esbuild-vfs-plugin.ts";
 import { postProcessNpmBundle } from "../src/engine/npm/postprocess.ts";
@@ -143,7 +148,34 @@ function pgliteAssets() {
  *  additionally asserts the synthesised DDL declares a Postgres schema —
  *  so the system-mode case can't silently degrade into testing an
  *  unqualified backend (which would no longer guard the regression). */
-async function runCase({ label, sourcePath, mode, expectSchemaQualified, expectAuth }) {
+const ENTRY = "/workspace/main.ddd";
+
+/** The workspace tree the build worker plans and records from: the entry
+ *  source plus the chain files recorded so far. */
+function workspaceTree(text, chain) {
+  return { entryPath: ENTRY, files: [{ kind: "file", path: ENTRY, content: text }, ...chain] };
+}
+
+async function recordChain(text, name, chain) {
+  const r = await recordMigration({ current: workspaceTree(text, chain), name, now: "20261108120000" });
+  if (!r.ok) fail(`recording "${name}" failed: ${JSON.stringify(r.diagnostics)}`);
+  return [...chain, ...r.files.map((f) => ({ kind: "file", path: f.path, content: f.content }))];
+}
+
+async function planFor(text, chain) {
+  const r = await migrationPlan({ current: workspaceTree(text, chain) });
+  if (!r.ok || r.plan.kind !== "chain") fail(`migration plan failed: ${JSON.stringify(r)}`);
+  return r.plan;
+}
+
+async function userSchemas(pglite) {
+  const res = await pglite.query(
+    "SELECT nspname FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' ORDER BY 1",
+  );
+  return res.rows.map((r) => r.nspname);
+}
+
+async function runCase({ label, sourcePath, mode, expectSchemaQualified, expectAuth, evolve }) {
   // Per-CASE identity for the emitted bundle.  It used to be the `mode` alone,
   // which is not unique: `await import()` caches by URL, so a second case with
   // the same mode re-imported the FIRST case's already-evaluated module and
@@ -248,12 +280,42 @@ async function runCase({ label, sourcePath, mode, expectSchemaQualified, expectA
     if (!(name in mod)) fail(`bundle missing export: ${name}`);
   }
 
-  console.log("# 4/5 DDL synth + PGlite + createApp…");
-  const ddl = synthDDL(mod.schema, {
-    is: mod.is,
-    Table: mod.Table,
-    getTableConfig: mod.getTableConfig,
-  });
+  const assets = await pgliteAssets();
+  const pglite = new mod.PGlite(assets);
+  await pglite.exec("SELECT 1;");
+  const text = readFileSync(sourcePath, "utf8");
+  let chain = [];
+  let ddl;
+  if (mode === "legacy") {
+    console.log("# 4/5 DDL synth + PGlite + createApp…");
+    ddl = synthDDL(mod.schema, {
+      is: mod.is,
+      Table: mod.Table,
+      getTableConfig: mod.getTableConfig,
+    });
+    await pglite.exec(ddl);
+  } else {
+    console.log("# 4/5 recorded migrations + PGlite + createApp…");
+    // No chain: the whole schema is unrecorded, and nothing is created.
+    const before = await userSchemas(pglite);
+    const unrecorded = await migrateChain(pglite, await planFor(text, chain));
+    if (!("blocked" in unrecorded) || !unrecorded.blocked.initial) {
+      fail(`a model with no recorded migration must not migrate, got ${JSON.stringify(unrecorded)}`);
+    }
+    const after = await userSchemas(pglite);
+    if (JSON.stringify(after) !== JSON.stringify(before)) {
+      fail(`an unrecorded initial migration created schemas: ${before} → ${after}`);
+    }
+    console.log("# no recorded migration — database left untouched");
+    chain = await recordChain(text, "initial", chain);
+    const plan = await planFor(text, chain);
+    const res = await migrateChain(pglite, plan);
+    if (!("applied" in res) || res.applied.length === 0) {
+      fail(`the recorded initial migration did not apply: ${JSON.stringify(res)}`);
+    }
+    ddl = chainDdl(plan.units);
+    console.log(`# applied ${res.applied.join(", ")}`);
+  }
   if (expectSchemaQualified) {
     // Guards that this case is genuinely exercising a pgSchema-qualified
     // backend (the regression surface) — not silently a public-schema one.
@@ -261,17 +323,13 @@ async function runCase({ label, sourcePath, mode, expectSchemaQualified, expectA
       console.log("--- DDL ---\n" + ddl + "\n-----------");
       fail("expected a CREATE SCHEMA in the system-mode DDL (pgSchema not exercised)");
     }
-    if (!/CREATE TABLE IF NOT EXISTS "[^"]+"\."products"/.test(ddl)) {
+    if (!/CREATE TABLE (IF NOT EXISTS )?"[^"]+"\."products"/.test(ddl)) {
       console.log("--- DDL ---\n" + ddl + "\n-----------");
       fail('expected a schema-qualified "products" table in the system-mode DDL');
     }
     console.log("# DDL is schema-qualified (CREATE SCHEMA + qualified products table)");
   }
 
-  const assets = await pgliteAssets();
-  const pglite = new mod.PGlite(assets);
-  await pglite.exec("SELECT 1;");
-  await pglite.exec(ddl);
   const db = mod.drizzle(pglite, { schema: mod.schema });
   const app = mod.createApp(db);
   console.log("# app booted");
@@ -337,6 +395,34 @@ async function runCase({ label, sourcePath, mode, expectSchemaQualified, expectA
     console.log(`# auth: dev stub registered — /auth/me answered ${meBody}`);
   }
 
+  if (evolve) {
+    // A recorded schema change migrates the SAME database in place: the
+    // product created above survives, and the new column exists.
+    const evolved = text.replace(evolve.from, evolve.to);
+    if (evolved === text) fail(`the evolution edit did not apply to ${path.basename(sourcePath)}`);
+    const pending = await migrateChain(pglite, await planFor(evolved, chain));
+    if (!("blocked" in pending) || pending.blocked.initial) {
+      fail(`an unrecorded change must leave the database as it is, got ${JSON.stringify(pending)}`);
+    }
+    chain = await recordChain(evolved, evolve.name, chain);
+    const res = await migrateChain(pglite, await planFor(evolved, chain));
+    if (!("applied" in res) || res.applied.length !== 1) {
+      fail(`the recorded evolution did not apply exactly one unit: ${JSON.stringify(res)}`);
+    }
+    const col = await pglite.query(
+      "SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = $1",
+      [evolve.column],
+    );
+    if (col.rows.length !== 1) fail(`column ${evolve.column} missing after ${res.applied[0]}`);
+    const kept = await app.fetch(new Request(productsUrl));
+    const keptBody = JSON.parse(await kept.text());
+    const keptRows = Array.isArray(keptBody) ? keptBody : keptBody.items;
+    if (keptRows?.length !== 1 || keptRows[0].sku !== "WIDGET-1") {
+      fail(`the product did not survive ${res.applied[0]}: ${JSON.stringify(keptBody)}`);
+    }
+    console.log(`# evolved in place by ${res.applied[0]} — ${evolve.column} added, 1 product kept`);
+  }
+
   await pglite.close();
 }
 
@@ -352,6 +438,12 @@ await runCase({
   sourcePath: path.resolve(here, "../src/examples/sales-system.ddd"),
   mode: "system",
   expectSchemaQualified: true,
+  evolve: {
+    name: "add-barcode",
+    from: "        sku: string\n        price: Money\n",
+    to: "        sku: string\n        barcode: string?\n        price: Money\n",
+    column: "barcode",
+  },
 });
 
 // `auth: required` (#2571).  The preview boots `createApp`, which asserts a

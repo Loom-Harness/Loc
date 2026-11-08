@@ -4,6 +4,8 @@ import type {
   EvolutionParams,
   EvolutionResult,
   GenerateResult,
+  MigrationPlanParams,
+  MigrationPlanResult,
   RecordMigrationParams,
   RecordMigrationResult,
   SnapshotResult,
@@ -21,6 +23,7 @@ type AnyResult =
   | SnapshotResult
   | EvolutionResult
   | RecordMigrationResult
+  | MigrationPlanResult
   | VfsWriteResult
   | VfsDeleteResult;
 
@@ -189,6 +192,12 @@ export class LoomBuildClient {
    *  workspace. */
   recordMigration(params: RecordMigrationParams): Promise<RecordMigrationResult> {
     return this.call("migrate.record", params) as Promise<RecordMigrationResult>;
+  }
+
+  /** What a boot may do to the runtime's database: the workspace's recorded
+   *  chain rendered to SQL, and the model's unrecorded changes. */
+  migrationPlan(params: MigrationPlanParams): Promise<MigrationPlanResult> {
+    return this.call("migrate.plan", params) as Promise<MigrationPlanResult>;
   }
 
   /** Push one or more files into the worker's VFS.  Returns the

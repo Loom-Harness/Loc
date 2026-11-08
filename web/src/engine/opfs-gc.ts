@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
 // OPFS data-island garbage collection.
 //
-// Each unique `.ddd` source boots its PGlite into its own OPFS island
-// (`opfs-ahp://loom-<source-hash>`, see App.runBootStep) so switching sources
-// never clobbers another's data.  Nothing ever removed them, so islands
-// accumulate forever — every example a user opens, every edit that changes the
-// source hash.  Beyond wasted space, unbounded OPFS growth pushes the origin
+// Each workspace entry boots its PGlite into its own OPFS island
+// (`opfs-ahp://loom-<hash of workspace id + entry path>`, see App.runBootStep)
+// so switching workspaces never clobbers another's data.  Nothing else removes
+// them, so islands accumulate — one per workspace a user boots.  Beyond wasted
+// space, unbounded OPFS growth pushes the origin
 // toward the browser's storage quota, and quota pressure is exactly what makes
 // mobile browsers evict storage and reload tabs — the "refreshed during work"
 // event we're hardening against.
@@ -18,8 +18,8 @@
 // ---------------------------------------------------------------------------
 
 const LRU_KEY = "loom.opfs.lru";
-/** How many islands to retain (the current source + recent ones, so flipping
- *  back to a just-edited source still finds its data). */
+/** How many islands to retain (the current workspace + recent ones, so
+ *  switching back to a recent workspace still finds its data). */
 const KEEP = 4;
 /** Cap on the persisted LRU list so it can't grow without bound itself. */
 const LRU_MAX = 30;

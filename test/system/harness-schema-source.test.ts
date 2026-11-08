@@ -13,8 +13,10 @@
 // it (mutation-proved on the PR that added this test: a CHECK missing an enum
 // member passed the old leg and fails the new one).
 //
-// `synthDDL` remains the PLAYGROUND's DDL source (a browser worker cannot run
-// drizzle's fs-based migrator), so its users are an explicit, reasoned list.
+// The playground builds its database from the emitted migrations too (the
+// recorded chain, rendered by `migrationUnits`).  `synthDDL` remains only its
+// schema source for a source with no `system` block, which records no
+// migrations, so its users are an explicit, reasoned list.
 // Any other test/script that reaches it — or a PGlite harness that boots a
 // generated app without going through `emitted-schema.mjs` — fails here.
 
@@ -28,8 +30,9 @@ const REPO = join(__dirname, "..", "..");
  *  (the file no longer references it) fails — the list only shrinks. */
 const SYNTH_DDL_ALLOWED: Record<string, string> = {
   "web/src/runtime/ddl.ts": "the definition",
-  "web/src/runtime/runtime.worker.ts": "the playground's in-browser boot — its shipped path",
-  "web/scripts/smoke-runtime.mjs": "smoke of the playground runtime, which is what it ships",
+  "web/src/runtime/runtime.worker.ts":
+    "the playground's in-browser boot of a source with no system, which records no migrations",
+  "web/scripts/smoke-runtime.mjs": "smoke of the playground runtime's no-system (legacy) case",
   "web/scripts/test-ddl.mjs": "unit test of synthDDL itself",
   "test/generator/hono/audit-schema-ddl-agreement.test.ts":
     "asserts synthDDL AGREES with the emitted migration (keeps the playground honest)",

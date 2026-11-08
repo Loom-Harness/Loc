@@ -19,6 +19,7 @@ import {
   clickWorkspaceCreate,
   dumpPreviewDiagnostics,
   fatalConsoleErrors,
+  recordInitialMigration,
   waitForBundle,
   waitForPlaygroundReady,
 } from "./_helpers";
@@ -68,6 +69,9 @@ test("mantine@v9 preview boots without runtime errors", async ({ page }) => {
 
   // Bundle the React frontend.  The in-browser npm install fetches the
   // React 19 runtime and Mantine 9 — ~140 modules; first cold run ~30 s.
+  // The database is created only from recorded migrations — record the
+  // example's initial migration before the first Boot.
+  await recordInitialMigration(page);
   await page.getByTestId("btn-bundle").click();
   await waitForBundle(page);
 

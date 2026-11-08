@@ -397,3 +397,39 @@ export async function expectCleanValidation(page: Page, label: string): Promise<
     await page.waitForTimeout(500);
   }
 }
+
+/** Record the open workspace's initial migration, the way a user does before
+ *  the first Boot: the runtime creates its database only from recorded
+ *  migrations, and a fresh workspace — every built-in example — has none, so
+ *  Boot otherwise stops at "migration required".  Opens the Migrations tab
+ *  (desktop dock, or the mobile More sheet), records `initial`, and waits for
+ *  the generate the recording kicks to settle, because that generate clears
+ *  any bundle a caller made before it.  Call it before Generate / Bundle. */
+export async function recordInitialMigration(page: Page): Promise<void> {
+  const desktopTab = page.getByTestId("devtools-tab-migrations");
+  if (await desktopTab.isVisible()) {
+    await desktopTab.click();
+  } else {
+    await page.getByTestId("mobile-tab-more").click();
+    await page.getByTestId("mobile-tab-migrations").click();
+  }
+  const name = page.getByTestId("migration-record-name");
+  await expect(name, "the Migrations tab offers to record the initial migration").toBeVisible({
+    timeout: 60_000,
+  });
+  await name.fill("initial");
+  const record = page.getByTestId("migration-record");
+  await expect(record).toBeEnabled();
+  await record.click();
+  await expect(page.getByTestId("migration-record-result")).toContainText(
+    /Recorded \d+ migration file/,
+    { timeout: 30_000 },
+  );
+  await expect(page.getByTestId("migration-chain-status")).toContainText("nothing unrecorded", {
+    timeout: 30_000,
+  });
+  const generate = page.getByTestId("btn-generate");
+  if (await generate.isVisible()) {
+    await expect(generate).toHaveAttribute("data-state", "ok", { timeout: 120_000 });
+  }
+}

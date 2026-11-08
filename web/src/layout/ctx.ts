@@ -41,7 +41,11 @@ import type {
   WorkspaceSourcesError,
 } from "../workspace/workspace-sources";
 import type { PipelineState } from "../pipeline/state";
-import type { DispatchResult, QueryResult } from "../runtime/protocol";
+import type {
+  BlockingMigrationState,
+  DispatchResult,
+  QueryResult,
+} from "../runtime/protocol";
 import type { ApiEndpoint } from "../backend/openapi";
 import type { RequestTraces } from "../backend/route-match";
 import type { TestResult } from "../testing/harness";
@@ -369,7 +373,12 @@ export interface LayoutCtx {
   previewProblem: boolean;
   ddl: string | null;
   persistent: boolean;
-  migrated: boolean;
+  /** Migration units the last boot applied, in order. */
+  appliedMigrations: string[];
+  /** Why the last boot did not start the app when the database's migrations
+   *  are the reason: unrecorded model changes, or a database the recorded
+   *  chain does not describe.  The database was left as it is. */
+  bootPending: { migration: BlockingMigrationState; message: string } | null;
   bootErrorMessage: string | null;
   dispatchSlot: DispatchResult | null;
 
