@@ -1,4 +1,5 @@
 import { readSortFor } from "../../../ir/enrich/read-scope.js";
+import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import type {
@@ -9,12 +10,11 @@ import type {
   SortTermIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
-import { type AggPool, discriminatorValue, tableOwnerName } from "../../../ir/util/inheritance.js";
+import { type AggPool, discriminatorValue } from "../../../ir/util/inheritance.js";
 import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import {
@@ -140,7 +140,7 @@ function versionCasSql(
   ctx: JavaRepoCtx,
 ): { bump: string; count: string } {
   const pool = ctx.pool ?? [agg];
-  const table = sqlRestrictionIdent(tableNameFor(tableOwnerName(agg, pool)));
+  const table = sqlRestrictionIdent(aggregateTableName(agg, pool));
   const qualified = ctx.schema ? `${sqlRestrictionIdent(ctx.schema)}.${table}` : table;
   const vc = sqlRestrictionIdent(snake(versionFieldName(agg)));
   const kind = discriminatorValue(agg, pool);
