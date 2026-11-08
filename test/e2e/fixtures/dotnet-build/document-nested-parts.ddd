@@ -7,9 +7,8 @@
 // `State.ParentId` and the field copies fail to compile under /warnaserror.
 // Regresses the snapshot-seam nested-ParentId mistyping.
 //
-// Bare `context {…}` (not a `system {…}` wrapper) so legacy
-// `ddd generate dotnet` emits a single buildable project, matching the other
-// fixtures in this suite.
+// Bare `context {…}`: the build gate wraps it in a one-deployable dotnet
+// system (`withBackendSystem`), matching the other fixtures in this suite.
 context Carts {
 
   valueobject Money {

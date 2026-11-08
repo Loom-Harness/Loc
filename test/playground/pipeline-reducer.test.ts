@@ -32,7 +32,7 @@ const SAMPLE_BUNDLE = {
 
 const SAMPLE_GENERATE = {
   ok: true as const,
-  mode: "ts" as const,
+  mode: "system" as const,
   files: [{ path: "http/index.ts", content: "", size: 0 }],
   diagnostics: [],
 };

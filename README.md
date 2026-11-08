@@ -191,8 +191,6 @@ session.
 
 ```bash
 node bin/cli.js parse <file.ddd>                       # parse + validate, exit non-zero on errors
-node bin/cli.js generate ts     <file.ddd> -o <out>    # single Hono project (legacy single-context mode)
-node bin/cli.js generate dotnet <file.ddd> -o <out>    # single .NET project (legacy)
 node bin/cli.js generate system <file.ddd> -o <out>    # full multi-deployable tree + docker-compose.yml
 node bin/cli.js snapshot        <file.ddd> -o <out>    # capture immutable .loom/snapshots/<ts>-<guid>.loomsnap.json (provenance rule snapshot)
 node bin/cli.js verify          <file.ddd> --results <results.json>  # join existing test-results onto the requirements graph → .loom/verification.{json,md} (gates the exit code; does NOT run the suites)
@@ -204,7 +202,7 @@ Common flags:
 | Flag | Effect |
 | --- | --- |
 | `-o, --out <dir>` | Output directory.  Created if missing. |
-| `-w, --watch` | Re-run the generator on every save of the `.ddd` source (legacy `generate ts` / `generate dotnet` only). |
+| `-w, --watch` | Re-run the generator on every save of the `.ddd` source. |
 | `--dry-run` | Print the plan with `write` / `skip` annotations; touch nothing. |
 
 `ddd parse` exits non-zero on validation errors.  All `generate`

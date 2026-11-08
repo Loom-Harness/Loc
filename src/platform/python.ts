@@ -22,7 +22,7 @@ import {
 // thin `PlatformSurface` wiring.  The adapter menu (`adapters()` /
 // `adapterDefaults()`) lands with the persistence slice — until then
 // `hasAdapters("python")` is false and the orchestrator passes no
-// resolved style/layout, exactly like the legacy single-context path.
+// resolved style/layout.
 // ---------------------------------------------------------------------------
 
 const pythonPlatform: PlatformSurface = {

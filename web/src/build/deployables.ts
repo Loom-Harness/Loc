@@ -27,23 +27,66 @@ export interface DeployableAnalysis {
 const HONO_ENTRY = /^([^/]+)\/http\/index\.ts$/;
 const REACT_ENTRY = /^([^/]+)\/src\/main\.tsx$/;
 
+/** The lines of one compose service's block, or null when the file declares
+ *  no such service.  Service names are the deployable slugs. */
+function serviceBlock(compose: string, slug: string): string[] | null {
+  const lines = compose.split("\n");
+  const start = lines.findIndex((l) => l === `  ${slug}:`);
+  if (start === -1) return null;
+  const out: string[] = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    // The next top-level service (two-space indent) ends this block.
+    if (/^ {2}\S/.test(line) || /^\S/.test(line)) break;
+    out.push(line);
+  }
+  return out;
+}
+
 /** The compose service a frontend's API proxy points at — the backend its
  *  `targets:` names.  `docker-compose.yml` is the one generated file that
  *  records that binding (`VITE_API_PROXY_TARGET: "http://<slug>:<port>"`
  *  under the frontend's service), and its service names are the deployable
  *  slugs. */
 export function frontendApiTarget(compose: string, frontendSlug: string): string | null {
-  const lines = compose.split("\n");
-  const start = lines.findIndex((l) => l === `  ${frontendSlug}:`);
-  if (start === -1) return null;
-  for (let i = start + 1; i < lines.length; i++) {
-    const line = lines[i] ?? "";
-    // The next top-level service (two-space indent) ends this block.
-    if (/^ {2}\S/.test(line) || /^\S/.test(line)) break;
+  for (const line of serviceBlock(compose, frontendSlug) ?? []) {
     const m = line.match(/VITE_API_PROXY_TARGET:\s*"?https?:\/\/([^:/"]+)/);
     if (m) return m[1] ?? null;
   }
   return null;
+}
+
+/** The `environment:` of one compose service, as the process env its
+ *  container would see.  The deployable's worker boots with exactly this
+ *  (a service's `<X>_URL` api address, `LOG_LEVEL`, …), so the generated
+ *  client reads the same variable it reads under compose.  Only the
+ *  `KEY: "value"` map form the generator emits is read; infrastructure
+ *  addresses that name a compose sidecar (`DATABASE_URL`) are left out —
+ *  the playground's database is the storage connection, not a URL. */
+export function composeServiceEnv(compose: string, slug: string): Record<string, string> {
+  const block = serviceBlock(compose, slug);
+  const env: Record<string, string> = {};
+  if (!block) return env;
+  const at = block.findIndex((l) => l === "    environment:");
+  if (at === -1) return env;
+  for (let i = at + 1; i < block.length; i++) {
+    const line = block[i] ?? "";
+    // Another key of the service (four-space indent) ends the map.
+    if (!/^ {6}\S/.test(line)) break;
+    const m = line.match(/^ {6}([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/);
+    if (!m?.[1]) continue;
+    let value = (m[2] ?? "").trim();
+    if (value.startsWith('"')) {
+      try {
+        value = JSON.parse(value) as string;
+      } catch {
+        // keep the raw text
+      }
+    }
+    if (m[1] === "DATABASE_URL") continue;
+    env[m[1]] = value;
+  }
+  return env;
 }
 
 export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAnalysis {

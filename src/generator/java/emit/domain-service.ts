@@ -123,8 +123,7 @@ export function renderJavaDomainServices(
   /** Resolves the package an aggregate's repository INTERFACE lives in — a
    *  `reading`-tier service (domain-services.md rev. 4) is a `@Service` bean
    *  with one injected `<Aggregate>Repository`, imported from that package.
-   *  Optional so legacy single-context callers (only pure services) need not
-   *  thread it. */
+   *  Optional so callers with only pure services need not thread it. */
   repoPkgOf?: (aggName: string) => string,
 ): DomainServiceFile[] {
   if (ctx.domainServices.length === 0) return [];

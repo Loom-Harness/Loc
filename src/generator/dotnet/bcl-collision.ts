@@ -334,8 +334,7 @@ export function csParamIdent(name: string, scope: CsMemberScope | undefined): st
 // ---------------------------------------------------------------------------
 // Root-namespace / domain-type collisions.
 //
-// The project's root namespace is the deployable's Pascal name (system mode)
-// or the context's name (legacy `generate dotnet`).  When a hosted context
+// The project's root namespace is the deployable's Pascal name.  When a hosted context
 // declares a TYPE of that very name — `deployable pay` hosting `aggregate
 // Pay`, or `context Pay { aggregate Pay }` — every file under `namespace
 // Pay.…` resolves a bare `Pay` to the root NAMESPACE before it ever reaches

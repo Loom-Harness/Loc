@@ -1,5 +1,6 @@
 import type {
   DispatchResult,
+  HttpCall,
   LoadRequest,
   LoadResult,
   RuntimeProgress,
@@ -24,6 +25,9 @@ export interface LoomRuntimeClientOptions {
    *  while running an RPC (boot / dispatch / …) — drives the
    *  playground's "Backend" log stream. */
   onLog?: (lines: LogLine[]) => void;
+  /** A request this deployable's code sent to another deployable's compose
+   *  address.  The engine owns every worker, so it answers. */
+  onHttpCall?: (host: string, request: SerializedRequest) => Promise<DispatchResult>;
 }
 
 export class LoomRuntimeClient {
@@ -35,11 +39,13 @@ export class LoomRuntimeClient {
   >();
   private readonly onRespawn?: () => void;
   private readonly onLog?: (lines: LogLine[]) => void;
+  private readonly onHttpCall?: LoomRuntimeClientOptions["onHttpCall"];
   private disposed = false;
 
   constructor(opts: LoomRuntimeClientOptions = {}) {
     this.onRespawn = opts.onRespawn;
     this.onLog = opts.onLog;
+    this.onHttpCall = opts.onHttpCall;
     this.spawn();
   }
 
@@ -50,13 +56,17 @@ export class LoomRuntimeClient {
     this.worker = new Worker(new URL("./runtime.worker.ts", import.meta.url), {
       type: "module",
     });
-    this.worker.onmessage = (ev: MessageEvent<RuntimeRpcResponse | RuntimeProgress>) => {
+    this.worker.onmessage = (ev: MessageEvent<RuntimeRpcResponse | RuntimeProgress | HttpCall>) => {
       // Progress note, not a response: no `id`, carries `phase`.  Written
       // through synchronously here because a worker has no localStorage —
       // this is what makes a mid-boot renderer kill attributable to a step
       // rather than to "boot".  See diagnostics.ts → PHASE MARKERS.
       if ("phase" in ev.data) {
         markPhase(`boot:${ev.data.phase}` as DiagPhase, ev.data.note);
+        return;
+      }
+      if ("httpCall" in ev.data) {
+        void this.answerHttp(ev.data);
         return;
       }
       const msg = ev.data;
@@ -67,6 +77,25 @@ export class LoomRuntimeClient {
       if (msg.error) slot.reject(new Error(msg.error.message));
       else slot.resolve(msg.result ?? null);
     };
+  }
+
+  /** Run a backend→backend request through the main thread's router and send
+   *  the result back to the worker that is awaiting it. */
+  private async answerHttp(call: HttpCall): Promise<void> {
+    const worker = this.worker;
+    let result: DispatchResult;
+    try {
+      result = this.onHttpCall
+        ? await this.onHttpCall(call.host, call.request)
+        : { ok: false, message: "No router for backend-to-backend requests." };
+    } catch (err) {
+      result = { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+    // A respawn while the call was in flight replaced the worker; the old one
+    // is gone and the new one never asked.
+    if (worker === this.worker && !this.disposed) {
+      worker.postMessage({ id: 0, method: "httpReply", params: { httpCall: call.httpCall, result } });
+    }
   }
 
   private send<T>(req: Omit<RuntimeRpcRequest, "id">, transfer: Transferable[] = []): Promise<T> {

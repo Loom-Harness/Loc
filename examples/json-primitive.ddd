@@ -19,3 +19,10 @@ context Webhooks {
 
   repository Deliveries for Delivery { }
 }
+
+// The deployment: one node backend hosting the context, persisted to postgres.
+system Webhooks {
+  storage db { type: postgres }
+  resource webhooksState { for: Webhooks, kind: state, use: db }
+  deployable webhooks { platform: node, contexts: [Webhooks], dataSources: [webhooksState] }
+}

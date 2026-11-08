@@ -101,6 +101,13 @@ export type BlockingMigrationState = Extract<
 
 /** A deployable worker's first boot step: import the bundle. */
 export interface LoadRequest {
+  /** The deployable's process env, installed before the bundle is imported
+   *  (its top-level `process.env.X_URL ?? …` reads run at import). */
+  env?: Record<string, string>;
+  /** Hostnames of the booted deployables (compose service names).  The
+   *  worker's `fetch` sends a request to one of them to the main thread, which
+   *  hands it to that deployable's app; every other URL reaches the network. */
+  serviceHosts?: string[];
   /** ESM bundle source produced by the bundler worker. */
   bundleCode: string;
   /** Also derive the schema from the bundle's Drizzle tables — the schema of
@@ -139,7 +146,15 @@ export interface BootPlan {
   storages: StorageBootPlan[];
   /** In order of preference: the first one is the default dispatch target
    *  (the backend the frontend talks to). */
-  backends: Array<{ slug: string; bundleCode: string; storage: string }>;
+  backends: Array<{
+    slug: string;
+    bundleCode: string;
+    storage: string;
+    /** The process env this deployable boots with — its compose service's
+     *  `environment:`.  Per worker, so two deployables never see each
+     *  other's values. */
+    env?: Record<string, string>;
+  }>;
 }
 
 /** What one storage's boot did. */
@@ -227,7 +242,24 @@ export type RuntimeRpcRequest =
   | { id: number; method: "load"; params: LoadRequest }
   | { id: number; method: "start"; params: StartRequest }
   | { id: number; method: "dispatch"; params: SerializedRequest }
-  | { id: number; method: "reset"; params: Record<string, never> };
+  | { id: number; method: "reset"; params: Record<string, never> }
+  /** The main thread's answer to a worker's `HttpCall`. */
+  | { id: number; method: "httpReply"; params: HttpReply };
+
+/** A backend→backend request, pushed by the calling worker.  Like
+ *  `RuntimeProgress` it carries no RPC `id`: the client tells it apart by
+ *  `httpCall`, routes it by `host`, and answers with an `httpReply`. */
+export interface HttpCall {
+  httpCall: number;
+  /** The compose service (hostname) the request addresses. */
+  host: string;
+  request: SerializedRequest;
+}
+
+export interface HttpReply {
+  httpCall: number;
+  result: DispatchResult;
+}
 
 /** Fire-and-forget progress note pushed by the worker DURING an RPC (it
  *  carries no `id` and expects no reply, so the client tells it apart from a

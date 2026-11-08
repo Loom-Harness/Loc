@@ -35,7 +35,7 @@ export interface VirtualFile {
   hash?: string;
 }
 
-export type GenerateMode = "system" | "ts" | "none";
+export type GenerateMode = "system" | "none";
 
 /** One HTTP operation the generated API exposes, as platform-neutral data.
  *  Derived in the worker from `deriveContextOperations`
@@ -97,7 +97,7 @@ export interface GenerateOk {
    *  side effects: the emitted tree, the download `.zip` and every
    *  byte-identity fixture stay exactly as they were, because the artifact
    *  is only ADDED to `files` when the caller actually asked for
-   *  `sourcemap: true`.  Absent for `mode: "ts"` / `"none"`, which record
+   *  `sourcemap: true`.  Absent for `mode: "none"`, which records
    *  no regions. */
   sourcemap?: LoomSourceMapType;
   /** Platform-neutral operation + channel inventory for the API view

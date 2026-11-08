@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
-import { BACKEND_PINS as HONO_PINS } from "../../../src/platform/hono/v5/pins.js";
-import { parseString } from "../../_helpers/parse.js";
+import { generateBackendFromSource } from "../../_helpers/generate.js";
 import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 // ---------------------------------------------------------------------------
@@ -11,8 +9,8 @@ import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 // `<ctx>_events` stream table (its `stream_type` slice; no state table); state
 // is rehydrated by folding the stream through the appliers (`_fromEvents`).  Command `emit`s both record the
 // event and fold it (`_apply`) so the in-memory aggregate is consistent for
-// the response.  A top-level context drives the single-project (legacy)
-// generateTypeScript path; the deployable-gating lives in the IR validator
+// the response.  The bare context is hosted on a node deployable by
+// `generateBackendFromSource`; the deployable-gating lives in the IR validator
 // (test/ir) and the tsc gate in test/e2e/generated-build.test.ts.
 // ---------------------------------------------------------------------------
 
@@ -46,16 +44,17 @@ context Accounts {
 `;
 
 async function generate(): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(SRC);
-  expect(errors, errors.join("\n")).toEqual([]);
-  return generateTypeScript(model, HONO_PINS);
+  return generateBackendFromSource(SRC, "node");
 }
 
 describe("Hono/Drizzle event-sourcing emission (persistedAs: eventLog)", () => {
   it("emits the single per-context <ctx>_events stream table (no state table)", async () => {
     const schema = (await generate()).get("db/schema.ts")!;
-    // One per-context event log, discriminated by stream_type.
-    expect(schema).toContain('export const accountsEvents = pgTable("accounts_events", {');
+    // One per-context event log, discriminated by stream_type, in the
+    // context's own Postgres schema.
+    expect(schema).toContain(
+      'export const accountsEvents = accountsSchema.table("accounts_events", {',
+    );
     expect(schema).toContain('streamType: text("stream_type").notNull(),');
     expect(schema).toContain('streamId: text("stream_id").notNull(),');
     expect(schema).toContain('version: integer("version").notNull(),');
@@ -64,6 +63,7 @@ describe("Hono/Drizzle event-sourcing emission (persistedAs: eventLog)", () => {
       "primaryKey({ columns: [table.streamType, table.streamId, table.version] })",
     );
     // No state table for the aggregate.
+    expect(schema).not.toContain('.table("accounts"');
     expect(schema).not.toContain('pgTable("accounts"');
   });
 

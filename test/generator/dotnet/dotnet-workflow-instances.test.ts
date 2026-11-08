@@ -8,13 +8,13 @@ import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateBackendFiles } from "../../_helpers/generate.js";
+import { generateFixtureBackend } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..", "..");
 
 function generate(file: string): Promise<Map<string, string>> {
-  return generateBackendFiles(readFileSync(path.join(root, file), "utf8"), "dotnet");
+  return generateFixtureBackend(readFileSync(path.join(root, file), "utf8"), "dotnet");
 }
 
 describe(".NET workflow instance read endpoints", () => {

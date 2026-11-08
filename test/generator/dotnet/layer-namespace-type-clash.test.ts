@@ -83,9 +83,8 @@ describe("dotnet — a domain type named like a layer namespace (CS0118/CS0104)"
     }
   });
 
-  // The legacy `generate dotnet` entry (root = the context name) calls this same
-  // helper per context; it is pinned here rather than through the legacy entry,
-  // whose callers the M-T9.49 ratchet only lets shrink.
+  // The helper itself, pinned directly: its own-root scoping and the skipped
+  // home / CS0576 sites are reachable here without a fixture per case.
   it("the shared helper: aliases under its own root only, skips the home and CS0576 sites", () => {
     const ctx = {
       aggregates: [{ name: "Application", parts: [] }],

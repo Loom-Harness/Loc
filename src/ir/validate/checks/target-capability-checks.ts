@@ -32,6 +32,7 @@ import {
   UI_CONSTRUCTS,
   uiCapability,
 } from "../../../util/target-capabilities.js";
+import { maskLaunderingEvents } from "../../enrich/mask-taint.js";
 import { isTenantScopedStream } from "../../enrich/stream-tenancy.js";
 import {
   type BoundedContextIR,
@@ -392,6 +393,8 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
     }
     return out;
   },
+  "emit:masked-value@channel-event": (ctx) => maskedEventUses(ctx),
+  "unique:masked-field@aggregate": (ctx) => maskedUniqueUses(ctx),
   "invariant:nested-valueobject@valueobject": (ctx) => {
     const out: ConstructUse[] = [];
     for (const vo of ctx.valueObjects) {
@@ -409,6 +412,34 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
     return out;
   },
 };
+
+/** Where each owned mask-sink construct meets: the channel events carrying a
+ *  masked value, and the unique keys over a masked field. */
+function maskedEventUses(ctx: BoundedContextIR): ConstructUse[] {
+  const laundering = maskLaunderingEvents(ctx);
+  return (ctx.channels ?? []).flatMap((ch) =>
+    ch.carries
+      .filter((e) => laundering.has(e))
+      .map((e) => ({
+        what: `event '${e}' on channel '${ch.name}' (carries masked field '${laundering.get(e)}')`,
+        source: `${ctx.name}/channel/${ch.name}`,
+      })),
+  );
+}
+
+function maskedUniqueUses(ctx: BoundedContextIR): ConstructUse[] {
+  return ctx.aggregates.flatMap((agg) => {
+    const masked = new Set(agg.fields.filter((f) => f.maskUnless).map((f) => f.name));
+    const cols = new Set(
+      (agg.uniqueKeys ?? []).flatMap((uk) => uk.columns).filter((c) => masked.has(c)),
+    );
+    return [...cols].map((col) => ({
+      what: `unique key over masked field '${agg.name}.${col}'`,
+      source: `${ctx.name}/${agg.name}.${col}`,
+      origin: agg.origin,
+    }));
+  });
+}
 
 /** Every event a channel carries when some `channelSource` binds that channel
  *  to a broker. */
