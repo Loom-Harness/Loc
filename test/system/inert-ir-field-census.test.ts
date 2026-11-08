@@ -54,6 +54,8 @@ const ROOT_FLOOR: Record<string, number> = {
 const NO_READER_ALLOWED: Readonly<Record<string, string>> = {
   timezone:
     "has a RESERVED_SURFACES row (`timer-source-timezone`), so the author is told no target honours it",
+  whenSource:
+    "diagnostic text only: `loom.loop-gate-not-implied` names the gate; the 409 detail is constant, so no target may echo it",
 };
 
 /**
