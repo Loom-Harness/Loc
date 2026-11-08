@@ -110,7 +110,7 @@ describe("currentUser.orgPath — registry dataKey read under hierarchy (dotnet)
 });
 
 describe("currentUser.orgPath — registry dataKey read under hierarchy (elixir)", () => {
-  it("elixir: put_org_path reads the registry `data_key` via the Repo, fail-safe to claim", async () => {
+  it("elixir: put_org_path reads the registry `data_key` via the Repo; a non-uuid claim falls back, a DB error does not", async () => {
     const files = await allFiles("elixir");
     // `put_org_path` now delegates to a per-request registry read.
     expect(files).toMatch(
@@ -121,14 +121,16 @@ describe("currentUser.orgPath — registry dataKey read under hierarchy (elixir)
     // runs before the principal exists, so it lifts the read scope
     // (`skip_filters: :all`) — the registry's self-scope admits exactly this
     // `id == claim` row, and a principal-bound clause with no principal would
-    // raise into the fail-safe and silently drop the resolved path.
+    // fail the request.
     expect(files).toMatch(
-      /Api\.Repo\.one\(\n\s*from\(o in Api\.C\.Org, where: o\.id == \^claim, select: o\.data_key\),\n\s*skip_filters: :all\n\s*\) do/,
+      /Api\.Repo\.one\(\n\s*from\(o in Api\.C\.Org, where: o\.id == \^id, select: o\.data_key\),\n\s*skip_filters: :all\n\s*\) do/,
     );
-    // Fail-safe: nil/blank/malformed claim and any query error fall back to the
-    // claim (the root-segment path) — never crashes.
+    // A nil / blank / non-uuid claim falls back to the claim (the root-segment
+    // path).  A query error is NOT rescued: swallowing it would silently scope
+    // the caller to the bare claim.
     expect(files).toMatch(/defp resolve_org_path\(claim\) when is_binary\(claim\) and claim != ""/);
-    expect(files).toMatch(/rescue\n\s*_ -> claim/);
+    expect(files).toMatch(/case Ecto\.UUID\.cast\(claim\) do/);
+    expect(files).not.toMatch(/rescue\n\s*_ -> claim/);
     expect(files).toMatch(/defp resolve_org_path\(claim\), do: to_string\(claim\)/);
     // The `from/2` import is present (hierarchy mode only).
     expect(files).toMatch(/import Ecto\.Query, only: \[from: 2\]/);

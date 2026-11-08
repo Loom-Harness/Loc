@@ -26,6 +26,7 @@
 // project with no `httpx` dependency.
 // ---------------------------------------------------------------------------
 
+import { apiCallPrincipal } from "../../ir/enrich/hosting-facts.js";
 import { forApiRead, wireFieldsForAggregate } from "../../ir/enrich/wire-projection.js";
 import type { AggregateIR, SystemIR } from "../../ir/types/loom-ir.js";
 import { type ApiResourceBinding, servedContextsFor } from "../../ir/util/api-resource-binding.js";
@@ -154,6 +155,12 @@ export function emitElixirApiClients(
           );
         }
         const reqOpts = [`url: ${res}_base_url() <> path`, `method: :${op.method.toLowerCase()}`];
+        // A callee that requires auth authenticates the caller's own
+        // principal: its credential, kept by the auth plug (or the LiveView
+        // mount) in the process dictionary.
+        if (apiCallPrincipal(b.server) === "forward-caller") {
+          reqOpts.push("headers: Process.get(:loom_caller_credential, [])");
+        }
         if (bodyParams.length > 0) {
           const payload = wholeShapeBody
             ? escapeElixirIdent(snake(bodyParams[0]?.name ?? "body"))

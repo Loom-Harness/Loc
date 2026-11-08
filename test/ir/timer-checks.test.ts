@@ -170,6 +170,45 @@ describe("timerSource IR validation", () => {
     ).toBe(true);
   });
 
+  // The tick's consumer lives on ANOTHER deployable.  With a channel carrying
+  // the tick it is reachable (the channel-wiring checks own the binding), so
+  // the timer is not unbound; without one the tick is in-process only and the
+  // warning names the deployables it cannot reach.
+  const crossDeployable = (channel: boolean) => `
+    system T {
+      subdomain Up { context Clock {
+        aggregate Run with crudish { label: string }
+        repository Runs for Run { }
+        event Tick { run: Run id, at: datetime }
+        ${channel ? "channel Ticks { carries: Tick }" : ""} } }
+      subdomain Down { context Billing {
+        aggregate Cut with crudish { at: datetime }
+        repository Cuts for Cut { }
+        workflow OnTick { run: Run id  create(t: Tick) by t.run { let c = Cut.create(at: t.at) } } } }
+      storage pg { type: postgres }
+      storage bus { type: redis }
+      resource clockState { for: Clock, kind: state, use: pg }
+      resource billState { for: Billing, kind: state, use: pg }
+      timerSource t { for: Tick, every: 30s }
+      ${channel ? "channelSource tb { for: Ticks, use: bus }" : ""}
+      deployable up { platform: node contexts: [Clock] dataSources: [clockState] ${channel ? "channels: [tb]" : ""} port: 3000 }
+      deployable down { platform: python contexts: [Billing] dataSources: [billState] ${channel ? "channels: [tb]" : ""} port: 3001 }
+    }
+  `;
+
+  it("loom.timer-source-unbound: silent when the tick's consumer is on another deployable over a channel", async () => {
+    const diags = await timerDiags(crossDeployable(true));
+    expect(diags.filter((d) => d.code === "loom.timer-source-unbound")).toEqual([]);
+  });
+
+  it("loom.timer-source-unbound#unreachable: names the consumer the in-process tick cannot reach", async () => {
+    const diags = await timerDiags(crossDeployable(false));
+    const unbound = diags.filter((d) => d.code === "loom.timer-source-unbound");
+    expect(unbound).toHaveLength(1);
+    expect(unbound[0].message).toContain("runs on deployable 'up'");
+    expect(unbound[0].message).toContain("(down)");
+  });
+
   it("does not fire timer diagnostics on a timer-free system", async () => {
     const src = `
       system S {
