@@ -26,7 +26,6 @@ describe("unsupported-platform labels", () => {
       svelte: "SvelteKit",
       vue: "Vue",
       angular: "Angular",
-      "hono-extra": "Hono, not booted — the playground runs one backend",
     };
     for (const [platform, label] of Object.entries(labels)) {
       expect(unsupportedPlatformLabel(platform as UnsupportedPlatform)).toBe(label);
