@@ -360,6 +360,10 @@ export async function openProblems(page: Page): Promise<void> {
 /** Generate the open workspace and require it to succeed. */
 export async function generateOk(page: Page, label: string): Promise<void> {
   const generate = page.getByTestId("btn-generate");
+  // Opening a workspace schedules an auto-generate; the button is disabled
+  // while it runs, so let it settle before judging whether Generate is
+  // actionable.
+  await expect(generate).not.toHaveAttribute("data-state", "running", { timeout: 120_000 });
   await expect(generate, `Generate is not actionable for "${label}"`).toBeEnabled({
     timeout: 60_000,
   });
