@@ -44,7 +44,7 @@ async function setup(withModule: boolean) {
   const errors = (): string[] =>
     (docs.getDocument(current.uri)?.diagnostics ?? [])
       .filter((d) => d.severity === 1)
-      .map((d) => d.message);
+      .map((d) => (typeof d.message === "string" ? d.message : d.message.value));
   return { docs, stale, close, errors };
 }
 
@@ -53,7 +53,7 @@ describe("EditorOwnedDocumentsModule", () => {
     const { docs, stale, close, errors } = await setup(true);
     // Two live copies of the same declarations: the precondition the
     // playground hit after a workspace switch.
-    expect(errors()).toContain("Cannot assign 'Money' to 'Money'.");
+    expect(errors()).toContain("Cannot assign 'Money' to 'Money' (in code synthesised by 'crudish')");
     await close();
     expect(docs.hasDocument(stale.uri)).toBe(false);
     expect(errors()).toEqual([]);
@@ -63,6 +63,6 @@ describe("EditorOwnedDocumentsModule", () => {
     const { docs, stale, close, errors } = await setup(false);
     await close();
     expect(docs.hasDocument(stale.uri)).toBe(true);
-    expect(errors()).toContain("Cannot assign 'Money' to 'Money'.");
+    expect(errors()).toContain("Cannot assign 'Money' to 'Money' (in code synthesised by 'crudish')");
   });
 });
