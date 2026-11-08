@@ -41,7 +41,7 @@ system Shop {
 describe("dapper repository — single-row contract", () => {
   it("A19: a relational find(C) reads the FIRST row, with the limit pushed to the database", async () => {
     const files = await generateSystemFiles(REL_SRC);
-    const handler = files.get("api/Application/Products/Queries/bySkuHandler.cs")!;
+    const handler = files.get("api/Application/Products/Queries/BySkuHandler.cs")!;
     const impl = files.get("api/Infrastructure/Repositories/ProductRepository.cs")!;
     // The call site asks the criterion's retrieval for at most one row and
     // takes the first — never a strict single-row read.

@@ -719,6 +719,29 @@ export const DIAGNOSTIC_MESSAGES = {
     `repository exposes the same verb contract, so a second one is only another name for the ` +
     `same store. Use '${p.first}' and remove '${p.name}'.`,
 
+  "loom.member-name-collision": (p: {
+    what: unknown;
+    name: unknown;
+    owner: unknown;
+    first: unknown;
+  }) =>
+    `${p.what} '${p.name}' in ${p.owner} reuses the name of the ${p.first} declared before it. An aggregate or ` +
+    `entity part has ONE member namespace — fields, derived fields, containments, functions and operations share it — ` +
+    `and the node, python and .NET classes put them all in one class body, where the second declaration ` +
+    `hides or duplicates the first (TS2300 / CS0102). Rename one of them.`,
+
+  "loom.hosted-type-name-collision": (p: {
+    kind: unknown;
+    name: unknown;
+    ctxName: unknown;
+    first: unknown;
+    deployable: unknown;
+  }) =>
+    `${p.kind} '${p.name}' in context '${p.ctxName}' has the same name as the ${p.kind} of that name in context ` +
+    `'${p.first}', and both contexts are hosted by deployable '${p.deployable}'. A deployable generates one project ` +
+    `with a single domain namespace per kind, so the two would write the same file or symbol (one is dropped, or ` +
+    `generation crashes). Rename one, or host the contexts on separate deployables.`,
+
   "loom.duplicate-handler": (p: { name: unknown; ctxName: unknown; kind: unknown }) =>
     `Duplicate handler '${p.name}' in context '${p.ctxName}'; a ${p.kind} shares its name ` +
     `with another handler. A 'route -> ${p.ctxName}.${p.name}' would ` +
@@ -3575,6 +3598,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `broker via channelSource '${p.csNames}' on another deployable — but '${p.name}' ` +
     `doesn't list the binding. Once traffic rides the broker this consumer would ` +
     `silently receive nothing. Add \`channels: [${p.csNames}]\` to '${p.name}'.`,
+  "loom.channel-consumer-unwired#unbound": (p: {
+    name: unknown;
+    chName: unknown;
+    carries: unknown;
+    ctxName: unknown;
+  }) =>
+    `Deployable '${p.name}' consumes events of channel '${p.chName}' ` +
+    `(${p.carries}), but the channel is bound to no broker and its owning context ` +
+    `'${p.ctxName}' runs on another deployable — events only travel in-process, so ` +
+    `this consumer would never receive them. Declare a \`channelSource\` for ` +
+    `'${p.chName}' and list it in \`channels: [...]\` on both deployables, or host ` +
+    `'${p.ctxName}' on '${p.name}'.`,
   "loom.relay-target-not-subscribed": (p: {
     name: unknown;
     uiName: unknown;
@@ -3797,6 +3832,30 @@ export const DIAGNOSTIC_MESSAGES = {
     `(the root's 'Inspect' / 'ToString()' / 'DomainEvents' / 'PullEvents()', a part's ` +
     `'ParentId'). Two members of one name in one class do not compile (CS0102 / CS0111). ` +
     `Rename the declaration, or host this context on a node / python / elixir / java deployable.`,
+  "loom.dotnet-name-collision#package-namespace": (p: {
+    what: unknown;
+    name: unknown;
+    ctxName: unknown;
+    resource: unknown;
+    package: unknown;
+  }) =>
+    `${p.what} '${p.name}' in context '${p.ctxName}' is emitted as the C# type '${p.name}', but the dotnet ` +
+    `deployable also references the NuGet package ${p.package} (for resource '${p.resource}'), whose root ` +
+    `namespace is '${p.name}'. A namespace declared at the global level wins a simple-name lookup over ` +
+    `the imported domain type, so every file that names it stops compiling (CS0118). Rename the ` +
+    `${p.what} (e.g. '${p.name}Unit'), or drop the resource from the dotnet deployable.`,
+  "loom.dotnet-name-collision#member-pair": (p: {
+    what: unknown;
+    owner: unknown;
+    name: unknown;
+    member: unknown;
+    other: unknown;
+    ctxName: unknown;
+  }) =>
+    `'${p.ctxName}.${p.owner}' declares ${p.what} '${p.name}' and ${p.other}, which the dotnet backend ` +
+    `both emits as the C# member '${p.member}' (it upper-cases the first letter). Two members of one name ` +
+    `in one class do not compile (CS0102 / CS0111). Rename one, or host this context on a node / python / ` +
+    `elixir / java deployable.`,
   "loom.context-filter-no-principal": (p: {
     name: unknown;
     platform: unknown;
