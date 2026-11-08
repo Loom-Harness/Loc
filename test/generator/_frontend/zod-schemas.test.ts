@@ -278,9 +278,12 @@ describe("emitObjectWithRefines", () => {
   it("FOLDS a recognised single-field shape into that field's native chain (no refine)", () => {
     const inv: InvariantIR = { expr: bin(">=", fieldRef("qty"), intLit(1)), source: "qty >= 1" };
     const out = emitObjectWithRefines("CreateOrderRequest", fields, [inv], available);
-    expect(out).toContain('  qty: z.number().int().min(1, { message: "Qty must be at least 1" }),');
-    // Absorbed — it must NOT be double-applied as a refine as well.
-    expect(out.join("\n")).not.toContain(".refine(");
+    // The field's own refine carries the limit's code and bound (`field.min
+    // {min}`, from `fieldLimitChecks`) for the hook and the form to localize.
+    expect(out).toContain(
+      '  qty: z.number().int().refine((v: any) => v >= 1, { message: "Qty must be at least 1", params: { loomCode: "field.min", loomValues: {"min":1} } }),',
+    );
+    // Absorbed — it must NOT be double-applied as an object refine as well.
     expect(out.at(-1)).toBe("});");
   });
 
@@ -291,7 +294,7 @@ describe("emitObjectWithRefines", () => {
     ];
     const out = emitObjectWithRefines("CreateOrderRequest", fields, invs, available);
     expect(out).toContain(
-      '  qty: z.number().int().min(1, { message: "Qty must be at least 1" }).max(9, { message: "Qty must be at most 9" }),',
+      '  qty: z.number().int().refine((v: any) => v >= 1, { message: "Qty must be at least 1", params: { loomCode: "field.min", loomValues: {"min":1} } }).refine((v: any) => v <= 9, { message: "Qty must be at most 9", params: { loomCode: "field.max", loomValues: {"max":9} } }),',
     );
   });
 
@@ -373,7 +376,7 @@ describe("emitValueObjectSchema", () => {
       [{ expr: bin(">=", fieldRef("amount"), intLit(0)), source: "amount >= 0" }],
     );
     expect(emitValueObjectSchema(money)).toContain(
-      '  amount: z.number().int().min(0, { message: "Amount must be at least 0" }),',
+      '  amount: z.number().int().refine((v: any) => v >= 0, { message: "Amount must be at least 0", params: { loomCode: "field.min", loomValues: {"min":0} } }),',
     );
   });
 });

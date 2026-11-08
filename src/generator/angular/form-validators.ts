@@ -2,7 +2,7 @@ import type { InvariantIR } from "../../ir/types/loom-ir.js";
 import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { tsCodePointLength } from "../_expr/code-point.js";
 import { asRegexLiteral } from "../_expr/regex-literal.js";
-import { clientRuleCode } from "../_frontend/error-codes.js";
+import { type ClientLimitCheck, clientLimitChecks } from "../_frontend/error-codes.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import { takeSingleFieldChain } from "../zod-refine.js";
 import { type AngularFormControlSpec, addNg } from "./form-fields.js";
@@ -33,39 +33,71 @@ export function angularValidatorMap(
   invariants: readonly InvariantIR[],
   available: ReadonlySet<string>,
 ): Map<string, string[]> {
-  const patternsByField = new Map<string, SingleFieldPattern[]>();
-  const ctx = { available };
-  for (const inv of invariants) {
-    const taken = takeSingleFieldChain(inv, ctx);
-    if (!taken) continue;
-    const list = patternsByField.get(taken.field) ?? [];
-    list.push(taken.pattern);
-    patternsByField.set(taken.field, list);
-  }
   const out = new Map<string, string[]>();
-  for (const [field, patterns] of patternsByField) {
-    const calls = patterns.flatMap(validatorsForPattern);
-    if (calls.length > 0) out.set(field, calls);
+  for (const [field, validators] of fieldValidators(invariants, available)) {
+    out.set(
+      field,
+      validators.map((v) => v.call),
+    );
   }
   return out;
 }
 
-/** The catalog code of the rule behind each constrained field (the first one
- *  per field): a named rule's identity key, an unnamed single-field rule's
- *  `field.rule`.  Same admission gate as {@link angularValidatorMap}, so the two
- *  maps have the same keys.  The field's inline message renders through
- *  `t(code, english)` when the form RENDERS. */
+/** The catalog message of one Angular validator error: the control error key
+ *  it sets, and the code + params its text renders under. */
+export interface AngularFieldMessage {
+  errorKey: string;
+  code: string;
+  params: Readonly<Record<string, number>>;
+}
+
+/** Each constrained field's messages, one per validator in the order they
+ *  run — a declared limit's side renders under its `field.<limit>` code with
+ *  its bound, a named rule under its identity key.  Same admission gate as
+ *  {@link angularValidatorMap}, so the two maps have the same keys.  The
+ *  field's inline message renders through `t(code, english, params)` when the
+ *  form RENDERS. */
 export function angularRuleCodes(
   invariants: readonly InvariantIR[],
   available: ReadonlySet<string>,
-): Map<string, string> {
-  const codeByField = new Map<string, string>();
+): Map<string, AngularFieldMessage[]> {
+  const out = new Map<string, AngularFieldMessage[]>();
+  for (const [field, validators] of fieldValidators(invariants, available)) {
+    out.set(
+      field,
+      validators.map(({ errorKey, limit }) => ({
+        errorKey,
+        code: limit.code,
+        params: limit.params,
+      })),
+    );
+  }
+  return out;
+}
+
+/** One emitted validator: its call and the control error key it sets. */
+interface AngularValidator {
+  call: string;
+  errorKey: string;
+  limit: ClientLimitCheck;
+}
+
+/** Every constrained field's validators, through the shared
+ *  `takeSingleFieldChain` gate and `clientLimitChecks` mapping. */
+function fieldValidators(
+  invariants: readonly InvariantIR[],
+  available: ReadonlySet<string>,
+): Map<string, AngularValidator[]> {
+  const out = new Map<string, AngularValidator[]>();
   const ctx = { available };
   for (const inv of invariants) {
     const taken = takeSingleFieldChain(inv, ctx);
-    if (taken && !codeByField.has(taken.field)) codeByField.set(taken.field, clientRuleCode(inv));
+    if (!taken) continue;
+    const list = out.get(taken.field) ?? [];
+    list.push(...validatorsForPattern(inv, taken.pattern));
+    out.set(taken.field, list);
   }
-  return codeByField;
+  return out;
 }
 
 /** One `len-*` bound as an inline `ValidatorFn` that counts CODE POINTS.
@@ -142,35 +174,50 @@ export function applyAngularValidators(
   return [...parts.flatMarkup];
 }
 
-/** Map one recognised single-field pattern onto its Angular `Validators.*`
- *  call(s) — the direct twin of `chainSingleFieldNative` (zod).  A `between` /
- *  length range expands to a `min`+`max` pair, mirroring the two chained zod
- *  calls. */
-function validatorsForPattern(p: SingleFieldPattern): string[] {
-  switch (p.kind) {
-    case "min":
-      // Angular has no exclusive numeric validator; an exclusive bound
-      // (`weight > 0.5` on a decimal) falls back to the inclusive `min`, the
-      // closest built-in.  The server floor still enforces the strict bound.
-      return [`Validators.min(${p.n})`];
-    case "max":
-      return [`Validators.max(${p.n})`];
-    case "between":
-      return [`Validators.min(${p.lo})`, `Validators.max(${p.hi})`];
-    case "len-min":
-      return [codePointLengthValidator(">=", p.n)];
-    case "len-max":
-      return [codePointLengthValidator("<=", p.n)];
-    case "len-eq":
-      return [codePointLengthValidator(">=", p.n), codePointLengthValidator("<=", p.n)];
-    case "len-range":
-      return [codePointLengthValidator(">=", p.lo), codePointLengthValidator("<=", p.hi)];
-    case "regex":
-      // The pattern is a JS-compatible regex source (parse-time validated via
-      // `new RegExp`).  Rendered through the SAME `asRegexLiteral` hardening
-      // the zod `.regex(…)` chain uses, so an empty / dangling-backslash /
-      // multi-line source falls back to `new RegExp("…")` instead of emitting
-      // a `//` that comments out the rest of the line.
-      return [`Validators.pattern(${asRegexLiteral(p.pattern)})`];
-  }
+/** Map one recognised single-field pattern onto its Angular validators, one
+ *  per side of the limit (`clientLimitChecks`) — the direct twin of
+ *  `chainSingleFieldNative` (zod).  An exact length is a `minlength` +
+ *  `maxlength` pair under the one `field.length` code. */
+function validatorsForPattern(inv: InvariantIR, p: SingleFieldPattern): AngularValidator[] {
+  return clientLimitChecks(inv, p).flatMap((limit): AngularValidator[] => {
+    const n = limit.check.bound ?? 0;
+    switch (limit.check.reason) {
+      case "min":
+      case "greater-than":
+        // Angular has no exclusive numeric validator; an exclusive bound
+        // (`weight > 0.5` on a decimal) falls back to the inclusive `min`, the
+        // closest built-in, still under its own code.  The server floor
+        // enforces the strict bound.
+        return [{ call: `Validators.min(${n})`, errorKey: "min", limit }];
+      case "max":
+      case "less-than":
+        return [{ call: `Validators.max(${n})`, errorKey: "max", limit }];
+      case "min-length":
+        return [{ call: codePointLengthValidator(">=", n), errorKey: "minlength", limit }];
+      case "max-length":
+        return [{ call: codePointLengthValidator("<=", n), errorKey: "maxlength", limit }];
+      case "length":
+        return [
+          { call: codePointLengthValidator(">=", n), errorKey: "minlength", limit },
+          { call: codePointLengthValidator("<=", n), errorKey: "maxlength", limit },
+        ];
+      case "pattern":
+        // The pattern is a JS-compatible regex source (parse-time validated via
+        // `new RegExp`).  Rendered through the SAME `asRegexLiteral` hardening
+        // the zod chain uses, so an empty / dangling-backslash / multi-line
+        // source falls back to `new RegExp("…")` instead of emitting a `//`
+        // that comments out the rest of the line.
+        return [
+          {
+            call: `Validators.pattern(${asRegexLiteral(limit.check.regex ?? "")})`,
+            errorKey: "pattern",
+            limit,
+          },
+        ];
+      default: {
+        const unknown: never = limit.check.reason;
+        throw new Error(`angular form-validators: unhandled field limit ${String(unknown)}`);
+      }
+    }
+  });
 }

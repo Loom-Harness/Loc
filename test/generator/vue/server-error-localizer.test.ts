@@ -60,7 +60,7 @@ const load = (source: string, t: typeof frT) =>
   loadTs(source, {
     vue: { reactive: <T>(x: T) => x },
     "vee-validate": fakeVee(),
-    "../i18n": { t },
+    "./locale": { t },
   }) as {
     useLoomForm: (
       schema: unknown,
@@ -79,7 +79,7 @@ describe("Vue — the form runtime localizes by catalog code", () => {
   it("renders a server field error and a global error through t, by code", async () => {
     const files = await generateFor("vue");
     const source = fileOf(files, "web/src/lib/form.ts");
-    expect(source).toContain('import { t } from "../i18n";');
+    expect(source).toContain('import { t } from "./locale";');
     const { useLoomForm } = load(source, frT);
 
     const fieldForm = useLoomForm(schemaWith([]), {});
@@ -134,7 +134,7 @@ describe("Vue — the form runtime localizes by catalog code", () => {
     const files = await generateFor("vue", false);
     expect([...files.keys()].some((p) => p.endsWith("web/src/i18n.ts"))).toBe(false);
     const source = fileOf(files, "web/src/lib/form.ts");
-    expect(source).not.toContain("../i18n");
+    expect(source).not.toContain("./locale");
     const { useLoomForm } = load(source, () => {
       throw new Error("no catalog to read");
     });

@@ -226,7 +226,7 @@ describe("feliz in-form File field (CreateForm)", () => {
       "    not (System.String.IsNullOrWhiteSpace form.title) && not (Option.isNone form.attachment)",
     );
     expect(app).toContain(
-      '    if Option.isNone form.attachment then Some ("field.missing", "Required") else None',
+      '    if Option.isNone form.attachment then Some ("field.missing", "Required", []) else None',
     );
     expect(app).not.toContain("IsNullOrWhiteSpace form.attachment");
     // The OPTIONAL File field contributes no required guard.

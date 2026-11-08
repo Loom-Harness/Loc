@@ -62,16 +62,18 @@ describe("Feliz — server errors and client rules localize by catalog code", ()
     expect(app).not.toContain("prop.text m ]");
   });
 
-  it("renders a client validation message through I18n.t by its code", async () => {
+  it("renders a client validation message through I18n.t / I18n.tf by its code", async () => {
     const app = await appFs();
-    expect(app).toContain("(err: (string * string) option)");
-    expect(app).toContain("| true, Some (code, e) ->");
-    expect(app).toContain("prop.text (I18n.t code e)");
+    expect(app).toContain("(err: (string * string * (string * obj) list) option)");
+    expect(app).toContain("| true, Some (code, e, ps) ->");
+    expect(app).toContain(
+      "prop.text (if List.isEmpty ps then I18n.t code e else I18n.tf code e ps)",
+    );
     // Required → field.missing, an unparseable number → field.type-mismatch, a
     // named rule → its identity key.
-    expect(app).toContain('Some ("field.missing", "Required")');
+    expect(app).toContain('Some ("field.missing", "Required", [])');
     expect(app).toMatch(
-      /Some \("Sales\.Order\.rule\.qtyPositive", "Must be greater than 0"\)|Some \("Sales\.Order\.rule\.qtyPositive", "Must be at least 1"\)/,
+      /Some \("Sales\.Order\.rule\.qtyPositive", "Must be greater than 0", \[\]\)|Some \("Sales\.Order\.rule\.qtyPositive", "Must be at least 1", \[\]\)/,
     );
   });
 

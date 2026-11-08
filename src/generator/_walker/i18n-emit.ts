@@ -103,8 +103,14 @@ function translateExpr(
  *  (`t("Projects.Task.name.other", "Tasks")`); with i18n off it is the English
  *  default as a string literal.  Expression position: a JSX/markup caller wraps
  *  it with `renderInterpolation` (text) or `renderAttrBinding` (attribute). */
-export function localizedModelText(ctx: WalkContext, key: string, defaultText: string): string {
-  if (ctx.i18nPrefix) return translateCall(ctx, key, defaultText);
+export function localizedModelText(
+  ctx: WalkContext,
+  key: string,
+  defaultText: string,
+  /** Placeholder values the catalog text names (`{ min: 1 }`), as expressions. */
+  values?: ReadonlyArray<{ name: string; expr: string }>,
+): string {
+  if (ctx.i18nPrefix) return translateCall(ctx, key, defaultText, values);
   return ctx.target.exprLiteral("string", sourceText(key, defaultText));
 }
 

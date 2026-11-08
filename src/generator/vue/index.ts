@@ -590,7 +590,7 @@ export function generateVueForContexts(
   out.set(
     "src/lib/form.ts",
     renderShell(pack, "loom-form", {
-      tBinding: errorCodeTBinding(i18nEnabled, "../i18n"),
+      tBinding: errorCodeTBinding(i18nEnabled, "./locale"),
       helpers: ERROR_CODE_HELPERS_TS,
     }),
   );

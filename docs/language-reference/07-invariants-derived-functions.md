@@ -132,6 +132,43 @@ The OWNER is the declaration whose rule namespace the name lives in: an aggregat
 
 An **unnamed** rule answers a generic message and carries no code: `field.rule` ("Invalid value") when the rule points at one field, otherwise `problem.domain-floor` ("Business rule violated") — both overridable in `locales/en/_chrome.json`. Its source expression (`total >= 0`) never reaches a response.
 
+#### Field limits
+
+An unnamed rule that is a **field limit** is the exception. A field limit is a single-field bound the wire validator absorbs as a native constraint: a comparison against a number literal, a `.length` bound, or `matches("…")`, on its own or `&&`-joined on one field. Each side of a limit answers its own `field.<limit>` code, with the bound in `params`. Its English is a whole sentence that does not name the field:
+
+| Code | Declared as | `params` | English (`_chrome`) |
+|---|---|---|---|
+| `field.min` | `n >= 1`, or `n > 0` on an `int` | `{ min }` | Must be at least {min} |
+| `field.max` | `n <= 10`, or `n < 11` on an `int` | `{ max }` | Must be at most {max} |
+| `field.greater-than` | `w > 0.5` on a `decimal` | `{ min }` | Must be greater than {min} |
+| `field.less-than` | `w < 9.5` on a `decimal` | `{ max }` | Must be less than {max} |
+| `field.min-length` | `s.length >= 2` | `{ min }` | {min, plural, one {Must be at least # character} other {Must be at least # characters}} |
+| `field.max-length` | `s.length <= 5` | `{ max }` | {max, plural, one {Must be at most # character} other {…}} |
+| `field.length` | `s.length == 4` | `{ length }` | {length, plural, one {Must be exactly # character} other {…}} |
+| `field.pattern` | `s.matches("^…$")` | none | Not in the expected format |
+
+A two-sided limit (`n >= 1 && n <= 10`, a length range) is two checks. The code names the side the value broke, so each backend's native validator can map onto it directly: pydantic `ge`/`le`, Bean Validation `@Min`/`@Max`, Ecto `validate_number`/`validate_length`, FluentValidation `GreaterThanOrEqualTo`/`MaximumLength`. The type's own limits keep their codes: `field.integer-range` for an `int` outside int32 and `field.money-range` for a money too large for its column. A named rule keeps its identity key even when it has a limit's shape. A limit inside a `when` guard, or across two fields, is not a field limit; it stays an unnamed rule. The mapping is `fieldLimitChecks` in `src/ir/enrich/wire-policy.ts`. The node backend and the React, Vue, Svelte, Feliz and Flutter form validators read it; the .NET, Python, Java and Elixir backends and Angular still answer `field.rule` (#4473).
+
+```ddd
+aggregate Ticket {
+  priority: int check priority > 0
+  pin: string check pin.length == 4
+}
+```
+
+```ts
+// node — http/ticket.routes.ts
+priority: z.number().int().max(2147483647, "Integer out of range").openapi({ format: "int32" }).refine((v: any) => v >= 1, { message: "Priority must be at least 1", params: { loomCode: "field.min", loomValues: {"min":1} } }).openapi({ minimum: 1 }),
+pin: z.string().refine((v: any) => [...v].length === 4, { message: "Pin must be exactly 4 characters", params: { loomCode: "field.length", loomValues: {"length":4} } }).openapi({ minLength: 4, maxLength: 4 }),
+```
+
+```json
+{ "type": "about:blank", "title": "Validation failed", "status": 422,
+  "detail": "One or more fields are invalid.", "code": "problem.field-invalid",
+  "errors": [{ "pointer": "/priority", "message": "Priority must be at least 1",
+               "code": "field.min", "params": { "min": 1 } }] }
+```
+
 The identifiers a rule reads — the fields and parameters in its predicate and guard — are the candidate `{x}` placeholders of its message (`ruleParams`, `src/ir/util/rule-params.ts`).
 
 #### `loom.rule-name-duplicate`

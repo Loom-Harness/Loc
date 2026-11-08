@@ -67,6 +67,7 @@ function load(source: string, t: (key: string, d: string, v?: Record<string, unk
 /** A French catalog with ICU-ish `{x}` holes, the way the real `t` fills them. */
 const FR: Record<string, string> = {
   "field.rule": "Valeur invalide",
+  "field.min": "Au moins {min}",
   "problem.not-found": "Introuvable",
   "Sales.Order.rule.qtyPositive": "Quantité {qty} refusée",
 };
@@ -165,7 +166,16 @@ describe("React — server errors are localized by code", () => {
         loomCode: "Sales.Order.rule.qtyPositive",
       }),
     ).toBe("Quantité {qty} refusée");
-    // A native-chain bound carries no Loom code: it is an unnamed rule.
+    // A declared field limit: the resolver kept its code AND its bound.
+    expect(
+      fieldErrorText({
+        type: "custom",
+        message: "Qty must be at least 1",
+        loomCode: "field.min",
+        loomValues: { min: 1 },
+      }),
+    ).toBe("Au moins 1");
+    // A zod issue with no Loom code is an unnamed rule.
     expect(fieldErrorText({ type: "too_small", message: "Qty must be at least 1" })).toBe(
       "Valeur invalide",
     );
@@ -179,6 +189,8 @@ describe("React — server errors are localized by code", () => {
     for (const [path, s] of withResolver) {
       expect(s, path).toMatch(/import \{ zodResolver \} from "(\.\.\/)+lib\/zod-resolver";/);
     }
-    expect(fileOf(files, "web/src/lib/zod-resolver.ts")).toContain("loomCode");
+    const resolver = fileOf(files, "web/src/lib/zod-resolver.ts");
+    expect(resolver).toContain("node.loomCode = code;");
+    expect(resolver).toContain("node.loomValues = issue.params.loomValues;");
   });
 });

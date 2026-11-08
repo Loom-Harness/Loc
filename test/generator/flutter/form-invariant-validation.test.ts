@@ -67,10 +67,13 @@ async function formsDart(): Promise<string> {
 }
 
 describe("flutter forms — invariant-derived client validation (M-T1.16)", () => {
-  it("a length RANGE becomes one code-point guard with the shared sentence", async () => {
+  it("a length RANGE becomes one code-point guard per side, each under its own code", async () => {
     const src = await formsDart();
     expect(src).toContain(
-      "if (s.runes.length < 3 || s.runes.length > 40) { return t('field.rule', 'Title must be 3 to 40 characters'); }",
+      "if (s.runes.length < 3) { return t('field.min-length', 'Title must be 3 to 40 characters', <String, Object>{'min': 3}); }",
+    );
+    expect(src).toContain(
+      "if (s.runes.length > 40) { return t('field.max-length', 'Title must be 3 to 40 characters', <String, Object>{'max': 40}); }",
     );
     // `s.length` counts UTF-16 code units in Dart; the same constraint is
     // published to the JSON Schema in CODE POINTS, so `.runes.length` is
@@ -82,7 +85,7 @@ describe("flutter forms — invariant-derived client validation (M-T1.16)", () =
   it("a length EQUALITY becomes a single `!=` guard", async () => {
     const src = await formsDart();
     expect(src).toContain(
-      "if (s.runes.length != 6) { return t('field.rule', 'Code must be exactly 6 characters'); }",
+      "if (s.runes.length != 6) { return t('field.length', 'Code must be exactly 6 characters', <String, Object>{'length': 6}); }",
     );
   });
 
@@ -91,8 +94,12 @@ describe("flutter forms — invariant-derived client validation (M-T1.16)", () =
     expect(src).toContain(
       "final n = int.tryParse(s); if (n == null) { return t('field.type-mismatch', 'Enter a number'); }",
     );
-    expect(src).toContain("if (n < 1) { return t('field.rule', 'Priority must be at least 1'); }");
-    expect(src).toContain("if (n > 5) { return t('field.rule', 'Priority must be at most 5'); }");
+    expect(src).toContain(
+      "if (n < 1) { return t('field.min', 'Priority must be at least 1', <String, Object>{'min': 1}); }",
+    );
+    expect(src).toContain(
+      "if (n > 5) { return t('field.max', 'Priority must be at most 5', <String, Object>{'max': 5}); }",
+    );
   });
 
   it("an EXCLUSIVE bound on a decimal renders `<=`, not `<`", async () => {
@@ -100,7 +107,7 @@ describe("flutter forms — invariant-derived client validation (M-T1.16)", () =
     // `weight > 0.5` is violated by `n <= 0.5`.  Rendering `n < 0.5` would
     // silently accept exactly 0.5, which the server then refuses.
     expect(src).toContain(
-      "if (n <= 0.5) { return t('field.rule', 'Weight must be greater than 0.5'); }",
+      "if (n <= 0.5) { return t('field.greater-than', 'Weight must be greater than 0.5', <String, Object>{'min': 0.5}); }",
     );
   });
 
@@ -116,7 +123,7 @@ describe("flutter forms — invariant-derived client validation (M-T1.16)", () =
   it("an operation's PRECONDITION validates its own param", async () => {
     const src = await formsDart();
     expect(src).toContain(
-      "if (n < 1) { return t('field.rule', 'New Priority must be at least 1'); }",
+      "if (n < 1) { return t('field.min', 'New Priority must be at least 1', <String, Object>{'min': 1}); }",
     );
   });
 

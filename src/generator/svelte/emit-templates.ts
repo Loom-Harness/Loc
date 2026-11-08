@@ -284,7 +284,7 @@ export function modalTrap(node: HTMLElement, onClose: () => void) {
 
 export function svelteLibForms(i18n: boolean): string {
   return SVELTE_LIB_FORMS_TEMPLATE.replace("/*{{T_BINDING}}*/", () =>
-    errorCodeTBinding(i18n, "./i18n"),
+    errorCodeTBinding(i18n, "./locale.svelte"),
   ).replace("/*{{HELPERS}}*/", () => ERROR_CODE_HELPERS_TS);
 }
 
