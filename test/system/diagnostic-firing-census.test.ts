@@ -667,6 +667,10 @@ system TpcUnique {
         let a = Accounts.get(e.account)
         return a.balance
       }`),
+  // A second command-triggered starter has no route on any backend.
+  "loom.workflow-create-unrouted": workflowResult(`
+      create(n: string) { let a = Account.create(number: n, balance: 0) }
+      create restock(n: string) { let a = Account.create(number: n, balance: 5) }`),
   // A `return` before the last statement would be lowered apart from the body
   // and silently answered AFTER the steps that follow it.
   "loom.workflow-return-not-last": workflowResult(`
