@@ -216,7 +216,7 @@ function validatorsForPattern(inv: InvariantIR, p: SingleFieldPattern): AngularV
         ];
       default: {
         const unknown: never = limit.check.reason;
-        throw new Error(`angular form-validators: unhandled field limit ${String(unknown)}`);
+        return unknown;
       }
     }
   });

@@ -101,7 +101,7 @@ const CEILINGS: Record<string, number> = {
   elixir: 3400, // the Ecto delta-migration pins assert the emitted create/rename/key-move per step; runtime proof is migration-evolution-elixir
   "elixir-vanilla": 500,
   feliz: 1500,
-  flutter: 1200,
+  flutter: 1400, // the coded-error localizers pin the emitted Dart `t(code, english, params)` per form rung (#4473)
   frontend: 200,
   hono: 500,
   i18n: 200,

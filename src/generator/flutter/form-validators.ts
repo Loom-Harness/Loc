@@ -119,7 +119,7 @@ function rulesForPattern(
         return rule("text", `!${dartRegexLiteral(check.regex ?? "")}.hasMatch(s)`);
       default: {
         const unknown: never = check.reason;
-        throw new Error(`flutter form-validators: unhandled field limit ${String(unknown)}`);
+        return unknown;
       }
     }
   });

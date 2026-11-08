@@ -11,15 +11,6 @@ import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../../ir/enri
 import type { InvariantIR } from "../../ir/types/loom-ir.js";
 import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 
-/** The catalog code a CLIENT-side single-field rule renders under: a named
- *  rule's identity key, else `field.rule`.  The client only ever shows a rule
- *  that passed the single-field gate, so an unnamed one is always a field rule
- *  (the server may answer the same rule `problem.domain-floor` when its source
- *  carries an optionality guard). */
-export function clientRuleCode(inv: Pick<InvariantIR, "message">): string {
-  return inv.message ? inv.message.key : fieldCode("rule");
-}
-
 /** One client-side check a single-field rule implies, with the catalog code
  *  and params its message renders under. */
 export interface ClientLimitCheck {
