@@ -64,9 +64,9 @@ export function renderEnumsAndValueObjects(ctx: BoundedContextIR): string {
       // A value object's invariant raises `ValueObjectInvariantError` (M-T5.1 —
       // a DomainError the routers answer with an errors[] entry); a plain
       // `DomainError` import survives only where the body still spells one.
-      needsDomainError || /\bnew DomainError\(/.test(scan)
+      needsDomainError || /\bnew DomainError\(|\bDomainError\.\w+\(/.test(scan)
         ? `import { ${[
-            ...(/\bnew DomainError\(/.test(scan) ? ["DomainError"] : []),
+            ...(/\bnew DomainError\(|\bDomainError\.\w+\(/.test(scan) ? ["DomainError"] : []),
             ...(needsDomainError ? ["ValueObjectInvariantError"] : []),
           ].join(", ")} } from "./errors";`
         : null,

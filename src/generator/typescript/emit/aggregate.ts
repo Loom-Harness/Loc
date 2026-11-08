@@ -203,7 +203,10 @@ export function renderAggregate(
   // `precondition`, which renders into `_init`, not an operation) still pulls
   // its import — otherwise the class throws an undeclared `DomainError`
   // (TS2304).  Same body-scan the python twin uses.
-  const throwsError = (n: string): boolean => new RegExp(`\\bnew\\s+${n}\\(`).test(body);
+  // `new X(` or a static factory `X.f(` — the checked-int guard throws
+  // `DomainError.arithmeticOverflow()`.
+  const throwsError = (n: string): boolean =>
+    new RegExp(`\\bnew\\s+${n}\\(|\\b${n}\\.\\w+\\(`).test(body);
   const errorsImportList = [
     (usesDisallowed || throwsError("DisallowedError")) && "DisallowedError",
     (usesDomain || throwsError("DomainError")) && "DomainError",
