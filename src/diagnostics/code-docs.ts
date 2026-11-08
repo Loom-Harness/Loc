@@ -277,6 +277,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-inline-repository-call": "13-workflows.md#body-vocabulary",
   "loom.handler-unknown-name":
     "06-behavior-and-statements.md#handler-bodies--commandhandler--queryhandler",
+  "loom.workflow-create-unrouted": "13-workflows.md#create--starters",
   "loom.workflow-return-no-caller": "13-workflows.md#returning-a-result",
   "loom.workflow-return-not-last": "13-workflows.md#returning-a-result",
   "loom.workflow-return-untyped": "13-workflows.md#returning-a-result",

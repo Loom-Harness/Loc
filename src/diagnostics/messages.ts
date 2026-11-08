@@ -3596,6 +3596,23 @@ export const DIAGNOSTIC_MESSAGES = {
     `broker via channelSource '${p.csNames}' on another deployable — but '${p.name}' ` +
     `doesn't list the binding. Once traffic rides the broker this consumer would ` +
     `silently receive nothing. Add \`channels: [${p.csNames}]\` to '${p.name}'.`,
+  "loom.workflow-create-unrouted": (p: { workflow: unknown; create: unknown }) =>
+    `workflow '${p.workflow}': command starter '${p.create}' is never served — a workflow has one ` +
+    `command route (its unnamed \`create(...)\`, else its first create), and no backend ` +
+    `emits a second command entry. Move the logic into a context-level \`commandHandler\`, ` +
+    `or merge it into the workflow's single command create.`,
+  "loom.channel-consumer-unwired#unbound": (p: {
+    name: unknown;
+    chName: unknown;
+    carries: unknown;
+    ctxName: unknown;
+  }) =>
+    `Deployable '${p.name}' consumes events of channel '${p.chName}' ` +
+    `(${p.carries}), but the channel is bound to no broker and its owning context ` +
+    `'${p.ctxName}' runs on another deployable — events only travel in-process, so ` +
+    `this consumer would never receive them. Declare a \`channelSource\` for ` +
+    `'${p.chName}' and list it in \`channels: [...]\` on both deployables, or host ` +
+    `'${p.ctxName}' on '${p.name}'.`,
   "loom.relay-target-not-subscribed": (p: {
     name: unknown;
     uiName: unknown;

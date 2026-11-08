@@ -97,7 +97,7 @@ A workflow may declare at most one **unnamed** `create` (`loom.canonical-create-
 
 There is no workflow `handle name(params) { body }` member: a named command entry is a context-level `commandHandler`, which an `api` `route` addresses as `<Context>.<Name>` ([APIs](14-apis-storage-resources-channels.md#route--the-explicit-transport-binding)). A leftover `handle` is a parse error naming the replacement; `node scripts/codemod-workflow-handle.mjs` lifts each one into a `commandHandler` and marks the ones it cannot lift faithfully (see [`workflow.md`](../workflow.md#there-is-no-handle)).
 
-> **Honest gap — only the canonical `create` gets an entry point today.** The unnamed `create` becomes the `POST /api/workflows/<snake>` route on every backend. A **named** command-triggered `create expedite(…)` lowers to IR (`WorkflowIR.creates`) and its repository needs are collected, but no backend emits a route, a command, or any other callable for it (#4094). A named *event*-triggered `create` is dispatcher-routed and does work.
+> **Only one command `create` per workflow is served.** The unnamed `create` (else the first `create`) becomes the `POST /api/workflows/<snake>` route on every backend. A second command-triggered `create expedite(…)` would be emitted by no backend, so it is refused with `loom.workflow-create-unrouted`; lift it into a context-level `commandHandler`. A named *event*-triggered `create` is dispatcher-routed and does work.
 
 ```ddd
 workflow placeOrder {
