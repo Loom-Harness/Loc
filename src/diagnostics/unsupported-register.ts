@@ -275,14 +275,13 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // classifies each cell — `test/system/target-capability-table.test.ts`
     // proves every supported cell renders and every refused one is raised.
     code: "loom.target-unsupported",
-    kind: "seam",
-    site: "src/ir/validate/checks/target-capability-checks.ts:350",
+    kind: "gap",
+    site: "src/ir/validate/checks/target-capability-checks.ts:612",
     what:
-      "a construct × position its target cannot render, per the capability table.  LATENT: " +
-      "every refused cell today is a settled never — `DataGrid` on flutter and phoenixLiveView " +
-      "(D-DATAGRID-TARGETS: it ships iff the target can run TanStack itself) — and `Chart` and " +
-      "the entity-history read are supported on every shipping frontend, so the remaining " +
-      "refusals are the seam a NEW frontend gates on until it ports",
+      "a construct × position, or a feature pair, its target cannot render, per the capability " +
+      "table.  `DataGrid` on flutter and phoenixLiveView is a settled never (D-DATAGRID-TARGETS); " +
+      "the `#feature-composition-broken` / `#feature-composition-unwitnessed` cells are gaps, " +
+      "each lifted by a corpus fixture that runs the pair on that backend (#4028)",
     mission: "#3592",
     verified: true,
   },

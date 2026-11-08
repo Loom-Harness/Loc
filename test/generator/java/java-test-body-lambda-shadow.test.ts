@@ -9,7 +9,7 @@
 // failed `gradle testClasses`.  The emitted project for this model compiles.
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/generate.js";
+import { generateSystemFilesUnchecked } from "../../_helpers/generate.js";
 
 const SOURCE = `
 system S {
@@ -48,7 +48,10 @@ system S {
 `;
 
 async function testFile(suffix: string): Promise<string> {
-  const files = await generateSystemFiles(SOURCE);
+  const files = await generateSystemFilesUnchecked(
+    SOURCE,
+    "the fixture keeps a `Tag[]` on an entity part, which the capability table refuses on java (unwitnessed); the subject is the test-body renderer",
+  );
   const hit = [...files].find(([p]) => p.endsWith(suffix));
   expect(hit, `no emitted file ends with ${suffix}`).toBeDefined();
   return hit![1];
