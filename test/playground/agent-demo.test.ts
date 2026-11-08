@@ -51,6 +51,10 @@ describe("agent demo", () => {
     const tools = messages.flatMap((m) => m.toolCalls ?? []);
     expect(tools.find((t) => t.tool === "loom_validate")?.result).toBe("0 errors");
     expect(tools.find((t) => t.tool === "loom_generate")?.status).toBe("ok");
+    // The new schema is recorded deliberately (the pure catalog here: the
+    // entry comes back as a file, nothing is written).
+    expect(tools.find((t) => t.tool === "loom_migration_status")?.result).toMatch(/unrecorded/);
+    expect(tools.find((t) => t.tool === "loom_migration_record")?.result).toBe("recorded 1");
     // No dangling "running"/pending state at the end.
     expect(tools.every((t) => t.status !== "running")).toBe(true);
     expect(messages.every((m) => !m.pending)).toBe(true);

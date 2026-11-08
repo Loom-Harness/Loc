@@ -32,7 +32,6 @@ const SYNTH_DDL_ALLOWED: Record<string, string> = {
   "web/src/runtime/ddl.ts": "the definition",
   "web/src/runtime/runtime.worker.ts":
     "the playground's in-browser boot of a source with no system, which records no migrations",
-  "web/scripts/smoke-runtime.mjs": "smoke of the playground runtime's no-system (legacy) case",
   "web/scripts/test-ddl.mjs": "unit test of synthDDL itself",
   "test/generator/hono/audit-schema-ddl-agreement.test.ts":
     "asserts synthDDL AGREES with the emitted migration (keeps the playground honest)",

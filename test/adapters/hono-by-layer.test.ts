@@ -1,7 +1,7 @@
 // byLayer — real LayoutAdapter for hono (F6c).  Mirrors
 // dotnet-by-layer.test.ts.  Pins every category to the exact path the
-// existing TypeScript/Hono emitter writes today.  Verified against
-// `generate ts examples/sales.ddd`: every emitted file is reproducible.
+// TypeScript/Hono emitter writes.  Verified against the `sales` project of
+// `generate system examples/sales.ddd`: every emitted file is reproducible.
 
 import { describe, expect, it } from "vitest";
 import type { EmitCtx } from "../../src/generator/_adapters/index.js";

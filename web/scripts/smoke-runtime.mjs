@@ -2,16 +2,12 @@
 // bundle (VFS-npm plugin, NO esm.sh) → import in Node → boot PGlite +
 // the generated Hono app → dispatch + round-trip a product.
 //
-// Runs the SAME pipeline the browser runtime worker runs, against two
-// generator shapes:
+// Runs the SAME pipeline the browser runtime worker runs, through
+// `generateSystems` (per-context `pgSchema(...)` — tables live under e.g.
+// `sales`, so the repositories query schema-qualified relations
+// `from "sales"."products"`).
 //
-//   1. legacy single-context (`generateTypeScript`, unqualified
-//      `pgTable(...)` — tables live in `public`), and
-//   2. system mode (`generateSystems`, per-context `pgSchema(...)` —
-//      tables live under e.g. `sales`, so the repositories query
-//      schema-qualified relations `from "sales"."products"`).
-//
-// Case 2 is the reliable gate for the per-context-pgSchema regression:
+// It is the reliable gate for the per-context-pgSchema regression:
 // the schema must be created and schema-qualified, or the backend boots but
 // every query 500s on a missing `sales.*` relation.  System mode migrates
 // the way the runtime worker does: nothing is created while the model has
@@ -37,9 +33,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import os from "node:os";
 import { createDddServices } from "../../out/language/ddd-module.js";
-import { generateTypeScript } from "../../out/platform/hono/v4/emit.js";
 import { API_BASE_PATH } from "../../out/util/api-base.js";
-import { BACKEND_PINS } from "../../out/platform/hono/v5/pins.js";
 import { generateSystems } from "../../out/system/index.js";
 import {
   bootEntryFor,
@@ -50,7 +44,6 @@ import {
   schemaPathFor,
   RUNTIME_VERSIONS,
 } from "../src/bundle/plugin.ts";
-import { synthDDL } from "../src/runtime/ddl.ts";
 import { migrationPlan, recordMigration } from "../src/build/evolution.ts";
 import { chainDdl, migrateChain } from "../src/runtime/migrate.ts";
 import { install } from "../src/engine/npm/install.ts";
@@ -101,11 +94,10 @@ function fail(msg) {
   process.exit(1);
 }
 
-/** Parse + generate a single source file, returning the generated file
- *  Map plus the chosen Hono entry path.  `mode: "legacy"` uses the
- *  single-context emitter (entry at the root); `mode: "system"` uses
- *  the system composer (entry under the deployable slug). */
-async function generateBackend(sourcePath, mode) {
+/** Parse + generate a single source file through the system composer,
+ *  returning the generated file Map plus the Hono entry path (under the
+ *  deployable slug). */
+async function generateBackend(sourcePath) {
   const text = readFileSync(sourcePath, "utf8");
   const services = createDddServices(NodeFileSystem);
   const docs = services.shared.workspace.LangiumDocuments;
@@ -113,10 +105,6 @@ async function generateBackend(sourcePath, mode) {
   await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
   if ((doc.diagnostics ?? []).some((d) => d.severity === 1)) {
     fail(`parse/validation errors in ${path.basename(sourcePath)}`);
-  }
-  if (mode === "legacy") {
-    const files = generateTypeScript(doc.parseResult.value, BACKEND_PINS);
-    return { files, entry: "http/index.ts" };
   }
   const { files } = generateSystems(doc.parseResult.value);
   const entry = [...files.keys()].find((p) => /^[^/]+\/http\/index\.ts$/.test(p));
@@ -197,7 +185,7 @@ async function runCase({
   console.log(`\n=== case: ${label} (${path.basename(sourcePath)}) ===`);
 
   console.log("# 1/5 generating…");
-  const { files, entry } = await generateBackend(sourcePath, mode);
+  const { files, entry } = await generateBackend(sourcePath);
   const schemaPath = schemaPathFor(entry);
   if (!resolveInFs(files, entry) || !resolveInFs(files, schemaPath)) {
     fail(`entry/schema missing (${entry} / ${schemaPath})`);
@@ -207,8 +195,7 @@ async function runCase({
   console.log("# 2/5 installing real npm tarballs + bundling (VFS plugin, no esm.sh)…");
   const vfs = new Map();
   for (const [p, c] of files) vfs.set("/" + p, c);
-  // The Hono deployable's package.json sits next to its entry: at the
-  // root for legacy mode, under the slug for system mode.
+  // The Hono deployable's package.json sits next to its entry, under the slug.
   const slugMatch = entry.match(/^(.+)\/http\/index\.ts$/);
   const pkgPath = slugMatch ? `${slugMatch[1]}/package.json` : "package.json";
   const pkg = JSON.parse(files.get(pkgPath) ?? "{}");
@@ -301,36 +288,26 @@ async function runCase({
   const text = readFileSync(sourcePath, "utf8");
   let chain = [];
   let ddl;
-  if (mode === "legacy") {
-    console.log("# 4/5 DDL synth + PGlite + createApp…");
-    ddl = synthDDL(mod.schema, {
-      is: mod.is,
-      Table: mod.Table,
-      getTableConfig: mod.getTableConfig,
-    });
-    await pglite.exec(ddl);
-  } else {
-    console.log("# 4/5 recorded migrations + PGlite + createApp…");
-    // No chain: the whole schema is unrecorded, and nothing is created.
-    const before = await userSchemas(pglite);
-    const unrecorded = await migrateChain(pglite, await planFor(text, chain));
-    if (!("blocked" in unrecorded) || !unrecorded.blocked.initial) {
-      fail(`a model with no recorded migration must not migrate, got ${JSON.stringify(unrecorded)}`);
-    }
-    const after = await userSchemas(pglite);
-    if (JSON.stringify(after) !== JSON.stringify(before)) {
-      fail(`an unrecorded initial migration created schemas: ${before} → ${after}`);
-    }
-    console.log("# no recorded migration — database left untouched");
-    chain = await recordChain(text, "initial", chain);
-    const plan = await planFor(text, chain);
-    const res = await migrateChain(pglite, plan);
-    if (!("applied" in res) || res.applied.length === 0) {
-      fail(`the recorded initial migration did not apply: ${JSON.stringify(res)}`);
-    }
-    ddl = chainDdl(plan.units);
-    console.log(`# applied ${res.applied.join(", ")}`);
+  console.log("# 4/5 recorded migrations + PGlite + createApp…");
+  // No chain: the whole schema is unrecorded, and nothing is created.
+  const before = await userSchemas(pglite);
+  const unrecorded = await migrateChain(pglite, await planFor(text, chain));
+  if (!("blocked" in unrecorded) || !unrecorded.blocked.initial) {
+    fail(`a model with no recorded migration must not migrate, got ${JSON.stringify(unrecorded)}`);
   }
+  const after = await userSchemas(pglite);
+  if (JSON.stringify(after) !== JSON.stringify(before)) {
+    fail(`an unrecorded initial migration created schemas: ${before} → ${after}`);
+  }
+  console.log("# no recorded migration — database left untouched");
+  chain = await recordChain(text, "initial", chain);
+  const plan = await planFor(text, chain);
+  const res = await migrateChain(pglite, plan);
+  if (!("applied" in res) || res.applied.length === 0) {
+    fail(`the recorded initial migration did not apply: ${JSON.stringify(res)}`);
+  }
+  ddl = chainDdl(plan.units);
+  console.log(`# applied ${res.applied.join(", ")}`);
   if (expectSchemaQualified) {
     // Guards that this case is genuinely exercising a pgSchema-qualified
     // backend (the regression surface) — not silently a public-schema one.
@@ -459,13 +436,6 @@ async function waitForRows(app, url, accept, what, ms = 8000) {
   }
   fail(`${what} within ${ms} ms; last rows ${JSON.stringify(last)}`);
 }
-
-await runCase({
-  label: "legacy single-context (unqualified pgTable)",
-  sourcePath: path.resolve(here, "../../examples/sales.ddd"),
-  mode: "legacy",
-  expectSchemaQualified: false,
-});
 
 await runCase({
   label: "system mode (per-context pgSchema)",

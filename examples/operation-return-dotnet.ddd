@@ -7,11 +7,10 @@
 //   - a controller action translating an error variant to an RFC-7807
 //     ProblemDetails (stdlib status default) and a success to 200 wrapped in
 //     the wire DTO (cast to the polymorphic base).
-// Compiled under `ddd generate dotnet` + `dotnet build /warnaserror` in the
+// Compiled under `ddd generate system` + `dotnet build /warnaserror` in the
 // generated-dotnet CI matrix.
 //
-// A loose context (like paged-dotnet.ddd) so the single-context `generate
-// dotnet` path emits a complete project.  The body returns the error variant;
+// The body returns the error variant;
 // the success path is part of the type + controller (compiled, not executed
 // here) — matching the Hono producer fixture.
 context Orders {
@@ -22,4 +21,11 @@ context Orders {
       return NotFound { resource: code }
     }
   }
+}
+
+// The deployment: one dotnet backend hosting the context, persisted to postgres.
+system Orders {
+  storage db { type: postgres }
+  resource ordersState { for: Orders, kind: state, use: db }
+  deployable orders { platform: dotnet, contexts: [Orders], dataSources: [ordersState] }
 }

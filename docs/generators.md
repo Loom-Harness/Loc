@@ -141,8 +141,7 @@ gaps that remain are language-level rather than per-backend — see
 
 ## TypeScript backend (`platform: node`)
 
-`generate ts` for legacy single-context sources; `generate system` for
-deployables marked `platform: node`.
+`generate system` for deployables marked `platform: node`.
 
 ### File map
 
@@ -349,8 +348,7 @@ field is **not** persisted as a column on the owner table.
 
 ## .NET backend (`platform: dotnet`)
 
-`generate dotnet` for legacy single-context sources; `generate system`
-for deployables marked `platform: dotnet`.
+`generate system` for deployables marked `platform: dotnet`.
 
 ### File map
 

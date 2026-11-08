@@ -264,4 +264,13 @@ export const messages = {
     `The baseline source does not load (${p.detail}), so there is nothing to diff against. Pass the previous model as it was, or omit \`baseline\` for a first-run diff.`,
   "loom.migration-chain-invalid": (p: { detail: unknown }) =>
     `The migration chain does not read as one list: ${p.detail}`,
+
+  // ----------------------------------------------------------------------
+  // src/api/migrate.ts
+  // ----------------------------------------------------------------------
+  /** `loom_migration_record`'s name refusal: the name is not kebab-case, or
+   *  the module already has a migration by that name.  The CLI prints the
+   *  same detail for `ddd migrate add`. */
+  "loom.migration-name-invalid": (p: { detail: unknown }) =>
+    `The migration cannot be recorded under that name: ${p.detail}`,
 } satisfies Record<string, MessageEntry>;

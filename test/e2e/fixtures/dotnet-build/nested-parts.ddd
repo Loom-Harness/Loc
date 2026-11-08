@@ -6,9 +6,8 @@
 // construction: build a shipment WITH a label in one call — the nested
 // Label omits parentId (stamped from tree position on save).
 //
-// Bare `context {…}` (not a `system {…}` wrapper) so legacy
-// `ddd generate dotnet` emits a single buildable project, matching the
-// other fixtures in this suite.
+// Bare `context {…}`: the build gate wraps it in a one-deployable dotnet
+// system (`withBackendSystem`), matching the other fixtures in this suite.
 context Logistics {
 
   aggregate Order {

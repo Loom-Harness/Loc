@@ -15,20 +15,17 @@
 // compares.  Both halves are pinned here: the collision is detected and
 // qualified, and a collision-free project emits today's exact fallback.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { generateDotnetForContexts } from "../../../src/generator/dotnet/index.js";
 import { dotnetSchemaIdOverrides } from "../../../src/generator/dotnet/schema-ids.js";
-import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
-import { lowerModel } from "../../../src/ir/lower/lower.js";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
+import { generateBackendFromSource } from "../../_helpers/generate.js";
 
-// Two contexts, one deployable — each declares its own `Money` value object and
-// an aggregate carrying it.  Two `MoneyRequest` / `MoneyResponse` CLR types,
-// one assembly: the F14 reproduction.
-const TWO_CONTEXT_SRC = `system S {
+// One value object, two aggregates carrying it, one deployable.  The DTO
+// namespaces are per aggregate, so that is two `MoneyRequest` / `MoneyResponse`
+// CLR types in one assembly: the F14 reproduction.  (Two contexts each
+// declaring their own `Money` on one deployable is rejected up front by
+// `loom.hosted-type-name-collision`, so the shared value object is the shape a
+// user can actually reach.)
+const SHARED_VO_SRC = `system S {
   subdomain M {
     context Catalog {
       valueobject Money { amount: decimal  currency: string }
@@ -36,14 +33,18 @@ const TWO_CONTEXT_SRC = `system S {
         sku: string
         price: Money
       }
-    }
-    context Sales {
-      valueobject Money { amount: decimal  currency: string }
       aggregate Order with crudish {
         reference: string
         total: Money
       }
     }
+  }
+  storage db { type: postgres }
+  resource catalogState { for: Catalog, kind: state, use: db }
+  deployable api {
+    platform: dotnet
+    contexts: [Catalog]
+    dataSources: [catalogState]
   }
 }`;
 
@@ -58,6 +59,13 @@ const COLLISION_FREE_SRC = `system S {
         price: Money
       }
     }
+  }
+  storage db { type: postgres }
+  resource catalogState { for: Catalog, kind: state, use: db }
+  deployable api {
+    platform: dotnet
+    contexts: [Catalog]
+    dataSources: [catalogState]
   }
 }`;
 
@@ -76,18 +84,13 @@ const UNQUALIFIED_LAMBDA = `    c.CustomSchemaIds(t =>
     });
 `;
 
-async function filesFrom(src: string): Promise<Map<string, string>> {
-  const services = createDddServices(NodeFileSystem);
-  const helper = parseHelper<Model>(services.Ddd);
-  const doc = await helper(src, { validation: true });
-  const loom = enrichLoomModel(lowerModel(doc.parseResult.value));
-  const contexts = loom.systems.flatMap((s) => s.subdomains.flatMap((sd) => sd.contexts));
-  return generateDotnetForContexts(contexts, "Api");
-}
+// The deployable `api` is the project's root namespace `Api`.
+const filesFrom = (src: string): Promise<Map<string, string>> =>
+  generateBackendFromSource(src, "dotnet");
 
 describe(".NET OpenAPI schema ids (F14)", () => {
   it("detects the colliding DTO short names across the project's namespaces", async () => {
-    const files = await filesFrom(TWO_CONTEXT_SRC);
+    const files = await filesFrom(SHARED_VO_SRC);
 
     // Precondition: the two same-named CLR types really are emitted.
     expect(files.get("Application/Products/Requests/ProductRequests.cs")).toContain(
@@ -124,7 +127,7 @@ describe(".NET OpenAPI schema ids (F14)", () => {
   });
 
   it("emits a Program.cs lambda naming BOTH qualified ids", async () => {
-    const program = (await filesFrom(TWO_CONTEXT_SRC)).get("Program.cs") ?? "";
+    const program = (await filesFrom(SHARED_VO_SRC)).get("Program.cs") ?? "";
 
     expect(program).toContain(
       '["Api.Application.Products.Requests.MoneyRequest"] = "ProductsMoneyRequest",',

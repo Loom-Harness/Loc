@@ -30,9 +30,8 @@
 //     a same-named member hides nothing.  The gate used to refuse this — the
 //     most canonical DDD shape there is, on .NET alone.
 //
-// Bare `context {…}` (not a `system {…}` wrapper) so legacy
-// `ddd generate dotnet` emits a single buildable project, matching the other
-// fixtures in this suite.
+// Bare `context {…}`: the build gate wraps it in a one-deployable dotnet
+// system (`withBackendSystem`), matching the other fixtures in this suite.
 context Tracking {
 
   enum Kind { Bug, Feature, Chore }

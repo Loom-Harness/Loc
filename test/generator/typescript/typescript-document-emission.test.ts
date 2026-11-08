@@ -1,15 +1,7 @@
-import * as path from "node:path";
-import { fileURLToPath } from "node:url";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { beforeAll, describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
-import { BACKEND_PINS as HONO_PINS } from "../../../src/platform/hono/v5/pins.js";
 import { dddSourceOf } from "../../_helpers/ddd-corpus.js";
+import { generateBackendFromFile, generateBackendFromSource } from "../../_helpers/generate.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
-import { parseValid } from "../../_helpers/parse.js";
 
 // ---------------------------------------------------------------------------
 // Hono/Drizzle document-persistence emission (`normalised(false)`).
@@ -23,33 +15,21 @@ import { parseValid } from "../../_helpers/parse.js";
 // `tsc + tsup` gate lives in test/e2e/generated-build.test.ts.
 // ---------------------------------------------------------------------------
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(here, "..", "..", "..");
-
-async function buildModel(file: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(path.join(repoRoot, file)),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  return doc.parseResult.value as Model;
-}
-
 describe("Hono/Drizzle document-persistence emission (normalised(false))", () => {
   let files: Map<string, string>;
   beforeAll(async () => {
-    files = generateTypeScript(await buildModel("examples/document.ddd"), HONO_PINS);
+    files = await generateBackendFromFile("examples/document.ddd", "node");
   });
 
   it("emits a single jsonb document table (no part/join tables) for the document aggregate", () => {
     const schema = files.get("db/schema.ts")!;
-    expect(schema).toContain('export const carts = pgTable("carts", {');
+    expect(schema).toContain('export const carts = shoppingSchema.table("carts", {');
     expect(schema).toContain('data: jsonb("data").notNull(),');
     expect(schema).toContain('rowVersion: integer("row_version").notNull(),');
     // No normalised cart_items part table.
-    expect(schema).not.toContain('pgTable("cart_items"');
+    expect(schema).not.toContain('.table("cart_items"');
     // Sibling normalised aggregate keeps its column-per-field table.
-    expect(schema).toContain('export const customers = pgTable("customers", {');
+    expect(schema).toContain('export const customers = shoppingSchema.table("customers", {');
   });
 
   it("repository round-trips through toDoc/fromDoc + _rehydrate", () => {
@@ -102,11 +82,11 @@ describe("Hono/Drizzle document-persistence emission (normalised(false))", () =>
   // jsonb column.  Unlike document, root reads are REAL SQL on the root.
   it("embedded: root columns + one jsonb containment column, no part table", () => {
     const schema = files.get("db/schema.ts")!;
-    expect(schema).toContain('export const wishlists = pgTable("wishlists", {');
+    expect(schema).toContain('export const wishlists = shoppingSchema.table("wishlists", {');
     // `customerId: Customer id` (guid) → uuid, in lockstep with the migration.
     expect(schema).toContain('customerId: uuid("customer_id").notNull(),');
     expect(schema).toContain('items: jsonb("items").notNull(),');
-    expect(schema).not.toContain('pgTable("wish_items"');
+    expect(schema).not.toContain('.table("wish_items"');
   });
 
   it("embedded: root via columns, containment via jsonb; root reads are real SQL", () => {
@@ -155,8 +135,7 @@ describe("Hono/Drizzle document — optional single containment is null-safe", (
   `;
 
   it("guards the optional containment in the Doc type + toDoc + fromDoc", async () => {
-    const model = await parseValid(SRC);
-    const files = generateTypeScript(model, HONO_PINS);
+    const files = await generateBackendFromSource(SRC, "node");
     const repo = files.get("db/repositories/cart-repository.ts")!;
     expect(repo, "cart-repository.ts generated").toBeDefined();
     // Type alias: nullable single containment is `PartDoc | null`.
@@ -200,12 +179,11 @@ describe("document save() applies the onCreate stamps", () => {
    *  `files` is scoped to it. */
   let unstamped: Map<string, string>;
   beforeAll(async () => {
-    unstamped = generateTypeScript(await buildModel("examples/document.ddd"), HONO_PINS);
+    unstamped = await generateBackendFromFile("examples/document.ddd", "node");
     // The corpus fixture is a `__PLATFORM__`-tokenized TEMPLATE, not a source —
     // `dddSourceOf` substitutes a backend the way every census and runner does.
-    // It is a multi-context SYSTEM, so it goes through the system generator
-    // (the legacy single-context `generateTypeScript` emits no repositories for
-    // it, which is how this assertion first passed vacuously).
+    // It is a multi-context SYSTEM, so the whole tree is emitted and the
+    // repository looked up by path suffix.
     stamped = await generateSystemFiles(dddSourceOf("test/fixtures/corpus/policy-document.ddd"));
   });
 

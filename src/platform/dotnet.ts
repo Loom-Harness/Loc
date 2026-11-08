@@ -66,8 +66,8 @@ const dotnetPlatform: PlatformSurface = {
     // of any `src/generator/* → src/platform/*` edge (the backend-packages
     // layering invariant) and avoids re-entering the load-time cycle
     // (registry → platform/dotnet → generator/dotnet/index → ir/enrich →
-    // platformFor → registry).  When the orchestrator passes none (legacy
-    // single-context generate mode), the generator falls back to its own
+    // platformFor → registry).  When the orchestrator passes none, the
+    // generator falls back to its own
     // sibling adapters — byte-identical under the size-1 real menus.
     return generateDotnetForContexts(
       contexts,
