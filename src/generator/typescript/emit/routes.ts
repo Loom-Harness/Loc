@@ -24,12 +24,15 @@ import {
   TEST_RESET_PATH,
   TEST_RESET_TOKEN_ENV,
 } from "../../../util/test-reset.js";
+import { ref } from "../../_imports/symbol.js";
+import { tsImportSlot, tsNamed } from "../../_imports/ts.js";
 import { renderHonoBaseLogCall, renderHonoLogCall } from "../../_obs/render-hono.js";
 import {
   baseRoutesImports,
   baseRoutesMount,
   routesPolymorphicRead,
 } from "../base-reader-builder.js";
+import { T, TT } from "../ts-symbols.js";
 import { tsNotFoundThrow, tsSentence } from "../wire-policy-ts.js";
 // The per-aggregate routes file is built procedurally in
 // `routes-builder.ts` because the OpenAPI annotations push it past
@@ -98,12 +101,12 @@ function renderTestResetRoute(usingMikro: boolean, hasSeeds: boolean): string[] 
       ]
     : [
         `      const found = (`,
-        `        await db.execute(sql.raw(${discoverySql}))`,
+        `        await db.execute(${T.sql}.raw(${discoverySql}))`,
         `      ).rows as Array<{ schemaname: string; tablename: string }>;`,
       ];
   const truncate = usingMikro
     ? "        await db.getConnection().execute(statement);"
-    : "        await db.execute(sql.raw(statement));";
+    : `        await db.execute(${T.sql}.raw(statement));`;
   return [
     "  // Dev-only state reset for the emitted e2e suite — see the note on",
     "  // `renderTestResetRoute`.  Registered only when an operator opts in by",
@@ -138,7 +141,7 @@ function renderTestResetRoute(usingMikro: boolean, hasSeeds: boolean): string[] 
           "      // The truncate took `__loom_seed` with it, so this re-applies the",
           "      // declared seed data: a reset restores the just-migrated-AND-seeded",
           "      // state, not an empty database.",
-          "      await runSeeds(db);",
+          `      await ${T.runSeeds}(db);`,
         ]
       : []),
     '      return c.json({ status: "reset", tables: targets.length });',
@@ -175,9 +178,10 @@ export function renderHttpIndex(
   // over the deployable's bound objectStore adapter.  Absent → no import, no
   // routes (byte-identical).
   const fileUpload = options?.fileUpload;
-  const fileImport = fileUpload
-    ? `import { ${fileUpload.resource}$getBytes, ${fileUpload.resource}$putBytes } from "../resources/${fileUpload.sourceType}";\nimport { randomUUID } from "node:crypto";`
-    : null;
+  const fileStore = fileUpload && {
+    get: ref(tsNamed(`~/resources/${fileUpload.sourceType}`, `${fileUpload.resource}$getBytes`)),
+    put: ref(tsNamed(`~/resources/${fileUpload.sourceType}`, `${fileUpload.resource}$putBytes`)),
+  };
   // Persistence selection (D-REALIZATION-AXES) — the `db` handle createApp
   // threads is drizzle's `NodePgDatabase` by default, or a MikroORM
   // `EntityManager` when `persistence: mikroorm`.
@@ -263,11 +267,8 @@ export function renderHttpIndex(
   // Persistence-neutral: `http/realtime.ts` emits on both adapters (it reads no
   // `db`), so the tee + the `/realtime` mount are NOT drizzle-gated.
   const wireRealtime = realtimeEventTypes(ctx).size > 0;
-  const realtimeImport = wireRealtime
-    ? `import { realtimeRoutes, realtimeTee } from "./realtime";`
-    : null;
   const realtimeMount = wireRealtime
-    ? `  app.route("${API_BASE_PATH}/realtime", realtimeRoutes());`
+    ? `  app.route("${API_BASE_PATH}/realtime", ${T.realtimeRoutes}());`
     : null;
   // Compose the default dispatcher chain: outbox short-circuits durable
   // events to the table (the relay re-enters through the tee), the tee
@@ -276,89 +277,66 @@ export function renderHttpIndex(
   // Request-path instance: reactor failures are isolated (H-28) — the command
   // that raised the event has already committed when its reactors run.
   const inProcessExpr = wireDispatcher
-    ? "createInProcessDispatcher(db, { isolateReactorFailures: true })"
-    : "NoopDomainEventDispatcher";
+    ? `${T.createInProcessDispatcher}(db, { isolateReactorFailures: true })`
+    : T.NoopDomainEventDispatcher;
   // The projection tee wraps the in-process/Noop base so folds run on every
   // dispatched event before the (workflow) fan-out; realtime + outbox wrap that.
-  const withProjections = hasProjections ? `projectionTee(db, ${inProcessExpr})` : inProcessExpr;
-  const innerExpr = wireRealtime ? `realtimeTee(${withProjections})` : withProjections;
-  const defaultEventsExpr = wireOutbox ? `createOutboxDispatcher(db, ${innerExpr})` : innerExpr;
-  // Derived from what the emitted body actually SPELLS, not from a nest of
-  // arms.  The nested form disagreed with the usage in one cell: with a
-  // workflow present but NO reactor (`wireDispatcher === false`) and a durable
-  // channel, it imported `workflowsRoutes` alone while `defaultEventsExpr`
-  // above still spells `createOutboxDispatcher(db, …)` — and the pure-producer
-  // fallback below it is gated `!hasWorkflows`, so neither arm covered the
-  // cell.  `tsc`: "Cannot find name 'createOutboxDispatcher'".  Each symbol is
-  // now keyed off the same predicate that decides whether the body uses it, so
-  // the two cannot disagree again; a project that needs none imports none, and
-  // every previously-covered cell emits the same line it did before.
-  const workflowSymbols = [
-    wireDispatcher ? "createInProcessDispatcher" : null,
-    wireOutbox ? "createOutboxDispatcher" : null,
-    hasWorkflows ? "workflowsRoutes" : null,
-  ].filter((n): n is string => n !== null);
-  const workflowImport =
-    workflowSymbols.length > 0
-      ? `import { ${workflowSymbols.join(", ")} } from "./workflows";`
-      : null;
-  // (The pure-producer case (`wireOutbox && !hasWorkflows`, M-T4.4) needs no
-  // separate import line any more: it is just the cell where
-  // `workflowSymbols` is `["createOutboxDispatcher"]`.)
+  const withProjections = hasProjections
+    ? `${T.projectionTee}(db, ${inProcessExpr})`
+    : inProcessExpr;
+  const innerExpr = wireRealtime ? `${T.realtimeTee}(${withProjections})` : withProjections;
+  const defaultEventsExpr = wireOutbox
+    ? `${T.createOutboxDispatcher}(db, ${innerExpr})`
+    : innerExpr;
   const workflowMount = hasWorkflows
-    ? `  app.route("${API_BASE_PATH}/workflows", workflowsRoutes(db, events));`
-    : null;
-  const projectionImport = hasProjections
-    ? `import { projectionsRoutes, projectionTee } from "./projections";`
+    ? `  app.route("${API_BASE_PATH}/workflows", ${T.workflowsRoutes}(db, events));`
     : null;
   const projectionMount = hasProjections
-    ? `  app.route("${API_BASE_PATH}/projections", projectionsRoutes(db));`
+    ? `  app.route("${API_BASE_PATH}/projections", ${T.projectionsRoutes}(db));`
     : null;
   // Query-time projection router — a second sub-app mounted at the same
   // `/projections` prefix (Hono merges routers by prefix); reads through the
   // aggregate repositories, so it takes `(db, events)` unlike the folded one.
-  const queryProjectionImport = hasQueryProjections
-    ? `import { queryProjectionsRoutes } from "./query-projections";`
-    : null;
   const queryProjectionMount = hasQueryProjections
-    ? `  app.route("${API_BASE_PATH}/projections", queryProjectionsRoutes(db, events));`
+    ? `  app.route("${API_BASE_PATH}/projections", ${T.queryProjectionsRoutes}(db, events));`
     : null;
   // Explicit-route routers (unfoldable-api-derivation.md, A2) — one per served
   // api with resolvable `route` bindings.  Byte-identical when none.
-  const explicitRouterImports = explicitRouters.map(
-    (r) => `import { ${r.fn} } from "${r.module}";`,
-  );
+  const explicitRouterImports = explicitRouters.map((r) => tsImportSlot(r.module));
   const explicitRouterMounts = explicitRouters.map(
-    (r) => `  app.route("${r.mountPath}", ${r.fn}(db, events));`,
+    (r) => `  app.route("${r.mountPath}", ${ref(tsNamed(r.module, r.fn))}(db, events));`,
   );
   // Auth wiring — when the deployable opts in via `auth: required`,
   // we import the middleware + verifier registry, assert at startup
   // that the user supplied a verifier, and mount the middleware
   // after CORS but before any business route.
-  const authImport = authRequired
-    ? `import { authMiddleware, registerRouteProbe } from "../auth/middleware";\nimport { assertUserVerifierRegistered } from "../auth/verifier";\nimport { authRoutes } from "../auth/handshake";`
-    : null;
+  const authImport = [
+    tsImportSlot("~/auth/middleware"),
+    tsImportSlot("~/auth/verifier"),
+    tsImportSlot("~/auth/handshake"),
+  ];
   // After the verifier assert, emit `auth_enabled` info so every boot's
   // log stream advertises whether auth is on for this deployable —
   // useful in mixed environments where the same image runs auth/no-auth.
   const authVerifyAssert = authRequired
-    ? `  assertUserVerifierRegistered();\n  ${renderHonoBaseLogCall("authEnabled", "required: true")}`
+    ? `  ${T.assertUserVerifierRegistered}();\n  ${renderHonoBaseLogCall("authEnabled", "required: true")}`
     : null;
-  const authMount = authRequired ? '  app.use("*", authMiddleware);' : null;
+  const authMount = authRequired ? `  app.use("*", ${T.authMiddleware});` : null;
   // The dev-only reset re-applies seed data after truncating (it takes the
   // `__loom_seed` marker with it), so it needs `runSeeds` when — and only
   // when — this deployable has any.  Read off the SAME `ctx.seeds` gate the
   // seed emitter uses, so the import can never name a module that was not
   // emitted.
   const hasSeeds = ctx.seeds.length > 0;
-  const resetSeedImport = hasSeeds ? 'import { runSeeds } from "../db/seed";' : null;
   const testResetRoute = renderTestResetRoute(usingMikro, hasSeeds);
   // Auth session routes mount under the API base (`/api/auth`): `/api/auth/me`
   // (the frontend guard's session probe) always, plus the OIDC login redirect
   // + callback (which the middleware bypasses) when an `auth { oidc }` block is
   // present.  Same origin as the domain routes — the frontend already targets
   // `${API_BASE_URL}/auth/...`.
-  const authRoutesMount = authRequired ? `  app.route("${AUTH_BASE_PATH}", authRoutes());` : null;
+  const authRoutesMount = authRequired
+    ? `  app.route("${AUTH_BASE_PATH}", ${T.authRoutes}());`
+    : null;
   // File routes (M-T1.2): multipart upload mints a uuid key, stores the raw
   // bytes via the objectStore adapter, and returns the FileRef the wire
   // schemas expect; download streams the object back with its stored
@@ -374,16 +352,16 @@ export function renderHttpIndex(
         `    if (!(file instanceof File)) {`,
         `      return c.json({ error: "expected a 'file' form field" }, 400);`,
         `    }`,
-        `    const key = randomUUID();`,
+        `    const key = ${T.randomUUID}();`,
         `    const bytes = new Uint8Array(await file.arrayBuffer());`,
         `    const contentType = file.type || "application/octet-stream";`,
-        `    await ${fileUpload.resource}$putBytes(key, bytes, contentType);`,
+        `    await ${fileStore!.put}(key, bytes, contentType);`,
         `    return c.json({ url: "/files/" + key, key, contentType, size: bytes.byteLength }, 201);`,
         `  });`,
         `  // File download — streams the stored object back with its contentType.`,
         `  app.get("/files/:key", async (c) => {`,
         `    const key = c.req.param("key");`,
-        `    const obj = await ${fileUpload.resource}$getBytes(key);`,
+        `    const obj = await ${fileStore!.get}(key);`,
         // M-T6.39 — an absent object raises the app's ONE 404 producer instead of
         // hand-building a body.  This route is mounted on the ROOT app, which
         // carries the domain ladder below (M-T6.28), so the throw is rendered as
@@ -506,7 +484,7 @@ export function renderHttpIndex(
       'import { TrieRouter } from "hono/router/trie-router";',
       'import type { ContentfulStatusCode } from "hono/utils/http-status";',
       'import { emptyBodyAsEmptyObject, frameworkProblemBody } from "./problem-details";',
-      usingMikro ? null : 'import { sql } from "drizzle-orm";',
+      tsImportSlot("drizzle-orm"),
       'import { requestIdMiddleware } from "../obs/request-id";',
       // `recordDomainFault` joins `registry` here for the root DOMAIN ladder
       // (M-T6.28): a fault answered by the floor must count exactly as the same
@@ -515,24 +493,28 @@ export function renderHttpIndex(
       'import { recordDomainFault, registry } from "../obs/metrics";',
       `import { ${rootLadderErrorClasses.join(", ")} } from "../domain/errors";`,
       baseLoggerImport,
-      authImport,
+      ...authImport,
       ...aggregateImports,
       ...baseImports,
-      workflowImport,
-      realtimeImport,
-      projectionImport,
-      queryProjectionImport,
+      tsImportSlot("~/http/workflows"),
+      tsImportSlot("~/http/realtime"),
+      tsImportSlot("~/http/projections"),
+      tsImportSlot("~/http/query-projections"),
       ...explicitRouterImports,
-      fileImport,
-      usingMikro
-        ? 'import { EntityManager } from "@mikro-orm/postgresql";'
-        : 'import type { NodePgDatabase } from "drizzle-orm/node-postgres";',
-      usingMikro ? null : 'import type * as schema from "../db/schema";',
-      resetSeedImport,
+      ...(fileUpload
+        ? [
+            tsImportSlot(`~/resources/${fileUpload.sourceType}`),
+            tsImportSlot("node:crypto", { order: ["randomUUID"], exclusive: true }),
+          ]
+        : []),
+      tsImportSlot("@mikro-orm/postgresql"),
+      tsImportSlot("drizzle-orm/node-postgres"),
+      tsImportSlot("~/db/schema"),
+      tsImportSlot("~/db/seed"),
       'import { timingSafeEqual } from "node:crypto";',
-      wireDispatcher
-        ? 'import { type DomainEventDispatcher } from "../domain/events";'
-        : 'import { type DomainEventDispatcher, NoopDomainEventDispatcher } from "../domain/events";',
+      tsImportSlot("~/domain/events", {
+        inlineType: true,
+      }),
       // (NoopDomainEventDispatcher stays imported on the no-dispatch path —
       // the realtime tee wraps it there.)
       "",
@@ -543,11 +525,11 @@ export function renderHttpIndex(
       'const PROBE_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;',
       "",
       "export function createApp(",
-      usingMikro ? "  db: EntityManager," : "  db: NodePgDatabase<typeof schema>,",
+      usingMikro ? `  db: ${T.EntityManager},` : `  db: ${TT.NodePgDatabase}<typeof ${TT.schema}>,`,
       // When dispatch is wired, the default builds the in-process dispatcher
       // from `db` (a later default param may reference an earlier one); a caller
       // can still pass an explicit dispatcher (e.g. a broker publisher).
-      `  events: DomainEventDispatcher = ${defaultEventsExpr},`,
+      `  events: ${TT.DomainEventDispatcher} = ${defaultEventsExpr},`,
       "): OpenAPIHono {",
       authVerifyAssert,
       "  const app = new OpenAPIHono();",
@@ -607,7 +589,7 @@ export function renderHttpIndex(
       "    try {",
       usingMikro
         ? '      await db.getConnection().execute("select 1");'
-        : "      await db.execute(sql`select 1`);",
+        : `      await db.execute(${T.sql}\`select 1\`);`,
       `      ${renderHonoLogCall("healthOk", `checks: ["readiness", "db"]`)}`,
       '      return c.json({ status: "ready" });',
       "    } catch (err) {",
@@ -708,7 +690,7 @@ export function renderHttpIndex(
       // answers 404 instead of challenging for credentials that could never
       // make it resolve.  Installed here because this is where the router that
       // can answer the question lives.
-      authRequired ? "  registerRouteProbe((m, p) => allowedFor(p).includes(m));" : null,
+      authRequired ? `  ${T.registerRouteProbe}((m, p) => allowedFor(p).includes(m));` : null,
       "  app.notFound((c) => {",
       "    const allow = allowedFor(c.req.path).filter((m) => m !== c.req.method);",
       "    if (allow.length > 0) {",

@@ -257,7 +257,7 @@ function renderRecord(
   agg: string | undefined,
   kind: "Command" | "Query",
 ): string {
-  const recName = `${h.name}${kind}`;
+  const recName = `${upperFirst(h.name)}${kind}`;
   // The Mediator record FLATTENS a request record's fields (byte-identical to
   // the flat-param form); the internal return types on the entity, not its
   // `<Agg>Response` contract (the route projects at the boundary).
@@ -298,8 +298,8 @@ function renderHandlerClass(
    *  renderer still reports loudly rather than dropping. */
   resourceClasses: Map<string, string> = new Map(),
 ): string {
-  const recName = `${h.name}${kind}`;
-  const handlerName = `${h.name}Handler`;
+  const recName = `${upperFirst(h.name)}${kind}`;
+  const handlerName = `${upperFirst(h.name)}Handler`;
   const retType = internalReturnType(h, ctx);
   const ret = retType ? handlerResultCs(h, retType, ctx, ns) : "Unit";
   // An expected-failure result (`T or E`): one transaction, rolled back on an
@@ -551,7 +551,7 @@ using ${ns}.Application.${plural(agg)}.Responses;
 
 namespace ${ns}.Application.${plural(agg)}.Queries;
 
-public sealed record ${h.name}Query(${params}) : IQuery<Paged<${agg}Response>>;
+public sealed record ${upperFirst(h.name)}Query(${params}) : IQuery<Paged<${agg}Response>>;
 `;
 }
 
@@ -597,13 +597,13 @@ function renderPagedQueryHandlerClass(
   const ctor = usesUser
     ? [
         "    private readonly ICurrentUserAccessor _currentUser;",
-        `    public ${h.name}Handler(${repoParam}, ICurrentUserAccessor currentUser)`,
+        `    public ${upperFirst(h.name)}Handler(${repoParam}, ICurrentUserAccessor currentUser)`,
         "    {",
         `        ${field} = ${field.slice(1)};`,
         "        _currentUser = currentUser;",
         "    }",
       ].join("\n")
-    : `    public ${h.name}Handler(${repoParam}) => ${field} = ${field.slice(1)};`;
+    : `    public ${upperFirst(h.name)}Handler(${repoParam}) => ${field} = ${field.slice(1)};`;
   const extraUsingLines = [...extraUsings]
     .sort()
     .map((u) => `using ${u};\n`)
@@ -622,12 +622,12 @@ using ${ns}.Application.${plural(agg)}.Responses;
 ${extraUsingLines}
 namespace ${ns}.Application.${plural(agg)}.Queries;
 
-public sealed class ${h.name}Handler : IQueryHandler<${h.name}Query, Paged<${agg}Response>>
+public sealed class ${upperFirst(h.name)}Handler : IQueryHandler<${upperFirst(h.name)}Query, Paged<${agg}Response>>
 {
     private readonly I${agg}Repository ${field};
 ${ctor}
 
-    public async ValueTask<Paged<${agg}Response>> Handle(${h.name}Query query, CancellationToken cancellationToken)
+    public async ValueTask<Paged<${agg}Response>> Handle(${upperFirst(h.name)}Query query, CancellationToken cancellationToken)
     {
 ${gateLines.map((l) => `${l}\n`).join("")}        var domain = await ${field}.${csFindMethodName(pagedRunFindName(run))}(${callArgs}, cancellationToken);
         return new Paged<${agg}Response>(domain.Items.Select(d => ${projectEntityExpr("d", aggIR, ctx)}).ToList(), domain.Page, domain.PageSize, domain.Total, domain.TotalPages);
@@ -672,7 +672,7 @@ using ${ns}.Domain.Enums;
 
 namespace ${EXTERN_HANDLERS_NS(ns)};
 
-public sealed record ${h.name}${kind}(${params}) : ${iface};
+public sealed record ${upperFirst(h.name)}${kind}(${params}) : ${iface};
 `;
 }
 
@@ -688,10 +688,10 @@ using ${ns}.Domain.Enums;
 
 namespace ${EXTERN_HANDLERS_NS(ns)};
 
-/// <summary>Extern-handler contract for ${h.name} — the one external-service
+/// <summary>Extern-handler contract for ${upperFirst(h.name)} — the one external-service
 /// call this handler wraps.  Implemented by the scaffold-once, user-owned
-/// [ExternHandler] class ${h.name}ExternHandler (regeneration never overwrites it).</summary>
-public interface I${h.name}Handler
+/// [ExternHandler] class ${upperFirst(h.name)}ExternHandler (regeneration never overwrites it).</summary>
+public interface I${upperFirst(h.name)}Handler
 {
     ${ret} Handle(${externPortParams(h)});
 }
@@ -700,7 +700,7 @@ public interface I${h.name}Handler
 
 /** The generated Mediator handler that delegates to the injected port. */
 function renderExternHandlerClass(h: Handler, ns: string, kind: "Command" | "Query"): string {
-  const recName = `${h.name}${kind}`;
+  const recName = `${upperFirst(h.name)}${kind}`;
   const ret = h.returnType ? renderCsType(h.returnType) : "Unit";
   const iface =
     kind === "Command"
@@ -722,10 +722,10 @@ using ${ns}.Domain.Enums;
 
 namespace ${EXTERN_HANDLERS_NS(ns)};
 
-public sealed class ${h.name}Handler : ${iface}
+public sealed class ${upperFirst(h.name)}Handler : ${iface}
 {
-    private readonly I${h.name}Handler _impl;
-    public ${h.name}Handler(I${h.name}Handler impl) => _impl = impl;
+    private readonly I${upperFirst(h.name)}Handler _impl;
+    public ${upperFirst(h.name)}Handler(I${upperFirst(h.name)}Handler impl) => _impl = impl;
 
     public async ValueTask<${ret}> Handle(${recName} command, CancellationToken cancellationToken)
     {
@@ -743,7 +743,7 @@ function renderExternImpl(
   kindLabel: "commandHandler" | "queryHandler",
 ): string {
   const ret = h.returnType ? `ValueTask<${renderCsType(h.returnType)}>` : "ValueTask";
-  const msg = `extern ${kindLabel} '${h.name}' is not implemented — fill in Application/Handlers/${h.name}ExternHandler.cs`;
+  const msg = `extern ${kindLabel} '${upperFirst(h.name)}' is not implemented — fill in Application/Handlers/${upperFirst(h.name)}ExternHandler.cs`;
   return `// ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first
 // \`generate\` and NEVER overwrites it again, so your implementation survives every
 // regenerate.  Replace the \`throw\` with the extern handler's real logic.
@@ -758,7 +758,7 @@ using ${ns}.Domain.Enums;
 namespace ${EXTERN_HANDLERS_NS(ns)};
 
 [ExternHandler]
-public sealed class ${h.name}ExternHandler : I${h.name}Handler
+public sealed class ${upperFirst(h.name)}ExternHandler : I${upperFirst(h.name)}Handler
 {
     public ${ret} Handle(${externPortParams(h)})
         => throw new NotImplementedException(${JSON.stringify(msg)});
@@ -773,11 +773,14 @@ function emitExternHandler(
   kind: "Command" | "Query",
   out: Map<string, string>,
 ): void {
-  out.set(`Application/Handlers/${h.name}${kind}.cs`, renderExternRecord(h, ns, kind));
-  out.set(`Application/Handlers/I${h.name}Handler.cs`, renderExternPort(h, ns));
-  out.set(`Application/Handlers/${h.name}Handler.cs`, renderExternHandlerClass(h, ns, kind));
+  out.set(`Application/Handlers/${upperFirst(h.name)}${kind}.cs`, renderExternRecord(h, ns, kind));
+  out.set(`Application/Handlers/I${upperFirst(h.name)}Handler.cs`, renderExternPort(h, ns));
   out.set(
-    `Application/Handlers/${h.name}ExternHandler.cs`,
+    `Application/Handlers/${upperFirst(h.name)}Handler.cs`,
+    renderExternHandlerClass(h, ns, kind),
+  );
+  out.set(
+    `Application/Handlers/${upperFirst(h.name)}ExternHandler.cs`,
     renderExternImpl(h, ns, kind === "Command" ? "commandHandler" : "queryHandler"),
   );
 }
@@ -802,10 +805,14 @@ export function emitExplicitHandlers(
     emitEntryUnion(h, ctx, ns, out);
     const agg = primaryAgg(h);
     const home = handlerHome(ns, agg, "Command").dir;
-    supersede(out, `${home}/${h.name}Command.cs`, renderRecord(h, ns, ctx, agg, "Command"));
     supersede(
       out,
-      `${home}/${h.name}Handler.cs`,
+      `${home}/${upperFirst(h.name)}Command.cs`,
+      renderRecord(h, ns, ctx, agg, "Command"),
+    );
+    supersede(
+      out,
+      `${home}/${upperFirst(h.name)}Handler.cs`,
       renderHandlerClass(h, ns, ctx, agg, "Command", resourceClasses),
     );
   }
@@ -820,11 +827,11 @@ export function emitExplicitHandlers(
     if (h.returnType && pagedReturn(h.returnType)) {
       const pagedAgg = pagedRunStmt(h, ctx).aggName;
       out.set(
-        `Application/${plural(pagedAgg)}/Queries/${h.name}Query.cs`,
+        `Application/${plural(pagedAgg)}/Queries/${upperFirst(h.name)}Query.cs`,
         renderPagedQueryRecord(h, ns, ctx, pagedAgg),
       );
       out.set(
-        `Application/${plural(pagedAgg)}/Queries/${h.name}Handler.cs`,
+        `Application/${plural(pagedAgg)}/Queries/${upperFirst(h.name)}Handler.cs`,
         renderPagedQueryHandlerClass(h, ns, ctx, pagedAgg),
       );
       continue;
@@ -832,10 +839,10 @@ export function emitExplicitHandlers(
     emitEntryUnion(h, ctx, ns, out);
     const agg = primaryAgg(h);
     const home = handlerHome(ns, agg, "Query").dir;
-    supersede(out, `${home}/${h.name}Query.cs`, renderRecord(h, ns, ctx, agg, "Query"));
+    supersede(out, `${home}/${upperFirst(h.name)}Query.cs`, renderRecord(h, ns, ctx, agg, "Query"));
     supersede(
       out,
-      `${home}/${h.name}Handler.cs`,
+      `${home}/${upperFirst(h.name)}Handler.cs`,
       renderHandlerClass(h, ns, ctx, agg, "Query", resourceClasses),
     );
   }
@@ -1010,8 +1017,8 @@ export function emitExplicitRouteController(
       actions.push(
         `    [HttpGet("${explicitRoutePath(r)}")]\n` +
           routedResponseDecls("    [ProducesResponseType(200)]", false, ctx) +
-          `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
-          `    {\n        var ${RESULT_LOCAL} = await _mediator.Send(new ${h.name}Query(${queryArgs}));\n        return Ok(${RESULT_LOCAL});\n    }`,
+          `    public async Task<IActionResult> ${upperFirst(h.name)}(${actionParams})\n` +
+          `    {\n        var ${RESULT_LOCAL} = await _mediator.Send(new ${upperFirst(h.name)}Query(${queryArgs}));\n        return Ok(${RESULT_LOCAL});\n    }`,
       );
       continue;
     }
@@ -1048,7 +1055,7 @@ export function emitExplicitRouteController(
     const actionParamParts = urlParams.map((p) => urlArg.get(p.name)!.actionParam);
     let bodyRecName: string | undefined;
     if (bodyParams.length > 0) {
-      bodyRecName = `${h.name}Body`;
+      bodyRecName = `${upperFirst(h.name)}Body`;
       const fields = bodyParams
         .map((p) => `${renderCsType(p.type)} ${upperFirst(p.name)}`)
         .join(", ");
@@ -1062,7 +1069,7 @@ export function emitExplicitRouteController(
       .map((p) => urlArg.get(p.name)?.commandArg ?? `body.${upperFirst(p.name)}`)
       .join(", ");
 
-    const rec = `${h.name}${kind}`;
+    const rec = `${upperFirst(h.name)}${kind}`;
     const attr = HTTP_ATTR[r.method] ?? "HttpGet";
     // A query always returns; a command returns only with an explicit type.  A
     // scaffolded read declares `<Agg>Response` — normalise to the entity the
@@ -1155,7 +1162,7 @@ export function emitExplicitRouteController(
       `    [${attr}("${explicitRoutePath(r)}")]\n` +
         routedResponseDecls(successDecl, bodyParams.length > 0, ctx) +
         armDecls +
-        `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
+        `    public async Task<IActionResult> ${upperFirst(h.name)}(${actionParams})\n` +
         `    {\n${sendBlock}\n    }`,
     );
   }

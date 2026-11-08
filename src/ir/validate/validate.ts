@@ -25,6 +25,7 @@ import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateElixirMatchStatements } from "./checks/elixir-match-stmt-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
+import { validateHostedTypeNames } from "./checks/hosted-type-name-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
 import { validateMemberResolution } from "./checks/member-resolution-checks.js";
@@ -245,6 +246,7 @@ export function validateLoomModel(
     // merits, in every `auth { enforcement: }` mode.
     validateTenancyFilterBypass(sys, diags);
     validateDotnetNameCollisions(sys, diags);
+    validateHostedTypeNames(sys, diags);
     validateReservedFieldNames(sys, diags);
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);

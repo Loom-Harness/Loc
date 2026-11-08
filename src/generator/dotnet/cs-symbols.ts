@@ -27,6 +27,7 @@ export const CS = {
   /** EF Core's `IQueryable` / `DbContext` extensions (`ToListAsync`, …). */
   EfCore: csNsRef("Microsoft.EntityFrameworkCore"),
   NpgsqlDataSource: csRef("Npgsql", "NpgsqlDataSource"),
+  NpgsqlCommand: csRef("Npgsql", "NpgsqlCommand"),
 } as const;
 
 /** BCL namespaces whose `using` is derived from a `ref` in the text rather
