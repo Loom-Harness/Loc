@@ -2418,8 +2418,9 @@ def _wire_code(e: dict[str, object]) -> str:
     """The errors[] code of one validation error — the catalog key a client
     localizes it by.  A Loom check names its own (\`field.*\` / a rule's identity
     key / \`problem.domain-floor\` as the pydantic error TYPE); otherwise the
-    field reason is read off what pydantic found.  A native bound or pattern is
-    an unnamed rule."""
+    field reason is read off what pydantic found.  A declared field limit is
+    re-raised under its own \`field.<limit>\` type by the model's
+    \`_wire_messages\` validator."""
     kind = str(e.get("type", ""))
     if kind == "missing":
         return ${JSON.stringify(fieldCode("missing"))}

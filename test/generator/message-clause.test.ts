@@ -61,7 +61,7 @@ describe("message clause — wire refine carrier", () => {
     // becoming a messaged refine.  A string LENGTH bound is a code-point
     // predicate, not zod's code-unit `.min` (RS-31).
     expect(reactApi).toContain(
-      'sku: z.string().refine((s) => [...s].length >= 1, { message: "Sku must be at least 1 character" })',
+      'sku: z.string().refine((v: any) => [...v].length >= 1, { message: "Sku must be at least 1 character", params: { loomCode: "field.min-length", loomValues: {"min":1} } })',
     );
   });
 });

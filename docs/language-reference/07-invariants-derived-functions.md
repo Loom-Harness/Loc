@@ -130,7 +130,7 @@ raise DomainError("A project cannot exceed its budget", "invariant", "Projects.P
 
 The OWNER is the declaration whose rule namespace the name lives in: an aggregate (its invariants, its parts' invariants, every field `check` and every operation `precondition` share one namespace), a value object, a command / query handler, or a workflow. A rule declared outside every bounded context files under `_system`.
 
-An **unnamed** rule answers a generic message and carries no code: `field.rule` ("Invalid value") when the rule points at one field, otherwise `problem.domain-floor` ("Business rule violated") — both overridable in `locales/en/_chrome.json`. Its source expression (`total >= 0`) never reaches a response.
+An **unnamed** rule answers a generic message and carries no code of its own: `field.rule` ("Invalid value") on the `errors[]` entry when the wire validator refuses it at one field, otherwise `problem.domain-floor` ("Business rule violated") — both overridable in `locales/en/_chrome.json`. A rule tripped at the domain floor always answers `problem.domain-floor` with that sentence as `detail`, even when it is single-field-shaped: the `detail` is the text of the body's own `code` (`floorRuleText`, `src/generator/_i18n/rule-text.ts`). Its source expression (`total >= 0`) never reaches a response.
 
 #### Field limits
 
@@ -147,7 +147,7 @@ An unnamed rule that is a **field limit** is the exception. A field limit is a s
 | `field.length` | `s.length == 4` | `{ length }` | {length, plural, one {Must be exactly # character} other {…}} |
 | `field.pattern` | `s.matches("^…$")` | none | Not in the expected format |
 
-A two-sided limit (`n >= 1 && n <= 10`, a length range) is two checks. The code names the side the value broke, so each backend's native validator can map onto it directly: pydantic `ge`/`le`, Bean Validation `@Min`/`@Max`, Ecto `validate_number`/`validate_length`, FluentValidation `GreaterThanOrEqualTo`/`MaximumLength`. The type's own limits keep their codes: `field.integer-range` for an `int` outside int32 and `field.money-range` for a money too large for its column. A named rule keeps its identity key even when it has a limit's shape. A limit inside a `when` guard, or across two fields, is not a field limit; it stays an unnamed rule. The mapping is `fieldLimitChecks` in `src/ir/enrich/wire-policy.ts`. The node backend and the React, Vue, Svelte, Feliz and Flutter form validators read it; the .NET, Python, Java and Elixir backends and Angular still answer `field.rule` (#4473).
+A two-sided limit (`n >= 1 && n <= 10`, a length range) is two checks. The code names the side the value broke, so each backend's native validator can map onto it directly: pydantic `ge`/`le`, Bean Validation `@Min`/`@Max`, Ecto `validate_number`/`validate_length`, FluentValidation `GreaterThanOrEqualTo`/`MaximumLength`. The type's own limits keep their codes: `field.integer-range` for an `int` outside int32 and `field.money-range` for a money too large for its column. A named rule keeps its identity key even when it has a limit's shape. A limit inside a `when` guard, or across two fields, is not a field limit; it stays an unnamed rule. The mapping is `fieldLimitChecks` in `src/ir/enrich/wire-policy.ts`. The node, .NET and Python backends and every frontend's form validator read it; the Java and Elixir backends still answer `field.rule` (#4473).
 
 ```ddd
 aggregate Ticket {

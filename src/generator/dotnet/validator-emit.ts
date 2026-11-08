@@ -1,4 +1,4 @@
-import { fieldCode } from "../../ir/enrich/wire-policy.js";
+import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../../ir/enrich/wire-policy.js";
 import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
@@ -461,28 +461,51 @@ function lengthMust(check: string): string {
   return `.Must(v => v == null || ${check})`;
 }
 
-/** One FluentValidation rule for a message-less single-field pattern, carrying
- *  node's synthesized sentence (`singleFieldMessage` — "Amount must be at least
- *  1", "Code is not in the expected format") rather than FluentValidation's own
+/** The FluentValidation rules for a message-less single-field pattern, one per
+ *  side of the limit (`fieldLimitChecks`).  Each carries node's synthesized
+ *  sentence (`singleFieldMessage` — "Amount must be at least 1", "Code is not
+ *  in the expected format") rather than FluentValidation's own
  *  `'Amount' must be greater than or equal to '1'.`: one `errors[].message` per
  *  rule on every backend (D-MESSAGELESS-RULE-WIRE-MESSAGE).  The sentence holds
- *  no `{…}`, so FluentValidation's placeholder formatter leaves it verbatim. */
+ *  no `{…}`, so FluentValidation's placeholder formatter leaves it verbatim.
+ *  Its catalog code (`field.min`, …) rides `.WithErrorCode` and its bound
+ *  `.WithState` — the `errors[].code` / `params` of the 422. */
 function chainSingleFieldFluent(p: SingleFieldPattern, field: string): string {
-  return `${chainSingleFieldCheck(p)}\n            .WithMessage(${csStringLiteral(singleFieldMessage(field, p))})\n            .WithErrorCode(${csStringLiteral(fieldCode("rule"))})`;
+  const message = csStringLiteral(singleFieldMessage(field, p));
+  return fieldLimitChecks(p)
+    .map((check) => {
+      const entries = Object.entries(check.params);
+      const state =
+        entries.length > 0
+          ? `\n            .WithState(_ => new System.Collections.Generic.Dictionary<string, object?> { ${entries
+              .map(([k, v]) => `[${csStringLiteral(k)}] = ${csNumber(v)}`)
+              .join(", ")} })`
+          : "";
+      return `${chainLimitCheck(check)}\n            .WithMessage(${message})\n            .WithErrorCode(${csStringLiteral(fieldCode(check.reason))})${state}`;
+    })
+    .join("");
 }
 
-function chainSingleFieldCheck(p: SingleFieldPattern): string {
-  switch (p.kind) {
+/** A bound as a C# literal: an integer as `int`, a fraction as `decimal`. */
+function csNumber(n: number): string {
+  return Number.isInteger(n) ? `${n}` : `${n}m`;
+}
+
+function chainLimitCheck(check: FieldLimitCheck): string {
+  const n = check.bound ?? 0;
+  switch (check.reason) {
+    // An exclusive bound only arises on a decimal/money field (a strict `>` on
+    // a non-integer field), so the property being ruled is a C# `decimal` —
+    // suffix the literal with `m` so `.GreaterThan(0.5m)` type-checks (a bare
+    // `0.5` is a `double` with no implicit decimal conversion).
     case "min":
-      // Exclusive bounds only arise on decimal/money fields (a strict `>` on a
-      // non-integer field), so the property being ruled is a C# `decimal` —
-      // suffix the literal with `m` so `.GreaterThan(0.5m)` type-checks (a bare
-      // `0.5` is a `double` with no implicit decimal conversion).
-      return p.exclusive ? `.GreaterThan(${p.n}m)` : `.GreaterThanOrEqualTo(${p.n})`;
+      return `.GreaterThanOrEqualTo(${n})`;
+    case "greater-than":
+      return `.GreaterThan(${n}m)`;
     case "max":
-      return p.exclusive ? `.LessThan(${p.n}m)` : `.LessThanOrEqualTo(${p.n})`;
-    case "between":
-      return `.InclusiveBetween(${p.lo}, ${p.hi})`;
+      return `.LessThanOrEqualTo(${n})`;
+    case "less-than":
+      return `.LessThan(${n}m)`;
     // FluentValidation's `.MinimumLength`/`.MaximumLength`/`.Length` count
     // `string.Length` — UTF-16 code units — while the constraint they came
     // from is defined in CODE POINTS (src/generator/_expr/code-point.ts), and
@@ -491,21 +514,21 @@ function chainSingleFieldCheck(p: SingleFieldPattern): string {
     // `v == null ||` reproduces FluentValidation's own null-skip (its length
     // validators all return true for a null value) and keeps the lambda
     // null-safe on an optional (`string?`) property.
-    case "len-min":
-      return lengthMust(`${csCodePointLength("v")} >= ${p.n}`);
-    case "len-max":
-      return lengthMust(`${csCodePointLength("v")} <= ${p.n}`);
-    case "len-eq":
-      return lengthMust(`${csCodePointLength("v")} == ${p.n}`);
-    case "len-range":
-      return lengthMust(
-        `${csCodePointLength("v")} >= ${p.lo} && ${csCodePointLength("v")} <= ${p.hi}`,
-      );
-    case "regex":
-      // FluentValidation's `.Matches` accepts a string regex; we
-      // pass the literal verbatim (already validated as a valid
-      // .NET-compatible regex at parse time).
-      return `.Matches(${csStringLiteral(p.pattern)})`;
+    case "min-length":
+      return lengthMust(`${csCodePointLength("v")} >= ${n}`);
+    case "max-length":
+      return lengthMust(`${csCodePointLength("v")} <= ${n}`);
+    case "length":
+      return lengthMust(`${csCodePointLength("v")} == ${n}`);
+    case "pattern":
+      // FluentValidation's `.Matches` accepts a string regex; we pass the
+      // literal verbatim (already validated as a valid .NET-compatible regex
+      // at parse time).
+      return `.Matches(${csStringLiteral(check.regex ?? "")})`;
+    default: {
+      const unknown: never = check.reason;
+      return unknown;
+    }
   }
 }
 

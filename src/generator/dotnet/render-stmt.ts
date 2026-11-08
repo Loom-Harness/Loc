@@ -9,7 +9,7 @@ import type {
 import { walkStmtExprsDeep } from "../../ir/util/walk.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
-import { ruleText } from "../_i18n/rule-text.js";
+import { floorRuleText } from "../_i18n/rule-text.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { csProjectType } from "./bcl-collision.js";
@@ -283,8 +283,8 @@ function precondition(
   ctx: CsRenderContext,
   traceCtx: TraceCtx,
 ): string {
-  // The rule's text (`ruleText`) — never its source expression.
-  const detail = ruleText({ expr, source, message });
+  // The rule's floor text (`floorRuleText`) — never its source expression.
+  const detail = floorRuleText({ expr, source, message });
   // A NAMED precondition in an aggregate operation carries its wire code and
   // pointer THROUGH the throw.
   const code = traceCtx.domainFloorCodes ? domainFloorCode(message) : undefined;

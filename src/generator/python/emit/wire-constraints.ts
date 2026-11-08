@@ -10,12 +10,16 @@
 // http-models` import cycle.
 // ---------------------------------------------------------------------------
 
+import {
+  type FieldLimitCheck,
+  fieldCode,
+  fieldLimitChecks,
+} from "../../../ir/enrich/wire-policy.js";
 import type { InvariantIR } from "../../../ir/types/loom-ir.js";
 import { type MergePatchField, ruleMembers } from "../../../ir/util/merge-patch.js";
 import {
   classifyForWire,
   pickErrorPath,
-  type SingleFieldPattern,
   singleFieldConstraints,
   singleFieldShape,
 } from "../../../ir/validate/invariant-classify.js";
@@ -38,11 +42,15 @@ const WRAP_HANDLER = pyRef("pydantic", "ValidatorFunctionWrapHandler");
 const INIT_ERROR_DETAILS = pyRef("pydantic_core", "InitErrorDetails");
 const PYDANTIC_CUSTOM_ERROR = pyRef("pydantic_core", "PydanticCustomError");
 
-/** One `Field(...)` kwarg plus the wire message its violation answers — the
- *  one node sends for the rule that produced it. */
+/** One `Field(...)` kwarg plus the wire message, code and params its
+ *  violation answers — the ones node sends for the rule that produced it. */
 interface FieldKwarg {
   kw: string;
   message: string;
+  /** `field.<limit>` for a recognised shape (`fieldLimitChecks`), else the
+   *  rule's generic code. */
+  code: string;
+  params: Readonly<Record<string, number>>;
 }
 
 /** Map of `field → Field(...)` constraint string for every single-field,
@@ -86,10 +94,10 @@ const KWARG_ERROR_TYPES: Readonly<Record<string, readonly string[]>> = {
  *  request DTOs) and keyed by `(field, pydantic error type)`, so only the
  *  constraint errors this table arms are re-worded: a type error
  *  (`string_type`, `int_parsing`) or a nested model's own error (non-empty
- *  relative `loc`) re-raises untouched.  The re-raise keeps the Pydantic
- *  `type` — no `msg.` prefix — so the 422 handler still omits `errors[].code`,
- *  exactly as node omits it for a message-less rule.  `null` when no field
- *  carries a constraint. */
+ *  relative `loc`) re-raises untouched.  The re-raise names the constraint's
+ *  catalog code as the Pydantic error `type` (`field.min`, …) and its bound as
+ *  the `loomParams` context, which the 422 handler answers as `errors[].code`
+ *  / `params`.  `null` when no field carries a constraint. */
 export function createFieldMessageValidator(
   invariants: InvariantIR[],
   available: ReadonlySet<string>,
@@ -98,10 +106,10 @@ export function createFieldMessageValidator(
   if (table.size === 0) return null;
   const entries: string[] = [];
   for (const [field, kwargs] of table) {
-    for (const { kw, message } of kwargs) {
+    for (const { kw, message, code, params } of kwargs) {
       for (const type of KWARG_ERROR_TYPES[kw.slice(0, kw.indexOf("="))] ?? []) {
         entries.push(
-          `                (${JSON.stringify(pythonWireIdent(field))}, ${JSON.stringify(type)}): ${JSON.stringify(message)},`,
+          `                (${JSON.stringify(pythonWireIdent(field))}, ${JSON.stringify(type)}): (${JSON.stringify(code)}, ${JSON.stringify(message)}, ${JSON.stringify(params)}),`,
         );
       }
     }
@@ -119,13 +127,14 @@ export function createFieldMessageValidator(
     "        try:",
     "            return handler(value)",
     `        except ${VALIDATION_ERROR} as err:`,
-    "            messages: dict[tuple[str, str], str] = {",
+    "            messages: dict[tuple[str, str], tuple[str, str, dict[str, object]]] = {",
     ...entries,
     "            }",
     "            for e in err.errors():",
     '                hit = messages.get((info.field_name or "", e["type"]))',
     '                if hit is not None and not e["loc"]:',
-    `                    raise ${PYDANTIC_CUSTOM_ERROR}(e["type"], hit) from None`,
+    "                    code, message, params = hit",
+    `                    raise ${PYDANTIC_CUSTOM_ERROR}(code, message, {"loomParams": params} if params else None) from None`,
     "            raise",
   );
 }
@@ -133,12 +142,13 @@ export function createFieldMessageValidator(
 /** Per field, the `Field(...)` kwargs every single-field, message-less
  *  invariant over one of `available` contributes — the one source both
  *  `createFieldConstraints` (the check) and `createFieldMessageValidator` (its
- *  wire message) read, so the two cannot disagree on which bound applies. */
+ *  wire message, code and params) read, so the two cannot disagree on which
+ *  bound applies. */
 function fieldKwargs(
   invariants: InvariantIR[],
   available: ReadonlySet<string>,
 ): Map<string, FieldKwarg[]> {
-  const byField = new Map<string, Array<{ pattern: SingleFieldPattern; message: string }>>();
+  const byField = new Map<string, FieldKwarg[]>();
   for (const inv of invariants) {
     if (!classifyForWire(inv, { available })) continue;
     // A messaged rule carries author text, so it routes through the
@@ -148,56 +158,67 @@ function fieldKwargs(
     if (inv.message) continue;
     const cons = singleFieldConstraints(inv);
     if (!cons) continue;
-    // The message node sends for this rule.  Node classifies the WHOLE
-    // invariant (`singleFieldShape`, as `takeSingleFieldChain` does): a
+    // The message and code node sends for this rule.  Node classifies the
+    // WHOLE invariant (`singleFieldShape`, as `takeSingleFieldChain` does): a
     // recognised compound like `seats >= 1 && seats <= 500` is ONE `between`
-    // with one sentence, even though Pydantic needs it as two kwargs.  A
-    // conjunction node does not recognise (`email.matches(r) && email.length
-    // <= 120`) is a zod `.refine` carrying the generic `ruleText` instead.
+    // with one sentence and one field limit per side.  A conjunction node does
+    // not recognise (`email.matches(r) && email.length <= 120`) is a zod
+    // `.refine` carrying the generic `ruleText` / `ruleCode` instead.
     const shape = singleFieldShape(inv);
     const message = shape ? singleFieldMessage(shape.field, shape.pattern) : ruleText(inv);
     for (const { field, pattern } of cons) {
       if (!available.has(field)) continue;
-      byField.set(field, [...(byField.get(field) ?? []), { pattern, message }]);
+      const kwargs = fieldLimitChecks(pattern).flatMap((check) =>
+        pydanticKwargs(check).map(
+          (kw): FieldKwarg =>
+            shape
+              ? { kw, message, code: fieldCode(check.reason), params: check.params }
+              : { kw, message, code: ruleCode(inv), params: {} },
+        ),
+      );
+      byField.set(field, [...(byField.get(field) ?? []), ...kwargs]);
     }
   }
   const out = new Map<string, FieldKwarg[]>();
-  for (const [field, patterns] of byField) {
-    const kwargs: FieldKwarg[] = [];
+  for (const [field, kwargs] of byField) {
+    const kept: FieldKwarg[] = [];
     const seen = new Set<string>();
-    for (const { pattern, message } of patterns) {
-      for (const kw of pydanticKwargs(pattern)) {
-        const key = kw.slice(0, kw.indexOf("="));
-        if (seen.has(key)) continue; // first constraint wins on a duplicate key
-        seen.add(key);
-        kwargs.push({ kw, message });
-      }
+    for (const kwarg of kwargs) {
+      const key = kwarg.kw.slice(0, kwarg.kw.indexOf("="));
+      if (seen.has(key)) continue; // first constraint wins on a duplicate key
+      seen.add(key);
+      kept.push(kwarg);
     }
-    if (kwargs.length > 0) out.set(field, kwargs);
+    if (kept.length > 0) out.set(field, kept);
   }
   return out;
 }
 
-function pydanticKwargs(p: SingleFieldPattern): string[] {
-  switch (p.kind) {
+/** The `Field(...)` kwargs one side of a field limit is checked by.  An exact
+ *  length is a `min_length` + `max_length` pair under the one `field.length`. */
+function pydanticKwargs(check: FieldLimitCheck): string[] {
+  const n = check.bound;
+  switch (check.reason) {
     case "min":
-      // Exclusive (`weight > 0.5` on a decimal/money field) → pydantic's `gt=`;
-      // inclusive keeps `ge=`.
-      return [p.exclusive ? `gt=${p.n}` : `ge=${p.n}`];
+      return [`ge=${n}`];
+    case "greater-than":
+      return [`gt=${n}`];
     case "max":
-      return [p.exclusive ? `lt=${p.n}` : `le=${p.n}`];
-    case "between":
-      return [`ge=${p.lo}`, `le=${p.hi}`];
-    case "len-min":
-      return [`min_length=${p.n}`];
-    case "len-max":
-      return [`max_length=${p.n}`];
-    case "len-eq":
-      return [`min_length=${p.n}`, `max_length=${p.n}`];
-    case "len-range":
-      return [`min_length=${p.lo}`, `max_length=${p.hi}`];
-    case "regex":
-      return [`pattern=${pyRawRegex(p.pattern)}`];
+      return [`le=${n}`];
+    case "less-than":
+      return [`lt=${n}`];
+    case "min-length":
+      return [`min_length=${n}`];
+    case "max-length":
+      return [`max_length=${n}`];
+    case "length":
+      return [`min_length=${n}`, `max_length=${n}`];
+    case "pattern":
+      return [`pattern=${pyRawRegex(check.regex ?? "")}`];
+    default: {
+      const unknown: never = check.reason;
+      return unknown;
+    }
   }
 }
 

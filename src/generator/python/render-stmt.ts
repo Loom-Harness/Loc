@@ -15,7 +15,7 @@ const PROV = {
   record: prov("record"),
 } as const;
 
-import { ruleText } from "../_i18n/rule-text.js";
+import { floorRuleText } from "../_i18n/rule-text.js";
 import { renderPyExpr, renderPyNegatedGuard, renderPyType } from "./render-expr.js";
 import { pyRuleParams } from "./wire-policy-py.js";
 
@@ -156,7 +156,7 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
       // A NAMED precondition in an aggregate operation carries its wire code
       // and pointer THROUGH the raise.
       const code = ctx.domainFloorCodes ? domainFloorCode(s.message) : undefined;
-      const text = JSON.stringify(ruleText(s));
+      const text = JSON.stringify(floorRuleText(s));
       const params = code ? pyRuleParams({ expr: s.expr }, renderPyExpr) : undefined;
       const thrown = code
         ? `raise ${PY.DomainError}(${text}, "precondition", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(s))}${params ? `, ${params}` : ""})`

@@ -354,7 +354,7 @@ export function dtoParam(
   //
   // This makes .NET publish no length bound at all, which is what java
   // already does.  Publishing the bounds a `len-*` invariant DOES declare
-  // (node emits them from `openapiLengthMeta`) is a separate slice: it has to
+  // (node emits them from `openapiLimitMeta`) is a separate slice: it has to
   // go through the schema-document layer on both backends, because the
   // DataAnnotations that would publish them — `[MinLength]` / `[MaxLength]` —
   // also ENFORCE them, in UTF-16 code units rather than the code points the

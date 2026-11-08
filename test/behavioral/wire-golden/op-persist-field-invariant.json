@@ -37,7 +37,7 @@
       "status": 422,
       "body": {
         "code": "problem.domain-floor",
-        "detail": "Invalid value",
+        "detail": "Business rule violated",
         "instance": "/api/counters/{id}/set_qty",
         "status": 422,
         "title": "Unprocessable Entity",

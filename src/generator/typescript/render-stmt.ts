@@ -8,7 +8,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { escapeTsIdent } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
-import { ruleText } from "../_i18n/rule-text.js";
+import { floorRuleText } from "../_i18n/rule-text.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import type { ChunkMark } from "../_trace/sourcemap.js";
@@ -363,9 +363,9 @@ function precondition(
   index: number,
   traceCtx: TraceCtx,
 ): string {
-  // The rule's text (`ruleText`) is the domain-floor detail — never its
+  // The rule's floor text (`floorRuleText`) is the domain-floor detail — never its
   // source expression.
-  const detail = ruleText({ expr, source, message });
+  const detail = floorRuleText({ expr, source, message });
   // A NAMED precondition in an aggregate operation carries its wire code and
   // pointer THROUGH the throw, so the router's domain-floor answer
   // can add the `errors[]` entry the wire rung would have carried.

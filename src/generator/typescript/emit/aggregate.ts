@@ -38,7 +38,7 @@ import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { escapeTargetFieldMember, escapeTargetMember } from "../../../util/target-identifiers.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
-import { ruleText } from "../../_i18n/rule-text.js";
+import { floorRuleText } from "../../_i18n/rule-text.js";
 import { constructionSeededFields } from "../../construction-default.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
 import {
@@ -762,9 +762,9 @@ function renderEntity(
   // Op context comes from the implicit `__op` parameter on the trace-on
   // signature of `_assertInvariants`.
   const invariants = e.invariants.map((inv, i) => {
-    // The rule's text (`ruleText`) is the domain-floor detail — never its
+    // The rule's floor text (`floorRuleText`) is the domain-floor detail — never its
     // source expression.
-    const text = JSON.stringify(ruleText(inv));
+    const text = JSON.stringify(floorRuleText(inv));
     // A NAMED invariant / field check carries its wire code and pointer
     // THROUGH the throw — the domain floor then answers the same
     // `errors[]` entry the wire rung carries for the rule.

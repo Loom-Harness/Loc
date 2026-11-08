@@ -41,7 +41,7 @@ export class Product {
   }
 
   private _assertInvariants(): void {
-    if (!([...this._sku].length > 0)) throw new DomainError("Invalid value", "invariant");
+    if (!([...this._sku].length > 0)) throw new DomainError("Business rule violated", "invariant");
   }
 
   static _create(state: { id: Ids.ProductId; sku: string; price: Money; version: number }): Product {

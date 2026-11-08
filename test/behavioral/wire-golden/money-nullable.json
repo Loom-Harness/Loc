@@ -221,7 +221,7 @@
       "status": 422,
       "body": {
         "code": "problem.domain-floor",
-        "detail": "Invalid value",
+        "detail": "Business rule violated",
         "instance": "/api/quotes/{id}/bid",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -235,7 +235,7 @@
       "status": 422,
       "body": {
         "code": "problem.domain-floor",
-        "detail": "Invalid value",
+        "detail": "Business rule violated",
         "instance": "/api/quotes/{id}/bid",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -348,7 +348,7 @@
       "status": 422,
       "body": {
         "code": "problem.domain-floor",
-        "detail": "Invalid value",
+        "detail": "Business rule violated",
         "instance": "/api/ledgers/{id}/spend",
         "status": 422,
         "title": "Unprocessable Entity",

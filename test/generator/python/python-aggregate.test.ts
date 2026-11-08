@@ -52,7 +52,8 @@ describe("python aggregate emission", () => {
     const order = files.get("api/app/domain/order.py")!;
     expect(order).toContain("parent_id: OrderId");
     expect(order).toContain("    def parent_id(self) -> OrderId:");
-    expect(order).toContain('            raise DomainError("Invalid value", "invariant")');
+    // An unnamed rule at the domain floor answers the floor's own sentence.
+    expect(order).toContain('            raise DomainError("Business rule violated", "invariant")');
   });
 
   it("operations guard preconditions and re-assert invariants when void", async () => {

@@ -45,9 +45,9 @@ export const ERROR_CODE_ROWS: readonly ErrorCodeRow[] = [
     platform: "dotnet",
     wireLegs: ["dotnet", "dapper"],
     status: "done",
-    fieldLimits: LIMITS_PENDING,
+    fieldLimits: "done",
   },
-  { platform: "python", wireLegs: ["python"], status: "done", fieldLimits: LIMITS_PENDING },
+  { platform: "python", wireLegs: ["python"], status: "done", fieldLimits: "done" },
   {
     platform: "java",
     wireLegs: ["java"],

@@ -52,10 +52,10 @@ public sealed class Customer
     private void AssertInvariants()
     {
         if (!(this.Username != this.Email)) throw new DomainException("Business rule violated", DomainErrorKind.Invariant);
-        if (!(Regex.IsMatch(this.Username, "^[a-z][a-z0-9_]*$"))) throw new DomainException("Invalid value", DomainErrorKind.Invariant);
-        if (!(this.Username.EnumerateRunes().Count() >= 3 && this.Username.EnumerateRunes().Count() <= 32)) throw new DomainException("Invalid value", DomainErrorKind.Invariant);
+        if (!(Regex.IsMatch(this.Username, "^[a-z][a-z0-9_]*$"))) throw new DomainException("Business rule violated", DomainErrorKind.Invariant);
+        if (!(this.Username.EnumerateRunes().Count() >= 3 && this.Username.EnumerateRunes().Count() <= 32)) throw new DomainException("Business rule violated", DomainErrorKind.Invariant);
         if (!(Regex.IsMatch(this.Email, "^[^@]+@[^@]+\\.[^@]+$") && this.Email.EnumerateRunes().Count() <= 120)) throw new DomainException("Business rule violated", DomainErrorKind.Invariant);
-        if (!(this.Age >= 18 && this.Age <= 150)) throw new DomainException("Invalid value", DomainErrorKind.Invariant);
+        if (!(this.Age >= 18 && this.Age <= 150)) throw new DomainException("Business rule violated", DomainErrorKind.Invariant);
     }
 
     public sealed class __State

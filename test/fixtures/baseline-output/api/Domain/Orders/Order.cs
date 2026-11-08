@@ -37,7 +37,7 @@ public sealed class Order
     public void AddLine(ProductId productId, int qty)
     {
         if (!(this.IsMutable())) throw new DomainException("Business rule violated", DomainErrorKind.Precondition);
-        if (!(qty > 0)) throw new DomainException("Invalid value", DomainErrorKind.Precondition);
+        if (!(qty > 0)) throw new DomainException("Business rule violated", DomainErrorKind.Precondition);
         _lines.Add(OrderLine._Create(new OrderLine.__State { Id = OrderLineId.New(), ParentId = this.Id, ProductId = productId, Quantity = qty }));
         AssertInvariants();
     }

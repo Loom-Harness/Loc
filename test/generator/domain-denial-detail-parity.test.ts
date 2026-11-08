@@ -81,13 +81,21 @@ system Denials {
 
 /** The two messages, built by the SAME rule on every backend.  These literals
  *  are the contract — a backend that paraphrases one of them fails here.  An
- *  UNNAMED precondition answers the generic rule text (`ruleText` — "Invalid
- *  value" for a single-field rule), never its source; the `requires` detail
+ *  UNNAMED precondition tripped at the domain floor answers the text of the
+ *  floor's own code, `problem.domain-floor` (`floorRuleText`), never its
+ *  source; java and elixir still answer the single-field `field.rule` text
+ *  until their domain floor follows (#4473).  The `requires` detail
  *  still names its predicate.  The predicates deliberately contain no STRING
  *  literal: each backend escapes quotes differently inside its own emitted
  *  string literal, which would make the expectation about escaping rather than
  *  about the message. */
-const PRECONDITION_DETAIL = "Invalid value";
+const PRECONDITION_DETAIL: Readonly<Record<string, string>> = {
+  node: "Business rule violated",
+  dotnet: "Business rule violated",
+  python: "Business rule violated",
+  java: "Invalid value",
+  elixir: "Invalid value",
+};
 const FORBIDDEN_DETAIL = "Forbidden: currentUser.level > 2";
 /** …and when the author writes `message "…"`, THAT is the detail — the derived
  *  form must not appear for that statement.  Elixir used to drop the clause
@@ -117,7 +125,7 @@ describe("RS-15 — domain-floor denials are 422 with an occurrence-specific det
   for (const platform of ["node", "dotnet", "java", "python", "elixir"]) {
     it(`${platform}: the precondition message is the generic rule text, not its source`, async () => {
       const out = await emit(platform);
-      expect(out).toContain(PRECONDITION_DETAIL);
+      expect(out).toContain(PRECONDITION_DETAIL[platform]);
       expect(out).not.toContain("Precondition failed: total > 0");
     });
 

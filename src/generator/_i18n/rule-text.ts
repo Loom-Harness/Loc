@@ -52,3 +52,17 @@ export function ruleText(rule: Pick<InvariantIR, "expr" | "guard" | "source" | "
   if (rule.message) return namedRuleText(rule.message);
   return wireErrorMessage(genericRuleKey(rule));
 }
+
+/** The `detail` a rule tripped at the DOMAIN FLOOR answers with — the text of
+ *  the same key as the floor's `code`.  A named rule carries its identity key
+ *  through the throw, so its text is its named text; an unnamed one answers
+ *  the plain floor body (`problem.domain-floor`), so its text is the
+ *  domain-floor sentence even when the rule is single-field-shaped (that
+ *  shape's `field.rule` text belongs to the wire rung's `errors[]` entry,
+ *  which names the field). */
+export function floorRuleText(
+  rule: Pick<InvariantIR, "expr" | "guard" | "source" | "message">,
+): string {
+  if (rule.message) return namedRuleText(rule.message);
+  return wireErrorMessage(wireCode("domain-floor"));
+}

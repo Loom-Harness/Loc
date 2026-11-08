@@ -45,10 +45,10 @@ export class Customer {
 
   private _assertInvariants(): void {
     if (!(this._username !== this._email)) throw new DomainError("Business rule violated", "invariant");
-    if (!(/^[a-z][a-z0-9_]*$/.test(this._username))) throw new DomainError("Invalid value", "invariant");
-    if (!([...this._username].length >= 3 && [...this._username].length <= 32)) throw new DomainError("Invalid value", "invariant");
+    if (!(/^[a-z][a-z0-9_]*$/.test(this._username))) throw new DomainError("Business rule violated", "invariant");
+    if (!([...this._username].length >= 3 && [...this._username].length <= 32)) throw new DomainError("Business rule violated", "invariant");
     if (!(/^[^@]+@[^@]+\.[^@]+$/.test(this._email) && [...this._email].length <= 120)) throw new DomainError("Business rule violated", "invariant");
-    if (!(this._age >= 18 && this._age <= 150)) throw new DomainError("Invalid value", "invariant");
+    if (!(this._age >= 18 && this._age <= 150)) throw new DomainError("Business rule violated", "invariant");
   }
 
   static _create(state: { id: Ids.CustomerId; username: string; email: string; age: number; version: number }): Customer {

@@ -16,7 +16,7 @@
 // ProblemDetails domain-floor arm).  `code` is the rule's identity key
 // `<Ctx>.<Owner>.rule.<name>` — byte identical to the wire rung's, so one
 // catalog entry serves both rungs.  An UNNAMED rule keeps the plain
-// domain-floor body: no code, and the generic text of `ruleText` — never the
+// domain-floor body: the `problem.domain-floor` code and its sentence (`floorRuleText`) — never the
 // rule's source expression.
 //
 // The pointer is derived, not stamped: `/<field>` when the rule is
@@ -38,7 +38,7 @@ import type {
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { walkStmtsDeep, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { singleFieldShape } from "../../ir/validate/invariant-classify.js";
-import { ruleText } from "./rule-text.js";
+import { floorRuleText } from "./rule-text.js";
 
 /** True when some aggregate the context emits carries a NAMED rule that can
  *  trip at the domain floor — an `invariant` / field `check` (both checked after
@@ -90,7 +90,7 @@ export function workflowPreconditionMessages(
 }
 
 /** The `throw`/`raise` arguments a WORKFLOW-body precondition hands its
- *  backend's domain error: the rule's text (`ruleText`), the refusing rung
+ *  backend's domain error: the rule's floor text (`floorRuleText`), the refusing rung
  *  `kind` (spelled as the backend's own expression, already in generated-source
  *  form), and — for a named one — the identity-key code + pointer an operation
  *  precondition carries.
@@ -102,7 +102,7 @@ export function workflowPreconditionThrowArgs(
   st: Pick<InvariantIR, "expr" | "guard" | "source" | "message">,
   kind: string,
 ): string {
-  const detail = JSON.stringify(ruleText(st));
+  const detail = JSON.stringify(floorRuleText(st));
   const code = domainFloorCode(st.message);
   if (code === undefined) return `${detail}, ${kind}`;
   return `${detail}, ${kind}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(st))}`;

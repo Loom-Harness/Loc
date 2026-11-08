@@ -47,7 +47,7 @@ public sealed class Product
 
     private void AssertInvariants()
     {
-        if (!(this.Sku.EnumerateRunes().Count() > 0)) throw new DomainException("Invalid value", DomainErrorKind.Invariant);
+        if (!(this.Sku.EnumerateRunes().Count() > 0)) throw new DomainException("Business rule violated", DomainErrorKind.Invariant);
     }
 
     public sealed class __State
