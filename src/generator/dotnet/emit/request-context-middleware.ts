@@ -45,14 +45,14 @@ export function renderRequestContextMiddleware(
     ? `
     /// <summary>The version in an entity-tag: a strong tag <c>"3"</c>, a weak tag
     /// <c>W/"3"</c> or a bare <c>3</c>.  False for anything else.</summary>
-    private static bool TryParseIfMatch(string raw, out int version)
+    private static bool TryParseIfMatch(string raw, out int tagged)
     {
-        version = 0;
+        tagged = 0;
         var tag = raw.StartsWith("W/", StringComparison.Ordinal) ? raw[2..] : raw;
         if (tag.Length >= 2 && tag[0] == '\\"' && tag[^1] == '\\"') tag = tag[1..^1];
         if (tag.Length == 0) return false;
         foreach (var c in tag) if (!char.IsAsciiDigit(c)) return false;
-        return int.TryParse(tag, out version);
+        return int.TryParse(tag, out tagged);
     }
 
     /// <summary>RFC 7807 400 for an <c>If-Match</c> that is not an entity-tag over a version.</summary>

@@ -2145,9 +2145,9 @@ _IF_MATCH = re.compile(r'^(?:W/)?(?:"(\\d+)"|(\\d+))$')
 
 
 def parse_if_match(request: Request) -> int | None:
-    """The client's expected version from \`If-Match\`, or None (absent or \`*\`:
-    no precondition, so the just-loaded version stands).  Anything that is not
-    an entity-tag over a version is a malformed request."""
+    """The client's expected row_version from \`If-Match\`, or None (absent or
+    \`*\`: no precondition, so the just-loaded row_version stands).  Anything
+    that is not a numeric entity-tag is a malformed request."""
     header = request.headers.get("if-match")
     if header is None:
         return None

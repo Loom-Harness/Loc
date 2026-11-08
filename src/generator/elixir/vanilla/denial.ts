@@ -283,7 +283,7 @@ export function renderMalformedIfMatchErrorModule(appModule: string): string {
   return `# Auto-generated.
 defmodule ${appModule}.MalformedIfMatchError do
   @moduledoc """
-  An \`If-Match\` request header that is not \`*\` or a version tag.
+  An \`If-Match\` request header that is not \`*\` or a numeric entity-tag.
   """
   defexception [:message]
 
