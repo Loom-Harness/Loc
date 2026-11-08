@@ -22,13 +22,16 @@ import type {
   AggregateIR,
   BoundedContextIR,
   ExprIR,
+  FieldIR,
   FindIR,
   TestIR,
+  TestPrincipalIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { repoVerbMethod, repoVerbOpAt } from "../../../util/repository-contract.js";
 import { renderTsExpr } from "../render-expr.js";
+import { T } from "../ts-symbols.js";
 import { renderCreateInput, renderExplicitMatcher, testBodyValueImports } from "./tests.js";
 
 /** A repository find on `agg` named `name`, or undefined. */
@@ -108,7 +111,12 @@ function reassignedBindings(t: TestIR): Set<string> {
 /** Render one integration-test statement.  Creates and mutating ops persist via
  *  the repository; let-bound finds await a repository read; everything else
  *  defers to the shared expression / matcher renderers. */
-function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, reassigned: Set<string>): string[] {
+function renderStmt(
+  s: TestStmtIR,
+  ctx: BoundedContextIR,
+  reassigned: Set<string>,
+  user: readonly FieldIR[] | undefined,
+): string[] {
   switch (s.kind) {
     case "let": {
       const create = createCallOf(s.expr, ctx);
@@ -163,6 +171,10 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, reassigned: Set<string
       const inner = renderTsExpr(s.expr);
       return [`await expect(async () => { ${inner}; }).rejects.toThrow();`];
     }
+    case "principal":
+      // A body `as { … }` line: rebind the ambient frame's principal.
+      if (!user) return [];
+      return [`await ${T.actAsUser}(${renderPrincipalClaims(s.principal, user)});`];
     default:
       // let / expression / expect(-throws) are the surviving integration shapes;
       // anything else is an IR-validator gap.
@@ -170,12 +182,55 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, reassigned: Set<string
   }
 }
 
-function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
+/** One `as { … }` claim value as a TS literal of the claim's declared type:
+ *  an id claim goes through its branded `Ids` factory, every other settable
+ *  claim (`string` / `guid` / `string[]`) is plain JSON. */
+function renderClaimValue(field: FieldIR | undefined, value: string | readonly string[]): string {
+  const t = field?.type.kind === "optional" ? field.type.inner : field?.type;
+  if (t?.kind === "id" && typeof value === "string") {
+    return `Ids.${t.targetName}Id(${JSON.stringify(value)})`;
+  }
+  return JSON.stringify(value);
+}
+
+/** The claims a test runs as: the dev-stub identity with the test's
+ *  `as { … }` claims spread over it. */
+function renderPrincipalClaims(p: TestPrincipalIR | undefined, user: readonly FieldIR[]): string {
+  const overrides = (p?.claims ?? []).map(
+    (c) =>
+      `${c.name}: ${renderClaimValue(
+        user.find((f) => f.name === c.name),
+        c.value,
+      )}`,
+  );
+  return overrides.length > 0
+    ? `{ ...${T.devStubClaims}(), ${overrides.join(", ")} }`
+    : `${T.devStubClaims}()`;
+}
+
+function renderTest(
+  t: TestIR,
+  ctx: BoundedContextIR,
+  user: readonly FieldIR[] | undefined,
+): string[] {
   const reassigned = reassignedBindings(t);
-  const out: string[] = [`  it(${JSON.stringify(t.name)}, async () => {`];
-  for (const s of t.statements) out.push(...renderStmt(s, ctx, reassigned).map((l) => `    ${l}`));
-  out.push("  });");
-  return out;
+  const body = t.statements.flatMap((s) => renderStmt(s, ctx, reassigned, user));
+  if (!user) {
+    return [
+      `  it(${JSON.stringify(t.name)}, async () => {`,
+      ...body.map((l) => `    ${l}`),
+      "  });",
+    ];
+  }
+  // Under auth every repository reads its principal from the ambient request
+  // frame, so the body runs inside one — the dev-stub identity, overridden
+  // by the test's `as { … }` claims.
+  return [
+    `  it(${JSON.stringify(t.name)}, () =>`,
+    `    ${T.runAsUser}(${renderPrincipalClaims(t.principal, user)}, async () => {`,
+    ...body.map((l) => `      ${l}`),
+    "    }));",
+  ];
 }
 
 /** Emit `test/<ctx>.integration.test.ts` for a context that declares integration
@@ -190,13 +245,17 @@ export function renderContextIntegrationTest(
     /** Module `migrate` is imported from — the project's `db/migrate.ts` when
      *  it ships one, else drizzle-orm's own migrator. */
     migrator?: string;
+    /** The system's `user { … }` fields when the project emits the auth
+     *  layer (`auth/middleware.ts` + `auth/dev-stub.ts`): every test then runs
+     *  inside `runAsUser`.  Absent ⇒ no principal is bound. */
+    user?: readonly FieldIR[];
   },
 ): string | null {
   if (ctx.tests.length === 0) return null;
 
   const body: string[] = [`describe(${JSON.stringify(`${ctx.name} (integration)`)}, () => {`];
   for (const t of ctx.tests) {
-    body.push(...renderTest(t, ctx));
+    body.push(...renderTest(t, ctx, opts.user));
     body.push("");
   }
   body.push("});");

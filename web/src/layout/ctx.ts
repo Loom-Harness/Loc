@@ -40,7 +40,7 @@ import type {
   WorkspaceReadOnlyReason,
   WorkspaceSourcesError,
 } from "../workspace/workspace-sources";
-import type { PipelineState } from "../pipeline/state";
+import type { PendingMigration, PipelineState } from "../pipeline/state";
 import type {
   BlockingMigrationState,
   DispatchResult,
@@ -379,6 +379,10 @@ export interface LayoutCtx {
    *  are the reason: unrecorded model changes, or a database the recorded
    *  chain does not describe.  The database was left as it is. */
   bootPending: { migration: BlockingMigrationState; message: string } | null;
+  /** The live source against the recorded migration chain and the database
+   *  the last boot reached — re-checked on every source change.  `null`
+   *  until the first check, and for a source without a system. */
+  pendingMigration: PendingMigration | null;
   bootErrorMessage: string | null;
   dispatchSlot: DispatchResult | null;
 
@@ -621,6 +625,18 @@ export interface LayoutCtx {
    *  files, or the refusal's diagnostics), or `null` when there is no build
    *  worker or no workspace store to write to. */
   recordMigration: (name: string, allowDestructive: boolean) => Promise<RecordMigrationResult | null>;
+  /** What recording would write right now: the live tree diffed against the
+   *  chain's heads alone (no baseline source), so its migrations are exactly
+   *  the entries `recordMigration` records — every table's Initial when
+   *  there is no chain.  `null` without a build worker. */
+  previewRecordMigration: () => Promise<EvolutionResult | null>;
+  /** Whether the Record migration dialog is open. */
+  recordMigrationOpen: boolean;
+  setRecordMigrationOpen: (open: boolean) => void;
+  /** Apply the recorded migrations: Generate → Bundle → Boot, so the
+   *  backend runs the current model and its boot brings the database to the
+   *  chain's head. */
+  runApplyMigrations: () => void;
   /** Result of the last provenance-snapshot capture, or null. */
   snapshotResult: SnapshotResult | null;
   snapshotRunning: boolean;

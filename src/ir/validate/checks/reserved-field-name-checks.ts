@@ -69,12 +69,24 @@ export function validateReservedFieldNames(sys: SystemIR, diags: LoomDiagnostic[
       // One diagnostic per (record, field): an event is also reachable as a
       // same-named payload, which would otherwise report the field twice.
       const seen = new Set<string>();
+      // A contract record (`command` / `query` / `response`) copies the fields
+      // of the aggregate or part it describes — every exposed context carries
+      // one per aggregate — so a field already reported on a domain record is
+      // not reported again on the contract that mirrors it.
+      const domainFields = new Set<string>();
+      const contract = new Set(
+        ctx.payloads
+          .filter((p) => p.kind === "command" || p.kind === "query" || p.kind === "response")
+          .map((p) => p.name),
+      );
       for (const [what, owner, fields] of fieldHolders(ctx)) {
         for (const f of fields) {
           if (!DUNDER.test(f.name)) continue;
           const key = `${owner}/${f.name}`;
           if (seen.has(key)) continue;
           seen.add(key);
+          if (what === "aggregate" || what === "entity part") domainFields.add(f.name);
+          else if (what === "payload" && contract.has(owner) && domainFields.has(f.name)) continue;
           diags.push({
             severity: "error",
             message: diagMessage("loom.dunder-field-name", {

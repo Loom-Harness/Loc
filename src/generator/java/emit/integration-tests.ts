@@ -23,14 +23,18 @@ import type {
   FieldIR,
   FindIR,
   TestIR,
+  TestPrincipalIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
+import { bindingsAssertedAbsent } from "../../../ir/util/test-null-subjects.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
+import { javaRef } from "../../_imports/java.js";
 import { jid } from "../java-ident.js";
 import { packagePath } from "../naming.js";
 import { type JavaRenderContext, renderJavaExpr } from "../render-expr.js";
+import { stubUserValue } from "./auth.js";
 import {
   javaBareToThrow,
   renderCreateCall,
@@ -65,7 +69,13 @@ const repoField = (aggName: string): string => `${lowerFirst(aggName)}Repository
  *  `findById` (and an optional/union custom find) returns `Optional<Agg>` → we
  *  `.orElseThrow()` so the binding is a plain `Agg` (mirrors node's non-null
  *  assertion). `getById` already returns `Agg` (throws); `findAll` a `List`. */
-function findCallOf(e: ExprIR, ctx: BoundedContextIR, rctx: JavaRenderContext): string | undefined {
+function findCallOf(
+  e: ExprIR,
+  ctx: BoundedContextIR,
+  rctx: JavaRenderContext,
+  /** The binding is asserted null: unwrap an `Optional` to null, not a throw. */
+  absent = false,
+): string | undefined {
   if (e.kind !== "method-call" || e.receiver.kind !== "ref") return undefined;
   const aggName = (e.receiver as { name: string }).name;
   if (!ctx.repositories.some((r) => r.aggregateName === aggName)) return undefined;
@@ -78,11 +88,47 @@ function findCallOf(e: ExprIR, ctx: BoundedContextIR, rctx: JavaRenderContext): 
       return renderJavaExpr(a, rctx);
     })
     .join(", ");
-  if (op === "load-optional") return `${field}.findById(${args}).orElseThrow()`;
+  const unwrap = absent ? ".orElse(null)" : ".orElseThrow()";
+  if (op === "load-optional") return `${field}.findById(${args})${unwrap}`;
   if (op === "load") return `${field}.getById(${args})`;
   if (op === "select-many") return `${field}.findAll()`;
   const optional = custom?.returnType.kind === "optional" || custom?.returnType.kind === "union";
-  return `${field}.${jid(e.member)}(${args})${optional ? ".orElseThrow()" : ""}`;
+  return `${field}.${jid(e.member)}(${args})${optional ? unwrap : ""}`;
+}
+
+/** One `as { … }` claim value as a Java expression of the claim's declared
+ *  type. */
+function renderClaimValue(field: FieldIR | undefined, value: string | readonly string[]): string {
+  const t = field?.type.kind === "optional" ? field.type.inner : field?.type;
+  if (typeof value !== "string") {
+    return `java.util.List.of(${value.map((v) => JSON.stringify(v)).join(", ")})`;
+  }
+  const uuid = `java.util.UUID.fromString(${JSON.stringify(value)})`;
+  if (t?.kind === "id") return `new ${t.targetName}Id(${uuid})`;
+  if (t?.kind === "primitive" && t.name === "guid") return uuid;
+  return JSON.stringify(value);
+}
+
+/** `CurrentUserAccessor.actAs(new User(…))` — the dev-stub identity, by
+ *  position, with the test's `as { … }` claims replaced. */
+function renderActAs(
+  p: TestPrincipalIR | undefined,
+  user: readonly FieldIR[],
+  basePkg: string,
+): string {
+  const args = user.map((f) => {
+    const claim = p?.claims.find((c) => c.name === f.name);
+    return claim ? renderClaimValue(f, claim.value) : stubUserValue(f.type);
+  });
+  const auth = `${basePkg}.auth`;
+  return `${javaRef(auth, "CurrentUserAccessor")}.actAs(new ${javaRef(auth, "User")}(${args.join(", ")}));`;
+}
+
+interface PrincipalScope {
+  user: readonly FieldIR[] | undefined;
+  basePkg: string;
+  /** Bindings the test asserts null — their read is not unwrapped to a throw. */
+  absent: Set<string>;
 }
 
 /** Render one integration-test statement (8-space body indent). */
@@ -91,7 +137,8 @@ function renderStmt(
   ctx: BoundedContextIR,
   rctx: JavaRenderContext,
   /** Position in the test body: mints a collision-free local per throw assertion. */
-  index = 0,
+  index: number,
+  scope: PrincipalScope,
 ): string[] {
   const I = "        ";
   switch (s.kind) {
@@ -101,7 +148,7 @@ function renderStmt(
         const create = renderCreateCall(s.expr, ctx, rctx) ?? renderJavaExpr(s.expr, rctx);
         return [`${I}var ${s.name} = ${create};`, `${I}${repoField(agg.name)}.save(${s.name});`];
       }
-      const find = findCallOf(s.expr, ctx, rctx);
+      const find = findCallOf(s.expr, ctx, rctx, scope.absent.has(s.name));
       if (find) return [`${I}var ${s.name} = ${find};`];
       return [`${I}var ${s.name} = ${renderJavaExpr(s.expr, rctx)};`];
     }
@@ -132,12 +179,20 @@ function renderStmt(
         renderJavaExpr(s.expr, rctx);
       return javaBareToThrow(s.expr, inner, `__thrown${index}`, I);
     }
+    case "principal":
+      // A body `as { … }` line: rebind the thread's ambient principal.
+      return scope.user ? [`${I}${renderActAs(s.principal, scope.user, scope.basePkg)}`] : [];
     default:
       throw new Error(`unsupported integration-test statement '${s.kind}'`);
   }
 }
 
-function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
+function renderTest(
+  t: TestIR,
+  ctx: BoundedContextIR,
+  user: readonly FieldIR[] | undefined,
+  basePkg: string,
+): string[] {
   const methodName =
     t.name
       .replace(/[^A-Za-z0-9]+/g, "_")
@@ -145,7 +200,14 @@ function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
       .replace(/^([0-9])/, "_$1") || "test";
   // Locals are declared under their source name here (`var ${s.name}`).
   const rctx = testBodyRenderContext(t, (name) => name);
-  const body = t.statements.flatMap((s, i) => renderStmt(s, ctx, rctx, i));
+  const scope: PrincipalScope = { user, basePkg, absent: bindingsAssertedAbsent(t.statements) };
+  // Under auth every principal reader reads the thread's ambient principal,
+  // so the test binds one first: the dev-stub identity with the test's
+  // `as { … }` claims.
+  const body = [
+    ...(user ? [`        ${renderActAs(t.principal, user, basePkg)}`] : []),
+    ...t.statements.flatMap((s, i) => renderStmt(s, ctx, rctx, i, scope)),
+  ];
   return [
     `    @Test`,
     `    @DisplayName(${JSON.stringify(t.name)})`,
@@ -165,11 +227,14 @@ export function renderJavaContextIntegrationTest(
   basePkg: string,
   entityPkgOf: (aggName: string) => string,
   repoPkgOf: (aggName: string) => string,
-  _userFields?: readonly FieldIR[],
+  /** The system's `user { … }` fields when the project emits the auth layer
+   *  (`auth/CurrentUserAccessor`): every test then binds a principal.
+   *  Absent ⇒ none is bound. */
+  userFields?: readonly FieldIR[],
 ): { path: string; content: string } | null {
   if (ctx.tests.length === 0) return null;
 
-  const methods = ctx.tests.flatMap((t) => renderTest(t, ctx));
+  const methods = ctx.tests.flatMap((t) => renderTest(t, ctx, userFields, basePkg));
   while (methods[methods.length - 1] === "") methods.pop();
   const bodyStr = methods.join("\n");
 
@@ -229,6 +294,16 @@ export function renderJavaContextIntegrationTest(
     `        registry.add("spring.datasource.password", () -> userInfo.length > 1 ? userInfo[1] : "");`,
     `    }`,
     ``,
+    ...(userFields
+      ? [
+          `    /** The thread's principal must not outlive its test. */`,
+          `    @${javaRef("org.junit.jupiter.api", "AfterEach")}`,
+          `    void clearPrincipal() {`,
+          `        ${javaRef(`${basePkg}.auth`, "CurrentUserAccessor")}.actAs(null);`,
+          `    }`,
+          ``,
+        ]
+      : []),
     ...methods,
     `}`,
     ``,

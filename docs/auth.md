@@ -1059,6 +1059,9 @@ Phase ⑥ computes that once (`src/ir/enrich/mask-taint.ts`), and each sink eith
 | a read whose predicate reads a masked field — a `criterion` behind `scaffoldGet` / a `queryHandler`'s `Repo.find(C)` / `Repo.all(C)` / a retrieval | inherits the mask as a leading `requires` (403), evaluated before the query: a 200-or-404 on a guessed value would be an existence oracle |
 | an operation that writes a caller-supplied value into a masked field (the generic `update` among them) | inherits the mask as a hoisted `requires` (403); on a merge-patch update it runs only when the body carries the masked key |
 | a `create` | not a sink: a new row has no stored value to overwrite |
+| the synthesized `inspect` — what `toString()` / `Inspect`, and so every log line and exception, print | redacts the field as `<redacted>`, like a `sensitive` one |
+| an event whose payload reads a masked value, carried on a `channel` | refused — `loom.field-mask-event-channel` (a subscriber receives the message with no principal in scope); a folded projection of it is refused by `loom.field-mask-projection-source` |
+| a `unique (…)` key over a masked field | refused unless the create requires the mask predicate — `loom.field-mask-unique-oracle` (a 409 answers whether a guessed value exists) |
 
 Every inherited gate is the mask predicate alone.  It reads only `currentUser`
 (`loom.field-mask-not-current-user`), never the row or the value the caller
@@ -1120,6 +1123,8 @@ on another field has the same shape:
 | `loom.field-mask-principal-without-auth` | the predicate reads `currentUser` but the hosting deployable has no auth (no `auth: required` + `user {}`) — there is no principal to evaluate it against, so the field could only ever read as null; the mask-side sibling of `loom.guard-principal-without-auth` |
 | `loom.field-mask-unsupported` | the hosting backend does not emit the read redaction (none today — every backend supports it) |
 | `loom.field-mask-projection-source` | a masked aggregate is a query-time `projection` source — projection responses aren't read-masked yet, so it would leak |
+| `loom.field-mask-event-channel` | an event a `channel` carries reads a masked value in its payload |
+| `loom.field-mask-unique-oracle` | a `unique` key includes a masked field and the create does not require the mask predicate |
 | *(AST)* `'mask unless' … must be of type 'bool'` | the predicate is not a bool |
 
 ### Read gates
@@ -1506,6 +1511,13 @@ derived from the declared shape, so a non-optional field is never null and the
 same `.ddd` yields the same principal on every backend. It is a **dev
 convenience, not a production path**: register a real verifier (above) before
 shipping.
+
+The same identity is what a model's **tests** run as. A context integration
+`test` binds it (in process, through the seam the middleware binds a request's)
+and a `test e2e` block may set claims over it with an `as { … }` clause — the
+clause rides this header — so a `requires` 403 or a `mask unless` redaction
+under a second principal is assertable from the model itself
+([testing reference](language-reference/18-testing.md#running-as-a-principal)).
 
 A non-optional **id-typed** claim (`customerId: Customer id`) gets the same
 all-zero identity, but **constructed through the emitted id type** rather than

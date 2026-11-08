@@ -130,6 +130,10 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
   "loom.field-mask-principal-without-auth":
     "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
+  "loom.field-mask-event-channel":
+    "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
+  "loom.field-mask-unique-oracle":
+    "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
   "loom.derived-type-mismatch":
     "07-invariants-derived-functions.md#derived--a-computed-read-only-field",
   "loom.property-default-type-mismatch": "03-domain-modeling.md#fields-property",
@@ -493,6 +497,15 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.test-statement-invalid": "18-testing.md#test---an-in-process-unit-test",
   "loom.member-unresolved": "05-expressions.md#member-access--calls",
   "loom.test-redundant-for": "18-testing.md#test---an-in-process-unit-test",
+  "loom.test-principal-placement": "18-testing.md#running-as-a-principal",
+  "loom.test-principal-value": "18-testing.md#running-as-a-principal",
+  "loom.test-principal-duplicate-claim": "18-testing.md#running-as-a-principal",
+  "loom.test-principal-no-user": "18-testing.md#running-as-a-principal",
+  "loom.test-principal-unknown-claim": "18-testing.md#running-as-a-principal",
+  "loom.test-principal-claim-type": "18-testing.md#running-as-a-principal",
+  "loom.e2e-principal-claim-not-carried": "18-testing.md#running-as-a-principal",
+  "loom.e2e-principal-oidc": "18-testing.md#running-as-a-principal",
+  "loom.e2e-principal-ui": "18-testing.md#running-as-a-principal",
   "loom.e2e-unsupported-statement":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-unrouted-verb": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",

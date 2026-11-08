@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import { inlineDapperScope } from "../_helpers/dapper-scope.js";
 import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
 import { ectoScope } from "../_helpers/ecto-scope.js";
-import { generateSystemFiles } from "../_helpers/index.js";
+import { generateSystemFilesUnchecked } from "../_helpers/index.js";
 
 type Layout = "sharedTable" | "ownTable";
 
@@ -47,7 +47,10 @@ system Fleets {
 }
 
 async function gen(platform: string, layout: Layout): Promise<Map<string, string>> {
-  const files = await generateSystemFiles(model(platform, layout));
+  const files = await generateSystemFilesUnchecked(
+    model(platform, layout),
+    "the capability table refuses `softDeletable` on an abstract base (no behavioural fixture runs it); this pins the emitter for the day one does",
+  );
   return new Map([...files].map(([k, v]) => [k.replace(/^api\//, ""), v]));
 }
 

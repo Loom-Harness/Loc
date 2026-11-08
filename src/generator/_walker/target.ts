@@ -14,7 +14,7 @@
 //   3. API call lowering — React-Query hook hoisting
 //      vs LiveView's direct context-function call
 //   4. Helper imports — `import { fn } from "..."` vs Elixir `alias`
-//   5. `match { ... }` — chained ternary vs HEEx `<%= case ... %>`
+//   5. `match { ... }` — chained ternary vs HEEx `<%= cond do ... %>`
 //   6. Cross-page navigation — `useNavigate()` vs `push_navigate(socket, to: ...)`
 //
 // `WalkerTarget` is the contract every framework-specific walker
@@ -39,42 +39,27 @@
 // conformance test.
 //
 // SCOPE.  The contract covers the CROSS-FRAMEWORK seams a new frontend
-// must implement to reuse the shared walker core.  It began at 13
-// methods (9 lowering seams + 4 markup seams) for the React/HEEx pair;
-// it is now ~70 members, grown by the Vue / Svelte / Angular / Feliz /
-// Flutter ports and by later features (stores, variant-match, the
-// interactive-table and i18n seams).  Most later additions are OPTIONAL
-// so a not-yet-ported frontend still typechecks and fails LOUD at the
-// unimplemented seam rather than silently dropping the construct.  Do
-// not read a count into this header — count the interface.
+// must implement to reuse the shared walker core: the lowering seams above,
+// the markup seams (comments, conditional children, the style attribute,
+// text escaping — where Svelte, Angular, F# and Dart diverge from JSX), and
+// the feature seams for stores, variant-match, collection ops and their
+// lambdas (`renderCollectionOp` / `exprLambda`), event and named handlers
+// (`renderEventHandler` / `renderNamedHandler`), user components
+// (`renderUserComponent`), the interactive table and i18n.  Most seams are
+// OPTIONAL, so a frontend that has not ported one still typechecks and fails
+// LOUD at the unimplemented seam rather than silently dropping the construct.
+// Count the interface, not this header.
 //
-// The markup seams (renderComment /
-// renderConditionalChild / renderStyleAttr / escapeText) joined for
-// the Svelte port: Svelte 5 shares JSX's `{expr}` interpolation and
-// `<Comp x={y}/>` invocation syntax (those stay hardcoded in the
-// shared walker), but diverges on comments (`<!-- -->` vs
-// `{/* */}`), conditional CHILD rendering (`{#if}` blocks vs
-// ternaries returning markup), the style attribute (CSS string vs
-// JSX object), and text escaping.  Out of scope deliberately:
+// Out of scope deliberately:
 //
-//   - Position-dependent `this`/`id` rendering — HEEx oddity; JSX
-//     frameworks render identically in template + handler.
-//   - Toast / put_flash — framework-private rendering surface.
-//   - User-component invocation — handled inline per framework
-//     (JSX <Comp /> vs LiveView functional component).
-//   - Collection-op rendering (`xs.map(...)`, `xs.sum(...)`) —
-//     React uses native JS collection methods; HEEx uses Enum.*
-//     idioms.  No shared lowering, no contract.
-//   - Lambda hoisting — JSX inlines lambdas; HEEx hoists to
-//     handle_event clauses.  Framework-shaped.
+//   - Position-dependent `this` rendering (`@record` in template position,
+//     `socket.assigns.record` in a handler) — a HEEx oddity its own engine
+//     handles; the JSX-family frameworks render `this` the same everywhere.
+//   - Toast / put_flash — a framework-private rendering surface.
 //
-// Adding any of the above to `WalkerTarget` would extend interface
-// surface for zero new-frontend benefit (the 4 deferred items
-// outside HEEx are all framework-private rendering details, not
-// shared lowering decisions).  Honours the retro's "backends stay
-// idiomatic" principle: shared semantics live in the IR + walker
-// core; framework-flavoured emission stays in framework-flavoured
-// code.
+// Adding either to `WalkerTarget` would extend the interface for no
+// new-frontend benefit: shared semantics live in the IR + walker core, and
+// framework-flavoured emission stays in framework-flavoured code.
 // ---------------------------------------------------------------------------
 
 import type { ExprIR, LiteralKind, StateFieldIR, TypeIR } from "../../ir/types/loom-ir.js";

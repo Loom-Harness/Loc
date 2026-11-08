@@ -10,7 +10,7 @@ import type {
   TestStmtIR,
   WorkflowIR,
 } from "../ir/types/loom-ir.js";
-import { walkExprDeep, walkStmtExprsDeep } from "../ir/util/walk.js";
+import { walkTestStmtExprsDeep } from "../ir/util/walk.js";
 import { intrinsicMatcherSig } from "../util/intrinsic-matchers.js";
 import { escapeTsIdent, lowerFirst, plural, snake, upperFirst } from "../util/naming.js";
 import { routeSegmentFor } from "../util/storage-names.js";
@@ -177,8 +177,7 @@ function collectReferencedWorkflows(
 function walkAllExprs(tests: TestE2EIR[], visit: (e: ExprIR) => void): void {
   for (const t of tests) {
     for (const s of t.statements) {
-      if (s.kind === "expect" || s.kind === "expect-throws") walkExprDeep(s.expr, visit);
-      else walkStmtExprsDeep(s, visit);
+      walkTestStmtExprsDeep(s, visit);
     }
   }
 }

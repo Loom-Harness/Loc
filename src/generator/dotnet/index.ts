@@ -513,18 +513,6 @@ function emitProjectFromContexts(
       const svcTests = renderServiceTestsFile(svc, ctx, ns);
       if (svcTests) out.set(`Tests/${ns}.Tests/Services/${svc.name}Tests.cs`, svcTests);
     }
-    // Context INTEGRATION test (test-placement.md) — an in-process,
-    // repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
-    // bringing the schema up (EF migrations, or the Dapper DbSchema), wiring
-    // the repos, and persisting→reading.
-    const integrationTests = renderContextIntegrationTest(
-      ctx,
-      ns,
-      system.deployable.persistence === "dapper",
-    );
-    if (integrationTests) {
-      out.set(`Tests/${ns}.Tests/${upperFirst(ctx.name)}IntegrationTests.cs`, integrationTests);
-    }
     emitWorkflows(ctx, ns, out, { routePrefix, sys: system.sys, sourcemap });
     // Explicit application layer (unfoldable-api-derivation.md, A1): emit the
     // `commandHandler` / `queryHandler` Mediator records + handlers.  A no-op
@@ -909,6 +897,31 @@ function emitProjectFromContexts(
       answersEntryResults(merged)
     ) {
       out.set("Infrastructure/Persistence/PersistencePorts.cs", renderPersistencePortAdapters(ns));
+    }
+  }
+  // Context INTEGRATION tests (test-placement.md) — an in-process,
+  // repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
+  // bringing the schema up (EF migrations, or the Dapper DbSchema), wiring
+  // the repos, and persisting→reading.  Rendered after the persistence branch
+  // (AppDbContext) and the auth layer: the test constructs the context with the accessor its
+  // constructor takes, and adds the save interceptor the app registers.
+  const dbContextSrc = out.get("Infrastructure/Persistence/AppDbContext.cs") ?? "";
+  for (const ctx of contexts) {
+    const integrationTests = renderContextIntegrationTest(
+      ctx,
+      ns,
+      system.deployable.persistence === "dapper",
+      {
+        dbContextTakesUser:
+          /AppDbContext\(DbContextOptions<AppDbContext> options, ICurrentUserAccessor/.test(
+            dbContextSrc,
+          ),
+        interceptor: out.has("Infrastructure/Persistence/AuditableInterceptor.cs"),
+        ...(authRequired && system.sys.user ? { user: system.sys.user } : {}),
+      },
+    );
+    if (integrationTests) {
+      out.set(`Tests/${ns}.Tests/${upperFirst(ctx.name)}IntegrationTests.cs`, integrationTests);
     }
   }
   // Per-operation audit shared files — the append-only audit POCO + the

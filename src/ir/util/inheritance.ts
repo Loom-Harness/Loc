@@ -66,7 +66,7 @@ function descendsFrom(agg: AggregateIR, baseName: string, pool: AggPool): boolea
  *  else the root base's, else the `sharedTable` default.  Resolving via the
  *  root (not just the direct base) keeps a multi-level chain's layout coherent
  *  — a layout declared only on the root reaches every leaf. */
-function effectiveLayout(agg: AggregateIR, pool: AggPool): "sharedTable" | "ownTable" {
+export function effectiveLayout(agg: AggregateIR, pool: AggPool): "sharedTable" | "ownTable" {
   return agg.inheritanceUsing ?? rootBaseOf(agg, pool).inheritanceUsing ?? DEFAULT_LAYOUT;
 }
 
