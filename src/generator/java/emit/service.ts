@@ -456,7 +456,14 @@ export function renderJavaService(
       return `        if (!(${renderJavaExpr(g.expr, {
         thisName: "aggregate",
         accessorProps: true,
-        paramExpr: (n) => locals.get(n),
+        // A merge-patch update's gate reads the MERGED value (an absent key
+        // is the stored value) — the value the operation will receive.
+        paramExpr: (n) => {
+          const local = locals.get(n);
+          return local !== undefined && isMergePatchUpdate(op)
+            ? `(request.has(${JSON.stringify(n)}) ? ${local} : aggregate.${jid(n)}())`
+            : local;
+        },
       })})) throw new ${forbidden}(${JSON.stringify(`Forbidden: ${g.source}`)});`;
     });
   const whenGateLine = (

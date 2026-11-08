@@ -3646,7 +3646,19 @@ export interface UiParamBindingIR {
 
 export type StmtIR =
   | { kind: "precondition"; expr: ExprIR; source: string; message?: MessageIR; origin?: OriginRef }
-  | { kind: "requires"; expr: ExprIR; source: string; origin?: OriginRef }
+  | {
+      kind: "requires";
+      expr: ExprIR;
+      source: string;
+      /** Set on the write gate enrichment prepends to an operation that
+       *  assigns a caller-supplied value to a `mask unless` field
+       *  (`applyMaskWriteGates`, `src/ir/enrich/mask-taint.ts`) — the masked
+       *  field's name.  It authorizes the WRITE of that one field only, so it
+       *  is not the operation's own exposure gate (`validateDefaultDeny`) and
+       *  not a client-evaluable action gate. */
+      maskWriteOf?: string;
+      origin?: OriginRef;
+    }
   | { kind: "let"; name: string; expr: ExprIR; type: TypeIR; origin?: OriginRef }
   | {
       kind: "assign";

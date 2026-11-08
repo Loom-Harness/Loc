@@ -26,6 +26,7 @@ import {
   findUsesCurrentUser,
   type InvariantIR,
   type OperationIR,
+  type ParamIR,
   type PayloadIR,
   type RepositoryIR,
   type TypeIR,
@@ -1055,6 +1056,21 @@ function destroyRoute(
  *  Emitted post-load (so a row-aware term reads the loaded `found`) and BEFORE
  *  the `when` state gate: 403 precedes 409, so an unauthorized caller never
  *  learns the row's state. */
+/** The value an operation route passes for param `p` (and its hoisted gates
+ *  read).  A merge-patch update (RS-47) passes the stored value for every key
+ *  the body left out: a required field's `None` can only mean absent (the
+ *  model refused an explicit null); an optional one asks `model_fields_set`. */
+function pyOperationArg(op: OperationIR, p: ParamIR, ctx: BoundedContextIR): string {
+  const attr = `body.${pythonWireIdent(p.name)}`;
+  const value = pyWireToDomain(attr, p.type, ctx);
+  if (!mergePatchFields(op)) return value;
+  const present =
+    p.type.kind === "optional"
+      ? `${JSON.stringify(pythonWireIdent(p.name))} in body.model_fields_set`
+      : `${attr} is not None`;
+  return `(${value} if ${present} else found.${pythonIdent(p.name)})`;
+}
+
 function requiresGate(op: OperationIR, ctx: BoundedContextIR): string[] {
   return operationGates(op).flatMap((g) => {
     // `renderPyNegatedGuard` (not a bare `not (...)`) so a membership gate keeps
@@ -1064,9 +1080,10 @@ function requiresGate(op: OperationIR, ctx: BoundedContextIR): string[] {
       thisName: "found",
       // Operation params are NOT locals here — the handler holds them at the
       // wire-read expression the call is about to pass.
+      // The merged value on a merge-patch update — what the call passes.
       paramExpr: (name) => {
         const p = op.params.find((q) => q.name === name);
-        return p ? pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx) : undefined;
+        return p ? pyOperationArg(op, p, ctx) : undefined;
       },
     });
     return [
@@ -1299,19 +1316,7 @@ function operationRoute(
   // A merge-patch update (RS-47) passes the stored value for every key the
   // body left out.  A required field's `None` can only mean absent (the model
   // refused an explicit null); an optional one asks `model_fields_set`.
-  const patch = mergePatchFields(op);
-  const callArgs = [
-    ...op.params.map((p) => {
-      const attr = `body.${pythonWireIdent(p.name)}`;
-      const value = pyWireToDomain(attr, p.type, ctx);
-      if (!patch) return value;
-      const present =
-        p.type.kind === "optional"
-          ? `${JSON.stringify(pythonWireIdent(p.name))} in body.model_fields_set`
-          : `${attr} is not None`;
-      return `(${value} if ${present} else found.${pythonIdent(p.name)})`;
-    }),
-  ];
+  const callArgs = [...op.params.map((p) => pyOperationArg(op, p, ctx))];
   if (usesUser) callArgs.push("current_user");
   const vsave = versionedSave(agg);
   // A scalar (non-void, non-union) return type — `operation describe(): string`.

@@ -17,6 +17,7 @@
       "path": "/api/employees/{id}",
       "status": 200,
       "body": {
+        "badge": null,
         "grade": 2,
         "id": "<volatile:key>",
         "name": "Ada",
@@ -39,6 +40,7 @@
       "path": "/api/employees/{id}",
       "status": 200,
       "body": {
+        "badge": null,
         "grade": 5,
         "id": "<volatile:key>",
         "name": "Ada",
@@ -56,6 +58,7 @@
       "body": {
         "items": [
           {
+            "badge": null,
             "grade": 5,
             "id": "<volatile:key>",
             "name": "Ada",
@@ -77,6 +80,7 @@
       "path": "/api/employees/by_name?name=Ada",
       "status": 200,
       "body": {
+        "badge": null,
         "grade": 5,
         "id": "<volatile:key>",
         "name": "Ada",
@@ -88,17 +92,57 @@
     },
     {
       "seq": 6,
+      "method": "GET",
+      "path": "/api/employees/by_national_id?nid=NID-1",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden: mask unless — the read filters Employee on a masked field",
+        "instance": "/api/employees/by_national_id",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/employees/{id}/update",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden: mask unless — only a caller who can read Employee.salary may change it",
+        "instance": "/api/employees/{id}/update",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/employees/{id}/update",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden: mask unless — only a caller who can read Employee.nationalId may change it",
+        "instance": "/api/employees/{id}/update",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
       "method": "POST",
       "path": "/api/employees/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 7,
+      "seq": 10,
       "method": "GET",
       "path": "/api/employees/{id}",
       "status": 200,
       "body": {
+        "badge": null,
         "grade": 5,
         "id": "<volatile:key>",
         "name": "Ada L",
@@ -109,7 +153,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 11,
       "method": "GET",
       "path": "/api/employees/{id}/history",
       "status": 200,
@@ -190,14 +234,14 @@
       ]
     },
     {
-      "seq": 9,
+      "seq": 12,
       "method": "DELETE",
       "path": "/api/employees/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 10,
+      "seq": 13,
       "method": "GET",
       "path": "/api/employees/{id}",
       "status": 404,
@@ -210,7 +254,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 14,
       "method": "GET",
       "path": "/api/employees",
       "status": 200,
@@ -223,7 +267,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 15,
       "method": "PATCH",
       "path": "/api/employees",
       "status": 405,
@@ -236,7 +280,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 16,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -249,7 +293,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 17,
       "method": "POST",
       "path": "/api/employees",
       "status": 400,
@@ -262,7 +306,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 18,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,
@@ -273,7 +317,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 19,
       "method": "POST",
       "path": "/api/employees/{id}/promote",
       "status": 422,
@@ -292,7 +336,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 20,
       "method": "POST",
       "path": "/api/employees",
       "status": 201,
@@ -301,66 +345,46 @@
       }
     },
     {
-      "seq": 18,
-      "method": "GET",
-      "path": "/api/employees/{id}",
-      "status": 200,
-      "body": {
-        "grade": 1,
-        "id": "<volatile:key>",
-        "name": "Ladder",
-        "nationalId": null,
-        "reviews": [],
-        "salary": null,
-        "version": 1
-      }
-    },
-    {
-      "seq": 19,
-      "method": "GET",
-      "path": "/api/employees/{id}",
-      "status": 200,
-      "body": {
-        "grade": 1,
-        "id": "<volatile:key>",
-        "name": "Ladder",
-        "nationalId": null,
-        "reviews": [],
-        "salary": null,
-        "version": 1
-      }
-    },
-    {
-      "seq": 20,
-      "method": "GET",
-      "path": "/api/employees",
-      "status": 200,
-      "body": {
-        "items": [
-          {
-            "grade": 1,
-            "id": "<volatile:key>",
-            "name": "Ladder",
-            "nationalId": null,
-            "reviews": [],
-            "salary": null,
-            "version": 1
-          }
-        ],
-        "page": 1,
-        "pageSize": 20,
-        "total": 1,
-        "totalPages": 1
-      }
-    },
-    {
       "seq": 21,
       "method": "GET",
+      "path": "/api/employees/{id}",
+      "status": 200,
+      "body": {
+        "badge": null,
+        "grade": 1,
+        "id": "<volatile:key>",
+        "name": "Ladder",
+        "nationalId": null,
+        "reviews": [],
+        "salary": null,
+        "version": 1
+      }
+    },
+    {
+      "seq": 22,
+      "method": "GET",
+      "path": "/api/employees/{id}",
+      "status": 200,
+      "body": {
+        "badge": null,
+        "grade": 1,
+        "id": "<volatile:key>",
+        "name": "Ladder",
+        "nationalId": null,
+        "reviews": [],
+        "salary": null,
+        "version": 1
+      }
+    },
+    {
+      "seq": 23,
+      "method": "GET",
       "path": "/api/employees",
       "status": 200,
       "body": {
         "items": [
           {
+            "badge": null,
             "grade": 1,
             "id": "<volatile:key>",
             "name": "Ladder",
@@ -374,6 +398,96 @@
         "pageSize": 20,
         "total": 1,
         "totalPages": 1
+      }
+    },
+    {
+      "seq": 24,
+      "method": "GET",
+      "path": "/api/employees",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "badge": null,
+            "grade": 1,
+            "id": "<volatile:key>",
+            "name": "Ladder",
+            "nationalId": null,
+            "reviews": [],
+            "salary": null,
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 25,
+      "method": "POST",
+      "path": "/api/employees/{id}/update",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden: mask unless — only a caller who can read Employee.salary may change it",
+        "instance": "/api/employees/{id}/update",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/employees/{id}/update",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden: mask unless — only a caller who can read Employee.salary may change it",
+        "instance": "/api/employees/{id}/update",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "POST",
+      "path": "/api/employees/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/employees/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 29,
+      "method": "GET",
+      "path": "/api/employees/by_national_id?nid=NID-L",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden: mask unless — the read filters Employee on a masked field",
+        "instance": "/api/employees/by_national_id",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 30,
+      "method": "GET",
+      "path": "/api/employees/by_national_id?nid=NID-L",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden: mask unless — the read filters Employee on a masked field",
+        "instance": "/api/employees/by_national_id",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
       }
     }
   ]

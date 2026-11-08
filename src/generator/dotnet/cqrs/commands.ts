@@ -12,7 +12,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
-import { mergePatchFields } from "../../../ir/util/merge-patch.js";
+import { isMergePatchUpdate, mergePatchFields } from "../../../ir/util/merge-patch.js";
 import {
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
@@ -62,8 +62,14 @@ function requiresGate(op: AggregateIR["operations"][number]): string {
       .map((g) => {
         const pred = renderCsExpr(g.expr, {
           thisName: "aggregate",
-          paramExpr: (name) =>
-            op.params.some((q) => q.name === name) ? `command.${upperFirst(name)}` : undefined,
+          // A merge-patch update's gate reads the MERGED value (an absent key
+          // is the stored value) — the value the operation will receive.
+          paramExpr: (name) => {
+            if (!op.params.some((q) => q.name === name)) return undefined;
+            return isMergePatchUpdate(op)
+              ? `(command.PatchedKeys.Contains(${JSON.stringify(name)}) ? command.${upperFirst(name)} : aggregate.${upperFirst(name)})`
+              : `command.${upperFirst(name)}`;
+          },
         });
         return `        if (!(${pred})) throw new ForbiddenException(${JSON.stringify(
           `Forbidden: ${g.source}`,

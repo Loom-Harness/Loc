@@ -36,7 +36,7 @@ import {
   lifecycleGatesUseCurrentUser,
 } from "../../../ir/util/op-gates.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
-import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
+import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -79,6 +79,7 @@ import {
 } from "./eventsourced-emit.js";
 import { externImplModule, externPersistForceChanges, isExternOp } from "./extern-emit.js";
 import { collidingFacadeFunctions, renderAggregateFunctions } from "./function-emit.js";
+import { updateSeamGates } from "./gate.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { paramGuardClause } from "./op-param-guards.js";
@@ -139,6 +140,48 @@ import { savesLockVersion } from "./version-check-ex.js";
 // (a workflow create step, a seed) then gets the typed `{:error, {:forbidden,
 // …}}` its `with` chain already handles, rather than a 500.
 // ---------------------------------------------------------------------------
+
+/** The gate chain of a merge-patch `update` seam, or undefined when the
+ *  aggregate's `update` carries no hoisted gate (the plain defdelegate stays).
+ *  `binds` name each param a gate reads to its merged value off `patched_changeset`. */
+function gatedUpdateSeam(
+  updateOp: OperationIR | undefined,
+  facadeMod: string,
+  agg: AggregateIR,
+  doc: boolean,
+): { patched: string; binds: string[]; clauses: string[] } | undefined {
+  const gates = updateSeamGates(updateOp);
+  if (!updateOp || gates.length === 0) return undefined;
+  const read = new Set<string>();
+  for (const g of gates) {
+    walkExprDeep(g.expr, (n) => {
+      if (n.kind === "ref" && n.refKind === "param") read.add(n.name);
+    });
+  }
+  const binds = updateOp.params
+    .filter((p) => read.has(p.name))
+    .map((p) =>
+      doc
+        ? `${elixirLocal(p.name)} = Ecto.Changeset.get_field(patched_changeset, :data).${snake(p.name)}`
+        : `${elixirLocal(p.name)} = Ecto.Changeset.get_field(patched_changeset, :${snake(p.name)})`,
+    );
+  // A document row keeps its fields in the `data` embed.
+  const changesetMod = `${facadeMod}.${upperFirst(agg.name)}Changeset`;
+  const patched = doc
+    ? `${changesetMod}.document_update_changeset(record, attrs, record.version)`
+    : `${changesetMod}.update_changeset(record, attrs)`;
+  const rc: RenderCtx = {
+    thisName: doc ? "record.data" : "record",
+    contextModule: facadeMod,
+    agg: agg as EnrichedAggregateIR,
+  };
+  const clauses = gates.map((g) => {
+    const pred = renderExpr(g.expr, rc);
+    const guarded = stmtUsesCurrentUser(g) ? `not is_nil(current_user) and (${pred})` : `(${pred})`;
+    return `:ok <- ensure(${guarded}, ${denialTerm(g)})`;
+  });
+  return { patched, binds, clauses };
+}
 
 /** The `ensure(...)` with-clauses for one lifecycle action's gates, in
  *  declaration order.  Same `ensure/2` + `denialTerm` protocol as the operation
@@ -526,11 +569,18 @@ function renderContextModule(
     // operation, so a plain delegate left the most common audited write with
     // no trail.  The row commits in the save's transaction.
     const updateOp = agg.operations.find((o) => o.name === "update");
-    const updateSeam = updateOp?.audited
-      ? `  def update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}) do
-    ${appModule}.Repo.transaction(fn ->
-      case ${repoMod}.update(record, attrs${stampActorArg ? ", current_user" : ""}${versionedArg ? ", expected_version" : ""}) do
-        {:ok, updated} ->
+    // The merge-patch `update`'s `mask unless` write gates run HERE — the one
+    // seam the REST action and the LiveView edit form both call.  Each gate
+    // reads the MERGED value of a param (an absent key is the stored value),
+    // which is exactly what the update changeset's `get_field/2` answers.
+    const updateGates = gatedUpdateSeam(updateOp, facadeMod, agg, isVanillaDocAgg(agg, ctx, sys));
+    const seamActorArg = updateGates && !stampActorArg ? ", current_user \\\\ nil" : stampActorArg;
+    // The write itself: the audited form records its row in the save's
+    // transaction; the plain form is the repository update.
+    const repoUpdateCall = `${repoMod}.update(record, attrs${stampActorArg ? ", current_user" : ""}${versionedArg ? ", expected_version" : ""})`;
+    const auditedWrite = (pad: string): string => `${pad}${appModule}.Repo.transaction(fn ->
+${pad}  case ${repoUpdateCall} do
+${pad}    {:ok, updated} ->
 ${auditRecordCall({
   appModule,
   operationId: `update${aggPascal}`,
@@ -539,18 +589,37 @@ ${auditRecordCall({
   targetId: "updated.id",
   before: wireSnapshot("record", false, appModule),
   after: wireSnapshot("updated", false, appModule),
-  indent: "          ",
+  indent: `${pad}      `,
 })}
 
-          updated
+${pad}      updated
 
-        {:error, reason} ->
-          ${appModule}.Repo.rollback(reason)
+${pad}    {:error, reason} ->
+${pad}      ${appModule}.Repo.rollback(reason)
+${pad}  end
+${pad}end)`;
+    const updateSeam = updateGates
+      ? `  def update_${aggSnake}(record, attrs${seamActorArg}${versionedArg}) do
+    patched_changeset = ${updateGates.patched}
+
+    # An invalid patch writes nothing (the repository answers the changeset
+    # error); a valid one is gated on its merged values.
+    if patched_changeset.valid? do
+${updateGates.binds.map((b) => `      ${b}\n`).join("")}
+      with ${updateGates.clauses.join(",\n           ")} do
+${updateOp?.audited ? auditedWrite("        ") : `        ${repoUpdateCall}`}
       end
-    end)
+    else
+${updateOp?.audited ? auditedWrite("      ") : `      ${repoUpdateCall}`}
+    end
   end
 `
-      : `  defdelegate update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}), to: ${repoMod}, as: :update`;
+      : updateOp?.audited
+        ? `  def update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}) do
+${auditedWrite("    ")}
+  end
+`
+        : `  defdelegate update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}), to: ${repoMod}, as: :update`;
     // Skip ops whose names collide with the CRUD defdelegates above —
     // notably `update`/`destroy` from `with crudish` would redefine
     // `update_<agg>/2`/`delete_<agg>/1` otherwise.  The CRUD seam
@@ -1130,6 +1199,10 @@ function contextNeedsGuardEnsure(ctx: BoundedContextIR): boolean {
       lifecycleGates(canonicalDestroy(agg)).length > 0 ||
       createBodyStatements(agg).some((st) => st.kind === "precondition")
     ) {
+      return true;
+    }
+    const updateOp = agg.operations.find((o) => o.name === "update");
+    if (updateSeamGates(updateOp).length > 0) {
       return true;
     }
     return (agg.operations ?? []).some(

@@ -530,6 +530,25 @@ const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
 };
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A masked field written from a body-local: the visibility taint cannot
+  // hoist a write gate ahead of the operation, so the write is refused.
+  "loom.mask-sink-write": `
+system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    aggregate P with crudish {
+      ssn: string mask unless currentUser.role == "hr"
+      operation setSsn(s: string) {
+        let v = s.trim()
+        ssn := v
+      }
+    }
+    repository Ps for P
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
+}`,
   // A store field's default is evaluated when the store is created, so on the
   // JS-family store renderer it must be a constant: a call is refused.
   "loom.store-init-not-constant": `

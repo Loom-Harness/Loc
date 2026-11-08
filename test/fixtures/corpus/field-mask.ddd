@@ -38,13 +38,17 @@ system MaskedAudit {
   user { id: string  role: string  permissions: string[] }
   subdomain People {
     permissions { unmask }
-    context Staff with scaffoldGet(of: ByName) {
+    context Staff with scaffoldGet(of: ByName), scaffoldGet(of: ByNationalId) {
       aggregate Employee audited with crudish {
         name: string
         // Two masked fields: both wraps land in the SAME projection expression.
         salary: decimal mask unless currentUser.permissions.contains(permissions.unmask)
         nationalId: string mask unless currentUser.permissions.contains(permissions.unmask)
         grade: int = 1
+        // A DERIVED computed from a masked field carries the field's mask
+        // (the visibility taint, docs/auth.md): it is as sensitive as what it
+        // is computed from, so it redacts under the same predicate.
+        derived badge: string = name + " #" + nationalId
         // A contained collection: its projection is inlined into the parent's,
         // inside a lambda, right beside the parent's own mask wraps.
         contains reviews: Review[]
@@ -62,11 +66,14 @@ system MaskedAudit {
       }
       repository Employees for Employee { }
       criterion ByName(name: string) of Employee = this.name == name
+      // A read that FILTERS on a masked field answers whether a guessed value
+      // exists (200 vs 404) — so it inherits the mask as its read gate.
+      criterion ByNationalId(nid: string) of Employee = this.nationalId == nid
     }
   }
-  api StaffApi with scaffoldGetApi(of: ByName) from People
+  api StaffApi with scaffoldGetApi(of: ByName), scaffoldGetApi(of: ByNationalId) from People
   storage primary { type: postgres }
-  resource staffState { for: Staff, kind: state, use: primary, index: [Employee.name] }
+  resource staffState { for: Staff, kind: state, use: primary, index: [Employee.name, Employee.nationalId] }
   deployable d {
     platform: __PLATFORM__
     contexts: [Staff]
@@ -100,6 +107,8 @@ system MaskedAudit {
     // a backend that emitted only the first redaction leaks the second here.
     expect(read.salary).toBe(null)
     expect(read.nationalId).toBe(null)
+    // The derived computed from `nationalId` redacts with it.
+    expect(read.badge).toBe(null)
 
     // The AUDITED operation: its handler renders the same masked projection
     // twice (before + after snapshots) into one method body.  It must still
@@ -122,22 +131,28 @@ system MaskedAudit {
     // row through a repository query rather than the by-id read.
     let found = api.staff.getEmployeeByName("Ada")
     expect(found.nationalId).toBe(null)
+    expect(found.badge).toBe(null)
     expect(found.grade).toBe(5)
 
-    // The WRITE side is not masked: the update body carries both sensitive
-    // fields (they are inputs, not outputs), and the read that follows redacts
-    // them again — which is the asymmetry the feature is: write-visible,
-    // read-redacted.
-    api.employees.update(e, { name: "Ada L", salary: 120000, nationalId: "NID-2", grade: 5 })
+    // A read whose PREDICATE is the masked field is an existence oracle on
+    // it, so it is refused outright rather than answered 200-or-404.
+    expect(api.staff.getEmployeeByNationalId("NID-1")).toThrow(403)
+
+    // The WRITE side inherits the mask too: a caller who cannot read a masked
+    // field cannot change it.  Sending a new value is refused…
+    expect(api.employees.update(e, { name: "Ada L", salary: 120000 })).toThrow(403)
+    expect(api.employees.update(e, { nationalId: "NID-2" })).toThrow(403)
+    // …while a patch that leaves the masked keys out (the merge-patch
+    // update keeps their stored values) goes through.
+    api.employees.update(e, { name: "Ada L" })
     let updated = api.employees.getById(e)
     expect(updated.name).toBe("Ada L")
     expect(updated.salary).toBe(null)
 
     // The AUDIT TRAIL of the same row, read by the same unprivileged principal.
     // Three entries — the create, the audited `promote`, and the crudish
-    // update (aggregate-wide `audited` covers it).  A masked field's change is
-    // DROPPED, not redacted (docs/audit.md): the update moved `name`, `salary`
-    // and `nationalId`, and this caller sees only `name`.  Each entry's `actor`
+    // update (aggregate-wide `audited` covers it).  The refused updates wrote
+    // nothing, so they left no entry; the one that went through moved `name`.  Each entry's `actor`
     // is the principal's declared `user` shape (RS-45) — the recorded body is
     // where the wire golden pins it.
     let trail = api.employees.history(e)

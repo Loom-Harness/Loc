@@ -1047,13 +1047,42 @@ defp serialize(record) do
 end
 ```
 
+#### Where a masked value flows — the visibility taint
+
+A mask protects the field only if every place its value reaches applies it.
+Phase ⑥ computes that once (`src/ir/enrich/mask-taint.ts`), and each sink either
+**inherits** the predicate or is **refused** in phase ⑦:
+
+| Sink | What happens |
+| --- | --- |
+| a `derived` that reads a masked field (directly or through another derived) | redacts under the conjunction of the masks it reads — it is on the wire with `maskUnless`, so every backend's masked serializer nulls it |
+| a read whose predicate reads a masked field — a `criterion` behind `scaffoldGet` / a `queryHandler`'s `Repo.find(C)` / `Repo.all(C)` / a retrieval | inherits the mask as a leading `requires` (403): a 200-or-404 on a guessed value is an existence oracle |
+| an operation that assigns a parameter to a masked field (the generic `update` among them) | inherits a hoisted write gate `requires <value> == this.<field> \|\| <mask>` (403) |
+| an operation that assigns a body-local value, or writes through a nested path | refused — `loom.mask-sink-write` |
+| a `create` | not a sink: a new row has no stored value to overwrite |
+
+```ddd
+aggregate Employee with crudish {
+  name: string
+  salary: decimal mask unless currentUser.permissions.contains(permissions.unmask)
+  derived band: string = name + " / " + string(salary)   // redacts with salary
+}
+```
+
+```ts
+// generated (Hono) — the masked serializer nulls the derived too
+if (!(currentUser !== null && ((currentUser.permissions).includes("hr.unmask")))) wire.salary = null;
+if (!(currentUser !== null && ((currentUser.permissions).includes("hr.unmask")))) wire.band = null;
+```
+
 #### Masked fields and the generated `update`
 
-The write side is not masked: a masked field is an ordinary update input. The
-generated `update` (`with crudish`) is a JSON Merge Patch
+A caller who cannot read a masked field cannot change it either.  The generated
+`update` (`with crudish`) is a JSON Merge Patch
 ([RS-47](conformance-semantics.md#rs-47--the-generated-update-body-is-a-json-merge-patch-an-absent-key-keeps-the-stored-value-null-clears-a-t-field)),
 so a caller who reads the field as `null` leaves it out of the patch and the
-stored value stays — an update no longer wipes what the caller could not see.
+stored value stays.  A caller who **sends** a new value for it without satisfying
+the mask predicate is refused with 403, and nothing is written.
 
 ```ddd
 aggregate Employee with crudish {
@@ -1063,23 +1092,24 @@ aggregate Employee with crudish {
 ```
 
 ```ts
-// generated (Hono) — http/employee.routes.ts: an absent key passes the stored value
+// generated (Hono) — http/employee.routes.ts: the write gate reads the MERGED value
+if (!((body.salary === undefined ? aggregate.salary : body.salary) === aggregate.salary || (currentUser.permissions).includes("hr.unmask"))) throw new ForbiddenError("Forbidden: mask unless — only a caller who can read Employee.salary may change it");
 aggregate.update((body.name === undefined ? aggregate.name : body.name), (body.salary === undefined ? aggregate.salary : body.salary));
 ```
 
-Two edges are deliberate. A caller who does **send** a masked field still
-writes it, whether or not it can read it back — gate that with a `requires` on
-the operation, as below. And a client that echoes a whole read body back as its
-patch sends the masked field as `null`: on an optional field that clears it, and
-on a required one it is refused (422, `"salary is required"`). Send only the
-keys you mean to change.
+The gate is a hoisted `requires`, so it runs wherever the operation's gates run
+(the route, a workflow step, the Phoenix context seam the LiveView edit form also
+calls).  On a merge-patch update every hoisted gate reads a parameter's merged
+value (an absent key is the stored value), on all five backends.  A client that
+echoes a whole read body back sends the masked field as `null`, which is a
+change, so it is refused: send only the keys you mean to change.
 
 **Status (M-T3.2 item 6).** Grammar + IR + printer + wire contract + validation,
 plus read redaction on **all five backends** (node, .NET, Python, Java, Elixir),
 have shipped — a `mask unless` field now redacts fail-closed on every backend.
-A write-side field gate (`write(...)` / `readonly when`) was tried and **reverted**
-(redundant with a post-load `requires` on the operation, which is also row-aware);
-gate field writes with `operation update(…) requires <field> == this.<field> || <caller-check>`.
+The write side inherits the mask as a hoisted gate (above); a gate of your own
+on another field has the same shape:
+`operation update(…) requires <field> == this.<field> || <caller-check>`.
 
 | Diagnostic | When |
 | --- | --- |
@@ -1087,6 +1117,7 @@ gate field writes with `operation update(…) requires <field> == this.<field> |
 | `loom.field-mask-principal-without-auth` | the predicate reads `currentUser` but the hosting deployable has no auth (no `auth: required` + `user {}`) — there is no principal to evaluate it against, so the field could only ever read as null; the mask-side sibling of `loom.guard-principal-without-auth` |
 | `loom.field-mask-unsupported` | the hosting backend does not emit the read redaction (none today — every backend supports it) |
 | `loom.field-mask-projection-source` | a masked aggregate is a query-time `projection` source — projection responses aren't read-masked yet, so it would leak |
+| `loom.mask-sink-write` | an operation writes a caller-supplied value into a masked field through a body-local or a nested path, so no write gate can be hoisted for it |
 | *(AST)* `'mask unless' … must be of type 'bool'` | the predicate is not a bool |
 
 ### Read gates

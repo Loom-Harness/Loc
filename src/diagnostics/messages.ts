@@ -4161,6 +4161,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `deployable hosts this context, so read-mask redaction is not emitted and the field would ` +
     `ship unredacted. Host the context on a backend deployable, or drop the \`mask unless\` ` +
     `clause (authorization.md §5).`,
+  "loom.mask-sink-write": (p: { name: unknown; op: unknown; field: unknown; why: unknown }) =>
+    `operation '${p.name}.${p.op}' writes a caller-supplied value into the \`mask unless\` field ` +
+    `'${p.field}' ${p.why === "path" ? "through a nested path" : "through a body-local value"}, so ` +
+    `the write cannot be gated before the operation runs — a caller who cannot read the field ` +
+    `could overwrite it. Assign the field directly from a parameter (\`${p.field} := <param>\`), ` +
+    `which inherits the mask as a write gate, or gate the operation with a \`requires\` that ` +
+    `implies the mask predicate.`,
   "loom.field-mask-projection-source": (p: { name: unknown; src: unknown; via?: unknown }) =>
     `projection '${p.name}' ${p.via === "join" ? `joins` : `sources from`} aggregate '${p.src}', ` +
     `which has a \`mask unless\` field — query-time projection responses are not yet read-masked, ` +

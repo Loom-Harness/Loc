@@ -322,3 +322,14 @@ export function createBodyParams(agg: {
   }
   return (canonicalCreate(agg)?.params ?? []).filter((p) => read.has(p.name));
 }
+
+/** The `requires` predicates that decide whether a caller may issue `op` AT
+ *  ALL — what a frontend mirrors to hide an action trigger.  A mask WRITE gate
+ *  (`maskWriteOf`, `src/ir/enrich/mask-taint.ts`) decides only whether this
+ *  caller may change one masked field, which a caller who leaves it as stored
+ *  always may, so it never hides the trigger. */
+export function operationActionGates(op: OperationIR): ExprIR[] {
+  return op.statements
+    .filter((s): s is RequiresStmtIR => s.kind === "requires" && s.maskWriteOf === undefined)
+    .map((s) => s.expr);
+}
