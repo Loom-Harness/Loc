@@ -388,12 +388,21 @@ function elixirOutboxRelayModule(
         limit: @batch
       )
     )
-    |> Enum.reduce_while(:ok, fn row, :ok ->
+    ${
+      // Only a broker-aware deliver can answer `{:halt, _}`; a `{:halt, _}`
+      // clause the standalone relay can never reach is a typing warning, which
+      // --warnings-as-errors turns into a compile failure.
+      brokerAware
+        ? `|> Enum.reduce_while(:ok, fn row, :ok ->
       case deliver(row) do
         :ok -> {:cont, :ok}
         {:halt, error} -> {:halt, {:error, error}}
       end
-    end)
+    end)`
+        : `|> Enum.each(&deliver/1)
+
+    :ok`
+    }
   rescue
     error -> {:error, error}
   catch

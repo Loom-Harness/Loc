@@ -83,5 +83,9 @@ system S {
     const relay = files.get("orders/lib/orders/local_outbox_relay.ex") ?? "";
     expect(relay).toContain("case drain() do");
     expect(relay).not.toContain("BrokerUnavailable");
+    // Its deliver never answers `{:halt, _}`, so drain must not match on it:
+    // an unreachable clause is a typing warning that fails --warnings-as-errors.
+    expect(relay).toContain("|> Enum.each(&deliver/1)");
+    expect(relay).not.toContain("{:halt, error}");
   });
 });
