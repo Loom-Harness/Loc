@@ -19,7 +19,7 @@ system Shop {
     context Catalog {
       valueobject Quantity { value: int  invariant value > 0 }
       valueobject Sku { code: string  invariant code.length >= 3  invariant code.length <= 12 }
-      valueobject Extent { lo: int  hi: int  invariant lo < hi message "lo must be below hi" }
+      valueobject Extent { lo: int  hi: int  invariant loBelowHi: lo < hi }
       aggregate Item with crudish {
         name: string
         qty: Quantity
@@ -62,10 +62,10 @@ describe("dotnet — VO invariant → 422 at the wire", () => {
       "RuleFor(x => x.Code).Must(v => v == null || v.EnumerateRunes().Count() >= 3)",
     );
     expect(v).toContain("Must(v => v == null || v.EnumerateRunes().Count() <= 12)");
-    // Cross-field / messaged → `.Must(...)` carrier with the stable wire code.
+    // Cross-field / named → `.Must(...)` carrier with the stable wire code.
     expect(v).toContain("class ExtentRequestValidator : AbstractValidator<ExtentRequest>");
     expect(v).toContain("RuleFor(x => x).Must(x => x.Lo < x.Hi)");
-    expect(v).toContain('.WithMessage("lo must be below hi")');
+    expect(v).toContain('.WithMessage("Lo below hi")');
     expect(v).toContain(".WithErrorCode(");
   });
 

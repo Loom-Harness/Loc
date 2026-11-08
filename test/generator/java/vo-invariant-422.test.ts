@@ -19,7 +19,7 @@ system Shop {
     context Catalog {
       valueobject Quantity { value: int  invariant value > 0 }
       valueobject Sku { code: string  invariant code.length >= 3  invariant code.length <= 12 }
-      valueobject Extent { lo: int  hi: int  invariant lo < hi message "lo must be below hi" }
+      valueobject Extent { lo: int  hi: int  invariant loBelowHi: lo < hi }
       aggregate Item with crudish {
         name: string
         qty: Quantity
@@ -56,11 +56,11 @@ describe("java — VO invariant → 422 at the wire", () => {
     expect(q).toContain('if (!(value >= 1)) errors.rejectValue("value"');
 
     const e = find(map, "features/items/ExtentValidator.java");
-    // Cross-field / messaged rule carries the stable wire code + author message.
+    // Cross-field / named rule carries the stable wire code + author message.
     expect(e).toContain(
-      'if (!(lo < hi)) errors.rejectValue("lo", "Catalog.Extent.rule.loBelowHi", new Object[] {"hi", hi, "lo", lo}, "lo must be below hi");',
+      'if (!(lo < hi)) errors.rejectValue("lo", "Catalog.Extent.rule.loBelowHi", new Object[] {"hi", hi, "lo", lo}, "Lo below hi");',
     );
-    expect(e).toContain("lo must be below hi");
+    expect(e).toContain("Lo below hi");
   });
 
   it("the command validator nest-invokes each VO-typed field's validator", async () => {

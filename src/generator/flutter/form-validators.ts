@@ -30,8 +30,8 @@ import { dartStringLit } from "./i18n.js";
 //
 // One deliberate divergence from Angular: when the author wrote `message
 // "…"` on the invariant, that text wins over the derived sentence.  On
-// react/vue/svelte a messaged single-field rule contributes BOTH the native
-// chain (derived text) and a surviving `.refine(…)` carrying the authored text
+// react/vue/svelte a named single-field rule contributes BOTH the native
+// chain (derived text) and a surviving `.refine(…)` carrying the rule text
 // — so the authored sentence IS what a JSX user sees.  Angular drops it; using
 // it here moves Flutter towards react's user-visible behaviour, not away.
 // ---------------------------------------------------------------------------

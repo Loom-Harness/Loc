@@ -82,7 +82,7 @@ function nodeMessages(fs: Map<string, string>): Set<string> {
   return out;
 }
 
-describe("python — a message-less single-field rule answers node's message (#15d, D10)", () => {
+describe("python — an unnamed single-field rule answers node's message (#15d, D10)", () => {
   it("re-words the regex constraint instead of leaking the pattern", async () => {
     const routes = find(await generateSystemFiles(fixture("python")), "http/customer_routes.py");
     // The check itself is still the native, schema-publishing constraint.

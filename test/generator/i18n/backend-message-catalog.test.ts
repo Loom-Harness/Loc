@@ -89,7 +89,7 @@ describe(".NET — no catalog: the 422 answers the code, the client localizes", 
     expect(filter).toContain('err["code"] = e.ErrorCode');
   });
 
-  it("routes a messaged PRECONDITION onto the carrier with its text + code", async () => {
+  it("routes a named PRECONDITION onto the carrier with its text + code", async () => {
     // The op validator dropped `message` when lifting preconditions, silently
     // downgrading an authored precondition to the generic text and
     // costing it the wire `code` every other backend keyed.

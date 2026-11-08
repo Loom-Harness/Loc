@@ -773,7 +773,7 @@ export function renderApiExceptionAdvice(
    *  carries the `ValueObjectInvariantException` handler (M-T5.1).  False ⇒
    *  byte-identical. */
   valueObjectInvariants = false,
-  /** True when a messaged aggregate rule can trip at the domain floor — the
+  /** True when a named aggregate rule can trip at the domain floor — the
    *  `onDomain` handler then answers a `DomainException` carrying a rule code
    *  with the same errors[] entry (M-T1.11 (c)).  False ⇒ byte-identical. */
   domainFloorCodes = false,
@@ -942,12 +942,12 @@ export function renderApiExceptionAdvice(
     // M-T5.1 — a value object refused INSIDE a domain body: the domain-floor
     // status plus one RFC 7807 errors[] entry.  Pointer "" (the whole request —
     // the body computed the value, so it names no request member), the rule's
-    // message, and for a messaged rule its content-hash code, resolved through
+    // message, and for a named rule its identity-key code, resolved through
     // the same bundle the wire rung uses.  Spring dispatches to the MOST
     // specific handler, so this wins over `onDomain` for the subclass.
     // M-T5.1 + M-T1.11 (c) — ONE errors[]-entry serializer for both
     // domain-floor refusals a client can bind: the value object refused inside a
-    // body (pointer "") and, with the code carriage on, a MESSAGED invariant /
+    // body (pointer "") and, with the code carriage on, a NAMED invariant /
     // check / precondition (the rule's own pointer).  The message resolves
     // through the same bundle the wire rung uses.
     ...(valueObjectInvariants || domainFloorCodes

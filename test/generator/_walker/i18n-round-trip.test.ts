@@ -26,9 +26,9 @@
 //       another (A13's exact shape: the modal TITLE translated, the TRIGGER
 //       raw two lines below) fails here even though (a) passes.
 //
-// The backend half (the five `msg.<hash>` validation catalogs) is the second
+// The backend half (the five validation-message catalogs) is the second
 // describe: every code in a backend's runtime catalog is RAISED by one of its
-// validation / domain-floor sites, and every messaged rule's code is both in
+// validation / domain-floor sites, and every named rule's code is both in
 // the catalog and raised.
 //
 // Waivers ratchet (the repo rule): a waived dead key must STILL be dead, so a

@@ -760,7 +760,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       // M-T5.1: the value-object-invariant handler rides on a hosted value
       // object declaring an invariant; a project without one is byte-identical.
       hasValueObjectInvariants(merged),
-      // M-T1.11 (c): the domain-floor code answer rides on a messaged
+      // M-T1.11 (c): the domain-floor code answer rides on a named
       // aggregate rule the same way.
       hasDomainFloorMessages(merged),
       // An unfilled `extern` operation hook answers 501.

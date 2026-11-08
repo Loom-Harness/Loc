@@ -12,7 +12,7 @@ system Helpdesk {
         email: string
         company: string?
         invariant name.length > 0
-        invariant email.contains("@") message "Email must contain @"
+        invariant emailContain: email.contains("@")
         derived display: string = name
       }
 
@@ -53,7 +53,7 @@ system Helpdesk {
         }
 
         operation addComment(body: string, author: string, internal: bool) when status != Closed {
-          precondition body.length > 0 message "Comment cannot be empty"
+          precondition commentCannotEmpty: body.length > 0
           comments += Comment { body: body, author: author, internal: internal, postedAt: now() }
         }
 

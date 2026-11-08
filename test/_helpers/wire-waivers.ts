@@ -28,11 +28,11 @@
 // made to drive the counter explicitly with a guarded `where version =
 // :expected` bump; all five were deleted with that fix.  The last four — one
 // RS-18 (elixir's crudish update ran a changeset, so a provenanced field kept
-// the PREVIOUS write's lineage) and three M-T6.20 (elixir's messaged
+// the PREVIOUS write's lineage) and three M-T6.20 (elixir's named
 // `precondition` answered the domain-floor 422 instead of the wire-validation
 // `errors[]` shape) — went the same way: the elixir repository update now
 // re-captures each provenanced write site off the applied changeset, and a
-// wire-translatable messaged precondition denies with `{:validation_failed,
+// wire-translatable named precondition denies with `{:validation_failed,
 // errors}` rendered through the shared `errors[]` 422 sender.
 //
 // That drain took the registry back to empty on 2026-08-16, except for one

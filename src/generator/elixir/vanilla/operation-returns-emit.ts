@@ -405,7 +405,7 @@ export function renderOpGuardClause(
   s: Extract<StmtIR, { kind: "requires" | "precondition" }>,
   rc: RenderCtx,
   /** The operation's param names — the request body a wire-rung denial can
-   *  point into.  A messaged `precondition` classified wire-translatable
+   *  point into.  A named `precondition` classified wire-translatable
    *  against this set denies with `{:validation_failed, errors}` instead of the
    *  domain floor; everything else denies as usual. */
   wireAvailable?: ReadonlySet<string>,
@@ -1650,7 +1650,7 @@ export function renderReturningOpControllerAction(
     do: ${disallowedResponse("detail", denialOverrides(ctx))}`,
         ]
       : []),
-    // The WIRE-VALIDATION rung: a messaged `precondition` over the op's
+    // The WIRE-VALIDATION rung: a named `precondition` over the op's
     // own request params denies with the `errors[]` 422 the other four backends'
     // lifted request validator produces, not the domain floor.
     ...(opHasWireDenial(op)

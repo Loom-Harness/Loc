@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// M-T6.20 — a MESSAGED `precondition` over an operation's own request params
+// M-T6.20 — a NAMED `precondition` over an operation's own request params
 // must answer the WIRE-VALIDATION 422 on the Phoenix backend, not the domain
 // floor.
 //
@@ -10,18 +10,18 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // validator the invariants use (`preconditionsAsInvariants` → zod refine /
 // FluentValidation / pydantic), so a trip answers title "Validation failed",
 // detail "One or more fields are invalid." and an `errors[]` entry carrying the
-// RFC 6901 pointer + the `msg.<hash>` code.  Elixir lowers preconditions to the
+// RFC 6901 pointer + the `<Ctx>.<Owner>.rule.<name>` code.  Elixir lowers preconditions to the
 // `ensure/2` control-flow chain, so the same denial used to answer the
-// DOMAIN-FLOOR rung (authored message in `detail`, NO `errors[]` — hence no
+// DOMAIN-FLOOR rung (rule text in `detail`, NO `errors[]` — hence no
 // pointer and no wire code, and a frontend ACL's `applyServerErrors` bound
 // nothing).  That was the `corpus/validation-messages` wire-golden divergence,
 // waived three ways in `test/_helpers/wire-waivers.ts` until this landed.
 //
-// The messaged wire rung — its title, detail, pointer and `msg.<hash>` code,
+// The named wire rung — its title, detail, pointer and `<Ctx>.<Owner>.rule.<name>` code,
 // sent through the one shared 422 sender — is asserted by value on the elixir
 // behavioural leg (`corpus/validation-messages`, against node's golden).  What
 // stays here is what that leg cannot see:
-//   * the message-LESS sentence (D-MESSAGELESS-DEFAULT, RS-43) — the golden's
+//   * the UNNAMED sentence (D-MESSAGELESS-DEFAULT, RS-43) — the golden's
 //     `errors[*].message` values are waived on this leg for now;
 //   * a precondition over `this`-STATE (not wire-translatable on ANY backend)
 //     stays on the domain floor;
@@ -38,9 +38,9 @@ system S {
         status: string
         create(name: string, quantity: int, status: string) { }
 
-        // Messaged + param-only → the WIRE rung.
+        // Named + param-only → the WIRE rung.
         operation restock(amount: int) {
-          precondition amount >= 1 message "Restock amount must be at least 1"
+          precondition restockAmountMin: amount >= 1
           quantity := quantity + amount
         }
         // Message-LESS + param-only → the WIRE rung too, with node's sentence.
@@ -48,10 +48,10 @@ system S {
           precondition amount >= 1
           quantity := quantity - amount
         }
-        // Messaged but reads THIS-STATE, so no request body can carry it →
+        // Named but reads THIS-STATE, so no request body can carry it →
         // not wire-translatable on any backend; stays on the domain floor.
         operation close() {
-          precondition status != "closed" message "Product is already closed"
+          precondition productClosed: status != "closed"
           status := "closed"
         }
       }
@@ -65,7 +65,7 @@ system S {
 }
 `;
 
-// A twin with NO messaged param precondition — the gate that keeps a project
+// A twin with NO named param precondition — the gate that keeps a project
 // without one byte-identical (an unused `defp` fails `--warnings-as-errors`).
 const PLAIN = `
 system P {
@@ -102,7 +102,7 @@ system W {
         name: string
         quantity: int
         operation restock(amount: int) {
-          precondition amount >= 1 message "Restock amount must be at least 1"
+          precondition restockAmountMin: amount >= 1
           quantity := quantity + amount
         }
       }
@@ -136,12 +136,12 @@ describe("elixir/vanilla — messaged precondition answers the wire-validation 4
       'ensure(amount >= 1, {:validation_failed, [%{pointer: "/amount", message: "Amount must be at least 1", code: "field.min", params: %{min: 1}}]})',
     );
     expect(ctx).not.toContain("Precondition failed: amount >= 1");
-    // Messaged but reads `this.status` — no request body carries it, so it is
+    // Named but reads `this.status` — no request body carries it, so it is
     // not wire-translatable on ANY backend and keeps the domain-floor rung —
     // which, since M-T1.11 (c), carries the rule's code and pointer in a map
     // detail so the 422 gains its errors[] entry.
     expect(ctx).toMatch(
-      /ensure\(record\.status != "closed", \{:precondition_failed, %\{detail: "Product is already closed", code: "Cat\.Product\.rule\.[A-Za-z0-9]+", pointer: ""(?:, params: %\{[^}]*\})?\}\}\)/,
+      /ensure\(record\.status != "closed", \{:precondition_failed, %\{detail: "Product closed", code: "Cat\.Product\.rule\.[A-Za-z0-9]+", pointer: ""(?:, params: %\{[^}]*\})?\}\}\)/,
     );
   });
 
@@ -170,7 +170,7 @@ describe("elixir/vanilla — messaged precondition answers the wire-validation 4
     // 422s instead of being clamped past the bounds the OpenAPI document
     // publishes) sends through the SAME `validation_errors_response/2`, and the
     // auto-`findAll` makes every non-abstract controller paged — so its
-    // presence no longer implies a messaged precondition.  Asserting its
+    // presence no longer implies a named precondition.  Asserting its
     // ABSENCE here would pin a coincidence, not the gate.
     const pd = file(files, "/problem_details.ex");
     expect(pd).toContain("def validation_errors_response(conn, errors) when is_list(errors) do");
@@ -186,7 +186,7 @@ describe("elixir/vanilla — messaged precondition answers the wire-validation 4
 //
 // That rescue used to route by MESSAGE PREFIX — `String.starts_with?(guard_msg,
 // "Precondition failed: ")` — which made the message the ROUTING KEY, so an
-// authored `message "…"` was UNEMITTABLE: it would miss the prefix and fall to
+// a rule's own text was UNEMITTABLE: it would miss the prefix and fall to
 // the `reraise` arm, answering 500 instead of 422.  Both raise sites carried a
 // comment saying so and shipped the derived text instead.
 //
@@ -210,7 +210,7 @@ system S {
         quantity: int
 
         function checkRestockable(amount: int): bool {
-          precondition amount >= 1 message "A pure function keeps its authored message"
+          precondition pureFunctionRule: amount >= 1
           return true
         }
 
@@ -239,7 +239,7 @@ system S {
 }
 `;
 
-describe("elixir/vanilla — the RAISE path carries the author's message (M-T6.20 path 2)", () => {
+describe("elixir/vanilla — the RAISE path carries the rule's text (M-T6.20 path 2)", () => {
   it("emits the typed guard exception in the DOMAIN layer", async () => {
     const files = await generateSystemFiles(RAISE_PATH);
     const mod = file(files, "/api/guard_error.ex");
@@ -256,10 +256,10 @@ describe("elixir/vanilla — the RAISE path carries the author's message (M-T6.2
   it("a `function` precondition raises with the AUTHOR'S message, not the derived form", async () => {
     const ctx = file(await generateSystemFiles(RAISE_PATH), "/api/cat.ex");
     expect(ctx).toContain(
-      'raise(Api.GuardError, kind: :precondition, message: "A pure function keeps its authored message")',
+      'raise(Api.GuardError, kind: :precondition, message: "Pure function rule")',
     );
     // The derived form is what shipped while the prefix was the routing key.
-    expect(ctx, "derived detail emitted despite an authored message").not.toContain(
+    expect(ctx, "derived detail emitted despite an rule text").not.toContain(
       "Precondition failed: amount >= 1",
     );
   });
@@ -278,7 +278,7 @@ describe("elixir/vanilla — the RAISE path carries the author's message (M-T6.2
     expect(ctrl).toContain(":forbidden ->\n          ProblemDetails.problem_response(conn, 403,");
     expect(ctrl).toContain("_ ->\n          ProblemDetails.problem_response(conn, 422,");
     // The routing key is the field; the message is free text again.  These two
-    // absences ARE the fix — with either one back, an authored message reroutes.
+    // absences ARE the fix — with either one back, an rule text reroutes.
     expect(ctrl).not.toContain("String.starts_with?(guard_msg");
     expect(ctrl).not.toContain('"Precondition failed: "');
   });

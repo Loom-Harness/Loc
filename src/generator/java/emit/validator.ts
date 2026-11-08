@@ -470,7 +470,7 @@ function buildChecks(spec: CommandSpec, regexFields: Map<string, string>): strin
             single.pattern,
             typeOf(single.field),
             nullableOf(single.field),
-            // A message-less single-field rule answers node's synthesized
+            // An unnamed single-field rule answers node's synthesized
             // sentence, not the generic refine default every other shape uses
             // (D-MESSAGELESS-RULE-WIRE-MESSAGE).
             inv.message ? message : singleFieldMessage(single.field, single.pattern),
@@ -621,7 +621,7 @@ function mentionsNullLiteral(expr: ExprIR): boolean {
 /** `if (!(cond)) errors.rejectValue("field", "code", "message");` — the Spring
  *  `Errors` analog of FluentValidation's `.WithName(...).WithMessage(...)
  *  .WithErrorCode(...)`.  `field` is the property path (no leading slash; the
- *  advice re-prefixes `/`), `code` the wire code (or the message-less sentinel),
+ *  advice re-prefixes `/`), `code` the wire code (or the unnamed sentinel),
  *  `message` the resolved default text. */
 function reject(field: string, code: string, message: string, cond: string, args?: string): string {
   // `rejectValue` names the JAVA property — `AbstractBindingResult` reads the

@@ -75,7 +75,7 @@ system Helpdesk {
         email: string
         company: string?
         invariant name.length > 0
-        invariant email.contains("@") message "Email must contain @"
+        invariant emailContain: email.contains("@")
         derived display: string = name
       }
 
@@ -133,7 +133,7 @@ system Helpdesk {
 
         operation reply(body: string) when status != Closed {
           requires currentUser.customerId == requester || currentUser.permissions.contains(permissions.ticketsWork)
-          precondition body.length > 0 message "Reply cannot be empty"
+          precondition replyCannotEmpty: body.length > 0
           replies += Reply { body: body, author: currentUser.name, fromAgent: currentUser.agentId != null, postedAt: now() }
           if currentUser.agentId != null && status == New {
             status := Open
@@ -216,7 +216,7 @@ system Helpdesk {
         comment: string? immutable
         operation rate(stars: int, note: string?) when rating == null {
           requires currentUser.customerId == requester
-          precondition stars >= 1 && stars <= 5 message "Rating must be 1..5"
+          precondition rating15: stars >= 1 && stars <= 5
           rating := stars
           comment := note
         }

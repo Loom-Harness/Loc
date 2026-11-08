@@ -3,7 +3,7 @@
 // (`routes-builder.ts`) and the value-object wire models (`http-models.ts`)
 // build the SAME two carriers from a set of invariants: a `Field(...)`
 // constraint for single-field shapes, and a `@model_validator` refine for the
-// cross-field / guarded / messaged rest.  A violation of either surfaces as a
+// cross-field / guarded / named rest.  A violation of either surfaces as a
 // FastAPI 422 (not the domain's `DomainError` → 400), so a malformed value is
 // rejected at the wire with the validation status.  Kept here (not in
 // routes-builder) so http-models can reuse it without a `routes-builder ↔
@@ -54,7 +54,7 @@ interface FieldKwarg {
 }
 
 /** Map of `field → Field(...)` constraint string for every single-field,
- *  message-less invariant over one of `available`.  Multiple constraints
+ *  unnamed invariant over one of `available`.  Multiple constraints
  *  on one field (e.g. `email.matches(r) && email.length <= 120`) become a
  *  single `Field(pattern=, max_length=)`. */
 export function createFieldConstraints(
@@ -86,7 +86,7 @@ const KWARG_ERROR_TYPES: Readonly<Record<string, readonly string[]>> = {
  *  `singleFieldMessage` (e.g. "Billing Email is not in the expected format")
  *  for a shape node chains natively, else node's refine default — ruling D10
  *  (#15d).
- *  Before it a message-less rule answered Pydantic's default text, which for a
+ *  Before it an unnamed rule answered Pydantic's default text, which for a
  *  `pattern=` leaked the regex onto the wire (`String should match pattern
  *  '^[^@]+@…'`) and diverged from node for every other shape too.
  *
@@ -139,7 +139,7 @@ export function createFieldMessageValidator(
   );
 }
 
-/** Per field, the `Field(...)` kwargs every single-field, message-less
+/** Per field, the `Field(...)` kwargs every single-field, unnamed
  *  invariant over one of `available` contributes — the one source both
  *  `createFieldConstraints` (the check) and `createFieldMessageValidator` (its
  *  wire message, code and params) read, so the two cannot disagree on which
@@ -151,7 +151,7 @@ function fieldKwargs(
   const byField = new Map<string, FieldKwarg[]>();
   for (const inv of invariants) {
     if (!classifyForWire(inv, { available })) continue;
-    // A messaged rule carries author text, so it routes through the
+    // A named rule carries rule text, so it routes through the
     // `@model_validator` refine carrier (which has a message slot) rather
     // than a native `Field(...)` constraint (whose message is Pydantic's
     // default) — mirroring the .NET/Hono carriers.
@@ -329,7 +329,7 @@ export function createModelValidator(
     // answered `pointer: ""` where Hono's refine (which passes `path`) answered
     // `/amount`. `ValidationError.from_exception_data` is the one Pydantic API
     // that lets a raise name its own `loc`, so a rule with a derivable field
-    // points at it on python too, messaged or not. A rule with no derivable
+    // points at it on python too, named or not. A rule with no derivable
     // field (a genuine cross-field comparison) keeps the bare raise, which is
     // also what Hono does — it omits `path` in exactly the same case.
     const path = pickErrorPath(inv);

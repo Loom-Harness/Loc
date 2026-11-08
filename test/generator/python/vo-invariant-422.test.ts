@@ -19,7 +19,7 @@ system Shop {
     context Catalog {
       valueobject Quantity { value: int  invariant value > 0 }
       valueobject Sku { code: string  invariant code.length >= 3  invariant code.length <= 12 }
-      valueobject Range { lo: int  hi: int  invariant lo < hi message "lo must be below hi" }
+      valueobject Range { lo: int  hi: int  invariant loBelowHi: lo < hi }
       aggregate Item with crudish {
         name: string
         qty: Quantity
@@ -57,16 +57,16 @@ describe("python VO invariant → 422 at the wire", () => {
     );
   });
 
-  it("cross-field / messaged VO invariants route through a `@model_validator`", async () => {
+  it("cross-field / named VO invariants route through a `@model_validator`", async () => {
     const wm = await wireModels();
     expect(wm).toContain("class Range(BaseModel):");
     expect(wm).toContain('    @model_validator(mode="after")');
     expect(wm).toContain("        if not (self.lo < self.hi):");
-    // A messaged rule carries the author text via PydanticCustomError (its
+    // A named rule carries the rule text via PydanticCustomError (its
     // stable `type` surfaces as errors[].code — the i18n key) plus the field's
     // `loc`, which only `ValidationError.from_exception_data` can supply from a
     // `model_validator` (M-T1.11) — so `errors[].pointer` names the field.
-    expect(wm).toContain('"lo must be below hi"');
+    expect(wm).toContain('"Lo below hi"');
     expect(wm).toContain("from pydantic_core import InitErrorDetails, PydanticCustomError");
     expect(wm).toContain('loc=("lo",),');
   });

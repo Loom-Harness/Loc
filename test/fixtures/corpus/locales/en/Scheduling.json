@@ -1,0 +1,4 @@
+{
+  "Appointment.rule.duration10120Minutes": "Duration must be 10–120 minutes",
+  "Appointment.rule.patientNameNeedsTwo": "A patient name needs two characters"
+}

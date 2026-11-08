@@ -187,7 +187,7 @@ function valueObjectInvariantErrorTs(domainFloorCodes: boolean): string {
     ? `/** A value object's invariant refused a value (M-T5.1).  A DomainError, so
  *  every catch still classifies it; the routers answer it with the domain-floor
  *  status PLUS one RFC 7807 errors[] entry carrying the rule's message and, for
- *  a messaged rule, its content-hash code. */
+ *  a named rule, its identity-key code. */
 export class ValueObjectInvariantError extends DomainError {
   readonly valueObject: string;
   constructor(valueObject: string, message: string, code?: string, params?: Record<string, unknown>) {
@@ -200,7 +200,7 @@ export class ValueObjectInvariantError extends DomainError {
     : `/** A value object's invariant refused a value (M-T5.1).  A DomainError, so
  *  every catch still classifies it; the routers answer it with the domain-floor
  *  status PLUS one RFC 7807 errors[] entry carrying the rule's message and, for
- *  a messaged rule, its content-hash code. */
+ *  a named rule, its identity-key code. */
 export class ValueObjectInvariantError extends DomainError {
   readonly valueObject: string;
   readonly code: string | undefined;
@@ -217,17 +217,17 @@ export class ValueObjectInvariantError extends DomainError {
 }
 
 /** `DomainErrorKind` — which rung of the domain floor refused a call, carried
- *  apart from the message text because an authored `message "..."` replaces the
+ *  apart from the message text because a rule's own text replaces the
  *  derived sentence. */
 const DOMAIN_ERROR_KIND_TS = `/** Which rung of the domain floor refused a call: a \`precondition\` of the
  *  operation, or an \`invariant\` of the aggregate / part / value object.  It is
- *  carried apart from the message, which an authored \`message "..."\` replaces. */
+ *  carried apart from the message, which a rule's own text replaces. */
 export type DomainErrorKind = "precondition" | "invariant";
 
 `;
 
 /** The base `DomainError`.  It carries the refusing rung as `kind`; with the
- *  domain-floor code carriage on (M-T1.11 (c)) a messaged invariant / field
+ *  domain-floor code carriage on (M-T1.11 (c)) a named invariant / field
  *  check / precondition also throws its wire `<Ctx>.<Owner>.rule.<name>` code and RFC 6901
  *  pointer along with the text. */
 function domainErrorTs(domainFloorCodes: boolean): string {
@@ -238,7 +238,7 @@ function domainErrorTs(domainFloorCodes: boolean): string {
   readonly kind: DomainErrorKind | undefined;
   /** A named rule's \`<Ctx>.<Owner>.rule.<name>\` code — the same one the wire rung carries —
    *  and the RFC 6901 pointer its domain-floor \`errors[]\` entry names
-   *  (M-T1.11 (c)).  Undefined for a message-less rule. */
+   *  (M-T1.11 (c)).  Undefined for an unnamed rule. */
   readonly code: string | undefined;
   readonly pointer: string | undefined;
   /** The values of the identifiers the rule reads — the wire \`params\` a
@@ -269,7 +269,7 @@ function domainErrorTs(domainFloorCodes: boolean): string {
 
 /** `domainFloorProblem` — the domain-floor `errors[]` answer: a value object's
  *  invariant refused inside a body (M-T5.1) and, with the code carriage on, a
- *  MESSAGED invariant / check / precondition tripped at the domain floor
+ *  NAMED invariant / check / precondition tripped at the domain floor
  *  (M-T1.11 (c)).  ONE serializer for both — the entry shape is the same. */
 function domainFloorProblemTs(valueObjectInvariants: boolean, domainFloorCodes: boolean): string {
   const guard = domainFloorCodes
@@ -997,7 +997,7 @@ export function generateTypeScriptForContexts(
   // `ValueObjectInvariantError` + its `domainFloorProblem` answer ride on a
   // hosted value object declaring an invariant (M-T5.1) — nothing else raises
   // it, so a project without one stays byte-identical.  The domain-floor code
-  // carriage (M-T1.11 (c)) rides on a messaged aggregate rule the same way.
+  // carriage (M-T1.11 (c)) rides on a named aggregate rule the same way.
   const emitVoInvariant = hasValueObjectInvariants(merged);
   const emitDomainFloorCodes = hasDomainFloorMessages(merged);
   out.set(

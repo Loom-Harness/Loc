@@ -91,7 +91,6 @@ describe("codeDocsUrl — every anchor resolves", () => {
       "https://loom-harness.github.io/Loc/language-reference/04-type-system.html#x-id--cross-aggregate-references",
     );
     expect(codeDocsUrl("loom.no-such-code")).toBeUndefined();
-    expect(codeDocsUrl("loom.blank-message")).toBeUndefined();
     // The docs-root escape drops the `../` rather than emitting it — a link
     // carrying `language-reference/../` would still resolve on GitHub but not
     // on the built site, whose chapters are flattened into their own pages.
@@ -186,7 +185,7 @@ describe("the undocumented-codes ratchet", () => {
 // 347 -> 343: the codes only declared finds could raise left with FindDecl
 // (D-FINDDECL-REMOVED), and the capability table folded one more.
 // 343 -> 342: `loom.datasource-knob-unwired` retired (now target-unsupported rows).
-const UNDOCUMENTED_BASELINE = 341;
+const UNDOCUMENTED_BASELINE = 340;
 
 describe("the undocumented-codes LENGTH ratchet", () => {
   it("only shrinks", () => {

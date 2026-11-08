@@ -4605,7 +4605,7 @@ deployable replaying the whole history is a semantic change of its own
 
 **Status:** decided (owner ruling D10 of the 2026-09-28 eval-closure review, item #15d).
 
-**Question.** A rule with no `message "…"` clause that is a single-field shape
+**Question.** An unnamed rule (no `name:`, so no `message`) that is a single-field shape
 (`invariant seats >= 1`, `precondition code.matches("^[A-Z]{3}$")`) rides each
 backend's NATIVE wire constraint, and the native constraint's text is whatever
 the framework says. On python that was pydantic's default —
@@ -4631,7 +4631,7 @@ Only errors the table arms are re-raised as `PydanticCustomError(<type>,
 model rather than the `RequestValidationError` handler because the handler sees
 only a `loc`, and one field name can carry different bounds on two models.
 
-**Consequences.** Pinned by `test/generator/python/message-less-wire-message.test.ts`
+**Consequences.** Pinned by `test/generator/python/unnamed-wire-message.test.ts`
 (derives node's message set and requires each in python's tables) and by the
 `validation-messages` wire golden (seq 14/15). .NET, Java and Elixir send the
 same sentence since [D-MESSAGELESS-DEFAULT](#d-messageless-default--every-message-less-wire-rule-answers-nodes-sentence-on-every-backend),
@@ -4643,7 +4643,7 @@ which extends this ruling to every backend and every message-less rule.
 Taken as the owner default recorded for wave C3F ("node's sentence is
 canonical", [`wave-c3f.md`](https://github.com/Loom-Harness/Loc/blob/609a44bc8a2f7f7e6215ac99e2cc9858302c0f4d/docs/new-plan/waves/wave-c3f.md)) and built by its packet F4.
 
-**Question.** A rule with no `message "…"` clause still refuses a request, and
+**Question.** An unnamed rule still refuses a request, and
 the refusal is one `errors[].message` wire field. Before this ruling it had a
 value per framework: FluentValidation's `'Amount' must be greater than or
 equal to '1'.`, java's generic `Invariant violated: amount >= 1` for a shape it

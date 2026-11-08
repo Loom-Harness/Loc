@@ -141,7 +141,7 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
 
   it("emits none of it for a project whose value objects declare no invariant", async () => {
     const src = corpusSourceFor("vo-invariant-in-body", "node")
-      .replace('invariant value > 0 message "Quantity must be positive"', "")
+      .replace("invariant quantityPositive: value > 0", "")
       .replace("invariant text.length > 0", "");
     for (const backend of ["node", "dotnet", "java", "python", "elixir"] as const) {
       const fs = await generateSystemFiles(src.replace("platform: node", `platform: ${backend}`));

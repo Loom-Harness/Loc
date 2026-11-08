@@ -39,6 +39,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, resetDatabase, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
+import { writeCaseSource } from "./case-source.mjs";
 import { optInTestReset, stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
@@ -242,7 +243,7 @@ async function runCase(c) {
   let server;
   try {
     const srcPath = join(workDir, "system.ddd");
-    writeFileSync(srcPath, forceMikroorm(c.source));
+    writeCaseSource(srcPath, forceMikroorm(c.source), c.locales);
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", srcPath, "-o", genDir], { stdio: "pipe" });
     const deplDir = findNodeDeployable(genDir);
     const e2eDir = join(genDir, "e2e");

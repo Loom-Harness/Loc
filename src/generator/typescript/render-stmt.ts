@@ -44,7 +44,7 @@ export interface TraceCtx {
    *  Off ⇒ `emit` is byte-identical to the legacy notification-event push. */
   eventSourced?: boolean;
   /** True when rendering an aggregate OPERATION body, whose router answers a
-   *  messaged domain-floor refusal with the `errors[]` entry (M-T1.11 (c)): a
+   *  named domain-floor refusal with the `errors[]` entry (M-T1.11 (c)): a
    *  named `precondition` then throws its `<Ctx>.<Owner>.rule.<name>` code and pointer
    *  along with the text.  Every other host (functions, domain services,
    *  event-sourced appliers) keeps the text-only throw. */

@@ -62,7 +62,7 @@ function renderValueObjectModule(
   const validators = tagging.lines.join("\n");
   const tagDefs = tagging.defs ? `\n${tagging.defs}` : "";
   // A string leaf keeps a blank value so the value object's own rule answers
-  // it with its authored message (`changeset-ingress.ts`) — Ecto's default
+  // it with its rule text (`changeset-ingress.ts`) — Ecto's default
   // `empty_values` would turn `""` into `nil`, which every length/format
   // validator skips, so a blank code was ACCEPTED.  A value object with no
   // string leaf keeps the single `cast` (byte-identical).

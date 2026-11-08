@@ -57,7 +57,7 @@ const INTRINSIC_MATCHER_SIGNATURES: ReadonlyArray<MatcherSig> = [
   // The split is not cosmetic.  In-process the kind is observable — every
   // backend's domain error carries it as a structural `kind` field.  Over
   // HTTP both rungs are a 422 whose only discriminator is the RFC 7807
-  // `detail` sentence, which an authored `message "..."` overwrites.  Letting
+  // `detail` sentence, which a rule's own text overwrites.  Letting
   // one matcher mean both would make it two strengths of claim under one name
   // — the defect #2959 fixed on the ui side, where `toThrow(422)` silently
   // meant something weaker.  So a `test e2e` body keeps `toThrow(<status>)`

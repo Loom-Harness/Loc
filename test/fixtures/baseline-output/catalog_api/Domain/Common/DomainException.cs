@@ -10,7 +10,7 @@ using CatalogApi.Domain.Events;
 namespace CatalogApi.Domain.Common;
 
 /// <summary>Which rung of the domain floor refused a call — carried apart
-/// from the message, which an authored <c>message "..."</c> replaces.</summary>
+/// from the message, which a rule's own text replaces.</summary>
 public enum DomainErrorKind
 {
     Precondition,

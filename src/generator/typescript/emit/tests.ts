@@ -186,8 +186,8 @@ function renderTestsCore(
  *  lowers to.  vitest's `toThrow(Class)` takes ONE class and the domain floor
  *  refuses through three sibling classes (`DOMAIN_REJECTION_ERRORS`), so the
  *  union is an `instanceof` chain; a rung narrows it to a `DomainError` whose
- *  structural `kind` names that rung (never its message, which an authored
- *  `message "..."` replaces).  A non-domain error is RETHROWN rather than
+ *  structural `kind` names that rung (never its message, which a rule's own
+ *  text replaces).  A non-domain error is RETHROWN rather than
  *  reported, so the test fails with the real `ReferenceError` / `TypeError`
  *  and its stack. */
 function domainRejectionHelper(): string[] {

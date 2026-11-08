@@ -6,14 +6,17 @@ import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { type LoomDiagnostic, validateLoomModel } from "../../../src/ir/validate/validate.js";
 import { generateSystems } from "../../../src/system/index.js";
 import { parseString } from "../../_helpers/parse.js";
+import { overridesBeside, readWithOverrides } from "../../_helpers/source-overrides.js";
 import { type Backend, PLATFORM_CLAUSE } from "./backends.js";
 import { CORPUS } from "./manifest.js";
 
 const CORPUS_DIR = path.dirname(fileURLToPath(import.meta.url));
 
+const corpusPath = (featureId: string): string => path.join(CORPUS_DIR, `${featureId}.ddd`);
+
 /** Read a corpus feature's canonical (platform-agnostic) `.ddd` source. */
 export function corpusSource(featureId: string): string {
-  return fs.readFileSync(path.join(CORPUS_DIR, `${featureId}.ddd`), "utf8");
+  return fs.readFileSync(corpusPath(featureId), "utf8");
 }
 
 /** Specialise a corpus feature for one backend by swapping the platform token.
@@ -35,7 +38,12 @@ export function corpusSourceFor(
   const clause = persistence
     ? `${PLATFORM_CLAUSE[backend]} { persistence: ${persistence} }`
     : PLATFORM_CLAUSE[backend];
-  return src.replaceAll("__PLATFORM__", clause);
+  // The source-language text beside the corpus (`locales/en/`) travels with the
+  // string, so every shared generate helper applies it (`source-overrides.ts`).
+  return readWithOverrides(
+    path.join(CORPUS_DIR, `${featureId}.ddd`),
+    src.replaceAll("__PLATFORM__", clause),
+  );
 }
 
 /** The deployable name every SINGLE-service corpus fixture uses → its emitted
@@ -68,6 +76,9 @@ export function materializeCorpusFixture(
   const suffix = persistence ? `${backend}-${persistence}` : backend;
   const dest = path.join(destDir, `${featureId}.${suffix}.ddd`);
   fs.writeFileSync(dest, corpusSourceFor(featureId, backend, persistence));
+  // `ddd generate` reads the translator tree beside the `.ddd`: carry it along.
+  const locales = path.join(CORPUS_DIR, "locales");
+  if (fs.existsSync(locales)) fs.cpSync(locales, path.join(destDir, "locales"), { recursive: true });
   return dest;
 }
 
@@ -85,7 +96,7 @@ export async function generateCorpusCase(
   if (errors.length > 0) {
     throw new Error(`parse/validation errors:\n${errors.join("\n")}`);
   }
-  return generateSystems(model).files;
+  return generateSystems(model, { sourceOverrides: overridesBeside(corpusPath(featureId)) }).files;
 }
 
 /**

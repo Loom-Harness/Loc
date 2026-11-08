@@ -1,13 +1,13 @@
-// Authored validation messages + the backend message CATALOG (M-T1.11).
+// Named-rule validation messages + the backend message CATALOG (M-T1.11).
 //
-// Exercises every rule kind that can carry a `message "…"` clause — an
+// Exercises every rule kind that can be named — an
 // aggregate `invariant`, an inline field `check`, an operation `precondition`,
 // and a value-object `invariant` — so each backend's wire-validator carrier AND
 // its generated catalog (a `const` map on node/.NET/python, a
 // `messages.properties` ResourceBundle on java, a `priv/gettext` tree on elixir)
 // are compiled by the corpus gate.
 //
-// It also keeps a MESSAGE-LESS rule beside each messaged one: a message-less
+// It also keeps a MESSAGE-LESS rule beside each named one: an unnamed
 // rule must stay on its native validator chain (`z.number().min`,
 // `.MinimumLength`, `Field(min_length=…)`, `validate_length`), so this fixture
 // compiles both paths rather than only the new one.
@@ -18,19 +18,19 @@ system MessagedRules {
         code: string
         // Value-object invariants reach the wire through the `<Vo>Request`
         // validator, the third `available`-set shape the catalog collects over.
-        invariant code.length >= 3 message "SKU code needs at least 3 characters"
+        invariant skuCodeNeedsAt: code.length >= 3
         invariant code.length <= 32
       }
       aggregate Product {
         // Inline field `check` with a trailing message — its key is a content
         // hash of the text (D-I18N-KEY's inline-literal rule).
-        name: string check name.length > 0 message "Name is required"
+        name: string check nameRequired: name.length > 0
         sku: Sku
         quantity: int
         reorderLevel: int
 
-        // A messaged aggregate invariant over a create-input field.
-        invariant quantity >= 0 message "Quantity cannot be negative"
+        // A named aggregate invariant over a create-input field.
+        invariant quantityCannotNegative: quantity >= 0
         // Message-LESS, and single-field-shaped: must stay on the native chain.
         invariant reorderLevel >= 1
 
@@ -42,13 +42,13 @@ system MessagedRules {
         }
 
         operation restock(amount: int) {
-          // A messaged precondition — the operation-request carrier.
-          precondition amount >= 1 message "Restock amount must be at least 1"
+          // A named precondition — the operation-request carrier.
+          precondition restockAmountAtLeast: amount >= 1
           quantity := quantity + amount
         }
 
         operation ship(amount: int) {
-          // Message-less precondition beside the messaged one above, so both
+          // Unnamed precondition beside the named one above, so both
           // arms of each backend's precondition branch are compiled.
           precondition amount >= 1
           quantity := quantity - amount
@@ -59,15 +59,15 @@ system MessagedRules {
         // JSON Schema publishes as `minLength`/`maxLength` — not the host
         // language's native string length (UTF-16 code units on JS/C#/Java).
         // Both length carriers are exercised, because they are DIFFERENT code
-        // paths: the messaged rule rides the refine/`Must`/predicate carrier,
-        // the message-less one rides each backend's native validator chain.
+        // paths: the named rule rides the refine/`Must`/predicate carrier,
+        // the unnamed one rides each backend's native validator chain.
         operation rename(label: string) {
-          precondition label.length >= 3 message "Label needs at least 3 characters"
+          precondition labelNeedsAtLeast: label.length >= 3
           precondition label.length <= 16
           name := label
         }
 
-        // A message-LESS `matches` rule (#15d, ruling D10).  Its denial must
+        // An UNNAMED `matches` rule (#15d, ruling D10).  Its denial must
         // carry the SAME synthesized sentence node's zod chain sends ("Code is
         // not in the expected format") — python once answered pydantic's raw
         // `String should match pattern '^[A-Z]{3}$'`, leaking the regex.
@@ -103,7 +103,7 @@ system MessagedRules {
     port: 4000
   }
 
-  test e2e "a messaged rule answers 422 with its authored text and its stable code" against d {
+  test e2e "a named rule answers 422 with its rule text and its stable code" against d {
     let p = api.products.create({ name: "Widget", sku: { code: "WID" }, quantity: 2, reorderLevel: 1 })
     // Every CREATE-time carrier refuses at the wire (PROMOTED from the
     // per-backend `message-clause.test.ts` / `vo-invariant-422.test.ts` string
@@ -111,15 +111,15 @@ system MessagedRules {
     // FluentValidation `.WithMessage`/`.WithErrorCode` + a `<Vo>RequestValidator`,
     // a Spring `Validator` + `rejectValue`, pydantic `PydanticCustomError`, an
     // Ecto `validate_invariants` residual).  The golden pins each 422 body —
-    // the authored text, the stable `msg.<hash>` code and the pointer — so the
+    // the rule text, the stable `<Ctx>.<Owner>.rule.<name>` code and the pointer — so the
     // five carriers are compared as what they ANSWER.
-    //   the messaged aggregate invariant.
+    //   the named aggregate invariant.
     expect(api.products.create({ name: "Gadget", sku: { code: "GAD" }, quantity: -1, reorderLevel: 1 })).toThrow(422)
-    //   the messaged inline `check name.length > 0`, which only "" can trip —
+    //   the named inline `check name.length > 0`, which only "" can trip —
     //   the blank string has to reach the rule (Ecto's default cast turns it
     //   into nil and answers "can't be blank" instead).
     expect(api.products.create({ name: "", sku: { code: "GAD" }, quantity: 1, reorderLevel: 1 })).toThrow(422)
-    //   the messaged VALUE-OBJECT invariant, its pointer the leaf `/sku/code`.
+    //   the named VALUE-OBJECT invariant, its pointer the leaf `/sku/code`.
     expect(api.products.create({ name: "Gadget", sku: { code: "G" }, quantity: 1, reorderLevel: 1 })).toThrow(422)
     //   …and a BLANK leaf, which has to reach the same rule rather than be
     //   cast to nil and skipped by every length validator.
@@ -131,8 +131,8 @@ system MessagedRules {
     api.products.restock(p, { amount: 3 })
     let after = api.products.getById(p)
     expect(after.quantity).toBe(5)
-    // The message-LESS twin of the same rule shape: `ship`'s precondition has no
-    // authored text, so its denial must keep the derived default AND contribute
+    // The UNNAMED twin of the same rule shape: `ship`'s precondition has no
+    // rule text, so its denial must keep the derived default AND contribute
     // no catalog entry — the byte-identical half of this fixture, exercised at
     // runtime rather than only in the emitted source.
     api.products.ship(p, { amount: 1 })
@@ -144,7 +144,7 @@ system MessagedRules {
     expect(listed.total).toBe(1)
     let byName = api.catalog.listProductsByName("Widget")
     expect(byName.length).toBe(1)
-    // The messaged precondition rejects at the wire boundary (422).  The
+    // The named precondition rejects at the wire boundary (422).  The
     // `errors[].code` it carries is what the generated catalog is keyed by, and
     // what the server now resolves the message through.
     expect(api.products.restock(p, { amount: 0 })).toThrow(422)
@@ -155,10 +155,10 @@ system MessagedRules {
     //
     // "😀X" is THREE UTF-16 code units and TWO code points.  A backend
     // counting code units passes it (3 >= 3) and answers 200; the code-point
-    // rule denies it with its authored text — the same 422 envelope the
+    // rule denies it with its rule text — the same 422 envelope the
     // `restock` denial above already pins across all five backends.
     expect(api.products.rename(p, { label: "😀X" })).toThrow(422)
-    // The other direction, on the message-less native chain: nine astral
+    // The other direction, on the unnamed native chain: nine astral
     // characters are EIGHTEEN UTF-16 code units but only nine code points, so
     // `label.length <= 16` must ADMIT them — a code-unit chain wrongly denies.
     // The value then has to survive the round-trip unmangled.

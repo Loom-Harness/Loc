@@ -68,7 +68,7 @@ export function renderVanillaProblemDetailsModule(
    *  (`validate_body_value_objects/1` exists).  Carries the DOMAIN-FLOOR status
    *  + title the refusal answers with; `undefined` ⇒ byte-identical. */
   bodyValueObjects?: { status: number; title: string },
-  /** M-T1.11 (c) — a MESSAGED rule can trip at the DOMAIN FLOOR: an invariant
+  /** M-T1.11 (c) — a NAMED rule can trip at the DOMAIN FLOOR: an invariant
    *  re-asserted after an operation body (a changeset error tagged
    *  `loom_domain_floor`) or a precondition denying with a coded map detail.
    *  Both answer through the SAME domain-floor entry sender the body-built value

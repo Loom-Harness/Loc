@@ -9,7 +9,7 @@
 //   F15  a GUARDED single-field invariant.  The native `validate_*` path refuses
 //        a guard by design (`singleFieldConstraints` returns null for one), and
 //        the residual `validate_invariants/1` carrier ASKED THAT SAME CLASSIFIER
-//        — so both doors shut and nothing emitted the implication.  The messaged
+//        — so both doors shut and nothing emitted the implication.  The named
 //        twin additionally lost its `loom_code` wire key.
 //   F24  a bare call to a PRIVATE operation.  It rendered
 //        `_ = nil  # vanilla: bare call to 'recompute' (no callable target);
@@ -68,7 +68,7 @@ describe("elixir vanilla — part rules, guarded invariants, private-op calls (M
   });
 
   describe("F15 — a GUARDED single-field invariant emits its implication", () => {
-    it("the message-less guarded rule is enforced, guard and all", async () => {
+    it("the unnamed guarded rule is enforced, guard and all", async () => {
       const cs = (await files()).get("d/lib/d/billing/invoice_changeset.ex")!;
       const fn = fnBody(cs, "validate_invariants");
       expect(fn).toContain("if data.tax_rate > 0 do");
@@ -78,7 +78,7 @@ describe("elixir vanilla — part rules, guarded invariants, private-op calls (M
       );
     });
 
-    it("the MESSAGED guarded rule keeps its `loom_code` wire key", async () => {
+    it("the NAMED guarded rule keeps its `loom_code` wire key", async () => {
       const cs = (await files()).get("d/lib/d/billing/invoice_changeset.ex")!;
       const fn = fnBody(cs, "validate_invariants");
       expect(fn).toContain('"tax rate must stay under 100"');

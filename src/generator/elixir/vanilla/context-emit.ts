@@ -847,7 +847,7 @@ ${body}
       ...body.flatMap((st) => {
         // An empty wire set: a create precondition is not lifted into the
         // create request validator on any backend, so it answers the domain
-        // floor (with its `errors[]` entry when messaged), like the other four.
+        // floor (with its `errors[]` entry when named), like the other four.
         if (st.kind === "precondition") return [renderOpGuardClause(st, bodyRc, new Set())];
         if (st.kind === "let")
           return [`${escapeElixirIdent(snake(st.name))} = ${renderExpr(st.expr, bodyRc)}`];

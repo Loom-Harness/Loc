@@ -46,7 +46,7 @@ export interface TraceCtx {
   eventSourced?: boolean;
   /** True when rendering an aggregate OPERATION body, whose domain-floor
    *  refusal DomainExceptionFilter answers with the `errors[]` entry (M-T1.11
-   *  (c)): a messaged `precondition` then throws its code and pointer too. */
+   *  (c)): a named `precondition` then throws its code and pointer too. */
   domainFloorCodes?: boolean;
 }
 

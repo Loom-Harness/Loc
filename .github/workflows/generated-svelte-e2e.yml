@@ -57,6 +57,7 @@ on:
       - 'src/util/**'
       - 'src/generator/svelte/**'
       - 'src/generator/_adapters/**'
+      - 'src/generator/_i18n/**'
       - 'src/generator/_expr/**'
       - 'src/generator/_frontend/**'
       - 'src/generator/_payload/**'

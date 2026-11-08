@@ -435,9 +435,9 @@ export function refineClauseFor(
   // shipping a broken refine.
   if (!refineRenderable(inv.expr, decimal)) return null;
   if (inv.guard && !refineRenderable(inv.guard, decimal)) return null;
-  // A messaged single-field invariant is deliberately kept OUT of the native
+  // A named single-field invariant is deliberately kept OUT of the native
   // chain (which has no message slot) so its refine survives — only suppress the
-  // refine for a message-less shape the chain already absorbed.
+  // refine for an unnamed shape the chain already absorbed.
   if (!inv.message && takeSingleFieldChain(inv, ctx, decimal)) return null;
   const body = renderRefineExpr(inv.expr);
   const ruled = inv.guard ? `!(${renderRefineExpr(inv.guard)}) || (${body})` : body;

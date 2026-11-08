@@ -583,9 +583,9 @@ migration "m" { A.Note -> B.Note }`,
     }
     repository Items for Item`),
   "loom.model-text-in-template": uiPage("Text { `All {plural(Item)}` }"),
-  // Named rules (#4450): two rules of one aggregate sharing a name — an
-  // invariant and a field check, which share the aggregate's rule namespace —
-  // and the removed `message "…"` clause.
+  // Named rules: two rules of one aggregate sharing a name — an invariant and a
+  // field check, which share the aggregate's rule namespace — and the removed
+  // `message "…"` clause (an error that names the rule to write).
   "loom.rule-name-duplicate": repoOnly(`    aggregate Item with crudish {
       sku: string check skuRequired: sku.length > 0
       invariant skuRequired: sku.length < 64

@@ -456,7 +456,7 @@ Inside an aggregate or an `entity` part:
 | `derived name: TypeRef = Expression` | Computed read-only property. |
 | `derived display: string = Expression` | **Reserved** — declares the aggregate's user-facing label.  When present, `string(aggregate)` and implicit `"x " + aggregate` compile to a member access on this derived; React Select pickers use it for option text.  Without it, those expressions are compile errors. |
 | `derived inspect: string = Expression` | **Reserved** — declares the aggregate's developer-facing debug form.  Auto-generated when omitted (structural form, sensitive fields shown as `<redacted>`).  Backends emit it as `ToString()` / `[util.inspect.custom]` / `Inspect` so debugger watches, exceptions, and logger output get a useful representation. |
-| `[private] invariant [name:] Expression [when Expression]` | `bool` predicate; checked after every mutation. Optional `when` is a guard; the optional `name:` keys the rule's user-facing text (`<Ctx>.<Owner>.rule.<name>`, English in `locales/en/<Ctx>.json`) — see [Naming a rule](language-reference/07-invariants-derived-functions.md#naming-a-rule). The `message "…"` clause is removed (`loom.rule-message-removed`, a warning until the corpus migration lands). `private` keeps the rule off the wire-layer schemas (Zod / FluentValidation / OpenAPI) — it runs only in the domain floor. |
+| `[private] invariant [name:] Expression [when Expression]` | `bool` predicate; checked after every mutation. Optional `when` is a guard; the optional `name:` keys the rule's user-facing text (`<Ctx>.<Owner>.rule.<name>`, English in `locales/en/<Ctx>.json`) — see [Naming a rule](language-reference/07-invariants-derived-functions.md#naming-a-rule). The `message "…"` clause is removed (`loom.rule-message-removed`, an error that names the rule to write). `private` keeps the rule off the wire-layer schemas (Zod / FluentValidation / OpenAPI) — it runs only in the domain floor. |
 | `unique (a, b)` | Set-level natural-key invariant — derived into a DB unique index (partial under `softDeletable`) plus a per-backend 23505 → 409 mapping (`loom.unique-*`).  A find that returns a single row (`T` / `T?`) by equality on fields no `unique (…)` covers gets the advisory `loom.single-row-find-not-unique` — with duplicates, every backend would return whichever row the database yields first. |
 | `function name(params): TypeRef = Expression` | Pure helper (expression form); callable from any expression in the same aggregate. Stays SQL-inlinable like a `criterion`. |
 | `function name(params): TypeRef { … }` | Pure helper (block form); `let` + branch (ternary/`match`, or a statement `if`/`else`) + bug-regime `precondition`/`requires`, returning a value on **every path** (`loom.function-block-no-return` — a `return` inside an `if` counts, but an `if` with no `else` leaves one path valueless). Still **pure** — no mutation, no `emit`, no repository / operation / domain-service / extern call (the IR validator rejects each). **Not queryable** (a block-form call is rejected in a `where` / `criterion` filter). |
@@ -1721,7 +1721,7 @@ hypothetical: that is the 2026-09-13 testability audit's F11.  Name the rung:
 
 ```ddd
 operation complete() {
-    precondition status == InProgress message "finish the work first"
+    precondition finishWorkFirst: status == InProgress
     status := Completed
 }
 
@@ -1732,7 +1732,7 @@ test "a fresh work order cannot be completed" {
 ```
 
 The rung is **structural** on every backend: the domain error carries it as a
-field, separate from the message, so an authored `message "…"` on the rule costs
+field, separate from the message, so a rule's name and its English text cost
 the assertion nothing.
 
 ```ts
@@ -1771,7 +1771,7 @@ The field is `DomainError.kind` (node, python), `DomainException.getKind()`
 (java), `DomainException.Kind` (.NET; a value object's invariant throws the
 separate `ValueObjectInvariantException`, so there the type is the rung) and
 `GuardError.kind` (elixir).  It does not reach the wire: the HTTP answer is the
-same 422 problem whose `detail` is the authored message.
+same 422 problem whose `detail` is the rule text.
 
 `precondition` and `invariant` are keywords, not values — they are legal only in
 this one argument position (`loom.throw-kind-outside-tothrow`).  Two rules
@@ -2107,10 +2107,6 @@ The validator runs after parsing and reports errors for:
   failure. The per-site table is in
   [Behavior & statements § The callable modifier surface](language-reference/06-behavior-and-statements.md#the-callable-modifier-surface).
 - `precondition` and `invariant` expressions whose type is not `bool`.
-- A blank `message "..."` clause — empty or whitespace-only — on an
-  `invariant`, property `check`, or `precondition` (`loom.blank-message`). A
-  blank message renders an empty user-facing error string (and degenerates the
-  content-hashed wire `code` derived from it), so it's almost always a typo.
 - Field / parameter / call / member-access type mismatches.
 - Access to a member that doesn't exist on a fully-resolved record
   receiver — `order.totl`, `paid.amont`, `this.noField` (`loom.unknown-member`).
@@ -2191,7 +2187,7 @@ validator raises is in it).  By family, with the doc that explains each:
 | `loom.macro-*`, `loom.unknown-macro`, `loom.scaffold-*`, `loom.softdelete-*`, `loom.capability-*`, `loom.stamp-*`, `loom.filter-*`, `loom.ignoring-clause-placement` | Macro args / targets, scaffold params, capability hosts, filters / stamps, `ignoring` placement | [`scaffold-macros.md`](scaffold-macros.md), [`capabilities.md`](capabilities.md) |
 | `loom.abstract-*`, `loom.extends-*`, `loom.tph-*`, `loom.polymorphic-*` | Inheritance, TPH / TPC layout | [`inheritance.md`](inheritance.md) |
 | `loom.intrinsic-*`, `loom.duration-*`, `loom.interp-*`, `loom.ternary-*`, `loom.call-arg-*`, `loom.construction-*`, `loom.unknown-*`, `loom.bare-collection-accessor`, `loom.user-visible-concat` | Expression typing — intrinsics, durations, interpolation formats, ternaries, calls, record construction, names / members | this document, [`stdlib.md`](stdlib.md) |
-| `loom.function-*`, `loom.blank-message`, `loom.entity-field-*`, `loom.duplicate-*` | Functions, `when` gates, messages, entity-typed fields, duplicate names / ports / tables | this document |
+| `loom.function-*`, `loom.entity-field-*`, `loom.duplicate-*` | Functions, `when` gates, messages, entity-typed fields, duplicate names / ports / tables | this document |
 | `loom.ui-*`, `loom.page-primitive*`, `loom.store-*`, `loom.datagrid-*`, `loom.chart-*`, `loom.table-*`, `loom.a11y-*`, `loom.slot-*`, `loom.component-*`, `loom.action-*`, `loom.missing-effect-marker`, `loom.match-await*`, `loom.feliz-*`, `loom.flutter-*`, `loom.heex-*`, `loom.frontend-*` | Page metamodel, primitive arity / args, stores and lifetimes, grids / charts, accessibility, slots, actions and effect markers, per-frontend support gaps | [`page-metamodel.md`](page-metamodel.md), [`actions.md`](actions.md) |
 | `loom.e2e-*`, `loom.test-*`, `loom.context-test-unsupported` | e2e bodies, test placement | this document, [`testing.md`](testing.md) |
 | `loom.domain-service-*` | Domain-service purity / read rules | [`domain-services.md`](domain-services.md) |

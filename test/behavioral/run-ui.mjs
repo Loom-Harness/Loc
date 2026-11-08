@@ -41,6 +41,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { copyLocales, localesBeside } from "./case-source.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE } from "./money-compare-ui.mjs";
 import { NUMERIC_FIELDS, numericSeedBody } from "./numeric-ui-contract.mjs";
 import {
@@ -254,6 +255,7 @@ async function runCase(c) {
         dddPath,
         readFileSync(join(REPO, c.ddd), "utf8").replaceAll("__FRONTEND__", c.frontend),
       );
+      copyLocales(localesBeside(join(REPO, c.ddd)), workDir);
     }
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", dddPath, "-o", genDir], {
       stdio: "pipe",

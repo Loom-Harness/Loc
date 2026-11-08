@@ -54,7 +54,7 @@ system X {
       aggregate Foo with crudish {
         name: string
         derived display: string = name
-        invariant name.length >= 3 message "Name needs at least 3 characters"
+        invariant nameLength: name.length >= 3
         operation ping() { name := name  emit Pinged { foo: id, at: now() } }
       }
       repository Foos for Foo { }

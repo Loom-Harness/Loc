@@ -272,13 +272,13 @@ export type AggSpec = {
   crudish: boolean;
   fields: FieldSpec[];
   derived: { name: string; from: string } | null;
-  /** `message` is not decoration: a MESSAGED invariant is what makes the
+  /** `ruleName` is not decoration: a NAMED invariant is what makes the
    *  backends emit their validation-message catalog at all (node's
    *  `zod-refine`, dotnet's `Localization/LoomMessages.cs`, …).  With every
-   *  generated invariant message-less, that whole file — and the
+   *  generated invariant unnamed, that whole file — and the
    *  namespace-relative reference inside it, F-025b — was unreachable by any
    *  seed. */
-  invariant: { field: string; message: string | null } | null;
+  invariant: { field: string; ruleName: string | null } | null;
   part: PartSpec | null;
   op: OpSpec | null;
   /** Hand-written `create` over one field, emitted when `crudish` is false. */
@@ -379,8 +379,7 @@ function emitAgg(agg: AggSpec): string {
     ? `\n        derived ${agg.derived.name}: string = ${agg.derived.from}`
     : "";
   const invariant = agg.invariant
-    ? `\n        invariant ${agg.invariant.field} >= 0` +
-      (agg.invariant.message === null ? "" : ` message "${agg.invariant.message}"`)
+    ? `\n        invariant ${agg.invariant.ruleName === null ? "" : `${agg.invariant.ruleName}: `}${agg.invariant.field} >= 0`
     : "";
   const part = agg.part
     ? `\n        contains ${agg.part.collection}: ${agg.part.entity}[]` +
@@ -599,9 +598,9 @@ function genDeepSpec(seed: number): ModelSpec {
         numField !== undefined && r() < 0.35
           ? {
               field: numField.name,
-              // Half the invariants carry a message, so the validation-message
+              // Half the invariants are named, so the validation-message
               // catalog is emitted on roughly half the seeds rather than never.
-              message: r() < 0.5 ? `${numField.name} must not be negative` : null,
+              ruleName: r() < 0.5 ? `${numField.name}NonNegative` : null,
             }
           : null,
       part: r() < 0.35 ? { collection: "lines", entity: `${name}Line` } : null,

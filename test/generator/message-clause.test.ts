@@ -2,21 +2,29 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// Custom validation messages — the `message "..."` clause on
+// Custom validation messages — a rule name (and its `locales/en` text) on
 // invariant / check / precondition (M-T1.11 foundation slice, Hono/React
-// vertical).  A messaged rule renders through the wire refine carrier (with
-// the author text + a stable `loomCode`) and the domain floor; a message-less
+// vertical).  A named rule renders through the wire refine carrier (with
+// the rule text + a stable `loomCode`) and the domain floor; an unnamed
 // rule keeps its native chain byte-identical.
 // ---------------------------------------------------------------------------
+
+// The rules' English comes from the translator tree (`locales/en/Cat.json`); a
+// test hands the generator the same overrides.
+const TEXT = new Map([
+  ["Cat.Product.rule.skuRequired", "SKU is required"],
+  ["Cat.Product.rule.nameLength", "Name must be 2-120 characters"],
+  ["Cat.Product.rule.amountPositive", "Amount must be positive"],
+]);
 
 const SOURCE = `
   system S {
     subdomain Sales {
       context Cat {
         aggregate Product {
-          sku: string check sku.length > 0 message "SKU is required"
+          sku: string check skuRequired: sku.length > 0
           name: string
-          invariant name.length >= 2 && name.length <= 120 message "Name must be 2-120 characters"
+          invariant nameLength: name.length >= 2 && name.length <= 120
           invariant sku.length > 0
           // Empty body on purpose: on a state-based aggregate the canonical
           // create's assignments are DROPPED (loom.lifecycle-body-dropped) —
@@ -24,7 +32,7 @@ const SOURCE = `
           // is still what makes the aggregate constructible.
           create(name: string, sku: string) { }
           operation restock(amount: int) {
-            precondition amount >= 1 message "Amount must be positive"
+            precondition amountPositive: amount >= 1
             name := name
           }
         }
@@ -41,7 +49,7 @@ const SOURCE = `
 `;
 
 async function gen() {
-  const all = await generateSystemFiles(SOURCE);
+  const all = await generateSystemFiles(SOURCE, { sourceOverrides: TEXT });
   return {
     reactApi: all.get("web/src/api/product.ts")!,
     domain: all.get("api/domain/product.ts")!,
@@ -50,15 +58,15 @@ async function gen() {
 }
 
 describe("message clause — wire refine carrier", () => {
-  it("renders a messaged check as a refine with its text", async () => {
+  it("renders a named check as a refine with its text", async () => {
     const { reactApi } = await gen();
     expect(reactApi).toContain('message: "SKU is required"');
   });
 
-  it("keeps a message-LESS invariant on the native chain", async () => {
+  it("keeps an UNNAMED invariant on the native chain", async () => {
     const { reactApi } = await gen();
     // `invariant sku.length > 0` (no message) stays on the chain rather than
-    // becoming a messaged refine.  A string LENGTH bound is a code-point
+    // becoming a named refine.  A string LENGTH bound is a code-point
     // predicate, not zod's code-unit `.min` (RS-31).
     expect(reactApi).toContain(
       'sku: z.string().refine((v: any) => [...v].length >= 1, { message: "Sku must be at least 1 character", params: { loomCode: "field.min-length", loomValues: {"min":1} } })',

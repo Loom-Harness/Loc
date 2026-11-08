@@ -17,7 +17,7 @@ system Helpdesk {
         email: string
         company: string?
         derived display: string = name
-        invariant email.contains("@") message "email must contain @"
+        invariant emailContain: email.contains("@")
         unique (email)
       }
 
@@ -45,7 +45,7 @@ system Helpdesk {
         derived commentCount: int = comments.count
         derived isOpen: bool = status != Resolved && status != Closed
 
-        invariant subject.length > 0 message "subject is required"
+        invariant subjectRequired: subject.length > 0
         invariant resolvedAt != null when status == Resolved
 
         create(number: string, subject: string, description: string, priority: Priority, customer: Customer id, openedAt: datetime) { }
@@ -59,7 +59,7 @@ system Helpdesk {
         }
 
         operation comment(author: string, body: string, internal: bool) when status != Closed {
-          precondition body.length > 0 message "comment body is required"
+          precondition commentBodyRequired: body.length > 0
           comments += Comment { author: author, body: body, internal: internal, at: now() }
         }
 
@@ -68,7 +68,7 @@ system Helpdesk {
         }
 
         operation resolve() when isOpen {
-          precondition assignee != null message "assign the ticket before resolving"
+          precondition assignTicketBeforeResolving: assignee != null
           status := Resolved
           resolvedAt := now()
           emit TicketResolved { ticket: id, at: now() }

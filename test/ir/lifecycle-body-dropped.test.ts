@@ -134,7 +134,7 @@ describe("validator — the lifecycle body no backend renders", () => {
         code: string
         create(code: string) {
           let trimmed = code
-          precondition trimmed.length > 0 message "code is required"
+          precondition codeRequired: trimmed.length > 0
           emit Placed { order: id, code: code }
         }
       }`);

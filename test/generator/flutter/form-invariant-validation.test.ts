@@ -39,7 +39,7 @@ system Inv {
       invariant priority <= 5
       invariant code.length == 6
       invariant weight > 0.5
-      invariant email.matches("^[^@]+@[^@]+$") message "Email must look like an address"
+      invariant emailAddress: email.matches("^[^@]+@[^@]+$")
       operation reprioritize(newPriority: int) {
         precondition newPriority >= 1
         priority := newPriority

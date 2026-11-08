@@ -45,14 +45,14 @@ import { floorRuleText } from "./rule-text.js";
  *  every operation body) or an operation `precondition`.  Gates every backend's
  *  domain-floor code carriage, so a project without one emits byte-identically. */
 export function hasDomainFloorMessages(ctx: DomainFloorHost): boolean {
-  const messaged = (invs: readonly InvariantIR[]): boolean =>
+  const named = (invs: readonly InvariantIR[]): boolean =>
     invs.some((i) => i.message !== undefined);
   return (
     ctx.aggregates.some(
       (a) =>
-        messaged(a.invariants) ||
-        a.parts.some((p) => messaged(p.invariants)) ||
-        a.operations.some((o) => o.statements.some(hasMessagedPrecondition)),
+        named(a.invariants) ||
+        a.parts.some((p) => named(p.invariants)) ||
+        a.operations.some((o) => o.statements.some(hasNamedPrecondition)),
     ) || workflowPreconditionMessages(ctx).length > 0
   );
 }
@@ -109,7 +109,7 @@ export function workflowPreconditionThrowArgs(
 }
 
 /** A named `precondition` anywhere under `s` (an `if` branch included). */
-function hasMessagedPrecondition(s: StmtIR): boolean {
+function hasNamedPrecondition(s: StmtIR): boolean {
   let found = false;
   walkStmtsDeep(s, (n) => {
     if (n.kind === "precondition" && n.message !== undefined) found = true;

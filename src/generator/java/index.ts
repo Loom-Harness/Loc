@@ -563,7 +563,7 @@ function emitProjectFromContexts(
       // M-T5.1: the value-object-invariant handler rides on a hosted value
       // object declaring an invariant; a project without one is byte-identical.
       contexts.some(hasValueObjectInvariants),
-      // M-T1.11 (c): the domain-floor code answer rides on a messaged aggregate
+      // M-T1.11 (c): the domain-floor code answer rides on a named aggregate
       // rule the same way.
       contexts.some(hasDomainFloorMessages),
       contexts

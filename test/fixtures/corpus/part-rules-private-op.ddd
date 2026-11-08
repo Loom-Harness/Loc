@@ -12,7 +12,7 @@
 //      classifier ("is this a recognised single-field shape?"), which answers
 //      null for anything guarded.  Both doors shut: nothing enforced it, while
 //      node/.NET/java/python all emit `!(guard) || (body)`.  Both spellings are
-//      here, because the MESSAGED one additionally loses its `loom_code` wire
+//      here, because the NAMED one additionally loses its `loom_code` wire
 //      key when it is dropped.
 //   3. A PRIVATE-OPERATION call — `recompute()` inside another operation.  It
 //      rendered `_ = nil  # vanilla: bare call to 'recompute' (no callable
@@ -69,12 +69,12 @@ system PartRulesPrivateOp {
         }
         lines: Line[]
 
-        // GUARDED single-field invariant, message-less: the implication
+        // GUARDED single-field invariant, unnamed: the implication
         // `!(taxRate > 0) || (note.length > 0)`.
         invariant note.length > 0 when taxRate > 0
-        // …and the messaged twin, whose `loom_code` wire key rides the residual
+        // …and the named twin, whose `loom_code` wire key rides the residual
         // carrier's `add_error` metadata.
-        invariant taxRate < 100 when taxRate > 0 message "tax rate must stay under 100"
+        invariant taxRateStayUnder: taxRate < 100 when taxRate > 0
 
         create(note: string, taxRate: int, total: int) {
           note := note

@@ -181,7 +181,7 @@ export function renderRequirePresentHelper(): string {
 
   # A string column is cast with \`empty_values: []\`, so a blank value stays a
   # string and reaches the rule that owns it (a \`check\` / \`invariant\` with its
-  # authored message).  \`validate_required/2\` would call that same blank value
+  # rule text).  \`validate_required/2\` would call that same blank value
   # missing, so presence here is nil-only.  A field that already carries an
   # error (a cast failure) is not reported twice — \`validate_required/2\`'s rule.
   defp __require_present(changeset, fields) do

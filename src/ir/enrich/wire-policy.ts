@@ -144,7 +144,7 @@ export type WireDetail =
  *
  *   - `none`      — never.
  *   - `per-field` — one `{ pointer, message, code? }` entry per offending field.
- *   - `rule`      — one entry for a MESSAGED rule or a value object refused
+ *   - `rule`      — one entry for a NAMED rule or a value object refused
  *                   inside a body (pointer the rule's, or `""`); none otherwise. */
 export type WireErrorsExtension = "none" | "per-field" | "rule";
 
@@ -499,8 +499,8 @@ export function errorVariantCode(ctx: string | undefined, name: string): string 
  *   - `money-grammar`  — a `money` string outside `^-?[0-9]+(\.[0-9]+)?$`.
  *   - `money-range`    — a `money` string whose integer part overflows the
  *                        column.
- *   - `rule`           — a wire-stage rule (`ruleStage`): its authored message,
- *                        or the message-less default (RS-43).
+ *   - `rule`           — a wire-stage rule (`ruleStage`): its rule text,
+ *                        or the unnamed default (RS-43).
  *   - `type-mismatch`  — the JSON value has the wrong type (`"5"` for an `int`,
  *                        `12.5` for a `money`).  Not yet one sentence: each
  *                        framework's own text, so the golden compares status
@@ -783,7 +783,7 @@ export function errorVariantResponse(
   };
 }
 
-/** The `detail` a `notFound` statement answers with: the authored text, else
+/** The `detail` a `notFound` statement answers with: the rule text, else
  *  the not-found sentence over the statement's subject (`Ticket not found`),
  *  `Resource` standing in when the statement names none.  One function so all
  *  five backends say the same words. */
