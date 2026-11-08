@@ -72,7 +72,7 @@ npx vitest run -t "test name pattern"      # filter by name
 ```
 
 Every slower tier is opt-in behind its own `LOOM_*` env var and has an `npm run test:*`
-script — `jq -r '.scripts | keys[]' package.json | grep '^test'` lists them all (105 at the time of writing; the number moves most weeks). For the
+script — `jq -r '.scripts | keys[]' package.json | grep '^test'` lists them all. For the
 catalog (what each tier proves, the corpus/behavioral/runtime-e2e legs, the wire-golden
 differential) and the Docker recipes for compiling each generated backend locally, invoke
 the **`loom-test-suites`** skill; tier-placement guidance is [`docs/testing.md`](docs/testing.md).
