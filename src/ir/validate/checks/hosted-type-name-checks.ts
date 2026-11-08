@@ -19,7 +19,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import type { BoundedContextIR, SystemIR } from "../../types/loom-ir.js";
+import type { BoundedContextIR, PayloadIR, SystemIR } from "../../types/loom-ir.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 type TypeKind =
@@ -35,8 +35,8 @@ type TypeKind =
  *  declared at the root of a file (the shared kernel) is folded into every
  *  context but is ONE declaration that every backend emits once, so it is not a
  *  per-context declaration. */
-function declaredTypes(ctx: BoundedContextIR): [TypeKind, string][] {
-  const out: [TypeKind, string][] = [];
+function declaredTypes(ctx: BoundedContextIR): [TypeKind, string, string?][] {
+  const out: [TypeKind, string, string?][] = [];
   for (const a of ctx.aggregates) out.push(["aggregate", a.name]);
   for (const v of ctx.valueObjects) if (!v.systemLevel) out.push(["value object", v.name]);
   for (const e of ctx.enums) if (!e.systemLevel) out.push(["enum", e.name]);
@@ -48,8 +48,31 @@ function declaredTypes(ctx: BoundedContextIR): [TypeKind, string][] {
   // event); a synthesized `<Agg>Wire` follows its aggregate.
   const eventNames = new Set(ctx.events.map((e) => e.name));
   for (const p of ctx.payloads)
-    if (!p.synthesized && !eventNames.has(p.name)) out.push(["payload", p.name]);
+    if (!p.synthesized && !eventNames.has(p.name))
+      out.push(["payload", p.name, mirroredAggregate(p, ctx)]);
   return out;
+}
+
+/** The aggregate a contract record (`command` / `query` / `response`) is named
+ *  after — `<X>Response` for an aggregate or part `X`, `<Verb><Agg>Command`,
+ *  `<Verb><Agg>Query` — or undefined.  Every exposed context carries such a
+ *  record per aggregate, so when the aggregate itself collides the record
+ *  collides with it, and the aggregate's diagnostic already reports that. */
+function mirroredAggregate(p: PayloadIR, ctx: BoundedContextIR): string | undefined {
+  const suffixes: Record<string, string> = {
+    response: "Response",
+    command: "Command",
+    query: "Query",
+  };
+  const suffix = suffixes[p.kind];
+  if (!suffix || !p.name.endsWith(suffix)) return undefined;
+  const stem = p.name.slice(0, -suffix.length);
+  for (const a of ctx.aggregates) {
+    if (p.kind === "response") {
+      if (stem === a.name || a.parts.some((part) => part.name === stem)) return a.name;
+    } else if (stem.endsWith(a.name)) return a.name;
+  }
+  return undefined;
 }
 
 export function validateHostedTypeNames(sys: SystemIR, diags: LoomDiagnostic[]): void {
@@ -63,7 +86,11 @@ export function validateHostedTypeNames(sys: SystemIR, diags: LoomDiagnostic[]):
     for (const ctxName of dep.contextNames) {
       const ctx = ctxByName.get(ctxName);
       if (!ctx) continue;
-      for (const [kind, name] of declaredTypes(ctx)) {
+      for (const [kind, name, mirrors] of declaredTypes(ctx)) {
+        if (mirrors !== undefined) {
+          const aggOwner = firstOwner.get(`aggregate/${mirrors.toLowerCase()}`);
+          if (aggOwner !== undefined && aggOwner !== ctxName) continue;
+        }
         const key = `${kind}/${name.toLowerCase()}`;
         const first = firstOwner.get(key);
         if (first === undefined) {
