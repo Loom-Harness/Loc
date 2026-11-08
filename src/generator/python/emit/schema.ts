@@ -1,4 +1,9 @@
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
+import {
+  aggregateTableName,
+  partTableName,
+  projectionTableName,
+} from "../../../ir/enrich/storage-names.js";
 import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
 import type {
   AggregateIR,
@@ -25,7 +30,6 @@ import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { pythonIdent, snake, workflowStateTableName } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
 import { pyRef } from "../../_imports/python.js";
 import { pyIdColumnType, pyIntColumnType } from "../codec-spelling.js";
 import {
@@ -47,7 +51,7 @@ import { provColumn } from "./provenance.js";
 // ---------------------------------------------------------------------------
 // `app/db/schema.py` — SQLAlchemy 2 typed declarative models.  Table /
 // column / index naming mirrors the Drizzle schema exactly (snake_case
-// columns, `tableNameFor(name)` tables, part FK column
+// columns, the `src/ir/enrich/storage-names.ts` tables, part FK column
 // `<parent>_id` behind the `parent_id` attribute, join tables
 // `snake(owner)_snake(field)` with composite PK + reverse index) so
 // every backend reads/writes the same shared Postgres DDL.
@@ -114,7 +118,14 @@ export function renderPySchema(
     // canonical document triple `(id, data, version)`.
     if (effectiveSavingShape(agg as EnrichedAggregateIR, resolveDataSource?.(agg)) === "document") {
       const dds = resolveDataSource?.(agg);
-      models.push(renderDocumentModel(agg, dds?.schema, dds?.tablePrefix));
+      models.push(
+        renderDocumentModel(
+          agg,
+          aggregateTableName(agg, ctx.aggregates),
+          dds?.schema,
+          dds?.tablePrefix,
+        ),
+      );
       continue;
     }
     // shape: embedded: the root stays a queryable row, but each
@@ -133,11 +144,22 @@ export function renderPySchema(
     const prefix = ds?.tablePrefix;
     // TPC base: owns no table (each concrete is standalone).
     if (agg.isAbstract) continue;
-    models.push(renderModel(agg.name, agg, undefined, ctx, schema, prefix));
+    models.push(
+      renderModel(
+        agg.name,
+        aggregateTableName(agg, ctx.aggregates),
+        agg,
+        undefined,
+        ctx,
+        schema,
+        prefix,
+      ),
+    );
     for (const part of agg.parts) {
       models.push(
         renderModel(
           part.name,
+          partTableName(part),
           part,
           directParentName(agg, part.name, agg.name),
           ctx,
@@ -291,13 +313,15 @@ interface FieldOwner {
 
 function renderModel(
   name: string,
+  /** The row's table (`aggregateTableName` / `partTableName`). */
+  table: string,
   owner: FieldOwner,
   parentName: string | undefined,
   ctx: EnrichedBoundedContextIR,
   schema?: string,
   prefix?: string,
 ): string {
-  const tableName = `${prefix ?? ""}${tableNameFor(name)}`;
+  const tableName = `${prefix ?? ""}${table}`;
   const cols: PyColumn[] = [
     { attr: "id", pyType: "str", saType: pyIdColumnType(), optional: false, primaryKey: true },
     ...(parentName
@@ -370,8 +394,13 @@ function renderColumn(c: PyColumn): string {
 /** Document-shaped aggregate (`shape: document`): the whole tree is one
  *  jsonb blob, so the table is the canonical document triple — `id` (PK),
  *  `data` (the serialised tree, JSONB), `version` (optimistic counter). */
-function renderDocumentModel(agg: AggregateIR, schema?: string, prefix?: string): string {
-  const tableName = `${prefix ?? ""}${tableNameFor(agg.name)}`;
+function renderDocumentModel(
+  agg: AggregateIR,
+  table: string,
+  schema?: string,
+  prefix?: string,
+): string {
+  const tableName = `${prefix ?? ""}${table}`;
   return lines(
     `class ${agg.name}Row(Base):`,
     `    __tablename__ = "${tableName}"`,
@@ -395,7 +424,7 @@ function renderEmbeddedModel(
   schema?: string,
   prefix?: string,
 ): string {
-  const tableName = `${prefix ?? ""}${tableNameFor(agg.name)}`;
+  const tableName = `${prefix ?? ""}${aggregateTableName(agg, ctx.aggregates)}`;
   const cols: PyColumn[] = [
     { attr: "id", pyType: "str", saType: pyIdColumnType(), optional: false, primaryKey: true },
   ];
@@ -553,7 +582,7 @@ function renderProjectionStateModel(
   ctx: EnrichedBoundedContextIR,
   schema?: string,
 ): string {
-  const tableName = tableNameFor(proj.name);
+  const tableName = projectionTableName(proj);
   const corr = proj.correlationField as string;
   const cols: PyColumn[] = [];
   for (const f of proj.stateFields) {
@@ -640,7 +669,15 @@ function tphModels(
   const owner = tableOwnerName(agg, ctx.aggregates);
   for (const part of agg.parts) {
     models.push(
-      renderModel(part.name, part, directParentName(agg, part.name, owner), ctx, schema, prefix),
+      renderModel(
+        part.name,
+        partTableName(part),
+        part,
+        directParentName(agg, part.name, owner),
+        ctx,
+        schema,
+        prefix,
+      ),
     );
   }
   for (const assoc of (agg as EnrichedAggregateIR).associations ?? []) {
@@ -665,7 +702,7 @@ function renderTphModel(
   schema?: string,
   prefix?: string,
 ): string {
-  const tableName = `${prefix ?? ""}${tableNameFor(base.name)}`;
+  const tableName = `${prefix ?? ""}${aggregateTableName(base, ctx.aggregates)}`;
   const cols: PyColumn[] = [
     { attr: "id", pyType: "str", saType: pyIdColumnType(), optional: false, primaryKey: true },
     { attr: "kind", pyType: "str", saType: "Text", optional: false },

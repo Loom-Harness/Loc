@@ -1,4 +1,5 @@
 import { deriveEventSubscriptions, enrichLoomModel } from "../../ir/enrich/enrichments.js";
+import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { lowerModel } from "../../ir/lower/lower.js";
@@ -1801,7 +1802,11 @@ function emitAggregate(
       place(
         `${agg.name}DocumentConfiguration.cs`,
         "ef-configuration",
-        renderDocumentConfiguration(agg, ns, { schema: ds?.schema, tablePrefix: ds?.tablePrefix }),
+        renderDocumentConfiguration(agg, ns, {
+          table: aggregateTableName(agg, ctx.aggregates),
+          schema: ds?.schema,
+          tablePrefix: ds?.tablePrefix,
+        }),
         agg.origin,
       );
       place(`${agg.name}Snapshots.cs`, "entity", renderSnapshots(agg, ns), agg.origin);

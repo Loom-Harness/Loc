@@ -223,10 +223,20 @@ export function schemaFromModule(
     }
     const shape = shapeOf(agg, ctxFor(agg));
     if (shape === "document") {
-      return [withLineageColumns(agg, documentTableForAggregate(agg, module.name))];
+      return [
+        withLineageColumns(
+          agg,
+          documentTableForAggregate(aggregateTableName(agg, pool), module.name),
+        ),
+      ];
     }
     if (shape === "embedded") {
-      return [withLineageColumns(agg, embeddedTableForAggregate(agg, module.name))];
+      return [
+        withLineageColumns(
+          agg,
+          embeddedTableForAggregate(agg, aggregateTableName(agg, pool), module.name),
+        ),
+      ];
     }
     const out: TableShape[] = [
       withLineageColumns(agg, tableForAggregate(agg, module.name, voLookup, enumLookup)),
@@ -701,8 +711,11 @@ function orderTablesByFkDependency(tables: TableShape[]): TableShape[] {
  *  join tables.  This is the shape EF owned-types `.ToJson()`, Drizzle
  *  jsonb columns, and Phoenix embedded schemas all map to natively — one
  *  physical layout shared across every backend. */
-function embeddedTableForAggregate(agg: AggregateIR, ownerModule: string): TableShape {
-  const tableName = tableNameFor(agg.name);
+function embeddedTableForAggregate(
+  agg: AggregateIR,
+  tableName: string,
+  ownerModule: string,
+): TableShape {
   const columns: ColumnShape[] = [{ name: "id", type: idColumnType(), nullable: false }];
   const foreignKeys: FKShape[] = [];
   const indexes: IndexShape[] = [];
@@ -744,8 +757,7 @@ function embeddedTableForAggregate(agg: AggregateIR, ownerModule: string): Table
  *  or join tables: contained parts live inside `data`, and cross-aggregate
  *  `X id` / `X id[]` references stay references but ride inside `data` as
  *  id strings / arrays. */
-function documentTableForAggregate(agg: AggregateIR, ownerModule: string): TableShape {
-  const tableName = tableNameFor(agg.name);
+function documentTableForAggregate(tableName: string, ownerModule: string): TableShape {
   return {
     name: tableName,
     ownerModule,
@@ -3138,8 +3150,9 @@ function resolveTableRenames(
       } else {
         const proj = ctx.projections.find((p) => p.name === ri.to)!;
         if (!isMaterializedProjection(proj)) continue; // query-time: no table
+        // The old name has no node any more: spell it by name.
         const from = tableNameFor(ri.from);
-        const to = tableNameFor(ri.to);
+        const to = projectionTableName(proj);
         push(from, to, newSchema, isMove ? { fromSchema: oldSchemaFor(from) } : undefined);
       }
       continue;
@@ -3184,7 +3197,7 @@ function resolveTableRenames(
 
     // Root table — plural, so computed directly (irregular plurals like
     // `category → categories` don't survive a bare prefix substitution).
-    push(tableNameFor(ri.from), tableNameFor(ri.to), schema, move);
+    push(tableNameFor(ri.from), aggregateTableName(agg, ctx.aggregates), schema, move);
 
     // Value-object collection child tables owned by the ROOT (`field: VO[]`)
     // and association join tables (`Target id[]`): table and owner FK both
@@ -3539,7 +3552,7 @@ function stampReshapeMetadata(
 ): void {
   if (agg.persistedAs === "eventLog") return; // stream lives in <ctx>_events
   if (isTphConcrete(agg, pool)) return; // shares the base's table (stamped there)
-  const root = produced.find((t) => t.name === tableNameFor(agg.name));
+  const root = produced.find((t) => t.name === aggregateTableName(agg, pool));
   if (!root) return; // no own root table (abstract TPC base owns none)
   if (isTphBase(agg, pool)) {
     root.inheritance = { strategy: "sharedTable", base: agg.name };

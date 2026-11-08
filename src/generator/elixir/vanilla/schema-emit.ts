@@ -9,6 +9,7 @@
 //     `:binary_id` column; optional wrapper unwraps the inner type.
 // ---------------------------------------------------------------------------
 
+import { partTableName } from "../../../ir/enrich/storage-names.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -29,7 +30,6 @@ import {
 } from "../../../ir/util/resolve-datasource.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import {
   messagedRoutesToResidual,
@@ -121,6 +121,7 @@ export function emitVanillaSchemas(
           appModule,
           ctxModule,
           agg,
+          pool,
           schemaPrefix,
           needsPureDomainCore(agg, ctx) ? renderAggregatePureCore(appModule, ctx, agg, sys) : [],
         )
@@ -294,7 +295,7 @@ function renderPartSchema(
   // Relational parts live in a real table (`@foreign_key_type` for the
   // `belongs_to`); embedded parts stay an `embedded_schema`.
   const schemaDecl = relational
-    ? `  @foreign_key_type :binary_id\n  @derive {Jason.Encoder, only: [${wireAtoms}]}\n  schema "${tableNameFor(part.name)}" do`
+    ? `  @foreign_key_type :binary_id\n  @derive {Jason.Encoder, only: [${wireAtoms}]}\n  schema "${partTableName(part)}" do`
     : `  @derive {Jason.Encoder, only: [${wireAtoms}]}\n  embedded_schema do`;
   return `# Auto-generated.
 defmodule ${moduleName} do

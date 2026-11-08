@@ -1,4 +1,5 @@
 import { foldTenancyFor, foldTenantColumns } from "../../../ir/enrich/fold-tenancy.js";
+import { projectionTableName } from "../../../ir/enrich/storage-names.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -8,7 +9,6 @@ import type {
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
 import { jid } from "../java-ident.js";
 import { boxedJavaType, renderJavaType } from "../render-expr.js";
 import { hbIdent } from "../sql-ident.js";
@@ -46,7 +46,7 @@ export function projectionRowClass(proj: ProjectionIR): string {
 /** The read-model table name — matches `projectionTableShape` in the migrations
  *  builder (`plural(snake(name))`). */
 export function projectionRowTable(proj: ProjectionIR): string {
-  return tableNameFor(proj.name);
+  return projectionTableName(proj);
 }
 
 function correlationField(proj: ProjectionIR): FieldIR {

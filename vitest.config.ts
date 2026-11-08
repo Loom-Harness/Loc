@@ -49,6 +49,7 @@ const MOCKED = [
 /** Whole-corpus censuses (>30 s each) — their own CI job. */
 const CORPUS = [
   "test/conformance/corpus-mutation.test.ts",
+  "test/conformance/corpus-storage-names.test.ts",
   "test/language/print/print-roundtrip.test.ts",
   "test/system/emitted-unbound-identifiers.test.ts",
   "test/system/generated-manifest-pins.test.ts",

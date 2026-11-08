@@ -1,4 +1,9 @@
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
+import {
+  aggregateTableName,
+  partTableName,
+  projectionTableName,
+} from "../../../ir/enrich/storage-names.js";
 import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
 import type {
   AggregateIR,
@@ -26,7 +31,6 @@ import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines as joinLines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, workflowStateTableName } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
 import { drizzleIdColumn, drizzleScalarColumn } from "../codec-spelling.js";
 /** Per-aggregate dataSource lookup the orchestrator passes in.  Lets
  *  the schema emitter ask "what schema / tablePrefix does THIS
@@ -152,7 +156,7 @@ export function renderSchema(
             directParentName(agg, part.name, owner),
             ctx,
             new Set(),
-            { schema, prefix },
+            { table: partTableName(part), schema, prefix },
           ),
         );
       }
@@ -174,7 +178,13 @@ export function renderSchema(
     // Document (`shape: document`): the whole aggregate is one opaque
     // jsonb blob (`id, data, version`).  No part/join tables.
     if (shape === "document") {
-      tables.push(emitDocumentTable(agg.name, { schema, prefix }));
+      tables.push(
+        emitDocumentTable(agg.name, {
+          table: aggregateTableName(agg, ctx.aggregates),
+          schema,
+          prefix,
+        }),
+      );
       continue;
     }
     // Embedded (`shape: embedded`): queryable root row + one jsonb column
@@ -186,6 +196,7 @@ export function renderSchema(
     const indexed = indexedColumnsFor(agg, true);
     tables.push(
       emitTable(agg.name, agg.fields, undefined, ctx, indexed, {
+        table: aggregateTableName(agg, ctx.aggregates),
         schema,
         prefix,
         uniqueOf: agg,
@@ -199,7 +210,7 @@ export function renderSchema(
           directParentName(agg, part.name, agg.name),
           ctx,
           new Set(),
-          { schema, prefix },
+          { table: partTableName(part), schema, prefix },
         ),
       );
     }
@@ -369,7 +380,7 @@ export function renderSchema(
  *  `emitWorkflowStateTable`: the `keyed by` correlation column is the PK, the
  *  remaining state fields are columns.  No idempotent marker in v1. */
 function emitProjectionTable(proj: ProjectionIR, ctx: BoundedContextIR, schema?: string): string {
-  const tableName = tableNameFor(proj.name);
+  const tableName = projectionTableName(proj);
   const lines: string[] = [];
   const factory = schema ? `${schemaConstName(schema)}.table` : "pgTable";
   const constName = lowerFirst(plural(proj.name));
@@ -540,7 +551,7 @@ function emitEmbeddedTable(
   indexedColumns: Set<string>,
   options: { schema?: string; prefix?: string } = {},
 ): string {
-  const baseTable = tableNameFor(agg.name);
+  const baseTable = aggregateTableName(agg, ctx.aggregates);
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
   const tableFactory = options.schema ? `${schemaConstName(options.schema)}.table` : "pgTable";
   const lines: string[] = [];
@@ -654,9 +665,10 @@ function emitEventLogTable(
 
 function emitDocumentTable(
   name: string,
-  options: { schema?: string; prefix?: string } = {},
+  /** `table` is the aggregate's table (`aggregateTableName`). */
+  options: { table: string; schema?: string; prefix?: string },
 ): string {
-  const baseTable = tableNameFor(name);
+  const baseTable = options.table;
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
   const tableFactory = options.schema ? `${schemaConstName(options.schema)}.table` : "pgTable";
   return [
@@ -682,7 +694,7 @@ function emitTphTable(
   ctx: BoundedContextIR,
   options: { schema?: string; prefix?: string } = {},
 ): string {
-  const baseTable = tableNameFor(base.name);
+  const baseTable = aggregateTableName(base, ctx.aggregates);
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
   const tableFactory = options.schema ? `${schemaConstName(options.schema)}.table` : "pgTable";
   const lines: string[] = [];
@@ -763,9 +775,10 @@ function emitTable(
   parentName: string | undefined,
   ctx: BoundedContextIR,
   indexedColumns: Set<string>,
-  options: { schema?: string; prefix?: string; uniqueOf?: AggregateIR } = {},
+  /** `table` is the row's table (`aggregateTableName` / `partTableName`). */
+  options: { table: string; schema?: string; prefix?: string; uniqueOf?: AggregateIR },
 ): string {
-  const baseTable = tableNameFor(name);
+  const baseTable = options.table;
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
   const lines: string[] = [];
   // dataSource-driven schema routing: when the owning aggregate's

@@ -1861,7 +1861,7 @@ DomainServiceOperation:
 // keyword" is enforced in the LEXER by `soft-keyword-colon-guard.ts` (wired
 // into `DddTokenBuilder`).  The same guard covers the other trailing clauses
 // with the same shape: the `TypeRef` union/carrier words (`or` / `option` /
-// `paged` / `envelope`) and the `check`/`invariant` `message "…"` clause.
+// `paged` / the refused `envelope`) and the `check`/`invariant` `message "…"` clause.
 //
 // CONSEQUENCE FOR GRAMMAR AUTHORS: do not write a guarded keyword immediately
 // before a `':'` in any rule — it would no longer lex as that keyword.  The
@@ -2181,17 +2181,18 @@ QualifiedPageName returns string:
 // Type references
 // ---------------------------------------------------------------------------
 
-// ML-postfix generic instantiation: `customer paged`, `event envelope`,
-// `string envelope paged`.  The `(ctors+=GenericCtor)*` list accumulates
-// left-associatively, so `string envelope paged` folds to
-// `paged(envelope(string))` in lowering.  Array/optional stay outermost —
+// ML-postfix generic instantiation: `customer paged`.  The
+// `(ctors+=GenericCtor)*` list accumulates left-associatively, so
+// `string paged paged` folds to `paged(paged(string))` in lowering (and is
+// refused by the carrier-bound check).  `option` folds to `T?`; `envelope`
+// still parses only so `loom.envelope-removed` can name its replacement.  Array/optional stay outermost —
 // `customer paged[]` is array-of-(paged customer).  The constructors are a
 // blessed closed keyword set; keyword tokens can't be confused with an
 // adjacent ID field name, which is what makes the otherwise-ambiguous postfix
 // form (`a: string b: int`) safe.  User-declared generics +
 // identifier-postfix instantiation are deferred.
 // Anonymous `or` unions: `A or B or C` in any type position.  Postfix
-// constructors (`paged` / `envelope` / `option`) and the array / optional
+// constructors (`paged` / `option`) and the array / optional
 // markers bind tighter than `or`, so `string or int option` parses as
 // `string or (int option)` and `A or B[]` as `A or (B[])`.  The head atom's
 // fields stay on `TypeRef` itself (backward-compatible: a non-union TypeRef

@@ -38,6 +38,7 @@ import {
   fieldGroupControlDecl,
   fileUploadMethodLines,
 } from "../form-fields.js";
+import { ANGULAR_LOCALE_SWITCHER_CLASS } from "../locale-switcher.js";
 import { ANGULAR_REF_LABEL_CLASS } from "../ref-label-runtime.js";
 import { storeClassName, storeFileSlug } from "../store-builder.js";
 import { angularTarget } from "./angular-target.js";
@@ -713,6 +714,11 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     imports.push(`import { LoomChart } from "../components/loom-chart.component";`);
     componentImports.add("LoomChart");
   }
+  // The language picker — same marker discipline (`angular/locale-switcher.ts`).
+  if (result.tsx.includes("<loom-locale-switcher")) {
+    imports.push(`import { ${ANGULAR_LOCALE_SWITCHER_CLASS} } from "../../lib/locale-switcher";`);
+    componentImports.add(ANGULAR_LOCALE_SWITCHER_CLASS);
+  }
 
   // Extern frontend functions the walked body / action bodies call — import
   // each from its conformance shim (`src/lib/<name>.ts` → `../../lib/<name>`
@@ -1110,12 +1116,13 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     // shared variant-match envelope records) rewrites one level deeper.  The
     // Angular renderers that add api imports directly already spell `../../api/`,
     // so this only lifts the framework-neutral single-dot entries.
-    // The i18n runtime lives at `src/lib/i18n.ts`, two hops up from
-    // `src/app/pages/` — the walker's `../i18n` seam import rewrites to
-    // `../../lib/i18n` (M-T1.11), same lift as the `../api/` entries.
+    // The Angular `t` lives in `src/lib/locale.ts` (the signal-reading wrapper
+    // over `src/lib/i18n.ts`), two hops up from `src/app/pages/` — the walker's
+    // `../i18n` seam import rewrites to `../../lib/locale`, same lift as the
+    // `../api/` entries.
     const rewritten = from
       .replace(/^\.\.\/api\//, "../../api/")
-      .replace(/^\.\.\/i18n$/, "../../lib/i18n");
+      .replace(/^\.\.\/i18n$/, "../../lib/locale");
     const sorted = [...names].sort();
     imports.push(`import { ${sorted.join(", ")} } from ${JSON.stringify(rewritten)};`);
     for (const n of sorted) {

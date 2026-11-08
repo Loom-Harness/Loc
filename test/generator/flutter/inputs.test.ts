@@ -197,7 +197,7 @@ describe("flutter FileUpload (generate system)", () => {
     // FileUpload references only in the BODY (models.dart for FileRef,
     // dart:convert for jsonDecode) that an earlier projSource-only scan missed.
     expect(page).toContain("import 'package:file_picker/file_picker.dart';");
-    expect(page).toContain("import 'package:http/http.dart' as http;");
+    expect(page).toContain("import '../api_client.dart' as http;");
     expect(page).toContain("import '../config.dart';");
     expect(page).toContain("import '../models.dart';");
     expect(page).toContain("import 'dart:convert';");

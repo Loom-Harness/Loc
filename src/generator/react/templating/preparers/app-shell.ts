@@ -199,6 +199,11 @@ export function prepareAppShellVM(
    *  which is what the entry carries.  Empty for callers with no ui — every
    *  entry then stays ungated, byte-identical. */
   uiPages: readonly PageIR[] = [],
+  /** Two or more locales ship (the source plus a translated catalog): the header
+   *  carries the `LocaleSwitcher`, and the root component subscribes to the
+   *  locale store so every `t()` / formatter call beneath it re-renders on a
+   *  switch.  False ⇒ neither token is set and the shell is byte-identical. */
+  localeSwitchable: boolean = false,
 ): AppShellVM {
   /** Where the page filling `slot` actually landed, else the conventional
    *  path. */
@@ -218,6 +223,9 @@ export function prepareAppShellVM(
   const routes: RouteVM[] = [];
   // App.tsx sits at `src/App.tsx`, so the runtime shim is one hop away.
   if (i18nEnabled) imports.push({ specifier: "{ t }", from: "./i18n" });
+  if (localeSwitchable) {
+    imports.push({ specifier: "{ LocaleSwitcher, useLocale }", from: "./lib/locale-switcher" });
+  }
 
   // Home page — generator-synthesised landing, mounted at "/".
   // Skipped when an explicit `page` already claims route "/" (the
@@ -375,6 +383,11 @@ export function prepareAppShellVM(
     navSections: navSectionsVM,
     authUi,
     navUsesSession,
+    // The header's language picker, and the root's subscription to the locale
+    // store (a hook call must sit in a component body, so the template splices
+    // it as the first statement of `App`).
+    localeSwitcherJsx: localeSwitchable ? "<LocaleSwitcher />" : "",
+    useLocaleStatement: localeSwitchable ? "useLocale();" : "",
     // Pack-chrome: raw source string when i18n is off (byte-identical), else a
     // React text-position `{t("chrome.<name>", "<default>")}` interpolation
     // keyed to `APP_SHELL_CHROME` (M-T1.11).

@@ -1,8 +1,8 @@
 import { foldTenancyFor } from "../../ir/enrich/fold-tenancy.js";
+import { projectionTableName } from "../../ir/enrich/storage-names.js";
 import type { ProjectionIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
-import { tableNameFor } from "../../util/storage-names.js";
 import { csIdValueClrType } from "./dto-mapping.js";
 import { renderCsType } from "./render-expr.js";
 // ---------------------------------------------------------------------------
@@ -29,7 +29,7 @@ export function projectionRowClass(proj: ProjectionIR): string {
 
 /** The read-model row table name — matches `projectionTableShape`. */
 export function projectionRowTable(proj: ProjectionIR): string {
-  return tableNameFor(proj.name);
+  return projectionTableName(proj);
 }
 
 /** The DbSet property name (`OrderBooks`) the fold + read controller go through. */
