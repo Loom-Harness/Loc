@@ -40,7 +40,7 @@ describe.skipIf(!ENABLED)(
       // JSON round-trip through `_create` (toDoc / fromDoc).
       "examples/document.ddd",
       // First-boot seeding (database-seeding.md): compiles db/seed.ts + the
-      // index.ts runSeeds wiring + the db:seed package.json script.
+      // boot.ts runSeeds wiring + the db:seed package.json script.
       "examples/seeding.ddd",
       // Value-object array (`Money[]`): the id-less child table + the repo
       // load/save round-trip (bulk-load → `new Money(...)`, delete + re-insert
@@ -251,7 +251,7 @@ describe.skipIf(!ENABLED)(
     // OIDC turnkey auth (D-AUTH-OIDC, Phase 1): a system with an
     // `auth { oidc { … } }` block emits the generated jose-backed verifier
     // (auth/oidc.ts) + the /auth/* handshake (auth/handshake.ts) + the
-    // index.ts registerOidcVerifier wiring + the `jose` dep.  Generated via
+    // boot.ts registerOidcVerifier wiring + the `jose` dep.  Generated via
     // `generate system` (auth files are system-mode only) and type-checked
     // against the real `jose` types — the gate that proves the emitted
     // verifier + handshake compile (content tests can't see a type error).

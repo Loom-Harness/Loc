@@ -593,8 +593,9 @@ describe("mikroorm — `seed` data", () => {
     // otherwise drop the `__loom_seed` marker it is about to write.
     expect(cli).toContain("await orm.schema.update({ safe: true });");
     expect(cli).toContain("await runSeeds(orm.em);");
-    // Boot path runs the seeds after schema update.
-    expect(files.get("api/index.ts")).toContain("await runSeeds(db);");
+    // Boot path runs the seeds (in bootApp) after schema update.
+    expect(files.get("api/boot.ts")).toContain("await runSeeds(db);");
+    expect(files.get("api/index.ts")).toContain("await bootApp(db);");
   });
 });
 

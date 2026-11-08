@@ -119,8 +119,10 @@ describe("Node debug wiring (--sourcemap only)", () => {
     expect(orderTs).toMatch(/import type \{ Money \} from ".\/value-objects\.ts"/);
 
     const indexTs = files.get(`${HONO_SLUG}/index.ts`)!;
-    expect(indexTs).toContain(`from "./http/index.ts"`);
-    expect(indexTs).not.toMatch(/from "\.\/http\/index"[^.]/);
+    expect(indexTs).toContain(`from "./boot.ts"`);
+    const bootTs = files.get(`${HONO_SLUG}/boot.ts`)!;
+    expect(bootTs).toContain(`from "./http/index.ts"`);
+    expect(bootTs).not.toMatch(/from "\.\/http\/index"[^.]/);
   });
 
   it("flag-on: .vscode/launch.json carries one byte-identical node config per node deployable (alongside M26's dotnet config)", async () => {

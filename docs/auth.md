@@ -1483,9 +1483,11 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
 > built-in identity.
 
 **Under `auth { oidc }` the stub is preview-only.** The Hono backend still
-emits `auth/dev-stub.ts`, but its `index.ts` registers only the OIDC verifier,
-so a running app ignores the header. The playground preview registers the stub
-instead, because no identity provider is reachable from its browser worker —
+emits `auth/dev-stub.ts`, but its start-up sequence (`bootApp` in `boot.ts`)
+registers the stub only when the host passes `verifier: "dev-stub"`, which the
+server's `index.ts` never does, so a running app ignores the header. The
+playground preview passes it, because no identity provider is reachable from
+its browser worker —
 that is the one place an OIDC system honours `x-loom-dev-claims` (a malformed
 header there answers 401, not 400, since the OIDC middleware does not know the
 stub).
