@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
 import { BACKEND_PINS as HONO_PINS } from "../../../src/platform/hono/v5/pins.js";
 import { parseString } from "../../_helpers/parse.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 // ---------------------------------------------------------------------------
 // Hono/Drizzle event-sourcing emission (`persistedAs: eventLog`, appliers A2).
@@ -86,7 +87,7 @@ describe("Hono/Drizzle event-sourcing emission (persistedAs: eventLog)", () => {
       /const __ev: Events\.DomainEvent = \{ type: "Deposited", account: this\._id, amount: amount \};\s*this\._events\.push\(__ev\);\s*this\._apply\(__ev\);/,
     );
     // The fold itself mutates state (balance := balance + e.amount).
-    expect(domain).toContain("this._balance = this._balance + e.amount;");
+    expect(uncheckedInt(domain)).toContain("this._balance = this._balance + e.amount;");
   });
 
   it("repository folds the stream on load and appends pending events on save", async () => {

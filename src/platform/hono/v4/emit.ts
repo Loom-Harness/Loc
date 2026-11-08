@@ -84,6 +84,7 @@ import { buildRepositoryFile } from "../../../generator/typescript/repository-bu
 import { buildDocumentRepositoryFile } from "../../../generator/typescript/repository-document-builder.js";
 import { buildEmbeddedRepositoryFile } from "../../../generator/typescript/repository-embedded-builder.js";
 import { buildEventSourcedRepositoryFile } from "../../../generator/typescript/repository-eventsourced-builder.js";
+import { aggregateHasStreamScope } from "../../../generator/typescript/repository-find-predicate.js";
 import {
   PORT_POOL_PATH,
   portMembersFromSource,
@@ -1339,6 +1340,11 @@ export function generateTypeScriptForContexts(
         wantsReadScope(agg, ctx)
       ) {
         scopeSpecs.push({ agg, ctx });
+      }
+      // A tenant-scoped event stream scopes its SQL stream loads through its
+      // own helper, over the event log's tenant metadata (`stream-tenancy.ts`).
+      if (!usingMikro && agg.persistedAs === "eventLog" && aggregateHasStreamScope(agg, ctx)) {
+        scopeSpecs.push({ agg, ctx, stream: true });
       }
       // Derive this aggregate's repository PORT from the concrete just emitted
       // (audit S7) — pooled into `domain/repository-ports.ts` below.

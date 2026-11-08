@@ -1,4 +1,5 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
+import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
 import type {
   AggregateIR,
   EnrichedBoundedContextIR,
@@ -529,10 +530,16 @@ function stateHelpers(wf: WorkflowIR): string {
 function projectionStateHelper(proj: ProjectionIR): string {
   const row = schemaRow(`${proj.name}Row`);
   const corr = snake(proj.correlationField as string);
+  // A tenant-scoped fold row is keyed by `(tenant, key)` (`fold-tenancy.ts`).
+  const tenancy = foldTenancyFor(proj);
+  const tenantCol = tenancy ? snake(foldTenantColumns(tenancy).tenant.field) : undefined;
+  const where = tenantCol
+    ? `${row}.${corr} == key, ${row}.${tenantCol} == tenant`
+    : `${row}.${corr} == key`;
   return lines(
-    `async def _load_${snake(proj.name)}(session: AsyncSession, key: str) -> ${row} | None:`,
+    `async def _load_${snake(proj.name)}(session: AsyncSession, key: str${tenantCol ? ", tenant: str" : ""}) -> ${row} | None:`,
     `    return (`,
-    `        await session.execute(${SELECT}(${row}).where(${row}.${corr} == key).limit(1))`,
+    `        await session.execute(${SELECT}(${row}).where(${where}).limit(1))`,
     "    ).scalars().first()",
   );
 }
@@ -548,14 +555,30 @@ function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR)
   const keyExpr = on.correlation
     ? renderPyExpr(on.correlation, { thisName: "state" })
     : `${param}.${corr}`;
+  // A tenant-scoped fold (`fold-tenancy.ts`) reads the event's tenant from its
+  // metadata — the dispatching frame's event origin — keys the row by it and
+  // stamps it on allocation.  An event with no tenant has no tenant's row.
+  const tenancy = foldTenancyFor(proj);
+  const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
+  const seed = cols
+    ? `${corr}=__key, ${snake(cols.tenant.field)}=__tenant, ${snake(cols.dataKey.field)}=__origin.get("orgPath") or __tenant`
+    : `${corr}=__key`;
   const out: string[] = [
     `async def ${fn}(`,
     `    session: AsyncSession, _events: "InProcessDispatcher", ${param}: ${on.event}`,
     ") -> None:",
+    ...(cols
+      ? [
+          `    __origin = ${PY.current_event_origin}() or {}`,
+          `    __tenant = __origin.get("tenant")`,
+          "    if __tenant is None:",
+          "        return",
+        ]
+      : []),
     `    __key = str(${keyExpr})`,
-    `    state = await _load_${snake(proj.name)}(session, __key)`,
+    `    state = await _load_${snake(proj.name)}(session, __key${cols ? ", __tenant" : ""})`,
     "    if state is None:",
-    `        state = ${row}(${corr}=__key)`,
+    `        state = ${row}(${seed})`,
     "        session.add(state)",
   ];
   for (const stmt of on.statements) out.push(renderProjectionFoldStmt(stmt, proj, on));

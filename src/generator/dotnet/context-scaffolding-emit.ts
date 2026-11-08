@@ -137,6 +137,7 @@ export function emitCommon(
     file?: boolean;
     valueObjectInvariant?: boolean;
     domainFloorCodes?: boolean;
+    deferralKeepsFrame?: boolean;
   } = {},
 ): void {
   out.set(
@@ -146,6 +147,7 @@ export function emitCommon(
       file: opts.file,
       valueObjectInvariant: opts.valueObjectInvariant,
       domainFloorCodes: opts.domainFloorCodes,
+      deferralKeepsFrame: opts.deferralKeepsFrame,
     }),
   );
   // Canonical ISO-8601 UTC instant JSON converters (RS-4 temporal round-trip

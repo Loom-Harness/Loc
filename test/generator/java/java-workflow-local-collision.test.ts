@@ -22,6 +22,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const SOURCE = `
 system Collide {
@@ -139,7 +140,7 @@ describe("java workflow / reactor / handler locals never collide with the method
     expect(m).toContain("var ordersRepository_ = request.ordersRepository();");
     expect(m).toContain("var state = request.state();");
     expect(m).toContain("if (!(request_ > 0))");
-    expect(m).toContain("var o = Order.create(state, request_ + ordersRepository_);");
+    expect(uncheckedInt(m)).toContain("var o = Order.create(state, request_ + ordersRepository_);");
     expect(m).toContain("ordersRepository.save(o);");
   });
 
