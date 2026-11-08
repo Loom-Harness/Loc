@@ -12,6 +12,7 @@ import {
 } from "../../../src/generator/_expr/target.js";
 import { whereToSql } from "../../../src/generator/dotnet/emit/dapper.js";
 import { renderJpqlWhere } from "../../../src/generator/java/render-jpql.js";
+import { writeScopePredicate } from "../../../src/generator/typescript/repository-find-predicate.js";
 import { requireLowered } from "../../../src/generator/python/find-predicate.js";
 import { renderSqlScalarExpr } from "../../../src/generator/sql-pg-expr.js";
 import type { ExprIR } from "../../../src/ir/types/loom-ir.js";
@@ -316,6 +317,19 @@ describe("emission mode — reachability through the REAL renderer entry points"
   // `viewFindMethod` / the retrieval path call, not a reimplementation:
   it("python's requireLowered refuses a null (unlowerable) predicate", () => {
     expect(() => requireLowered("find 'x' on 'Y'", null)).toThrow(QueryEmissionRefusal);
+  });
+
+  it("node's writeScopePredicate refuses an unlowerable write scope instead of dropping the guard", () => {
+    const agg = {
+      name: "Doc",
+      writeScopeFilter: outOfVocab,
+    } as unknown as Parameters<typeof writeScopePredicate>[0];
+    const ctx = { aggregates: [], criteria: [] } as unknown as Parameters<
+      typeof writeScopePredicate
+    >[2];
+    expect(() => writeScopePredicate(agg, "docs", ctx, new Set())).toThrow(QueryEmissionRefusal);
+    const noScope = { name: "Doc" } as unknown as Parameters<typeof writeScopePredicate>[0];
+    expect(writeScopePredicate(noScope, "docs", ctx, new Set())).toBeNull();
   });
 
   it("every reachability throw carries the loom.query-emission-invalid code", () => {
