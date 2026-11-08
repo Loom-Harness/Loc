@@ -3,6 +3,7 @@ import {
   serverSourcedDefaultFields,
 } from "../../../generator/_frontend/server-default.js";
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
+import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
@@ -40,6 +41,7 @@ import {
   aggHasFieldMask,
   canonicalIsoExpr,
 } from "../../../generator/typescript/repository-wire-builder.js";
+import { T } from "../../../generator/typescript/ts-symbols.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
 import {
@@ -308,7 +310,7 @@ function emitHistoryRoute(
   }
   // (2) above — capability scoping rides the entity read, because the audit
   // table has no tenant column of its own to filter on.
-  out.push(`    const __target = await repo.findById(Ids.${agg.name}Id(id));`);
+  out.push(`    const __target = await repo.findById(${T.Ids}.${agg.name}Id(id));`);
   // RS-27, same site class as the getById route above: history is a by-id read,
   // so its 404 carries the same sentence.  python's history route reaches the
   // message by CALLING `repo.get_by_id` for exactly this reachability probe
@@ -566,7 +568,7 @@ export function buildRoutesFile(
       ? `import { ${agg.name}Repository } from "../db/repositories/${lowerFirst(agg.name)}-repository";`
       : `import type { ${agg.name}Repository } from "../db/repositories/${lowerFirst(agg.name)}-repository";`,
   );
-  lines.push(`import * as Ids from "../domain/ids";`);
+  lines.push(tsImportSlot("~/domain/ids"));
   // `ConcurrencyError` only when this aggregate is `versioned` OR event-sourced — a
   // non-versioned aggregate's route file stays byte-identical.  `NotImplementedError`
   // rides the same rule on `extern` operations: only their scaffold-once stub
@@ -1261,7 +1263,7 @@ export function buildRoutesFile(
         `      if (!(${renderTsExpr(byIdFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind.name}`)});`,
       );
     }
-    lines.push(`      const found = await repo.findById(Ids.${agg.name}Id(id));`);
+    lines.push(`      const found = await repo.findById(${T.Ids}.${agg.name}Id(id));`);
     // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
     // every backend, and this route was the one place Hono answered a machine
     // token instead.  The cause is structural, not cosmetic: the route reads
@@ -1352,8 +1354,8 @@ export function buildRoutesFile(
       const readsRow = lifecycleGatesReadRow(canonicalDestroy(agg));
       lines.push(
         readsRow || destroyIfMatch
-          ? `      const __loaded = await repo.getById(Ids.${agg.name}Id(id));`
-          : `      await repo.getById(Ids.${agg.name}Id(id));`,
+          ? `      const __loaded = await repo.getById(${T.Ids}.${agg.name}Id(id));`
+          : `      await repo.getById(${T.Ids}.${agg.name}Id(id));`,
       );
       if (lifecycleGatesUseCurrentUser(canonicalDestroy(agg))) {
         lines.push(currentUserBindLine("      "));
@@ -1368,8 +1370,8 @@ export function buildRoutesFile(
       // AggregateNotFoundError (→ 404) when absent.
       lines.push(
         destroyIfMatch
-          ? `      const __loaded = await repo.getById(Ids.${agg.name}Id(id));`
-          : `      await repo.getById(Ids.${agg.name}Id(id));`,
+          ? `      const __loaded = await repo.getById(${T.Ids}.${agg.name}Id(id));`
+          : `      await repo.getById(${T.Ids}.${agg.name}Id(id));`,
       );
       if (destroyIfMatch) lines.push(...destroyIfMatchLines(agg, "__loaded", "      "));
     }
@@ -1387,7 +1389,7 @@ export function buildRoutesFile(
       lines.push(`        await ${txWrapperCall(usingMikro)}`);
       lines.push(`          const repoTx = new ${agg.name}Repository(tx, __deferred);`);
       // getById throws AggregateNotFoundError (→ 404) when absent.
-      lines.push(`          const loaded = await repoTx.getById(Ids.${agg.name}Id(id));`);
+      lines.push(`          const loaded = await repoTx.getById(${T.Ids}.${agg.name}Id(id));`);
       if (destroyIfMatch && destroyGates.length === 0)
         lines.push(...destroyIfMatchLines(agg, "loaded", "          "));
       lines.push(`          const before = repoTx.toWire(loaded);`);
@@ -1409,11 +1411,11 @@ export function buildRoutesFile(
       lines.push(
         `          ${renderHonoLogCall("auditRecorded", `action: "destroy", target: "${agg.name}", actor`)}`,
       );
-      lines.push(`          await repoTx.delete(Ids.${agg.name}Id(id));`);
+      lines.push(`          await repoTx.delete(${T.Ids}.${agg.name}Id(id));`);
       lines.push(`        });`);
       lines.push(`        await __deferred.flush();`);
     } else {
-      lines.push(`        await repo.delete(Ids.${agg.name}Id(id));`);
+      lines.push(`        await repo.delete(${T.Ids}.${agg.name}Id(id));`);
     }
     lines.push(`      } catch (err) {`);
     // The row is still referenced.  Map to a 409 problem locally so the shared
@@ -1890,7 +1892,7 @@ function emitCanOpRoute(
   out.push(`  }),`);
   out.push(`  async (c) => {`);
   out.push(`    const { id } = c.req.valid("param");`);
-  out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
+  out.push(`    const aggregate = await repo.getById(${T.Ids}.${agg.name}Id(id));`);
   out.push(`    return c.json({ allowed: ${pred} }, 200);`);
   out.push(`  },`);
   out.push(`);`);
@@ -1980,7 +1982,7 @@ function auditProvTxLines(args: {
   out.push(`    const __deferred = deferredDispatcher(events);`);
   out.push(`    ${args.capture ? "const result = await" : "await"} ${txWrapperCall(usingMikro)}`);
   out.push(`      const repoTx = new ${agg.name}Repository(tx, __deferred);`);
-  out.push(`      const aggregate = await repoTx.getById(Ids.${agg.name}Id(id));`);
+  out.push(`      const aggregate = await repoTx.getById(${T.Ids}.${agg.name}Id(id));`);
   out.push(...expectedVersionLines(check, "      "));
   out.push(...requiresGateLines(op, "      ", ctx));
   out.push(...whenGateLine(agg, op, "      "));
@@ -2199,7 +2201,7 @@ function emitOperationRoute(
   ];
 
   if (!audit && !prov) {
-    out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
+    out.push(`    const aggregate = await repo.getById(${T.Ids}.${agg.name}Id(id));`);
     out.push(...expectedVersionLines(check, "    "));
     out.push(...requiresGateLines(op, "    ", ctx));
     out.push(...whenGateLine(agg, op, "    "));
@@ -2339,7 +2341,7 @@ function emitReturningOperationRoute(
     );
   } else {
     const check = operationVersionCheck(agg, op);
-    out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
+    out.push(`    const aggregate = await repo.getById(${T.Ids}.${agg.name}Id(id));`);
     out.push(...expectedVersionLines(check, "    "));
     out.push(...requiresGateLines(op, "    ", ctx));
     out.push(...whenGateLine(agg, op, "    "));
@@ -3240,7 +3242,7 @@ export function wireToDomainExpr(expr: string, t: TypeIR, ctx?: BoundedContextIR
     case "primitive":
       return expr;
     case "id":
-      return `Ids.${info.idTarget}Id(${expr})`;
+      return `${T.Ids}.${info.idTarget}Id(${expr})`;
     case "enum":
       return expr;
     case "valueObject": {

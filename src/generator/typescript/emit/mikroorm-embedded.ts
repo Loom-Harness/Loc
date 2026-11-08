@@ -41,6 +41,7 @@ import {
   savedVersionOnInsert,
   savedVersionOnUpdate,
 } from "../saved-version.js";
+import { T, TT } from "../ts-symbols.js";
 import {
   aggregateIsAudited,
   stampImportLine,
@@ -80,7 +81,7 @@ function embeddedHydrateLocals(
     if (f.type.kind !== "array" || f.type.element.kind !== "id") continue;
     const target = f.type.element.targetName;
     out.push(
-      `${indent}const ${f.name} = ((${rowVar}.${f.name} ?? []) as string[]).map((s) => Ids.${target}Id(s));`,
+      `${indent}const ${f.name} = ((${rowVar}.${f.name} ?? []) as string[]).map((s) => ${T.Ids}.${target}Id(s));`,
     );
   }
   // Value-object collections (`<VO>[]`) fold onto an inline jsonb column, so
@@ -111,7 +112,7 @@ export function renderMikroEmbeddedRepository(
   ctx: EnrichedBoundedContextIR,
 ): string {
   const row = rowClassOf(agg.name);
-  const idVar = `Ids.${agg.name}Id`;
+  const idVar = `${TT.Ids}.${agg.name}Id`;
   const pool = ctx.aggregates;
   /** `<where>[, <options>]` — the call tail of a read. */
   const readArgs = (where: string, options: string | null): string =>

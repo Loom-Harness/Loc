@@ -27,6 +27,7 @@ import {
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "./repository-wire-builder.js";
+import { TT } from "./ts-symbols.js";
 
 // ---------------------------------------------------------------------------
 // Event-sourced (`persistedAs: eventLog`) repository for the Hono/Drizzle
@@ -55,7 +56,7 @@ export function buildEventSourcedRepositoryFile(
   ctx: EnrichedBoundedContextIR,
   _emitTrace = false,
 ): string {
-  const idVar = `Ids.${agg.name}Id`;
+  const idVar = `${TT.Ids}.${agg.name}Id`;
   // The single per-context event log (event-log-architecture.md); this
   // aggregate's stream is the subset tagged `stream_type = "<Agg>"`.
   const table = `${lowerFirst(ctx.name)}Events`;
