@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { Complete, Completion, Message } from "../../src/tools/index.js";
-import { dispatchToolUses, runAgent, toolSpecs } from "../../src/tools/index.js";
+import type { Complete, Completion, Message, ToolDef } from "../../src/tools/index.js";
+import {
+  dispatchToolUses,
+  runAgent,
+  TOOLS,
+  toolSpecs,
+  withHostTools,
+} from "../../src/tools/index.js";
 
 // ---------------------------------------------------------------------------
 // The agent loop (agent-tools-and-mcp.md §5) — transport-neutral conversation
@@ -165,5 +171,51 @@ describe("runAgent", () => {
     await runAgent({ complete, messages, onMessage: (m) => streamed.push(m) });
     // assistant(tool_use) + user(tool_result) + assistant(text) = 3.
     expect(streamed).toHaveLength(3);
+  });
+});
+
+describe("host tools", () => {
+  const echo = (name: string): ToolDef => ({
+    name,
+    description: `host-side ${name} — runs against the host's own state`,
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    handler: async () => ({ host: name }),
+  });
+
+  it("withHostTools replaces a catalog tool by name and appends the rest", () => {
+    const tools = withHostTools([echo("loom_migration_record"), echo("loom_migration_apply")]);
+    expect(tools.map((t) => t.name)).toEqual([...TOOLS.map((t) => t.name), "loom_migration_apply"]);
+    expect(tools.find((t) => t.name === "loom_migration_record")?.description).toMatch(/host-side/);
+    // The catalog itself is untouched.
+    expect(TOOLS.find((t) => t.name === "loom_migration_record")?.description).not.toMatch(
+      /host-side/,
+    );
+  });
+
+  it("runAgent offers and dispatches the tool set it is given", async () => {
+    const tools = withHostTools([echo("loom_migration_apply")]);
+    const complete = scripted([
+      {
+        content: [{ type: "tool_use", id: "a1", name: "loom_migration_apply", input: {} }],
+        stop_reason: "tool_use",
+      },
+      { content: [{ type: "text", text: "applied" }], stop_reason: "end_turn" },
+    ]);
+    let offered: string[] = [];
+    const spy: Complete = async (req) => {
+      offered = req.tools.map((t) => t.name);
+      return complete(req);
+    };
+    const messages: Message[] = [{ role: "user", content: [{ type: "text", text: "apply" }] }];
+    await runAgent({ complete: spy, messages, tools });
+    expect(offered).toContain("loom_migration_apply");
+    expect(messages[2]!.content[0]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "a1",
+      content: JSON.stringify({ host: "loom_migration_apply" }),
+    });
+    // Without the host set, the same call is an unknown tool.
+    const plain = await dispatchToolUses(messages[1]!.content);
+    expect(plain[0]?.is_error).toBe(true);
   });
 });

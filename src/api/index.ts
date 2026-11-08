@@ -88,6 +88,20 @@ export type {
 } from "./evolve.js";
 export { diff, diffModels, snapshot } from "./evolve.js";
 export { fixHintCodeActions, toLspDiagnostic, toLspDiagnostics } from "./lsp.js";
+export type {
+  ChainFile,
+  MigrationStatusReport,
+  ModuleMigrationStatus,
+  RecordedFile,
+  RecordMigrationOptions,
+  RecordMigrationReport,
+} from "./migrate.js";
+export {
+  migrationStatus,
+  migrationStatusModels,
+  recordMigration,
+  recordMigrationModels,
+} from "./migrate.js";
 export { findSymbol, hover, references } from "./navigate.js";
 export { quickfix, rename, unfoldMacro } from "./refactor.js";
 export { LOOM_VERSION } from "./report.js";
