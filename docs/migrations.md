@@ -1026,7 +1026,7 @@ migrations/
 ```bash
 ddd migrate add initial app.ddd             # first recorded generation: each module's Initial
 ddd migrate add rename-order-qty app.ddd    # every later schema change, kebab-case name
-ddd migrate status app.ddd [--json]         # each module's head, and what is not recorded yet
+ddd migrate status app.ddd [--json]         # each module's head, what is not recorded yet, and whether recording it is destructive
 ddd migrate remove app.ddd                  # delete the newest entry (one no database has applied)
 ddd migrate rebase app.ddd                  # after a merge leaves two heads, re-record one on top of the other
 ddd generate system app.ddd -o out          # renders the chain; never records anything
@@ -1044,6 +1044,12 @@ it is while the model has unrecorded changes. A workspace with no chain gets
 no implicit initial migration — its database is created once the initial
 migration is recorded. Its Migrations tab shows the status and records new
 entries (`migrate add`); see [playground.md](playground.md).
+
+**Agents get the same two verbs as tools.** `loom_migration_status` and
+`loom_migration_record` ([mcp.md](mcp.md)) are `migrate status` and
+`migrate add` over a source plus the chain's files, on the same cores; the
+record returns the new entries rather than writing them, and refuses a
+destructive change until `allowDestructive: true` acknowledges it.
 
 **A model with no `migrations/` has nothing recorded.** `generate system`
 then emits each owning module's initial migration, derived from the model and

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Deterministic agent demo — the M-T8.3 "wedge": prose → `.ddd` → generate →
-// green, driven by a SCRIPTED agent (no live LLM, so it's reproducible enough
+// record the initial migration → green, driven by a SCRIPTED agent (no live LLM, so it's reproducible enough
 // to double as a Playwright e2e).  The script is canned, but every step runs
 // the REAL browser-safe agent tools (`callTool` over `src/api/`) against the
 // evolving source, so the results (validation, deployable manifest) are
@@ -11,8 +11,12 @@
 // value is showing the loop end-to-end, faithfully, on a fixed transcript.
 // ---------------------------------------------------------------------------
 
-import type { GenerateReport, ValidateReport } from "../../../src/api/index.js";
-import { callTool } from "../../../src/tools/index.js";
+import type {
+  GenerateReport,
+  MigrationStatusReport,
+  ValidateReport,
+} from "../../../src/api/index.js";
+import { callTool as catalogCallTool } from "../../../src/tools/index.js";
 import type { TurnExtras } from "./turn.js";
 
 /** The model the scripted agent "authors" from the prompt.  Validated + full-
@@ -95,6 +99,11 @@ export interface AgentDemoDeps {
   applySource: (ddd: string) => void;
   /** Kick the real playground generate so the Files pane populates. */
   triggerGenerate: () => void;
+  /** Dispatch a tool call.  The playground passes the catalog with its host
+   *  tools layered on, so the migration verbs act on the workspace; the
+   *  default is the pure catalog, whose record returns the chain files and
+   *  writes nothing. */
+  callTool?: (name: string, args: Record<string, unknown>) => Promise<unknown>;
   /** Fixed pause between steps (ms).  When set it replaces the natural
    *  pacing entirely; `0` is the instant mode (no pauses, no streaming) used by
    *  tests.  Omit for the natural pacing in {@link PACING}. */
@@ -124,7 +133,13 @@ export const PACING = {
   wordsPerChunk: 2,
   chunkMs: 60,
   /** How long each tool call stays "running". */
-  toolMs: { edit: 700, loom_validate: 900, loom_generate: 1100 } as Record<string, number>,
+  toolMs: {
+    edit: 700,
+    loom_validate: 900,
+    loom_generate: 1100,
+    loom_migration_status: 700,
+    loom_migration_record: 900,
+  } as Record<string, number>,
   toolDefaultMs: 700,
   /** Reduced-motion thinking pause (no streaming). */
   reducedThinkMs: 300,
@@ -158,6 +173,7 @@ const nextId = (): string => `m${++seq}`;
  *  produces the same messages + results (timing aside). */
 export async function runAgentDemo(deps: AgentDemoDeps): Promise<void> {
   const { setMessages, applySource, triggerGenerate, signal } = deps;
+  const callTool = deps.callTool ?? catalogCallTool;
   const instant = deps.delayMs === 0;
   const reduced = deps.reducedMotion ?? prefersReducedMotion();
   const sleep = deps.sleep ?? wait;
@@ -268,10 +284,85 @@ export async function runAgentDemo(deps: AgentDemoDeps): Promise<void> {
   );
   if (stopped()) return;
 
-  // 5) Emit the real project tree into the Files pane, and conclude.
+  // 5) The schema is new, so nothing records it yet — and a boot only applies
+  //    recorded migrations.  Check, then record the initial migration
+  //    deliberately.
+  const statusLabel = "loom_migration_status(main.ddd)";
+  const statusId = await think("Checking the migration chain…");
+  if (stopped()) return;
+  await say(statusId, "Checking the migration chain…", true);
+  patch(statusId, { toolCalls: [{ tool: "loom_migration_status", label: statusLabel, status: "running" }] });
+  const status = (await callTool("loom_migration_status", {
+    source: TASK_TRACKER_DDD,
+  })) as MigrationStatusReport;
+  await toolPause("loom_migration_status");
+  if (stopped()) return;
+  const unrecordedSteps = status.modules.reduce((n, m) => n + m.unrecordedSteps, 0);
+  patch(statusId, {
+    toolCalls: [
+      {
+        tool: "loom_migration_status",
+        label: statusLabel,
+        status: status.ok ? "ok" : "error",
+        result: status.unrecorded ? `${unrecordedSteps} unrecorded step(s)` : "up to date",
+      },
+    ],
+  });
+  let recorded = !status.unrecorded;
+  if (status.ok && status.unrecorded) {
+    await say(
+      statusId,
+      "The schema isn't recorded as a migration yet, so a boot would leave the database empty. Recording the initial migration…",
+      true,
+    );
+    const recLabel = "loom_migration_record(initial)";
+    patch(statusId, {
+      toolCalls: [
+        {
+          tool: "loom_migration_status",
+          label: statusLabel,
+          status: "ok",
+          result: `${unrecordedSteps} unrecorded step(s)`,
+        },
+        { tool: "loom_migration_record", label: recLabel, status: "running" },
+      ],
+    });
+    const rec = (await callTool("loom_migration_record", {
+      source: TASK_TRACKER_DDD,
+      name: "initial",
+    })) as { ok: boolean; files: unknown[] };
+    await toolPause("loom_migration_record");
+    if (stopped()) return;
+    recorded = rec.ok;
+    patch(statusId, {
+      toolCalls: [
+        {
+          tool: "loom_migration_status",
+          label: statusLabel,
+          status: "ok",
+          result: `${unrecordedSteps} unrecorded step(s)`,
+        },
+        {
+          tool: "loom_migration_record",
+          label: recLabel,
+          status: rec.ok ? "ok" : "error",
+          result: rec.ok ? `recorded ${rec.files.length}` : "not recorded",
+        },
+      ],
+    });
+  }
+  await say(
+    statusId,
+    recorded
+      ? "The initial migration is recorded — a boot applies it to the database."
+      : "The migration chain needs attention before a boot.",
+  );
+  if (stopped()) return;
+
+  // 6) Emit the real project tree into the Files pane, and conclude.
   const doneText =
-    "✅ Done — prose to a validated model to a generated stack. The full project tree is " +
-    "in the Files pane; open Preview to boot the Hono API + React board in-browser.";
+    "✅ Done — prose to a validated model, a recorded migration and a generated stack. The full " +
+    "project tree is in the Files pane; open Preview to boot the Hono API + React board in-browser.";
   const doneId = await think(doneText);
   if (stopped()) return;
   triggerGenerate();

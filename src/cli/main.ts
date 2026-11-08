@@ -33,7 +33,7 @@ import { generateTypeScript } from "../platform/hono/v4/emit.js";
 // the version-agnostic shared emitter.
 import { BACKEND_PINS as HONO_PINS } from "../platform/hono/v5/pins.js";
 import { type GiveUpReport, partitionGiveUps } from "../system/give-up-report.js";
-import { generateSystemsFromLoom, pendingMigrations, serviceSlug } from "../system/index.js";
+import { generateSystemsFromLoom, serviceSlug } from "../system/index.js";
 import { captureSnapshots } from "../system/loomsnap.js";
 import {
   buildManifest,
@@ -56,9 +56,9 @@ import {
   MigrationDriftError,
   parseChain,
   parseForkedChain,
-  recordGeneration,
   utcVersionNow,
 } from "../system/migration-chain.js";
+import { migrationStatus, recordPendingMigrations } from "../system/migration-diff.js";
 import {
   MigrationBackfillDiscardedError,
   MigrationDestructiveError,
@@ -757,15 +757,11 @@ async function runMigrateAdd(
   if (!loom) return false;
   return migrationCommand(file, async () => {
     const migrationWarnings: MigrationWarning[] = [];
-    const chain = readMigrationChainOrEmpty(file);
-    const deltas = pendingMigrations(loom, chain, {
-      allowDestructive: options.allowDestructive,
-      warnings: migrationWarnings,
-    });
-    const entries = recordGeneration(chain, deltas, {
+    const entries = recordPendingMigrations(loom, readMigrationChainOrEmpty(file), {
       name,
       now: utcVersionNow(),
       allowDestructive: options.allowDestructive,
+      warnings: migrationWarnings,
     });
     printMigrationWarnings(migrationWarnings);
     if (entries.length === 0) {
@@ -777,15 +773,6 @@ async function runMigrateAdd(
     }
     return true;
   });
-}
-
-/** One owning module's line in `ddd migrate status`. */
-interface ModuleMigrationStatus {
-  module: string;
-  /** The module's newest recorded entry, if any. */
-  head?: { version: string; name: string };
-  /** Steps the model has that the chain does not record yet. */
-  unrecordedSteps: number;
 }
 
 /** `ddd migrate status` — what the chain records against what the model
@@ -807,19 +794,7 @@ async function runMigrateStatus(
       );
     }
     const chain = files ? parseChain(files) : EMPTY_CHAIN;
-    const warnings: MigrationWarning[] = [];
-    const deltas = pendingMigrations(loom, chain, { allowDestructive: true, warnings });
-    const modules: ModuleMigrationStatus[] = deltas.map((d) => {
-      const head = chain.entries.filter((e) => e.module === d.module).at(-1);
-      return {
-        module: d.module,
-        ...(head ? { head: { version: head.version, name: head.name } } : {}),
-        unrecordedSteps: d.steps.length,
-      };
-    });
-    const spentBlocks = warnings
-      .filter((w) => w.code === "loom.migration-block-applied")
-      .map((w) => w.message);
+    const { modules, spentBlocks } = migrationStatus(loom, chain);
     if (options.json) {
       console.log(
         JSON.stringify(
@@ -827,7 +802,7 @@ async function runMigrateStatus(
             recorded: files !== undefined,
             entries: chain.entries.length,
             head: chain.entries.at(-1)?.version ?? null,
-            modules,
+            modules: modules.map(({ destructiveMessage: _, ...m }) => m),
             spentBlocks,
           },
           null,
@@ -855,11 +830,15 @@ async function runMigrateStatus(
           ? m.head
             ? `up to date at ${m.head.version} ${m.head.name}`
             : "no tables"
-          : `${m.unrecordedSteps} unrecorded step(s)${m.head ? "" : " (its Initial)"}`;
+          : `${m.unrecordedSteps} unrecorded step(s)${m.head ? "" : " (its Initial)"}${m.destructive ? ", destructive" : ""}`;
       console.log(`  ${m.module.padEnd(width)}  ${state}`);
     }
     if (files && modules.some((m) => m.unrecordedSteps > 0)) {
-      console.log(`Record them with \`ddd migrate add <name> ${file}\`.`);
+      console.log(
+        modules.some((m) => m.destructive)
+          ? `Record them with \`ddd migrate add <name> ${file} --allow-destructive\` once the data loss is intended.`
+          : `Record them with \`ddd migrate add <name> ${file}\`.`,
+      );
     }
     for (const b of spentBlocks) console.log(`  ${b}`);
     return true;
@@ -920,11 +899,11 @@ async function runMigrateRebase(
     const name =
       options.name ?? kebabName(moved.find((e) => e.name !== "Initial")?.name ?? "Initial");
     const warnings: MigrationWarning[] = [];
-    const deltas = pendingMigrations(loom, kept, { allowDestructive, warnings });
-    const entries = recordGeneration(kept, deltas, {
+    const entries = recordPendingMigrations(loom, kept, {
       name,
       now: utcVersionNow(),
       allowDestructive,
+      warnings,
     });
     printMigrationWarnings(warnings);
     for (const removed of deleteChainEntries(file, moved)) {

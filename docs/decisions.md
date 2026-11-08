@@ -1864,7 +1864,12 @@ LSP `WorkspaceEdit`, never applied to disk** (consistent with pure tools).
 playground's Migrations dock shows a human): `loom_snapshot` `{source}→SnapshotReport`
 (the `ddd snapshot` provenance capture, returned as data — **no file emission**)
 and `loom_diff` `{source,baseline?}→DiffReport` (the schema-migration + wire-
-contract delta a change implies, with the destructive/breaking gate surfaced).
+contract delta a change implies, with the destructive/breaking gate surfaced),
+plus `loom_migration_status` `{source,migrations?}` and `loom_migration_record`
+`{source,migrations?,name,allowDestructive?}` — `ddd migrate status` / `add` as
+data, the record RETURNING the new chain files.  Applying a migration to a
+database has a side effect, so it is a host tool, never a catalog one: the
+playground's chat adds `loom_migration_apply` over its runtime database.
 Folded from the superseded `language-services-and-agent-tools` proposal; the
 navigational verbs gate on fixing the LSP providers' real bugs (operation
 rename) first. `loom_read_model` / `loom_list_primitives` / `loom_snapshot` /

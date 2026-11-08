@@ -9,7 +9,9 @@
 // (model `source` in → report / new-source out) — no server-side state, no
 // filesystem side effect.  No MCP dependency, no Node-only imports → browser-safe.
 //
-// This module hosts the GENERATIVE family (the authoring loop) AND the full
+// This module hosts the GENERATIVE family (the authoring loop), the EVOLUTION
+// family (snapshot / diff / migration status + record — each RETURNS what the
+// CLI would write), AND the full
 // NAVIGATIONAL family (§4b) over the LSP providers, addressed by symbol name:
 // the read verbs (find_symbol / references / hover) and the rewrite verbs
 // (rename / quickfix / unfold_macro) — the latter RETURN edits, never applying
@@ -23,9 +25,11 @@ import {
   generate,
   hover,
   listPrimitives,
+  migrationStatus,
   outline,
   quickfix,
   readModel,
+  recordMigration,
   references,
   rename,
   snapshot,
@@ -89,6 +93,27 @@ function optFiles(
   if (!ok) throw new Error(`'${key}' must be an array of { name, content } strings`);
   return v as { name: string; content: string }[];
 }
+
+function optBoolean(args: Record<string, unknown>, key: string): boolean | undefined {
+  const v = args[key];
+  if (v === undefined) return undefined;
+  if (typeof v !== "boolean") throw new Error(`'${key}' must be a boolean`);
+  return v;
+}
+
+/** The files of a model's committed `migrations/` directory, as the
+ *  migration-chain tools take them. */
+const MIGRATIONS_SCHEMA = {
+  type: "array",
+  description:
+    "The files of the model's committed migrations/ directory ({ name, content } each — `name` is the file name, e.g. 20260101000000_sales_initial.json). Omit when the model has no migrations/ directory yet.",
+  items: {
+    type: "object",
+    properties: { name: { type: "string" }, content: { type: "string" } },
+    required: ["name", "content"],
+    additionalProperties: false,
+  },
+} as const;
 
 /** `{ source, symbol }` schema shared by the read-navigation tools. */
 const SYMBOL_SCHEMA = {
@@ -314,15 +339,9 @@ export const TOOLS: ToolDef[] = [
             "The PREVIOUS .ddd model source to diff against. Omit for the first-run migration (everything reads 'Initial', wire diff skipped). A baseline that does not parse or validate fails the call (ok:false) rather than reading as absent.",
         },
         migrations: {
-          type: "array",
+          ...MIGRATIONS_SCHEMA,
           description:
             "The files of the model's committed migrations/ directory ({ name, content } each). When given, the chain's head is the schema baseline, so the migrations reported are exactly what `ddd migrate add` would record; the wire diff still needs `baseline`.",
-          items: {
-            type: "object",
-            properties: { name: { type: "string" }, content: { type: "string" } },
-            required: ["name", "content"],
-            additionalProperties: false,
-          },
         },
       },
       required: ["source"],
@@ -330,6 +349,61 @@ export const TOOLS: ToolDef[] = [
     },
     handler: (args) =>
       diff(reqString(args, "source"), optString(args, "baseline"), optFiles(args, "migrations")),
+  },
+  {
+    name: "loom_migration_status",
+    description:
+      "What the model's committed migration chain records against what the model describes — the toolkit twin of `ddd migrate status`. Per owning module: the chain's head entry, `unrecordedSteps` (schema changes no migration records yet) and `destructive` (recording them loses or refuses data, so it needs the explicit acknowledgement). `unrecorded: true` means a migration must be recorded (loom_migration_record) before a database can be brought to the model; nothing records or applies one implicitly. Pass the chain's files as `migrations`; omit them when the model has no `migrations/` directory yet (then every module's schema is unrecorded and records as its `Initial`). Writes nothing.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        source: { type: "string", description: "The .ddd model source." },
+        migrations: MIGRATIONS_SCHEMA,
+      },
+      required: ["source"],
+      additionalProperties: false,
+    },
+    handler: (args) => migrationStatus(reqString(args, "source"), optFiles(args, "migrations")),
+  },
+  {
+    name: "loom_migration_record",
+    description:
+      "Record the model's schema changes since the chain's head as a new named migration — the toolkit twin of `ddd migrate add <name> [--allow-destructive]`. Returns the new chain files (`{ name, path, content }`, path `migrations/<name>`) for you to add to the model's `migrations/` directory; writes nothing. A destructive change (a dropped column or table, a NOT NULL add with no backfill, a narrowing type, a reshape) is REFUSED (`ok: false`, `needsAcknowledgement: true`) unless `allowDestructive` is true — set it only once the data loss is intended, never as a default. `files` is empty (still ok) when nothing changed since the head. Check loom_migration_status first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        source: { type: "string", description: "The .ddd model source." },
+        migrations: MIGRATIONS_SCHEMA,
+        name: {
+          type: "string",
+          description:
+            "kebab-case migration name describing the change, e.g. 'add-order-note' ('initial' for the first recording).",
+        },
+        allowDestructive: {
+          type: "boolean",
+          description:
+            "The explicit destructive acknowledgement (`--allow-destructive`): let data-losing steps into the migration. Default false.",
+        },
+        now: {
+          type: "string",
+          description:
+            "The UTC clock the entries are numbered from, as YYYYMMDDHHMMSS. Default: now. Pass it for a reproducible result.",
+        },
+      },
+      required: ["source", "name"],
+      additionalProperties: false,
+    },
+    handler: (args) => {
+      const now = optString(args, "now");
+      if (now !== undefined && !/^\d{14}$/.test(now)) {
+        throw new Error("'now' must be a UTC timestamp YYYYMMDDHHMMSS");
+      }
+      return recordMigration(reqString(args, "source"), optFiles(args, "migrations"), {
+        name: reqString(args, "name"),
+        allowDestructive: optBoolean(args, "allowDestructive"),
+        now,
+      });
+    },
   },
 ];
 

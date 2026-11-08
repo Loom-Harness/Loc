@@ -554,6 +554,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.migration-chain-invalid":
     "../migrations.md#the-migration-chain--migrations-beside-the-source",
   "loom.diff-baseline-invalid": "../mcp.md#the-loom_-tool-catalog",
+  "loom.migration-name-invalid": "../mcp.md#the-loom_-tool-catalog",
   "loom.migration-unique-on-existing-table":
     "../migrations.md#a-unique-index-on-a-populated-table--loommigration-unique-on-existing-table",
   "loom.migration-enum-narrowed":
