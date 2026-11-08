@@ -1212,7 +1212,7 @@ export class Elaborator {
     const ms = first;
     // `Ctx.Policy(args)` across contexts: `bool`, so `loom.policy-out-of-scope`
     // is the one error the call raises (see qualified-policy.ts).
-    if (ms.call && qualifiedOutOfScopePolicyCall(name, String(ms.member), node)) {
+    if (ms.call && qualifiedOutOfScopePolicyCall(this.index, name, String(ms.member), node)) {
       this.synthArgs(ms.args, scope);
       return { t: Ty.prim("bool"), consumed: 1 };
     }

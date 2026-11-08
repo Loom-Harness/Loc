@@ -834,7 +834,7 @@ Composition falls out of the ordinary boolean operators
 | `loom.policy-fn-return-type` | the return annotation is not `bool` |
 | `loom.policy-fn-arity` | a `PolicyName(args)` call supplies the wrong argument count |
 | `loom.policy-fn-cycle` | a policy function (transitively) references itself |
-| `loom.policy-out-of-scope` | a `PolicyName(args)` or `Ctx.PolicyName(args)` call from a context other than the policy's declaring one — policies are context-local; redeclare it there |
+| `loom.policy-out-of-scope` | a policy reached from a context other than its declaring one, in any file of the project — a `PolicyName(args)` call, a `Ctx.PolicyName(args)` call, a bare `PolicyName` reference, or a call to a top-level function whose body names the policy (the function is inlined at the call site) — policies are context-local; redeclare it there |
 
 **Not yet shipped (P3.x follow-ups):** the `resource` scope (referencing the
 gated row's fields directly instead of passing them as arguments), field
