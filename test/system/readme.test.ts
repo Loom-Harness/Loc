@@ -391,6 +391,21 @@ system Shop {
     expect(md).toContain("The suite signs itself in");
   });
 
+  // A declared env-bound audience fails closed when it resolves empty, so the
+  // "real provider" recipe must name the variable or the deployment 401s.
+  it("names OIDC_AUDIENCE for a real provider only when the model declares an env audience", async () => {
+    const plain = (await generateSystemFiles(OIDC)).get("README.md")!;
+    expect(plain).not.toContain("plus `OIDC_AUDIENCE`");
+    const withAud = OIDC.replace(
+      'clientId: env("OIDC_CLIENT_ID") }',
+      'clientId: env("OIDC_CLIENT_ID")  audience: env("OIDC_AUDIENCE") }',
+    );
+    expect(withAud).not.toBe(OIDC);
+    const md = (await generateSystemFiles(withAud)).get("README.md")!;
+    expect(md).toContain("plus `OIDC_AUDIENCE` (the value that provider puts in `aud`)");
+    expect(md).toContain("rejects every token");
+  });
+
   it("says nothing about signing in when there is no auth block", async () => {
     const md = await readme(BACKEND_ONLY);
     expect(md).not.toContain("### Signing in");

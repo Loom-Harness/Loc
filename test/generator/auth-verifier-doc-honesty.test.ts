@@ -91,11 +91,13 @@ describe("generated OIDC verifier — the doc comment matches the emitted option
 
   it("claims audience validation only when the model actually asks for it", async () => {
     const ts = await oidcTs('\n    audience: env("OIDC_AUDIENCE")');
-    expect(ts).toContain(
-      "const VERIFY_OPTIONS = AUDIENCE ? { issuer: ISSUER, audience: AUDIENCE } : { issuer: ISSUER };",
-    );
+    // Declared → the option always carries the audience, and the doc says an
+    // empty one fails closed (the guard itself is pinned in
+    // auth-audience-empty-parity.test.ts).
+    expect(ts).toContain("const VERIFY_OPTIONS = { issuer: ISSUER, audience: AUDIENCE };");
     expect(ts).toContain("jwtVerify(token, await getJwks(), VERIFY_OPTIONS)");
     expect(ts).toContain("validates signature (JWKS), issuer and");
+    expect(ts).toContain("resolves EMPTY rejects every token (fail closed)");
     // No scare text on the arm that really does check.
     expect(ts).not.toContain("The `aud` claim is NOT verified");
   });

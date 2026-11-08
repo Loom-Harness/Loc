@@ -105,11 +105,12 @@ const CEILINGS: Record<string, number> = {
   _workflow: 200,
   angular: 1000,
   dotnet: 2400, // the EF identity-parity pins assert the emitted C# (tracker fork, 409 path) per leg
-  // the Ecto delta-migration pins assert the emitted create/rename/key-move per
-  // step (runtime proof is migration-evolution-elixir).  3400 → 3600: elixir's
-  // event-log schema scope, fold-row tenant scope, RS-48 overflow guard and
-  // union-money arm pins (#3533, #4594, #3585, #3544) — per-site predicates in
-  // emitted Ecto/Elixir that compile cleanly when absent.
+  // The Ecto delta-migration pins assert the emitted create/rename/key-move per
+  // step (runtime proof is migration-evolution-elixir).  The outbox-relay pins
+  // assert the relay, broker publishers and cron scheduler rescue a transient
+  // DB/broker failure (no runtime leg injects an outage).  The #3593 wave-2 pins
+  // assert elixir's event-log and fold-row tenant scope, RS-48 overflow guards
+  // and the union-money arm — per-site predicates that compile cleanly when absent.
   elixir: 3600,
   "elixir-vanilla": 500,
   feliz: 1500,

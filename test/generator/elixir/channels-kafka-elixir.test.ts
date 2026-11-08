@@ -99,7 +99,7 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
       'transmit(transport, conn, address, Map.get(envelope, "loomkey", event_id), Jason.encode!(envelope))',
     );
     expect(tee).toContain("defp transmit(:kafka, conn, address, key, json) do");
-    expect(tee).toContain("GenServer.call(conn, {:publish, address, key, json}, 30_000)");
+    expect(tee).toContain("call_broker(conn, {:publish, address, key, json}, 30_000)");
     const outbox = files.get("sales_api/lib/sales_api/loom_outbox.ex") ?? "";
     expect(outbox).toContain('schema "__loom_outbox"');
   });
@@ -109,7 +109,7 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
     const broker = files.get("sales_api/lib/sales_api/kafka_broker.ex") ?? "";
     expect(broker).toContain("[auto_start_producers: true] ++ state.conn_config");
     // One aggregate's events keep order: :hash partitioner over the key.
-    expect(broker).toContain(":ok = :brod.produce_sync(state.client, address, :hash, key, json)");
+    expect(broker).toContain("case :brod.produce_sync(state.client, address, :hash, key, json) do");
     // Idempotent admin create before first publish — 3 partitions / rf 1
     // matches the compose sidecar's KAFKA_NUM_PARTITIONS.
     expect(broker).toContain(
@@ -215,7 +215,7 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
     const tee = files.get("sales_api/lib/sales_api/channels.ex") ?? "";
     // No kafka in the wiring → the transmit spine stays 4-arity and
     // key-less, byte-identical to the 7d shape.
-    expect(tee).toContain("GenServer.call(conn, {:publish, address, json})");
+    expect(tee).toContain("call_broker(conn, {:publish, address, json}, 5_000)");
     expect(tee).not.toContain("@channel_keys");
     expect(tee).not.toContain("loomkey");
     expect(files.has("sales_api/lib/sales_api/kafka_broker.ex")).toBe(false);
