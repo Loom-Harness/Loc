@@ -1533,20 +1533,25 @@ on at deploy time without editing the `.ddd`).
 **The value is always env-overridable, declared or not.** All five backends read
 `OIDC_AUDIENCE`, falling back to the declared value:
 
-| declared | resolves to |
-| --- | --- |
-| `audience: "loom-api"` | `OIDC_AUDIENCE` if set, else `"loom-api"` |
-| `audience: env("OIDC_AUDIENCE")` | `OIDC_AUDIENCE` |
-| *(undeclared)* | `OIDC_AUDIENCE` if set, else unset → `aud` not checked |
+| declared | resolves to | resolves EMPTY (`OIDC_AUDIENCE` unset or `""`) |
+| --- | --- | --- |
+| `audience: "loom-api"` | `OIDC_AUDIENCE` if set, else `"loom-api"` | only via `OIDC_AUDIENCE=""` → **every token rejected** |
+| `audience: env("OIDC_AUDIENCE")` | `OIDC_AUDIENCE` | **every token rejected** |
+| `audience: env("API_AUD")` | `OIDC_AUDIENCE` if set, else `API_AUD` | **every token rejected** |
+| *(undeclared)* | `OIDC_AUDIENCE` if set | `aud` not checked |
 
 So an operator can enforce audience isolation on a stack that never declared one
 by setting `OIDC_AUDIENCE` in compose — no `.ddd` edit, no rebuild.
 
-> **Turning it back OFF is the same on every backend.** An EMPTY audience —
-> `OIDC_AUDIENCE` unset, or set to `""` — skips the check on all five. (Until
-> the claims-eval fix D7, dotnet, java and python treated `""` as a *declared*
-> audience no token carries and rejected every token; python and dotnet did so
-> even with the variable merely unset under `audience: env("OIDC_AUDIENCE")`.)
+> **A declared audience fails closed.** Once the model declares `audience:`, an
+> audience that resolves empty does not turn the check off: every verifier
+> rejects every token (401) and logs `auth_token_rejected` with the reason
+> `oidc audience is declared but resolved empty: set OIDC_AUDIENCE`. A deploy env
+> that forgot the variable gets a stack that refuses everyone, not one that
+> accepts tokens minted for any other client of the same issuer. The only way
+> to skip the `aud` check is to declare no `audience:` (which raises
+> `loom.auth-oidc-no-audience`) and leave `OIDC_AUDIENCE` empty — the same on
+> all five backends.
 >
 > **A rejected token is logged.** Every verifier still answers a failed
 > verification with 401 (never 500), and now also logs the catalog event
@@ -1556,8 +1561,10 @@ by setting `OIDC_AUDIENCE` in compose — no `.ddd` edit, no rebuild.
 >
 > **The bundled dev realm mints the audience.** A literal `audience: "x"` gets an
 > audience mapper for `x`; an `env(…)` audience gets one for the realm's own
-> client id (`<realm>-app`), so `OIDC_AUDIENCE=<realm>-app` turns the check on
-> against the bundled Keycloak with no realm edit.
+> client id (`<realm>-app`), and the generated `docker-compose.yml` sets
+> `OIDC_AUDIENCE: "<realm>-app"` on every backend service, so the dev stack
+> enforces the check out of the box. Point a deployment at a real IdP and set
+> `OIDC_AUDIENCE` to the value that IdP puts in `aud`.
 
 ```ddd
 auth {
@@ -1570,21 +1577,43 @@ auth {
 }
 ```
 
+```yaml
+# generated — docker-compose.yml (every backend service)
+OIDC_AUDIENCE: "shop-app"
+```
+
 ```ts
 // generated (node) — auth/oidc.ts
 const ISSUER = process.env.OIDC_ISSUER ?? "";
 const AUDIENCE = process.env.OIDC_AUDIENCE ?? "";
-const VERIFY_OPTIONS = AUDIENCE ? { issuer: ISSUER, audience: AUDIENCE } : { issuer: ISSUER };
+const VERIFY_OPTIONS = { issuer: ISSUER, audience: AUDIENCE };
 // …
+if (!AUDIENCE) {
+  requestLog().debug({ event: "auth_token_rejected", reason: "oidc audience is declared but resolved empty: set OIDC_AUDIENCE" });
+  return null;
+}
 const { payload } = await jwtVerify(token, await getJwks(), VERIFY_OPTIONS);
 ```
 
 ```python
 # generated (FastAPI) — app/auth/oidc.py
-_AUDIENCE = os.environ.get("OIDC_AUDIENCE")
-jwt.decode(token, key, algorithms=_ALGS, issuer=_issuer(),
-           audience=_AUDIENCE, options={"verify_aud": _AUDIENCE is not None})
+_AUDIENCE: str | None = (os.environ.get("OIDC_AUDIENCE", "")) or None
+# …
+if _AUDIENCE is None:
+    log("debug", "auth_token_rejected", reason="oidc audience is declared but resolved empty: set OIDC_AUDIENCE")
+    return None
 ```
+
+```elixir
+# generated (Phoenix) — lib/<app>_web/auth.ex
+with :ok <- audience_configured(),
+     {:ok, claims} <- MyAppWeb.Auth.Token.verify_and_validate(token),
+     :ok <- require_claims(claims) do
+```
+
+.NET (`if (string.IsNullOrEmpty(Audience)) return Rejected(…)`) and Java
+(`if (AUDIENCE == null || AUDIENCE.isEmpty()) { …; return null; }`) put the same
+guard ahead of token validation.
 
 ## Auth routes
 

@@ -1,3 +1,4 @@
+import { audienceDeclared, audienceUnsetReason } from "../../../generator/_auth/audience.js";
 import { claimShapes, UUID_PATTERN } from "../../../generator/_auth/claim-decode.js";
 import { claimEnumNames, claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
 import {
@@ -766,9 +767,10 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
   // the same model shipping enforceable isolation on four backends and an
   // unenforceable one on the fifth.  `envOverridableExpr` already collapses
   // both cases: declared → `process.env.OIDC_AUDIENCE ?? "<declared>"`,
-  // undeclared → `process.env.OIDC_AUDIENCE ?? ""`.  An EMPTY value (unset, or
-  // an explicit `OIDC_AUDIENCE=""`) skips the `aud` check — the same documented
-  // opt-out the Phoenix verifier carries.
+  // undeclared → `process.env.OIDC_AUDIENCE ?? ""`.  An EMPTY value skips the
+  // `aud` check only when nothing is declared; under a declared `audience:` it
+  // rejects every token (see `_auth/audience.ts`).
+  const declared = audienceDeclared(auth);
   const audienceConst = `\nconst AUDIENCE = ${envOverridableExpr("OIDC_AUDIENCE", auth.oidc.audience)};`;
   // The doc comment must describe the options actually emitted above — a
   // comment asserting a control the file does not implement is worse than no
@@ -789,9 +791,9 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
     ? `/** Generated OIDC verifier — validates signature (JWKS), issuer and
  *  audience, then maps claims onto User.  Returns null to reject (→ 401).
  *
- *  \`audience:\` is declared, so the \`aud\` check is ON unless the deploy env
- *  overrides it — \`OIDC_AUDIENCE\` replaces the declared value, and an
- *  explicit \`OIDC_AUDIENCE=""\` turns the check off (the documented opt-out). */`
+ *  \`audience:\` is declared, so the \`aud\` check is always ON —
+ *  \`OIDC_AUDIENCE\` replaces the declared value, and an audience that
+ *  resolves EMPTY rejects every token (fail closed), it never skips the check. */`
     : `/** Generated OIDC verifier — validates signature (JWKS) and issuer, then
  *  maps claims onto User.  Returns null to reject (→ 401).
  *
@@ -873,11 +875,18 @@ import { registerUserVerifier } from "./verifier";
 // read process.env at boot; an empty issuer fails loudly at first verify.
 const ISSUER = ${issuerExpr};${audienceConst}
 
-// \`aud\` is validated only when an audience is actually configured — an empty
+${
+  declared
+    ? `// The model declares an audience, so \`aud\` is always validated: a token minted
+// for a DIFFERENT client of the same issuer is rejected, and an EMPTY AUDIENCE
+// (OIDC_AUDIENCE unset or "") rejects every token rather than skip the check.
+const VERIFY_OPTIONS = { issuer: ISSUER, audience: AUDIENCE };`
+    : `// \`aud\` is validated only when an audience is actually configured — an empty
 // AUDIENCE (nothing declared and OIDC_AUDIENCE unset, or an explicit
 // OIDC_AUDIENCE="") skips the check, which is the documented opt-out.  With one
 // set, a token minted for a DIFFERENT client of the same issuer is rejected.
-const VERIFY_OPTIONS = AUDIENCE ? { issuer: ISSUER, audience: AUDIENCE } : { issuer: ISSUER };
+const VERIFY_OPTIONS = AUDIENCE ? { issuer: ISSUER, audience: AUDIENCE } : { issuer: ISSUER };`
+}
 
 // Lazily discover the issuer's JWKS endpoint via the OIDC discovery
 // document, then cache a remote JWK set (jose refreshes + caches keys).
@@ -960,7 +969,17 @@ ${toUserLines.join("\n")}
 ${verifierDoc}
 export const oidcVerifier = async (req: Request): Promise<UserClaims | null> => {
   const token = bearer(req);
-  if (!token) return null;
+  if (!token) return null;${
+    declared
+      ? `
+  // A declared audience that resolves empty fails closed: jose skips the
+  // \`aud\` check for an empty \`audience\` option, so refuse here instead.
+  if (!AUDIENCE) {
+    ${renderHonoStoreLogCall("authTokenRejected", `reason: ${JSON.stringify(audienceUnsetReason(auth))}`)}
+    return null;
+  }`
+      : ""
+  }
   try {
     const { payload } = await jwtVerify(token, await getJwks(), VERIFY_OPTIONS);
     return toUser(payload);
