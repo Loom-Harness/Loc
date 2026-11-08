@@ -96,6 +96,9 @@ export function BackendBody({ ctx }: Props): JSX.Element {
     appliedMigrations,
     bootPending,
     bootErrorMessage,
+    bootedBackends,
+    reqTarget,
+    setReqTarget,
     reqMethod,
     setReqMethod,
     reqPath,
@@ -273,6 +276,19 @@ export function BackendBody({ ctx }: Props): JSX.Element {
             />
           )}
           <Group gap={6} wrap="wrap">
+            {bootedBackends.length > 1 && (
+              <Select
+                size="xs"
+                value={reqTarget ?? bootedBackends[0] ?? null}
+                onChange={(v) => setReqTarget(v)}
+                data={bootedBackends}
+                allowDeselect={false}
+                w={isDesktop ? 130 : "100%"}
+                styles={mobileInputStyles}
+                aria-label="Backend"
+                data-testid="req-target"
+              />
+            )}
             <Select
               size="xs"
               value={reqMethod}

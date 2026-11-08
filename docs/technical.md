@@ -67,7 +67,7 @@ them was costing readers an accurate mental model.
                                          via `mergeLoomModels`.
          │
          ▼   ⑥ Enrichment                   src/ir/enrich/enrichments.ts
-   Loom IR'                            ─ ONE pure pass derives wireShape,
+   Loom IR'                            ─ ONE pure pass derives
                                          auto-findAll, associations, and
                                          react `targets:` module
                                          inheritance. Idempotent.
@@ -78,8 +78,9 @@ them was costing readers an accurate mental model.
                                          resolved IR.
          │
          ▼   ⑧ Per-platform code generation src/generator/<platform>/
-   Map<path, content> per deployable   ─ each backend reads `IR.wireShape`
-                                         directly. Backends that execute
+   Map<path, content> per deployable   ─ each backend gets the wire shape
+                                         from the shared `wireFieldsFor*`
+                                         helpers. Backends that execute
                                          domain logic also walk ExprIR /
                                          StmtIR via render-expr.ts /
                                          render-stmt.ts. The five
@@ -530,8 +531,12 @@ the IR consumers need.  Five derivations, in order:
 
 1. **Wire-shape on every aggregate / part / value object.**  The
    canonical, ordered list of fields that appear on the wire for
-   that entity, attached as `agg.wireShape` / `part.wireShape` /
-   `vo.wireShape`:
+   that entity.  It is **not stored** on the IR: `wireFieldsForAggregate`
+   / `wireFieldsForPart` / `wireFieldsForValueObject` (and the
+   dispatching `wireFieldsFor`) in `src/ir/enrich/wire-projection.ts`
+   compute it on demand from the node, so every consumer derives the
+   same list.  (Projections are the exception — `ProjectionIR.wireShape`
+   is stored by enrichment.)
 
    ```ts
    interface WireField {
@@ -539,13 +544,15 @@ the IR consumers need.  Five derivations, in order:
      type: TypeIR;                      // domain-typed value
      optional: boolean;
      source: "id" | "property" | "containment" | "derived";
+     access: FieldAccess;               // resolved access role
+     maskUnless?: ExprIR;               // read-mask predicate, if any
    }
    ```
 
    **Order is the contract**: `id` first, then declared properties
    in declaration order, then containments (collections rendered as
    `array<entity>`, singles as `entity`), then derived values.  Every
-   backend's response-DTO emitter reads `agg.wireShape` directly:
+   backend's response-DTO emitter calls the same helpers:
 
    - Hono `routes-builder` → `<Agg>Response = z.object({ ... })` zod schema
    - Hono `repository-builder` → `repo.toWire(root)` JS object literal
@@ -602,8 +609,8 @@ idempotent").
 (validator, system orchestrator, generators) takes
 `EnrichedLoomModel` / `EnrichedBoundedContextIR` /
 `EnrichedAggregateIR` at the call site, so passing an un-enriched
-IR is a compile error rather than a `wireShape!` non-null cast at
-the consumer.
+IR is a compile error rather than an `associations!` non-null cast
+at the consumer.
 
 **Non-responsibilities**
 - No mutation of the input — returns a new model.  The pre-
@@ -613,7 +620,7 @@ the consumer.
 - No knowledge of which platform consumes the shape.
 
 A separate JSON Schema artifact, `<outdir>/.loom/wire-spec.json`,
-is built from `wireShape` by `src/system/wire-spec.ts` and emitted
+is built from `wireFieldsFor` by `src/system/wire-spec.ts` and emitted
 alongside every system.  Diffable, language-agnostic, useful for
 spotting wire-contract changes between regens without booting any
 backend.
@@ -871,7 +878,7 @@ is reachable from an explicit `page <Name> { body: … }` —
 **Files**: `src/system/index.ts` (orchestrator entry),
 `src/system/e2e-render.ts`, `src/system/ui-e2e-render.ts`,
 `src/system/wire-spec.ts` (writes `.loom/wire-spec.json` from
-`IR.wireShape`), and `src/system/migrations-builder.ts` (derives
+the `wireFieldsFor*` wire shape), and `src/system/migrations-builder.ts` (derives
 `MigrationsIR[]` from an IR snapshot diff).  The `system/` layer
 also emits the rest of the `.loom/` artefact bundle through
 sibling modules — see [`loom-artifacts.md`](loom-artifacts.md) for
@@ -936,8 +943,8 @@ web_app/e2e/<System>.ui.spec.ts
   against peer backends sharing the same db; re-applied on every `up` by
   the compose `db-bootstrap` one-shot, so a deployable added later gets
   its database on an existing volume.
-- `.loom/wire-spec.json` — JSON Schema derived from `IR.wireShape`
-  by `wire-spec.ts`. Diffable, language-agnostic; useful for
+- `.loom/wire-spec.json` — JSON Schema derived from the
+  `wireFieldsFor*` wire shape by `wire-spec.ts`. Diffable, language-agnostic; useful for
   spotting wire-contract changes between regens.
 - E2E test routing: api tests → vitest+fetch file at
   `<outdir>/e2e/`; UI tests → Playwright spec at
@@ -1230,10 +1237,11 @@ The shape:
    and/or larger `*-builder.ts` files using `src/util/code-builder.ts`'s
    `lines` helper.  Rule of thumb: small, regularly-shaped emissions
    go in `emit/`; per-aggregate complexity goes in builders.
-5. If the backend serves a wire shape, read `agg.wireShape` /
-   `part.wireShape` / `vo.wireShape` directly from the IR — they
-   are populated by `enrichLoomModel` in `src/ir/enrich/enrichments.ts`,
-   not recomputed per backend.
+5. If the backend serves a wire shape, get it from
+   `wireFieldsForAggregate` / `wireFieldsForPart` /
+   `wireFieldsForValueObject` in `src/ir/enrich/wire-projection.ts`
+   (there is no stored `wireShape` field on these nodes) — never
+   assemble the field list per backend.
 6. If the platform needs a new value in `Platform`, also extend
    `language/ddd.langium`'s `Platform` rule, `ir/loom-ir.ts`'s
    `Platform` type, and `checkDeployable` in

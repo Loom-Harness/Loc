@@ -27,6 +27,7 @@ import type {
   BundleOk,
   BundleResult,
 } from "../bundle/protocol.js";
+import type { BackendBundle } from "../engine/runtime-engine.js";
 import type {
   BlockingMigrationState,
   DispatchResult,
@@ -47,12 +48,15 @@ export type GenerateSlot =
 
 export type BundleSlot =
   | { kind: "none" }
-  | { kind: "result"; hono: BundleResult; react: BundleResult | null };
+  /** `backends`: one bundle per Node deployable, the default dispatch
+   *  target first. */
+  | { kind: "result"; backends: BackendBundle[]; react: BundleResult | null };
 
 export type BootSlot =
   | { kind: "none" }
-  /** `applied`: the migration units this boot applied, in order. */
-  | { kind: "ok"; ddl: string; persistent: boolean; applied: string[] }
+  /** `applied`: the migration units this boot applied, in order.
+   *  `backends`: the deployables serving, the default request target first. */
+  | { kind: "ok"; ddl: string; persistent: boolean; applied: string[]; backends: string[] }
   /** The database is not at the model's schema and the recorded chain cannot
    *  bring it there; it was left as it is and the app did not start. */
   | { kind: "pending"; migration: BlockingMigrationState; message: string }
@@ -131,14 +135,21 @@ export type PipelineAction =
   // Generate
   | { type: "GENERATE_START" }
   | { type: "GENERATE_DONE"; result: GenerateResult }
-  // Bundle (one Bundle click does Hono + optionally React)
+  // Bundle (one Bundle click does every Hono backend + optionally React)
   | { type: "BUNDLE_START" }
-  | { type: "BUNDLE_DONE"; hono: BundleResult; react: BundleResult | null }
+  | { type: "BUNDLE_DONE"; backends: BackendBundle[]; react: BundleResult | null }
   // Boot
   | { type: "BOOT_START" }
   /** `head`: the chain unit the database is at after this boot (`null` for an
    *  empty chain or a source without a system). */
-  | { type: "BOOT_OK"; ddl: string; persistent: boolean; applied: string[]; head: string | null }
+  | {
+      type: "BOOT_OK";
+      ddl: string;
+      persistent: boolean;
+      applied: string[];
+      backends: string[];
+      head: string | null;
+    }
   | { type: "BOOT_PENDING"; migration: BlockingMigrationState; message: string }
   | { type: "BOOT_FAIL"; message: string }
   // The recorded chain measured against the live source.
@@ -170,9 +181,54 @@ export function generateOk(s: PipelineState): GenerateOk | null {
     : null;
 }
 
+/** The backends' bundles as one result — what the status surfaces show.  A
+ *  single backend's bundle as it is; for several, ok only when every one
+ *  bundled (sizes and times summed), else every failure's diagnostics, each
+ *  naming its deployable. */
+export function combinedBackendBundle(backends: readonly BackendBundle[]): BundleResult | null {
+  const [first] = backends;
+  if (!first) return null;
+  if (backends.length === 1) return first.bundle;
+  const failed = backends.filter((b) => !b.bundle.ok);
+  if (failed.length > 0) {
+    return {
+      ok: false,
+      diagnostics: failed.flatMap((b) =>
+        b.bundle.diagnostics.map((d) => ({ ...d, message: `${b.slug}: ${d.message}` })),
+      ),
+    };
+  }
+  const oks = backends.map((b) => b.bundle as BundleOk);
+  const [head] = oks;
+  if (!head) return null;
+  return {
+    ...head,
+    size: oks.reduce((n, b) => n + b.size, 0),
+    durationMs: oks.reduce((n, b) => n + b.durationMs, 0),
+    fetchedUrls: oks.flatMap((b) => b.fetchedUrls),
+  };
+}
+
+export function honoBundleResult(s: PipelineState): BundleResult | null {
+  return s.bundle.kind === "result" ? combinedBackendBundle(s.bundle.backends) : null;
+}
+
 export function honoBundleOk(s: PipelineState): BundleOk | null {
-  if (s.bundle.kind !== "result") return null;
-  return s.bundle.hono.ok ? s.bundle.hono : null;
+  const r = honoBundleResult(s);
+  return r?.ok ? r : null;
+}
+
+/** Every backend's bundle, when all of them bundled — what a boot starts. */
+export function backendBundlesOk(
+  s: PipelineState,
+): Array<{ slug: string; entry: string; bundle: BundleOk }> | null {
+  if (s.bundle.kind !== "result" || s.bundle.backends.length === 0) return null;
+  const out: Array<{ slug: string; entry: string; bundle: BundleOk }> = [];
+  for (const b of s.bundle.backends) {
+    if (!b.bundle.ok) return null;
+    out.push({ slug: b.slug, entry: b.entry, bundle: b.bundle });
+  }
+  return out;
 }
 
 export function reactBundleOk(s: PipelineState): BundleOk | null {
@@ -186,6 +242,11 @@ export function bootedDDL(s: PipelineState): string | null {
 
 export function bootPersistent(s: PipelineState): boolean {
   return s.boot.kind === "ok" && s.boot.persistent;
+}
+
+/** The deployables the last boot started, the default request target first. */
+export function bootBackends(s: PipelineState): string[] {
+  return s.boot.kind === "ok" ? s.boot.backends : [];
 }
 
 /** The migration units the last boot applied; empty when it applied none. */

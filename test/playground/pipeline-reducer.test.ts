@@ -52,13 +52,18 @@ function bootedState(persistent: boolean) {
   let s = pipelineReducer(initialPipelineState, { type: "GENERATE_START" });
   s = pipelineReducer(s, { type: "GENERATE_DONE", result: SAMPLE_GENERATE });
   s = pipelineReducer(s, { type: "BUNDLE_START" });
-  s = pipelineReducer(s, { type: "BUNDLE_DONE", hono: SAMPLE_BUNDLE, react: null });
+  s = pipelineReducer(s, {
+    type: "BUNDLE_DONE",
+    backends: [{ slug: "api", entry: "api/http/index.ts", bundle: SAMPLE_BUNDLE }],
+    react: null,
+  });
   s = pipelineReducer(s, { type: "BOOT_START" });
   s = pipelineReducer(s, {
     type: "BOOT_OK",
     ddl: "CREATE TABLE foo();",
     persistent,
     applied: [],
+    backends: ["api"],
     head: null,
   });
   s = pipelineReducer(s, { type: "DISPATCH_START" });
@@ -174,6 +179,7 @@ describe("pendingMigration", () => {
     pipelineReducer(pipelineReducer(s, { type: "BOOT_START" }), {
       type: "BOOT_OK",
       ddl: "",
+      backends: ["api"],
       persistent: true,
       applied: [],
       head,
@@ -281,6 +287,7 @@ describe("pendingMigration", () => {
     mem = pipelineReducer(mem, {
       type: "BOOT_OK",
       ddl: "",
+      backends: ["api"],
       persistent: false,
       applied: [],
       head: "a",

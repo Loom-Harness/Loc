@@ -1,13 +1,12 @@
 import type {
-  BootRequest,
-  BootResult,
   DispatchResult,
-  QueryResult,
+  LoadRequest,
+  LoadResult,
   RuntimeProgress,
   RuntimeRpcRequest,
   RuntimeRpcResponse,
   SerializedRequest,
-  WipeResult,
+  StartResult,
 } from "./protocol.js";
 import type { LogLine } from "../util/log-line.js";
 import { type DiagPhase, markPhase } from "../util/diagnostics.js";
@@ -18,8 +17,8 @@ export interface LoomRuntimeClientOptions {
    *  trigger (App.tsx's visibilitychange handler) decides the
    *  backgrounded worker was likely killed.  Used by the
    *  playground to surface "runtime was reset, click Boot again"
-   *  in the UI: the booted PGlite database belongs to the old
-   *  worker and can't be recovered. */
+   *  in the UI: the booted app belongs to the old worker and can't be
+   *  recovered. */
   onRespawn?: () => void;
   /** Fired with the `console.*` / stack lines the worker captured
    *  while running an RPC (boot / dispatch / …) — drives the
@@ -84,8 +83,15 @@ export class LoomRuntimeClient {
     });
   }
 
-  boot(req: BootRequest): Promise<BootResult> {
-    return this.send<BootResult>({ method: "boot", params: req });
+  /** Import the deployable's bundle (and, for a source without a system,
+   *  derive its schema). */
+  load(req: LoadRequest): Promise<LoadResult> {
+    return this.send<LoadResult>({ method: "load", params: req });
+  }
+
+  /** Connect to the storage on `channel` and start the app. */
+  start(channel: string): Promise<StartResult> {
+    return this.send<StartResult>({ method: "start", params: { channel } });
   }
 
   dispatch(req: SerializedRequest): Promise<DispatchResult> {
@@ -95,27 +101,9 @@ export class LoomRuntimeClient {
     });
   }
 
-  /** Run one SQL statement against the booted PGlite (Database console). */
-  query(sql: string): Promise<QueryResult> {
-    return this.send<QueryResult>({
-      method: "query",
-      params: { sql },
-    });
-  }
-
   reset(): Promise<{ ok: true }> {
     return this.send<{ ok: true }>({
       method: "reset",
-      params: {},
-    });
-  }
-
-  /** Drop every user object inside the booted PGlite and re-apply
-   *  DDL.  For OPFS-backed runs the underlying data island
-   *  survives — schema reattaches clean, but the rows are gone. */
-  wipe(): Promise<WipeResult> {
-    return this.send<WipeResult>({
-      method: "wipe",
       params: {},
     });
   }
@@ -128,8 +116,8 @@ export class LoomRuntimeClient {
    *  indefinitely instead of failing fast.
    *
    *  Unlike the build worker, the runtime worker owns
-   *  unrecoverable state (the booted PGlite database and the
-   *  dynamically-imported bundle module).  The `onRespawn` callback
+   *  unrecoverable state (the dynamically-imported bundle module, the
+   *  app and its storage connection).  The `onRespawn` callback
    *  lets the parent flip its pipeline back into a "needs Boot"
    *  state so the user sees a clear affordance instead of a
    *  silent next-request failure.
@@ -137,7 +125,8 @@ export class LoomRuntimeClient {
    *  Pending RPCs are rejected with a labelled error; callers that
    *  care can retry.
    *
-   *  `silent` skips the `onRespawn` callback — used by the engine's
+   *  `silent` skips the `onRespawn` callback — used by the engine, which
+   *  reports the loss once for all its workers, and by its
    *  `restore()` recovery path, which respawns the worker and
    *  immediately re-boots, so the parent must NOT be told the
    *  runtime was "lost". */

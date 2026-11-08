@@ -12,9 +12,29 @@
 // rule `docs/build.mjs` stamps on the rendered site's headings, so one link
 // works on GitHub and on the docs site.  Paths are relative to `docs/`.
 //
-// Pure, import-free leaf like its sibling `messages.ts`: consumed by the
+// Pure leaf like its sibling `messages.ts` (it imports only its own family
+// files, `./code-docs/<family>.ts`, keyed by the same code families as
+// `./messages/<family>.ts`): consumed by the
 // browser playground, so it must stay Node-free.
 // ---------------------------------------------------------------------------
+
+import { anchors as auth } from "./code-docs/auth.js";
+import { anchors as backends } from "./code-docs/backends.js";
+import { anchors as behavior } from "./code-docs/behavior.js";
+import { anchors as core } from "./code-docs/core.js";
+import { anchors as eventing } from "./code-docs/eventing.js";
+import { anchors as frontends } from "./code-docs/frontends.js";
+import { anchors as migration } from "./code-docs/migration.js";
+import { anchors as model } from "./code-docs/model.js";
+import { anchors as page } from "./code-docs/page.js";
+import { anchors as persistence } from "./code-docs/persistence.js";
+import { anchors as projection } from "./code-docs/projection.js";
+import { anchors as system } from "./code-docs/system.js";
+import { anchors as tenancy } from "./code-docs/tenancy.js";
+import { anchors as testing } from "./code-docs/testing.js";
+import { anchors as types } from "./code-docs/types.js";
+import { anchors as ui } from "./code-docs/ui.js";
+import { anchors as workflow } from "./code-docs/workflow.js";
 
 /** GitHub's heading-anchor rule: lowercase, drop everything but letters,
  *  digits, spaces, hyphens and underscores, then turn each space into a
@@ -33,6 +53,28 @@ export const DOCS_SITE = "https://loom-harness.github.io/Loc/";
 
 const CHAPTER_DIR = "language-reference";
 
+/** Every family file, by name — read by the family-placement check in
+ *  `test/system/diagnostic-catalog.test.ts`. */
+export const CODE_DOCS_FAMILIES = {
+  core,
+  behavior,
+  types,
+  model,
+  workflow,
+  eventing,
+  auth,
+  tenancy,
+  persistence,
+  projection,
+  migration,
+  system,
+  backends,
+  frontends,
+  ui,
+  page,
+  testing,
+};
+
 /** code → `<chapter>.md#<anchor>`, grouped by chapter.  Only codes whose
  *  construct has a documented section; extend it as the reference grows (the
  *  ratchet test then asks you to drop the code from its undocumented list).
@@ -46,541 +88,23 @@ const CHAPTER_DIR = "language-reference";
  *  alternative was to leave such a code undocumented, which the shrink-only
  *  ratchet exists to discourage. */
 export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
-  "loom.callable-modifier-not-allowed-here":
-    "06-behavior-and-statements.md#the-callable-modifier-surface",
-  "loom.param-default-unsupported": "06-behavior-and-statements.md#parameter-defaults",
-  "loom.multiple-systems": "02-systems-and-topology.md#system",
-  "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
-  "loom.i18n-source-invalid": "02-systems-and-topology.md#i18n",
-  "loom.i18n-duplicate": "02-systems-and-topology.md#i18n",
-  "loom.unconstructible-server-field":
-    "03-domain-modeling.md#a-server-owned-field-must-have-a-value",
-  "loom.ambiguous-enum-value": "03-domain-modeling.md#bare-values-across-two-enums",
-  "loom.collection-field-unpersisted":
-    "04-type-system.md#where-a-collection-of-references-or-value-objects-can-live",
-  "loom.containment-cycle": "03-domain-modeling.md#entity-parts--contains",
-  "loom.tenant-registry-not-constructible":
-    "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
-  "loom.api-call-principal-unsupported": "../auth.md#calling-an-api-that-requires-auth",
-  "loom.tenancy-registry-remote-unsupported":
-    "02-systems-and-topology.md#a-registry-and-the-deployables-that-read-it",
-  "loom.org-context-surface": "02-systems-and-topology.md#organizationcontext--the-operating-scope",
-  "loom.org-context-gate-unmet":
-    "02-systems-and-topology.md#organizationcontext--the-operating-scope",
-  // --- src/language/ddd-validator.ts (M-T9.56 drain) ----------------------
-  "loom.duplicate-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.duplicate-api": "14-apis-storage-resources-channels.md#api",
-  "loom.api-unknown-subdomain": "14-apis-storage-resources-channels.md#api",
-  "loom.duplicate-storage": "14-apis-storage-resources-channels.md#storage",
-  "loom.duplicate-resource": "14-apis-storage-resources-channels.md#resource",
-  // --- src/language/validators/structural.ts (M-T9.56 drain) --------------
-  "loom.audited-no-command": "22-macros.md#audit--the-built-in-capability-auditable",
-  "loom.scaffold-aggregate-unserved": "22-macros.md#scaffold-family--application--transport",
-  "loom.macro-synthesised": "22-macros.md#errors-inside-synthesised-code",
-  "loom.duplicate-entity-part": "03-domain-modeling.md#entity-parts--contains",
-  "loom.member-name-collision": "03-domain-modeling.md#aggregate",
-  "loom.hosted-type-name-collision": "03-domain-modeling.md#aggregate",
-  "loom.valueobject-contains-entity": "03-domain-modeling.md#valueobject",
-  "loom.containment-optional-collection": "03-domain-modeling.md#entity-parts--contains",
-  "loom.containment-foreign-part": "04-type-system.md#x-id--cross-aggregate-references",
-  "loom.duplicate-derived": "07-invariants-derived-functions.md#reserved-display-and-inspect",
-  // --- src/language/validators/_shared.ts (M-T9.56 drain) -----------------
-  "loom.sensitivity-drop": "03-domain-modeling.md#sensitive",
-  "loom.aggregate-not-constructible": "03-domain-modeling.md#aggregate",
-  "loom.entity-field-modifier": "03-domain-modeling.md#entity-parts--contains",
-  "loom.entity-part-param-unsupported": "03-domain-modeling.md#entity-parts--contains",
-  "loom.update-gate-suggestion": "03-domain-modeling.md#access-modifiers",
-  "loom.crudish-hard-delete":
-    "../scaffold-macros.md#crudish-delete-under-softdeletable--loomcrudish-hard-delete",
-  "loom.entity-field-optional-collection": "04-type-system.md#collections--t",
-  "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-option",
-  "loom.generic-position": "04-type-system.md#generic-carriers--paged-option",
-  "loom.paged-envelope-unknown-member": "04-type-system.md#paged",
-  "loom.option-deprecated": "04-type-system.md#option",
-  "loom.envelope-removed": "04-type-system.md#envelope-removed",
-  "loom.token-nullable": "04-type-system.md#options--t",
-  "loom.nullable-receiver": "04-type-system.md#options--t",
-  "loom.bare-aggregate-in-type": "04-type-system.md#x-id--cross-aggregate-references",
-  "loom.id-target-not-identity": "04-type-system.md#x-id--cross-aggregate-references",
-  "loom.money-literal-malformed": "05-expressions.md#money-literals-vs-moneyx-conversion",
-  "loom.interp-format-dropped-in-domain": "05-expressions.md#string-interpolation",
-  // --- src/language/validators/match.ts (M-T9.56 drain) --------------------
-  "loom.match-empty": "05-expressions.md#ternary--match",
-  "loom.match-no-else": "05-expressions.md#ternary--match",
-  "loom.matcher-arity": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
-  "loom.expect-requires-matcher": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
-  "loom.matcher-e2e-only": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
-  "loom.integration-repository-call": "18-testing.md#context-integration-tests",
-  "loom.tothrow-arity": "18-testing.md#tothrow--the-throw-assertion",
-  "loom.not-throw-invalid": "18-testing.md#tothrow--the-throw-assertion",
-  "loom.tothrow-status-not-int": "18-testing.md#tothrow--the-throw-assertion",
-  "loom.matches-arity": "05-expressions.md#scalar-intrinsics",
-  "loom.matches-named-arg": "05-expressions.md#scalar-intrinsics",
-  "loom.matches-not-literal": "05-expressions.md#scalar-intrinsics",
-  "loom.matches-invalid-regex": "05-expressions.md#scalar-intrinsics",
-  // --- src/language/validators/types.ts (M-T9.56 drain) --------------------
-  "loom.operator-non-bool-operands": "05-expressions.md#comparison-logical--unary",
-  "loom.operator-operand-mismatch": "05-expressions.md#arithmetic--widening",
-  "loom.convert-aggregate-no-display": "05-expressions.md#conversions",
-  "loom.convert-non-primitive": "05-expressions.md#conversions",
-  "loom.convert-pair-invalid": "05-expressions.md#conversions",
-  "loom.property-check-not-bool":
-    "07-invariants-derived-functions.md#invariant--a-checked-predicate",
-  "loom.invariant-not-bool": "07-invariants-derived-functions.md#invariant--a-checked-predicate",
-  "loom.invariant-guard-not-bool":
-    "07-invariants-derived-functions.md#when--a-conditional-invariant",
-  "loom.mask-unless-not-bool":
-    "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
-  "loom.field-mask-principal-without-auth":
-    "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
-  "loom.field-mask-event-channel":
-    "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
-  "loom.field-mask-unique-oracle":
-    "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
-  "loom.derived-type-mismatch":
-    "07-invariants-derived-functions.md#derived--a-computed-read-only-field",
-  "loom.property-default-type-mismatch": "03-domain-modeling.md#fields-property",
-  "loom.dunder-field-name": "03-domain-modeling.md#field-names-a-generated-runtime-reserves",
-  "loom.elixir-part-timestamp-field":
-    "03-domain-modeling.md#field-names-a-generated-runtime-reserves",
-  "loom.parameter-default-type-mismatch":
-    "06-behavior-and-statements.md#operation--a-mutating-method",
-  // --- src/ir/validate/checks/backend-syntax-checks.ts --------------------
-  "loom.elixir-invariant-unenforced":
-    "07-invariants-derived-functions.md#elixir-enforced-or-reported",
-  "loom.unknown-name": "05-expressions.md#member-access--calls",
-  "loom.unknown-user-claim": "05-expressions.md#member-access--calls",
-  "loom.unknown-primitive-member": "05-expressions.md#member-access--calls",
-  "loom.emit-unknown-field": "06-behavior-and-statements.md#let--emit",
-  // --- src/language/validators/statements.ts (M-T9.56 drain) ---------------
-  "loom.emit-field-type": "06-behavior-and-statements.md#let--emit",
-  "loom.emit-field-missing": "06-behavior-and-statements.md#let--emit",
-  "loom.when-not-bool":
-    "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
-  "loom.requires-not-bool":
-    "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
-  "loom.precondition-not-bool":
-    "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
-  "loom.loop-gate-not-implied":
-    "06-behavior-and-statements.md#a-loop-over-a-read-that-the-gate-does-not-cover",
-  "loom.when-private-operation":
-    "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
-  "loom.requires-private-operation":
-    "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
-  "loom.audited-private-operation": "22-macros.md#audit--the-built-in-capability-auditable",
-  "loom.assign-to-derived": "06-behavior-and-statements.md#assignment-----",
-  "loom.assign-type-mismatch": "06-behavior-and-statements.md#assignment-----",
-  "loom.collection-mutation-non-collection": "06-behavior-and-statements.md#assignment-----",
-  "loom.collection-mutation-element-type": "06-behavior-and-statements.md#assignment-----",
-  "loom.operation-self-call": "06-behavior-and-statements.md#operation--a-mutating-method",
-  "loom.unresolved-call": "06-behavior-and-statements.md#operation--a-mutating-method",
-  "loom.unresolved-member": "05-expressions.md#member-access--calls",
-  "loom.member-not-callable": "05-expressions.md#member-access--calls",
-  "loom.unresolved-lvalue-head": "06-behavior-and-statements.md#assignment-----",
-  "loom.bare-statement-invalid": "06-behavior-and-statements.md#assignment-----",
-  "loom.repo-verb-renamed": "10-repositories-and-queries.md#the-repository-verbs",
-  "loom.repo-get-criterion": "10-repositories-and-queries.md#the-repository-verbs",
-  "loom.repo-find-retrieval": "10-repositories-and-queries.md#the-repository-verbs",
-  "loom.repo-all-arg": "10-repositories-and-queries.md#the-repository-verbs",
-  "loom.repo-sort-placement": "10-repositories-and-queries.md#sorting-an-all-over-a-criterion",
-  "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
-  "loom.repo-unknown-read": "10-repositories-and-queries.md#repository--the-read-contract",
-  "loom.duplicate-repository": "10-repositories-and-queries.md#repository--the-read-contract",
-  "loom.repo-key-not-unique": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
-  "loom.repo-key-incomplete": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
-  "loom.paged-query-handler-shape":
-    "10-repositories-and-queries.md#repoall--the-paged-queryhandler",
-  "loom.let-type-mismatch": "06-behavior-and-statements.md#let--emit",
-  "loom.return-type-mismatch": "06-behavior-and-statements.md#return--the-exception-less-outcome",
-  "loom.return-missing": "06-behavior-and-statements.md#return--the-exception-less-outcome",
-  "loom.handler-return-not-last":
-    "06-behavior-and-statements.md#return--the-exception-less-outcome",
-  "loom.unhandled-result": "06-behavior-and-statements.md#return--the-exception-less-outcome",
-  "loom.function-return-type-mismatch":
-    "07-invariants-derived-functions.md#function--a-pure-helper",
-  "loom.create-call-not-constructible":
-    "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
-  "loom.create-call-missing-field":
-    "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
-  "loom.applier-stmt-invalid":
-    "06-behavior-and-statements.md#applye-event--the-event-sourcing-fold",
-  "loom.applier-on-non-event-sourced":
-    "06-behavior-and-statements.md#applye-event--the-event-sourcing-fold",
-  "loom.reserved-derived-on-vo": "07-invariants-derived-functions.md#reserved-display-and-inspect",
-  "loom.function-block-impure": "07-invariants-derived-functions.md#function--a-pure-helper",
-  "loom.rule-expr-impure": "07-invariants-derived-functions.md#function--a-pure-helper",
-  "loom.when-references-op-param":
-    "06-behavior-and-statements.md#when-also-auto-exposes-get-idcan_op",
-  "loom.variant-match-placement": "06-behavior-and-statements.md#match--the-statement-form",
-  "loom.elixir-match-stmt-unsupported": "06-behavior-and-statements.md#match--the-statement-form",
-  "loom.for-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
-  "loom.if-let-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
-  "loom.not-found-placement": "06-behavior-and-statements.md#notfound--the-not-found-answer",
-  "loom.not-found-unreachable": "06-behavior-and-statements.md#notfound--the-not-found-answer",
-  "loom.vanilla-op-call-actor": "06-behavior-and-statements.md#operation--a-mutating-method",
-  "loom.repository-access-outside-workflow":
-    "06-behavior-and-statements.md#operation--a-mutating-method",
-  "loom.abstract-aggregate-behavior":
-    "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
-  "loom.abstract-repository": "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
-  "loom.polymorphic-id-ref-unsupported":
-    "08-inheritance-and-polymorphism.md#base-id-references--tph-only",
-  "loom.extends-non-abstract": "08-inheritance-and-polymorphism.md#extends--a-concrete-subtype",
-  "loom.extends-self": "08-inheritance-and-polymorphism.md#extends--a-concrete-subtype",
-  "loom.es-tph-forced-own-table":
-    "08-inheritance-and-polymorphism.md#inheritanceusing---the-storage-strategy",
-  "loom.inheritance-modifier-misplaced":
-    "08-inheritance-and-polymorphism.md#inheritanceusing---the-storage-strategy",
-  "loom.union-duplicate-variant": "09-payloads-and-unions.md#anonymous-union--a-or-b",
-  "loom.union-read-undiscriminated":
-    "09-payloads-and-unions.md#reading-a-union-in-a-body--match-first",
-  "loom.union-position": "09-payloads-and-unions.md#anonymous-union--a-or-b",
-  "loom.union-variant-not-carrier": "09-payloads-and-unions.md#anonymous-union--a-or-b",
-  "loom.unmapped-error-status":
-    "09-payloads-and-unions.md#error--httpstatus--exception-less-problemdetails",
-  "loom.criterion-impure": "10-repositories-and-queries.md#criterion",
-  "loom.criterion-retrieval-name-clash": "10-repositories-and-queries.md#retrieval",
-  "loom.integer-literal-imprecise": "04-type-system.md#numeric-representation-rules",
-  "loom.projection-select-duration": "04-type-system.md#duration--expression-only",
-  "loom.projection-aggregate-arg-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
-  "loom.projection-aggregate-arity":
-    "10-repositories-and-queries.md#whole-table-aggregation--the-singleton",
-  "loom.persisted-table-collision": "13-workflows.md#13-workflows",
-  "loom.projection-aggregate-type-mismatch": "10-repositories-and-queries.md#grouped--group-by",
-  "loom.projection-groupby-join-invalid": "10-repositories-and-queries.md#grouped--group-by",
-  "loom.projection-groupby-key-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
-  "loom.projection-groupby-keyed-invalid": "10-repositories-and-queries.md#grouped--group-by",
-  "loom.projection-groupby-missing": "10-repositories-and-queries.md#grouped--group-by",
-  "loom.projection-groupby-no-aggregate": "10-repositories-and-queries.md#grouped--group-by",
-  "loom.projection-groupby-select-not-grouped": "10-repositories-and-queries.md#grouped--group-by",
-  "loom.projection-groupby-source-invalid": "10-repositories-and-queries.md#grouped--group-by",
-  "loom.projection-fields-without-select":
-    "10-repositories-and-queries.md#shorthand--the-select-less-form",
-  "loom.projection-shorthand-nonaggregate":
-    "10-repositories-and-queries.md#shorthand--the-select-less-form",
-  "loom.find-where-column-column": "10-repositories-and-queries.md#the-queryable-subset",
-  "loom.find-where-not-queryable": "10-repositories-and-queries.md#the-queryable-subset",
-  "loom.find-where-unknown-field": "10-repositories-and-queries.md#the-queryable-subset",
-  "loom.retrieval-where-not-queryable": "10-repositories-and-queries.md#the-queryable-subset",
-  "loom.projection-columnless-source":
-    "10-repositories-and-queries.md#the-source-has-to-have-columns",
-  "loom.projection-document-source-capability-filtered":
-    "10-repositories-and-queries.md#the-source-has-to-have-columns",
-  "loom.projection-cross-context-source-unsupported":
-    "10-repositories-and-queries.md#a-source-in-another-context",
-  "loom.tenancy-folded-projection-mixed":
-    "10-repositories-and-queries.md#folded--keyed-by--one-event",
-  "loom.tenancy-projection-over-scoped-fold":
-    "10-repositories-and-queries.md#folded--keyed-by--one-event",
-  "loom.ignoring-clause-placement":
-    "10-repositories-and-queries.md#ignoring--capability-filter-bypass",
-  "loom.tenancy-filter-bypass":
-    "11-capabilities-filters-stamps.md#ignoring--bypassing-a-filter-at-a-read-site",
-  "loom.context-filter-no-principal":
-    "11-capabilities-filters-stamps.md#filter-expr--a-predicate-and-ed-into-every-read",
-  "loom.self-outside-capability":
-    "11-capabilities-filters-stamps.md#self-id--self-reference-inside-a-capability",
-  "loom.stamp-reads-aggregate-unsupported":
-    "11-capabilities-filters-stamps.md#validator-gated-stamp-cases",
-  "loom.workflow-load-array-unsupported": "13-workflows.md#body-vocabulary",
-  "loom.workflow-cross-context-repository": "13-workflows.md#body-vocabulary",
-  "loom.workflow-private-operation": "13-workflows.md#body-vocabulary",
-  "loom.workflow-unrecognised-statement": "13-workflows.md#body-vocabulary",
-  "loom.workflow-inline-repository-call": "13-workflows.md#body-vocabulary",
-  "loom.handler-unknown-name":
-    "06-behavior-and-statements.md#handler-bodies--commandhandler--queryhandler",
-  "loom.workflow-return-no-caller": "13-workflows.md#returning-a-result",
-  "loom.workflow-return-not-last": "13-workflows.md#returning-a-result",
-  "loom.workflow-return-untyped": "13-workflows.md#returning-a-result",
-  "loom.workflow-return-missing": "13-workflows.md#returning-a-result",
-  "loom.workflow-return-type-mismatch": "13-workflows.md#returning-a-result",
-  "loom.workflow-return-type-unsupported": "13-workflows.md#returning-a-result",
-  "loom.workflow-return-event-sourced": "13-workflows.md#returning-a-result",
-  "loom.workflow-return-this-uncorrelated": "13-workflows.md#returning-a-result",
-  "loom.canonical-create-duplicate-workflow": "13-workflows.md#create--starters",
-  "loom.create-field-id-target": "04-type-system.md#x-id--cross-aggregate-references",
-  "loom.create-name-conflict-workflow": "13-workflows.md#create--starters",
-  "loom.workflow-param-unused": "13-workflows.md#create--starters",
-  "loom.workflow-applier-on-non-event-sourced": "13-workflows.md#create--starters",
-  "loom.correlation-type-mismatch": "13-workflows.md#one-event--the-event-reactor",
-  // M-T5.34.  The missing-starter ruling documents against the reactor section
-  // (that is the member whose behaviour is inert without a starter); the
-  // command-side correlation ruling belongs to the
-  // starters section that declares that member.
-  "loom.reactor-without-starter": "13-workflows.md#one-event--the-event-reactor",
-  "loom.correlation-uninferrable": "13-workflows.md#one-event--the-event-reactor",
-  "loom.resource-op-in-transaction": "13-workflows.md#resource-consumption",
-  "loom.resource-verb-invalid": "13-workflows.md#resource-consumption",
-  "loom.isolation-requires-transactional": "13-workflows.md#transactional--isolation",
-  "loom.transactional-no-effect": "13-workflows.md#transactional--isolation",
-  "loom.correlation-field-ambiguous": "13-workflows.md#workflow--state",
-  "loom.workflow-correlation-required": "13-workflows.md#workflow--state",
-  "loom.workflow-create-correlation-unsupplied": "13-workflows.md#workflow--state",
-  "loom.workflow-uncorrelated-state-write": "13-workflows.md#workflow--state",
-  "loom.workflow-explicit-save": "13-workflows.md#body-vocabulary",
-  "loom.workflow-uncorrelated-state-read": "13-workflows.md#workflow--state",
-  "loom.workflow-mutation-unsaved": "13-workflows.md#body-vocabulary",
-  "loom.workflow-mutation-result-unmatched": "13-workflows.md#matching-a-mutating-calls-result",
-  "loom.elixir-bound-mutating-call-unsupported": "13-workflows.md#matching-a-mutating-calls-result",
-  "loom.elixir-entry-result-unsupported": "13-workflows.md#expected-failures",
-  "loom.create-args": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
-  "loom.create-record-form": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
-  "loom.channel-key-missing-field": "14-apis-storage-resources-channels.md#channel--channelsource",
-  "loom.reserved-not-emitted": "14-apis-storage-resources-channels.md#connection-sources",
-  "loom.channelsource-incompatible":
-    "14-apis-storage-resources-channels.md#transport-compatibility",
-  "loom.relay-target-not-subscribed":
-    "14-apis-storage-resources-channels.md#transport-compatibility",
-  "loom.component-missing-body": "15-ui-pages-structure.md#component--reusable-region-tree",
-  "loom.store-init-not-constant":
-    "15-ui-pages-structure.md#store--shared-client-state-with-a-lifetime",
-  "loom.action-out-of-position": "15-ui-pages-structure.md#state--derived--action",
-  "loom.effect-in-lambda": "15-ui-pages-structure.md#state--derived--action",
-  "loom.angular-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.feliz-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.flutter-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.flutter-action-statement-unsupported": "15-ui-pages-structure.md#state--derived--action",
-  "loom.flutter-action-body-unsupported": "15-ui-pages-structure.md#state--derived--action",
-  "loom.ui-body-statement-kind": "15-ui-pages-structure.md#state--derived--action",
-  "loom.ui-assign-not-state": "15-ui-pages-structure.md#state--derived--action",
-  "loom.ui-find-call-arity": "15-ui-pages-structure.md#queryview--page-parameters",
-  "loom.ui-body-feature-unsupported": "15-ui-pages-structure.md#state--derived--action",
-  "loom.ui-page-route-collision": "15-ui-pages-structure.md#page--route-title-body",
-  "loom.heex-handler-name-collision": "15-ui-pages-structure.md#state--derived--action",
-  "loom.heex-stateful-component-reused": "15-ui-pages-structure.md#component--reusable-region-tree",
-  "loom.frontend-prop-type-unsupported": "15-ui-pages-structure.md#component--reusable-region-tree",
-  "loom.react-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.svelte-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.ui-framework-unhostable": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  // --- src/language/validators/ui.ts (M-T9.56 drain) -----------------------
-  "loom.theme-property-unknown": "02-systems-and-topology.md#theme",
-  "loom.theme-property-duplicate": "02-systems-and-topology.md#theme",
-  "loom.theme-color-invalid": "02-systems-and-topology.md#theme",
-  "loom.theme-radius-invalid": "02-systems-and-topology.md#theme",
-  "loom.theme-color-scheme-invalid": "02-systems-and-topology.md#theme",
-  "loom.ui-page-duplicate": "15-ui-pages-structure.md#page--route-title-body",
-  "loom.page-property-duplicate": "15-ui-pages-structure.md#page--route-title-body",
-  "loom.ui-menu-duplicate": "15-ui-pages-structure.md#area--menu",
-  "loom.page-menu-key-unknown": "15-ui-pages-structure.md#area--menu",
-  "loom.menu-link-property-unknown": "15-ui-pages-structure.md#area--menu",
-  "loom.ui-api-param-duplicate": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.ui-api-unknown": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.ui-param-duplicate": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.ui-function-duplicate": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.ui-api-aggregate-unknown": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.ui-api-operation-unknown": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.page-layout-unknown": "15-ui-pages-structure.md#layout--named-app-frames",
-  "loom.layout-name-reserved": "15-ui-pages-structure.md#layout--named-app-frames",
-  "loom.layout-main-slot-missing": "15-ui-pages-structure.md#layout--named-app-frames",
-  "loom.layout-slot-duplicate": "15-ui-pages-structure.md#layout--named-app-frames",
-  // --- src/language/validators/deployable.ts (M-T9.56 drain) ---------------
-  "loom.static-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.ui-binding-unknown-param": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.ui-binding-duplicate": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.ui-binding-unknown-source": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.ui-binding-source-not-serving": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.ui-binding-missing": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.frontend-targets-missing": "02-systems-and-topology.md#frontend-platforms--targets",
-  "loom.frontend-targets-invalid": "02-systems-and-topology.md#frontend-platforms--targets",
-  "loom.frontend-contexts-ignored": "02-systems-and-topology.md#frontend-platforms--targets",
-  "loom.targets-misplaced": "02-systems-and-topology.md#frontend-platforms--targets",
-  "loom.platform-unknown": "02-systems-and-topology.md#deployable",
-  "loom.platform-version-unknown": "02-systems-and-topology.md#backend-platforms",
-  "loom.design-pack-ignored": "02-systems-and-topology.md#design-packs",
-  "loom.design-theme-unknown": "02-systems-and-topology.md#design-packs",
-  "loom.design-pack-custom-unchecked": "02-systems-and-topology.md#design-packs",
-  "loom.design-pack-invalid": "../design-packs.md#2-the-packjson-manifest",
-  "loom.design-pack-retired": "02-systems-and-topology.md#design-packs",
-  "loom.design-pack-version-unknown": "02-systems-and-topology.md#design-packs",
-  "loom.design-pack-format-mismatch": "02-systems-and-topology.md#design-packs",
-  "loom.model-text-unresolved": "02-systems-and-topology.md#model-text-label-and-plural",
-  "loom.model-text-plural-member": "02-systems-and-topology.md#model-text-label-and-plural",
-  "loom.model-text-outside-ui": "02-systems-and-topology.md#model-text-label-and-plural",
-  "loom.model-text-in-template": "02-systems-and-topology.md#model-text-label-and-plural",
-  // --- src/language/validators/datasource.ts (M-T9.56 drain) --------------
-  "loom.resource-kind-storage-mismatch":
-    "14-apis-storage-resources-channels.md#the-kind--storage-matrix",
-  "loom.resource-knob-kind-mismatch":
-    "14-apis-storage-resources-channels.md#the-knobs-and-their-guards",
-  "loom.resource-knob-storage-mismatch":
-    "14-apis-storage-resources-channels.md#the-knobs-and-their-guards",
-  // --- src/language/validators/traceability.ts (M-T9.56 drain) ------------
-  "loom.requirement-property-unknown": "19-requirements-traceability.md#requirement",
-  "loom.requirement-property-duplicate": "19-requirements-traceability.md#requirement",
-  "loom.requirement-property-missing": "19-requirements-traceability.md#requirement",
-  "loom.requirement-type-invalid": "19-requirements-traceability.md#requirement",
-  "loom.requirement-status-invalid": "19-requirements-traceability.md#requirement",
-  "loom.requirement-title-not-string": "19-requirements-traceability.md#requirement",
-  "loom.requirement-priority-not-int": "19-requirements-traceability.md#requirement",
-  "loom.requirement-parent-cycle": "19-requirements-traceability.md#relations-summary",
-  "loom.datasource-context-unlisted": "14-apis-storage-resources-channels.md#resource",
-  "loom.datasource-duplicate": "14-apis-storage-resources-channels.md#resource",
-  "loom.serves-on-frontend":
-    "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
-  "loom.serves-unknown-api":
-    "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
-  "loom.serves-duplicate-api":
-    "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
-  "loom.api-unserved": "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
-  "loom.ui-multi-backend-unsupported": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.ui-aggregate-unserved": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.ui-read-unresolved": "16-ui-walker-primitives.md#queryview--async-data-branching",
-  "loom.vue-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
-  "loom.chart-accessor-not-field":
-    "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",
-  "loom.chart-of-not-grouped":
-    "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",
-  "loom.target-unsupported": "16-ui-walker-primitives.md#per-target-honest-gates",
-  "loom.bindable-input-value-arg":
-    "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
-  "loom.page-form-locals-unsupported":
-    "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
-  "loom.destroy-form-of-unresolved":
-    "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
-  "loom.component-children-unsupported": "16-ui-walker-primitives.md#slot",
-  "loom.markup-primitive-in-collection-lambda":
-    "16-ui-walker-primitives.md#for--list-comprehension",
-  "loom.money-in-text-slot":
-    "16-ui-walker-primitives.md#formatters--money-datedisplay-enumbadge-idlink-filelink-provenanceinfo-timeline",
-  "loom.button-icon-unknown": "16-ui-walker-primitives.md#button-icons",
-  "loom.valueobject-in-text-slot":
-    "16-ui-walker-primitives.md#a-text-slot-renders-a-scalar-not-a-value-object",
-  // The body-walker give-up codes (M-T9.55).  The first four are argument /
-  // reference / expression refusals — the chapter's own gate section lists the
-  // sibling `loom.page-primitive-*` codes — and the fifth is a porting gap, so
-  // it anchors on the per-target table instead.
-  "loom.page-primitive-arg-missing":
-    "16-ui-walker-primitives.md#arity-argument-and-placement-gates",
-  "loom.page-primitive-arg-invalid":
-    "16-ui-walker-primitives.md#arity-argument-and-placement-gates",
-  "loom.page-ref-unreachable": "16-ui-walker-primitives.md#arity-argument-and-placement-gates",
-  "loom.page-expr-unrenderable": "16-ui-walker-primitives.md#the-dispatch-model",
-  // The VALUE twin of `loom.page-primitive-unknown-arg`, which anchors on the
-  // gate section above.  This one gets its own subsection, because the
-  // vocabulary it enforces is the part a reader needs.
-  "loom.page-primitive-unknown-arg-value":
-    "16-ui-walker-primitives.md#closed-vocabulary-argument-values",
-  "loom.page-primitive-target-gap": "16-ui-walker-primitives.md#per-target-honest-gates",
-  "loom.auth-missing-issuer": "17-auth.md#auth-----oidc-config",
-  "loom.auth-unknown-claim-field": "17-auth.md#auth-----oidc-config",
-  "loom.auth-oidc-no-audience": "17-auth.md#auth-----oidc-config",
-  "loom.auth-without-user": "17-auth.md#auth-required--per-deployable-middleware--verifier-seam",
-  "loom.currentuser-not-in-request-scope": "17-auth.md#currentuser--claim-access-in-domain-logic",
-  "loom.auth-unknown-provider": "17-auth.md#errors",
-  "loom.duplicate-permission": "17-auth.md#permissions--a-typed-catalogue-with-implies",
-  "loom.unknown-permission": "17-auth.md#permissions--a-typed-catalogue-with-implies",
-  "loom.create-param-not-a-field":
-    "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
-  "loom.create-param-required-omitted":
-    "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
-  "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
-  "loom.policy-read-gate-not-current-user": "17-auth.md#read--who-may-read-an-aggregate",
-  "loom.policy-unknown-rule": "17-auth.md#read--who-may-read-an-aggregate",
-  "loom.default-deny-by-id-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
-  "loom.default-deny-list-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
-  "loom.policy-out-of-scope": "17-auth.md#named-policy-functions",
-  "loom.default-deny-es-create-ungateable": "17-auth.md#requires--the-authorization-gate-http-403",
-  "loom.page-gate-not-client-evaluable": "17-auth.md#requires--the-authorization-gate-http-403",
-  "loom.ui-gate-expr-unsupported": "15-ui-pages-structure.md#page--route-title-body",
-  "loom.ui-this-unbound": "15-ui-pages-structure.md#page--route-title-body",
-  "loom.lambda-param-type-unknown": "15-ui-pages-structure.md#page--route-title-body",
-  "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
-  "loom.duplicate-user-block": "17-auth.md#user--the-principal-claim-shape",
-  "loom.user-duplicate-field": "17-auth.md#user--the-principal-claim-shape",
-  "loom.user-reserved-field": "17-auth.md#user--the-principal-claim-shape",
-  // Ruling D1 — reactors run as the system principal.
-  "loom.reactor-gate-unsatisfiable":
-    "17-auth.md#reactors--the-system-principal-currentuserissystem",
-  "loom.timer-tenant-read": "17-auth.md#reactors--the-system-principal-currentuserissystem",
-  // The target-agnostic `match await` subject gate (audit F66) — the reference
-  // section that spells the one supported shape.
-  "loom.async-effect-subject-unsupported":
-    "15-ui-pages-structure.md#effect-markers-and-match-await",
-  "loom.aggregate-test-context": "18-testing.md#test---an-in-process-unit-test",
-  "loom.test-statement-invalid": "18-testing.md#test---an-in-process-unit-test",
-  "loom.member-unresolved": "05-expressions.md#member-access--calls",
-  "loom.test-redundant-for": "18-testing.md#test---an-in-process-unit-test",
-  "loom.test-principal-placement": "18-testing.md#running-as-a-principal",
-  "loom.test-principal-value": "18-testing.md#running-as-a-principal",
-  "loom.test-principal-duplicate-claim": "18-testing.md#running-as-a-principal",
-  "loom.test-principal-no-user": "18-testing.md#running-as-a-principal",
-  "loom.test-principal-unknown-claim": "18-testing.md#running-as-a-principal",
-  "loom.test-principal-claim-type": "18-testing.md#running-as-a-principal",
-  "loom.e2e-principal-claim-not-carried": "18-testing.md#running-as-a-principal",
-  "loom.e2e-principal-oidc": "18-testing.md#running-as-a-principal",
-  "loom.e2e-principal-ui": "18-testing.md#running-as-a-principal",
-  "loom.e2e-unsupported-statement":
-    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
-  "loom.e2e-unrouted-verb": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
-  "loom.e2e-call-options": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
-  "loom.e2e-routed-handler-arity":
-    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
-  "loom.e2e-unknown-body-key": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
-  "loom.e2e-unknown-query-key":
-    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
-  "loom.e2e-projection-read-arity":
-    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
-  "loom.e2e-missing-required-field":
-    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
-  "loom.e2e-body-type-mismatch":
-    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
-  "loom.e2e-unknown-response-field":
-    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
-  "loom.locator-matcher-receiver":
-    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
-  "loom.e2e-ui-throw-invalid": "18-testing.md#tothrow--the-throw-assertion",
-  "loom.e2e-throw-kind-invalid": "18-testing.md#tothrow--the-throw-assertion",
-  "loom.throw-kind-outside-tothrow": "18-testing.md#tothrow--the-throw-assertion",
-  "loom.unit-absent-invalid": "18-testing.md#absence--tobenull--tobeabsent",
-  "loom.e2e-ui-absence-invalid": "18-testing.md#absence--tobenull--tobeabsent",
-  "loom.contain-receiver-invalid": "18-testing.md#tocontain--membership-or-substring",
-  "loom.absent-receiver-invalid": "18-testing.md#absence--tobenull--tobeabsent",
-  "loom.throw-kind-integration-unsupported": "18-testing.md#tothrow--the-throw-assertion",
-  "loom.extern-component-has-body": "21-externs.md#extern-component",
-  "loom.extern-function-shadows-stdlib": "21-externs.md#extern-function",
-  "loom.component-shadows-stdlib": "15-ui-pages-structure.md#component--reusable-region-tree",
-  "loom.seed-duplicate-field": "23-domain-services-and-seeds.md#seed--declarative-first-boot-data",
-  "loom.seed-foreign-aggregate":
-    "23-domain-services-and-seeds.md#seed--declarative-first-boot-data",
-  "loom.domain-service-no-emit":
-    "23-domain-services-and-seeds.md#the-no-infra-contract-phase-⑦-ir-validator",
-  "loom.domain-service-no-mutation":
-    "23-domain-services-and-seeds.md#the-no-infra-contract-phase-⑦-ir-validator",
-  "loom.domain-service-no-workflow-start":
-    "23-domain-services-and-seeds.md#the-no-infra-contract-phase-⑦-ir-validator",
-  "loom.domain-service-single-aggregate":
-    "23-domain-services-and-seeds.md#the-no-infra-contract-phase-⑦-ir-validator",
-  "loom.seed-abstract-aggregate": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
-  "loom.seed-dataset-name-collision": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
-  "loom.seed-eventsourced-no-create": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
-  "loom.seed-raw-eventsourced": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
-  "loom.seed-raw-document-shape": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
-  "loom.seed-tenant-owned-needs-raw": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
-  // --- docs-root-relative (no language-reference chapter covers migrations) ---
-  "loom.migration-destructive":
-    "../migrations.md#destructive-changes--the---allow-destructive-gate",
-  "loom.migration-rename-inferred":
-    "../migrations.md#the-inferred-rename-announces-itself--loommigration-rename-inferred",
-  "loom.migration-block-applied":
-    "../migrations.md#a-spent-block-says-so--loommigration-block-applied",
-  "loom.migration-sql-placement": "../migrations.md#data-migrations-m-t23",
-  "loom.migration-step-unknown-context":
-    "../migrations.md#table-steps--renames-and-cross-context-moves",
-  "loom.migration-step-target-missing":
-    "../migrations.md#table-steps--renames-and-cross-context-moves",
-  "loom.migration-step-ambiguous": "../migrations.md#table-steps--renames-and-cross-context-moves",
-  "loom.migration-move-across-databases":
-    "../migrations.md#table-steps--renames-and-cross-context-moves",
-  "loom.migration-chain-invalid":
-    "../migrations.md#the-migration-chain--migrations-beside-the-source",
-  "loom.diff-baseline-invalid": "../mcp.md#the-loom_-tool-catalog",
-  "loom.migration-name-invalid": "../mcp.md#the-loom_-tool-catalog",
-  "loom.migration-unique-on-existing-table":
-    "../migrations.md#a-unique-index-on-a-populated-table--loommigration-unique-on-existing-table",
-  "loom.migration-enum-narrowed":
-    "../migrations.md#an-enum-that-loses-a-member--loommigration-enum-narrowed",
-  "loom.unique-tpc-not-hierarchy-wide":
-    "../inheritance.md#unique-keys-on-a-tpc-base--loomunique-tpc-not-hierarchy-wide",
+  ...core,
+  ...behavior,
+  ...types,
+  ...model,
+  ...workflow,
+  ...eventing,
+  ...auth,
+  ...tenancy,
+  ...persistence,
+  ...projection,
+  ...migration,
+  ...system,
+  ...backends,
+  ...frontends,
+  ...ui,
+  ...page,
+  ...testing,
 };
 
 /** The docs path for a diagnostic code, relative to the docs root —

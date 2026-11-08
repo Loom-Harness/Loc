@@ -283,6 +283,25 @@ const unboundStorageWitness = (platform: string, type: string): string =>
     "resource st { for: Main, kind: state, use: pg }",
   );
 
+/** An aggregate with a masked field and one sink of it (`aggBody` / `ctxExtra`). */
+const maskSinkWitness = (platform: string, aggBody: string, ctxExtra = ""): string => `
+system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    aggregate P with crudish {
+      name: string
+      ssn: string mask unless currentUser.role == "hr"
+      ${aggBody}
+    }
+    repository Ps for P
+    ${ctxExtra}
+  } }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: ${platform}  contexts: [C]  dataSources: [st]  port: 8080  auth: required }
+}
+`;
+
 /** One witness per backend construct, hosted on `platform`. */
 const BACKEND_WITNESSES: Readonly<Record<BackendConstruct, (platform: string) => string>> = {
   // An event-sourced aggregate whose create carries a `requires`.
@@ -561,6 +580,13 @@ system M {
         entity Line { qty: int  tags: Tag[] }
       }`,
     ),
+  "emit:masked-value@channel-event": (platform) =>
+    maskSinkWitness(
+      platform,
+      "operation ping() { emit Pinged { p: id, ssn: ssn } }",
+      "event Pinged { p: P id  ssn: string }\n    channel Out { carries: Pinged }",
+    ),
+  "unique:masked-field@aggregate": (platform) => maskSinkWitness(platform, "unique (ssn)"),
   "invariant:nested-valueobject@valueobject": (platform) =>
     resourceWitness(
       platform,
