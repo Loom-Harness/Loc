@@ -11,6 +11,8 @@ export {
   renderProblemDetailsFilter,
   renderRequiredFromCtorParamFilter,
   renderValidationProblem,
+  renderValueObjectSchemaMergeFilter,
+  VO_MERGE_FILTER_PATH,
 } from "./emit/api.js";
 export { renderAuditableInterceptor } from "./emit/auditable-interceptor.tpl.js";
 export { renderBaseReaderImpl, renderBaseReaderInterface } from "./emit/base-reader.js";

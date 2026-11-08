@@ -21,7 +21,7 @@
         "doors": 4,
         "id": "<volatile:key>",
         "name": "Sedan",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -41,7 +41,7 @@
         "doors": 2,
         "id": "<volatile:key>",
         "name": "Sedan",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -61,7 +61,7 @@
         "doors": 3,
         "id": "<volatile:key>",
         "name": "Sedan",
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -83,7 +83,7 @@
         "id": "<volatile:key>",
         "name": "Hauler",
         "payloadKg": 5000,
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -103,7 +103,7 @@
         "id": "<volatile:key>",
         "name": "Hauler",
         "payloadKg": 7000,
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -117,7 +117,7 @@
           "id": "<volatile:key>",
           "name": "Hauler",
           "payloadKg": 7000,
-          "version": 2
+          "rowVersion": 2
         }
       ]
     },
@@ -132,7 +132,7 @@
           "doors": 3,
           "id": "<volatile:key>",
           "name": "Sedan",
-          "version": 3
+          "rowVersion": 3
         }
       ]
     },
@@ -176,7 +176,7 @@
           "doors": 3,
           "id": "<volatile:key>",
           "name": "Sedan",
-          "version": 3
+          "rowVersion": 3
         }
       ]
     },
@@ -218,7 +218,7 @@
           "doors": 3,
           "id": "<volatile:key>",
           "name": "Sedan",
-          "version": 3
+          "rowVersion": 3
         }
       ]
     },

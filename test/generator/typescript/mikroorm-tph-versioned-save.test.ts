@@ -60,7 +60,7 @@ describe("mikroorm TPH versioned save", () => {
     const car = nativeUpdate(await repo(TPH, "car"));
     expect(car, "guarded nativeUpdate emitted").not.toEqual("");
     expect(car).toContain(
-      "em.nativeUpdate(CarRow, { id: aggregate.id as string, version: expected },",
+      "em.nativeUpdate(CarRow, { id: aggregate.id as string, rowVersion: expected },",
     );
     expect(car, "the UPDATE never writes the discriminator").not.toMatch(/\bkind\b/);
     const truck = nativeUpdate(await repo(TPH, "truck"));
@@ -81,6 +81,6 @@ describe("mikroorm TPH versioned save", () => {
   it("leaves a non-TPH aggregate's guard untouched", async () => {
     const bike = nativeUpdate(await repo(PLAIN, "bike"));
     expect(bike, "guarded nativeUpdate emitted").not.toEqual("");
-    expect(bike).toContain("{ id: aggregate.id as string, version: expected },");
+    expect(bike).toContain("{ id: aggregate.id as string, rowVersion: expected },");
   });
 });

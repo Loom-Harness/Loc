@@ -88,7 +88,6 @@ import type {
   OperationIR,
   StmtIR,
 } from "../../types/loom-ir.js";
-import { operationIsGuarded } from "../../types/loom-ir.js";
 import { walkExprDeep, walkStmtsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
@@ -137,7 +136,9 @@ type Gate = "requires" | "when" | "precondition";
 
 /** Which gate on `op` guards the transition of `fName`, if any — see SCOPE. */
 function gateKind(op: OperationIR, fName: string): Gate | undefined {
-  if (operationIsGuarded(op)) return "requires";
+  if (op.statements.some((s) => s.kind === "requires" && s.maskWriteOf === undefined)) {
+    return "requires";
+  }
   if (op.when) return "when";
   let pre = false;
   for (const s of op.statements) {

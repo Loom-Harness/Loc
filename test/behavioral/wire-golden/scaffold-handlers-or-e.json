@@ -34,7 +34,7 @@
         "code": "A-1",
         "id": "<volatile:key>",
         "paid": 0,
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -66,7 +66,7 @@
         "code": "A-1",
         "id": "<volatile:key>",
         "paid": 2,
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -92,7 +92,7 @@
         "code": "A-1",
         "id": "<volatile:key>",
         "paid": 2,
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -104,8 +104,8 @@
         "code": "closed",
         "id": "<volatile:key>",
         "paid": 2,
-        "type": "Order",
-        "version": 4
+        "rowVersion": 4,
+        "type": "Order"
       }
     },
     {
@@ -117,7 +117,7 @@
         "code": "closed",
         "id": "<volatile:key>",
         "paid": 2,
-        "version": 4
+        "rowVersion": 4
       }
     },
     {
@@ -162,8 +162,8 @@
         "code": "closed",
         "id": "<volatile:key>",
         "paid": 1,
-        "type": "Order",
-        "version": 3
+        "rowVersion": 3,
+        "type": "Order"
       }
     },
     {
@@ -182,7 +182,7 @@
         "code": "B-3",
         "id": "<volatile:key>",
         "paid": 1,
-        "version": 4
+        "rowVersion": 4
       }
     },
     {
@@ -196,13 +196,13 @@
             "code": "closed",
             "id": "<volatile:key>",
             "paid": 2,
-            "version": 4
+            "rowVersion": 4
           },
           {
             "code": "B-3",
             "id": "<volatile:key>",
             "paid": 1,
-            "version": 4
+            "rowVersion": 4
           }
         ],
         "page": 1,

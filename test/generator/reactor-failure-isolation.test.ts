@@ -42,7 +42,7 @@ describe("reactor failure isolation — node", () => {
   });
 
   it("the relay drives the raising instance; the request path its isolating twin", async () => {
-    const boot = file(await generateSystemFiles(source("node", true)), "d/index.ts");
+    const boot = file(await generateSystemFiles(source("node", true)), "d/boot.ts");
     expect(boot).toContain("const inProcessEvents = realtimeTee(createInProcessDispatcher(db));");
     expect(boot).toContain(
       "const requestEvents = realtimeTee(createInProcessDispatcher(db, { isolateReactorFailures: true }));",

@@ -46,6 +46,12 @@ installConsoleTee();
 
 interface BundleModule {
   createApp: (db: unknown) => { fetch: (req: Request) => Promise<Response> };
+  /** The generated start-up sequence (`boot.ts`) — absent from a bundle whose
+   *  backend emits none, which then boots through bare `createApp`. */
+  bootApp?: (
+    db: unknown,
+    opts: { verifier: "dev-stub"; infra: "in-process" },
+  ) => Promise<{ app: { fetch: (req: Request) => Promise<Response> }; stop: () => Promise<void> }>;
   schema: Record<string, unknown>;
   drizzle: (client: unknown, opts: { schema: Record<string, unknown> }) => unknown;
   /** `@electric-sql/pglite/worker`'s client: the deployable's connection to
@@ -71,6 +77,10 @@ interface Loaded {
 
 interface Started {
   app: { fetch: (req: Request) => Promise<Response> };
+  /** Stops what `bootApp` started (timers, channel consumers, the outbox
+   *  relay) — run before the storage connection closes on Reset and
+   *  re-boot. */
+  stop: () => Promise<void>;
   storage: StorageConnection;
 }
 
@@ -85,6 +95,11 @@ const DEFAULT_DISPATCH_TIMEOUT_MS = 30_000;
 
 async function tearDown(): Promise<void> {
   if (started) {
+    try {
+      await started.stop();
+    } catch {
+      // best-effort
+    }
     try {
       await started.storage.close();
     } catch {
@@ -147,13 +162,20 @@ async function start(channel: string): Promise<StartResult> {
   try {
     const db = mod.drizzle(storage, { schema: mod.schema });
     progress("create-app");
-    // The app's boot call — the one line a generated boot sequence replaces.
-    const app = mod.createApp(db);
-    started = { app, storage };
+    if (mod.bootApp) {
+      // The deployed start-up sequence minus `serve()`: seeds, verifier,
+      // dispatchers, channel consumers, outbox relay, timers.  The preview
+      // reaches no IdP and no broker, so it takes the dev-stub verifier and
+      // the in-process broker + cron.
+      const booted = await mod.bootApp(db, { verifier: "dev-stub", infra: "in-process" });
+      started = { app: booted.app, stop: booted.stop, storage };
+    } else {
+      started = { app: mod.createApp(db), stop: async () => {}, storage };
+    }
     return { ok: true };
   } catch (err) {
     await storage.close().catch(() => undefined);
-    return { ok: false, message: `createApp failed: ${errText(err)}` };
+    return { ok: false, message: `${mod.bootApp ? "bootApp" : "createApp"} failed: ${errText(err)}` };
   }
 }
 

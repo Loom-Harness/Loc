@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { devStubEntryFor, makeEntryStdin, schemaPathFor } from "../../web/src/bundle/plugin.js";
+import {
+  bootEntryFor,
+  devStubEntryFor,
+  makeEntryStdin,
+  schemaPathFor,
+} from "../../web/src/bundle/plugin.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
@@ -122,14 +127,23 @@ system Helpdesk {
   deployable d { platform: node contexts: [Tickets] serves: SApi dataSources: [st] port: 4000 auth: required }
 }`;
 
-  it("registers the emitted dev stub at the preview entry", async () => {
+  // The generated `boot.ts` owns the registration: the preview boots through
+  // `bootApp(db, { verifier: "dev-stub", … })`, so the entry exports it and
+  // registers nothing itself (a second registration would race the first).
+  it("boots through bootApp, which takes the dev stub on request", async () => {
     const files = await generateSystemFiles(OIDC_SYSTEM);
     expect(files.has("d/auth/oidc.ts"), "the generated app still verifies OIDC").toBe(true);
     const vfsFiles = new Map([...files].map(([p, c]) => [`/${p}`, c]));
     const stub = devStubEntryFor(vfsFiles, HONO_ENTRY);
+    const boot = bootEntryFor(vfsFiles, HONO_ENTRY);
     expect(stub).toBe("d/auth/dev-stub.ts");
-    expect(makeEntryStdin(HONO_ENTRY, schemaPathFor(HONO_ENTRY), stub)).toContain(
-      "registerDevStubVerifier();",
+    expect(boot).toBe("d/boot.ts");
+    const entry = makeEntryStdin(HONO_ENTRY, schemaPathFor(HONO_ENTRY), stub, boot);
+    expect(entry).toContain('export { bootApp } from "./d/boot.ts";');
+    expect(entry).not.toContain("registerDevStubVerifier();");
+    const bootTs = files.get("d/boot.ts") ?? "";
+    expect(bootTs).toMatch(
+      /if \(opts\.verifier === "dev-stub"\) \{\n\s+registerDevStubVerifier\(\);[\s\S]*\} else \{\n\s+registerOidcVerifier\(\);/,
     );
   });
 });

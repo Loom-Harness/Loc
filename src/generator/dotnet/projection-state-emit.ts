@@ -1,3 +1,4 @@
+import { foldTenancyFor } from "../../ir/enrich/fold-tenancy.js";
 import { projectionTableName } from "../../ir/enrich/storage-names.js";
 import type { ProjectionIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
@@ -84,6 +85,15 @@ export function renderProjectionRowEntity(proj: ProjectionIR, ns: string): strin
     if (f.name === corr) continue;
     props.push(`    public ${nullableCsType(f.type)} ${upperFirst(f.name)} { get; set; }`);
   }
+  // A tenant-scoped fold (`fold-tenancy.ts`): the event's tenant, part of the
+  // key, and its org path.
+  for (const m of foldTenancyFor(proj)?.metadata ?? []) {
+    props.push(
+      m.required
+        ? `    public string ${upperFirst(m.field)} { get; set; } = default!;`
+        : `    public string? ${upperFirst(m.field)} { get; set; }`,
+    );
+  }
   return (
     lines(
       "// Auto-generated.",
@@ -138,6 +148,19 @@ function renderProjectionRowConfiguration(proj: ProjectionIR, ns: string, schema
     }
     return [`        builder.Property(x => x.${upperFirst(f.name)})${col};`];
   });
+  // A tenant-scoped fold row is keyed by `(tenant, key)`.
+  const tenancy = foldTenancyFor(proj);
+  const tenantConfigs = (tenancy?.metadata ?? []).map(
+    (m) => `        builder.Property(x => x.${upperFirst(m.field)}).HasColumnName("${m.column}");`,
+  );
+  const keyCols = [
+    ...(tenancy?.metadata ?? []).filter((m) => m.required).map((m) => `x.${upperFirst(m.field)}`),
+    `x.${upperFirst(corr)}`,
+  ];
+  const hasKey =
+    keyCols.length === 1
+      ? `        builder.HasKey(x => ${keyCols[0]});`
+      : `        builder.HasKey(x => new { ${keyCols.join(", ")} });`;
   return (
     lines(
       "// Auto-generated.",
@@ -155,8 +178,9 @@ function renderProjectionRowConfiguration(proj: ProjectionIR, ns: string, schema
       `    public void Configure(EntityTypeBuilder<${cls}> builder)`,
       "    {",
       `        builder.ToTable(${toTableArgs});`,
-      `        builder.HasKey(x => x.${upperFirst(corr)});`,
+      hasKey,
       ...fieldConfigs,
+      ...tenantConfigs,
       "    }",
       "}",
     ) + "\n"

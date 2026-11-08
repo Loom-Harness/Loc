@@ -28,8 +28,8 @@
           {
             "email": "ok@example.test",
             "id": "<volatile:key>",
-            "ticket": "<uuid>",
-            "version": 1
+            "rowVersion": 1,
+            "ticket": "<uuid>"
           }
         ],
         "page": 1,
@@ -71,8 +71,8 @@
       "body": {
         "email": "boom@example.test",
         "id": "<volatile:key>",
-        "status": "Resolved",
-        "version": 2
+        "rowVersion": 2,
+        "status": "Resolved"
       }
     },
     {
@@ -85,8 +85,8 @@
           {
             "email": "ok@example.test",
             "id": "<volatile:key>",
-            "ticket": "<uuid>",
-            "version": 1
+            "rowVersion": 1,
+            "ticket": "<uuid>"
           }
         ],
         "page": 1,
@@ -116,8 +116,8 @@
       "body": {
         "email": "ok@example.test",
         "id": "<volatile:key>",
-        "status": "Resolved",
-        "version": 2
+        "rowVersion": 2,
+        "status": "Resolved"
       }
     },
     {
@@ -130,14 +130,14 @@
           {
             "email": "ok@example.test",
             "id": "<volatile:key>",
-            "status": "Resolved",
-            "version": 2
+            "rowVersion": 2,
+            "status": "Resolved"
           },
           {
             "email": "boom@example.test",
             "id": "<volatile:key>",
-            "status": "Resolved",
-            "version": 2
+            "rowVersion": 2,
+            "status": "Resolved"
           }
         ],
         "page": 1,
@@ -163,8 +163,8 @@
       "body": {
         "email": "manual@example.test",
         "id": "<volatile:key>",
-        "ticket": "<uuid>",
-        "version": 1
+        "rowVersion": 1,
+        "ticket": "<uuid>"
       }
     },
     {
@@ -182,8 +182,8 @@
       "body": {
         "email": "edited@example.test",
         "id": "<volatile:key>",
-        "ticket": "<uuid>",
-        "version": 2
+        "rowVersion": 2,
+        "ticket": "<uuid>"
       }
     },
     {
@@ -230,8 +230,8 @@
       "body": {
         "email": "spare@example.test",
         "id": "<volatile:key>",
-        "status": "Closed",
-        "version": 2
+        "rowVersion": 2,
+        "status": "Closed"
       }
     },
     {

@@ -27,6 +27,7 @@ import type { LogLine } from "../util/log-line.js";
 import type { BundleResult } from "../bundle/protocol.js";
 import {
   RUNTIME_VERSIONS,
+  bootEntryFor,
   devStubEntryFor,
   makeEntryStdin,
   schemaPathFor,
@@ -237,10 +238,10 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       stdinContents: makeEntryStdin(
         entry,
         schemaPathFor(entry),
-        // Present for every `auth: required` deployable, `auth { oidc }` ones
-        // included — the entry registers the emitted dev stub so `createApp`'s
-        // verifier assertion passes without a reachable IdP.
+        // Registered by the entry only when there is no `boot.ts` (whose
+        // `bootApp` registers the verifier itself).
         devStubEntryFor(generatedFiles, entry),
+        bootEntryFor(generatedFiles, entry),
       ),
       // Backend-only: the React run never sets this.
       sourcemap,

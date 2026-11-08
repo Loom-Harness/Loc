@@ -75,18 +75,18 @@ describe("redis broker transport (M-T4.4 slice 2)", () => {
   it("boots the tee in both deployables; the consumer loop only where reactors live", async () => {
     const files = await generateSystemFiles(FIXTURE);
     for (const dep of ["sales_api", "ship_api"]) {
-      const index = files.get(`${dep}/index.ts`) ?? "";
-      expect(index).toContain("createChannelTransports()");
-      expect(index).toContain("channelPublishTee(channelTransports,");
+      const boot = files.get(`${dep}/boot.ts`) ?? "";
+      expect(boot).toContain("const channelTransports = createChannelTransports(");
+      expect(boot).toContain("channelPublishTee(channelTransports,");
     }
     // salesApi is a pure producer (no hosted reactor): no consumer loop, and
-    // shutdown closes the transports directly.
-    const producer = files.get("sales_api/index.ts") ?? "";
+    // boot's stop closes the transports directly.
+    const producer = files.get("sales_api/boot.ts") ?? "";
     expect(producer).not.toContain("startChannelConsumers");
     expect(producer).toContain("closeChannelTransports(channelTransports)");
     // shipApi hosts the Fulfil reactor: the consumer loop starts at boot and
     // its stop function (which closes the transports) runs at shutdown.
-    const consumer = files.get("ship_api/index.ts") ?? "";
+    const consumer = files.get("ship_api/boot.ts") ?? "";
     expect(consumer).toContain("await startChannelConsumers(channelTransports, inProcessEvents)");
     expect(consumer).toContain("stopChannelConsumers()");
   });
@@ -100,6 +100,7 @@ describe("redis broker transport (M-T4.4 slice 2)", () => {
     // must therefore resolve on the broker's ACK, and boot must await it.
     const files = await generateSystemFiles(FIXTURE);
     const mod = files.get("ship_api/http/channels.ts") ?? "";
+    const boot = files.get("ship_api/boot.ts") ?? "";
     const index = files.get("ship_api/index.ts") ?? "";
 
     // The seam is awaitable — a synchronous unsubscribe handle cannot
@@ -109,11 +110,15 @@ describe("redis broker transport (M-T4.4 slice 2)", () => {
     expect(mod).toContain("export async function startChannelConsumers(");
     expect(mod).toContain("await t.subscribe(b.address");
 
-    // ...and boot blocks on it BEFORE the port opens.
-    const startAt = index.indexOf("await startChannelConsumers(");
+    // ...and boot blocks on it, and the server awaits boot BEFORE the port
+    // opens.
+    expect(boot, "the consumer must start at boot").toContain(
+      "const stopChannelConsumers = await startChannelConsumers(",
+    );
+    const bootAt = index.indexOf("await bootApp(db)");
     const serveAt = index.indexOf("const server = serve(");
-    expect(startAt, "the consumer must start at boot").toBeGreaterThan(-1);
-    expect(serveAt).toBeGreaterThan(startAt);
+    expect(bootAt, "index.ts must await the boot sequence").toBeGreaterThan(-1);
+    expect(serveAt).toBeGreaterThan(bootAt);
   });
 
   it("gives the consumer the foreign event vocabulary and reactor routing", async () => {

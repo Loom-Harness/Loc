@@ -30,8 +30,8 @@
         "id": "<volatile:key>",
         "limit": 10,
         "order": 2,
-        "total": "5.0000",
-        "version": 1
+        "rowVersion": 1,
+        "total": "5.0000"
       }
     },
     {
@@ -45,8 +45,8 @@
           "id": "<volatile:key>",
           "limit": 10,
           "order": 2,
-          "total": "5.0000",
-          "version": 1
+          "rowVersion": 1,
+          "total": "5.0000"
         }
       ]
     },
@@ -62,16 +62,16 @@
             "id": "<volatile:key>",
             "limit": 0,
             "order": 1,
-            "total": "7.5000",
-            "version": 1
+            "rowVersion": 1,
+            "total": "7.5000"
           },
           {
             "group": "alpha",
             "id": "<volatile:key>",
             "limit": 10,
             "order": 2,
-            "total": "5.0000",
-            "version": 1
+            "rowVersion": 1,
+            "total": "5.0000"
           }
         ],
         "page": 1,
@@ -92,8 +92,8 @@
             "id": "<volatile:key>",
             "limit": 0,
             "order": 1,
-            "total": "7.5000",
-            "version": 1
+            "rowVersion": 1,
+            "total": "7.5000"
           }
         ],
         "page": 1,
@@ -119,8 +119,8 @@
         "id": "<volatile:key>",
         "limit": 3,
         "order": 9,
-        "total": "5.0000",
-        "version": 2
+        "rowVersion": 2,
+        "total": "5.0000"
       }
     },
     {

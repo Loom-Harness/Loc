@@ -17,9 +17,11 @@ import {
   type RepositoryIR,
   type RetrievalIR,
   type TypeIR,
+  type WireField,
 } from "../../ir/types/loom-ir.js";
 import { findRaisesNotFound } from "../../ir/util/key-lookup.js";
 import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
+import { ROW_VERSION_COLUMN } from "../../util/row-version.js";
 import { pyGuardedSaveTail } from "./guarded-save-py.js";
 import { pyConflictRaise, pyNotFoundRaise } from "./wire-policy-py.js";
 
@@ -1372,11 +1374,11 @@ function saveMethod(
     // fresh INSERT never conflicts, so create/seed writes are unaffected.
     const setEntries = rootPairs
       .map(([k]) => k)
-      .filter((k) => k !== "id" && k !== "version")
+      .filter((k) => k !== "id" && k !== ROW_VERSION_COLUMN)
       .map((k) => `"${k}": root[${JSON.stringify(k)}]`);
-    setEntries.push(`"version": ${root}.version + 1`);
+    setEntries.push(`"${ROW_VERSION_COLUMN}": ${root}.${ROW_VERSION_COLUMN} + 1`);
     out.push(
-      `        _expected = ${aggVar}.version if expected_version is None else expected_version`,
+      `        _expected = ${aggVar}.${ROW_VERSION_COLUMN} if expected_version is None else expected_version`,
     );
     out.push("        _guarded = await self._session.execute(");
     out.push(`            ${R.insert}(${root})`);
@@ -1386,8 +1388,8 @@ function saveMethod(
     out.push(`                set_={${setEntries.join(", ")}},`);
     out.push(
       kindGuard
-        ? `                where=${R.and_}(${root}.version == _expected, ${kindGuard}),`
-        : `                where=${root}.version == _expected,`,
+        ? `                where=${R.and_}(${root}.${ROW_VERSION_COLUMN} == _expected, ${kindGuard}),`
+        : `                where=${root}.${ROW_VERSION_COLUMN} == _expected,`,
     );
     out.push("            )");
     out.push(
@@ -1875,9 +1877,11 @@ export function toWireMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedConte
 
 /** The read-masked wire fields of an aggregate (`field: T mask unless <expr>`,
  *  authorization.md §5) — the API-read wire fields whose `maskUnless` predicate
- *  is set.  Empty when the aggregate declares no field mask. */
-export function maskedWireFields(agg: EnrichedAggregateIR): FieldIR[] {
-  return agg.fields.filter((f) => f.maskUnless !== undefined);
+ *  is set: each masked field, plus every `derived` the visibility taint
+ *  (`src/ir/enrich/mask-taint.ts`) marks as computed from one.  Empty when the
+ *  aggregate declares no field mask. */
+export function maskedWireFields(agg: EnrichedAggregateIR): WireField[] {
+  return forApiRead(wireFieldsFor(agg)).filter((wf) => wf.maskUnless !== undefined);
 }
 
 /** True iff `agg` declares at least one `mask unless` field — the gate for

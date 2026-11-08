@@ -20,7 +20,7 @@
         "id": "<volatile:key>",
         "quantity": 0,
         "reference": "SH-1",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -40,7 +40,7 @@
       "body": {
         "id": "<volatile:key>",
         "label": "C-1",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -72,7 +72,7 @@
         "id": "<volatile:key>",
         "quantity": 3,
         "reference": "SH-1",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -121,7 +121,7 @@
           {
             "id": "<volatile:key>",
             "label": "C-1",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -141,13 +141,13 @@
             "id": "<volatile:key>",
             "quantity": 3,
             "reference": "SH-1",
-            "version": 2
+            "rowVersion": 2
           },
           {
             "id": "<volatile:key>",
             "quantity": 0,
             "reference": "auto",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,

@@ -110,6 +110,29 @@ generates fully and is browsable in the Files pane, but the preview names
 those as "run outside the playground" rather than booting them. The
 playground surfaces this explicitly instead of failing silently.
 
+### The backend's start-up sequence in the preview
+
+The runtime worker boots the generated backend through its own start-up
+sequence — `bootApp` in the deployable's `boot.ts`, the same function the
+generated `index.ts` runs before `serve()` — so seeds, the user verifier, the
+tenant-registry `orgPath` resolver, the channel consumers, the outbox relay
+and the timers all run in the preview as they do deployed. The worker passes
+the browser's answers, each announced at warn level in the runtime log:
+
+| Option | Preview behaviour | Why |
+|---|---|---|
+| `verifier: "dev-stub"` | the dev stub, even under `auth { oidc }` | no identity provider is reachable from the worker |
+| `infra: "in-process"` — channels | every `channelSource` binding on one in-memory transport (`channel_transport_in_process`): broadcast fan-out and round-robin consumer groups, asynchronous delivery | no broker; retention, replay and dead-lettering are not emulated |
+| `infra: "in-process"` — `cron:` timers | an in-process loop at each cron boundary (`timer_cron_in_process`) instead of pg-boss | pg-boss opens its own Postgres connection, which PGlite cannot give it; no durability, retry or cross-replica single-fire |
+| `infra: "in-process"` — `every:` timers | fire without the advisory-lock transaction | one process, and PGlite's single connection would deadlock the tick's writes behind the lock |
+
+The broker and job-queue client packages (`ioredis`, `kafkajs`, `amqplib`,
+`pg-boss`) are swapped at bundle time for stubs whose constructors throw
+(`BROWSER_STUBBED_PACKAGES` in `src/engine/npm/esbuild-vfs-plugin.ts`): their
+module bodies cannot evaluate in a worker, and the in-process boot never
+constructs them. `bootApp`'s `channelTransport` option is the seam an emulated
+broker plugs into. **Reset** stops what boot started before it closes PGlite.
+
 ### In-browser test runner
 
 The Postgres is **PGlite** — a WebAssembly Postgres — one database per

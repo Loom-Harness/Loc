@@ -3294,6 +3294,14 @@ export const DIAGNOSTIC_MESSAGES = {
     target: unknown;
   }) =>
     `${p.what}: a \`requires\` in an event-sourced \`create\` cannot be enforced on deployable '${p.dName}' (backend '${p.target}'). The create body renders into the domain \`_init\`, which has no principal in scope — \`currentUser\` is a free identifier there, so the guard does not compile rather than deny. Gate the caller instead: put the \`requires\` on the named \`operation\` (or \`workflow\`) that issues the create, where the request principal is bound. (Phoenix/\`elixir\` hoists the gate to its context function and binds a principal, so it enforces this one.)`,
+  // A tenant-scoped event stream on a backend whose event store does not yet
+  // carry the stream tenant: it would serve every tenant every stream.
+  "loom.target-unsupported#tenant-owned-event-sourced": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what}: deployable '${p.dName}' (backend '${p.target}') can't yet scope an event stream by tenant — its event store would neither stamp the stream's tenant nor filter stream loads and lists by it, so every tenant would read every stream. Host the aggregate on a node deployable (its default Drizzle persistence), or keep it state-sourced (drop persistedAs: eventLog).`,
   "loom.target-unsupported#resource-kind-unrealized": (p: {
     what: unknown;
     dName: unknown;
@@ -3897,22 +3905,31 @@ export const DIAGNOSTIC_MESSAGES = {
     `'ignoring' clause. No 'auth { enforcement: }' mode restores the filter — ` +
     `'enforcement: opt' checks nothing and 'requires true' satisfies ` +
     `'enforcement: denyByDefault' while still leaking.`,
-  // A folded read model's row is written by the fold, not by a tenant's
-  // command, so it carries no tenant column and its generated read routes no
-  // tenant predicate: under `tenancy by` every tenant would read every other
-  // tenant's rows.  Refused until a fold can carry the event's tenant.
-  "loom.tenancy-folded-projection-unscoped": (p: {
+  // A tenant-scoped fold row is keyed and read by the event's tenant; a
+  // `crossTenant` producer's event carries none, so one fold cannot mix them.
+  // A query-time projection reads its `from <Projection>` source through the
+  // raw-table query path, which carries no fold read scope.
+  "loom.tenancy-projection-over-scoped-fold": (p: {
     name: unknown;
     ctxName: unknown;
-    events: unknown;
-    claim: unknown;
+    source: unknown;
   }) =>
-    `Projection '${p.ctxName}.${p.name}' folds ${p.events} into a read model under ` +
-    `'tenancy by user.${p.claim}', but a folded projection's rows carry no tenant and its ` +
-    `generated read routes apply no tenant predicate, so every tenant would read every ` +
-    `other tenant's rows. Read the source aggregate through a query-time projection ` +
-    `instead ('from <Aggregate> as a … select …', optionally 'group by'), which applies ` +
-    `the aggregate's own tenant floor on every backend.`,
+    `Projection '${p.ctxName}.${p.name}' reads the tenant-scoped folded projection '${p.source}' ` +
+    `with 'from ${p.source}', but a query-time projection reads its source's rows without the ` +
+    `fold's tenant scope, so every tenant would read every other tenant's rows. Read the folded ` +
+    `projection itself ('GET /projections/<name>' or a page QueryView over it), which applies ` +
+    `the tenant scope, or fold the aggregate values into it directly.`,
+  "loom.tenancy-folded-projection-mixed": (p: {
+    name: unknown;
+    ctxName: unknown;
+    crossTenant: unknown;
+    scoped: unknown;
+  }) =>
+    `Projection '${p.ctxName}.${p.name}' folds events of crossTenant aggregate(s) ${p.crossTenant} ` +
+    `and of tenant-scoped producer(s) ${p.scoped}. A folded projection under 'tenancy by' ` +
+    `keys and reads its rows by the event's tenant, and a crossTenant event carries no tenant, ` +
+    `so the two cannot share one read model. Split it into two projections: one over the ` +
+    `crossTenant events (exempt from tenant scoping) and one over the tenant-scoped events.`,
   "loom.projection-cross-context-source-unsupported": (p: {
     name: unknown;
     ctxName: unknown;
@@ -3986,9 +4003,10 @@ export const DIAGNOSTIC_MESSAGES = {
     name: unknown;
   }) =>
     `Deployable '${p.dep}' (platform ${p.family}) hosts event-sourced aggregate ` +
-    `'${p.ctxName}.${p.name}' with a lifecycle stamp — stamps mutate state fields, but an ` +
+    `'${p.ctxName}.${p.name}' with a lifecycle stamp (a \`stamp onCreate\` / \`onUpdate\` ` +
+    `assignment such as \`createdAt := now()\`) — stamps mutate state fields, but an ` +
     `event-sourced aggregate's state is folded from its event stream. ` +
-    `Record the timestamp in an event instead, or drop persistedAs: eventLog.`,
+    `Record the value in an event instead, or drop persistedAs: eventLog.`,
   "loom.stamp-reads-aggregate-unsupported": (p: {
     dep: unknown;
     family: unknown;
@@ -5766,9 +5784,10 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   "loom.unknown-capability": (p: { cap: unknown }) =>
     `Unknown capability '${p.cap}' in 'implements'.`,
-  "loom.version-field-collision": (p: { name: unknown; name2: unknown }) =>
-    `field 'version' on aggregate '${p.name}' collides with Loom's optimistic-concurrency column, which is an 'int'. ` +
-    `Rename this field (e.g. '${p.name2}Version'), or declare it 'version: int' if you meant the concurrency counter.`,
+  "loom.version-field-collision": (p: { field: unknown; name: unknown }) =>
+    `field '${p.field}' on aggregate '${p.name}' collides with Loom's optimistic-concurrency counter 'rowVersion' ` +
+    `(column 'row_version'), an 'int' every save rewrites. Rename this field — 'version' is an ordinary field ` +
+    `name — or declare it 'rowVersion: int' if you meant the concurrency counter.`,
   "loom.softdelete-field-collision": (p: { name: unknown; name2: unknown }) =>
     `field 'isDeleted' on aggregate '${p.name}' collides with the 'softDeletable' capability's flag, which is a 'bool' ` +
     `(the spliced 'filter !this.isDeleted' reads it). Rename this field (e.g. '${p.name2}Deleted'), or declare it ` +

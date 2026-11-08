@@ -73,7 +73,7 @@ describe("realtime SSE wire — Hono (delivery: broadcast)", () => {
     );
     // The relay's inner dispatcher rides through the tee too, so relayed
     // (durable) events also reach connected SSE subscribers.
-    const boot = files.get("index.ts") ?? "";
+    const boot = files.get("boot.ts") ?? "";
     expect(boot).toContain('import { realtimeTee } from "./http/realtime";');
     expect(boot).toContain("const inProcessEvents = realtimeTee(createInProcessDispatcher(db));");
     expect(boot).toContain("const stopOutboxRelay = startOutboxRelay(db, inProcessEvents);");

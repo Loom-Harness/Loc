@@ -74,7 +74,9 @@ describe("python — query-time projection over a `shape: document` source", () 
     const repo = await file("repositories/article_repository.py");
     expect(repo).toContain("    async def article_titles(self) -> list[Article]:");
     // Hydrate-then-filter over the rehydrated blob — the document read shape.
-    expect(repo).toContain("        items = [_article_from_doc(r.data, r.version) for r in rows]");
+    expect(repo).toContain(
+      "        items = [_article_from_doc(r.data, r.row_version) for r in rows]",
+    );
   });
 
   it("the synthesised read carries the capability filter AND the projection `where`", async () => {

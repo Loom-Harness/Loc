@@ -36,6 +36,7 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../../util/message-code.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { serverSeededFields } from "../../construction-default.js";
 import { renderExpr as renderElixirExpr } from "../render-expr.js";
@@ -865,7 +866,7 @@ ${
       : "",
   ].join("");
   const ingressHelper = createDecimalPaths.length > 0 ? renderDecimalIngressHelpers() : "";
-  const optimisticLine = versioned ? "\n    |> optimistic_lock(:version)" : "";
+  const optimisticLine = versioned ? `\n    |> optimistic_lock(:${ROW_VERSION_COLUMN})` : "";
   const updateVcPrep = valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : "";
   // RS-26 presence check.  `validate_required/2` alone CANNOT enforce a required
   // field on update: it resolves through `get_field/2`, which falls back to the
@@ -939,7 +940,7 @@ ${
   end`
     : "";
   const updateChangesetBlock = emitUpdateChangeset
-    ? `\n\n  @doc "Update changeset — the generic PATCH seam.  Casts only the update-editable wire fields and does NOT touch contained parts (their mutation goes through the aggregate's own operations)${versioned ? "; guards the write with optimistic_lock(:version)" : ""}."
+    ? `\n\n  @doc "Update changeset — the generic PATCH seam.  Casts only the update-editable wire fields and does NOT touch contained parts (their mutation goes through the aggregate's own operations)${versioned ? "; guards the write with optimistic_lock(:${ROW_VERSION_COLUMN})" : ""}."
   def update_changeset(struct, attrs) do
     attrs = __normalize_keys(attrs)
     ${voKeyNormalizeLine}${updateVcPrep}struct
