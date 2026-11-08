@@ -89,7 +89,12 @@ import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
 import { inheritBaseCapabilities } from "./inherited-capabilities.js";
 import { type KeyLookupRead, synthesizeKeyLookupFinds } from "./key-lookup-finds.js";
-import { applyMaskFindGates, applyMaskHandlerGates, applyMaskWriteGates } from "./mask-taint.js";
+import {
+  applyMaskFindGates,
+  applyMaskHandlerGates,
+  applyMaskWriteGates,
+  fieldRedactedInInspect,
+} from "./mask-taint.js";
 import { applyHandlerReadGates, applyPolicyReadGates } from "./policy-read-gates.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
@@ -1973,7 +1978,10 @@ function synthesizeInspect(agg: AggregateIR, voLookup: Map<string, ValueObjectIR
 
   // Stored properties.
   for (const f of agg.fields) {
-    const isSensitive = !!f.sensitivity && f.sensitivity.length > 0;
+    // A `mask unless` field is as sensitive as a declared one: `inspect` is what
+    // `toString()` / `Inspect` delegate to — the text a log line or an
+    // exception carries, which no principal check guards.
+    const isSensitive = fieldRedactedInInspect(f);
     pushField(f.name, valueForField(f.name, f.type, isSensitive, f.optional === true));
   }
 

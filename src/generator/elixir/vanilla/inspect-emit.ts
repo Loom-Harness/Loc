@@ -25,6 +25,7 @@
 // aggregate with no sensitive field emits no impl — byte-identical to before.
 // ---------------------------------------------------------------------------
 
+import { fieldRedactedInInspect } from "../../../ir/enrich/mask-taint.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
@@ -33,11 +34,9 @@ import type {
 import { upperFirst } from "../../../util/naming.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 
-/** True when the field's declared `sensitivity` marks it as a sensitive leaf
- *  to redact. */
-function fieldIsSensitive(f: { sensitivity?: readonly string[] }): boolean {
-  return !!f.sensitivity && f.sensitivity.length > 0;
-}
+/** True when the field is a leaf `synthesizeInspect` redacts (`sensitive`,
+ *  or `mask unless` — the visibility taint's log sink). */
+const fieldIsSensitive = fieldRedactedInInspect;
 
 /** True when the aggregate has any sensitive leaf — a top-level field, or a
  *  field inside an embedded value object — so an Inspect redaction impl is
