@@ -1036,9 +1036,14 @@ ddd generate system app.ddd -o out          # renders the chain; never records a
 is checked against.
 
 **The playground keeps the same files** in its workspace, beside the entry
-`.ddd`. Its generate renders the chain and refuses drift the same way. Its
-Migrations tab shows the status and records new entries (`migrate add`); see
-[playground.md](playground.md).
+`.ddd`. Its generate renders the chain; drift is a warning there rather than a
+refusal, because the playground gates its database instead: Boot applies the
+recorded entries its in-browser database has not applied (the same SQL the
+generated Hono backend's `db/migrations/` carries) and leaves the database as
+it is while the model has unrecorded changes. A workspace with no chain gets
+no implicit initial migration — its database is created once the initial
+migration is recorded. Its Migrations tab shows the status and records new
+entries (`migrate add`); see [playground.md](playground.md).
 
 **A model with no `migrations/` has nothing recorded.** `generate system`
 then emits each owning module's initial migration, derived from the model and

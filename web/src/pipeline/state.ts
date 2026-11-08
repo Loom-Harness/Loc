@@ -28,6 +28,7 @@ import type {
   BundleResult,
 } from "../bundle/protocol.js";
 import type {
+  BlockingMigrationState,
   DispatchResult,
   SerializedResponse,
 } from "../runtime/protocol.js";
@@ -49,7 +50,11 @@ export type BundleSlot =
 
 export type BootSlot =
   | { kind: "none" }
-  | { kind: "ok"; ddl: string; persistent: boolean; migrated: boolean }
+  /** `applied`: the migration units this boot applied, in order. */
+  | { kind: "ok"; ddl: string; persistent: boolean; applied: string[] }
+  /** The database is not at the model's schema and the recorded chain cannot
+   *  bring it there; it was left as it is and the app did not start. */
+  | { kind: "pending"; migration: BlockingMigrationState; message: string }
   | { kind: "fail"; message: string };
 
 export type DispatchSlot =
@@ -102,7 +107,8 @@ export type PipelineAction =
   | { type: "BUNDLE_DONE"; hono: BundleResult; react: BundleResult | null }
   // Boot
   | { type: "BOOT_START" }
-  | { type: "BOOT_OK"; ddl: string; persistent: boolean; migrated: boolean }
+  | { type: "BOOT_OK"; ddl: string; persistent: boolean; applied: string[] }
+  | { type: "BOOT_PENDING"; migration: BlockingMigrationState; message: string }
   | { type: "BOOT_FAIL"; message: string }
   // Dispatch (a single HTTP call from the request composer)
   | { type: "DISPATCH_START" }
@@ -149,8 +155,17 @@ export function bootPersistent(s: PipelineState): boolean {
   return s.boot.kind === "ok" && s.boot.persistent;
 }
 
-export function bootMigrated(s: PipelineState): boolean {
-  return s.boot.kind === "ok" && s.boot.migrated;
+/** The migration units the last boot applied; empty when it applied none. */
+export function bootApplied(s: PipelineState): string[] {
+  return s.boot.kind === "ok" ? s.boot.applied : [];
+}
+
+/** Why the last boot stopped short of starting the app, when the database's
+ *  migrations are the reason. */
+export function bootPending(
+  s: PipelineState,
+): { migration: BlockingMigrationState; message: string } | null {
+  return s.boot.kind === "pending" ? { migration: s.boot.migration, message: s.boot.message } : null;
 }
 
 export function bootError(s: PipelineState): string | null {

@@ -8,7 +8,15 @@
 
 import type { LayoutCtx } from "./ctx";
 import { formatBytes } from "./ctx";
-import { BLOCKER, countOf, STAGE, STAGE_HINT, STAGE_ORDER, type StageId } from "./vocabulary";
+import {
+  BLOCKER,
+  BOOT_PENDING_COUNT,
+  countOf,
+  STAGE,
+  STAGE_HINT,
+  STAGE_ORDER,
+  type StageId,
+} from "./vocabulary";
 
 export type StageState = "idle" | "running" | "ok" | "failed" | "blocked";
 
@@ -40,6 +48,7 @@ export type StageInputs = Pick<
   | "honoBundle"
   | "ddl"
   | "bootErrorMessage"
+  | "bootPending"
 >;
 
 function deriveValidate(c: StageInputs): StageView {
@@ -113,6 +122,16 @@ function deriveBoot(c: StageInputs): StageView {
   }
   if (c.bootErrorMessage) {
     return { ...base, state: "failed", count: null, blocker: null, enabled: true };
+  }
+  if (c.bootPending) {
+    return {
+      ...base,
+      state: "failed",
+      count: BOOT_PENDING_COUNT,
+      blocker: null,
+      hint: c.bootPending.message,
+      enabled: true,
+    };
   }
   if (c.ddl) {
     return { ...base, state: "ok", count: null, blocker: null, hint: "Booted — click to reboot.", enabled: true };
