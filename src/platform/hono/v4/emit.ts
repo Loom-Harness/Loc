@@ -1753,6 +1753,10 @@ export function generateTypeScriptForContexts(
       // port; the image sets PORT to its container port.
       system?.deployable.port ?? 3000,
       timerTicksOverBroker,
+      // `http/workflows.ts` exports `createInProcessDispatcher` only when a
+      // hosted context reacts to an event; a timer owner whose only consumer
+      // sits on another deployable has none, and boot takes the Noop instead.
+      /^export function createInProcessDispatcher\(/m.test(out.get("http/workflows.ts") ?? ""),
     ),
   );
   // Exact-`decimal` arithmetic precision: configured once at boot (and in the
@@ -2208,6 +2212,7 @@ function renderProjectIndexTs(
   hasChannelConsumers = false,
   nativePort = 3000,
   timerTicksOverBroker = false,
+  inProcessDispatcherEmitted = true,
 ): string {
   // Side-effect imports for the resource-client modules (objectStore /
   // queue / api) so their clients instantiate at boot.  Empty for
@@ -2232,7 +2237,8 @@ function renderProjectIndexTs(
   // deployable has channel-routed workflow subscriptions.  A pure-producer
   // deployable (wires a broker channel, hosts no reactors) falls back to the
   // always-exported Noop as the tee's inner dispatcher.
-  const withInProcess = outboxRelay || hasTimers || hasChannelConsumers;
+  const withInProcess =
+    (outboxRelay || hasTimers || hasChannelConsumers) && inProcessDispatcherEmitted;
   // The dispatcher `createApp` gets on the request path — the isolating twin
   // when there are reactors to isolate (H-28), else the shared instance.
   const requestEventsVar = withInProcess ? "requestEvents" : "inProcessEvents";

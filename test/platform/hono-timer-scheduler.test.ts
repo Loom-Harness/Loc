@@ -145,5 +145,9 @@ system T {
     expect(index).toContain(
       "const stopTimers = await startTimerScheduler(db, channelPublishTee(channelTransports, inProcessEvents));",
     );
+    // `up` hosts no reactor, so `http/workflows.ts` exports no in-process
+    // dispatcher: boot must not import one (#4807), it takes the Noop.
+    expect(index).not.toContain("createInProcessDispatcher");
+    expect(index).toContain("const inProcessEvents = realtimeTee(NoopDomainEventDispatcher);");
   });
 });

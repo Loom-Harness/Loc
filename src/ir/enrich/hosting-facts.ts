@@ -37,7 +37,7 @@ type HostingSys = Pick<SystemIR, "tenancy" | "subdomains" | "deployables">;
 // ── Tenancy registry ────────────────────────────────────────────────────────
 
 /** The context that declares the hierarchy registry, when the system has one. */
-export function registryContextName(sys: HostingSys): string | undefined {
+function registryContextName(sys: HostingSys): string | undefined {
   const reg = hierarchyRegistry(sys);
   if (!reg) return undefined;
   for (const sub of sys.subdomains) {
@@ -78,7 +78,7 @@ function isHierarchyRead(e: ExprIR): boolean {
  *  `tenantOwned` aggregate stamps `dataKey := currentUser.orgPath` on every
  *  write, and any expression may read `orgPath` / `rootOrg` / the operating
  *  scope directly. */
-export function contextReadsHierarchy(ctx: BoundedContextIR): boolean {
+function contextReadsHierarchy(ctx: BoundedContextIR): boolean {
   if (ctx.aggregates.some((a) => hasTenantOwned(a))) return true;
   let found = false;
   forEachContextExpr(ctx, (v) => {
@@ -154,7 +154,7 @@ export function brokerBoundChannelsCarrying(
 }
 
 /** Is `event` carried by any channel of the system? */
-export function eventIsChannelCarried(sys: Pick<SystemIR, "subdomains">, event: string): boolean {
+function eventIsChannelCarried(sys: Pick<SystemIR, "subdomains">, event: string): boolean {
   return sys.subdomains.some((s) =>
     s.contexts.some((c) => (c.channels ?? []).some((ch) => ch.carries.includes(event))),
   );
