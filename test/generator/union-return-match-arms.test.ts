@@ -140,18 +140,23 @@ describe("return match — every backend answers the arm's own variant", () => {
   it("elixir: a `cond` answering each arm's own tuple, the error one only on its arm", async () => {
     const ctx = find(await files("elixir"), "/lib/d/desk.ex");
     const decide = body(ctx, "def decide_ticket(%");
+    // `Ticket` is versioned, so the success arm persists its version bump (as
+    // every backend's save-after-command does): the arm is decided first.
     expect(decide).toContain(
       [
-        "    cond do",
-        '      kind == "reject" ->',
-        '        {:error, "Rejected", %{reason: record.title}}',
-        "      true ->",
-        '        {:ok, Map.put(%{notes: notes}, :type, "Repaired")}',
-        "    end",
+        "    loom_arm_result =",
+        "      cond do",
+        '        kind == "reject" ->',
+        '          {:error, "Rejected", %{reason: record.title}}',
+        "        true ->",
+        '          {:ok, Map.put(%{notes: notes}, :type, "Repaired")}',
+        "      end",
       ].join("\n"),
     );
     expect(decide).not.toContain('{:error, "Rejected", %{value: cond');
-    const resolve = body(ctx, "def resolve_ticket(%");
+    // The whole function: a persisting body carries blank lines.
+    const resolveAt = ctx.indexOf("def resolve_ticket(%");
+    const resolve = ctx.slice(resolveAt, ctx.indexOf("\n  end\n", resolveAt));
     expect(resolve).toContain('{:ok, Map.put(%{notes: record.title}, :type, "Repaired")}');
     expect(resolve).toContain('{:ok, Map.put(%{part: notes}, :type, "Replaced")}');
   });

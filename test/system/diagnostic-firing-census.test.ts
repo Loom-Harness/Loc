@@ -3160,33 +3160,6 @@ system S {
   }
 }`,
 
-  // M-T6.59 narrowed this code: the `if` STATEMENT itself RENDERS on elixir now
-  // (a value-producing `record = if … do … record else record end`), so the
-  // firing shape is one of the three sub-shapes that still cannot render.  This
-  // is `#guard-in-branch` — a `precondition` nested in a branch, which the op
-  // path cannot hoist into its `with :ok <- ensure(…)` chain, so it would raise
-  // (500) where the other four backends answer a typed 403/422.
-  "loom.elixir-if-stmt-unsupported": `
-system P {
-  subdomain D { context C {
-    aggregate Order with crudish {
-      customerId: string
-      count: int
-      operation bump(n: int) {
-        if n > 0 {
-          precondition count > 0
-          count := 1
-        } else {
-          count := 2
-        }
-      }
-    }
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
-}`,
-
   // A guard inside a statement-`match` arm of an operation an elixir
   // deployable hosts: the statement renders on Phoenix, but a nested guard
   // could not be hoisted into the op's `with :ok <- ensure(…)` chain.

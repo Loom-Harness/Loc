@@ -41,10 +41,12 @@ import type {
   FindIR,
   InvariantIR,
   OperationIR,
+  StmtIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { renderableHere } from "../../../ir/util/changeset-invariant-carrier.js";
+import { branchesContain } from "../../../ir/util/if-normal-form.js";
 import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { messageCode } from "../../../util/message-code.js";
@@ -70,11 +72,13 @@ import {
   denialOverrides,
   denialResponse,
   denialTerm,
+  deniesAtWire,
   disallowedTerm,
 } from "./denial.js";
 import { renderPageParamHelper } from "./find-controller.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
 import { effectiveGate, renderGateCondition } from "./gate.js";
+import { isOpTree, renderOpTree } from "./op-tree.js";
 import { renderProblemVariantHelper } from "./operation-returns-emit.js";
 import {
   renderPathIdCastPlug,
@@ -102,7 +106,9 @@ export function esContextNeedsEnsure(ctx: BoundedContextIR): boolean {
       .some(
         (op) =>
           op.when !== undefined ||
-          op.statements.some((s) => s.kind === "precondition" || s.kind === "requires"),
+          op.statements.some((s) =>
+            branchesContain(s, (n) => n.kind === "precondition" || n.kind === "requires"),
+          ),
       ) ||
     ctx.aggregates.some(
       (agg) => isEventSourced(agg) && esHasCommands(agg) && esEnforcedInvariants(agg).length > 0,
@@ -958,52 +964,56 @@ function renderCommandRunner(c: CommandCtx): string {
       `:ok <- ensure(${renderExpr(c.op.when, exprCtx)}, ${disallowedTerm(c.aggName, c.op)})`,
     );
   }
-  const lets: string[] = [];
-  const eventStructs: string[] = [];
-  for (const s of c.op.statements) {
-    switch (s.kind) {
-      case "precondition":
-        clauses.push(`:ok <- ensure(${renderExpr(s.expr, exprCtx)}, ${denialTerm(s)})`);
-        break;
-      case "requires":
-        clauses.push(`:ok <- ensure(${renderExpr(s.expr, exprCtx)}, ${denialTerm(s)})`);
-        break;
-      case "let":
-        lets.push(`    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, exprCtx)}`);
-        break;
-      case "emit": {
-        const fields = s.fields
-          .map((f) => `${snake(f.name)}: ${renderExpr(f.value, exprCtx)}`)
-          .join(", ");
-        eventStructs.push(`%${c.eventsModule}.${upperFirst(s.eventName)}{${fields}}`);
-        break;
+  // The statements of one straight-line path, sorted the way an ES command
+  // reads them: guards gate, `let`s bind, `emit`s become the event list.  The
+  // ES command discipline refuses mutation (`assign` / `add` / `remove`) and
+  // impure `call`s, so nothing else carries an effect here.  An `if` reaching
+  // this sort decides nothing per path (its branches hold no guard and no
+  // `emit` — `op-tree.ts` splits every one that does), so it renders nothing.
+  // A messaged precondition the request cannot check (it reads the folded
+  // state) answers the domain floor WITH its `errors[]` entry — the coded map
+  // the relational operation path and the ES invariants carry, and what the
+  // other four backends send.
+  const params = new Set(c.op.params.map((p) => p.name));
+  const guardClause = (s: Extract<StmtIR, { kind: "precondition" | "requires" }>): string =>
+    `:ok <- ensure(${renderExpr(s.expr, exprCtx)}, ${deniesAtWire(s, params) ? denialTerm(s) : denialTerm(s, params)})`;
+  const letLine = (s: Extract<StmtIR, { kind: "let" }>): string =>
+    `    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, exprCtx)}`;
+  const sortPath = (stmts: readonly StmtIR[]) => {
+    const guards: string[] = [];
+    const lets: string[] = [];
+    const eventStructs: string[] = [];
+    for (const s of stmts) {
+      switch (s.kind) {
+        case "precondition":
+        case "requires":
+          guards.push(guardClause(s));
+          break;
+        case "let":
+          lets.push(letLine(s));
+          break;
+        case "emit": {
+          const fields = s.fields
+            .map((f) => `${snake(f.name)}: ${renderExpr(f.value, exprCtx)}`)
+            .join(", ");
+          eventStructs.push(`%${c.eventsModule}.${upperFirst(s.eventName)}{${fields}}`);
+          break;
+        }
+        case "variant-match":
+          // The statement `match` has no Phoenix rendering yet — refused at phase
+          // ⑦ by `loom.elixir-match-stmt-unsupported`; the `default: break`
+          // below would otherwise DROP its arms silently.
+          throw new Error(
+            "platform: elixir — a statement 'match' reached the event-sourced command emitter; " +
+              "it is refused at validation (loom.elixir-match-stmt-unsupported).",
+          );
+        default:
+          // ES command discipline rejects assign / add / remove / call here.
+          break;
       }
-      case "if":
-        // M-T6.59 — an ES command body is NOT rendered as a statement sequence
-        // (its guards become `with :ok <- ensure(…)` clauses and its `emit`s one
-        // `events = […]` list), so a conditional `emit` has nowhere to render.
-        // Refused at phase ⑦ by `loom.elixir-if-stmt-unsupported#event-sourced`;
-        // this arm is the defensive fail-fast, because the `default: break`
-        // below would otherwise DROP the branch silently.
-        throw new Error(
-          "platform: elixir — an 'if' statement reached the event-sourced command emitter; " +
-            "it is refused at validation (loom.elixir-if-stmt-unsupported#event-sourced).",
-        );
-      case "variant-match":
-        // The statement `match` has no Phoenix rendering yet — refused at phase
-        // ⑦ by `loom.elixir-match-stmt-unsupported`; the `default: break`
-        // below would otherwise DROP its arms silently.
-        throw new Error(
-          "platform: elixir — a statement 'match' reached the event-sourced command emitter; " +
-            "it is refused at validation (loom.elixir-match-stmt-unsupported).",
-        );
-      default:
-        // ES command discipline rejects assign / add / remove / call here.
-        break;
     }
-  }
-
-  clauses.push(`events = [${eventStructs.join(", ")}]`);
+    return { guards, lets, eventStructs };
+  };
 
   // The returned state carries the stream version the append moves it to, so
   // the same handle can be saved again (an operation's fold starts from the
@@ -1022,13 +1032,60 @@ function renderCommandRunner(c: CommandCtx): string {
   // and nothing reaches the log.  With no invariant the fold stays after the
   // append, so such a runner's output does not change.
   const invariants = esInvariantChecks(c.agg, { ...exprCtx, thisName: "folded" });
-  let newState = fold;
-  if (invariants.length > 0) {
-    clauses.push(`folded = ${fold}`);
-    for (const inv of invariants) clauses.push(`:ok <- ensure(${inv.predicate}, ${inv.term})`);
-    newState = "folded";
+  const newState = invariants.length > 0 ? "folded" : fold;
+  /** The `events = […]` binding, the fold + invariant checks and the append —
+   *  the tail every path ends in. */
+  const appendClauses = (eventStructs: readonly string[]): string[] => [
+    `events = [${eventStructs.join(", ")}]`,
+    ...(invariants.length > 0
+      ? [
+          `folded = ${fold}`,
+          ...invariants.map((inv) => `:ok <- ensure(${inv.predicate}, ${inv.term})`),
+        ]
+      : []),
+    `:ok <- ${c.repoMod}.append(${idExpr}, ${expectedVersion}, events)`,
+  ];
+  const withBlock = (clauses: readonly string[], body: readonly string[]): string[] => [
+    `    with ${clauses.join(",\n         ")} do`,
+    ...body,
+    "    end",
+  ];
+
+  let preamble: string;
+  let bodyLines: string[];
+  if (!isOpTree(c.op.statements)) {
+    const path = sortPath(c.op.statements);
+    clauses.push(...path.guards, ...appendClauses(path.eventStructs));
+    preamble = [...paramReads, ...path.lets].join("\n");
+    bodyLines = withBlock(clauses, [`      {:ok, ${newState}}`]);
+  } else {
+    // A command whose `if` decides which events to emit, or which guard to
+    // check, renders one complete runner tail per path (`op-tree.ts`).
+    // Every `let` binds ahead of the guards that may read it, as in the linear
+    // runner: the top-level ones in the preamble, a branch's own at the head
+    // of its branch.
+    const root = sortPath(c.op.statements);
+    const rootLets = new Set(c.op.statements.filter((s) => s.kind === "let"));
+    const ownLets = (stmts: readonly StmtIR[]): string[] =>
+      stmts.flatMap((s) => (s.kind === "let" && !rootLets.has(s) ? [letLine(s)] : []));
+    const tree = renderOpTree(c.op.statements, {
+      renderStmt: () => "",
+      renderCond: (e) => renderExpr(e, exprCtx),
+      guardClauses: (guards) => guards.map(guardClause),
+      leadLines: ownLets,
+      renderLeaf: (path) =>
+        withBlock(appendClauses(sortPath(path).eventStructs), [`      {:ok, ${newState}}`]),
+    }).filter((l) => l !== "");
+    clauses.push(...root.guards);
+    preamble = [...paramReads, ...root.lets].join("\n");
+    bodyLines =
+      clauses.length > 0
+        ? withBlock(
+            clauses,
+            tree.map((l) => (l === "" ? l : `  ${l}`)),
+          )
+        : tree;
   }
-  clauses.push(`:ok <- ${c.repoMod}.append(${idExpr}, ${expectedVersion}, events)`);
 
   // `attrs` is only read when the command has params (via `Map.get(attrs, …)`);
   // a param-less command (e.g. `create open()` / `operation close()`) leaves it
@@ -1046,10 +1103,7 @@ function renderCommandRunner(c: CommandCtx): string {
       ? `  def ${fnName}(${attrsArg}${actorArg}) do`
       : `  def ${fnName}(%${c.aggModule}{} = state, ${attrsArg}${actorArg}) do`;
 
-  const preamble = [...paramReads, ...lets].join("\n");
   return `${head}
-${preamble}${preamble ? "\n" : ""}    with ${clauses.join(",\n         ")} do
-      {:ok, ${newState}}
-    end
+${preamble}${preamble ? "\n" : ""}${bodyLines.join("\n")}
   end`;
 }

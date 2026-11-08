@@ -2855,11 +2855,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `transform over its OWN store's per-page assign and can't reach store ` +
     `'${p.store}'.  Move the cross-store coordination to the calling page's action ` +
     `(call \`${p.storeName}.${p.actionName}()\` then \`${p.store}.${p.name}()\` from the page).`,
-  // M-T6.59 — the `if` STATEMENT itself now RENDERS on elixir (a value-producing
-  // `record = if … do … record else … record end`, `vanilla/if-stmt-emit.ts`).
-  // What is left are three sub-shapes that rendering cannot express; each says
-  // which one, because "rewrite it as a ternary" is the wrong advice for two of
-  // them.
   // The statement `match` RENDERS on elixir (a value-producing `record = case …
   // end` in an operation, a tail `case` in a domain service, a `{:ok, _} <-
   // (case … end)` with-clause in a workflow / handler).  What is left are the
@@ -2906,46 +2901,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`{:error, "Tag", fields}\` for an \`error\` one — the success value carries no tag, so ` +
     `two success variants cannot be told apart at runtime.  Make all but one of the variants ` +
     `\`error\` records, or host this context on a node / dotnet / java / python backend.`,
-  "loom.elixir-if-stmt-unsupported#return-in-branch": (p: { where: unknown; name: unknown }) =>
-    `A \`return\` appears inside an \`if\` branch in ${p.where}, whose context is hosted ` +
-    `by the Phoenix/Elixir deployable '${p.name}'.  The \`if\` STATEMENT itself renders on ` +
-    `Elixir, but a \`return\` inside a branch is an EARLY EXIT, and an Elixir body has no ` +
-    `early return — its value is its tail expression, so the statements AFTER the \`if\` ` +
-    `would still run.  Move the \`return\` out to the end of the body (assign in the ` +
-    `branches, return once after the \`if\`), or host this context on a node / dotnet / ` +
-    `java / python backend.`,
-  "loom.elixir-if-stmt-unsupported#guard-in-branch": (p: { where: unknown; name: unknown }) =>
-    `A \`precondition\` / \`requires\` guard appears inside an \`if\` branch in ${p.where}, ` +
-    `whose context is hosted by the Phoenix/Elixir deployable '${p.name}'.  The Phoenix ` +
-    `operation path HOISTS an operation's guards into a leading \`with :ok <- ensure(…)\` ` +
-    `chain so a failed guard answers 403 / 422; a guard nested inside a branch cannot be ` +
-    `hoisted and would raise instead, answering 500 where the other four backends answer ` +
-    `a typed denial.  Lift the guard to the top of the operation body (its condition may ` +
-    `include the \`if\` condition), or host this context on a node / dotnet / java / ` +
-    `python backend.`,
-  "loom.elixir-if-stmt-unsupported#branch-statement": (p: { where: unknown; name: unknown }) =>
-    `An \`if\` branch in ${p.where} contains a statement the Phoenix/Elixir deployable ` +
-    `'${p.name}' cannot render THERE — an \`emit\` or a \`provenanced\` write.  ` +
-    `The \`if\` STATEMENT itself renders on Elixir; what a branch may ` +
-    `hold is a CLOSED set (assignments, collection mutations, \`let\`, a call, a nested ` +
-    `\`if\` or \`match\`), because the emitters decide an operation's supporting machinery by scanning its ` +
-    `TOP-LEVEL statements: a conditional \`emit\` would be invisible to that scan (no ` +
-    `\`require Logger\`, and the persist-then-dispatch restructure could not hoist it past the ` +
-    `commit, so a phantom event would fire on a failed write), and a nested \`provenanced\` ` +
-    `write would capture lineage in an operation never put into provenance-flush mode.  Move ` +
-    `the statement out of the branch (compute a value inside the \`if\`, act on it after), or ` +
-    `host this context on a node / dotnet / java / python backend.`,
-  "loom.elixir-if-stmt-unsupported#event-sourced": (p: { where: unknown; name: unknown }) =>
-    `An \`if\` statement is used in ${p.where} — an EVENT-SOURCED body — whose ` +
-    `context is hosted by the Phoenix/Elixir deployable '${p.name}'.  Neither half of the ` +
-    `event-sourced pair is rendered as a statement sequence on Phoenix: a COMMAND body's ` +
-    `guards become \`with :ok <- ensure(…)\` clauses and its \`emit\`s one \`events = […]\` ` +
-    `list, so a conditional \`emit\` has nowhere to render; an APPLIER is a pure fold that ` +
-    `threads a rebound record through assignments, and an Elixir \`if\` block's bindings do ` +
-    `not escape it, so a conditional write compiles clean and silently does nothing.  ` +
-    `Express the choice as a conditional VALUE — inside the emitted event's fields, or on ` +
-    `the right of the assignment (\`amount: over ? a : b\`) — or host this context on a ` +
-    `node / dotnet / java / python backend.`,
   "loom.if-stmt-page-body-unsupported": (p: { where: unknown; uiName: unknown }) =>
     `An \`if\` statement is used in ${p.where} on ui '${p.uiName}'.  The \`if\` ` +
     `STATEMENT is a backend-body form (aggregate / domain-service operations); no frontend ` +
