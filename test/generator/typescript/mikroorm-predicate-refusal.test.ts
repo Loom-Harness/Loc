@@ -7,38 +7,54 @@
 // validator admits renders (test/system/predicate-position-census.test.ts
 // measures that); this pins what happens when one does not.
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { QueryEmissionRefusal } from "../../../src/generator/_expr/target.js";
 import { mikroFilterOrRefuse } from "../../../src/generator/typescript/emit/mikroorm-filter.js";
 import { mikroRetrievalMethod } from "../../../src/generator/typescript/emit/mikroorm-relational.js";
-import type { EnrichedAggregateIR } from "../../../src/ir/enrich/enrichments.js";
-import type { ExprIR, RetrievalIR } from "../../../src/ir/types/loom-ir.js";
+import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
+import { lowerModel } from "../../../src/ir/lower/lower.js";
+import type { EnrichedAggregateIR, ExprIR, RetrievalIR } from "../../../src/ir/types/loom-ir.js";
+import { BOOL_T, INT_T, paramRef, thisPropRef } from "../../_helpers/ir-builders.js";
+import { parseString } from "../../_helpers/parse.js";
 
-const INT = { kind: "primitive", name: "int" } as const;
-const qty: ExprIR = { kind: "ref", name: "qty", refKind: "this-prop", type: INT };
-const n: ExprIR = { kind: "ref", name: "n", refKind: "param", type: INT };
-
-/** `this.qty > n` — inside the subset. */
-const inSubset: ExprIR = {
+/** `this.qty > <right>`. */
+const gt = (right: ExprIR): ExprIR => ({
   kind: "binary",
   op: ">",
-  left: qty,
-  right: n,
-  type: { kind: "primitive", name: "bool" },
-} as ExprIR;
+  left: thisPropRef("qty", INT_T),
+  right,
+  resultType: BOOL_T,
+});
+/** `this.qty > n` — inside the subset. */
+const inSubset = gt(paramRef("n", INT_T));
 /** `this.qty > [n]` — a list value has no FilterQuery spelling. */
-const outOfSubset: ExprIR = { ...inSubset, right: { kind: "list", elements: [n] } } as ExprIR;
+const outOfSubset = gt({ kind: "list", elements: [paramRef("n", INT_T)] });
 
-const agg = { name: "Item", associations: [] } as unknown as EnrichedAggregateIR;
 const retrieval = (where: ExprIR): RetrievalIR => ({
   name: "findAllByBig",
-  params: [{ name: "n", type: INT }],
+  params: [{ name: "n", type: INT_T }],
   targetType: { kind: "entity", name: "Item" },
   where,
   sort: [],
   loadPlan: { kind: "whole" },
 });
 const tail = () => ["    return [];"];
+
+let agg: EnrichedAggregateIR;
+beforeAll(async () => {
+  const { model, errors } = await parseString(`
+    context Shop {
+      aggregate Item with crudish { sku: string  qty: int }
+      repository Items for Item { }
+    }
+  `);
+  expect(errors).toEqual([]);
+  const item = enrichLoomModel(lowerModel(model))
+    .contexts.flatMap((c) => c.aggregates)
+    .find((a) => a.name === "Item");
+  if (!item) throw new Error("no Item aggregate");
+  agg = item;
+});
 
 describe("mikroorm: an out-of-subset predicate is refused, never stubbed", () => {
   it("renders an in-subset retrieval as a real query", () => {
