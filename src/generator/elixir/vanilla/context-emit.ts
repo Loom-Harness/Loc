@@ -36,7 +36,7 @@ import {
   lifecycleGatesUseCurrentUser,
 } from "../../../ir/util/op-gates.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
-import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
+import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -141,46 +141,35 @@ import { savesLockVersion } from "./version-check-ex.js";
 // …}}` its `with` chain already handles, rather than a 500.
 // ---------------------------------------------------------------------------
 
-/** The gate chain of a merge-patch `update` seam, or undefined when the
- *  aggregate's `update` carries no hoisted gate (the plain defdelegate stays).
- *  `binds` name each param a gate reads to its merged value off `patched_changeset`. */
+/** The `ensure(...)` chain of a merge-patch `update` seam with `mask unless`
+ *  write gates, or undefined (the plain seam stays).  Each gate runs only when
+ *  the attrs carry the masked key — an absent key keeps the stored value — and
+ *  is the mask predicate alone, so a caller's guess at the hidden value cannot
+ *  change the answer.  The attrs arrive camelCase from the REST action and
+ *  snake_case from the LiveView form, so both spellings count as present. */
 function gatedUpdateSeam(
   updateOp: OperationIR | undefined,
   facadeMod: string,
   agg: AggregateIR,
-  doc: boolean,
-): { patched: string; binds: string[]; clauses: string[] } | undefined {
+): string[] | undefined {
   const gates = updateSeamGates(updateOp);
-  if (!updateOp || gates.length === 0) return undefined;
-  const read = new Set<string>();
-  for (const g of gates) {
-    walkExprDeep(g.expr, (n) => {
-      if (n.kind === "ref" && n.refKind === "param") read.add(n.name);
-    });
-  }
-  const binds = updateOp.params
-    .filter((p) => read.has(p.name))
-    .map((p) =>
-      doc
-        ? `${elixirLocal(p.name)} = Ecto.Changeset.get_field(patched_changeset, :data).${snake(p.name)}`
-        : `${elixirLocal(p.name)} = Ecto.Changeset.get_field(patched_changeset, :${snake(p.name)})`,
-    );
-  // A document row keeps its fields in the `data` embed.
-  const changesetMod = `${facadeMod}.${upperFirst(agg.name)}Changeset`;
-  const patched = doc
-    ? `${changesetMod}.document_update_changeset(record, attrs, record.version)`
-    : `${changesetMod}.update_changeset(record, attrs)`;
+  if (gates.length === 0) return undefined;
   const rc: RenderCtx = {
-    thisName: doc ? "record.data" : "record",
+    thisName: "record",
     contextModule: facadeMod,
     agg: agg as EnrichedAggregateIR,
   };
-  const clauses = gates.map((g) => {
+  return gates.map((g) => {
+    const key = g.maskWriteOf!;
+    const spellings = [...new Set([key, snake(key)])].map((k) => JSON.stringify(k));
+    const present = [
+      ...spellings.map((k) => `Map.has_key?(attrs, ${k})`),
+      `Map.has_key?(attrs, :${snake(key)})`,
+    ].join(" or ");
     const pred = renderExpr(g.expr, rc);
     const guarded = stmtUsesCurrentUser(g) ? `not is_nil(current_user) and (${pred})` : `(${pred})`;
-    return `:ok <- ensure(${guarded}, ${denialTerm(g)})`;
+    return `:ok <- ensure(not (${present}) or (${guarded}), ${denialTerm(g)})`;
   });
-  return { patched, binds, clauses };
 }
 
 /** The `ensure(...)` with-clauses for one lifecycle action's gates, in
@@ -573,7 +562,7 @@ function renderContextModule(
     // seam the REST action and the LiveView edit form both call.  Each gate
     // reads the MERGED value of a param (an absent key is the stored value),
     // which is exactly what the update changeset's `get_field/2` answers.
-    const updateGates = gatedUpdateSeam(updateOp, facadeMod, agg, isVanillaDocAgg(agg, ctx, sys));
+    const updateGates = gatedUpdateSeam(updateOp, facadeMod, agg);
     const seamActorArg = updateGates && !stampActorArg ? ", current_user \\\\ nil" : stampActorArg;
     // The write itself: the audited form records its row in the save's
     // transaction; the plain form is the repository update.
@@ -600,16 +589,7 @@ ${pad}  end
 ${pad}end)`;
     const updateSeam = updateGates
       ? `  def update_${aggSnake}(record, attrs${seamActorArg}${versionedArg}) do
-    patched_changeset = ${updateGates.patched}
-
-    # An invalid patch writes nothing (the repository answers the changeset
-    # error); a valid one is gated on its merged values.
-    if patched_changeset.valid? do
-${updateGates.binds.map((b) => `      ${b}\n`).join("")}
-      with ${updateGates.clauses.join(",\n           ")} do
-${updateOp?.audited ? auditedWrite("        ") : `        ${repoUpdateCall}`}
-      end
-    else
+    with ${updateGates.join(",\n         ")} do
 ${updateOp?.audited ? auditedWrite("      ") : `      ${repoUpdateCall}`}
     end
   end

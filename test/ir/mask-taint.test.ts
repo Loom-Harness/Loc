@@ -6,6 +6,8 @@ import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { maskedReadPredicates } from "../../src/ir/enrich/mask-taint.js";
 import { wireFieldsForAggregate } from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
+import type { ExprIR } from "../../src/ir/types/loom-ir.js";
+import { walkExprDeep } from "../../src/ir/util/walk.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { parseString } from "../_helpers/parse.js";
 
@@ -108,22 +110,36 @@ describe("visibility taint — write sinks", () => {
     expect(ops(again)).toBe(ops(ir));
   });
 
-  it("a write through a body-local is refused (loom.mask-sink-write)", async () => {
-    const { ir } = await enriched(
+  it("the write gate is the mask predicate alone — no comparison with the stored value", async () => {
+    const { agg } = await enriched(sys(""));
+    const update = agg.operations.find((o) => o.name === "update")!;
+    const ssnGate = update.statements.find(
+      (s) => s.kind === "requires" && s.maskWriteOf === "ssn",
+    )!;
+    // `currentUser.role == "hr"` — a value-dependent gate would read the param.
+    let readsParam = false;
+    walkExprDeep((ssnGate as { expr: ExprIR }).expr, (n) => {
+      if (n.kind === "ref" && (n.refKind === "param" || n.refKind === "this-prop"))
+        readsParam = true;
+    });
+    expect(readsParam).toBe(false);
+  });
+
+  it("a write through a body-local is gated on the mask too", async () => {
+    const { agg } = await enriched(
       sys(`operation setSsn(s: string) {
           let v = s.trim()
           ssn := v
         }`),
     );
-    const codes = validateLoomModel(ir).map((d) => d.code);
-    expect(codes).toContain("loom.mask-sink-write");
+    const op = agg.operations.find((o) => o.name === "setSsn")!;
+    expect(op.statements[0]).toMatchObject({ kind: "requires", maskWriteOf: "ssn" });
   });
 
   it("a write from a constant is the author's, not the caller's — no gate", async () => {
-    const { agg, ir } = await enriched(sys(`operation clearSsn() { ssn := "" }`));
+    const { agg } = await enriched(sys(`operation clearSsn() { ssn := "" }`));
     const op = agg.operations.find((o) => o.name === "clearSsn")!;
     expect(op.statements.some((s) => s.kind === "requires")).toBe(false);
-    expect(validateLoomModel(ir).map((d) => d.code)).not.toContain("loom.mask-sink-write");
   });
 
   it("a mask write gate is not the operation's exposure gate under denyByDefault", async () => {

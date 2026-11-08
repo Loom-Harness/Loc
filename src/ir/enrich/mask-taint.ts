@@ -13,14 +13,17 @@
 //   - `wireFieldsForAggregate` — a `derived` that reads a masked field carries
 //     the inherited predicate on its wire field, so every backend's masked
 //     serializer (which reads `WireField.maskUnless`) redacts it too;
-//   - `applyMaskWriteGates` — an operation that assigns a caller-supplied
-//     value to a masked field gets a hoisted `requires <value> == this.<f> ||
-//     <pred>` (a caller who cannot read the field cannot change it; leaving it
-//     as stored — a merge-patch update that omits the key — stays allowed);
+//   - `applyMaskWriteGates` — an operation that writes a caller-supplied value
+//     into a masked field gets the predicate as a hoisted `requires` (a caller
+//     who cannot read the field cannot change it; a merge-patch update that
+//     omits the key keeps the stored value and passes);
 //   - `applyMaskFindGates` / `applyMaskHandlerGates` — a read whose predicate
 //     reads a masked field would answer an existence oracle on the hidden
-//     value, so it inherits the mask predicate as its `requires`;
-//   - phase ⑦ (`mask-sink-checks.ts`) — the writes no gate can be hoisted for.
+//     value, so it inherits the mask predicate as its `requires`.
+//
+// Every inherited gate is the mask predicate alone, which reads only
+// `currentUser` (`loom.field-mask-not-current-user`) — never the row or the
+// caller's value — so a right guess and a wrong one get the same answer.
 //
 // Every traversal rides `src/ir/util/walk.ts`.
 
@@ -48,7 +51,7 @@ const withoutOrigin = (k: string, v: unknown): unknown => (k === "origin" ? unde
 const exprKey = (e: ExprIR): string => JSON.stringify(e, withoutOrigin);
 
 /** `a && b && …` over distinct predicates (structural dedupe, source order). */
-export function conjoinPredicates(preds: readonly ExprIR[]): ExprIR | undefined {
+function conjoinPredicates(preds: readonly ExprIR[]): ExprIR | undefined {
   const seen = new Set<string>();
   const distinct: ExprIR[] = [];
   for (const p of preds) {
@@ -125,16 +128,9 @@ export function maskedReadPredicates(agg: MaskSource): Map<string, ExprIR> {
   return out;
 }
 
-/** The effective mask predicate of an aggregate's `derived` wire member, or
- *  undefined when it reads no masked value. */
-export function derivedMaskPredicate(agg: MaskSource, name: string): ExprIR | undefined {
-  if (!agg.fields.some((f) => f.maskUnless)) return undefined;
-  return maskedReadPredicates(agg).get(name);
-}
-
 /** The predicate a read through `expr` (a find / criterion / retrieval
  *  predicate over the aggregate's rows) must inherit, or undefined. */
-export function predicateMaskOf(agg: MaskSource, expr: ExprIR | undefined): ExprIR | undefined {
+function predicateMaskOf(agg: MaskSource, expr: ExprIR | undefined): ExprIR | undefined {
   if (!expr || !agg.fields.some((f) => f.maskUnless)) return undefined;
   const masks = maskedReadPredicates(agg);
   const reads = maskedReadsOf(expr, new Set(masks.keys()));
@@ -142,23 +138,29 @@ export function predicateMaskOf(agg: MaskSource, expr: ExprIR | undefined): Expr
 }
 
 // ── Write sinks ──────────────────────────────────────────────────────────────
+//
+// A caller who cannot read a masked field must not be able to change it.  The
+// gate is the mask predicate ALONE — never a comparison against the stored
+// value: `requires <value> == this.<f> || <mask>` would answer 204 for a
+// correct guess and 403 for a wrong one, an oracle on the hidden value one
+// guess at a time.  Because the predicate reads only `currentUser`, the gate
+// answers the same for every value the caller sends.
+//
+// A merge-patch update (RS-47) writes a field only when its key is present, so
+// its route evaluates the gate only then (`maskWritePresenceParam`, op-gates):
+// a patch that leaves the masked key out keeps the stored value and passes.
+// Every other operation always writes, so it requires the mask outright.
 
-/** One assignment of a caller-supplied value to a masked field. */
+/** One operation that writes a caller-supplied value into a masked field. */
 export interface MaskWriteSink {
   op: OperationIR;
   field: FieldIR;
-  /** The assigned value.  `gate` is set when the write can be gated before
-   *  the operation runs; otherwise the write is refused in phase ⑦. */
-  value: ExprIR;
-  gate?: ExprIR;
-  /** Why no gate could be hoisted (`let` / lambda-local / nested path). */
-  unhoistable?: "local" | "path";
 }
 
 const CALLER_REF_KINDS = new Set(["param", "let", "lambda", "match-binding"]);
 
-/** True when the value is derived from what the caller sent — it reads an
- *  operation param, or a body-local that may carry one. */
+/** True when the value may carry what the caller sent — it reads an operation
+ *  param, or a body-local that may hold one. */
 function readsCallerInput(e: ExprIR): boolean {
   let hit = false;
   walkExprDeep(e, (n) => {
@@ -167,68 +169,25 @@ function readsCallerInput(e: ExprIR): boolean {
   return hit;
 }
 
-/** True when the value reads only names that are in scope where the
- *  operation's hoisted gates run (params, the loaded row, constants). */
-function hoistable(e: ExprIR): boolean {
-  let ok = true;
-  walkExprDeep(e, (n) => {
-    if (n.kind === "ref" && n.refKind !== "param" && CALLER_REF_KINDS.has(n.refKind)) ok = false;
-    if (n.kind === "lambda") ok = false;
-  });
-  return ok;
-}
-
 /** Every operation of `agg` that writes a caller-supplied value into a
- *  `mask unless` field.  Creates are not sinks: a new row has no stored value
- *  to overwrite, and the creator chose it. */
+ *  `mask unless` field (any statement depth, any path into the field).
+ *  Creates are not sinks: a new row has no stored value to overwrite, and the
+ *  creator chose it.  An assignment from constants or the row itself is the
+ *  author's own domain logic, not the caller's input. */
 export function maskWriteSinks(agg: AggregateIR): MaskWriteSink[] {
   const masked = new Map(agg.fields.filter((f) => f.maskUnless).map((f) => [f.name, f] as const));
   if (masked.size === 0) return [];
   const out: MaskWriteSink[] = [];
   for (const op of agg.operations) {
-    if (op.extern) continue;
     const seen = new Set<string>();
     for (const root of op.statements) {
       walkStmtsDeep(root, (s: StmtIR) => {
         if (s.kind !== "assign") return;
-        const [head, ...rest] = s.target.segments;
+        const head = s.target.segments[0];
         const field = head === undefined ? undefined : masked.get(head);
-        if (!field || seen.has(field.name)) return;
-        if (!readsCallerInput(s.value)) return;
+        if (!field || seen.has(field.name) || !readsCallerInput(s.value)) return;
         seen.add(field.name);
-        if (rest.length > 0) {
-          out.push({ op, field, value: s.value, unhoistable: "path" });
-          return;
-        }
-        if (!hoistable(s.value)) {
-          out.push({ op, field, value: s.value, unhoistable: "local" });
-          return;
-        }
-        const stored: ExprIR = {
-          kind: "ref",
-          name: field.name,
-          refKind: "this-prop",
-          type: structuredClone(field.type),
-        };
-        const unchanged: ExprIR = {
-          kind: "binary",
-          op: "==",
-          left: structuredClone(s.value),
-          right: stored,
-          leftType: structuredClone(s.targetType),
-          rightType: structuredClone(field.type),
-          resultType: BOOL,
-        };
-        const gate: ExprIR = {
-          kind: "binary",
-          op: "||",
-          left: unchanged,
-          right: structuredClone(field.maskUnless!),
-          leftType: BOOL,
-          rightType: BOOL,
-          resultType: BOOL,
-        };
-        out.push({ op, field, value: s.value, gate });
+        out.push({ op, field });
       });
     }
   }
@@ -236,15 +195,15 @@ export function maskWriteSinks(agg: AggregateIR): MaskWriteSink[] {
 }
 
 /** The `source` text a mask write gate carries (the 403 detail). */
-export function maskWriteGateSource(agg: string, field: string): string {
+function maskWriteGateSource(agg: string, field: string): string {
   return `mask unless — only a caller who can read ${agg}.${field} may change it`;
 }
 
-/** Prepend each hoistable mask write gate to its operation — after the
- *  operation's own leading `requires` run, so it hoists with them.
- *  Idempotent: an operation already carrying the gate is left alone. */
+/** Prepend each mask write gate to its operation — after the operation's own
+ *  leading `requires` run, so it hoists with them.  Idempotent: an operation
+ *  already carrying the gate is left alone. */
 export function applyMaskWriteGates<A extends AggregateIR>(agg: A): A {
-  const sinks = maskWriteSinks(agg).filter((s) => s.gate);
+  const sinks = maskWriteSinks(agg);
   if (sinks.length === 0) return agg;
   const byOp = new Map<OperationIR, MaskWriteSink[]>();
   for (const s of sinks) byOp.set(s.op, [...(byOp.get(s.op) ?? []), s]);
@@ -259,7 +218,7 @@ export function applyMaskWriteGates<A extends AggregateIR>(agg: A): A {
     while (lead < op.statements.length && op.statements[lead]!.kind === "requires") lead++;
     const gates: StmtIR[] = fresh.map((s) => ({
       kind: "requires",
-      expr: s.gate!,
+      expr: structuredClone(s.field.maskUnless!),
       source: maskWriteGateSource(agg.name, s.field.name),
       maskWriteOf: s.field.name,
     }));

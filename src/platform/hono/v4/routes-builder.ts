@@ -129,6 +129,7 @@ import {
   lifecycleGates,
   lifecycleGatesReadRow,
   lifecycleGatesUseCurrentUser,
+  maskWritePresenceParam,
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
@@ -1800,20 +1801,18 @@ function requiresGateLines(
       // Operation params are NOT locals here — the handler holds them at the
       // wire-read expression the call is about to pass (`body.<name>`), so an
       // arg-aware gate (`requires amount <= limit`) must read the same thing.
-      // A merge-patch update's gate reads the MERGED value (an absent key is
-      // the stored value) — the value the operation will actually receive.
       paramExpr:
         argExpr ??
         ((name) => {
           const p = op.params.find((q) => q.name === name);
-          if (!p) return undefined;
-          const value = wireToDomainExpr(`body.${p.name}`, p.type, ctx);
-          return isMergePatchUpdate(op)
-            ? `(body.${p.name} === undefined ? aggregate.${escapeTargetFieldMember("ts", p.name)} : ${value})`
-            : value;
+          return p ? wireToDomainExpr(`body.${p.name}`, p.type, ctx) : undefined;
         }),
     });
-    return `${pad}if (!(${pred})) throw new ForbiddenError(${JSON.stringify(
+    // A merge-patch update's mask write gate runs only when the body carries
+    // the masked key (an absent key keeps the stored value).
+    const present = maskWritePresenceParam(op, g);
+    const cond = present ? `body.${present} !== undefined && !(${pred})` : `!(${pred})`;
+    return `${pad}if (${cond}) throw new ForbiddenError(${JSON.stringify(
       `Forbidden: ${g.source}`,
     )});`;
   });

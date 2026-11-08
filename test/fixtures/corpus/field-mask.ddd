@@ -134,13 +134,19 @@ system MaskedAudit {
     expect(found.badge).toBe(null)
     expect(found.grade).toBe(5)
 
-    // A read whose PREDICATE is the masked field is an existence oracle on
-    // it, so it is refused outright rather than answered 200-or-404.
+    // A read whose PREDICATE is the masked field would be an existence oracle
+    // on it (200 for a right guess, 404 for a wrong one), so it is refused
+    // before the query runs — the right guess and the wrong one answer alike.
     expect(api.staff.getEmployeeByNationalId("NID-1")).toThrow(403)
+    expect(api.staff.getEmployeeByNationalId("NID-WRONG")).toThrow(403)
 
     // The WRITE side inherits the mask too: a caller who cannot read a masked
-    // field cannot change it.  Sending a new value is refused…
+    // field cannot change it.  The gate is the mask predicate alone, never a
+    // comparison with the stored value, so sending the RIGHT value (90000) is
+    // refused exactly like a wrong one — the answer says nothing about it.
+    expect(api.employees.update(e, { salary: 90000 })).toThrow(403)
     expect(api.employees.update(e, { name: "Ada L", salary: 120000 })).toThrow(403)
+    expect(api.employees.update(e, { nationalId: "NID-1" })).toThrow(403)
     expect(api.employees.update(e, { nationalId: "NID-2" })).toThrow(403)
     // …while a patch that leaves the masked keys out (the merge-patch
     // update keeps their stored values) goes through.

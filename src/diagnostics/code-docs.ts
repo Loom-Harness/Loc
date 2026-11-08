@@ -130,7 +130,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
   "loom.field-mask-principal-without-auth":
     "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
-  "loom.mask-sink-write": "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
   "loom.derived-type-mismatch":
     "07-invariants-derived-functions.md#derived--a-computed-read-only-field",
   "loom.property-default-type-mismatch": "03-domain-modeling.md#fields-property",

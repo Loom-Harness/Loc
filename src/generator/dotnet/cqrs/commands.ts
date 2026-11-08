@@ -12,10 +12,11 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
-import { isMergePatchUpdate, mergePatchFields } from "../../../ir/util/merge-patch.js";
+import { mergePatchFields } from "../../../ir/util/merge-patch.js";
 import {
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
+  maskWritePresenceParam,
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
@@ -62,16 +63,16 @@ function requiresGate(op: AggregateIR["operations"][number]): string {
       .map((g) => {
         const pred = renderCsExpr(g.expr, {
           thisName: "aggregate",
-          // A merge-patch update's gate reads the MERGED value (an absent key
-          // is the stored value) — the value the operation will receive.
-          paramExpr: (name) => {
-            if (!op.params.some((q) => q.name === name)) return undefined;
-            return isMergePatchUpdate(op)
-              ? `(command.PatchedKeys.Contains(${JSON.stringify(name)}) ? command.${upperFirst(name)} : aggregate.${upperFirst(name)})`
-              : `command.${upperFirst(name)}`;
-          },
+          paramExpr: (name) =>
+            op.params.some((q) => q.name === name) ? `command.${upperFirst(name)}` : undefined,
         });
-        return `        if (!(${pred})) throw new ForbiddenException(${JSON.stringify(
+        // A merge-patch update's mask write gate runs only when the body
+        // carries the masked key (an absent key keeps the stored value).
+        const present = maskWritePresenceParam(op, g);
+        const cond = present
+          ? `command.PatchedKeys.Contains(${JSON.stringify(present)}) && !(${pred})`
+          : `!(${pred})`;
+        return `        if (${cond}) throw new ForbiddenException(${JSON.stringify(
           `Forbidden: ${g.source}`,
         )});\n`;
       })
