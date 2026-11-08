@@ -53,6 +53,7 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
+import { operationFormParams } from "../../ir/util/op-gates.js";
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { walkExprChildren } from "../../ir/util/walk.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
@@ -759,8 +760,10 @@ export function flutterOperationForm(
   agg?: EnrichedAggregateIR,
   text?: FlutterFormText,
 ): FlutterFormSpec {
+  // The masked merge-patch keys stay off the form (`operationFormParams`).
+  const formParams = operationFormParams(op);
   const { fields, dropped } = prepareFields(
-    op.params,
+    formParams,
     enumsFromBc(bc),
     vosFromBc(bc),
     aggregatesByName,
@@ -768,12 +771,12 @@ export function flutterOperationForm(
   attachRules(
     fields,
     [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)],
-    new Set(op.params.map((pp) => pp.name)),
+    new Set(formParams.map((pp) => pp.name)),
   );
   attachModelText(
     fields,
     text && {
-      inputs: op.params,
+      inputs: formParams,
       ownerOf: (name) => (agg ? paramLabelOwner(agg, name) : undefined),
       bc,
       text,

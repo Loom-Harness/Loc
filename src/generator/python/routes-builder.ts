@@ -45,6 +45,7 @@ import {
 } from "../../ir/util/api-surface.js";
 import { canonicalCreate, canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
+import { declaredResponseFor } from "../../ir/util/declared-response.js";
 import { disallowedDetail } from "../../ir/util/denial-detail.js";
 import { mergePatchFields } from "../../ir/util/merge-patch.js";
 import {
@@ -263,12 +264,7 @@ export function buildPyRoutesFile(
   }
   const models = lines(
     ...parts.map((p) => responseModel(p.name, p, ctx)),
-    responseModel(
-      agg.name,
-      agg,
-      ctx,
-      ctx.payloads.find((p) => p.kind === "response" && p.name === `${agg.name}Response`),
-    ),
+    responseModel(agg.name, agg, ctx, declaredResponseFor(ctx.payloads, agg)),
     // Named array component for list endpoints (`<Agg>ListResponse`,
     // RootModel so FastAPI emits a $ref instead of an inline array) —
     // response-schema parity with the other backends.
@@ -520,6 +516,14 @@ function payloadFieldPyType(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   )
     return `list[${t.element.name}]`;
   if (t.kind === "entity" && isResponsePayloadName(ctx, t.name)) return `${t.name} | None`;
+  // An OPTIONAL single containment (`note: MemoResponse?`) is the same
+  // nullable record reference, not a re-suffixed one.
+  if (
+    t.kind === "optional" &&
+    t.inner.kind === "entity" &&
+    isResponsePayloadName(ctx, t.inner.name)
+  )
+    return `${t.inner.name} | None`;
   return responsePyType(t, ctx);
 }
 

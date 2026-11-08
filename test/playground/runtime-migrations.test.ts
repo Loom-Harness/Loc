@@ -244,7 +244,7 @@ describe("migrateChain — the runtime's boot-time migration", () => {
     expect(db.executed).toEqual([]);
     expect(db.meta).toBeNull();
     expect(blockingMessage((res as { blocked: never }).blocked)).toMatch(
-      /Migration required.*Record the initial migration in the Migrations tab/,
+      /Migration required.*Record the initial migration \(Record migration… beside Boot/,
     );
   });
 

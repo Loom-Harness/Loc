@@ -43,6 +43,7 @@ import {
 } from "../../../ir/util/api-surface.js";
 import { AUDIT_ENTRY_TYPE, auditEntryWireShape } from "../../../ir/util/audit-history.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
+import { declaredResponseFor } from "../../../ir/util/declared-response.js";
 import { foreignValueTypeSeeds, foreignValueTypes } from "../../../ir/util/foreign-event-types.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import { isMergePatchUpdate } from "../../../ir/util/merge-patch.js";
@@ -1508,7 +1509,7 @@ function renderAggregateResponseSchema(
   // `<Part>Response` name, so its type is peeled back to the part name before
   // `openApiType` re-appends `Response` (never `<Part>ResponseResponse`).
   // Identical to the wireShape path for a scaffolded record.
-  const declared = payloads.find((p) => p.kind === "response" && p.name === `${agg.name}Response`);
+  const declared = declaredResponseFor(payloads, agg);
   const props = declared
     ? declaredResponseProps(agg, declared, payloads)
     : wireFieldsToProps(forApiRead(wireFieldsFor(agg)));

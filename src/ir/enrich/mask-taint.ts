@@ -29,6 +29,7 @@
 
 import type {
   AggregateIR,
+  BoundedContextIR,
   CommandHandlerIR,
   CriterionIR,
   DerivedIR,
@@ -76,7 +77,7 @@ function conjoinPredicates(preds: readonly ExprIR[]): ExprIR | undefined {
 
 /** The masked self-member names one expression reads — a field / derived
  *  read on the row (`salary`, `this.salary`), plus a `let` that carries one. */
-export function maskedReadsOf(
+function maskedReadsOf(
   e: ExprIR | undefined,
   masked: ReadonlySet<string>,
   taintedLets: ReadonlyMap<string, readonly string[]> = new Map(),
@@ -174,7 +175,7 @@ function readsCallerInput(e: ExprIR): boolean {
  *  Creates are not sinks: a new row has no stored value to overwrite, and the
  *  creator chose it.  An assignment from constants or the row itself is the
  *  author's own domain logic, not the caller's input. */
-export function maskWriteSinks(agg: AggregateIR): MaskWriteSink[] {
+function maskWriteSinks(agg: AggregateIR): MaskWriteSink[] {
   const masked = new Map(agg.fields.filter((f) => f.maskUnless).map((f) => [f.name, f] as const));
   if (masked.size === 0) return [];
   const out: MaskWriteSink[] = [];
@@ -260,7 +261,7 @@ export function applyMaskFindGates(
 }
 
 /** True when `gate` is `mask` or a conjunction that has `mask` as a term. */
-function conjoins(gate: ExprIR, mask: ExprIR): boolean {
+export function conjoins(gate: ExprIR, mask: ExprIR): boolean {
   const k = exprKey(mask);
   const terms: ExprIR[] = [];
   const collect = (e: ExprIR): void => {
@@ -350,4 +351,79 @@ export function applyMaskHandlerGates<H extends QueryHandlerIR | CommandHandlerI
     }
     return gates.length === 0 ? h : { ...h, statements: [...gates, ...h.statements] };
   });
+}
+
+// ── Event sinks ──────────────────────────────────────────────────────────────
+//
+// An `emit`ted event whose payload reads a masked value carries it past every
+// read boundary: a folded projection serves it, a channel publishes it.
+
+/** The first masked field a single expression reads, or null — the shared
+ *  taint reader (`mask-taint.ts`), with a `let` carrying one masked name. */
+function firstMaskedRead(
+  e: ExprIR,
+  masked: ReadonlySet<string>,
+  taintedLets: ReadonlyMap<string, string>,
+): string | null {
+  const lets = new Map([...taintedLets].map(([k, v]) => [k, [v]] as const));
+  return maskedReadsOf(e, masked, lets)[0] ?? null;
+}
+
+/** Map every event whose emitted payload carries a `mask unless` value to the
+ *  `<Aggregate>.<field>` that laundered into it. */
+
+export function maskLaunderingEvents(ctx: BoundedContextIR): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const agg of ctx.aggregates) {
+    const maskedFields = agg.fields.filter((f) => f.maskUnless).map((f) => f.name);
+    if (maskedFields.length === 0) continue;
+    const masked = new Set(maskedFields);
+    // A `derived` whose expression reads a masked field carries the same value.
+    for (const d of agg.derived) {
+      if (firstMaskedRead(d.expr, masked, new Map())) masked.add(d.name);
+    }
+    for (const op of [...agg.operations, ...(agg.creates ?? []), ...(agg.destroys ?? [])]) {
+      const stmts: StmtIR[] = [];
+      for (const s of op.statements) walkStmtsDeep(s, (n) => stmts.push(n));
+      // Fixpoint over `let` bindings so declaration order (or nesting inside a
+      // lambda block) can't hide a chain `let a = salary` / `let b = a`.
+      const taintedLets = new Map<string, string>();
+      for (let changed = true; changed; ) {
+        changed = false;
+        for (const s of stmts) {
+          if (s.kind !== "let" || taintedLets.has(s.name)) continue;
+          const via = firstMaskedRead(s.expr, masked, taintedLets);
+          if (via !== null) {
+            taintedLets.set(s.name, via);
+            changed = true;
+          }
+        }
+      }
+      for (const s of stmts) {
+        if (s.kind !== "emit" || out.has(s.eventName)) continue;
+        for (const f of s.fields) {
+          const via = firstMaskedRead(f.value, masked, taintedLets);
+          if (via !== null) {
+            out.set(s.eventName, `${agg.name}.${via}`);
+            break;
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// ── Log sink ─────────────────────────────────────────────────────────────────
+
+/** True when a field's value must not appear in the synthesized `inspect`
+ *  text (`toString()` / `Inspect` — what a log line or an exception carries,
+ *  with no principal check): a `sensitive(...)` field, or a `mask unless` one.
+ *  Read by `synthesizeInspect` and by every backend that decides whether to
+ *  emit its own redacting inspect hook. */
+export function fieldRedactedInInspect(f: {
+  sensitivity?: readonly string[];
+  maskUnless?: ExprIR;
+}): boolean {
+  return (!!f.sensitivity && f.sensitivity.length > 0) || f.maskUnless !== undefined;
 }
