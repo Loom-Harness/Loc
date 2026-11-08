@@ -12,9 +12,9 @@ import {
 } from "../../../src/generator/_expr/target.js";
 import { whereToSql } from "../../../src/generator/dotnet/emit/dapper.js";
 import { renderJpqlWhere } from "../../../src/generator/java/render-jpql.js";
-import { writeScopePredicate } from "../../../src/generator/typescript/repository-find-predicate.js";
 import { requireLowered } from "../../../src/generator/python/find-predicate.js";
 import { renderSqlScalarExpr } from "../../../src/generator/sql-pg-expr.js";
+import { writeScopePredicate } from "../../../src/generator/typescript/repository-find-predicate.js";
 import type { ExprIR } from "../../../src/ir/types/loom-ir.js";
 
 // ---------------------------------------------------------------------------
