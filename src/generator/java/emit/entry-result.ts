@@ -22,6 +22,7 @@ import {
 } from "../../../ir/util/entry-result.js";
 import { RFC7807_MEMBERS, unionMembers } from "../../_payload/union-wire.js";
 import { jid } from "../java-ident.js";
+import { javaErrorVariantExt } from "../wire-policy-java.js";
 import { type JavaReturnUnionSpec, renderJavaUnionWireFiles, type UnionFile } from "./unions.js";
 import { domainToWire } from "./wire.js";
 
@@ -190,6 +191,7 @@ export function entryControllerJava(
       ...fields.map(
         (f) => `${indent}    problem.setProperty(${JSON.stringify(f.name)}, __e.${jid(f.name)}());`,
       ),
+      ...javaErrorVariantExt(ctx, tag, `${indent}    `, (name) => `__e.${jid(name)}()`),
       `${indent}    return ${refs.responseEntity}.status(${r.status}).contentType(${refs.mediaType}.APPLICATION_PROBLEM_JSON).body(problem);`,
       `${indent}}`,
     );

@@ -777,14 +777,11 @@ describe("i18n round trip — frontends (M-T9.39)", () => {
 
 // --- the backend half --------------------------------------------------------
 
-/** The five backends' runtime catalogs and the chokepoint that raises codes.
- *  `catalog` locates the runtime catalog file by suffix. */
-const BACKENDS = [
-  // node, .NET and python ship no catalog: they answer each rule's code and the
-  // client localizes (#4473).  The other two leave with the fan-out.
-  { platform: "java", catalog: "src/main/resources/messages.properties" },
-  { platform: "elixir", catalog: "priv/gettext/en/LC_MESSAGES/default.po" },
-] as const;
+/** The five backends.  None ships a runtime catalog: each answers a rule's
+ *  identity key as the wire `code` and the client localizes (#4473), so the
+ *  backend half of the round trip is that every named rule is RAISED under
+ *  its key and that the system catalog (`.loom/messages.en.json`) carries it. */
+const BACKENDS = ["node", "dotnet", "python", "java", "elixir"] as const;
 
 /** Named rules on every rung the catalog serves: a field `check` and a
  *  cross-field `invariant` (the WIRE rung), a precondition over a PARAMETER
@@ -824,41 +821,37 @@ const backendSystem = (platform: string): string => `
     deployable api { platform: ${platform} contexts: [Cat] dataSources: [st] serves: CatApi port: 8080 }
   }`;
 
-describe("i18n round trip — backend rule-key catalogs", () => {
+describe("i18n round trip — backend rule-key codes", () => {
   const expected = Object.values(RULES)
     .map((n) => `Cat.Product.rule.${n}`)
     .sort();
 
-  for (const b of BACKENDS) {
-    it(`${b.platform}: every catalog code is raised, every messaged rule is catalogued`, async () => {
-      const files = await generateSystemFiles(backendSystem(b.platform));
-      const catalogPath = [...files.keys()].find((k) => k.endsWith(b.catalog));
-      expect(catalogPath, `${b.platform}: no runtime catalog`).toBeDefined();
+  for (const platform of BACKENDS) {
+    it(`${platform}: every named rule is raised under its key, and catalogued for translators`, async () => {
+      const files = await generateSystemFiles(backendSystem(platform));
       const codesIn = (s: string): string[] =>
         [...new Set(s.match(/Cat\.Product\.rule\.[A-Za-z0-9]+/g) ?? [])].sort();
-      const catalogCodes = codesIn(files.get(catalogPath!)!);
-      // Raise sites: every OTHER source file of the backend (not the catalog, not
-      // the gettext template, not generated tests).
+      // No runtime catalog on the backend: only `.loom/` holds the text.
+      expect(
+        [...files.keys()].filter((p) =>
+          /\.(po|pot|properties)$|LoomMessages\.cs$|app\/i18n\.py$/.test(p),
+        ),
+        `${platform}: a runtime message catalog`,
+      ).toEqual([]);
+      // Raise sites: every source file of the backend (not `.loom/`, not
+      // generated tests) — the state precondition only by the domain floor.
       const raised = codesIn(
         [...files]
-          .filter(
-            ([p]) =>
-              p !== catalogPath &&
-              !p.startsWith(".loom/") &&
-              !/\.(po|pot|properties)$/.test(p) &&
-              !/(^|\/)(test|tests|e2e)\//.test(p),
-          )
+          .filter(([p]) => !p.startsWith(".loom/") && !/(^|\/)(test|tests|e2e)\//.test(p))
           .map(([, s]) => s)
           .join("\n"),
       );
-      // (b) every messaged rule is catalogued (extraction) …
-      expect(catalogCodes.filter((c) => expected.includes(c))).toEqual(expected);
-      // … and raised (consumption) — the state precondition only by the domain floor.
       expect(raised.filter((c) => expected.includes(c))).toEqual(expected);
-      // (a) no dead code: everything the catalog carries is raised somewhere.
+      // The translators' catalog carries every key the backend raises.
+      const system = codesIn(files.get(".loom/messages.en.json") ?? "");
       expect(
-        catalogCodes.filter((c) => !raised.includes(c)),
-        `${b.platform}: catalog codes nothing raises`,
+        raised.filter((c) => !system.includes(c)),
+        `${platform}: raised, not catalogued`,
       ).toEqual([]);
     });
   }

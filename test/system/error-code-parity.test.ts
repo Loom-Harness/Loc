@@ -86,8 +86,21 @@ const BACKEND_FACTS: Readonly<
     schema: [/code: str \| None = None/, /params: dict\[str, Any\] \| None = None/],
     catalog: /localize_message|app\/i18n\.py/,
   },
-  java: { schema: [], catalog: /MessageSource|messages\.properties/ },
-  elixir: { schema: [], catalog: /Gettext\.with_locale/ },
+  java: {
+    schema: [
+      /problem\.addProperty\("code", new StringSchema\(\)\)/,
+      /problem\.addProperty\("params", paramsSchema\(\)\)/,
+      /errorItem\.addProperty\("code", new StringSchema\(\)\)/,
+    ],
+    catalog: /MessageSource|messages\.properties/,
+  },
+  elixir: {
+    schema: [
+      /code: %OpenApiSpex\.Schema\{type: :string\}/,
+      /params: %OpenApiSpex\.Schema\{type: :object, additionalProperties: true/,
+    ],
+    catalog: /Gettext\.with_locale/,
+  },
 };
 
 /** Every `problem.*` / `field.*` code a client can be answered with. */

@@ -46,7 +46,7 @@ describe("phoenix — read requires gate", () => {
     expect(ctrl).toContain("current_user = Map.get(conn.assigns, :current_user)");
     expect(ctrl).toContain('if not (current_user.role == "agent") do');
     expect(ctrl).toContain(
-      'ApiWeb.ProblemDetails.problem_response(conn, 403, "Forbidden", "Forbidden: find all")',
+      'ApiWeb.ProblemDetails.problem_response(conn, 403, "Forbidden", "Forbidden: find all", "problem.forbidden")',
     );
     const gateIdx = ctrl.indexOf("problem_response(conn, 403");
     const queryIdx = ctrl.indexOf("Tickets.list_tickets(");

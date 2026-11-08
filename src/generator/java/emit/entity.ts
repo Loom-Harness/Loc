@@ -55,6 +55,7 @@ import {
   statementSubRegions,
 } from "../render-stmt.js";
 import { hbIdent } from "../sql-ident.js";
+import { javaRuleParamsTail } from "../wire-policy-java.js";
 import {
   jpaClassAnnotations,
   jpaContainmentAnnotations,
@@ -900,7 +901,7 @@ export function renderJavaEntity(
     const code = domainFloorCode(inv.message);
     const text = JSON.stringify(ruleText(inv));
     const thrown = code
-      ? `throw new DomainException(${text}, DomainException.Kind.INVARIANT, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
+      ? `throw new DomainException(${text}, DomainException.Kind.INVARIANT, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}${javaRuleParamsTail(inv, (e) => renderJavaExpr(e, renderCtx))})`
       : `throw new DomainException(${text}, DomainException.Kind.INVARIANT)`;
     if (!emitTrace) {
       const check = inv.guard

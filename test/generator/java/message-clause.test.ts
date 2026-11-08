@@ -44,19 +44,19 @@ describe("java — messaged rule → wire validator + domain floor text", () => 
     const { validator } = await gen();
     // messaged rule → rejectValue(field, "msg.<hash>", <text>) carrying the i18n key
     expect(validator).toContain(
-      'errors.rejectValue("name", "Cat.Product.rule.name2120Characters", "Name must be 2-120 characters")',
+      'errors.rejectValue("name", "Cat.Product.rule.name2120Characters", new Object[] {"name", name}, "Name must be 2-120 characters")',
     );
     expect(validator).toContain(
-      'errors.rejectValue("sku", "Cat.Product.rule.skuRequired", "SKU is required")',
+      'errors.rejectValue("sku", "Cat.Product.rule.skuRequired", new Object[] {"sku", sku}, "SKU is required")',
     );
   });
 
-  it("keeps a message-LESS single-field rule with the sentinel code (no wire code)", async () => {
+  it("answers a message-LESS single-field rule with the generic field.rule code", async () => {
     const { validator } = await gen();
-    // The message-less `invariant sku.length > 0` uses the `loom.invariant`
-    // sentinel code, which the advice does NOT surface as a wire `code`.
+    // The message-less `invariant sku.length > 0` uses the generic `field.rule`
+    // code and reads no values, so it carries no `params`.
     expect(validator).toContain(
-      'errors.rejectValue("sku", "loom.invariant", "Sku must be at least 1 character")',
+      'errors.rejectValue("sku", "field.rule", "Sku must be at least 1 character")',
     );
   });
 });

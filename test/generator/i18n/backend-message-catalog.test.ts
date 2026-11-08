@@ -2,32 +2,18 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// The BACKEND message catalog, on the backends that still ship one.
+// No backend ships a message catalog.
 //
 // The server never translates a response (#4473): every refusal carries the
-// catalog `code` a client localizes it by.  node/Hono, the reference, ships no
-// catalog any more; the other four lose theirs with the #4473 fan-out, which
-// deletes their rows here as it flips them in
-// `test/_helpers/error-code-rows.ts`.
+// catalog `code` a client localizes it by, and `errors[].message` stays the
+// English.  A NAMED `invariant` / `check` / `precondition` puts its identity
+// key `<Ctx>.<Owner>.rule.<name>` as that `code`; the ONE catalog for
+// translators is the system's `.loom/messages.en.json`, and a `locales/en`
+// override changes the English every backend answers.
 //
-// A NAMED `invariant` / `check` / `precondition` puts its identity key
-// `<Ctx>.<Owner>.rule.<name>` as the `code` on the 422 `errors[]`.  Each backend
-// ships a CATALOG keyed by those same codes and resolves `errors[].message`
-// through it for the request locale, so localisation does not require every
-// client to carry a copy of every rule's text.
-//
-// Two invariants are asserted per backend:
-//
-//   1. the catalog exists, keyed by the rule's identity key — the SAME code
-//      on the wire;
-//   2. the backend's single 422 chokepoint RESOLVES through it (an emitted
-//      catalog nothing reads is the dead-catalog class, gated on the UI side by
-//      `user-visible-slot-coverage.test.ts`).
-//
-// Plus the byte-identical gate: a system with no named rule emits no catalog
-// and no lookup anywhere.
+// Asserted per backend: no runtime catalog file and no locale lookup at the
+// 422 chokepoint, and every named rule's identity key spelled as a code.
 // ---------------------------------------------------------------------------
-
 const DOMAIN = `
       aggregate Product {
         sku: string check skuRequired: sku.length > 0
@@ -57,17 +43,6 @@ ${domain}
     resource st { for: Cat, kind: state, use: db }
     deployable api { platform: ${platform} contexts: [Cat] dataSources: [st] serves: CatApi port: 8080 }
   }
-`;
-
-/** A message-LESS twin of `DOMAIN` — the byte-identical baseline. */
-const NO_MESSAGES = `
-      aggregate Product {
-        name: string
-        qty: int
-        invariant qty >= 0
-        create(name: string, qty: int) { }
-      }
-      repository Products for Product { }
 `;
 
 const NAME_CODE = "Cat.Product.rule.nameLength";
@@ -124,28 +99,6 @@ describe(".NET — no catalog: the 422 answers the code, the client localizes", 
   });
 });
 
-describe("java/Spring — messages.properties ResourceBundle + MessageSource resolution", () => {
-  it("emits the bundle keyed by the wire codes", async () => {
-    const bundle = bySuffix(await filesFor("java"), "src/main/resources/messages.properties")!;
-    expect(bundle).toBeDefined();
-    expect(bundle).toContain(`${NAME_CODE}=Name length`);
-    expect(bundle).toContain(`${SKU_CODE}=Sku required`);
-    expect(bundle).toContain(`${AMOUNT_CODE}=Amount positive`);
-  });
-
-  it("resolves each FieldError through MessageSource for the ambient locale", async () => {
-    const advice = bySuffix(await filesFor("java"), "ApiExceptionAdvice.java")!;
-    expect(advice).toContain("import org.springframework.context.MessageSource;");
-    expect(advice).toContain("ApiExceptionAdvice(HttpMetrics httpMetrics, MessageSource messages)");
-    expect(advice).toContain("Locale.forLanguageTag(RequestContext.locale()");
-    expect(advice).toContain(
-      'entry.put("message", "NotNull".equals(err.getCode()) ? lastKey((String) entry.get("pointer")) + " is required" : resolveMessage(err, locale));',
-    );
-    // A FieldError with no default message must not turn the 422 into a 500.
-    expect(advice).toContain("catch (NoSuchMessageException ex)");
-  });
-});
-
 describe("python/FastAPI — no catalog: the 422 answers the code, the client localizes", () => {
   it("ships no message catalog and no locale lookup", async () => {
     const files = await filesFor("python");
@@ -161,51 +114,36 @@ describe("python/FastAPI — no catalog: the 422 answers the code, the client lo
   });
 });
 
-describe("elixir/Phoenix — priv/gettext catalog + changeset-error resolution", () => {
-  it("emits the authored messages into the gettext catalog, keyed as msgctxt", async () => {
-    const files = await filesFor("elixir");
-    const po = bySuffix(files, "priv/gettext/en/LC_MESSAGES/default.po")!;
-    expect(po).toBeDefined();
-    // pgettext reconciles the two key models: the Loom code is the CONTEXT and
-    // the authored English the msgid — identical to the HEEx frontend half.
-    expect(po).toContain(`msgctxt "${NAME_CODE}"`);
-    expect(po).toContain('msgid "Name length"');
-    // A `.pot` template ships beside it so `mix gettext.merge` works normally.
-    expect(bySuffix(files, "priv/gettext/default.pot")).toContain(`msgctxt "${SKU_CODE}"`);
+describe("java/Spring — no catalog: the 422 answers the code, the client localizes", () => {
+  it("ships no message bundle and no MessageSource lookup", async () => {
+    const files = await filesFor("java");
+    expect(bySuffix(files, "src/main/resources/messages.properties")).toBeUndefined();
+    const advice = bySuffix(files, "ApiExceptionAdvice.java")!;
+    expect(advice).not.toContain("MessageSource");
   });
 
-  it("emits the Gettext backend + hex dep for an API-only deployable (no ui)", async () => {
-    // The gettext runtime used to be gated on the mounted ui having strings, so
-    // a JSON-API deployable with an authored message had no catalog to resolve.
-    const files = await filesFor("elixir");
-    expect(bySuffix(files, "_web/gettext.ex")).toBeDefined();
-    expect(bySuffix(files, "mix.exs")).toContain("{:gettext,");
-  });
-
-  it("resolves the changeset error's loom_code through gettext", async () => {
-    const problem = bySuffix(await filesFor("elixir"), "_web/problem_details.ex")!;
-    expect(problem).toContain("localize(Keyword.get(opts, :loom_code), interpolated)");
-    // The RUNTIME pgettext/4, not the macro — the msgctxt is a runtime value.
-    expect(problem).toContain("Gettext.pgettext(ApiWeb.Gettext, code, message)");
-    expect(problem).toContain("Api.RequestContext.locale()");
+  it("each named rule's code is its identity key", async () => {
+    const all = [...(await filesFor("java")).values()].join("\n");
+    for (const code of ALL_CODES) expect(all).toContain(`"${code}"`);
   });
 });
 
-describe("cross-backend parity", () => {
-  it("the catalog backends ship the SAME code set — one collector, N renderings", async () => {
-    const codesIn = (content: string): string[] =>
-      [...new Set(content.match(/Cat\.Product\.rule\.[A-Za-z0-9]+/g) ?? [])].sort();
-    const [java, elixir] = await Promise.all([filesFor("java"), filesFor("elixir")]);
-    expect(codesIn(bySuffix(java, "src/main/resources/messages.properties")!)).toEqual(ALL_CODES);
-    expect(
-      codesIn(bySuffix(elixir, "priv/gettext/en/LC_MESSAGES/default.po")!).filter((c) =>
-        ALL_CODES.includes(c),
-      ),
-    ).toEqual(ALL_CODES);
+describe("elixir/Phoenix — no catalog: the 422 answers the code, the client localizes", () => {
+  it("ships no gettext catalog and no locale switch on the 422", async () => {
+    const files = await filesFor("elixir");
+    expect(bySuffix(files, "priv/gettext/en/LC_MESSAGES/default.po")).toBeUndefined();
+    const all = [...files.values()].join("\n");
+    expect(all).not.toContain("Gettext.with_locale");
   });
 
-  it("the catalog keys equal the keys in the system's .loom/messages.en.json", async () => {
-    // ONE system catalog for translators, N runtime catalogs derived from it.
+  it("each named rule's code is its identity key", async () => {
+    const all = [...(await filesFor("elixir")).values()].join("\n");
+    for (const code of ALL_CODES) expect(all).toContain(`"${code}"`);
+  });
+});
+
+describe("the system catalog", () => {
+  it("carries every named rule's identity key — the codes every backend answers", async () => {
     const files = await filesFor("node");
     const systemCatalog = JSON.parse(files.get(".loom/messages.en.json")!) as Record<
       string,
@@ -216,59 +154,15 @@ describe("cross-backend parity", () => {
     }
     expect(systemCatalog[NAME_CODE]).toBe("Name length");
   });
-
-  it("the catalog backends resolve the SAME locale-lookup contract off the ambient locale", async () => {
-    // `RequestContext.locale` is the Accept-Language header VERBATIM (D-CTX-SHAPE),
-    // so each rendering must normalise it the same way or a `fr-CA,fr;q=0.9`
-    // request would resolve differently per backend.  The contract: take the first
-    // listed language, drop its `;q=` weight, then fall back to the primary
-    // subtag.  Two backends delegate it to their ecosystem (java to
-    // `Locale.forLanguageTag` + ResourceBundle's own parent-bundle walk, elixir to
-    // gettext's), so for those the assertion is that the FIRST-TAG extraction
-    // happens before the handoff.
-    const [java, elixir] = await Promise.all([filesFor("java"), filesFor("elixir")]);
-    // java / elixir extract the first tag, then hand the rest to their ecosystem.
-    const advice = bySuffix(java, "ApiExceptionAdvice.java")!;
-    expect(advice).toContain('RequestContext.locale().split(",")[0].split(";")[0].trim()');
-    // elixir's 422 handler hands the header to the shared Accept-Language
-    // matcher, which does the first-tag extraction (q-ordered) before gettext.
-    const problem = bySuffix(elixir, "_web/problem_details.ex")!;
-    expect(problem).toContain("Web.Locale.header_gettext_locale(");
-    const matcher = bySuffix(elixir, "_web/locale.ex")!;
-    expect(matcher).toContain('String.split(",", trim: true)');
-    expect(matcher).toContain('String.split(";")');
-  });
-
-  it("a system with no authored message emits no catalog and no lookup", async () => {
-    for (const [platform, suffix] of [
-      ["node", "http/messages.ts"],
-      ["dotnet", "Localization/LoomMessages.cs"],
-      ["java", "src/main/resources/messages.properties"],
-      ["python", "app/i18n.py"],
-      ["elixir", "priv/gettext/en/LC_MESSAGES/default.po"],
-    ] as const) {
-      const files = await filesFor(platform, NO_MESSAGES);
-      expect(bySuffix(files, suffix), `${platform} emitted a catalog with no messages`).toBe(
-        undefined,
-      );
-    }
-    expect(bySuffix(await filesFor("java", NO_MESSAGES), "ApiExceptionAdvice.java")).toContain(
-      'entry.put("message", "NotNull".equals(err.getCode()) ? lastKey((String) entry.get("pointer")) + " is required" : err.getDefaultMessage());',
-    );
-  });
 });
 
 describe("a locales/en override", () => {
-  it("replaces a named rule's English in every backend catalog and on the wire", async () => {
+  it("replaces a named rule's English on the wire of every backend", async () => {
     const overrides = new Map([[NAME_CODE, "Name must be 2-120 characters"]]);
-    for (const [platform, suffix] of [
-      // node has no catalog: the override is the English its refine answers.
-      ["node", "http/product.routes.ts"],
-      ["java", "src/main/resources/messages.properties"],
-    ] as const) {
+    for (const platform of ["node", "dotnet", "python", "java", "elixir"] as const) {
       const files = await generateSystemFiles(src(platform), { sourceOverrides: overrides });
-      expect(bySuffix(files, suffix), platform).toContain("Name must be 2-120 characters");
-      expect(bySuffix(files, suffix), platform).not.toContain("Name length");
+      const all = [...files.values()].join("\n");
+      expect(all, platform).toContain("Name must be 2-120 characters");
     }
   });
 });

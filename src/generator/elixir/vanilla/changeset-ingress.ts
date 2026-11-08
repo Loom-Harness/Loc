@@ -31,7 +31,7 @@
 
 import type { FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
-import { exLit, exValuePrefix } from "../wire-policy-ex.js";
+import { exFieldCode, exLit, exValuePrefix } from "../wire-policy-ex.js";
 import { exMoneyGrammarRegex } from "./codec-spelling-ex.js";
 
 /** One decimal leaf the ingress guard checks: its snake-cased path from the
@@ -116,17 +116,33 @@ export function renderDecimalIngressHelpers(): string {
   # error, not two.
   defp __loom_decimal_ingress(changeset, attrs, paths) do
     Enum.reduce(paths, changeset, fn {[field | rest] = path, blank_is_absent}, cs ->
-      with {:ok, value} <- __loom_dig(attrs, path),
-           false <- __loom_decimal_ok?(value, blank_is_absent) do
-        errors =
-          if rest == [],
-            do: Enum.reject(cs.errors, fn {f, {_msg, opts}} -> f == field and opts[:validation] == :cast end),
-            else: cs.errors
+      case __loom_dig(attrs, path) do
+        {:ok, value} ->
+          cond do
+            not __loom_decimal_ok?(value, blank_is_absent) ->
+              errors =
+                if rest == [],
+                  do: Enum.reject(cs.errors, fn {f, {_msg, opts}} -> f == field and opts[:validation] == :cast end),
+                  else: cs.errors
 
-        %{cs | errors: errors}
-        |> add_error(field, ${exLit(`${exValuePrefix("money-grammar")}: `)} <> Jason.encode!(value), loom_path: rest)
-      else
-        _ -> cs
+              %{cs | errors: errors}
+              |> add_error(field, ${exLit(`${exValuePrefix("money-grammar")}: `)} <> Jason.encode!(value), loom_path: rest, loom_code: ${exFieldCode("money-grammar")}, loom_params: %{value: value})
+
+            # A well-formed decimal string Ecto's own cast refuses for its size is
+            # out of range, not malformed: the money-range refusal, not "is invalid".
+            rest == [] and is_binary(value) and
+                Enum.any?(cs.errors, fn {f, {_msg, opts}} -> f == field and opts[:validation] == :cast end) ->
+              errors = Enum.reject(cs.errors, fn {f, {_msg, opts}} -> f == field and opts[:validation] == :cast end)
+
+              %{cs | errors: errors}
+              |> add_error(field, ${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(value), loom_code: ${exFieldCode("money-range")}, loom_params: %{value: value})
+
+            true ->
+              cs
+          end
+
+        _ ->
+          cs
       end
     end)
   end

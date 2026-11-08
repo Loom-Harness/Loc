@@ -646,9 +646,11 @@ describe("vanilla shape: document op guards deny 403/422 (not raise → 500)", (
     const ctl = file(files, "/controllers/note_controller.ex");
     // NAMED op → `else` arms; RETURNING op → result-fn clauses.  Same status +
     // ProblemDetails body as the relational / ES-command path.
-    expect(ctl).toContain('ProblemDetails.problem_response(conn, 403, "Forbidden", detail)');
     expect(ctl).toContain(
-      'ProblemDetails.problem_response(conn, 422, "Unprocessable Entity", detail)',
+      'ProblemDetails.problem_response(conn, 403, "Forbidden", detail, "problem.forbidden")',
+    );
+    expect(ctl).toContain(
+      'ProblemDetails.problem_response(conn, 422, "Unprocessable Entity", detail, "problem.domain-floor")',
     );
     expect(ctl).toContain("def summary_note_result(conn, {:error, {:forbidden, detail}}),");
     expect(ctl).toContain(

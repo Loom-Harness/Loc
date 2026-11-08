@@ -117,7 +117,7 @@ describe("java — F19: a malformed wire string is refused, not parsed into a 50
   it("the advice answers 422 with the field's own pointer", async () => {
     const advice = await file("api/ApiExceptionAdvice.java");
     expect(advice).toContain("@ExceptionHandler(WireFormatException.class)");
-    expect(advice).toContain('entry.put("pointer", e.getPointer());');
+    expect(advice).toContain("entry(e.getPointer(), e.getMessage(), e.getCode(), e.getParams())");
     // Ahead of the catch-all, or the catch-all's 500 answers first.
     const arm = advice.indexOf("@ExceptionHandler(WireFormatException.class)");
     const catchAll = advice.indexOf("@ExceptionHandler(Exception.class)");
@@ -178,7 +178,7 @@ describe("java — the invariant validator skips a null instead of dereferencing
     // Narrowness: skipping NULL must not skip EMPTY. `""` is present and
     // violates the invariant; it answered 422 before and answers 422 after.
     const validator = await file("orders/CreateOrderValidator.java");
-    expect(validator).toContain('errors.rejectValue("sku", "loom.invariant"');
+    expect(validator).toContain('errors.rejectValue("sku", "field.rule"');
     expect(validator).toContain(">= 1");
   });
 });

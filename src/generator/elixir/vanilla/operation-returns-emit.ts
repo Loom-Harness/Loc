@@ -12,6 +12,7 @@
 // ---------------------------------------------------------------------------
 
 import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
+import { errorVariantCode } from "../../../ir/enrich/wire-policy.js";
 import { forApiRead, wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import { variantTag } from "../../../ir/stdlib/unions.js";
 import type {
@@ -408,7 +409,7 @@ export function renderOpGuardClause(
    *  domain floor; everything else denies as usual. */
   wireAvailable?: ReadonlySet<string>,
 ): string {
-  return `:ok <- ensure(${renderExpr(s.expr, rc)}, ${denialTerm(s, wireAvailable)})`;
+  return `:ok <- ensure(${renderExpr(s.expr, rc)}, ${denialTerm(s, wireAvailable, (e) => renderExpr(e, rc))})`;
 }
 
 /** Does the operation declare a `when` canCommand state gate (criterion.md use
@@ -691,14 +692,20 @@ function isErrorTag(tag: string, ctx: BoundedContextIR): boolean {
 export function errorVariantsOf(
   op: OperationIR,
   ctx: BoundedContextIR,
-): Array<{ tag: string; status: number; type: string; title: string }> {
+): Array<{ tag: string; status: number; type: string; title: string; code: string }> {
   if (op.returnType?.kind !== "union") return [];
   return op.returnType.variants
     .map((v) => variantTag(v))
     .filter((tag) => isErrorTag(tag, ctx))
     .map((tag) => {
       const resp = exErrorVariant(tag, ctx.errorStatusOverrides);
-      return { tag, status: resp.status, type: resp.type, title: resp.title };
+      return {
+        tag,
+        status: resp.status,
+        type: resp.type,
+        title: resp.title,
+        code: errorVariantCode(ctx.name, tag),
+      };
     });
 }
 
@@ -1663,7 +1670,7 @@ export function renderReturningOpControllerAction(
     okClause,
     ...errorVariantsOf(op, ctx).map(
       (v) => `  def ${resultFn}(conn, {:error, ${JSON.stringify(v.tag)}, data}),
-    do: problem_variant(conn, ${v.status}, ${JSON.stringify(v.type)}, ${JSON.stringify(v.title)}, data)`,
+    do: problem_variant(conn, ${v.status}, ${JSON.stringify(v.type)}, ${JSON.stringify(v.title)}, ${JSON.stringify(v.code)}, data)`,
     ),
     ...denialClauses,
     ...(persists
@@ -1719,12 +1726,16 @@ ${resultClauses}`;
 /** The shared per-controller responder for an error variant — RFC-7807
  *  envelope + the variant's own fields as §3.2 extension members. */
 export function renderProblemVariantHelper(): string {
-  return `  defp problem_variant(conn, status, type, title, data) do
+  return `  defp problem_variant(conn, status, type, title, code, data) do
+    # \`code\` is the error's catalog key (\`<Ctx>.<Error>.message\`); its record
+    # fields ride both as extension members and as \`params\`.
     body =
       Map.merge(
-        %{type: type, title: title, status: status, detail: title, instance: conn.request_path},
+        %{type: type, title: title, status: status, detail: title, instance: conn.request_path, code: code},
         data
       )
+
+    body = if map_size(data) > 0, do: Map.put(body, :params, data), else: body
 
     conn
     |> put_resp_content_type("application/problem+json")

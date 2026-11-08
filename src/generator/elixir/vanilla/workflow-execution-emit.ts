@@ -113,7 +113,13 @@ import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
 import { optionalReadLookup, type RenderCtx, renderExpr } from "../render-expr.js";
 import { stateDefault, stateDefaultDecls } from "../state-default.js";
-import { exLit, exSentence, exValuePrefix, strictIngressFields } from "../wire-policy-ex.js";
+import {
+  exFieldCode,
+  exLit,
+  exSentence,
+  exValuePrefix,
+  strictIngressFields,
+} from "../wire-policy-ex.js";
 import { aggregateUsesPrincipalContextFilter, customFindReadsActor } from "./capability-filter.js";
 import { exMoneyGrammarRegex } from "./codec-spelling-ex.js";
 import {
@@ -501,7 +507,7 @@ function lowerStatement(
       return [
         {
           kind: "with-clause",
-          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${workflowDenialTerm(st)}})`,
+          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${workflowDenialTerm(st, (e) => renderExpr(e, renderCtx))}})`,
           bindName: undefined,
         },
       ];
@@ -515,7 +521,7 @@ function lowerStatement(
       return [
         {
           kind: "with-clause",
-          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${workflowDenialTerm(st)}})`,
+          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${workflowDenialTerm(st, (e) => renderExpr(e, renderCtx))}})`,
           bindName: undefined,
         },
       ];
@@ -1013,7 +1019,7 @@ function renderWithBranch(
         case "precondition":
         case "requires":
           clauses.push(
-            `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
+            `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner, (e) => renderExpr(e, renderCtx))}})`,
           );
           break;
         case "not-found":
@@ -1371,12 +1377,12 @@ function renderLoopBody(
       }
       case "precondition":
         clauses.push(
-          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
+          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner, (e) => renderExpr(e, renderCtx))}})`,
         );
         break;
       case "requires":
         clauses.push(
-          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
+          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner, (e) => renderExpr(e, renderCtx))}})`,
         );
         break;
       case "not-found":
@@ -2085,7 +2091,7 @@ function renderWorkflowModule(
         {:error,
          {%{}, %{param => :map}}
          |> Ecto.Changeset.change(%{})
-         |> Ecto.Changeset.add_error(param, ${exLit(`${exValuePrefix("money-grammar")}: `)} <> Jason.encode!(value), loom_path: [field])}
+         |> Ecto.Changeset.add_error(param, ${exLit(`${exValuePrefix("money-grammar")}: `)} <> Jason.encode!(value), loom_path: [field], loom_code: ${exFieldCode("money-grammar")}, loom_params: %{value: value})}
       end
     end)
   end`

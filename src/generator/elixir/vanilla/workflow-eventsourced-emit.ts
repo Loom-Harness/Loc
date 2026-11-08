@@ -422,13 +422,13 @@ export function renderEsWorkflowHandler(
   for (const st of sub.statements) {
     switch (st.kind) {
       case "precondition": {
-        const text = `:ok <- ensure(${renderExpr(st.expr, renderCtx)}, ${workflowDenialTerm(st)})`;
+        const text = `:ok <- ensure(${renderExpr(st.expr, renderCtx)}, ${workflowDenialTerm(st, (e) => renderExpr(e, renderCtx))})`;
         guards.push(text);
         regions.push({ text, origin: st.origin });
         break;
       }
       case "requires": {
-        const text = `:ok <- ensure(${renderExpr(st.expr, renderCtx)}, ${workflowDenialTerm(st)})`;
+        const text = `:ok <- ensure(${renderExpr(st.expr, renderCtx)}, ${workflowDenialTerm(st, (e) => renderExpr(e, renderCtx))})`;
         guards.push(text);
         regions.push({ text, origin: st.origin });
         break;

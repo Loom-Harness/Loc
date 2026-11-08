@@ -1,4 +1,5 @@
 import type { EnumIR, StmtIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
+import { ruleParams } from "../../../ir/util/rule-params.js";
 import {
   type SingleFieldPattern,
   singleFieldConstraints,
@@ -111,7 +112,7 @@ export function ectoValidator(field: string, p: SingleFieldPattern, message?: st
 
 /** The single-field constraint validator lines for a value object's invariants
  *  (only those whose pattern targets one of the VO's own fields). */
-export function voConstraintLines(vo: ValueObjectIR): string[] {
+function voConstraintLines(vo: ValueObjectIR): string[] {
   return constraintLinesFor(vo);
 }
 
@@ -146,48 +147,65 @@ function constraintLinesFor(owner: {
   );
 }
 
-/** The wire `code` for a MESSAGED single-field rule emitted as a native Ecto
- *  `validate_*` line on a changeset that has no residual carrier (a value
- *  object's `changeset/1`, a value-collection row's `changeset/2`).  Ecto's
- *  validators take a `message:` but no metadata, so the rule's stable
- *  `<Ctx>.<Owner>.rule.<name>` never reached the error opts and the 422 body carried no
- *  `code` on elixir alone (wave C3, found draining `vo-id-reference`).  The
- *  returned pipe re-tags each error whose text is a named rule's; both
- *  halves are empty — byte-identical output — when no rule carries a message.
- *  `pipe` is a 4-space `|>` line; `defs` is a module-level block. */
-export function messageCodeTagging(owner: {
+/** The single-field constraint lines of an owner with no residual carrier (a
+ *  value object's `changeset/1`, a value-collection row's `changeset/2`), each
+ *  NAMED rule's tagged with the rule's wire `code`.
+ *
+ *  Ecto's validators take a `message:` but no metadata, so the rule's stable
+ *  `<Ctx>.<Owner>.rule.<name>` could not ride the error opts.  Each named rule's
+ *  validator line is therefore wrapped in `__loom_tagged/4`, which tags exactly
+ *  the errors that one validator added with `loom_code` (and the `loom_params`
+ *  it read).  The code is attached by RULE, never by message text: two rules
+ *  sharing one message keep their own codes.  Both halves are empty — and the
+ *  lines byte-identical — when no rule carries a message.  `defs` is a
+ *  module-level block. */
+export function taggedConstraintLines(owner: {
   fields: ValueObjectIR["fields"];
   invariants: ValueObjectIR["invariants"];
-}): { pipe: string; defs: string } {
+}): { lines: string[]; defs: string } {
   const fieldNames = new Set(owner.fields.map((f) => snake(f.name)));
-  const codes = new Map<string, string>();
-  for (const inv of owner.invariants ?? []) {
-    if (!inv.message) continue;
-    const routed = (singleFieldConstraints(inv) ?? []).some((c) => fieldNames.has(snake(c.field)));
-    if (routed) codes.set(namedRuleText(inv.message), inv.message.key);
-  }
-  if (codes.size === 0) return { pipe: "", defs: "" };
-  const entries = [...codes].map(
-    ([text, code]) => `${elixirString(text)} => ${JSON.stringify(code)}`,
+  let tagged = false;
+  const lines = (owner.invariants ?? []).flatMap((inv) =>
+    (singleFieldConstraints(inv) ?? [])
+      .filter((c) => fieldNames.has(snake(c.field)))
+      .map((c) => {
+        const line = ectoValidator(
+          snake(c.field),
+          c.pattern,
+          inv.message && namedRuleText(inv.message),
+        );
+        if (!inv.message) return line;
+        tagged = true;
+        const reads = ruleParams(inv)
+          .map((name) => `{${JSON.stringify(name)}, :${snake(name)}}`)
+          .join(", ");
+        return `    |> __loom_tagged(${elixirString(inv.message.key)}, [${reads}], fn changeset ->
+      changeset
+${line.replace(/^/gm, "  ")}
+    end)`;
+      }),
   );
+  if (!tagged) return { lines, defs: "" };
   return {
-    pipe: "    |> __loom_tag_codes()",
-    defs: `  @loom_codes %{${entries.join(", ")}}
+    lines,
+    defs: `  # A named rule's stable wire code rides the error opts as \`loom_code\`
+  # (ProblemDetails renders it as the 422 \`code\`), with the values the rule read
+  # as \`loom_params\`; Ecto's own validators cannot carry either, so they are
+  # attached to exactly the errors \`fun\` (one rule's validator) added.
+  defp __loom_tagged(changeset, code, reads, fun) do
+    checked = fun.(changeset)
+    count = length(checked.errors) - length(changeset.errors)
+    {added, kept} = Enum.split(checked.errors, count)
+    data = apply_changes(checked)
+    params = Map.new(reads, fn {name, key} -> {name, Map.get(data, key)} end)
 
-  # A named rule's stable wire code rides the error opts as \`loom_code\`
-  # (ProblemDetails renders it as the 422 \`code\`); Ecto's own validators
-  # cannot carry it, so it is attached here by the rule's authored text.
-  defp __loom_tag_codes(changeset) do
     errors =
-      Enum.map(changeset.errors, fn
-        {field, {msg, opts}} = error ->
-          case Map.get(@loom_codes, msg) do
-            nil -> error
-            code -> {field, {msg, Keyword.put(opts, :loom_code, code)}}
-          end
+      Enum.map(added, fn {field, {msg, opts}} ->
+        opts = Keyword.put(opts, :loom_code, code)
+        {field, {msg, if(params == %{}, do: opts, else: Keyword.put(opts, :loom_params, params))}}
       end)
 
-    %{changeset | errors: errors}
+    %{checked | errors: errors ++ kept}
   end
 `,
   };

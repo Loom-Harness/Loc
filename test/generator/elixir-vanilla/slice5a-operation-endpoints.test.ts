@@ -153,7 +153,7 @@ describe("vanilla — guarded NAMED op denies 403/422 (not raise → 500)", () =
     );
     expect(fn).toContain(":ok <- ensure(record.balance >= amount, {:forbidden, ");
     expect(fn).toContain(
-      ':ok <- ensure(amount > 0, {:validation_failed, [%{pointer: "/amount", message: "Amount must be at least 1"}]})',
+      ':ok <- ensure(amount > 0, {:validation_failed, [%{pointer: "/amount", message: "Amount must be at least 1", code: "field.rule"}]})',
     );
     // Guards precede the mutation + persist.
     // Anchored on the chain's OPENING token rather than on `with :ok <- ensure`:
@@ -174,9 +174,11 @@ describe("vanilla — guarded NAMED op denies 403/422 (not raise → 500)", () =
 
   it("controller `else` maps the denial atoms to 403 / 422", async () => {
     const ctl = get(await generateSystemFiles(GUARDED_NAMED), "/controllers/account_controller.ex");
-    expect(ctl).toContain('ProblemDetails.problem_response(conn, 403, "Forbidden", detail)');
     expect(ctl).toContain(
-      'ProblemDetails.problem_response(conn, 422, "Unprocessable Entity", detail)',
+      'ProblemDetails.problem_response(conn, 403, "Forbidden", detail, "problem.forbidden")',
+    );
+    expect(ctl).toContain(
+      'ProblemDetails.problem_response(conn, 422, "Unprocessable Entity", detail, "problem.domain-floor")',
     );
     expect(ctl).toContain("{:error, {:forbidden, detail}} ->");
     expect(ctl).toContain("{:error, {:precondition_failed, detail}} ->");

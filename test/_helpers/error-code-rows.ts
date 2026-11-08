@@ -41,25 +41,10 @@ const LIMITS_PENDING = { pending: "#4473 field-limit codes" } as const;
 
 export const ERROR_CODE_ROWS: readonly ErrorCodeRow[] = [
   { platform: "node", wireLegs: ["node", "mikroorm"], status: "done", fieldLimits: "done" },
-  {
-    platform: "dotnet",
-    wireLegs: ["dotnet", "dapper"],
-    status: "done",
-    fieldLimits: "done",
-  },
+  { platform: "dotnet", wireLegs: ["dotnet", "dapper"], status: "done", fieldLimits: "done" },
   { platform: "python", wireLegs: ["python"], status: "done", fieldLimits: "done" },
-  {
-    platform: "java",
-    wireLegs: ["java"],
-    status: { pending: "#4473 fan-out" },
-    fieldLimits: LIMITS_PENDING,
-  },
-  {
-    platform: "elixir",
-    wireLegs: ["elixir"],
-    status: { pending: "#4473 fan-out" },
-    fieldLimits: LIMITS_PENDING,
-  },
+  { platform: "java", wireLegs: ["java"], status: "done", fieldLimits: LIMITS_PENDING },
+  { platform: "elixir", wireLegs: ["elixir"], status: "done", fieldLimits: LIMITS_PENDING },
 ];
 
 /** The wire legs whose backend still answers without `code` / `params`. */

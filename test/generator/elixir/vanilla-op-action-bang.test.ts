@@ -93,9 +93,11 @@ describe("vanilla LiveView operation-action bang seams (§13)", () => {
     expect(confirm).toContain("guard_error in Api.GuardError ->");
     expect(confirm).toContain("case guard_error.kind do");
     expect(confirm).toContain(":forbidden ->");
-    expect(confirm).toContain('ProblemDetails.problem_response(conn, 403, "Forbidden", guard_msg)');
     expect(confirm).toContain(
-      'ProblemDetails.problem_response(conn, 422, "Unprocessable Entity", guard_msg)',
+      'ProblemDetails.problem_response(conn, 403, "Forbidden", guard_msg, "problem.forbidden")',
+    );
+    expect(confirm).toContain(
+      'ProblemDetails.problem_response(conn, 422, "Unprocessable Entity", guard_msg, "problem.domain-floor")',
     );
     // The routing no longer reads the message at all.
     expect(confirm).not.toContain("String.starts_with?(guard_msg");

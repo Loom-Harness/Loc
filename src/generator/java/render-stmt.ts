@@ -15,6 +15,7 @@ import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt
 import { javaLineageValue } from "./codec-spelling.js";
 import { jid } from "./java-ident.js";
 import { type JavaRenderContext, renderJavaExpr, withLambdaScope } from "./render-expr.js";
+import { javaRuleParamsTail } from "./wire-policy-java.js";
 
 // ---------------------------------------------------------------------------
 // Statement LEAF TABLE for the Java / Spring backend.  The 11-kind `StmtIR`
@@ -273,7 +274,7 @@ function precondition(
   const code = traceCtx.domainFloorCodes ? domainFloorCode(message) : undefined;
   const text = JSON.stringify(ruleText({ expr, source, message }));
   const thrown = code
-    ? `throw new DomainException(${text}, DomainException.Kind.PRECONDITION, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
+    ? `throw new DomainException(${text}, DomainException.Kind.PRECONDITION, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))}${message ? javaRuleParamsTail({ expr }, (e) => renderJavaExpr(e, ctx)) : ""})`
     : `throw new DomainException(${text}, DomainException.Kind.PRECONDITION)`;
   if (!traceCtx.emitTrace) {
     return `${INDENT}if (!(${renderJavaExpr(expr, ctx)})) ${thrown};`;

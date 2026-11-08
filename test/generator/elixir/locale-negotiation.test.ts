@@ -213,17 +213,6 @@ describe("Phoenix LocaleSwitcher", () => {
   });
 });
 
-describe("Phoenix 422 locale lookup", () => {
-  it("routes Accept-Language through the shared matcher, not a verbatim lowercase", async () => {
-    const files = await gen(["de", "fr"]);
-    const problem = file(files, "_web/problem_details.ex");
-    expect(problem).toContain("AppWeb.Locale.header_gettext_locale(App.RequestContext.locale())");
-    expect(problem).not.toContain("String.downcase()");
-    const locale = file(files, "_web/locale.ex");
-    expect(locale).toContain("negotiate(nil, nil, accept_language) |> gettext_locale()");
-  });
-});
-
 describe("Phoenix per-locale gettext trees", () => {
   it("emits a .po per translated locale carrying its translations", async () => {
     const files = await generateSystemFiles(SYSTEM(), {

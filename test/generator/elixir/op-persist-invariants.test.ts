@@ -4,7 +4,7 @@
 // must re-assert the invariants before the write, or `setQty(-1)` under
 // `invariant qty >= 0` commits — and answer the OPERATION's domain-error shape
 // the other four backends answer (422 "Unprocessable Entity", detail
-// `Invariant violated: qty >= 0`, no errors[]), not the request changeset's
+// the rule's generic sentence, never its source, no errors[]), not the request changeset's
 // "Validation failed" envelope.  Covered on all three op persist shapes: a
 // plain named op, a returning op, an extern op.
 //
@@ -69,16 +69,14 @@ const source = (invariant: string, TESTS: string): string => `system T {
 }`;
 
 describe("elixir operation persist re-runs single-field invariants (E11)", () => {
-  it("assert_op_invariants/1 tags the first violated rule with its `Invariant violated:` text", async () => {
+  it("assert_op_invariants/1 tags the first violated rule with its generic sentence, never its source", async () => {
     const cs = file(
       await generateSystemFiles(corpus("op-persist-field-invariant")),
       "counter_changeset.ex",
     );
     const fn = defBody(cs, "assert_op_invariants");
-    expect(fn).toContain(
-      'add_error(changeset, :qty, "Invariant violated: qty >= 0", loom_invariant: true)',
-    );
-    expect(fn).toContain('"Invariant violated: label != \\"\\""');
+    expect(fn).toContain('add_error(changeset, :qty, "Invalid value", loom_invariant: true)');
+    expect(fn).toContain('"Business rule violated"');
     expect(fn.indexOf(":qty")).toBeLessThan(fn.indexOf(":label"));
   });
 
@@ -89,7 +87,9 @@ describe("elixir operation persist re-runs single-field invariants (E11)", () =>
     );
     const fn = defBody(pd, "validation_error_response");
     expect(fn).toContain("case op_invariant_violation(changeset) do");
-    expect(fn).toContain('problem_response(conn, 422, "Unprocessable Entity", detail)');
+    expect(fn).toContain(
+      'problem_response(conn, 422, "Unprocessable Entity", detail, "problem.domain-floor")',
+    );
   });
 
   it("every operation persist shape pipes through it before the write", async () => {

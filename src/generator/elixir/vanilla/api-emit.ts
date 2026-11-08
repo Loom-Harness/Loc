@@ -51,7 +51,7 @@ import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import type { ApiRoute } from "../api-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { renderExpr as renderElixirExpr } from "../render-expr.js";
-import { exSentence, exStatus, exTitle, strictIngressFields } from "../wire-policy-ex.js";
+import { exCode, exSentence, exStatus, exTitle, strictIngressFields } from "../wire-policy-ex.js";
 import { auditRecordCall, createAuditMeta, destroyAuditMeta } from "./audit-emit.js";
 import {
   aggregateServesHistoryRoute,
@@ -100,7 +100,7 @@ import { emitsRestDelete } from "./rest-surface.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
 import {
   EXPECTED_VERSION_BIND,
-  EXPECTED_VERSION_HELPER,
+  expectedVersionHelper,
   RECORD_AT_EXPECTED_VERSION,
   savesLockVersion,
 } from "./version-check-ex.js";
@@ -825,7 +825,8 @@ ${createCuBind}    case ${ctxModule}.create_${aggSnake}(params${createActor}) do
           conn,
           ${referencedInUseStatus},
           ${exTitle("referenced-in-use", ctx.structuralErrorStatuses)},
-          ${exSentence("referenced-in-use", aggPascal)}
+          ${exSentence("referenced-in-use", aggPascal)},
+          ${exCode("referenced-in-use")}
         )
       else
         reraise(fk_error, __STACKTRACE__)
@@ -924,7 +925,7 @@ ${cuBind}${destroyCuBind}${destroyVersionBind}    with {:ok, record} <- ${ctxMod
     versionsUpdate ||
     (versionsDestroy && !readOnly && emitsRestDelete(agg)) ||
     memberOps.some((op) => readsIfMatch(operationVersionCheck(agg, op)))
-      ? EXPECTED_VERSION_HELPER
+      ? expectedVersionHelper(appModule)
       : "";
 
   // The mutating actions (create / update / delete).  An abstract inheritance

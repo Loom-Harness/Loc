@@ -39,7 +39,7 @@ import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { namedRuleText } from "../../_i18n/rule-text.js";
 import { serverSeededFields } from "../../construction-default.js";
 import { renderExpr as renderElixirExpr } from "../render-expr.js";
-import { exFieldMessage, exLit, exValuePrefix } from "../wire-policy-ex.js";
+import { exFieldCode, exFieldMessage, exLit, exValuePrefix } from "../wire-policy-ex.js";
 import {
   decimalIngressPaths,
   isStringField,
@@ -418,7 +418,11 @@ ${messagedFieldLines.join("\n")}
   defp __loom_money_range(field, %Decimal{} = value) do
     if Decimal.lt?(Decimal.abs(value), Decimal.new(${exMoneyMaxExclusive()})),
       do: [],
-      else: [{field, ${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(Decimal.to_string(value))}]
+      else: [
+        {field,
+         {${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(Decimal.to_string(value)),
+          [loom_code: ${exFieldCode("money-range")}, loom_params: %{value: Decimal.to_string(value)}]}}
+      ]
   end
 
   defp __loom_money_range(_field, _value), do: []`
@@ -439,14 +443,51 @@ ${messagedFieldLines.join("\n")}
       return t.kind === "primitive" && t.name === "int";
     })
     .map((f) => snake(f.name));
+  // A \`validate_change\` closure rather than \`validate_number\`: its error carries
+  // the \`loom_code\` / \`loom_params\` the 422 body reports (\`field.integer-range\`
+  // with the int32 bounds), which Ecto's own validator cannot attach.
   const int32RangeLines = int32Columns.map(
-    (f) =>
-      `    |> validate_number(:${f}, greater_than_or_equal_to: ${exInt32Range().min}, ` +
-      `less_than_or_equal_to: ${exInt32Range().max}, message: ${exFieldMessage("integer-range")})`,
+    (f) => `    |> validate_change(:${f}, &__loom_int32_range/2)`,
   );
+  const int32RangeHelper =
+    int32Columns.length > 0
+      ? `
+
+  defp __loom_int32_range(field, value)
+       when is_integer(value) and (value < ${exInt32Range().min} or value > ${exInt32Range().max}),
+       do: [
+         {field,
+          {${exFieldMessage("integer-range")},
+           [validation: :number, loom_code: ${exFieldCode("integer-range")}, loom_params: %{min: ${exInt32Range().min}, max: ${exInt32Range().max}}]}}
+       ]
+
+  defp __loom_int32_range(_field, _value), do: []`
+      : "";
+  // A body `X id` is a `:binary_id` column, and `Ecto.Type.cast(:binary_id, ...)`
+  // accepts ANY binary, so a non-uuid reaches the insert and `dump` raises
+  // `Ecto.ChangeError` — a 500 for a client fault.  The same check the
+  // path-id and op-param edges make (36 characters that cast), refused with the
+  // fact's `malformed-id` message at the field's pointer.
+  const idColumns = allFields
+    .filter((f) => (f.type.kind === "optional" ? f.type.inner : f.type).kind === "id")
+    .map((f) => snake(f.name));
+  const idLines = idColumns.map((f) => `    |> validate_change(:${f}, &__loom_uuid/2)`);
+  const idHelper =
+    idColumns.length > 0
+      ? `
+
+  defp __loom_uuid(field, value) do
+    if is_binary(value) and byte_size(value) == 36 and match?({:ok, _}, Ecto.UUID.cast(value)),
+      do: [],
+      else: [{field, {${exFieldMessage("malformed-id")}, [loom_code: ${exFieldCode("malformed-id")}]}}]
+  end`
+      : "";
   const validatorBlock =
-    validatorLines.length > 0 || moneyRangeLines.length > 0 || int32RangeLines.length > 0
-      ? `\n${[...validatorLines, ...moneyRangeLines, ...int32RangeLines].join("\n")}`
+    validatorLines.length > 0 ||
+    moneyRangeLines.length > 0 ||
+    int32RangeLines.length > 0 ||
+    idLines.length > 0
+      ? `\n${[...validatorLines, ...moneyRangeLines, ...int32RangeLines, ...idLines].join("\n")}`
       : "";
 
   // Containments round-trip via `cast_embed` (embedded jsonb) or `cast_assoc`
@@ -1003,7 +1044,7 @@ defmodule ${changesetMod} do
     ${voKeyNormalizeLine}${valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : ""}struct
     |> ${castLines("@all_fields", "@string_fields")}${createIngressLine}${defaultBlock}
     |> ${requireLines("@required_fields", "@required_strings")}${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}
-  end${updateChangesetBlock}${invariantFnBlock}${opAssertFn ? `\n\n${opAssertFn}` : ""}${fieldInvariantFn}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voShapeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
+  end${updateChangesetBlock}${invariantFnBlock}${opAssertFn ? `\n\n${opAssertFn}` : ""}${fieldInvariantFn}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${int32RangeHelper}${idHelper}${voShapeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
 
 ${actionHelpers}
 end

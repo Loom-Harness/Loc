@@ -4,6 +4,7 @@
 // java site renders the same refusal the same way.
 
 import {
+  errorVariantCode,
   errorVariantResponse,
   fieldSentenceSuffix,
   type IngressJsonType,
@@ -11,7 +12,9 @@ import {
   type WireRejectionClass,
   wireSentence,
 } from "../../ir/enrich/wire-policy.js";
+import type { BoundedContextIR, ExprIR } from "../../ir/types/loom-ir.js";
 import type { WirePrimitive } from "../../ir/types/wire-types.js";
+import { ruleParamRefs } from "../../ir/util/rule-params.js";
 
 /** A Java string literal.  JSON string escapes are valid Java ones for the
  *  printable text the fact carries. */
@@ -38,6 +41,54 @@ export function javaSentence(cls: WireRejectionClass, subjectExpr: string): stri
  *  `pointerExpr`.  `lastKey` is the advice's helper. */
 export function javaMissingFieldMessage(pointerExpr: string): string {
   return `lastKey(${pointerExpr}) + ${javaLit(` ${fieldSentenceSuffix("missing")}`)}`;
+}
+
+/** The Java argument list `"name", <value>, …` carrying the VALUES of the
+ *  identifiers `rule` reads (`ruleParamRefs`) — a named rule's wire `params` —
+ *  or undefined when it reads none.  `render` spells one reference where the
+ *  rule trips. */
+export function javaRuleParamArgs(
+  rule: { expr: ExprIR; guard?: ExprIR },
+  render: (e: ExprIR) => string,
+): string | undefined {
+  const refs = ruleParamRefs(rule);
+  if (refs.length === 0) return undefined;
+  return refs.map(({ name, ref }) => `${javaLit(name)}, ${render(ref)}`).join(", ");
+}
+
+/** `, DomainException.params("qty", <value>, …)` — the trailing constructor
+ *  argument carrying a NAMED rule's `params` — or "" when it reads none. */
+export function javaRuleParamsTail(
+  rule: { expr: ExprIR; guard?: ExprIR },
+  render: (e: ExprIR) => string,
+  owner = "DomainException",
+): string {
+  const args = javaRuleParamArgs(rule, render);
+  return args === undefined ? "" : `, ${owner}.params(${args})`;
+}
+
+/** The `code` / `params` members of a DECLARED error variant's problem body,
+ *  as Java statements adding them to `problem`: `<Ctx>.<Error>.message`, and
+ *  the error record's own fields as `params` (none ⇒ no `params`).
+ *  `fieldValue` spells one record field. */
+export function javaErrorVariantExt(
+  ctx: Pick<BoundedContextIR, "name" | "payloads">,
+  tag: string,
+  indent: string,
+  fieldValue: (field: string) => string,
+): string[] {
+  const payload = ctx.payloads.find((p) => p.name === tag && p.kind === "error");
+  const fields = payload?.fields ?? [];
+  return [
+    `${indent}problem.setProperty("code", ${javaLit(errorVariantCode(ctx.name, tag))});`,
+    ...(fields.length === 0
+      ? []
+      : [
+          `${indent}problem.setProperty("params", new java.util.LinkedHashMap<String, Object>() {{`,
+          ...fields.map((f) => `${indent}    put(${javaLit(f.name)}, ${fieldValue(f.name)});`),
+          `${indent}}});`,
+        ]),
+  ];
 }
 
 /** The lines answering a declared `error` variant (RS-19/RS-30):

@@ -99,7 +99,7 @@ describe("java generator — domain layer (S3)", () => {
     // Compact-constructor scope: bare params, not `this.` (unassignable there).
     expect(vo).toContain(
       // M-T5.1 — a DomainException subclass the advice answers with an errors[] entry.
-      'if (!(((int) zip.codePoints().count()) > 0)) throw new ValueObjectInvariantException("Address", "Invalid value");',
+      'if (!(((int) zip.codePoints().count()) > 0)) throw new ValueObjectInvariantException("Address", "Invalid value", "field.rule");',
     );
   });
 

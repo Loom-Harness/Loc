@@ -63,7 +63,7 @@ describe("vanilla operation `when` state gate (B6)", () => {
     // the 409 reason phrase; detail is bound from the tuple so it names the
     // occurrence.  Both now byte-identical to node/.NET/Java/Python.
     expect(controller).toContain(
-      'ProblemDetails.problem_response(conn, 409, "Disallowed", detail)',
+      'ProblemDetails.problem_response(conn, 409, "Disallowed", detail, "problem.state-gate")',
     );
   });
 });
