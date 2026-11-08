@@ -16,7 +16,7 @@ import { printStructural } from "../../src/language/print/print-structural.js";
 
 /** A deployed system with a `user` block; `ctxTest` lands in the context,
  *  `e2e` / `extra` at system scope. */
-export const principalSys = (opts: {
+const principalSys = (opts: {
   user?: string;
   ctxTest?: string;
   e2e?: string;
