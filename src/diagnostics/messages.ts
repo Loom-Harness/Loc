@@ -5766,9 +5766,10 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   "loom.unknown-capability": (p: { cap: unknown }) =>
     `Unknown capability '${p.cap}' in 'implements'.`,
-  "loom.version-field-collision": (p: { name: unknown; name2: unknown }) =>
-    `field 'version' on aggregate '${p.name}' collides with Loom's optimistic-concurrency column, which is an 'int'. ` +
-    `Rename this field (e.g. '${p.name2}Version'), or declare it 'version: int' if you meant the concurrency counter.`,
+  "loom.version-field-collision": (p: { field: unknown; name: unknown }) =>
+    `field '${p.field}' on aggregate '${p.name}' collides with Loom's optimistic-concurrency counter 'rowVersion' ` +
+    `(column 'row_version'), an 'int' every save rewrites. Rename this field — 'version' is an ordinary field ` +
+    `name — or declare it 'rowVersion: int' if you meant the concurrency counter.`,
   "loom.softdelete-field-collision": (p: { name: unknown; name2: unknown }) =>
     `field 'isDeleted' on aggregate '${p.name}' collides with the 'softDeletable' capability's flag, which is a 'bool' ` +
     `(the spliced 'filter !this.isDeleted' reads it). Rename this field (e.g. '${p.name2}Deleted'), or declare it ` +

@@ -36,6 +36,7 @@ import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { serverInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { escapeTargetFieldMember, escapeTargetMember } from "../../../util/target-identifiers.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
@@ -289,7 +290,7 @@ function rootShape(a: AggregateIR): EntityShape {
     eventSourced: a.persistedAs === "eventLog",
     creates: a.creates,
     versionField: rowVersionGuarded(a)
-      ? a.fields.find((f) => f.access === "token")?.name
+      ? a.fields.find((f) => f.name === ROW_VERSION_FIELD)?.name
       : undefined,
   };
 }

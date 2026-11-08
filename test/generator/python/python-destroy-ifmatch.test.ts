@@ -22,7 +22,7 @@ describe("python DELETE of a versioned aggregate", () => {
     for (const name of ["doc", "memo"]) {
       const route = destroyRoute(files, name);
       expect(route, name).toContain('request.headers.get("if-match"');
-      expect(route, name).toMatch(/int\(_if_match\) != __loaded\.version/);
+      expect(route, name).toMatch(/int\(_if_match\) != __loaded\.row_version/);
       expect(route, name).toContain("raise ConcurrencyError(");
     }
   });

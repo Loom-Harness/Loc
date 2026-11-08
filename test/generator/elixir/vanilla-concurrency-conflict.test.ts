@@ -45,14 +45,14 @@ const fileEndingWith = (files: Map<string, string>, suffix: string): string => {
 };
 
 describe("vanilla — versioned optimistic-concurrency", () => {
-  it("update changeset applies optimistic_lock(:version)", async () => {
+  it("update changeset applies optimistic_lock(:row_version)", async () => {
     const cs = fileEndingWith(
       await generateSystemFiles(SOURCE("with versioned")),
       "customer_changeset.ex",
     );
     expect(cs).toContain("def update_changeset(struct, attrs) do");
-    expect(cs).toContain("|> optimistic_lock(:version)");
-    expect(cs).toContain(":version");
+    expect(cs).toContain("|> optimistic_lock(:row_version)");
+    expect(cs).toContain(":row_version");
   });
 
   it("repository update overrides the struct version and rescues StaleEntryError", async () => {
@@ -61,7 +61,9 @@ describe("vanilla — versioned optimistic-concurrency", () => {
       "customer_repository.ex",
     );
     expect(repo).toContain("expected_version \\\\ nil");
-    expect(repo).toContain("record = %{record | version: expected_version || record.version}");
+    expect(repo).toContain(
+      "record = %{record | row_version: expected_version || record.row_version}",
+    );
     expect(repo).toContain("Ecto.StaleEntryError -> {:error, :conflict}");
   });
 
@@ -93,7 +95,7 @@ describe("vanilla — versioned optimistic-concurrency", () => {
       await generateSystemFiles(SOURCE("with versioned")),
       "_create_customers.exs",
     );
-    expect(migration).toContain(":version");
+    expect(migration).toContain(":row_version");
     expect(migration).toContain("default: 1");
   });
 
@@ -105,8 +107,8 @@ describe("vanilla — versioned optimistic-concurrency", () => {
     const cs = fileEndingWith(files, "customer_changeset.ex");
     const repo = fileEndingWith(files, "customer_repository.ex");
     const pd = fileEndingWith(files, "_web/problem_details.ex");
-    expect(cs).toContain("|> optimistic_lock(:version)");
-    expect(cs).toContain(":version");
+    expect(cs).toContain("|> optimistic_lock(:row_version)");
+    expect(cs).toContain(":row_version");
     expect(repo).toContain("expected_version \\\\ nil");
     expect(repo).toContain("Ecto.StaleEntryError -> {:error, :conflict}");
     expect(pd).toContain("def conflict_response(conn, kind, id) do");

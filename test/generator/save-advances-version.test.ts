@@ -47,7 +47,7 @@ function tsSave(repo: string): string {
 /** Assert the TS save records the counter on each branch and applies it after
  *  the write (the apply line comes after the update branch's bump). */
 function expectTsAdvances(save: string): void {
-  expect(save).toContain("let savedVersion = aggregate.version;");
+  expect(save).toContain("let savedVersion = aggregate.rowVersion;");
   expect(save).toContain("savedVersion = 1;");
   expect(save).toContain("savedVersion = expected + 1;");
   expect(save).toContain("aggregate._applyVersion(savedVersion);");
@@ -59,7 +59,7 @@ function expectTsAdvances(save: string): void {
 describe("node: save() advances the instance's version", () => {
   it("the domain root exposes _applyVersion over its version field", async () => {
     const domain = await fileOf("node", "", "d/domain/req.ts");
-    expect(domain).toContain("_applyVersion(next: number): void { this._version = next; }");
+    expect(domain).toContain("_applyVersion(next: number): void { this._rowVersion = next; }");
   });
 
   for (const [label, platform, shape] of [
@@ -84,9 +84,9 @@ describe("python: save() advances the instance's version", () => {
   ] as const) {
     it(label, async () => {
       const repo = await fileOf("python", shape, "app/db/repositories/req_repository.py");
-      expect(repo).toContain(".returning(ReqRow.version)");
+      expect(repo).toContain(".returning(ReqRow.row_version)");
       expect(repo).toContain("_saved_version = _guarded.scalar_one_or_none()");
-      expect(repo).toContain("aggregate._version = _saved_version");
+      expect(repo).toContain("aggregate._row_version = _saved_version");
     });
   }
 });

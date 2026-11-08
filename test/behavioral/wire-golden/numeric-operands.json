@@ -24,9 +24,9 @@
         "lineTotal": "7.5000",
         "price": "2.5000",
         "qty": 3,
+        "rowVersion": 1,
         "sameAsGoal": false,
-        "underTarget": true,
-        "version": 1
+        "underTarget": true
       }
     },
     {
@@ -49,9 +49,9 @@
         "lineTotal": "7.5000",
         "price": "2.5000",
         "qty": 3,
+        "rowVersion": 2,
         "sameAsGoal": false,
-        "underTarget": false,
-        "version": 2
+        "underTarget": false
       }
     },
     {
@@ -74,9 +74,9 @@
         "lineTotal": "1.0000",
         "price": "0.2500",
         "qty": 4,
+        "rowVersion": 3,
         "sameAsGoal": true,
-        "underTarget": false,
-        "version": 3
+        "underTarget": false
       }
     },
     {
@@ -94,9 +94,9 @@
             "lineTotal": "1.0000",
             "price": "0.2500",
             "qty": 4,
+            "rowVersion": 3,
             "sameAsGoal": true,
-            "underTarget": false,
-            "version": 3
+            "underTarget": false
           }
         ],
         "page": 1,

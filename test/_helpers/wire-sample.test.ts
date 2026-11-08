@@ -59,18 +59,18 @@ system S {
       tags: [],
       home: { street: "sample" },
       other: "00000000-0000-4000-8000-000000000001",
-      version: 1,
+      rowVersion: 1,
     });
   });
 
-  it("yields exactly the auth-gate fixture's wire members (incl. version)", async () => {
+  it("yields exactly the auth-gate fixture's wire members (incl. rowVersion)", async () => {
     const src = fs.readFileSync(
       path.join(here, "..", "e2e", "fixtures", "auth-gate-e2e", "auth-gate.ddd"),
       "utf-8",
     );
     const body = sampleWireBody(await specOf(src), "Job");
-    expect(Object.keys(body).sort()).toEqual(["id", "status", "title", "version"]);
-    expect(body.version).toBe(1);
+    expect(Object.keys(body).sort()).toEqual(["id", "rowVersion", "status", "title"]);
+    expect(body.rowVersion).toBe(1);
   });
 
   it("fails loudly on a schema it cannot satisfy rather than guessing", () => {

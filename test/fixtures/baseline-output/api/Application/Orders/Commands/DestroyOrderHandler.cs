@@ -22,7 +22,7 @@ public sealed class DestroyOrderHandler : ICommandHandler<DestroyOrderCommand, U
     {
         var aggregate = await _repo.GetByIdAsync(command.Id, cancellationToken)
             ?? throw new AggregateNotFoundException($"Order {command.Id} not found");
-        if (RequestContext.Current?.ExpectedVersion is int __ifMatch && __ifMatch != aggregate.Version)
+        if (RequestContext.Current?.ExpectedVersion is int __ifMatch && __ifMatch != aggregate.RowVersion)
             throw new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException($"Order {aggregate.Id.Value} was modified by another request");
         await _repo.DeleteAsync(aggregate, cancellationToken);
         return Unit.Value;

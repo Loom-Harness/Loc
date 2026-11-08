@@ -86,8 +86,8 @@
       "body": {
         "closed": false,
         "id": "<volatile:key>",
-        "title": "valve",
-        "version": 1
+        "rowVersion": 1,
+        "title": "valve"
       }
     },
     {
@@ -108,8 +108,8 @@
       "body": {
         "closed": true,
         "id": "<volatile:key>",
-        "title": "valve",
-        "version": 2
+        "rowVersion": 2,
+        "title": "valve"
       }
     },
     {
@@ -147,8 +147,8 @@
       "body": {
         "closed": true,
         "id": "<volatile:key>",
-        "title": "valve 2",
-        "version": 3
+        "rowVersion": 3,
+        "title": "valve 2"
       }
     },
     {
@@ -161,8 +161,8 @@
           {
             "closed": true,
             "id": "<volatile:key>",
-            "title": "valve 2",
-            "version": 3
+            "rowVersion": 3,
+            "title": "valve 2"
           }
         ],
         "page": 1,

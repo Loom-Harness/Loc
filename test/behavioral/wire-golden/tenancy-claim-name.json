@@ -21,7 +21,7 @@
           "amountDue": 100,
           "id": "<volatile:key>",
           "number": "INV-1",
-          "version": 1
+          "rowVersion": 1
         }
       ]
     },
@@ -41,7 +41,7 @@
         "amountDue": 250,
         "id": "<volatile:key>",
         "number": "INV-1B",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -55,7 +55,7 @@
             "amountDue": 250,
             "id": "<volatile:key>",
             "number": "INV-1B",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -164,7 +164,7 @@
         "amountDue": 1,
         "id": "<volatile:key>",
         "number": "LADDER-1",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -189,7 +189,7 @@
         "amountDue": 1,
         "id": "<volatile:key>",
         "number": "LADDER-1",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {

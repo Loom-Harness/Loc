@@ -1,3 +1,4 @@
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 // The in-memory half of a row-version-guarded save (`rowVersionGuarded`).
 //
 // Every TypeScript save shape (drizzle relational / embedded / document, and
@@ -15,7 +16,7 @@
 
 /** Declared before the save's write block. */
 export function savedVersionDecl(indent: string): string {
-  return `${indent}let savedVersion = aggregate.version;`;
+  return `${indent}let savedVersion = aggregate.${ROW_VERSION_FIELD};`;
 }
 
 /** Recorded right after the insert branch's write. */

@@ -733,7 +733,7 @@ the implicit `editable`) form this matrix:
 | `editable` *(default)* | ✓ | ✓ | ✓ | ✓ |
 | `immutable` | ✓ | ✓ | ✗ (server rejects) — *wire only; a domain operation may still assign it* | ✓ |
 | `managed` | ✓ | ✗ (server owns it) | ✗ | ✓ |
-| `token` | ✓ | ✗ | ✗ body — sent as an optimistic-concurrency *precondition* (like `id`/`version`) | ✓ |
+| `token` | ✓ | ✗ | ✗ body — sent as an optimistic-concurrency *precondition* (like `id`/`rowVersion`) | ✓ |
 | `internal` | ✗ (never exposed via API) | ✗ | ✗ | ✓ (the UI may read it) |
 | `secret` | ✗ (never disclosed) | ✓ | ✓ (write-only) | ✗ |
 
@@ -909,7 +909,7 @@ aggregate User {
   email: string                            // editable (default)
   createdAt: datetime managed              // server stamps it
   passwordHash: string secret              // accepted on create + update; never sent back
-  version: int token                       // round-tripped for optimistic concurrency
+  revision: int token                      // round-tripped as a precondition, never client-edited
   isDeleted: bool internal                 // hidden from clients; UI may read
   slug: string immutable                   // off the update input; a domain operation may still assign it
 }

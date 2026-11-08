@@ -112,7 +112,7 @@ describe("node checksVersion census — emitted routes and saves", () => {
             `${agg.name}.destroy reads If-Match`,
           ).toBe(wantsDestroy);
           expect(
-            /expectedVersion !== \w+\.version\) throw new ConcurrencyError\(/.test(destroyBlock),
+            /expectedVersion !== \w+\.rowVersion\) throw new ConcurrencyError\(/.test(destroyBlock),
             `${agg.name}.destroy refuses a stale tag`,
           ).toBe(wantsDestroy);
         }

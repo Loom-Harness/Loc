@@ -158,6 +158,7 @@ import type {
   SingleFieldPattern,
 } from "../../../ir/validate/invariant-classify.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { escapeTargetFieldMember, escapeTargetMember } from "../../../util/target-identifiers.js";
 
@@ -1290,7 +1291,7 @@ export function buildRoutesFile(
     // contract divergence.  Declaring it belongs with emitting it on the other
     // four backends, in one change.
     if (readsIfMatch(operationVersionCheck(agg))) {
-      lines.push(`      c.header("etag", versionETag(found.version));`);
+      lines.push(`      c.header("etag", versionETag(found.${ROW_VERSION_FIELD}));`);
     }
     if (emitTrace) {
       // toWire isn't trivial — bind once so it's not run twice between
@@ -1912,7 +1913,7 @@ function expectedVersionLines(check: VersionCheck, pad: string, loadedVar = "agg
   if (!readsIfMatch(check)) return [];
   return [
     `${pad}const ifMatch = c.req.header("if-match");`,
-    `${pad}const expectedVersion = parseIfMatch(ifMatch, ${loadedVar}.version);`,
+    `${pad}const expectedVersion = parseIfMatch(ifMatch, ${loadedVar}.${ROW_VERSION_FIELD});`,
   ];
 }
 
@@ -1923,7 +1924,7 @@ function expectedVersionLines(check: VersionCheck, pad: string, loadedVar = "agg
 function destroyIfMatchLines(agg: AggregateIR, loadedVar: string, pad: string): string[] {
   return [
     ...expectedVersionLines(destroyVersionCheck(agg), pad, loadedVar),
-    `${pad}if (expectedVersion !== ${loadedVar}.version) throw new ConcurrencyError("${agg.name}", id);`,
+    `${pad}if (expectedVersion !== ${loadedVar}.${ROW_VERSION_FIELD}) throw new ConcurrencyError("${agg.name}", id);`,
   ];
 }
 

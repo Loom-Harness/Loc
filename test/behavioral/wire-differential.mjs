@@ -518,7 +518,7 @@ const __twoWriterProbe = async (dispatch) => {
   const versions = [];
   const readVersion = async () => {
     const r = await dispatch({ method: "GET", url: u.origin + rowPath, headers: { ...headers } });
-    try { return JSON.parse(r?.response?.body ?? "")?.version; } catch { return undefined; }
+    try { return JSON.parse(r?.response?.body ?? "")?.rowVersion; } catch { return undefined; }
   };
   for (let p = 0; p < __TWO_WRITER_PAIRS; p++) {
     const v = await readVersion();
