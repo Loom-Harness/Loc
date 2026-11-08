@@ -750,10 +750,6 @@ const SELECTS_FROM_COMPLETE_SET = {
     "the kind tests only pick which already-enumerated node to act on; the enumeration is a deep walk (walk*Deep / forEachModelExpr) or a deliberately top-level statement list, so no child is skipped here",
 } as const;
 
-/** Debt the independent-if detector surfaced: a traversal or renderer that
- *  silently skips kinds.  Each names the issue that owns the fix. */
-const IF_RUN_GAP_REVIEW = "2027-02-28";
-
 const WAIVERS: Record<string, Waiver> = {
   "src/ir/util/ui-gate.ts#firstNonUiGateNode": UI_GATE_CLOSED_SUBSET,
   "src/ir/util/ui-gate.ts#printGateExpr": UI_GATE_CLOSED_SUBSET,
@@ -811,8 +807,7 @@ const WAIVERS: Record<string, Waiver> = {
   // `walkWorkflowStmtExprsDeep`, `walkExprChildren`, and `mapExprChildren` for
   // an IR→IR rewrite).  Their `deferred` rows are emitters that silently drop
   // or abort on a statement kind another backend renders — rendering work, not
-  // a walk migration.  The `deferred` if-run rows further down are real
-  // traversal or renderer gaps, each owned by the issue its reason names.
+  // a walk migration.
 
   // --- already delegates to a sanctioned walker for recursion --------------
   "src/generator/java/explicit-handlers-emit.ts#reposUsed": DELEGATES_TO_SANCTIONED_WALKER,
@@ -868,14 +863,6 @@ const WAIVERS: Record<string, Waiver> = {
   // re-checked against them; kept verbatim as the reason.
   "src/generator/flutter/riverpod-emit.ts#renderNotifierStmt": STANDING_UI_BODY_VOCAB,
 
-  // -- unreachable: the aggregate applier / pure-function discipline ---------
-  // CORRECTED AFTER A DEPTH CHECK.  The first pass cited the applier discipline
-  // and stopped there; checking whether the gate reaches the same DEPTH as the
-  // dispatcher (the CR1-e shape) found it did not, twice over — see the entry.
-  "src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldStatement": {
-    standing:
-      "unreachable: `validateApplierBodies` (src/ir/validate/checks/body-stmt-vocabulary.ts) holds every applier — aggregate AND workflow — to `APPLIER_STMT_KINDS` (assign / add / remove / let / if), walking branches deep; `emit` / a call / a guard keep their own `loom.applier-*` codes and everything else (`return`, a bare expression) is `loom.applier-stmt-invalid`.  The one kind left that this switch omits, `if`, is refused in every elixir-hosted applier by the Elixir `if` gate (kind `event-sourced`).  Measured per kind by test/system/body-statement-census.test.ts; the nested-branch controls are test/ir/applier-discipline-nested.test.ts",
-  },
   // The throw is CAUGHT: `renderTest` rescues `UnsupportedTestShapeError` and
   // degrades the case to `@tag :skip`, so this is not a codegen abort at all.
   // (That the skip is invisible in a green `mix test` run is a real
@@ -903,7 +890,7 @@ const WAIVERS: Record<string, Waiver> = {
   // Rendering a self-call means folding the callee's events into the caller's
   // list (and its state into the next guard) — runner work, not a census
   // migration.
-  "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner": {
+  "src/generator/elixir/vanilla/eventsourced-emit.ts#sortPath": {
     deferred:
       "PROVEN silent: `default: break` drops a self-`call` (the callee's events never reach the stream — `events = []`) and a `return` value in an event-sourced command on a `0 error(s)` model. The ES discipline refuses only assign/add/remove; a statement `match` is refused on elixir by `loom.elixir-match-stmt-unsupported`. Needs the runner to fold a callee's events, or a refusal",
     reviewUntil: "2026-12-31",
@@ -942,9 +929,8 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/elixir/render-expr.ts#ectoNilTest": SHAPE_PREDICATE,
   "src/generator/elixir/render-expr.ts#isStringType": SHAPE_PREDICATE,
   "src/generator/elixir/vanilla/changeset-invariant-emit.ts#look": SELECTS_FROM_COMPLETE_SET,
-  "src/generator/elixir/vanilla/context-emit.ts#renderNamedOpFunction": SELECTS_FROM_COMPLETE_SET,
-  "src/generator/elixir/vanilla/operation-returns-emit.ts#renderReturningOpFunction":
-    SELECTS_FROM_COMPLETE_SET,
+  "src/generator/elixir/vanilla/context-emit.ts#leafParts": SELECTS_FROM_COMPLETE_SET,
+  "src/generator/elixir/vanilla/operation-returns-emit.ts#leafParts": SELECTS_FROM_COMPLETE_SET,
   "src/generator/feliz/update-emit.ts#fsYieldsOption": SHAPE_PREDICATE,
   "src/generator/java/render-criteria.ts#criteriaPathExpr": SHAPE_PREDICATE,
   "src/generator/java/render-criteria.ts#pathSegments": SHAPE_PREDICATE,
@@ -957,7 +943,7 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/typescript/repository-find-predicate.ts#renderValue": SOUND_FALLBACK_DISPATCH,
   "src/ir/util/principal-term.ts#operand": SHAPE_PREDICATE,
   "src/ir/util/ref-collection.ts#refCollectionFieldName": SHAPE_PREDICATE,
-  "src/ir/validate/checks/if-stmt-checks.ts#returnsAreTailOnly": SOUND_FALLBACK_DISPATCH,
+  "src/ir/validate/checks/elixir-match-stmt-checks.ts#returnsAreTailOnly": SOUND_FALLBACK_DISPATCH,
   "src/ir/validate/checks/shared.ts#describeColumnRef": SHAPE_PREDICATE,
   "src/ir/validate/checks/shared.ts#describePredicateLeaf": SHAPE_PREDICATE,
   "src/ir/validate/checks/shared.ts#firstNonQueryablePredicate": SOUND_FALLBACK_DISPATCH,
@@ -972,12 +958,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/ir/validate/checks/shared.ts#firstColumnVsColumn": {
     standing:
       "runs only on a predicate `firstNonQueryablePredicate` already admitted, so it walks just the boolean spine (binary / paren / unary); every compound kind that could hide a comparison has been refused by the exhaustive `firstNonQueryableNode` first",
-  },
-  // Debt: each is a real gap, owned by the issue in its reason.
-  "src/generator/dotnet/workflow-emit.ts#rec": {
-    deferred:
-      "#4575: the param rewrite skips list / convert / match / … children, leaving an undeclared identifier in the C#",
-    reviewUntil: IF_RUN_GAP_REVIEW,
   },
 };
 

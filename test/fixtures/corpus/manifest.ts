@@ -222,8 +222,13 @@ export const CORPUS: readonly CorpusFeature[] = [
     id: "op-return-this",
     title: "an operation answering its own aggregate (`return this`, and an `Agg or Error` arm)",
     doc: "payloads",
-    backends: ["node", "dotnet", "java", "python"],
-    note: "elixir is not declared: `withdraw` returns early from an `if` branch, which a Phoenix operation body cannot express (`loom.elixir-if-stmt-unsupported`).",
+    backends: ALL,
+  },
+  {
+    id: "if-branch-shapes",
+    title: "the `if` statement deciding per path: early return, branch guard, branch emit + provenanced write, event-sourced command + applier",
+    doc: "language",
+    backends: ALL,
   },
   {
     id: "match-op-result",

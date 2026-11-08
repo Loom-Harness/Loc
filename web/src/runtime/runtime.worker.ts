@@ -9,9 +9,24 @@ import { pgliteAssetUrl } from "../bundle/plugin.js";
 import { fnv1a32 } from "../util/hash.js";
 import type { LogLine } from "../util/log-line.js";
 import { installConsoleTee, setLogSink } from "./console-tee.js";
+import {
+  blockingMessage,
+  blocksBoot,
+  chainDdl,
+  dropUserSchemasSql,
+  errText,
+  migrateChain,
+  readSchemaMeta,
+  rebuildChain,
+  recordDdlHash,
+  unversionedState,
+} from "./migrate.js";
 import type {
+  BlockingMigrationState,
+  BootFail,
   BootResult,
   DispatchResult,
+  MigrationPlan,
   QueryResult,
   RuntimeProgress,
   RuntimeRpcRequest,
@@ -83,45 +98,6 @@ interface PgliteHandle {
   close?: () => Promise<void>;
 }
 
-// PGlite/Postgres can reject with a plain object (a serialized
-// protocol error: `{ message, severity, code, … }`) rather than an
-// `Error`.  The naive `String(err)` then prints "[object Object]",
-// hiding the only useful detail.  Dig out a real message, falling
-// back to a JSON dump so nothing is ever swallowed.
-function errText(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
-  if (err && typeof err === "object") {
-    const msg = (err as { message?: unknown }).message;
-    if (typeof msg === "string" && msg.length > 0) return msg;
-    try {
-      return JSON.stringify(err);
-    } catch {
-      /* circular / non-serialisable — fall through */
-    }
-  }
-  return String(err);
-}
-
-// Reset the database by dropping every user-defined schema, not just
-// `public`.  System-mode backends place their tables under a
-// per-context pgSchema (e.g. `sales`) whenever the source resolves a
-// dataSource, so a `DROP SCHEMA public CASCADE` alone leaves those
-// tables behind — the subsequent IF-NOT-EXISTS DDL then no-ops and the
-// stale shape (or a schema-drift mismatch) survives the reset.  This
-// drops public + every generated schema, preserving only Postgres'
-// own schemas and (optionally) our `__loom` bookkeeping schema.
-function dropUserSchemasSql(includeLoom: boolean): string {
-  const loomFilter = includeLoom ? "" : " AND nspname <> '__loom'";
-  return (
-    "DO $$ DECLARE s text; BEGIN " +
-    "FOR s IN SELECT nspname FROM pg_namespace " +
-    `WHERE nspname !~ '^pg_' AND nspname <> 'information_schema'${loomFilter} ` +
-    "LOOP EXECUTE format('DROP SCHEMA IF EXISTS %I CASCADE', s); END LOOP; " +
-    "EXECUTE 'CREATE SCHEMA IF NOT EXISTS public'; END $$;"
-  );
-}
-
 let cachedPgliteWasm: WebAssembly.Module | null = null;
 let cachedInitdbWasm: WebAssembly.Module | null = null;
 let cachedFsBundle: Blob | null = null;
@@ -160,6 +136,8 @@ interface RuntimeState {
   app: { fetch: (req: Request) => Promise<Response> };
   pglite: PgliteHandle;
   ddl: string;
+  /** The plan the boot migrated with — what Reset rebuilds the schema from. */
+  migrations: MigrationPlan;
   /** Blob URL the bundle was loaded from.  Tracked here so we can
    *  revoke on reset and on the next boot — without this, every
    *  successful Boot leaks one URL for the worker's lifetime. */
@@ -198,6 +176,7 @@ async function tearDownState(): Promise<void> {
 
 async function boot(
   bundleCode: string,
+  migrations: MigrationPlan,
   dataDir?: string,
   fresh = false,
 ): Promise<BootResult> {
@@ -261,16 +240,14 @@ async function boot(
     };
   }
 
-  // Recovery path: a persistent island whose stored data is
-  // incompatible with the current schema can fail every boot, and the
-  // normal Reset is unreachable without a booted instance.  `fresh`
-  // wipes both the user schema and our bookkeeping schema here — after
-  // PGlite has opened cleanly but before any DDL — so the subsequent
-  // apply starts from a blank database.
+  // The explicit reset: drop every user schema and the bookkeeping right
+  // after PGlite opens, before anything reads it, so the migration below
+  // starts from a blank database.  The recovery path for a database the
+  // chain cannot describe, or one that fails every boot — the normal Reset
+  // needs a booted instance, which such a boot never produces.
   if (fresh) {
     try {
-      // `includeLoom: true` — a full wipe also clears the schema-hash
-      // bookkeeping so the following apply is treated as a first boot.
+      progress("ddl-drop");
       await pglite.exec(dropUserSchemasSql(true));
     } catch (err) {
       return {
@@ -280,30 +257,16 @@ async function boot(
     }
   }
 
-  let ddl: string;
+  let migrated: { ddl: string; applied: string[] } | BootFail;
   try {
-    progress("ddl-synth");
-    ddl = synthDDL(mod.schema, {
-      is: mod.is,
-      Table: mod.Table,
-      getTableConfig: mod.getTableConfig,
-    });
+    migrated =
+      migrations.kind === "chain"
+        ? await migrateToHead(pglite, migrations)
+        : await migrateUnversioned(pglite, mod);
   } catch (err) {
-    return {
-      ok: false,
-      message: `DDL synth failed: ${errText(err)}`,
-    };
+    return { ok: false, message: errText(err) };
   }
-
-  let migrated = false;
-  try {
-    migrated = await migrateOrApplyDDL(pglite, ddl, progress);
-  } catch (err) {
-    return {
-      ok: false,
-      message: `DDL execution failed: ${errText(err)}\n--- DDL ---\n${ddl}`,
-    };
-  }
+  if ("ok" in migrated) return migrated;
 
   let app: BundleModule["createApp"] extends (db: unknown) => infer R ? R : never;
   try {
@@ -320,7 +283,8 @@ async function boot(
   state = {
     app,
     pglite,
-    ddl,
+    ddl: migrated.ddl,
+    migrations,
     bundleUrl: url,
     PGlite: mod.PGlite,
     drizzle: mod.drizzle,
@@ -329,87 +293,67 @@ async function boot(
   };
   return {
     ok: true,
-    ddl,
+    ddl: migrated.ddl,
     durationMs: Math.round(performance.now() - start),
     persistent,
-    migrated,
+    applied: migrated.applied,
   };
 }
 
-// Apply DDL idempotently on a possibly-pre-existing PGlite, with
-// schema-drift detection.
-//
-// We keep a tiny `__loom.schema_meta` bookkeeping table (one row,
-// `key='ddl_hash'`, `value=<fnv1a32 of the DDL string>`) in a
-// separate schema so it survives `DROP SCHEMA public CASCADE`.
-// On boot we compute the hash of the current DDL and compare:
-//
-//   - First boot (table missing or row absent): apply DDL,
-//     record hash.  Returns `migrated = false` (this isn't a
-//     migration, it's an initial setup).
-//   - Subsequent boot, hash matches: skip — the persistent
-//     PGlite already has the right schema, the user's rows are
-//     intact.  Returns `migrated = false`.
-//   - Subsequent boot, hash differs: drop public schema, re-apply
-//     new DDL, update hash.  Returns `migrated = true` so the
-//     UI can flash a "schema changed — DB reset" message.  This
-//     is necessary because IF-NOT-EXISTS DDL would otherwise
-//     leave stale tables that don't match the new generated
-//     repositories' expectations.
-async function migrateOrApplyDDL(
+/** A boot that stops at a state the recorded chain cannot migrate past; the
+ *  database is left as it was. */
+function blocked(pending: BlockingMigrationState): BootFail {
+  return { ok: false, message: blockingMessage(pending), pending };
+}
+
+/** Bring the database to the recorded chain's head (see `migrate.ts`). */
+async function migrateToHead(
   pglite: PgliteHandle,
-  ddl: string,
-  progress: (phase: RuntimeProgress["phase"], note?: string) => void,
-): Promise<boolean> {
-  // Scale of the work this call is about to do, carried on every mark below
-  // so a kill reports not just WHICH step but how much it was chewing.
+  plan: Extract<MigrationPlan, { kind: "chain" }>,
+): Promise<{ ddl: string; applied: string[] } | BootFail> {
+  const scale = `${plan.units.length} recorded migration unit${plan.units.length === 1 ? "" : "s"}`;
+  // The first statement PGlite runs is where Postgres really starts up.
+  progress("ddl-meta", scale);
+  const res = await migrateChain(pglite, plan, (units) =>
+    progress("ddl-apply", `${units.length} of ${scale}`),
+  );
+  if ("blocked" in res) return blocked(res.blocked);
+  return { ddl: chainDdl(plan.units), applied: res.applied };
+}
+
+/** A source without a system has no chain: its schema is the bundle's
+ *  Drizzle-derived DDL, applied to an empty database and recorded by hash.
+ *  A database built from a different DDL is left as it is. */
+async function migrateUnversioned(
+  pglite: PgliteHandle,
+  mod: BundleModule,
+): Promise<{ ddl: string; applied: string[] } | BootFail> {
+  progress("ddl-synth");
+  let ddl: string;
+  try {
+    ddl = synthDDL(mod.schema, {
+      is: mod.is,
+      Table: mod.Table,
+      getTableConfig: mod.getTableConfig,
+    });
+  } catch (err) {
+    return { ok: false, message: `DDL synth failed: ${errText(err)}` };
+  }
   const scale = `${ddl.split(";").length - 1} stmts, ${Math.round(ddl.length / 1024)}KB`;
   progress("ddl-meta", scale);
-  // Bootstrap the meta table.  Both statements are idempotent.
-  await pglite.exec(
-    "CREATE SCHEMA IF NOT EXISTS __loom; " +
-      "CREATE TABLE IF NOT EXISTS __loom.schema_meta (" +
-      "  key text PRIMARY KEY, " +
-      "  value text NOT NULL" +
-      ");",
-  );
-  const newHash = fnv1a32(ddl);
-  const result = await pglite.query(
-    "SELECT value FROM __loom.schema_meta WHERE key = $1",
-    ["ddl_hash"],
-  );
-  const oldHash =
-    result.rows.length > 0 ? String(result.rows[0]["value"]) : null;
-
-  if (oldHash === newHash) {
-    // Same schema — nothing to do.  Skips even the IF-NOT-EXISTS
-    // round-trip, saving a few milliseconds on each warm reload.
-    return false;
-  }
-
-  let migrated = false;
-  if (oldHash !== null) {
-    // Schema drifted: drop and recreate.  CASCADE is essential —
-    // foreign-keyed rows would otherwise block the drop.  Drops every
-    // generated schema (a system-mode backend's `sales` etc.), not
-    // just `public`, while keeping our `__loom` hash bookkeeping.
-    progress("ddl-drop", scale);
-    await pglite.exec(dropUserSchemasSql(false));
-    migrated = true;
-  }
-  if (ddl.trim().length > 0) {
+  const hash = fnv1a32(ddl);
+  const measured = unversionedState(await readSchemaMeta(pglite), hash);
+  if (blocksBoot(measured)) return blocked(measured);
+  if (measured.kind === "recorded-not-applied") {
     progress("ddl-apply", scale);
-    await pglite.exec(ddl);
+    try {
+      if (ddl.trim().length > 0) await pglite.exec(ddl);
+      await recordDdlHash(pglite, hash);
+    } catch (err) {
+      return { ok: false, message: `DDL execution failed: ${errText(err)}\n--- DDL ---\n${ddl}` };
+    }
   }
-
-  // Record the new hash.  ON CONFLICT for the case where the row
-  // existed (drift) and INSERT for first boot.
-  await pglite.query(
-    "INSERT INTO __loom.schema_meta (key, value) VALUES ($1, $2) " +
-      "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-    ["ddl_hash", newHash],
-  );
-  return migrated;
+  return { ddl, applied: [] };
 }
 
 async function dispatch(req: SerializedRequest): Promise<DispatchResult> {
@@ -501,24 +445,20 @@ async function reset(): Promise<{ ok: true }> {
   return { ok: true };
 }
 
-// Drop every user object inside the currently-booted PGlite, then
-// re-apply DDL from the cached schema metadata.  Works the same
-// for in-memory and OPFS-backed PGlite — for OPFS the underlying
-// data island is preserved (so the next reload reattaches a clean
-// schema), but the rows are gone.  No-op when not booted.
+// The explicit "Reset database": drop every user schema and rebuild the
+// schema from the plan the boot migrated with — every recorded unit, from the
+// start of the chain.  The rows are gone; the tables keep their shape.  Works
+// the same for in-memory and OPFS-backed PGlite.  No-op when not booted.
 async function wipe(): Promise<{ ok: boolean; message?: string }> {
   if (!state) {
     return { ok: false, message: "Runtime not booted — nothing to wipe." };
   }
   try {
-    // Drop every user-defined schema (public + any generated
-    // per-context schema like `sales`) and recreate `public` — the
-    // shortest path to "remove every user object and start fresh".
-    // We then re-run the saved DDL to recreate the tables in the same
-    // shape.  Keeps `__loom` so the schema-hash bookkeeping survives.
-    await state.pglite.exec(dropUserSchemasSql(false));
-    if (state.ddl.trim().length > 0) {
-      await state.pglite.exec(state.ddl);
+    if (state.migrations.kind === "chain") {
+      await rebuildChain(state.pglite, state.migrations.units);
+    } else {
+      await state.pglite.exec(dropUserSchemasSql(false));
+      if (state.ddl.trim().length > 0) await state.pglite.exec(state.ddl);
     }
     // The drizzle db + Hono app are still bound to the same
     // PGlite instance, so they keep working without a rebuild.
@@ -543,6 +483,7 @@ self.onmessage = async (ev: MessageEvent<RuntimeRpcRequest>) => {
       case "boot":
         response.result = await boot(
           req.params.bundleCode,
+          req.params.migrations,
           req.params.dataDir,
           req.params.fresh,
         );

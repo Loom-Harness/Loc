@@ -33,8 +33,13 @@ import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
 import { diagMessage } from "../../../src/diagnostics/messages.js";
-import { renderPgStep } from "../../../src/generator/sql-pg.js";
+import { NO_TRANSACTION_MARKER, renderPgStep } from "../../../src/generator/sql-pg.js";
 import {
+  migrationUnits,
+  STATEMENT_BREAKPOINT,
+} from "../../../src/generator/typescript/emit/migrations.js";
+import {
+  chainMigrations,
   EMPTY_CHAIN,
   entryFileName,
   headSnapshots,
@@ -55,12 +60,15 @@ import type { SnapshotStore } from "../../../src/system/snapshot.js";
 import { MemoryVfs } from "../vfs/memory-vfs.js";
 import { chainDir, readChainFiles } from "./chain-files.js";
 import { loadProjectFromVfs } from "./project-loader.js";
+import type { MigrationUnitPlan, UnrecordedChanges } from "../runtime/protocol.js";
 import type {
   BuildDiagnostic,
   ChainStatusView,
   EvolutionParams,
   EvolutionResult,
   EvolutionTree,
+  MigrationPlanParams,
+  MigrationPlanResult,
   MigrationView,
   RecordMigrationParams,
   RecordMigrationResult,
@@ -330,6 +338,65 @@ export async function recordMigration(
     if (err instanceof MigrationDestructiveError) return refuse(err.message);
     return { ok: false, diagnostics: [...loaded.diagnostics, migrationDiag(err)] };
   }
+}
+
+/** What a boot may do to the runtime's database — the recorded chain beside
+ *  the entry rendered to the migration files the generated Hono backend
+ *  carries (`migrationUnits`, the renderer `ddd generate system` writes
+ *  `db/migrations/` with), plus the changes the model has that the chain does
+ *  not record.  A workspace with no chain has no units and its whole schema
+ *  unrecorded: nothing creates the database until the initial migration is
+ *  recorded.  Never throws on a refusal (an invalid or forked chain, a model
+ *  that does not load). */
+export async function migrationPlan(params: MigrationPlanParams): Promise<MigrationPlanResult> {
+  const loaded = await loadEvolutionTree(params.current, { validate: true });
+  if ("error" in loaded) return { ok: false, diagnostics: loaded.error };
+  if (loaded.loom.systems.length === 0) {
+    return { ok: true, plan: { kind: "unversioned" }, diagnostics: loaded.diagnostics };
+  }
+  let chain: MigrationChain;
+  try {
+    chain = loaded.chainFiles ? parseChain(loaded.chainFiles) : EMPTY_CHAIN;
+  } catch (err) {
+    if (!(err instanceof MigrationChainError)) throw err;
+    return { ok: false, diagnostics: [...loaded.diagnostics, chainDiag(err)] };
+  }
+  const heads = headSnapshots(chain);
+  const modules: string[] = [];
+  let steps = 0;
+  let destructive = false;
+  try {
+    for (const sys of loaded.loom.systems) {
+      const evo = evolveSystem(loaded.loom, sys, null, heads);
+      if (evo.destructive.size > 0) destructive = true;
+      for (const d of evo.deltas) {
+        if (d.steps.length === 0) continue;
+        modules.push(d.module);
+        steps += d.steps.length;
+      }
+    }
+  } catch (err) {
+    return { ok: false, diagnostics: [...loaded.diagnostics, migrationDiag(err)] };
+  }
+  const unrecorded: UnrecordedChanges | null =
+    steps > 0 ? { initial: chain.entries.length === 0, modules, steps, destructive } : null;
+  const units: MigrationUnitPlan[] = migrationUnits(chainMigrations(chain)).map((u) => {
+    const transactional = !u.sql.startsWith(NO_TRANSACTION_MARKER);
+    const body = transactional ? u.sql : u.sql.slice(NO_TRANSACTION_MARKER.length);
+    return {
+      id: u.tag,
+      transactional,
+      statements: body
+        .split(STATEMENT_BREAKPOINT)
+        .map((stmt) => stmt.trim())
+        .filter((stmt) => stmt.length > 0),
+    };
+  });
+  return {
+    ok: true,
+    plan: { kind: "chain", units, unrecorded },
+    diagnostics: loaded.diagnostics,
+  };
 }
 
 /** The bare table a migration step targets, or `undefined` for the ops that

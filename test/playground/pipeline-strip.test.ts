@@ -43,6 +43,7 @@ function inputs(
     honoBundle: null,
     ddl: null,
     bootErrorMessage: null,
+    bootPending: null,
     ...rest,
     pipeline: { ...initialPipelineState, ...pipeline },
   };
@@ -115,6 +116,26 @@ describe("deriveStages", () => {
     expect(nextStage(deriveStages(base))).toBe("boot");
     expect(byId({ ...base, ddl: "create table" }).boot.state).toBe("ok");
     expect(byId({ ...base, bootErrorMessage: "boom" }).boot.state).toBe("failed");
+    const pending = byId({
+      ...base,
+      bootPending: {
+        migration: {
+          kind: "unrecorded",
+          head: null,
+          initial: true,
+          modules: ["Sales"],
+          steps: 2,
+          destructive: false,
+        },
+        message: "Migration required — record it",
+      },
+    }).boot;
+    expect(pending).toMatchObject({
+      state: "failed",
+      count: "migration required",
+      hint: "Migration required — record it",
+      enabled: true,
+    });
     expect(nextStage(deriveStages({ ...base, ddl: "x" }))).toBeNull();
   });
 

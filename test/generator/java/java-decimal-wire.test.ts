@@ -39,7 +39,7 @@ system Money {
         factor: decimal
         margin: decimal?
         samples: decimal[]
-        rate: Rate
+        rating: Rate
         status: OrderStatus
         derived unitFactor: decimal = factor / lineCount
         operation rate(newFactor: decimal) {

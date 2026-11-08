@@ -23,6 +23,7 @@ import type { BundleResult } from "../bundle/protocol.js";
 import type {
   BootResult,
   DispatchResult,
+  MigrationPlan,
   QueryResult,
   SerializedRequest,
   WipeResult,
@@ -120,13 +121,15 @@ export interface RuntimeEngine extends RuntimeDispatcher {
    *  Pure w.r.t. the engine's running state. */
   prepare(input: PrepareInput): Promise<PreparedBuild>;
 
-  /** Bring the backend up from prepared bundle code.  `dataDir`
-   *  follows the existing PGlite convention (`:memory:` /
-   *  `opfs-ahp://…`); engines without a DB ignore it.  `opts.fresh`
-   *  drops the persistent DB's stored data before applying schema —
-   *  the recovery path for a boot that keeps failing on stale data. */
+  /** Bring the backend up from prepared bundle code, migrating its
+   *  database by `migrations` (the recorded chain, rendered by the build
+   *  worker).  `dataDir` follows the existing PGlite convention
+   *  (`:memory:` / `opfs-ahp://…`); engines without a DB ignore both.
+   *  `opts.fresh` is the explicit reset: it drops the persistent DB's
+   *  stored data before migrating. */
   boot(
     bundleCode: string,
+    migrations: MigrationPlan,
     dataDir?: string,
     opts?: { fresh?: boolean },
   ): Promise<BootResult>;

@@ -35,6 +35,7 @@
 import { notFoundStmtDetail, ruleStage } from "../../../ir/enrich/wire-policy.js";
 import type { StmtIR, WorkflowStmtIR } from "../../../ir/types/loom-ir.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { branchesContain } from "../../../ir/util/if-normal-form.js";
 import { pickErrorPath, singleFieldShape } from "../../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../../util/message-code.js";
 import { elixirString } from "../../../util/naming.js";
@@ -372,8 +373,11 @@ export function opHasWireDenial(op: {
   params: readonly { name: string }[];
 }): boolean {
   const available = new Set(op.params.map((p) => p.name));
-  return op.statements.some(
-    (s) => (s.kind === "requires" || s.kind === "precondition") && deniesAtWire(s, available),
+  return op.statements.some((s) =>
+    branchesContain(
+      s,
+      (n) => (n.kind === "requires" || n.kind === "precondition") && deniesAtWire(n, available),
+    ),
   );
 }
 

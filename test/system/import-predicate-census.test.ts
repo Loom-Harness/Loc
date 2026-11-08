@@ -70,7 +70,7 @@ const COLLECTOR_LITERAL: Partial<Record<Backend, RegExp>> = {
 /** Live count per backend — lower it in the PR that removes sites. */
 const CEILING: Record<Backend, number> = {
   python: 0,
-  typescript: 229,
+  typescript: 196,
   dotnet: 0,
   java: 0,
   elixir: 0,

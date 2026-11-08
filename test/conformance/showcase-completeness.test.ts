@@ -160,27 +160,13 @@ const ALLOWLIST = new Set<string>([
   // test/language/validators/fixtures/stmt-placement-allowed.ddd (the
   // clause census's witness).
   "VariantArm",
-  // The `if <cond> { … } else { … }` STATEMENT (M-FT.11).  UNREACHABLE in this
-  // fixture BY CONSTRUCTION, not by omission: showcase.ddd's three contexts
-  // (Catalog / Builds / People) are each hosted by `phoenixApi`
-  // (`platform: elixir`), and `loom.elixir-if-stmt-unsupported` refuses the
-  // statement in any context an elixir deployable emits — a Phoenix body
-  // threads its result through a rebound `record`, and an Elixir `if` block's
-  // bindings do not escape the block, so an assigning branch would compile and
-  // silently do nothing.  Writing one into any showcase operation makes the
-  // fixture FAIL VALIDATION (verified: the gate fires on
-  // `Catalog/operation 'Project.archive'`), which every conformance dimension
-  // reads.  Adding a node-only fourth context to dodge the gate would perturb
-  // the strict cross-backend OpenAPI-parity gate — the same blast-radius
-  // reason `Projection` / `TenancyDecl` / `Route` are excluded above.
-  //
-  // Corpus coverage instead: `examples/banking.ddd` hand-authors the statement
-  // (and `??`), and that fixture is in the node + .NET compile gates, so the
-  // emitted conditional is COMPILED, not merely parsed.  Per-backend rendering
-  // is pinned by test/generator/if-statement-render.test.ts.
-  //
-  // DELETE THIS ENTRY when M-T6.59 lands (elixir renders the statement) — the
-  // ratchet below fails on a stale entry, so it cannot be forgotten.
+  // The `if <cond> { … } else { … }` STATEMENT (M-FT.11).  It renders on all
+  // five backends, so nothing keeps it out of showcase.ddd any more; it is not
+  // authored there yet.  Corpus coverage instead: `if-branch-shapes.ddd` reaches
+  // every shape on all five backends (compile + behavioural legs), and
+  // `examples/banking.ddd` hand-authors the statement (and `??`).  Authoring one
+  // into showcase.ddd deletes this entry — the ratchet below fails on a stale
+  // entry, so it cannot be forgotten.
   "IfStmt",
 ]);
 

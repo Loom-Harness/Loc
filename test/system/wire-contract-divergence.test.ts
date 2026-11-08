@@ -138,6 +138,7 @@ const BASELINE: Record<string, Divergence> = {
   //     scaffolded response DTO understates what the serializer emits.
   "provenance.ddd Ordering.Order": "provenanced-carrier-lost",
   "provenance-money.ddd Leasing.Lease": "provenanced-carrier-lost",
+  "if-branch-shapes.ddd Orders.Tally": "provenanced-carrier-lost",
 
   // ── class C — same field set, different ORDER ───────────────────────────
   // The derived walk is id → properties → containments → derived, and the

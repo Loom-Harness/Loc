@@ -76,8 +76,8 @@ describe("validator — function block body", () => {
   // branch-and-return shape below was refused at phase ④ on ALL FIVE backends
   // — every one of which renders it (node/dotnet/java/python through the
   // shared `_stmt/target.ts` `if` arm, elixir through `renderPureBlock`'s,
-  // whose own `elixirIfRefusal(…, "value")` gate already admitted a TAIL `if`
-  // carrying an `else` with every `return` in tail position).  The identical
+  // which renders a TAIL `if` carrying an `else` as the function's value).
+  // The identical
   // shape in a `domainService` operation validated and rendered, which is what
   // made it a validator bug rather than a capability gap.
   //
@@ -121,9 +121,7 @@ describe("validator — function block body", () => {
 
   // Path-sensitivity: an `if` with no `else` leaves the false path with no
   // value at all, so it must STILL be refused — accepting it would trade the
-  // false refusal for a silent `nil`/`undefined` return.  This is the same
-  // line `returnsAreTailOnly` (if-stmt-checks.ts) draws for the elixir
-  // renderer, so the two layers agree on which shapes reach codegen.
+  // false refusal for a silent `nil`/`undefined` return.
   it("still rejects an `if` with no `else`", async () => {
     const { errors } = await parseString(
       ctx(`

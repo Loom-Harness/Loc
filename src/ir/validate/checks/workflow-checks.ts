@@ -1629,9 +1629,19 @@ function validateWorkflowStatements(
           break;
         // No op-call binding to check; effects are counted by the deep walk in
         // `validateWorkflowBody`, and a `let`'s binding is registered below.
+        case "expr-let":
+          if (inner.name === "__bad__") {
+            diags.push({
+              severity: "error",
+              code: "loom.workflow-unrecognised-statement",
+              message: diagMessage("loom.workflow-unrecognised-statement", { name: wf.name }),
+              source: `${ctx.name}/${wf.name}`,
+              origin: wf.origin,
+            });
+          }
+          break;
         case "precondition":
         case "requires":
-        case "expr-let":
         case "assign":
         case "repo-let":
         case "repo-delete":

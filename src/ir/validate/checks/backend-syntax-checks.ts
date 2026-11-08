@@ -447,6 +447,111 @@ const CS_GENERATED_ROOT_MEMBERS: ReadonlySet<string> = new Set([
  *  `ParentId` back-reference to the owning aggregate. */
 const CS_GENERATED_PART_MEMBERS: ReadonlySet<string> = new Set(["ParentId"]);
 
+/** Root namespaces each resource client's NuGet package brings into every
+ *  compilation of the dotnet project, by the resource's storage `type`.  A
+ *  `using`-imported domain type loses a simple-name lookup to a namespace of
+ *  the same name declared at the global level, so a domain type spelled like one
+ *  of these cannot be named by the generated code.  `Org` is
+ *  `BouncyCastle.Cryptography`'s root, reached through MailKit / MimeKit. */
+const CS_PACKAGE_ROOT_NAMESPACES: Readonly<Record<string, { pkg: string; roots: string[] }>> = {
+  smtp: { pkg: "MailKit (MimeKit, BouncyCastle)", roots: ["Org", "MailKit", "MimeKit"] },
+  s3: { pkg: "AWSSDK.S3", roots: ["Amazon"] },
+  ses: { pkg: "AWSSDK.SimpleEmail", roots: ["Amazon"] },
+  rabbitmq: { pkg: "RabbitMQ.Client", roots: ["RabbitMQ"] },
+  sendgrid: { pkg: "SendGrid", roots: ["SendGrid"] },
+};
+
+/** The domain types the dotnet emitter declares by simple name in a context. */
+function csDeclaredTypeNames(ctx: BoundedContextIR): [string, string][] {
+  const out: [string, string][] = [];
+  for (const a of ctx.aggregates) {
+    out.push(["aggregate", a.name]);
+    for (const p of a.parts) out.push(["entity part", p.name]);
+  }
+  for (const v of ctx.valueObjects) out.push(["value object", v.name]);
+  for (const e of ctx.enums) out.push(["enum", e.name]);
+  for (const e of ctx.events) out.push(["event", e.name]);
+  return out;
+}
+
+function reportPackageNamespaceClashes(
+  sys: SystemIR,
+  dep: SystemIR["deployables"][number],
+  ctx: BoundedContextIR,
+  diags: LoomDiagnostic[],
+  seen: Set<string>,
+): void {
+  const storeType = new Map(sys.storages.map((s) => [s.name, s.type] as const));
+  const roots = new Map<string, { pkg: string; resource: string }>();
+  for (const r of sys.dataSources) {
+    if (!dep.dataSourceNames.includes(r.name)) continue;
+    if (r.kind !== "objectStore" && r.kind !== "queue" && r.kind !== "mailer") continue;
+    const entry = CS_PACKAGE_ROOT_NAMESPACES[storeType.get(r.storageName) ?? ""];
+    if (!entry) continue;
+    for (const root of entry.roots)
+      if (!roots.has(root)) roots.set(root, { pkg: entry.pkg, resource: r.name });
+  }
+  if (roots.size === 0) return;
+  for (const [what, name] of csDeclaredTypeNames(ctx)) {
+    const hit = roots.get(name);
+    if (!hit) continue;
+    const key = `pkg/${ctx.name}/${what}/${name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    diags.push({
+      severity: "error",
+      message: diagMessage("loom.dotnet-name-collision#package-namespace", {
+        what,
+        name,
+        ctxName: ctx.name,
+        resource: hit.resource,
+        package: hit.pkg,
+      }),
+      source: `${sys.name}/${ctx.name}/${name}`,
+      code: "loom.dotnet-name-collision",
+    });
+  }
+}
+
+/** Two member positions of one owner that C# spells identically
+ *  (`qty` and `Qty`: the emitter upper-cases the first letter).  Identical
+ *  `.ddd` names are `loom.member-name-collision`'s business. */
+function reportMemberPairs(
+  sys: SystemIR,
+  ctxName: string,
+  positions: [string, string, string, string | null][],
+  diags: LoomDiagnostic[],
+  seen: Set<string>,
+): void {
+  const first = new Map<string, [string, string]>();
+  for (const [what, owner, name] of positions) {
+    const member = upperFirst(name);
+    const key = `${owner}/${member}`;
+    const prior = first.get(key);
+    if (!prior) {
+      first.set(key, [what, name]);
+      continue;
+    }
+    if (prior[1] === name) continue;
+    const id = `pair/${ctxName}/${key}/${name}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    diags.push({
+      severity: "error",
+      message: diagMessage("loom.dotnet-name-collision#member-pair", {
+        what,
+        owner,
+        name,
+        member,
+        other: `${prior[0]} '${prior[1]}'`,
+        ctxName,
+      }),
+      source: `${sys.name}/${ctxName}/${owner}`,
+      code: "loom.dotnet-name-collision",
+    });
+  }
+}
+
 export function validateDotnetNameCollisions(sys: SystemIR, diags: LoomDiagnostic[]): void {
   const ctxByName = new Map<string, BoundedContextIR>();
   for (const m of sys.subdomains) for (const c of m.contexts) ctxByName.set(c.name, c);
@@ -458,9 +563,12 @@ export function validateDotnetNameCollisions(sys: SystemIR, diags: LoomDiagnosti
     for (const ctxName of dep.contextNames) {
       const ctx = ctxByName.get(ctxName);
       if (!ctx) continue;
+      reportPackageNamespaceClashes(sys, dep, ctx, diags, seen);
       for (const agg of ctx.aggregates) {
         const types = csVisibleTypeNames(ctx, agg);
-        for (const [what, owner, name, exemptType] of csMemberPositions(agg)) {
+        const positions = csMemberPositions(agg);
+        reportMemberPairs(sys, ctxName, positions, diags, seen);
+        for (const [what, owner, name, exemptType] of positions) {
           const member = upperFirst(name);
           const generated =
             owner === agg.name ? CS_GENERATED_ROOT_MEMBERS : CS_GENERATED_PART_MEMBERS;

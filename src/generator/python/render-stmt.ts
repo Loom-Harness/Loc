@@ -235,7 +235,11 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
         .join(", ");
       const ev = `${pyRef("app.domain.events", s.eventName)}(${kwargs})`;
       if (ctx.eventSourced) {
-        return [`${i}__ev = ${ev}`, `${i}self._events.append(__ev)`, `${i}self._apply(__ev)`].join(
+        // One temporary per EVENT TYPE: `if` branches that emit different
+        // events would otherwise rebind one name to two types, which
+        // `mypy --strict` refuses.
+        const v = `__ev_${snake(s.eventName)}`;
+        return [`${i}${v} = ${ev}`, `${i}self._events.append(${v})`, `${i}self._apply(${v})`].join(
           "\n",
         );
       }

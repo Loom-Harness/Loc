@@ -719,6 +719,29 @@ export const DIAGNOSTIC_MESSAGES = {
     `repository exposes the same verb contract, so a second one is only another name for the ` +
     `same store. Use '${p.first}' and remove '${p.name}'.`,
 
+  "loom.member-name-collision": (p: {
+    what: unknown;
+    name: unknown;
+    owner: unknown;
+    first: unknown;
+  }) =>
+    `${p.what} '${p.name}' in ${p.owner} reuses the name of the ${p.first} declared before it. An aggregate or ` +
+    `entity part has ONE member namespace — fields, derived fields, containments, functions and operations share it — ` +
+    `and the node, python and .NET classes put them all in one class body, where the second declaration ` +
+    `hides or duplicates the first (TS2300 / CS0102). Rename one of them.`,
+
+  "loom.hosted-type-name-collision": (p: {
+    kind: unknown;
+    name: unknown;
+    ctxName: unknown;
+    first: unknown;
+    deployable: unknown;
+  }) =>
+    `${p.kind} '${p.name}' in context '${p.ctxName}' has the same name as the ${p.kind} of that name in context ` +
+    `'${p.first}', and both contexts are hosted by deployable '${p.deployable}'. A deployable generates one project ` +
+    `with a single domain namespace per kind, so the two would write the same file or symbol (one is dropped, or ` +
+    `generation crashes). Rename one, or host the contexts on separate deployables.`,
+
   "loom.duplicate-handler": (p: { name: unknown; ctxName: unknown; kind: unknown }) =>
     `Duplicate handler '${p.name}' in context '${p.ctxName}'; a ${p.kind} shares its name ` +
     `with another handler. A 'route -> ${p.ctxName}.${p.name}' would ` +
@@ -2832,11 +2855,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `transform over its OWN store's per-page assign and can't reach store ` +
     `'${p.store}'.  Move the cross-store coordination to the calling page's action ` +
     `(call \`${p.storeName}.${p.actionName}()\` then \`${p.store}.${p.name}()\` from the page).`,
-  // M-T6.59 — the `if` STATEMENT itself now RENDERS on elixir (a value-producing
-  // `record = if … do … record else … record end`, `vanilla/if-stmt-emit.ts`).
-  // What is left are three sub-shapes that rendering cannot express; each says
-  // which one, because "rewrite it as a ternary" is the wrong advice for two of
-  // them.
   // The statement `match` RENDERS on elixir (a value-producing `record = case …
   // end` in an operation, a tail `case` in a domain service, a `{:ok, _} <-
   // (case … end)` with-clause in a workflow / handler).  What is left are the
@@ -2883,46 +2901,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`{:error, "Tag", fields}\` for an \`error\` one — the success value carries no tag, so ` +
     `two success variants cannot be told apart at runtime.  Make all but one of the variants ` +
     `\`error\` records, or host this context on a node / dotnet / java / python backend.`,
-  "loom.elixir-if-stmt-unsupported#return-in-branch": (p: { where: unknown; name: unknown }) =>
-    `A \`return\` appears inside an \`if\` branch in ${p.where}, whose context is hosted ` +
-    `by the Phoenix/Elixir deployable '${p.name}'.  The \`if\` STATEMENT itself renders on ` +
-    `Elixir, but a \`return\` inside a branch is an EARLY EXIT, and an Elixir body has no ` +
-    `early return — its value is its tail expression, so the statements AFTER the \`if\` ` +
-    `would still run.  Move the \`return\` out to the end of the body (assign in the ` +
-    `branches, return once after the \`if\`), or host this context on a node / dotnet / ` +
-    `java / python backend.`,
-  "loom.elixir-if-stmt-unsupported#guard-in-branch": (p: { where: unknown; name: unknown }) =>
-    `A \`precondition\` / \`requires\` guard appears inside an \`if\` branch in ${p.where}, ` +
-    `whose context is hosted by the Phoenix/Elixir deployable '${p.name}'.  The Phoenix ` +
-    `operation path HOISTS an operation's guards into a leading \`with :ok <- ensure(…)\` ` +
-    `chain so a failed guard answers 403 / 422; a guard nested inside a branch cannot be ` +
-    `hoisted and would raise instead, answering 500 where the other four backends answer ` +
-    `a typed denial.  Lift the guard to the top of the operation body (its condition may ` +
-    `include the \`if\` condition), or host this context on a node / dotnet / java / ` +
-    `python backend.`,
-  "loom.elixir-if-stmt-unsupported#branch-statement": (p: { where: unknown; name: unknown }) =>
-    `An \`if\` branch in ${p.where} contains a statement the Phoenix/Elixir deployable ` +
-    `'${p.name}' cannot render THERE — an \`emit\` or a \`provenanced\` write.  ` +
-    `The \`if\` STATEMENT itself renders on Elixir; what a branch may ` +
-    `hold is a CLOSED set (assignments, collection mutations, \`let\`, a call, a nested ` +
-    `\`if\` or \`match\`), because the emitters decide an operation's supporting machinery by scanning its ` +
-    `TOP-LEVEL statements: a conditional \`emit\` would be invisible to that scan (no ` +
-    `\`require Logger\`, and the persist-then-dispatch restructure could not hoist it past the ` +
-    `commit, so a phantom event would fire on a failed write), and a nested \`provenanced\` ` +
-    `write would capture lineage in an operation never put into provenance-flush mode.  Move ` +
-    `the statement out of the branch (compute a value inside the \`if\`, act on it after), or ` +
-    `host this context on a node / dotnet / java / python backend.`,
-  "loom.elixir-if-stmt-unsupported#event-sourced": (p: { where: unknown; name: unknown }) =>
-    `An \`if\` statement is used in ${p.where} — an EVENT-SOURCED body — whose ` +
-    `context is hosted by the Phoenix/Elixir deployable '${p.name}'.  Neither half of the ` +
-    `event-sourced pair is rendered as a statement sequence on Phoenix: a COMMAND body's ` +
-    `guards become \`with :ok <- ensure(…)\` clauses and its \`emit\`s one \`events = […]\` ` +
-    `list, so a conditional \`emit\` has nowhere to render; an APPLIER is a pure fold that ` +
-    `threads a rebound record through assignments, and an Elixir \`if\` block's bindings do ` +
-    `not escape it, so a conditional write compiles clean and silently does nothing.  ` +
-    `Express the choice as a conditional VALUE — inside the emitted event's fields, or on ` +
-    `the right of the assignment (\`amount: over ? a : b\`) — or host this context on a ` +
-    `node / dotnet / java / python backend.`,
   "loom.if-stmt-page-body-unsupported": (p: { where: unknown; uiName: unknown }) =>
     `An \`if\` statement is used in ${p.where} on ui '${p.uiName}'.  The \`if\` ` +
     `STATEMENT is a backend-body form (aggregate / domain-service operations); no frontend ` +
@@ -3575,6 +3553,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `broker via channelSource '${p.csNames}' on another deployable — but '${p.name}' ` +
     `doesn't list the binding. Once traffic rides the broker this consumer would ` +
     `silently receive nothing. Add \`channels: [${p.csNames}]\` to '${p.name}'.`,
+  "loom.channel-consumer-unwired#unbound": (p: {
+    name: unknown;
+    chName: unknown;
+    carries: unknown;
+    ctxName: unknown;
+  }) =>
+    `Deployable '${p.name}' consumes events of channel '${p.chName}' ` +
+    `(${p.carries}), but the channel is bound to no broker and its owning context ` +
+    `'${p.ctxName}' runs on another deployable — events only travel in-process, so ` +
+    `this consumer would never receive them. Declare a \`channelSource\` for ` +
+    `'${p.chName}' and list it in \`channels: [...]\` on both deployables, or host ` +
+    `'${p.ctxName}' on '${p.name}'.`,
   "loom.relay-target-not-subscribed": (p: {
     name: unknown;
     uiName: unknown;
@@ -3797,6 +3787,30 @@ export const DIAGNOSTIC_MESSAGES = {
     `(the root's 'Inspect' / 'ToString()' / 'DomainEvents' / 'PullEvents()', a part's ` +
     `'ParentId'). Two members of one name in one class do not compile (CS0102 / CS0111). ` +
     `Rename the declaration, or host this context on a node / python / elixir / java deployable.`,
+  "loom.dotnet-name-collision#package-namespace": (p: {
+    what: unknown;
+    name: unknown;
+    ctxName: unknown;
+    resource: unknown;
+    package: unknown;
+  }) =>
+    `${p.what} '${p.name}' in context '${p.ctxName}' is emitted as the C# type '${p.name}', but the dotnet ` +
+    `deployable also references the NuGet package ${p.package} (for resource '${p.resource}'), whose root ` +
+    `namespace is '${p.name}'. A namespace declared at the global level wins a simple-name lookup over ` +
+    `the imported domain type, so every file that names it stops compiling (CS0118). Rename the ` +
+    `${p.what} (e.g. '${p.name}Unit'), or drop the resource from the dotnet deployable.`,
+  "loom.dotnet-name-collision#member-pair": (p: {
+    what: unknown;
+    owner: unknown;
+    name: unknown;
+    member: unknown;
+    other: unknown;
+    ctxName: unknown;
+  }) =>
+    `'${p.ctxName}.${p.owner}' declares ${p.what} '${p.name}' and ${p.other}, which the dotnet backend ` +
+    `both emits as the C# member '${p.member}' (it upper-cases the first letter). Two members of one name ` +
+    `in one class do not compile (CS0102 / CS0111). Rename one, or host this context on a node / python / ` +
+    `elixir / java deployable.`,
   "loom.context-filter-no-principal": (p: {
     name: unknown;
     platform: unknown;
