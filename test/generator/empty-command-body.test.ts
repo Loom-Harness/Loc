@@ -197,7 +197,8 @@ describe("RS-39 — an absent required field: one 422 everywhere; a create with 
   it("node: the hook answers the wirePolicy `<field> is required` sentence for an absent key; Ticket's create body is optional", async () => {
     const m = await files("node");
     const problem = fileEndingWith(m, "http/problem-details.ts");
-    expect(problem).toContain("isMissing(result.data, issue) ? missingFieldMessage(issue.path)");
+    expect(problem).toContain("if (isMissing(result.data, issue)) {");
+    expect(problem).toContain("message: missingFieldMessage(issue.path)");
     expect(problem).toContain(
       `return \`\${String(path[path.length - 1])} ${fieldSentenceSuffix("missing")}\`;`,
     );
@@ -223,9 +224,7 @@ describe("RS-39 — an absent required field: one 422 everywhere; a create with 
     const vp = fileEndingWith(await files("dotnet"), "Api/ValidationProblem.cs");
     expect(vp).toContain('private const string MissingSuffix = " is required";');
     expect(vp).toContain('["message"] = MissingFieldMessage(name),');
-    expect(vp).toContain(
-      "IsRequiredMessage(error.ErrorMessage) ? MissingFieldMessage(PointerOf(entry.Key)) : error.ErrorMessage",
-    );
+    expect(vp).toContain("var required = IsRequiredMessage(error.ErrorMessage);");
   });
 
   it("java: @NotNull reads the wirePolicy missing-field sentence; Ticket's create body is not required", async () => {

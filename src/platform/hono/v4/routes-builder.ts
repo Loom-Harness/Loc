@@ -1666,17 +1666,17 @@ export function buildRoutesFile(
   }
   // An `extern` operation whose scaffold-once body is still the generated stub.
   // RFC 9110 §15.6.2: the route exists and the request was well-formed — the
-  // implementation is ABSENT, which is 501, not a 500 server fault.  The message
-  // names the file to fill in, so it is served rather than sanitized away
-  // (unlike the ExternHandlerError arm below, which wraps arbitrary USER code —
-  // RS-28).  Placed before that arm because both describe the extern seam.
+  // implementation is ABSENT, which is 501, not a 500 server fault.  The
+  // response carries the constant 501 detail; the message names the file to fill
+  // in and goes to the log line only.  Placed before the ExternHandlerError arm
+  // (which wraps arbitrary USER code — RS-28) because both describe the extern seam.
   if (hasExternOp) {
     lines.push(`    if (err instanceof NotImplementedError) {`);
     lines.push(
       `      ${renderHonoLogCall("internalError", `error: err.message, status: ${NOT_IMPLEMENTED_STATUS}`)}`,
     );
     lines.push(
-      `      return problem(${NOT_IMPLEMENTED_STATUS}, ${JSON.stringify(wireTitle("not-implemented"))}, err.message, ${JSON.stringify(wireCode("not-implemented"))});`,
+      `      return problem(${NOT_IMPLEMENTED_STATUS}, ${JSON.stringify(wireTitle("not-implemented"))}, ${JSON.stringify(wireFixedDetail("not-implemented"))}, ${JSON.stringify(wireCode("not-implemented"))});`,
     );
     lines.push(`    }`);
   }

@@ -41,6 +41,15 @@ public sealed class ProblemDetailsResponsesFilter : IOperationFilter
         problem.Properties ??= new Dictionary<string, IOpenApiSchema>();
         if (problem.Properties.ContainsKey("errors")) return;
 
+        // The catalog key a client localizes the refusal by, and the values its
+        // message names — RFC 7807 extension members on the body and on each
+        // errors[] entry.
+        problem.Properties["code"] = new OpenApiSchema { Type = JsonSchemaType.String | JsonSchemaType.Null };
+        problem.Properties["params"] = new OpenApiSchema
+        {
+            Type = JsonSchemaType.Object | JsonSchemaType.Null,
+            AdditionalProperties = new OpenApiSchema(),
+        };
         problem.Properties["errors"] = new OpenApiSchema
         {
             Type = JsonSchemaType.Array | JsonSchemaType.Null,
@@ -52,6 +61,12 @@ public sealed class ProblemDetailsResponsesFilter : IOperationFilter
                 {
                     ["pointer"] = new OpenApiSchema { Type = JsonSchemaType.String },
                     ["message"] = new OpenApiSchema { Type = JsonSchemaType.String },
+                    ["code"] = new OpenApiSchema { Type = JsonSchemaType.String | JsonSchemaType.Null },
+                    ["params"] = new OpenApiSchema
+                    {
+                        Type = JsonSchemaType.Object | JsonSchemaType.Null,
+                        AdditionalProperties = new OpenApiSchema(),
+                    },
                 },
             },
         };

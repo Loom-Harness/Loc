@@ -1136,7 +1136,7 @@ export function renderExceptionFilter(
               { name: "error", valueExpr: "xn.Message" },
               { name: "status", valueExpr: `${wireStatus("not-implemented")}` },
             ])}
-            context.Result = Problem(context, ${wireStatus("not-implemented")}, ${csTitle("not-implemented")}, xn.Message, trace_id, ${csCode("not-implemented")});
+            context.Result = Problem(context, ${wireStatus("not-implemented")}, ${csTitle("not-implemented")}, ${csFixedDetail("not-implemented")}, trace_id, ${csCode("not-implemented")});
             context.ExceptionHandled = true;
             return;
         }`

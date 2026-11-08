@@ -128,7 +128,7 @@ describe("the dangling-reference arm answers the declared domain floor", () => {
     const onError = routes.slice(routes.indexOf("app.onError("));
     expect(onError).toContain('.cause?.code) === "23503")');
     expect(onError).toContain(
-      `return problem(422, "Unprocessable Entity", ${JSON.stringify(DETAIL)});`,
+      `return problem(422, "Unprocessable Entity", ${JSON.stringify(DETAIL)}, "problem.dangling-reference");`,
     );
   });
 
@@ -142,7 +142,7 @@ describe("the dangling-reference arm answers the declared domain floor", () => {
     const filter = await file(src("dotnet"), "Api/DomainExceptionFilter.cs");
     expect(filter).toContain('Npgsql.PostgresException { SqlState: "23503" }');
     expect(filter).toContain(
-      `Problem(context, 422, "Unprocessable Entity", "${DETAIL}", trace_id)`,
+      `Problem(context, 422, "Unprocessable Entity", "${DETAIL}", trace_id, "problem.dangling-reference")`,
     );
   });
 

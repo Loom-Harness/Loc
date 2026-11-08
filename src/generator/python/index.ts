@@ -2131,7 +2131,7 @@ ${danglingRefArm}${uniqueArm}        return await _internal(request, err)
     ? `    @app.exception_handler(ExternNotImplementedError)
     async def _not_implemented(request: Request, err: ExternNotImplementedError) -> JSONResponse:
         log("error", "internal_error", error=str(err), status=${wireStatus("not-implemented")})
-        return problem(request, ${wireStatus("not-implemented")}, ${title("not-implemented")}, str(err), code=${code("not-implemented")})
+        return problem(request, ${wireStatus("not-implemented")}, ${title("not-implemented")}, ${JSON.stringify(wireFixedDetail("not-implemented"))}, code=${code("not-implemented")})
 
 `
     : "";
