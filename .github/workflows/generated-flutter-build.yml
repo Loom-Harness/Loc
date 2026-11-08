@@ -663,10 +663,29 @@ jobs:
           }
           DDD
           node bin/cli.js generate system ci-flutter-apk/apk.ddd -o ci-flutter-apk/out
+      # The Gradle wrapper's distribution is a GitHub release asset
+      # (services.gradle.org redirects to gradle/gradle-distributions). An
+      # anonymous download from a runner can fail with a 504 or an HTML page,
+      # and this workflow runs in the merge queue, so that failure ejects every
+      # entry. The step fetches the same zip through the authenticated release
+      # API and points the wrapper at the local copy. If that fetch fails, the
+      # wrapper keeps its original URL.
       - name: flutter create android platform + build apk
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           APK_DIR="$(dirname "$(find ci-flutter-apk/out -name pubspec.yaml | head -1)")"
           cd "$APK_DIR"
           flutter pub get
           flutter create --platforms=android .
+          PROPS=android/gradle/wrapper/gradle-wrapper.properties
+          DIST_URL="$(sed -n 's/^distributionUrl=//p' "$PROPS" | sed 's/\\:/:/g')"
+          DIST_FILE="$(basename "$DIST_URL")"
+          DIST_VER="$(echo "$DIST_FILE" | sed -E 's/^gradle-(.+)-(all|bin)\.zip$/\1/')"
+          if [ -n "$DIST_VER" ] && [ "$DIST_VER" != "$DIST_FILE" ] \
+            && gh release download "v$DIST_VER" --repo gradle/gradle-distributions \
+                 --pattern "$DIST_FILE" --output "$RUNNER_TEMP/$DIST_FILE"; then
+            sed -i "s#^distributionUrl=.*#distributionUrl=file\\\\:$RUNNER_TEMP/$DIST_FILE#" "$PROPS"
+          fi
+          grep '^distributionUrl=' "$PROPS"
           flutter build apk --debug
