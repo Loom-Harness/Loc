@@ -251,6 +251,25 @@ describe("pendingMigration", () => {
     });
   });
 
+  it("a re-check that confirms the slot keeps the state object, so the app does not re-render", () => {
+    const s = check(["v1_sales_initial"], UNRECORDED);
+    const same = pipelineReducer(s, {
+      type: "MIGRATION_CHECKED",
+      check: { kind: "chain", units: ["v1_sales_initial"], unrecorded: { ...UNRECORDED } },
+    });
+    expect(same).toBe(s);
+    const moved = pipelineReducer(s, {
+      type: "MIGRATION_CHECKED",
+      check: {
+        kind: "chain",
+        units: ["v1_sales_initial"],
+        unrecorded: { ...UNRECORDED, steps: 2 },
+      },
+    });
+    expect(moved).not.toBe(s);
+    expect(pendingMigration(moved)).toMatchObject({ kind: "unrecorded", steps: 2 });
+  });
+
   it("not booted this session: a chain that records the model is up to date (Boot applies it)", () => {
     expect(pendingMigration(check(["v1_sales_initial"]))).toEqual({ kind: "up-to-date" });
   });

@@ -109,7 +109,12 @@ export function pipelineReducer(
     // ---- Migration chain check ----------------------------------------
     // Independent of the cascade: a source edit re-checks without touching
     // the generate / bundle / boot slots, and a regenerate keeps the check.
+    // The check re-runs after every edit and nearly always confirms what the
+    // slot already holds; returning the same state then keeps React from
+    // re-rendering the whole app for nothing.  The slot is plain data, so its
+    // JSON is its identity.
     case "MIGRATION_CHECKED":
+      if (JSON.stringify(state.migrationCheck) === JSON.stringify(action.check)) return state;
       return { ...state, migrationCheck: action.check };
 
     // ---- Dispatch -----------------------------------------------------
