@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
-import { maskedReadPredicates } from "../../src/ir/enrich/mask-taint.js";
+import { applyMaskWriteGates, maskedReadPredicates } from "../../src/ir/enrich/mask-taint.js";
 import { wireFieldsForAggregate } from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { ExprIR } from "../../src/ir/types/loom-ir.js";
@@ -101,13 +101,11 @@ describe("visibility taint — write sinks", () => {
   });
 
   it("enrichment is idempotent", async () => {
-    const { ir } = await enriched(sys(""));
-    const again = enrichLoomModel(ir);
-    const ops = (m: typeof ir) =>
-      m.systems[0]!.subdomains[0]!.contexts[0]!.aggregates[0]!.operations.find(
-        (o) => o.name === "update",
-      )!.statements.length;
-    expect(ops(again)).toBe(ops(ir));
+    const { agg } = await enriched(sys(""));
+    const again = applyMaskWriteGates(agg);
+    const count = (a: typeof agg) =>
+      a.operations.find((o) => o.name === "update")!.statements.length;
+    expect(count(again)).toBe(count(agg));
   });
 
   it("the write gate is the mask predicate alone — no comparison with the stored value", async () => {
