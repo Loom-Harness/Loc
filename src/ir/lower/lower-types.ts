@@ -420,14 +420,15 @@ export function lowerType(t: TypeRef | undefined, env?: Env): TypeIR {
 /** Lower one type atom — `base` plus the postfix constructor / array /
  *  optional markers (shared by a `TypeRef` head and each `or`-alternative /
  *  named-union `TypeAtom`).  Folds the postfix generic constructors
- *  left-to-right (P3): `string envelope paged` → ctors `["envelope", "paged"]`
- *  → `paged(envelope(string))`.  The P4 carrier `option` is a *union* carrier,
+ *  left-to-right (P3).  The P4 carrier `option` is a *union* carrier,
  *  so `T option` folds to `union[T, none]` rather than a `genericInstance`.
  *  Array/optional stay outermost so `customer paged[]` is array-of-(paged
  *  customer). */
 export function lowerAtom(t: TypeRef | TypeAtom, env?: Env): TypeIR {
   let inner = lowerBase(t, env);
   for (const ctor of t.ctors ?? []) {
+    // `envelope` is refused (`loom.envelope-removed`): it lowers as its argument.
+    if (ctor === "envelope") continue;
     inner =
       ctor === "option"
         ? canonicalUnion([inner, OPTION_NONE])

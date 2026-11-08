@@ -511,7 +511,9 @@ system Demo {
                 framework: "phoenixLiveView",
               },
             ],
-            deployables: [{ name: "web", uiName: "Web", uiFramework: "phoenixLiveView" }],
+            deployables: [
+              { name: "web", uiName: "Web", hostedUiNames: [], uiFramework: "phoenixLiveView" },
+            ],
           },
         ],
       } as never,
