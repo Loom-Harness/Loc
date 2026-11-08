@@ -138,7 +138,8 @@ import { useStableFns } from "./util/useStableFns";
 import { initialPipelineState, pipelineReducer } from "./pipeline/reducer";
 import {
   bootError as selBootError,
-  bootMigrated as selBootMigrated,
+  bootApplied as selBootApplied,
+  bootPending as selBootPending,
   bootPersistent as selBootPersistent,
   bootedDDL as selBootedDDL,
   generateOk as selGenerateOk,
@@ -1100,7 +1101,8 @@ export default function App(): JSX.Element {
   const reactBundle = selReactBundleOk(pipeline);
   const ddl = selBootedDDL(pipeline);
   const persistent = selBootPersistent(pipeline);
-  const migrated = selBootMigrated(pipeline);
+  const appliedMigrations = selBootApplied(pipeline);
+  const bootPending = selBootPending(pipeline);
   const bootErrorMessage = selBootError(pipeline);
   // Requests served, per operation (M-T8.22) — derived, not stored: the
   // runtime log already carries every `request_end` line and the spec is
@@ -1227,13 +1229,24 @@ export default function App(): JSX.Element {
    *  one. */
   const pushedChainPathsRef = useRef<Set<string>>(new Set());
 
+  /** The migration chain of a session with no workspace store (storage the
+   *  browser refused): held in memory for the session, so the initial
+   *  migration can still be recorded and the database created. */
+  const sessionChainRef = useRef<Map<string, string>>(new Map());
+
   /** The workspace's committed migration chain beside `entryPath`, read from
-   *  the git store's working tree; empty without a store or a chain. */
+   *  the git store's working tree (the session's chain when there is no
+   *  store); empty without a chain. */
   async function readWorkspaceChain(entryPath: string): Promise<VfsEntry[]> {
     const store = workspace.store;
-    if (!store) return [];
     const dir = chainDir(entryPath);
     const out: VfsEntry[] = [];
+    if (!store) {
+      for (const [path, content] of sessionChainRef.current) {
+        if (isChainFile(dir, path)) out.push({ kind: "file", path, content });
+      }
+      return out;
+    }
     for (const path of await store.list(`${dir}/`)) {
       if (!isChainFile(dir, path)) continue;
       const content = await store.readFile(path);
@@ -1421,7 +1434,8 @@ export default function App(): JSX.Element {
     opts?: { fresh?: boolean },
   ): Promise<boolean> {
     const engine = engineRef.current;
-    if (!engine) return false;
+    const client = buildClientRef.current;
+    if (!engine || !client) return false;
     markPhase("boot:start");
     dispatch({ type: "BOOT_START" });
     // Reset spec-driven state — a fresh boot may serve a different
@@ -1432,7 +1446,25 @@ export default function App(): JSX.Element {
     setApiEndpoints([]);
     setOpenApiSpec(null);
     try {
-      const sourceHash = fnv1a32(sourceRef.current);
+      // What the boot may do to the database: the workspace's recorded chain,
+      // rendered by the build worker, and the model's unrecorded changes.
+      // Read fresh on every boot, so a migration recorded since the last
+      // generate is applied without regenerating.
+      const current = await currentEvolutionTree();
+      const planned = await client.migrationPlan({ current });
+      if (!planned.ok) {
+        const errors = planned.diagnostics.filter((d) => d.severity === "error");
+        dispatch({
+          type: "BOOT_FAIL",
+          message: `The migration chain could not be read, so the database was left as it is:\n${errors.map((d) => d.message).join("\n")}`,
+        });
+        clearPhase();
+        return false;
+      }
+      // The database island is keyed by the workspace and its entry, not by
+      // the source text: a schema edit reopens the same database, and the
+      // recorded migrations evolve it in place.
+      const islandKey = fnv1a32(`${workspace.activeId}\u0000${current.entryPath}`);
       // MOBILE: in-memory, not OPFS.
       //
       // Two field reports in a row died at `boot:ddl-meta` — PGlite's real
@@ -1462,25 +1494,29 @@ export default function App(): JSX.Element {
       // A 128 MB contiguous WASM heap is therefore structural at this
       // version, not a setting — which is also why freeing memory elsewhere
       // (#2420) could not buy enough headroom.
-      const dataDir = isDesktop ? `opfs-ahp://loom-${sourceHash}` : ":memory:";
-      const res = await engine.boot(hono.code, dataDir, { fresh: opts?.fresh });
+      const dataDir = isDesktop ? `opfs-ahp://loom-${islandKey}` : ":memory:";
+      const res = await engine.boot(hono.code, planned.plan, dataDir, { fresh: opts?.fresh });
       if (res.ok) {
         dispatch({
           type: "BOOT_OK",
           ddl: res.ddl,
           persistent: res.persistent,
-          migrated: res.migrated,
+          applied: res.applied,
         });
         // House-keep OPFS: this boot's island is now most-recently-used;
         // drop stale islands from sources the user has moved on from so
         // they don't accumulate toward the storage quota.  Only when the
         // boot is actually OPFS-backed, and never blocking the boot.
-        if (res.persistent) void recordAndGcOpfs(sourceHash);
+        if (res.persistent) void recordAndGcOpfs(islandKey);
         clearPhase();
         await loadOpenApiSpec(engine);
         return true;
       }
-      dispatch({ type: "BOOT_FAIL", message: res.message });
+      dispatch(
+        res.pending
+          ? { type: "BOOT_PENDING", migration: res.pending, message: res.message }
+          : { type: "BOOT_FAIL", message: res.message },
+      );
       clearPhase();
       return false;
     } catch (err) {
@@ -1999,7 +2035,7 @@ export default function App(): JSX.Element {
   ): Promise<RecordMigrationResult | null> {
     const client = buildClientRef.current;
     const store = workspace.store;
-    if (!client || !store) return null;
+    if (!client) return null;
     const current = await currentEvolutionTree();
     const result = await client.recordMigration({
       current,
@@ -2008,7 +2044,10 @@ export default function App(): JSX.Element {
       allowDestructive,
     });
     if (result.ok && result.files.length > 0) {
-      for (const f of result.files) await store.writeFile(f.path, f.content);
+      for (const f of result.files) {
+        if (store) await store.writeFile(f.path, f.content);
+        else sessionChainRef.current.set(f.path, f.content);
+      }
       void runEvolutionDiff(evolutionBaselineRef);
       void runGenerate();
     }
@@ -2785,7 +2824,8 @@ export default function App(): JSX.Element {
       previewProblem,
       ddl,
       persistent,
-      migrated,
+      appliedMigrations,
+      bootPending,
       bootErrorMessage,
       dispatchSlot,
       files,
@@ -2882,7 +2922,8 @@ export default function App(): JSX.Element {
       previewProblem,
       ddl,
       persistent,
-      migrated,
+      appliedMigrations,
+      bootPending,
       bootErrorMessage,
       dispatchSlot,
       files,

@@ -8,10 +8,9 @@
 // matters most: its indentation is structural, so a branch rendered at the
 // parent's level is a syntax error, not a cosmetic wart.
 //
-// The elixir backend is deliberately absent: it refuses the statement up front
-// (`loom.elixir-if-stmt-unsupported`, see ir/validate/checks/if-stmt-checks.ts)
-// because a Phoenix body threads its result through a rebound `record` and an
-// Elixir `if` block's bindings do not escape it.
+// The elixir backend renders it through its own body renderers, not this
+// spine — a Phoenix body threads its result through a rebound `record` — and
+// is pinned by test/generator/elixir/if-stmt-emit.test.ts.
 
 import { describe, expect, it } from "vitest";
 import { renderCsStatements } from "../../src/generator/dotnet/render-stmt.js";

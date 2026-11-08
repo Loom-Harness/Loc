@@ -277,6 +277,21 @@ export interface RecordMigrationOk {
 
 export type RecordMigrationResult = RecordMigrationOk | EvolutionFail;
 
+/** `migrate.plan` — what a boot may do to the runtime's database: the
+ *  recorded chain beside the entry, rendered to the SQL the Hono backend's
+ *  migration files carry, and the model's unrecorded changes. */
+export interface MigrationPlanParams {
+  current: EvolutionTree;
+}
+
+export interface MigrationPlanOk {
+  ok: true;
+  plan: MigrationPlan;
+  diagnostics: BuildDiagnostic[];
+}
+
+export type MigrationPlanResult = MigrationPlanOk | EvolutionFail;
+
 /** A single VFS entry shipped over the wire — file entries carry
  *  `content`, directory entries carry only their `path`.  Re-exports
  *  the in-process VFS tagged union so the protocol and the
@@ -284,6 +299,7 @@ export type RecordMigrationResult = RecordMigrationOk | EvolutionFail;
  *  worker boundary in this shape so an empty folder created on the
  *  main thread survives a worker respawn. */
 import type { VfsEntry } from "../vfs/types.js";
+import type { MigrationPlan } from "../runtime/protocol.js";
 export type { VfsEntry };
 
 export interface VfsWriteOk {
@@ -330,6 +346,7 @@ export type BuildRpcRequest =
   | { id: number; method: "snapshot"; params: GenerateParams }
   | { id: number; method: "evolution"; params: EvolutionParams }
   | { id: number; method: "migrate.record"; params: RecordMigrationParams }
+  | { id: number; method: "migrate.plan"; params: MigrationPlanParams }
   | { id: number; method: "vfs.write"; params: { entries: VfsEntry[] } }
   | { id: number; method: "vfs.delete"; params: { paths: string[] } };
 
@@ -340,6 +357,7 @@ export interface BuildRpcResponse {
     | SnapshotResult
     | EvolutionResult
     | RecordMigrationResult
+    | MigrationPlanResult
     | VfsWriteResult
     | VfsDeleteResult;
   error?: { message: string };

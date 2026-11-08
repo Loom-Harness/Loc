@@ -244,7 +244,6 @@ function ChainBar({ ctx, e }: { ctx: LayoutCtx; e: EvolutionOk }): JSX.Element {
   const validName = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(name);
   const canRecord =
     ctx.buildClient != null &&
-    ctx.workspace.store != null &&
     ctx.sourcesWritable &&
     recordable &&
     validName &&

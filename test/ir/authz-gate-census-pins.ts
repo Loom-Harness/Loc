@@ -419,6 +419,8 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "find GET /api/orders": R.sharedTenancyIdentity,
     "explicitHandler GET /api/orders/any_tenant": R.sharedTenancyIdentity,
     "explicitHandler GET /api/orders/unfiltered": R.sharedTenancyIdentity,
+    "explicitHandler GET /api/notes/any_tenant": R.sharedTenancyIdentity,
+    "explicitHandler GET /api/notes/unfiltered": R.sharedTenancyIdentity,
     "find GET /api/organizations": R.sharedTenancyIdentity,
     "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
     "operation POST /api/notes/{id}/restore": R.sharedTenancyIdentity,
@@ -477,5 +479,5 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   notABehaviouralCase: 11,
   importGateOnly: 1,
   principalFreeGate: 17,
-  sharedTenancyIdentity: 90,
+  sharedTenancyIdentity: 92,
 };

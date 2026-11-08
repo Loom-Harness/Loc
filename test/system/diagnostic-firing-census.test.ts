@@ -1086,6 +1086,20 @@ system UpdateGate {
 }`,
   // A `softDeletable` aggregate that keeps `crudish`'s canonical destroy —
   // `DELETE /{id}` is a hard delete, documented but rarely what was meant.
+  "loom.loop-gate-not-implied": repoOnly(`    enum Status { Open, Resolved, Closed }
+    aggregate Ticket with crudish {
+      status: Status immutable
+      age: int
+      operation close() when status == Resolved { status := Closed }
+    }
+    repository Tickets for Ticket
+    criterion Stale() of Ticket = this.age > 30
+    workflow Sweep {
+      create(n: int) {
+        let ts = Tickets.all(Stale(), page: { offset: n, limit: 100 })
+        for t in ts { t.close() }
+      }
+    }`),
   "loom.crudish-hard-delete": `
 system HardDelete {
   subdomain Core { context Ledger {
@@ -1900,6 +1914,31 @@ system P {
   "loom.duplicate-repository": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing
     repository Stuff for Thing`),
+  // An operation reusing a field's name: one member namespace per aggregate.
+  "loom.member-name-collision": repoOnly(`    aggregate Thing with crudish {
+      qty: int
+      operation qty(n: int) { qty := n }
+    }
+    repository Things for Thing`),
+  // Two contexts one deployable hosts, each declaring an `Order` aggregate.
+  "loom.hosted-type-name-collision": `
+system S {
+  subdomain D {
+    context Sales {
+      aggregate Order with crudish { qty: int }
+      repository Orders for Order
+    }
+    context Billing {
+      aggregate Order with crudish { amt: int }
+      repository BillingOrders for Order
+    }
+  }
+  api A from D
+  storage pg { type: postgres }
+  resource s { for: Sales, kind: state, use: pg }
+  resource b { for: Billing, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Sales, Billing], dataSources: [s, b], serves: A, port: 4000 }
+}`,
   "loom.duplicate-workflow": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing
     workflow Dup { create(n: string) { precondition n.length > 0 } }
@@ -2054,7 +2093,7 @@ system P {
     workflow W {
       create(tid: Thing id) {
         let t = Things.get(tid)
-        precondition t.name == Others.get(t.otherId).label
+        precondition t.name == "" || t.name == Others.get(t.otherId).label
       }
     }`),
   // A name that binds to nothing inside a `commandHandler` body — the handler
@@ -3133,33 +3172,6 @@ system S {
     let summed = api.sum({ a: 1, b: 2 })
     expect(summed).toBe(3)
   }
-}`,
-
-  // M-T6.59 narrowed this code: the `if` STATEMENT itself RENDERS on elixir now
-  // (a value-producing `record = if … do … record else record end`), so the
-  // firing shape is one of the three sub-shapes that still cannot render.  This
-  // is `#guard-in-branch` — a `precondition` nested in a branch, which the op
-  // path cannot hoist into its `with :ok <- ensure(…)` chain, so it would raise
-  // (500) where the other four backends answer a typed 403/422.
-  "loom.elixir-if-stmt-unsupported": `
-system P {
-  subdomain D { context C {
-    aggregate Order with crudish {
-      customerId: string
-      count: int
-      operation bump(n: int) {
-        if n > 0 {
-          precondition count > 0
-          count := 1
-        } else {
-          count := 2
-        }
-      }
-    }
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
 }`,
 
   // A guard inside a statement-`match` arm of an operation an elixir

@@ -306,11 +306,9 @@ async function errorsOf(src: string): Promise<Diag[]> {
   return report.diagnostics.filter((d) => d.severity === "error") as Diag[];
 }
 
-/** A PER-BACKEND refusal — the per-backend narrowings these positions have
- *  are Phoenix's: its `if` shapes (`if-stmt-checks.ts`) and the statement
- *  `match` (`elixir-match-stmt-checks.ts`). */
-const isTargetGap = (d: Diag): boolean =>
-  d.code === "loom.elixir-if-stmt-unsupported" || d.code === "loom.elixir-match-stmt-unsupported";
+/** A PER-BACKEND refusal — the one per-backend narrowing these positions have
+ *  is Phoenix's statement `match` (`elixir-match-stmt-checks.ts`). */
+const isTargetGap = (d: Diag): boolean => d.code === "loom.elixir-match-stmt-unsupported";
 
 interface Cell {
   kind: string;
@@ -385,8 +383,7 @@ const APPLIER_RENDERS: Record<Backend, readonly string[]> = {
   dotnet: ["let", "assign", "add", "remove", "if"],
   java: ["let", "assign", "add", "remove", "if"],
   python: ["let", "assign", "add", "remove", "if"],
-  // Phoenix renders no `if` in a fold (`loom.elixir-if-stmt-unsupported`).
-  elixir: ["let", "assign", "add", "remove"],
+  elixir: ["let", "assign", "add", "remove", "if"],
 };
 
 describe("body-statement census — every position × backend × statement kind renders or is refused", () => {

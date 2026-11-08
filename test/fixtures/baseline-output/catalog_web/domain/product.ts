@@ -40,6 +40,9 @@ export class Product {
     return out;
   }
 
+  /** @internal Repository save only: reflect the persisted version counter onto this instance. */
+  _applyVersion(next: number): void { this._version = next; }
+
   private _assertInvariants(): void {
     if (!([...this._sku].length > 0)) throw new DomainError("Invariant violated: sku.length > 0", "invariant");
   }

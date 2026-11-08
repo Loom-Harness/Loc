@@ -10,9 +10,8 @@
 //
 // …and with the document PERSISTENCE shape's root reads, because a document
 // aggregate has no queryable columns at all: every predicate is evaluated
-// in-app over the rehydrated blob.  (A document aggregate's single-row
-// criterion read has no generated handler on every backend, so its bypassing
-// half has no routed form here.)
+// in-app over the rehydrated blob — the bypass included: a widened document
+// read keeps exactly the filters its clause does not name.
 //
 // This crossing is what no other corpus fixture made.  `projection-agg-filters`
 // covers `ignoring` on a query-time PROJECTION; the tenancy fixtures cover the
@@ -98,6 +97,22 @@ system FindBypass {
       }
 
       repository Notes for Note
+      criterion NoteBody(b: string) of Note = this.body == b
+      // The same two bypasses over the document shape.
+      queryHandler GetNoteByAnyTenant(b: string): Note {
+        if let x = Notes.find(NoteBody(b)) ignoring tenantOwned {
+          return x
+        } else {
+          notFound "not_found"
+        }
+      }
+      queryHandler GetNoteByUnfiltered(b: string): Note {
+        if let x = Notes.find(NoteBody(b)) ignoring * {
+          return x
+        } else {
+          notFound "not_found"
+        }
+      }
     }
     context Accounts {
       // The tenant registry only has to exist for `tenancy … of Organization`;
@@ -111,6 +126,8 @@ system FindBypass {
   api OrdersApi with scaffoldGetApi(of: Scoped) from Sales {
     route GET "/orders/any_tenant" -> Orders.GetOrderByAnyTenant
     route GET "/orders/unfiltered" -> Orders.GetOrderByUnfiltered
+    route GET "/notes/any_tenant" -> Orders.GetNoteByAnyTenant
+    route GET "/notes/unfiltered" -> Orders.GetNoteByUnfiltered
   }
 
   storage pg { type: postgres }
@@ -147,8 +164,13 @@ system FindBypass {
     let n = api.notes.create({ body: "N-1" })
     expect(api.notes.getById(n).body).toBe("N-1")
     api.notes.update(n, { body: "N-2" })
+    expect(api.orders.getNoteByAnyTenant("N-2").body).toBe("N-2")
+    expect(api.orders.getNoteByUnfiltered("N-2").body).toBe("N-2")
     api.notes.softDelete(n)
     expect(api.notes.getById(n)).toThrow(404)
+    // `ignoring tenantOwned` keeps the not-deleted conjunct, `ignoring *` drops it.
+    expect(api.orders.getNoteByAnyTenant("N-2")).toThrow(404)
+    expect(api.orders.getNoteByUnfiltered("N-2").body).toBe("N-2")
     expect(api.notes.all().length).toBe(0)
     expect(api.notes.restore(n)).toThrow(404)
 

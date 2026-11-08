@@ -51,6 +51,32 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     reviewUntil: "2027-01-31",
   },
 
+  // src/generator/_imports/ts.ts
+  "src/generator/_imports/ts.ts#tsSpecifier": {
+    invariant:
+      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+  },
+  "src/generator/_imports/ts.ts#render": {
+    invariant:
+      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+  },
+  "src/generator/_imports/ts.ts#finalizeTsModule": {
+    invariant:
+      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+  },
+  "src/generator/_imports/ts.ts#finalizeTsModule$2": {
+    invariant:
+      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+  },
+  "src/generator/_imports/ts.ts#finalizeTsModule$3": {
+    invariant:
+      "Every TS symbol is an infrastructure name (a framework export or a generated module's fixed export) or a name derived per module from a declaration the validator already keeps unique (an api slug's router, an objectStore's byte helpers); no two modules export one of them under one local name.",
+  },
+  "src/generator/_imports/ts.ts#assertNoSlots": {
+    invariant:
+      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+  },
+
   // src/generator/python/wire-policy-py.ts
   "src/generator/python/wire-policy-py.ts#wireStatusResolver": {
     invariant:
@@ -616,10 +642,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "A read-port can only name a repository of the service's own context because lowerDomainService builds serviceRepos from its own context, so readingIsSingleContext is always true (cross-context reads lower to an unresolved ref refused by loom.domain-service-cross-context-read). (src/ir/lower/lower-domain-service.ts:29-33 (serviceRepos built from env.ctx.members only))",
   },
   "src/generator/elixir/domain-service-emit.ts#renderOperation$2": {
-    guardedBy: ["loom.elixir-if-stmt-unsupported"],
-    note: "The gate runs the identical elixirIfRefusal(op.body,'value') predicate on every domain-service operation of a context hosted by an elixir deployable.",
-  },
-  "src/generator/elixir/domain-service-emit.ts#renderOperation$3": {
     guardedBy: ["loom.elixir-match-stmt-unsupported"],
     note: "The gate runs the identical elixirMatchRefusal(op.body,'value') predicate on every domain-service operation of a context hosted by an elixir deployable.",
   },
@@ -716,24 +738,16 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/elixir/vanilla/domain-core-emit.ts
   "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt": {
-    guardedBy: ["loom.elixir-if-stmt-unsupported"],
-    note: "The event-sourced pure core reads the same command body as the ES command runner; validateElixirIfSupport refuses ANY `if` in an event-sourced command body (operations, creates and destroys) on an elixir-hosted context (`#event-sourced`).",
-  },
-  "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt$2": {
     guardedBy: ["loom.elixir-match-stmt-unsupported"],
     note: "validateElixirMatchStatements refuses ANY statement match in an event-sourced operation / create / destroy on an elixir-hosted context (`#event-sourced`).",
   },
-  "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt$3": {
+  "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt$2": {
     invariant:
       "Exhaustive `never` default: every StmtIR kind has an arm above it. (src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt)",
   },
 
   // src/generator/elixir/vanilla/eventsourced-emit.ts
-  "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner": {
-    guardedBy: ["loom.elixir-if-stmt-unsupported"],
-    note: "validateElixirIfSupport refuses ANY `if` in an event-sourced command body — operations, creates and destroys alike — on an elixir-hosted context (`#event-sourced`).",
-  },
-  "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner$2": {
+  "src/generator/elixir/vanilla/eventsourced-emit.ts#sortPath": {
     guardedBy: ["loom.elixir-match-stmt-unsupported"],
     note: "validateElixirMatchStatements refuses ANY statement match in an event-sourced operation / create / destroy on an elixir-hosted context (`#event-sourced`).",
   },
@@ -755,10 +769,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "loom.applier-emits",
       "loom.applier-impure-call",
       "loom.applier-guard",
-      "loom.elixir-if-stmt-unsupported",
       "loom.variant-match-placement",
     ],
-    note: "validateApplierBodies holds every applier (aggregate and workflow) to APPLIER_STMT_KINDS; the fold renders all of it but `if`, which validateElixirIfSupport refuses in every elixir-hosted applier. `expression` is refused too, so the renderer's `expression` arm is unreachable.",
+    note: "validateApplierBodies holds every applier (aggregate and workflow) to APPLIER_STMT_KINDS (assign / add / remove / let / if), all of which the fold renders. `expression` is refused too, so the renderer's `expression` arm is unreachable.",
+  },
+  "src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldStatement$2": {
+    invariant:
+      "Exhaustive `never` default: every StmtIR kind has an arm above it. (src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldStatement)",
   },
 
   // src/generator/elixir/store-emit.ts
@@ -785,10 +802,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/vanilla/function-emit.ts#renderPureBlock$3": {
     guardedBy: ["loom.variant-match-placement"],
   },
-  "src/generator/elixir/vanilla/function-emit.ts#renderFunctionBodyLines": {
-    guardedBy: ["loom.elixir-if-stmt-unsupported"],
-    note: 'validateElixirIfSupport classifies every block-bodied `function` — aggregate AND workflow — with the same elixirIfRefusal("value") predicate this throw asserts.',
-  },
 
   // src/generator/elixir/vanilla/integration-tests-emit.ts
   "src/generator/elixir/vanilla/integration-tests-emit.ts#renderStmt": {
@@ -800,10 +813,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/vanilla/operation-returns-emit.ts#renderReturningStmt": {
     guardedBy: ["loom.elixir-match-stmt-unsupported", "loom.variant-match-placement"],
     note: "The gate runs the identical elixirMatchRefusal predicate (or the stricter event-sourced one) over every aggregate operation / create / destroy in an elixir-hosted context; a pure fold or function is refused by the placement rule on every backend.",
-  },
-  "src/generator/elixir/vanilla/operation-returns-emit.ts#renderReturningStmt$2": {
-    guardedBy: ["loom.elixir-if-stmt-unsupported"],
-    note: "The gate runs the identical elixirIfRefusal predicate (or the stricter event-sourced one) over every aggregate operation in an elixir-hosted context; relational create/destroy bodies are not rendered (loom.lifecycle-body-dropped).",
   },
 
   // src/generator/elixir/vanilla/projections-emit.ts

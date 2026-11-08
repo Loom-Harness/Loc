@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initialPipelineState, pipelineReducer } from "../../web/src/pipeline/reducer.js";
+import { bootError, bootedDDL, bootPending } from "../../web/src/pipeline/state.js";
 
 // ---------------------------------------------------------------------------
 // Pipeline reducer — invariants the playground UI depends on.
@@ -51,17 +52,39 @@ function bootedState(persistent: boolean) {
     type: "BOOT_OK",
     ddl: "CREATE TABLE foo();",
     persistent,
-    migrated: false,
+    applied: [],
   });
   s = pipelineReducer(s, { type: "DISPATCH_START" });
   s = pipelineReducer(s, { type: "DISPATCH_DONE", result: SAMPLE_DISPATCH });
   return s;
 }
 
+describe("pipelineReducer — BOOT_PENDING", () => {
+  it("records why the boot stopped on a migration, without a DDL or an error", () => {
+    let s = pipelineReducer(initialPipelineState, { type: "BOOT_START" });
+    const migration = {
+      kind: "unrecorded" as const,
+      head: null,
+      initial: true,
+      modules: ["Sales"],
+      steps: 2,
+      destructive: false,
+    };
+    s = pipelineReducer(s, { type: "BOOT_PENDING", migration, message: "Migration required" });
+    expect(s.booting).toBe(false);
+    expect(s.boot).toEqual({ kind: "pending", migration, message: "Migration required" });
+    expect(bootPending(s)).toEqual({ migration, message: "Migration required" });
+    expect(bootedDDL(s)).toBeNull();
+    expect(bootError(s)).toBeNull();
+    // A later boot clears it.
+    expect(bootPending(pipelineReducer(s, { type: "BOOT_START" }))).toBeNull();
+  });
+});
+
 describe("pipelineReducer — RUNTIME_LOST", () => {
   it("flips boot to fail with the persisted-restored message when the prior boot was OPFS-backed", () => {
     // Persistent boot: PGlite's data island lives in OPFS, keyed
-    // by source hash (see runtime/runtime.worker.ts).  When the
+    // by workspace (see App.runBootStep).  When the
     // worker respawns, the next Boot reattaches the same island
     // and the rows come back.  The message has to reflect that —
     // misleading the user into thinking their data is gone was
