@@ -153,3 +153,63 @@ describe("visibility taint — write sinks", () => {
     expect(diags.length).toBeGreaterThan(0);
   });
 });
+
+const sinkSys = (aggBody: string, ctxExtra = "") => `system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    aggregate P with crudish {
+      name: string
+      ssn: string mask unless currentUser.role == "hr"
+      ${aggBody}
+    }
+    repository Ps for P
+    ${ctxExtra}
+  } }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node  contexts: [C]  dataSources: [st]  port: 8080  auth: required }
+}`;
+
+async function codes(src: string): Promise<string[]> {
+  const { ir } = await enriched(src);
+  return validateLoomModel(ir).map((d) => d.code ?? "");
+}
+
+describe("visibility taint — log, event and uniqueness sinks", () => {
+  it("the synthesized `inspect` (toString / log text) redacts a masked field", async () => {
+    const { agg } = await enriched(sinkSys(""));
+    const inspect = agg.derived.find((d) => d.name === "inspect")!;
+    const reads = new Set<string>();
+    walkExprDeep(inspect.expr, (n) => {
+      if (n.kind === "ref" && n.refKind === "this-prop") reads.add(n.name);
+    });
+    expect(reads.has("name")).toBe(true);
+    expect(reads.has("ssn")).toBe(false);
+  });
+
+  it("an event carrying a masked value on a channel is refused", async () => {
+    const leak = await codes(
+      sinkSys(
+        "operation ping() { emit Pinged { p: id, ssn: ssn } }",
+        "event Pinged { p: P id  ssn: string }\n    channel Out { carries: Pinged }",
+      ),
+    );
+    expect(leak).toContain("loom.field-mask-event-channel");
+    const clean = await codes(
+      sinkSys(
+        "operation ping() { emit Pinged { p: id, ssn: name } }",
+        "event Pinged { p: P id  ssn: string }\n    channel Out { carries: Pinged }",
+      ),
+    );
+    expect(clean).not.toContain("loom.field-mask-event-channel");
+  });
+
+  it("a unique key over a masked field is refused unless the create requires the mask", async () => {
+    expect(await codes(sinkSys("unique (ssn)"))).toContain("loom.field-mask-unique-oracle");
+    const gated = sinkSys("unique (ssn)").replace(
+      "aggregate P with crudish {",
+      'aggregate P with crudish(updateOnly: true) {\n      create(name: string, ssn: string) { requires currentUser.role == "hr"  name := name  ssn := ssn }',
+    );
+    expect(await codes(gated)).not.toContain("loom.field-mask-unique-oracle");
+  });
+});

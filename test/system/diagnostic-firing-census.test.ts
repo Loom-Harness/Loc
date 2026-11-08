@@ -530,6 +530,40 @@ const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
 };
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A masked value emitted on an event a channel publishes: every subscriber
+  // would receive it in the clear.
+  "loom.field-mask-event-channel": `
+system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    aggregate P with crudish {
+      ssn: string mask unless currentUser.role == "hr"
+      operation ping() { emit Pinged { p: id, ssn: ssn } }
+    }
+    repository Ps for P
+    event Pinged { p: P id  ssn: string }
+    channel Out { carries: Pinged }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
+}`,
+  // A unique key over a masked field with an ungated create: a 409 answers
+  // whether a guessed hidden value exists.
+  "loom.field-mask-unique-oracle": `
+system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    aggregate P with crudish {
+      ssn: string mask unless currentUser.role == "hr"
+      unique (ssn)
+    }
+    repository Ps for P
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
+}`,
   // A store field's default is evaluated when the store is created, so on the
   // JS-family store renderer it must be a constant: a call is refused.
   "loom.store-init-not-constant": `

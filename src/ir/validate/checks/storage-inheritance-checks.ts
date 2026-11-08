@@ -7,9 +7,8 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { descriptorFor } from "../../../platform/metadata.js";
-import { maskedReadsOf } from "../../enrich/mask-taint.js";
-import type { BoundedContextIR, EnrichedLoomModel, ExprIR, StmtIR } from "../../types/loom-ir.js";
-import { walkStmtsDeep } from "../../util/walk.js";
+import { maskLaunderingEvents } from "../../enrich/mask-taint.js";
+import type { BoundedContextIR, EnrichedLoomModel } from "../../types/loom-ir.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { firstNonGateRef, GATE_ALLOWED_REFS } from "./query-checks.js";
 
@@ -183,62 +182,6 @@ export function validateProvenancedStorage(
 // to either — marks the EVENT as carrying masked data.  A projection folding
 // such an event is refused with the same code as the read bypass.
 // ---------------------------------------------------------------------------
-
-/** The first masked field a single expression reads, or null — the shared
- *  taint reader (`mask-taint.ts`), with a `let` carrying one masked name. */
-function firstMaskedRead(
-  e: ExprIR,
-  masked: ReadonlySet<string>,
-  taintedLets: ReadonlyMap<string, string>,
-): string | null {
-  const lets = new Map([...taintedLets].map(([k, v]) => [k, [v]] as const));
-  return maskedReadsOf(e, masked, lets)[0] ?? null;
-}
-
-/** Map every event whose emitted payload carries a `mask unless` value to the
- *  `<Aggregate>.<field>` that laundered into it. */
-
-export function maskLaunderingEvents(ctx: BoundedContextIR): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const agg of ctx.aggregates) {
-    const maskedFields = agg.fields.filter((f) => f.maskUnless).map((f) => f.name);
-    if (maskedFields.length === 0) continue;
-    const masked = new Set(maskedFields);
-    // A `derived` whose expression reads a masked field carries the same value.
-    for (const d of agg.derived) {
-      if (firstMaskedRead(d.expr, masked, new Map())) masked.add(d.name);
-    }
-    for (const op of [...agg.operations, ...(agg.creates ?? []), ...(agg.destroys ?? [])]) {
-      const stmts: StmtIR[] = [];
-      for (const s of op.statements) walkStmtsDeep(s, (n) => stmts.push(n));
-      // Fixpoint over `let` bindings so declaration order (or nesting inside a
-      // lambda block) can't hide a chain `let a = salary` / `let b = a`.
-      const taintedLets = new Map<string, string>();
-      for (let changed = true; changed; ) {
-        changed = false;
-        for (const s of stmts) {
-          if (s.kind !== "let" || taintedLets.has(s.name)) continue;
-          const via = firstMaskedRead(s.expr, masked, taintedLets);
-          if (via !== null) {
-            taintedLets.set(s.name, via);
-            changed = true;
-          }
-        }
-      }
-      for (const s of stmts) {
-        if (s.kind !== "emit" || out.has(s.eventName)) continue;
-        for (const f of s.fields) {
-          const via = firstMaskedRead(f.value, masked, taintedLets);
-          if (via !== null) {
-            out.set(s.eventName, `${agg.name}.${via}`);
-            break;
-          }
-        }
-      }
-    }
-  }
-  return out;
-}
 
 export function validateFieldMask(
   ctx: BoundedContextIR,
