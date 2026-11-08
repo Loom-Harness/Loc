@@ -440,7 +440,7 @@ export function renderHttpIndex(
     "    if (err instanceof DomainError) {",
     `      ${renderHonoBaseLogCall("domainError", `message: err.message, status: ${rootDomainStatus}`)}`,
     '      recordDomainFault("domain_error");',
-    `      return problem(${rootDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("domain-floor"))});`,
+    `      return problem(${rootDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, err.problemCode);`,
     "    }",
     "    if (err instanceof AggregateNotFoundError) {",
     `      ${renderHonoBaseLogCall("notFound", `status: ${rootNotFoundStatus}`)}`,

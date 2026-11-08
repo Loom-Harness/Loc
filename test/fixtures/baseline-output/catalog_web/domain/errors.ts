@@ -8,10 +8,18 @@ export class DomainError extends Error {
   /** The rung that refused; undefined for a DomainError thrown outside the
    *  precondition / invariant floor. */
   readonly kind: DomainErrorKind | undefined;
-  constructor(message: string, kind?: DomainErrorKind) {
+  /** The refusal's wire class code: the domain floor, or the
+   *  arithmetic-overflow class a checked integer result raises (RS-48). */
+  readonly problemCode: string;
+  constructor(message: string, kind?: DomainErrorKind, problemCode: string = "problem.domain-floor") {
     super(message);
     this.name = "DomainError";
     this.kind = kind;
+    this.problemCode = problemCode;
+  }
+  /** Integer arithmetic in domain code left its declared range (RS-48). */
+  static arithmeticOverflow(): DomainError {
+    return new DomainError("Value out of range", undefined, "problem.arithmetic-overflow");
   }
 }
 /** A value object's invariant refused a value (M-T5.1).  A DomainError, so

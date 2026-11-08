@@ -185,7 +185,7 @@ export function createApp(
     if (err instanceof DomainError) {
       baseLogger.warn({ event: "domain_error", message: err.message, status: 422 });
       recordDomainFault("domain_error");
-      return problem(422, "Unprocessable Entity", err.message, "problem.domain-floor");
+      return problem(422, "Unprocessable Entity", err.message, err.problemCode);
     }
     if (err instanceof AggregateNotFoundError) {
       baseLogger.warn({ event: "not_found", status: 404 });

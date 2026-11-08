@@ -123,6 +123,7 @@
   "pack.mantine.noParameters.usdpad": "This operation has no parameters.",
   "pack.mantine.removeItem.9c35st": "Remove",
   "pack.mantine.signOut.2niv00": "Sign out",
+  "problem.arithmetic-overflow": "This value is out of range.",
   "problem.dangling-reference": "Something this refers to does not exist.",
   "problem.domain-floor": "Business rule violated",
   "problem.field-invalid": "One or more fields are invalid.",

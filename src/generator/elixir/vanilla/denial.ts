@@ -242,20 +242,21 @@ defmodule ${guardErrorModule(appModule)} do
   \`domainService\`, or the pure-core operation form, none of which has a
   \`with\` chain to short-circuit through.
 
-  \`:kind\` is the ROUTING KEY the controller rescue reads to pick the HTTP
-  status (\`:forbidden\` -> 403, \`:precondition\` -> 422).  It used to read the
-  message PREFIX instead, which made the message unusable as a message: a
-  rule's own text missed the prefix and reraised into a 500.  With
-  the classification out of band, \`:message\` is free text and carries exactly
-  what the other four backends put in their \`DomainException\` / \`DomainError\`.
+  \`:kind\` is the ROUTING KEY the controller rescue reads to pick the answer
+  (\`:forbidden\` -> 403, \`:precondition\` -> 422, \`:overflow\` -> the
+  arithmetic-overflow 422).  The classification is out of band, so \`:message\`
+  is free text and carries exactly what the other four backends put in their
+  \`DomainException\` / \`DomainError\`.
 
   \`:disallowed\` is an operation's \`when\` state gate refusing, raised only by
   the pure-core operation form (the domain unit tests' subject); the HTTP path
   checks the gate in its \`with\` chain and answers 409 from there.
+
+  \`:overflow\` is integer arithmetic leaving its declared range (RS-48).
   """
   defexception [:message, :kind]
 
-  @type kind :: :forbidden | :precondition | :disallowed
+  @type kind :: :forbidden | :precondition | :disallowed | :overflow
 end
 `;
 }

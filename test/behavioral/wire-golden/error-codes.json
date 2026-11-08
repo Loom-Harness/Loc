@@ -306,6 +306,20 @@
     },
     {
       "seq": 16,
+      "method": "POST",
+      "path": "/api/tickets/{id}/escalate",
+      "status": 422,
+      "body": {
+        "code": "problem.arithmetic-overflow",
+        "detail": "Value out of range",
+        "instance": "/api/tickets/{id}/escalate",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
       "method": "GET",
       "path": "/api/tickets/{id}",
       "status": 200,
@@ -316,21 +330,39 @@
         "pin": "1234",
         "priority": 1,
         "ratio": 9.25,
+        "rowVersion": 1,
         "seats": 10,
         "title": "short",
-        "rowVersion": 1,
         "weight": 0.75
       }
     },
     {
-      "seq": 17,
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 200,
+      "body": {
+        "code": "ab",
+        "email": "a@b",
+        "id": "<volatile:key>",
+        "pin": "1234",
+        "priority": 1,
+        "ratio": 9.25,
+        "rowVersion": 1,
+        "seats": 10,
+        "title": "short",
+        "weight": 0.75
+      }
+    },
+    {
+      "seq": 19,
       "method": "POST",
       "path": "/api/categories/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 18,
+      "seq": 20,
       "method": "GET",
       "path": "/api/categories/{id}",
       "status": 200,
@@ -341,7 +373,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 21,
       "method": "GET",
       "path": "/api/categories",
       "status": 200,
@@ -360,14 +392,14 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 22,
       "method": "POST",
       "path": "/api/products/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 21,
+      "seq": 23,
       "method": "GET",
       "path": "/api/products",
       "status": 200,
@@ -388,14 +420,14 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 24,
       "method": "DELETE",
       "path": "/api/products/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 23,
+      "seq": 25,
       "method": "GET",
       "path": "/api/products",
       "status": 200,
@@ -408,14 +440,14 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 26,
       "method": "POST",
       "path": "/api/tickets/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 25,
+      "seq": 27,
       "method": "GET",
       "path": "/api/tickets",
       "status": 200,
@@ -428,9 +460,9 @@
             "pin": "4321",
             "priority": 2,
             "ratio": 1.5,
+            "rowVersion": 2,
             "seats": 9,
             "title": "t",
-            "rowVersion": 2,
             "weight": 1.5
           }
         ],
@@ -441,14 +473,14 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 28,
       "method": "DELETE",
       "path": "/api/tickets/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 27,
+      "seq": 29,
       "method": "GET",
       "path": "/api/tickets",
       "status": 200,
@@ -461,7 +493,7 @@
       }
     },
     {
-      "seq": 28,
+      "seq": 30,
       "method": "PATCH",
       "path": "/api/categories",
       "status": 405,
@@ -475,7 +507,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 31,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -489,7 +521,7 @@
       }
     },
     {
-      "seq": 30,
+      "seq": 32,
       "method": "POST",
       "path": "/api/categories",
       "status": 400,
@@ -503,7 +535,7 @@
       }
     },
     {
-      "seq": 31,
+      "seq": 33,
       "method": "POST",
       "path": "/api/categories/{id}/update",
       "status": 404,

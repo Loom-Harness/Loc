@@ -445,7 +445,7 @@ export function buildQueryProjectionsFile(
     `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${projForbiddenStatus}`)} return problem(${projForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail, ${JSON.stringify(wireCode("forbidden"))}); }`,
   );
   lines.push(
-    `    if (err instanceof DomainError) return problem(${projDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("domain-floor"))});`,
+    `    if (err instanceof DomainError) return problem(${projDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, err.problemCode);`,
   );
   lines.push(
     `    if (err instanceof AggregateNotFoundError) return problem(${projNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,

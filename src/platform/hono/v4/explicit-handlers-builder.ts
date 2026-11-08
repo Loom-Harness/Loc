@@ -983,7 +983,7 @@ export function buildExplicitRoutesFile(
     `    if (err instanceof DisallowedError) return problem(${exDisallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message, ${JSON.stringify(wireCode("state-gate"))});`,
   );
   body.push(
-    `    if (err instanceof DomainError) return ${domainFloorAnswer(contexts.some(hasDomainFloorAnswer), exDomainStatus, wireTitle("domain-floor", structuralMap), `problem(${exDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", structuralMap))}, err.message, ${JSON.stringify(wireCode("domain-floor"))})`)};`,
+    `    if (err instanceof DomainError) return ${domainFloorAnswer(contexts.some(hasDomainFloorAnswer), exDomainStatus, wireTitle("domain-floor", structuralMap), `problem(${exDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", structuralMap))}, err.message, err.problemCode)`)};`,
   );
   body.push(
     `    if (err instanceof AggregateNotFoundError) return problem(${exNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", structuralMap))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,

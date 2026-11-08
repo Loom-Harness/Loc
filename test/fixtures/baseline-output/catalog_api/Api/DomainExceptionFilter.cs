@@ -214,7 +214,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         {
             _log.LogWarning("{Event} message={Message} status={Status}", "domain_error", ofe.Message, 422);
             global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("domain_error");
-            context.Result = Problem(context, 422, "Unprocessable Entity", "Value out of range", trace_id);
+            context.Result = Problem(context, 422, "Unprocessable Entity", "Value out of range", trace_id, "problem.arithmetic-overflow");
             context.ExceptionHandled = true;
             return;
         }

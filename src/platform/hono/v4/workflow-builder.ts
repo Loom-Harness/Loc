@@ -519,7 +519,7 @@ export function buildWorkflowsFile(
     `    if (err instanceof DisallowedError) return problem(${wfDisallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message, ${JSON.stringify(wireCode("state-gate"))});`,
   );
   body.push(
-    `    if (err instanceof DomainError) return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), wfDomainStatus, wireTitle("domain-floor", ctx.structuralErrorStatuses), `problem(${wfDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("domain-floor"))})`)};`,
+    `    if (err instanceof DomainError) return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), wfDomainStatus, wireTitle("domain-floor", ctx.structuralErrorStatuses), `problem(${wfDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, err.problemCode)`)};`,
   );
   body.push(
     `    if (err instanceof AggregateNotFoundError) return problem(${wfNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,

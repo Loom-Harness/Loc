@@ -1568,12 +1568,13 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     trigger:
       "`stock + n`, `a * b`, `a - b` or `-n` over `int` / `long` operands in an aggregate operation, workflow, handler or domain service, with a result outside int32 (`int`) or int64 (`long`)",
     observable:
-      'the request is refused 422 `application/problem+json` with `title` "Unprocessable Entity" and `detail` "Value out of range" (the domain-floor status, remappable via `httpStatus DomainError`), and the row keeps its stored value',
+      'the request is refused 422 `application/problem+json` with `title` "Unprocessable Entity", `detail` "Value out of range" and `code` "problem.arithmetic-overflow", no `errors[]` (the domain-floor status, remappable via `httpStatus DomainError`), and the row keeps its stored value',
     // One predicate decides which nodes are checked for every backend
     // (`checkedBinaryKind` / `checkedUnaryKind`, src/generator/_expr/checked-int.ts);
     // the fact is the `arithmetic-overflow` rejection class of wirePolicy.  node
-    // and python compare the result against the bound, elixir raises the typed
-    // GuardError from a `case`, java renders `Math.*Exact` and .NET `checked(...)`,
+    // and python compare the result against the bound and raise their overflow
+    // carrier (`DomainError.arithmeticOverflow()` / `ArithmeticOverflowError`),
+    // elixir raises the typed GuardError with kind `:overflow` from a `case`, java renders `Math.*Exact` and .NET `checked(...)`,
     // the last two mapped from ArithmeticException / OverflowException by their
     // exception advice / filter.  Before the ruling node, python and elixir
     // persisted an out-of-range value (a 500 from the database CHECK) and java and

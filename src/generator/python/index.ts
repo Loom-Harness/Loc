@@ -2180,6 +2180,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send${integrityImp
 
 from app.domain.errors import (
     AggregateNotFoundError,
+    ArithmeticOverflowError,
 ${versionedImport}    DisallowedError,
     DomainError,
 ${externImport}    ForbiddenError,
@@ -2482,7 +2483,16 @@ def install_error_handlers(app: FastAPI) -> None:
         record_domain_fault("disallowed")
         return problem(request, ${disallowedStatus}, ${title("state-gate")}, str(err), code=${code("state-gate")})
 
-${domainFloorEntryFn}    @app.exception_handler(DomainError)
+${domainFloorEntryFn}    # Integer arithmetic past its declared range (RS-48): the domain floor's
+    # status, its own class code and fixed detail, no errors[].  Starlette
+    # dispatches on the most specific class, so this wins over \`_domain\`.
+    @app.exception_handler(ArithmeticOverflowError)
+    async def _arithmetic_overflow(request: Request, err: ArithmeticOverflowError) -> JSONResponse:
+        log("warn", "domain_error", message=str(err), status=${wireStatus("arithmetic-overflow", structuralErrorStatuses)})
+        record_domain_fault("domain_error")
+        return problem(request, ${wireStatus("arithmetic-overflow", structuralErrorStatuses)}, ${title("arithmetic-overflow")}, ${JSON.stringify(wireFixedDetail("arithmetic-overflow"))}, code=${code("arithmetic-overflow")})
+
+    @app.exception_handler(DomainError)
     async def _domain(request: Request, err: DomainError) -> JSONResponse:${
       domainFloorCodes
         ? `

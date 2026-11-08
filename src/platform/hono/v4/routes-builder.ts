@@ -1584,7 +1584,7 @@ export function buildRoutesFile(
   );
   lines.push(`      recordDomainFault("domain_error");`);
   lines.push(
-    `      return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), domainStatus, wireTitle("domain-floor", ctx.structuralErrorStatuses), `problem(${domainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("domain-floor"))})`)};`,
+    `      return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), domainStatus, wireTitle("domain-floor", ctx.structuralErrorStatuses), `problem(${domainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, err.problemCode)`)};`,
   );
   lines.push(`    }`);
   lines.push(`    if (err instanceof AggregateNotFoundError) {`);

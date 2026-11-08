@@ -4,9 +4,10 @@
 // and an unnamed rule, problem.not-found, problem.state-gate, the declared
 // error variants, the 500's `{ requestId }`).  This one reaches the refusals
 // no other booted fixture asks for — an out-of-range money, an `extern`
-// stub's 501, a still-referenced delete, and each side of a declared field
-// limit (`field.min` … `field.pattern`, the bound in `params`) — so the golden
-// shows their codes too.  It runs on the backends whose `error-code-rows.ts` row is `done`;
+// stub's 501, a still-referenced delete, each side of a declared field
+// limit (`field.min` … `field.pattern`, the bound in `params`), and integer
+// arithmetic past its declared range (`problem.arithmetic-overflow`, RS-48) —
+// so the golden shows their codes too.  It runs on the backends whose `error-code-rows.ts` row is `done`;
 // a fan-out backend joins `backends` when it flips its row.
 system ErrorCodes {
   subdomain Shop {
@@ -31,6 +32,9 @@ system ErrorCodes {
         title: string check title.length <= 5
         pin: string check pin.length == 4
         email: string check email.matches("^[^@]+@[^@]+$")
+        operation escalate(by: int) {
+          priority := priority + by
+        }
       }
       repository Categories for Category { }
       repository Tickets for Ticket { }
@@ -70,7 +74,9 @@ system ErrorCodes {
     expect(api.tickets.create({ priority: 1, seats: 10, weight: 0.75, ratio: 9.25, code: "ab", title: "too long", pin: "1234", email: "a@b" })).toThrow(422)
     expect(api.tickets.create({ priority: 1, seats: 10, weight: 0.75, ratio: 9.25, code: "ab", title: "short", pin: "123", email: "a@b" })).toThrow(422)
     expect(api.tickets.create({ priority: 1, seats: 10, weight: 0.75, ratio: 9.25, code: "ab", title: "short", pin: "1234", email: "nope" })).toThrow(422)
+    expect(api.tickets.escalate(ok, { by: 2147483647 })).toThrow(422)
     expect(api.tickets.getById(ok).pin).toBe("1234")
+    expect(api.tickets.getById(ok).priority).toBe(1)
     // The rest of the route surface, so every derived operation has a caller.
     api.categories.update(tools, { name: "Hand tools" })
     expect(api.categories.getById(tools).name).toBe("Hand tools")

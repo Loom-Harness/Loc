@@ -249,13 +249,21 @@ function domainErrorTs(domainFloorCodes: boolean): string {
   /** The values of the identifiers the rule reads — the wire \`params\` a
    *  client fills the rule's message placeholders from. */
   readonly params: Record<string, unknown> | undefined;
-  constructor(message: string, kind?: DomainErrorKind, code?: string, pointer?: string, params?: Record<string, unknown>) {
+  /** The refusal's wire class code: the domain floor, or the
+   *  arithmetic-overflow class a checked integer result raises (RS-48). */
+  readonly problemCode: string;
+  constructor(message: string, kind?: DomainErrorKind, code?: string, pointer?: string, params?: Record<string, unknown>, problemCode: string = ${JSON.stringify(wireCode("domain-floor"))}) {
     super(message);
     this.name = "DomainError";
     this.kind = kind;
     this.code = code;
     this.pointer = pointer;
     this.params = params;
+    this.problemCode = problemCode;
+  }
+  /** Integer arithmetic in domain code left its declared range (RS-48). */
+  static arithmeticOverflow(): DomainError {
+    return new DomainError(${JSON.stringify(wireFixedDetail("arithmetic-overflow"))}, undefined, undefined, undefined, undefined, ${JSON.stringify(wireCode("arithmetic-overflow"))});
   }
 }
 `
@@ -263,10 +271,18 @@ function domainErrorTs(domainFloorCodes: boolean): string {
   /** The rung that refused; undefined for a DomainError thrown outside the
    *  precondition / invariant floor. */
   readonly kind: DomainErrorKind | undefined;
-  constructor(message: string, kind?: DomainErrorKind) {
+  /** The refusal's wire class code: the domain floor, or the
+   *  arithmetic-overflow class a checked integer result raises (RS-48). */
+  readonly problemCode: string;
+  constructor(message: string, kind?: DomainErrorKind, problemCode: string = ${JSON.stringify(wireCode("domain-floor"))}) {
     super(message);
     this.name = "DomainError";
     this.kind = kind;
+    this.problemCode = problemCode;
+  }
+  /** Integer arithmetic in domain code left its declared range (RS-48). */
+  static arithmeticOverflow(): DomainError {
+    return new DomainError(${JSON.stringify(wireFixedDetail("arithmetic-overflow"))}, undefined, ${JSON.stringify(wireCode("arithmetic-overflow"))});
   }
 }
 `;

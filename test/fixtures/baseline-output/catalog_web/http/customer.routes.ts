@@ -195,7 +195,7 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
     if (err instanceof DomainError) {
       c.get("log").warn({ event: "domain_error", aggregate: "Customer", message: err.message, status: 422 });
       recordDomainFault("domain_error");
-      return problem(422, "Unprocessable Entity", err.message, "problem.domain-floor");
+      return problem(422, "Unprocessable Entity", err.message, err.problemCode);
     }
     if (err instanceof AggregateNotFoundError) {
       c.get("log").warn({ event: "not_found", aggregate: "Customer", status: 404 });

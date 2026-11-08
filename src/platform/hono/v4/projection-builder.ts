@@ -18,7 +18,12 @@ import {
   foldTenancyFor,
   foldTenantColumns,
 } from "../../../ir/enrich/fold-tenancy.js";
-import { wireCode, wireFixedDetail, wireStatus, wireTitle } from "../../../ir/enrich/wire-policy.js";
+import {
+  wireCode,
+  wireFixedDetail,
+  wireStatus,
+  wireTitle,
+} from "../../../ir/enrich/wire-policy.js";
 import type {
   EnrichedBoundedContextIR,
   ProjectionIR,

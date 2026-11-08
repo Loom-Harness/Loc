@@ -52,7 +52,7 @@ import {
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opBodyStmtsDeep, opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { exErrorVariant } from "../wire-policy-ex.js";
+import { exErrorVariant, exFixedDetail, exProblemResponse } from "../wire-policy-ex.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
 import { opPersistInvariantPipes } from "./changeset-emit.js";
 import { exLineageValue } from "./codec-spelling-ex.js";
@@ -1666,6 +1666,9 @@ export function guardRescue(appModule: string, overrides?: ErrorStatusMap): stri
       case guard_error.kind do
         :forbidden ->
           ${denialResponse("forbidden", "guard_msg", overrides)}
+
+        :overflow ->
+          ${exProblemResponse("arithmetic-overflow", exFixedDetail("arithmetic-overflow"), overrides)}
 
         _ ->
           ${denialResponse("precondition", "guard_msg", overrides)}
