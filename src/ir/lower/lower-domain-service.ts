@@ -15,6 +15,7 @@
 import type { DomainService, Repository } from "../../language/generated/ast.js";
 import { isRepository } from "../../language/generated/ast.js";
 import type { DomainServiceIR, DomainServiceOperationIR, StmtIR } from "../types/loom-ir.js";
+import { normalizeEarlyReturns } from "../util/if-normal-form.js";
 import { lowerCallableParams } from "./callable-params.js";
 import { lowerStatement } from "./lower-stmt.js";
 import { collectSubjectTests } from "./lower-test.js";
@@ -82,6 +83,7 @@ function lowerDomainServiceOperation(
     name: op.name,
     params,
     ...(returnType ? { returnType } : {}),
-    body,
+    // An early `return` reaches every backend in branch-total form.
+    body: normalizeEarlyReturns(body),
   };
 }

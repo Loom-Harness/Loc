@@ -36,6 +36,10 @@ export const ADVISORY_CODES: ReadonlySet<string> = new Set([
   // and worth saying out loud either way
   // (`src/ir/validate/checks/aggregate-constructible-checks.ts`).
   "loom.aggregate-not-constructible",
+  // A loop over a list read calls a `when`-gated operation whose gate the
+  // read's predicate does not syntactically carry — the data may still
+  // satisfy it (`src/ir/validate/checks/loop-gate-implication-checks.ts`).
+  "loom.loop-gate-not-implied",
 ]);
 
 /** True when a diagnostic code belongs to the advisory `Suggestions:`

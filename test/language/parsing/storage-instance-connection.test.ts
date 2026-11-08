@@ -90,4 +90,18 @@ describe("storage instance/connection extensions", () => {
     expect(s.instance).toBe("appDb");
     expect(s.connection?.$type).toBe("EnvConnectionSource");
   });
+
+  // No registered sourceType declares an int or bool config key, so these
+  // value kinds parse but every use of them is `loom.config-key-unknown`;
+  // this is their parse coverage (showcase.ddd stays warning-free).
+  it("parses the string / int / bool config value kinds", async () => {
+    const { model } = await parse(`
+      system S { storage pg { type: postgres, config: { region: "eu", poolSize: 10, ssl: true } } }
+    `);
+    expect(firstStorage(model).config.map((e) => e.value.$type)).toEqual([
+      "StringConfigValue",
+      "IntConfigValue",
+      "BoolConfigValue",
+    ]);
+  });
 });

@@ -2643,9 +2643,13 @@ function emitResponseDtoSchema(
         lines.push(`  ${wf.name}: z.string(),`);
       } else {
         // A `mask unless` field is redacted to `null` for callers who fail the
-        // predicate (see `toWireMasked`), so its response schema must admit null.
-        const masked = wf.maskUnless !== undefined ? ".nullable()" : "";
-        lines.push(`  ${wf.name}: ${zodForResponse(wf.type, wf.optional)}${masked},`);
+        // predicate (see `toWireMasked`), so its response schema admits null —
+        // as `.nullish()`, the spelling every other nullable response field
+        // takes, so the OpenAPI required set agrees with the other backends
+        // (a nullable property is not required on any of them).
+        const z = zodForResponse(wf.type, wf.optional);
+        const masked = wf.maskUnless !== undefined && !z.endsWith(".nullish()") ? ".nullish()" : "";
+        lines.push(`  ${wf.name}: ${z}${masked},`);
       }
     }
   }

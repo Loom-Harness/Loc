@@ -63,7 +63,7 @@ describe("python shape: embedded", () => {
     expect(repo).toContain('index_elements=["id"],');
     expect(repo).toContain('"version": OrderRow.version + 1');
     expect(repo).toContain("where=OrderRow.version == _expected,");
-    expect(repo).toContain("if _guarded.first() is None:");
+    expect(repo).toContain("if _saved_version is None:");
     // async hydrate from row columns + jsonb children.
     expect(repo).toContain("async def _hydrate(self, row: OrderRow) -> Order:");
     expect(repo).toContain("customer=row.customer");

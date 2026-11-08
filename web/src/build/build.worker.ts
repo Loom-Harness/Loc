@@ -25,7 +25,7 @@ import { captureSnapshots } from "../../../src/system/loomsnap.js";
 // postMessage.  It pulls the schema-migration deriver / SQL renderer / wire-
 // spec differ (all browser-safe siblings of `system/index`, so the bundle-
 // boundary test stays green).
-import { recordMigration, runEvolution } from "./evolution.js";
+import { migrationPlan, recordMigration, runEvolution } from "./evolution.js";
 // The committed migration chain — pure format + rules, no generator, so a
 // static import keeps the bundle boundary.
 import { diagMessage } from "../../../src/diagnostics/messages.js";
@@ -35,6 +35,7 @@ import {
   MigrationDriftError,
   parseChain,
 } from "../../../src/system/migration-chain.js";
+import { pendingMigrations } from "../../../src/system/migration-diff.js";
 import { readChainFiles } from "./chain-files.js";
 // The playground's legacy single-context build targets the default Hono
 // backend and supplies that package's pins to the shared emitter.
@@ -199,8 +200,10 @@ async function handleGenerateFromPath(
   const parsed = await parseProject(entryPath);
   if (!parsed.loom) return { ok: false, diagnostics: parsed.diagnostics };
   // The chain beside the entry, read the way `ddd generate system` reads
-  // `migrations/`: rendered whole, and a model that moved past its head is
-  // refused.  No chain files ⇒ unchanged (each module's initial migration).
+  // `migrations/`: rendered whole.  A model that moved past its head still
+  // generates — the recorded chain is rendered and the unrecorded change is a
+  // warning, because the playground gates its database on it instead.  No
+  // chain files ⇒ each module's initial migration, derived from the model.
   const chainFiles = readChainFiles(workerVfs, entryPath);
   let migrationChain: MigrationChain | undefined;
   if (chainFiles) {
@@ -220,20 +223,30 @@ async function handleGenerateFromPath(
   });
 }
 
-/** A migration-chain refusal as the diagnostic the Problems pane shows —
- *  a chain that does not read, or a model with unrecorded schema changes. */
-function migrationRefusal(err: MigrationChainError | MigrationDriftError): BuildDiagnostic {
-  if (err instanceof MigrationChainError) {
-    return {
-      severity: "error",
-      code: "loom.migration-chain-invalid",
-      message: diagMessage("loom.migration-chain-invalid", { detail: err.message }),
-      source: "loom-migrations",
-    };
-  }
+/** A migration chain that does not read, as the error the Problems pane
+ *  shows. */
+function migrationRefusal(err: MigrationChainError): BuildDiagnostic {
   return {
     severity: "error",
-    message: `${err.message} In the playground: Migrations tab → Record migration.`,
+    code: "loom.migration-chain-invalid",
+    message: diagMessage("loom.migration-chain-invalid", { detail: err.message }),
+    source: "loom-migrations",
+  };
+}
+
+/** The model's schema changes the chain does not record, as a warning: the
+ *  generate renders the recorded chain, and Boot leaves the database as it is
+ *  until the change is recorded.  `null` when the chain records the model. */
+function unrecordedWarning(loom: EnrichedLoomModel, chain: MigrationChain): BuildDiagnostic | null {
+  // Whether a drop is allowed was settled when it was recorded; this only
+  // asks whether anything is left to record (as `generate system` does).
+  const drifted = pendingMigrations(loom, chain, { allowDestructive: true })
+    .filter((d) => d.steps.length > 0)
+    .map((d) => d.module);
+  if (drifted.length === 0) return null;
+  return {
+    severity: "warning",
+    message: `${new MigrationDriftError(drifted).message} In the playground: Migrations tab → Record migration. Until then the generated migrations stop at the recorded chain and Boot leaves the database as it is.`,
     source: "loom-migrations",
   };
 }
@@ -304,10 +317,12 @@ function systemOptions(input: {
   sourceTexts?: ReadonlyMap<string, string>;
   inlineSources: true;
   migrationChain?: MigrationChain;
+  unrecordedChanges: "render-chain";
 } {
   return {
     sourcemap: true,
     ...(input.migrationChain ? { migrationChain: input.migrationChain } : {}),
+    unrecordedChanges: "render-chain",
     sourceTexts: input.sourcemap ? input.sourceTexts : undefined,
     // The playground has no filesystem behind `sources`, so the sidecars must
     // carry the `.ddd` text itself or devtools has nothing to show.  The CLI
@@ -392,6 +407,8 @@ async function generateFromLoom(input: {
   }
   const irDiags = irValidate(loom);
   if (hasError(irDiags)) return { ok: false, diagnostics: [...input.diagnostics, ...irDiags] };
+  const unrecorded = input.migrationChain ? unrecordedWarning(loom, input.migrationChain) : null;
+  if (unrecorded) irDiags.push(unrecorded);
 
   if (loom.systems.length > 0) {
     const { generateSystemsFromLoom } = await import("../../../src/system/index.js");
@@ -464,7 +481,7 @@ function wrapGenerate(
       ...(parts.api ? { api: parts.api } : {}),
     };
   } catch (err) {
-    if (err instanceof MigrationDriftError || err instanceof MigrationChainError) {
+    if (err instanceof MigrationChainError) {
       return { ok: false, diagnostics: [...parseDiags, ...irDiags, migrationRefusal(err)] };
     }
     return {
@@ -588,6 +605,10 @@ self.onmessage = async (ev: MessageEvent<BuildRpcRequest>) => {
       }
       case "migrate.record": {
         response.result = await recordMigration(req.params);
+        break;
+      }
+      case "migrate.plan": {
+        response.result = await migrationPlan(req.params);
         break;
       }
       case "vfs.write": {

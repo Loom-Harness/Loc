@@ -16,6 +16,7 @@
 import { expect, test } from "@playwright/test";
 import {
   browserCanReachNetwork,
+  recordInitialMigration,
   selectExample,
   waitForBundle,
   waitForPlaygroundReady,
@@ -55,6 +56,9 @@ test("Select in the preview footer resolves a clicked element to its page", asyn
     test.skip(true, "browser cannot reach the npm registry from this environment");
   }
 
+  // The database is created only from recorded migrations — record the
+  // example's initial migration before the first Boot.
+  await recordInitialMigration(page);
   await page.getByTestId("btn-generate").click();
   await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
   await page.getByTestId("btn-bundle").click();

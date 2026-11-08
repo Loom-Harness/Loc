@@ -75,6 +75,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.scaffold-aggregate-unserved": "22-macros.md#scaffold-family--application--transport",
   "loom.macro-synthesised": "22-macros.md#errors-inside-synthesised-code",
   "loom.duplicate-entity-part": "03-domain-modeling.md#entity-parts--contains",
+  "loom.member-name-collision": "03-domain-modeling.md#aggregate",
+  "loom.hosted-type-name-collision": "03-domain-modeling.md#aggregate",
   "loom.valueobject-contains-entity": "03-domain-modeling.md#valueobject",
   "loom.containment-optional-collection": "03-domain-modeling.md#entity-parts--contains",
   "loom.containment-foreign-part": "04-type-system.md#x-id--cross-aggregate-references",
@@ -152,6 +154,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
   "loom.precondition-not-bool":
     "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
+  "loom.loop-gate-not-implied":
+    "06-behavior-and-statements.md#a-loop-over-a-read-that-the-gate-does-not-cover",
   "loom.when-private-operation":
     "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
   "loom.requires-private-operation":

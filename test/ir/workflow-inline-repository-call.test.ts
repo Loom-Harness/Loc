@@ -1,23 +1,19 @@
-// `loom.workflow-inline-repository-call` — a repository reached INLINE, inside
-// an expression, rather than bound to its own `let` statement.
+// `loom.workflow-inline-repository-call` — a repository read a workflow body
+// runs only on some paths (a lambda, the right of `&&` / `||` / `??`, a `?:`
+// branch, a `match` arm).
 //
-// Repository access from a workflow IS supported, but only in one spelling.
-// `lowerWorkflowStatement` recognises a repository read exclusively in its
-// `isLetStmt` arm and lowers it to a `repo-let` / `repo-run` `WorkflowStmtIR`
-// carrying the repository as a STRING field (`repoName`).  The same call inside
-// a `precondition` / `requires` / `assign` RHS / `emit` field / `for-each`
-// iterable goes through `lowerExpr` instead, where the repository name resolves
-// to nothing (`ref` with `refKind: "unknown"`) — and since every backend derives
-// the repositories to instantiate from the STATEMENT KINDS, the read is dropped:
-// nothing is constructed and the unresolved receiver renders verbatim.  Measured
-// on node before the gate existed: `ddd parse` and `generate system` both
-// reported ZERO diagnostics while `api/http/workflows.ts` emitted
-// `Assets.get(job.assetId)` with no `AssetRepository` in the transaction →
-// `Cannot find name 'Assets'` under `tsc`.
+// A read inside an expression is lowered as a `let` hoisted ahead of its
+// statement (`src/ir/lower/hoist-reads.ts`), so it reaches the backends as the
+// same `repo-let` / `repo-run` the `let` spelling does — and the backends
+// instantiate the repository from that statement.  Hoisting a read the source
+// evaluates conditionally would run it where the source does not, so such a
+// read is left in the expression, where the repository name resolves to
+// nothing (`ref` with `refKind: "unknown"`): nothing is constructed and the
+// unresolved receiver renders verbatim.  That is what this gate refuses.
 //
 // The pairs below are the point: each "flags" case has an "accepts" twin that
-// is the SAME read bound to a `let`, so the gate is shown to separate the two
-// spellings rather than to reject any mention of a repository.
+// is the SAME read in an unconditional position, so the gate is shown to
+// separate the two rather than to reject any mention of a repository.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -63,10 +59,16 @@ async function diags(body: string): Promise<{ code: string; message: string }[]>
 const codes = async (body: string): Promise<string[]> => (await diags(body)).map((d) => d.code);
 
 describe("loom.workflow-inline-repository-call (IR, phase ⑦)", () => {
-  it("flags a repository read inline inside a precondition", async () => {
+  it("flags a repository read on the right of `||` inside a precondition", async () => {
+    const body = `let job = Jobs.get(jobId)
+        precondition job.skill == "" || job.skill == Assets.get(job.assetId).requiredSkill`;
+    expect(await codes(body)).toContain(CODE);
+  });
+
+  it("accepts the same read where the precondition always evaluates it (hoisted)", async () => {
     const body = `let job = Jobs.get(jobId)
         precondition job.skill == Assets.get(job.assetId).requiredSkill`;
-    expect(await codes(body)).toContain(CODE);
+    expect(await codes(body)).not.toContain(CODE);
   });
 
   it("accepts the same read bound to its own let", async () => {
@@ -78,7 +80,7 @@ describe("loom.workflow-inline-repository-call (IR, phase ⑦)", () => {
 
   it("names the repository and spells out the let-bound rewrite", async () => {
     const body = `let job = Jobs.get(jobId)
-        precondition job.skill == Assets.get(job.assetId).requiredSkill`;
+        precondition job.skill == "" || job.skill == Assets.get(job.assetId).requiredSkill`;
     const msg = (await diags(body)).find((d) => d.code === CODE)?.message ?? "";
     expect(msg).toContain("'Assets'");
     // The suggested rewrite is the exact shape that DOES compile — echoing the
@@ -86,15 +88,15 @@ describe("loom.workflow-inline-repository-call (IR, phase ⑦)", () => {
     expect(msg).toContain("let asset = Assets.get(…)");
   });
 
-  it("flags an inline read in a requires gate", async () => {
+  it("flags a read in a `?:` branch of a requires gate", async () => {
     const body = `let job = Jobs.get(jobId)
-        requires Assets.get(job.assetId).requiredSkill != ""`;
+        requires job.skill == "" ? true : Assets.get(job.assetId).requiredSkill != ""`;
     expect(await codes(body)).toContain(CODE);
   });
 
-  it("flags an inline read in an emit field", async () => {
+  it("flags a read on the right of `??` in an emit field", async () => {
     const body = `let job = Jobs.get(jobId)
-        emit Assigned { skill: Assets.get(job.assetId).requiredSkill }`;
+        emit Assigned { skill: job.skill ?? Assets.get(job.assetId).requiredSkill }`;
     expect(await codes(body)).toContain(CODE);
   });
 
@@ -102,20 +104,20 @@ describe("loom.workflow-inline-repository-call (IR, phase ⑦)", () => {
     // The nesting is the point: a shallow scan of `wf.statements` would miss
     // this, which is exactly the dead-zone `walkWorkflowStmtExprsDeep` closes.
     const body = `let jobs = Jobs.all(AnyJob)
-        for j in jobs { precondition j.skill == Assets.get(j.assetId).requiredSkill }`;
+        for j in jobs { precondition j.skill == "" || j.skill == Assets.get(j.assetId).requiredSkill }`;
     expect(await codes(body)).toContain(CODE);
   });
 
-  it("flags a criterion-shaped inline read the same way", async () => {
+  it("flags a criterion-shaped read the same way", async () => {
     const body = `let job = Jobs.get(jobId)
-        precondition Assets.find(AnySkill).requiredSkill != ""`;
+        precondition job.skill == "" || Assets.all(AnySkill).count > 0`;
     expect(await codes(body)).toContain(CODE);
   });
 
   it("reports one diagnostic per repository per body, not one per mention", async () => {
     const body = `let job = Jobs.get(jobId)
-        precondition Assets.get(job.assetId).requiredSkill != ""
-        precondition Assets.get(job.assetId).requiredSkill != "n/a"`;
+        precondition job.skill == "" || Assets.get(job.assetId).requiredSkill != ""
+        precondition job.skill == "" || Assets.get(job.assetId).requiredSkill != "n/a"`;
     expect((await codes(body)).filter((c) => c === CODE)).toHaveLength(1);
   });
 

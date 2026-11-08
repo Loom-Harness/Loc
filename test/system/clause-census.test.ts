@@ -118,6 +118,17 @@ const UNAUTHORED_CLAUSES: Record<string, string> = {
   // one string (`crudish(updateOnly: true)`, `scaffoldGet(of: X, key: "k")`), so
   // the int arm of `MacroArgValue` has never been parsed from a fixture.
   MacroArgInt: "no fixture passes an INT macro argument (`with m(n: 2)`)",
+  // A storage `connection:` clause parses but no backend reads it
+  // (`loom.reserved-not-emitted`), so every authored form warns and the
+  // zero-warning examples ratchet keeps it out of the showcase.
+  EnvConnectionSource: "storage `connection: env(…)` is reserved and not emitted",
+  LiteralConnectionSource: "storage `connection: literal(…)` is reserved and not emitted",
+  SecretConnectionSource: "storage `connection: secret(…)` is reserved and not emitted",
+  ServiceConnectionSource: "storage `connection: service(…)` is reserved and not emitted",
+  // No registered sourceType declares an int or bool config key, so either
+  // value is `loom.config-key-unknown` wherever it is authored (#4709).
+  IntConfigValue: "no sourceType declares an int config key (#4709)",
+  BoolConfigValue: "no sourceType declares a bool config key (#4709)",
 };
 
 describe("clause census — what the corpus authors, and what it never does", () => {

@@ -15,6 +15,7 @@ import {
   clickWorkspaceCreate,
   dumpPreviewDiagnostics,
   fatalConsoleErrors,
+  recordInitialMigration,
   waitForBundle,
   waitForPlaygroundReady,
 } from "./_helpers";
@@ -88,6 +89,9 @@ test("chakra@v3 preview boots without runtime errors", async ({ page }) => {
   }
 
   const tBundleStart = Date.now();
+  // The database is created only from recorded migrations — record the
+  // example's initial migration before the first Boot.
+  await recordInitialMigration(page);
   await page.getByTestId("btn-bundle").click();
   try {
     await waitForBundle(page);

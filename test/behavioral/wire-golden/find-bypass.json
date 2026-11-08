@@ -185,13 +185,37 @@
     },
     {
       "seq": 16,
+      "method": "GET",
+      "path": "/api/notes/any_tenant?b=N-2",
+      "status": 200,
+      "body": {
+        "body": "N-2",
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "version": 2
+      }
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/notes/unfiltered?b=N-2",
+      "status": 200,
+      "body": {
+        "body": "N-2",
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "version": 2
+      }
+    },
+    {
+      "seq": 18,
       "method": "POST",
       "path": "/api/notes/{id}/soft_delete",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 17,
+      "seq": 19,
       "method": "GET",
       "path": "/api/notes/{id}",
       "status": 404,
@@ -204,14 +228,39 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 20,
+      "method": "GET",
+      "path": "/api/notes/any_tenant?b=N-2",
+      "status": 404,
+      "body": {
+        "detail": "not_found",
+        "instance": "/api/notes/any_tenant",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/notes/unfiltered?b=N-2",
+      "status": 200,
+      "body": {
+        "body": "N-2",
+        "deletedAt": "<timestamp>",
+        "id": "<volatile:key>",
+        "version": 3
+      }
+    },
+    {
+      "seq": 22,
       "method": "GET",
       "path": "/api/notes",
       "status": 200,
       "body": []
     },
     {
-      "seq": 19,
+      "seq": 23,
       "method": "POST",
       "path": "/api/notes/{id}/restore",
       "status": 404,
@@ -224,7 +273,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 24,
       "method": "GET",
       "path": "/api/organizations",
       "status": 200,
@@ -237,7 +286,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 25,
       "method": "GET",
       "path": "/api/organizations/{id}",
       "status": 404,
@@ -250,7 +299,7 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 26,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -263,7 +312,7 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 27,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -276,7 +325,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 28,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,
@@ -289,7 +338,7 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 29,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,
@@ -299,7 +348,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 30,
       "method": "POST",
       "path": "/api/orders/{id}/soft_delete",
       "status": 404,
@@ -312,7 +361,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 31,
       "method": "POST",
       "path": "/api/orders/{id}/soft_delete",
       "status": 404,
@@ -325,7 +374,7 @@
       }
     },
     {
-      "seq": 28,
+      "seq": 32,
       "method": "POST",
       "path": "/api/orders/{id}/soft_delete",
       "status": 415,
@@ -338,7 +387,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 33,
       "method": "POST",
       "path": "/api/notes/{id}/update",
       "status": 404,
@@ -351,60 +400,12 @@
       }
     },
     {
-      "seq": 30,
-      "method": "POST",
-      "path": "/api/orders",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
-    },
-    {
-      "seq": 31,
-      "method": "POST",
-      "path": "/api/orders",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
-    },
-    {
-      "seq": 32,
-      "method": "GET",
-      "path": "/api/orders/{id}",
-      "status": 200,
-      "body": {
-        "code": "LADDER-O1",
-        "deletedAt": null,
-        "id": "<volatile:key>",
-        "total": "1.0000",
-        "version": 1
-      }
-    },
-    {
-      "seq": 33,
-      "method": "GET",
-      "path": "/api/orders/{id}",
-      "status": 404,
-      "body": {
-        "detail": "Order {id} not found",
-        "instance": "/api/orders/{id}",
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
-      }
-    },
-    {
       "seq": 34,
-      "method": "GET",
-      "path": "/api/orders/{id}",
-      "status": 200,
+      "method": "POST",
+      "path": "/api/orders",
+      "status": 201,
       "body": {
-        "code": "LADDER-O1",
-        "deletedAt": null,
-        "id": "<volatile:key>",
-        "total": "1.0000",
-        "version": 1
+        "id": "<volatile:key>"
       }
     },
     {
@@ -419,84 +420,40 @@
     {
       "seq": 36,
       "method": "GET",
-      "path": "/api/orders",
+      "path": "/api/orders/{id}",
       "status": 200,
       "body": {
-        "items": [
-          {
-            "code": "LADDER-O",
-            "deletedAt": null,
-            "id": "<volatile:key>",
-            "total": "1.0000",
-            "version": 1
-          },
-          {
-            "code": "LADDER-O1",
-            "deletedAt": null,
-            "id": "<volatile:key>",
-            "total": "1.0000",
-            "version": 1
-          },
-          {
-            "code": "LADDER-O2",
-            "deletedAt": null,
-            "id": "<volatile:key>",
-            "total": "1.0000",
-            "version": 1
-          }
-        ],
-        "page": 1,
-        "pageSize": 20,
-        "total": 3,
-        "totalPages": 1
+        "code": "LADDER-O1",
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "total": "1.0000",
+        "version": 1
       }
     },
     {
       "seq": 37,
       "method": "GET",
-      "path": "/api/orders",
-      "status": 200,
+      "path": "/api/orders/{id}",
+      "status": 404,
       "body": {
-        "items": [],
-        "page": 1,
-        "pageSize": 20,
-        "total": 0,
-        "totalPages": 0
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
       }
     },
     {
       "seq": 38,
       "method": "GET",
-      "path": "/api/orders",
+      "path": "/api/orders/{id}",
       "status": 200,
       "body": {
-        "items": [
-          {
-            "code": "LADDER-O",
-            "deletedAt": null,
-            "id": "<volatile:key>",
-            "total": "1.0000",
-            "version": 1
-          },
-          {
-            "code": "LADDER-O1",
-            "deletedAt": null,
-            "id": "<volatile:key>",
-            "total": "1.0000",
-            "version": 1
-          },
-          {
-            "code": "LADDER-O2",
-            "deletedAt": null,
-            "id": "<volatile:key>",
-            "total": "1.0000",
-            "version": 1
-          }
-        ],
-        "page": 1,
-        "pageSize": 20,
-        "total": 3,
-        "totalPages": 1
+        "code": "LADDER-O1",
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "total": "1.0000",
+        "version": 1
       }
     },
     {
@@ -511,40 +468,84 @@
     {
       "seq": 40,
       "method": "GET",
-      "path": "/api/orders/scoped?c=LADDER-O3",
+      "path": "/api/orders",
       "status": 200,
       "body": {
-        "code": "LADDER-O3",
-        "deletedAt": null,
-        "id": "<volatile:key>",
-        "total": "1.0000",
-        "version": 1
+        "items": [
+          {
+            "code": "LADDER-O",
+            "deletedAt": null,
+            "id": "<volatile:key>",
+            "total": "1.0000",
+            "version": 1
+          },
+          {
+            "code": "LADDER-O1",
+            "deletedAt": null,
+            "id": "<volatile:key>",
+            "total": "1.0000",
+            "version": 1
+          },
+          {
+            "code": "LADDER-O2",
+            "deletedAt": null,
+            "id": "<volatile:key>",
+            "total": "1.0000",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
       }
     },
     {
       "seq": 41,
       "method": "GET",
-      "path": "/api/orders/scoped?c=LADDER-O3",
-      "status": 404,
+      "path": "/api/orders",
+      "status": 200,
       "body": {
-        "detail": "not_found",
-        "instance": "/api/orders/scoped",
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
       }
     },
     {
       "seq": 42,
       "method": "GET",
-      "path": "/api/orders/scoped?c=LADDER-O3",
+      "path": "/api/orders",
       "status": 200,
       "body": {
-        "code": "LADDER-O3",
-        "deletedAt": null,
-        "id": "<volatile:key>",
-        "total": "1.0000",
-        "version": 1
+        "items": [
+          {
+            "code": "LADDER-O",
+            "deletedAt": null,
+            "id": "<volatile:key>",
+            "total": "1.0000",
+            "version": 1
+          },
+          {
+            "code": "LADDER-O1",
+            "deletedAt": null,
+            "id": "<volatile:key>",
+            "total": "1.0000",
+            "version": 1
+          },
+          {
+            "code": "LADDER-O2",
+            "deletedAt": null,
+            "id": "<volatile:key>",
+            "total": "1.0000",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
       }
     },
     {
@@ -559,10 +560,10 @@
     {
       "seq": 44,
       "method": "GET",
-      "path": "/api/orders/any_tenant?c=LADDER-O4",
+      "path": "/api/orders/scoped?c=LADDER-O3",
       "status": 200,
       "body": {
-        "code": "LADDER-O4",
+        "code": "LADDER-O3",
         "deletedAt": null,
         "id": "<volatile:key>",
         "total": "1.0000",
@@ -572,23 +573,23 @@
     {
       "seq": 45,
       "method": "GET",
-      "path": "/api/orders/any_tenant?c=LADDER-O4",
-      "status": 200,
+      "path": "/api/orders/scoped?c=LADDER-O3",
+      "status": 404,
       "body": {
-        "code": "LADDER-O4",
-        "deletedAt": null,
-        "id": "<volatile:key>",
-        "total": "1.0000",
-        "version": 1
+        "detail": "not_found",
+        "instance": "/api/orders/scoped",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
       }
     },
     {
       "seq": 46,
       "method": "GET",
-      "path": "/api/orders/any_tenant?c=LADDER-O4",
+      "path": "/api/orders/scoped?c=LADDER-O3",
       "status": 200,
       "body": {
-        "code": "LADDER-O4",
+        "code": "LADDER-O3",
         "deletedAt": null,
         "id": "<volatile:key>",
         "total": "1.0000",
@@ -607,10 +608,10 @@
     {
       "seq": 48,
       "method": "GET",
-      "path": "/api/orders/unfiltered?c=LADDER-O5",
+      "path": "/api/orders/any_tenant?c=LADDER-O4",
       "status": 200,
       "body": {
-        "code": "LADDER-O5",
+        "code": "LADDER-O4",
         "deletedAt": null,
         "id": "<volatile:key>",
         "total": "1.0000",
@@ -620,10 +621,10 @@
     {
       "seq": 49,
       "method": "GET",
-      "path": "/api/orders/unfiltered?c=LADDER-O5",
+      "path": "/api/orders/any_tenant?c=LADDER-O4",
       "status": 200,
       "body": {
-        "code": "LADDER-O5",
+        "code": "LADDER-O4",
         "deletedAt": null,
         "id": "<volatile:key>",
         "total": "1.0000",
@@ -633,6 +634,28 @@
     {
       "seq": 50,
       "method": "GET",
+      "path": "/api/orders/any_tenant?c=LADDER-O4",
+      "status": 200,
+      "body": {
+        "code": "LADDER-O4",
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "total": "1.0000",
+        "version": 1
+      }
+    },
+    {
+      "seq": 51,
+      "method": "POST",
+      "path": "/api/orders",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 52,
+      "method": "GET",
       "path": "/api/orders/unfiltered?c=LADDER-O5",
       "status": 200,
       "body": {
@@ -644,48 +667,28 @@
       }
     },
     {
-      "seq": 51,
-      "method": "POST",
-      "path": "/api/notes",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
-    },
-    {
-      "seq": 52,
-      "method": "GET",
-      "path": "/api/notes/{id}",
-      "status": 200,
-      "body": {
-        "body": "LADDER-N1",
-        "deletedAt": null,
-        "id": "<volatile:key>",
-        "version": 1
-      }
-    },
-    {
       "seq": 53,
       "method": "GET",
-      "path": "/api/notes/{id}",
-      "status": 404,
+      "path": "/api/orders/unfiltered?c=LADDER-O5",
+      "status": 200,
       "body": {
-        "detail": "Note {id} not found",
-        "instance": "/api/notes/{id}",
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
+        "code": "LADDER-O5",
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "total": "1.0000",
+        "version": 1
       }
     },
     {
       "seq": 54,
       "method": "GET",
-      "path": "/api/notes/{id}",
+      "path": "/api/orders/unfiltered?c=LADDER-O5",
       "status": 200,
       "body": {
-        "body": "LADDER-N1",
+        "code": "LADDER-O5",
         "deletedAt": null,
         "id": "<volatile:key>",
+        "total": "1.0000",
         "version": 1
       }
     },
@@ -700,6 +703,52 @@
     },
     {
       "seq": 56,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "body": "LADDER-N1",
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "version": 1
+      }
+    },
+    {
+      "seq": 57,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 58,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "body": "LADDER-N1",
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "version": 1
+      }
+    },
+    {
+      "seq": 59,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 60,
       "method": "GET",
       "path": "/api/notes",
       "status": 200,
@@ -719,14 +768,14 @@
       ]
     },
     {
-      "seq": 57,
+      "seq": 61,
       "method": "GET",
       "path": "/api/notes",
       "status": 200,
       "body": []
     },
     {
-      "seq": 58,
+      "seq": 62,
       "method": "GET",
       "path": "/api/notes",
       "status": 200,

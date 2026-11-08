@@ -13,6 +13,7 @@ import {
   clickWorkspaceCreate,
   dumpPreviewDiagnostics,
   fatalConsoleErrors,
+  recordInitialMigration,
   waitForBundle,
   waitForPlaygroundReady,
 } from "./_helpers";
@@ -55,6 +56,9 @@ test("mui@v7 preview boots without runtime errors", async ({ page }) => {
     );
   }
 
+  // The database is created only from recorded migrations — record the
+  // example's initial migration before the first Boot.
+  await recordInitialMigration(page);
   await page.getByTestId("btn-bundle").click();
   await waitForBundle(page);
 

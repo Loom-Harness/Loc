@@ -705,10 +705,11 @@ export function buildWorkflowsFile(
     .map(mikroWorkflowRowClass)
     .filter((n) => new RegExp(`\\b${n}\\b`).test(bodyStr));
   // An event-sourced workflow's fold helpers read/append the shared
-  // `<Ctx>EventRow` stream entity under the mikro branch — same body-scan gate,
-  // so a drizzle build never sees it.
-  const eventRowsReferenced = [...new Set(ctx.workflows.map((w) => w.name))]
-    .map(() => eventRowClassOf(ctx.name))
+  // `<Ctx>EventRow` stream entity of its OWNING context under the mikro branch
+  // (the fold helpers name it the same way) — same body-scan gate, so a
+  // drizzle build never sees it.
+  const eventRowsReferenced = ctx.workflows
+    .map((w) => eventRowClassOf(resolveStreamContext?.(w.name) ?? ctx.name))
     .filter((n, i, a) => a.indexOf(n) === i)
     .filter((n) => new RegExp(`\\b${n}\\b`).test(bodyStr));
   // The mikro outbox tier's capture + drain read/write the `__loom_outbox` Row

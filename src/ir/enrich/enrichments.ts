@@ -1180,7 +1180,7 @@ function synthesizeFindAllRetrievals(
   for (const svc of domainServices ?? []) {
     for (const op of svc.operations) {
       for (const stmt of op.body) {
-        collectRepoReadCriteria(stmt, materialise);
+        collectRepoReadCriteria(stmt, materialise, widen);
       }
     }
   }
@@ -1293,22 +1293,25 @@ function synthesizePagedQueryHandlerFinds(
 
 /** Walk an operation-body statement's expressions and materialise the synthetic
  *  retrieval behind every `repo-read` Call that carries a `synthCriterion`
- *  (`Repo.all(<Criterion>)` in a `domainService` reading op). */
+ *  (`Repo.all(<Criterion>)` in a `domainService` reading op), or derive the
+ *  widened copy of a declared retrieval a `Repo.all(R) ignoring …` read runs. */
 function collectRepoReadCriteria(
   stmt: StmtIR,
-  materialise: (synth: { name: string; retrievalName: string }) => void,
+  materialise: (synth: { name: string; retrievalName: string; stance?: ReadStance }) => void,
+  widen: (retrievalName: string, stance: ReadStance) => void,
 ): void {
   walkStmtExprsDeep(stmt, (e) => {
-    if (
-      e.kind === "call" &&
-      e.callKind === "repo-read" &&
-      e.repoRead?.synthCriterion &&
-      e.repoRead.retrievalName
-    ) {
+    if (e.kind !== "call" || e.callKind !== "repo-read") return;
+    const read = e.repoRead;
+    if (!read?.retrievalName) return;
+    if (read.synthCriterion) {
       materialise({
-        name: e.repoRead.synthCriterion.name,
-        retrievalName: e.repoRead.retrievalName,
+        name: read.synthCriterion.name,
+        retrievalName: read.retrievalName,
+        stance: read,
       });
+    } else if (hasStance(read)) {
+      widen(read.retrievalName, read);
     }
   });
 }

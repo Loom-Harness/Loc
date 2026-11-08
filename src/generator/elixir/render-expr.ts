@@ -51,6 +51,7 @@ import {
 } from "../_expr/target.js";
 import { elixirFindFacadeFn } from "./find-facade-name.js";
 import { exPgInstantType } from "./vanilla/codec-spelling-ex.js";
+import { skipFiltersOption } from "./vanilla/read-scope-emit.js";
 import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-object-type-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -80,6 +81,9 @@ import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-ob
 export interface RenderCtx {
   /** Rendered name for `this`-rooted references.  Default: `"record"`. */
   thisName: string;
+  /** Set by a body that owns no event dispatch (a pure domain core, a
+   *  private-operation helper): an `emit` statement renders nothing there. */
+  dropEmits?: boolean;
   /** Set by an event reactor that bound `current_user` to the system
    *  principal (ruling D1): an op-call to a `currentUser`-reading operation
    *  threads it as the context function's trailing actor.  Unset elsewhere. */
@@ -1342,7 +1346,11 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
       const read = e.repoRead!;
       if (read.retrievalName) {
         const fn = `run_${snake(read.retrievalName)}_${snake(read.aggregate)}`;
-        const call = `${fn}(${args.join(", ")})`;
+        // A widened list read's `ignoring` stance rides the `skip_filters:` opt
+        // the retrieval hands to `Repo.prepare_query/3`, as on the workflow
+        // `repo-run`; without it the read keeps every filter.
+        const skip = skipFiltersOption(read);
+        const call = `${fn}(${[...args, ...(skip ? [skip] : [])].join(", ")})`;
         return read.op === "select-one"
           ? `(case ${call} do\n      {:ok, [value | _]} -> value\n      _ -> nil\n    end)`
           : `(case ${call} do\n      {:ok, value} -> value\n      _ -> []\n    end)`;

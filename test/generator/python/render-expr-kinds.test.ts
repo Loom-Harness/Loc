@@ -511,7 +511,9 @@ describe("py renderPyStatements", () => {
       undefined,
       { eventSourced: true },
     );
-    expect(out).toBe(`${I}__ev = Opened()\n${I}self._events.append(__ev)\n${I}self._apply(__ev)`);
+    expect(out).toBe(
+      `${I}__ev_opened = Opened()\n${I}self._events.append(__ev_opened)\n${I}self._apply(__ev_opened)`,
+    );
   });
 
   it("renders op self-calls (public bare, private underscored) and returns", () => {

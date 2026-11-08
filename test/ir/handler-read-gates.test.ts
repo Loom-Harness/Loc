@@ -14,12 +14,15 @@ import { parseString } from "../_helpers/parse.js";
 const BACKENDS = ["node", "dotnet", "python", "java", "elixir"] as const;
 const GATE = 'currentUser.role == "agent"';
 
-const SRC = (platform: string, opts: { policy?: boolean; body?: string; extra?: string } = {}) => `
+const SRC = (
+  platform: string,
+  opts: { policy?: boolean; body?: string; extra?: string; orderWith?: string } = {},
+) => `
   system Shop {
     user { id: guid  role: string }
     subdomain Sales {
       context Shop {
-        aggregate Order with crudish { code: string }
+        aggregate Order with ${opts.orderWith ?? "crudish"} { code: string }
         aggregate Note with crudish { text: string }
         repository Orders for Order
         repository Notes for Note
@@ -91,6 +94,27 @@ describe("handler read gates — IR (phase ⑥)", () => {
     );
     const h = ctx.queryHandlers?.find((q) => q.name === "ListOrders");
     expect(h?.statements[0]?.kind).toBe("requires");
+  });
+
+  it("gates a handler whose only read of the gated aggregate is an `ignoring` read", async () => {
+    // `ignoring` widens past capability filters, never past authorization: the
+    // widened repository method carries no gate of its own, so the handler's
+    // leading `requires` is what enforces `policy read` for it.
+    const { ctx } = await ctxIR(
+      SRC("node", {
+        orderWith: "crudish, softDeletable",
+        body: "if let x = Orders.find(ByCode(code)) ignoring softDeletable { return x } else { notFound }",
+      }),
+    );
+    const h = ctx.queryHandlers?.find((q) => q.name === "GetOrderByCode");
+    const ifLet = h?.statements.find((s) => s.kind === "if-let");
+    expect(
+      ifLet?.kind === "if-let" && ifLet.bypassRead,
+      "the read is the widened one",
+    ).toBeTruthy();
+    const first = h?.statements[0];
+    expect(first?.kind).toBe("requires");
+    expect(first?.kind === "requires" && first.source).toBe(`read Order requires ${GATE}`);
   });
 
   it("gates a commandHandler that reads", async () => {

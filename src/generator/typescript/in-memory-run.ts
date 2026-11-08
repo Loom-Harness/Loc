@@ -24,6 +24,7 @@ import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTsIdent, upperFirst } from "../../util/naming.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
+import { findParamBindings, pagedLocalNames } from "./paged-locals.js";
 import { renderTsExpr } from "./render-expr.js";
 import {
   aggregateRetrievals,
@@ -31,22 +32,27 @@ import {
   tsParamType,
 } from "./repository-document-builder.js";
 
-/** The runner's own locals, named off the retrieval's params so a param
- *  called `all` or `start` cannot be redeclared. */
-function runLocals(params: readonly { name: string }[]) {
-  const taken = new Set(params.map((p) => escapeTsIdent(p.name)));
-  const free = (base: string): string => {
-    let n = base;
-    while (taken.has(n)) n = `_${n}`;
-    taken.add(n);
-    return n;
-  };
-  return { all: free("all"), result: free("result"), start: free("start"), paged: free("paged") };
+/** The runner's own names — its call-site `page` parameter and every local
+ *  its body or its load declares — named off the retrieval's params so a
+ *  param called `all`, `rows` or `page` cannot be redeclared. */
+function runLocals(params: readonly { name: string }[]): RunLocals {
+  return pagedLocalNames(
+    ["page", "all", "rows", "em", "result", "start", "paged"] as const,
+    findParamBindings(params),
+  );
 }
+
+/** The names a `run<Retrieval>` load binds (`all`) or declares on the way
+ *  (`rows`, `em`). */
+export type RunLocals = Record<
+  "page" | "all" | "rows" | "em" | "result" | "start" | "paged",
+  string
+>;
 
 /** `async run<Retrieval>(…params, page?)` filtering in memory.
  *
- *  `loadLines(all)` binds every candidate instance to the local named `all`.
+ *  `loadLines(names)` binds every candidate instance to the local named
+ *  `names.all`, declaring any other local under its name in `names`.
  *  `capability` is the carrier's in-app read-filter conjunct over `x` (already
  *  narrowed by the call sites' `ignoring` clauses), or null.  A capability or
  *  criterion that names `currentUser` reads the ambient principal — the call
@@ -55,16 +61,16 @@ export function inMemoryRunMethod(
   agg: EnrichedAggregateIR,
   retrieval: RetrievalIR,
   opts: {
-    loadLines: (all: string) => readonly string[];
+    loadLines: (names: RunLocals) => readonly string[];
     capability?: string | null;
   },
 ): string {
   const methodName = `run${upperFirst(retrieval.name)}`;
+  const L = runLocals(retrieval.params);
   const params = [
     ...retrieval.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`),
-    "page?: { offset?: number; limit?: number }",
+    `${L.page}?: { offset?: number; limit?: number }`,
   ].join(", ");
-  const L = runLocals(retrieval.params);
   const conds = [opts.capability, renderTsExpr(retrieval.where, { thisName: "x" })]
     .filter((c): c is string => c != null && c !== "")
     .map((c) => `(${c})`);
@@ -82,11 +88,11 @@ export function inMemoryRunMethod(
   return lines(
     `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
     bindPrincipal && `    const currentUser = requireCurrentUser();`,
-    ...opts.loadLines(L.all),
+    ...opts.loadLines(L),
     `    const ${L.result} = ${L.all}.filter((x) => ${conds.join(" && ")});`,
     compare !== "" && `    ${L.result}.sort((a, b) => ${compare});`,
-    `    const ${L.start} = page?.offset ?? 0;`,
-    `    const ${L.paged} = page?.limit === undefined ? ${L.result}.slice(${L.start}) : ${L.result}.slice(${L.start}, ${L.start} + page.limit);`,
+    `    const ${L.start} = ${L.page}?.offset ?? 0;`,
+    `    const ${L.paged} = ${L.page}?.limit === undefined ? ${L.result}.slice(${L.start}) : ${L.result}.slice(${L.start}, ${L.start} + ${L.page}.limit);`,
     `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${methodName}", rows: ${L.paged}.length`)}`,
     `    return ${L.paged};`,
     `  }`,
@@ -104,7 +110,7 @@ export function eventLogRunMethods(
 ): string[] {
   return aggregateRetrievals(agg, ctx).map((r) =>
     inMemoryRunMethod(agg, r, {
-      loadLines: (all) => [`    const ${all} = await this._loadAll();`],
+      loadLines: ({ all }) => [`    const ${all} = await this._loadAll();`],
     }),
   );
 }

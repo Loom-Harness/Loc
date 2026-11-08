@@ -4,8 +4,8 @@ import type { LogLine } from "../util/log-line.js";
 
 //
 // The runtime worker is long-lived: once booted it holds a PGlite
-// instance, the bootstrapped Hono `app`, and the DDL that built the
-// schema.  Each `dispatch` request transports a serialised
+// instance, the bootstrapped Hono `app`, and the migration plan that
+// built the schema.  Each `dispatch` request transports a serialised
 // Request → the worker reconstructs it, calls `app.fetch`, and
 // returns a serialised Response.
 
@@ -28,25 +28,99 @@ export interface SerializedResponse {
   body: string;
 }
 
+// -- migrations --------------------------------------------------------------
+// The runtime's database evolves only by applying the workspace's recorded
+// migration chain (`migrations/*.json` beside the entry), the way a deployed
+// backend does.  The build worker renders the chain to SQL; the runtime
+// applies the units the database has not seen yet.  A model change that is
+// not recorded leaves the database as it is.
+
+/** One migration file of the recorded chain, as the runtime applies it — the
+ *  same file the generated Hono backend carries in `db/migrations/`. */
+export interface MigrationUnitPlan {
+  /** The file's tag: `<version>_<module>_<name>`, with `_concurrent` for a
+   *  generation's non-transactional unit.  `__loom.schema_meta` records the
+   *  last one applied. */
+  id: string;
+  /** The statements, in order. */
+  statements: string[];
+  /** False when every statement must run on its own, outside a transaction
+   *  (`CREATE INDEX CONCURRENTLY`). */
+  transactional: boolean;
+}
+
+/** Schema changes the model has that the chain does not record — what
+ *  `ddd migrate status` lists and "Record migration" would record. */
+export interface UnrecordedChanges {
+  /** The workspace has no chain yet, so the whole schema is unrecorded. */
+  initial: boolean;
+  modules: string[];
+  /** Number of migration steps recording would write. */
+  steps: number;
+  /** A step the destructive gate refuses (a drop or a narrowing); recording
+   *  it needs the destructive acknowledgement. */
+  destructive: boolean;
+}
+
+/** What a boot may do to the database. */
+export type MigrationPlan =
+  | {
+      kind: "chain";
+      /** Every unit of the recorded chain, root first; empty without a chain. */
+      units: MigrationUnitPlan[];
+      /** `null` when the chain records the model. */
+      unrecorded: UnrecordedChanges | null;
+    }
+  /** A source with no `system` block: no chain can be recorded for it, so the
+   *  schema comes from the bundle's Drizzle tables. */
+  | { kind: "unversioned" };
+
+/** The database measured against a plan. */
+export type MigrationState =
+  | { kind: "up-to-date"; head: string | null }
+  /** Recorded units the database has not applied; a boot applies them. */
+  | { kind: "recorded-not-applied"; head: string | null; units: string[] }
+  /** The model has unrecorded changes; a boot leaves the database as it is. */
+  | ({ kind: "unrecorded"; head: string | null } & UnrecordedChanges)
+  /** Which migrations the database holds cannot be told from the chain: it
+   *  predates migration tracking (`legacy`), it is at a unit the chain no
+   *  longer has (`diverged`), or a source without a system changed its
+   *  schema (`schema-changed`).  Only an explicit reset rebuilds it. */
+  | {
+      kind: "unknown-database";
+      reason: "legacy" | "diverged" | "schema-changed";
+      head: string | null;
+    };
+
+/** A state a boot cannot migrate past. */
+export type BlockingMigrationState = Extract<
+  MigrationState,
+  { kind: "unrecorded" | "unknown-database" }
+>;
+
 export interface BootRequest {
   /** ESM bundle source produced by the bundler worker. */
   bundleCode: string;
+  /** The migrations the boot may apply. */
+  migrations: MigrationPlan;
   /** PGlite data-dir.  Default `:memory:` (wiped on close).  Pass
    *  `opfs-ahp://<some-name>` for OPFS-backed persistence — data
-   *  survives page reloads.  Source-keyed paths (e.g.
-   *  `opfs-ahp://loom-<source-hash>`) give each `.ddd` its own
-   *  data island. */
+   *  survives page reloads.  The playground keys the island by workspace,
+   *  so a schema edit reopens the same database and migrates it. */
   dataDir?: string;
-  /** Recovery escape hatch: drop the persistent DB's `public` +
-   *  `__loom` schemas right after opening PGlite, before applying
-   *  DDL.  Lets the user recover from a boot that fails on stale /
-   *  incompatible persisted data — the normal Reset needs a booted
-   *  instance, which a failing boot never produces. */
+  /** Explicit reset: drop every user schema and the `__loom` bookkeeping
+   *  right after opening PGlite, before migrating.  The recovery path for a
+   *  database the chain cannot describe, or one that fails every boot — the
+   *  normal Reset needs a booted instance, which such a boot never
+   *  produces. */
   fresh?: boolean;
 }
 
 export interface BootOk {
   ok: true;
+  /** The SQL the database schema was built from: every migration unit of the
+   *  chain, in order (the Drizzle-derived DDL for a source without a
+   *  system). */
   ddl: string;
   durationMs: number;
   /** Whether PGlite actually attached to a persistent backing
@@ -56,18 +130,18 @@ export interface BootOk {
    *  so the UI can show "in-memory" instead of misleadingly
    *  saying "persisted". */
   persistent: boolean;
-  /** True iff this boot detected schema drift in a pre-existing
-   *  persistent DB and dropped+recreated the public schema with
-   *  fresh DDL.  False on first boot (no prior schema to drift
-   *  from) and on no-change reboots.  UI surfaces it as a
-   *  transient "schema migrated — rows reset" notification so the
-   *  user understands why their data isn't there anymore. */
-  migrated: boolean;
+  /** Ids of the migration units this boot applied, in order; empty when the
+   *  database was already at the chain's head. */
+  applied: string[];
 }
 
 export interface BootFail {
   ok: false;
   message: string;
+  /** Set when the boot stopped because the database is not at the model's
+   *  schema and the recorded chain cannot bring it there.  The database is
+   *  left as it was and the app is not started. */
+  pending?: BlockingMigrationState;
 }
 
 export type BootResult = BootOk | BootFail;
@@ -106,10 +180,8 @@ export type QueryResult = QueryOk | QueryFail;
 
 export interface WipeResult {
   ok: boolean;
-  /** Best-effort error message when `ok === false`.  The runtime
-   *  swallows OPFS-removal failures because the next Boot
-   *  re-applies idempotent DDL anyway — the DB just won't be
-   *  emptied of pre-existing rows. */
+  /** Error message when `ok === false` — the drop or a migration unit
+   *  failed while rebuilding the schema. */
   message?: string;
 }
 

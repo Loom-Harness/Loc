@@ -113,7 +113,7 @@ interface ComponentWalkResult {
    *  site falls back to the shared "unknown component" comment. */
   usesStores: boolean;
   /** True when the body reads `currentUser.<claim>`.  The session is bound by
-   *  the PAGE shell (`final currentUser = ref.watch(sessionProvider).value!`),
+   *  the PAGE shell (`final currentUser = ref.watch(sessionProvider).value`),
    *  never by a component — so a component naming it emitted `Undefined name
    *  'currentUser'` Dart.  Deferred instead. */
   usesCurrentUser: boolean;

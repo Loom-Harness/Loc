@@ -33,6 +33,12 @@ import {
 } from "../repository-document-builder.js";
 import { repoPortImportLine, repoPortName } from "../repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
+import {
+  applySavedVersion,
+  savedVersionDecl,
+  savedVersionOnInsert,
+  savedVersionOnUpdate,
+} from "../saved-version.js";
 import { TT } from "../ts-symbols.js";
 import { aggregateIsAudited, stampImportLine, stampInsertCall } from "./audit-stamp.js";
 import { mikroSaveTxLines } from "./mikroorm-config.js";
@@ -160,10 +166,10 @@ export function renderMikroDocumentRepository(
   // Criterion reads (`Repo.all(C(…))` / `Repo.find(C(…))`) call
   // `run<Retrieval>` whatever the saving shape — the same in-app runner the
   // drizzle document repository emits, over this adapter's id-ordered load.
-  const runMethods = documentRunMethods(agg, ctx, (all) => [
-    `    const em = this.em.fork({ keepTransactionContext: true });`,
-    `    const rows = await em.find(${row}, {}, { orderBy: { id: "ASC" } });`,
-    `    const ${all} = rows.map((r) => ${fromDocOf("r")});`,
+  const runMethods = documentRunMethods(agg, ctx, ({ all, rows, em }) => [
+    `    const ${em} = this.em.fork({ keepTransactionContext: true });`,
+    `    const ${rows} = await ${em}.find(${row}, {}, { orderBy: { id: "ASC" } });`,
+    `    const ${all} = ${rows}.map((r) => ${fromDocOf("r")});`,
   ]);
 
   const docAudited = aggregateIsAudited(agg);
@@ -200,9 +206,11 @@ export function renderMikroDocumentRepository(
         `    const existing = await em.findOne(${row}, { id: aggregate.id as string });`,
         `    if (existing === null) {`,
         `      await em.insert(${row}, { id: aggregate.id as string, ${docData}, version: 1 });`,
+        savedVersionOnInsert("      "),
         `    } else {`,
         `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, version: expected }, { data, version: expected + 1 });`,
         `      if (affected === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+        savedVersionOnUpdate("      "),
         `    }`,
       ]
     : [
@@ -254,10 +262,12 @@ export function renderMikroDocumentRepository(
     versioned
       ? `  async save(aggregate: ${agg.name}, expectedVersion?: number): Promise<void> {`
       : `  async save(aggregate: ${agg.name}): Promise<void> {`,
+    versioned && savedVersionDecl("    "),
     ...mikroSaveTxLines([
       `    const data = ${lowerFirst(agg.name)}ToDoc(aggregate);`,
       ...saveLines,
     ]),
+    versioned && applySavedVersion("    "),
     `    requestLog().debug({ event: "repository_save", aggregate: "${agg.name}", id: aggregate.id as string });`,
     "",
     `    for (const event of aggregate.pullEvents()) {`,
