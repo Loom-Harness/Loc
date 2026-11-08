@@ -169,9 +169,8 @@ const ALLOWLIST = new Set<string>([
   // entry, so it cannot be forgotten.
   "IfStmt",
   // A storage `connection:` clause parses but no emitter reads it
-  // (`loom.reserved-not-emitted`), and no registered sourceType declares an int
-  // or bool `config:` key (`loom.config-key-unknown`) — each is a warning on
-  // any model that writes it, and showcase.ddd is pinned warning-free
+  // (`loom.reserved-not-emitted`) — a warning on any model that writes it,
+  // and showcase.ddd is pinned warning-free
   // (examples-zero-warnings.test.ts).  Parse coverage lives in
   // test/language/parsing/storage-instance-connection.test.ts.  Remove the
   // connection entries when the clause is wired.
@@ -179,8 +178,6 @@ const ALLOWLIST = new Set<string>([
   "LiteralConnectionSource",
   "SecretConnectionSource",
   "ServiceConnectionSource",
-  "IntConfigValue",
-  "BoolConfigValue",
   // A `channelSource` is a warning (`loom.channelsource-unbound`) until a
   // deployable lists it under `channels:`, which provisions a broker and an
   // outbox relay — on one backend of the shared parity fixture that perturbs

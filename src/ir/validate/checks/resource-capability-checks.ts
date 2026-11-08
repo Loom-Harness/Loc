@@ -285,14 +285,6 @@ function configValueMatchesType(
   value: ConfigValueIR,
   spec: { type: string; values?: readonly string[] },
 ): boolean {
-  switch (spec.type) {
-    case "number":
-      return value.kind === "int";
-    case "boolean":
-      return value.kind === "bool";
-    case "enum":
-      return value.kind === "string" && (spec.values?.includes(value.value) ?? false);
-    default: // string | secret
-      return value.kind === "string";
-  }
+  if (spec.type === "enum") return spec.values?.includes(value.value) ?? false;
+  return value.kind === "string"; // string | secret
 }
