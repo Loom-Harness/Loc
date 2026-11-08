@@ -34,12 +34,14 @@ import { diagMessage } from "../diagnostics/messages.js";
 import {
   type Aggregate,
   type Api,
+  type BoundedContext,
   type Capability,
   isAggregate,
   isApi,
   isBoundedContext,
   isCapability,
   isCriterion,
+  isDeployable,
   isImplementsDecl,
   isMemberSuffix,
   isNameRef,
@@ -67,6 +69,7 @@ import { _withOrigin } from "./api/factories.js";
 import { builtinCapabilities } from "./prelude.js";
 import { allMacros, lookupMacro } from "./registry.js";
 import { autoPagePagedTables } from "./stdlib/auto-paged-table.js";
+import { contractRecords } from "./stdlib/scaffold/_contracts-shared.js";
 
 // The deep-clone reference rebuilder `copyAstNode` expects — the
 // language Linker's `buildReference`.  A capability's members are cloned
@@ -180,6 +183,12 @@ interface Inventory {
   /** The claim `tenancy by user.<claim> of …` names (its written name: macro
    *  expansion runs before linking), when the workspace declares one. */
   tenancyClaim?: string;
+  /** Names of the subdomains an implicit `api X from <Subdomain>` exposes, and
+   *  of the contexts a deployable's `contexts: [...]` serves directly — each
+   *  such context gets the scaffold's contract records spliced (see
+   *  `spliceImplicitApiContracts`). */
+  apiSources: Set<string>;
+  servedContexts: Set<string>;
 }
 
 function buildInventory(model: Model, shared?: LangiumSharedServices): Inventory {
@@ -194,6 +203,8 @@ function buildInventory(model: Model, shared?: LangiumSharedServices): Inventory
     Retrieval: new Map(),
     Policy: new Map(),
     Capability: new Map(),
+    apiSources: new Set(),
+    servedContexts: new Set(),
   };
   const scan = (root: Model): void => {
     for (const node of AstUtils.streamAllContents(root)) {
@@ -211,6 +222,10 @@ function buildInventory(model: Model, shared?: LangiumSharedServices): Inventory
       // `policy X(): bool = …` from the read-ladder `policy X { … }`.
       else if (isPolicyDecl(node) && node.returnType) inv.Policy.set(named.name, node);
       else if (isCapability(node)) inv.Capability.set(named.name, node);
+      else if (isApi(node) && node.source?.$refText) inv.apiSources.add(node.source.$refText);
+      if (isDeployable(node)) {
+        for (const ref of node.contextRefs) inv.servedContexts.add(ref.$refText);
+      }
     }
     for (const node of AstUtils.streamAllContents(root)) {
       const claim = isTenancyDecl(node) ? node.claim?.$refText : undefined;
@@ -271,6 +286,7 @@ function expandModel(model: Model, doc: LangiumDocument, shared?: LangiumSharedS
     for (const call of (node as { withClause?: { calls?: MacroCall[] } }).withClause?.calls ?? []) {
       if (isLateCall(call)) expandOneCall(call, node as never, kind, doc, inv, buildRef);
     }
+    if (kind === "context") spliceImplicitApiContracts(node as BoundedContext, inv);
   }
   void isSystem; // imported for symmetry with future system-level macros
   // ALWAYS-ON, after `with` expansion so scaffold-generated pages are seen too
@@ -279,6 +295,30 @@ function expandModel(model: Model, doc: LangiumDocument, shared?: LangiumSharedS
   // scaffold emits — otherwise it renders the backend's default first page with
   // no pager and no way to reach the rest.  See `stdlib/auto-paged-table.ts`.
   autoPagePagedTables(model);
+}
+
+/** The implicit `api X from <Subdomain>` form exposes every aggregate of every
+ *  context in that subdomain (and a deployable's `contexts: [...]` serves its
+ *  contexts the same way), so each such context carries the same contract
+ *  records `with scaffoldHandlers` splices: `<Agg>Response` (+ `<Part>Response`)
+ *  and one `command`/`query` record per handler target.  The records are the
+ *  declared API contract as real AST, printable as `.ddd` like any source
+ *  record.  Nothing else about the implicit form changes (its routes and
+ *  handlers stay derived), so emission is identical with or without them.
+ *
+ *  Driven from the CONTEXT side so the splice stays host-local: the api may
+ *  live in another file, but the context's own document does the splicing.  A
+ *  context already `with scaffoldHandlers` has its records; a hand-declared
+ *  record of the same name wins by name in the splice. */
+function spliceImplicitApiContracts(ctx: BoundedContext, inv: Inventory): void {
+  const sub = ctx.$container;
+  const exposed =
+    (isSubdomain(sub) && inv.apiSources.has(sub.name)) || inv.servedContexts.has(ctx.name);
+  if (!exposed) return;
+  if (ctx.withClause?.calls?.some((c) => c.name === "scaffoldHandlers")) return;
+  const records = contractRecords(ctx);
+  if (records.length === 0) return;
+  spliceIntoTarget(ctx, records);
 }
 
 /** True iff the call names a registered `late` macro (see
