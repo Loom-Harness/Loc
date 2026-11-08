@@ -38,7 +38,7 @@ import {
   snake,
   upperFirst,
 } from "../../../util/naming.js";
-import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
+import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { type SourceMapSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
@@ -921,12 +921,16 @@ export function renderReturningOpFunction(
       op.returnType?.kind === "union"
         ? `type: ${JSON.stringify(variantTag(op.returnType.variants.find((v) => v.kind === "entity" && v.name === agg.name) ?? { kind: "entity", name: agg.name }))}, `
         : "";
+    // The map key is the field's WIRE name: the struct field is snake-cased
+    // (`row_version`), but the concurrency counter goes out as `rowVersion` on
+    // every backend, so its key is the camel atom Jason encodes as such.
+    const wireKey = (f: string): string => (f === ROW_VERSION_COLUMN ? ROW_VERSION_FIELD : f);
     const wireMap = (recordVar: string, projectRefColls: boolean): string =>
       `%{${aggTag}${wireFieldsOf(agg)
         .map((f) =>
           projectRefColls && isRefCollFieldName(agg, f)
-            ? `${f}: __ref_id_list(${recordVar}.${f})`
-            : `${f}: ${recordVar}.${f}`,
+            ? `${wireKey(f)}: __ref_id_list(${recordVar}.${f})`
+            : `${wireKey(f)}: ${recordVar}.${f}`,
         )
         .join(", ")}}`;
 

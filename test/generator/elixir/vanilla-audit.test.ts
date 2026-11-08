@@ -264,7 +264,7 @@ describe("vanilla audit runtime (audit-and-logging.md)", () => {
     // The audit insert must NOT change the controller-facing return shape — the
     // success branch returns the wire map (the controller `json`s it).
     expect(settle).toContain(
-      '%{type: "Order", id: saved.id, status: saved.status, row_version: saved.row_version}',
+      '%{type: "Order", id: saved.id, status: saved.status, rowVersion: saved.row_version}',
     );
   });
 

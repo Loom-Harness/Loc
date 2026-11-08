@@ -94,7 +94,7 @@ describe("vanilla — T2.c returning-op body statements", () => {
   it("returns the wire-ready success tuple off the SAVED struct when the body falls through", async () => {
     const ctx = get(await files(), "lib/api/stock.ex");
     expect(ctx).toContain(
-      '{:ok, %{type: "Item", id: saved.id, sku: saved.sku, quantity: saved.quantity, row_version: saved.row_version}}',
+      '{:ok, %{type: "Item", id: saved.id, sku: saved.sku, quantity: saved.quantity, rowVersion: saved.row_version}}',
     );
     // A persist validation failure surfaces as {:error, changeset}.
     expect(ctx).toContain("{:error, changeset} ->");
@@ -186,7 +186,7 @@ describe("vanilla — S12 returning-op mutations persist", () => {
     expect(body).toContain("|> Ecto.Changeset.force_change(:quantity, record.quantity)");
     // Success is projected off the SAVED struct, not the in-memory record.
     expect(body).toContain(
-      '{:ok, %{type: "Item", id: saved.id, sku: saved.sku, quantity: saved.quantity, row_version: saved.row_version}}',
+      '{:ok, %{type: "Item", id: saved.id, sku: saved.sku, quantity: saved.quantity, rowVersion: saved.row_version}}',
     );
     expect(body).not.toContain("{:ok, %{id: record.id");
     expect(body).toContain("{:error, changeset} ->");
@@ -198,7 +198,7 @@ describe("vanilla — S12 returning-op mutations persist", () => {
     expect(body).toContain("|> Ecto.Changeset.force_change(:quantity, record.quantity)");
     // Normalized onto the fall-through path → wire projected off `saved`.
     expect(body).toContain(
-      '{:ok, %{type: "Item", id: saved.id, sku: saved.sku, quantity: saved.quantity, row_version: saved.row_version}}',
+      '{:ok, %{type: "Item", id: saved.id, sku: saved.sku, quantity: saved.quantity, rowVersion: saved.row_version}}',
     );
   });
 
