@@ -53,10 +53,10 @@ describe("dotnet — messaged rule → FluentValidation .WithMessage carrier", (
     // The rules' identity keys (the removed `message` clause names them as the
     // codemod would).
     expect(validator).toContain(
-      '.WithMessage("Name must be 2-120 characters")\n            .WithErrorCode("Cat.Product.rule.name2120Characters");',
+      '.WithMessage("Name must be 2-120 characters")\n            .WithErrorCode("Cat.Product.rule.name2120Characters")',
     );
     expect(validator).toContain(
-      '.WithMessage("SKU is required")\n            .WithErrorCode("Cat.Product.rule.skuRequired");',
+      '.WithMessage("SKU is required")\n            .WithErrorCode("Cat.Product.rule.skuRequired")',
     );
     // message-less rule gets no error code.
     expect(validator).not.toContain('.WithErrorCode("msg." +');

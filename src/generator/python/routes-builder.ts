@@ -1,5 +1,10 @@
 import { destroyVersionCheck, readsIfMatch } from "../../ir/enrich/version-check.js";
-import { FIND_ABSENT_DETAIL, reasonPhrase, wireSentenceFor } from "../../ir/enrich/wire-policy.js";
+import {
+  FIND_ABSENT_DETAIL,
+  reasonPhrase,
+  wireCode,
+  wireSentenceFor,
+} from "../../ir/enrich/wire-policy.js";
 import {
   createInputFields,
   emitsRestCreate,
@@ -128,6 +133,7 @@ export const PY_HTTP = {
   AuditEntryListResponse: pyRef("app.audit.history", "AuditEntryListResponse"),
   ProblemDetails: pyRef("app.http.problem", "ProblemDetails"),
   problem: pyRef("app.http.problem", "problem"),
+  parse_if_match: pyRef("app.http.problem", "parse_if_match"),
   record_domain_operation: pyRef("app.obs.metrics", "record_domain_operation"),
 } as const;
 const H = PY_HTTP;
@@ -1041,6 +1047,7 @@ function destroyRoute(
     `            ${referencedInUse},`,
     `            ${JSON.stringify(reasonPhrase(referencedInUse))},`,
     `            ${JSON.stringify(wireSentenceFor("referenced-in-use", agg.name))},`,
+    `            code=${JSON.stringify(wireCode("referenced-in-use"))},`,
     "        )",
     `    return ${H.Response}(status_code=204)`,
   );
@@ -1138,7 +1145,7 @@ function auditRecordCall(agg: EnrichedAggregateIR, op: OperationIR): string[] {
 
 /** Optimistic-concurrency plumbing for a `versioned` aggregate's mutating
  *  route.  Reads the caller's expected version off the `If-Match` header
- *  (absent/malformed ⇒ write-time CAS against the loaded version) and threads
+ *  (absent ⇒ write-time CAS against the loaded version; malformed ⇒ 400) and threads
  *  it to the guarded repository save, which raises ConcurrencyError → 409 when
  *  the stored version no longer matches.  A non-versioned aggregate keeps the
  *  bare `save(found)` and emits nothing extra (byte-identical). */
@@ -1150,13 +1157,9 @@ function versionedSave(
     return { ifMatch: [], save: `    await repo.save(${foundVar})` };
   }
   return {
-    ifMatch: [
-      // `chr(34)` is a literal double-quote — used instead of a quoted `"` so
-      // the routes-file import scanner's string-blanking regex (which pairs
-      // double-quotes) isn't thrown off by a lone quote inside a Python string.
-      '    _if_match = request.headers.get("if-match", "").strip(chr(34))',
-      "    _expected = int(_if_match) if _if_match.isdigit() else None",
-    ],
+    // Absent or `*` ⇒ write-time CAS against the loaded version; a malformed
+    // header is a 400 (RFC 9110 13.1.1).
+    ifMatch: [`    _expected = ${H.parse_if_match}(request)`],
     save: `    await repo.save(${foundVar}, expected_version=_expected)`,
   };
 }
@@ -1234,6 +1237,8 @@ function operationRoute(
     const translations = errorTags.flatMap((tag) => [
       `    if result["type"] == ${JSON.stringify(tag)}:`,
       ...pyErrorVariantReturn({
+        ctx,
+        fieldValue: (f) => `result[${JSON.stringify(f)}]`,
         tag,
         overrides: ctx.errorStatusOverrides,
         jsonResponseRef: H.JSONResponse,
@@ -1434,6 +1439,8 @@ function _findRoute(
             return [
               `    if (found := await repo.${findSnake}(${args})) is None:`,
               ...pyErrorVariantReturn({
+                ctx,
+                fieldValue: () => JSON.stringify(agg.name),
                 tag,
                 overrides: ctx.errorStatusOverrides,
                 jsonResponseRef: H.JSONResponse,

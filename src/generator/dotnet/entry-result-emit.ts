@@ -27,8 +27,9 @@ import {
 } from "../../ir/util/entry-result.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
-import { type UnionMember, unionMembers } from "../_payload/union-wire.js";
+import { RFC7807_MEMBERS, type UnionMember, unionMembers } from "../_payload/union-wire.js";
 import { dtoParam, projectEntityArgs, projectToResponse, wireType } from "./dto-mapping.js";
+import { csErrorVariantExt } from "./wire-policy-cs.js";
 
 /** The namespace the entry-result unions live in. */
 export const entryResultNs = (ns: string): string => `${ns}.Application.EntryResults`;
@@ -230,7 +231,8 @@ export function entryControllerAnswer(
     const r = errorVariantResponse(tag, ctx.errorStatusOverrides);
     const d = errorVariantResponse(tag);
     const m = members.find((mm) => mm.tag === tag);
-    const fields = m?.shape === "record" ? m.fields.filter((f) => !RFC7807.has(f.name)) : [];
+    const fields =
+      m?.shape === "record" ? m.fields.filter((f) => !RFC7807_MEMBERS.has(f.name)) : [];
     out.push(
       `${indent}    case ${base}_${tag} ${fields.length > 0 ? "__e" : "_"}:`,
       `${indent}    {`,
@@ -238,6 +240,13 @@ export function entryControllerAnswer(
       ...fields.map(
         (f) =>
           `${indent}        problem.Extensions[${JSON.stringify(f.name)}] = __e.${upperFirst(f.name)};`,
+      ),
+      ...csErrorVariantExt(
+        ctx,
+        tag,
+        "problem",
+        fields.map((f) => ({ json: f.name, accessor: `__e.${upperFirst(f.name)}` })),
+        `${indent}        `,
       ),
       `${indent}        return new ObjectResult(problem) { StatusCode = ${r.status}, ContentTypes = { "application/problem+json" } };`,
       `${indent}    }`,
@@ -250,8 +259,6 @@ export function entryControllerAnswer(
   );
   return out;
 }
-
-const RFC7807: ReadonlySet<string> = new Set(["type", "title", "status", "detail", "instance"]);
 
 /** The statuses the error arms answer, for `[ProducesResponseType]`. */
 export function entryErrorStatuses(er: EntryResult, ctx: EnrichedBoundedContextIR): number[] {

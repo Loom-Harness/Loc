@@ -45,6 +45,7 @@ import {
   renderCsStatements,
   statementSubRegions,
 } from "../render-stmt.js";
+import { csRuleParams } from "../wire-policy-cs.js";
 import { CS_STATE_HOLDER } from "./state-holder.js";
 
 /** One operation body's exact emitted text plus its per-statement
@@ -788,8 +789,9 @@ export function renderEntity(
     // unnamed one keeps the text-only throw with the generic text.
     const code = domainFloorCode(inv.message);
     const text = JSON.stringify(ruleText(inv));
+    const params = code ? csRuleParams(inv, (e) => renderCsExpr(e, renderCtx)) : undefined;
     const thrown = code
-      ? `throw new DomainException(${text}, DomainErrorKind.Invariant, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
+      ? `throw new DomainException(${text}, DomainErrorKind.Invariant, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}${params ? `, ${params}` : ""})`
       : `throw new DomainException(${text}, DomainErrorKind.Invariant)`;
     if (!emitTrace) {
       const check = inv.guard

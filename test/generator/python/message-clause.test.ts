@@ -50,11 +50,11 @@ describe("python — messaged rule → wire refine + domain floor text", () => {
     // `model_validator` carries no `loc` on its own, so it is raised through
     // `ValidationError.from_exception_data` (M-T1.11).
     expect(routes).toContain(
-      'type=PydanticCustomError("Cat.Product.rule.name2120Characters", "Name must be 2-120 characters"),',
+      'type=PydanticCustomError("Cat.Product.rule.name2120Characters", "Name must be 2-120 characters", {"loomParams": {"name": self.name}}),',
     );
     expect(routes).toContain('loc=("name",),');
     expect(routes).toContain(
-      'type=PydanticCustomError("Cat.Product.rule.skuRequired", "SKU is required"),',
+      'type=PydanticCustomError("Cat.Product.rule.skuRequired", "SKU is required", {"loomParams": {"sku": self.sku}}),',
     );
     expect(routes).toContain('loc=("sku",),');
   });

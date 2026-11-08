@@ -17,6 +17,7 @@ const PROV = {
 
 import { ruleText } from "../_i18n/rule-text.js";
 import { renderPyExpr, renderPyNegatedGuard, renderPyType } from "./render-expr.js";
+import { pyRuleParams } from "./wire-policy-py.js";
 
 // ---------------------------------------------------------------------------
 // Statement LEAF TABLE for the Python backend.  The 11-kind `StmtIR` dispatch,
@@ -156,8 +157,9 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
       // and pointer THROUGH the raise.
       const code = ctx.domainFloorCodes ? domainFloorCode(s.message) : undefined;
       const text = JSON.stringify(ruleText(s));
+      const params = code ? pyRuleParams({ expr: s.expr }, renderPyExpr) : undefined;
       const thrown = code
-        ? `raise ${PY.DomainError}(${text}, "precondition", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(s))})`
+        ? `raise ${PY.DomainError}(${text}, "precondition", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(s))}${params ? `, ${params}` : ""})`
         : `raise ${PY.DomainError}(${text}, "precondition")`;
       if (!ctx.trace) {
         return [`${i}if ${renderPyNegatedGuard(s.expr)}:`, `${sub}${thrown}`].join("\n");

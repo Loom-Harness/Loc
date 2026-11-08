@@ -196,6 +196,7 @@ builder.Services.AddProblemDetails(opts =>
         if (status == 415) ctx.ProblemDetails.Detail = "Content-Type must be application/json";
         ctx.ProblemDetails.Detail ??= ctx.ProblemDetails.Title;
         ctx.ProblemDetails.Instance ??= ctx.HttpContext.Request.Path;
+        ctx.ProblemDetails.Extensions["code"] = Api.Api.ProblemCodes.ForStatus(status);
         ctx.ProblemDetails.Extensions.Remove("traceId");
     };
 });
@@ -535,6 +536,7 @@ app.UseStatusCodePages(async (StatusCodeContext statusCodeContext) =>
         Status = status,
         Detail = detail,
         Instance = http.Request.Path,
+        Extensions = { ["code"] = Api.Api.ProblemCodes.ForStatus(status) },
     }, (JsonSerializerOptions?)null, "application/problem+json");
 });
 app.UseCors();

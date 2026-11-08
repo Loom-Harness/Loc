@@ -57,7 +57,7 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
   it(".NET: its own exception, answered ahead of the DomainException arm", async () => {
     const fs = await files("dotnet");
     expect(find(fs, "Domain/ValueObjects/Qty.cs")).toContain(
-      'throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "Orders.Qty.rule.quantityPositive")',
+      'throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "Orders.Qty.rule.quantityPositive", new System.Collections.Generic.Dictionary<string, object?> { ["value"] = this.Value })',
     );
     expect(find(fs, "Domain/Common/DomainException.cs")).toContain(
       "public sealed class ValueObjectInvariantException : Exception",
@@ -67,7 +67,7 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
     const domain = filter.indexOf("context.Exception is DomainException de");
     expect(vo).toBeGreaterThan(-1);
     expect(vo).toBeLessThan(domain);
-    expect(filter).toContain('new { pointer = "", message = ');
+    expect(filter).toContain('["pointer"] = ""');
   });
 
   it("java: a DomainException subclass with its own (more specific) advice handler", async () => {
@@ -88,7 +88,7 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
   it("python: a DomainError subclass with its own handler", async () => {
     const fs = await files("python");
     expect(find(fs, "app/domain/value_objects.py")).toContain(
-      'raise ValueObjectInvariantError("Qty", "Quantity must be positive", "Orders.Qty.rule.quantityPositive")',
+      'raise ValueObjectInvariantError("Qty", "Quantity must be positive", "Orders.Qty.rule.quantityPositive", {"value": self.value})',
     );
     expect(find(fs, "app/domain/errors.py")).toContain(
       "class ValueObjectInvariantError(DomainError):",
@@ -97,7 +97,10 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
       c.includes("@app.exception_handler(ValueObjectInvariantError)"),
     );
     expect(problems, "a module registers the ValueObjectInvariantError handler").toBeDefined();
-    expect(problems?.[1]).toContain('entry: dict[str, str] = {"pointer": "", "message": str(err)}');
+    expect(problems?.[1]).toContain('return _domain_floor_with_entry(request, err, "")');
+    expect(problems?.[1]).toContain(
+      'entry: dict[str, Any] = {"pointer": pointer, "message": str(err), "code": code}',
+    );
   });
 
   it("elixir: the op persist re-runs the body-built value object's constructor", async () => {

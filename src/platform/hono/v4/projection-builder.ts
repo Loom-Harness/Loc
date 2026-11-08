@@ -684,7 +684,7 @@ function emitProjectionRoutes(
   );
   if (anyGate) {
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
-    // the body carries `err.detail` (echoed only under the dev-stub verifier).
+    // the body carries `err.detail` (the constant `Forbidden`, never the gate source).
     out.push(
       `    if (err instanceof ForbiddenError) { ${renderHonoLogCall(
         "forbidden",

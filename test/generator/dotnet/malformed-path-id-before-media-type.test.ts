@@ -86,8 +86,9 @@ describe("the guard runs before model binding, and only where it binds", () => {
     expect(filter).toContain("Status = 422");
     expect(filter).toContain('Detail = "One or more fields are invalid."');
     expect(filter).toContain('["pointer"] = "/id"');
-    // MVC's own ModelBindingMessageProvider wording, verbatim.
-    expect(filter).toContain(`["message"] = $"The value '{text}' is not valid."`);
+    // The shared malformed-id sentence and code (the Guid binder answers the same).
+    expect(filter).toContain('["message"] = "Expected UUID."');
+    expect(filter).toContain('["code"] = "field.malformed-id"');
   });
 
   it("is registered FIRST, ahead of the domain exception filter", async () => {

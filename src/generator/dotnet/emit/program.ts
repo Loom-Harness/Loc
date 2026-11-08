@@ -1054,6 +1054,7 @@ builder.Services.AddProblemDetails(opts =>
         if (status == ${wireStatus("unsupported-media-type")}) ctx.ProblemDetails.Detail = ${csFixedDetail("unsupported-media-type")};
         ctx.ProblemDetails.Detail ??= ctx.ProblemDetails.Title;
         ctx.ProblemDetails.Instance ??= ctx.HttpContext.Request.Path;
+        ctx.ProblemDetails.Extensions["code"] = ${ns}.Api.ProblemCodes.ForStatus(status);
         ctx.ProblemDetails.Extensions.Remove("traceId");
     };
 });
@@ -1380,6 +1381,7 @@ app.UseStatusCodePages(async (StatusCodeContext statusCodeContext) =>
         Status = status,
         Detail = detail,
         Instance = http.Request.Path,
+        Extensions = { ["code"] = ${ns}.Api.ProblemCodes.ForStatus(status) },
     }, (JsonSerializerOptions?)null, "application/problem+json");
 });
 app.UseCors();

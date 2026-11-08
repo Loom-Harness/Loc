@@ -16,6 +16,7 @@ import { csProjectType } from "./bcl-collision.js";
 import { csLineageValue } from "./codec-spelling.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { addCsExprUsing, renderCsExpr } from "./render-expr.js";
+import { csRuleParams } from "./wire-policy-cs.js";
 
 // ---------------------------------------------------------------------------
 // Statement LEAF TABLE for the .NET backend.  The 11-kind `StmtIR` dispatch,
@@ -287,8 +288,9 @@ function precondition(
   // A NAMED precondition in an aggregate operation carries its wire code and
   // pointer THROUGH the throw.
   const code = traceCtx.domainFloorCodes ? domainFloorCode(message) : undefined;
+  const params = code ? csRuleParams({ expr }, (e) => renderCsExpr(e, ctx)) : undefined;
   const thrown = code
-    ? `throw new DomainException(${JSON.stringify(detail)}, DomainErrorKind.Precondition, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
+    ? `throw new DomainException(${JSON.stringify(detail)}, DomainErrorKind.Precondition, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))}${params ? `, ${params}` : ""})`
     : `throw new DomainException(${JSON.stringify(detail)}, DomainErrorKind.Precondition)`;
   if (!traceCtx.emitTrace) {
     return `${INDENT}if (!(${renderCsExpr(expr, ctx)})) ${thrown};`;

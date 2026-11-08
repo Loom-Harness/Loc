@@ -12,14 +12,18 @@ public sealed class UpdateCommandValidator : AbstractValidator<UpdateCommand>
     public UpdateCommandValidator()
     {
         RuleFor(x => x.Username).Must(v => v == null || v.EnumerateRunes().Count() >= 3 && v.EnumerateRunes().Count() <= 32)
-            .WithMessage("Username must be 3 to 32 characters").When(x => x.PatchedKeys.Contains("username"));
+            .WithMessage("Username must be 3 to 32 characters")
+            .WithErrorCode("field.rule").When(x => x.PatchedKeys.Contains("username"));
         RuleFor(x => x.Age).InclusiveBetween(18, 150)
-            .WithMessage("Age must be between 18 and 150").When(x => x.PatchedKeys.Contains("age"));
+            .WithMessage("Age must be between 18 and 150")
+            .WithErrorCode("field.rule").When(x => x.PatchedKeys.Contains("age"));
         RuleFor(x => x).Must(x => !x.PatchedKeys.Contains("username") || !x.PatchedKeys.Contains("email") || (x.Username != x.Email))
             .WithName("Username")
-            .WithMessage("Business rule violated");
+            .WithMessage("Business rule violated")
+            .WithErrorCode("problem.domain-floor");
         RuleFor(x => x).Must(x => !x.PatchedKeys.Contains("email") || (Regex.IsMatch(x.Email, "^[^@]+@[^@]+\\.[^@]+$") && x.Email.EnumerateRunes().Count() <= 120))
             .WithName("Email")
-            .WithMessage("Business rule violated");
+            .WithMessage("Business rule violated")
+            .WithErrorCode("problem.domain-floor");
     }
 }

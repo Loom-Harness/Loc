@@ -243,7 +243,7 @@ describe("M-T6.39 — an absent /files object answers the service's one 404 enve
       producerFile: "http/problem.py",
       resolved: [
         'log("warn", "not_found", message=str(err), status=410)',
-        'return problem(request, 410, "Gone", str(err))',
+        'return problem(request, 410, "Gone", str(err), code="problem.not-found")',
       ],
       routeFile: "files_routes.py",
     },

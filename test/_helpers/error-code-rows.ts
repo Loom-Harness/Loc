@@ -44,15 +44,10 @@ export const ERROR_CODE_ROWS: readonly ErrorCodeRow[] = [
   {
     platform: "dotnet",
     wireLegs: ["dotnet", "dapper"],
-    status: { pending: "#4473 fan-out" },
+    status: "done",
     fieldLimits: LIMITS_PENDING,
   },
-  {
-    platform: "python",
-    wireLegs: ["python"],
-    status: { pending: "#4473 fan-out" },
-    fieldLimits: LIMITS_PENDING,
-  },
+  { platform: "python", wireLegs: ["python"], status: "done", fieldLimits: LIMITS_PENDING },
   {
     platform: "java",
     wireLegs: ["java"],

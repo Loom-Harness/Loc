@@ -72,8 +72,7 @@ describe("python generator — versioned optimistic-concurrency", () => {
       await generateSystemFiles(pySystem("with versioned")),
       "routes.py",
     );
-    expect(routes).toContain('_if_match = request.headers.get("if-match", "").strip(chr(34))');
-    expect(routes).toContain("_expected = int(_if_match) if _if_match.isdigit() else None");
+    expect(routes).toContain("_expected = parse_if_match(request)");
     expect(routes).toContain("await repo.save(found, expected_version=_expected)");
   });
 

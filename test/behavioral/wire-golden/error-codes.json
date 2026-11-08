@@ -51,7 +51,7 @@
       "status": 501,
       "body": {
         "code": "problem.not-implemented",
-        "detail": "extern operation 'ship' on Product is not implemented — write its body in src/domain/product.ts",
+        "detail": "This operation is not implemented.",
         "instance": "/api/products/{id}/ship",
         "status": 501,
         "title": "Not Implemented",

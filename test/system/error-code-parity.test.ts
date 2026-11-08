@@ -75,8 +75,17 @@ const BACKEND_FACTS: Readonly<
     ],
     catalog: /localizeMessage|\/http\/messages\.ts/,
   },
-  dotnet: { schema: [], catalog: /LoomMessages|Localization\/LoomMessages\.cs/ },
-  python: { schema: [], catalog: /localize_message|app\/i18n\.py/ },
+  dotnet: {
+    schema: [
+      /\["code"\] = new OpenApiSchema \{ Type = JsonSchemaType\.String/,
+      /\["params"\] = new OpenApiSchema/,
+    ],
+    catalog: /LoomMessages|Localization\/LoomMessages\.cs/,
+  },
+  python: {
+    schema: [/code: str \| None = None/, /params: dict\[str, Any\] \| None = None/],
+    catalog: /localize_message|app\/i18n\.py/,
+  },
   java: { schema: [], catalog: /MessageSource|messages\.properties/ },
   elixir: { schema: [], catalog: /Gettext\.with_locale/ },
 };

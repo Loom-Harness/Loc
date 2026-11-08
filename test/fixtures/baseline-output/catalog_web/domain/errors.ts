@@ -39,7 +39,8 @@ export class AggregateNotFoundError extends Error {
  *  HTTP 403 (Forbidden).
  *
  *  `message` names the failed gate and goes to the `forbidden` log line;
- *  `detail` is the 403 body's `detail` — the constant `Forbidden`: this deployable does not run the dev-stub verifier, so the predicate stays in the server log. */
+ *  `detail` is the 403 body's `detail` — the constant `Forbidden`: the
+ *  predicate is DSL source and stays in the server log. */
 export class ForbiddenError extends Error {
   readonly detail: string;
   constructor(message: string) { super(message); this.name = "ForbiddenError"; this.detail = "Forbidden"; }

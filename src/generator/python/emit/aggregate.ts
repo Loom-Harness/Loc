@@ -55,6 +55,7 @@ import {
   type StampEvent,
   stampEventsFor,
 } from "../stamp-call.js";
+import { pyRuleParams } from "../wire-policy-py.js";
 
 /** One operation body's exact emitted text plus its per-statement
  *  sub-regions — surfaced by `renderPyAggregate` (when `opFragments` is
@@ -590,8 +591,9 @@ function renderEntity(
     // unnamed one keeps the text-only raise with the generic text.
     const code = domainFloorCode(inv.message);
     const text = JSON.stringify(ruleText(inv));
+    const params = code ? pyRuleParams(inv, renderPyExpr) : undefined;
     const msg = code
-      ? `${text}, "invariant", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}`
+      ? `${text}, "invariant", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}${params ? `, ${params}` : ""}`
       : `${text}, "invariant"`;
     // Under --trace, evaluate into a temp, emit `invariant_evaluated`
     // (op label = the threaded `__op`), then check — matching Hono/.NET.

@@ -21,10 +21,11 @@ import {
 } from "../../../ir/validate/invariant-classify.js";
 import { lines } from "../../../util/code-builder.js";
 import { pythonWireIdent, pythonWireNeedsAlias } from "../../../util/naming.js";
-import { ruleText } from "../../_i18n/rule-text.js";
+import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
 import { pyRef } from "../../_imports/python.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import { renderPyExpr, renderPyNegatedGuard } from "../render-expr.js";
+import { pyRuleParams } from "../wire-policy-py.js";
 
 // The pydantic carriers, written as `ref()` markers — the importing module's
 // block derives from whichever survive into its text.
@@ -318,8 +319,13 @@ export function createModelValidator(
     // the logs.  `None` when the path isn't a field this request body carries.
     const input = path && available.has(path) ? `self.${path}` : "None";
     const text = ruleText(inv);
-    const errorType = inv.message ? inv.message.key : "invariant";
-    const custom = `${PYDANTIC_CUSTOM_ERROR}(${JSON.stringify(errorType)}, ${JSON.stringify(text)})`;
+    // The error TYPE is the wire `code`: a named rule's identity key, else the
+    // generic key of an unnamed one.  A named rule hands the values it read over
+    // as the context `loomParams` (the wire `params`).
+    const wireParams = inv.message
+      ? pyRuleParams(inv, (e) => renderPyExpr(e, { thisName: "self", wireField: true }))
+      : undefined;
+    const custom = `${PYDANTIC_CUSTOM_ERROR}(${JSON.stringify(ruleCode(inv))}, ${JSON.stringify(text)}${wireParams ? `, {"loomParams": ${wireParams}}` : ""})`;
     const raise = path
       ? `raise ${VALIDATION_ERROR}.from_exception_data(\n                ${JSON.stringify(cls)},\n                [\n                    ${INIT_ERROR_DETAILS}(\n                        type=${custom},\n                        loc=(${JSON.stringify(path)},),\n                        input=${input},\n                    )\n                ],\n            )`
       : `raise ${custom}`;

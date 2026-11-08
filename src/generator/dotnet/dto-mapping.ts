@@ -1,3 +1,4 @@
+import { fieldCode } from "../../ir/enrich/wire-policy.js";
 import { forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
@@ -415,6 +416,10 @@ function wireParseGuard(
   site: WireArgSite,
   label: string,
   tryParse: (outVar: string) => string,
+  /** The catalog reason of the FORMAT refusal.  A money refusal names the sent
+   *  value in `params` (its catalog text has a `{value}` hole); a datetime / date
+   *  one is an unnamed rule. */
+  formatReason: "money-grammar" | "rule",
   /** An additional, POST-PARSE predicate over the out-variable, with its own
    *  refusal message.  Money's range check is the only
    *  user: a value can parse and still not fit `NUMERIC(19,4)`, and that is a
@@ -426,20 +431,28 @@ function wireParseGuard(
   mapParsed?: (outVar: string) => string,
 ): string {
   const outVar = `__wp_${expr.replace(/[^A-Za-z0-9]/g, "_")}`;
-  const refuse = (message: string): string =>
-    `throw new global::${site.ns}.Domain.Common.WireFormatException(` +
-    `${JSON.stringify(site.pointer)}, ${message})`;
+  const make = (message: string, reason: "money-grammar" | "money-range" | "rule"): string =>
+    `new global::${site.ns}.Domain.Common.WireFormatException(` +
+    `${JSON.stringify(site.pointer)}, ${message}, ${JSON.stringify(fieldCode(reason))}` +
+    (reason === "rule"
+      ? ")"
+      : `, new System.Collections.Generic.Dictionary<string, object?> { ["value"] = ${expr} })`);
+  const refuse = (message: string, reason: "money-grammar" | "money-range" | "rule"): string =>
+    `throw ${make(message, reason)}`;
   // Interpolated so the message quotes the value the caller actually sent.
   // `{{` / `}}` are not needed: the only interpolation hole is the raw value.
   const parsed = mapParsed ? mapParsed(outVar) : outVar;
+  const grammarMessage = `$"Invalid ${label}: \\"{${expr}}\\""`;
   const ok = postParse
     ? `(${postParse.predicate(outVar)}\n                    ? ${parsed}\n                    : ` +
-      `${refuse(`$"${postParse.message}: \\"{${expr}}\\""`)})`
+      `${refuse(`$"${postParse.message}: \\"{${expr}}\\""`, "money-range")})`
     : parsed;
-  return (
-    `${tryParse(outVar)}\n                ? ${ok}\n                : ` +
-    refuse(`$"Invalid ${label}: \\"{${expr}}\\""`)
-  );
+  // A money value that passed the grammar but still would not parse overflowed
+  // `decimal` itself: that is the RANGE refusal, not a format one.
+  const otherwise = postParse
+    ? `throw (global::${site.ns}.Domain.Common.WireFormatException.IsMoneyGrammar(${expr})\n                    ? ${make(`$"${postParse.message}: \\"{${expr}}\\""`, "money-range")}\n                    : ${make(grammarMessage, formatReason)})`
+    : refuse(grammarMessage, formatReason);
+  return `${tryParse(outVar)}\n                ? ${ok}\n                : ${otherwise}`;
 }
 
 /** Map a wire-shaped expression to a domain-typed argument for a command. */
@@ -485,6 +498,7 @@ export function wireToCommandArgument(
           (out) =>
             `DateTime.TryParse(${expr}, ${CS.CultureInfo}.InvariantCulture, ` +
             `${CS.DateTimeStyles}.AssumeUniversal | ${CS.DateTimeStyles}.AdjustToUniversal, out var ${out})`,
+          "rule",
           undefined,
           // Sub-millisecond input is TRUNCATED at ingress (RS-38), so the
           // stored value and the wire value agree and a read-back equals the
@@ -497,7 +511,13 @@ export function wireToCommandArgument(
         // Wire string → DateOnly.  EXACT `yyyy-MM-dd`: a datetime-shaped value
         // (`2026-01-01T00:00Z`) is refused as a typed 422 rather than having
         // its time-of-day dropped silently.
-        return wireParseGuard(expr, site, "date", (out) => csCalendarDateTryParseExact(expr, out));
+        return wireParseGuard(
+          expr,
+          site,
+          "date",
+          (out) => csCalendarDateTryParseExact(expr, out),
+          "rule",
+        );
       }
       if (info.primitive === "money") {
         // Wire string → System.Decimal, gated by node's money GRAMMAR
@@ -521,6 +541,7 @@ export function wireToCommandArgument(
             `global::${site.ns}.Domain.Common.WireFormatException.IsMoneyGrammar(${expr}) && ` +
             `decimal.TryParse(${expr}, ${CS.NumberStyles}.AllowLeadingSign | ${CS.NumberStyles}.AllowDecimalPoint, ` +
             `${CS.CultureInfo}.InvariantCulture, out var ${out})`,
+          "money-grammar",
           {
             predicate: (out) => `System.Math.Abs(${out}) < ${csMoneyMaxExclusive()}m`,
             message: csMoneyRangeMessage(),

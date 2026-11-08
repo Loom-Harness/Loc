@@ -373,7 +373,7 @@ const SITES: Record<Platform, Site[]> = {
       rung: "ConcurrencyConflict",
       what: "the ConcurrencyError handler",
       file: "http/problem.py",
-      at: /request, (\d+), "Conflict", str\(err\)\)/,
+      at: /request, (\d+), "Conflict", str\(err\), code=/,
     },
     {
       rung: "ReferencedInUse",

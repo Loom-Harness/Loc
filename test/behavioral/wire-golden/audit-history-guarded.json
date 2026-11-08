@@ -468,7 +468,7 @@
       "status": 403,
       "body": {
         "code": "problem.forbidden",
-        "detail": "Forbidden: currentUser.role == \"agent\"",
+        "detail": "Forbidden",
         "instance": "/api/employees/{id}/raise",
         "status": 403,
         "title": "Forbidden",
@@ -489,7 +489,7 @@
       "status": 403,
       "body": {
         "code": "problem.forbidden",
-        "detail": "Forbidden: find all",
+        "detail": "Forbidden",
         "instance": "/api/payslips",
         "status": 403,
         "title": "Forbidden",
@@ -532,7 +532,7 @@
       "status": 403,
       "body": {
         "code": "problem.forbidden",
-        "detail": "Forbidden: find history",
+        "detail": "Forbidden",
         "instance": "/api/payslips/{id}/history",
         "status": 403,
         "title": "Forbidden",
@@ -580,7 +580,7 @@
       "status": 403,
       "body": {
         "code": "problem.forbidden",
-        "detail": "Forbidden: find history",
+        "detail": "Forbidden",
         "instance": "/api/payslips/{id}/history",
         "status": 403,
         "title": "Forbidden",

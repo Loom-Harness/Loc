@@ -82,7 +82,7 @@ const VALIDATION_ARM: Record<string, RegExp> = {
   node: /title: "([^"]*)",\s*\n\s*status: 422,\s*\n\s*detail: "([^"]*)"/,
   dotnet: /Title = "([^"]*)",\s*\n\s*Status = 422,\s*\n\s*Detail = "([^"]*)"/,
   java: /problem\(422, "([^"]*)", "([^"]*)", request\)/,
-  python: /problem\(request, 422, "([^"]*)", "([^"]*)", errors\)/,
+  python: /problem\(request, 422, "([^"]*)", "([^"]*)", errors, code=/,
   elixir: /title: "([^"]*)",\s*\n\s*status: 422,\s*\n\s*detail: "([^"]*)"/,
 };
 

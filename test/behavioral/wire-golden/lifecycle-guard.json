@@ -57,7 +57,7 @@
       "status": 403,
       "body": {
         "code": "problem.forbidden",
-        "detail": "Forbidden: currentUser.permissions.contains(permissions.manage) && quantity == 0",
+        "detail": "Forbidden",
         "instance": "/api/shipments/{id}",
         "status": 403,
         "title": "Forbidden",
@@ -310,7 +310,7 @@
       "status": 403,
       "body": {
         "code": "problem.forbidden",
-        "detail": "Forbidden: currentUser.permissions.contains(permissions.manage)",
+        "detail": "Forbidden",
         "instance": "/api/shipments",
         "status": 403,
         "title": "Forbidden",
@@ -333,7 +333,7 @@
       "status": 403,
       "body": {
         "code": "problem.forbidden",
-        "detail": "Forbidden: currentUser.permissions.contains(permissions.manage)",
+        "detail": "Forbidden",
         "instance": "/api/crates/{id}",
         "status": 403,
         "title": "Forbidden",
@@ -411,7 +411,7 @@
       "status": 403,
       "body": {
         "code": "problem.forbidden",
-        "detail": "Forbidden: currentUser.permissions.contains(permissions.manage) && quantity == 0",
+        "detail": "Forbidden",
         "instance": "/api/shipments/{id}",
         "status": 403,
         "title": "Forbidden",

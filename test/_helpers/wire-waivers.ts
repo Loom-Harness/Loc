@@ -187,6 +187,20 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
         "#4215 — a nested value object's invariant is not checked by the .NET / java request validator; the 422 comes from the domain",
     }),
   ),
+  // The same domain 422 carries the rule's own code (and the values it read as
+  // `params`) on the body, where the field-validation one says
+  // `problem.field-invalid` with the rule's code only on its `errors[]` entry.
+  ...(["$.code", "$.params"] as const).map(
+    (path): WireWaiver => ({
+      backends: ["dotnet", "dapper"],
+      cases: ["vo-root-kernel"],
+      request: "POST /api/shipments",
+      path,
+      kinds: ["value", "key-set"],
+      reason:
+        "#4215 — a nested value object's invariant is not checked by the .NET request validator; the domain 422 names the rule's code on the body",
+    }),
+  ),
   // node/drizzle orders every read with no declared order by `id` (the
   // read-scope order).  The other legs still answer Postgres's physical order,
   // which moves a row an `update` rewrote to the end, so the three reads below
