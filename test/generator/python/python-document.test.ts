@@ -50,7 +50,7 @@ describe("python shape: document", () => {
     );
     expect(repo).toContain('set_={"data": data, "row_version": ArticleRow.row_version + 1},');
     expect(repo).toContain("where=ArticleRow.row_version == _expected,");
-    expect(repo).toContain("if _guarded.first() is None:");
+    expect(repo).toContain("if _saved_version is None:");
     // Nested part serialisers.
     expect(repo).toContain("def _article_to_doc(a: Article) -> dict[str, object]:");
     expect(repo).toContain("def _section_to_doc(a: Section) -> dict[str, object]:");

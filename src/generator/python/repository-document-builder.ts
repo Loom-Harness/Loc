@@ -25,6 +25,7 @@ import {
   documentCapabilityBody,
   lowerToSqlAlchemy,
 } from "./find-predicate.js";
+import { pyGuardedSaveTail } from "./guarded-save-py.js";
 import { PY_NUMERIC, pyDocumentDecimalDecode } from "./numeric-codec.js";
 import { rowClassName } from "./py-columns.js";
 import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
@@ -203,7 +204,7 @@ export function buildPyDocumentRepositoryFile(
     // fresh INSERT seeds the row at the aggregate's own version (the shared 0
     // create-default), and an INSERT-conflict only overwrites when the stored
     // `version` still equals the caller's expected value, bumping it by one.  A
-    // stale write matches no row, so `RETURNING id` is empty → ConcurrencyError.
+    // stale write matches no row, so `RETURNING version` is empty → ConcurrencyError.
     // The `version` COLUMN is authoritative (the blob copy lags a write and is
     // ignored on load — see `entityFromDoc`), so the loaded aggregate's version
     // is the write-time expectation when no `If-Match` was sent.
@@ -218,10 +219,11 @@ export function buildPyDocumentRepositoryFile(
           `                set_={"data": data, "${ROW_VERSION_COLUMN}": ${row}.${ROW_VERSION_COLUMN} + 1},`,
           `                where=${row}.${ROW_VERSION_COLUMN} == _expected,`,
           "            )",
-          `            .returning(${row}.id)`,
-          "        )",
-          "        if _guarded.first() is None:",
-          `            ${pyConflictRaise(R.ConcurrencyError, agg.name, "aggregate.id")}`,
+          ...pyGuardedSaveTail(
+            row,
+            "aggregate",
+            pyConflictRaise(R.ConcurrencyError, agg.name, "aggregate.id"),
+          ),
         ]
       : [
           `        existing = await self._session.get(${row}, aggregate.id)`,

@@ -87,12 +87,21 @@ describe("java generator — versioned optimistic-concurrency", () => {
     // flushAutomatically writes the command's pending changes BEFORE the bump;
     // clearAutomatically = false keeps the managed instance the impl mutates.
     expect(jpa).toContain("@Modifying(flushAutomatically = true, clearAutomatically = false)");
+    // NATIVE SQL, keyed by the id's raw value: Hibernate applies an entity's
+    // @Filter / @SQLRestriction to a JPQL bulk update and to existsById, so a
+    // soft delete (which flushes `is_deleted = true` first) hid the row from
+    // both and the counter silently stayed put.
     expect(jpa).toContain(
-      '@Query("update Customer e set e.rowVersion = e.rowVersion + 1 where e.id = :id and e.rowVersion = :expected")',
+      '@Query(value = "update ordering.customers set row_version = row_version + 1 where id = :id and row_version = :expected", nativeQuery = true)',
     );
     expect(jpa).toContain(
-      'int bumpVersion(@Param("id") CustomerId id, @Param("expected") int expected);',
+      'int bumpVersion(@Param("id") Object id, @Param("expected") int expected);',
     );
+    expect(jpa).toContain(
+      '@Query(value = "select count(*) from ordering.customers where id = :id", nativeQuery = true)',
+    );
+    expect(jpa).toContain('long countRowsById(@Param("id") Object id);');
+    expect(jpa).not.toContain("update Customer e");
   });
 
   it("repository save bumps once per persisted command and 409s on a lost race", async () => {
@@ -107,11 +116,14 @@ describe("java generator — versioned optimistic-concurrency", () => {
     // (seed / bootstrap) has none.
     expect(impl).toContain("@Transactional");
     expect(impl).toContain("var __expectedVersion = aggregate.rowVersion();");
-    expect(impl).toContain("if (jpa.bumpVersion(aggregate.id(), __expectedVersion) == 1) {");
+    expect(impl).toContain(
+      "if (jpa.bumpVersion(aggregate.id().value(), __expectedVersion) == 1) {",
+    );
     expect(impl).toContain("aggregate._applyVersion(__expectedVersion + 1);");
     // Zero rows + the row EXISTS = another writer moved it inside our load→save
     // window.  Zero rows + no row = a create (the factory already seeded 1).
-    expect(impl).toContain("} else if (jpa.existsById(aggregate.id())) {");
+    expect(impl).toContain("} else if (jpa.countRowsById(aggregate.id().value()) > 0) {");
+    expect(impl).not.toContain("existsById");
     expect(impl).toContain(
       "throw new ObjectOptimisticLockingFailureException(Customer.class, aggregate.id().value());",
     );
@@ -266,12 +278,17 @@ describe("java generator — versioned optimistic-concurrency", () => {
       expect(concrete).not.toContain("_applyVersion");
       // …and the concrete's repository drives the bump through the shared id.
       const jpa = files.get(`${ROOT}/features/cars/CarJpaRepository.java`)!;
+      // TPH: the shared root table, guarded by the concrete's discriminator
+      // (what JPQL `update Car` applied implicitly); TPC: the concrete's own.
       expect(jpa).toContain(
-        '@Query("update Car e set e.rowVersion = e.rowVersion + 1 where e.id = :id and e.rowVersion = :expected")',
+        using === "sharedTable"
+          ? `@Query(value = "update yard.vehicles set row_version = row_version + 1 where id = :id and row_version = :expected and kind = 'Car'", nativeQuery = true)`
+          : '@Query(value = "update yard.cars set row_version = row_version + 1 where id = :id and row_version = :expected", nativeQuery = true)',
       );
-      // TPH shares the base's identity; a TPC concrete owns its own typed id.
       expect(jpa).toContain(
-        `int bumpVersion(@Param("id") ${using === "sharedTable" ? "Vehicle" : "Car"}Id id, @Param("expected") int expected);`,
+        using === "sharedTable"
+          ? `@Query(value = "select count(*) from yard.vehicles where id = :id and kind = 'Car'", nativeQuery = true)`
+          : '@Query(value = "select count(*) from yard.cars where id = :id", nativeQuery = true)',
       );
     });
   }

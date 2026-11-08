@@ -372,9 +372,9 @@ export function lowerToDrizzle(
         // capability-filter accessor), so the non-null branch asserts what the
         // ternary just tested.
         const narrowed = valueExpr.includes("(") ? `${valueExpr}!` : valueExpr;
-        return `(${valueExpr} == null ? ${onNull} : ${orientedFn}(${colExpr}, ${narrowed}))`;
+        return `(${valueExpr} == null ? ${onNull} : ${orientedFn}(${colExpr}, ${numericBinding(oriented.value, narrowed, colExpr)}))`;
       }
-      return `${orientedFn}(${colExpr}, ${valueExpr})`;
+      return `${orientedFn}(${colExpr}, ${numericBinding(oriented.value, valueExpr, colExpr)})`;
     }
     if (e.kind === "unary" && e.op === "!") {
       // A bare boolean column under `!` — `!this.isDeleted` — has no
@@ -545,6 +545,28 @@ export function lowerToDrizzle(
     if (e.kind === "member") return e.memberType.kind === "optional";
     if (e.kind === "ref") return e.type?.kind === "optional";
     return false;
+  }
+
+  /** A value bound against a column, in the column's JS type.  Drizzle types
+   *  a `numeric()` column — every money and decimal field — as `string`, while
+   *  the runtime value is a `Decimal` (money) or a `number` (decimal), so a
+   *  money / decimal param, `let` or claim binds as its string form (a money
+   *  literal already renders quoted).  Binding it bare fails the generated
+   *  project's `tsc` (TS2769).  Against an `sql` fragment (a column under an
+   *  intrinsic, `round(price, 2)`) drizzle takes any value, so it binds as
+   *  rendered — as does anything else. */
+  function numericBinding(e: ExprIR, rendered: string, column: string): string {
+    if (column.startsWith("sql`")) return rendered;
+    if (e.kind === "paren") return numericBinding(e.inner, rendered, column);
+    if (e.kind === "literal") {
+      return e.lit === "decimal" && rendered === e.value ? JSON.stringify(e.value) : rendered;
+    }
+    const t = e.kind === "ref" ? e.type : e.kind === "member" ? e.memberType : undefined;
+    const scalar = t?.kind === "optional" ? t.inner : t;
+    const numeric =
+      scalar?.kind === "primitive" && (scalar.name === "money" || scalar.name === "decimal");
+    if (!numeric || renderColumnRef(e) !== null) return rendered;
+    return `String(${rendered})`;
   }
 
   function renderValue(e: ExprIR): string | null {

@@ -1,4 +1,4 @@
-import { readFilterRestrictions, readScopeFor } from "../../ir/enrich/read-scope.js";
+import { readFilterRestrictions, readScopeFor, readSortFor } from "../../ir/enrich/read-scope.js";
 import { forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import {
@@ -21,6 +21,7 @@ import {
 import { findRaisesNotFound } from "../../ir/util/key-lookup.js";
 import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
 import { ROW_VERSION_COLUMN } from "../../util/row-version.js";
+import { pyGuardedSaveTail } from "./guarded-save-py.js";
 import { pyConflictRaise, pyNotFoundRaise } from "./wire-policy-py.js";
 
 /** The minimal read shape the query-time projection reuse feeds
@@ -699,12 +700,12 @@ function runMethod(
     `retrieval '${retrieval.name}' on '${agg.name}'`,
     lowerToSqlAlchemy(where, agg, ctx, principalOpts(where)),
   );
-  const orderBy =
-    retrieval.sort.length > 0
-      ? `.order_by(${retrieval.sort
-          .map((t) => `${root}.${pythonIdent(t.path[0]!.name)}.${t.direction}()`)
-          .join(", ")})`
-      : "";
+  // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`)
+  // — never the database's physical order, so a criterion `find` taking the
+  // first match answers the same row as every other backend.
+  const orderBy = `.order_by(${readSortFor(retrieval.sort)
+    .map((t) => `${root}.${pythonIdent(t.path[0]!.name)}.${t.direction}()`)
+    .join(", ")})`;
   const params = [
     "self",
     ...retrieval.params.map(
@@ -1368,7 +1369,7 @@ function saveMethod(
     // Guarded upsert (optimistic concurrency): on an INSERT-conflict, only
     // overwrite when the stored `version` still equals the caller's expected
     // value, bumping it by one; a stale write matches the `where` against no
-    // row, so `RETURNING id` comes back empty → ConcurrencyError → 409.  A
+    // row, so `RETURNING version` comes back empty → ConcurrencyError → 409.  A
     // fresh INSERT never conflicts, so create/seed writes are unaffected.
     const setEntries = rootPairs
       .map(([k]) => k)
@@ -1390,10 +1391,13 @@ function saveMethod(
         : `                where=${root}.${ROW_VERSION_COLUMN} == _expected,`,
     );
     out.push("            )");
-    out.push(`            .returning(${root}.id)`);
-    out.push("        )");
-    out.push("        if _guarded.first() is None:");
-    out.push(`            ${pyConflictRaise(R.ConcurrencyError, agg.name, `${aggVar}.id`)}`);
+    out.push(
+      ...pyGuardedSaveTail(
+        root,
+        aggVar,
+        pyConflictRaise(R.ConcurrencyError, agg.name, `${aggVar}.id`),
+      ),
+    );
   } else {
     out.push("        await self._session.execute(");
     out.push(

@@ -1,3 +1,5 @@
+import { readSortFor } from "../../../ir/enrich/read-scope.js";
+import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import type {
@@ -8,10 +10,11 @@ import type {
   SortTermIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
+import { type AggPool, discriminatorValue } from "../../../ir/util/inheritance.js";
 import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { lines } from "../../../util/code-builder.js";
-import { upperFirst } from "../../../util/naming.js";
+import { snake, upperFirst } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
@@ -25,6 +28,7 @@ import { isMangled, javaLocals, jid, localOf, movedLocalOrUndefined } from "../j
 import { J } from "../java-symbols.js";
 import { boxedJavaType, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import { renderJpqlWhere } from "../render-jpql.js";
+import { sqlRestrictionIdent } from "../sql-ident.js";
 import { JAVA_FIND_ABSENCE_THROW, javaNotFoundThrow } from "./common.js";
 
 const OPTIONAL = javaRef("java.util", "Optional");
@@ -111,25 +115,62 @@ export interface JavaRepoCtx {
    *  A retrieval's `run<Name>` impl method is SHARED across call-sites, so its
    *  promoted-cap disable set is the union of every site's bypass. */
   bypassByRetrieval?: ReadonlyMap<string, FilterBypass>;
+  /** The schema the aggregate's table lives in (binding-resolved), for the
+   *  native version-counter SQL; absent for the default schema. */
+  schema?: string;
+  /** The aggregate pool, to resolve a TPH concrete's shared table + `kind`. */
+  pool?: AggPool;
+}
+
+/** The version-counter CAS of a row-version-guarded save, as NATIVE SQL over
+ *  the aggregate's table.
+ *
+ *  It cannot be JPQL: Hibernate applies an entity's enabled `@Filter`s (and its
+ *  `@SQLRestriction`) to a bulk `update` and to `existsById` exactly as to a
+ *  read.  A save is keyed by the id of a row the caller already loaded, so a
+ *  read restriction has no say in it — yet `softDelete()` flushes
+ *  `is_deleted = true` before the bump, after which `not (is_deleted)` hid the
+ *  row from both statements: the bump matched nothing, the existence probe
+ *  said "no row", no 409 was raised, and the version silently stayed put
+ *  (`restore()` likewise, on a row the filter already hid).  Native SQL carries
+ *  no filter and no restriction.  A TPH concrete keeps the discriminator guard
+ *  JPQL `update <Concrete>` applied implicitly, so a foreign-subtype id still
+ *  matches nothing. */
+function versionCasSql(
+  agg: EnrichedAggregateIR,
+  ctx: JavaRepoCtx,
+): { bump: string; count: string } {
+  const pool = ctx.pool ?? [agg];
+  const table = sqlRestrictionIdent(aggregateTableName(agg, pool));
+  const qualified = ctx.schema ? `${sqlRestrictionIdent(ctx.schema)}.${table}` : table;
+  const vc = sqlRestrictionIdent(snake(ROW_VERSION_FIELD));
+  const kind = discriminatorValue(agg, pool);
+  const kindGuard = kind ? ` and kind = '${kind}'` : "";
+  return {
+    bump: `update ${qualified} set ${vc} = ${vc} + 1 where id = :id and ${vc} = :expected${kindGuard}`,
+    count: `select count(*) from ${qualified} where id = :id${kindGuard}`,
+  };
 }
 
 // A JPA property PATH — every segment is the (possibly mangled) java field the
 // entity emitter declared, not the `.ddd` name.
 const dottedSortPath = (t: SortTermIR): string => t.path.map((s) => jid(s.name)).join(".");
 
-/** `Sort.by(Sort.Order.asc("a.b"), …)` for the Specification path. */
+/** `Sort.by(Sort.Order.asc("a.b"), …, Sort.Order.asc("id"))` for the
+ *  Specification path — the declared terms with the `id` tie-break, or `id`
+ *  alone (`readSortFor`), never `Sort.unsorted()`. */
 function springSort(sort: readonly SortTermIR[]): string {
-  if (sort.length === 0) return `${SORT}.unsorted()`;
-  const orders = sort.map(
+  const orders = readSortFor(sort).map(
     (t) => `${SORT}.Order.${t.direction}(${JSON.stringify(dottedSortPath(t))})`,
   );
   return `${SORT}.by(${orders.join(", ")})`;
 }
 
-/** ` order by e.a.b asc, …` for the JPQL path. */
+/** ` order by e.a.b asc, …, e.id asc` for the JPQL path (`readSortFor`). */
 function jpqlOrderBy(sort: readonly SortTermIR[]): string {
-  if (sort.length === 0) return "";
-  return ` order by ${sort.map((t) => `e.${dottedSortPath(t)} ${t.direction}`).join(", ")}`;
+  return ` order by ${readSortFor(sort)
+    .map((t) => `e.${dottedSortPath(t)} ${t.direction}`)
+    .join(", ")}`;
 }
 
 /** A `sort:` term as a chained accessor key extractor over `x`
@@ -576,15 +617,19 @@ export function renderJavaSpringDataRepository(
   // command, and zero rows == another writer moved the row (→ 409).
   const versionBump: string[] = [];
   if (rowVersionGuarded(agg)) {
-    const vf = ROW_VERSION_FIELD;
+    const sql = versionCasSql(agg, ctx);
     versionBump.push(
       // `flushAutomatically` writes the command's pending field/child changes
       // BEFORE the bump (so they carry the pre-bump version, matching the row);
       // `clearAutomatically = false` keeps the persistence context — the impl
-      // reflects the new counter onto the live instance right after.
+      // reflects the new counter onto the live instance right after.  Native
+      // SQL bound to the id's raw value — see `versionCasSql`.
       `    @${MODIFYING}(flushAutomatically = true, clearAutomatically = false)`,
-      `    @${QUERY}("update ${agg.name} e set e.${vf} = e.${vf} + 1 where e.id = :id and e.${vf} = :expected")`,
-      `    int bumpVersion(@${PARAM}("id") ${idClass} id, @${PARAM}("expected") int expected);`,
+      `    @${QUERY}(value = ${JSON.stringify(sql.bump)}, nativeQuery = true)`,
+      `    int bumpVersion(@${PARAM}("id") Object id, @${PARAM}("expected") int expected);`,
+      ``,
+      `    @${QUERY}(value = ${JSON.stringify(sql.count)}, nativeQuery = true)`,
+      `    long countRowsById(@${PARAM}("id") Object id);`,
       ``,
     );
   }
@@ -848,9 +893,9 @@ export function renderJavaRepositoryImpl(
     ...(versioned
       ? [
           `        var __expectedVersion = aggregate.${versionField}();`,
-          `        if (jpa.bumpVersion(aggregate.id(), __expectedVersion) == 1) {`,
+          `        if (jpa.bumpVersion(aggregate.id().value(), __expectedVersion) == 1) {`,
           `            aggregate._applyVersion(__expectedVersion + 1);`,
-          `        } else if (jpa.existsById(aggregate.id())) {`,
+          `        } else if (jpa.countRowsById(aggregate.id().value()) > 0) {`,
           `            throw new ${OPTIMISTIC_LOCK_FAILURE}(${agg.name}.class, aggregate.id().value());`,
           `        }`,
         ]

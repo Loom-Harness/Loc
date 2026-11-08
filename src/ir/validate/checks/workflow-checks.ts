@@ -257,23 +257,22 @@ export function validateWorkflows(
 }
 
 // ---------------------------------------------------------------------------
-// UNBOUND NAMES IN A HANDLER BODY — `loom.workflow-inline-repository-call` and
-// `loom.handler-unknown-name`.
+// UNBOUND NAMES IN A HANDLER BODY — `loom.handler-unknown-name`.
 //
 // A `commandHandler` / `queryHandler` body lowers through the same workflow
-// statement lowering as a workflow `create` / `on` body, so it has the same two
-// holes the workflow gates above close: a repository reached INLINE inside an
-// expression (`job.assign(Assets.get(job.assetId).requiredSkill)`) and a name
-// that binds to nothing (`job.assign(Bogus.thing)`).  Both stay a `ref` with
-// `refKind: "unknown"`, no backend instantiates a repository for it, and every
-// expression renderer prints the name verbatim — an unbound identifier in the
-// generated handler.  The handler's answered value (`returnValue`) is an
-// expression root too, and is walked with the statements.
+// statement lowering as a workflow `create` / `on` body, so a name that binds
+// to nothing (`job.assign(Bogus.thing)`) stays a `ref` with `refKind:
+// "unknown"` and every expression renderer prints it verbatim — an unbound
+// identifier in the generated handler.  The handler's answered value
+// (`returnValue`) is an expression root too, and is walked with the statements.
 //
-// One diagnostic per name per handler.  A repository of THIS context gets the
-// inline-call message (its fix is "bind it to a `let`"); any other name that is
-// no declaration model-wide — or is a projection, or a repository of ANOTHER
-// context, neither of which a handler can load — gets the unknown-name one.
+// A repository of THIS context reached inside an expression is not this
+// check's: lowering hoists it into a `let` ahead of its statement, and the one
+// it cannot hoist (a read that runs only on some paths) is refused by the
+// UNHOISTABLE REPOSITORY READS gate below.  Any other name that is no
+// declaration model-wide — or is a projection, or a repository of ANOTHER
+// context, neither of which a handler can load — gets one unknown-name
+// diagnostic per name per handler.
 // ---------------------------------------------------------------------------
 
 function validateHandlerUnboundNames(
@@ -290,27 +289,12 @@ function validateHandlerUnboundNames(
   ];
   for (const { h, label } of handlers) {
     if (h.extern) continue;
-    const inline = new Map<string, string | undefined>();
     const unknown = new Map<string, string>();
     const visitIn =
       (where: string) =>
       (e: ExprIR): void => {
-        // `walkExprDeep` visits a `method-call` before its receiver, so the
-        // method is recorded ahead of the bare `ref` below.
-        if (
-          e.kind === "method-call" &&
-          e.receiver.kind === "ref" &&
-          e.receiver.refKind === "unknown" &&
-          repoAgg.has(e.receiver.name)
-        ) {
-          if (!inline.has(e.receiver.name)) inline.set(e.receiver.name, e.member);
-          return;
-        }
         if (e.kind !== "ref" || e.refKind !== "unknown") return;
-        if (repoAgg.has(e.name)) {
-          if (!inline.has(e.name)) inline.set(e.name, undefined);
-          return;
-        }
+        if (repoAgg.has(e.name)) return;
         const foreign = foreignRepos.has(e.name);
         if (!foreign && !projectionNames.has(e.name) && declaredNames.has(e.name)) return;
         if (!unknown.has(e.name)) unknown.set(e.name, where);
@@ -323,19 +307,6 @@ function validateHandlerUnboundNames(
       });
     }
     if (h.returnValue) walkExprDeep(h.returnValue, visitIn("return"));
-    for (const [repoName, method] of inline) {
-      diags.push({
-        severity: "error",
-        code: "loom.workflow-inline-repository-call",
-        message: diagMessage("loom.workflow-inline-repository-call", {
-          where: label,
-          repoName,
-          call: `${repoName}.${method ?? repoOpVerb("load")}(…)`,
-          binding: lowerFirst(repoAgg.get(repoName) as string),
-        }),
-        source: `${ctx.name}/${h.name}`,
-      });
-    }
     for (const [name, where] of unknown) {
       diags.push({
         severity: "error",
@@ -397,56 +368,43 @@ function validateWorkflowFunctions(wf: WorkflowIR, diags: LoomDiagnostic[], ctxN
 }
 
 // ---------------------------------------------------------------------------
-// INLINE REPOSITORY CALLS — `loom.workflow-inline-repository-call`.
+// UNHOISTABLE REPOSITORY READS — `loom.workflow-inline-repository-call`.
 //
-// Repository access from a workflow IS supported — but only in ONE spelling:
-// bound to its own `let` statement.  `lowerWorkflowStatement` recognises a
-// repository read exclusively in the `isLetStmt` arm (`matchRepoCall` /
-// `matchFindCall` / `matchFindAllCall` / `matchRetrievalRunCall` from
-// `lower/repo-read.ts`) and lowers it to a `repo-let` / `repo-run`
-// `WorkflowStmtIR` that carries the repository as a STRING field (`repoName`),
-// never as an expression.
+// A workflow / handler body binds a repository read through a `repo-let` /
+// `repo-run` `WorkflowStmtIR`, which carries the repository as a STRING field
+// (`repoName`) — and every backend derives the repositories to instantiate
+// from those statement kinds.  A read written inside an expression (a `return`
+// value, a `precondition`, an `emit` field, a `for` iterable, another read's
+// argument) is lowered as such a `let` hoisted ahead of its statement
+// (`src/ir/lower/hoist-reads.ts`), so it compiles like the `let` spelling.
 //
-// The identical call written INLINE inside another expression — a
-// `precondition`, a `requires`, an `assign` RHS, an `emit` field, a `for-each`
-// iterable — goes through `lowerExpr`, where a repository name resolves to
-// nothing: it stays a `method-call` on a `ref` with `refKind: "unknown"`.
-// Two silent consequences follow:
-//
-//   1. every backend derives the repositories to instantiate from the
-//      STATEMENT KINDS it walks (`repo-let` / `repo-run` / `repo-delete` /
-//      `factory-let` / the exit saves) — hono `workflow-builder.ts`, dotnet
-//      `workflow-emit.ts`, java `emit/workflow.ts`, python
-//      `workflows-builder.ts` — so an expression-level repository reference
-//      never instantiates anything, and
-//   2. each backend's expression renderer emits the unresolved receiver
-//      verbatim.
-//
-// Verified 2026-09-13 on `precondition tech.skills.contains(
-// Assets.get(job.assetId).requiredSkill)` inside a transactional workflow
-// whose two other repositories ARE let-bound: `ddd parse` and
-// `generate system` both report ZERO diagnostics, and `api/http/workflows.ts`
-// emits
-//
-//   const technicians = new TechnicianRepository(tx, events);   // let-bound ✓
-//   const jobs = new JobRepository(tx, events);                 // let-bound ✓
-//   if (!((tech.skills).includes(Assets.get(job.assetId).requiredSkill)))
-//                                ^^^^^^ never constructed → TS2304
-//
-// One MODEL-level shape that no backend supports, not five per-backend gaps —
-// so this takes the same call as `loom.domain-service-cross-context-read`
-// (domain-service-checks.ts): reject at the source rather than let five
-// emitters fail five different silent ways.
+// Hoisting is only sound where the statement evaluates the read
+// unconditionally.  Inside a lambda (whose parameter the read may name), on the
+// right of `&&` / `||` / `??`, in a `?:` branch or in a `match` arm, running
+// the read ahead of the statement would run it where the source does not — a
+// `get` that throws on a miss.  Such a read is left in the expression, where
+// the repository name resolves to nothing (`ref` with `refKind: "unknown"`):
+// no repository is instantiated and every backend renders the unresolved
+// receiver verbatim (node `(Items).every(this.qty > n)` for a criterion
+// `all(…)`, read as the collection quantifier).  So it is refused here.
 //
 // SCOPE.  The gate keys on a bare `ref` that (a) did not resolve
 // (`refKind: "unknown"`, so a param / let / state field shadowing the name is
-// never flagged) and (b) names a repository declared in THIS context.  A
-// legitimate let-bound read is structurally invisible to the walk — its
-// repository lives in `repoName`, a string, not in any child expression — so
-// the correct spelling can never trip this.  A repository of ANOTHER context is
-// deliberately out of scope: that is the cross-context workflow-access hole,
-// a different root cause with its own slice.
+// never flagged) and (b) names a repository declared in THIS context.  A bound
+// read is structurally invisible to the walk — its repository lives in
+// `repoName`, a string, not in any child expression.  A repository of ANOTHER
+// context is the cross-context workflow-access hole, with its own gate.
 // ---------------------------------------------------------------------------
+
+/** A body that lowers to `WorkflowStmtIR` plus an answered value, with the
+ *  label and source its diagnostics carry. */
+interface LabeledBody {
+  where: string;
+  source: string;
+  origin?: LoomDiagnostic["origin"];
+  statements: readonly WorkflowStmtIR[];
+  returnValue?: ExprIR;
+}
 
 /** Every workflow body that lowers to `WorkflowStmtIR`, with a label for the
  *  diagnostic.  `wf.statements` is a facade over the primary create, so the
@@ -465,15 +423,58 @@ function workflowBodiesLabeled(wf: WorkflowIR): { label: string; statements: Wor
   ];
 }
 
-/** `loom.workflow-inline-repository-call` — see the header note above. */
+/** `loom.workflow-inline-repository-call` over a workflow's bodies — see the
+ *  header note above. */
 function validateWorkflowInlineRepoCalls(
   ctx: BoundedContextIR,
   wf: WorkflowIR,
   diags: LoomDiagnostic[],
 ): void {
+  const answers = new Map(wf.creates.map((c) => [c.statements, c.returnValue] as const));
+  validateInlineRepoReads(
+    ctx,
+    workflowBodiesLabeled(wf).map((b) => ({
+      where: `workflow '${wf.name}' ${b.label}`,
+      source: `${ctx.name}/${wf.name}`,
+      origin: wf.origin,
+      statements: b.statements,
+      returnValue: answers.get(b.statements),
+    })),
+    diags,
+  );
+}
+
+/** `loom.workflow-inline-repository-call` over a context's command / query
+ *  handler bodies — see the header note above. */
+export function validateHandlerInlineRepoCalls(
+  ctx: BoundedContextIR,
+  diags: LoomDiagnostic[],
+): void {
+  const bodies: LabeledBody[] = [
+    ...(ctx.commandHandlers ?? []).map((h) => ({
+      where: `commandHandler '${h.name}'`,
+      source: `${ctx.name}/${h.name}`,
+      statements: h.statements,
+      returnValue: h.returnValue,
+    })),
+    ...(ctx.queryHandlers ?? []).map((h) => ({
+      where: `queryHandler '${h.name}'`,
+      source: `${ctx.name}/${h.name}`,
+      statements: h.statements,
+      returnValue: h.returnValue,
+    })),
+  ];
+  validateInlineRepoReads(ctx, bodies, diags);
+}
+
+function validateInlineRepoReads(
+  ctx: BoundedContextIR,
+  bodies: readonly LabeledBody[],
+  diags: LoomDiagnostic[],
+): void {
   if (ctx.repositories.length === 0) return;
   const repoAgg = new Map(ctx.repositories.map((r) => [r.name, r.aggregateName] as const));
-  for (const body of workflowBodiesLabeled(wf)) {
+  for (const body of bodies) {
     // One diagnostic per repository per body — a body reaching the same
     // repository inline twice states the same problem once.  The method is
     // remembered from the first mention so the suggested rewrite can echo the
@@ -499,18 +500,19 @@ function validateWorkflowInlineRepoCalls(
       }
     };
     for (const st of body.statements) walkWorkflowStmtExprsDeep(st, visit);
+    walkExprDeep(body.returnValue, visit);
     for (const [repoName, method] of flagged) {
       diags.push({
         severity: "error",
         code: "loom.workflow-inline-repository-call",
         message: diagMessage("loom.workflow-inline-repository-call", {
-          where: `workflow '${wf.name}' ${body.label}`,
+          where: body.where,
           repoName,
           call: `${repoName}.${method ?? repoOpVerb("load")}(…)`,
           binding: lowerFirst(repoAgg.get(repoName) as string),
         }),
-        source: `${ctx.name}/${wf.name}`,
-        origin: wf.origin,
+        source: body.source,
+        ...(body.origin ? { origin: body.origin } : {}),
       });
     }
   }

@@ -46,6 +46,12 @@ import { collectEnums, collectValueObjects } from "./repository-imports-builder.
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { projectFieldEntries } from "./repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "./repository-wire-builder.js";
+import {
+  applySavedVersion,
+  savedVersionDecl,
+  savedVersionOnInsert,
+  savedVersionOnUpdate,
+} from "./saved-version.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
@@ -268,13 +274,17 @@ export function buildEmbeddedRepositoryFile(
           // CAS-guarded write: expected version from the route's `If-Match`
           // (falling back to the loaded version), a lost race → ConcurrencyError.
           `    const expected = expectedVersion ?? aggregate.${ROW_VERSION_FIELD};`,
+          savedVersionDecl("    "),
           `    const existing = await this.db.select({ ${ROW_VERSION_FIELD}: schema.${tableName}.${ROW_VERSION_FIELD} }).from(schema.${tableName}).where(eq(schema.${tableName}.id, aggregate.id));`,
           `    if (existing.length === 0) {`,
           `      await this.db.insert(schema.${tableName}).values(${rootRowInsert});`,
+          savedVersionOnInsert("      "),
           `    } else {`,
           `      const updated = await this.db.update(schema.${tableName}).set(${rootRowUpdate}).where(and(eq(schema.${tableName}.id, aggregate.id), eq(schema.${tableName}.${ROW_VERSION_FIELD}, expected))).returning({ id: schema.${tableName}.id });`,
           `      if (updated.length === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+          savedVersionOnUpdate("      "),
           `    }`,
+          applySavedVersion("    "),
         ]
       : [
           `    const rootRow = ${rootRow};`,

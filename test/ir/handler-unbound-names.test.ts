@@ -1,16 +1,15 @@
 // Unbound names in a `commandHandler` / `queryHandler` body —
-// `loom.workflow-inline-repository-call` and `loom.handler-unknown-name`.
+// `loom.handler-unknown-name`, and the repository reads that are NOT unbound.
 //
-// A handler body lowers through the workflow statement lowering, so it has the
-// workflow body's two holes: a repository reached INLINE inside an expression,
-// and a name that binds to nothing.  Both stay a `ref` with
-// `refKind: "unknown"`; no backend instantiates a repository for it and every
-// expression renderer prints the name verbatim.  Before this gate both shapes
-// below validated `0 error(s)` — the workflow-only gates never looked at a
-// handler.
+// A handler body lowers through the workflow statement lowering, so a name that
+// binds to nothing stays a `ref` with `refKind: "unknown"` and every expression
+// renderer prints it verbatim.  A repository of this context reached inside an
+// expression is not such a name: lowering hoists the read into a `let` ahead of
+// its statement, so it reads exactly like its let-bound twin (a read that runs
+// only on some paths is refused instead — `handler-inline-repository-call.test.ts`).
 //
-// Each refusal has a let-bound twin that must stay clean, so the gate is shown
-// to separate the spellings rather than to reject any mention of a repository.
+// Each refusal has a clean twin, so the gate is shown to separate the
+// spellings rather than to reject any mention of a name.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -57,25 +56,23 @@ async function diags(handlers: string, extra = ""): Promise<{ code: string; mess
 const codes = async (handlers: string, extra = ""): Promise<string[]> =>
   (await diags(handlers, extra)).map((d) => d.code);
 
-describe("loom.workflow-inline-repository-call — in a handler body", () => {
-  it("flags a repository read inline in an operation-call argument", async () => {
-    const got = await diags(`commandHandler AssignJob(jobId: Job id) {
+describe("a repository read inside a handler expression", () => {
+  it("hoists a read in an operation-call argument instead of refusing it", async () => {
+    const got = await codes(`commandHandler AssignJob(jobId: Job id) {
         let job = Jobs.get(jobId)
         job.assign(Assets.get(job.assetId).requiredSkill)
       }`);
-    const hit = got.filter((d) => d.code === INLINE);
-    expect(hit).toHaveLength(1);
-    expect(hit[0]?.message).toContain("commandHandler 'AssignJob'");
-    expect(hit[0]?.message).toContain("'let asset = Assets.get(…)'");
+    expect(got).not.toContain(INLINE);
+    expect(got).not.toContain(UNKNOWN);
   });
 
-  it("flags one in a queryHandler's answered value", async () => {
-    expect(
-      await codes(`queryHandler SkillOf(jobId: Job id): string {
+  it("hoists one in a queryHandler's answered value", async () => {
+    const got = await codes(`queryHandler SkillOf(jobId: Job id): string {
         let job = Jobs.get(jobId)
         return Assets.get(job.assetId).requiredSkill
-      }`),
-    ).toContain(INLINE);
+      }`);
+    expect(got).not.toContain(INLINE);
+    expect(got).not.toContain(UNKNOWN);
   });
 
   it("accepts the same reads bound to their own let", async () => {

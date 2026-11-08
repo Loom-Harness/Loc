@@ -27,6 +27,12 @@ import { aggregateIsAudited, stampInsertCall, stampUpdateCall } from "./emit/aud
 import { joinColumnName, joinTableConstName } from "./emit.js";
 import { associationsOf, isRefCollection } from "./repository-associations-builder.js";
 import { drizzleKindPredicate } from "./repository-find-predicate.js";
+import {
+  applySavedVersion,
+  savedVersionDecl,
+  savedVersionOnInsert,
+  savedVersionOnUpdate,
+} from "./saved-version.js";
 
 /** Inner body of the save db.transaction callback at 6-space indent.
  *  Extracted so the trace-on variant can re-indent and wrap it with the
@@ -204,9 +210,11 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
       `      const existingRow = await tx.select({ id: schema.${tableName}.id }).from(schema.${tableName}).where(eq(schema.${tableName}.id, aggregate.id));`,
       `      if (existingRow.length === 0) {`,
       `        await tx.insert(schema.${tableName}).values(${insertValues});`,
+      savedVersionOnInsert("        "),
       `      } else {`,
       `        const updated = await tx.update(schema.${tableName}).set(${updateSet}).where(and(eq(schema.${tableName}.id, aggregate.id), eq(schema.${tableName}.${ROW_VERSION_FIELD}, expected)${kindPred ? `, ${kindPred}` : ""})).returning({ id: schema.${tableName}.id });`,
       `        if (updated.length === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+      savedVersionOnUpdate("        "),
       `      }`,
       ...containBlocks,
       ...assocBlocks,
@@ -268,9 +276,11 @@ export function saveMethod(
     `    let dispatchAfterCommit = pendingEvents;`,
   ];
   const recordLine = `      dispatchAfterCommit = (await this.events.recordDurable?.(pendingEvents, tx)) ?? pendingEvents;`;
+  const versioned = rowVersionGuarded(agg);
   return lines(
     saveSig,
     ...drainLines,
+    versioned && savedVersionDecl("    "),
     emitTrace
       ? [
           `    ${renderHonoStoreLogCall("txBegin", `aggregate: "${agg.name}", id: aggregate.id as string`)}`,
@@ -286,6 +296,7 @@ export function saveMethod(
           `    }`,
         ]
       : [`    await this.db.transaction(async (tx) => {`, ...body, recordLine, `    });`],
+    versioned && applySavedVersion("    "),
     `    ${renderHonoStoreLogCall("repositorySave", `aggregate: "${agg.name}", id: aggregate.id as string`)}`,
     "",
     `    for (const event of dispatchAfterCommit) {`,

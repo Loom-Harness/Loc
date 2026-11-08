@@ -37,6 +37,12 @@ import { repoPortImportLine, repoPortName } from "../repository-port-builder.js"
 import { projectFieldEntries } from "../repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
 import {
+  applySavedVersion,
+  savedVersionDecl,
+  savedVersionOnInsert,
+  savedVersionOnUpdate,
+} from "../saved-version.js";
+import {
   aggregateIsAudited,
   stampImportLine,
   stampInsertCall,
@@ -172,9 +178,11 @@ export function renderMikroEmbeddedRepository(
     `    const existing = await em.findOne(${row}, { id: aggregate.id as string }, { filters: false });`,
     `    if (existing === null) {`,
     `      await em.insert(${row}, ${insertValues});`,
+    savedVersionOnInsert("      "),
     `    } else {`,
     `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, ${ROW_VERSION_FIELD}: expected }, ${updateSet}, { filters: false });`,
     `      if (affected === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+    savedVersionOnUpdate("      "),
     `    }`,
   ];
 
@@ -292,8 +300,8 @@ export function renderMikroEmbeddedRepository(
       agg,
       r,
       row,
-      [
-        `    return rows.map((row) => {`,
+      ({ rows }) => [
+        `    return ${rows}.map((row) => {`,
         ...embeddedHydrateLocals(agg, "row", "      ", ctx),
         `      return ${hydrateRootExpr(agg, "row", ctx)};`,
         `    });`,
@@ -350,9 +358,11 @@ export function renderMikroEmbeddedRepository(
     versioned
       ? `  async save(aggregate: ${agg.name}, expectedVersion?: number): Promise<void> {`
       : `  async save(aggregate: ${agg.name}): Promise<void> {`,
+    versioned && savedVersionDecl("    "),
     ...mikroSaveTxLines(
       versioned ? versionedSaveLines : [`    const rootRow = ${rootRow};`, upsertCall],
     ),
+    versioned && applySavedVersion("    "),
     `    requestLog().debug({ event: "repository_save", aggregate: "${agg.name}", id: aggregate.id as string });`,
     "",
     `    for (const event of aggregate.pullEvents()) {`,

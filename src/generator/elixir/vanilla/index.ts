@@ -396,7 +396,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // Value-object collection (`charges: Money[]`) child schemas — one Ecto
     // schema per VO-array field, owning the id-less `<owner>_<field>` child
     // table the parent `has_many`s + `cast_assoc`s.
-    emitVanillaValueCollectionSchemas(appModule, ctx, out);
+    emitVanillaValueCollectionSchemas(appModule, ctx, out, sys);
     // Validating value-object constructors (`<VO>.new/1`) for VOs with
     // invariants — enforced at construction (F5) + called by the test suite.
     emitVanillaValueObjects(appModule, ctx, out);

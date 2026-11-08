@@ -406,3 +406,119 @@ describe("context integration test — `Agg.find(id) ignoring …` reads through
     });
   }
 });
+
+// A `domainService` list read: the `let` form, the expression form, and a
+// declared retrieval.  Each runs its own widened retrieval — and passes its
+// stance where the retrieval takes it per call (.NET `bypass:`, Elixir
+// `skip_filters:`) — so the bypassed filter is really off.
+const SERVICE = `
+system S {
+  capability softDeletable { isDeleted: bool  filter this.isDeleted == false }
+  subdomain D { context C {
+    criterion Big(min: int) of Order = this.total > min
+    retrieval Recent() of Order { where: this.total > 0 }
+    aggregate Order with crudish, softDeletable { total: int }
+    repository Orders for Order
+    domainService Q {
+      operation viaLet(min: int): int {
+        let xs = Orders.all(Big(min)) ignoring softDeletable
+        return xs.count
+      }
+      operation viaExpr(min: int): bool {
+        return (Orders.all(Big(min)) ignoring softDeletable).count > 0
+      }
+      operation declared(): int {
+        let ys = Orders.all(Recent()) ignoring *
+        return ys.count
+      }
+      operation plain(min: int): int {
+        let zs = Orders.all(Big(min))
+        return zs.count
+      }
+    }
+  }}
+  storage pg { type: postgres }
+  resource cState { for: C, kind: state, use: pg }
+  deployable api { platform: node  contexts: [C]  dataSources: [cState]  port: 3000 }
+}`;
+
+describe("domainService — a widened list read runs its own retrieval, on every backend", () => {
+  it("node: the service calls the widened retrievals, which drop the bypassed filter", async () => {
+    const files = await gen(SERVICE, "node");
+    const svc = file(files, "domain/services.ts");
+    expect(svc).toContain("const xs = (await orders.runFindAllByBigIgnoringSoftDeletable(min));");
+    expect(svc).toContain("(await orders.runFindAllByBigIgnoringSoftDeletable(min))).length > 0");
+    expect(svc).toContain("const ys = (await orders.runRecentIgnoringAll());");
+    expect(svc).toContain("const zs = (await orders.runFindAllByBig(min));");
+    const repo = file(files, "db/repositories/order-repository.ts");
+    expect(block(repo, "async runFindAllByBigIgnoringSoftDeletable(", "\n  }\n")).toContain(
+      ".where(bigCriterion(min))",
+    );
+    expect(block(repo, "async runRecentIgnoringAll(", "\n  }\n")).not.toContain("orderScope");
+    expect(block(repo, "async runFindAllByBig(", "\n  }\n")).toContain(
+      ".where(and(bigCriterion(min), orderScope()))",
+    );
+  });
+
+  it("python: the widened retrievals carry the stance", async () => {
+    const files = await gen(SERVICE, "python");
+    const svc = file(files, "app/domain/services/q.py");
+    expect(svc).toContain("xs = (await orders.run_find_all_by_big_ignoring_soft_deletable(min))");
+    expect(svc).toContain("ys = (await orders.run_recent_ignoring_all())");
+    const repo = file(files, "app/db/repositories/order_repository.py");
+    expect(block(repo, "async def run_find_all_by_big_ignoring_soft_deletable(", "\n\n")).toContain(
+      'loom_ignoring=frozenset({"softDeletable"})',
+    );
+    expect(block(repo, "async def run_recent_ignoring_all(", "\n\n")).toContain(
+      'loom_ignoring=frozenset({"*"})',
+    );
+  });
+
+  it("java: the widened retrievals disable the filter", async () => {
+    const files = await gen(SERVICE, "java");
+    const svc = file(files, "domain/services/Q.java");
+    expect(svc).toContain("var xs = ordersRepository.runFindAllByBigIgnoringSoftDeletable(min);");
+    expect(svc).toContain("var ys = ordersRepository.runRecentIgnoringAll();");
+    const impl = file(files, "features/orders/OrderRepositoryImpl.java");
+    expect(
+      block(
+        impl,
+        "public List<Order> runFindAllByBigIgnoringSoftDeletable(int min) {",
+        "\n    }\n",
+      ),
+    ).toContain('__session.disableFilter("softDeletable");');
+    expect(block(impl, "public List<Order> runFindAllByBig(int min) {", "\n    }\n")).not.toContain(
+      "disableFilter",
+    );
+  });
+
+  for (const platform of ["dotnet", "dotnet { persistence: dapper }"]) {
+    it(`${platform}: the service passes the stance as the retrieval's \`bypass:\``, async () => {
+      const svc = file(await gen(SERVICE, platform), "Domain/Services/Q.cs");
+      expect(svc).toContain(
+        'var xs = (await _orders.RunFindAllByBigIgnoringSoftDeletableAsync(min, bypass: FilterBypass.Bypass("softDeletable"), cancellationToken: cancellationToken));',
+      );
+      expect(svc).toContain(
+        '(await _orders.RunFindAllByBigIgnoringSoftDeletableAsync(min, bypass: FilterBypass.Bypass("softDeletable"), cancellationToken: cancellationToken))).Count > 0',
+      );
+      expect(svc).toContain(
+        "var ys = (await _orders.RunRecentIgnoringAllAsync(bypass: FilterBypass.BypassAll(), cancellationToken: cancellationToken));",
+      );
+      expect(svc).toContain(
+        "var zs = (await _orders.RunFindAllByBigAsync(min, cancellationToken: cancellationToken));",
+      );
+    });
+  }
+
+  it("elixir: the service passes the stance as `skip_filters:`", async () => {
+    const ctx = file(await gen(SERVICE, "elixir"), "lib/api/c.ex");
+    expect(ctx).toContain(
+      "xs = (case run_find_all_by_big_ignoring_soft_deletable_order(min, skip_filters: [:soft_deletable]) do",
+    );
+    expect(ctx).toContain(
+      "Enum.count(((case run_find_all_by_big_ignoring_soft_deletable_order(min, skip_filters: [:soft_deletable]) do",
+    );
+    expect(ctx).toContain("ys = (case run_recent_ignoring_all_order(skip_filters: :all) do");
+    expect(ctx).toContain("zs = (case run_find_all_by_big_order(min) do");
+  });
+});

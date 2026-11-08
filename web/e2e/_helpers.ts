@@ -166,10 +166,6 @@ export async function focusSourceEditor(page: Page): Promise<void> {
 //        *breaks* the editor, so they're the intended lightweight-mode
 //        trade-off.  Each surfaces twice — a console "Unhandled promise
 //        rejection:" and a window "pageerror:".
-//      - The build worker's correctness-preserving respawn (build/client.ts)
-//        rejects any in-flight RPC with "Build worker respawned; retry the
-//        operation."; it's recovered transparently and is host plumbing,
-//        not an iframe runtime error.
 //      - esbuild-wasm's direct-eval advisory (PGlite loader), Chrome's
 //        passive-listener advisory, vite HMR dynamic-import failures.
 //   2. Transient registry / CDN failures while the in-browser bundler
@@ -188,8 +184,6 @@ export const KNOWN_CONSOLE_NOISE: RegExp[] = [
   /^pageerror: .*\bstartup is not a function\b/,
   /^(?:console: )?Unhandled promise rejection: Error: Unsupported: .*getViewContainersByLocation is not supported/,
   /^pageerror: Unsupported: .*getViewContainersByLocation is not supported/,
-  /^(?:console: )?Unhandled promise rejection: Error: Build worker respawned; retry the operation/,
-  /^pageerror: Build worker respawned; retry the operation/,
 ];
 
 // Drop the known-noise entries from a captured console/page-error list,

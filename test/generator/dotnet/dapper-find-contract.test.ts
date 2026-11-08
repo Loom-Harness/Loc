@@ -51,7 +51,7 @@ describe("dapper repository — single-row contract", () => {
     expect(handler).toContain("var p = __pHits.Count > 0 ? __pHits[0] : null;");
     // …and the retrieval pushes that limit into the SQL.
     expect(impl).toContain(
-      'var sql = "SELECT id, sku, name, row_version FROM products WHERE (sku = @sku)";',
+      'var sql = "SELECT id, sku, name, row_version FROM products WHERE (sku = @sku) ORDER BY id ASC";',
     );
     expect(impl).toContain(
       'if (pg.limit is { } lim) { sql += " LIMIT @__lim"; p.Add("__lim", lim); }',

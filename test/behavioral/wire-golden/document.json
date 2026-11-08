@@ -301,6 +301,111 @@
     },
     {
       "seq": 24,
+      "method": "POST",
+      "path": "/api/policies",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 25,
+      "method": "GET",
+      "path": "/api/policies/{id}",
+      "status": 200,
+      "body": {
+        "box": {
+          "label": "b",
+          "primary": {
+            "ruleKey": "r2",
+            "thresholds": [
+              {
+                "minValue": 11
+              }
+            ]
+          }
+        },
+        "id": "<volatile:key>",
+        "name": "P1",
+        "rowVersion": 1,
+        "rules": [
+          {
+            "ruleKey": "r1",
+            "thresholds": [
+              {
+                "minValue": 3
+              },
+              {
+                "minValue": 7
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/policies/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/api/policies/{id}",
+      "status": 200,
+      "body": {
+        "box": {
+          "label": "c",
+          "primary": {
+            "ruleKey": "r3",
+            "thresholds": []
+          }
+        },
+        "id": "<volatile:key>",
+        "name": "P2",
+        "rowVersion": 2,
+        "rules": []
+      }
+    },
+    {
+      "seq": 28,
+      "method": "GET",
+      "path": "/api/policies",
+      "status": 200,
+      "body": [
+        {
+          "box": {
+            "label": "c",
+            "primary": {
+              "ruleKey": "r3",
+              "thresholds": []
+            }
+          },
+          "id": "<volatile:key>",
+          "name": "P2",
+          "rowVersion": 2,
+          "rules": []
+        }
+      ]
+    },
+    {
+      "seq": 29,
+      "method": "DELETE",
+      "path": "/api/policies/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 30,
+      "method": "GET",
+      "path": "/api/policies",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 31,
       "method": "PATCH",
       "path": "/api/articles",
       "status": 405,
@@ -313,7 +418,7 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 32,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -326,7 +431,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 33,
       "method": "POST",
       "path": "/api/articles",
       "status": 400,
@@ -339,7 +444,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 34,
       "method": "POST",
       "path": "/api/articles/{id}/bump",
       "status": 404,
@@ -352,7 +457,7 @@
       }
     },
     {
-      "seq": 28,
+      "seq": 35,
       "method": "POST",
       "path": "/api/articles/{id}/bump",
       "status": 404,
@@ -365,7 +470,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 36,
       "method": "POST",
       "path": "/api/articles/{id}/bump",
       "status": 415,

@@ -58,10 +58,10 @@ describe("python generator — versioned optimistic-concurrency", () => {
     expect(repo).toContain(
       "_expected = aggregate.row_version if expected_version is None else expected_version",
     );
-    // Guarded update: bump the version, gated on the expected value, returning id.
+    // Guarded update: bump the version, gated on the expected value, returning it.
     expect(repo).toContain("CustomerRow.row_version + 1");
     expect(repo).toContain("where=CustomerRow.row_version == _expected");
-    expect(repo).toContain(".returning(CustomerRow.id)");
+    expect(repo).toContain(".returning(CustomerRow.row_version)");
     expect(repo).toContain(
       'raise ConcurrencyError(f"Customer {aggregate.id} was modified by another request")',
     );
