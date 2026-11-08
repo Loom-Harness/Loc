@@ -78,7 +78,7 @@ export function renderVanillaProblemDetailsModule(
   /** True when some controller checks request values against the fact's ingress
    *  JSON types (`renderStrictParamsPlug`) — gates `type_mismatches/2`. */
   hasStrictIngress = false,
-  /** Some operation persist asserts a message-less invariant
+  /** Some operation persist asserts a unnamed invariant
    *  (`assert_op_invariants/1`), tagging the violation `loom_invariant`.  It
    *  answers the DOMAIN-FLOOR rung the other four backends' operation throw
    *  answers — this status + title, the rule's generic sentence as `detail`,

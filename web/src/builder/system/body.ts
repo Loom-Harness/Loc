@@ -25,6 +25,7 @@ import type {
 import { isWorkflowCreateDecl } from "../../../../src/language/generated/ast.js";
 import { applyEdits, ifParses } from "../edit-engine";
 import { parseDdd } from "../parse";
+import { otherRuleNames, ruleNameError } from "./rule-name";
 
 // ---------------------------------------------------------------------------
 // Shared statement-body editing for the Model builder, used by both operation
@@ -304,7 +305,7 @@ export type StmtView =
   | { kind: "emit"; event: string; fields: { name: string; value: string }[] }
   | { kind: "let"; name: string; value: string }
   | { kind: "return"; value: string }
-  | { kind: "precondition"; expr: string; message?: string }
+  | { kind: "precondition"; expr: string; name?: string }
   | { kind: "requires"; expr: string }
   | {
       kind: "for";
@@ -524,7 +525,7 @@ function stmtView(s: Statement, depth = 0): StmtView {
     return {
       kind: "precondition",
       expr: text(p.expr),
-      ...(p.message !== undefined ? { message: p.message } : {}),
+      ...(p.name !== undefined ? { name: p.name } : {}),
     };
   }
   if (s.$type === "RequiresStmt") {
@@ -602,7 +603,7 @@ export function stmtText(v: StmtView): string {
     case "return":
       return `return ${v.value}`;
     case "precondition":
-      return `precondition ${v.expr}${v.message !== undefined ? ` message ${JSON.stringify(v.message)}` : ""}`;
+      return `precondition ${v.name !== undefined ? `${v.name}: ` : ""}${v.expr}`;
     case "requires":
       return `requires ${v.expr}`;
     default:
@@ -900,7 +901,7 @@ function openBlock(source: string, close: number, indent: string, stmt: string):
 
 // ---------------------------------------------------------------------------
 // Part edits — rewrite ONE token / expression of a structured statement (the
-// binder of a loop, a match arm's variant, a precondition's message) instead of
+// binder of a loop, a match arm's variant, a precondition's rule name) instead of
 // re-stringifying the statement and losing its nested block verbatim.
 // ---------------------------------------------------------------------------
 
@@ -909,7 +910,7 @@ export type StmtPart =
   | "name" // `let` name, `for` binder, `if let` binder
   | "iterable" // `for` iterable
   | "subject" // `if let` source, `match` subject
-  | "message" // `precondition … message "…"`
+  | "ruleName" // `precondition <name>: …`
   | { arm: number; field: "variant" | "binder" };
 
 /** CST range of a statement part, or null when the part does not apply. */
@@ -950,8 +951,10 @@ function partRange(stmt: Statement, part: StmtPart): { offset: number; end: numb
   }
 }
 
-/** Rewrite one part of a statement. `message` is special: an empty `text`
- *  DROPS the clause, and a value on a statement that has none APPENDS it. */
+/** Rewrite one part of a statement. `ruleName` is special: an empty `text`
+ *  DROPS the `name:` prefix, a value on an unnamed precondition ADDS it, and a
+ *  name that is not an identifier or is already taken in the owner is refused
+ *  (null). */
 export function editStatementPart(
   source: string,
   loc: BodyLocator,
@@ -965,24 +968,22 @@ export function editStatementPart(
   const stmt = body ? resolveSite(body, addr)?.stmt : undefined;
   if (!stmt) return null;
 
-  if (part === "message") {
+  if (part === "ruleName") {
     if (stmt.$type !== "PreconditionStmt") return null;
     const p = stmt as PreconditionStmt;
-    const exprEnd = p.expr.$cstNode?.end;
-    if (exprEnd === undefined) return null;
-    const existing = GrammarUtils.findNodeForProperty(p.$cstNode, "message");
+    const exprStart = p.expr.$cstNode?.offset;
+    if (exprStart === undefined) return null;
+    const existing = GrammarUtils.findNodeForProperty(p.$cstNode, "name");
     const value = text.trim();
     if (value === "") {
-      // Drop the whole `message "…"` clause (nothing when there is none).
+      // Drop the whole `name:` prefix (nothing when there is none).
       if (!existing) return source;
-      return ifParses(applyEdits(source, [{ offset: exprEnd, end: existing.end, newText: "" }]));
+      return ifParses(applyEdits(source, [{ offset: existing.offset, end: exprStart, newText: "" }]));
     }
-    const quoted = JSON.stringify(value);
+    if (value !== p.name && ruleNameError(value, otherRuleNames(p)) !== null) return null;
     return existing
-      ? ifParses(applyEdits(source, [{ offset: existing.offset, end: existing.end, newText: quoted }]))
-      : ifParses(
-          applyEdits(source, [{ offset: exprEnd, end: exprEnd, newText: ` message ${quoted}` }]),
-        );
+      ? ifParses(applyEdits(source, [{ offset: existing.offset, end: existing.end, newText: value }]))
+      : ifParses(applyEdits(source, [{ offset: exprStart, end: exprStart, newText: `${value}: ` }]));
   }
 
   const range = partRange(stmt, part);

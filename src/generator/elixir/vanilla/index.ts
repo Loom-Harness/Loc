@@ -224,7 +224,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       // M-T1.11 (c) — a named rule can trip at the domain floor.
       contexts.some(hasDomainFloorMessages),
       hasStrictIngress,
-      // An operation persist re-asserts a message-less invariant as the
+      // An operation persist re-asserts a unnamed invariant as the
       // operation's domain error — the domain-floor status + title.
       contexts.some((c) => c.aggregates.some((a) => opAssertedInvariants(a).length > 0))
         ? {

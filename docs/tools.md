@@ -352,7 +352,7 @@ overrides it; `generate system --locales <dir>` reads the same tree):
 
 **Layout.** One file per namespace, where `<ns>` is `_chrome`, `_system`, a
 bounded-context name or a `ui` name. `_chrome.json` stores keys verbatim
-(`chrome.*`, `pack.*`, `msg.*`, anything outside the other namespaces); every
+(`chrome.*`, `pack.*`, anything outside the other namespaces); every
 other file drops its `<ns>.` prefix, so `WebApp.page.Home.heading.k2f` lives in
 `locales/de/WebApp.json` as `page.Home.heading.k2f`. The mapping is
 `src/i18n/namespace.ts`. The merge runs per key and per file.

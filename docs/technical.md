@@ -1108,10 +1108,10 @@ to re-resolve.
 ```typescript
 public confirm(): void {
   if (!this.isMutable()) {
-    throw new DomainError("Precondition failed: isMutable()");
+    throw new DomainError("Business rule violated");
   }
   if (!(this._lines.length > 0)) {
-    throw new DomainError("Precondition failed: lines.count > 0");
+    throw new DomainError("Business rule violated");
   }
   this._status = OrderStatus.Confirmed;
   this._events.push({
@@ -1147,8 +1147,8 @@ dispatch) walks each expression:
 ```csharp
 public void Confirm()
 {
-    if (!(this.IsMutable())) throw new DomainException("Precondition failed: isMutable()");
-    if (!(this.Lines.Count > 0)) throw new DomainException("Precondition failed: lines.count > 0");
+    if (!(this.IsMutable())) throw new DomainException("Business rule violated");
+    if (!(this.Lines.Count > 0)) throw new DomainException("Business rule violated");
     Status = OrderStatus.Confirmed;
     _domainEvents.Add(new OrderConfirmed(Order: this.Id, At: DateTime.UtcNow));
     AssertInvariants();

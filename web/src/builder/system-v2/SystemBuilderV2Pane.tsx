@@ -1055,10 +1055,10 @@ function Inner({ ctx, path, setPath, onOverview }: {
                 onCommit: (v) => edit(setFieldCheck(ctx.getSource(), "aggregate", aggName, idx, v)),
               },
               {
-                label: "check message",
-                value: mods.checkMessage ?? "",
-                placeholder: "(none)",
-                testid: "c4system-v2-field-check-message",
+                label: "check name",
+                value: mods.checkName ?? "",
+                placeholder: "(unnamed)",
+                testid: "c4system-v2-field-check-name",
                 onCommit: (v) =>
                   edit(setFieldCheck(ctx.getSource(), "aggregate", aggName, idx, mods.check ?? "", v)),
               },

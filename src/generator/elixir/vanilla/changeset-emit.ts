@@ -128,23 +128,23 @@ function castScalarFields(agg: AggregateIR, ctx: BoundedContextIR): AggField[] {
  *  invariants return null and keep their domain-level enforcement.  Only fields
  *  that are actually cast get a validator.
  *
- *  One list, read by both the cast seams and (its MESSAGED subset, `messagedOnly`)
+ *  One list, read by both the cast seams and (its NAMED subset, `namedOnly`)
  *  `validate_field_invariants/1`, which an operation persist pipes through; a
- *  message-less rule reaches the operation path through `assert_op_invariants/1`
+ *  unnamed rule reaches the operation path through `assert_op_invariants/1`
  *  instead, so it answers the operation's domain-error shape. */
 export function fieldInvariantValidatorLines(
   agg: AggregateIR,
   ctx: BoundedContextIR,
-  messagedOnly = false,
+  namedOnly = false,
 ): string[] {
   const castFields = new Set(castScalarFields(agg, ctx).map((f) => snake(f.name)));
   return (agg.invariants ?? []).flatMap((inv) =>
-    messagedOnly && inv.message == null
+    namedOnly && inv.message == null
       ? []
-      : // A messaged rule that routes to the `validate_invariants/1` residual
+      : // A named rule that routes to the `validate_invariants/1` residual
         // carrier (to carry its wire `code`) is emitted there, not as a native
-        // `validate_*` line — otherwise it would double-validate. A message-less
-        // rule (and a messaged rule that can't route) keeps its native line.
+        // `validate_*` line — otherwise it would double-validate. An unnamed
+        // rule (and a named rule that can't route) keeps its native line.
         namedRoutesToResidual(inv)
         ? []
         : (singleFieldConstraints(inv) ?? [])
@@ -158,11 +158,11 @@ export function fieldInvariantValidatorLines(
 /** The invariant pipes an operation persist appends to its
  *  `change(%{}) |> force_change(…)` changeset, `indent` spaces deep.  That
  *  changeset never passes through `base_changeset`, so it re-runs the floor
- *  there: every message-less rule as the operation's domain error
- *  (`assert_op_invariants/1`), the messaged single-field validators
+ *  there: every unnamed rule as the operation's domain error
+ *  (`assert_op_invariants/1`), the named single-field validators
  *  (`validate_field_invariants/1`), and the residual cross-field / guarded /
  *  coded rules (`validate_invariants/1`, or its `validate_domain_floor/1` twin
- *  when a messaged rule carries a wire code).  Empty when the aggregate declares
+ *  when a named rule carries a wire code).  Empty when the aggregate declares
  *  none, so such an op is unchanged. */
 export function opPersistInvariantPipes(
   agg: AggregateIR,
@@ -376,18 +376,18 @@ function renderChangeset(
   // invariants return null and keep their domain-level enforcement.  Only fields
   // that are actually cast (`@all_fields`) get a validator.
   const validatorLines = fieldInvariantValidatorLines(agg, ctx);
-  const messagedFieldLines = fieldInvariantValidatorLines(agg, ctx, true);
+  const namedFieldLines = fieldInvariantValidatorLines(agg, ctx, true);
   const opAssertFn = renderOpInvariantAssertFn(agg, `${appModule}.${ctxModule}`);
   // An operation persist is a `change(%{}) |> force_change` changeset that
-  // never passes through `base_changeset`.  A message-less rule reaches it as
-  // `assert_op_invariants/1` (the operation's domain error); the MESSAGED
+  // never passes through `base_changeset`.  A unnamed rule reaches it as
+  // `assert_op_invariants/1` (the operation's domain error); the NAMED
   // single-field lines reach it as this public function.
   const fieldInvariantFn =
-    messagedFieldLines.length > 0
-      ? `\n\n  @doc "Assert the aggregate's messaged single-field invariants on a changeset built outside \`base_changeset\` — the operation persist."
+    namedFieldLines.length > 0
+      ? `\n\n  @doc "Assert the aggregate's named single-field invariants on a changeset built outside \`base_changeset\` — the operation persist."
   def validate_field_invariants(changeset) do
     changeset
-${messagedFieldLines.join("\n")}
+${namedFieldLines.join("\n")}
   end`
       : "";
   // Money RANGE (M-T6.60 divergence 3) — one `validate_change` per cast money

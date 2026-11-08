@@ -1697,7 +1697,7 @@ function renderNamedOpFunction(
   // `qty := n` could break `invariant qty >= 0` and a `handle := …` could break
   // `handle != email`.  Both halves of the floor run before the write — the
   // single-field `validate_field_invariants/1` and the residual
-  // `validate_invariants/1` (`validate_domain_floor/1` when a messaged rule
+  // `validate_invariants/1` (`validate_domain_floor/1` when a named rule
   // carries a wire code, so its violation answers the domain-floor 422 with its
   // errors[] entry) — and an unmet one returns `{:error, changeset}` (422)
   // instead of committing.

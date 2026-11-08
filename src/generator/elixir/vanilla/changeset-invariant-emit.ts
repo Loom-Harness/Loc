@@ -365,11 +365,11 @@ function collectionFieldNames(
   ]);
 }
 
-/** The message-less invariants an operation persist re-asserts as the
+/** The unnamed invariants an operation persist re-asserts as the
  *  operation's DOMAIN THROW (`assert_op_invariants/1`): every renderable
- *  message-less rule, single-field and cross-field alike, except one that reads
+ *  unnamed rule, single-field and cross-field alike, except one that reads
  *  a collection (it stays on `validate_invariants/1`, whose `NotLoaded`
- *  normalisation it needs).  A messaged rule keeps its coded domain-floor path. */
+ *  normalisation it needs).  A named rule keeps its coded domain-floor path. */
 export function opAssertedInvariants(agg: AggregateIR): InvariantIR[] {
   const opaque = unreadableCollections(agg);
   const collections = collectionFieldNames(agg);
@@ -405,7 +405,7 @@ export function renderOpInvariantAssertFn(agg: AggregateIR, contextModule: strin
     const msg = elixirString(floorRuleText(inv));
     return `      ${violated} ->\n        add_error(changeset, :${field}, ${msg}, loom_invariant: true)`;
   });
-  return `  @doc "Re-assert the aggregate's message-less invariants after an operation body — the first violated one is the operation's domain error (422, the rule's generic sentence), as on the other four backends."
+  return `  @doc "Re-assert the aggregate's unnamed invariants after an operation body — the first violated one is the operation's domain error (422, the rule's generic sentence), as on the other four backends."
   def assert_op_invariants(changeset) do
     data = apply_changes(changeset)
 
