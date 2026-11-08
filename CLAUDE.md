@@ -115,6 +115,8 @@ The single most important fact: **layers are strictly one-directional and enforc
                                                                                    expander.ts
 ```
 
+Phase ⑨ drives ⑧: it derives `MigrationsIR` and then invokes each platform emitter, so ⑧ is not a standalone step after ⑦.
+
 - `language/` knows nothing about `ir/`.
 - `ir/` knows nothing about `generator/`.
 - `generator/<platform>/` knows nothing about other platforms.
