@@ -9,10 +9,9 @@
 //                 (`AssociationIR`); a projection / workflow state field →
 //                 one jsonb id-array column.
 //   - `<VO>[]`  — an aggregate's or entity part's OWN field → an id-less
-//                 child table (`ValueCollectionIR`).  Only the aggregate
-//                 root's is read and written by every backend; a part's is
-//                 persisted only where the hosts store it (see
-//                 #part-value-collection).
+//                 child table (`ValueCollectionIR`), which every
+//                 backend reads and writes — except a part's under Dapper
+//                 and MikroORM (see #part-value-collection).
 //
 // Everywhere else the schema has no column for them and every backend
 // diverged: drizzle dropped the column, JPA crashed looking for an
@@ -31,16 +30,18 @@
 //                            MikroORM is the exception: it owns its schema and
 //                            folds a part's collections into jsonb columns, so
 //                            a context hosted ONLY on mikroorm keeps it.
-//   #part-value-collection   `<VO>[]` on an entity part — the migration
-//                            creates the part's child table, and the adapters
-//                            in PART_VALUES_IN_CHILD_TABLE read and write it;
-//                            the others map a column on the part row that
-//                            does not exist, or drop the values on save.
-//                            Dapper and MikroORM each store the list as a
-//                            jsonb column their own schema declares, so a
-//                            context hosted ONLY on one of them keeps it too;
-//                            a context no database-backed host serves
-//                            persists nothing and is not refused.
+//   #part-value-collection   `<VO>[]` on an entity part of a relational
+//                            aggregate, when a Dapper or MikroORM host shares
+//                            the context with another adapter.  Every other
+//                            adapter (PART_VALUES_IN_CHILD_TABLE) reads and
+//                            writes the part's child table the migration
+//                            creates; Dapper and MikroORM each keep the list
+//                            in a jsonb column their own schema declares, so
+//                            either is accepted only as the context's sole
+//                            adapter.  A document aggregate's part keeps the
+//                            list inside the blob on every adapter, and a
+//                            context no database-backed host serves persists
+//                            nothing; neither is refused.
 //   #state-value-collection  `<VO>[]` on a projection / workflow state row —
 //                            no child table is created for a state row.
 //   #nested-in-value-object  a value object reached from persisted state that
@@ -176,7 +177,7 @@ function checkField(
           field,
         }),
       );
-    } else if (owner === "part" && !stored.values) {
+    } else if (owner === "part" && !stored.values && !inDocument) {
       push(
         diagMessage("loom.collection-field-unpersisted#part-value-collection", {
           ownerName,
@@ -196,7 +197,8 @@ function checkField(
 export interface PartCollectionsStored {
   /** `X id[]` on a part (only MikroORM stores it). */
   references: boolean;
-  /** `<VO>[]` on a part (JPA's child table, Dapper's / MikroORM's jsonb column). */
+  /** `<VO>[]` on a part — false only when a jsonb-column adapter (Dapper,
+   *  MikroORM) shares the context with another adapter. */
   values: boolean;
   /** The database-backed hosts' adapters, for the message. */
   hosts: string[];
