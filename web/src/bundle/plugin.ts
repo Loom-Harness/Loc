@@ -24,6 +24,14 @@ export function pgliteAssetUrl(file: "pglite.wasm" | "initdb.wasm" | "pglite.dat
   return `https://cdn.jsdelivr.net/npm/@electric-sql/pglite@${version}/dist/${file}`;
 }
 
+// PGlite's own ES modules on the same mirror, at the same pin.  The storage
+// host worker imports them at runtime rather than through Vite: one copy of
+// the version, and PGlite's relative asset URLs resolve against the mirror.
+export function pgliteModuleUrl(file: "index.js" | "worker/index.js"): string {
+  const version = RUNTIME_VERSIONS["@electric-sql/pglite"];
+  return `https://cdn.jsdelivr.net/npm/@electric-sql/pglite@${version}/dist/${file}`;
+}
+
 // PGlite computes asset URLs as `new URL("./pglite.wasm", import.meta.url)`
 // and friends.  When the runtime worker loads our bundle from a
 // `blob:` URL, `import.meta.url` resolves to that blob URL — and
@@ -104,6 +112,7 @@ export function makeEntryStdin(
     `export * as schema from "./${schemaPath}";`,
     `export { drizzle } from "drizzle-orm/pglite";`,
     `export { PGlite } from "@electric-sql/pglite";`,
+    `export { PGliteWorker } from "@electric-sql/pglite/worker";`,
     `export { is, Table } from "drizzle-orm";`,
     `export { getTableConfig } from "drizzle-orm/pg-core";`,
     "",

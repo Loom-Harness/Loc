@@ -38,8 +38,11 @@ Heavy work runs in Web Workers, not on the UI thread:
   same one the VS Code extension speaks, over `monaco-languageclient`;
 - a **build worker** — runs the generator over a workspace VFS and returns
   the generated file tree;
-- a **runtime worker** (`src/runtime/`) — bundles the Hono backend and
-  boots PGlite.
+- a **runtime worker per Node deployable** (`src/runtime/runtime.worker.ts`)
+  — imports that deployable's bundle and serves its requests;
+- an **infra worker** (`src/runtime/infra.worker.ts`) — the shared
+  infrastructure `docker-compose.yml` runs beside the services: one PGlite
+  per `storage`, each in a nested storage host worker.
 
 ## The four capabilities
 
@@ -90,12 +93,13 @@ mobile they render as the plain source editor until explicitly opened
 
 ### Live preview
 
-When the generated tree contains a Hono backend and a React frontend, the
-runtime worker bundles both (an in-browser npm install + esbuild-wasm
-bundle, `src/engine/`), boots the backend, and the React app renders in a
-sandboxed iframe. Iframe `fetch()` calls to `http://localhost:*` are
+When the generated tree contains Hono backends and a React frontend, the
+engine bundles each of them (an in-browser npm install + esbuild-wasm
+bundle, `src/engine/`), boots every backend in its own runtime worker, and
+the React app renders in a sandboxed iframe. Iframe `fetch()` calls to `http://localhost:*` are
 intercepted by an in-iframe shim and routed via `postMessage` to the
-parent, which dispatches them through the runtime worker — so the
+parent, which dispatches them through the runtime worker of the backend the
+frontend `targets:` — so the
 generated React → Hono → Postgres round-trip runs end-to-end under one
 origin. In live mode the preview refreshes in place as you type (debounced
 ~5 s).
@@ -108,8 +112,16 @@ playground surfaces this explicitly instead of failing silently.
 
 ### In-browser test runner
 
-The Postgres is **PGlite** — a WebAssembly Postgres — booted inside the
-runtime worker (`src/runtime/runtime.worker.ts`). Its schema comes only from
+The Postgres is **PGlite** — a WebAssembly Postgres — one database per
+`storage` the system's Node deployables bind, not one per deployable. Each
+runs in a storage host worker under the infra worker
+(`src/runtime/storage-host.worker.ts`), and every deployable bound to the
+storage connects to it through PGlite's `PGliteWorker` client, so two backends
+on one `storage` read and write the same rows (the Shared storage example).
+Each storage holds the union of the schemas of the modules its deployables
+host. A request through the extra hop costs about 6 ms per SQL statement. The
+Runtime tab's request composer picks which backend a request goes to when the
+system has several. Its schema comes only from
 the workspace's **recorded migration chain** (`migrations/*.json`, below), the
 way a deployed backend's does. On every Boot the build worker renders the
 chain to the migration files the generated Hono backend carries in
@@ -118,8 +130,9 @@ chain to the migration files the generated Hono backend carries in
 the units after the last one the database applied, which
 `__loom.schema_meta` records as `chain_head` (`src/runtime/migrate.ts`). A
 transactional unit commits with its head update, so a failed unit leaves the
-database at the one before it. The database is an OPFS island keyed by the
-workspace and its entry (in memory on mobile), so it survives reloads and
+database at the one before it. Each database is an OPFS island keyed by the
+workspace, its entry and — when the system has several — its storage (in
+memory on mobile), so it survives reloads and
 schema edits; a recorded change migrates it in place and keeps the rows.
 
 Boot never writes to the database while the model has **unrecorded** schema
@@ -131,7 +144,8 @@ Migrations tab. A database the chain cannot describe — one at a unit the chain
 no longer has, or one an earlier playground built without migration tracking
 (a `ddl_hash` row) — is reported, not dropped. The only actions that drop the
 user schemas are the explicit ones: **Reset database** (Database sub-view —
-drops every row and rebuilds the schema from every recorded unit) and **Reset
+drops every row of every storage and rebuilds each schema from its recorded
+units) and **Reset
 database & boot** / **Clear stored data & retry** (drop the island's stored
 data, then boot). A source with no `system` block cannot record migrations;
 its schema is synthesised from the bundled Drizzle tables (`src/runtime/ddl.ts`,

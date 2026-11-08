@@ -61,7 +61,7 @@ export function pipelineReducer(
         bundling: false,
         bundle: {
           kind: "result",
-          hono: action.hono,
+          backends: action.backends,
           react: action.react,
         },
       };
@@ -84,6 +84,7 @@ export function pipelineReducer(
           ddl: action.ddl,
           persistent: action.persistent,
           applied: action.applied,
+          backends: action.backends,
         },
       };
     case "BOOT_PENDING":

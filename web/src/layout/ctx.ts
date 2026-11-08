@@ -104,11 +104,8 @@ export function devClaimsHeader(cfg: AuthStubConfig): string | null {
  *  project (the preview engine bundles only the React SPA shape —
  *  SvelteKit's `$app/*` client, Vue's SFC pipeline, and Angular's
  *  AOT/`ng build` aren't reproduced in-browser yet), so they're
- *  surfaced here exactly like the backend platforms.  `hono-extra` is a
- *  Hono backend beyond the one the runtime boots: the browser runs a single
- *  backend, so a system with several Hono deployables boots one and lists
- *  the rest here. */
-export type UnsupportedPlatform = "dotnet" | "elixir" | "svelte" | "vue" | "angular" | "hono-extra";
+ *  surfaced here exactly like the backend platforms. */
+export type UnsupportedPlatform = "dotnet" | "elixir" | "svelte" | "vue" | "angular";
 export interface UnsupportedDeployable {
   slug: string;
   platform: UnsupportedPlatform;
@@ -474,6 +471,12 @@ export interface LayoutCtx {
   setAuthStub: (v: AuthStubConfig | ((prev: AuthStubConfig) => AuthStubConfig)) => void;
 
   // Backend tester form
+  /** The booted Node deployables, the default request target first; the
+   *  console offers a choice only when there are several. */
+  bootedBackends: string[];
+  /** The deployable `Send` dispatches to; null = the default (first). */
+  reqTarget: string | null;
+  setReqTarget: (v: string | null) => void;
   reqMethod: string;
   setReqMethod: (v: string) => void;
   reqPath: string;
@@ -672,8 +675,6 @@ export function unsupportedPlatformLabel(p: UnsupportedPlatform): string {
       return "Vue";
     case "angular":
       return "Angular";
-    case "hono-extra":
-      return "Hono, not booted — the playground runs one backend";
   }
 }
 

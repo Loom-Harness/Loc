@@ -46,13 +46,18 @@ function bootedState(persistent: boolean) {
   let s = pipelineReducer(initialPipelineState, { type: "GENERATE_START" });
   s = pipelineReducer(s, { type: "GENERATE_DONE", result: SAMPLE_GENERATE });
   s = pipelineReducer(s, { type: "BUNDLE_START" });
-  s = pipelineReducer(s, { type: "BUNDLE_DONE", hono: SAMPLE_BUNDLE, react: null });
+  s = pipelineReducer(s, {
+    type: "BUNDLE_DONE",
+    backends: [{ slug: "api", entry: "api/http/index.ts", bundle: SAMPLE_BUNDLE }],
+    react: null,
+  });
   s = pipelineReducer(s, { type: "BOOT_START" });
   s = pipelineReducer(s, {
     type: "BOOT_OK",
     ddl: "CREATE TABLE foo();",
     persistent,
     applied: [],
+    backends: ["api"],
   });
   s = pipelineReducer(s, { type: "DISPATCH_START" });
   s = pipelineReducer(s, { type: "DISPATCH_DONE", result: SAMPLE_DISPATCH });

@@ -78,6 +78,7 @@ import { inlineSourcemapArtifacts, overlaySourcemapArtifacts } from "./build/str
 import { type Band, correspondenceAt, sourceBands, sourceSpanFor } from "./build/correspondence";
 import { diffGenerated, type OutputDiff } from "./build/output-diff";
 import { analyzeDeployables } from "./build/deployables";
+import { type BootableBackend, bootableBackends, bootPlan } from "./build/boot-plan";
 import { resolveTestId } from "./build/select-target";
 import type { BundleOk } from "./bundle/protocol";
 import {
@@ -144,7 +145,11 @@ import {
   bootPersistent as selBootPersistent,
   bootedDDL as selBootedDDL,
   generateOk as selGenerateOk,
+  bootBackends as selBootBackends,
   honoBundleOk as selHonoBundleOk,
+  honoBundleResult as selHonoBundleResult,
+  backendBundlesOk as selBackendBundlesOk,
+  combinedBackendBundle,
   reactBundleOk as selReactBundleOk,
 } from "./pipeline/state";
 import { DesktopHeader, MobileHeader } from "./layout/HeaderBar";
@@ -312,6 +317,8 @@ export default function App(): JSX.Element {
   const [lspDiagnostics, setLspDiagnostics] = useState<Diagnostic[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [reqMethod, setReqMethod] = useState<string>("GET");
+  /** The deployable the HTTP console sends to; null = the default target. */
+  const [reqTarget, setReqTarget] = useState<string | null>(null);
   // Generated backends mount domain routes under `/api` (`app.route("/api/products", …)`),
   // matching the frontend client's `API_BASE_URL` (= `/api`).  The HTTP-console
   // default must include that prefix or the first dispatch 404s.
@@ -1103,13 +1110,14 @@ export default function App(): JSX.Element {
   errorCountRef.current = errorCount;
 
   const generateSuccess = selGenerateOk(pipeline);
-  const honoBundleResult = pipeline.bundle.kind === "result" ? pipeline.bundle.hono : null;
+  const honoBundleResult = selHonoBundleResult(pipeline);
   const reactBundleResult = pipeline.bundle.kind === "result" ? pipeline.bundle.react : null;
   const honoBundle = selHonoBundleOk(pipeline);
   const reactBundle = selReactBundleOk(pipeline);
   const ddl = selBootedDDL(pipeline);
   const persistent = selBootPersistent(pipeline);
   const appliedMigrations = selBootApplied(pipeline);
+  const bootedBackends = selBootBackends(pipeline);
   const bootPending = selBootPending(pipeline);
   const bootErrorMessage = selBootError(pipeline);
   // Requests served, per operation (M-T8.22) — derived, not stored: the
@@ -1131,7 +1139,7 @@ export default function App(): JSX.Element {
       // result after a failed Hono bundle is a FAILURE, not "no React
       // deployable" — reporting it as absent told the user their system had
       // no frontend when the real problem was a bundle error.
-      const hono = pipeline.bundle.hono;
+      const hono = combinedBackendBundle(pipeline.bundle.backends);
       if (hono && !hono.ok) return { kind: "fail", result: hono };
       return { kind: "absent" };
     }
@@ -1404,7 +1412,8 @@ export default function App(): JSX.Element {
   }
 
   interface BundleStepResult {
-    hono: BundleOk | { ok: false };
+    /** Every backend's bundle, when all of them bundled; null otherwise. */
+    backends: BootableBackend[] | null;
     react: BundleOk | { ok: false } | null;
   }
 
@@ -1413,7 +1422,7 @@ export default function App(): JSX.Element {
     const engine = engineRef.current;
     if (!engine) return null;
     const entries = analyzeDeployables(gen.files);
-    if (!entries.hono) {
+    if (entries.backends.length === 0) {
       // The playground's runtime is Hono + React only.  Spell out
       // why bundling can't proceed: either nothing recognisable was
       // emitted, or the system only declares deployables the
@@ -1427,8 +1436,8 @@ export default function App(): JSX.Element {
         ok: false as const,
         diagnostics: [{ severity: "error" as const, message }],
       };
-      dispatch({ type: "BUNDLE_DONE", hono: failed, react: null });
-      return { hono: failed, react: null };
+      dispatch({ type: "BUNDLE_DONE", backends: [{ slug: "", entry: "", bundle: failed }], react: null });
+      return { backends: null, react: null };
     }
     dispatch({ type: "BUNDLE_START" });
     // `gen.files` carries the `.ts.map` sidecars (either straight from
@@ -1437,15 +1446,15 @@ export default function App(): JSX.Element {
     // engine to inline them into the Hono boot bundle so DevTools can
     // chain a breakpoint back to `.ddd`.  Backend-only; the React run
     // never sets this (see `PrepareInput.sourcemap`).
-    const { hono: honoRes, react: reactRes } = await engine.prepare({
+    const { backends, react: reactRes } = await engine.prepare({
       files: gen.files,
       dependencies: emptyDependencySet(),
-      honoEntry: entries.hono,
+      backendEntries: entries.backends,
       reactEntry: entries.react ?? undefined,
       sourcemap: true,
     });
-    dispatch({ type: "BUNDLE_DONE", hono: honoRes, react: reactRes });
-    return { hono: honoRes, react: reactRes };
+    dispatch({ type: "BUNDLE_DONE", backends, react: reactRes });
+    return { backends: bootableBackends(backends), react: reactRes };
   }
 
   // Best-effort: fetch the booted backend's OpenAPI document and turn it
@@ -1473,7 +1482,7 @@ export default function App(): JSX.Element {
   }
 
   async function runBootStep(
-    hono: BundleOk,
+    backends: BootableBackend[],
     opts?: { fresh?: boolean },
   ): Promise<boolean> {
     const engine = engineRef.current;
@@ -1537,20 +1546,33 @@ export default function App(): JSX.Element {
       // A 128 MB contiguous WASM heap is therefore structural at this
       // version, not a setting — which is also why freeing memory elsewhere
       // (#2420) could not buy enough headroom.
-      const dataDir = isDesktop ? `opfs-ahp://loom-${islandKey}` : ":memory:";
-      const res = await engine.boot(hono.code, planned.plan, dataDir, { fresh: opts?.fresh });
+      //
+      // One database per storage.  A system with one storage keeps the
+      // island key it always had, so its stored rows survive this layout.
+      const plan = bootPlan(backends, planned.plan, planned.storages, (storageKey) => {
+        if (!isDesktop) return { dataDir: ":memory:", island: null };
+        const island =
+          planned.storages.length > 1
+            ? fnv1a32(`${workspace.activeId}\u0000${current.entryPath}\u0000${storageKey}`)
+            : islandKey;
+        return { dataDir: `opfs-ahp://loom-${island}`, island };
+      });
+      const res = await engine.boot(plan.plan, { fresh: opts?.fresh });
       if (res.ok) {
         dispatch({
           type: "BOOT_OK",
           ddl: res.ddl,
           persistent: res.persistent,
           applied: res.applied,
+          backends: res.backends,
         });
         // House-keep OPFS: this boot's island is now most-recently-used;
         // drop stale islands from sources the user has moved on from so
         // they don't accumulate toward the storage quota.  Only when the
         // boot is actually OPFS-backed, and never blocking the boot.
-        if (res.persistent) void recordAndGcOpfs(islandKey);
+        if (res.persistent) {
+          for (const island of plan.islands) void recordAndGcOpfs(island);
+        }
         clearPhase();
         await loadOpenApiSpec(engine);
         return true;
@@ -1658,8 +1680,8 @@ export default function App(): JSX.Element {
       bundleGen.files.length > 0
     ) {
       const bundleRes = await runBundleStep(bundleGen);
-      if (bundleRes?.hono.ok) {
-        await runBootStep(bundleRes.hono);
+      if (bundleRes?.backends) {
+        await runBootStep(bundleRes.backends);
       }
     }
   }
@@ -1687,14 +1709,15 @@ export default function App(): JSX.Element {
     const gen = lastBundleReadyRef.current;
     if (!gen?.ok || gen.files.length === 0) return;
     const result = await runBundleStep(gen);
-    if (liveModeRef.current && result?.hono.ok) {
-      await runBootStep(result.hono);
+    if (liveModeRef.current && result?.backends) {
+      await runBootStep(result.backends);
     }
   }
 
   async function runBoot(): Promise<void> {
-    if (!honoBundle) return;
-    await runBootStep(honoBundle);
+    const backends = selBackendBundlesOk(pipeline);
+    if (!backends) return;
+    await runBootStep(backends);
   }
 
   // Recovery for a boot that keeps failing on stale persisted data:
@@ -1702,8 +1725,9 @@ export default function App(): JSX.Element {
   // applying DDL.  The normal Reset can't help here — it needs a booted
   // instance, which the failing boot never produces.
   async function runResetData(): Promise<void> {
-    if (!honoBundle) return;
-    await runBootStep(honoBundle, { fresh: true });
+    const backends = selBackendBundlesOk(pipeline);
+    if (!backends) return;
+    await runBootStep(backends, { fresh: true });
   }
 
   // Full cascade — the mobile "Run" primary action.  Generates,
@@ -1734,7 +1758,7 @@ export default function App(): JSX.Element {
     if (merged) bundleGen = { ...gen, files: merged };
     publishBundleInput(epoch, bundleGen);
     const bundleRes = await runBundleStep(bundleGen);
-    if (!bundleRes?.hono.ok) return;
+    if (!bundleRes?.backends) return;
     // MOBILE: hand the memory back before booting.  The bundler worker has
     // done its job for this Run and is still holding an esbuild context plus
     // the whole installed npm VFS (~8.8k files); PGlite's real startup —
@@ -1745,7 +1769,7 @@ export default function App(): JSX.Element {
     // Costs the next mobile bundle a cold start, largely served by the IDB
     // install cache.  A slower second Run beats a first Run that never ends.
     if (!isDesktop) engineRef.current?.releaseBundler?.();
-    const booted = await runBootStep(bundleRes.hono);
+    const booted = await runBootStep(bundleRes.backends);
     if (!booted) return;
     // React frontend present and successfully bundled → Preview is
     // the natural destination.  Otherwise the user gets the Backend
@@ -1781,7 +1805,8 @@ export default function App(): JSX.Element {
       // `requires`-gated route can be exercised as different users.
       const claims = devClaimsHeader(authStub);
       if (claims) headers["x-loom-dev-claims"] = claims;
-      const result = await engine.dispatch({ url, method: reqMethod, headers, body });
+      const target = reqTarget && bootedBackends.includes(reqTarget) ? reqTarget : undefined;
+      const result = await engine.dispatch({ url, method: reqMethod, headers, body }, target);
       dispatch({ type: "DISPATCH_DONE", result });
     } catch (err) {
       dispatch({
@@ -2884,6 +2909,9 @@ export default function App(): JSX.Element {
       colourMap,
       sourceBands: correspondenceBands,
       selectResult,
+      bootedBackends,
+      reqTarget,
+      setReqTarget,
       reqMethod,
       reqPath,
       reqBody,
@@ -2982,6 +3010,8 @@ export default function App(): JSX.Element {
       colourMap,
       correspondenceBands,
       selectResult,
+      bootedBackends,
+      reqTarget,
       reqMethod,
       reqPath,
       reqBody,
