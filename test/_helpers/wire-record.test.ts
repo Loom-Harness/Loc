@@ -36,13 +36,13 @@ describe("the #4473 pending-backend waivers cover the error codes and nothing el
       div("$.errors[0].params", { qty: -1 }),
       div("$.code", "Sales.OutOfStock.message"),
     ];
-    expect(applyWaivers(missing, "python", "c", WIRE_WAIVERS).gating).toEqual([]);
+    expect(applyWaivers(missing, "java", "c", WIRE_WAIVERS).gating).toEqual([]);
     expect(applyWaivers(missing, "node", "c", WIRE_WAIVERS).gating).toHaveLength(4);
   });
 
   it("do not cover a domain field that happens to be named `code`", () => {
     const domain = [div("$.code", "WID"), div("$.sku.code", "ABC-1")];
-    expect(applyWaivers(domain, "python", "c", WIRE_WAIVERS).gating).toHaveLength(2);
+    expect(applyWaivers(domain, "java", "c", WIRE_WAIVERS).gating).toHaveLength(2);
   });
 });
 
